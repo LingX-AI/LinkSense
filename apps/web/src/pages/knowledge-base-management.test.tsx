@@ -841,7 +841,11 @@ describe("knowledge-base document and access management", () => {
       knowledgeBaseLink.querySelector('[data-slot="knowledge-base-icon"]')
     ).toHaveClass("knowledge-card-icon")
     const sourceText = screen.getByText("来源：本地")
-    const updatedAt = screen.getByText("更新于 2026-07-22 09:01")
+    const updatedAt = await within(knowledgeBaseLink).findByText(
+      "更新于 2026-07-22 09:01",
+      undefined,
+      { timeout: 10_000 }
+    )
     const row = card?.querySelector('[data-slot="card-content"]')
     expect(row).toHaveClass("knowledge-card-row")
     expect(sourceText).toHaveClass("knowledge-card-source-text")

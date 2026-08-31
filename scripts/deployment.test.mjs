@@ -162,9 +162,9 @@ test("workspace tests use bounded Vitest workers and serial package scheduling",
   assert.equal(apiPackage.scripts.test, "vitest run --maxWorkers=4");
   assert.equal(
     webPackage.scripts.test,
-    "vitest run --maxWorkers=4 && playwright test",
+    "vitest run --maxWorkers=2 && playwright test",
   );
-  assert.equal(webPackage.scripts["test:unit"], "vitest run --maxWorkers=4");
+  assert.equal(webPackage.scripts["test:unit"], "vitest run --maxWorkers=2");
 });
 
 function instrumentNormalizerForUnprivilegedFixture(source) {

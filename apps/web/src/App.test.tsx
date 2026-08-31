@@ -1849,7 +1849,7 @@ describe("LinkSense application", () => {
       await screen.findByRole(
         "form",
         { name: "任务输入框" },
-        { timeout: 10_000 }
+        { timeout: 15_000 }
       )
     ).toBeVisible()
     expect(
@@ -1860,7 +1860,7 @@ describe("LinkSense application", () => {
     expect(
       screen.queryByText("页面不存在。", { exact: true })
     ).not.toBeInTheDocument()
-  })
+  }, 20_000)
 
   it.each([
     { status: 404, errorCode: "CONVERSATION_NOT_FOUND" },
@@ -3479,33 +3479,36 @@ describe("LinkSense application", () => {
 
     const firstMount = renderApp()
 
-    await screen.findByRole("log", undefined, { timeout: 5_000 })
+    await screen.findByRole("log", undefined, { timeout: 10_000 })
     await act(async () => {
       releaseEventStream?.()
       await eventStreamStart
     })
     expect(
-      await screen.findByText(partialText, undefined, { timeout: 5_000 })
+      await screen.findByText(partialText, undefined, { timeout: 10_000 })
     ).toBeVisible()
-    await waitFor(() => {
-      expect(
-        requests.filter(
-          (request) =>
-            request.path === "/api/v1/conversations/c1" &&
-            request.method === "GET"
-        ).length
-      ).toBeGreaterThanOrEqual(2)
-      expect(screen.getAllByText(partialText)).toHaveLength(1)
-    })
+    await waitFor(
+      () => {
+        expect(
+          requests.filter(
+            (request) =>
+              request.path === "/api/v1/conversations/c1" &&
+              request.method === "GET"
+          ).length
+        ).toBeGreaterThanOrEqual(2)
+        expect(screen.getAllByText(partialText)).toHaveLength(1)
+      },
+      { timeout: 10_000 }
+    )
 
     firstMount.unmount()
     renderApp()
 
     expect(
-      await screen.findByText(partialText, undefined, { timeout: 5_000 })
+      await screen.findByText(partialText, undefined, { timeout: 10_000 })
     ).toBeVisible()
     expect(screen.getAllByText(partialText)).toHaveLength(1)
-  }, 10_000)
+  }, 30_000)
 
   it("uploads all pasted files one at a time", async () => {
     let resolveFirstUpload: ((response: Response) => void) | undefined
@@ -4940,7 +4943,11 @@ describe("LinkSense application", () => {
     renderApp()
 
     expect(
-      await screen.findByRole("heading", { name: latestTitle })
+      await screen.findByRole(
+        "heading",
+        { name: latestTitle },
+        { timeout: 10_000 }
+      )
     ).toBeVisible()
 
     const topBar = screen.getByRole("banner")

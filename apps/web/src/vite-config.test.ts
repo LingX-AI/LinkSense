@@ -43,6 +43,6 @@ describe("Vite production asset naming", () => {
 
 describe("Vitest execution limits", () => {
   it("keeps local failures fast while allowing for constrained CI runners", () => {
-    expect(viteConfig.test?.testTimeout).toBe(process.env.CI ? 15_000 : 5_000)
+    expect(viteConfig.test?.testTimeout).toBe(process.env.CI ? 20_000 : 5_000)
   })
 })

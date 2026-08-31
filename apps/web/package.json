@@ -9,9 +9,9 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "node ../../scripts/format-web.mjs",
-    "test": "vitest run --maxWorkers=4 && playwright test",
+    "test": "vitest run --maxWorkers=2 && playwright test",
     "test:e2e": "playwright test",
-    "test:unit": "vitest run --maxWorkers=4",
+    "test:unit": "vitest run --maxWorkers=2",
     "test:watch": "vitest",
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview"
