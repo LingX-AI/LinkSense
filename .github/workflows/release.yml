@@ -1,0 +1,565 @@
+name: Publish private-source release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linksense-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      release_version: ${{ steps.release.outputs.release_version }}
+      candidate_tag: ${{ steps.release.outputs.candidate_tag }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      license: ${{ steps.release.outputs.license }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - name: Verify private release authorization and identity
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ACTOR: ${{ vars.LINKSENSE_RELEASE_ACTOR }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main || {
+            echo "Private-source releases must be dispatched from main." >&2
+            exit 1
+          }
+          test -n "$RELEASE_ACTOR" || {
+            echo "Repository variable LINKSENSE_RELEASE_ACTOR is required." >&2
+            exit 1
+          }
+          test "$GITHUB_ACTOR" = "$RELEASE_ACTOR" || {
+            echo "Only LINKSENSE_RELEASE_ACTOR may dispatch a release." >&2
+            exit 1
+          }
+          visibility=$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)
+          test "$visibility" = private || {
+            echo "This workflow is intentionally limited to the private-source phase." >&2
+            exit 1
+          }
+          package_version=$(node -p 'require("./package.json").version')
+          package_license=$(node -p 'require("./package.json").license')
+          [[ "$package_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "package.json version must be plain SemVer." >&2
+            exit 1
+          }
+          test "$package_license" = CPAL-1.0 || {
+            echo "The release license must be CPAL-1.0." >&2
+            exit 1
+          }
+          release_version="v${package_version}"
+          candidate_tag="candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if git rev-parse --verify --quiet "refs/tags/$release_version"; then
+            echo "Git tag $release_version already exists." >&2
+            exit 1
+          fi
+          if gh release view "$release_version" >/dev/null 2>&1; then
+            echo "GitHub Release $release_version already exists." >&2
+            exit 1
+          fi
+          {
+            echo "release_version=$release_version"
+            echo "candidate_tag=$candidate_tag"
+            echo "source_sha=$GITHUB_SHA"
+            echo "license=$package_license"
+          } >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f222e4898a00d66ddda
+        with:
+          version: 10.6.4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Scan Git history for secrets
+        run: scripts/run-gitleaks.sh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Audit production dependencies
+        run: pnpm audit --registry=https://registry.npmjs.org --prod --audit-level high
+      - name: Generate Prisma client
+        run: pnpm db:generate
+        env:
+          DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build
+      - name: Verify code and release resources
+        run: |
+          pnpm --filter @linksense/shared build
+          pnpm test:deployment
+          pnpm --filter @linksense/shared test
+          pnpm --filter @linksense/runner test
+          pnpm --filter @linksense/api test
+          pnpm --filter @linksense/web test:unit
+          pnpm --filter @linksense/docs test
+          pnpm typecheck
+          pnpm lint
+          pnpm build
+
+  images:
+    needs: [prepare, verify]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: api
+            dockerfile: Dockerfile.api
+            target: runtime
+          - name: web
+            dockerfile: Dockerfile.web
+            target: runtime
+          - name: migrate
+            dockerfile: Dockerfile.api
+            target: migration
+          - name: runner
+            dockerfile: Dockerfile.runner
+            target: controller
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish ${{ matrix.name }} candidate
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/lingx-ai/linksense-${{ matrix.name }}:${{ needs.prepare.outputs.candidate_tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.source_sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.release_version }}
+            org.opencontainers.image.licenses=${{ needs.prepare.outputs.license }}
+          provenance: mode=min
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=min,scope=${{ matrix.name }}
+      - name: Smoke-test ${{ matrix.name }} candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/lingx-ai/linksense-${{ matrix.name }}:${{ needs.prepare.outputs.candidate_tag }}"
+          docker pull --platform linux/amd64 "$image"
+          case "${{ matrix.name }}" in
+            api) docker run --rm --entrypoint node "$image" --version ;;
+            web) docker run --rm --entrypoint nginx "$image" -t ;;
+            migrate) docker run --rm --entrypoint pnpm "$image" --version ;;
+            runner) docker run --rm --entrypoint node "$image" --version ;;
+          esac
+      - name: Resolve linux/amd64 candidate digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir image-reference
+          scripts/resolve-release-image.sh \
+            "ghcr.io/lingx-ai/linksense-${{ matrix.name }}:${{ needs.prepare.outputs.candidate_tag }}" \
+            > "image-reference/${{ matrix.name }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-${{ matrix.name }}
+          path: image-reference/${{ matrix.name }}
+          if-no-files-found: error
+          retention-days: 3
+
+  worker-image:
+    needs: [prepare, verify]
+    runs-on: [self-hosted, linux, x64, linksense-full-release]
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish worker candidate
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: Dockerfile.runner
+          target: worker
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/lingx-ai/linksense-worker:${{ needs.prepare.outputs.candidate_tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.source_sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.release_version }}
+            org.opencontainers.image.licenses=${{ needs.prepare.outputs.license }}
+          provenance: mode=min
+          sbom: true
+      - name: Smoke-test worker candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/lingx-ai/linksense-worker:${{ needs.prepare.outputs.candidate_tag }}"
+          docker pull --platform linux/amd64 "$image"
+          docker run --rm --entrypoint codex "$image" --version
+      - name: Resolve linux/amd64 worker candidate digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir image-reference
+          scripts/resolve-release-image.sh \
+            "ghcr.io/lingx-ai/linksense-worker:${{ needs.prepare.outputs.candidate_tag }}" \
+            > image-reference/worker
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-worker
+          path: image-reference/worker
+          if-no-files-found: error
+          retention-days: 3
+
+  assets:
+    needs: [prepare, images, worker-image]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: image-*
+          path: image-references
+          merge-multiple: true
+      - name: Resolve immutable upstream images
+        shell: bash
+        run: |
+          set -euo pipefail
+          resolve() {
+            key=$1
+            tag=$2
+            printf 'IMAGE_%s=%s\n' "$key" "$(scripts/resolve-release-image.sh "$tag")" >> "$GITHUB_ENV"
+          }
+          resolve POSTGRES docker.io/library/postgres:16.10-alpine3.22
+          resolve REDIS docker.io/library/redis:7.4.5-alpine3.21
+          resolve MINIO quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+          resolve MINIO_CLIENT docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+          resolve BUSYBOX docker.io/library/busybox:1.37.0
+          resolve GATEWAY docker.io/library/nginx:1.28.0-alpine3.21
+          resolve ELASTICSEARCH docker.elastic.co/elasticsearch/elasticsearch:8.19.2
+          resolve DOCLING quay.io/docling-project/docling-serve:v1.27.0
+          for name in api web migrate runner worker; do
+            key=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')
+            printf 'IMAGE_LINKSENSE_%s=%s\n' "$key" "$(cat "image-references/$name")" >> "$GITHUB_ENV"
+          done
+      - name: Download the locked tokenizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir tokenizer
+          repository=$(jq -r .repository deploy/release/tokenizer.lock.json)
+          revision=$(jq -r .revision deploy/release/tokenizer.lock.json)
+          jq -r '.files[]' deploy/release/tokenizer.lock.json | while IFS= read -r file; do
+            curl --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 15 -fsSL \
+              "https://huggingface.co/${repository}/resolve/${revision}/${file}?download=true" \
+              -o "tokenizer/$file"
+          done
+      - name: Assemble release assets and manifest
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          RELEASE_GIT_COMMIT: ${{ needs.prepare.outputs.source_sha }}
+          RELEASE_WORKFLOW_ID: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          export RELEASE_BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          mkdir release-assets
+          install -m 0755 deploy/release/linksense-installer.sh release-assets/
+          install -m 0644 \
+            LICENSE \
+            deploy/release/compose.common.yml \
+            deploy/release/compose.core.yml \
+            deploy/release/compose.full.yml \
+            deploy/release/gateway.conf.template \
+            deploy/release/tokenizer.lock.json \
+            release-assets/
+          node scripts/bundle-release-installers.mjs release-assets
+          node scripts/generate-release-manifest.mjs \
+            release-assets/release-manifest.env tokenizer release-assets
+          (
+            cd release-assets
+            sha256sum release-manifest.env > release-manifest.env.sha256
+            sha256sum * > SHA256SUMS
+          )
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-assets
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 3
+
+  full-installation-smoke:
+    needs: [prepare, assets]
+    runs-on: [self-hosted, linux, x64, linksense-full-release]
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Install and repair Core and Full on a disposable host
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          install_dir=/opt/linksense-release-smoke
+          asset_port=18443
+          asset_origin="https://127.0.0.1:${asset_port}"
+          certificate="$RUNNER_TEMP/linksense-release-smoke.crt"
+          certificate_key="$RUNNER_TEMP/linksense-release-smoke.key"
+          server_pid=
+
+          cleanup_stack() {
+            set +e
+            if sudo test -f "$install_dir/.env"; then
+              sudo docker compose \
+                --project-directory "$install_dir" \
+                --env-file "$install_dir/.env" \
+                -f "$install_dir/compose.common.yml" \
+                -f "$install_dir/compose.${1}.yml" \
+                down -v --remove-orphans
+            fi
+            for volume in \
+              linksense-postgres linksense-redis linksense-minio \
+              linksense-user-data linksense-backups \
+              linksense-elasticsearch linksense-tokenizer; do
+              sudo docker volume rm "$volume" >/dev/null 2>&1 || true
+            done
+            for network in \
+              linksense-internal linksense-worker-control \
+              linksense-worker-egress linksense-knowledge-internal; do
+              sudo docker network rm "$network" >/dev/null 2>&1 || true
+            done
+            test "$install_dir" = /opt/linksense-release-smoke
+            sudo rm -r "$install_dir" 2>/dev/null || true
+            set -e
+          }
+
+          cleanup_all() {
+            status=$?
+            trap - EXIT
+            cleanup_stack full
+            if [ -n "$server_pid" ]; then kill "$server_pid" >/dev/null 2>&1 || true; fi
+            sudo docker logout ghcr.io >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap cleanup_all EXIT
+
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj /CN=127.0.0.1 \
+            -addext subjectAltName=IP:127.0.0.1 \
+            -keyout "$certificate_key" \
+            -out "$certificate" >/dev/null 2>&1
+          node scripts/serve-release-assets.mjs \
+            release-assets "$asset_port" "$certificate" "$certificate_key" &
+          server_pid=$!
+          for attempt in {1..30}; do
+            if curl --cacert "$certificate" -fsS \
+              "$asset_origin/release-manifest.env" >/dev/null; then
+              break
+            fi
+            test "$attempt" -lt 30
+            sleep 1
+          done
+
+          printf '%s' "$GHCR_TOKEN" | \
+            sudo docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+          run_entry() {
+            entry=$1
+            sudo env \
+              CURL_CA_BUNDLE="$certificate" \
+              LINKSENSE_RELEASE_BASE_URL="$asset_origin" \
+              LINKSENSE_PUBLIC_BASE_URL=http://127.0.0.1:10080 \
+              LINKSENSE_INSTALL_DIR="$install_dir" \
+              sh "release-assets/$entry" 2>&1 | \
+              sed -E 's/^(One-time initialization credential:).*/\1 [REDACTED]/'
+          }
+
+          run_entry install-core.sh
+          curl -fsS http://127.0.0.1:10080/api/v1/system/health/ready
+          core_services=$(sudo docker compose \
+            --project-directory "$install_dir" \
+            --env-file "$install_dir/.env" \
+            -f "$install_dir/compose.common.yml" \
+            -f "$install_dir/compose.core.yml" config --services)
+          ! grep -Eq '^(elasticsearch|elasticsearch-init|docling-api|docling-worker)$' \
+            <<<"$core_services"
+          sudo test -f "$install_dir/LICENSE"
+          run_entry repair-core.sh
+          cleanup_stack core
+
+          run_entry install-full.sh
+          curl -fsS http://127.0.0.1:10080/api/v1/system/health/ready
+          published_ports=$(sudo docker ps \
+            --filter label=com.docker.compose.project=linksense \
+            --format '{{.Names}} {{.Ports}}')
+          test "$(grep -c '0.0.0.0:10080->80/tcp' <<<"$published_ports")" -eq 1
+          ! grep -Eq ':(4000|4010|5001|5432|6379|9000|9200)->' \
+            <<<"$published_ports"
+          sudo test -f "$install_dir/LICENSE"
+          sudo sed -i 's/server_tokens off;/server_tokens on;/' \
+            "$install_dir/gateway.conf.template"
+          run_entry repair-full.sh
+          sudo grep -q 'server_tokens off;' "$install_dir/gateway.conf.template"
+
+  release:
+    needs: [prepare, images, worker-image, assets, full-installation-smoke]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: image-*
+          path: image-references
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Verify anonymous access to every LinkSense image candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          for name in api web migrate runner worker; do
+            reference=$(cat "image-references/$name")
+            docker buildx imagetools inspect "$reference" >/dev/null || {
+              echo "Make GHCR package linksense-$name public, then rerun this failed job." >&2
+              exit 1
+            }
+          done
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote tested image digests to the release version
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          for name in api web migrate runner worker; do
+            tested_reference=$(cat "image-references/$name")
+            tested_digest=${tested_reference##*@}
+            release_reference="ghcr.io/lingx-ai/linksense-${name}:${RELEASE_VERSION}"
+            if current=$(scripts/resolve-release-image.sh "$release_reference" 2>/dev/null); then
+              test "${current##*@}" = "$tested_digest" || {
+                echo "$release_reference already points to another digest." >&2
+                exit 1
+              }
+            else
+              docker buildx imagetools create \
+                --tag "$release_reference" "$tested_reference"
+              current=$(scripts/resolve-release-image.sh "$release_reference")
+              test "${current##*@}" = "$tested_digest"
+            fi
+          done
+      - name: Create the private GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
+            gh release create "$RELEASE_VERSION" release-assets/* \
+              --target "$SOURCE_SHA" \
+              --generate-notes \
+              --title "LinkSense $RELEASE_VERSION (private source)"
+          fi
+          git fetch --force origin \
+            "refs/tags/$RELEASE_VERSION:refs/tags/$RELEASE_VERSION"
+          test "$(git rev-list -n 1 "$RELEASE_VERSION")" = "$SOURCE_SHA"
+          for asset in release-assets/*; do
+            if ! gh release view "$RELEASE_VERSION" \
+              --json assets \
+              --jq '.assets[].name' | grep -Fx "$(basename "$asset")" >/dev/null; then
+              gh release upload "$RELEASE_VERSION" "$asset"
+            fi
+            gh release view "$RELEASE_VERSION" \
+              --json assets \
+              --jq '.assets[].name' | grep -Fx "$(basename "$asset")" >/dev/null
+          done
+          find release-assets -maxdepth 1 -type f -exec basename {} \; | \
+            sort > expected-assets.txt
+          gh release view "$RELEASE_VERSION" --json assets --jq '.assets[].name' | \
+            sort > published-assets.txt
+          diff -u expected-assets.txt published-assets.txt
+          mkdir verified-release-assets
+          gh release download "$RELEASE_VERSION" --dir verified-release-assets
+          cmp release-assets/SHA256SUMS verified-release-assets/SHA256SUMS
+          (
+            cd verified-release-assets
+            sha256sum -c "$GITHUB_WORKSPACE/release-assets/SHA256SUMS"
+          )
+      - name: Summarize the release boundary
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+        run: |
+          {
+            echo "## LinkSense $RELEASE_VERSION prepared"
+            echo
+            echo "- Source repository and GitHub Release remain private."
+            echo "- Five GHCR images are public and anonymously pullable."
+            echo "- Installer assets are for authenticated internal testing."
+            echo "- Publishing source or public installer URLs requires separate approval."
+          } >> "$GITHUB_STEP_SUMMARY"

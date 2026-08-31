@@ -1,0 +1,8 @@
+{
+  "name": "linksense-env-reporting-package",
+  "version": "1.0.0",
+  "private": true,
+  "bin": {
+    "linksense-env-report": "server.mjs"
+  }
+}

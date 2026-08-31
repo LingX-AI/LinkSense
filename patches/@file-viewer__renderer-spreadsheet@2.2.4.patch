@@ -1,0 +1,20 @@
+diff --git a/dist/spreadsheet/view.js b/dist/spreadsheet/view.js
+index e692a48252dee4f470fb294f5d630d14af40a2c4..4923def7c4591416757e21e55fa692c1509621a9 100644
+--- a/dist/spreadsheet/view.js
++++ b/dist/spreadsheet/view.js
+@@ -832,6 +832,7 @@ export const createTableConfig = ({ hostHeight, darkMode = false, resizableColum
+         COLUMNS_VERTICAL_ALIGN: 'middle',
+         HEADER_FONT: getHeaderFont(normalizedScale),
+         BODY_FONT: getBodyFont(normalizedScale),
++        BORDER: 'inner',
+         BORDER_RADIUS: 0,
+         BORDER_COLOR: darkMode ? EXCEL_DARK_GRID : EXCEL_GRID,
+         HEADER_BG_COLOR: darkMode ? EXCEL_DARK_HEADER_BG : EXCEL_HEADER_BG,
+@@ -844,6 +845,7 @@ export const createTableConfig = ({ hostHeight, darkMode = false, resizableColum
+         PLACEHOLDER_COLOR: darkMode ? '#94a3b8' : '#8a94a3',
+         SCROLLER_COLOR: darkMode ? '#475569' : '#c1c7d0',
+         SCROLLER_FOCUS_COLOR: darkMode ? '#64748b' : '#9aa0a6',
++        scrollbarMode: 'inner',
+         SELECT_ROW_COL_BG_COLOR: EXCEL_GREEN_SOFT,
+         SELECT_AREA_COLOR: 'rgba(33, 163, 102, 0.14)',
+         SELECT_BORDER_COLOR: EXCEL_GREEN,

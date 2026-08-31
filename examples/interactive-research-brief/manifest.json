@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "id": "interactive-research-brief",
+  "name": "交互式研究简报",
+  "version": "1.1.0",
+  "description": "通过结构化表单配置研究任务，并在应用内接收洞察、风险和行动建议等业务事件。",
+  "instructions": "这是一个交互式研究简报应用。用户会在应用中选择技能、插件和知识库，并提交研究主题、受众、交付形式及约束。执行任务时，应在原生聊天中持续与用户沟通并给出完整最终答复；同时使用 emit_application_event 按照本清单定义的事件契约，将适合结构化展示的洞察、风险和行动建议发送给应用。不要把普通聊天消息或工具调用进度包装成自定义事件。",
+  "icon": null,
+  "entry": "index.html",
+  "sdk_version": 1,
+  "permissions": [
+    "user.profile:read",
+    "capabilities:read",
+    "knowledge_bases:read",
+    "mcp_servers:read",
+    "tasks:write"
+  ],
+  "custom_events": [
+    {
+      "name": "brief.insight_ready",
+      "description": "发现一条可独立展示、对结论有帮助的关键洞察时发送。",
+      "schema_version": 1,
+      "payload_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "finding": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "evidence": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        },
+        "required": ["title", "finding", "evidence"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "brief.risk_ready",
+      "description": "识别到值得用户关注的关键风险及缓解建议时发送。",
+      "schema_version": 1,
+      "payload_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "risk": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "impact": { "type": "string", "enum": ["high", "medium", "low"] },
+          "mitigation": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        },
+        "required": ["risk", "impact", "mitigation"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "brief.action_ready",
+      "description": "形成一条用户可以直接执行的行动建议时发送。",
+      "schema_version": 1,
+      "payload_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "rationale": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "priority": { "type": "string", "enum": ["high", "medium", "low"] }
+        },
+        "required": ["title", "rationale", "priority"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

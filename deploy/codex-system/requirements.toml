@@ -1,0 +1,12 @@
+allow_managed_hooks_only = true
+
+[hooks]
+managed_dir = "/opt/linksense/runtime/node"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = "/usr/local/bin/node /opt/linksense/runtime/node/plan-stop-hook.mjs"
+timeout = 15
+statusMessage = "Validating LinkSense Plan Mode output"

@@ -1,0 +1,289 @@
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  postgres:
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=4GB
+      - -c
+      - effective_cache_size=12GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - wal_compression=on
+      - -c
+      - checkpoint_completion_target=0.9
+    ports: !reset []
+    stop_grace_period: 1m
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "8"
+          memory: 16G
+          pids: 512
+        reservations:
+          cpus: "2"
+          memory: 4G
+
+  redis:
+    ports: !reset []
+    stop_grace_period: 30s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+          pids: 256
+        reservations:
+          cpus: "1"
+          memory: 1G
+
+  storage-init:
+    environment:
+      LINKSENSE_USER_DATA_ROOT: /srv/linksense/users
+    volumes: !override
+      - type: volume
+        source: user-data
+        target: /srv/linksense/users
+        volume:
+          nocopy: true
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+          pids: 64
+
+  backup-init:
+    image: busybox:1.37
+    restart: "no"
+    network_mode: none
+    command:
+      - sh
+      - -ec
+      - |
+        test -n "$$LINKSENSE_BACKUP_ROOT"
+        mkdir -p "$$LINKSENSE_BACKUP_ROOT/postgres"
+        chown 70:70 "$$LINKSENSE_BACKUP_ROOT/postgres"
+        chmod 0700 "$$LINKSENSE_BACKUP_ROOT/postgres"
+    environment:
+      LINKSENSE_BACKUP_ROOT: /backups
+    volumes:
+      - type: volume
+        source: backup-data
+        target: /backups
+        volume:
+          nocopy: true
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+          pids: 64
+
+  migrate:
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+          pids: 256
+
+  runner-worker-image:
+    logging: *default-logging
+
+  runner:
+    environment:
+      LINKSENSE_USER_DATA_ROOT: /srv/linksense/users
+      LINKSENSE_USER_DATA_VOLUME: ${LINKSENSE_USER_DATA_VOLUME:-linksense-user-data}
+    volumes: !override
+      - type: volume
+        source: user-data
+        target: /srv/linksense/users
+        volume:
+          nocopy: true
+      - type: bind
+        source: ${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+        target: ${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+    stop_grace_period: 2m
+    logging: *default-logging
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+          pids: 1024
+        reservations:
+          cpus: "1"
+          memory: 1G
+
+  api:
+    environment:
+      LINKSENSE_USER_DATA_ROOT: /srv/linksense/users
+    volumes: !override
+      - type: volume
+        source: user-data
+        target: /srv/linksense/users
+        volume:
+          nocopy: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=4g,mode=1777
+    stop_grace_period: 2m
+    networks:
+      - default
+      - minio
+      - elasticsearch
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    deploy:
+      replicas: ${LINKSENSE_API_REPLICAS:-2}
+      resources:
+        limits:
+          cpus: "4"
+          memory: 6G
+          pids: 1024
+        reservations:
+          cpus: "1"
+          memory: 2G
+
+  web:
+    ports: !reset []
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+          pids: 256
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+  gateway:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    environment:
+      NGINX_CLIENT_MAX_BODY_SIZE: ${NGINX_CLIENT_MAX_BODY_SIZE:-210m}
+      NGINX_EXTERNAL_SCHEME: ${LINKSENSE_EXTERNAL_SCHEME:-https}
+      NGINX_MINIO_UPSTREAM: http://minio:9000
+    ports:
+      - "${LINKSENSE_GATEWAY_BIND_ADDRESS:-127.0.0.1}:${LINKSENSE_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./deploy/nginx/production-gateway.conf.template:/etc/nginx/templates/default.conf.template:ro
+    networks:
+      - default
+      - minio
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512M
+          pids: 256
+        reservations:
+          cpus: "0.25"
+          memory: 64M
+
+  postgres-backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    user: "70:70"
+    read_only: true
+    init: true
+    environment:
+      HOME: /tmp
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGCONNECT_TIMEOUT: 10
+      LINKSENSE_POSTGRES_BACKUP_INTERVAL_SECONDS: ${LINKSENSE_POSTGRES_BACKUP_INTERVAL_SECONDS:-86400}
+      LINKSENSE_POSTGRES_BACKUP_RETENTION_DAYS: ${LINKSENSE_POSTGRES_BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - ./deploy/production/postgres-backup.sh:/usr/local/bin/linksense-postgres-backup:ro
+      - type: volume
+        source: backup-data
+        target: /backups
+        volume:
+          nocopy: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    command: ["/usr/local/bin/linksense-postgres-backup"]
+    depends_on:
+      backup-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+          pids: 256
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+volumes:
+  user-data:
+    external: true
+    name: ${LINKSENSE_USER_DATA_VOLUME:-linksense-user-data}
+  backup-data:
+    external: true
+    name: ${LINKSENSE_BACKUP_VOLUME:-linksense-backups}
+
+networks:
+  minio:
+    external: true
+    name: ${LINKSENSE_MINIO_NETWORK:-minio_default}
+  elasticsearch:
+    external: true
+    name: ${LINKSENSE_ELASTICSEARCH_NETWORK:-elasticsearch_net}

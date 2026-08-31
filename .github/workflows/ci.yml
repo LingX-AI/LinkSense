@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.6.4
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+        env:
+          DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build
+
+      - name: Audit production dependencies
+        run: pnpm audit --registry=https://registry.npmjs.org --prod --audit-level high
+
+      - name: Validate types and lint
+        run: |
+          pnpm typecheck
+          pnpm lint
+
+      - name: Run unit and deployment tests
+        run: |
+          pnpm --filter @linksense/shared build
+          pnpm test:deployment
+          pnpm --filter @linksense/shared test
+          pnpm --filter @linksense/api test
+          pnpm --filter @linksense/runner test
+          pnpm --filter @linksense/web test:unit
+          pnpm --filter @linksense/docs test
+
+      - name: Build production artifacts
+        run: pnpm build

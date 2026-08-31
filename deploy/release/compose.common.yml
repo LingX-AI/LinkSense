@@ -1,0 +1,316 @@
+name: linksense
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?release manifest did not provide POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    logging: *default-logging
+
+  redis:
+    image: ${REDIS_IMAGE:?release manifest did not provide REDIS_IMAGE}
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    logging: *default-logging
+
+  minio:
+    image: ${MINIO_IMAGE:?release manifest did not provide MINIO_IMAGE}
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    logging: *default-logging
+
+  minio-init:
+    image: ${MINIO_CLIENT_IMAGE:?release manifest did not provide MINIO_CLIENT_IMAGE}
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_KNOWLEDGE_BUCKET: ${MINIO_KNOWLEDGE_BUCKET}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$MINIO_BUCKET"
+        mc mb --ignore-existing "local/$$MINIO_KNOWLEDGE_BUCKET"
+        mc admin user info local "$$MINIO_ACCESS_KEY" >/dev/null 2>&1 || \
+          mc admin user add local "$$MINIO_ACCESS_KEY" "$$MINIO_SECRET_KEY"
+        mc admin policy attach local readwrite --user "$$MINIO_ACCESS_KEY"
+    logging: *default-logging
+
+  user-data-init:
+    image: ${BUSYBOX_IMAGE:?release manifest did not provide BUSYBOX_IMAGE}
+    restart: "no"
+    network_mode: none
+    command:
+      - sh
+      - -ec
+      - install -d -o 1000 -g 1000 -m 0770 /srv/linksense/users
+    volumes:
+      - user-data:/srv/linksense/users
+    logging: *default-logging
+
+  migrate:
+    image: ${LINKSENSE_MIGRATE_IMAGE:?release manifest did not provide LINKSENSE_MIGRATE_IMAGE}
+    restart: "no"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+
+  worker-image:
+    image: ${LINKSENSE_WORKER_IMAGE:?release manifest did not provide LINKSENSE_WORKER_IMAGE}
+    restart: "no"
+    networks:
+      - worker-egress
+    entrypoint: ["/bin/true"]
+    read_only: true
+    logging: *default-logging
+
+  runner:
+    image: ${LINKSENSE_RUNNER_IMAGE:?release manifest did not provide LINKSENSE_RUNNER_IMAGE}
+    init: true
+    restart: unless-stopped
+    user: "0:0"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HOME: /home/node
+      CODEX_BIN: codex
+      LINKSENSE_RUNNER_MODE: controller
+      LINKSENSE_CODEX_APP_SERVER_LISTEN: stdio://
+      LINKSENSE_USER_DATA_ROOT: /srv/linksense/users
+      LINKSENSE_USER_DATA_VOLUME: ${LINKSENSE_USER_DATA_VOLUME}
+      LINKSENSE_PYTHON_BASE_SITE_PACKAGES: /opt/linksense/runtime/python/lib/python3.12/site-packages
+      LINKSENSE_NODE_BASE_PROJECT: /opt/linksense/runtime/node
+      LINKSENSE_CODEX_HOME_TEMPLATE: /opt/linksense/codex-home-template
+      LINKSENSE_RUNNER_HOST: 0.0.0.0
+      LINKSENSE_RUNNER_PORT: 4010
+      LINKSENSE_WORKER_PORT: 4010
+      LINKSENSE_RUNNER_SHARED_SECRET: ${LINKSENSE_RUNNER_SHARED_SECRET}
+      LINKSENSE_API_INTERNAL_URL: http://api:4000
+      LINKSENSE_CONTROLLER_INTERNAL_URL: http://runner:4010
+      LINKSENSE_DOCKER_SOCKET_PATH: ${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+      LINKSENSE_DOCKER_API_VERSION: v1.45
+      LINKSENSE_DOCKER_COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}
+      LINKSENSE_WORKER_IMAGE: ${LINKSENSE_WORKER_IMAGE}
+      LINKSENSE_WORKER_IMAGE_REVISION: ${LINKSENSE_WORKER_IMAGE_REVISION}
+      LINKSENSE_WORKER_CONTROL_NETWORK: ${LINKSENSE_WORKER_CONTROL_NETWORK}
+      LINKSENSE_WORKER_EGRESS_NETWORK: ${LINKSENSE_WORKER_EGRESS_NETWORK}
+      LINKSENSE_MAX_CONCURRENT_CONVERSATIONS: ${LINKSENSE_MAX_CONCURRENT_CONVERSATIONS:-20}
+      LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT: ${LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT:-20}
+      LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS: ${LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS:-900}
+      LINKSENSE_WORKER_IDLE_TTL_SECONDS: ${LINKSENSE_WORKER_IDLE_TTL_SECONDS:-900}
+      LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN: "false"
+      LINKSENSE_WORKER_READY_TIMEOUT_SECONDS: ${LINKSENSE_WORKER_READY_TIMEOUT_SECONDS:-90}
+      LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS: ${LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS:-200000}
+      LINKSENSE_WORKER_MEMORY_MB: ${LINKSENSE_WORKER_MEMORY_MB:-4096}
+      LINKSENSE_WORKER_CPUS: ${LINKSENSE_WORKER_CPUS:-2}
+      LINKSENSE_WORKER_PIDS_LIMIT: ${LINKSENSE_WORKER_PIDS_LIMIT:-4096}
+      LINKSENSE_WORKER_TMPFS_MB: ${LINKSENSE_WORKER_TMPFS_MB:-4096}
+      LINKSENSE_WORKER_SHM_MB: ${LINKSENSE_WORKER_SHM_MB:-2048}
+      LINKSENSE_BROWSER_SESSION_LIMIT: ${LINKSENSE_BROWSER_SESSION_LIMIT:-2}
+      LINKSENSE_AGENTS_TEMPLATE_VERSION: ${LINKSENSE_AGENTS_TEMPLATE_VERSION:-7}
+      LINKSENSE_PYTHON_PACKAGE_INDEX_URL: https://pypi.org/simple/
+      LINKSENSE_NODE_PACKAGE_REGISTRY_URL: https://registry.npmjs.org/
+    volumes:
+      - user-data:/srv/linksense/users
+      - ${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}:${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+    networks:
+      - default
+      - worker-control
+    depends_on:
+      user-data-init:
+        condition: service_completed_successfully
+      worker-image:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -H 'Authorization: Bearer '$$LINKSENSE_RUNNER_SHARED_SECRET http://127.0.0.1:4010/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    logging: *default-logging
+
+  api:
+    image: ${LINKSENSE_API_IMAGE:?release manifest did not provide LINKSENSE_API_IMAGE}
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=4g,mode=1777
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HOST: 0.0.0.0
+      PORT: 4000
+      LINKSENSE_EDITION: ${LINKSENSE_EDITION}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      LINKSENSE_PUBLIC_BASE_URL: ${LINKSENSE_PUBLIC_BASE_URL}
+      LINKSENSE_JWT_SECRET: ${LINKSENSE_JWT_SECRET}
+      LINKSENSE_INITIALIZATION_TOKEN: ${LINKSENSE_INITIALIZATION_TOKEN}
+      LINKSENSE_LOGIN_RATE_LIMIT_HMAC_SECRET: ${LINKSENSE_LOGIN_RATE_LIMIT_HMAC_SECRET}
+      LINKSENSE_PASSWORD_RESET_RATE_LIMIT_HMAC_SECRET: ${LINKSENSE_PASSWORD_RESET_RATE_LIMIT_HMAC_SECRET}
+      LINKSENSE_CREDENTIAL_MASTER_KEY: ${LINKSENSE_CREDENTIAL_MASTER_KEY}
+      LINKSENSE_CREDENTIAL_KEY_ID: ${LINKSENSE_CREDENTIAL_KEY_ID}
+      LINKSENSE_MAX_CONCURRENT_CONVERSATIONS: ${LINKSENSE_MAX_CONCURRENT_CONVERSATIONS:-20}
+      LINKSENSE_UPLOAD_MAX_FILE_SIZE_MB: "100"
+      LINKSENSE_UPLOAD_MAX_FILES_PER_CONVERSATION: "100"
+      LINKSENSE_UPLOAD_ALLOWED_TYPES: application/pdf,text/plain,text/csv,text/markdown,text/html,text/css,text/javascript,application/json,application/yaml,application/xml,application/zip,image/png,image/jpeg,image/webp,image/gif,image/avif,audio/mpeg,audio/mp4,audio/wav,audio/ogg,audio/opus,audio/aac,audio/flac,video/mp4,video/webm,video/ogg,video/quicktime,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_PORT: ${MINIO_PORT}
+      MINIO_USE_SSL: ${MINIO_USE_SSL}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL}
+      MINIO_REGION: ${MINIO_REGION}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_KNOWLEDGE_BUCKET: ${MINIO_KNOWLEDGE_BUCKET}
+      LINKSENSE_USER_DATA_ROOT: /srv/linksense/users
+      LINKSENSE_RUNNER_URL: http://runner:4010
+      LINKSENSE_RUNNER_SHARED_SECRET: ${LINKSENSE_RUNNER_SHARED_SECRET}
+      LINKSENSE_TRUST_PROXY: "true"
+      LINKSENSE_SAFE_HTTP_ALLOW_BENCHMARK_PROXY: "false"
+    volumes:
+      - user-data:/srv/linksense/users
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      user-data-init:
+        condition: service_completed_successfully
+      runner:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/api/v1/system/health/ready"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 30s
+    logging: *default-logging
+
+  web:
+    image: ${LINKSENSE_WEB_IMAGE:?release manifest did not provide LINKSENSE_WEB_IMAGE}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /etc/nginx/conf.d:size=8m
+      - /var/cache/nginx:size=64m
+      - /var/run:size=8m
+    environment:
+      NGINX_CLIENT_MAX_BODY_SIZE: 210m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    logging: *default-logging
+
+  gateway:
+    image: ${GATEWAY_IMAGE:?release manifest did not provide GATEWAY_IMAGE}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /etc/nginx/conf.d:size=8m
+      - /var/cache/nginx:size=64m
+      - /var/run:size=8m
+      - /tmp:size=8m
+    environment:
+      NGINX_CLIENT_MAX_BODY_SIZE: 210m
+      NGINX_EXTERNAL_SCHEME: ${LINKSENSE_PUBLIC_SCHEME}
+      NGINX_MINIO_UPSTREAM: http://minio:9000
+    ports:
+      - "0.0.0.0:10080:80"
+    volumes:
+      - ./gateway.conf.template:/etc/nginx/templates/default.conf.template:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    logging: *default-logging
+
+volumes:
+  postgres-data:
+    name: ${LINKSENSE_POSTGRES_VOLUME}
+  redis-data:
+    name: ${LINKSENSE_REDIS_VOLUME}
+  minio-data:
+    name: ${LINKSENSE_MINIO_VOLUME}
+  user-data:
+    name: ${LINKSENSE_USER_DATA_VOLUME}
+  backup-data:
+    name: ${LINKSENSE_BACKUP_VOLUME}
+
+networks:
+  default:
+    name: ${LINKSENSE_INTERNAL_NETWORK}
+  worker-control:
+    name: ${LINKSENSE_WORKER_CONTROL_NETWORK}
+    internal: true
+  worker-egress:
+    name: ${LINKSENSE_WORKER_EGRESS_NETWORK}

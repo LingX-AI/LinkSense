@@ -1,0 +1,264 @@
+#!/bin/sh
+set -eu
+
+if [ -z "${HOME:-}" ]; then
+  echo "linksense-pnpm requires HOME" >&2
+  exit 78
+fi
+user_runtime_root="$HOME/.local/share/linksense"
+project="${LINKSENSE_USER_NODE_PROJECT:-$user_runtime_root/node}"
+template="${LINKSENSE_NODE_USER_PACKAGE_TEMPLATE:-/opt/linksense/runtime/node/user-package.json}"
+store="${npm_config_store_dir:-$user_runtime_root/cache/pnpm/store}"
+temporary_root="${TMPDIR:-$user_runtime_root/tmp}"
+lock_file="$project/.linksense-pnpm.lock"
+portable_lock="$lock_file.d"
+portable_lock_acquired=0
+managed_source_root=/tmp/linksense-package-sources
+if [ ! -d /opt/linksense/runtime/node ]; then
+  managed_source_root="${LINKSENSE_TEST_PACKAGE_SOURCE_CONFIG_ROOT:-$managed_source_root}"
+fi
+managed_source_file="$managed_source_root/node-registry-url"
+package_registry=""
+if [ -r "$managed_source_file" ]; then
+  IFS= read -r package_registry < "$managed_source_file" || true
+else
+  package_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-${NPM_CONFIG_REGISTRY:-}}"
+fi
+
+release_portable_lock() {
+  if [ "$portable_lock_acquired" -eq 1 ]; then
+    rm -f "$portable_lock/pid"
+    rmdir "$portable_lock" 2>/dev/null || true
+    portable_lock_acquired=0
+  fi
+}
+
+acquire_portable_lock() {
+  attempts=0
+  while ! mkdir "$portable_lock" 2>/dev/null; do
+    lock_pid=""
+    if [ -r "$portable_lock/pid" ]; then
+      IFS= read -r lock_pid < "$portable_lock/pid" || true
+    fi
+    case "$lock_pid" in
+      ""|*[!0-9]*)
+        ;;
+      *)
+        if ! kill -0 "$lock_pid" 2>/dev/null; then
+          rm -f "$portable_lock/pid"
+          rmdir "$portable_lock" 2>/dev/null || true
+          continue
+        fi
+        ;;
+    esac
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 300 ]; then
+      echo "linksense-pnpm timed out waiting for the user runtime lock" >&2
+      exit 75
+    fi
+    sleep 0.1
+  done
+  printf '%s\n' "$$" > "$portable_lock/pid"
+  portable_lock_acquired=1
+  trap 'release_portable_lock' 0 1 2 15
+}
+
+# The managed command must remain scoped to the current user's persistent
+# project. Reject pnpm flags that can select another project or global prefix.
+for argument in "$@"; do
+  case "$argument" in
+    -C|--dir|--dir=*|-g|--global|--global=*|--prefix|--prefix=*|--global-dir|--global-dir=*|--global-bin-dir|--global-bin-dir=*)
+      echo "linksense-pnpm does not allow project or global-target overrides" >&2
+      exit 2
+      ;;
+    --registry|--registry=*|--config.*)
+      echo "linksense-pnpm does not allow package-registry overrides" >&2
+      exit 2
+      ;;
+  esac
+done
+
+operation="${1:-}"
+inject_registry_argument=1
+case "$operation" in
+  dlx)
+    requires_registry=1
+    # pnpm 10 rejects --registry for dlx. The wrapper still forces the
+    # platform registry through its clean NPM_CONFIG_REGISTRY environment.
+    inject_registry_argument=0
+    ;;
+  add|install|i|update|up|upgrade|fetch|create|install-test|it|outdated|audit|info|view|search)
+    requires_registry=1
+    ;;
+  remove|rm|uninstall|un|list|ls|why|prune|rebuild|exec|run|test|pack)
+    requires_registry=0
+    ;;
+  -*)
+    case "$operation" in
+      -h|--help|-v|--version)
+        requires_registry=0
+        ;;
+      *)
+        echo "linksense-pnpm requires the pnpm operation before its arguments" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  *)
+    echo "linksense-pnpm does not support this pnpm operation" >&2
+    exit 2
+    ;;
+esac
+pnpm_passthrough_environment_names="${LINKSENSE_PNPM_PASSTHROUGH_ENV_NAMES:-}"
+if [ -n "$pnpm_passthrough_environment_names" ] && [ "$operation" != "dlx" ]; then
+  echo "linksense-pnpm only allows MCP environment forwarding for dlx" >&2
+  exit 2
+fi
+if [ "$requires_registry" -eq 1 ] && [ -z "$package_registry" ]; then
+  echo "linksense-pnpm requires a platform Node.js package registry for installs" >&2
+  exit 78
+fi
+
+mkdir -p "$project" "$temporary_root" "$store"
+export TMPDIR="$temporary_root"
+export npm_config_store_dir="$store"
+if [ -n "$package_registry" ]; then
+  export NPM_CONFIG_REGISTRY="$package_registry"
+fi
+
+if [ -x /usr/bin/flock ]; then
+  exec 9>"$lock_file"
+  /usr/bin/flock 9
+else
+  acquire_portable_lock
+fi
+
+if [ ! -f "$project/package.json" ]; then
+  if [ ! -f "$template" ]; then
+    echo "linksense-pnpm cannot find the managed user package template" >&2
+    exit 78
+  fi
+  cp "$template" "$project/package.json"
+  if [ -x /usr/bin/chmod ]; then
+    /usr/bin/chmod 0660 "$project/package.json"
+  else
+    chmod 0660 "$project/package.json"
+  fi
+fi
+
+if [ -f "$project/.npmrc" ] && \
+  /usr/bin/env -i LC_ALL=C PATH=/usr/bin:/bin \
+    /usr/bin/grep -Eiq '^[[:space:]]*(@[^:[:space:]]+:)?registry[[:space:]]*=' "$project/.npmrc"; then
+  echo "linksense-pnpm does not allow registry settings in the user project .npmrc" >&2
+  exit 2
+fi
+
+# `pnpm dlx` stays alive for as long as the launched command. Keeping the
+# project-initialization lock for that whole lifetime would prevent a second
+# instance (for example, a connection probe beside a task MCP server) from
+# ever starting. The lock has already protected package.json initialization
+# and project config validation, while pnpm's content-addressed store supports
+# concurrent dlx installs, so release it before handing control to dlx.
+if [ "$operation" = "dlx" ]; then
+  if [ -x /usr/bin/flock ]; then
+    /usr/bin/flock -u 9
+  else
+    release_portable_lock
+  fi
+fi
+
+run_pnpm() {
+  if [ -n "$pnpm_passthrough_environment_names" ]; then
+    previous_ifs=$IFS
+    IFS=,
+    passthrough_count=0
+    for passthrough_name in $pnpm_passthrough_environment_names; do
+      case "$passthrough_name" in
+        ""|[!A-Za-z_]*|*[!A-Za-z0-9_]*)
+          echo "linksense-pnpm received an invalid MCP environment name" >&2
+          IFS=$previous_ifs
+          return 2
+          ;;
+        PATH|HOME|LOGNAME|USER|SHELL|BASH_ENV|NODE_OPTIONS|NODE_PATH|LD_PRELOAD|OPENAI_API_KEY|CODEX_API_KEY|AZURE_OPENAI_API_KEY|LINKSENSE_*|CODEX_*|DYLD_*|NPM_CONFIG_*|npm_config_*|PNPM_*|COREPACK_*)
+          echo "linksense-pnpm cannot forward a reserved MCP environment name" >&2
+          IFS=$previous_ifs
+          return 2
+          ;;
+      esac
+      passthrough_count=$((passthrough_count + 1))
+      if [ "$passthrough_count" -gt 64 ]; then
+        echo "linksense-pnpm received too many MCP environment names" >&2
+        IFS=$previous_ifs
+        return 2
+      fi
+      eval "passthrough_is_set=\${$passthrough_name+x}"
+      if [ "$passthrough_is_set" != "x" ]; then
+        echo "linksense-pnpm cannot find an MCP environment value" >&2
+        IFS=$previous_ifs
+        return 2
+      fi
+      eval "passthrough_value=\${$passthrough_name-}"
+      set -- "$passthrough_name=$passthrough_value" "$@"
+    done
+    IFS=$previous_ifs
+  fi
+  /usr/bin/env -i \
+    PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}" \
+    HOME="${HOME:-$project}" \
+    TMPDIR="$temporary_root" \
+    LANG="${LANG:-C.UTF-8}" \
+    LC_ALL="${LC_ALL:-}" \
+    SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
+    SSL_CERT_DIR="${SSL_CERT_DIR:-}" \
+    HTTP_PROXY="${HTTP_PROXY:-}" \
+    HTTPS_PROXY="${HTTPS_PROXY:-}" \
+    NO_PROXY="${NO_PROXY:-}" \
+    http_proxy="${http_proxy:-}" \
+    https_proxy="${https_proxy:-}" \
+    no_proxy="${no_proxy:-}" \
+    PNPM_HOME="${PNPM_HOME:-}" \
+    COREPACK_HOME="${COREPACK_HOME:-}" \
+    XDG_CACHE_HOME="${XDG_CACHE_HOME:-}" \
+    npm_config_store_dir="$store" \
+    NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-}" \
+    NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-}" \
+    NPM_CONFIG_USERCONFIG=/dev/null \
+    NPM_CONFIG_GLOBALCONFIG=/dev/null \
+    LINKSENSE_TEST_PNPM_LOG="${LINKSENSE_TEST_PNPM_LOG:-}" \
+    LINKSENSE_TEST_PNPM_ENVIRONMENT_LOG="${LINKSENSE_TEST_PNPM_ENVIRONMENT_LOG:-}" \
+    "$@"
+}
+
+# The worker image keeps its root-owned pnpm CLI under /opt. Standalone mode
+# resolves a configured/host pnpm executable instead.
+if [ -d /opt/linksense/runtime/node ] && [ -x /usr/local/bin/node ] && [ -f /opt/linksense/tooling/pnpm/bin/pnpm.cjs ]; then
+  if [ "$requires_registry" -eq 1 ] && [ "$inject_registry_argument" -eq 1 ]; then
+    set -- --registry "$package_registry" "$@"
+  fi
+  if run_pnpm /usr/local/bin/node /opt/linksense/tooling/pnpm/bin/pnpm.cjs \
+    --dir "$project" \
+    --ignore-workspace \
+    "$@"; then
+    status=0
+  else
+    status=$?
+  fi
+else
+  pnpm_command="${LINKSENSE_PNPM_COMMAND:-$(command -v pnpm || true)}"
+  if [ -z "$pnpm_command" ] || [ ! -x "$pnpm_command" ]; then
+    echo "linksense-pnpm cannot find an executable pnpm command" >&2
+    exit 127
+  fi
+  if [ "$requires_registry" -eq 1 ] && [ "$inject_registry_argument" -eq 1 ]; then
+    set -- --registry "$package_registry" "$@"
+  fi
+  if run_pnpm "$pnpm_command" \
+    --dir "$project" \
+    --ignore-workspace \
+    "$@"; then
+    status=0
+  else
+    status=$?
+  fi
+fi
+exit "$status"

@@ -1,0 +1,189 @@
+#!/bin/sh
+set -eu
+
+if [ -z "${HOME:-}" ]; then
+  echo "linksense-uv requires HOME" >&2
+  exit 78
+fi
+user_runtime_root="$HOME/.local/share/linksense"
+runtime_root="${LINKSENSE_USER_PYTHON_ROOT:-$user_runtime_root/python}"
+venv="${LINKSENSE_USER_PYTHON_VENV:-${VIRTUAL_ENV:-$runtime_root/.venv}}"
+base_environment="${PYTHON_BASE_VENV:-/opt/linksense/runtime/python}"
+base_python="$base_environment/bin/python"
+base_site_packages="${LINKSENSE_PYTHON_BASE_SITE_PACKAGES:-$base_environment/lib/python3.12/site-packages}"
+temporary_root="${TMPDIR:-$user_runtime_root/tmp}"
+lock_file="$runtime_root/.linksense-uv.lock"
+portable_lock="$lock_file.d"
+portable_lock_acquired=0
+managed_source_root=/tmp/linksense-package-sources
+if [ ! -d /opt/linksense/runtime/python ]; then
+  managed_source_root="${LINKSENSE_TEST_PACKAGE_SOURCE_CONFIG_ROOT:-$managed_source_root}"
+fi
+managed_source_file="$managed_source_root/python-index-url"
+
+release_portable_lock() {
+  if [ "$portable_lock_acquired" -eq 1 ]; then
+    rm -f "$portable_lock/pid"
+    rmdir "$portable_lock" 2>/dev/null || true
+    portable_lock_acquired=0
+  fi
+}
+
+acquire_portable_lock() {
+  attempts=0
+  while ! mkdir "$portable_lock" 2>/dev/null; do
+    lock_pid=""
+    if [ -r "$portable_lock/pid" ]; then
+      IFS= read -r lock_pid < "$portable_lock/pid" || true
+    fi
+    case "$lock_pid" in
+      ""|*[!0-9]*)
+        ;;
+      *)
+        if ! kill -0 "$lock_pid" 2>/dev/null; then
+          rm -f "$portable_lock/pid"
+          rmdir "$portable_lock" 2>/dev/null || true
+          continue
+        fi
+        ;;
+    esac
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 300 ]; then
+      echo "linksense-uv timed out waiting for the user runtime lock" >&2
+      exit 75
+    fi
+    sleep 0.1
+  done
+  printf '%s\n' "$$" > "$portable_lock/pid"
+  portable_lock_acquired=1
+  trap 'release_portable_lock' 0 1 2 15
+}
+
+if [ "${1:-}" != "pip" ]; then
+  echo "usage: linksense-uv pip <install|uninstall|list|freeze|check> ..." >&2
+  exit 2
+fi
+shift
+
+operation="${1:-}"
+case "$operation" in
+  install|uninstall|list|freeze|check)
+    shift
+    ;;
+  *)
+    echo "usage: linksense-uv pip <install|uninstall|list|freeze|check> ..." >&2
+    exit 2
+    ;;
+esac
+
+# The managed command must always target the current user's persistent venv.
+# Reject every uv selector that could redirect writes to the shared runtime or
+# another interpreter.
+for argument in "$@"; do
+  case "$argument" in
+    --system|--system=*|--python|--python=*|-p|--prefix|--prefix=*|--target|--target=*|--user)
+      echo "linksense-uv does not allow interpreter or installation-target overrides" >&2
+      exit 2
+      ;;
+    -i|-i=*|-i?*|--index-url|--index-url=*|--default-index|--default-index=*|--extra-index-url|--extra-index-url=*|--index|--index=*|--index-strategy|--index-strategy=*|-f|-f=*|-f?*|--find-links|--find-links=*|--no-index|--torch-backend|--torch-backend=*)
+      echo "linksense-uv does not allow package-index overrides" >&2
+      exit 2
+      ;;
+    -r|-r=*|-r?*|--requirements|--requirements=*|-c|-c=*|-c?*|--constraints|--constraints=*|--overrides|--overrides=*|--excludes|--excludes=*|-b|-b=*|-b?*|--build-constraints|--build-constraints=*)
+      echo "linksense-uv does not allow indirect requirement files" >&2
+      exit 2
+      ;;
+  esac
+done
+
+package_index=""
+if [ -r "$managed_source_file" ]; then
+  IFS= read -r package_index < "$managed_source_file" || true
+else
+  package_index="${LINKSENSE_PYTHON_PACKAGE_INDEX_URL:-${UV_DEFAULT_INDEX:-}}"
+fi
+if [ "$operation" = "install" ] && [ -z "$package_index" ]; then
+  echo "linksense-uv requires a platform Python package index for installs" >&2
+  exit 78
+fi
+
+# The platform index is the only registry consulted by managed installs. Drop
+# inherited uv alternatives before setting the immutable first-index policy.
+unset \
+  UV_INDEX UV_INDEX_URL UV_EXTRA_INDEX_URL UV_FIND_LINKS UV_NO_INDEX \
+  UV_CONFIG_FILE UV_CONSTRAINT UV_OVERRIDE UV_EXCLUDE UV_BUILD_CONSTRAINT \
+  UV_TORCH_BACKEND \
+  PIP_EXTRA_INDEX_URL PIP_FIND_LINKS PIP_NO_INDEX PIP_CONFIG_FILE || true
+if [ "$operation" = "install" ]; then
+  export UV_DEFAULT_INDEX="$package_index"
+  export UV_INDEX_STRATEGY=first-index
+  export UV_NO_CONFIG=1
+  export PIP_INDEX_URL="$package_index"
+fi
+
+mkdir -p "$runtime_root" "$temporary_root"
+export TMPDIR="$temporary_root"
+
+if [ -x /usr/bin/flock ]; then
+  exec 9>"$lock_file"
+  /usr/bin/flock 9
+else
+  acquire_portable_lock
+fi
+
+if [ -d /opt/linksense/runtime/python ] && [ -x /usr/local/bin/uv ]; then
+  uv_command=/usr/local/bin/uv
+else
+  uv_command="${LINKSENSE_UV_COMMAND:-}"
+  if [ -z "$uv_command" ]; then
+    uv_command="$(command -v uv || true)"
+  fi
+fi
+if [ -z "$uv_command" ] || [ ! -x "$uv_command" ]; then
+  echo "linksense-uv cannot find an executable uv command" >&2
+  exit 127
+fi
+
+if [ ! -x "$base_python" ]; then
+  base_python="$(command -v python3 || true)"
+fi
+if [ ! -x "$base_python" ]; then
+  echo "linksense-uv cannot find the managed Python 3 interpreter" >&2
+  exit 127
+fi
+
+if [ ! -x "$venv/bin/python" ]; then
+  "$uv_command" venv --python "$base_python" "$venv"
+fi
+if [ ! -d "$base_site_packages" ]; then
+  echo "linksense-uv cannot find the shared Python runtime" >&2
+  exit 78
+fi
+
+user_site_packages="$("$venv/bin/python" -c 'import site; print(site.getsitepackages()[0])')"
+mkdir -p "$user_site_packages"
+printf '%s\n' "$base_site_packages" > "$user_site_packages/linksense-public-runtime.pth"
+chmod 0660 "$user_site_packages/linksense-public-runtime.pth"
+
+# Keep the immutable worker command explicit while allowing the same wrapper
+# to run against a configured uv binary in standalone development.
+if [ "$uv_command" = /usr/local/bin/uv ]; then
+  if [ "$operation" = "install" ]; then
+    set -- --default-index "$package_index" --index-strategy first-index "$@"
+  fi
+  if /usr/local/bin/uv pip "$operation" --python "$venv/bin/python" "$@"; then
+    status=0
+  else
+    status=$?
+  fi
+else
+  if [ "$operation" = "install" ]; then
+    set -- --default-index "$package_index" --index-strategy first-index "$@"
+  fi
+  if "$uv_command" pip "$operation" --python "$venv/bin/python" "$@"; then
+    status=0
+  else
+    status=$?
+  fi
+fi
+exit "$status"

@@ -1,0 +1,156 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index a242d3c12520ed9e5324a354a7d88a70eae1022a..28bb20ef5a8cd75b9cb9309486a085013aab7b6a 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -23324,6 +23324,7 @@ function XlsxGrid({
+     width: 0
+   });
+   const [resizeGuide, setResizeGuide] = React4.useState(null);
++  const [liveResizePreview, setLiveResizePreview] = React4.useState(null);
+   const selectionPreviewRangeRef = React4.useRef(null);
+   const [imagePreviewRect, setImagePreviewRect] = React4.useState(null);
+   const imagePreviewRectRef = React4.useRef(null);
+@@ -23875,12 +23876,12 @@ function XlsxGrid({
+     ]
+   );
+   const displayActualColWidths = React4.useMemo(
+-    () => actualColWidths.map((width) => width * zoomFactor),
+-    [actualColWidths, zoomFactor]
++    () => actualColWidths.map((width, index) => liveResizePreview?.type === "column" && liveResizePreview.actualIndex === index ? liveResizePreview.size : width * zoomFactor),
++    [actualColWidths, liveResizePreview, zoomFactor]
+   );
+   const displayActualRowHeights = React4.useMemo(
+-    () => actualRowHeights.map((height) => height * zoomFactor),
+-    [actualRowHeights, zoomFactor]
++    () => actualRowHeights.map((height, index) => liveResizePreview?.type === "row" && liveResizePreview.actualIndex === index ? liveResizePreview.size : height * zoomFactor),
++    [actualRowHeights, liveResizePreview, zoomFactor]
+   );
+   const displayEffectiveColWidths = React4.useMemo(
+     () => visibleCols.map((col) => displayActualColWidths[col] ?? displayDefaultColWidth),
+@@ -24838,6 +24839,7 @@ function XlsxGrid({
+     pendingResizePreviewRef.current = null;
+     columnPreviewRef.current = null;
+     rowPreviewRef.current = null;
++    setLiveResizePreview(null);
+     setResizeGuide(null);
+     clearGlobalCursor();
+     setEditingCell(null);
+@@ -26110,6 +26112,7 @@ function XlsxGrid({
+         if (!preview) {
+           return;
+         }
++        setLiveResizePreview(preview);
+         if (preview.type === "column") {
+           columnPreviewRef.current = { actualIndex: preview.actualIndex, size: preview.size };
+           rowPreviewRef.current = null;
+@@ -26139,6 +26142,7 @@ function XlsxGrid({
+         pendingResizePreviewRef.current = null;
+         columnPreviewRef.current = null;
+         rowPreviewRef.current = null;
++        setLiveResizePreview(null);
+         setInteractionMode("idle");
+         setResizeGuide(null);
+         clearGlobalCursor();
+@@ -27142,13 +27146,13 @@ function XlsxGrid({
+     const shouldRepaintBody = !(previousBodyCanvasSignature && previousBodyCanvasSignature.activeSheet === nextBodyCanvasSignature.activeSheet && previousBodyCanvasSignature.bakedDrawingSignature === nextBodyCanvasSignature.bakedDrawingSignature && previousBodyCanvasSignature.bodyHeight === nextBodyCanvasSignature.bodyHeight && previousBodyCanvasSignature.bodyWidth === nextBodyCanvasSignature.bodyWidth && previousBodyCanvasSignature.colSignature === nextBodyCanvasSignature.colSignature && previousBodyCanvasSignature.getCellData === nextBodyCanvasSignature.getCellData && previousBodyCanvasSignature.headerHeight === nextBodyCanvasSignature.headerHeight && previousBodyCanvasSignature.palette === nextBodyCanvasSignature.palette && previousBodyCanvasSignature.rowHeaderWidth === nextBodyCanvasSignature.rowHeaderWidth && previousBodyCanvasSignature.rowSignature === nextBodyCanvasSignature.rowSignature && previousBodyCanvasSignature.zoomFactor === nextBodyCanvasSignature.zoomFactor);
+     const shouldRepaintHeaders = !(previousHeaderCanvasSignature && previousHeaderCanvasSignature.activeSheet === nextHeaderCanvasSignature.activeSheet && previousHeaderCanvasSignature.bodyHeight === nextHeaderCanvasSignature.bodyHeight && previousHeaderCanvasSignature.bodyWidth === nextHeaderCanvasSignature.bodyWidth && previousHeaderCanvasSignature.colSignature === nextHeaderCanvasSignature.colSignature && previousHeaderCanvasSignature.headerHeight === nextHeaderCanvasSignature.headerHeight && previousHeaderCanvasSignature.palette === nextHeaderCanvasSignature.palette && previousHeaderCanvasSignature.rangeSignature === nextHeaderCanvasSignature.rangeSignature && previousHeaderCanvasSignature.rowHeaderWidth === nextHeaderCanvasSignature.rowHeaderWidth && previousHeaderCanvasSignature.rowSignature === nextHeaderCanvasSignature.rowSignature && previousHeaderCanvasSignature.viewportLeft === nextHeaderCanvasSignature.viewportLeft && previousHeaderCanvasSignature.viewportTop === nextHeaderCanvasSignature.viewportTop && previousHeaderCanvasSignature.zoomFactor === nextHeaderCanvasSignature.zoomFactor);
+     const canBlitBody = Boolean(
+-      shouldRepaintBody && previousBodyCanvasSignature && previousBodyCanvasSignature.activeSheet === nextBodyCanvasSignature.activeSheet && previousBodyCanvasSignature.bakedDrawingSignature === nextBodyCanvasSignature.bakedDrawingSignature && previousBodyCanvasSignature.bodyHeight === nextBodyCanvasSignature.bodyHeight && previousBodyCanvasSignature.bodyWidth === nextBodyCanvasSignature.bodyWidth && previousBodyCanvasSignature.getCellData === nextBodyCanvasSignature.getCellData && previousBodyCanvasSignature.headerHeight === nextBodyCanvasSignature.headerHeight && previousBodyCanvasSignature.palette === nextBodyCanvasSignature.palette && previousBodyCanvasSignature.rowHeaderWidth === nextBodyCanvasSignature.rowHeaderWidth && previousBodyCanvasSignature.zoomFactor === nextBodyCanvasSignature.zoomFactor
++      liveResizePreview === null && shouldRepaintBody && previousBodyCanvasSignature && previousBodyCanvasSignature.activeSheet === nextBodyCanvasSignature.activeSheet && previousBodyCanvasSignature.bakedDrawingSignature === nextBodyCanvasSignature.bakedDrawingSignature && previousBodyCanvasSignature.bodyHeight === nextBodyCanvasSignature.bodyHeight && previousBodyCanvasSignature.bodyWidth === nextBodyCanvasSignature.bodyWidth && previousBodyCanvasSignature.getCellData === nextBodyCanvasSignature.getCellData && previousBodyCanvasSignature.headerHeight === nextBodyCanvasSignature.headerHeight && previousBodyCanvasSignature.palette === nextBodyCanvasSignature.palette && previousBodyCanvasSignature.rowHeaderWidth === nextBodyCanvasSignature.rowHeaderWidth && previousBodyCanvasSignature.zoomFactor === nextBodyCanvasSignature.zoomFactor
+     );
+     const canBlitTopHeader = Boolean(
+-      shouldRepaintHeaders && previousHeaderCanvasSignature && previousHeaderCanvasSignature.activeSheet === nextHeaderCanvasSignature.activeSheet && previousHeaderCanvasSignature.bodyHeight === nextHeaderCanvasSignature.bodyHeight && previousHeaderCanvasSignature.bodyWidth === nextHeaderCanvasSignature.bodyWidth && previousHeaderCanvasSignature.headerHeight === nextHeaderCanvasSignature.headerHeight && previousHeaderCanvasSignature.palette === nextHeaderCanvasSignature.palette && previousHeaderCanvasSignature.rangeSignature === nextHeaderCanvasSignature.rangeSignature && previousHeaderCanvasSignature.rowHeaderWidth === nextHeaderCanvasSignature.rowHeaderWidth && previousHeaderCanvasSignature.zoomFactor === nextHeaderCanvasSignature.zoomFactor
++      liveResizePreview?.type !== "column" && shouldRepaintHeaders && previousHeaderCanvasSignature && previousHeaderCanvasSignature.activeSheet === nextHeaderCanvasSignature.activeSheet && previousHeaderCanvasSignature.bodyHeight === nextHeaderCanvasSignature.bodyHeight && previousHeaderCanvasSignature.bodyWidth === nextHeaderCanvasSignature.bodyWidth && previousHeaderCanvasSignature.headerHeight === nextHeaderCanvasSignature.headerHeight && previousHeaderCanvasSignature.palette === nextHeaderCanvasSignature.palette && previousHeaderCanvasSignature.rangeSignature === nextHeaderCanvasSignature.rangeSignature && previousHeaderCanvasSignature.rowHeaderWidth === nextHeaderCanvasSignature.rowHeaderWidth && previousHeaderCanvasSignature.zoomFactor === nextHeaderCanvasSignature.zoomFactor
+     );
+     const canBlitLeftHeader = Boolean(
+-      shouldRepaintHeaders && previousHeaderCanvasSignature && previousHeaderCanvasSignature.activeSheet === nextHeaderCanvasSignature.activeSheet && previousHeaderCanvasSignature.bodyHeight === nextHeaderCanvasSignature.bodyHeight && previousHeaderCanvasSignature.bodyWidth === nextHeaderCanvasSignature.bodyWidth && previousHeaderCanvasSignature.headerHeight === nextHeaderCanvasSignature.headerHeight && previousHeaderCanvasSignature.palette === nextHeaderCanvasSignature.palette && previousHeaderCanvasSignature.rangeSignature === nextHeaderCanvasSignature.rangeSignature && previousHeaderCanvasSignature.rowHeaderWidth === nextHeaderCanvasSignature.rowHeaderWidth && previousHeaderCanvasSignature.zoomFactor === nextHeaderCanvasSignature.zoomFactor
++      liveResizePreview?.type !== "row" && shouldRepaintHeaders && previousHeaderCanvasSignature && previousHeaderCanvasSignature.activeSheet === nextHeaderCanvasSignature.activeSheet && previousHeaderCanvasSignature.bodyHeight === nextHeaderCanvasSignature.bodyHeight && previousHeaderCanvasSignature.bodyWidth === nextHeaderCanvasSignature.bodyWidth && previousHeaderCanvasSignature.headerHeight === nextHeaderCanvasSignature.headerHeight && previousHeaderCanvasSignature.palette === nextHeaderCanvasSignature.palette && previousHeaderCanvasSignature.rangeSignature === nextHeaderCanvasSignature.rangeSignature && previousHeaderCanvasSignature.rowHeaderWidth === nextHeaderCanvasSignature.rowHeaderWidth && previousHeaderCanvasSignature.zoomFactor === nextHeaderCanvasSignature.zoomFactor
+     );
+     if (!shouldRepaintBody && !shouldRepaintHeaders) {
+       return;
+@@ -28113,6 +28117,7 @@ function XlsxGrid({
+     getCanvasImage,
+     getBodyBlitBufferCanvas,
+     getHeaderBlitBufferCanvas,
++    liveResizePreview,
+     palette,
+     resolveCellDisplayRect,
+     resolveMergeAnchorCell,
+diff --git a/dist/index.js b/dist/index.js
+index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d2d92dfc62d10990ab1afb37027b69c9d6ce31a0 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -23290,6 +23290,7 @@ function XlsxGrid({
+     width: 0
+   });
+   const [resizeGuide, setResizeGuide] = React4.useState(null);
++  const [liveResizePreview, setLiveResizePreview] = React4.useState(null);
+   const selectionPreviewRangeRef = React4.useRef(null);
+   const [imagePreviewRect, setImagePreviewRect] = React4.useState(null);
+   const imagePreviewRectRef = React4.useRef(null);
+@@ -23841,12 +23842,12 @@ function XlsxGrid({
+     ]
+   );
+   const displayActualColWidths = React4.useMemo(
+-    () => actualColWidths.map((width) => width * zoomFactor),
+-    [actualColWidths, zoomFactor]
++    () => actualColWidths.map((width, index) => liveResizePreview?.type === "column" && liveResizePreview.actualIndex === index ? liveResizePreview.size : width * zoomFactor),
++    [actualColWidths, liveResizePreview, zoomFactor]
+   );
+   const displayActualRowHeights = React4.useMemo(
+-    () => actualRowHeights.map((height) => height * zoomFactor),
+-    [actualRowHeights, zoomFactor]
++    () => actualRowHeights.map((height, index) => liveResizePreview?.type === "row" && liveResizePreview.actualIndex === index ? liveResizePreview.size : height * zoomFactor),
++    [actualRowHeights, liveResizePreview, zoomFactor]
+   );
+   const displayEffectiveColWidths = React4.useMemo(
+     () => visibleCols.map((col) => displayActualColWidths[col] ?? displayDefaultColWidth),
+@@ -24804,6 +24805,7 @@ function XlsxGrid({
+     pendingResizePreviewRef.current = null;
+     columnPreviewRef.current = null;
+     rowPreviewRef.current = null;
++    setLiveResizePreview(null);
+     setResizeGuide(null);
+     clearGlobalCursor();
+     setEditingCell(null);
+@@ -26076,6 +26078,7 @@ function XlsxGrid({
+         if (!preview) {
+           return;
+         }
++        setLiveResizePreview(preview);
+         if (preview.type === "column") {
+           columnPreviewRef.current = { actualIndex: preview.actualIndex, size: preview.size };
+           rowPreviewRef.current = null;
+@@ -26105,6 +26108,7 @@ function XlsxGrid({
+         pendingResizePreviewRef.current = null;
+         columnPreviewRef.current = null;
+         rowPreviewRef.current = null;
++        setLiveResizePreview(null);
+         setInteractionMode("idle");
+         setResizeGuide(null);
+         clearGlobalCursor();
+@@ -27108,13 +27112,13 @@ function XlsxGrid({
+     const shouldRepaintBody = !(previousBodyCanvasSignature && previousBodyCanvasSignature.activeSheet === nextBodyCanvasSignature.activeSheet && previousBodyCanvasSignature.bakedDrawingSignature === nextBodyCanvasSignature.bakedDrawingSignature && previousBodyCanvasSignature.bodyHeight === nextBodyCanvasSignature.bodyHeight && previousBodyCanvasSignature.bodyWidth === nextBodyCanvasSignature.bodyWidth && previousBodyCanvasSignature.colSignature === nextBodyCanvasSignature.colSignature && previousBodyCanvasSignature.getCellData === nextBodyCanvasSignature.getCellData && previousBodyCanvasSignature.headerHeight === nextBodyCanvasSignature.headerHeight && previousBodyCanvasSignature.palette === nextBodyCanvasSignature.palette && previousBodyCanvasSignature.rowHeaderWidth === nextBodyCanvasSignature.rowHeaderWidth && previousBodyCanvasSignature.rowSignature === nextBodyCanvasSignature.rowSignature && previousBodyCanvasSignature.zoomFactor === nextBodyCanvasSignature.zoomFactor);
+     const shouldRepaintHeaders = !(previousHeaderCanvasSignature && previousHeaderCanvasSignature.activeSheet === nextHeaderCanvasSignature.activeSheet && previousHeaderCanvasSignature.bodyHeight === nextHeaderCanvasSignature.bodyHeight && previousHeaderCanvasSignature.bodyWidth === nextHeaderCanvasSignature.bodyWidth && previousHeaderCanvasSignature.colSignature === nextHeaderCanvasSignature.colSignature && previousHeaderCanvasSignature.headerHeight === nextHeaderCanvasSignature.headerHeight && previousHeaderCanvasSignature.palette === nextHeaderCanvasSignature.palette && previousHeaderCanvasSignature.rangeSignature === nextHeaderCanvasSignature.rangeSignature && previousHeaderCanvasSignature.rowHeaderWidth === nextHeaderCanvasSignature.rowHeaderWidth && previousHeaderCanvasSignature.rowSignature === nextHeaderCanvasSignature.rowSignature && previousHeaderCanvasSignature.viewportLeft === nextHeaderCanvasSignature.viewportLeft && previousHeaderCanvasSignature.viewportTop === nextHeaderCanvasSignature.viewportTop && previousHeaderCanvasSignature.zoomFactor === nextHeaderCanvasSignature.zoomFactor);
+     const canBlitBody = Boolean(
+-      shouldRepaintBody && previousBodyCanvasSignature && previousBodyCanvasSignature.activeSheet === nextBodyCanvasSignature.activeSheet && previousBodyCanvasSignature.bakedDrawingSignature === nextBodyCanvasSignature.bakedDrawingSignature && previousBodyCanvasSignature.bodyHeight === nextBodyCanvasSignature.bodyHeight && previousBodyCanvasSignature.bodyWidth === nextBodyCanvasSignature.bodyWidth && previousBodyCanvasSignature.getCellData === nextBodyCanvasSignature.getCellData && previousBodyCanvasSignature.headerHeight === nextBodyCanvasSignature.headerHeight && previousBodyCanvasSignature.palette === nextBodyCanvasSignature.palette && previousBodyCanvasSignature.rowHeaderWidth === nextBodyCanvasSignature.rowHeaderWidth && previousBodyCanvasSignature.zoomFactor === nextBodyCanvasSignature.zoomFactor
++      liveResizePreview === null && shouldRepaintBody && previousBodyCanvasSignature && previousBodyCanvasSignature.activeSheet === nextBodyCanvasSignature.activeSheet && previousBodyCanvasSignature.bakedDrawingSignature === nextBodyCanvasSignature.bakedDrawingSignature && previousBodyCanvasSignature.bodyHeight === nextBodyCanvasSignature.bodyHeight && previousBodyCanvasSignature.bodyWidth === nextBodyCanvasSignature.bodyWidth && previousBodyCanvasSignature.getCellData === nextBodyCanvasSignature.getCellData && previousBodyCanvasSignature.headerHeight === nextBodyCanvasSignature.headerHeight && previousBodyCanvasSignature.palette === nextBodyCanvasSignature.palette && previousBodyCanvasSignature.rowHeaderWidth === nextBodyCanvasSignature.rowHeaderWidth && previousBodyCanvasSignature.zoomFactor === nextBodyCanvasSignature.zoomFactor
+     );
+     const canBlitTopHeader = Boolean(
+-      shouldRepaintHeaders && previousHeaderCanvasSignature && previousHeaderCanvasSignature.activeSheet === nextHeaderCanvasSignature.activeSheet && previousHeaderCanvasSignature.bodyHeight === nextHeaderCanvasSignature.bodyHeight && previousHeaderCanvasSignature.bodyWidth === nextHeaderCanvasSignature.bodyWidth && previousHeaderCanvasSignature.headerHeight === nextHeaderCanvasSignature.headerHeight && previousHeaderCanvasSignature.palette === nextHeaderCanvasSignature.palette && previousHeaderCanvasSignature.rangeSignature === nextHeaderCanvasSignature.rangeSignature && previousHeaderCanvasSignature.rowHeaderWidth === nextHeaderCanvasSignature.rowHeaderWidth && previousHeaderCanvasSignature.zoomFactor === nextHeaderCanvasSignature.zoomFactor
++      liveResizePreview?.type !== "column" && shouldRepaintHeaders && previousHeaderCanvasSignature && previousHeaderCanvasSignature.activeSheet === nextHeaderCanvasSignature.activeSheet && previousHeaderCanvasSignature.bodyHeight === nextHeaderCanvasSignature.bodyHeight && previousHeaderCanvasSignature.bodyWidth === nextHeaderCanvasSignature.bodyWidth && previousHeaderCanvasSignature.headerHeight === nextHeaderCanvasSignature.headerHeight && previousHeaderCanvasSignature.palette === nextHeaderCanvasSignature.palette && previousHeaderCanvasSignature.rangeSignature === nextHeaderCanvasSignature.rangeSignature && previousHeaderCanvasSignature.rowHeaderWidth === nextHeaderCanvasSignature.rowHeaderWidth && previousHeaderCanvasSignature.zoomFactor === nextHeaderCanvasSignature.zoomFactor
+     );
+     const canBlitLeftHeader = Boolean(
+-      shouldRepaintHeaders && previousHeaderCanvasSignature && previousHeaderCanvasSignature.activeSheet === nextHeaderCanvasSignature.activeSheet && previousHeaderCanvasSignature.bodyHeight === nextHeaderCanvasSignature.bodyHeight && previousHeaderCanvasSignature.bodyWidth === nextHeaderCanvasSignature.bodyWidth && previousHeaderCanvasSignature.headerHeight === nextHeaderCanvasSignature.headerHeight && previousHeaderCanvasSignature.palette === nextHeaderCanvasSignature.palette && previousHeaderCanvasSignature.rangeSignature === nextHeaderCanvasSignature.rangeSignature && previousHeaderCanvasSignature.rowHeaderWidth === nextHeaderCanvasSignature.rowHeaderWidth && previousHeaderCanvasSignature.zoomFactor === nextHeaderCanvasSignature.zoomFactor
++      liveResizePreview?.type !== "row" && shouldRepaintHeaders && previousHeaderCanvasSignature && previousHeaderCanvasSignature.activeSheet === nextHeaderCanvasSignature.activeSheet && previousHeaderCanvasSignature.bodyHeight === nextHeaderCanvasSignature.bodyHeight && previousHeaderCanvasSignature.bodyWidth === nextHeaderCanvasSignature.bodyWidth && previousHeaderCanvasSignature.headerHeight === nextHeaderCanvasSignature.headerHeight && previousHeaderCanvasSignature.palette === nextHeaderCanvasSignature.palette && previousHeaderCanvasSignature.rangeSignature === nextHeaderCanvasSignature.rangeSignature && previousHeaderCanvasSignature.rowHeaderWidth === nextHeaderCanvasSignature.rowHeaderWidth && previousHeaderCanvasSignature.zoomFactor === nextHeaderCanvasSignature.zoomFactor
+     );
+     if (!shouldRepaintBody && !shouldRepaintHeaders) {
+       return;
+@@ -28079,6 +28083,7 @@ function XlsxGrid({
+     getCanvasImage,
+     getBodyBlitBufferCanvas,
+     getHeaderBlitBufferCanvas,
++    liveResizePreview,
+     palette,
+     resolveCellDisplayRect,
+     resolveMergeAnchorCell,

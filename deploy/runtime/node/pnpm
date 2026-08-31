@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+exec /usr/local/bin/node /opt/linksense/tooling/pnpm/bin/pnpm.cjs "$@"

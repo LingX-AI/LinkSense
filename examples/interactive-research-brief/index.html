@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>交互式研究简报</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="/api/v1/interactive-app-runtime/sdk/v1.js" defer></script>
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="app-identity">
+          <div class="app-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="m12 3 1.35 4.15L17.5 8.5l-4.15 1.35L12 14l-1.35-4.15L6.5 8.5l4.15-1.35L12 3Z" />
+              <path d="m18.5 14 .75 2.25 2.25.75-2.25.75L18.5 20l-.75-2.25L15.5 17l2.25-.75L18.5 14Z" />
+            </svg>
+          </div>
+          <div>
+            <p class="app-kicker" data-i18n="workspaceLabel">研究工作台</p>
+            <h1 data-i18n="appTitle">交互式研究简报</h1>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <div class="connection-status" id="connection-pill" role="status">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="connection-label" data-i18n="connecting">正在连接 LinkSense</span>
+          </div>
+          <div class="user-chip" id="user-chip" aria-live="polite">
+            <span class="avatar" id="user-avatar">··</span>
+            <span id="user-name" data-i18n="loadingUser">读取当前用户...</span>
+          </div>
+          <button class="button button-outline button-compact" id="chat-toggle" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M7 17.5 3.5 20V7.5A3.5 3.5 0 0 1 7 4h10a3.5 3.5 0 0 1 3.5 3.5v6A3.5 3.5 0 0 1 17 17H8.5L7 17.5Z" />
+            </svg>
+            <span data-i18n="toggleChat">显示 / 隐藏对话</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="builder-panel" aria-labelledby="composer-title">
+          <div class="section-heading section-heading-primary">
+            <div>
+              <span class="step-number">01</span>
+              <div>
+                <h2 id="composer-title" data-i18n="configureTitle">定义这次研究</h2>
+                <p data-i18n="configureHint">填写目标与交付偏好，LinkSense 会据此组织完整任务。</p>
+              </div>
+            </div>
+          </div>
+
+          <form id="brief-form" novalidate>
+            <section class="form-section form-section-first">
+              <div class="field field-prominent">
+                <div class="field-label-row">
+                  <label for="topic" data-i18n="topicLabel">你希望研究什么？</label>
+                  <span id="topic-count">0 / 4000</span>
+                </div>
+                <textarea
+                  id="topic"
+                  name="topic"
+                  rows="5"
+                  maxlength="4000"
+                  required
+                  data-i18n-placeholder="topicPlaceholder"
+                  placeholder="例如：评估生成式 AI 在制造业售后服务中的落地机会，并给出未来 90 天的行动建议"
+                ></textarea>
+                <p class="field-hint" data-i18n="topicHint">描述目标、背景和你真正需要做出的决定</p>
+              </div>
+
+              <div class="form-grid">
+                <div class="field">
+                  <label for="audience" data-i18n="audienceLabel">目标读者</label>
+                  <select id="audience" name="audience">
+                    <option value="management" data-i18n="audienceManagement">管理层 / 决策者</option>
+                    <option value="product" data-i18n="audienceProduct">产品与业务团队</option>
+                    <option value="technical" data-i18n="audienceTechnical">技术团队</option>
+                    <option value="client" data-i18n="audienceClient">客户 / 外部合作方</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="deliverable" data-i18n="deliverableLabel">交付形式</label>
+                  <select id="deliverable" name="deliverable">
+                    <option value="executive" data-i18n="deliverableExecutive">高管简报</option>
+                    <option value="comparison" data-i18n="deliverableComparison">方案对比</option>
+                    <option value="action-plan" data-i18n="deliverableAction">行动计划</option>
+                    <option value="decision-memo" data-i18n="deliverableMemo">决策备忘录</option>
+                  </select>
+                </div>
+              </div>
+
+              <fieldset class="field">
+                <legend data-i18n="depthLabel">研究深度</legend>
+                <div class="segmented-control">
+                  <label><input type="radio" name="depth" value="quick" /><span data-i18n="depthQuick">快速扫描</span></label>
+                  <label><input type="radio" name="depth" value="standard" checked /><span data-i18n="depthStandard">标准分析</span></label>
+                  <label><input type="radio" name="depth" value="deep" /><span data-i18n="depthDeep">深度研究</span></label>
+                </div>
+              </fieldset>
+
+              <fieldset class="field">
+                <legend data-i18n="focusLabel">重点关注</legend>
+                <div class="check-grid">
+                  <label class="check-tile"><input type="checkbox" name="focus" value="opportunities" checked /><span><strong data-i18n="focusOpportunities">机会</strong><small data-i18n="focusOpportunitiesHint">增长空间与可行路径</small></span></label>
+                  <label class="check-tile"><input type="checkbox" name="focus" value="risks" checked /><span><strong data-i18n="focusRisks">风险</strong><small data-i18n="focusRisksHint">限制条件与应对建议</small></span></label>
+                  <label class="check-tile"><input type="checkbox" name="focus" value="metrics" /><span><strong data-i18n="focusMetrics">指标</strong><small data-i18n="focusMetricsHint">衡量结果的关键口径</small></span></label>
+                  <label class="check-tile"><input type="checkbox" name="focus" value="actions" checked /><span><strong data-i18n="focusActions">行动</strong><small data-i18n="focusActionsHint">下一步与优先级</small></span></label>
+                </div>
+              </fieldset>
+
+              <div class="field">
+                <label for="constraints"><span data-i18n="constraintsLabel">补充要求</span><span class="optional" data-i18n="optional">可选</span></label>
+                <textarea id="constraints" name="constraints" rows="3" maxlength="2000" data-i18n-placeholder="constraintsPlaceholder" placeholder="例如：优先使用近两年的资料；避免过度技术化；预算上限为 50 万元"></textarea>
+              </div>
+            </section>
+
+            <section class="form-section resource-section" aria-labelledby="resource-title">
+              <div class="resource-heading">
+                <div>
+                  <span class="step-number">02</span>
+                  <div>
+                    <h2 id="resource-title" data-i18n="resourceTitle">选择可用资源</h2>
+                    <p data-i18n="resourceHint">仅选择本次研究真正需要使用的资源。</p>
+                  </div>
+                </div>
+                <button class="icon-button" id="refresh-resources" type="button" data-i18n-aria="refreshResources" aria-label="刷新资源">
+                  <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" /></svg>
+                </button>
+              </div>
+
+              <div class="resource-tabs" role="tablist" data-i18n-aria="resourceTabsLabel" aria-label="资源类型">
+                <button type="button" role="tab" aria-selected="true" data-tab="capabilities"><span data-i18n="capabilitiesTab">技能与插件</span><b id="capability-count">—</b></button>
+                <button type="button" role="tab" aria-selected="false" data-tab="knowledge"><span data-i18n="knowledgeTab">知识库</span><b id="knowledge-count">—</b></button>
+                <button type="button" role="tab" aria-selected="false" data-tab="mcp"><span>MCP</span><b id="mcp-count">—</b></button>
+              </div>
+
+              <div class="resource-list" id="capabilities-panel" role="tabpanel" aria-live="polite"></div>
+              <div class="resource-list" id="knowledge-panel" role="tabpanel" hidden aria-live="polite"></div>
+              <div class="resource-list" id="mcp-panel" role="tabpanel" hidden aria-live="polite"></div>
+            </section>
+
+            <div class="submit-zone">
+              <div>
+                <p class="submit-title" data-i18n="readyTitle">配置完成后即可开始</p>
+                <p class="submit-note" data-i18n="readyHint">任务过程和最终结果会显示在 LinkSense 原生对话中</p>
+              </div>
+              <button class="button button-primary" id="run-task" type="submit">
+                <span data-i18n="runTask">生成研究简报</span>
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg>
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <aside class="results-panel" aria-labelledby="results-title">
+          <div class="section-heading results-heading">
+            <div>
+              <span class="step-number">03</span>
+              <div>
+                <h2 id="results-title" data-i18n="liveTitle">结构化发现</h2>
+                <p data-i18n="liveHint">关键洞察、风险和行动建议会按约定格式出现在这里。</p>
+              </div>
+            </div>
+            <span class="event-count"><b id="event-count">0</b><span data-i18n="eventUnit">条</span></span>
+          </div>
+
+          <div class="run-status" id="run-status" hidden>
+            <div>
+              <span class="run-indicator" aria-hidden="true"></span>
+              <div>
+                <strong id="run-status-title" data-i18n="taskAccepted">任务已提交</strong>
+                <small id="turn-id"></small>
+              </div>
+            </div>
+            <button class="button button-outline button-compact" id="interrupt-task" type="button" data-i18n="interruptTask">停止任务</button>
+          </div>
+
+          <div class="event-feed" id="event-feed" aria-live="polite">
+            <div class="empty-state" id="empty-state">
+              <div class="empty-visual" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 3V6a2 2 0 0 1 2-2Z" /><path d="M8 9h8M8 13h5" /></svg>
+              </div>
+              <strong data-i18n="emptyTitle">等待任务数据</strong>
+              <p data-i18n="emptyHint">提交研究任务后，这里会逐步形成可操作的研究看板。</p>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

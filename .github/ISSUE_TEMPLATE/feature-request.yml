@@ -1,0 +1,30 @@
+name: Feature request / 功能建议
+description: Propose an improvement to LinkSense / 提议改进 LinkSense
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / 要解决的问题
+      description: Describe the user scenario and current limitation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome / 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / 其他方案
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Checklist / 检查项
+      options:
+        - label: I searched existing Issues and Discussions. / 我已搜索现有 Issues 和 Discussions。
+          required: true

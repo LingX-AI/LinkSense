@@ -1,0 +1,675 @@
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
+import test from "node:test";
+
+import {
+  assertApiPortAvailable,
+  assertRunnerPortAvailable,
+  assertWebPortAvailable,
+  buildDevelopmentComposeEnvironment,
+  buildDevelopmentEnvironment,
+  buildProductionParityEnvironment,
+  buildWorkerRuntimeEnvironment,
+  createApplicationShutdown,
+  developmentApplicationStartCommands,
+  developmentComposeArguments,
+  developmentDependencyFingerprint,
+  developmentImageNames,
+  developmentInfrastructureStartCommand,
+  developmentMigrationDeployCommand,
+  developmentPostgresCredentialSyncCommand,
+  developmentContainerReadinessTargets,
+  developmentReadinessTargets,
+  developmentStorageInitializationCommand,
+  developmentWorkerRebuildCommands,
+  hasRunningDevelopmentApplications,
+  productionComposeArguments,
+  resolveComposeDatabaseUrl,
+  resolvePortableUserDataRoot,
+  sourceFingerprint,
+  stopDevelopmentWorkers,
+  waitForDevelopmentApplicationReadiness,
+  workerImageFingerprint,
+  workerImageNeedsRebuild,
+} from "./dev.mjs";
+
+const containerEnvironment = {
+  POSTGRES_DB: "linksense",
+  POSTGRES_USER: "linksense",
+  POSTGRES_PASSWORD: "password",
+  DATABASE_URL: "postgresql://linksense:password@postgres:5432/linksense",
+  REDIS_URL: "redis://:password@redis:6379/0",
+  MINIO_ENDPOINT: "minio.localhost",
+};
+
+test("resolveComposeDatabaseUrl synchronizes only the bundled Postgres service", () => {
+  assert.equal(
+    resolveComposeDatabaseUrl({
+      POSTGRES_DB: "linksense",
+      POSTGRES_USER: "linksense",
+      POSTGRES_PASSWORD: "new password",
+      DATABASE_URL: "postgresql://stale:old@postgres:5432/stale",
+    }),
+    "postgresql://linksense:new%20password@postgres:5432/linksense",
+  );
+  assert.equal(
+    resolveComposeDatabaseUrl({
+      POSTGRES_DB: "linksense",
+      POSTGRES_USER: "linksense",
+      POSTGRES_PASSWORD: "password",
+      DATABASE_URL: "postgresql://external:secret@db.example.test:5432/app",
+    }),
+    "postgresql://external:secret@db.example.test:5432/app",
+  );
+});
+
+test("resolvePortableUserDataRoot expands portable deployment and home paths", () => {
+  const deploymentRoot = resolve(tmpdir(), "linksense-deployment");
+  const environment = { HOME: "/srv/linksense-home" };
+
+  assert.equal(
+    resolvePortableUserDataRoot(
+      "${PWD}/.data/users",
+      environment,
+      deploymentRoot,
+    ),
+    resolve(deploymentRoot, ".data/users"),
+  );
+  assert.equal(
+    resolvePortableUserDataRoot(
+      "${HOME}/.linksense/users",
+      environment,
+      deploymentRoot,
+    ),
+    "/srv/linksense-home/.linksense/users",
+  );
+  assert.equal(
+    resolvePortableUserDataRoot(
+      "~/.linksense/users",
+      environment,
+      deploymentRoot,
+    ),
+    "/srv/linksense-home/.linksense/users",
+  );
+});
+
+test("resolvePortableUserDataRoot rejects unresolved or relative paths", () => {
+  assert.throws(
+    () =>
+      resolvePortableUserDataRoot(
+        "${UNKNOWN_ROOT}/users",
+        { HOME: "/srv/linksense-home" },
+        "/srv/linksense",
+      ),
+    /unsupported environment placeholder/u,
+  );
+  assert.throws(
+    () =>
+      resolvePortableUserDataRoot(
+        "relative/users",
+        { HOME: "/srv/linksense-home" },
+        "/srv/linksense",
+      ),
+    /absolute directory/u,
+  );
+});
+
+test("buildDevelopmentEnvironment keeps service DNS and derives all published ports", () => {
+  const result = buildDevelopmentEnvironment(containerEnvironment);
+
+  assert.equal(result.DATABASE_URL, containerEnvironment.DATABASE_URL);
+  assert.equal(result.REDIS_URL, containerEnvironment.REDIS_URL);
+  assert.equal(result.MINIO_ENDPOINT, "minio.localhost");
+  assert.equal(result.LINKSENSE_PUBLIC_BASE_URL, "http://localhost:5173");
+  assert.equal(result.VITE_API_BASE_URL, "http://localhost:4000");
+  assert.equal(result.LINKSENSE_DEV_API_BIND_ADDRESS, "127.0.0.1");
+  assert.equal(result.LINKSENSE_DEV_API_PORT, "4000");
+  assert.equal(result.LINKSENSE_DEV_RUNNER_BIND_ADDRESS, "127.0.0.1");
+  assert.equal(result.LINKSENSE_DEV_RUNNER_PORT, "4010");
+  assert.equal(result.LINKSENSE_DEV_WEB_BIND_ADDRESS, "127.0.0.1");
+  assert.equal(result.LINKSENSE_DEV_WEB_PORT, "5173");
+  assert.equal(result.NO_PROXY, "127.0.0.1,localhost");
+  assert.equal(result.LINKSENSE_RUNNER_MODE, undefined);
+});
+
+test("buildDevelopmentEnvironment derives custom API and Web ports from local origins", () => {
+  const result = buildDevelopmentEnvironment({
+    ...containerEnvironment,
+    LINKSENSE_DEV_API_ORIGIN: "http://127.0.0.1:14000",
+    LINKSENSE_DEV_WEB_ORIGIN: "http://127.0.0.1:15173",
+    LINKSENSE_DEV_RUNNER_BIND_ADDRESS: "0.0.0.0",
+    LINKSENSE_DEV_RUNNER_PORT: "14010",
+    NO_PROXY: "internal.example",
+  });
+
+  assert.equal(result.VITE_API_BASE_URL, "http://127.0.0.1:14000");
+  assert.equal(result.LINKSENSE_PUBLIC_BASE_URL, "http://127.0.0.1:15173");
+  assert.equal(result.LINKSENSE_DEV_API_PORT, "14000");
+  assert.equal(result.LINKSENSE_DEV_RUNNER_BIND_ADDRESS, "0.0.0.0");
+  assert.equal(result.LINKSENSE_DEV_RUNNER_PORT, "14010");
+  assert.equal(result.LINKSENSE_DEV_WEB_PORT, "15173");
+  assert.equal(result.NO_PROXY, "internal.example,127.0.0.1,localhost");
+});
+
+test("buildDevelopmentEnvironment rejects unsafe API origin values", () => {
+  for (const apiOrigin of [
+    "not-a-url",
+    "ftp://localhost:4000",
+    "https://localhost:4000",
+    "https://user:password@localhost:4000",
+    "https://localhost:4000?token=secret",
+    "https://localhost:0",
+  ]) {
+    assert.throws(
+      () =>
+        buildDevelopmentEnvironment({
+          ...containerEnvironment,
+          LINKSENSE_DEV_API_ORIGIN: apiOrigin,
+        }),
+      /LINKSENSE_DEV_API_ORIGIN/u,
+    );
+  }
+});
+
+test("buildDevelopmentComposeEnvironment applies only container development overrides", () => {
+  const sourceEnvironment = {
+    ...containerEnvironment,
+    HOME: "/srv/linksense-home",
+    DATABASE_URL: "postgresql://stale:old@postgres:5432/stale",
+    LINKSENSE_USER_DATA_ROOT: "${HOME}/.linksense/users",
+  };
+  const developmentEnvironment = buildDevelopmentEnvironment({
+    ...sourceEnvironment,
+    LINKSENSE_DEV_API_ORIGIN: "http://localhost:14000",
+    LINKSENSE_DEV_WEB_ORIGIN: "http://localhost:15173",
+  });
+  const result = buildDevelopmentComposeEnvironment(
+    sourceEnvironment,
+    developmentEnvironment,
+  );
+
+  assert.equal(result.DATABASE_URL, containerEnvironment.DATABASE_URL);
+  assert.equal(result.REDIS_URL, containerEnvironment.REDIS_URL);
+  assert.equal(result.MINIO_ENDPOINT, containerEnvironment.MINIO_ENDPOINT);
+  assert.equal(
+    result.DATABASE_URL,
+    "postgresql://linksense:password@postgres:5432/linksense",
+  );
+  assert.equal(result.NODE_ENV, "development");
+  assert.equal(result.LINKSENSE_PUBLIC_BASE_URL, "http://localhost:15173");
+  assert.equal(result.LINKSENSE_TRUST_PROXY, "false");
+  assert.equal(result.LINKSENSE_DEV_API_PORT, "14000");
+  assert.equal(result.LINKSENSE_DEV_RUNNER_PORT, "4010");
+  assert.equal(result.LINKSENSE_DEV_WEB_PORT, "15173");
+  assert.equal(result.VITE_API_BASE_URL, "http://localhost:14000");
+  assert.equal(
+    result.LINKSENSE_USER_DATA_ROOT,
+    "/srv/linksense-home/.linksense/users",
+  );
+});
+
+test("production parity preserves HTTP or HTTPS public URLs and their gateway scheme", () => {
+  assert.deepEqual(
+    buildProductionParityEnvironment({
+      NODE_ENV: "development",
+      LINKSENSE_PUBLIC_BASE_URL: "http://localhost:8080/",
+    }),
+    {
+      NODE_ENV: "production",
+      LINKSENSE_PUBLIC_BASE_URL: "http://localhost:8080",
+      LINKSENSE_EXTERNAL_SCHEME: "http",
+    },
+  );
+  assert.deepEqual(
+    buildProductionParityEnvironment({
+      LINKSENSE_PUBLIC_BASE_URL: "https://linksense.example.com/base/",
+    }),
+    {
+      NODE_ENV: "production",
+      LINKSENSE_PUBLIC_BASE_URL: "https://linksense.example.com/base",
+      LINKSENSE_EXTERNAL_SCHEME: "https",
+    },
+  );
+  assert.equal(
+    buildProductionParityEnvironment({
+      LINKSENSE_PUBLIC_BASE_URL: "http://linksense.example.com",
+    }).LINKSENSE_EXTERNAL_SCHEME,
+    "http",
+  );
+});
+
+test("worker image revisions are propagated into controller environments", () => {
+  assert.deepEqual(
+    buildWorkerRuntimeEnvironment(
+      { NODE_ENV: "production" },
+      " sha256:worker-image ",
+    ),
+    {
+      NODE_ENV: "production",
+      LINKSENSE_WORKER_IMAGE_REVISION: "sha256:worker-image",
+    },
+  );
+  assert.throws(
+    () => buildWorkerRuntimeEnvironment({}, " "),
+    /worker image revision/u,
+  );
+});
+
+test("worker images rebuild when their runtime source fingerprint is stale", () => {
+  assert.equal(
+    workerImageNeedsRebuild("fingerprint-current", "fingerprint-current"),
+    false,
+  );
+  assert.equal(
+    workerImageNeedsRebuild("fingerprint-old", "fingerprint-current"),
+    true,
+  );
+  assert.equal(workerImageNeedsRebuild(undefined, "fingerprint-current"), true);
+  assert.equal(
+    workerImageNeedsRebuild("fingerprint-current", "fingerprint-current", true),
+    true,
+  );
+});
+
+test("Compose argument builders keep development and production modes separate", () => {
+  assert.deepEqual(
+    developmentComposeArguments("/tmp/linksense.env", ["up", "-d", "api"]),
+    [
+      "compose",
+      "--env-file",
+      "/tmp/linksense.env",
+      "-f",
+      "docker-compose.yml",
+      "-f",
+      "docker-compose.dev.yml",
+      "up",
+      "-d",
+      "api",
+    ],
+  );
+  assert.deepEqual(
+    productionComposeArguments("/tmp/linksense.env", ["up", "-d", "web"]),
+    [
+      "compose",
+      "--env-file",
+      "/tmp/linksense.env",
+      "-f",
+      "docker-compose.yml",
+      "up",
+      "-d",
+      "web",
+    ],
+  );
+});
+
+test("running development application detection allows pnpm dev to reattach", () => {
+  assert.equal(
+    hasRunningDevelopmentApplications("postgres\napi\nredis\n"),
+    true,
+  );
+  assert.equal(hasRunningDevelopmentApplications("runner\n"), true);
+  assert.equal(
+    hasRunningDevelopmentApplications("postgres\nredis\nminio\n"),
+    false,
+  );
+});
+
+test("development startup attaches source watch before waiting for health", () => {
+  assert.deepEqual(developmentInfrastructureStartCommand(), [
+    "up",
+    "-d",
+    "--wait",
+    "postgres",
+    "redis",
+  ]);
+  assert.deepEqual(developmentApplicationStartCommands(), {
+    initial: [
+      ["up", "-d", "--no-build", "--no-deps", "runner"],
+      ["up", "-d", "--no-build", "--no-deps", "api"],
+      ["up", "-d", "--no-build", "--no-deps", "web"],
+    ],
+  });
+});
+
+test("development startup synchronizes persisted Postgres credentials without embedding secrets", () => {
+  const command = developmentPostgresCredentialSyncCommand();
+
+  assert.deepEqual(command.slice(0, 5), [
+    "exec",
+    "-T",
+    "postgres",
+    "sh",
+    "-ec",
+  ]);
+  assert.match(command[5], /ALTER ROLE %I WITH PASSWORD %L/u);
+  assert.match(command[5], /\$POSTGRES_USER/u);
+  assert.match(command[5], /\$POSTGRES_PASSWORD/u);
+  assert.doesNotMatch(command[5], /dev-postgres-password-change-me/u);
+});
+
+test("development reattach readiness tolerates transient unhealthy services", async () => {
+  const environment = buildDevelopmentEnvironment({
+    ...containerEnvironment,
+    LINKSENSE_RUNNER_SHARED_SECRET: "runner-secret",
+    LINKSENSE_DEV_API_BIND_ADDRESS: "0.0.0.0",
+    LINKSENSE_DEV_RUNNER_BIND_ADDRESS: "0.0.0.0",
+  });
+  const calls = [];
+  const commandCalls = [];
+  const attempts = new Map();
+  const commandAttempts = new Map();
+  const commandTargets = developmentContainerReadinessTargets(
+    "/tmp/linksense.env",
+  );
+
+  await waitForDevelopmentApplicationReadiness(environment, {
+    timeoutMs: 1_000,
+    intervalMs: 1,
+    requestTimeoutMs: 10,
+    commandTargets,
+    sleepImplementation: async () => undefined,
+    commandImplementation: (command, argumentsList, options) => {
+      commandCalls.push({ command, argumentsList, options });
+      const key = `${command} ${argumentsList.join(" ")}`;
+      const nextAttempt = (commandAttempts.get(key) ?? 0) + 1;
+      commandAttempts.set(key, nextAttempt);
+      return {
+        status: nextAttempt >= 2 ? 0 : 1,
+        stdout: "",
+        stderr: nextAttempt >= 2 ? "" : "not ready",
+      };
+    },
+    fetchImplementation: async (url, options) => {
+      calls.push({ url, headers: options.headers });
+      const nextAttempt = (attempts.get(url) ?? 0) + 1;
+      attempts.set(url, nextAttempt);
+      return {
+        ok: nextAttempt >= 2,
+        status: nextAttempt >= 2 ? 200 : 503,
+      };
+    },
+  });
+
+  const targets = developmentReadinessTargets(environment);
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      ...targets.map((target) => target.url),
+      ...targets.map((target) => target.url),
+    ],
+  );
+  assert.equal(targets[0].url, "http://127.0.0.1:4010/health/ready");
+  assert.equal(targets[2].url, "http://127.0.0.1:5173/");
+  assert.equal(targets.length, 3);
+  assert.deepEqual(commandTargets[0], {
+    name: "Help Center",
+    command: "docker",
+    argumentsList: [
+      "compose",
+      "--env-file",
+      "/tmp/linksense.env",
+      "-f",
+      "docker-compose.yml",
+      "-f",
+      "docker-compose.dev.yml",
+      "exec",
+      "-T",
+      "web",
+      "sh",
+      "-ec",
+      "curl -fsS http://127.0.0.1:3001/help/ >/dev/null",
+    ],
+  });
+  assert.deepEqual(
+    commandCalls.map((call) => call.argumentsList),
+    [commandTargets[0].argumentsList, commandTargets[0].argumentsList],
+  );
+  assert.deepEqual(calls[0].headers, {
+    authorization: "Bearer runner-secret",
+  });
+});
+
+test("development reattach applies pending migrations without reseeding", () => {
+  assert.deepEqual(developmentMigrationDeployCommand(), [
+    "run",
+    "--rm",
+    "migrate",
+    "pnpm",
+    "db:migrate:deploy",
+  ]);
+});
+
+test("development startup prepares the host-backed user data root", () => {
+  assert.deepEqual(developmentStorageInitializationCommand(), [
+    "run",
+    "--rm",
+    "storage-init",
+  ]);
+});
+
+test("worker rebuild refreshes both runner images before replacing a running controller", () => {
+  assert.deepEqual(developmentWorkerRebuildCommands(true), {
+    refreshImages: ["build", "runner", "runner-worker-image"],
+    replaceController: [
+      "up",
+      "-d",
+      "--no-build",
+      "--no-deps",
+      "--wait",
+      "runner",
+    ],
+  });
+});
+
+test("worker rebuild still refreshes both runner images when no controller is running", () => {
+  assert.deepEqual(developmentWorkerRebuildCommands(false), {
+    refreshImages: ["build", "runner", "runner-worker-image"],
+    replaceController: null,
+  });
+});
+
+test("development Compose runs Web, API, and runner from source-aware images", async () => {
+  const compose = await readFile(resolve("docker-compose.dev.yml"), "utf8");
+  const webCompose = compose.slice(compose.indexOf("  web:"));
+
+  assert.match(compose, /^  api:\n    image:/mu);
+  assert.match(compose, /^  runner:\n    image:/mu);
+  assert.match(compose, /^  web:\n    image:/mu);
+  assert.match(compose, /dockerfile: Dockerfile\.dev/u);
+  assert.match(compose, /action: sync/u);
+  assert.match(compose, /action: rebuild/u);
+  assert.match(
+    webCompose,
+    /action: sync\+restart\n\s+path: \.\/packages\/shared\/src/u,
+  );
+  assert.match(
+    compose,
+    /LINKSENSE_DEV_API_BIND_ADDRESS:-127\.0\.0\.1.*LINKSENSE_DEV_API_PORT:-4000/u,
+  );
+  assert.match(
+    compose,
+    /LINKSENSE_DEV_RUNNER_BIND_ADDRESS:-127\.0\.0\.1.*LINKSENSE_DEV_RUNNER_PORT:-4010/u,
+  );
+  assert.match(
+    compose,
+    /LINKSENSE_DEV_WEB_BIND_ADDRESS:-127\.0\.0\.1.*LINKSENSE_DEV_WEB_PORT:-5173/u,
+  );
+  assert.match(compose, /LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN: "false"/u);
+  assert.match(compose, /LINKSENSE_ENABLE_DEVELOPMENT_ENDPOINTS: "true"/u);
+  assert.match(compose, /ports: !override/u);
+});
+
+test("development prepares only the host-backed user data root", async () => {
+  const [baseCompose, developmentCompose, developmentScript] =
+    await Promise.all([
+      readFile(resolve("docker-compose.yml"), "utf8"),
+      readFile(resolve("docker-compose.dev.yml"), "utf8"),
+      readFile(resolve("scripts/dev.mjs"), "utf8"),
+    ]);
+
+  const portableUserDataRootExpression =
+    "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}";
+  assert.ok(
+    baseCompose.includes(
+      `LINKSENSE_USER_DATA_ROOT: "${portableUserDataRootExpression}"`,
+    ),
+  );
+  assert.ok(
+    baseCompose.includes(
+      `- "${portableUserDataRootExpression}:${portableUserDataRootExpression}"`,
+    ),
+  );
+  assert.doesNotMatch(developmentCompose, /legacy-capabilities-import/u);
+  assert.doesNotMatch(developmentScript, /legacy-capabilities-import/u);
+  assert.doesNotMatch(developmentScript, /\.data\/dev\/capabilities/u);
+});
+
+test("development fingerprints are deterministic and include dependency changes", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "linksense-dev-fingerprint-"));
+  try {
+    await mkdir(resolve(root, "nested"));
+    await writeFile(resolve(root, "manifest.json"), "one\n");
+    await writeFile(resolve(root, "nested/lock.yaml"), "locked\n");
+    const first = sourceFingerprint(root, ["nested", "manifest.json"]);
+    assert.equal(first, sourceFingerprint(root, ["manifest.json", "nested"]));
+    await writeFile(resolve(root, "manifest.json"), "two\n");
+    assert.notEqual(
+      first,
+      sourceFingerprint(root, ["nested", "manifest.json"]),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+
+  assert.match(developmentDependencyFingerprint(), /^[0-9a-f]{64}$/u);
+  assert.match(workerImageFingerprint(), /^[0-9a-f]{64}$/u);
+  assert.deepEqual(developmentImageNames({}), [
+    "linksense-api-dev:local",
+    "linksense-runner-controller-dev:local",
+    "linksense-web-dev:local",
+  ]);
+});
+
+test("development worker cleanup uses the authenticated controller endpoint", async () => {
+  const environment = {
+    LINKSENSE_DEV_RUNNER_BIND_ADDRESS: "0.0.0.0",
+    LINKSENSE_DEV_RUNNER_PORT: "4010",
+    LINKSENSE_RUNNER_SHARED_SECRET: "runner-111111111111111111111111111111",
+  };
+  const calls = [];
+  const stopped = await stopDevelopmentWorkers(
+    environment,
+    async (url, init) => {
+      calls.push({ url, init });
+      return new Response(null, { status: 204 });
+    },
+  );
+  assert.equal(stopped, "stopped");
+  assert.equal(
+    calls[0].url,
+    "http://127.0.0.1:4010/development/workers/stop-all",
+  );
+  assert.equal(
+    new Headers(calls[0].init.headers).get("authorization"),
+    `Bearer ${environment.LINKSENSE_RUNNER_SHARED_SECRET}`,
+  );
+  assert.equal(
+    await stopDevelopmentWorkers(
+      environment,
+      async () => new Response(null, { status: 404 }),
+    ),
+    "legacy",
+  );
+  assert.equal(
+    await stopDevelopmentWorkers(environment, async () => {
+      throw new Error("offline");
+    }),
+    "unavailable",
+  );
+});
+
+test("createApplicationShutdown skips exited children, ignores ESRCH, and is idempotent", () => {
+  const calls = [];
+  const children = [
+    childFixture(101),
+    childFixture(102),
+    childFixture(103, { exitCode: 0 }),
+  ];
+  const shutdown = createApplicationShutdown(children, {
+    detached: true,
+    killProcess: (pid, signal) => {
+      calls.push({ pid, signal });
+      if (pid === -101) {
+        throw Object.assign(new Error("process group disappeared"), {
+          code: "ESRCH",
+        });
+      }
+    },
+  });
+
+  shutdown("SIGTERM");
+  shutdown("SIGINT");
+
+  assert.deepEqual(calls, [
+    { pid: -101, signal: "SIGTERM" },
+    { pid: -102, signal: "SIGTERM" },
+  ]);
+});
+
+function childFixture(pid, overrides = {}) {
+  return {
+    child: {
+      pid,
+      killed: false,
+      exitCode: null,
+      signalCode: null,
+      kill: () => undefined,
+      ...overrides,
+    },
+  };
+}
+
+test("published port checks identify the conflicting container service", async () => {
+  const environment = {
+    LINKSENSE_DEV_API_BIND_ADDRESS: "127.0.0.1",
+    LINKSENSE_DEV_API_PORT: "4000",
+    LINKSENSE_DEV_RUNNER_BIND_ADDRESS: "127.0.0.1",
+    LINKSENSE_DEV_RUNNER_PORT: "4010",
+    LINKSENSE_DEV_WEB_BIND_ADDRESS: "127.0.0.1",
+    LINKSENSE_DEV_WEB_PORT: "5173",
+  };
+  const occupied = async () => {
+    throw Object.assign(new Error("occupied"), { code: "EADDRINUSE" });
+  };
+
+  await assert.rejects(
+    assertApiPortAvailable(environment, occupied),
+    /API port 127\.0\.0\.1:4000 is already in use/u,
+  );
+  await assert.rejects(
+    assertRunnerPortAvailable(environment, occupied),
+    /Runner port 127\.0\.0\.1:4010 is already in use/u,
+  );
+  await assert.rejects(
+    assertWebPortAvailable(environment, occupied),
+    /Web port 127\.0\.0\.1:5173 is already in use/u,
+  );
+
+  const calls = [];
+  for (const assertion of [
+    assertApiPortAvailable,
+    assertRunnerPortAvailable,
+    assertWebPortAvailable,
+  ]) {
+    await assertion(environment, async (host, port) => {
+      calls.push({ host, port });
+    });
+  }
+  assert.deepEqual(calls, [
+    { host: "127.0.0.1", port: 4000 },
+    { host: "127.0.0.1", port: 4010 },
+    { host: "127.0.0.1", port: 5173 },
+  ]);
+});

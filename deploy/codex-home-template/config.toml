@@ -1,0 +1,77 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+# runner 镜像会固定 Codex 版本，并通过重新构建镜像完成升级，而不是由各个会话进程自行升级。
+check_for_update_on_startup = false
+cli_auth_credentials_store = "file"
+forced_login_method = "api"
+model_reasoning_effort = "medium"
+model_provider = "link-sense"
+web_search = "disabled"
+# 登录 shell 可能在 shell_environment_policy 过滤后重新导入环境变量。
+# LinkSense 使用隔离的 HOME，不需要读取宿主机的 shell 配置文件。
+allow_login_shell = false
+
+[analytics]
+enabled = false
+
+[skills]
+# Codex 的自动技能目录只在初始上下文完整注入，恢复同一 thread 后不会逐 turn
+# 替换旧 locator。LinkSense 在下一轮开始前刷新用户 HOME，并在能力代次变化后启动新 app-server。
+include_instructions = false
+
+[skills.bundled]
+# LinkSense 只允许用户 HOME 中当前已授权的独立 Skill 和原生 Plugin Skill。
+# 防止 Codex 升级后暴露未经批准的内置工作流。
+enabled = false
+
+[features]
+# Runner 会把本表的每个布尔值转换为 app-server 启动参数；修改后重新构建并部署
+# worker 镜像即可覆盖全部新老用户，但不会改写用户自己的 config.toml。
+# 连接器、插件、技能、凭据和审计权限均由 LinkSense 管理。
+# 禁用授权目录之外的原生能力和宿主 UI 集成；Plugin 仍由 Codex 从用户 HOME 原生安装和发现。
+# 子智能体是 Codex 的原生编排能力：保留启用，由 LinkSense 仅投影脱敏后的状态与标签。
+apps = false
+browser_use = false
+browser_use_external = false
+browser_use_full_cdp_access = false
+computer_use = false
+hooks = false
+image_generation = false
+in_app_browser = false
+memories = true
+multi_agent = true
+plugin_sharing = false
+plugins = true
+remote_plugin = false
+# 避免在 shell 过滤前保存 app-server 进程环境快照，降低 Provider 凭据被持久化的风险。
+# shell 工具保持启用。
+shell_snapshot = false
+shell_tool = true
+skill_mcp_dependency_install = false
+tool_call_mcp_elicitation = false
+tool_suggest = false
+workspace_dependencies = false
+
+[memories]
+# 用户可在“个性化”中启用或停用原生记忆；Runner 以更高优先级的启动参数
+# 应用个人选择。涉及 MCP、网页搜索或其他外部上下文的任务始终不生成记忆。
+generate_memories = true
+use_memories = true
+disable_on_external_context = true
+
+# linksense-model-provider:start
+# 管理员保存模型服务设置后，Runner 会在每位用户的隔离配置中替换此占位块。
+# 该占位地址只用于启动期协议检查，不会作为可用模型服务。
+[model_providers.link-sense]
+name = "LinkSense"
+base_url = "http://127.0.0.1:1/linksense-model-provider-not-configured"
+wire_api = "responses"
+env_key = "LINKSENSE_MODEL_GATEWAY_TOKEN"
+# 优先通过 Runner 本地网关建立 Responses WebSocket；上游握手失败时由 Codex
+# 原生传输层粘滞回退到 HTTP，网关本身不会重放整轮请求。
+supports_websockets = true
+stream_max_retries = 2
+websocket_connect_timeout_ms = 12000
+# Codex 只读取会话级网关令牌；真实上游密钥保留在 Runner supervisor 内存中。
+requires_openai_auth = false
+# linksense-model-provider:end

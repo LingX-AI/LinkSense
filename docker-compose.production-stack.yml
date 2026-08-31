@@ -1,0 +1,10 @@
+name: linksense
+
+# Provide one platform-independent production entrypoint while keeping the
+# base service model and production overrides in focused files.
+include:
+  - path:
+      - ./docker-compose.yml
+      - ./docker-compose.production.yml
+    project_directory: .
+    env_file: ${LINKSENSE_COMPOSE_ENV_FILE:-.env.production}

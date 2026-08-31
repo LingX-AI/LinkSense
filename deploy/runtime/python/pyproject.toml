@@ -1,0 +1,28 @@
+[project]
+name = "linksense-worker-python-runtime"
+version = "0.1.0"
+description = "Locked shared Python runtime for LinkSense task workers"
+license = "CPAL-1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "beautifulsoup4>=4.13,<5",
+  "httpx>=0.28,<1",
+  "jinja2>=3.1,<4",
+  "lxml>=5.4,<7",
+  "matplotlib>=3.10,<4",
+  "numpy>=2.2,<3",
+  "openpyxl>=3.1,<4",
+  "pandas>=2.2,<4",
+  "pdfplumber>=0.11,<1",
+  "pillow>=11,<13",
+  "pypdf>=5,<7",
+  "python-docx>=1.1,<2",
+  "python-pptx>=1,<2",
+  "pyyaml>=6,<7",
+  "reportlab>=4.2,<5",
+  "requests>=2.32,<3",
+  "xlsxwriter>=3.2,<4",
+]
+
+[tool.uv]
+package = false

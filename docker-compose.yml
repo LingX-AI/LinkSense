@@ -1,0 +1,349 @@
+name: ${COMPOSE_PROJECT_NAME:-linksense}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--requirepass",
+        "${REDIS_PASSWORD}",
+      ]
+    volumes:
+      - redis-data:/data
+    ports:
+      - "${REDIS_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  storage-init:
+    image: busybox:1.37
+    restart: "no"
+    network_mode: none
+    command:
+      - sh
+      - -ec
+      - |
+        test -n "$$LINKSENSE_USER_DATA_ROOT"
+        mkdir -p "$$LINKSENSE_USER_DATA_ROOT"
+        chown 1000:1000 "$$LINKSENSE_USER_DATA_ROOT"
+        chmod 0770 "$$LINKSENSE_USER_DATA_ROOT"
+    environment:
+      LINKSENSE_USER_DATA_ROOT: "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}"
+    volumes:
+      - "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}:${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}"
+
+  migrate:
+    image: linksense-migrate:${LINKSENSE_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      target: migration
+      args:
+        MIGRATION_IMAGE_FINGERPRINT: ${LINKSENSE_MIGRATION_IMAGE_FINGERPRINT:-unversioned}
+        DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
+        DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
+        LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
+        PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://binaries.prisma.sh}
+    restart: "no"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  runner-worker-image:
+    image: ${LINKSENSE_WORKER_IMAGE:-linksense-runner-worker:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+      target: ${LINKSENSE_WORKER_BUILD_TARGET:-worker}
+      args:
+        CODEX_VERSION: ${CODEX_VERSION:-0.150.1}
+        PNPM_VERSION: ${PNPM_VERSION:-10.6.4}
+        WORKER_IMAGE_FINGERPRINT: ${LINKSENSE_WORKER_IMAGE_FINGERPRINT:-unversioned}
+        DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
+        DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
+        LINKSENSE_PYTHON_PACKAGE_INDEX_URL: ${LINKSENSE_PYTHON_PACKAGE_INDEX_URL:-https://pypi.org/simple/}
+        LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
+        PLAYWRIGHT_DOWNLOAD_HOST: ${PLAYWRIGHT_DOWNLOAD_HOST:-}
+        LINKSENSE_BROWSER_RUNTIME_CACHE_IMAGE: ${LINKSENSE_BROWSER_RUNTIME_CACHE_IMAGE:-linksense-runner-worker:pro-latest}
+    restart: "no"
+    networks:
+      - worker-egress
+    read_only: true
+    entrypoint: ["/bin/true"]
+
+  runner:
+    image: linksense-runner-controller:${LINKSENSE_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+      target: controller
+      args:
+        PNPM_VERSION: ${PNPM_VERSION:-10.6.4}
+        DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
+        DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
+        LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
+    init: true
+    restart: unless-stopped
+    user: "0:0"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    env_file:
+      - path: ${LINKSENSE_RUNNER_ENV_FILE:-./deploy/runner.env}
+        required: false
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HOME: /home/node
+      CODEX_BIN: ${CODEX_BIN:-codex}
+      LINKSENSE_RUNNER_MODE: controller
+      LINKSENSE_CODEX_APP_SERVER_LISTEN: stdio://
+      LINKSENSE_USER_DATA_ROOT: "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}"
+      LINKSENSE_PYTHON_BASE_SITE_PACKAGES: /opt/linksense/runtime/python/lib/python3.12/site-packages
+      LINKSENSE_NODE_BASE_PROJECT: /opt/linksense/runtime/node
+      LINKSENSE_PYTHON_PACKAGE_INDEX_URL: ${LINKSENSE_PYTHON_PACKAGE_INDEX_URL:-https://pypi.org/simple/}
+      LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
+      LINKSENSE_CODEX_HOME_TEMPLATE: /opt/linksense/codex-home-template
+      LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS: ${LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS:-900}
+      LINKSENSE_WORKER_IDLE_TTL_SECONDS: ${LINKSENSE_WORKER_IDLE_TTL_SECONDS:-900}
+      LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN: ${LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN:-false}
+      LINKSENSE_WORKER_READY_TIMEOUT_SECONDS: ${LINKSENSE_WORKER_READY_TIMEOUT_SECONDS:-60}
+      LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS: ${LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS:-200000}
+      LINKSENSE_MAX_CONCURRENT_CONVERSATIONS: ${LINKSENSE_MAX_CONCURRENT_CONVERSATIONS:-20}
+      LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT: ${LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT:-20}
+      LINKSENSE_RUNNER_HOST: 0.0.0.0
+      LINKSENSE_RUNNER_PORT: 4010
+      LINKSENSE_WORKER_PORT: ${LINKSENSE_WORKER_PORT:-4010}
+      LINKSENSE_RUNNER_SHARED_SECRET: ${LINKSENSE_RUNNER_SHARED_SECRET}
+      LINKSENSE_API_INTERNAL_URL: http://api:4000
+      LINKSENSE_CONTROLLER_INTERNAL_URL: http://runner:4010
+      LINKSENSE_AGENTS_TEMPLATE_VERSION: ${LINKSENSE_AGENTS_TEMPLATE_VERSION:-7}
+      LINKSENSE_DOCKER_SOCKET_PATH: ${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+      LINKSENSE_DOCKER_API_VERSION: ${LINKSENSE_DOCKER_API_VERSION:-v1.45}
+      LINKSENSE_DOCKER_COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-linksense}
+      LINKSENSE_WORKER_IMAGE: ${LINKSENSE_WORKER_IMAGE:-linksense-runner-worker:local}
+      LINKSENSE_WORKER_IMAGE_REVISION: ${LINKSENSE_WORKER_IMAGE_REVISION:-unversioned}
+      LINKSENSE_WORKER_CONTROL_NETWORK: ${LINKSENSE_WORKER_CONTROL_NETWORK:-linksense-worker-control}
+      LINKSENSE_WORKER_EGRESS_NETWORK: ${LINKSENSE_WORKER_EGRESS_NETWORK:-linksense-worker-egress}
+      LINKSENSE_WORKER_MEMORY_MB: ${LINKSENSE_WORKER_MEMORY_MB:-4096}
+      LINKSENSE_WORKER_CPUS: ${LINKSENSE_WORKER_CPUS:-2}
+      LINKSENSE_WORKER_PIDS_LIMIT: ${LINKSENSE_WORKER_PIDS_LIMIT:-4096}
+      LINKSENSE_WORKER_TMPFS_MB: ${LINKSENSE_WORKER_TMPFS_MB:-4096}
+      LINKSENSE_WORKER_SHM_MB: ${LINKSENSE_WORKER_SHM_MB:-2048}
+      LINKSENSE_BROWSER_SESSION_LIMIT: ${LINKSENSE_BROWSER_SESSION_LIMIT:-2}
+    volumes:
+      - "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}:${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}"
+      - ${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}:${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+    networks:
+      - default
+      - worker-control
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      runner-worker-image:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS -H 'Authorization: Bearer '$$LINKSENSE_RUNNER_SHARED_SECRET http://127.0.0.1:4010/health/ready >/dev/null",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  api:
+    image: linksense-api:${LINKSENSE_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      target: runtime
+      args:
+        DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
+        DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
+        LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
+        PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://binaries.prisma.sh}
+    init: true
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HOST: 0.0.0.0
+      PORT: 4000
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      LINKSENSE_CLAWHUB_SYNC_TIME_ZONE: ${LINKSENSE_CLAWHUB_SYNC_TIME_ZONE:-Asia/Shanghai}
+      LINKSENSE_CLAWHUB_SYNC_TRANSACTION_TIMEOUT_MS: ${LINKSENSE_CLAWHUB_SYNC_TRANSACTION_TIMEOUT_MS:-300000}
+      LINKSENSE_PUBLIC_BASE_URL: ${LINKSENSE_PUBLIC_BASE_URL}
+      LINKSENSE_ADMIN_MODEL_MANAGEMENT_ENABLED: ${LINKSENSE_ADMIN_MODEL_MANAGEMENT_ENABLED:-true}
+      LINKSENSE_JWT_SECRET: ${LINKSENSE_JWT_SECRET}
+      LINKSENSE_LOGIN_RATE_LIMIT_HMAC_SECRET: ${LINKSENSE_LOGIN_RATE_LIMIT_HMAC_SECRET}
+      LINKSENSE_PASSWORD_RESET_RATE_LIMIT_HMAC_SECRET: ${LINKSENSE_PASSWORD_RESET_RATE_LIMIT_HMAC_SECRET}
+      LINKSENSE_CREDENTIAL_MASTER_KEY: ${LINKSENSE_CREDENTIAL_MASTER_KEY}
+      LINKSENSE_CREDENTIAL_KEY_ID: ${LINKSENSE_CREDENTIAL_KEY_ID:-v1}
+      LINKSENSE_INVALID_AUTH_TOKEN_RETENTION_DAYS: ${LINKSENSE_INVALID_AUTH_TOKEN_RETENTION_DAYS:-90}
+      LINKSENSE_LOCAL_LOGIN_EMAIL_FAILURE_LIMIT: ${LINKSENSE_LOCAL_LOGIN_EMAIL_FAILURE_LIMIT:-5}
+      LINKSENSE_LOCAL_LOGIN_EMAIL_WINDOW_SECONDS: ${LINKSENSE_LOCAL_LOGIN_EMAIL_WINDOW_SECONDS:-900}
+      LINKSENSE_LOCAL_LOGIN_EMAIL_COOLDOWN_SECONDS: ${LINKSENSE_LOCAL_LOGIN_EMAIL_COOLDOWN_SECONDS:-900}
+      LINKSENSE_LOCAL_LOGIN_IP_FAILURE_LIMIT: ${LINKSENSE_LOCAL_LOGIN_IP_FAILURE_LIMIT:-100}
+      LINKSENSE_LOCAL_LOGIN_IP_WINDOW_SECONDS: ${LINKSENSE_LOCAL_LOGIN_IP_WINDOW_SECONDS:-600}
+      LINKSENSE_LOCAL_LOGIN_IP_COOLDOWN_SECONDS: ${LINKSENSE_LOCAL_LOGIN_IP_COOLDOWN_SECONDS:-600}
+      LINKSENSE_PASSWORD_RESET_EMAIL_LIMIT: ${LINKSENSE_PASSWORD_RESET_EMAIL_LIMIT:-3}
+      LINKSENSE_PASSWORD_RESET_EMAIL_WINDOW_SECONDS: ${LINKSENSE_PASSWORD_RESET_EMAIL_WINDOW_SECONDS:-900}
+      LINKSENSE_PASSWORD_RESET_IP_LIMIT: ${LINKSENSE_PASSWORD_RESET_IP_LIMIT:-20}
+      LINKSENSE_PASSWORD_RESET_IP_WINDOW_SECONDS: ${LINKSENSE_PASSWORD_RESET_IP_WINDOW_SECONDS:-3600}
+      LINKSENSE_PASSWORD_RESET_TOKEN_TTL_MINUTES: ${LINKSENSE_PASSWORD_RESET_TOKEN_TTL_MINUTES:-30}
+      LINKSENSE_MAX_CONCURRENT_CONVERSATIONS: ${LINKSENSE_MAX_CONCURRENT_CONVERSATIONS:-20}
+      LINKSENSE_UPLOAD_MAX_FILE_SIZE_MB: ${LINKSENSE_UPLOAD_MAX_FILE_SIZE_MB:-100}
+      LINKSENSE_UPLOAD_MAX_FILES_PER_CONVERSATION: ${LINKSENSE_UPLOAD_MAX_FILES_PER_CONVERSATION:-100}
+      LINKSENSE_UPLOAD_ALLOWED_TYPES: ${LINKSENSE_UPLOAD_ALLOWED_TYPES}
+      LINKSENSE_ARTIFACT_ALLOWED_TYPES: ${LINKSENSE_ARTIFACT_ALLOWED_TYPES:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      DASHSCOPE_ASR_MODEL: ${DASHSCOPE_ASR_MODEL:-qwen3-asr-flash}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_PORT: ${MINIO_PORT:-9000}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-linksense-files}
+      MINIO_KNOWLEDGE_BUCKET: ${MINIO_KNOWLEDGE_BUCKET:-linksense-knowledge}
+      LINKSENSE_ARTIFACT_DOWNLOAD_TTL_SECONDS: ${LINKSENSE_ARTIFACT_DOWNLOAD_TTL_SECONDS:-300}
+      LINKSENSE_KB_MAX_FILE_SIZE_BYTES: ${LINKSENSE_KB_MAX_FILE_SIZE_BYTES:-209715200}
+      LINKSENSE_KB_UPLOAD_MAX_FILES_PER_BATCH: ${LINKSENSE_KB_UPLOAD_MAX_FILES_PER_BATCH:-100}
+      LINKSENSE_KB_STORAGE_QUOTA_BYTES: ${LINKSENSE_KB_STORAGE_QUOTA_BYTES:-10737418240}
+      LINKSENSE_KB_HYBRID_TOKENIZER: ${LINKSENSE_KB_HYBRID_TOKENIZER}
+      LINKSENSE_KB_HYBRID_MAX_TOKENS: ${LINKSENSE_KB_HYBRID_MAX_TOKENS:-768}
+      LINKSENSE_KB_PARENT_MAX_TOKENS: ${LINKSENSE_KB_PARENT_MAX_TOKENS:-3000}
+      LINKSENSE_KB_EMBEDDING_DIMENSIONS: ${LINKSENSE_KB_EMBEDDING_DIMENSIONS}
+      LINKSENSE_KB_EMBEDDING_MAX_INPUT_TOKENS: ${LINKSENSE_KB_EMBEDDING_MAX_INPUT_TOKENS}
+      LINKSENSE_KB_ELASTICSEARCH_URL: ${LINKSENSE_KB_ELASTICSEARCH_URL}
+      LINKSENSE_KB_ELASTICSEARCH_USERNAME: ${LINKSENSE_KB_ELASTICSEARCH_USERNAME}
+      LINKSENSE_KB_ELASTICSEARCH_PASSWORD: ${LINKSENSE_KB_ELASTICSEARCH_PASSWORD}
+      LINKSENSE_KB_ELASTICSEARCH_INDEX: ${LINKSENSE_KB_ELASTICSEARCH_INDEX:-linksense-knowledge}
+      LINKSENSE_KB_RERANK_TIMEOUT_MS: ${LINKSENSE_KB_RERANK_TIMEOUT_MS:-60000}
+      LINKSENSE_KB_RERANK_MAX_INPUT_TOKENS: ${LINKSENSE_KB_RERANK_MAX_INPUT_TOKENS:-8192}
+      LINKSENSE_KB_PARSING_CONCURRENCY: ${LINKSENSE_KB_PARSING_CONCURRENCY:-4}
+      LINKSENSE_KB_CHUNKING_CONCURRENCY: ${LINKSENSE_KB_CHUNKING_CONCURRENCY:-8}
+      LINKSENSE_KB_PARENTING_CONCURRENCY: ${LINKSENSE_KB_PARENTING_CONCURRENCY:-8}
+      LINKSENSE_KB_EMBEDDING_CONCURRENCY: ${LINKSENSE_KB_EMBEDDING_CONCURRENCY:-8}
+      LINKSENSE_KB_INDEXING_CONCURRENCY: ${LINKSENSE_KB_INDEXING_CONCURRENCY:-8}
+      LINKSENSE_KB_ACTIVATION_CONCURRENCY: ${LINKSENSE_KB_ACTIVATION_CONCURRENCY:-16}
+      LINKSENSE_KB_MAINTENANCE_REBUILD_CONCURRENCY: ${LINKSENSE_KB_MAINTENANCE_REBUILD_CONCURRENCY:-3}
+      DOCLING_SERVE_URL: ${DOCLING_SERVE_URL}
+      DOCLING_SERVE_API_KEY: ${DOCLING_SERVE_API_KEY}
+      DOCLING_SERVE_TENANT_ID: ${DOCLING_SERVE_TENANT_ID:-linksense}
+      LINKSENSE_DOCLING_DOCUMENT_TIMEOUT_SECONDS: ${LINKSENSE_DOCLING_DOCUMENT_TIMEOUT_SECONDS:-1800}
+      LINKSENSE_USER_DATA_ROOT: "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}"
+      LINKSENSE_RUNNER_URL: http://runner:4010
+      LINKSENSE_RUNNER_SHARED_SECRET: ${LINKSENSE_RUNNER_SHARED_SECRET}
+      LINKSENSE_TRUST_PROXY: ${LINKSENSE_TRUST_PROXY:-true}
+      LINKSENSE_SAFE_HTTP_ALLOW_BENCHMARK_PROXY: ${LINKSENSE_SAFE_HTTP_ALLOW_BENCHMARK_PROXY:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+      TEAMS_TENANT_ID: ${TEAMS_TENANT_ID:-}
+      TEAMS_CLIENT_ID: ${TEAMS_CLIENT_ID:-}
+    volumes:
+      - "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}:${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+      runner:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-fsS",
+          "http://127.0.0.1:4000/api/v1/system/health/ready",
+        ]
+      interval: 1m
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+  web:
+    image: linksense-web:${LINKSENSE_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      target: runtime
+      args:
+        LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
+    restart: unless-stopped
+    environment:
+      NGINX_CLIENT_MAX_BODY_SIZE: ${NGINX_CLIENT_MAX_BODY_SIZE:-210m}
+    ports:
+      - "${LINKSENSE_HTTP_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres-data:
+  redis-data:
+    name: ${LINKSENSE_REDIS_VOLUME:-linksense-redis}
+
+networks:
+  worker-control:
+    name: ${LINKSENSE_WORKER_CONTROL_NETWORK:-linksense-worker-control}
+    internal: true
+  worker-egress:
+    name: ${LINKSENSE_WORKER_EGRESS_NETWORK:-linksense-worker-egress}

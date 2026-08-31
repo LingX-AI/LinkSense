@@ -1,0 +1,86 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:24-bookworm-slim
+ARG UV_VERSION=0.9.13
+ARG PNPM_VERSION=10.6.4
+ARG DEBIAN_MIRROR_URL=http://deb.debian.org/debian
+ARG DEBIAN_SECURITY_MIRROR_URL=http://security.debian.org/debian-security
+ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL=https://registry.npmjs.org/
+ARG PRISMA_ENGINES_MIRROR=https://binaries.prisma.sh
+
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
+FROM ${NODE_IMAGE} AS development
+ARG PNPM_VERSION
+ARG DEBIAN_MIRROR_URL
+ARG DEBIAN_SECURITY_MIRROR_URL
+ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL
+ARG PRISMA_ENGINES_MIRROR
+
+ENV PNPM_HOME=/pnpm
+ENV COREPACK_HOME=/pnpm/corepack
+ENV PATH=${PNPM_HOME}:${PATH}
+ENV NPM_CONFIG_REGISTRY=${LINKSENSE_NODE_PACKAGE_REGISTRY_URL}
+ENV NODE_ENV=development
+ENV NODE_OPTIONS=--conditions=development
+
+COPY --chmod=0755 deploy/docker/configure-debian-apt.sh /usr/local/bin/configure-debian-apt
+COPY --from=uv /uv /usr/local/bin/uv
+RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
+  && DEBIAN_MIRROR_URL="${DEBIAN_MIRROR_URL}" \
+    DEBIAN_SECURITY_MIRROR_URL="${DEBIAN_SECURITY_MIRROR_URL}" \
+    /usr/local/bin/configure-debian-apt \
+  && apt-get update \
+  && apt-get install --yes --no-install-recommends \
+    ca-certificates \
+    curl \
+    fontconfig \
+    fonts-dejavu-core \
+    fonts-liberation2 \
+    fonts-noto-cjk \
+    libreoffice-calc \
+    libreoffice-core \
+    libreoffice-draw \
+    libreoffice-impress \
+    libreoffice-writer \
+    openssl \
+    python3 \
+    python3-uno \
+  && uv venv --python /usr/bin/python3 --system-site-packages /opt/linksense/unoserver \
+  && UV_NO_CACHE=1 uv pip install --python /opt/linksense/unoserver/bin/python "unoserver==3.7" \
+  && /opt/linksense/unoserver/bin/python -c 'import uno, unoserver' \
+  && rm -rf /var/lib/apt/lists/* \
+  && corepack enable \
+  && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@${PNPM_VERSION} --activate \
+  && mkdir -p /workspace /pnpm \
+  && chown node:node /workspace /pnpm
+
+WORKDIR /workspace
+USER node
+
+COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml prisma.config.ts tsconfig.base.json ./
+COPY --chown=node:node patches patches
+COPY --chown=node:node apps/api/package.json apps/api/package.json
+COPY --chown=node:node apps/docs/package.json apps/docs/package.json
+COPY --chown=node:node apps/runner/package.json apps/runner/package.json
+COPY --chown=node:node apps/web/package.json apps/web/package.json
+COPY --chown=node:node packages/shared/package.json packages/shared/package.json
+RUN pnpm install --frozen-lockfile
+
+COPY --chown=node:node prisma prisma
+COPY --chown=node:node apps/api apps/api
+COPY --chown=node:node apps/docs apps/docs
+COPY --chown=node:node apps/runner apps/runner
+COPY --chown=node:node apps/web apps/web
+COPY --chown=node:node packages/shared packages/shared
+
+# Prisma 7 loads prisma.config.ts during generation but does not connect to the
+# database. The placeholder is build-only and never reaches application config.
+ENV PRISMA_ENGINES_MIRROR=${PRISMA_ENGINES_MIRROR}
+ENV PATH=/opt/linksense/unoserver/bin:${PATH}
+RUN DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build pnpm db:generate
+
+ARG DEV_IMAGE_FINGERPRINT=unversioned
+LABEL com.linksense.development.fingerprint=${DEV_IMAGE_FINGERPRINT}
+
+CMD ["pnpm", "dev:apps"]

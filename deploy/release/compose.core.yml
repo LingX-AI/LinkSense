@@ -1,0 +1,4 @@
+services:
+  api:
+    labels:
+      org.linksense.edition: core

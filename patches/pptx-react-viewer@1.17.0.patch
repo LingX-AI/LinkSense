@@ -1,0 +1,81 @@
+diff --git a/dist/chunk-LNSHC2Z5.mjs b/dist/chunk-LNSHC2Z5.mjs
+index 89c08f52106b05156516e43e4bb9c0f0a68e0cba..07998d388c69ac767428efc6a23d5698248d2b7f 100644
+--- a/dist/chunk-LNSHC2Z5.mjs
++++ b/dist/chunk-LNSHC2Z5.mjs
+@@ -31564,6 +31564,7 @@ var PowerPointViewer = forwardRef(
+       filePath,
+       fileName,
+       canEdit = false,
++      loadingState,
+       onContentChange,
+       onDirtyChange,
+       onActiveSlideChange,
+@@ -31833,7 +31834,7 @@ var PowerPointViewer = forwardRef(
+               ref: containerRef,
+               tabIndex: 0,
+               className: "h-full w-full flex flex-col overflow-hidden outline-none",
+-              children: loading ? /* @__PURE__ */ jsx(LoadingState, {}) : error ? /* @__PURE__ */ jsx(ErrorState, { error }) : /* @__PURE__ */ jsxs(Fragment, { children: [
++              children: loading ? loadingState !== void 0 ? loadingState : /* @__PURE__ */ jsx(LoadingState, {}) : error ? /* @__PURE__ */ jsx(ErrorState, { error }) : /* @__PURE__ */ jsxs(Fragment, { children: [
+                 mode !== "present" && /* @__PURE__ */ jsx(
+                   ViewerToolbarSection,
+                   {
+diff --git a/dist/chunk-XW5OMXW6.js b/dist/chunk-XW5OMXW6.js
+index 81784a86246b4635908ce80cbc6c2dcf7dc90617..29eaa4e51789b52cfd503dc6c0e9f38c16534125 100644
+--- a/dist/chunk-XW5OMXW6.js
++++ b/dist/chunk-XW5OMXW6.js
+@@ -31571,6 +31571,7 @@ var PowerPointViewer = React5.forwardRef(
+       filePath,
+       fileName,
+       canEdit = false,
++      loadingState,
+       onContentChange,
+       onDirtyChange,
+       onActiveSlideChange,
+@@ -31840,7 +31841,7 @@ var PowerPointViewer = React5.forwardRef(
+               ref: containerRef,
+               tabIndex: 0,
+               className: "h-full w-full flex flex-col overflow-hidden outline-none",
+-              children: loading ? /* @__PURE__ */ jsxRuntime.jsx(LoadingState, {}) : error ? /* @__PURE__ */ jsxRuntime.jsx(ErrorState, { error }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
++              children: loading ? loadingState !== void 0 ? loadingState : /* @__PURE__ */ jsxRuntime.jsx(LoadingState, {}) : error ? /* @__PURE__ */ jsxRuntime.jsx(ErrorState, { error }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                 mode !== "present" && /* @__PURE__ */ jsxRuntime.jsx(
+                   ViewerToolbarSection,
+                   {
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index fdfe75909c4a3508abe834b05661f548b65cb343..ad301698e37c887352473f1a1797364110eed4d0 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -4657,6 +4657,8 @@ interface PowerPointViewerProps {
+   onOpenFile?: () => void;
+   /** Whether editing actions are enabled */
+   canEdit?: boolean;
++  /** Optional replacement for the built-in loading state. */
++  loadingState?: react.ReactNode;
+   /** Optional class name */
+   className?: string;
+   /**
+diff --git a/dist/types-BK7Nt13M.d.ts b/dist/types-BK7Nt13M.d.ts
+index 0a78b9f5fa88a6913df50be6255fb3537aa7a1d2..cceab73e3f9ad1db9c5d608ba844d6a8d3a4cbd7 100644
+--- a/dist/types-BK7Nt13M.d.ts
++++ b/dist/types-BK7Nt13M.d.ts
+@@ -385,6 +385,8 @@ interface PowerPointViewerProps {
+   onOpenFile?: () => void;
+   /** Whether editing actions are enabled */
+   canEdit?: boolean;
++  /** Optional replacement for the built-in loading state. */
++  loadingState?: React$1.ReactNode;
+   /** Optional class name */
+   className?: string;
+   /**
+diff --git a/dist/viewer/index.d.ts b/dist/viewer/index.d.ts
+index 1a1d374d50311ddf34b8a721eeb9f3c90e0eb08f..e87b9daf7d6f17dcbdb8524b4d0fa9195b609034 100644
+--- a/dist/viewer/index.d.ts
++++ b/dist/viewer/index.d.ts
+@@ -7578,6 +7578,8 @@ interface PowerPointViewerProps {
+   onOpenFile?: () => void;
+   /** Whether editing actions are enabled */
+   canEdit?: boolean;
++  /** Optional replacement for the built-in loading state. */
++  loadingState?: React.ReactNode;
+   /** Optional class name */
+   className?: string;
+   /**

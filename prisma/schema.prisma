@@ -1,0 +1,2015 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "../apps/api/src/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider     = "postgresql"
+  relationMode = "prisma"
+  extensions   = [citext, pg_trgm, pgcrypto]
+}
+
+// LinkSense intentionally does not declare Prisma relation fields. All UUID
+// references below are logical references enforced by services and
+// transactions, so migrations must never emit database foreign keys.
+// PostgreSQL check constraints, partial unique indexes, expression indexes,
+// and GIN/trigram indexes are defined in the checked-in initialization SQL.
+
+model User {
+  id                       String    @id @default(uuid()) @db.Uuid
+  email                    String    @unique(map: "users_email_key") @db.Citext
+  name                     String    @db.VarChar(120)
+  accountType              String    @default("member") @map("account_type") @db.VarChar(32)
+  avatarObjectKey          String?   @map("avatar_object_key") @db.Text
+  role                     String    @db.VarChar(32)
+  status                   String    @db.VarChar(32)
+  passwordHash             String?   @map("password_hash") @db.Text
+  preferredLocale          String?   @map("preferred_locale") @db.VarChar(16)
+  selfRegisteredAt         DateTime? @map("self_registered_at") @db.Timestamptz(6)
+  preferredModel           String?   @map("preferred_model") @db.VarChar(240)
+  preferredReasoningEffort String?   @map("preferred_reasoning_effort") @db.VarChar(32)
+  runningMessageAction     String    @default("queue") @map("running_message_action") @db.VarChar(32)
+  totalTokenLimit          BigInt?   @map("total_token_limit") @db.BigInt
+  weeklyTokenLimit         BigInt?   @map("weekly_token_limit") @db.BigInt
+  monthlyTokenLimit        BigInt?   @map("monthly_token_limit") @db.BigInt
+  lastLoginAt              DateTime? @map("last_login_at") @db.Timestamptz(6)
+  lastLoginMethod          String?   @map("last_login_method") @db.VarChar(32)
+  passwordUpdatedAt        DateTime? @map("password_updated_at") @db.Timestamptz(6)
+  authValidAfter           DateTime  @default(now()) @map("auth_valid_after") @db.Timestamptz(6)
+  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, role], map: "users_status_role_idx")
+  @@index([accountType, status], map: "users_account_type_status_idx")
+  @@index([lastLoginAt], map: "users_last_login_at_idx")
+  @@index([selfRegisteredAt], map: "users_self_registered_at_idx")
+  @@map("users")
+}
+
+model UserGroup {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique(map: "user_groups_name_key") @db.VarChar(120)
+  description String?  @db.Text
+  createdBy   String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([createdBy], map: "user_groups_created_by_idx")
+  @@map("user_groups")
+}
+
+model UserGroupMember {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  userGroupId String    @map("user_group_id") @db.Uuid
+  status      String    @db.VarChar(32)
+  createdBy   String?   @map("created_by") @db.Uuid
+  revokedBy   String?   @map("revoked_by") @db.Uuid
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([userGroupId, status], map: "user_group_members_group_status_idx")
+  @@index([userId, status], map: "user_group_members_user_status_idx")
+  @@index([createdBy], map: "user_group_members_created_by_idx")
+  @@index([revokedBy], map: "user_group_members_revoked_by_idx")
+  @@map("user_group_members")
+}
+
+model RefreshToken {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  familyId          String    @map("family_id") @db.Uuid
+  parentTokenId     String?   @map("parent_token_id") @db.Uuid
+  replacedByTokenId String?   @map("replaced_by_token_id") @db.Uuid
+  tokenHash         String    @unique(map: "refresh_tokens_token_hash_key") @map("token_hash") @db.Text
+  userAgent         String?   @map("user_agent") @db.Text
+  ipAddress         String?   @map("ip_address") @db.Inet
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokeReason      String?   @map("revoke_reason") @db.VarChar(80)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, expiresAt], map: "refresh_tokens_user_expires_idx")
+  @@index([familyId, createdAt], map: "refresh_tokens_family_created_idx")
+  @@index([parentTokenId], map: "refresh_tokens_parent_idx")
+  @@index([replacedByTokenId], map: "refresh_tokens_replaced_by_idx")
+  @@index([revokedAt], map: "refresh_tokens_revoked_at_idx")
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  tokenHash        String    @unique(map: "password_reset_tokens_token_hash_key") @map("token_hash") @db.Text
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt       DateTime? @map("consumed_at") @db.Timestamptz(6)
+  requestIp        String?   @map("request_ip") @db.Inet
+  requestUserAgent String?   @map("request_user_agent") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, consumedAt, expiresAt], map: "password_reset_tokens_user_state_idx")
+  @@map("password_reset_tokens")
+}
+
+model RegistrationToken {
+  id               String    @id @default(uuid()) @db.Uuid
+  email            String    @db.Citext
+  tokenHash        String    @unique(map: "registration_tokens_token_hash_key") @map("token_hash") @db.Text
+  locale           String    @db.VarChar(16)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt       DateTime? @map("consumed_at") @db.Timestamptz(6)
+  requestIp        String?   @map("request_ip") @db.Inet
+  requestUserAgent String?   @map("request_user_agent") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([email, consumedAt, expiresAt], map: "registration_tokens_email_state_idx")
+  @@index([consumedAt, expiresAt], map: "registration_tokens_state_idx")
+  @@map("registration_tokens")
+}
+
+model Capability {
+  id                   String   @id @default(uuid()) @db.Uuid
+  type                 String   @db.VarChar(32)
+  ownerId              String   @map("owner_id") @db.Uuid
+  name                 String   @db.VarChar(160)
+  slug                 String   @db.VarChar(180)
+  description          String?  @db.Text
+  sourceType           String   @map("source_type") @db.VarChar(32)
+  marketplaceListingId String?  @map("marketplace_listing_id") @db.Uuid
+  marketplaceReleaseId String?  @map("marketplace_release_id") @db.Uuid
+  logoObjectKey        String?  @map("logo_object_key") @db.Text
+  storagePath          String   @map("storage_path") @db.Text
+  manifestJson         Json?    @map("manifest_json") @db.JsonB
+  riskSummaryJson      Json?    @map("risk_summary_json") @db.JsonB
+  status               String   @db.VarChar(32)
+  installedBy          String   @map("installed_by") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([ownerId, slug, type], map: "capabilities_owner_slug_type_key")
+  @@unique([ownerId, marketplaceListingId], map: "capabilities_owner_marketplace_listing_key")
+  @@index([type, status], map: "capabilities_type_status_idx")
+  @@index([ownerId], map: "capabilities_owner_id_idx")
+  @@index([marketplaceListingId], map: "capabilities_marketplace_listing_id_idx")
+  @@index([marketplaceReleaseId], map: "capabilities_marketplace_release_id_idx")
+  @@index([installedBy], map: "capabilities_installed_by_idx")
+  @@index([name], map: "capabilities_name_idx")
+  @@map("capabilities")
+}
+
+model MarketplaceListing {
+  id               String    @id @default(uuid()) @db.Uuid
+  publisherId      String    @map("publisher_id") @db.Uuid
+  publisherName    String    @map("publisher_name") @db.VarChar(120)
+  type             String    @db.VarChar(32)
+  slug             String    @db.VarChar(180)
+  status           String    @db.VarChar(32)
+  installCount     Int       @default(0) @map("install_count")
+  currentReleaseId String?   @map("current_release_id") @db.Uuid
+  suspendedBy      String?   @map("suspended_by") @db.Uuid
+  suspendedAt      DateTime? @map("suspended_at") @db.Timestamptz(6)
+  suspensionReason String?   @map("suspension_reason") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([type, slug], map: "marketplace_listings_type_slug_key")
+  @@index([publisherId, status, updatedAt(sort: Desc)], map: "marketplace_listings_publisher_status_updated_idx")
+  @@index([status, type, updatedAt(sort: Desc)], map: "marketplace_listings_status_type_updated_idx")
+  @@index([currentReleaseId], map: "marketplace_listings_current_release_id_idx")
+  @@index([suspendedBy], map: "marketplace_listings_suspended_by_idx")
+  @@map("marketplace_listings")
+}
+
+model MarketplaceRelease {
+  id                 String    @id @default(uuid()) @db.Uuid
+  listingId          String    @map("listing_id") @db.Uuid
+  sourceCapabilityId String    @map("source_capability_id") @db.Uuid
+  releaseNumber      Int       @map("release_number")
+  status             String    @db.VarChar(32)
+  name               String    @db.VarChar(160)
+  description        String?   @db.Text
+  releaseNotes       String?   @map("release_notes") @db.Text
+  logoObjectKey      String?   @map("logo_object_key") @db.Text
+  packagePath        String    @map("package_path") @db.Text
+  contentSha256      String    @map("content_sha256") @db.VarChar(64)
+  manifestJson       Json      @map("manifest_json") @db.JsonB
+  riskSummaryJson    Json      @map("risk_summary_json") @db.JsonB
+  submittedBy        String    @map("submitted_by") @db.Uuid
+  reviewerId         String?   @map("reviewer_id") @db.Uuid
+  reviewComment      String?   @map("review_comment") @db.Text
+  submittedAt        DateTime  @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  reviewedAt         DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  publishedAt        DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([listingId, releaseNumber], map: "marketplace_releases_listing_number_key")
+  @@index([listingId, status, submittedAt(sort: Desc)], map: "marketplace_releases_listing_status_submitted_idx")
+  @@index([status, submittedAt], map: "marketplace_releases_status_submitted_idx")
+  @@index([sourceCapabilityId], map: "marketplace_releases_source_capability_id_idx")
+  @@index([submittedBy], map: "marketplace_releases_submitted_by_idx")
+  @@index([reviewerId], map: "marketplace_releases_reviewer_id_idx")
+  @@map("marketplace_releases")
+}
+
+model ClawHubSkill {
+  id                        String    @id @default(uuid()) @db.Uuid
+  slug                      String    @db.VarChar(240)
+  displayName               String    @map("display_name") @db.VarChar(1000)
+  summary                   String?   @db.Text
+  topicsJson                Json      @default("[]") @map("topics_json") @db.JsonB
+  tagsJson                  Json      @default("{}") @map("tags_json") @db.JsonB
+  downloadCount             Int       @default(0) @map("download_count")
+  installCount              Int       @default(0) @map("install_count")
+  starCount                 Int       @default(0) @map("star_count")
+  commentCount              Int       @default(0) @map("comment_count")
+  versionCount              Int       @default(0) @map("version_count")
+  latestVersion             String?   @map("latest_version") @db.VarChar(240)
+  latestVersionCreatedAt    DateTime? @map("latest_version_created_at") @db.Timestamptz(6)
+  latestVersionChangelog    String?   @map("latest_version_changelog") @db.Text
+  latestVersionLicense      String?   @map("latest_version_license") @db.VarChar(240)
+  ownerHandle               String    @map("owner_handle") @db.VarChar(240)
+  ownerDisplayName          String?   @map("owner_display_name") @db.VarChar(500)
+  ownerImageUrl             String?   @map("owner_image_url") @db.Text
+  metadataJson              Json?     @map("metadata_json") @db.JsonB
+  sourceMetadataJson        Json      @map("source_metadata_json") @db.JsonB
+  moderationVerdict         String?   @map("moderation_verdict") @db.VarChar(32)
+  moderationReasonCodesJson Json      @default("[]") @map("moderation_reason_codes_json") @db.JsonB
+  moderationSummary         String?   @map("moderation_summary") @db.Text
+  moderationEngineVersion   String?   @map("moderation_engine_version") @db.VarChar(120)
+  moderationUpdatedAt       DateTime? @map("moderation_updated_at") @db.Timestamptz(6)
+  isSuspicious              Boolean   @default(false) @map("is_suspicious")
+  isMalwareBlocked          Boolean   @default(false) @map("is_malware_blocked")
+  securityStatus            String    @default("unverified") @map("security_status") @db.VarChar(32)
+  securityHasWarnings       Boolean   @default(false) @map("security_has_warnings")
+  securityCheckedAt         DateTime? @map("security_checked_at") @db.Timestamptz(6)
+  fileCount                 Int       @default(0) @map("file_count")
+  totalFileBytes            BigInt    @default(0) @map("total_file_bytes") @db.BigInt
+  installBlockReason        String?   @map("install_block_reason") @db.VarChar(32)
+  canonicalUrl              String?   @map("canonical_url") @db.Text
+  searchText                String    @map("search_text") @db.Text
+  sourceCreatedAt           DateTime  @map("source_created_at") @db.Timestamptz(6)
+  sourceUpdatedAt           DateTime  @map("source_updated_at") @db.Timestamptz(6)
+  available                 Boolean   @default(false)
+  unavailableAt             DateTime? @map("unavailable_at") @db.Timestamptz(6)
+  lastSeenSyncRunId         String    @map("last_seen_sync_run_id") @db.Uuid
+  lastSeenAt                DateTime  @map("last_seen_at") @db.Timestamptz(6)
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([ownerHandle, slug], map: "clawhub_skills_owner_slug_key")
+  @@index([available, downloadCount(sort: Desc), slug], map: "clawhub_skills_available_download_slug_idx")
+  @@index([available, starCount(sort: Desc), slug], map: "clawhub_skills_available_star_slug_idx")
+  @@index([available, sourceUpdatedAt(sort: Desc), slug], map: "clawhub_skills_available_updated_slug_idx")
+  @@index([lastSeenSyncRunId], map: "clawhub_skills_last_seen_run_idx")
+  @@map("clawhub_skills")
+}
+
+model ClawHubSyncRun {
+  id               String    @id @default(uuid()) @db.Uuid
+  status           String    @db.VarChar(32)
+  trigger          String    @db.VarChar(32)
+  listedCount      Int       @default(0) @map("listed_count")
+  detailCount      Int       @default(0) @map("detail_count")
+  unavailableCount Int       @default(0) @map("unavailable_count")
+  errorCode        String?   @map("error_code") @db.VarChar(120)
+  startedAt        DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt       DateTime? @map("finished_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, startedAt], map: "clawhub_sync_runs_status_started_idx")
+  @@index([finishedAt(sort: Desc)], map: "clawhub_sync_runs_finished_idx")
+  @@map("clawhub_sync_runs")
+}
+
+model ClawHubSkillSyncStaging {
+  runId                     String    @map("run_id") @db.Uuid
+  ownerHandle               String    @map("owner_handle") @db.VarChar(240)
+  slug                      String    @db.VarChar(240)
+  displayName               String    @map("display_name") @db.VarChar(1000)
+  summary                   String?   @db.Text
+  topicsJson                Json      @default("[]") @map("topics_json") @db.JsonB
+  tagsJson                  Json      @default("{}") @map("tags_json") @db.JsonB
+  downloadCount             Int       @default(0) @map("download_count")
+  installCount              Int       @default(0) @map("install_count")
+  starCount                 Int       @default(0) @map("star_count")
+  commentCount              Int       @default(0) @map("comment_count")
+  versionCount              Int       @default(0) @map("version_count")
+  latestVersion             String?   @map("latest_version") @db.VarChar(240)
+  latestVersionCreatedAt    DateTime? @map("latest_version_created_at") @db.Timestamptz(6)
+  latestVersionChangelog    String?   @map("latest_version_changelog") @db.Text
+  latestVersionLicense      String?   @map("latest_version_license") @db.VarChar(240)
+  ownerDisplayName          String?   @map("owner_display_name") @db.VarChar(500)
+  ownerImageUrl             String?   @map("owner_image_url") @db.Text
+  metadataJson              Json?     @map("metadata_json") @db.JsonB
+  sourceMetadataJson        Json      @map("source_metadata_json") @db.JsonB
+  moderationVerdict         String?   @map("moderation_verdict") @db.VarChar(32)
+  moderationReasonCodesJson Json      @default("[]") @map("moderation_reason_codes_json") @db.JsonB
+  moderationSummary         String?   @map("moderation_summary") @db.Text
+  moderationEngineVersion   String?   @map("moderation_engine_version") @db.VarChar(120)
+  moderationUpdatedAt       DateTime? @map("moderation_updated_at") @db.Timestamptz(6)
+  isSuspicious              Boolean   @default(false) @map("is_suspicious")
+  isMalwareBlocked          Boolean   @default(false) @map("is_malware_blocked")
+  securityStatus            String    @default("unverified") @map("security_status") @db.VarChar(32)
+  securityHasWarnings       Boolean   @default(false) @map("security_has_warnings")
+  securityCheckedAt         DateTime? @map("security_checked_at") @db.Timestamptz(6)
+  fileCount                 Int       @default(0) @map("file_count")
+  totalFileBytes            BigInt    @default(0) @map("total_file_bytes") @db.BigInt
+  installBlockReason        String?   @map("install_block_reason") @db.VarChar(32)
+  canonicalUrl              String?   @map("canonical_url") @db.Text
+  searchText                String    @map("search_text") @db.Text
+  sourceCreatedAt           DateTime  @map("source_created_at") @db.Timestamptz(6)
+  sourceUpdatedAt           DateTime  @map("source_updated_at") @db.Timestamptz(6)
+  seenAt                    DateTime  @map("seen_at") @db.Timestamptz(6)
+  stagedAt                  DateTime  @default(now()) @map("staged_at") @db.Timestamptz(6)
+
+  @@id([runId, ownerHandle, slug], map: "clawhub_skill_sync_staging_pkey")
+  @@map("clawhub_skill_sync_staging")
+}
+
+model ClawHubSkillInstallation {
+  id                        String   @id @default(uuid()) @db.Uuid
+  userId                    String   @map("user_id") @db.Uuid
+  clawHubSkillId            String   @map("clawhub_skill_id") @db.Uuid
+  capabilityId              String   @unique(map: "clawhub_skill_installations_capability_key") @map("capability_id") @db.Uuid
+  installedVersion          String   @map("installed_version") @db.VarChar(240)
+  sourceSecurityStatus      String   @map("source_security_status") @db.VarChar(32)
+  sourceSecurityHasWarnings Boolean  @map("source_security_has_warnings")
+  contentSha256             String   @map("content_sha256") @db.VarChar(64)
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([userId, clawHubSkillId], map: "clawhub_skill_installations_user_skill_key")
+  @@index([clawHubSkillId, createdAt], map: "clawhub_skill_installations_skill_created_idx")
+  @@index([userId, createdAt(sort: Desc)], map: "clawhub_skill_installations_user_created_idx")
+  @@map("clawhub_skill_installations")
+}
+
+model CapabilityUserPreference {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  capabilityId String    @map("capability_id") @db.Uuid
+  status       String    @db.VarChar(32)
+  disabledAt   DateTime? @map("disabled_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([userId, capabilityId], map: "capability_user_preferences_user_capability_key")
+  @@index([userId, status], map: "capability_user_preferences_user_status_idx")
+  @@index([capabilityId], map: "capability_user_preferences_capability_idx")
+  @@map("capability_user_preferences")
+}
+
+model Credential {
+  id               String    @id @default(uuid()) @db.Uuid
+  ownerId          String    @map("owner_id") @db.Uuid
+  name             String    @db.VarChar(160)
+  providerType     String    @map("provider_type") @db.VarChar(80)
+  encryptedPayload String    @map("encrypted_payload") @db.Text
+  encryptionKeyId  String    @map("encryption_key_id") @db.VarChar(120)
+  status           String    @db.VarChar(32)
+  createdBy        String    @map("created_by") @db.Uuid
+  updatedBy        String?   @map("updated_by") @db.Uuid
+  lastUsedAt       DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, status], map: "credentials_owner_status_idx")
+  @@index([providerType], map: "credentials_provider_type_idx")
+  @@index([createdBy], map: "credentials_created_by_idx")
+  @@index([updatedBy], map: "credentials_updated_by_idx")
+  @@map("credentials")
+}
+
+model CredentialBinding {
+  id            String    @id @default(uuid()) @db.Uuid
+  credentialId  String    @map("credential_id") @db.Uuid
+  capabilityId  String    @map("capability_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  envKey        String    @map("env_key") @db.VarChar(120)
+  credentialKey String    @map("credential_key") @db.VarChar(120)
+  status        String    @db.VarChar(32)
+  createdBy     String    @map("created_by") @db.Uuid
+  revokedBy     String?   @map("revoked_by") @db.Uuid
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([credentialId, status], map: "credential_bindings_credential_status_idx")
+  @@index([capabilityId, status], map: "credential_bindings_capability_status_idx")
+  @@index([userId, status], map: "credential_bindings_user_status_idx")
+  @@index([createdBy], map: "credential_bindings_created_by_idx")
+  @@index([revokedBy], map: "credential_bindings_revoked_by_idx")
+  @@map("credential_bindings")
+}
+
+model McpServer {
+  id                       String    @id @default(uuid()) @db.Uuid
+  ownerId                  String    @map("owner_id") @db.Uuid
+  name                     String    @db.VarChar(160)
+  serverKey                String    @map("server_key") @db.VarChar(40)
+  transport                String    @default("streamable_http") @db.VarChar(32)
+  url                      String?   @db.Text
+  command                  String?   @db.VarChar(512)
+  argsJson                 Json      @default("[]") @map("args_json") @db.JsonB
+  encryptedEnvironment     String?   @map("encrypted_environment") @db.Text
+  environmentKeysJson      Json      @default("[]") @map("environment_keys_json") @db.JsonB
+  authType                 String    @map("auth_type") @db.VarChar(32)
+  apiKeyHeader             String?   @map("api_key_header") @db.VarChar(120)
+  encryptedCredential      String?   @map("encrypted_credential") @db.Text
+  encryptionKeyId          String?   @map("encryption_key_id") @db.VarChar(120)
+  status                   String    @default("active") @db.VarChar(32)
+  required                 Boolean   @default(false)
+  startupTimeoutSeconds    Int       @default(60) @map("startup_timeout_seconds")
+  toolTimeoutSeconds       Int       @default(600) @map("tool_timeout_seconds")
+  insecureHttpAcknowledged Boolean   @default(false) @map("insecure_http_acknowledged")
+  lastTestStatus           String?   @map("last_test_status") @db.VarChar(32)
+  lastTestErrorCode        String?   @map("last_test_error_code") @db.VarChar(120)
+  lastTestedAt             DateTime? @map("last_tested_at") @db.Timestamptz(6)
+  lastUsedAt               DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([ownerId, serverKey], map: "mcp_servers_owner_server_key_key")
+  @@index([ownerId, status, updatedAt(sort: Desc)], map: "mcp_servers_owner_status_updated_idx")
+  @@map("mcp_servers")
+}
+
+model Application {
+  id                   String    @id @default(uuid()) @db.Uuid
+  ownerId              String    @map("owner_id") @db.Uuid
+  name                 String    @db.VarChar(160)
+  kind                 String    @default("standard") @db.VarChar(32)
+  iconPreset           String    @default("bot") @map("icon_preset") @db.VarChar(32)
+  iconObjectKey        String?   @map("icon_object_key") @db.Text
+  description          String?   @db.Text
+  instructions         String    @db.Text
+  model                String?   @db.VarChar(240)
+  reasoningEffort      String?   @map("reasoning_effort") @db.VarChar(32)
+  interactivePackageId String?   @map("interactive_package_id") @db.Uuid
+  status               String    @default("active") @db.VarChar(32)
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy            String?   @map("deleted_by") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, status, updatedAt(sort: Desc)], map: "applications_owner_status_updated_idx")
+  @@index([status, updatedAt(sort: Desc)], map: "applications_status_updated_idx")
+  @@index([kind, status, updatedAt(sort: Desc)], map: "applications_kind_status_updated_idx")
+  @@index([interactivePackageId], map: "applications_interactive_package_idx")
+  @@index([name], map: "applications_name_idx")
+  @@index([deletedBy], map: "applications_deleted_by_idx")
+  @@map("applications")
+}
+
+model InteractiveApplicationPackage {
+  id            String   @id @default(uuid()) @db.Uuid
+  applicationId String   @map("application_id") @db.Uuid
+  version       String   @db.VarChar(80)
+  manifestJson  Json     @map("manifest_json") @db.JsonB
+  archiveSha256 String   @map("archive_sha256") @db.VarChar(64)
+  fileCount     Int      @map("file_count")
+  expandedBytes Int      @map("expanded_bytes")
+  createdBy     String   @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([applicationId, version], map: "interactive_application_packages_application_version_key")
+  @@index([applicationId, createdAt(sort: Desc)], map: "interactive_application_packages_application_created_idx")
+  @@index([createdBy], map: "interactive_application_packages_created_by_idx")
+  @@map("interactive_application_packages")
+}
+
+model InteractiveApplicationAsset {
+  id          String   @id @default(uuid()) @db.Uuid
+  packageId   String   @map("package_id") @db.Uuid
+  path        String   @db.Text
+  objectKey   String   @map("object_key") @db.Text
+  contentType String   @map("content_type") @db.VarChar(160)
+  byteSize    Int      @map("byte_size")
+  sha256      String   @db.VarChar(64)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([packageId, path], map: "interactive_application_assets_package_path_key")
+  @@unique([objectKey], map: "interactive_application_assets_object_key_key")
+  @@index([packageId, createdAt], map: "interactive_application_assets_package_created_idx")
+  @@map("interactive_application_assets")
+}
+
+model InteractiveApplicationRuntimeTicket {
+  id            String   @id @default(uuid()) @db.Uuid
+  tokenHash     String   @unique(map: "interactive_application_runtime_tickets_hash_key") @map("token_hash") @db.VarChar(64)
+  ownerId       String   @map("owner_id") @db.Uuid
+  applicationId String   @map("application_id") @db.Uuid
+  packageId     String   @map("package_id") @db.Uuid
+  expiresAt     DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([ownerId, expiresAt], map: "interactive_application_runtime_tickets_owner_expires_idx")
+  @@index([applicationId, packageId, expiresAt], map: "interactive_app_runtime_tickets_app_package_expires_idx")
+  @@index([expiresAt], map: "interactive_application_runtime_tickets_expires_idx")
+  @@map("interactive_application_runtime_tickets")
+}
+
+model ApplicationCapability {
+  id                     String   @id @default(uuid()) @db.Uuid
+  applicationId          String   @map("application_id") @db.Uuid
+  capabilityId           String   @map("capability_id") @db.Uuid
+  capabilityNameSnapshot String   @map("capability_name_snapshot") @db.VarChar(160)
+  capabilityTypeSnapshot String   @map("capability_type_snapshot") @db.VarChar(32)
+  selectionOrder         Int      @map("selection_order")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([applicationId, capabilityId], map: "application_capabilities_application_capability_key")
+  @@unique([applicationId, selectionOrder], map: "application_capabilities_application_order_key")
+  @@index([capabilityId, createdAt], map: "application_capabilities_capability_created_idx")
+  @@map("application_capabilities")
+}
+
+model ApplicationKnowledgeBase {
+  id                        String   @id @default(uuid()) @db.Uuid
+  applicationId             String   @map("application_id") @db.Uuid
+  knowledgeBaseId           String   @map("knowledge_base_id") @db.Uuid
+  knowledgeBaseNameSnapshot String   @map("knowledge_base_name_snapshot") @db.VarChar(160)
+  selectionOrder            Int      @map("selection_order")
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([applicationId, knowledgeBaseId], map: "application_knowledge_bases_application_base_key")
+  @@unique([applicationId, selectionOrder], map: "application_knowledge_bases_application_order_key")
+  @@index([knowledgeBaseId, createdAt], map: "application_knowledge_bases_base_created_idx")
+  @@map("application_knowledge_bases")
+}
+
+model ApplicationMcpServer {
+  id                    String   @id @default(uuid()) @db.Uuid
+  applicationId         String   @map("application_id") @db.Uuid
+  mcpServerId           String   @map("mcp_server_id") @db.Uuid
+  mcpServerNameSnapshot String   @map("mcp_server_name_snapshot") @db.VarChar(160)
+  selectionOrder        Int      @map("selection_order")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([applicationId, mcpServerId], map: "application_mcp_servers_application_server_key")
+  @@unique([applicationId, selectionOrder], map: "application_mcp_servers_application_order_key")
+  @@index([mcpServerId, createdAt], map: "application_mcp_servers_server_created_idx")
+  @@map("application_mcp_servers")
+}
+
+model ApplicationExternalAccess {
+  id                       String   @id @default(uuid()) @db.Uuid
+  applicationId            String   @unique(map: "application_external_access_application_key") @map("application_id") @db.Uuid
+  publicId                 String   @unique(map: "application_external_access_public_key") @map("public_id") @db.VarChar(64)
+  enabled                  Boolean  @default(false)
+  authMode                 String   @default("required") @map("auth_mode") @db.VarChar(32)
+  appId                    String?  @unique(map: "application_external_access_app_id_key") @map("app_id") @db.VarChar(80)
+  appSecretHash            String?  @map("app_secret_hash") @db.VarChar(64)
+  appSecretEncrypted       String?  @map("app_secret_encrypted") @db.Text
+  appSecretEncryptionKeyId String?  @map("app_secret_encryption_key_id") @db.VarChar(120)
+  credentialVersion        Int      @default(1) @map("credential_version")
+  allowedOriginsJson       Json     @default("[]") @map("allowed_origins_json") @db.JsonB
+  starterQuestionsJson     Json     @default("[]") @map("starter_questions_json") @db.JsonB
+  createdBy                String   @map("created_by") @db.Uuid
+  updatedBy                String?  @map("updated_by") @db.Uuid
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([enabled, publicId], map: "application_external_access_enabled_public_idx")
+  @@index([createdBy], map: "application_external_access_created_by_idx")
+  @@index([updatedBy], map: "application_external_access_updated_by_idx")
+  @@map("application_external_access")
+}
+
+model ApplicationEmbedTicket {
+  id                String    @id @default(uuid()) @db.Uuid
+  externalAccessId  String    @map("external_access_id") @db.Uuid
+  credentialVersion Int       @map("credential_version")
+  ticketHash        String    @unique(map: "application_embed_tickets_hash_key") @map("ticket_hash") @db.VarChar(64)
+  origin            String    @db.Text
+  externalSubject   String?   @map("external_subject") @db.VarChar(320)
+  externalTenant    String?   @map("external_tenant") @db.VarChar(240)
+  displayName       String?   @map("display_name") @db.VarChar(120)
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt        DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([externalAccessId, expiresAt], map: "application_embed_tickets_access_expires_idx")
+  @@index([expiresAt, consumedAt], map: "application_embed_tickets_expiry_state_idx")
+  @@map("application_embed_tickets")
+}
+
+model ApplicationExternalSession {
+  id                                          String    @id @default(uuid()) @db.Uuid
+  externalAccessId                            String    @map("external_access_id") @db.Uuid
+  applicationId                               String    @map("application_id") @db.Uuid
+  runtimePrincipalId                          String    @unique(map: "application_external_sessions_runtime_principal_key") @map("runtime_principal_id") @db.Uuid
+  conversationId                              String    @unique(map: "application_external_sessions_conversation_key") @map("conversation_id") @db.Uuid
+  externalSubject                             String?   @map("external_subject") @db.VarChar(320)
+  externalTenant                              String?   @map("external_tenant") @db.VarChar(240)
+  displayName                                 String?   @map("display_name") @db.VarChar(120)
+  origin                                      String    @db.Text
+  status                                      String    @default("active") @db.VarChar(32)
+  credentialVersion                           Int       @map("credential_version")
+  externalApplicationSessionIdEncrypted       String?   @map("external_application_session_id_encrypted") @db.Text
+  externalApplicationSessionIdEncryptionKeyId String?   @map("external_application_session_id_encryption_key_id") @db.VarChar(120)
+  externalApplicationSessionIdUpdatedAt       DateTime? @map("external_application_session_id_updated_at") @db.Timestamptz(6)
+  absoluteExpiresAt                           DateTime  @map("absolute_expires_at") @db.Timestamptz(6)
+  lastSeenAt                                  DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  revokedAt                                   DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokeReason                                String?   @map("revoke_reason") @db.VarChar(80)
+  createdAt                                   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                                   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([externalAccessId, status, absoluteExpiresAt], map: "application_external_sessions_access_state_expiry_idx")
+  @@index([applicationId, status, updatedAt(sort: Desc)], map: "application_external_sessions_application_state_updated_idx")
+  @@index([runtimePrincipalId, status], map: "application_external_sessions_principal_state_idx")
+  @@index([externalSubject, externalTenant], map: "application_external_sessions_external_identity_idx")
+  @@map("application_external_sessions")
+}
+
+model ApplicationExternalRefreshToken {
+  id                String    @id @default(uuid()) @db.Uuid
+  sessionId         String    @map("session_id") @db.Uuid
+  familyId          String    @map("family_id") @db.Uuid
+  parentTokenId     String?   @map("parent_token_id") @db.Uuid
+  replacedByTokenId String?   @map("replaced_by_token_id") @db.Uuid
+  rotationRequestId String?   @map("rotation_request_id") @db.Uuid
+  tokenHash         String    @unique(map: "application_external_refresh_tokens_hash_key") @map("token_hash") @db.VarChar(64)
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokeReason      String?   @map("revoke_reason") @db.VarChar(80)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([sessionId, expiresAt], map: "application_external_refresh_tokens_session_expires_idx")
+  @@index([familyId, createdAt], map: "application_external_refresh_tokens_family_created_idx")
+  @@index([parentTokenId], map: "application_external_refresh_tokens_parent_idx")
+  @@index([replacedByTokenId], map: "application_external_refresh_tokens_replaced_idx")
+  @@index([rotationRequestId], map: "application_external_refresh_tokens_rotation_request_idx")
+  @@index([revokedAt], map: "application_external_refresh_tokens_revoked_idx")
+  @@map("application_external_refresh_tokens")
+}
+
+model ApplicationGrant {
+  id               String    @id @default(uuid()) @db.Uuid
+  applicationId    String    @map("application_id") @db.Uuid
+  granteeType      String    @map("grantee_type") @db.VarChar(32)
+  userId           String?   @map("user_id") @db.Uuid
+  userGroupId      String?   @map("user_group_id") @db.Uuid
+  status           String    @default("active") @db.VarChar(32)
+  grantedBy        String    @map("granted_by") @db.Uuid
+  revokedBy        String?   @map("revoked_by") @db.Uuid
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revocationReason String?   @map("revocation_reason") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([applicationId, status, createdAt], map: "application_grants_application_status_created_idx")
+  @@index([granteeType, userId, status], map: "application_grants_user_status_idx")
+  @@index([granteeType, userGroupId, status], map: "application_grants_group_status_idx")
+  @@index([grantedBy], map: "application_grants_granted_by_idx")
+  @@index([revokedBy], map: "application_grants_revoked_by_idx")
+  @@map("application_grants")
+}
+
+model Conversation {
+  id                              String    @id @default(uuid()) @db.Uuid
+  ownerId                         String    @map("owner_id") @db.Uuid
+  title                           String    @db.VarChar(240)
+  titleSource                     String    @map("title_source") @db.VarChar(32)
+  archiveStatus                   String    @map("archive_status") @db.VarChar(32)
+  archivedAt                      DateTime? @map("archived_at") @db.Timestamptz(6)
+  pinnedAt                        DateTime? @map("pinned_at") @db.Timestamptz(6)
+  sortOrder                       Int?      @map("sort_order")
+  workspaceRelPath                String    @unique(map: "conversations_workspace_rel_path_key") @map("workspace_rel_path") @db.Text
+  codexThreadId                   String?   @unique(map: "conversations_codex_thread_id_key") @map("codex_thread_id") @db.Text
+  agentsTemplateVersion           String?   @map("agents_template_version") @db.VarChar(80)
+  collaborationMode               String    @default("default") @map("collaboration_mode") @db.VarChar(24)
+  runtimeGeneration               String    @map("runtime_generation") @db.Uuid
+  preferredModel                  String?   @map("preferred_model") @db.VarChar(240)
+  lastTurnStatus                  String?   @map("last_turn_status") @db.VarChar(32)
+  lastRunAt                       DateTime? @map("last_run_at") @db.Timestamptz(6)
+  completionUnread                Boolean   @default(false) @map("completion_unread")
+  selectedKnowledgeBaseIdsJson    Json      @default("[]") @map("selected_knowledge_base_ids_json") @db.JsonB
+  applicationId                   String?   @map("application_id") @db.Uuid
+  applicationNameSnapshot         String?   @map("application_name_snapshot") @db.VarChar(160)
+  interactiveApplicationPackageId String?   @map("interactive_application_package_id") @db.Uuid
+  createdAt                       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, archiveStatus, updatedAt(sort: Desc)], map: "conversations_owner_archive_updated_idx")
+  @@index([ownerId, archiveStatus, pinnedAt(sort: Desc)], map: "conversations_owner_archive_pinned_idx")
+  @@index([ownerId, archiveStatus, pinnedAt, sortOrder], map: "conversations_owner_archive_pin_order_idx")
+  @@index([createdAt(sort: Desc)], map: "conversations_created_at_idx")
+  @@index([lastRunAt], map: "conversations_last_run_at_idx")
+  @@index([applicationId, ownerId, updatedAt(sort: Desc)], map: "conversations_application_owner_updated_idx")
+  @@index([interactiveApplicationPackageId, ownerId, updatedAt(sort: Desc)], map: "conversations_interactive_package_owner_updated_idx")
+  @@map("conversations")
+}
+
+model ConversationGoal {
+  conversationId  String   @id @map("conversation_id") @db.Uuid
+  ownerId         String   @map("owner_id") @db.Uuid
+  codexThreadId   String   @unique(map: "conversation_goals_codex_thread_id_key") @map("codex_thread_id") @db.Text
+  activeTurnId    String?  @map("active_turn_id") @db.Uuid
+  objective       String   @db.Text
+  status          String   @db.VarChar(32)
+  tokenBudget     BigInt?  @map("token_budget") @db.BigInt
+  tokensUsed      BigInt   @default(0) @map("tokens_used") @db.BigInt
+  timeUsedSeconds BigInt   @default(0) @map("time_used_seconds") @db.BigInt
+  nativeCreatedAt DateTime @map("native_created_at") @db.Timestamptz(6)
+  nativeUpdatedAt DateTime @map("native_updated_at") @db.Timestamptz(6)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, status], map: "conversation_goals_owner_status_idx")
+  @@index([activeTurnId], map: "conversation_goals_active_turn_idx")
+  @@map("conversation_goals")
+}
+
+model ConversationDraft {
+  id                        String   @id @default(uuid()) @db.Uuid
+  conversationId            String   @unique(map: "conversation_drafts_conversation_id_key") @map("conversation_id") @db.Uuid
+  ownerId                   String   @map("owner_id") @db.Uuid
+  inputText                 String   @map("input_text") @db.Text
+  priorityCapabilityIdsJson Json     @default("[]") @map("priority_capability_ids_json") @db.JsonB
+  knowledgeBaseIdsJson      Json     @default("[]") @map("knowledge_base_ids_json") @db.JsonB
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId], map: "conversation_drafts_owner_id_idx")
+  @@index([updatedAt], map: "conversation_drafts_updated_at_idx")
+  @@map("conversation_drafts")
+}
+
+model PendingRequest {
+  id                        String    @id @default(uuid()) @db.Uuid
+  conversationId            String    @map("conversation_id") @db.Uuid
+  queueNo                   BigInt    @map("queue_no") @db.BigInt
+  submittedBy               String    @map("submitted_by") @db.Uuid
+  inputText                 String    @map("input_text") @db.Text
+  priorityCapabilityIdsJson Json      @default("[]") @map("priority_capability_ids_json") @db.JsonB
+  knowledgeBaseIdsJson      Json      @default("[]") @map("knowledge_base_ids_json") @db.JsonB
+  collaborationMode         String    @default("default") @map("collaboration_mode") @db.VarChar(24)
+  status                    String    @db.VarChar(32)
+  blockCode                 String?   @map("block_code") @db.VarChar(120)
+  idempotencyKey            String?   @map("idempotency_key") @db.VarChar(120)
+  steerOperationId          String?   @map("steer_operation_id") @db.Uuid
+  steerTurnId               String?   @map("steer_turn_id") @db.Uuid
+  lastStartCheckedAt        DateTime? @map("last_start_checked_at") @db.Timestamptz(6)
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([conversationId, queueNo], map: "pending_requests_conversation_queue_key")
+  @@index([conversationId, status, queueNo], map: "pending_requests_conversation_status_queue_idx")
+  @@index([submittedBy], map: "pending_requests_submitted_by_idx")
+  @@map("pending_requests")
+}
+
+model ConversationTurn {
+  id                     String    @id @default(uuid()) @db.Uuid
+  conversationId         String    @map("conversation_id") @db.Uuid
+  sequenceNo             Int       @map("sequence_no")
+  submittedBy            String    @map("submitted_by") @db.Uuid
+  codexThreadId          String    @map("codex_thread_id") @db.Text
+  codexTurnId            String    @unique(map: "conversation_turns_codex_turn_id_key") @map("codex_turn_id") @db.Text
+  status                 String    @db.VarChar(32)
+  taskKind               String    @default("turn") @map("task_kind") @db.VarChar(32)
+  collaborationMode      String    @default("default") @map("collaboration_mode") @db.VarChar(24)
+  submitMode             String    @map("submit_mode") @db.VarChar(32)
+  idempotencyKey         String?   @map("idempotency_key") @db.VarChar(120)
+  idempotencyRequestHash String?   @map("idempotency_request_hash") @db.VarChar(64)
+  knowledgeBaseIdsJson   Json      @default("[]") @map("knowledge_base_ids_json") @db.JsonB
+  capabilityGeneration   String    @map("capability_generation") @db.VarChar(64)
+  capabilitiesJson       Json      @map("capabilities_json") @db.JsonB
+  mcpGeneration          String    @default("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") @map("mcp_generation") @db.VarChar(64)
+  mcpServersJson         Json      @default("[]") @map("mcp_servers_json") @db.JsonB
+  model                  String?   @db.VarChar(240)
+  reasoningEffort        String?   @map("reasoning_effort") @db.VarChar(32)
+  startedAt              DateTime  @map("started_at") @db.Timestamptz(6)
+  completedAt            DateTime? @map("completed_at") @db.Timestamptz(6)
+  interruptRequestedAt   DateTime? @map("interrupt_requested_at") @db.Timestamptz(6)
+  interruptedAt          DateTime? @map("interrupted_at") @db.Timestamptz(6)
+  errorCode              String?   @map("error_code") @db.VarChar(120)
+  errorMessage           String?   @map("error_message") @db.Text
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([conversationId, sequenceNo], map: "conversation_turns_conversation_sequence_key")
+  @@index([conversationId, createdAt], map: "conversation_turns_conversation_created_idx")
+  @@index([conversationId, status, sequenceNo], map: "conversation_turns_conversation_status_sequence_idx")
+  @@index([submittedBy], map: "conversation_turns_submitted_by_idx")
+  @@index([submittedBy, status, completedAt, id], map: "conversation_turns_submitter_status_completed_idx")
+  @@index([startedAt(sort: Desc)], map: "conversation_turns_started_at_idx")
+  @@map("conversation_turns")
+}
+
+model ConversationTurnAttempt {
+  id                      String    @id @default(uuid()) @db.Uuid
+  turnId                  String    @map("turn_id") @db.Uuid
+  attemptNo               Int       @map("attempt_no")
+  kind                    String    @db.VarChar(32)
+  codexThreadId           String    @map("codex_thread_id") @db.Text
+  codexTurnId             String?   @unique(map: "conversation_turn_attempts_codex_turn_id_key") @map("codex_turn_id") @db.Text
+  sourceCodexTurnId       String?   @map("source_codex_turn_id") @db.Text
+  status                  String    @db.VarChar(32)
+  continuationContextJson Json?     @map("continuation_context_json") @db.JsonB
+  errorCode               String?   @map("error_code") @db.VarChar(120)
+  errorMessage            String?   @map("error_message") @db.Text
+  startedAt               DateTime? @map("started_at") @db.Timestamptz(6)
+  completedAt             DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([turnId, attemptNo], map: "conversation_turn_attempts_turn_attempt_key")
+  @@index([turnId, status, attemptNo], map: "conversation_turn_attempts_turn_status_idx")
+  @@index([status, createdAt], map: "conversation_turn_attempts_status_created_idx")
+  @@map("conversation_turn_attempts")
+}
+
+model ConversationTurnStartIntent {
+  projectionTurnId               String    @id @map("projection_turn_id") @db.Uuid
+  ownerId                        String    @map("owner_id") @db.Uuid
+  conversationId                 String    @unique(map: "conversation_turn_start_intents_conversation_id_key") @map("conversation_id") @db.Uuid
+  runtimeGeneration              String    @map("runtime_generation") @db.Uuid
+  capabilityGeneration           String    @map("capability_generation") @db.VarChar(64)
+  mcpGeneration                  String    @default("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") @map("mcp_generation") @db.VarChar(64)
+  model                          String?   @db.VarChar(240)
+  reasoningEffort                String?   @map("reasoning_effort") @db.VarChar(32)
+  applicationId                  String?   @map("application_id") @db.Uuid
+  applicationUpdatedAt           DateTime? @map("application_updated_at") @db.Timestamptz(6)
+  applicationInstructions        String?   @map("application_instructions") @db.Text
+  inputText                      String    @map("input_text") @db.Text
+  taskKind                       String    @default("turn") @map("task_kind") @db.VarChar(32)
+  collaborationMode              String    @default("default") @map("collaboration_mode") @db.VarChar(24)
+  goalObjective                  String?   @map("goal_objective") @db.Text
+  goalTokenBudget                BigInt?   @map("goal_token_budget") @db.BigInt
+  priorityCapabilityIdsJson      Json      @default("[]") @map("priority_capability_ids_json") @db.JsonB
+  knowledgeBaseIdsJson           Json      @default("[]") @map("knowledge_base_ids_json") @db.JsonB
+  capabilitiesJson               Json      @default("[]") @map("capabilities_json") @db.JsonB
+  mcpServersJson                 Json      @default("[]") @map("mcp_servers_json") @db.JsonB
+  credentialUsageReceiptsJson    Json      @default("[]") @map("credential_usage_receipts_json") @db.JsonB
+  mcpCredentialUsageReceiptsJson Json      @default("[]") @map("mcp_credential_usage_receipts_json") @db.JsonB
+  attachmentsJson                Json      @default("[]") @map("attachments_json") @db.JsonB
+  messageDisplayJson             Json?     @map("message_display_json") @db.JsonB
+  submitMode                     String    @map("submit_mode") @db.VarChar(32)
+  idempotencyKey                 String?   @map("idempotency_key") @db.VarChar(120)
+  preservesDraft                 Boolean   @default(false) @map("preserves_draft")
+  pendingRequestId               String?   @map("pending_request_id") @db.Uuid
+  planReviewId                   String?   @unique(map: "conversation_turn_start_intents_plan_review_key") @map("plan_review_id") @db.Uuid
+  planReviewAction               String?   @map("plan_review_action") @db.VarChar(24)
+  regenerationJson               Json?     @map("regeneration_json") @db.JsonB
+  auditIpAddress                 String?   @map("audit_ip_address") @db.Inet
+  auditUserAgent                 String?   @map("audit_user_agent") @db.Text
+  runnerStatus                   String    @default("slot_pending") @map("runner_status") @db.VarChar(32)
+  codexThreadId                  String?   @map("codex_thread_id") @db.Text
+  codexTurnId                    String?   @map("codex_turn_id") @db.Text
+  createdAt                      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, createdAt], map: "conversation_turn_start_intents_owner_created_idx")
+  @@index([runnerStatus, createdAt], map: "conversation_turn_start_intents_status_created_idx")
+  @@map("conversation_turn_start_intents")
+}
+
+model ConversationUserInputRequest {
+  id                        String    @id @default(uuid()) @db.Uuid
+  conversationId            String    @map("conversation_id") @db.Uuid
+  turnId                    String    @map("turn_id") @db.Uuid
+  ownerId                   String    @map("owner_id") @db.Uuid
+  codexThreadId             String    @map("codex_thread_id") @db.Text
+  codexTurnId               String    @map("codex_turn_id") @db.Text
+  codexItemId               String    @map("codex_item_id") @db.Text
+  nativeRequestId           BigInt    @map("native_request_id") @db.BigInt
+  requestKind               String    @default("questions") @map("request_kind") @db.VarChar(24)
+  questionsJson             Json      @map("questions_json") @db.JsonB
+  serverName                String?   @map("server_name") @db.Text
+  messageText               String?   @map("message_text") @db.Text
+  formSchemaJson            Json?     @map("form_schema_json") @db.JsonB
+  formUiHintsJson           Json?     @map("form_ui_hints_json") @db.JsonB
+  formResponseSemanticsJson Json?     @map("form_response_semantics_json") @db.JsonB
+  responseContentJson       Json?     @map("response_content_json") @db.JsonB
+  status                    String    @db.VarChar(24)
+  autoResolveAt             DateTime? @map("auto_resolve_at") @db.Timestamptz(6)
+  resolvedAction            String?   @map("resolved_action") @db.VarChar(24)
+  resolvedAt                DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([codexThreadId, codexTurnId, codexItemId], map: "conversation_user_input_requests_native_item_key")
+  @@index([conversationId, status, createdAt], map: "conversation_user_input_requests_conversation_status_idx")
+  @@index([codexThreadId, nativeRequestId], map: "conversation_user_input_requests_thread_request_idx")
+  @@index([turnId, status], map: "conversation_user_input_requests_turn_status_idx")
+  @@map("conversation_user_input_requests")
+}
+
+model ConversationPlanReview {
+  id             String    @id @default(uuid()) @db.Uuid
+  conversationId String    @map("conversation_id") @db.Uuid
+  ownerId        String    @map("owner_id") @db.Uuid
+  sourceTurnId   String    @unique(map: "conversation_plan_reviews_source_turn_key") @map("source_turn_id") @db.Uuid
+  planMessageId  String    @unique(map: "conversation_plan_reviews_plan_message_key") @map("plan_message_id") @db.Uuid
+  codexItemId    String    @map("codex_item_id") @db.Text
+  status         String    @db.VarChar(24)
+  decision       String?   @db.VarChar(24)
+  followUpTurnId String?   @unique(map: "conversation_plan_reviews_follow_up_turn_key") @map("follow_up_turn_id") @db.Uuid
+  resolvedAt     DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([conversationId, status, createdAt], map: "conversation_plan_reviews_conversation_status_idx")
+  @@index([ownerId, status], map: "conversation_plan_reviews_owner_status_idx")
+  @@map("conversation_plan_reviews")
+}
+
+model ConversationTurnKnowledgeBase {
+  id              String   @id @default(uuid()) @db.Uuid
+  turnId          String   @map("turn_id") @db.Uuid
+  knowledgeBaseId String   @map("knowledge_base_id") @db.Uuid
+  selectionOrder  Int      @map("selection_order")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([turnId, knowledgeBaseId], map: "conversation_turn_knowledge_bases_turn_base_key")
+  @@unique([turnId, selectionOrder], map: "conversation_turn_knowledge_bases_turn_order_key")
+  @@index([knowledgeBaseId, createdAt], map: "conversation_turn_knowledge_bases_base_created_idx")
+  @@map("conversation_turn_knowledge_bases")
+}
+
+model ConversationMessage {
+  id             String   @id @default(uuid()) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  turnId         String?  @map("turn_id") @db.Uuid
+  sequenceNo     Int      @map("sequence_no")
+  role           String   @db.VarChar(32)
+  contentText    String   @map("content_text") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([conversationId, sequenceNo], map: "conversation_messages_conversation_sequence_key")
+  @@index([conversationId, createdAt], map: "conversation_messages_conversation_created_idx")
+  @@index([turnId], map: "conversation_messages_turn_id_idx")
+  @@map("conversation_messages")
+}
+
+model ConversationEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  turnId         String?  @map("turn_id") @db.Uuid
+  sequenceNo     BigInt   @map("sequence_no") @db.BigInt
+  eventType      String   @map("event_type") @db.VarChar(120)
+  visibility     String   @db.VarChar(32)
+  payloadJson    Json     @map("payload_json") @db.JsonB
+  sseEventId     String   @unique(map: "conversation_events_sse_event_id_key") @map("sse_event_id") @db.VarChar(160)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([conversationId, sequenceNo], map: "conversation_events_conversation_sequence_key")
+  @@index([conversationId, createdAt], map: "conversation_events_conversation_created_idx")
+  @@index([turnId, createdAt], map: "conversation_events_turn_created_idx")
+  @@index([eventType], map: "conversation_events_event_type_idx")
+  @@map("conversation_events")
+}
+
+model UsageAnalyticsState {
+  id                        String   @id @db.Uuid
+  tokenMeasurementStartedAt DateTime @map("token_measurement_started_at") @db.Timestamptz(6)
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("usage_analytics_state")
+}
+
+model UsageActivityRecord {
+  id                      String   @id @default(uuid()) @db.Uuid
+  activityType            String   @map("activity_type") @db.VarChar(32)
+  sourceId                String   @map("source_id") @db.Uuid
+  ownerId                 String   @map("owner_id") @db.Uuid
+  conversationId          String   @map("conversation_id") @db.Uuid
+  applicationId           String?  @map("application_id") @db.Uuid
+  applicationNameSnapshot String?  @map("application_name_snapshot") @db.VarChar(160)
+  turnId                  String?  @map("turn_id") @db.Uuid
+  model                   String?  @db.VarChar(240)
+  capabilityId            String?  @map("capability_id") @db.VarChar(240)
+  capabilityName          String?  @map("capability_name") @db.VarChar(160)
+  occurredAt              DateTime @map("occurred_at") @db.Timestamptz(6)
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([activityType, sourceId], map: "usage_activity_records_type_source_key")
+  @@unique([activityType, turnId, capabilityId], map: "usage_activity_records_type_turn_capability_key")
+  @@index([activityType, occurredAt(sort: Desc)], map: "usage_activity_records_type_occurred_idx")
+  @@index([ownerId, occurredAt(sort: Desc)], map: "usage_activity_records_owner_occurred_idx")
+  @@index([model, occurredAt(sort: Desc)], map: "usage_activity_records_model_occurred_idx")
+  @@index([ownerId, activityType, capabilityId], map: "usage_activity_records_owner_type_capability_idx")
+  @@index([applicationId, occurredAt(sort: Desc)], map: "usage_activity_records_application_occurred_idx")
+  @@index([conversationId], map: "usage_activity_records_conversation_idx")
+  @@index([turnId], map: "usage_activity_records_turn_idx")
+  @@map("usage_activity_records")
+}
+
+model CodexThreadTokenUsageCursor {
+  codexThreadId         String   @id @map("codex_thread_id") @db.Text
+  ownerId               String   @map("owner_id") @db.Uuid
+  conversationId        String   @map("conversation_id") @db.Uuid
+  lastCodexTurnId       String   @map("last_codex_turn_id") @db.Text
+  totalTokens           BigInt   @map("total_tokens") @db.BigInt
+  lastTotalTokens       BigInt?  @map("last_total_tokens") @db.BigInt
+  inputTokens           BigInt   @map("input_tokens") @db.BigInt
+  cachedInputTokens     BigInt   @map("cached_input_tokens") @db.BigInt
+  outputTokens          BigInt   @map("output_tokens") @db.BigInt
+  reasoningOutputTokens BigInt   @map("reasoning_output_tokens") @db.BigInt
+  modelContextWindow    BigInt?  @map("model_context_window") @db.BigInt
+  firstObservedAt       DateTime @map("first_observed_at") @db.Timestamptz(6)
+  lastObservedAt        DateTime @map("last_observed_at") @db.Timestamptz(6)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, lastObservedAt(sort: Desc)], map: "codex_token_usage_cursors_owner_observed_idx")
+  @@index([conversationId], map: "codex_token_usage_cursors_conversation_idx")
+  @@map("codex_thread_token_usage_cursors")
+}
+
+model TokenUsageRecord {
+  id                               String   @id @default(uuid()) @db.Uuid
+  snapshotKey                      String   @unique(map: "token_usage_records_snapshot_key_key") @map("snapshot_key") @db.VarChar(64)
+  ownerId                          String   @map("owner_id") @db.Uuid
+  conversationId                   String   @map("conversation_id") @db.Uuid
+  applicationId                    String?  @map("application_id") @db.Uuid
+  applicationNameSnapshot          String?  @map("application_name_snapshot") @db.VarChar(160)
+  turnId                           String   @map("turn_id") @db.Uuid
+  codexThreadId                    String   @map("codex_thread_id") @db.Text
+  codexTurnId                      String   @map("codex_turn_id") @db.Text
+  model                            String   @db.VarChar(240)
+  totalTokens                      BigInt   @map("total_tokens") @db.BigInt
+  inputTokens                      BigInt   @map("input_tokens") @db.BigInt
+  cachedInputTokens                BigInt   @map("cached_input_tokens") @db.BigInt
+  outputTokens                     BigInt   @map("output_tokens") @db.BigInt
+  reasoningOutputTokens            BigInt   @map("reasoning_output_tokens") @db.BigInt
+  inputPriceMicrosPerMillion       BigInt   @default(0) @map("input_price_micros_per_million") @db.BigInt
+  cachedInputPriceMicrosPerMillion BigInt   @default(0) @map("cached_input_price_micros_per_million") @db.BigInt
+  outputPriceMicrosPerMillion      BigInt   @default(0) @map("output_price_micros_per_million") @db.BigInt
+  inputCostPicoCny                 BigInt   @default(0) @map("input_cost_pico_cny") @db.BigInt
+  cachedInputCostPicoCny           BigInt   @default(0) @map("cached_input_cost_pico_cny") @db.BigInt
+  outputCostPicoCny                BigInt   @default(0) @map("output_cost_pico_cny") @db.BigInt
+  totalCostPicoCny                 BigInt   @default(0) @map("total_cost_pico_cny") @db.BigInt
+  unpricedTokens                   BigInt   @default(0) @map("unpriced_tokens") @db.BigInt
+  observedAt                       DateTime @map("observed_at") @db.Timestamptz(6)
+  createdAt                        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([ownerId, observedAt(sort: Desc)], map: "token_usage_records_owner_observed_idx")
+  @@index([model, observedAt(sort: Desc)], map: "token_usage_records_model_observed_idx")
+  @@index([observedAt(sort: Desc)], map: "token_usage_records_observed_idx")
+  @@index([applicationId, observedAt(sort: Desc)], map: "token_usage_records_application_observed_idx")
+  @@index([conversationId], map: "token_usage_records_conversation_idx")
+  @@index([turnId], map: "token_usage_records_turn_idx")
+  @@map("token_usage_records")
+}
+
+model ModelUsageRecord {
+  id                               String   @id @default(uuid()) @db.Uuid
+  requestId                        String   @unique(map: "model_usage_records_request_id_key") @map("request_id") @db.Uuid
+  ownerId                          String   @map("owner_id") @db.Uuid
+  conversationId                   String?  @map("conversation_id") @db.Uuid
+  applicationId                    String?  @map("application_id") @db.Uuid
+  applicationNameSnapshot          String?  @map("application_name_snapshot") @db.VarChar(160)
+  turnId                           String?  @map("turn_id") @db.Uuid
+  knowledgeBaseId                  String?  @map("knowledge_base_id") @db.Uuid
+  documentId                       String?  @map("document_id") @db.Uuid
+  documentVersionId                String?  @map("document_version_id") @db.Uuid
+  processingGeneration             String?  @map("processing_generation") @db.Uuid
+  operation                        String?  @db.VarChar(32)
+  workload                         String   @db.VarChar(48)
+  modelKind                        String   @map("model_kind") @db.VarChar(24)
+  model                            String   @db.VarChar(240)
+  measurementMethod                String   @map("measurement_method") @db.VarChar(16)
+  requestCount                     Int      @default(1) @map("request_count")
+  totalTokens                      BigInt   @map("total_tokens") @db.BigInt
+  inputTokens                      BigInt   @map("input_tokens") @db.BigInt
+  cachedInputTokens                BigInt   @default(0) @map("cached_input_tokens") @db.BigInt
+  outputTokens                     BigInt   @default(0) @map("output_tokens") @db.BigInt
+  reasoningOutputTokens            BigInt   @default(0) @map("reasoning_output_tokens") @db.BigInt
+  inputPriceMicrosPerMillion       BigInt   @default(0) @map("input_price_micros_per_million") @db.BigInt
+  cachedInputPriceMicrosPerMillion BigInt   @default(0) @map("cached_input_price_micros_per_million") @db.BigInt
+  outputPriceMicrosPerMillion      BigInt   @default(0) @map("output_price_micros_per_million") @db.BigInt
+  inputCostPicoCny                 BigInt   @default(0) @map("input_cost_pico_cny") @db.BigInt
+  cachedInputCostPicoCny           BigInt   @default(0) @map("cached_input_cost_pico_cny") @db.BigInt
+  outputCostPicoCny                BigInt   @default(0) @map("output_cost_pico_cny") @db.BigInt
+  totalCostPicoCny                 BigInt   @default(0) @map("total_cost_pico_cny") @db.BigInt
+  unpricedTokens                   BigInt   @default(0) @map("unpriced_tokens") @db.BigInt
+  observedAt                       DateTime @map("observed_at") @db.Timestamptz(6)
+  createdAt                        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([ownerId, observedAt(sort: Desc)], map: "model_usage_records_owner_observed_idx")
+  @@index([model, observedAt(sort: Desc)], map: "model_usage_records_model_observed_idx")
+  @@index([workload, observedAt(sort: Desc)], map: "model_usage_records_workload_observed_idx")
+  @@index([observedAt(sort: Desc)], map: "model_usage_records_observed_idx")
+  @@index([applicationId, observedAt(sort: Desc)], map: "model_usage_records_application_observed_idx")
+  @@index([conversationId], map: "model_usage_records_conversation_idx")
+  @@index([turnId], map: "model_usage_records_turn_idx")
+  @@index([knowledgeBaseId], map: "model_usage_records_knowledge_base_idx")
+  @@index([documentId], map: "model_usage_records_document_idx")
+  @@map("model_usage_records")
+}
+
+model BillingStatement {
+  id                 String   @id @default(uuid()) @db.Uuid
+  statementNumber    String   @unique(map: "billing_statements_number_key") @map("statement_number") @db.VarChar(40)
+  periodStart        DateTime @map("period_start") @db.Timestamptz(6)
+  periodEndExclusive DateTime @map("period_end_exclusive") @db.Timestamptz(6)
+  timeZone           String   @map("time_zone") @db.VarChar(120)
+  currency           String   @default("CNY") @db.VarChar(3)
+  status             String   @default("generated") @db.VarChar(24)
+  totalCostPicoCny   BigInt   @default(0) @map("total_cost_pico_cny") @db.BigInt
+  unpricedTokens     BigInt   @default(0) @map("unpriced_tokens") @db.BigInt
+  generatedAt        DateTime @map("generated_at") @db.Timestamptz(6)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([periodStart, timeZone], map: "billing_statements_period_timezone_key")
+  @@index([generatedAt(sort: Desc)], map: "billing_statements_generated_idx")
+  @@map("billing_statements")
+}
+
+model BillingStatementLine {
+  id                               String   @id @default(uuid()) @db.Uuid
+  statementId                      String   @map("statement_id") @db.Uuid
+  model                            String   @db.VarChar(240)
+  displayName                      String?  @map("display_name") @db.VarChar(120)
+  totalTokens                      BigInt   @map("total_tokens") @db.BigInt
+  inputTokens                      BigInt   @map("input_tokens") @db.BigInt
+  cachedInputTokens                BigInt   @map("cached_input_tokens") @db.BigInt
+  outputTokens                     BigInt   @map("output_tokens") @db.BigInt
+  reasoningOutputTokens            BigInt   @map("reasoning_output_tokens") @db.BigInt
+  inputPriceMicrosPerMillion       BigInt?  @map("input_price_micros_per_million") @db.BigInt
+  cachedInputPriceMicrosPerMillion BigInt?  @map("cached_input_price_micros_per_million") @db.BigInt
+  outputPriceMicrosPerMillion      BigInt?  @map("output_price_micros_per_million") @db.BigInt
+  mixedPricing                     Boolean  @default(false) @map("mixed_pricing")
+  inputCostPicoCny                 BigInt   @default(0) @map("input_cost_pico_cny") @db.BigInt
+  cachedInputCostPicoCny           BigInt   @default(0) @map("cached_input_cost_pico_cny") @db.BigInt
+  outputCostPicoCny                BigInt   @default(0) @map("output_cost_pico_cny") @db.BigInt
+  totalCostPicoCny                 BigInt   @default(0) @map("total_cost_pico_cny") @db.BigInt
+  unpricedTokens                   BigInt   @default(0) @map("unpriced_tokens") @db.BigInt
+  sortOrder                        Int      @map("sort_order")
+  createdAt                        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([statementId, model], map: "billing_statement_lines_statement_model_key")
+  @@index([statementId, sortOrder], map: "billing_statement_lines_statement_order_idx")
+  @@map("billing_statement_lines")
+}
+
+model ConversationFile {
+  id                    String   @id @default(uuid()) @db.Uuid
+  conversationId        String   @map("conversation_id") @db.Uuid
+  draftId               String?  @map("draft_id") @db.Uuid
+  pendingRequestId      String?  @map("pending_request_id") @db.Uuid
+  turnId                String?  @map("turn_id") @db.Uuid
+  kind                  String   @db.VarChar(32)
+  source                String   @db.VarChar(32)
+  status                String   @db.VarChar(32)
+  filename              String   @db.VarChar(260)
+  mimeType              String?  @map("mime_type") @db.VarChar(160)
+  sizeBytes             BigInt   @map("size_bytes") @db.BigInt
+  checksumSha256        String?  @map("checksum_sha256") @db.VarChar(64)
+  storageBackend        String   @map("storage_backend") @db.VarChar(32)
+  workspaceRelativePath String?  @map("workspace_relative_path") @db.Text
+  minioObjectKey        String?  @map("minio_object_key") @db.Text
+  downloadable          Boolean
+  downloadCardEventId   String?  @map("download_card_event_id") @db.Uuid
+  createdBy             String?  @map("created_by") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([conversationId, kind, createdAt], map: "conversation_files_conversation_kind_created_idx")
+  @@index([draftId], map: "conversation_files_draft_id_idx")
+  @@index([pendingRequestId], map: "conversation_files_pending_request_id_idx")
+  @@index([turnId], map: "conversation_files_turn_id_idx")
+  @@index([minioObjectKey], map: "conversation_files_minio_object_key_idx")
+  @@index([downloadCardEventId], map: "conversation_files_download_card_event_idx")
+  @@index([createdBy], map: "conversation_files_created_by_idx")
+  @@map("conversation_files")
+}
+
+model RetainedArtifact {
+  id                    String   @id @default(uuid()) @db.Uuid
+  originalFileId        String   @unique(map: "retained_artifacts_original_file_id_key") @map("original_file_id") @db.Uuid
+  conversationId        String   @map("conversation_id") @db.Uuid
+  ownerId               String   @map("owner_id") @db.Uuid
+  minioObjectKey        String   @unique(map: "retained_artifacts_minio_object_key_key") @map("minio_object_key") @db.Text
+  mimeType              String?  @map("mime_type") @db.VarChar(160)
+  sizeBytes             BigInt   @map("size_bytes") @db.BigInt
+  checksumSha256        String?  @map("checksum_sha256") @db.VarChar(64)
+  artifactCreatedAt     DateTime @map("artifact_created_at") @db.Timestamptz(6)
+  conversationDeletedAt DateTime @map("conversation_deleted_at") @db.Timestamptz(6)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([conversationId], map: "retained_artifacts_conversation_id_idx")
+  @@index([ownerId], map: "retained_artifacts_owner_id_idx")
+  @@index([conversationDeletedAt], map: "retained_artifacts_deleted_at_idx")
+  @@map("retained_artifacts")
+}
+
+model RuntimeCleanupOutbox {
+  id             String    @id @default(uuid()) @db.Uuid
+  ownerId        String    @map("owner_id") @db.Uuid
+  conversationId String    @unique(map: "runtime_cleanup_outbox_conversation_id_key") @map("conversation_id") @db.Uuid
+  status         String    @default("pending") @db.VarChar(32)
+  stage          String    @default("reconcile") @db.VarChar(32)
+  attemptCount   Int       @default(0) @map("attempt_count")
+  maxAttempts    Int       @default(8) @map("max_attempts")
+  nextAttemptAt  DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  lastAttemptAt  DateTime? @map("last_attempt_at") @db.Timestamptz(6)
+  lastErrorCode  String?   @map("last_error_code") @db.VarChar(120)
+  claimToken     String?   @map("claim_token") @db.Uuid
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, status, createdAt], map: "runtime_cleanup_outbox_owner_status_created_idx")
+  @@index([status, nextAttemptAt, createdAt], map: "runtime_cleanup_outbox_status_next_attempt_idx")
+  @@index([status, leaseExpiresAt], map: "runtime_cleanup_outbox_status_lease_idx")
+  @@map("runtime_cleanup_outbox")
+}
+
+model KnowledgeBase {
+  id                   String    @id @default(uuid()) @db.Uuid
+  ownerId              String    @map("owner_id") @db.Uuid
+  name                 String    @db.VarChar(160)
+  description          String?   @db.Text
+  sourceType           String    @default("local") @map("source_type") @db.VarChar(32)
+  lifecycleStatus      String    @default("active") @map("lifecycle_status") @db.VarChar(32)
+  availabilityStatus   String    @default("enabled") @map("availability_status") @db.VarChar(32)
+  storageUsedBytes     BigInt    @default(0) @map("storage_used_bytes") @db.BigInt
+  storageReservedBytes BigInt    @default(0) @map("storage_reserved_bytes") @db.BigInt
+  archivedAt           DateTime? @map("archived_at") @db.Timestamptz(6)
+  archivedBy           String?   @map("archived_by") @db.Uuid
+  disabledAt           DateTime? @map("disabled_at") @db.Timestamptz(6)
+  disabledBy           String?   @map("disabled_by") @db.Uuid
+  disabledReason       String?   @map("disabled_reason") @db.Text
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy            String?   @map("deleted_by") @db.Uuid
+  deletionReason       String?   @map("deletion_reason") @db.Text
+  cleanupStatus        String    @default("completed") @map("cleanup_status") @db.VarChar(32)
+  cleanupErrorCode     String?   @map("cleanup_error_code") @db.VarChar(120)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, lifecycleStatus, updatedAt(sort: Desc)], map: "knowledge_bases_owner_lifecycle_updated_idx")
+  @@index([lifecycleStatus, availabilityStatus, updatedAt(sort: Desc)], map: "knowledge_bases_state_updated_idx")
+  @@index([cleanupStatus, updatedAt], map: "knowledge_bases_cleanup_status_updated_idx")
+  @@index([name], map: "knowledge_bases_name_idx")
+  @@map("knowledge_bases")
+}
+
+model KnowledgeBaseSource {
+  id                   String    @id @default(uuid()) @db.Uuid
+  knowledgeBaseId      String    @unique(map: "knowledge_base_sources_knowledge_base_id_key") @map("knowledge_base_id") @db.Uuid
+  provider             String    @db.VarChar(32)
+  sourceUrl            String    @map("source_url") @db.Text
+  siteId               String    @map("site_id") @db.Text
+  driveId              String    @map("drive_id") @db.Text
+  rootItemId           String    @map("root_item_id") @db.Text
+  siteName             String    @map("site_name") @db.VarChar(260)
+  driveName            String    @map("drive_name") @db.VarChar(260)
+  folderName           String    @map("folder_name") @db.VarChar(260)
+  deltaLink            String?   @map("delta_link") @db.Text
+  syncFrequency        String    @default("daily") @map("sync_frequency") @db.VarChar(16)
+  syncTimeOfDayMinutes Int       @default(540) @map("sync_time_of_day_minutes")
+  syncTimeZone         String    @default("Asia/Shanghai") @map("sync_time_zone") @db.VarChar(120)
+  syncWeekday          Int?      @map("sync_weekday")
+  syncDayOfMonth       Int?      @map("sync_day_of_month")
+  syncStatus           String    @default("pending") @map("sync_status") @db.VarChar(32)
+  stableErrorCode      String?   @map("stable_error_code") @db.VarChar(120)
+  syncLeaseExpiresAt   DateTime? @map("sync_lease_expires_at") @db.Timestamptz(6)
+  lastSyncedAt         DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  nextSyncAt           DateTime? @map("next_sync_at") @db.Timestamptz(6)
+  createdBy            String    @map("created_by") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([provider, siteId, driveId, rootItemId], map: "knowledge_base_sources_provider_root_key")
+  @@index([syncStatus, nextSyncAt], map: "knowledge_base_sources_sync_due_idx")
+  @@index([syncStatus, syncLeaseExpiresAt], map: "knowledge_base_sources_sync_lease_idx")
+  @@index([createdBy], map: "knowledge_base_sources_created_by_idx")
+  @@map("knowledge_base_sources")
+}
+
+model KnowledgeSourceItem {
+  id                   String    @id @default(uuid()) @db.Uuid
+  sourceId             String    @map("source_id") @db.Uuid
+  externalItemId       String    @map("external_item_id") @db.Text
+  parentExternalItemId String?   @map("parent_external_item_id") @db.Text
+  documentId           String?   @map("document_id") @db.Uuid
+  itemType             String    @map("item_type") @db.VarChar(32)
+  name                 String    @db.VarChar(260)
+  mimeType             String?   @map("mime_type") @db.VarChar(160)
+  sizeBytes            BigInt    @default(0) @map("size_bytes") @db.BigInt
+  etag                 String?   @db.Text
+  ctag                 String?   @db.Text
+  syncedEtag           String?   @map("synced_etag") @db.Text
+  syncedCtag           String?   @map("synced_ctag") @db.Text
+  syncStatus           String    @default("pending") @map("sync_status") @db.VarChar(32)
+  syncAction           String?   @map("sync_action") @db.VarChar(32)
+  syncFailurePhase     String?   @map("sync_failure_phase") @db.VarChar(32)
+  stableErrorCode      String?   @map("stable_error_code") @db.VarChar(120)
+  lastSyncRunId        String?   @map("last_sync_run_id") @db.Uuid
+  webUrl               String?   @map("web_url") @db.Text
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([sourceId, externalItemId], map: "knowledge_source_items_source_external_key")
+  @@index([sourceId, parentExternalItemId], map: "knowledge_source_items_source_parent_idx")
+  @@index([sourceId, deletedAt], map: "knowledge_source_items_source_deleted_idx")
+  @@index([sourceId, syncStatus], map: "knowledge_source_items_source_sync_status_idx")
+  @@index([lastSyncRunId, syncStatus], map: "knowledge_source_items_run_sync_status_idx")
+  @@map("knowledge_source_items")
+}
+
+model KnowledgeSourceSyncRun {
+  id              String    @id @default(uuid()) @db.Uuid
+  sourceId        String    @map("source_id") @db.Uuid
+  triggerType     String    @map("trigger_type") @db.VarChar(32)
+  status          String    @default("running") @db.VarChar(32)
+  phase           String    @default("scanning") @db.VarChar(32)
+  failurePhase    String?   @map("failure_phase") @db.VarChar(32)
+  retryOfRunId    String?   @map("retry_of_run_id") @db.Uuid
+  scanBaseCursor  String?   @map("scan_base_cursor") @db.Text
+  scanCursor      String?   @map("scan_cursor") @db.Text
+  scanDeltaLink   String?   @map("scan_delta_link") @db.Text
+  scannedCount    Int       @default(0) @map("scanned_count")
+  totalCount      Int?      @map("total_count")
+  processedCount  Int       @default(0) @map("processed_count")
+  createdCount    Int       @default(0) @map("created_count")
+  updatedCount    Int       @default(0) @map("updated_count")
+  deletedCount    Int       @default(0) @map("deleted_count")
+  skippedCount    Int       @default(0) @map("skipped_count")
+  retriedCount    Int       @default(0) @map("retried_count")
+  failedCount     Int       @default(0) @map("failed_count")
+  stableErrorCode String?   @map("stable_error_code") @db.VarChar(120)
+  startedAt       DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  completedAt     DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([sourceId, startedAt(sort: Desc)], map: "knowledge_source_sync_runs_source_started_idx")
+  @@index([status, startedAt], map: "knowledge_source_sync_runs_status_started_idx")
+  @@index([retryOfRunId, startedAt], map: "knowledge_source_sync_runs_retry_started_idx")
+  @@map("knowledge_source_sync_runs")
+}
+
+model KnowledgeBaseTombstone {
+  id               String   @id @db.Uuid
+  ownerId          String   @map("owner_id") @db.Uuid
+  deletedBy        String   @map("deleted_by") @db.Uuid
+  deletedAt        DateTime @map("deleted_at") @db.Timestamptz(6)
+  deletionReason   String   @map("deletion_reason") @db.Text
+  cleanupStatus    String   @default("pending") @map("cleanup_status") @db.VarChar(32)
+  cleanupErrorCode String?  @map("cleanup_error_code") @db.VarChar(120)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, deletedAt(sort: Desc)], map: "knowledge_base_tombstones_owner_deleted_idx")
+  @@index([cleanupStatus, updatedAt], map: "knowledge_base_tombstones_cleanup_idx")
+  @@map("knowledge_base_tombstones")
+}
+
+model KnowledgeBaseGrant {
+  id               String    @id @default(uuid()) @db.Uuid
+  knowledgeBaseId  String    @map("knowledge_base_id") @db.Uuid
+  granteeType      String    @map("grantee_type") @db.VarChar(32)
+  userId           String?   @map("user_id") @db.Uuid
+  userGroupId      String?   @map("user_group_id") @db.Uuid
+  permission       String    @default("use") @db.VarChar(32)
+  status           String    @default("active") @db.VarChar(32)
+  grantedBy        String    @map("granted_by") @db.Uuid
+  revokedBy        String?   @map("revoked_by") @db.Uuid
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revocationReason String?   @map("revocation_reason") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([knowledgeBaseId, status, createdAt], map: "knowledge_base_grants_base_status_created_idx")
+  @@index([granteeType, userId, status], map: "knowledge_base_grants_user_status_idx")
+  @@index([granteeType, userGroupId, status], map: "knowledge_base_grants_group_status_idx")
+  @@index([grantedBy], map: "knowledge_base_grants_granted_by_idx")
+  @@index([revokedBy], map: "knowledge_base_grants_revoked_by_idx")
+  @@map("knowledge_base_grants")
+}
+
+model KnowledgeBaseDocument {
+  id                        String    @id @default(uuid()) @db.Uuid
+  knowledgeBaseId           String    @map("knowledge_base_id") @db.Uuid
+  displayName               String    @map("display_name") @db.VarChar(260)
+  normalizedDisplayName     String    @map("normalized_display_name") @db.VarChar(260)
+  canonicalExtension        String    @map("canonical_extension") @db.VarChar(16)
+  mimeType                  String    @map("mime_type") @db.VarChar(160)
+  sizeBytes                 BigInt    @map("size_bytes") @db.BigInt
+  originalSha256            String    @map("original_sha256") @db.VarChar(64)
+  status                    String    @default("processing") @db.VarChar(32)
+  currentVersionId          String?   @map("current_version_id") @db.Uuid
+  candidateVersionId        String?   @map("candidate_version_id") @db.Uuid
+  activeProcessingVersionId String?   @map("active_processing_version_id") @db.Uuid
+  embeddingProfileHash      String?   @map("embedding_profile_hash") @db.VarChar(64)
+  chunkingConfigDigest      String?   @map("chunking_config_digest") @db.VarChar(64)
+  retrievalManifestSha256   String?   @map("retrieval_manifest_sha256") @db.VarChar(64)
+  indexIntegrityDigest      String?   @map("index_integrity_digest") @db.VarChar(64)
+  stableErrorCode           String?   @map("stable_error_code") @db.VarChar(120)
+  cleanupStatus             String    @default("completed") @map("cleanup_status") @db.VarChar(32)
+  cleanupErrorCode          String?   @map("cleanup_error_code") @db.VarChar(120)
+  deletedAt                 DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy                 String?   @map("deleted_by") @db.Uuid
+  deletionReason            String?   @map("deletion_reason") @db.Text
+  createdBy                 String    @map("created_by") @db.Uuid
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([knowledgeBaseId, status, updatedAt(sort: Desc)], map: "knowledge_base_documents_base_status_updated_idx")
+  @@index([knowledgeBaseId, normalizedDisplayName], map: "knowledge_base_documents_base_name_idx")
+  @@index([knowledgeBaseId, originalSha256], map: "knowledge_base_documents_base_sha_idx")
+  @@index([currentVersionId], map: "knowledge_base_documents_current_version_idx")
+  @@index([candidateVersionId], map: "knowledge_base_documents_candidate_version_idx")
+  @@index([activeProcessingVersionId], map: "knowledge_base_documents_processing_version_idx")
+  @@index([cleanupStatus, updatedAt], map: "knowledge_base_documents_cleanup_status_idx")
+  @@map("knowledge_base_documents")
+}
+
+model KnowledgeBaseEntry {
+  id              String   @id @default(uuid()) @db.Uuid
+  knowledgeBaseId String   @map("knowledge_base_id") @db.Uuid
+  parentEntryId   String?  @map("parent_entry_id") @db.Uuid
+  entryType       String   @map("entry_type") @db.VarChar(32)
+  name            String   @db.VarChar(260)
+  normalizedName  String   @map("normalized_name") @db.VarChar(260)
+  documentId      String?  @map("document_id") @db.Uuid
+  sourceItemId    String?  @map("source_item_id") @db.Uuid
+  createdBy       String   @map("created_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([knowledgeBaseId, parentEntryId, normalizedName], map: "knowledge_base_entries_parent_name_idx")
+  @@index([knowledgeBaseId, entryType], map: "knowledge_base_entries_base_type_idx")
+  @@index([parentEntryId], map: "knowledge_base_entries_parent_idx")
+  @@index([documentId], map: "knowledge_base_entries_document_idx")
+  @@index([sourceItemId], map: "knowledge_base_entries_source_item_idx")
+  @@map("knowledge_base_entries")
+}
+
+model KnowledgeBaseDocumentTombstone {
+  id               String   @id @db.Uuid
+  knowledgeBaseId  String   @map("knowledge_base_id") @db.Uuid
+  deletedBy        String   @map("deleted_by") @db.Uuid
+  deletedAt        DateTime @map("deleted_at") @db.Timestamptz(6)
+  deletionReason   String   @map("deletion_reason") @db.Text
+  cleanupStatus    String   @default("pending") @map("cleanup_status") @db.VarChar(32)
+  cleanupErrorCode String?  @map("cleanup_error_code") @db.VarChar(120)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([knowledgeBaseId, deletedAt(sort: Desc)], map: "knowledge_base_document_tombstones_base_deleted_idx")
+  @@index([cleanupStatus, updatedAt], map: "knowledge_base_document_tombstones_cleanup_idx")
+  @@map("knowledge_base_document_tombstones")
+}
+
+model KnowledgeBaseDocumentVersion {
+  id                                 String    @id @default(uuid()) @db.Uuid
+  knowledgeBaseId                    String    @map("knowledge_base_id") @db.Uuid
+  documentId                         String    @map("document_id") @db.Uuid
+  sourceVersionId                    String?   @map("source_version_id") @db.Uuid
+  versionNumber                      Int       @map("version_number")
+  versionStatus                      String    @default("processing") @map("version_status") @db.VarChar(32)
+  operationType                      String    @default("upload") @map("operation_type") @db.VarChar(32)
+  processingGeneration               String    @map("processing_generation") @db.Uuid
+  processingStage                    String    @default("validating") @map("processing_stage") @db.VarChar(32)
+  progressPercent                    Int       @default(10) @map("progress_percent")
+  processingRevision                 BigInt    @default(1) @map("processing_revision") @db.BigInt
+  stageAttemptCount                  Int       @default(0) @map("stage_attempt_count")
+  stableErrorCode                    String?   @map("stable_error_code") @db.VarChar(120)
+  stableErrorParamsJson              Json?     @map("stable_error_params_json") @db.JsonB
+  failedStage                        String?   @map("failed_stage") @db.VarChar(32)
+  retryAt                            DateTime? @map("retry_at") @db.Timestamptz(6)
+  cancelRequestedAt                  DateTime? @map("cancel_requested_at") @db.Timestamptz(6)
+  cancelRequestedBy                  String?   @map("cancel_requested_by") @db.Uuid
+  cancelReason                       String?   @map("cancel_reason") @db.Text
+  originalFilename                   String    @map("original_filename") @db.VarChar(260)
+  canonicalExtension                 String    @map("canonical_extension") @db.VarChar(16)
+  mimeType                           String    @map("mime_type") @db.VarChar(160)
+  sizeBytes                          BigInt    @map("size_bytes") @db.BigInt
+  originalSha256                     String    @map("original_sha256") @db.VarChar(64)
+  doclingBundleObjectId              String?   @map("docling_bundle_object_id") @db.Uuid
+  doclingBundleSha256                String?   @map("docling_bundle_sha256") @db.VarChar(64)
+  displayMarkdownObjectId            String?   @map("display_markdown_object_id") @db.Uuid
+  displayMarkdownSha256              String?   @map("display_markdown_sha256") @db.VarChar(64)
+  doclingJsonObjectId                String?   @map("docling_json_object_id") @db.Uuid
+  doclingJsonSha256                  String?   @map("docling_json_sha256") @db.VarChar(64)
+  hybridChunksObjectId               String?   @map("hybrid_chunks_object_id") @db.Uuid
+  hybridChunksSha256                 String?   @map("hybrid_chunks_sha256") @db.VarChar(64)
+  imageProjectionObjectId            String?   @map("image_projection_object_id") @db.Uuid
+  imageProjectionSha256              String?   @map("image_projection_sha256") @db.VarChar(64)
+  retrievalManifestObjectId          String?   @map("retrieval_manifest_object_id") @db.Uuid
+  retrievalManifestSha256            String?   @map("retrieval_manifest_sha256") @db.VarChar(64)
+  doclingVersion                     String?   @map("docling_version") @db.VarChar(120)
+  parsedAssetCount                   Int?      @map("parsed_asset_count")
+  chunkerVersion                     String?   @map("chunker_version") @db.VarChar(120)
+  parserConfigDigest                 String?   @map("parser_config_digest") @db.VarChar(64)
+  chunkingConfigDigest               String?   @map("chunking_config_digest") @db.VarChar(64)
+  imageUnderstandingConfigDigest     String?   @map("image_understanding_config_digest") @db.VarChar(64)
+  processingConfigJson               Json      @default("{}") @map("processing_config_json") @db.JsonB
+  processingConfigDigest             String?   @map("processing_config_digest") @db.VarChar(64)
+  embeddingProfileHash               String?   @map("embedding_profile_hash") @db.VarChar(64)
+  indexReady                         Boolean   @default(false) @map("index_ready")
+  indexIntegrityDigest               String?   @map("index_integrity_digest") @db.VarChar(64)
+  activationPreviousCurrentVersionId String?   @map("activation_previous_current_version_id") @db.Uuid
+  parentCount                        Int?      @map("parent_count")
+  childCount                         Int?      @map("child_count")
+  startedAt                          DateTime? @map("started_at") @db.Timestamptz(6)
+  completedAt                        DateTime? @map("completed_at") @db.Timestamptz(6)
+  supersededAt                       DateTime? @map("superseded_at") @db.Timestamptz(6)
+  cleanupEligibleAt                  DateTime? @map("cleanup_eligible_at") @db.Timestamptz(6)
+  createdBy                          String    @map("created_by") @db.Uuid
+  createdAt                          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([documentId, versionNumber], map: "knowledge_base_document_versions_document_number_key")
+  @@index([knowledgeBaseId, versionStatus, createdAt], map: "knowledge_base_document_versions_base_status_idx")
+  @@index([documentId, createdAt(sort: Desc)], map: "knowledge_base_document_versions_document_created_idx")
+  @@index([sourceVersionId], map: "knowledge_base_document_versions_source_version_idx")
+  @@index([processingStage, retryAt], map: "knowledge_base_document_versions_stage_retry_idx")
+  @@index([processingGeneration], map: "knowledge_base_document_versions_generation_idx")
+  @@index([cleanupEligibleAt], map: "knowledge_base_document_versions_cleanup_eligible_idx")
+  @@map("knowledge_base_document_versions")
+}
+
+model KnowledgeBaseProcessingAttempt {
+  id                   String    @id @default(uuid()) @db.Uuid
+  knowledgeBaseId      String    @map("knowledge_base_id") @db.Uuid
+  documentId           String    @map("document_id") @db.Uuid
+  documentVersionId    String    @map("document_version_id") @db.Uuid
+  processingGeneration String    @map("processing_generation") @db.Uuid
+  taskKind             String    @map("task_kind") @db.VarChar(32)
+  processingStage      String    @map("processing_stage") @db.VarChar(32)
+  attemptNo            Int       @map("attempt_no")
+  taskId               String    @map("task_id") @db.VarChar(200)
+  status               String    @default("active") @db.VarChar(32)
+  stableErrorCode      String?   @map("stable_error_code") @db.VarChar(120)
+  submittedAt          DateTime  @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  completedAt          DateTime? @map("completed_at") @db.Timestamptz(6)
+  failedAt             DateTime? @map("failed_at") @db.Timestamptz(6)
+  discardedAt          DateTime? @map("discarded_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([documentVersionId, processingGeneration, taskKind, attemptNo], map: "kb_processing_attempts_version_gen_kind_no_key")
+  @@unique([taskKind, taskId], map: "kb_processing_attempts_kind_task_key")
+  @@index([documentVersionId, processingGeneration, taskKind, status], map: "kb_processing_attempts_active_lookup_idx")
+  @@index([status, updatedAt], map: "kb_processing_attempts_status_updated_idx")
+  @@map("knowledge_base_processing_attempts")
+}
+
+model KnowledgeBaseObject {
+  id                   String    @id @default(uuid()) @db.Uuid
+  knowledgeBaseId      String    @map("knowledge_base_id") @db.Uuid
+  documentId           String    @map("document_id") @db.Uuid
+  documentVersionId    String    @map("document_version_id") @db.Uuid
+  processingGeneration String    @map("processing_generation") @db.Uuid
+  objectType           String    @map("object_type") @db.VarChar(32)
+  objectKey            String    @unique(map: "knowledge_base_objects_object_key_key") @map("object_key") @db.Text
+  assetReferenceId     String?   @map("asset_reference_id") @db.Uuid
+  mimeType             String    @map("mime_type") @db.VarChar(160)
+  sizeBytes            BigInt    @map("size_bytes") @db.BigInt
+  checksumSha256       String    @map("checksum_sha256") @db.VarChar(64)
+  lifecycleStatus      String    @default("active") @map("lifecycle_status") @db.VarChar(32)
+  cleanupStatus        String    @default("completed") @map("cleanup_status") @db.VarChar(32)
+  cleanupEligibleAt    DateTime? @map("cleanup_eligible_at") @db.Timestamptz(6)
+  cleanedAt            DateTime? @map("cleaned_at") @db.Timestamptz(6)
+  cleanupErrorCode     String?   @map("cleanup_error_code") @db.VarChar(120)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([knowledgeBaseId, lifecycleStatus, createdAt], map: "knowledge_base_objects_base_lifecycle_idx")
+  @@index([documentId, lifecycleStatus, createdAt], map: "knowledge_base_objects_document_lifecycle_idx")
+  @@index([documentVersionId, processingGeneration, objectType], map: "knowledge_base_objects_version_generation_type_idx")
+  @@index([documentVersionId, processingGeneration, assetReferenceId], map: "knowledge_base_objects_asset_reference_idx")
+  @@index([cleanupStatus, cleanupEligibleAt], map: "knowledge_base_objects_cleanup_idx")
+  @@map("knowledge_base_objects")
+}
+
+model KnowledgeBaseStorageReservation {
+  id                String    @id @default(uuid()) @db.Uuid
+  knowledgeBaseId   String    @map("knowledge_base_id") @db.Uuid
+  documentId        String    @map("document_id") @db.Uuid
+  documentVersionId String    @map("document_version_id") @db.Uuid
+  sizeBytes         BigInt    @map("size_bytes") @db.BigInt
+  objectKeysJson    Json      @map("object_keys_json") @db.JsonB
+  leaseToken        String    @map("lease_token") @db.Uuid
+  leaseExpiresAt    DateTime  @map("lease_expires_at") @db.Timestamptz(6)
+  cleanupStartedAt  DateTime? @map("cleanup_started_at") @db.Timestamptz(6)
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([expiresAt, id], map: "knowledge_base_storage_reservations_expires_idx")
+  @@index([knowledgeBaseId, expiresAt], map: "knowledge_base_storage_reservations_base_expires_idx")
+  @@index([knowledgeBaseId, documentId, documentVersionId], map: "knowledge_base_storage_reservations_target_idx")
+  @@index([objectKeysJson], type: Gin, map: "knowledge_base_storage_reservations_object_keys_idx")
+  @@map("knowledge_base_storage_reservations")
+}
+
+model KnowledgeBaseCleanupOutbox {
+  id                String    @id @default(uuid()) @db.Uuid
+  targetType        String    @map("target_type") @db.VarChar(32)
+  knowledgeBaseId   String    @map("knowledge_base_id") @db.Uuid
+  documentId        String?   @map("document_id") @db.Uuid
+  documentVersionId String?   @map("document_version_id") @db.Uuid
+  objectId          String?   @map("object_id") @db.Uuid
+  status            String    @default("pending") @db.VarChar(32)
+  attemptCount      Int       @default(0) @map("attempt_count")
+  maxAttempts       Int       @default(10) @map("max_attempts")
+  nextAttemptAt     DateTime? @map("next_attempt_at") @db.Timestamptz(6)
+  lastAttemptAt     DateTime? @map("last_attempt_at") @db.Timestamptz(6)
+  lastErrorCode     String?   @map("last_error_code") @db.VarChar(120)
+  requestedBy       String?   @map("requested_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, nextAttemptAt, createdAt], map: "knowledge_base_cleanup_outbox_status_next_idx")
+  @@index([knowledgeBaseId, status], map: "knowledge_base_cleanup_outbox_base_status_idx")
+  @@index([documentId, status], map: "knowledge_base_cleanup_outbox_document_status_idx")
+  @@index([objectId], map: "knowledge_base_cleanup_outbox_object_idx")
+  @@map("knowledge_base_cleanup_outbox")
+}
+
+model KnowledgeBaseMaintenanceTask {
+  id              String    @id @default(uuid()) @db.Uuid
+  taskType        String    @map("task_type") @db.VarChar(32)
+  scope           String    @default("all_documents") @db.VarChar(32)
+  status          String    @default("pending") @db.VarChar(32)
+  requestedBy     String    @map("requested_by") @db.Uuid
+  reason          String    @db.Text
+  confirmedAt     DateTime  @map("confirmed_at") @db.Timestamptz(6)
+  currentStage    String?   @map("current_stage") @db.VarChar(32)
+  totalCount      BigInt    @default(0) @map("total_count") @db.BigInt
+  succeededCount  BigInt    @default(0) @map("succeeded_count") @db.BigInt
+  failedCount     BigInt    @default(0) @map("failed_count") @db.BigInt
+  stableErrorCode String?   @map("stable_error_code") @db.VarChar(120)
+  startedAt       DateTime? @map("started_at") @db.Timestamptz(6)
+  completedAt     DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt], map: "knowledge_base_maintenance_tasks_status_created_idx")
+  @@index([requestedBy, createdAt], map: "knowledge_base_maintenance_tasks_requester_idx")
+  @@map("knowledge_base_maintenance_tasks")
+}
+
+model ConversationMessageKnowledgeCitation {
+  id                        String   @id @default(uuid()) @db.Uuid
+  conversationId            String   @map("conversation_id") @db.Uuid
+  turnId                    String   @map("turn_id") @db.Uuid
+  messageId                 String   @map("message_id") @db.Uuid
+  knowledgeBaseId           String   @map("knowledge_base_id") @db.Uuid
+  documentId                String   @map("document_id") @db.Uuid
+  documentVersionId         String   @map("document_version_id") @db.Uuid
+  knowledgeBaseNameSnapshot String   @map("knowledge_base_name_snapshot") @db.VarChar(160)
+  documentNameSnapshot      String   @map("document_name_snapshot") @db.VarChar(260)
+  parentId                  String   @map("parent_id") @db.VarChar(160)
+  citationNo                Int      @map("citation_no")
+  titlePath                 String[] @default([]) @map("title_path") @db.VarChar(500)
+  matchedChildIds           String[] @default([]) @map("matched_child_ids") @db.VarChar(160)
+  pageNumbers               Int[]    @default([]) @map("page_numbers")
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([messageId, documentVersionId, parentId], map: "conversation_message_knowledge_citations_source_key")
+  @@unique([messageId, citationNo], map: "conversation_message_knowledge_citations_number_key")
+  @@index([messageId, citationNo], map: "conversation_message_knowledge_citations_message_idx")
+  @@index([turnId, createdAt], map: "conversation_message_knowledge_citations_turn_idx")
+  @@index([documentVersionId], map: "conversation_message_knowledge_citations_version_idx")
+  @@index([knowledgeBaseId, documentId], map: "conversation_message_knowledge_citations_base_document_idx")
+  @@map("conversation_message_knowledge_citations")
+}
+
+model ConversationMessageKnowledgeCitationAnchor {
+  id                     String   @id @default(uuid()) @db.Uuid
+  messageId              String   @map("message_id") @db.Uuid
+  citationId             String   @map("citation_id") @db.Uuid
+  occurrenceNo           Int      @map("occurrence_no")
+  anchorAfterOffsetUtf16 Int      @map("anchor_after_offset_utf16")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([messageId, occurrenceNo], map: "conversation_message_knowledge_citation_anchors_occurrence_key")
+  @@unique([citationId, anchorAfterOffsetUtf16], map: "conversation_message_knowledge_citation_anchors_offset_key")
+  @@index([messageId, occurrenceNo], map: "conversation_message_knowledge_citation_anchors_message_idx")
+  @@index([citationId], map: "conversation_message_knowledge_citation_anchors_citation_idx")
+  @@map("conversation_message_knowledge_citation_anchors")
+}
+
+model Automation {
+  id               String    @id @default(uuid()) @db.Uuid
+  ownerId          String    @map("owner_id") @db.Uuid
+  conversationId   String    @map("conversation_id") @db.Uuid
+  title            String    @db.VarChar(160)
+  instruction      String    @db.Text
+  status           String    @db.VarChar(16)
+  modelId          String?   @map("model_id") @db.VarChar(240)
+  reasoningEffort  String?   @map("reasoning_effort") @db.VarChar(32)
+  frequency        String    @db.VarChar(16)
+  intervalCount    Int       @map("interval_count")
+  minuteOfHour     Int?      @map("minute_of_hour")
+  timeOfDayMinutes Int?      @map("time_of_day_minutes")
+  weekdays         Int[]     @default([])
+  dayOfMonth       Int?      @map("day_of_month")
+  monthOfYear      Int?      @map("month_of_year")
+  timeZone         String    @map("time_zone") @db.VarChar(120)
+  anchorAt         DateTime  @map("anchor_at") @db.Timestamptz(6)
+  nextRunAt        DateTime? @map("next_run_at") @db.Timestamptz(6)
+  expiresAt        DateTime? @map("expires_at") @db.Timestamptz(6)
+  lastRunAt        DateTime? @map("last_run_at") @db.Timestamptz(6)
+  lastRunStatus    String?   @map("last_run_status") @db.VarChar(24)
+  lastErrorCode    String?   @map("last_error_code") @db.VarChar(120)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, deletedAt, updatedAt(sort: Desc)], map: "automations_owner_deleted_updated_idx")
+  @@index([status, nextRunAt], map: "automations_status_next_run_idx")
+  @@index([conversationId, deletedAt], map: "automations_conversation_deleted_idx")
+  @@map("automations")
+}
+
+model AutomationRun {
+  id               String    @id @default(uuid()) @db.Uuid
+  automationId     String    @map("automation_id") @db.Uuid
+  ownerId          String    @map("owner_id") @db.Uuid
+  conversationId   String    @map("conversation_id") @db.Uuid
+  scheduledFor     DateTime  @map("scheduled_for") @db.Timestamptz(6)
+  idempotencyKey   String    @unique(map: "automation_runs_idempotency_key") @map("idempotency_key") @db.VarChar(120)
+  status           String    @db.VarChar(24)
+  turnId           String?   @map("turn_id") @db.Uuid
+  pendingRequestId String?   @map("pending_request_id") @db.Uuid
+  errorCode        String?   @map("error_code") @db.VarChar(120)
+  completedAt      DateTime? @map("completed_at") @db.Timestamptz(6)
+  completionReadAt DateTime? @map("completion_read_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([automationId, scheduledFor], map: "automation_runs_automation_scheduled_key")
+  @@index([automationId, createdAt(sort: Desc)], map: "automation_runs_automation_created_idx")
+  @@index([ownerId, createdAt(sort: Desc)], map: "automation_runs_owner_created_idx")
+  @@index([ownerId, completionReadAt, completedAt(sort: Desc)], map: "automation_runs_owner_completion_read_idx")
+  @@index([conversationId, createdAt(sort: Desc)], map: "automation_runs_conversation_created_idx")
+  @@index([status, updatedAt], map: "automation_runs_status_updated_idx")
+  @@map("automation_runs")
+}
+
+model WeixinConnection {
+  id              String    @id @default(uuid()) @db.Uuid
+  ownerId         String    @unique(map: "weixin_connections_owner_key") @map("owner_id") @db.Uuid
+  applicationId   String?   @map("application_id") @db.Uuid
+  applicationName String?   @map("application_name") @db.VarChar(160)
+  ilinkBotId      String    @unique(map: "weixin_connections_ilink_bot_key") @map("ilink_bot_id") @db.Text
+  ilinkUserId     String    @map("ilink_user_id") @db.Text
+  apiBaseUrl      String    @map("api_base_url") @db.Text
+  encryptedState  String    @map("encrypted_state") @db.Text
+  encryptionKeyId String    @map("encryption_key_id") @db.VarChar(80)
+  status          String    @db.VarChar(32)
+  lastPollAt      DateTime? @map("last_poll_at") @db.Timestamptz(6)
+  lastInboundAt   DateTime? @map("last_inbound_at") @db.Timestamptz(6)
+  lastErrorCode   String?   @map("last_error_code") @db.VarChar(120)
+  lastErrorAt     DateTime? @map("last_error_at") @db.Timestamptz(6)
+  nextIngestOrder BigInt    @default(0) @map("next_ingest_order")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, updatedAt], map: "weixin_connections_status_updated_idx")
+  @@index([applicationId], map: "weixin_connections_application_idx")
+  @@map("weixin_connections")
+}
+
+model WeixinPeerSession {
+  id                    String   @id @default(uuid()) @db.Uuid
+  connectionId          String   @map("connection_id") @db.Uuid
+  peerUserId            String   @map("peer_user_id") @db.Text
+  conversationId        String   @map("conversation_id") @db.Uuid
+  applicationIdSnapshot String?  @map("application_id_snapshot") @db.Uuid
+  encryptedContext      String   @map("encrypted_context") @db.Text
+  encryptionKeyId       String   @map("encryption_key_id") @db.VarChar(80)
+  lastInboundAt         DateTime @map("last_inbound_at") @db.Timestamptz(6)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([connectionId, peerUserId], map: "weixin_peer_sessions_connection_peer_key")
+  @@index([conversationId], map: "weixin_peer_sessions_conversation_idx")
+  @@index([connectionId, lastInboundAt(sort: Desc)], map: "weixin_peer_sessions_connection_inbound_idx")
+  @@map("weixin_peer_sessions")
+}
+
+model WeixinInboundMessage {
+  id               String    @id @default(uuid()) @db.Uuid
+  connectionId     String    @map("connection_id") @db.Uuid
+  peerUserId       String    @map("peer_user_id") @db.Text
+  messageKey       String    @map("message_key") @db.VarChar(240)
+  contentText      String    @map("content_text") @db.Text
+  encryptedContext String    @map("encrypted_context") @db.Text
+  encryptionKeyId  String    @map("encryption_key_id") @db.VarChar(80)
+  status           String    @db.VarChar(24)
+  peerSessionId    String?   @map("peer_session_id") @db.Uuid
+  conversationId   String?   @map("conversation_id") @db.Uuid
+  turnId           String?   @map("turn_id") @db.Uuid
+  sourceSequence   BigInt?   @map("source_sequence")
+  ingestOrder      BigInt    @map("ingest_order")
+  processingToken  String?   @map("processing_token") @db.Uuid
+  errorCode        String?   @map("error_code") @db.VarChar(120)
+  attempts         Int       @default(0)
+  nextAttemptAt    DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  processedAt      DateTime? @map("processed_at") @db.Timestamptz(6)
+  receivedAt       DateTime  @map("received_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([connectionId, messageKey], map: "weixin_inbound_messages_connection_message_key")
+  @@index([status, nextAttemptAt, ingestOrder], map: "weixin_inbound_messages_status_next_ingest_idx")
+  @@index([connectionId, peerUserId, status, ingestOrder], map: "weixin_inbound_messages_peer_queue_idx")
+  @@index([conversationId, turnId], map: "weixin_inbound_messages_turn_idx")
+  @@map("weixin_inbound_messages")
+}
+
+model WeixinOutboundDelivery {
+  id               String    @id @default(uuid()) @db.Uuid
+  connectionId     String    @map("connection_id") @db.Uuid
+  peerSessionId    String    @map("peer_session_id") @db.Uuid
+  inboundMessageId String    @unique(map: "weixin_outbound_deliveries_inbound_key") @map("inbound_message_id") @db.Uuid
+  conversationId   String    @map("conversation_id") @db.Uuid
+  turnId           String    @unique(map: "weixin_outbound_deliveries_turn_key") @map("turn_id") @db.Uuid
+  status           String    @db.VarChar(24)
+  processingToken  String?   @map("processing_token") @db.Uuid
+  sentChunkCount   Int       @default(0) @map("sent_chunk_count")
+  attempts         Int       @default(0)
+  nextAttemptAt    DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  lastErrorCode    String?   @map("last_error_code") @db.VarChar(120)
+  sentAt           DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, nextAttemptAt], map: "weixin_outbound_deliveries_status_next_idx")
+  @@index([connectionId, createdAt], map: "weixin_outbound_deliveries_connection_created_idx")
+  @@index([conversationId], map: "weixin_outbound_deliveries_conversation_idx")
+  @@map("weixin_outbound_deliveries")
+}
+
+model FeishuConnection {
+  id                   String    @id @default(uuid()) @db.Uuid
+  ownerId              String    @unique(map: "feishu_connections_owner_key") @map("owner_id") @db.Uuid
+  appId                String    @unique(map: "feishu_connections_app_key") @map("app_id") @db.VarChar(64)
+  ownerOpenId          String    @map("owner_open_id") @db.VarChar(128)
+  botName              String?   @map("bot_name") @db.VarChar(120)
+  domain               String    @db.VarChar(16)
+  encryptedCredentials String    @map("encrypted_credentials") @db.Text
+  encryptionKeyId      String    @map("encryption_key_id") @db.VarChar(80)
+  status               String    @db.VarChar(32)
+  lastConnectedAt      DateTime? @map("last_connected_at") @db.Timestamptz(6)
+  lastInboundAt        DateTime? @map("last_inbound_at") @db.Timestamptz(6)
+  lastErrorCode        String?   @map("last_error_code") @db.VarChar(120)
+  lastErrorAt          DateTime? @map("last_error_at") @db.Timestamptz(6)
+  nextIngestOrder      BigInt    @default(0) @map("next_ingest_order")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, updatedAt], map: "feishu_connections_status_updated_idx")
+  @@map("feishu_connections")
+}
+
+model FeishuAppBinding {
+  id          String   @id @default(uuid()) @db.Uuid
+  ownerId     String   @unique(map: "feishu_app_bindings_owner_key") @map("owner_id") @db.Uuid
+  appId       String   @unique(map: "feishu_app_bindings_app_key") @map("app_id") @db.VarChar(64)
+  ownerOpenId String   @map("owner_open_id") @db.VarChar(128)
+  domain      String   @db.VarChar(16)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("feishu_app_bindings")
+}
+
+model FeishuPeerSession {
+  id             String   @id @default(uuid()) @db.Uuid
+  connectionId   String   @map("connection_id") @db.Uuid
+  chatId         String   @map("chat_id") @db.VarChar(128)
+  senderOpenId   String   @map("sender_open_id") @db.VarChar(128)
+  conversationId String   @map("conversation_id") @db.Uuid
+  lastInboundAt  DateTime @map("last_inbound_at") @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([connectionId, chatId], map: "feishu_peer_sessions_connection_chat_key")
+  @@index([conversationId], map: "feishu_peer_sessions_conversation_idx")
+  @@index([connectionId, lastInboundAt(sort: Desc)], map: "feishu_peer_sessions_connection_inbound_idx")
+  @@map("feishu_peer_sessions")
+}
+
+model FeishuInboundMessage {
+  id              String    @id @default(uuid()) @db.Uuid
+  connectionId    String    @map("connection_id") @db.Uuid
+  messageKey      String    @map("message_key") @db.VarChar(240)
+  chatId          String    @map("chat_id") @db.VarChar(128)
+  senderOpenId    String    @map("sender_open_id") @db.VarChar(128)
+  contentText     String    @map("content_text") @db.Text
+  status          String    @db.VarChar(24)
+  peerSessionId   String?   @map("peer_session_id") @db.Uuid
+  conversationId  String?   @map("conversation_id") @db.Uuid
+  turnId          String?   @map("turn_id") @db.Uuid
+  ingestOrder     BigInt    @map("ingest_order")
+  processingToken String?   @map("processing_token") @db.Uuid
+  errorCode       String?   @map("error_code") @db.VarChar(120)
+  attempts        Int       @default(0)
+  nextAttemptAt   DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  processedAt     DateTime? @map("processed_at") @db.Timestamptz(6)
+  receivedAt      DateTime  @map("received_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([connectionId, messageKey], map: "feishu_inbound_messages_connection_message_key")
+  @@index([status, nextAttemptAt, ingestOrder], map: "feishu_inbound_messages_status_next_ingest_idx")
+  @@index([connectionId, chatId, status, ingestOrder], map: "feishu_inbound_messages_chat_queue_idx")
+  @@index([conversationId, turnId], map: "feishu_inbound_messages_turn_idx")
+  @@map("feishu_inbound_messages")
+}
+
+model FeishuOutboundDelivery {
+  id               String    @id @default(uuid()) @db.Uuid
+  connectionId     String    @map("connection_id") @db.Uuid
+  peerSessionId    String    @map("peer_session_id") @db.Uuid
+  inboundMessageId String    @unique(map: "feishu_outbound_deliveries_inbound_key") @map("inbound_message_id") @db.Uuid
+  conversationId   String    @map("conversation_id") @db.Uuid
+  turnId           String    @unique(map: "feishu_outbound_deliveries_turn_key") @map("turn_id") @db.Uuid
+  status           String    @db.VarChar(24)
+  processingToken  String?   @map("processing_token") @db.Uuid
+  sentChunkCount   Int       @default(0) @map("sent_chunk_count")
+  attempts         Int       @default(0)
+  nextAttemptAt    DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  lastErrorCode    String?   @map("last_error_code") @db.VarChar(120)
+  sentAt           DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, nextAttemptAt], map: "feishu_outbound_deliveries_status_next_idx")
+  @@index([connectionId, createdAt], map: "feishu_outbound_deliveries_connection_created_idx")
+  @@index([conversationId], map: "feishu_outbound_deliveries_conversation_idx")
+  @@map("feishu_outbound_deliveries")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  actorId      String?  @map("actor_id") @db.Uuid
+  action       String   @db.VarChar(160)
+  targetType   String?  @map("target_type") @db.VarChar(80)
+  targetId     String?  @map("target_id") @db.VarChar(160)
+  result       String   @db.VarChar(32)
+  metadataJson Json?    @map("metadata_json") @db.JsonB
+  ipAddress    String?  @map("ip_address") @db.Inet
+  userAgent    String?  @map("user_agent") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt], map: "audit_logs_created_at_idx")
+  @@index([actorId], map: "audit_logs_actor_id_idx")
+  @@index([action], map: "audit_logs_action_idx")
+  @@index([targetType, targetId], map: "audit_logs_target_idx")
+  @@map("audit_logs")
+}
+
+model Feedback {
+  id             String   @id @default(uuid()) @db.Uuid
+  submitterId    String   @map("submitter_id") @db.Uuid
+  submitterName  String   @map("submitter_name") @db.VarChar(120)
+  submitterEmail String   @map("submitter_email") @db.VarChar(320)
+  content        String   @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)], map: "feedbacks_created_id_idx")
+  @@index([submitterId, createdAt(sort: Desc)], map: "feedbacks_submitter_created_idx")
+  @@map("feedbacks")
+}
+
+model FeedbackImage {
+  id             String   @id @default(uuid()) @db.Uuid
+  feedbackId     String   @map("feedback_id") @db.Uuid
+  objectKey      String   @unique(map: "feedback_images_object_key_key") @map("object_key") @db.Text
+  filename       String   @db.VarChar(260)
+  mimeType       String   @map("mime_type") @db.VarChar(160)
+  sizeBytes      BigInt   @map("size_bytes") @db.BigInt
+  checksumSha256 String   @map("checksum_sha256") @db.VarChar(64)
+  sortOrder      Int      @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([feedbackId, sortOrder], map: "feedback_images_feedback_order_key")
+  @@index([feedbackId, createdAt], map: "feedback_images_feedback_created_idx")
+  @@map("feedback_images")
+}
+
+model SystemSetting {
+  id           String   @id @default("00000000-0000-4000-8000-000000000001") @db.Uuid
+  settingsJson Json     @map("settings_json") @db.JsonB
+  updatedBy    String?  @map("updated_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([updatedBy], map: "system_settings_updated_by_idx")
+  @@map("system_settings")
+}

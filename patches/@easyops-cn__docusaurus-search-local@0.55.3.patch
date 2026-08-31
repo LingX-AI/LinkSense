@@ -1,0 +1,150 @@
+diff --git a/dist/client/client/theme/SearchBar/SearchBar.jsx b/dist/client/client/theme/SearchBar/SearchBar.jsx
+index 10ef222..4328669 100644
+--- a/dist/client/client/theme/SearchBar/SearchBar.jsx
++++ b/dist/client/client/theme/SearchBar/SearchBar.jsx
+@@ -398,15 +398,25 @@ export default function SearchBar({ handleSearchBarToggle, }) {
+             id: "theme.SearchBar.label",
+             message: "Search",
+             description: "The ARIA label and placeholder for search button",
+-        })} aria-label="Search" className={`navbar__search-input ${styles.searchInput}`} onMouseEnter={onInputMouseEnter} onFocus={onInputFocus} onBlur={onInputBlur} onChange={onInputChange} ref={searchBarRef} value={inputValue}/>
++        })} aria-label={translate({
++            id: "theme.SearchBar.label",
++            message: "Search",
++            description: "The ARIA label and placeholder for search button",
++        })} className={`navbar__search-input ${styles.searchInput}`} onMouseEnter={onInputMouseEnter} onFocus={onInputFocus} onBlur={onInputBlur} onChange={onInputChange} ref={searchBarRef} value={inputValue}/>
+       {askAi && AskAIWidgetComponent && (<AskAIWidgetComponent ref={askAIWidgetRef} {...askAi}>
+           <span hidden></span>
+         </AskAIWidgetComponent>)}
+       <LoadingRing className={styles.searchBarLoadingRing}/>
+       {searchBarShortcut &&
+             searchBarShortcutHint &&
+-            (inputValue !== "" ? (<button className={styles.searchClearButton} onClick={onClearSearch}>
+-            ✕
++            (inputValue !== "" ? (<button aria-label={translate({
++            id: "theme.SearchBar.clearButtonLabel",
++            message: "Clear search",
++            description: "The ARIA label for the button that clears the search input",
++        })} className={styles.searchClearButton} onClick={onClearSearch}>
++            <svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14">
++              <path d="m4 4 8 8m0-8-8 8" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5"/>
++            </svg>
+           </button>) : (isBrowser &&
+                 searchBarShortcutKeymap && (<div className={styles.searchHintContainer}>
+               {getKeymapHints(searchBarShortcutKeymap, isMac).map((hint, index) => (<kbd key={index} className={styles.searchHint}>
+diff --git a/dist/client/client/theme/SearchPage/SearchPage.jsx b/dist/client/client/theme/SearchPage/SearchPage.jsx
+index 2efb8b4..ad88ab7 100644
+--- a/dist/client/client/theme/SearchPage/SearchPage.jsx
++++ b/dist/client/client/theme/SearchPage/SearchPage.jsx
+@@ -1,4 +1,4 @@
+-import React, { useCallback, useEffect, useMemo, useState } from "react";
++import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
+ import Layout from "@theme/Layout";
+ import Head from "@docusaurus/Head";
+@@ -28,6 +28,7 @@ function SearchPageContent() {
+     const { searchValue, searchContext, searchVersion, updateSearchPath, updateSearchContext, } = useSearchQuery();
+     const [searchQuery, setSearchQuery] = useState(searchValue);
+     const [searchResults, setSearchResults] = useState();
++    const searchInputRef = useRef(null);
+     const versionUrl = `${baseUrl}${searchVersion}`;
+     const pageTitle = useMemo(() => searchQuery
+         ? translate({
+@@ -59,6 +60,10 @@ function SearchPageContent() {
+     const handleSearchInputChange = useCallback((e) => {
+         setSearchQuery(e.target.value);
+     }, []);
++    const handleClearSearch = useCallback(() => {
++        setSearchQuery("");
++        searchInputRef.current?.focus();
++    }, []);
+     useEffect(() => {
+         if (searchValue && searchValue !== searchQuery) {
+             setSearchQuery(searchValue);
+@@ -95,7 +100,22 @@ function SearchPageContent() {
+             "col--9": Array.isArray(searchContextByPaths),
+             "col--12": !Array.isArray(searchContextByPaths),
+         })}>
+-            <input type="search" name="q" className={styles.searchQueryInput} aria-label="Search" onChange={handleSearchInputChange} value={searchQuery} autoComplete="off" autoFocus/>
++            <div className={styles.searchQueryControl}>
++              <input ref={searchInputRef} type="search" name="q" className={styles.searchQueryInput} aria-label={translate({
++            id: "theme.SearchBar.label",
++            message: "Search",
++            description: "The ARIA label and placeholder for search button",
++        })} onChange={handleSearchInputChange} value={searchQuery} autoComplete="off" autoFocus/>
++              {searchQuery ? (<button type="button" className={styles.searchQueryClearButton} aria-label={translate({
++            id: "theme.SearchBar.clearButtonLabel",
++            message: "Clear search",
++            description: "The ARIA label for the button that clears the search input",
++        })} onClick={handleClearSearch}>
++                  <svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14">
++                    <path d="m4 4 8 8m0-8-8 8" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5"/>
++                  </svg>
++                </button>) : null}
++            </div>
+           </div>
+           {Array.isArray(searchContextByPaths) ? (<div className={clsx("col", "col--3", "padding-left--none", styles.searchContextColumn)}>
+               <select name="search-context" className={styles.searchContextInput} id="context-selector" value={searchContext} onChange={(e) => updateSearchContext(e.target.value)}>
+diff --git a/dist/client/client/theme/SearchPage/SearchPage.module.css b/dist/client/client/theme/SearchPage/SearchPage.module.css
+index 79b0d94..be28bc9 100644
+--- a/dist/client/client/theme/SearchPage/SearchPage.module.css
++++ b/dist/client/client/theme/SearchPage/SearchPage.module.css
+@@ -11,6 +11,48 @@
+   margin-bottom: 1rem;
+ }
+ 
++.searchQueryControl {
++  position: relative;
++  margin-bottom: 1rem;
++}
++
++.searchQueryControl .searchQueryInput {
++  margin-bottom: 0;
++  padding-inline-end: 2.75rem;
++  -webkit-appearance: none;
++  appearance: none;
++}
++
++.searchQueryInput::-webkit-search-cancel-button,
++.searchQueryInput::-webkit-search-decoration {
++  -webkit-appearance: none;
++  appearance: none;
++}
++
++.searchQueryClearButton {
++  position: absolute;
++  top: 50%;
++  inset-inline-end: 6px;
++  display: grid;
++  width: 24px;
++  height: 24px;
++  padding: 0;
++  transform: translateY(-50%);
++  place-items: center;
++  border: 0;
++  border-radius: calc(
++    var(--linksense-radius, var(--ifm-global-radius)) * 0.6
++  );
++  background: transparent;
++  color: var(--linksense-muted, var(--ifm-color-content-secondary));
++  cursor: pointer;
++}
++
++.searchQueryClearButton:hover {
++  background: var(--linksense-hover, var(--ifm-hover-overlay));
++  color: var(--linksense-text, var(--ifm-font-color-base));
++}
++
+ .searchResultItem {
+   padding: 1rem 0px;
+   border-bottom: 1px solid rgb(223, 227, 232);
+diff --git a/dist/locales/zh-Hans.json b/dist/locales/zh-Hans.json
+index e213b0c..2555137 100644
+--- a/dist/locales/zh-Hans.json
++++ b/dist/locales/zh-Hans.json
+@@ -1,5 +1,6 @@
+ {
+   "theme.SearchBar.label": "搜索",
++  "theme.SearchBar.clearButtonLabel": "清除搜索",
+   "theme.SearchBar.seeAll": "查看全部结果",
+   "theme.SearchBar.noResultsText": "没有找到任何文档",
+   "theme.SearchBar.searchInContext": "查看“{context}”以内的全部结果",

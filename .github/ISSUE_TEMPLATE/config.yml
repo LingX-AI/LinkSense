@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report / 安全漏洞报告
+    url: https://github.com/LingX-AI/linksense/security/policy
+    about: Report vulnerabilities privately. / 请私下报告安全漏洞。
+  - name: Questions and ideas / 问题与讨论
+    url: https://github.com/LingX-AI/linksense/discussions
+    about: Ask usage questions and discuss ideas. / 使用问题和方案讨论。

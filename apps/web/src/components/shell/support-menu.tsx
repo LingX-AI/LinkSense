@@ -1,0 +1,412 @@
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type FormEvent,
+} from "react"
+import { useMutation } from "@tanstack/react-query"
+import {
+  FEEDBACK_MAX_IMAGES,
+  FEEDBACK_MAX_IMAGE_SIZE_BYTES,
+  feedbackSubmissionResultSchema,
+} from "@linksense/shared"
+import {
+  CircleHelpIcon,
+  FileImageIcon,
+  ImagePlusIcon,
+  LifeBuoyIcon,
+  MessageSquareTextIcon,
+  Trash2Icon,
+} from "lucide-react"
+import { useTranslation } from "react-i18next"
+import { useLocation } from "react-router-dom"
+
+import { notify } from "@/components/feedback/notification"
+import { StatusBanner } from "@/components/feedback/status-banner"
+import { FieldShell } from "@/components/forms/form-field"
+import { apiRequest } from "@/api/client"
+import { getErrorMessage } from "@/api/error-message"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Spinner } from "@/components/ui/spinner"
+import { normalizeLanguage } from "@/i18n"
+import { buildHelpCenterHref } from "@/lib/help-center"
+import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
+
+type SupportMenuProps = {
+  className?: string
+}
+
+type SelectedFeedbackImage = {
+  id: number
+  file: File
+}
+
+const acceptedFeedbackImageTypes = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+])
+
+export function SupportMenu({ className }: SupportMenuProps) {
+  const { t, i18n } = useTranslation()
+  const location = useLocation()
+  const feedbackId = useId()
+  const feedbackImagesId = useId()
+  const imageInputRef = useRef<HTMLInputElement | null>(null)
+  const nextImageIdRef = useRef(0)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedback, setFeedback] = useState("")
+  const [images, setImages] = useState<SelectedFeedbackImage[]>([])
+  const [imageError, setImageError] = useState<string | null>(null)
+  const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
+  const helpCenterHref = buildHelpCenterHref(location.pathname, language)
+  const normalizedFeedback = feedback.trim()
+  const submission = useMutation({
+    mutationFn: async () => {
+      const body = new FormData()
+      body.append("content", normalizedFeedback)
+      for (const image of images) body.append("images", image.file)
+      return apiRequest("/feedback", {
+        method: "POST",
+        body,
+        schema: feedbackSubmissionResultSchema,
+      })
+    },
+  })
+
+  const resetFeedback = () => {
+    setFeedback("")
+    setImages([])
+    setImageError(null)
+    submission.reset()
+    if (imageInputRef.current) imageInputRef.current.value = ""
+  }
+
+  const handleFeedbackSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!normalizedFeedback || submission.isPending) return
+
+    try {
+      await submission.mutateAsync()
+      resetFeedback()
+      setFeedbackOpen(false)
+      notify.success(t("support.feedbackSubmitted"), {
+        id: "support-feedback-submitted",
+      })
+    } catch {
+      // The mutation error is rendered below while preserving the draft.
+    }
+  }
+
+  const addImages = (files: FileList | readonly File[] | null) => {
+    if (!files || files.length === 0) return
+    const additions = Array.from(files)
+    if (images.length + additions.length > FEEDBACK_MAX_IMAGES) {
+      setImageError(
+        t("support.feedbackImageCountError", { count: FEEDBACK_MAX_IMAGES })
+      )
+      if (imageInputRef.current) imageInputRef.current.value = ""
+      return
+    }
+    if (
+      additions.some(
+        (file) =>
+          !acceptedFeedbackImageTypes.has(file.type) ||
+          file.size <= 0 ||
+          file.size > FEEDBACK_MAX_IMAGE_SIZE_BYTES
+      )
+    ) {
+      setImageError(t("support.feedbackImageInvalid"))
+      if (imageInputRef.current) imageInputRef.current.value = ""
+      return
+    }
+    setImages((current) => [
+      ...current,
+      ...additions.map((file) => ({
+        id: nextImageIdRef.current++,
+        file,
+      })),
+    ])
+    setImageError(null)
+    submission.reset()
+    if (imageInputRef.current) imageInputRef.current.value = ""
+  }
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={className}
+              aria-label={t("support.menuLabel")}
+            />
+          }
+        >
+          <CircleHelpIcon aria-hidden="true" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          side="top"
+          align="start"
+          sideOffset={8}
+          className="min-w-40"
+        >
+          <DropdownMenuGroup>
+            <DropdownMenuItem onClick={() => setFeedbackOpen(true)}>
+              <MessageSquareTextIcon aria-hidden="true" />
+              {t("support.feedback")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              render={
+                <a
+                  href={helpCenterHref}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  aria-label={t("nav.helpCenterNewTab")}
+                />
+              }
+            >
+              <LifeBuoyIcon aria-hidden="true" />
+              {t("support.help")}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog
+        open={feedbackOpen}
+        onOpenChange={(open) => {
+          if (!open && submission.isPending) return
+          setFeedbackOpen(open)
+          if (!open) resetFeedback()
+        }}
+      >
+        <DialogContent closeLabel={t("common.close")} className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t("support.feedbackTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("support.feedbackDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="flex flex-col gap-6"
+            onSubmit={(event) => void handleFeedbackSubmit(event)}
+          >
+            <FieldShell id={feedbackId} label={t("support.feedbackLabel")}>
+              <Textarea
+                id={feedbackId}
+                value={feedback}
+                rows={6}
+                maxLength={2_000}
+                autoFocus={shouldAutoFocusOnDesktop()}
+                placeholder={t("support.feedbackPlaceholder")}
+                aria-invalid={submission.isError || undefined}
+                disabled={submission.isPending}
+                onChange={(event) => {
+                  setFeedback(event.target.value)
+                  submission.reset()
+                }}
+                onPaste={(event) => {
+                  const clipboardImages = getClipboardImages(event)
+                  if (clipboardImages.length === 0) return
+
+                  addImages(clipboardImages)
+                  const includesText = Array.from(
+                    event.clipboardData.items
+                  ).some(
+                    (item) =>
+                      item.kind === "string" && item.type === "text/plain"
+                  )
+                  if (!includesText) event.preventDefault()
+                }}
+              />
+            </FieldShell>
+            <FieldShell
+              id={feedbackImagesId}
+              label={t("support.feedbackImagesLabel")}
+              hint={t("support.feedbackImagesHint", {
+                count: FEEDBACK_MAX_IMAGES,
+                size: FEEDBACK_MAX_IMAGE_SIZE_BYTES / 1024 / 1024,
+              })}
+              error={imageError ?? undefined}
+            >
+              <Input
+                ref={imageInputRef}
+                id={feedbackImagesId}
+                className="sr-only"
+                type="file"
+                multiple
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                disabled={
+                  submission.isPending || images.length >= FEEDBACK_MAX_IMAGES
+                }
+                onChange={(event) => addImages(event.target.files)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="w-fit"
+                disabled={
+                  submission.isPending || images.length >= FEEDBACK_MAX_IMAGES
+                }
+                onClick={() => imageInputRef.current?.click()}
+              >
+                <ImagePlusIcon data-icon="inline-start" />
+                {t("support.addFeedbackImages")}
+              </Button>
+              {images.length > 0 && (
+                <ul
+                  className="grid grid-cols-3 gap-3 sm:grid-cols-5"
+                  aria-label={t("support.selectedFeedbackImages")}
+                >
+                  {images.map((image) => (
+                    <FeedbackImageSelection
+                      key={image.id}
+                      image={image}
+                      disabled={submission.isPending}
+                      removeLabel={t("support.removeFeedbackImage", {
+                        name: image.file.name,
+                      })}
+                      onRemove={() => {
+                        setImages((current) =>
+                          current.filter(
+                            (candidate) => candidate.id !== image.id
+                          )
+                        )
+                        setImageError(null)
+                        submission.reset()
+                      }}
+                    />
+                  ))}
+                </ul>
+              )}
+            </FieldShell>
+            {submission.isError && (
+              <StatusBanner variant="error">
+                {getErrorMessage(submission.error, t)}
+              </StatusBanner>
+            )}
+            <DialogFooter>
+              <DialogClose
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={submission.isPending}
+                  />
+                }
+              >
+                {t("common.cancel")}
+              </DialogClose>
+              <Button
+                type="submit"
+                disabled={!normalizedFeedback || submission.isPending}
+                aria-busy={submission.isPending || undefined}
+              >
+                {submission.isPending && <Spinner data-icon="inline-start" />}
+                {t(
+                  submission.isPending
+                    ? "support.submittingFeedback"
+                    : "support.submitFeedback"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+function getClipboardImages(event: ClipboardEvent<HTMLTextAreaElement>) {
+  const itemImages = Array.from(event.clipboardData.items)
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null)
+
+  if (itemImages.length > 0) return itemImages
+
+  return Array.from(event.clipboardData.files).filter((file) =>
+    file.type.startsWith("image/")
+  )
+}
+
+function FeedbackImageSelection({
+  image,
+  disabled,
+  removeLabel,
+  onRemove,
+}: {
+  image: SelectedFeedbackImage
+  disabled: boolean
+  removeLabel: string
+  onRemove: () => void
+}) {
+  const [source, setSource] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (typeof URL.createObjectURL !== "function") return
+    const objectUrl = URL.createObjectURL(image.file)
+    let active = true
+    queueMicrotask(() => {
+      if (active) setSource(objectUrl)
+    })
+    return () => {
+      active = false
+      URL.revokeObjectURL(objectUrl)
+    }
+  }, [image.file])
+
+  return (
+    <li className="relative aspect-square min-w-0 overflow-hidden rounded-xl border border-divider bg-muted">
+      {source ? (
+        <img
+          src={source}
+          alt={image.file.name}
+          width="96"
+          height="96"
+          className="size-full object-contain"
+        />
+      ) : (
+        <span className="flex size-full items-center justify-center text-muted-foreground">
+          <FileImageIcon aria-hidden="true" />
+        </span>
+      )}
+      <Button
+        type="button"
+        variant="secondary"
+        size="icon-sm"
+        className="absolute top-1 right-1"
+        disabled={disabled}
+        aria-label={removeLabel}
+        onClick={onRemove}
+      >
+        <Trash2Icon />
+      </Button>
+    </li>
+  )
+}

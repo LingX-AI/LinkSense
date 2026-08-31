@@ -1,0 +1,12 @@
+{
+  "name": "@linksense/worker-browser-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "license": "CPAL-1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.6.4",
+  "description": "Locked Chromium automation runtime for LinkSense task workers",
+  "dependencies": {
+    "@playwright/cli": "0.1.17"
+  }
+}

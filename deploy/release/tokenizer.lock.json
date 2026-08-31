@@ -1,0 +1,14 @@
+{
+  "source": "https://huggingface.co/Qwen/Qwen3-Embedding-4B",
+  "repository": "Qwen/Qwen3-Embedding-4B",
+  "license": "Apache-2.0",
+  "revision": "5cf2132abc99cad020ac570b19d031efec650f2b",
+  "mountPath": "/models/tokenizers/Qwen3-Embedding-4B",
+  "files": [
+    "config.json",
+    "merges.txt",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "vocab.json"
+  ]
+}

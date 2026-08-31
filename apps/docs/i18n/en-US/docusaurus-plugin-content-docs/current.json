@@ -1,0 +1,46 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.helpSidebar.category.用户指南": {
+    "message": "User guide",
+    "description": "The label for category '用户指南' in sidebar 'helpSidebar'"
+  },
+  "sidebar.helpSidebar.category.开始使用": {
+    "message": "Getting started",
+    "description": "The label for category '开始使用' in sidebar 'helpSidebar'"
+  },
+  "sidebar.helpSidebar.category.任务": {
+    "message": "Tasks",
+    "description": "The label for category '任务' in sidebar 'helpSidebar'"
+  },
+  "sidebar.helpSidebar.category.插件中心": {
+    "message": "Plugin Center",
+    "description": "The label for category '插件中心' in sidebar 'helpSidebar'"
+  },
+  "sidebar.helpSidebar.category.知识库": {
+    "message": "Knowledge bases",
+    "description": "The label for category '知识库' in sidebar 'helpSidebar'"
+  },
+  "sidebar.helpSidebar.category.个人设置": {
+    "message": "Personal settings",
+    "description": "The label for category '个人设置' in sidebar 'helpSidebar'"
+  },
+  "sidebar.helpSidebar.category.开发者指南": {
+    "message": "Developer guide",
+    "description": "The label for category '开发者指南' in sidebar 'helpSidebar'"
+  },
+  "sidebar.helpSidebar.category.管理员指南": {
+    "message": "Administrator guide",
+    "description": "The label for category '管理员指南' in sidebar 'helpSidebar'"
+  },
+  "sidebar.helpSidebar.category.用户与权限": {
+    "message": "Users and permissions",
+    "description": "The label for category '用户与权限' in sidebar 'helpSidebar'"
+  },
+  "sidebar.helpSidebar.category.知识库治理": {
+    "message": "Knowledge governance",
+    "description": "The label for category '知识库治理' in sidebar 'helpSidebar'"
+  }
+}

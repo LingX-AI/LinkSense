@@ -1,0 +1,107 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:24-bookworm-slim
+ARG UV_VERSION=0.9.13
+ARG DEBIAN_MIRROR_URL=http://deb.debian.org/debian
+ARG DEBIAN_SECURITY_MIRROR_URL=http://security.debian.org/debian-security
+ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL=https://registry.npmjs.org/
+ARG PRISMA_ENGINES_MIRROR=https://binaries.prisma.sh
+
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
+FROM ${NODE_IMAGE} AS toolchain
+ARG DEBIAN_MIRROR_URL
+ARG DEBIAN_SECURITY_MIRROR_URL
+ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL
+ARG PRISMA_ENGINES_MIRROR
+ENV PNPM_HOME=/pnpm
+ENV COREPACK_HOME=/pnpm/corepack
+ENV PATH=${PNPM_HOME}:${PATH}
+ENV NPM_CONFIG_REGISTRY=${LINKSENSE_NODE_PACKAGE_REGISTRY_URL}
+RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
+  && corepack enable \
+  && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@10.6.4 --activate
+WORKDIR /workspace
+COPY --chmod=0755 deploy/docker/configure-debian-apt.sh /usr/local/bin/configure-debian-apt
+RUN DEBIAN_MIRROR_URL="${DEBIAN_MIRROR_URL}" \
+    DEBIAN_SECURITY_MIRROR_URL="${DEBIAN_SECURITY_MIRROR_URL}" \
+    /usr/local/bin/configure-debian-apt \
+  && apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates openssl \
+  && rm -rf /var/lib/apt/lists/*
+
+FROM toolchain AS dependencies
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml prisma.config.ts tsconfig.base.json ./
+COPY patches patches
+COPY apps/api/package.json apps/api/package.json
+COPY apps/docs/package.json apps/docs/package.json
+COPY apps/runner/package.json apps/runner/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/shared/package.json packages/shared/package.json
+RUN pnpm install --frozen-lockfile
+
+FROM dependencies AS build
+ARG PRISMA_ENGINES_MIRROR
+ENV PRISMA_ENGINES_MIRROR=${PRISMA_ENGINES_MIRROR}
+COPY apps/api apps/api
+COPY apps/docs/docs apps/docs/docs
+COPY apps/docs/i18n/en-US/docusaurus-plugin-content-docs/current apps/docs/i18n/en-US/docusaurus-plugin-content-docs/current
+COPY packages/shared packages/shared
+COPY prisma prisma
+# Prisma 7 loads prisma.config.ts even for client generation. Generation does
+# not connect to PostgreSQL, but the config still requires a syntactically
+# valid URL; keep this build-only placeholder out of every runtime image.
+RUN DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build pnpm db:generate \
+  && pnpm --filter @linksense/shared build \
+  && pnpm --filter @linksense/api build \
+  && pnpm --filter @linksense/api deploy --prod --legacy /opt/linksense-api
+
+FROM dependencies AS migration
+ARG PRISMA_ENGINES_MIRROR
+ENV PRISMA_ENGINES_MIRROR=${PRISMA_ENGINES_MIRROR}
+ARG MIGRATION_IMAGE_FINGERPRINT=unversioned
+LABEL com.linksense.migration.fingerprint=${MIGRATION_IMAGE_FINGERPRINT}
+COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
+COPY prisma prisma
+# The seed imports the generated Prisma client from the API source tree. The
+# migration image does not need the API bundle or its production deploy step.
+RUN mkdir -p apps/api/src \
+  && DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build pnpm db:generate
+CMD ["sh", "-c", "pnpm db:migrate:deploy && pnpm db:seed"]
+
+FROM ${NODE_IMAGE} AS runtime
+ARG DEBIAN_MIRROR_URL
+ARG DEBIAN_SECURITY_MIRROR_URL
+COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
+COPY --chmod=0755 deploy/docker/configure-debian-apt.sh /usr/local/bin/configure-debian-apt
+COPY --from=uv /uv /usr/local/bin/uv
+RUN DEBIAN_MIRROR_URL="${DEBIAN_MIRROR_URL}" \
+    DEBIAN_SECURITY_MIRROR_URL="${DEBIAN_SECURITY_MIRROR_URL}" \
+    /usr/local/bin/configure-debian-apt \
+  && apt-get update \
+  && apt-get install --yes --no-install-recommends \
+    ca-certificates \
+    curl \
+    fontconfig \
+    fonts-dejavu-core \
+    fonts-liberation2 \
+    fonts-noto-cjk \
+    libreoffice-calc \
+    libreoffice-core \
+    libreoffice-draw \
+    libreoffice-impress \
+    libreoffice-writer \
+    openssl \
+    python3 \
+    python3-uno \
+  && uv venv --python /usr/bin/python3 --system-site-packages /opt/linksense/unoserver \
+  && UV_NO_CACHE=1 uv pip install --python /opt/linksense/unoserver/bin/python "unoserver==3.7" \
+  && /opt/linksense/unoserver/bin/python -c 'import uno, unoserver' \
+  && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=build --chown=node:node /opt/linksense-api ./
+ENV NODE_ENV=production
+ENV PATH=/opt/linksense/unoserver/bin:${PATH}
+USER node
+EXPOSE 4000
+CMD ["node", "dist/index.js"]

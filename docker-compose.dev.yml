@@ -1,0 +1,210 @@
+services:
+  # Development keeps the production service topology and host-backed user
+  # directory while running source-aware Linux images for hot reload.
+  api:
+    image: linksense-api-dev:${LINKSENSE_DEV_IMAGE_TAG:-local}
+    build: !override
+      context: .
+      dockerfile: Dockerfile.dev
+      target: development
+      args:
+        PNPM_VERSION: ${PNPM_VERSION:-10.6.4}
+        DEV_IMAGE_FINGERPRINT: ${LINKSENSE_DEV_IMAGE_FINGERPRINT:-unversioned}
+        DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
+        DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
+        LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
+        PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://binaries.prisma.sh}
+    command: ["pnpm", "--filter", "@linksense/api", "dev"]
+    user: "node"
+    read_only: false
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      NODE_OPTIONS: --conditions=development
+      # Docker Desktop may resolve public domains through its 198.18.0.0/15
+      # DNS proxy. Only this explicit development setting trusts that mapping.
+      LINKSENSE_SAFE_HTTP_ALLOW_BENCHMARK_PROXY: "true"
+    ports:
+      - "${LINKSENSE_DEV_API_BIND_ADDRESS:-127.0.0.1}:${LINKSENSE_DEV_API_PORT:-4000}:4000"
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/api/src
+          target: /workspace/apps/api/src
+          initial_sync: true
+        - action: sync
+          path: ./packages/shared/src
+          target: /workspace/packages/shared/src
+          initial_sync: true
+        - action: sync+restart
+          path: ./apps/api/tsconfig.json
+          target: /workspace/apps/api/tsconfig.json
+        - action: rebuild
+          path: ./apps/api/package.json
+        - action: rebuild
+          path: ./packages/shared/package.json
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./pnpm-lock.yaml
+        - action: rebuild
+          path: ./patches
+
+  runner:
+    image: linksense-runner-controller-dev:${LINKSENSE_DEV_IMAGE_TAG:-local}
+    build: !override
+      context: .
+      dockerfile: Dockerfile.dev
+      target: development
+      args:
+        PNPM_VERSION: ${PNPM_VERSION:-10.6.4}
+        DEV_IMAGE_FINGERPRINT: ${LINKSENSE_DEV_IMAGE_FINGERPRINT:-unversioned}
+        DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
+        DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
+        LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
+        PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://binaries.prisma.sh}
+    command: ["pnpm", "--filter", "@linksense/runner", "dev"]
+    user: "0:0"
+    read_only: false
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      NODE_OPTIONS: --conditions=development
+      LINKSENSE_ENABLE_DEVELOPMENT_ENDPOINTS: "true"
+      # Hot reload must not delete task workers. Explicit dev stop/rebuild calls
+      # the authenticated cleanup endpoint before Compose changes networks.
+      LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN: "false"
+      LINKSENSE_WORKER_IMAGE_REVISION: ${LINKSENSE_WORKER_IMAGE_REVISION:-unversioned}
+    ports:
+      - "${LINKSENSE_DEV_RUNNER_BIND_ADDRESS:-127.0.0.1}:${LINKSENSE_DEV_RUNNER_PORT:-4010}:4010"
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/runner/src
+          target: /workspace/apps/runner/src
+          initial_sync: true
+        - action: sync
+          path: ./packages/shared/src
+          target: /workspace/packages/shared/src
+          initial_sync: true
+        - action: sync+restart
+          path: ./apps/runner/tsconfig.json
+          target: /workspace/apps/runner/tsconfig.json
+        - action: rebuild
+          path: ./apps/runner/package.json
+        - action: rebuild
+          path: ./packages/shared/package.json
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./pnpm-lock.yaml
+        - action: rebuild
+          path: ./patches
+
+  web:
+    image: linksense-web-dev:${LINKSENSE_DEV_IMAGE_TAG:-local}
+    build: !override
+      context: .
+      dockerfile: Dockerfile.dev
+      target: development
+      args:
+        PNPM_VERSION: ${PNPM_VERSION:-10.6.4}
+        DEV_IMAGE_FINGERPRINT: ${LINKSENSE_DEV_IMAGE_FINGERPRINT:-unversioned}
+        DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
+        DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
+        LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
+        PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://binaries.prisma.sh}
+    command:
+      [
+        "pnpm",
+        "--parallel",
+        "--stream",
+        "--filter",
+        "@linksense/web",
+        "--filter",
+        "@linksense/docs",
+        "dev",
+      ]
+    user: "node"
+    read_only: false
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:4000}
+      LINKSENSE_DEV_API_PROXY_TARGET: http://api:4000
+      LINKSENSE_DEV_DOCS_PROXY_TARGET: http://127.0.0.1:3001
+    ports: !override
+      - "${LINKSENSE_DEV_WEB_BIND_ADDRESS:-127.0.0.1}:${LINKSENSE_DEV_WEB_PORT:-5173}:5173"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:5173/ >/dev/null && curl -fsS http://127.0.0.1:3001/help/ >/dev/null",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/web/src
+          target: /workspace/apps/web/src
+          initial_sync: true
+        - action: sync
+          path: ./apps/web/public
+          target: /workspace/apps/web/public
+          initial_sync: true
+        - action: sync+restart
+          path: ./apps/docs/docs
+          target: /workspace/apps/docs/docs
+          initial_sync: true
+        - action: sync+restart
+          path: ./apps/docs/i18n
+          target: /workspace/apps/docs/i18n
+          initial_sync: true
+        - action: sync+restart
+          path: ./apps/docs/src
+          target: /workspace/apps/docs/src
+          initial_sync: true
+        # Docusaurus copies static assets into its generated help site. Keep
+        # these in the development container too, otherwise a newly added
+        # favicon or navbar logo is referenced by the rebuilt HTML but returns
+        # 404 through the /help proxy.
+        - action: sync+restart
+          path: ./apps/docs/static
+          target: /workspace/apps/docs/static
+          initial_sync: true
+        - action: sync+restart
+          path: ./apps/docs/docusaurus.config.ts
+          target: /workspace/apps/docs/docusaurus.config.ts
+        - action: sync+restart
+          path: ./apps/docs/sidebars.ts
+          target: /workspace/apps/docs/sidebars.ts
+        # Shared contracts are imported through Vite's external workspace
+        # module graph. Docker Compose file sync does not reliably emit the
+        # filesystem event Vite needs to invalidate its transformed module
+        # cache, so restart the dev server whenever a shared contract changes.
+        - action: sync+restart
+          path: ./packages/shared/src
+          target: /workspace/packages/shared/src
+          initial_sync: true
+        - action: sync+restart
+          path: ./apps/web/index.html
+          target: /workspace/apps/web/index.html
+        - action: sync+restart
+          path: ./apps/web/vite.config.ts
+          target: /workspace/apps/web/vite.config.ts
+          initial_sync: true
+        - action: rebuild
+          path: ./apps/web/package.json
+        - action: rebuild
+          path: ./apps/docs/package.json
+        - action: rebuild
+          path: ./packages/shared/package.json
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./pnpm-lock.yaml
+        - action: rebuild
+          path: ./patches

@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:24-bookworm-slim
+ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL=https://registry.npmjs.org/
+
+FROM ${NODE_IMAGE} AS build
+ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL
+ENV PNPM_HOME=/pnpm
+ENV COREPACK_HOME=/pnpm/corepack
+ENV PATH=${PNPM_HOME}:${PATH}
+ENV NPM_CONFIG_REGISTRY=${LINKSENSE_NODE_PACKAGE_REGISTRY_URL}
+RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
+  && corepack enable \
+  && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@10.6.4 --activate
+WORKDIR /workspace
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY patches patches
+COPY apps/api/package.json apps/api/package.json
+COPY apps/docs/package.json apps/docs/package.json
+COPY apps/runner/package.json apps/runner/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/shared/package.json packages/shared/package.json
+RUN pnpm install --frozen-lockfile
+COPY apps/docs apps/docs
+COPY apps/web apps/web
+COPY packages/shared packages/shared
+ARG VITE_API_BASE_URL=
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+RUN pnpm --filter @linksense/shared build \
+  && pnpm --filter @linksense/web build \
+  && pnpm --filter @linksense/docs build
+
+FROM nginx:1.28-alpine AS runtime
+ENV NGINX_ENVSUBST_FILTER=^NGINX_
+ENV NGINX_CLIENT_MAX_BODY_SIZE=110m
+COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
+COPY deploy/nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=build /workspace/apps/web/dist /usr/share/nginx/html
+COPY --from=build /workspace/apps/docs/build /usr/share/nginx/html/help
+# Production Git checkout intentionally uses umask 077. Vite preserves the
+# source mode of copied public assets, so normalize the complete static tree
+# only after both Web and Help Center files have been copied.
+RUN chmod -R u=rwX,go=rX /usr/share/nginx/html
+EXPOSE 80
