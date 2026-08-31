@@ -522,6 +522,19 @@ test("hosted workflows install the Redis runtime required by API tests", async (
   }
 })
 
+test("hosted workflows execute the privileged runner filesystem test as root", async () => {
+  for (const workflow of ["ci.yml", "release.yml"]) {
+    const source = await readFile(
+      path.join(root, ".github/workflows", workflow),
+      "utf8",
+    )
+    assert.match(
+      source,
+      /sudo env "PATH=\$PATH" pnpm --filter @linksense\/runner exec vitest run test\/workspace-manager\.test\.ts/u,
+    )
+  }
+})
+
 function composeEnvironment(edition) {
   const digest = "a".repeat(64)
   const image = (name) => `ghcr.io/example/${name}@sha256:${digest}`

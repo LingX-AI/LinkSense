@@ -119,6 +119,9 @@ jobs:
           pnpm typecheck
           pnpm lint
           pnpm build
+      - name: Run privileged runner filesystem test
+        run: |
+          sudo env "PATH=$PATH" pnpm --filter @linksense/runner exec vitest run test/workspace-manager.test.ts
 
   images:
     needs: [prepare, verify]

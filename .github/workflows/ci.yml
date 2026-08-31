@@ -64,5 +64,9 @@ jobs:
           pnpm --filter @linksense/web test:unit
           pnpm --filter @linksense/docs test
 
+      - name: Run privileged runner filesystem test
+        run: |
+          sudo env "PATH=$PATH" pnpm --filter @linksense/runner exec vitest run test/workspace-manager.test.ts
+
       - name: Build production artifacts
         run: pnpm build

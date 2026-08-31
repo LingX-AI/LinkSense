@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import {
   chmod,
+  chown,
   lstat,
   mkdir,
   mkdtemp,
@@ -83,12 +84,14 @@ describe("workspace filesystem helpers", () => {
     ).toBe(false)
   })
 
-  it.runIf(process.platform === "linux")(
+  it.runIf(process.platform === "linux" && process.geteuid?.() === 0)(
     "widens a task-owned directory through the isolated identity helper",
     async () => {
       const root = await tempRoot()
       const directory = path.join(root, "task-owned")
+      await chmod(root, 0o711)
       await mkdir(directory, { mode: 0o700 })
+      await chown(directory, 1001, 1001)
       const info = await lstat(directory)
 
       await widenDirectoryForSharedGroup(directory, info.mode, {
