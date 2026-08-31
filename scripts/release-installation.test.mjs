@@ -267,6 +267,10 @@ test("the private-source release workflow validates candidates before promotion"
   assert.match(workflow, /pnpm db:generate/u)
   assert.match(
     workflow,
+    /sudo apt-get install --yes --no-install-recommends redis-server/u,
+  )
+  assert.match(
+    workflow,
     /DATABASE_URL: postgresql:\/\/build:build@127\.0\.0\.1:5432\/build/u,
   )
   assert.match(workflow, /sbom: true/u)
@@ -500,6 +504,21 @@ test("all workflows use the resolvable pinned pnpm setup action", async () => {
       source,
       /pnpm\/action-setup@a7487c7e89a18df4991f222e4898a00d66ddda/u,
     )
+  }
+})
+
+test("hosted workflows install the Redis runtime required by API tests", async () => {
+  for (const workflow of ["ci.yml", "release.yml"]) {
+    const source = await readFile(
+      path.join(root, ".github/workflows", workflow),
+      "utf8",
+    )
+    const installPosition = source.indexOf(
+      "sudo apt-get install --yes --no-install-recommends redis-server",
+    )
+    const testPosition = source.indexOf("pnpm --filter @linksense/api test")
+    assert.ok(installPosition >= 0)
+    assert.ok(testPosition > installPosition)
   }
 })
 

@@ -36,6 +36,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Redis test runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends redis-server
+
       - name: Generate Prisma client
         run: pnpm db:generate
         env:

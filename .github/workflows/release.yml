@@ -97,6 +97,10 @@ jobs:
         run: scripts/run-gitleaks.sh
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Install Redis test runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends redis-server
       - name: Audit production dependencies
         run: pnpm audit --registry=https://registry.npmjs.org --prod --audit-level high
       - name: Generate Prisma client
