@@ -844,6 +844,9 @@ describe("knowledge-base document and access management", () => {
     const updatedAt = knowledgeBaseLink.querySelector<HTMLTimeElement>(
       'time[datetime="2026-07-22T01:01:00.000Z"]'
     )
+    if (!updatedAt) {
+      throw new Error("Expected the knowledge-base update timestamp")
+    }
     const row = card?.querySelector('[data-slot="card-content"]')
     expect(row).toHaveClass("knowledge-card-row")
     expect(sourceText).toHaveClass("knowledge-card-source-text")
