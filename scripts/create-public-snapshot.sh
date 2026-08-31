@@ -41,7 +41,7 @@ trap cleanup EXIT HUP INT TERM
 (
   cd "$repository_root"
   git ls-files --cached --others --exclude-standard -z |
-    tar --null -T - \
+    tar --null \
       --exclude='requirements' \
       --exclude='requirements/*' \
       --exclude='training' \
@@ -53,6 +53,7 @@ trap cleanup EXIT HUP INT TERM
       --exclude='outputs/*' \
       --exclude='tmp' \
       --exclude='tmp/*' \
+      -T - \
       -cf -
 ) | tar -xf - -C "$stage"
 

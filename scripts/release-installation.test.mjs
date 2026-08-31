@@ -469,6 +469,40 @@ test("the public snapshot keeps AGENTS.md and excludes private planning material
   }
 })
 
+test("the public snapshot applies exclusions before the tar file list", async () => {
+  const source = await readFile(
+    path.join(root, "scripts/create-public-snapshot.sh"),
+    "utf8",
+  )
+  const fileListPosition = source.indexOf("-T -")
+  assert.ok(fileListPosition > 0)
+  for (const exclusion of [
+    "--exclude='requirements'",
+    "--exclude='training'",
+    "--exclude='design-qa.md'",
+  ]) {
+    const exclusionPosition = source.indexOf(exclusion)
+    assert.ok(exclusionPosition >= 0)
+    assert.ok(exclusionPosition < fileListPosition)
+  }
+})
+
+test("all workflows use the resolvable pinned pnpm setup action", async () => {
+  const expectedReference =
+    "pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1"
+  for (const workflow of ["ci.yml", "release.yml", "security.yml"]) {
+    const source = await readFile(
+      path.join(root, ".github/workflows", workflow),
+      "utf8",
+    )
+    assert.match(source, new RegExp(expectedReference))
+    assert.doesNotMatch(
+      source,
+      /pnpm\/action-setup@a7487c7e89a18df4991f222e4898a00d66ddda/u,
+    )
+  }
+})
+
 function composeEnvironment(edition) {
   const digest = "a".repeat(64)
   const image = (name) => `ghcr.io/example/${name}@sha256:${digest}`
