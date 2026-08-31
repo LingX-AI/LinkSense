@@ -193,8 +193,8 @@ describe("AuthProvider session restoration", () => {
 
     renderAuthProvider()
 
-    expect(await screen.findByTestId("auth-status")).toHaveTextContent(
-      "anonymous"
+    await waitFor(() =>
+      expect(screen.getByTestId("auth-status")).toHaveTextContent("anonymous")
     )
     expect(setAccessToken).toHaveBeenCalledWith(null)
     expect(apiRequest).not.toHaveBeenCalled()

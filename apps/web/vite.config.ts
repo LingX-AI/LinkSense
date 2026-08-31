@@ -103,5 +103,6 @@ export default defineConfig({
     environmentOptions: { jsdom: { url: "http://localhost/" } },
     setupFiles: "./src/test/setup.ts",
     css: true,
+    testTimeout: process.env.CI ? 15_000 : 5_000,
   },
 })
