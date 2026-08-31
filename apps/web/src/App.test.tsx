@@ -3484,9 +3484,14 @@ describe("LinkSense application", () => {
       releaseEventStream?.()
       await eventStreamStart
     })
-    expect(
-      await screen.findByText(partialText, undefined, { timeout: 10_000 })
-    ).toBeVisible()
+    await waitFor(
+      () => {
+        const messages = screen.getAllByText(partialText)
+        expect(messages).toHaveLength(1)
+        expect(messages[0]).toBeVisible()
+      },
+      { timeout: 10_000 }
+    )
     await waitFor(
       () => {
         expect(
@@ -3504,10 +3509,14 @@ describe("LinkSense application", () => {
     firstMount.unmount()
     renderApp()
 
-    expect(
-      await screen.findByText(partialText, undefined, { timeout: 10_000 })
-    ).toBeVisible()
-    expect(screen.getAllByText(partialText)).toHaveLength(1)
+    await waitFor(
+      () => {
+        const messages = screen.getAllByText(partialText)
+        expect(messages).toHaveLength(1)
+        expect(messages[0]).toBeVisible()
+      },
+      { timeout: 10_000 }
+    )
   }, 30_000)
 
   it("uploads all pasted files one at a time", async () => {
