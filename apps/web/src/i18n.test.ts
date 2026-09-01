@@ -327,6 +327,15 @@ describe("i18n resources", () => {
     expect(enUS.common.pageLoading).toBe("Loading…")
   })
 
+  it("localizes session restoration failures", () => {
+    expect(zhCN.auth.sessionRestoreFailed).toBe(
+      "登录状态恢复失败，请检查网络后重试。"
+    )
+    expect(enUS.auth.sessionRestoreFailed).toBe(
+      "Your sign-in session could not be restored. Check your connection and try again."
+    )
+  })
+
   it("uses title case for shared English action labels", () => {
     expect(enUS.common.gotIt).toBe("Got It")
     expect(enUS.common.signOut).toBe("Sign Out")

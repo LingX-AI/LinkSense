@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom"
 import { z } from "zod"
 
 import { apiRequest } from "@/api/client"
-import { bootstrapSchema, userSchema } from "@/api/contracts"
+import { bootstrapSchema, initializeSystemResultSchema } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
 import { useBootstrap } from "@/app/bootstrap-state"
 import { useProductName } from "@/app/product-branding"
@@ -58,7 +58,7 @@ export function InitializePage() {
             ? { initialization_credential: initializationCredential.trim() }
             : {}),
         },
-        schema: z.object({ user: userSchema }),
+        schema: initializeSystemResultSchema,
         skipRefresh: true,
       }),
     onSuccess: async () => {

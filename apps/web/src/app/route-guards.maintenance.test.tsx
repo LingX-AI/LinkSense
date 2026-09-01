@@ -125,7 +125,7 @@ function renderPublicAuthRoute({
   status,
   initialEntry = "/login",
 }: {
-  status: "loading" | "authenticated" | "anonymous"
+  status: "loading" | "authenticated" | "anonymous" | "error"
   initialEntry?: string | { pathname: string; state?: Record<string, unknown> }
 }) {
   return render(
@@ -167,6 +167,18 @@ describe("public authentication route guard", () => {
     renderPublicAuthRoute({ status: "loading" })
 
     expect(screen.getByRole("status")).toHaveTextContent("正在加载")
+    expect(
+      screen.queryByRole("heading", { name: "Login page" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows a retry action when the saved session cannot be restored", () => {
+    renderPublicAuthRoute({ status: "error" })
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "登录状态恢复失败，请检查网络后重试。"
+    )
+    expect(screen.getByRole("button", { name: "重试" })).toBeVisible()
     expect(
       screen.queryByRole("heading", { name: "Login page" })
     ).not.toBeInTheDocument()

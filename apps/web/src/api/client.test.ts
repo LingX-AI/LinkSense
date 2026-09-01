@@ -7,6 +7,7 @@ import {
   apiStreamRequest,
   apiUploadRequest,
   downloadApiFile,
+  isRetryableApiError,
   refreshSession,
 } from "@/api/client"
 import { getAccessToken, setAccessToken } from "@/api/session"
@@ -16,6 +17,32 @@ function json(data: unknown, status = 200) {
     status,
     headers: { "content-type": "application/json" },
   })
+}
+
+const refreshedAccessToken = "refreshed-access-token".padEnd(48, "x")
+const refreshedStreamToken = "refreshed-stream-token".padEnd(48, "x")
+
+function authSession(accessToken: string) {
+  return {
+    access_token: accessToken,
+    access_token_expires_at: "2099-01-01T00:00:00.000Z",
+    refresh_session_expires_at: "2099-03-01T00:00:00.000Z",
+    user: {
+      id: "00000000-0000-4000-8000-000000000001",
+      email: "person@example.com",
+      name: "Person",
+      avatar_object_key: null,
+      role: "admin",
+      status: "active",
+      preferred_locale: "zh-CN",
+      running_message_action: "queue",
+      last_login_at: "2026-08-31T08:00:00.000Z",
+      last_login_method: "password",
+      password_updated_at: "2026-08-01T08:00:00.000Z",
+      created_at: "2026-08-01T08:00:00.000Z",
+      updated_at: "2026-08-31T08:00:00.000Z",
+    },
+  }
 }
 
 function installImmediateWebLock() {
@@ -116,6 +143,32 @@ describe("API response parsing", () => {
   })
 })
 
+describe("API retry classification", () => {
+  it("retries only network and server failures", () => {
+    expect(
+      isRetryableApiError(
+        new ApiError({ status: 0, errorCode: "NETWORK_UNAVAILABLE" })
+      )
+    ).toBe(true)
+    expect(
+      isRetryableApiError(
+        new ApiError({ status: 503, errorCode: "SERVICE_UNAVAILABLE" })
+      )
+    ).toBe(true)
+    expect(
+      isRetryableApiError(
+        new ApiError({ status: 200, errorCode: "API_RESPONSE_INVALID" })
+      )
+    ).toBe(false)
+    expect(
+      isRetryableApiError(
+        new ApiError({ status: 401, errorCode: "AUTH_SESSION_EXPIRED" })
+      )
+    ).toBe(false)
+    expect(isRetryableApiError(new Error("unexpected"))).toBe(false)
+  })
+})
+
 describe("authenticated API recovery", () => {
   beforeEach(() => {
     installImmediateWebLock()
@@ -170,10 +223,7 @@ describe("authenticated API recovery", () => {
       .mockResolvedValueOnce(
         json({
           success: true,
-          data: {
-            access_token: "refreshed-access-token",
-            access_token_expires_at: "2099-01-01T00:00:00.000Z",
-          },
+          data: authSession(refreshedAccessToken),
         })
       )
       .mockRejectedValueOnce(new TypeError("network unavailable"))
@@ -187,7 +237,7 @@ describe("authenticated API recovery", () => {
       status: 0,
       errorCode: "NETWORK_UNAVAILABLE",
     })
-    expect(getAccessToken()).toBe("refreshed-access-token")
+    expect(getAccessToken()).toBe(refreshedAccessToken)
   })
 
   it("keeps the refreshed token when the retried request returns a server error", async () => {
@@ -201,10 +251,7 @@ describe("authenticated API recovery", () => {
         .mockResolvedValueOnce(
           json({
             success: true,
-            data: {
-              access_token: "refreshed-access-token",
-              access_token_expires_at: "2099-01-01T00:00:00.000Z",
-            },
+            data: authSession(refreshedAccessToken),
           })
         )
         .mockResolvedValueOnce(
@@ -215,7 +262,7 @@ describe("authenticated API recovery", () => {
     await expect(
       apiRequest("/me", { schema: z.unknown() })
     ).rejects.toMatchObject({ status: 500, errorCode: "INTERNAL_ERROR" })
-    expect(getAccessToken()).toBe("refreshed-access-token")
+    expect(getAccessToken()).toBe(refreshedAccessToken)
   })
 
   it("clears the token only when refresh is definitively expired", async () => {
@@ -270,10 +317,7 @@ describe("authenticated API recovery", () => {
       .mockResolvedValueOnce(
         json({
           success: true,
-          data: {
-            access_token: "refreshed-stream-token",
-            access_token_expires_at: "2099-01-01T00:00:00.000Z",
-          },
+          data: authSession(refreshedStreamToken),
         })
       )
       .mockResolvedValueOnce(
@@ -297,10 +341,10 @@ describe("authenticated API recovery", () => {
       "Bearer stale-access-token"
     )
     expect(new Headers(retriedRequest.headers).get("Authorization")).toBe(
-      "Bearer refreshed-stream-token"
+      `Bearer ${refreshedStreamToken}`
     )
     expect(retriedRequest.body).toBe(firstRequest.body)
-    expect(getAccessToken()).toBe("refreshed-stream-token")
+    expect(getAccessToken()).toBe(refreshedStreamToken)
   })
 
   it("forwards AbortSignal cancellation from an authenticated stream", async () => {
@@ -347,7 +391,7 @@ describe("authenticated file downloads", () => {
       .mockResolvedValueOnce(
         json({
           success: true,
-          data: { access_token: "refreshed-access-token", expires_in: 7200 },
+          data: authSession(refreshedAccessToken),
         })
       )
       .mockResolvedValueOnce(
@@ -373,9 +417,9 @@ describe("authenticated file downloads", () => {
       (fetchMock.mock.calls[2]?.[1] as RequestInit).headers
     )
     expect(finalHeaders.get("Authorization")).toBe(
-      "Bearer refreshed-access-token"
+      `Bearer ${refreshedAccessToken}`
     )
-    expect(getAccessToken()).toBe("refreshed-access-token")
+    expect(getAccessToken()).toBe(refreshedAccessToken)
   })
 
   it("forwards cancellation to an authenticated file request without rewriting it as a network error", async () => {

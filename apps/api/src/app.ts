@@ -4,6 +4,7 @@ import jwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
 import {
   FEEDBACK_MAX_TOTAL_IMAGE_SIZE_BYTES,
+  initializeSystemResultSchema,
   knowledgeBaseCreationCapabilitySchema,
   knowledgeSearchCapabilitySchema,
   type MaintenanceStatus,
@@ -217,7 +218,9 @@ export async function buildApi(
     });
     return reply.code(201).send({
       success: true,
-      data: { user: projectAuthenticatedUser(result.user) },
+      data: initializeSystemResultSchema.parse({
+        user: projectAuthenticatedUser(result.user),
+      }),
       request_id: request.id,
     });
   });

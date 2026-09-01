@@ -4,9 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   apiRequest,
   isDefinitiveAuthenticationError,
+  isRetryableApiError,
   refreshSession,
 } from "@/api/client"
-import { bootstrapSchema, type AuthSession, type User } from "@/api/contracts"
+import { bootstrapSchema, type AccessSession, type User } from "@/api/contracts"
 import { setAccessToken } from "@/api/session"
 import { AuthProvider } from "@/app/auth-context"
 import { useAuth } from "@/app/auth-state"
@@ -21,6 +22,7 @@ const sessionState = vi.hoisted(() => ({
 vi.mock("@/api/client", () => ({
   apiRequest: vi.fn(),
   isDefinitiveAuthenticationError: vi.fn(),
+  isRetryableApiError: vi.fn(),
   refreshSession: vi.fn(),
 }))
 
@@ -97,6 +99,8 @@ describe("AuthProvider session restoration", () => {
     vi.mocked(refreshSession).mockReset()
     vi.mocked(isDefinitiveAuthenticationError).mockReset()
     vi.mocked(isDefinitiveAuthenticationError).mockReturnValue(false)
+    vi.mocked(isRetryableApiError).mockReset()
+    vi.mocked(isRetryableApiError).mockReturnValue(false)
     vi.mocked(setAccessToken).mockClear()
     vi.mocked(setAppLanguage).mockClear()
   })
@@ -160,6 +164,7 @@ describe("AuthProvider session restoration", () => {
 
   it("keeps the session loading after a temporary failure and retries automatically", async () => {
     vi.useFakeTimers()
+    vi.mocked(isRetryableApiError).mockReturnValue(true)
     sessionState.token = "persisted-access-token"
     vi.mocked(apiRequest)
       .mockRejectedValueOnce(new Error("temporary network failure"))
@@ -184,6 +189,52 @@ describe("AuthProvider session restoration", () => {
     expect(refreshSession).not.toHaveBeenCalled()
   })
 
+  it("stops immediately when session restoration fails with a non-retryable response", async () => {
+    vi.useFakeTimers()
+    vi.mocked(refreshSession).mockRejectedValue(
+      new Error("invalid authentication response")
+    )
+
+    renderAuthProvider()
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId("auth-status")).toHaveTextContent("error")
+    expect(refreshSession).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+
+    expect(refreshSession).toHaveBeenCalledTimes(1)
+  })
+
+  it("stops after three attempts when session restoration keeps failing temporarily", async () => {
+    vi.useFakeTimers()
+    vi.mocked(isRetryableApiError).mockReturnValue(true)
+    vi.mocked(refreshSession).mockRejectedValue(
+      new Error("service unavailable")
+    )
+
+    renderAuthProvider()
+
+    await act(async () => {
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(4_000)
+    })
+
+    expect(refreshSession).toHaveBeenCalledTimes(3)
+    expect(screen.getByTestId("auth-status")).toHaveTextContent("error")
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+
+    expect(refreshSession).toHaveBeenCalledTimes(3)
+  })
+
   it("clears the session only when refresh reports a definitive authentication failure", async () => {
     const expiredSessionError = new Error("refresh session expired")
     vi.mocked(refreshSession).mockRejectedValue(expiredSessionError)
@@ -201,7 +252,7 @@ describe("AuthProvider session restoration", () => {
   })
 
   it("persists the access-token expiry when accepting a new session", async () => {
-    const session: AuthSession = {
+    const session: AccessSession = {
       access_token: "new-access-token",
       access_token_expires_at: "2026-07-13T12:00:00.000Z",
     }

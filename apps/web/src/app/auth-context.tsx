@@ -4,9 +4,10 @@ import type { ReactNode } from "react"
 import {
   apiRequest,
   isDefinitiveAuthenticationError,
+  isRetryableApiError,
   refreshSession,
 } from "@/api/client"
-import { userSchema, type AuthSession, type User } from "@/api/contracts"
+import { userSchema, type AccessSession, type User } from "@/api/contracts"
 import {
   getAccessToken,
   setAccessToken,
@@ -18,6 +19,7 @@ import { setAppLanguage } from "@/i18n"
 import { z } from "zod"
 
 const AUTH_RESTORE_RETRY_DELAY_MS = 2_000
+const AUTH_RESTORE_MAX_ATTEMPTS = 3
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { bootstrap } = useBootstrap()
@@ -33,13 +35,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const acceptSession = useCallback(
-    async (session: AuthSession) => {
-      setAccessToken(
-        session.access_token ?? null,
-        session.access_token_expires_at
-      )
-      if (session.user?.language) {
-        await setAppLanguage(session.user.language)
+    async (session: AccessSession) => {
+      setAccessToken(session.access_token, session.access_token_expires_at)
+      if (session.user?.preferred_locale) {
+        await setAppLanguage(session.user.preferred_locale)
       }
       await refreshUser()
     },
@@ -65,8 +64,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let cancelled = false
     let retryTimer: number | null = null
+    let attempt = 0
 
     const restoreSession = async () => {
+      attempt += 1
       try {
         if (getAccessToken()) {
           await refreshUser()
@@ -82,6 +83,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setAccessToken(null)
           setUser(null)
           setStatus("anonymous")
+          return
+        }
+
+        if (
+          !isRetryableApiError(error) ||
+          attempt >= AUTH_RESTORE_MAX_ATTEMPTS
+        ) {
+          setStatus("error")
           return
         }
 

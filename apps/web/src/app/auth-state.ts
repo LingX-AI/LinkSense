@@ -1,11 +1,11 @@
 import { createContext, useContext } from "react"
 
-import type { AuthSession, User } from "@/api/contracts"
+import type { AccessSession, User } from "@/api/contracts"
 
 export type AuthContextValue = {
-  status: "loading" | "authenticated" | "anonymous"
+  status: "loading" | "authenticated" | "anonymous" | "error"
   user: User | null
-  acceptSession: (session: AuthSession) => Promise<void>
+  acceptSession: (session: AccessSession) => Promise<void>
   refreshUser: () => Promise<void>
   signOut: () => Promise<void>
 }

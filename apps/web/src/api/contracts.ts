@@ -1,4 +1,6 @@
 import {
+  authSessionSchema as sharedAuthSessionSchema,
+  authUserSchema as sharedAuthUserSchema,
   applicationConversationSchema as sharedApplicationConversationSchema,
   applicationGrantSchema as sharedApplicationGrantSchema,
   applicationIconSchema as sharedApplicationIconSchema,
@@ -25,6 +27,7 @@ import {
   conversationUserInputRequestSchema,
   imageGenerationSettingsSchema as sharedImageGenerationSettingsSchema,
   imageUnderstandingSettingsSchema as sharedImageUnderstandingSettingsSchema,
+  initializeSystemResultSchema as sharedInitializeSystemResultSchema,
   knowledgeModelSettingsSchema as sharedKnowledgeModelSettingsSchema,
   maintenanceStatusSchema as sharedMaintenanceStatusSchema,
   marketplaceCatalogItemSchema as sharedMarketplaceCatalogItemSchema,
@@ -62,6 +65,8 @@ import {
   userMessageDisplaySchema,
   uuidSchema,
   type AuthenticationSettings as SharedAuthenticationSettings,
+  type AuthSession as SharedAuthSession,
+  type AuthUser as SharedAuthUser,
   type RegistrationSettings as SharedRegistrationSettings,
   type Application as SharedApplication,
   type ApplicationGrant as SharedApplicationGrant,
@@ -354,16 +359,13 @@ export const registrationSettingsUpdateResultSchema = z.strictObject({
 })
 export type RegistrationSettings = SharedRegistrationSettings
 
-export const authSessionSchema = z
-  .object({
-    access_token: z.string().optional(),
-    expires_in: z.number().optional(),
-    access_token_expires_at: z.string().optional(),
-    user: userSchema.optional(),
-  })
-  .passthrough()
-
-export type AuthSession = z.infer<typeof authSessionSchema>
+export const authUserSchema = sharedAuthUserSchema
+export const authSessionSchema = sharedAuthSessionSchema
+export const initializeSystemResultSchema = sharedInitializeSystemResultSchema
+export type AuthUser = SharedAuthUser
+export type AuthSession = SharedAuthSession
+export type AccessSession = Pick<AuthSession, "access_token"> &
+  Partial<Pick<AuthSession, "access_token_expires_at" | "user">>
 
 export const conversationFileSchema = z
   .object({

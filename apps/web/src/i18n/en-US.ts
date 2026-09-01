@@ -692,6 +692,8 @@ export const enUS = {
       "Single sign-on completed, but the {{productName}} session could not be established. Return to the sign-in page and try again.",
     backToLogin: "Back to sign in",
     sessionExpired: "Your session has expired. Please sign in again.",
+    sessionRestoreFailed:
+      "Your sign-in session could not be restored. Check your connection and try again.",
     registration: {
       createAccount: "Create account",
       title: "Create a {{productName}} account",

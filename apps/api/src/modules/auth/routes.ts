@@ -2,9 +2,14 @@ import fastifyCookie from "@fastify/cookie"
 import fastifyJwt from "@fastify/jwt"
 import {
   accessTokenClaimsSchema,
+  authSessionSchema,
+  authUserSchema,
   forgotPasswordInputSchema,
+  initializeSystemResultSchema,
   localLoginInputSchema,
   registrationRequestInputSchema,
+  type AuthSession as PublicAuthSession,
+  type AuthUser,
 } from "@linksense/shared"
 import type {
   FastifyInstance,
@@ -209,7 +214,14 @@ export const systemInitializationRoutes: FastifyPluginAsync<{
     const result = await service.initialize(request.body, auditContext(request))
     return reply
       .code(201)
-      .send(ok({ user: projectAuthenticatedUser(result.user) }, request))
+      .send(
+        ok(
+          initializeSystemResultSchema.parse({
+            user: projectAuthenticatedUser(result.user),
+          }),
+          request,
+        ),
+      )
   })
 }
 
@@ -266,13 +278,15 @@ export function createAuthenticationHooks(persistence: AuthPersistence) {
   return { authenticate, requireAdmin }
 }
 
-function publicSession(session: Awaited<ReturnType<AuthService["login"]>>) {
-  return {
+function publicSession(
+  session: Awaited<ReturnType<AuthService["login"]>>,
+): PublicAuthSession {
+  return authSessionSchema.parse({
     access_token: session.accessToken,
     access_token_expires_at: session.accessTokenExpiresAt.toISOString(),
     refresh_session_expires_at: session.refreshSessionExpiresAt.toISOString(),
     user: projectAuthenticatedUser(session.user),
-  }
+  })
 }
 
 function setRefreshCookie(
@@ -406,8 +420,8 @@ function stripPasswordFields(user: Awaited<ReturnType<AuthPersistence["findUserB
   }
 }
 
-export function projectAuthenticatedUser(user: AuthenticatedUser) {
-  return {
+export function projectAuthenticatedUser(user: AuthenticatedUser): AuthUser {
+  return authUserSchema.parse({
     id: user.id,
     email: user.email,
     name: user.name,
@@ -421,5 +435,5 @@ export function projectAuthenticatedUser(user: AuthenticatedUser) {
     password_updated_at: user.passwordUpdatedAt?.toISOString() ?? null,
     created_at: user.createdAt.toISOString(),
     updated_at: user.updatedAt.toISOString(),
-  }
+  })
 }

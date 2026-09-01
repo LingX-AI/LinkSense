@@ -635,6 +635,7 @@ export const zhCN = {
       "单点登录已完成，但登录会话未能建立。请返回登录页后重试。",
     backToLogin: "返回登录页",
     sessionExpired: "登录会话已过期，请重新登录。",
+    sessionRestoreFailed: "登录状态恢复失败，请检查网络后重试。",
     registration: {
       createAccount: "注册账号",
       title: "注册 {{productName}}",

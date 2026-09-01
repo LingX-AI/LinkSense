@@ -1,4 +1,5 @@
 import Fastify from "fastify"
+import { authSessionSchema, authUserSchema } from "@linksense/shared"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { AppError } from "../src/lib/errors.js"
@@ -563,6 +564,7 @@ describe("authentication Fastify integration", () => {
     expect(response.headers["set-cookie"]).toContain("HttpOnly")
     expect(response.headers["set-cookie"]).toContain("SameSite=Lax")
     const body = response.json()
+    expect(authSessionSchema.parse(body.data)).toEqual(body.data)
     expect(body.data.user).toMatchObject({
       avatar_object_key: null,
       preferred_locale: "zh-CN",
@@ -570,11 +572,13 @@ describe("authentication Fastify integration", () => {
     })
     expect(body.data.user).not.toHaveProperty("avatarObjectKey")
     expect(body.data.user).not.toHaveProperty("passwordHash")
+    expect(body.data.user).not.toHaveProperty("registration_source")
     expect(body.data).not.toHaveProperty("refresh_token")
   })
 
   it("exports the same stable projection for initialization responses", () => {
     const projected = projectAuthenticatedUser(makeUser())
+    expect(authUserSchema.parse(projected)).toEqual(projected)
     expect(projected).toEqual(
       expect.objectContaining({
         id: expect.any(String),

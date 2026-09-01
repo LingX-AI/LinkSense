@@ -1,9 +1,15 @@
 import { z } from "zod";
 
-import { timestampSchema, uuidSchema } from "./common.js";
+import { localeSchema, timestampSchema, uuidSchema } from "./common.js";
 import { passwordSchema } from "./password.js";
 import { tokenLimitValueSchema } from "./token-limits.js";
-import { emailSchema, userNameSchema, userRoleSchema } from "./users.js";
+import {
+  emailSchema,
+  loginMethodSchema,
+  userNameSchema,
+  userRoleSchema,
+  userStatusSchema,
+} from "./users.js";
 
 const opaqueTokenSchema = z.string().min(32).max(16_384);
 
@@ -79,6 +85,30 @@ export const tokenPairSchema = z.strictObject({
   refresh_session_expires_at: timestampSchema,
 });
 
+export const authUserSchema = z.strictObject({
+  id: uuidSchema,
+  email: emailSchema,
+  name: userNameSchema,
+  avatar_object_key: z.string().min(1).nullable(),
+  role: userRoleSchema,
+  status: userStatusSchema,
+  preferred_locale: localeSchema.nullable(),
+  running_message_action: z.enum(["steer", "queue"]),
+  last_login_at: timestampSchema.nullable(),
+  last_login_method: loginMethodSchema.nullable(),
+  password_updated_at: timestampSchema.nullable(),
+  created_at: timestampSchema,
+  updated_at: timestampSchema,
+});
+
+export const authSessionSchema = tokenPairSchema
+  .omit({ refresh_token: true })
+  .extend({ user: authUserSchema });
+
+export const initializeSystemResultSchema = z.strictObject({
+  user: authUserSchema,
+});
+
 export type LocalLoginInput = z.input<typeof localLoginInputSchema>;
 export type ChangePasswordInput = z.input<typeof changePasswordInputSchema>;
 export type ForgotPasswordInput = z.input<typeof forgotPasswordInputSchema>;
@@ -98,3 +128,8 @@ export type UpdateRegistrationSettings = z.input<
 >;
 export type InitializeSystemInput = z.input<typeof initializeSystemInputSchema>;
 export type AccessTokenClaims = z.infer<typeof accessTokenClaimsSchema>;
+export type AuthUser = z.infer<typeof authUserSchema>;
+export type AuthSession = z.infer<typeof authSessionSchema>;
+export type InitializeSystemResult = z.infer<
+  typeof initializeSystemResultSchema
+>;

@@ -62,6 +62,7 @@ export function ProtectedRoute() {
   const { bootstrap } = useBootstrap()
   const location = useLocation()
   if (status === "loading") return <LoadingState fullScreen />
+  if (status === "error") return <SessionRestoreError />
   if (status === "anonymous") {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
   }
@@ -76,10 +77,26 @@ export function PublicAuthRoute() {
   const location = useLocation()
 
   if (status === "loading") return <LoadingState fullScreen />
+  if (status === "error") return <SessionRestoreError />
   if (status === "authenticated") {
     return <AuthenticatedRedirect state={location.state} />
   }
   return <Outlet />
+}
+
+function SessionRestoreError() {
+  const { t } = useTranslation()
+
+  return (
+    <div className="public-shell">
+      <div className="public-panel">
+        <ErrorState
+          message={t("auth.sessionRestoreFailed")}
+          onRetry={() => window.location.reload()}
+        />
+      </div>
+    </div>
+  )
 }
 
 export function AdminRoute() {

@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { authSessionSchema, type AuthSession } from "@/api/contracts"
+import { authSessionSchema, type AccessSession } from "@/api/contracts"
 import {
   getAccessToken,
   getStoredAccessSession,
@@ -97,7 +97,7 @@ export type ApiStreamRequestOptions = {
   skipRefresh?: boolean
 }
 
-let refreshPromise: Promise<AuthSession> | null = null
+let refreshPromise: Promise<AccessSession> | null = null
 
 const REFRESH_LOCK_NAME = "linksense.auth.refresh.v1"
 const REFRESH_LEASE_STORAGE_KEY = "linksense.auth.refresh-lease.v1"
@@ -116,6 +116,12 @@ export function isDefinitiveAuthenticationError(error: unknown) {
     error.status === 401 &&
     (error.errorCode === "AUTH_REQUIRED" ||
       error.errorCode === "AUTH_SESSION_EXPIRED")
+  )
+}
+
+export function isRetryableApiError(error: unknown) {
+  return (
+    error instanceof ApiError && (error.status === 0 || error.status >= 500)
   )
 }
 
@@ -388,7 +394,7 @@ function getReusableSession(staleAccessToken: string | null) {
     access_token_expires_at: storedSession
       ? new Date(storedSession.expiresAt).toISOString()
       : undefined,
-  } satisfies AuthSession
+  } satisfies AccessSession
 }
 
 async function requestNewSession() {
@@ -401,10 +407,7 @@ async function requestNewSession() {
     },
     null
   )
-  setAccessToken(
-    session.access_token ?? null,
-    session.access_token_expires_at ?? null
-  )
+  setAccessToken(session.access_token, session.access_token_expires_at)
   return session
 }
 

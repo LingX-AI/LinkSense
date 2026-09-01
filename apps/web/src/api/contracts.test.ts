@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  authSessionSchema,
   auditRecordSchema,
   bootstrapSchema,
   capabilityImportPreviewSchema,
@@ -13,6 +14,7 @@ import {
   effectiveCredentialBindingSchema,
   getNativeCodexPayload,
   healthSchema,
+  initializeSystemResultSchema,
   marketplaceCatalogItemSchema,
   marketplaceReviewDetailSchema,
   sseEventSchema,
@@ -23,6 +25,41 @@ import {
 const now = "2026-07-11T00:00:00.000Z"
 
 describe("API response contracts", () => {
+  it("keeps authentication responses independent from full user profiles", () => {
+    const authUser = {
+      id: "00000000-0000-4000-8000-000000000001",
+      email: "person@example.com",
+      name: "Person",
+      avatar_object_key: null,
+      role: "admin",
+      status: "active",
+      preferred_locale: "zh-CN",
+      running_message_action: "queue",
+      last_login_at: "2026-08-31T08:00:00.000Z",
+      last_login_method: "password",
+      password_updated_at: "2026-08-01T08:00:00.000Z",
+      created_at: "2026-08-01T08:00:00.000Z",
+      updated_at: "2026-08-31T08:00:00.000Z",
+    }
+    const session = {
+      access_token: "a".repeat(48),
+      access_token_expires_at: "2026-09-01T10:00:00.000Z",
+      refresh_session_expires_at: "2026-11-30T08:00:00.000Z",
+      user: authUser,
+    }
+
+    expect(authSessionSchema.parse(session)).toEqual(session)
+    expect(initializeSystemResultSchema.parse({ user: authUser })).toEqual({
+      user: authUser,
+    })
+    expect(
+      userSchema.safeParse({
+        ...authUser,
+        avatar_url: null,
+      }).success
+    ).toBe(false)
+  })
+
   it("accepts current application icon metadata on conversation summaries", () => {
     const result = conversationSchema.parse({
       id: "conversation-application-icon",

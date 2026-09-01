@@ -217,6 +217,35 @@ const user = {
   },
 }
 
+function authenticationSession(
+  accessToken: string,
+  language: "zh-CN" | "en-US",
+  userOverride: Partial<typeof user> | undefined,
+  loginMethod: "password" | "oidc" | "teams" = "password"
+) {
+  return {
+    access_token: accessToken,
+    access_token_expires_at: "2099-01-01T00:00:00.000Z",
+    refresh_session_expires_at: "2099-03-01T00:00:00.000Z",
+    user: {
+      id: "00000000-0000-4000-8000-000000000001",
+      email: userOverride?.email ?? user.email,
+      name: userOverride?.name ?? user.name,
+      avatar_object_key: null,
+      role: userOverride?.role ?? user.role,
+      status: userOverride?.status ?? user.status,
+      preferred_locale: language,
+      running_message_action:
+        userOverride?.running_message_action ?? user.running_message_action,
+      last_login_at: "2026-08-31T08:00:00.000Z",
+      last_login_method: loginMethod,
+      password_updated_at: "2026-08-01T08:00:00.000Z",
+      created_at: "2026-08-01T08:00:00.000Z",
+      updated_at: "2026-08-31T08:00:00.000Z",
+    },
+  }
+}
+
 const personalUsageProfile = {
   generated_at: "2026-07-27T12:00:00.000Z",
   activity_period: {
@@ -742,36 +771,32 @@ function installApiMock(options?: {
           )
         return json({
           success: true,
-          data: {
-            access_token: "test-access-token-that-is-long-enough",
-            user: {
-              ...user,
-              ...options?.userOverride,
-              language: currentLanguage,
-            },
-          },
+          data: authenticationSession(
+            "test-access-token-that-is-long-enough",
+            currentLanguage,
+            options?.userOverride
+          ),
         })
       }
       if (path === "/api/v1/auth/login") {
         return json({
           success: true,
-          data: {
-            access_token: "password-access-token-that-is-long-enough",
-            user: {
-              ...user,
-              ...options?.userOverride,
-              language: currentLanguage,
-            },
-          },
+          data: authenticationSession(
+            "password-access-token-that-is-long-enough",
+            currentLanguage,
+            options?.userOverride
+          ),
         })
       }
       if (path === "/api/v1/auth/oidc/callback") {
         return json({
           success: true,
-          data: {
-            access_token: "oidc-access-token-that-is-long-enough",
-            user: { ...user, ...options?.userOverride },
-          },
+          data: authenticationSession(
+            "oidc-access-token-that-is-long-enough",
+            currentLanguage,
+            options?.userOverride,
+            "oidc"
+          ),
         })
       }
       if (path === "/api/v1/auth/forgot-password") {
@@ -863,10 +888,7 @@ function installApiMock(options?: {
           data: options?.personalUsageOverride ?? personalUsageProfile,
         })
       }
-      if (
-        path === "/api/v1/completion-notifications" &&
-        method === "GET"
-      ) {
+      if (path === "/api/v1/completion-notifications" && method === "GET") {
         return json({
           success: true,
           data: { items: [], next_cursor: "token-quota-refresh-cursor" },

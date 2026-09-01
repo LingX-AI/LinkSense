@@ -286,13 +286,22 @@ describe("open registration pages", () => {
           success: true,
           data: {
             access_token: "a".repeat(48),
+            access_token_expires_at: "2026-09-01T10:00:00.000Z",
+            refresh_session_expires_at: "2026-11-30T08:00:00.000Z",
             user: {
               id: "00000000-0000-4000-8000-000000000001",
               name: "new.person",
               email: "new.person@example.com",
+              avatar_object_key: null,
               role: "user",
               status: "active",
-              registration_source: "self_registration",
+              preferred_locale: "zh-CN",
+              running_message_action: "queue",
+              last_login_at: "2026-09-01T08:00:00.000Z",
+              last_login_method: "password",
+              password_updated_at: "2026-09-01T08:00:00.000Z",
+              created_at: "2026-08-31T08:00:00.000Z",
+              updated_at: "2026-09-01T08:00:00.000Z",
             },
           },
         })
