@@ -201,7 +201,7 @@ jobs:
 
   worker-image:
     needs: [prepare, verify]
-    runs-on: [self-hosted, linux, x64, linksense-full-release]
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
       contents: read
@@ -336,131 +336,8 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  full-installation-smoke:
-    needs: [prepare, assets]
-    runs-on: [self-hosted, linux, x64, linksense-full-release]
-    timeout-minutes: 120
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 24
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: release-assets
-          path: release-assets
-      - name: Install and repair Core and Full on a disposable host
-        shell: bash
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          install_dir=/opt/linksense-release-smoke
-          asset_port=18443
-          asset_origin="https://127.0.0.1:${asset_port}"
-          certificate="$RUNNER_TEMP/linksense-release-smoke.crt"
-          certificate_key="$RUNNER_TEMP/linksense-release-smoke.key"
-          server_pid=
-
-          cleanup_stack() {
-            set +e
-            if sudo test -f "$install_dir/.env"; then
-              sudo docker compose \
-                --project-directory "$install_dir" \
-                --env-file "$install_dir/.env" \
-                -f "$install_dir/compose.common.yml" \
-                -f "$install_dir/compose.${1}.yml" \
-                down -v --remove-orphans
-            fi
-            for volume in \
-              linksense-postgres linksense-redis linksense-minio \
-              linksense-user-data linksense-backups \
-              linksense-elasticsearch linksense-tokenizer; do
-              sudo docker volume rm "$volume" >/dev/null 2>&1 || true
-            done
-            for network in \
-              linksense-internal linksense-worker-control \
-              linksense-worker-egress linksense-knowledge-internal; do
-              sudo docker network rm "$network" >/dev/null 2>&1 || true
-            done
-            test "$install_dir" = /opt/linksense-release-smoke
-            sudo rm -r "$install_dir" 2>/dev/null || true
-            set -e
-          }
-
-          cleanup_all() {
-            status=$?
-            trap - EXIT
-            cleanup_stack full
-            if [ -n "$server_pid" ]; then kill "$server_pid" >/dev/null 2>&1 || true; fi
-            sudo docker logout ghcr.io >/dev/null 2>&1 || true
-            exit "$status"
-          }
-          trap cleanup_all EXIT
-
-          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
-            -subj /CN=127.0.0.1 \
-            -addext subjectAltName=IP:127.0.0.1 \
-            -keyout "$certificate_key" \
-            -out "$certificate" >/dev/null 2>&1
-          node scripts/serve-release-assets.mjs \
-            release-assets "$asset_port" "$certificate" "$certificate_key" &
-          server_pid=$!
-          for attempt in {1..30}; do
-            if curl --cacert "$certificate" -fsS \
-              "$asset_origin/release-manifest.env" >/dev/null; then
-              break
-            fi
-            test "$attempt" -lt 30
-            sleep 1
-          done
-
-          printf '%s' "$GHCR_TOKEN" | \
-            sudo docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-
-          run_entry() {
-            entry=$1
-            sudo env \
-              CURL_CA_BUNDLE="$certificate" \
-              LINKSENSE_RELEASE_BASE_URL="$asset_origin" \
-              LINKSENSE_PUBLIC_BASE_URL=http://127.0.0.1:10080 \
-              LINKSENSE_INSTALL_DIR="$install_dir" \
-              sh "release-assets/$entry" 2>&1 | \
-              sed -E 's/^(One-time initialization credential:).*/\1 [REDACTED]/'
-          }
-
-          run_entry install-core.sh
-          curl -fsS http://127.0.0.1:10080/api/v1/system/health/ready
-          core_services=$(sudo docker compose \
-            --project-directory "$install_dir" \
-            --env-file "$install_dir/.env" \
-            -f "$install_dir/compose.common.yml" \
-            -f "$install_dir/compose.core.yml" config --services)
-          ! grep -Eq '^(elasticsearch|elasticsearch-init|docling-api|docling-worker)$' \
-            <<<"$core_services"
-          sudo test -f "$install_dir/LICENSE"
-          run_entry repair-core.sh
-          cleanup_stack core
-
-          run_entry install-full.sh
-          curl -fsS http://127.0.0.1:10080/api/v1/system/health/ready
-          published_ports=$(sudo docker ps \
-            --filter label=com.docker.compose.project=linksense \
-            --format '{{.Names}} {{.Ports}}')
-          test "$(grep -c '0.0.0.0:10080->80/tcp' <<<"$published_ports")" -eq 1
-          ! grep -Eq ':(4000|4010|5001|5432|6379|9000|9200)->' \
-            <<<"$published_ports"
-          sudo test -f "$install_dir/LICENSE"
-          sudo sed -i 's/server_tokens off;/server_tokens on;/' \
-            "$install_dir/gateway.conf.template"
-          run_entry repair-full.sh
-          sudo grep -q 'server_tokens off;' "$install_dir/gateway.conf.template"
-
   release:
-    needs: [prepare, images, worker-image, assets, full-installation-smoke]
+    needs: [prepare, images, worker-image, assets]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

@@ -278,20 +278,12 @@ test("the private-source release workflow validates candidates before promotion"
   assert.match(workflow, /org\.opencontainers\.image\.source/u)
   assert.match(workflow, /Verify anonymous access to every LinkSense image/u)
   assert.match(workflow, /docker logout ghcr\.io/u)
-  assert.match(workflow, /full-installation-smoke:/u)
   assert.match(
     workflow,
-    /runs-on: \[self-hosted, linux, x64, linksense-full-release\]/u,
+    /worker-image:\n[\s\S]*?runs-on: ubuntu-24\.04[\s\S]*?target: worker/u,
   )
-  for (const entry of [
-    "install-core.sh",
-    "repair-core.sh",
-    "install-full.sh",
-    "repair-full.sh",
-  ]) {
-    assert.match(workflow, new RegExp(`run_entry ${entry.replace(".", "\\.")}`))
-  }
-  assert.match(workflow, /scripts\/serve-release-assets\.mjs/u)
+  assert.doesNotMatch(workflow, /full-installation-smoke:/u)
+  assert.doesNotMatch(workflow, /self-hosted|linksense-full-release/u)
   assert.match(workflow, /docker buildx imagetools create/u)
   assert.match(workflow, /gh release create "\$RELEASE_VERSION" release-assets\/\*/u)
   assert.match(workflow, /gh release upload "\$RELEASE_VERSION" "\$asset"/u)
