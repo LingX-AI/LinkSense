@@ -26,7 +26,8 @@ export type BillingPdfLabels = {
 }
 
 type Language = "zh-CN" | "en-US"
-const rowsPerPage = 11
+const rowsPerFullPage = 11
+const rowsPerSummaryPage = 9
 
 export async function createBillingStatementPdf(input: {
   statement: BillingStatementDetail
@@ -38,8 +39,7 @@ export async function createBillingStatementPdf(input: {
     import("html2canvas-pro"),
     import("jspdf"),
   ])
-  const chunks = chunkRows(input.statement.models, rowsPerPage)
-  const pages = chunks.length > 0 ? chunks : [[]]
+  const pages = paginateRows(input.statement.models)
   const pdf = new jsPDF({
     orientation: "landscape",
     unit: "mm",
@@ -237,40 +237,43 @@ function buildPage(input: {
   table.append(body)
   page.append(table)
 
-  const total = element("div", {
-    display: "flex",
-    justifyContent: "flex-end",
-    alignItems: "baseline",
-    gap: "28px",
-    marginTop: "19px",
-    paddingTop: "17px",
-    borderTop: "2px solid #171717",
-  })
-  total.append(
-    textElement("span", input.labels.totalAmount, {
-      color: "#525252",
-      fontSize: "11px",
-      textTransform: "uppercase",
-      letterSpacing: "1px",
-    }),
-    textElement(
-      "strong",
-      formatCnyCost(input.statement.total_cost, input.language),
-      { fontSize: "25px", fontWeight: "700" }
-    )
-  )
-  page.append(total)
-  if (input.statement.unpriced_tokens !== "0") {
-    page.append(
+  const isLastPage = input.pageIndex === input.pageCount - 1
+  if (isLastPage) {
+    const total = element("div", {
+      display: "flex",
+      justifyContent: "flex-end",
+      alignItems: "baseline",
+      gap: "28px",
+      marginTop: "19px",
+      paddingTop: "17px",
+      borderTop: "2px solid #171717",
+    })
+    total.append(
+      textElement("span", input.labels.totalAmount, {
+        color: "#525252",
+        fontSize: "11px",
+        textTransform: "uppercase",
+        letterSpacing: "1px",
+      }),
       textElement(
-        "p",
-        input.labels.unpricedNote.replace(
-          "{{tokens}}",
-          formatIntegerCount(input.statement.unpriced_tokens, input.language)
-        ),
-        { marginTop: "10px", color: "#737373", fontSize: "9px" }
+        "strong",
+        formatCnyCost(input.statement.total_cost, input.language),
+        { fontSize: "25px", fontWeight: "700" }
       )
     )
+    page.append(total)
+    if (input.statement.unpriced_tokens !== "0") {
+      page.append(
+        textElement(
+          "p",
+          input.labels.unpricedNote.replace(
+            "{{tokens}}",
+            formatIntegerCount(input.statement.unpriced_tokens, input.language)
+          ),
+          { marginTop: "10px", color: "#737373", fontSize: "9px" }
+        )
+      )
+    }
   }
   const footer = element("footer", {
     position: "absolute",
@@ -330,12 +333,19 @@ function formatPrice(value: string | null, language: Language) {
     : `¥${Number(value).toLocaleString(language, { maximumFractionDigits: 6 })}`
 }
 
-function chunkRows<T>(rows: T[], size: number): T[][] {
-  const chunks: T[][] = []
-  for (let index = 0; index < rows.length; index += size) {
-    chunks.push(rows.slice(index, index + size))
+function paginateRows<T>(rows: T[]): T[][] {
+  if (rows.length === 0) return [[]]
+
+  const pages: T[][] = []
+  let offset = 0
+  while (rows.length - offset > rowsPerSummaryPage) {
+    const remaining = rows.length - offset
+    const pageSize = Math.min(rowsPerFullPage, remaining - 1)
+    pages.push(rows.slice(offset, offset + pageSize))
+    offset += pageSize
   }
-  return chunks
+  pages.push(rows.slice(offset))
+  return pages
 }
 
 function element<K extends keyof HTMLElementTagNameMap>(

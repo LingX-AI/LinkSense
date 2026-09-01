@@ -1699,9 +1699,11 @@ function InstalledCatalogSection({
           ) : error ? (
             <ErrorState message={getErrorMessage(error, t)} onRetry={onRetry} />
           ) : items.length === 0 ? (
-            <p className="capability-center-installed-empty">
-              {t("marketplace.installedEmpty", { category: categoryLabel })}
-            </p>
+            <EmptyState
+              title={t("marketplace.installedEmpty", {
+                category: categoryLabel,
+              })}
+            />
           ) : (
             <ul
               className="capability-library-grid capability-center-installed-grid"

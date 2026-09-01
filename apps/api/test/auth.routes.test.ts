@@ -357,7 +357,7 @@ describe("authentication Fastify integration", () => {
     })
   })
 
-  it("accepts a production refresh cookie only from the configured LinkSense origin", async () => {
+  it("accepts a same-origin refresh through a public domain that differs from the canonical URL", async () => {
     const app = Fastify()
     apps.push(app)
     await registerAuthentication(app, { jwtSecret: "s".repeat(32) })
@@ -373,15 +373,17 @@ describe("authentication Fastify integration", () => {
     await app.register(authRoutes, {
       prefix: "/auth",
       service,
-      secureCookies: true,
-      publicBaseUrl: "https://linksense.example",
+      secureCookies: false,
+      publicBaseUrl: "http://192.168.180.41:10080",
     })
 
     const response = await app.inject({
       method: "POST",
       url: "/auth/refresh",
       headers: {
-        origin: "https://linksense.example",
+        host: "ai-studio.aisgz.org",
+        origin: "https://ai-studio.aisgz.org",
+        "sec-fetch-site": "same-origin",
         cookie: `linksense_refresh=${"r".repeat(48)}`,
       },
       payload: {},
@@ -389,6 +391,7 @@ describe("authentication Fastify integration", () => {
 
     expect(response.statusCode).toBe(200)
     expect(service.refresh).toHaveBeenCalledOnce()
+    expect(response.headers["set-cookie"]).toContain("Secure")
     expect(response.headers["set-cookie"]).toContain("SameSite=None")
   })
 
@@ -412,7 +415,9 @@ describe("authentication Fastify integration", () => {
       method: "POST",
       url: "/auth/refresh",
       headers: {
+        host: "linksense.example",
         origin: "https://evil.example",
+        "sec-fetch-site": "cross-site",
         cookie: `linksense_refresh=${"r".repeat(48)}`,
       },
       payload: {},
@@ -445,7 +450,9 @@ describe("authentication Fastify integration", () => {
       method: "POST",
       url: "/auth/refresh",
       headers: {
+        host: "linksense.example",
         origin: "http://evil.example",
+        "sec-fetch-site": "cross-site",
         cookie: `linksense_refresh=${"r".repeat(48)}`,
       },
       payload: {},
@@ -528,8 +535,10 @@ describe("authentication Fastify integration", () => {
       method: "POST",
       url: "/auth/logout",
       headers: {
+        host: "linksense.example",
         origin: "https://linksense.example",
         referer: "https://evil.example/attack",
+        "sec-fetch-site": "same-origin",
         cookie: `linksense_refresh=${"r".repeat(48)}`,
       },
       payload: {},
@@ -540,6 +549,72 @@ describe("authentication Fastify integration", () => {
       error_code: "AUTH_CROSS_ORIGIN_REQUEST_FORBIDDEN",
     })
     expect(logout).not.toHaveBeenCalled()
+  })
+
+  it("rejects a legacy browser origin whose scheme differs from the request", async () => {
+    const app = Fastify()
+    apps.push(app)
+    await registerAuthentication(app, { jwtSecret: "s".repeat(32) })
+    const service = createService(authPersistence(makeUser()), authRateLimiter())
+    const refresh = vi.spyOn(service, "refresh")
+    app.setErrorHandler((error, request, reply) =>
+      sendAppError(reply, request, error),
+    )
+    await app.register(authRoutes, {
+      prefix: "/auth",
+      service,
+      secureCookies: false,
+      publicBaseUrl: "http://linksense.example",
+    })
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/refresh",
+      headers: {
+        host: "linksense.example",
+        origin: "https://linksense.example",
+        cookie: `linksense_refresh=${"r".repeat(48)}`,
+      },
+      payload: {},
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json()).toMatchObject({
+      error_code: "AUTH_CROSS_ORIGIN_REQUEST_FORBIDDEN",
+    })
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it("sets a secure refresh cookie when a trusted proxy reports HTTPS", async () => {
+    const app = Fastify({ trustProxy: true })
+    apps.push(app)
+    await registerAuthentication(app, { jwtSecret: "s".repeat(32) })
+    const user = makeUser()
+    const service = createService(
+      authPersistence(user),
+      authRateLimiter(),
+      true,
+    )
+    await app.register(authRoutes, {
+      prefix: "/auth",
+      service,
+      secureCookies: false,
+      publicBaseUrl: "http://192.168.180.41:10080",
+    })
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: {
+        host: "ai-studio.aisgz.org",
+        "x-forwarded-proto": "https",
+      },
+      payload: { email: user.email, password: "Password1!" },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.headers["set-cookie"]).toContain("Secure")
+    expect(response.headers["set-cookie"]).toContain("SameSite=None")
   })
 
   it("returns snake_case users and keeps refresh tokens in an HttpOnly cookie", async () => {
@@ -563,6 +638,7 @@ describe("authentication Fastify integration", () => {
     expect(response.statusCode).toBe(200)
     expect(response.headers["set-cookie"]).toContain("HttpOnly")
     expect(response.headers["set-cookie"]).toContain("SameSite=Lax")
+    expect(response.headers["set-cookie"]).not.toContain("Secure")
     const body = response.json()
     expect(authSessionSchema.parse(body.data)).toEqual(body.data)
     expect(body.data.user).toMatchObject({

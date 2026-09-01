@@ -15,6 +15,7 @@ import dayjs from "dayjs"
 import { useTranslation } from "react-i18next"
 
 import type { PersonalUsageProfile } from "@/api/contracts"
+import { EmptyState } from "@/components/feedback/page-state"
 import { activityLevel } from "@/features/profile/profile-usage"
 import { calendarMonthLabels, formatCalendarDate } from "@/i18n/date"
 import type { SupportedLanguage } from "@/i18n"
@@ -74,11 +75,7 @@ export function ProfileActivityHeatmap({
   const monthLabels = useMemo(() => calendarMonthLabels(language), [language])
 
   if (values.length === 0) {
-    return (
-      <p className="profile-activity-empty">
-        {t("profile.activityUnavailable")}
-      </p>
-    )
+    return <EmptyState title={t("profile.activityUnavailable")} />
   }
 
   const accessibleLabel = (value: HeatmapValue) =>

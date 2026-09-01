@@ -216,6 +216,9 @@ describe("security boundaries", () => {
   });
 
   it("redacts sensitive request bodies if request-body logging is enabled", () => {
+    expect(SENSITIVE_REQUEST_LOG_PATHS).toContain(
+      "req.body.initialization_credential",
+    );
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.audio_data_url");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.environment");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.json");

@@ -142,8 +142,10 @@ services:
 
 volumes:
   elasticsearch-data:
+    external: true
     name: ${LINKSENSE_ELASTICSEARCH_VOLUME}
   tokenizer-data:
+    external: true
     name: ${LINKSENSE_TOKENIZER_VOLUME}
 
 networks:

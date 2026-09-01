@@ -5396,7 +5396,7 @@ function DockerResourceUsageSection({
         </span>
       </div>
       {usage.services.length === 0 ? (
-        <p className="docker-resource-empty">{t("health.resources.empty")}</p>
+        <EmptyState title={t("health.resources.empty")} />
       ) : (
         <div className="docker-resource-list">
           {usage.services.map((service) => (

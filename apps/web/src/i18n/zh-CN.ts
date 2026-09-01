@@ -185,7 +185,6 @@ export const zhCN = {
     },
     filteredEmpty: "当前没有{{filter}}的自动化",
     filteredEmptyDescription: "可以切换筛选条件查看其他自动化。",
-    showAll: "查看全部",
     name: "自动化标题",
     instruction: "自动化指令",
     instructionHint: "写清楚每次触发时需要执行的完整任务。",

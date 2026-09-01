@@ -4,7 +4,7 @@
 
 Please do not disclose suspected vulnerabilities in public Issues or Discussions.
 
-Send a private report to [developer@infocare.org.cn](mailto:developer@infocare.org.cn) with:
+Send a private report to [developer@linksense.org](mailto:developer@linksense.org) with:
 
 - the affected LinkSense version or commit;
 - a concise description of the impact;
@@ -22,4 +22,4 @@ Security fixes are provided for the latest released version. Before the first pu
 
 请勿通过公开 Issue 或 Discussion 披露疑似安全漏洞。
 
-请发送邮件至 [developer@infocare.org.cn](mailto:developer@infocare.org.cn)，并说明受影响的版本或 commit、影响、复现步骤、已知缓解措施和安全的后续联系方式。报告中不要包含真实用户数据、生产凭据或第三方机密信息。
+请发送邮件至 [developer@linksense.org](mailto:developer@linksense.org)，并说明受影响的版本或 commit、影响、复现步骤、已知缓解措施和安全的后续联系方式。报告中不要包含真实用户数据、生产凭据或第三方机密信息。

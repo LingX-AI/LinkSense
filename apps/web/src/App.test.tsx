@@ -6406,7 +6406,7 @@ describe("LinkSense application", () => {
 
     await interaction.click(screen.getByRole("tab", { name: "用户组" }))
 
-    expect(await screen.findByText("暂无用户组。")).toBeVisible()
+    expect(await screen.findByText("暂无用户组")).toBeVisible()
     expect(screen.getByRole("tab", { name: "用户组" })).toHaveAttribute(
       "aria-selected",
       "true"
@@ -6445,7 +6445,7 @@ describe("LinkSense application", () => {
       within(screen.getByRole("dialog")).getByRole("button", { name: "删除" })
     )
 
-    expect(await screen.findByText("暂无用户组。")).toBeVisible()
+    expect(await screen.findByText("暂无用户组")).toBeVisible()
     expect(
       screen.queryByRole("heading", { name: "测试" })
     ).not.toBeInTheDocument()
@@ -10172,7 +10172,7 @@ describe("LinkSense application", () => {
         })
       ).not.toBeInTheDocument()
     )
-    expect(await screen.findByText("没有已归档任务。")).toBeVisible()
+    expect(await screen.findByText("没有已归档任务")).toBeVisible()
     expect(await screen.findByText("已清除 1 个已归档任务。")).toBeVisible()
     expect(
       screen.queryByRole("button", { name: "搜索" })
@@ -10259,7 +10259,7 @@ describe("LinkSense application", () => {
     installApiMock()
     renderApp("/admin/credentials")
 
-    expect(await screen.findByText("页面不存在。")).toBeVisible()
+    expect(await screen.findByText("页面不存在")).toBeVisible()
     expect(
       screen.queryByRole("link", { name: "公共凭据" })
     ).not.toBeInTheDocument()

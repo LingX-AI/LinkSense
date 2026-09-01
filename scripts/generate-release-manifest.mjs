@@ -46,6 +46,7 @@ const resourcePaths = {
   INSTALL_FULL: "install-full.sh",
   REPAIR_CORE: "repair-core.sh",
   REPAIR_FULL: "repair-full.sh",
+  UPGRADE: "upgrade.sh",
 }
 
 const tokenizerLock = JSON.parse(
@@ -56,10 +57,10 @@ const tokenizerLock = JSON.parse(
 )
 
 const lines = [
-  "MANIFEST_FORMAT=1",
+  "MANIFEST_FORMAT=2",
   `RELEASE_VERSION=${releaseVersion}`,
   "RELEASE_EDITION_SUPPORT=core-full",
-  "RELEASE_ARCHITECTURE=linux-amd64",
+  "RELEASE_PLATFORMS=linux-amd64,linux-arm64",
   `RELEASE_GIT_COMMIT=${requiredEnvironment("RELEASE_GIT_COMMIT")}`,
   `RELEASE_BUILD_TIME=${requiredEnvironment("RELEASE_BUILD_TIME")}`,
   `RELEASE_WORKFLOW_ID=${requiredEnvironment("RELEASE_WORKFLOW_ID")}`,

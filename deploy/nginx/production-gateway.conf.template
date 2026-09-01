@@ -1,5 +1,13 @@
 log_format linksense_gateway_safe '$request_method $uri $server_protocol';
 
+# Prefer a valid protocol reported by the host reverse proxy while retaining
+# the deployment configuration as a safe fallback.
+map $http_x_forwarded_proto $linksense_forwarded_proto {
+  default ${NGINX_EXTERNAL_SCHEME};
+  ~*^http$ http;
+  ~*^https$ https;
+}
+
 # Docker's embedded DNS publishes every replica behind the service name.
 # Resolve it dynamically so API scale-out and container replacement both take
 # effect without pinning Nginx to the first address returned at startup.
@@ -59,7 +67,7 @@ server {
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Host $http_host;
-    proxy_set_header X-Forwarded-Proto ${NGINX_EXTERNAL_SCHEME};
+    proxy_set_header X-Forwarded-Proto $linksense_forwarded_proto;
     proxy_set_header Connection "";
     proxy_request_buffering off;
     proxy_buffering off;
@@ -78,7 +86,7 @@ server {
     proxy_set_header Host $http_host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto ${NGINX_EXTERNAL_SCHEME};
+    proxy_set_header X-Forwarded-Proto $linksense_forwarded_proto;
     proxy_set_header Connection "";
     proxy_request_buffering off;
     proxy_buffering off;
@@ -100,7 +108,7 @@ server {
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Host $http_host;
-    proxy_set_header X-Forwarded-Proto ${NGINX_EXTERNAL_SCHEME};
+    proxy_set_header X-Forwarded-Proto $linksense_forwarded_proto;
     proxy_set_header Connection "";
     proxy_hide_header Content-Security-Policy;
     proxy_hide_header Content-Security-Policy-Report-Only;
@@ -127,7 +135,7 @@ server {
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Host $http_host;
-    proxy_set_header X-Forwarded-Proto ${NGINX_EXTERNAL_SCHEME};
+    proxy_set_header X-Forwarded-Proto $linksense_forwarded_proto;
     proxy_set_header Connection "";
   }
 }

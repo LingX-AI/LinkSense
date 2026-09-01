@@ -1,7 +1,8 @@
 import { cleanup, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { LoadingState } from "@/components/feedback/page-state"
+import { Button } from "@/components/ui/button"
+import { EmptyState, LoadingState } from "@/components/feedback/page-state"
 
 afterEach(cleanup)
 
@@ -15,7 +16,7 @@ describe("LoadingState", () => {
       "page-state-loading",
       "page-state-loading-fullscreen",
       "fixed",
-      "inset-0",
+      "inset-0"
     )
     expect(status).toHaveAttribute("aria-busy", "true")
     expect(status).toHaveAttribute("aria-live", "polite")
@@ -32,9 +33,42 @@ describe("LoadingState", () => {
 
     const status = screen.getByRole("status")
     expect(status).toHaveClass("page-state-loading")
-    expect(status).not.toHaveClass(
-      "page-state-loading-fullscreen",
-      "fixed"
+    expect(status).not.toHaveClass("page-state-loading-fullscreen", "fixed")
+  })
+})
+
+describe("EmptyState", () => {
+  it("uses the shared empty-state structure and typography", () => {
+    render(
+      <EmptyState
+        title="暂无自动化"
+        description="创建后会显示在这里。"
+        action={<Button type="button">新建自动化</Button>}
+      />
     )
+
+    const empty = screen.getByText("暂无自动化").closest("[data-slot='empty']")
+
+    expect(empty).toHaveClass("empty-state", "min-h-24", "text-center")
+    expect(screen.getByText("暂无自动化")).toHaveClass(
+      "text-[length:var(--app-font-13)]",
+      "font-normal",
+      "text-muted-foreground"
+    )
+    expect(screen.getByText("创建后会显示在这里。")).toHaveClass(
+      "text-[length:var(--app-font-12)]",
+      "text-muted-foreground"
+    )
+    expect(screen.getByRole("button", { name: "新建自动化" })).toBeVisible()
+  })
+
+  it.each([
+    ["中文句号", "暂无数据。", "暂无数据"],
+    ["英文句号", "No data.", "No data"],
+  ])("removes the trailing %s from the title", (_name, title, expected) => {
+    render(<EmptyState title={title} />)
+
+    expect(screen.getByText(expected)).toBeVisible()
+    expect(screen.queryByText(title)).not.toBeInTheDocument()
   })
 })

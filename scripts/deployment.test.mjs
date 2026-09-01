@@ -412,11 +412,15 @@ test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO 
     gateway,
     /upstream linksense_api \{[\s\S]*zone linksense_api 64k;[\s\S]*server api:4000 resolve;[\s\S]*keepalive 64;[\s\S]*\}/u,
   );
+  assert.match(
+    gateway,
+    /map \$http_x_forwarded_proto \$linksense_forwarded_proto \{[\s\S]*default \$\{NGINX_EXTERNAL_SCHEME\};[\s\S]*~\*\^http\$ http;[\s\S]*~\*\^https\$ https;[\s\S]*\}/u,
+  );
   assert.match(apiLocation, /proxy_pass http:\/\/linksense_api;/u);
   assert.match(apiLocation, /proxy_intercept_errors off;/u);
   assert.match(
     apiLocation,
-    /proxy_set_header X-Forwarded-Proto \$\{NGINX_EXTERNAL_SCHEME\};/u,
+    /proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/u,
   );
   assert.match(apiLocation, /proxy_request_buffering off;/u);
   assert.match(apiLocation, /proxy_buffering off;/u);

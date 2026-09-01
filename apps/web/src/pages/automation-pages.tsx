@@ -495,22 +495,11 @@ export function AutomationPage() {
               {automationFilterValues.map((value) => (
                 <TabsContent key={value} value={value}>
                   {automationsByFilter[value].length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-border/70 px-6 py-12 text-center">
-                      <p className="font-medium">
-                        {t("automation.filteredEmpty", {
-                          filter: t(`automation.filter.${value}`),
-                        })}
-                      </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="mt-4"
-                        onClick={() => setFilter("all")}
-                      >
-                        {t("automation.showAll")}
-                      </Button>
-                    </div>
+                    <EmptyState
+                      title={t("automation.filteredEmpty", {
+                        filter: t(`automation.filter.${value}`),
+                      })}
+                    />
                   ) : (
                     <div className="flex flex-col" role="list">
                       {automationsByFilter[value].map((automation, index) => {

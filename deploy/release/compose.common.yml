@@ -168,7 +168,7 @@ services:
       LINKSENSE_NODE_PACKAGE_REGISTRY_URL: https://registry.npmjs.org/
     volumes:
       - user-data:/srv/linksense/users
-      - ${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}:${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+      - ${LINKSENSE_DOCKER_SOCKET_SOURCE:-/var/run/docker.sock}:${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
     networks:
       - default
       - worker-control
@@ -256,6 +256,9 @@ services:
       - /var/run:size=8m
     environment:
       NGINX_CLIENT_MAX_BODY_SIZE: 210m
+    depends_on:
+      api:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health/live"]
       interval: 10s
@@ -296,14 +299,19 @@ services:
 
 volumes:
   postgres-data:
+    external: true
     name: ${LINKSENSE_POSTGRES_VOLUME}
   redis-data:
+    external: true
     name: ${LINKSENSE_REDIS_VOLUME}
   minio-data:
+    external: true
     name: ${LINKSENSE_MINIO_VOLUME}
   user-data:
+    external: true
     name: ${LINKSENSE_USER_DATA_VOLUME}
   backup-data:
+    external: true
     name: ${LINKSENSE_BACKUP_VOLUME}
 
 networks:

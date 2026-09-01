@@ -36,7 +36,7 @@ const readableSecondaryRules = [
   ["page links", "\\.text-link,\\s*\\.public-link,\\s*\\.public-back-link"],
   ["health labels", "\\.health-summary span"],
   ["public page descriptions", "\\.public-panel header p"],
-  ["page states", "\\.page-state,\\s*\\.empty-state"],
+  ["page loading states", "\\.page-state"],
   ["risk summaries", "\\.risk-summary"],
   ["search errors", "\\.search-error"],
 ] as const

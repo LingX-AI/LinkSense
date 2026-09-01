@@ -2087,7 +2087,7 @@ describe("conversation voice input", () => {
     expect(attachment.type).toBe("text/plain")
     expect(props.onValueChange).not.toHaveBeenCalled()
     expect(input).toHaveValue("请排查以下启动失败原因")
-    expect(input).toBeDisabled()
+    expect(input).toBeEnabled()
     expect(screen.getByRole("button", { name: "发送" })).toBeDisabled()
     expect(
       screen.getByTestId("pasted-text-attachment-pending")
@@ -2116,6 +2116,8 @@ describe("conversation voice input", () => {
     ).join("\n")
 
     fireEvent(input, createTextPasteEvent(input, pastedText))
+
+    expect(input).toBeEnabled()
 
     const [[files]] = onAttach.mock.calls
     const attachment = files[0]!
@@ -2311,15 +2313,21 @@ describe("conversation voice input", () => {
     })
   })
 
-  it("prevents keyboard submission while an attachment upload is in progress", () => {
-    const { props } = renderComposer({ uploading: true })
+  it("keeps text input editable but prevents submission while an attachment upload is in progress", async () => {
+    const interaction = userEvent.setup()
+    const { props } = renderStatefulComposer({ uploading: true, value: "" })
     const input = screen.getByRole("textbox", { name: "任务输入框" })
 
-    fireEvent.keyDown(input, { key: "Enter" })
+    expect(input).toBeEnabled()
+
+    await interaction.type(input, "上传时补充说明")
+
+    expect(props.onValueChange).toHaveBeenLastCalledWith("上传时补充说明")
+    expect(screen.getByRole("button", { name: "发送" })).toBeDisabled()
+
+    await interaction.keyboard("{Enter}")
 
     expect(props.onSubmit).not.toHaveBeenCalled()
-    expect(input).toBeDisabled()
-    expect(screen.getByRole("button", { name: "发送" })).toBeDisabled()
   })
 
   it("blocks send, upload, and removal while an attachment mutation is pending", () => {

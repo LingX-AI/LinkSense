@@ -24,6 +24,7 @@ for (const entry of [
   { filename: "install-full.sh", action: "install", edition: "full" },
   { filename: "repair-core.sh", action: "repair", edition: "core" },
   { filename: "repair-full.sh", action: "repair", edition: "full" },
+  { filename: "upgrade.sh", action: "upgrade", edition: "" },
 ]) {
   const bundled = engine
     .replace(
@@ -33,7 +34,9 @@ for (const entry of [
     .replace("ACTION=${LINKSENSE_INSTALL_ACTION:-}", `ACTION=${entry.action}`)
     .replace(
       "RELEASE_SELECTOR=${LINKSENSE_VERSION:-latest}",
-      `RELEASE_SELECTOR=\${LINKSENSE_VERSION:-${releaseVersion}}`,
+      entry.action === "upgrade"
+        ? "RELEASE_SELECTOR=${LINKSENSE_VERSION:-latest}"
+        : `RELEASE_SELECTOR=\${LINKSENSE_VERSION:-${releaseVersion}}`,
     )
   if (
     bundled.includes("EDITION=${LINKSENSE_INSTALL_EDITION:-}") ||

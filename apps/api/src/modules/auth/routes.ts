@@ -72,7 +72,12 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
         body.password,
         requestMetadata(request),
       )
-      setRefreshCookie(reply, cookieName, session.refreshToken, options.secureCookies)
+      setRefreshCookie(
+        reply,
+        cookieName,
+        session.refreshToken,
+        requestUsesSecureCookies(request, options.secureCookies),
+      )
       return reply.send(ok(publicSession(session), request))
     } catch (error) {
       if (error instanceof LoginRateLimitedError) {
@@ -84,22 +89,31 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
 
   app.post("/refresh", async (request, reply) => {
     emptyBodySchema.parse(request.body ?? {})
-    assertCookieRequestOrigin(request, options)
+    assertCookieRequestOrigin(request)
     const refreshToken = request.cookies[cookieName]
     if (!refreshToken) throw new AppError("AUTH_SESSION_EXPIRED")
     const session = await options.service.refresh(
       refreshToken,
       requestMetadata(request),
     )
-    setRefreshCookie(reply, cookieName, session.refreshToken, options.secureCookies)
+    setRefreshCookie(
+      reply,
+      cookieName,
+      session.refreshToken,
+      requestUsesSecureCookies(request, options.secureCookies),
+    )
     return reply.send(ok(publicSession(session), request))
   })
 
   app.post("/logout", async (request, reply) => {
     emptyBodySchema.parse(request.body ?? {})
-    assertCookieRequestOrigin(request, options)
+    assertCookieRequestOrigin(request)
     await options.service.logout(request.cookies[cookieName] ?? null)
-    clearRefreshCookie(reply, cookieName, options.secureCookies)
+    clearRefreshCookie(
+      reply,
+      cookieName,
+      requestUsesSecureCookies(request, options.secureCookies),
+    )
     return reply.code(204).send()
   })
 
@@ -129,7 +143,12 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
       body.new_password,
       requestMetadata(request),
     )
-    setRefreshCookie(reply, cookieName, session.refreshToken, options.secureCookies)
+    setRefreshCookie(
+      reply,
+      cookieName,
+      session.refreshToken,
+      requestUsesSecureCookies(request, options.secureCookies),
+    )
     return reply.send(ok(publicSession(session), request))
   })
 
@@ -155,7 +174,11 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
         body.new_password,
         auditContext(request),
       )
-      clearRefreshCookie(reply, cookieName, options.secureCookies)
+      clearRefreshCookie(
+        reply,
+        cookieName,
+        requestUsesSecureCookies(request, options.secureCookies),
+      )
       return reply.send(ok({ password_changed: true }, request))
     },
   )
@@ -176,12 +199,21 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
         callbackUrl,
         requestMetadata(request),
       )
-      setRefreshCookie(reply, cookieName, session.refreshToken, options.secureCookies)
+      setRefreshCookie(
+        reply,
+        cookieName,
+        session.refreshToken,
+        requestUsesSecureCookies(request, options.secureCookies),
+      )
       return reply.redirect(
         oidcCallbackLocation(options.publicBaseUrl, "success"),
       )
     } catch (error) {
-      clearRefreshCookie(reply, cookieName, options.secureCookies)
+      clearRefreshCookie(
+        reply,
+        cookieName,
+        requestUsesSecureCookies(request, options.secureCookies),
+      )
       const normalized = normalizeError(error)
       const result =
         normalized.code === "OIDC_ACCOUNT_PENDING_APPROVAL"
@@ -199,7 +231,12 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
       body.token,
       requestMetadata(request),
     )
-    setRefreshCookie(reply, cookieName, session.refreshToken, options.secureCookies)
+    setRefreshCookie(
+      reply,
+      cookieName,
+      session.refreshToken,
+      requestUsesSecureCookies(request, options.secureCookies),
+    )
     return reply.send(ok(publicSession(session), request))
   })
 }
@@ -327,15 +364,10 @@ function oidcCallbackLocation(
   return publicBaseUrl ? url.toString() : `${url.pathname}${url.search}`
 }
 
-function assertCookieRequestOrigin(
-  request: FastifyRequest,
-  options: Pick<AuthRoutesOptions, "secureCookies" | "publicBaseUrl">,
-): void {
-  if (!options.publicBaseUrl) {
-    if (options.secureCookies) {
-      throw new AppError("AUTH_CROSS_ORIGIN_REQUEST_FORBIDDEN")
-    }
-    return
+function assertCookieRequestOrigin(request: FastifyRequest): void {
+  const fetchSite = request.headers["sec-fetch-site"]
+  if (fetchSite !== undefined && fetchSite !== "same-origin") {
+    throw new AppError("AUTH_CROSS_ORIGIN_REQUEST_FORBIDDEN")
   }
   const sources = [request.headers.origin, request.headers.referer].filter(
     (source): source is string => typeof source === "string" && source.length > 0,
@@ -352,14 +384,80 @@ function assertCookieRequestOrigin(
     }
     return
   }
+
+  const requestHost = normalizeRequestHost(request.headers.host)
+  if (!requestHost) {
+    throw new AppError("AUTH_CROSS_ORIGIN_REQUEST_FORBIDDEN")
+  }
+
   try {
-    const allowedOrigin = new URL(options.publicBaseUrl).origin
-    if (sources.some((source) => new URL(source).origin !== allowedOrigin)) {
+    const sourceUrls = sources.map((source) => new URL(source))
+    const sourceOrigin = sourceUrls[0]?.origin
+    const sourcesDisagree = sourceUrls.some(
+      (source) => source.origin !== sourceOrigin,
+    )
+    const sourceHostDiffers = sourceUrls.some(
+      (source) => source.host !== requestHost,
+    )
+    if (sourcesDisagree || sourceHostDiffers) {
       throw new AppError("AUTH_CROSS_ORIGIN_REQUEST_FORBIDDEN")
+    }
+
+    // Fetch Metadata is authoritative in modern browsers and already includes
+    // the scheme in its same-origin calculation. Older browsers do not send it,
+    // so retain an exact scheme comparison using Fastify's proxy-aware protocol.
+    if (fetchSite === undefined) {
+      const requestOrigin = new URL(`${request.protocol}://${requestHost}`).origin
+      if (sourceOrigin !== requestOrigin) {
+        throw new AppError("AUTH_CROSS_ORIGIN_REQUEST_FORBIDDEN")
+      }
     }
   } catch (error) {
     if (error instanceof AppError) throw error
     throw new AppError("AUTH_CROSS_ORIGIN_REQUEST_FORBIDDEN")
+  }
+}
+
+function requestUsesSecureCookies(
+  request: FastifyRequest,
+  configuredSecureCookies: boolean,
+): boolean {
+  if (configuredSecureCookies || request.protocol === "https") return true
+  if (request.headers["sec-fetch-site"] !== "same-origin") return false
+
+  const requestHost = normalizeRequestHost(request.headers.host)
+  if (!requestHost) return false
+  const sources = [request.headers.origin, request.headers.referer].filter(
+    (source): source is string => typeof source === "string" && source.length > 0,
+  )
+  if (sources.length === 0) return false
+
+  try {
+    return sources.every((source) => {
+      const url = new URL(source)
+      return url.protocol === "https:" && url.host === requestHost
+    })
+  } catch {
+    return false
+  }
+}
+
+function normalizeRequestHost(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  try {
+    const url = new URL(`http://${value}`)
+    if (
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    ) {
+      return undefined
+    }
+    return url.host
+  } catch {
+    return undefined
   }
 }
 

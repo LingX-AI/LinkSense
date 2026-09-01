@@ -194,7 +194,6 @@ export const enUS = {
     },
     filteredEmpty: "No {{filter}} automations",
     filteredEmptyDescription: "Switch filters to view your other automations.",
-    showAll: "View all",
     name: "Automation title",
     instruction: "Automation instruction",
     instructionHint: "Describe the complete task to perform on every trigger.",

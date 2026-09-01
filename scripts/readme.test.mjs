@@ -4,8 +4,8 @@ import path from "node:path"
 import test from "node:test"
 
 const root = path.resolve(import.meta.dirname, "..")
-const chinesePath = path.join(root, "README.md")
-const englishPath = path.join(root, "README.en.md")
+const englishPath = path.join(root, "README.md")
+const chinesePath = path.join(root, "README.zh-CN.md")
 
 test("the concise bilingual READMEs expose the same public entry points", async () => {
   const [chinese, english] = await Promise.all([
@@ -15,8 +15,8 @@ test("the concise bilingual READMEs expose the same public entry points", async 
 
   assert.ok(chinese.split("\n").length <= 150)
   assert.ok(english.split("\n").length <= 150)
-  assert.match(chinese, /\[English\]\(\.\/README\.en\.md\)/u)
-  assert.match(english, /\[简体中文\]\(\.\/README\.md\)/u)
+  assert.match(chinese, /\[English\]\(\.\/README\.md\)/u)
+  assert.match(english, /\[简体中文\]\(\.\/README\.zh-CN\.md\)/u)
   assert.match(chinese, /我们/u)
   assert.match(english, /\b(?:We|Our)\b/u)
   assert.doesNotMatch(chinese, /它/u)
@@ -25,6 +25,7 @@ test("the concise bilingual READMEs expose the same public entry points", async 
   for (const heading of [
     "## 特性",
     "## 一键安装",
+    "### 安装环境要求",
     "## 推荐配置",
     "## 本地开发",
     "### AI 开发指南",
@@ -36,6 +37,7 @@ test("the concise bilingual READMEs expose the same public entry points", async 
   for (const heading of [
     "## Features",
     "## One-line installation",
+    "### Host requirements",
     "## Recommended configuration",
     "## Local development",
     "### AI development guide",
@@ -51,13 +53,24 @@ test("the concise bilingual READMEs expose the same public entry points", async 
       "install-full.sh | sudo sh",
       "repair-core.sh | sudo sh",
       "repair-full.sh | sudo sh",
+      "upgrade.sh | sudo sh",
+      "volume://linksense-backups/postgres/",
       "linux/amd64",
+      "linux/arm64",
+      "Intel Mac",
+      "Apple Silicon",
+      "v1.45",
+      "v2.24.4",
+      "40 GiB",
+      "80 GiB",
+      "100,000",
+      "200,000",
       "10080",
       "pnpm dev",
       "AGENTS.md",
       "docker compose --env-file .env.example build",
       "CPAL-1.0",
-      "developer@infocare.org.cn",
+      "developer@linksense.org",
     ]) {
       assert.ok(source.includes(required), `README is missing ${required}`)
     }

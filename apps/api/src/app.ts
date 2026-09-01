@@ -88,6 +88,7 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.headers.authorization",
   "req.headers.cookie",
   "req.body.password",
+  "req.body.initialization_credential",
   "req.body.current_password",
   "req.body.new_password",
   "req.body.token",

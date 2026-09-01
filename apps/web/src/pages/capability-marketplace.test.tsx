@@ -510,7 +510,7 @@ describe("capability marketplace pages", () => {
       })
     ).not.toBeInTheDocument()
     expect(
-      within(personalCatalog).getByText("没有符合条件的个人技能。")
+      within(personalCatalog).getByText("没有符合条件的个人技能")
     ).toBeVisible()
 
     await interaction.click(
@@ -612,7 +612,7 @@ describe("capability marketplace pages", () => {
       })
     ).not.toBeInTheDocument()
     expect(
-      within(personalCatalog).getByText("没有符合条件的个人插件。")
+      within(personalCatalog).getByText("没有符合条件的个人插件")
     ).toBeVisible()
   })
 
@@ -956,7 +956,7 @@ describe("capability marketplace pages", () => {
 
     resolveDelete?.(envelope({ deleted: true }))
     expect(await screen.findByText("个人技能已永久删除。")).toBeVisible()
-    expect(await screen.findByText("没有符合条件的个人技能。")).toBeVisible()
+    expect(await screen.findByText("没有符合条件的个人技能")).toBeVisible()
   })
 
   it("treats the current user's published source skill as installed without offering uninstall", async () => {

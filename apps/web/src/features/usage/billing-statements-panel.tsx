@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import dayjs from "dayjs"
-import { DownloadIcon, EyeIcon, FileTextIcon } from "lucide-react"
+import { DownloadIcon, EyeIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { apiRequest } from "@/api/client"
@@ -13,7 +13,11 @@ import {
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
 import { notify } from "@/components/feedback/notification"
-import { ErrorState, LoadingState } from "@/components/feedback/page-state"
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@/components/feedback/page-state"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -135,10 +139,7 @@ export function BillingStatementsPanel(props: {
         </CardHeader>
         <CardContent>
           {listQuery.data.statements.length === 0 ? (
-            <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center text-muted-foreground">
-              <FileTextIcon className="size-6" />
-              <p className="text-sm">{t("usage.billing.history.empty")}</p>
-            </div>
+            <EmptyState title={t("usage.billing.history.empty")} />
           ) : (
             <div className="divide-y divide-border">
               {listQuery.data.statements.map((statement) => (

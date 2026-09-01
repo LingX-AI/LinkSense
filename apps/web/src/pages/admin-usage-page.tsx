@@ -24,7 +24,11 @@ import { productFilenamePrefix, useProductName } from "@/app/product-branding"
 import { notify } from "@/components/feedback/notification"
 import { DatePicker } from "@/components/forms/date-picker"
 import { FieldShell } from "@/components/forms/form-field"
-import { ErrorState, LoadingState } from "@/components/feedback/page-state"
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@/components/feedback/page-state"
 import { PageLayout } from "@/components/shell/page-layout"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -1209,11 +1213,7 @@ function ModelUsageTable({
       )
     : null
   if (models.length === 0) {
-    return (
-      <p className="py-8 text-center text-sm text-muted-foreground">
-        {t("usage.modelsEmpty")}
-      </p>
-    )
+    return <EmptyState title={t("usage.modelsEmpty")} />
   }
   return (
     <div className="data-table-scroll">
@@ -1598,11 +1598,7 @@ function ApplicationUsageTable({
     [applications, language, sort, t]
   )
   if (applications.length === 0) {
-    return (
-      <p className="py-8 text-center text-sm text-muted-foreground">
-        {t("usage.applicationsEmpty")}
-      </p>
-    )
+    return <EmptyState title={t("usage.applicationsEmpty")} />
   }
   return (
     <div className="data-table-scroll">
@@ -1741,11 +1737,7 @@ function UserUsageTable({
     [language, sort, t, users]
   )
   if (users.length === 0) {
-    return (
-      <p className="py-8 text-center text-sm text-muted-foreground">
-        {t("usage.usersEmpty")}
-      </p>
-    )
+    return <EmptyState title={t("usage.usersEmpty")} />
   }
   return (
     <div className="data-table-scroll">
@@ -1882,11 +1874,7 @@ function WorkloadUsageTable({
     totalCost
   )
   if (workloads.length === 0) {
-    return (
-      <p className="py-8 text-center text-sm text-muted-foreground">
-        {t("usage.workloadsEmpty")}
-      </p>
-    )
+    return <EmptyState title={t("usage.workloadsEmpty")} />
   }
   return (
     <div className="data-table-scroll">

@@ -125,7 +125,7 @@ jobs:
 
   images:
     needs: [prepare, verify]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -136,15 +136,51 @@ jobs:
           - name: api
             dockerfile: Dockerfile.api
             target: runtime
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - name: api
+            dockerfile: Dockerfile.api
+            target: runtime
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
           - name: web
             dockerfile: Dockerfile.web
             target: runtime
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - name: web
+            dockerfile: Dockerfile.web
+            target: runtime
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
           - name: migrate
             dockerfile: Dockerfile.api
             target: migration
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - name: migrate
+            dockerfile: Dockerfile.api
+            target: migration
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
           - name: runner
             dockerfile: Dockerfile.runner
             target: controller
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - name: runner
+            dockerfile: Dockerfile.runner
+            target: controller
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
@@ -160,9 +196,9 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           target: ${{ matrix.target }}
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           push: true
-          tags: ghcr.io/lingx-ai/linksense-${{ matrix.name }}:${{ needs.prepare.outputs.candidate_tag }}
+          tags: ghcr.io/lingx-ai/linksense-${{ matrix.name }}:${{ needs.prepare.outputs.candidate_tag }}-${{ matrix.architecture }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ needs.prepare.outputs.source_sha }}
@@ -170,42 +206,52 @@ jobs:
             org.opencontainers.image.licenses=${{ needs.prepare.outputs.license }}
           provenance: mode=min
           sbom: true
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=min,scope=${{ matrix.name }}
+          cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.architecture }}
+          cache-to: type=gha,mode=min,scope=${{ matrix.name }}-${{ matrix.architecture }}
       - name: Smoke-test ${{ matrix.name }} candidate
         shell: bash
         run: |
           set -euo pipefail
-          image="ghcr.io/lingx-ai/linksense-${{ matrix.name }}:${{ needs.prepare.outputs.candidate_tag }}"
-          docker pull --platform linux/amd64 "$image"
+          image="ghcr.io/lingx-ai/linksense-${{ matrix.name }}@${{ steps.build.outputs.digest }}"
+          docker pull --platform "${{ matrix.platform }}" "$image"
           case "${{ matrix.name }}" in
             api) docker run --rm --entrypoint node "$image" --version ;;
             web) docker run --rm --entrypoint nginx "$image" -t ;;
             migrate) docker run --rm --entrypoint pnpm "$image" --version ;;
             runner) docker run --rm --entrypoint node "$image" --version ;;
           esac
-      - name: Resolve linux/amd64 candidate digest
+      - name: Record immutable ${{ matrix.platform }} candidate
         shell: bash
         run: |
           set -euo pipefail
           mkdir image-reference
-          scripts/resolve-release-image.sh \
-            "ghcr.io/lingx-ai/linksense-${{ matrix.name }}:${{ needs.prepare.outputs.candidate_tag }}" \
-            > "image-reference/${{ matrix.name }}"
+          printf '%s\n' \
+            "ghcr.io/lingx-ai/linksense-${{ matrix.name }}@${{ steps.build.outputs.digest }}" \
+            > "image-reference/${{ matrix.name }}-${{ matrix.architecture }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: image-${{ matrix.name }}
-          path: image-reference/${{ matrix.name }}
+          name: image-platform-${{ matrix.name }}-${{ matrix.architecture }}
+          path: image-reference/${{ matrix.name }}-${{ matrix.architecture }}
           if-no-files-found: error
           retention-days: 3
 
   worker-image:
     needs: [prepare, verify]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
@@ -221,9 +267,9 @@ jobs:
           context: .
           file: Dockerfile.runner
           target: worker
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           push: true
-          tags: ghcr.io/lingx-ai/linksense-worker:${{ needs.prepare.outputs.candidate_tag }}
+          tags: ghcr.io/lingx-ai/linksense-worker:${{ needs.prepare.outputs.candidate_tag }}-${{ matrix.architecture }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ needs.prepare.outputs.source_sha }}
@@ -231,30 +277,77 @@ jobs:
             org.opencontainers.image.licenses=${{ needs.prepare.outputs.license }}
           provenance: mode=min
           sbom: true
+          cache-from: type=gha,scope=worker-${{ matrix.architecture }}
+          cache-to: type=gha,mode=min,scope=worker-${{ matrix.architecture }}
       - name: Smoke-test worker candidate
         shell: bash
         run: |
           set -euo pipefail
-          image="ghcr.io/lingx-ai/linksense-worker:${{ needs.prepare.outputs.candidate_tag }}"
-          docker pull --platform linux/amd64 "$image"
+          image="ghcr.io/lingx-ai/linksense-worker@${{ steps.build.outputs.digest }}"
+          docker pull --platform "${{ matrix.platform }}" "$image"
           docker run --rm --entrypoint codex "$image" --version
-      - name: Resolve linux/amd64 worker candidate digest
+      - name: Record immutable ${{ matrix.platform }} worker candidate
         shell: bash
         run: |
           set -euo pipefail
           mkdir image-reference
-          scripts/resolve-release-image.sh \
-            "ghcr.io/lingx-ai/linksense-worker:${{ needs.prepare.outputs.candidate_tag }}" \
-            > image-reference/worker
+          printf '%s\n' \
+            "ghcr.io/lingx-ai/linksense-worker@${{ steps.build.outputs.digest }}" \
+            > "image-reference/worker-${{ matrix.architecture }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: image-worker
-          path: image-reference/worker
+          name: image-platform-worker-${{ matrix.architecture }}
+          path: image-reference/worker-${{ matrix.architecture }}
+          if-no-files-found: error
+          retention-days: 3
+
+  image-indexes:
+    needs: [prepare, images, worker-image]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: image-platform-*
+          path: image-platform-references
+          merge-multiple: true
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge tested architecture images into OCI indexes
+        shell: bash
+        env:
+          CANDIDATE_TAG: ${{ needs.prepare.outputs.candidate_tag }}
+        run: |
+          set -euo pipefail
+          mkdir image-references
+          for name in api web migrate runner worker; do
+            amd64_reference=$(cat "image-platform-references/$name-amd64")
+            arm64_reference=$(cat "image-platform-references/$name-arm64")
+            candidate_reference="ghcr.io/lingx-ai/linksense-${name}:${CANDIDATE_TAG}"
+            docker buildx imagetools create \
+              --tag "$candidate_reference" \
+              "$amd64_reference" \
+              "$arm64_reference"
+            scripts/resolve-release-image.sh \
+              "$candidate_reference" linux/amd64 linux/arm64 \
+              > "image-references/$name"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-indexes
+          path: image-references/
           if-no-files-found: error
           retention-days: 3
 
   assets:
-    needs: [prepare, images, worker-image]
+    needs: [prepare, image-indexes]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -266,9 +359,8 @@ jobs:
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: image-*
+          name: image-indexes
           path: image-references
-          merge-multiple: true
       - name: Resolve immutable upstream images
         shell: bash
         run: |
@@ -276,7 +368,9 @@ jobs:
           resolve() {
             key=$1
             tag=$2
-            printf 'IMAGE_%s=%s\n' "$key" "$(scripts/resolve-release-image.sh "$tag")" >> "$GITHUB_ENV"
+            printf 'IMAGE_%s=%s\n' "$key" \
+              "$(scripts/resolve-release-image.sh "$tag" linux/amd64 linux/arm64)" \
+              >> "$GITHUB_ENV"
           }
           resolve POSTGRES docker.io/library/postgres:16.10-alpine3.22
           resolve REDIS docker.io/library/redis:7.4.5-alpine3.21
@@ -337,7 +431,7 @@ jobs:
           retention-days: 3
 
   release:
-    needs: [prepare, images, worker-image, assets]
+    needs: [prepare, image-indexes, assets]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -349,9 +443,8 @@ jobs:
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: image-*
+          name: image-indexes
           path: image-references
-          merge-multiple: true
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: release-assets
@@ -383,7 +476,7 @@ jobs:
             tested_reference=$(cat "image-references/$name")
             tested_digest=${tested_reference##*@}
             release_reference="ghcr.io/lingx-ai/linksense-${name}:${RELEASE_VERSION}"
-            if current=$(scripts/resolve-release-image.sh "$release_reference" 2>/dev/null); then
+            if current=$(scripts/resolve-release-image.sh "$release_reference" linux/amd64 linux/arm64 2>/dev/null); then
               test "${current##*@}" = "$tested_digest" || {
                 echo "$release_reference already points to another digest." >&2
                 exit 1
@@ -391,7 +484,7 @@ jobs:
             else
               docker buildx imagetools create \
                 --tag "$release_reference" "$tested_reference"
-              current=$(scripts/resolve-release-image.sh "$release_reference")
+              current=$(scripts/resolve-release-image.sh "$release_reference" linux/amd64 linux/arm64)
               test "${current##*@}" = "$tested_digest"
             fi
           done

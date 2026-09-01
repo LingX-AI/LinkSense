@@ -11,4 +11,4 @@ Participants should:
 
 Unacceptable behavior includes harassment, insults, threats, discrimination, disclosing another person's private information, and disclosing security vulnerabilities without prior coordination.
 
-To report a community conduct issue, contact [developer@infocare.org.cn](mailto:developer@infocare.org.cn). Maintainers may remove inappropriate content, restrict participation, or take other action proportionate to the severity of the incident. Reports will be kept confidential to a reasonable extent.
+To report a community conduct issue, contact [developer@linksense.org](mailto:developer@linksense.org). Maintainers may remove inappropriate content, restrict participation, or take other action proportionate to the severity of the incident. Reports will be kept confidential to a reasonable extent.

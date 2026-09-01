@@ -1,7 +1,15 @@
+import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "@/components/ui/button"
 import { StatusBanner } from "@/components/feedback/status-banner"
+import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 
 export function LoadingState({
@@ -35,16 +43,18 @@ export function EmptyState({
 }: {
   title: string
   description?: string
-  action?: React.ReactNode
+  action?: ReactNode
 }) {
+  const normalizedTitle = title.replace(/[。.]+$/u, "")
+
   return (
-    <div className="empty-state">
-      <p>{title}</p>
-      {description && (
-        <p className="text-sm text-muted-foreground">{description}</p>
-      )}
-      {action}
-    </div>
+    <Empty className="empty-state">
+      <EmptyHeader>
+        <EmptyTitle>{normalizedTitle}</EmptyTitle>
+        {description && <EmptyDescription>{description}</EmptyDescription>}
+      </EmptyHeader>
+      {action && <EmptyContent>{action}</EmptyContent>}
+    </Empty>
   )
 }
 

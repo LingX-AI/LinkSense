@@ -7887,13 +7887,6 @@ button.annotation-hover-file:focus-visible {
   height: 100%;
 }
 
-.capability-center-installed-empty {
-  margin-top: 12px;
-  color: var(--app-muted);
-  font-size: var(--app-font-13);
-  line-height: var(--app-line-20);
-}
-
 .capability-center-installed .page-state {
   min-height: 54px;
   padding: 16px 0 0;
@@ -9707,14 +9700,6 @@ button.annotation-hover-file:focus-visible {
   border-radius: 2px;
 }
 
-.profile-activity-empty,
-.profile-model-empty {
-  margin-top: 14px;
-  color: var(--app-muted);
-  font-size: var(--app-font-13);
-  line-height: var(--app-line-20);
-}
-
 .profile-insight-grid {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
@@ -9948,8 +9933,7 @@ button.annotation-hover-file:focus-visible {
   min-width: 0;
 }
 
-.docker-resource-heading p,
-.docker-resource-empty {
+.docker-resource-heading p {
   max-width: 68ch;
   margin-top: 5px;
   color: var(--app-muted);
@@ -10150,8 +10134,7 @@ button.annotation-hover-file:focus-visible {
   height: 14px;
 }
 
-.page-state,
-.empty-state {
+.page-state {
   display: flex;
   min-height: 92px;
   align-items: center;
@@ -10293,10 +10276,6 @@ button.annotation-hover-file:focus-visible {
 .compact-definition-list {
   max-height: 180px;
   overflow-y: auto;
-}
-
-.empty-state {
-  flex-direction: column;
 }
 
 .search-error {

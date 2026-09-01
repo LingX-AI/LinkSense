@@ -465,7 +465,18 @@ describe("AutomationPage", () => {
         )?.body
       ).toEqual({ status: "active" })
     })
-    expect(await screen.findByText("当前没有已暂停的自动化")).toBeVisible()
+    const emptyTitle = await screen.findByText("当前没有已暂停的自动化")
+
+    expect(emptyTitle).toBeVisible()
+    expect(emptyTitle).toHaveClass(
+      "text-[length:var(--app-font-13)]",
+      "font-normal",
+      "text-muted-foreground"
+    )
+    expect(emptyTitle.closest("[data-slot='empty']")).toHaveClass("empty-state")
+    expect(
+      screen.queryByRole("button", { name: "查看全部" })
+    ).not.toBeInTheDocument()
   })
 
   it("immediately runs an automation from the more menu", async () => {

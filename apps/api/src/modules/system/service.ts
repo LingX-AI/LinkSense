@@ -112,9 +112,12 @@ export class SystemService {
     const maintenance = maintenanceStatus(raw, new Date())
     const registration = registrationAvailability(raw)
     const authentication = await this.resolveAuthenticationSettings()
+    const initialized = raw.system_initialized === true
     this.defaultLocaleCache = settings.default_locale
     return {
-      initialized: raw.system_initialized === true,
+      initialized,
+      initialization_credential_required:
+        !initialized && this.config.initializationToken !== undefined,
       organization_display_name: settings.organization_display_name,
       default_locale: settings.default_locale,
       logo_url: settings.logo_url,

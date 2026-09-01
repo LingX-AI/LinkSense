@@ -50,6 +50,35 @@ describe("system health", () => {
     })
   })
 
+  it("requires the deployment credential only before initialization", async () => {
+    const initializationToken = "initialization-credential-".padEnd(64, "1")
+    const uninitialized = createSystemService(directory, {
+      initializationToken,
+    })
+    const initialized = createSystemService(directory, {
+      initializationToken,
+      systemSettingsJson: { system_initialized: true },
+    })
+
+    await expect(uninitialized.service.bootstrap()).resolves.toMatchObject({
+      initialized: false,
+      initialization_credential_required: true,
+    })
+    await expect(initialized.service.bootstrap()).resolves.toMatchObject({
+      initialized: true,
+      initialization_credential_required: false,
+    })
+  })
+
+  it("does not advertise an initialization credential when none is configured", async () => {
+    const { service } = createSystemService(directory)
+
+    await expect(service.bootstrap()).resolves.toMatchObject({
+      initialized: false,
+      initialization_credential_required: false,
+    })
+  })
+
   it("exposes Docker resource usage from the runner without affecting readiness", async () => {
     const runnerMetadata = {
       ...healthyRunnerMetadata(),
@@ -612,6 +641,8 @@ function createSystemService(
     >
     cleanupListError?: Error
     publicBaseUrl?: string
+    initializationToken?: string
+    systemSettingsJson?: Record<string, unknown>
     authenticationSettings?: AuthenticationSettingsReader
     knowledgeHealth?: ConstructorParameters<typeof SystemService>[9]
   } = {},
@@ -619,7 +650,11 @@ function createSystemService(
   const prisma = {
     $queryRaw: vi.fn().mockResolvedValue([{ result: 1 }]),
     systemSetting: {
-      findUnique: vi.fn().mockResolvedValue(null),
+      findUnique: vi.fn().mockResolvedValue(
+        overrides.systemSettingsJson === undefined
+          ? null
+          : { settingsJson: overrides.systemSettingsJson },
+      ),
     },
   } as unknown as PrismaClient
   const redis = {
@@ -666,6 +701,7 @@ function createSystemService(
     ...(overrides.publicBaseUrl
       ? { LINKSENSE_PUBLIC_BASE_URL: overrides.publicBaseUrl }
       : {}),
+    LINKSENSE_INITIALIZATION_TOKEN: overrides.initializationToken,
   })
   return {
     service: new SystemService(

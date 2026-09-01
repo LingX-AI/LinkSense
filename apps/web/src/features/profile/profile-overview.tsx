@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 
 import type { PersonalUsageProfile, User } from "@/api/contracts"
 import { CapabilityIcon } from "@/components/capabilities/capability-icon"
+import { EmptyState } from "@/components/feedback/page-state"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -246,9 +247,7 @@ export function ProfileOverview({
                     })}
                   </ol>
                 ) : (
-                  <p className="profile-model-empty">
-                    {t("profile.noSkillUsage")}
-                  </p>
+                  <EmptyState title={t("profile.noSkillUsage")} />
                 )}
               </section>
             </div>
@@ -303,9 +302,7 @@ export function ProfileOverview({
                   })}
                 </ol>
               ) : (
-                <p className="profile-model-empty">
-                  {t("profile.noModelUsage")}
-                </p>
+                <EmptyState title={t("profile.noModelUsage")} />
               )}
             </section>
           </div>

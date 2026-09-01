@@ -1554,13 +1554,7 @@ export const ConversationComposer = forwardRef<
                     : "conversation.placeholder",
             { productName }
           )}
-          disabled={
-            submitting ||
-            uploading ||
-            interactionBlocked ||
-            isPastedTextAttachmentPending
-          }
-          aria-busy={uploading || isPastedTextAttachmentPending || undefined}
+          disabled={submitting || interactionBlocked}
           className={cn(
             "composer-input composer-input-textarea min-h-14 border-0 bg-transparent px-1 py-2 text-sm leading-6 shadow-none focus-visible:bg-transparent focus-visible:ring-0",
             hasComposerInputUrl && "composer-input-has-url",

@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+const renderedPageTexts = vi.hoisted(() => [] as string[])
 const html2canvas = vi.hoisted(() =>
-  vi.fn(async () => ({ toDataURL: () => "data:image/jpeg;base64,test" }))
+  vi.fn(async (page: HTMLElement) => {
+    renderedPageTexts.push(page.textContent ?? "")
+    return { toDataURL: () => "data:image/jpeg;base64,test" }
+  })
 )
 const addImage = vi.hoisted(() => vi.fn())
 const addPage = vi.hoisted(() => vi.fn())
@@ -25,10 +29,11 @@ describe("billing statement PDF", () => {
     addImage.mockClear()
     addPage.mockClear()
     output.mockClear()
+    renderedPageTexts.length = 0
   })
 
-  it("paginates compact model rows and removes off-screen render nodes", async () => {
-    const models = Array.from({ length: 12 }, (_, index) => ({
+  it("reserves the final page for the summary and removes off-screen render nodes", async () => {
+    const models = Array.from({ length: 11 }, (_, index) => ({
       model_id: `model-${index}`,
       display_name: `Model ${index}`,
       token_usage: {
@@ -67,7 +72,7 @@ describe("billing statement PDF", () => {
         },
         currency: "CNY",
         status: "generated",
-        total_cost: "1.2",
+        total_cost: "1.1",
         unpriced_tokens: "0",
         generated_at: "2026-07-31T16:05:00.000Z",
         models,
@@ -82,6 +87,8 @@ describe("billing statement PDF", () => {
     expect(addImage).toHaveBeenCalledTimes(2)
     expect(addPage).toHaveBeenCalledOnce()
     expect(output).toHaveBeenCalledWith("blob")
+    expect(renderedPageTexts[0]).not.toContain("本期合计")
+    expect(renderedPageTexts[1]).toContain("本期合计")
     expect(document.body.childElementCount).toBe(before)
   })
 })
