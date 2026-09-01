@@ -983,7 +983,11 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.runner.acceptStartTurn).toHaveBeenCalledWith(
       expect.objectContaining({ collaborationMode: "plan" }),
     );
-    await vi.waitFor(() => expect(recover).toHaveBeenCalledWith(result.turn_id));
+    await vi.waitFor(() =>
+      expect(recover).toHaveBeenCalledWith(result.turn_id, {
+        resubmitNonTerminal: false,
+      }),
+    );
   });
 
   it("implements a pending Plan review in the same thread as a new Default turn", async () => {
@@ -4691,7 +4695,11 @@ describe("ConversationService pending and turn materialization", () => {
       fixture.runner.acceptStartTurn.mock.calls[0]?.[0].context,
     ).not.toHaveProperty("requireFinalResponse");
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(recover).toHaveBeenCalledWith(result.turn_id));
+    await vi.waitFor(() =>
+      expect(recover).toHaveBeenCalledWith(result.turn_id, {
+        resubmitNonTerminal: false,
+      }),
+    );
   });
 
   it("starts a native Goal with draft attachments and permits replacing a completed Goal", async () => {
@@ -4792,7 +4800,9 @@ describe("ConversationService pending and turn materialization", () => {
       }),
     );
     await vi.waitFor(() =>
-      expect(recover).toHaveBeenCalledWith(result.turn_id),
+      expect(recover).toHaveBeenCalledWith(result.turn_id, {
+        resubmitNonTerminal: false,
+      }),
     );
   });
 
@@ -4981,7 +4991,9 @@ describe("ConversationService pending and turn materialization", () => {
       ).not.toContain(ignoredKnowledgeBaseId);
       expect(result).toMatchObject({ accepted: true, status: "starting" });
       await vi.waitFor(() =>
-        expect(recover).toHaveBeenCalledWith(result.turn_id),
+        expect(recover).toHaveBeenCalledWith(result.turn_id, {
+          resubmitNonTerminal: false,
+        }),
       );
     },
   );
@@ -6228,6 +6240,50 @@ describe("ConversationService pending and turn materialization", () => {
   });
 
   it.each([
+    ["starting", undefined],
+    ["uncertain", "RUNNER_TURN_START_RESULT_UNCERTAIN"],
+  ] as const)(
+    "keeps accepted-start polling read-only while the runner operation is %s",
+    async (operationStatus, errorCode) => {
+      const fixture = await conversationFixture();
+      const intent = startIntentRow({ runnerStatus: "prepared" });
+      await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+      fixture.runner.inspectStartOperation.mockResolvedValueOnce(
+        operationStatus === "uncertain"
+          ? {
+              conversationId: CONVERSATION_ID,
+              projectionTurnId: intent.projectionTurnId,
+              status: "uncertain",
+              errorCode,
+              createdAt: NOW.toISOString(),
+              updatedAt: NOW.toISOString(),
+            }
+          : {
+              conversationId: CONVERSATION_ID,
+              projectionTurnId: intent.projectionTurnId,
+              status: "starting",
+              createdAt: NOW.toISOString(),
+              updatedAt: NOW.toISOString(),
+            },
+      );
+
+      await expect(
+        fixture.service.recoverStartIntent(intent.projectionTurnId, {
+          resubmitNonTerminal: false,
+        }),
+      ).resolves.toBe("pending");
+
+      expect(fixture.runner.inspectStartOperation).toHaveBeenCalledOnce();
+      expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+      expect(
+        fixture.preflight.resolveStartIntentRecovery,
+      ).not.toHaveBeenCalled();
+      expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+      expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
     ["prepared", "starting"],
     ["slot_pending", "uncertain"],
   ] as const)(
@@ -6690,7 +6746,9 @@ describe("ConversationService pending and turn materialization", () => {
       }),
     });
     await vi.waitFor(() =>
-      expect(recover).toHaveBeenCalledWith(result.turn_id),
+      expect(recover).toHaveBeenCalledWith(result.turn_id, {
+        resubmitNonTerminal: false,
+      }),
     );
   });
 
@@ -9542,7 +9600,9 @@ describe("ConversationService pending and turn materialization", () => {
       fixture.defaultTransaction.conversationTurn.create,
     ).not.toHaveBeenCalled();
     await vi.waitFor(() =>
-      expect(recover).toHaveBeenCalledWith(result.turn_id),
+      expect(recover).toHaveBeenCalledWith(result.turn_id, {
+        resubmitNonTerminal: false,
+      }),
     );
   });
 

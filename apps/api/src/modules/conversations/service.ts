@@ -386,7 +386,7 @@ export type PlanReviewActionInput =
 const CONVERSATION_DETAIL_EVENT_LIMIT = 200;
 const PLAN_OUTPUT_MISSING_ERROR_CODE = "PLAN_OUTPUT_MISSING";
 const ACCEPTED_START_RECOVERY_WINDOW_MILLISECONDS = 60_000;
-const ACCEPTED_START_RECOVERY_POLL_MILLISECONDS = 100;
+const ACCEPTED_START_RECOVERY_POLL_MILLISECONDS = 250;
 const CONVERSATION_DETAIL_TRANSIENT_EVENT_TYPES = [
   "conversation.message.delta",
   "item/agentMessage/delta",
@@ -1354,7 +1354,9 @@ export class ConversationService {
 
   async recoverStartIntent(
     projectionTurnId: string,
+    options: { resubmitNonTerminal?: boolean } = {},
   ): Promise<"missing" | "pending" | "projected" | "released"> {
+    const resubmitNonTerminal = options.resubmitNonTerminal ?? true;
     const initial = await this.prisma.conversationTurnStartIntent.findUnique({
       where: { projectionTurnId },
     });
@@ -1407,8 +1409,9 @@ export class ConversationService {
             assertMatchingStartOperation(intent, operation);
           }
           if (
-            operation.status === "starting" ||
-            operation.status === "uncertain"
+            resubmitNonTerminal &&
+            (operation.status === "starting" ||
+              operation.status === "uncertain")
           ) {
             const resumed = await this.resumeDurableStartIntent(intent);
             if (resumed === null) {
@@ -1468,7 +1471,10 @@ export class ConversationService {
         );
         assertMatchingStartOperation(intent, operation);
       }
-      if (operation.status === "starting" || operation.status === "uncertain") {
+      if (
+        resubmitNonTerminal &&
+        (operation.status === "starting" || operation.status === "uncertain")
+      ) {
         const resumed = await this.resumeDurableStartIntent(intent);
         if (resumed === null) {
           const releasing = await this.markStartIntentForRelease(intent);
@@ -1629,7 +1635,13 @@ export class ConversationService {
         );
         timer.unref();
       });
-      const outcome = await this.recoverStartIntent(projectionTurnId);
+      // The accepted POST has already handed the operation to Runner. This
+      // bounded fast path only observes that durable operation; resubmission
+      // is reserved for the periodic crash-recovery coordinator so a healthy
+      // `starting` operation cannot be POSTed again on every poll.
+      const outcome = await this.recoverStartIntent(projectionTurnId, {
+        resubmitNonTerminal: false,
+      });
       if (outcome !== "pending") return;
     }
   }
