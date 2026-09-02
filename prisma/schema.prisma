@@ -694,9 +694,16 @@ model Conversation {
   applicationId                   String?   @map("application_id") @db.Uuid
   applicationNameSnapshot         String?   @map("application_name_snapshot") @db.VarChar(160)
   interactiveApplicationPackageId String?   @map("interactive_application_package_id") @db.Uuid
+  forkRootId                      String?   @map("fork_root_id") @db.Uuid
+  forkSequence                    Int?      @map("fork_sequence")
+  forkSourceConversationId        String?   @map("fork_source_conversation_id") @db.Uuid
+  forkSourceMessageId             String?   @map("fork_source_message_id") @db.Uuid
+  forkIdempotencyKey              String?   @map("fork_idempotency_key") @db.VarChar(120)
   createdAt                       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  @@unique([ownerId, forkIdempotencyKey], map: "conversations_owner_fork_idempotency_key")
+  @@unique([forkRootId, forkSequence], map: "conversations_fork_root_sequence_key")
   @@index([ownerId, archiveStatus, updatedAt(sort: Desc)], map: "conversations_owner_archive_updated_idx")
   @@index([ownerId, archiveStatus, pinnedAt(sort: Desc)], map: "conversations_owner_archive_pinned_idx")
   @@index([ownerId, archiveStatus, pinnedAt, sortOrder], map: "conversations_owner_archive_pin_order_idx")
@@ -704,7 +711,20 @@ model Conversation {
   @@index([lastRunAt], map: "conversations_last_run_at_idx")
   @@index([applicationId, ownerId, updatedAt(sort: Desc)], map: "conversations_application_owner_updated_idx")
   @@index([interactiveApplicationPackageId, ownerId, updatedAt(sort: Desc)], map: "conversations_interactive_package_owner_updated_idx")
+  @@index([forkSourceConversationId, forkSourceMessageId], map: "conversations_fork_source_message_idx")
   @@map("conversations")
+}
+
+model ConversationForkCounter {
+  rootConversationId String   @id @map("root_conversation_id") @db.Uuid
+  ownerId             String   @map("owner_id") @db.Uuid
+  baseTitle           String   @map("base_title") @db.VarChar(240)
+  nextSequence        Int      @default(3) @map("next_sequence")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId], map: "conversation_fork_counters_owner_idx")
+  @@map("conversation_fork_counters")
 }
 
 model ConversationGoal {
@@ -772,7 +792,7 @@ model ConversationTurn {
   sequenceNo             Int       @map("sequence_no")
   submittedBy            String    @map("submitted_by") @db.Uuid
   codexThreadId          String    @map("codex_thread_id") @db.Text
-  codexTurnId            String    @unique(map: "conversation_turns_codex_turn_id_key") @map("codex_turn_id") @db.Text
+  codexTurnId            String    @map("codex_turn_id") @db.Text
   status                 String    @db.VarChar(32)
   taskKind               String    @default("turn") @map("task_kind") @db.VarChar(32)
   collaborationMode      String    @default("default") @map("collaboration_mode") @db.VarChar(24)
@@ -796,7 +816,9 @@ model ConversationTurn {
   updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([conversationId, sequenceNo], map: "conversation_turns_conversation_sequence_key")
+  @@unique([conversationId, codexTurnId], map: "conversation_turns_conversation_codex_turn_key")
   @@index([conversationId, createdAt], map: "conversation_turns_conversation_created_idx")
+  @@index([codexTurnId], map: "conversation_turns_codex_turn_idx")
   @@index([conversationId, status, sequenceNo], map: "conversation_turns_conversation_status_sequence_idx")
   @@index([submittedBy], map: "conversation_turns_submitted_by_idx")
   @@index([submittedBy, status, completedAt, id], map: "conversation_turns_submitter_status_completed_idx")

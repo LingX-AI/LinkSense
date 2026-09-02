@@ -41,6 +41,7 @@ import {
   PencilIcon,
   PresentationIcon,
   GoalIcon,
+  GitForkIcon,
   SparklesIcon,
   WifiIcon,
   WrenchIcon,
@@ -121,6 +122,12 @@ import {
 } from "@/components/ui/hover-card"
 import { Table } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  ActionTooltipContent,
+  Tooltip,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   ConversationArtifactFiles,
   type ArtifactPreviewSource,
@@ -2360,6 +2367,8 @@ type MessageProps = Readonly<{
     message: ConversationMessage,
     nextContent: string
   ) => Promise<void>
+  onForkMessage?: (message: ConversationMessage) => Promise<void>
+  forkDisabled?: boolean
   isGoalTask?: boolean
   goalCompletion?: Readonly<{
     durationLabel: string
@@ -2388,6 +2397,8 @@ const Message = memo(function Message({
   onEditStart,
   onEditCancel,
   onRegenerateMessage,
+  onForkMessage,
+  forkDisabled = false,
   isGoalTask,
   goalCompletion,
   proposedPlan = false,
@@ -2427,6 +2438,9 @@ const Message = memo(function Message({
   )
   const [submitting, setSubmitting] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+  const [forkState, setForkState] = useState<"idle" | "forking" | "failed">(
+    "idle"
+  )
   const editButtonRef = useRef<HTMLButtonElement>(null)
   const nextContent = editValue.trim()
   const canSubmit = nextContent.length > 0 && !submitting && !editingDisabled
@@ -2487,6 +2501,16 @@ const Message = memo(function Message({
     }
   }
 
+  const forkMessage = async () => {
+    if (!onForkMessage || forkDisabled || forkState === "forking") return
+    setForkState("forking")
+    try {
+      await onForkMessage(message)
+    } catch {
+      setForkState("failed")
+    }
+  }
+
   const metadataElement = messageTime ? (
     <span className="message-action-metadata">
       <time
@@ -2518,22 +2542,23 @@ const Message = memo(function Message({
     </span>
   ) : null
 
+  const copyActionLabel = t(
+    copyState === "copied"
+      ? "conversation.messageCopied"
+      : "conversation.copyMessage"
+  )
+  const forkActionLabel = t(
+    forkState === "forking"
+      ? "conversation.forkingMessage"
+      : "conversation.forkMessage"
+  )
   const copyButton = (
     <Button
       type="button"
       variant="ghost"
       size="icon-sm"
       className="message-action-button message-copy-button"
-      aria-label={t(
-        copyState === "copied"
-          ? "conversation.messageCopied"
-          : "conversation.copyMessage"
-      )}
-      title={t(
-        copyState === "copied"
-          ? "conversation.messageCopied"
-          : "conversation.copyMessage"
-      )}
+      aria-label={copyActionLabel}
       onClick={() => void copyMessage()}
     >
       {copyState === "copied" ? (
@@ -2543,6 +2568,44 @@ const Message = memo(function Message({
       )}
     </Button>
   )
+  const forkButton =
+    !user && onForkMessage ? (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="message-action-button"
+        aria-label={forkActionLabel}
+        disabled={forkDisabled || forkState === "forking"}
+        onClick={() => void forkMessage()}
+      >
+        {forkState === "forking" ? (
+          <LoaderCircleIcon
+            className="size-3 animate-spin"
+            strokeWidth={1.5}
+            aria-hidden="true"
+          />
+        ) : (
+          <GitForkIcon
+            className="size-3"
+            strokeWidth={1.5}
+            aria-hidden="true"
+          />
+        )}
+      </Button>
+    ) : null
+  const copyAction = (
+    <Tooltip>
+      <TooltipTrigger render={copyButton} />
+      <ActionTooltipContent side="top">{copyActionLabel}</ActionTooltipContent>
+    </Tooltip>
+  )
+  const forkAction = forkButton ? (
+    <Tooltip>
+      <TooltipTrigger render={forkButton} />
+      <ActionTooltipContent side="top">{forkActionLabel}</ActionTooltipContent>
+    </Tooltip>
+  ) : null
   const goalCompletionElement =
     !user && goalCompletion ? (
       <span className="message-goal-completion" role="status">
@@ -2845,55 +2908,63 @@ const Message = memo(function Message({
           aria-hidden={assistantActionsPending || undefined}
           data-placeholder={assistantActionsPending || undefined}
         >
-          {assistantActionsPending ? null : user ? (
-            <>
-              <span className="message-user-action-controls">
-                {metadataElement}
-                {copyButton}
-                {onRegenerateMessage && !editingDisabled && !submitting && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="message-action-button"
-                    ref={editButtonRef}
-                    aria-label={t("conversation.editMessage")}
-                    title={t("conversation.editMessage")}
-                    onClick={startEditing}
-                  >
-                    <PencilIcon
-                      className="size-3"
+          <TooltipProvider delay={0}>
+            {assistantActionsPending ? null : user ? (
+              <>
+                <span className="message-user-action-controls">
+                  {metadataElement}
+                  {copyAction}
+                  {onRegenerateMessage && !editingDisabled && !submitting && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="message-action-button"
+                      ref={editButtonRef}
+                      aria-label={t("conversation.editMessage")}
+                      title={t("conversation.editMessage")}
+                      onClick={startEditing}
+                    >
+                      <PencilIcon
+                        className="size-3"
+                        strokeWidth={1.5}
+                        aria-hidden="true"
+                      />
+                    </Button>
+                  )}
+                </span>
+                {isGoalTask && (
+                  <span className="user-message-goal-indicator">
+                    <GoalIcon
+                      className="user-message-goal-indicator-icon"
                       strokeWidth={1.5}
                       aria-hidden="true"
                     />
-                  </Button>
-                )}
-              </span>
-              {isGoalTask && (
-                <span className="user-message-goal-indicator">
-                  <GoalIcon
-                    className="user-message-goal-indicator-icon"
-                    strokeWidth={1.5}
-                    aria-hidden="true"
-                  />
-                  <span className="user-message-goal-indicator-label">
-                    {t("conversation.goal.modeLabel")}
+                    <span className="user-message-goal-indicator-label">
+                      {t("conversation.goal.modeLabel")}
+                    </span>
                   </span>
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              {copyButton}
-              {metadataElement}
-              {goalCompletionElement}
-            </>
-          )}
+                )}
+              </>
+            ) : (
+              <>
+                {copyAction}
+                {forkAction}
+                {metadataElement}
+                {goalCompletionElement}
+              </>
+            )}
+          </TooltipProvider>
         </div>
       )}
       {copyState === "failed" && (
         <span className="sr-only" role="alert">
           {t("conversation.copyMessageFailed")}
+        </span>
+      )}
+      {forkState === "failed" && (
+        <span className="sr-only" role="alert">
+          {t("conversation.forkMessageFailed")}
         </span>
       )}
     </article>
@@ -2926,6 +2997,8 @@ function areMessagePropsEqual(previous: MessageProps, next: MessageProps) {
     previous.editing === next.editing &&
     previous.editingDisabled === next.editingDisabled &&
     previous.onRegenerateMessage === next.onRegenerateMessage &&
+    previous.onForkMessage === next.onForkMessage &&
+    previous.forkDisabled === next.forkDisabled &&
     previous.isGoalTask === next.isGoalTask &&
     previous.goalCompletion?.durationLabel ===
       next.goalCompletion?.durationLabel &&
@@ -4021,6 +4094,8 @@ export function ConversationThread({
   onDownload,
   downloadingFileId,
   onRegenerateMessage,
+  onForkMessage,
+  forkingDisabled = false,
   editingDisabled = false,
   showNewTaskWelcome = false,
   onStarterQuestionSelect,
@@ -4058,6 +4133,8 @@ export function ConversationThread({
     message: ConversationMessage,
     nextContent: string
   ) => Promise<void>
+  onForkMessage?: (message: ConversationMessage) => Promise<void>
+  forkingDisabled?: boolean
   editingDisabled?: boolean
   showNewTaskWelcome?: boolean
   onStarterQuestionSelect?: (prompt: string) => void
@@ -4128,7 +4205,8 @@ export function ConversationThread({
   const isHiddenPlanImplementationMessage = (message: ConversationMessage) =>
     message.role === "user" &&
     Boolean(message.turn_id && planImplementationTurnIds.has(message.turn_id))
-  const showWelcome = showNewTaskWelcome && messages.length === 0
+  const showWelcome =
+    showNewTaskWelcome && !suppressEmptyState && messages.length === 0
   const turns = [...(conversation.turns ?? [])]
   if (
     conversation.running_turn &&
@@ -4284,6 +4362,10 @@ export function ConversationThread({
     const finalMessage = explicitFinal ?? fallbackFinal
     if (finalMessage) finalMessageByTurn.set(turnId, finalMessage)
   }
+  const lastMessageIdByTurn = new Map<string, string>()
+  for (const message of messages) {
+    if (message.turn_id) lastMessageIdByTurn.set(message.turn_id, message.id)
+  }
   const completedGoal =
     conversation.goal?.status === "complete" ? conversation.goal : null
   const completedGoalDurationLabel = completedGoal
@@ -4419,6 +4501,16 @@ export function ConversationThread({
         onRegenerateMessage={
           message.id === editableMessageId ? onRegenerateMessage : undefined
         }
+        onForkMessage={
+          message.role === "assistant" &&
+          message.turn_id &&
+          lastMessageIdByTurn.get(message.turn_id) === message.id &&
+          turn &&
+          ["completed", "failed", "interrupted"].includes(turn.status)
+            ? onForkMessage
+            : undefined
+        }
+        forkDisabled={forkingDisabled}
         isGoalTask={Boolean(
           message.role === "user" &&
           turn?.task_kind === "goal" &&

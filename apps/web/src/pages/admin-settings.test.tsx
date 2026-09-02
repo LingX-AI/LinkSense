@@ -2756,7 +2756,7 @@ describe("administrator authentication settings", () => {
     })
   })
 
-  it("shows the saving state only on the model that started the request", async () => {
+  it("keeps unrelated save buttons available and serializes a subsequent save", async () => {
     const settings = {
       ...modelProviderSettings,
       providers: [
@@ -2773,6 +2773,7 @@ describe("administrator authentication settings", () => {
     const pendingSave = new Promise<Response>((resolve) => {
       resolveSave = resolve
     })
+    const saveRequests: Array<Record<string, unknown>> = []
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -2781,7 +2782,14 @@ describe("administrator authentication settings", () => {
           path.endsWith("/model-provider-settings") &&
           init?.method === "PUT"
         ) {
-          return pendingSave
+          saveRequests.push(JSON.parse(String(init.body)))
+          if (saveRequests.length === 1) return pendingSave
+          return Promise.resolve(
+            envelope({
+              code: "SYSTEM_SETTINGS_UPDATED",
+              settings: { ...settings, revision: 4 },
+            })
+          )
         }
         return Promise.resolve(
           envelope(
@@ -2817,10 +2825,16 @@ describe("administrator authentication settings", () => {
     await waitFor(() => expect(modelASave).toHaveAttribute("aria-busy", "true"))
     expect(modelASave.querySelector('[data-slot="spinner"]')).not.toBeNull()
     for (const otherSave of [modelBSave, providerSave, selectionSave]) {
-      expect(otherSave).toBeDisabled()
+      expect(otherSave).toBeEnabled()
       expect(otherSave).not.toHaveAttribute("aria-busy")
       expect(otherSave.querySelector('[data-slot="spinner"]')).toBeNull()
     }
+
+    await interaction.click(modelBSave)
+    await waitFor(() => expect(modelBSave).toHaveAttribute("aria-busy", "true"))
+    expect(modelBSave).toBeDisabled()
+    expect(modelBSave.querySelector('[data-slot="spinner"]')).not.toBeNull()
+    expect(saveRequests).toHaveLength(1)
 
     resolveSave(
       envelope({
@@ -2828,7 +2842,12 @@ describe("administrator authentication settings", () => {
         settings: { ...settings, revision: 3 },
       })
     )
-    await waitFor(() => expect(modelASave).not.toHaveAttribute("aria-busy"))
+    await waitFor(() => expect(saveRequests).toHaveLength(2))
+    expect(saveRequests[1]).toMatchObject({ expected_revision: 3 })
+    await waitFor(() => {
+      expect(modelASave).not.toHaveAttribute("aria-busy")
+      expect(modelBSave).not.toHaveAttribute("aria-busy")
+    })
   })
 
   it("updates model availability and deletes a persisted model immediately", async () => {

@@ -503,13 +503,7 @@ function ConversationOfficePreviewContent({
   ) : null
 
   const renderPreview = (paneClassName?: string) => {
-    const initialLoadPaneClassName =
-      animateEntrance &&
-      (genericKind
-        ? genericDocument.status === "loading"
-        : document.status === "loading")
-        ? paneClassName
-        : undefined
+    const initialLoadPaneClassName = animateEntrance ? paneClassName : undefined
 
     return documentKind === "presentation" ? (
       <PresentationPreview

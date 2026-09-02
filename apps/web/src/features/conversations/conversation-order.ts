@@ -15,6 +15,14 @@ type SidebarConversationOrderData<T> = {
   pages: SidebarConversationOrderPage<T>[]
 }
 
+type SidebarConversationPage<T> = SidebarConversationOrderPage<T> & {
+  total_count?: number
+}
+
+type SidebarConversationData<T> = {
+  pages: SidebarConversationPage<T>[]
+}
+
 export function sortSidebarConversations<T extends SidebarConversationOrder>(
   conversations: readonly T[],
   group: "pinned" | "recent"
@@ -86,4 +94,33 @@ export function applySidebarConversationOrder<
     return { ...page, items }
   })
   return changed ? { ...data, pages } : data
+}
+
+export function upsertSidebarConversation<
+  T extends { id: string },
+  TData extends SidebarConversationData<T>,
+>(data: TData | undefined, conversation: T) {
+  if (!data || data.pages.length === 0) return data
+
+  const alreadyPresent = data.pages.some((page) =>
+    page.items.some((item) => item.id === conversation.id)
+  )
+  const pages = data.pages.map((page, index) => {
+    const remainingItems = page.items.filter(
+      (item) => item.id !== conversation.id
+    )
+    return {
+      ...page,
+      items: index === 0 ? [conversation, ...remainingItems] : remainingItems,
+      ...(page.total_count === undefined
+        ? {}
+        : {
+            total_count: alreadyPresent
+              ? page.total_count
+              : page.total_count + 1,
+          }),
+    }
+  })
+
+  return { ...data, pages }
 }

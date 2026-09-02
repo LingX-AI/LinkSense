@@ -14,6 +14,7 @@ import { MemoryRouter } from "react-router-dom"
 
 import { setAccessToken } from "@/api/session"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import appStyles from "@/index.css?raw"
 import { AdminPages } from "@/pages/admin-pages"
 import i18n from "@/i18n"
 
@@ -136,6 +137,86 @@ describe("administrator audit metadata", () => {
       screen.queryByRole("columnheader", { name: "User-Agent" })
     ).not.toBeInTheDocument()
     expect(screen.queryByText(userAgent)).not.toBeInTheDocument()
+  })
+
+  it("keeps the details action on the right and shows every safe audit field", async () => {
+    const userAgent = "Mozilla/5.0 audit-detail-test"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          envelope({
+            items: [
+              {
+                id: "audit-detail-1",
+                action: "conversation_turn_completed",
+                actor_name: "One.Liu",
+                actor_id: "10000000-0000-4000-8000-000000000001",
+                target_type: "conversation_turn",
+                target_id: "turn-1",
+                result: "success",
+                ip_address: "192.0.2.10",
+                user_agent: userAgent,
+                metadata: {
+                  conversation_id: "conversation-1",
+                  submit_mode: "user",
+                  size_bytes: 0,
+                  resumed: false,
+                },
+                created_at: "2026-07-13T02:07:00.000Z",
+              },
+            ],
+            next_cursor: null,
+          })
+        )
+      )
+    )
+    const interaction = userEvent.setup()
+    renderAudit()
+
+    const detailsButton = await screen.findByRole("button", { name: "详情" })
+    expect(screen.getByRole("columnheader", { name: "操作" })).toHaveClass(
+      "audit-details-actions-column"
+    )
+    expect(detailsButton.closest("td")).toHaveClass(
+      "audit-details-actions-column"
+    )
+    expect(appStyles).toMatch(
+      /\.audit-details-table\s+td\.audit-details-actions-column\s*\{[^}]*vertical-align:\s*middle;/u
+    )
+
+    await interaction.click(detailsButton)
+
+    const dialog = screen.getByRole("dialog", { name: "审计日志详情" })
+    expect(dialog).toHaveClass("overflow-hidden")
+    expect(dialog).not.toHaveClass("overflow-y-auto")
+    expect(
+      within(dialog)
+        .getByRole("heading", { name: "审计日志详情" })
+        .closest('[data-slot="audit-detail-dialog-header"]')
+    ).toHaveClass("shrink-0")
+    expect(
+      dialog.querySelector('[data-slot="audit-detail-dialog-body"]')
+    ).toHaveClass("min-h-0", "overflow-y-auto")
+    expect(within(dialog).getByText("audit-detail-1")).toBeVisible()
+    expect(within(dialog).getByText("One.Liu")).toBeVisible()
+    expect(
+      within(dialog).getByText("10000000-0000-4000-8000-000000000001")
+    ).toBeVisible()
+    expect(within(dialog).getByText("turn-1")).toBeVisible()
+    expect(within(dialog).getByText("192.0.2.10")).toBeVisible()
+    expect(within(dialog).getByText(userAgent)).toBeVisible()
+    expect(within(dialog).getByText("conversation_id")).toBeVisible()
+    expect(within(dialog).getByText("conversation-1")).toBeVisible()
+    expect(within(dialog).getByText("size_bytes")).toBeVisible()
+    expect(within(dialog).getByText("0")).toBeVisible()
+    expect(within(dialog).getByText("resumed")).toBeVisible()
+    expect(within(dialog).getByText("false")).toBeVisible()
+
+    await interaction.click(
+      within(dialog).getByRole("button", { name: "关闭" })
+    )
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
   it("uses neutral runtime identifiers for internal audit metadata", async () => {
@@ -317,9 +398,13 @@ describe("administrator audit metadata", () => {
               {
                 conversation_id: "deleted-conversation-1",
                 owner_id: "user-2",
+                owner_name: "周明",
+                owner_email: "zhou@example.com",
                 artifact_count: 3,
                 total_size_bytes: 4096,
                 checksum_present: true,
+                first_artifact_created_at: "2026-07-09T00:00:00.000Z",
+                last_artifact_created_at: "2026-07-09T00:05:00.000Z",
                 conversation_deleted_at: "2026-07-10T00:00:00.000Z",
               },
             ],
@@ -363,10 +448,47 @@ describe("administrator audit metadata", () => {
     expect(screen.getByText("产物 2 个 · 2 kB")).toHaveClass("table-secondary")
     expect(screen.getByText("插件: -")).toBeVisible()
     expect(screen.getByText("Skill: -")).toBeVisible()
+    expect(screen.getByRole("columnheader", { name: "操作" })).toHaveClass(
+      "audit-details-actions-column"
+    )
+
+    await interaction.click(screen.getAllByRole("button", { name: "详情" })[0]!)
+    const conversationDialog = screen.getByRole("dialog", {
+      name: "任务执行详情",
+    })
+    expect(within(conversationDialog).getByText("conversation-1")).toBeVisible()
+    expect(within(conversationDialog).getByText("user-1")).toBeVisible()
+    expect(
+      within(conversationDialog).getByText("lin@example.com")
+    ).toBeVisible()
+    expect(within(conversationDialog).getByText("业务数据")).toBeVisible()
+    expect(within(conversationDialog).getByText("报告写作")).toBeVisible()
+    expect(within(conversationDialog).getByText("1.5秒")).toBeVisible()
+    expect(within(conversationDialog).getByText("1 kB")).toBeVisible()
+    expect(within(conversationDialog).getByText("2 kB")).toBeVisible()
+    await interaction.click(
+      within(conversationDialog).getByRole("button", { name: "关闭" })
+    )
 
     await interaction.click(screen.getByRole("tab", { name: "已删除任务产物" }))
     expect(await screen.findByText("deleted-conversation-1")).toBeVisible()
     expect(screen.getByText("4 kB")).toBeVisible()
+    expect(screen.getByRole("columnheader", { name: "操作" })).toHaveClass(
+      "audit-details-actions-column"
+    )
+    await interaction.click(screen.getByRole("button", { name: "详情" }))
+    const retainedDialog = screen.getByRole("dialog", {
+      name: "已删除任务产物详情",
+    })
+    expect(within(retainedDialog).getByText("user-2")).toBeVisible()
+    expect(within(retainedDialog).getByText("周明")).toBeVisible()
+    expect(within(retainedDialog).getByText("zhou@example.com")).toBeVisible()
+    expect(within(retainedDialog).getByText("3")).toBeVisible()
+    expect(within(retainedDialog).getByText("4 kB")).toBeVisible()
+    expect(within(retainedDialog).getByText("是")).toBeVisible()
+    await interaction.click(
+      within(retainedDialog).getByRole("button", { name: "关闭" })
+    )
     expect(screen.getByRole("button", { name: "导出 CSV" })).toBeEnabled()
   })
 })

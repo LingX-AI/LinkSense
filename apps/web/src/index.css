@@ -1287,7 +1287,7 @@
   > .office-preview-pane.office-preview-pane-entering:not(
     .subagent-detail-pane
   ) {
-  animation: conversation-file-preview-pane-in 220ms
+  animation: conversation-file-preview-pane-in 360ms
     cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -1301,11 +1301,30 @@
   }
 }
 
+.conversation-office-layout[data-preview-closing="true"]
+  > .office-preview-pane:not(.subagent-detail-pane) {
+  pointer-events: none;
+  animation: conversation-file-preview-pane-out 360ms
+    cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes conversation-file-preview-pane-out {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .conversation-office-layout[data-has-office-preview="true"]
     > .office-preview-pane.office-preview-pane-entering:not(
       .subagent-detail-pane
-    ) {
+    ),
+  .conversation-office-layout[data-preview-closing="true"]
+    > .office-preview-pane:not(.subagent-detail-pane) {
     animation: none;
   }
 }
@@ -3820,6 +3839,37 @@
 
 .conversation-scroll-to-bottom-button:hover {
   background: color-mix(in srgb, var(--app-hover) 72%, var(--app-canvas));
+}
+
+.conversation-running-dot {
+  animation: conversation-running-dot-bounce 1s infinite;
+}
+
+.conversation-running-dot:nth-child(1) {
+  animation-delay: -300ms;
+}
+
+.conversation-running-dot:nth-child(2) {
+  animation-delay: -150ms;
+}
+
+@keyframes conversation-running-dot-bounce {
+  0%,
+  100% {
+    transform: translateY(-2px);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+  }
+
+  50% {
+    transform: translateY(1px);
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-running-dot {
+    animation: none;
+  }
 }
 
 .conversation-scroll-to-bottom-button > svg {
@@ -7729,6 +7779,51 @@ button.annotation-hover-file:focus-visible {
 
 .data-table tbody tr:hover {
   background: color-mix(in srgb, var(--app-hover) 72%, transparent);
+}
+
+.audit-details-table {
+  border-spacing: 0;
+  border-collapse: separate;
+  isolation: isolate;
+}
+
+.audit-log-table,
+.retained-artifact-table {
+  min-width: 860px;
+}
+
+.audit-details-actions-column {
+  --audit-details-sticky-overlay: transparent;
+
+  position: sticky;
+  right: 0;
+  z-index: 10;
+  width: 88px;
+  min-width: 88px;
+  background:
+    linear-gradient(
+      var(--audit-details-sticky-overlay),
+      var(--audit-details-sticky-overlay)
+    ),
+    var(--app-canvas) !important;
+}
+
+.audit-details-table td.audit-details-actions-column {
+  vertical-align: middle;
+}
+
+.audit-details-table [data-slot="table-head"].audit-details-actions-column {
+  z-index: 20;
+}
+
+.audit-details-table
+  [data-slot="table-row"]:hover
+  .audit-details-actions-column {
+  --audit-details-sticky-overlay: color-mix(
+    in srgb,
+    var(--app-hover) 72%,
+    transparent
+  );
 }
 
 .user-management-table {

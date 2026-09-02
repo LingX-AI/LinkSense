@@ -67,6 +67,11 @@ import {
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
 import { ExecutionConcurrencySettingsForm } from "@/features/admin/execution-concurrency-settings-form"
+import {
+  AuditConversationDetailDialog,
+  AuditLogDetailDialog,
+  RetainedArtifactDetailDialog,
+} from "@/features/admin/audit-log-detail-dialog"
 import { productFilenamePrefix, useProductName } from "@/app/product-branding"
 import { downloadBlob } from "@/lib/download-blob"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
@@ -3241,55 +3246,78 @@ function AuditTable({
   language: SupportedLanguage
 }) {
   const { t } = useTranslation()
+  const [selectedRecord, setSelectedRecord] = useState<AuditRecord | null>(null)
   return (
-    <div className="data-table-scroll">
-      <Table className="data-table">
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t("admin.action")}</TableHead>
-            <TableHead>{t("admin.actor")}</TableHead>
-            <TableHead>{t("admin.target")}</TableHead>
-            <TableHead>{t("admin.result")}</TableHead>
-            <TableHead>{t("admin.sourceIp")}</TableHead>
-            <TableHead>{t("common.createdAt")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {records.map((record) => (
-            <TableRow key={record.id}>
-              <TableCell>
-                <span className="table-primary">
-                  {formatPublicTechnicalIdentifier(record.action)}
-                </span>
-                {record.error_code && (
-                  <span className="table-secondary table-metadata">
-                    {formatPublicTechnicalIdentifier(record.error_code)}
-                  </span>
-                )}
-              </TableCell>
-              <TableCell>{record.actor_name ?? t("common.system")}</TableCell>
-              <TableCell>
-                <span className="table-primary">
-                  {record.target_type
-                    ? formatPublicTechnicalIdentifier(record.target_type)
-                    : "—"}
-                </span>
-                <span className="table-secondary table-metadata">
-                  {record.target_id ?? "—"}
-                </span>
-              </TableCell>
-              <TableCell>{record.result ?? "—"}</TableCell>
-              <TableCell className="table-metadata">
-                {record.source_ip ?? t("common.system")}
-              </TableCell>
-              <TableCell className="table-metadata">
-                {formatDateTime(record.created_at, language)}
-              </TableCell>
+    <>
+      <div className="data-table-scroll">
+        <Table className="data-table audit-log-table audit-details-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("admin.action")}</TableHead>
+              <TableHead>{t("admin.actor")}</TableHead>
+              <TableHead>{t("admin.target")}</TableHead>
+              <TableHead>{t("admin.result")}</TableHead>
+              <TableHead>{t("admin.sourceIp")}</TableHead>
+              <TableHead>{t("common.createdAt")}</TableHead>
+              <TableHead className="audit-details-actions-column text-right">
+                {t("common.actions")}
+              </TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+          </TableHeader>
+          <TableBody>
+            {records.map((record) => (
+              <TableRow key={record.id}>
+                <TableCell>
+                  <span className="table-primary">
+                    {formatPublicTechnicalIdentifier(record.action)}
+                  </span>
+                  {record.error_code && (
+                    <span className="table-secondary table-metadata">
+                      {formatPublicTechnicalIdentifier(record.error_code)}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>{record.actor_name ?? t("common.system")}</TableCell>
+                <TableCell>
+                  <span className="table-primary">
+                    {record.target_type
+                      ? formatPublicTechnicalIdentifier(record.target_type)
+                      : "—"}
+                  </span>
+                  <span className="table-secondary table-metadata">
+                    {record.target_id ?? "—"}
+                  </span>
+                </TableCell>
+                <TableCell>{record.result ?? "—"}</TableCell>
+                <TableCell className="table-metadata">
+                  {record.source_ip ?? t("common.system")}
+                </TableCell>
+                <TableCell className="table-metadata">
+                  {formatDateTime(record.created_at, language)}
+                </TableCell>
+                <TableCell className="audit-details-actions-column text-right">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedRecord(record)}
+                  >
+                    {t("common.details")}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <AuditLogDetailDialog
+        language={language}
+        record={selectedRecord}
+        onOpenChange={(open) => {
+          if (!open) setSelectedRecord(null)
+        }}
+      />
+    </>
   )
 }
 
@@ -3301,117 +3329,144 @@ function AuditConversationTable({
   language: SupportedLanguage
 }) {
   const { t } = useTranslation()
+  const [selectedRecord, setSelectedRecord] =
+    useState<AuditConversationMetadata | null>(null)
   return (
-    <div className="data-table-scroll">
-      <Table className="data-table audit-conversation-table">
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t("admin.conversation")}</TableHead>
-            <TableHead>{t("admin.owner")}</TableHead>
-            <TableHead>{t("common.status")}</TableHead>
-            <TableHead>{t("admin.capabilitiesUsed")}</TableHead>
-            <TableHead>{t("admin.files")}</TableHead>
-            <TableHead>{t("admin.execution")}</TableHead>
-            <TableHead>{t("admin.lastRun")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {records.map((record) => (
-            <TableRow key={record.conversation_id}>
-              <TableCell>
-                <span className="table-primary break-all">
-                  {record.conversation_id}
-                </span>
-                <span className="table-secondary">
-                  {t(
-                    record.archive_status === "archived"
-                      ? "admin.archivedConversation"
-                      : "admin.activeConversation"
-                  )}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="table-primary">
-                  {record.owner_name ?? record.owner_id}
-                </span>
-                <span className="table-secondary">
-                  {record.owner_email ?? record.owner_id}
-                </span>
-              </TableCell>
-              <TableCell>
-                <Badge
-                  variant={
-                    record.execution_status === "failed"
-                      ? "outline"
-                      : "secondary"
-                  }
-                >
-                  {t(`statuses.${record.execution_status}`)}
-                </Badge>
-                {record.error_type && (
+    <>
+      <div className="data-table-scroll">
+        <Table className="data-table audit-conversation-table audit-details-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("admin.conversation")}</TableHead>
+              <TableHead>{t("admin.owner")}</TableHead>
+              <TableHead>{t("common.status")}</TableHead>
+              <TableHead>{t("admin.capabilitiesUsed")}</TableHead>
+              <TableHead>{t("admin.files")}</TableHead>
+              <TableHead>{t("admin.execution")}</TableHead>
+              <TableHead>{t("admin.lastRun")}</TableHead>
+              <TableHead className="audit-details-actions-column text-right">
+                {t("common.actions")}
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {records.map((record) => (
+              <TableRow key={record.conversation_id}>
+                <TableCell>
+                  <span className="table-primary break-all">
+                    {record.conversation_id}
+                  </span>
                   <span className="table-secondary">
-                    {t(`admin.errorTypes.${record.error_type}`, {
-                      defaultValue: t("admin.executionError"),
+                    {t(
+                      record.archive_status === "archived"
+                        ? "admin.archivedConversation"
+                        : "admin.activeConversation"
+                    )}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <span className="table-primary">
+                    {record.owner_name ?? record.owner_id}
+                  </span>
+                  <span className="table-secondary">
+                    {record.owner_email ?? record.owner_id}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={
+                      record.execution_status === "failed"
+                        ? "outline"
+                        : "secondary"
+                    }
+                  >
+                    {t(`statuses.${record.execution_status}`)}
+                  </Badge>
+                  {record.error_type && (
+                    <span className="table-secondary">
+                      {t(`admin.errorTypes.${record.error_type}`, {
+                        defaultValue: t("admin.executionError"),
+                      })}
+                    </span>
+                  )}
+                  {record.error_code && (
+                    <span className="table-secondary table-metadata break-all">
+                      {formatPublicTechnicalIdentifier(record.error_code)}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <span className="table-secondary">
+                    {t("capability.plugin")}:{" "}
+                    {record.plugin_names.join(", ") || "-"}
+                  </span>
+                  <span className="table-secondary">
+                    {t("capability.skill")}:{" "}
+                    {record.skill_names.join(", ") || "-"}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <span className="table-secondary">
+                    {t("admin.attachmentsSummary", {
+                      count: record.attachment_count,
+                      size: formatFileSize(
+                        record.attachment_size_bytes,
+                        language
+                      ),
                     })}
                   </span>
-                )}
-                {record.error_code && (
-                  <span className="table-secondary table-metadata break-all">
-                    {formatPublicTechnicalIdentifier(record.error_code)}
+                  <span className="table-secondary">
+                    {t("admin.artifactsSummary", {
+                      count: record.artifact_count,
+                      size: formatFileSize(
+                        record.artifact_size_bytes,
+                        language
+                      ),
+                    })}
                   </span>
-                )}
-              </TableCell>
-              <TableCell>
-                <span className="table-secondary">
-                  {t("capability.plugin")}:{" "}
-                  {record.plugin_names.join(", ") || "-"}
-                </span>
-                <span className="table-secondary">
-                  {t("capability.skill")}:{" "}
-                  {record.skill_names.join(", ") || "-"}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="table-secondary">
-                  {t("admin.attachmentsSummary", {
-                    count: record.attachment_count,
-                    size: formatFileSize(
-                      record.attachment_size_bytes,
-                      language
-                    ),
-                  })}
-                </span>
-                <span className="table-secondary">
-                  {t("admin.artifactsSummary", {
-                    count: record.artifact_count,
-                    size: formatFileSize(record.artifact_size_bytes, language),
-                  })}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="table-primary">
-                  {formatDuration(record.execution_duration_ms, language)}
-                </span>
-                <span className="table-secondary">
-                  {t(`admin.runnerStatuses.${record.runner_status}`, {
-                    defaultValue: t("common.notAvailable"),
-                  })}
-                </span>
-              </TableCell>
-              <TableCell className="table-metadata">
-                <span className="table-primary">
-                  {formatDateTime(record.last_run_at, language)}
-                </span>
-                <span className="table-secondary">
-                  {t("common.createdAt")}:{" "}
-                  {formatDateTime(record.created_at, language)}
-                </span>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+                </TableCell>
+                <TableCell>
+                  <span className="table-primary">
+                    {formatDuration(record.execution_duration_ms, language)}
+                  </span>
+                  <span className="table-secondary">
+                    {t(`admin.runnerStatuses.${record.runner_status}`, {
+                      defaultValue: t("common.notAvailable"),
+                    })}
+                  </span>
+                </TableCell>
+                <TableCell className="table-metadata">
+                  <span className="table-primary">
+                    {formatDateTime(record.last_run_at, language)}
+                  </span>
+                  <span className="table-secondary">
+                    {t("common.createdAt")}:{" "}
+                    {formatDateTime(record.created_at, language)}
+                  </span>
+                </TableCell>
+                <TableCell className="audit-details-actions-column text-right">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedRecord(record)}
+                  >
+                    {t("common.details")}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <AuditConversationDetailDialog
+        language={language}
+        record={selectedRecord}
+        onOpenChange={(open) => {
+          if (!open) setSelectedRecord(null)
+        }}
+      />
+    </>
   )
 }
 
@@ -3423,57 +3478,87 @@ function RetainedArtifactTable({
   language: SupportedLanguage
 }) {
   const { t } = useTranslation()
+  const [selectedRecord, setSelectedRecord] =
+    useState<RetainedArtifactSummary | null>(null)
   return (
-    <div className="data-table-scroll">
-      <Table className="data-table">
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t("admin.conversation")}</TableHead>
-            <TableHead>{t("admin.owner")}</TableHead>
-            <TableHead>{t("admin.retainedArtifactCount")}</TableHead>
-            <TableHead>{t("admin.totalSize")}</TableHead>
-            <TableHead>{t("admin.checksum")}</TableHead>
-            <TableHead>{t("admin.deletedAt")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {records.map((record) => (
-            <TableRow key={record.conversation_id}>
-              <TableCell className="table-metadata break-all">
-                {record.conversation_id}
-              </TableCell>
-              <TableCell>
-                <span className="table-primary">
-                  {record.owner_name ?? record.owner_id}
-                </span>
-                <span className="table-secondary">
-                  {record.owner_email ?? record.owner_id}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="table-primary">{record.artifact_count}</span>
-                {record.first_artifact_created_at && (
-                  <span className="table-secondary table-metadata">
-                    {formatDateTime(record.first_artifact_created_at, language)}{" "}
-                    –{" "}
-                    {formatDateTime(record.last_artifact_created_at, language)}
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className="table-metadata">
-                {formatFileSize(record.total_size_bytes, language)}
-              </TableCell>
-              <TableCell>
-                {t(record.checksum_present ? "common.yes" : "common.no")}
-              </TableCell>
-              <TableCell className="table-metadata">
-                {formatDateTime(record.conversation_deleted_at, language)}
-              </TableCell>
+    <>
+      <div className="data-table-scroll">
+        <Table className="data-table retained-artifact-table audit-details-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("admin.conversation")}</TableHead>
+              <TableHead>{t("admin.owner")}</TableHead>
+              <TableHead>{t("admin.retainedArtifactCount")}</TableHead>
+              <TableHead>{t("admin.totalSize")}</TableHead>
+              <TableHead>{t("admin.checksum")}</TableHead>
+              <TableHead>{t("admin.deletedAt")}</TableHead>
+              <TableHead className="audit-details-actions-column text-right">
+                {t("common.actions")}
+              </TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+          </TableHeader>
+          <TableBody>
+            {records.map((record) => (
+              <TableRow key={record.conversation_id}>
+                <TableCell className="table-metadata break-all">
+                  {record.conversation_id}
+                </TableCell>
+                <TableCell>
+                  <span className="table-primary">
+                    {record.owner_name ?? record.owner_id}
+                  </span>
+                  <span className="table-secondary">
+                    {record.owner_email ?? record.owner_id}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <span className="table-primary">{record.artifact_count}</span>
+                  {record.first_artifact_created_at && (
+                    <span className="table-secondary table-metadata">
+                      {formatDateTime(
+                        record.first_artifact_created_at,
+                        language
+                      )}{" "}
+                      –{" "}
+                      {formatDateTime(
+                        record.last_artifact_created_at,
+                        language
+                      )}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell className="table-metadata">
+                  {formatFileSize(record.total_size_bytes, language)}
+                </TableCell>
+                <TableCell>
+                  {t(record.checksum_present ? "common.yes" : "common.no")}
+                </TableCell>
+                <TableCell className="table-metadata">
+                  {formatDateTime(record.conversation_deleted_at, language)}
+                </TableCell>
+                <TableCell className="audit-details-actions-column text-right">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedRecord(record)}
+                  >
+                    {t("common.details")}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <RetainedArtifactDetailDialog
+        language={language}
+        record={selectedRecord}
+        onOpenChange={(open) => {
+          if (!open) setSelectedRecord(null)
+        }}
+      />
+    </>
   )
 }
 

@@ -269,6 +269,16 @@ describe("i18n resources", () => {
     expect(enUS.nav.audit).toBe("Audit logs")
     expect(enUS.settings.auditDescription).toBe("Query cross-user audit logs")
     expect(enUS.admin.auditTitle).toBe("Audit logs")
+    expect(zhCN.admin.auditDetailsTitle).toBe("审计日志详情")
+    expect(enUS.admin.auditDetailsTitle).toBe("Audit log details")
+    expect(zhCN.admin.auditConversationDetailsTitle).toBe("任务执行详情")
+    expect(enUS.admin.auditConversationDetailsTitle).toBe(
+      "Task execution details"
+    )
+    expect(zhCN.admin.retainedArtifactDetailsTitle).toBe("已删除任务产物详情")
+    expect(enUS.admin.retainedArtifactDetailsTitle).toBe(
+      "Deleted-task artifact details"
+    )
   })
 
   it("keeps the publication review notice neutral in both languages", () => {

@@ -95,6 +95,10 @@ const runnerReconcileResponseSchema = z.strictObject({
   thread: z.unknown(),
   goal: runnerCodexGoalSchema.nullable(),
 });
+const runnerForkResponseSchema = z.strictObject({
+  codexThreadId: z.string().min(1),
+  codexTurnIds: z.array(z.string().min(1)),
+});
 const runnerMcpStdioProbeResultSchema = z.strictObject({
   serverName: z.string().min(1).max(160),
   protocolVersion: z.string().min(1).max(80),
@@ -300,6 +304,11 @@ export type RunnerGoalClearInput = Pick<
   | "reasoningEffort"
   | "modelProvider"
 >;
+
+export type RunnerForkInput = Omit<RunnerGoalClearInput, "codexThreadId"> & {
+  sourceCodexThreadId: string;
+  throughCodexTurnId: string;
+};
 
 export type RunnerSubAgentReadRuntimeInput = RunnerGoalClearInput & {
   codexTurnId: string;
@@ -515,6 +524,20 @@ export class RunnerClient {
       {},
       { ownerId },
     ).then((result) => runnerRuntimeSchema.parse(result));
+  }
+
+  async forkThread(input: RunnerForkInput): Promise<{
+    codexThreadId: string;
+    codexTurnIds: string[];
+  }> {
+    const { conversationId, ...body } = input;
+    const result = await this.request<unknown>(
+      `/conversations/${conversationId}/fork`,
+      "POST",
+      body,
+      { ownerId: input.ownerId, timeoutMs: RUNNER_RECONCILE_TIMEOUT_MS },
+    );
+    return runnerForkResponseSchema.parse(result);
   }
 
   async prewarmWorker(ownerId: string): Promise<void> {

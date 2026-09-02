@@ -51,15 +51,27 @@ describe("presentation preview layout", () => {
     expect(expanded).not.toMatch(/100vw|100dvh/u)
   })
 
-  it("slides file preview panes in from the right while respecting reduced motion", () => {
-    expect(previewStyles).toMatch(
-      /\[data-has-office-preview="true"\][\s\S]*?> \.office-preview-pane\.office-preview-pane-entering:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\)[\s\S]*?\{[\s\S]*?animation:\s*conversation-file-preview-pane-in 220ms[\s\S]*?cubic-bezier\(0\.22, 1, 0\.36, 1\) both;/u
+  it("uses a slower right-side transition when file preview panes open and close", () => {
+    const animationDurations = Object.fromEntries(
+      Array.from(
+        previewStyles.matchAll(
+          /animation:\s*(conversation-file-preview-pane-(?:in|out))\s+(\d+ms)/gu
+        ),
+        ([, name, duration]) => [name, duration]
+      )
     )
+    expect(animationDurations).toEqual({
+      "conversation-file-preview-pane-in": "360ms",
+      "conversation-file-preview-pane-out": "360ms",
+    })
     expect(previewStyles).toMatch(
       /@keyframes conversation-file-preview-pane-in[\s\S]*?from\s*\{[\s\S]*?transform:\s*translate3d\(100%, 0, 0\);[\s\S]*?to\s*\{[\s\S]*?transform:\s*translate3d\(0, 0, 0\);/u
     )
     expect(previewStyles).toMatch(
-      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\[data-has-office-preview="true"\][\s\S]*?> \.office-preview-pane\.office-preview-pane-entering:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\)[\s\S]*?\{[\s\S]*?animation:\s*none;/u
+      /@keyframes conversation-file-preview-pane-out[\s\S]*?from\s*\{[\s\S]*?transform:\s*translate3d\(0, 0, 0\);[\s\S]*?to\s*\{[\s\S]*?transform:\s*translate3d\(100%, 0, 0\);/u
+    )
+    expect(previewStyles).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\[data-has-office-preview="true"\][\s\S]*?> \.office-preview-pane\.office-preview-pane-entering:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\),[\s\S]*?\[data-preview-closing="true"\][\s\S]*?> \.office-preview-pane:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\)[\s\S]*?\{[\s\S]*?animation:\s*none;/u
     )
   })
 

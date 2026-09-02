@@ -154,6 +154,7 @@ import {
 } from "@/features/conversations/conversation-office-preview-update"
 import { buildConversationLineSidebarItems } from "@/features/conversations/conversation-line-sidebar-items"
 import { getConversationMessageAnchorId } from "@/features/conversations/conversation-message-anchor"
+import { upsertSidebarConversation } from "@/features/conversations/conversation-order"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import { ConversationTaskOverviewPanel } from "@/features/conversations/conversation-task-overview-panel"
 import { buildConversationTaskOverview } from "@/features/conversations/conversation-task-overview"
@@ -616,6 +617,7 @@ export function ConversationPage({
   } | null>(null)
   const [officePreviewUpdate, setOfficePreviewUpdate] =
     useState<OfficePreviewUpdate | null>(null)
+  const [filePreviewClosing, setFilePreviewClosing] = useState(false)
   const [selectedSubAgent, setSelectedSubAgent] =
     useState<ConversationSubAgentSelection | null>(null)
   const officeFile =
@@ -685,6 +687,7 @@ export function ConversationPage({
 
   const regenerateOperationRef =
     useRef<Parameters<typeof stableOperationId>[0]["current"]>(null)
+  const forkOperationRef = useRef<string | null>(null)
   const draftUpdatedAtRef = useRef<string | null>(null)
   const draftQueueRef = useRef<Promise<void>>(Promise.resolve())
   const queuedDraftSaveRef = useRef<{
@@ -968,7 +971,8 @@ export function ConversationPage({
   const refetchConversation = conversationQuery.refetch
   const hasConversation = Boolean(conversation)
   const suppressEmptyState =
-    pendingFirstMessageConversationId === conversationId &&
+    pendingFirstMessageConversationId !== null &&
+    (isNew || pendingFirstMessageConversationId === conversationId) &&
     !conversation?.messages?.length
   const exhaustedTokenQuotaKey = getExhaustedTokenQuotaKey(
     user?.token_quota ?? null
@@ -2265,6 +2269,9 @@ export function ConversationPage({
       return ensureConversationPromiseRef.current.promise
     }
     const creation = (async () => {
+      if (suppressEmptyStateUntilFirstMessage) {
+        setPendingFirstMessageConversationId(newConversationPlaceholderId)
+      }
       const draft = await apiRequest("/conversations/drafts", {
         method: "POST",
         body: {
@@ -3264,6 +3271,36 @@ export function ConversationPage({
           : current
       })
       setError(getErrorMessage(nextError, t))
+    },
+  })
+
+  const forkMutation = useMutation({
+    mutationFn: async (sourceMessage: ConversationMessage) => {
+      if (!conversationId || isNew) {
+        throw new Error("conversation id is required")
+      }
+      const idempotencyKey = operationAttemptId(forkOperationRef)
+      return apiRequest(
+        `/conversations/${conversationId}/messages/${sourceMessage.id}/fork`,
+        {
+          method: "POST",
+          body: { idempotency_key: idempotencyKey },
+          schema: conversationSchema,
+        }
+      )
+    },
+    onSuccess: (forkedConversation) => {
+      forkOperationRef.current = null
+      queryClient.setQueryData(
+        ["conversations", "sidebar"],
+        (current: { pages: { items: Conversation[] }[] } | undefined) =>
+          upsertSidebarConversation(current, forkedConversation)
+      )
+      navigate(`/conversations/${forkedConversation.id}`)
+      void refreshConversationList().catch(() => undefined)
+    },
+    onError: () => {
+      setError(t("conversation.forkMessageFailed"))
     },
   })
 
@@ -4317,6 +4354,7 @@ export function ConversationPage({
       setOfficePreview(null)
       setOfficePreviewUpdate(null)
       setImagePreview(null)
+      setFilePreviewClosing(false)
     },
     [conversationId]
   )
@@ -4326,6 +4364,7 @@ export function ConversationPage({
       setSelectedSubAgent(null)
       setHtmlCodePreview(null)
       setImagePreview(null)
+      setFilePreviewClosing(false)
       setOfficePreview((current) => ({
         conversationId,
         file,
@@ -4342,6 +4381,7 @@ export function ConversationPage({
       setOfficePreview(null)
       setOfficePreviewUpdate(null)
       setImagePreview(null)
+      setFilePreviewClosing(false)
       setHtmlCodePreview((current) => ({
         conversationId,
         html,
@@ -4358,6 +4398,7 @@ export function ConversationPage({
       setOfficePreview(null)
       setOfficePreviewUpdate(null)
       setHtmlCodePreview(null)
+      setFilePreviewClosing(false)
       setImagePreview((current) => ({
         conversationId,
         item,
@@ -4374,6 +4415,14 @@ export function ConversationPage({
     [downloadArtifact]
   )
 
+  const finishFilePreviewExit = useCallback(() => {
+    setFilePreviewClosing(false)
+    setHtmlCodePreview(null)
+    setImagePreview(null)
+    setOfficePreview(null)
+    setOfficePreviewUpdate(null)
+  }, [])
+
   const regenerateMessage = regenerateMutation.mutateAsync
   const handleRegenerateMessage = useCallback(
     (sourceMessage: ConversationMessage, content: string) => {
@@ -4385,6 +4434,15 @@ export function ConversationPage({
       }).then(() => undefined)
     },
     [regenerateMessage, scrollToBottom]
+  )
+
+  const forkMessage = forkMutation.mutateAsync
+  const handleForkMessage = useCallback(
+    (sourceMessage: ConversationMessage) => {
+      setError(null)
+      return forkMessage(sourceMessage).then(() => undefined)
+    },
+    [forkMessage]
   )
 
   const subAgentProjectionPendingSubmission =
@@ -4723,6 +4781,11 @@ export function ConversationPage({
           ? "conversation.subAgentActivities.resizeDetails"
           : "officePreview.resizePreview"
       )}
+      previewClosing={
+        filePreviewClosing &&
+        Boolean(activeHtmlCodePreview || activeImagePreview || officeFile)
+      }
+      onPreviewExitComplete={finishFilePreviewExit}
       preview={
         activeSubAgent ? (
           <ConversationSubAgentDetail
@@ -4736,13 +4799,13 @@ export function ConversationPage({
             html={activeHtmlCodePreview.html}
             fileName={activeHtmlCodePreview.fileName}
             animateEntrance={activeHtmlCodePreview.animateEntrance}
-            onClose={() => setHtmlCodePreview(null)}
+            onClose={() => setFilePreviewClosing(true)}
           />
         ) : activeImagePreview ? (
           <ConversationImagePreview
             item={activeImagePreview.item}
             animateEntrance={activeImagePreview.animateEntrance}
-            onClose={() => setImagePreview(null)}
+            onClose={() => setFilePreviewClosing(true)}
           />
         ) : officeFile ? (
           <ConversationOfficePreview
@@ -4769,10 +4832,7 @@ export function ConversationPage({
                   }
                 : undefined
             }
-            onClose={() => {
-              setOfficePreview(null)
-              setOfficePreviewUpdate(null)
-            }}
+            onClose={() => setFilePreviewClosing(true)}
           />
         ) : undefined
       }
@@ -5066,6 +5126,14 @@ export function ConversationPage({
         scrollContainerRef={scrollContainerRef}
         contentRef={contentRef}
         onRegenerateMessage={handleRegenerateMessage}
+        onForkMessage={handleForkMessage}
+        forkingDisabled={
+          forkMutation.isPending ||
+          Boolean(turnExecutionActive) ||
+          Boolean(activeUserInputRequest) ||
+          Boolean(activePlanReview) ||
+          visiblePendingRequests.length > 0
+        }
       />
 
       <div ref={bottomStackRef} className="conversation-bottom-stack">

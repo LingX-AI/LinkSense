@@ -6037,6 +6037,93 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("forks an independent thread through the selected terminal turn without starting a turn", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-fork-chat-"));
+    roots.push(root);
+    const sourceTurns: CodexTurn[] = [
+      { id: "turn-before", status: "completed", items: [], error: null },
+      { id: "turn-target", status: "completed", items: [], error: null },
+      { id: "turn-after", status: "failed", items: [], error: null },
+    ];
+    const controlled = createControlledAppServer({
+      threadReadTurns: sourceTurns,
+    });
+    const { pool, eventSink } = createStartOperationPool(
+      root,
+      controlled.factory,
+    );
+    const start = startOperationInput();
+
+    await expect(
+      pool.forkThread({
+        conversationId: start.conversationId,
+        ownerId: start.ownerId,
+        expectedRuntimeGeneration: start.expectedRuntimeGeneration,
+        sourceCodexThreadId: "thread-source",
+        throughCodexTurnId: "turn-target",
+        projectionTurnId: start.projectionTurnId,
+        model: start.model,
+        reasoningEffort: start.reasoningEffort,
+        modelProvider: start.modelProvider,
+      }),
+    ).resolves.toEqual({
+      codexThreadId: "thread-forked-1",
+      codexTurnIds: ["turn-before", "turn-target"],
+    });
+
+    expect(controlled.methods).toEqual(
+      expect.arrayContaining([
+        "thread/read",
+        "thread/fork",
+        "thread/rollback",
+        "thread/goal/clear",
+      ]),
+    );
+    expect(controlled.methods).not.toContain("turn/start");
+    expect(
+      controlled.requests.find(
+        (request) => request.method === "thread/rollback",
+      )?.params,
+    ).toEqual({ threadId: "thread-forked-1", numTurns: 1 });
+    expect(
+      controlled.requests.find(
+        (request) => request.method === "thread/goal/clear",
+      )?.params,
+    ).toEqual({ threadId: "thread-forked-1" });
+    expect(eventSink.alignConversationThread).toHaveBeenCalledWith(
+      start.conversationId,
+      "thread-forked-1",
+    );
+
+    eventSink.publish.mockClear();
+    controlled.notify({
+      method: "thread/tokenUsage/updated",
+      params: {
+        threadId: "thread-forked-1",
+        turnId: "turn-native-internal-history",
+        tokenUsage: {
+          total: {
+            totalTokens: 120,
+            inputTokens: 100,
+            cachedInputTokens: 80,
+            outputTokens: 20,
+            reasoningOutputTokens: 5,
+          },
+          last: {
+            totalTokens: 20,
+            inputTokens: 15,
+            cachedInputTokens: 10,
+            outputTokens: 5,
+            reasoningOutputTokens: 1,
+          },
+          modelContextWindow: 200_000,
+        },
+      },
+    });
+    await vi.waitFor(() => expect(eventSink.publish).not.toHaveBeenCalled());
+    await pool.closeAll();
+  });
+
   it.each([
     {
       name: "is missing",

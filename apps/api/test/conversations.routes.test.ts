@@ -985,6 +985,44 @@ describe("conversation message regeneration route", () => {
   });
 });
 
+describe("conversation message fork route", () => {
+  it("creates a new task through the selected assistant message", async () => {
+    const { app, forkConversation } = await conversationRouteFixture();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/conversations/${CONVERSATION_ID}/messages/${MESSAGE_ID}/fork`,
+      headers: { "user-agent": "Browser" },
+      payload: { idempotency_key: IDEMPOTENCY_KEY },
+    });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(response.json()).toMatchObject({
+      success: true,
+      data: { id: "50000000-0000-4000-8000-000000000009" },
+    });
+    expect(forkConversation).toHaveBeenCalledWith(
+      OWNER_ID,
+      CONVERSATION_ID,
+      MESSAGE_ID,
+      IDEMPOTENCY_KEY,
+      expect.objectContaining({ userAgent: "Browser" }),
+    );
+  });
+
+  it("rejects an invalid operation id before calling the service", async () => {
+    const { app, forkConversation } = await conversationRouteFixture();
+    const response = await app.inject({
+      method: "POST",
+      url: `/conversations/${CONVERSATION_ID}/messages/${MESSAGE_ID}/fork`,
+      payload: { idempotency_key: "bad" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(forkConversation).not.toHaveBeenCalled();
+  });
+});
+
 describe("conversation pending request route", () => {
   it("将结构化演示文稿注释排队并保留当前草稿", async () => {
     const { app, createPending } = await conversationRouteFixture();
@@ -1206,6 +1244,10 @@ async function conversationRouteFixture(
     accepted: true as const,
     status: "starting" as const,
   }));
+  const forkConversation = vi.fn(async () => ({
+    id: "50000000-0000-4000-8000-000000000009",
+    title: "Task(2)",
+  }));
   const startTurn = vi.fn(async () => ({
     turn_id: "50000000-0000-4000-8000-000000000002",
     accepted: true as const,
@@ -1366,6 +1408,7 @@ async function conversationRouteFixture(
         assertModelPreferenceMutable,
         prewarm,
         acceptRegeneration: regenerate,
+        forkConversationAtMessage: forkConversation,
         acceptTurn: startTurn,
         acceptGoal: startGoal,
         acceptCompaction,
@@ -1398,6 +1441,7 @@ async function conversationRouteFixture(
     updateModelPreference,
     prewarm,
     regenerate,
+    forkConversation,
     startTurn,
     startGoal,
     acceptCompaction,

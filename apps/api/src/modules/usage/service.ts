@@ -189,6 +189,7 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
         select: {
           ownerId: true,
           codexThreadId: true,
+          forkRootId: true,
           applicationId: true,
           applicationNameSnapshot: true,
         },
@@ -210,6 +211,17 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
         select: { id: true, model: true, startedAt: true },
       });
       if (!turn) {
+        // Codex may emit cumulative snapshots for native-only turns copied
+        // into a fork. They can never acquire a LinkSense turn projection and
+        // must be acknowledged so an older durable outbox cannot block every
+        // subsequent event from the new branch.
+        if (conversation.forkRootId !== null) {
+          return {
+            accepted: true,
+            ignored: true,
+            reason_code: "UNPROJECTED_FORK_HISTORY",
+          };
+        }
         return {
           accepted: false,
           reason_code: "TURN_PROJECTION_PENDING",

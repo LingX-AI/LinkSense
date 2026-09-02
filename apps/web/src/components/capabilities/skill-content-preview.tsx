@@ -38,7 +38,7 @@ export function SkillContentPreview({
         role="region"
         aria-labelledby={headingId}
         tabIndex={0}
-        className="max-h-80 w-full overflow-auto rounded-md border bg-muted/40 p-3 font-mono text-[length:var(--app-font-11)] leading-[var(--app-line-16)] break-words whitespace-pre-wrap text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+        className="max-h-80 w-full overflow-auto rounded-md border border-[color:var(--app-border)] bg-muted/40 p-3 font-mono text-[length:var(--app-font-11)] leading-[var(--app-line-16)] break-words whitespace-pre-wrap text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
       >
         {displayedContent}
       </pre>

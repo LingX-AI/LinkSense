@@ -80,6 +80,34 @@ describe("ConversationPresentationLayout", () => {
     )
   })
 
+  it("reports when a closing file preview finishes its exit animation", async () => {
+    const onPreviewExitComplete = vi.fn()
+    render(
+      <ConversationPresentationLayout
+        resizeLabel="调整文件预览宽度"
+        preview={<aside className="office-preview-pane">文件预览内容</aside>}
+        previewClosing
+        onPreviewExitComplete={onPreviewExitComplete}
+      >
+        <main>任务内容</main>
+      </ConversationPresentationLayout>
+    )
+
+    await screen.findByRole("separator", { name: "调整文件预览宽度" })
+
+    const closingPreview = screen.getByText("文件预览内容")
+    const layout = closingPreview.parentElement
+    expect(layout).toHaveAttribute("data-preview-closing", "true")
+
+    const animationEnd = new Event("animationend", { bubbles: true })
+    Object.defineProperty(animationEnd, "animationName", {
+      value: "conversation-file-preview-pane-out",
+    })
+    fireEvent(closingPreview, animationEnd)
+
+    expect(onPreviewExitComplete).toHaveBeenCalledOnce()
+  })
+
   it("starts subagent details at two fifths of the viewport width", async () => {
     render(
       <ConversationPresentationLayout

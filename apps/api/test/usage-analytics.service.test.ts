@@ -14,6 +14,60 @@ const NOW = new Date("2026-07-27T12:00:00.000Z");
 const MEASUREMENT_STARTED_AT = new Date("2026-07-27T00:00:00.000Z");
 
 describe("UsageAnalyticsService token capture", () => {
+  it("acknowledges an unprojected native-history snapshot on a fork", async () => {
+    const fixture = captureFixture({ forkRootId: CONVERSATION_ID });
+    fixture.tx.conversationTurn.findFirst.mockResolvedValueOnce(null);
+    const service = new UsageAnalyticsService(fixture.prisma as never, {
+      now: () => NOW,
+    });
+
+    await expect(
+      service.captureTokenUsage(
+        CONVERSATION_ID,
+        tokenParams({
+          totalTokens: 180,
+          inputTokens: 120,
+          cachedInputTokens: 40,
+          outputTokens: 60,
+          reasoningOutputTokens: 20,
+        }),
+      ),
+    ).resolves.toEqual({
+      accepted: true,
+      ignored: true,
+      reason_code: "UNPROJECTED_FORK_HISTORY",
+    });
+    expect(fixture.tx.usageAnalyticsState.findUnique).not.toHaveBeenCalled();
+    expect(fixture.tx.tokenUsageRecord.createMany).not.toHaveBeenCalled();
+    expect(
+      fixture.tx.codexThreadTokenUsageCursor.upsert,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unprojected snapshot pending for a non-fork conversation", async () => {
+    const fixture = captureFixture();
+    fixture.tx.conversationTurn.findFirst.mockResolvedValueOnce(null);
+    const service = new UsageAnalyticsService(fixture.prisma as never, {
+      now: () => NOW,
+    });
+
+    await expect(
+      service.captureTokenUsage(
+        CONVERSATION_ID,
+        tokenParams({
+          totalTokens: 180,
+          inputTokens: 120,
+          cachedInputTokens: 40,
+          outputTokens: 60,
+          reasoningOutputTokens: 20,
+        }),
+      ),
+    ).resolves.toEqual({
+      accepted: false,
+      reason_code: "TURN_PROJECTION_PENDING",
+    });
+  });
+
   it("records the native last-response usage for the first observed new turn", async () => {
     const fixture = captureFixture();
     const service = new UsageAnalyticsService(fixture.prisma as never, {
@@ -1174,6 +1228,7 @@ function captureFixture(options?: {
   };
   insertedCount?: number;
   turnStartedAt?: Date;
+  forkRootId?: string | null;
 }) {
   const tx = {
     $executeRaw: vi.fn(async () => 1),
@@ -1181,17 +1236,24 @@ function captureFixture(options?: {
       findUnique: vi.fn(async () => ({
         ownerId: USER_1,
         codexThreadId: "codex-thread-1",
+        forkRootId: options?.forkRootId ?? null,
         applicationId: APPLICATION_1,
         applicationNameSnapshot: "知识助手",
       })),
     },
     conversationTurn: {
-      findFirst: vi.fn(async () => ({
-        id: TURN_ID,
-        model: "gpt-5.6-sol",
-        startedAt:
-          options?.turnStartedAt ?? new Date("2026-07-27T01:00:00.000Z"),
-      })),
+      findFirst: vi.fn<
+        () => Promise<{
+          id: string
+          model: string
+          startedAt: Date
+        } | null>
+      >(async () => ({
+          id: TURN_ID,
+          model: "gpt-5.6-sol",
+          startedAt:
+            options?.turnStartedAt ?? new Date("2026-07-27T01:00:00.000Z"),
+        })),
     },
     usageAnalyticsState: {
       findUnique: vi.fn(async () => ({

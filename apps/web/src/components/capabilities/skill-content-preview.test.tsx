@@ -22,6 +22,7 @@ describe("SkillContentPreview", () => {
     const body = screen.getByRole("region", { name: "SKILL.md 正文" })
     expect(body.tagName).toBe("PRE")
     expect(body).toHaveAttribute("tabindex", "0")
+    expect(body).toHaveClass("border-[color:var(--app-border)]")
     expect(body.textContent).toBe(content)
     expect(screen.queryByTestId("unsafe-script")).not.toBeInTheDocument()
     expect(screen.queryByText(/截断后的预览/u)).not.toBeInTheDocument()

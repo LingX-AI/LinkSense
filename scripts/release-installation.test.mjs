@@ -112,6 +112,8 @@ test("the installer checks the host before creating persistent state", async () 
   assert.match(source, /REQUIRED_COMPOSE_VERSION=2\.24\.4/u)
   assert.match(source, /HTTP_PORT=10080/u)
   assert.match(source, /LINKSENSE_PLATFORM=linux-arm64/u)
+  assert.match(source, /"LINKSENSE_MAX_CONCURRENT_CONVERSATIONS=500"/u)
+  assert.match(source, /"LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT=20"/u)
   assert.match(
     source,
     /HOST_OS" = Darwin[\s\S]*LINKSENSE_DOCKER_SOCKET_SOURCE=\/var\/run\/docker\.sock/u,

@@ -562,6 +562,45 @@ describe("RunnerClient health", () => {
   });
 });
 
+describe("RunnerClient thread fork", () => {
+  it("forwards the source boundary and validates the forked thread response", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({
+        codexThreadId: "thread-forked-1",
+        codexTurnIds: ["turn-native-1", "turn-native-2"],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new RunnerClient(testConfig()).forkThread({
+        conversationId,
+        ownerId,
+        expectedRuntimeGeneration: runtimeGeneration,
+        sourceCodexThreadId: "thread-source-1",
+        throughCodexTurnId: "turn-native-2",
+        projectionTurnId,
+        ...modelRuntime,
+      }),
+    ).resolves.toEqual({
+      codexThreadId: "thread-forked-1",
+      codexTurnIds: ["turn-native-1", "turn-native-2"],
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      `/conversations/${conversationId}/fork`,
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      ownerId,
+      expectedRuntimeGeneration: runtimeGeneration,
+      sourceCodexThreadId: "thread-source-1",
+      throughCodexTurnId: "turn-native-2",
+      projectionTurnId,
+      ...modelRuntime,
+    });
+    expect(ownerHeader(fetchMock.mock.calls[0])).toBe(ownerId);
+  });
+});
+
 describe("RunnerClient steer operation", () => {
   it("keeps the conversation identifier in the URL instead of the strict steer body", async () => {
     const fetchMock = vi

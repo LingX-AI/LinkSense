@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { access, constants } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { access, chmod, constants, copyFile, lstat } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { z } from "zod";
 import { v5 as uuidv5 } from "uuid";
 
@@ -79,6 +79,7 @@ import {
   type RunnerCodexGoal,
   type ResolvedExecutionConcurrencySettings,
   type ThreadGoal,
+  workspacePermissionPolicy,
 } from "@linksense/shared";
 import { capabilityPackageNameSchema } from "../capabilities/package-name.js";
 import type { CapabilityRuntimeVerification } from "../capabilities/user-home-materializer.js";
@@ -94,6 +95,12 @@ import {
   OFFICE_ANNOTATION_PROMPT_MARKER,
 } from "./annotation-prompt.js";
 import type { ConversationTitleService } from "./title-service.js";
+import {
+  forkBaseTitle,
+  forkedConversationTitle,
+  isValidForkedThreadHistory,
+  remapForkedJson,
+} from "./fork.js";
 import {
   goalResumeIdempotencyKey,
   projectConversationGoal,
@@ -5992,6 +5999,604 @@ export class ConversationService {
     }
   }
 
+  async forkConversationAtMessage(
+    ownerId: string,
+    conversationId: string,
+    messageId: string,
+    idempotencyKey: string,
+    context: AuditContext,
+  ) {
+    return this.withActiveUserLifecycleLock(ownerId, async () => {
+      const idempotent = await this.prisma.conversation.findFirst({
+        where: { ownerId, forkIdempotencyKey: idempotencyKey },
+      });
+      if (idempotent) {
+        if (
+          idempotent.forkSourceConversationId !== conversationId ||
+          idempotent.forkSourceMessageId !== messageId
+        ) {
+          throw new AppError("CONFLICT");
+        }
+        return projectConversation(
+          idempotent,
+          idempotent.lastTurnStatus ?? "idle",
+        );
+      }
+
+      const lock = await this.acquireConversationLock(conversationId);
+      const forkConversationId = crypto.randomUUID();
+      let forkRuntimePrepared = false;
+      try {
+        const source = await this.prisma.conversation.findFirst({
+          where: { id: conversationId, ownerId },
+        });
+        if (!source) throw new AppError("CONVERSATION_NOT_FOUND");
+        if (source.archiveStatus !== "active" || !source.codexThreadId) {
+          throw new AppError("CONFLICT");
+        }
+
+        const [activeTurns, activeIntents, pendingRequests] = await Promise.all([
+          this.prisma.conversationTurn.count({
+            where: { conversationId, status: "running" },
+          }),
+          this.prisma.conversationTurnStartIntent.count({
+            where: { conversationId },
+          }),
+          this.prisma.pendingRequest.count({ where: { conversationId } }),
+        ]);
+        if (activeTurns > 0 || activeIntents > 0 || pendingRequests > 0) {
+          throw new AppError("CONFLICT");
+        }
+
+        const sourceMessage = await this.prisma.conversationMessage.findFirst({
+          where: {
+            id: messageId,
+            conversationId,
+            role: "assistant",
+            turnId: { not: null },
+          },
+        });
+        if (!sourceMessage?.turnId) throw new AppError("CONFLICT");
+        const sourceTurn = await this.prisma.conversationTurn.findFirst({
+          where: {
+            id: sourceMessage.turnId,
+            conversationId,
+            codexThreadId: source.codexThreadId,
+          },
+        });
+        if (
+          !sourceTurn ||
+          !TERMINAL_TURN_STATUSES.includes(
+            sourceTurn.status as (typeof TERMINAL_TURN_STATUSES)[number],
+          )
+        ) {
+          throw new AppError("CONFLICT");
+        }
+        const laterMessageInTurn = await this.prisma.conversationMessage.count({
+          where: {
+            conversationId,
+            turnId: sourceTurn.id,
+            sequenceNo: { gt: sourceMessage.sequenceNo },
+          },
+        });
+        if (laterMessageInTurn > 0) throw new AppError("CONFLICT");
+
+        const turns = await this.prisma.conversationTurn.findMany({
+          where: {
+            conversationId,
+            codexThreadId: source.codexThreadId,
+            sequenceNo: { lte: sourceTurn.sequenceNo },
+          },
+          orderBy: { sequenceNo: "asc" },
+        });
+        if (
+          turns.length === 0 ||
+          turns.at(-1)?.id !== sourceTurn.id ||
+          turns.some(
+            (turn) =>
+              !TERMINAL_TURN_STATUSES.includes(
+                turn.status as (typeof TERMINAL_TURN_STATUSES)[number],
+              ),
+          )
+        ) {
+          throw new AppError("CONFLICT");
+        }
+        const turnIds = turns.map((turn) => turn.id);
+        const messages = await this.prisma.conversationMessage.findMany({
+          where: {
+            conversationId,
+            sequenceNo: { lte: sourceMessage.sequenceNo },
+          },
+          orderBy: { sequenceNo: "asc" },
+        });
+        const messageIds = messages.map((message) => message.id);
+
+        const [
+          events,
+          files,
+          turnKnowledgeBases,
+          planReviews,
+          userInputRequests,
+          citations,
+        ] = await Promise.all([
+          this.prisma.conversationEvent.findMany({
+            where: {
+              conversationId,
+              createdAt: {
+                lte:
+                  sourceTurn.completedAt ??
+                  sourceTurn.interruptedAt ??
+                  sourceTurn.updatedAt,
+              },
+              OR: [{ turnId: null }, { turnId: { in: turnIds } }],
+            },
+            orderBy: { sequenceNo: "asc" },
+          }),
+          this.prisma.conversationFile.findMany({
+            where: { conversationId, turnId: { in: turnIds } },
+            orderBy: { createdAt: "asc" },
+          }),
+          this.prisma.conversationTurnKnowledgeBase.findMany({
+            where: { turnId: { in: turnIds } },
+            orderBy: [{ turnId: "asc" }, { selectionOrder: "asc" }],
+          }),
+          this.prisma.conversationPlanReview.findMany({
+            where: {
+              conversationId,
+              sourceTurnId: { in: turnIds },
+              planMessageId: { in: messageIds },
+            },
+            orderBy: { createdAt: "asc" },
+          }),
+          this.prisma.conversationUserInputRequest.findMany({
+            where: { conversationId, turnId: { in: turnIds } },
+            orderBy: { createdAt: "asc" },
+          }),
+          this.prisma.conversationMessageKnowledgeCitation.findMany({
+            where: {
+              conversationId,
+              turnId: { in: turnIds },
+              messageId: { in: messageIds },
+            },
+            orderBy: [{ messageId: "asc" }, { citationNo: "asc" }],
+          }),
+        ]);
+        const citationIds = citations.map((citation) => citation.id);
+        const citationAnchors =
+          citationIds.length === 0
+            ? []
+            : await this.prisma.conversationMessageKnowledgeCitationAnchor.findMany(
+                {
+                  where: { citationId: { in: citationIds } },
+                  orderBy: [
+                    { messageId: "asc" },
+                    { occurrenceNo: "asc" },
+                  ],
+                },
+              );
+
+        await this.preflight.ensureUserHome(ownerId);
+        const runtime = await this.runner.prepareRuntime(
+          forkConversationId,
+          ownerId,
+        );
+        forkRuntimePrepared = true;
+        const forkWorkspace = resolveConversationWorkspaceRoot(
+          this.workspaceRoot,
+          ownerId,
+          forkConversationId,
+        );
+        await Promise.all(
+          ["attachments", "artifacts", "temp"].map((directory) =>
+            ensureSharedWorkspaceDirectory(
+              forkWorkspace,
+              join(forkWorkspace, directory),
+            ),
+          ),
+        );
+        await copyForkWorkspaceFiles({
+          workspaceRoot: this.workspaceRoot,
+          ownerId,
+          sourceConversationId: conversationId,
+          targetConversationId: forkConversationId,
+          relativePaths: files.flatMap((file) =>
+            file.workspaceRelativePath ? [file.workspaceRelativePath] : [],
+          ),
+        });
+
+        const modelRuntime = await this.modelRuntimeForUser(
+          ownerId,
+          conversationId,
+        );
+        const forkedThread = await this.runner.forkThread({
+          conversationId: forkConversationId,
+          ownerId,
+          expectedRuntimeGeneration: runtime.runtimeGeneration,
+          sourceCodexThreadId: source.codexThreadId,
+          throughCodexTurnId: sourceTurn.codexTurnId,
+          projectionTurnId: crypto.randomUUID(),
+          model: modelRuntime.model,
+          reasoningEffort: modelRuntime.reasoningEffort,
+          modelProvider: modelRuntime.provider,
+        });
+        const expectedCodexTurnIds = turns.map((turn) => turn.codexTurnId);
+        if (
+          !isValidForkedThreadHistory(
+            forkedThread.codexTurnIds,
+            expectedCodexTurnIds,
+          )
+        ) {
+          throw new AppError("CONFLICT");
+        }
+
+        const turnIdMap = new Map(
+          turns.map((turn) => [turn.id, crypto.randomUUID()]),
+        );
+        const messageIdMap = new Map(
+          messages.map((message) => [message.id, crypto.randomUUID()]),
+        );
+        const eventIdMap = new Map(
+          events.map((event) => [event.id, crypto.randomUUID()]),
+        );
+        const fileIdMap = new Map(
+          files.map((file) => [file.id, crypto.randomUUID()]),
+        );
+        const planReviewIdMap = new Map(
+          planReviews.map((review) => [review.id, crypto.randomUUID()]),
+        );
+        const userInputRequestIdMap = new Map(
+          userInputRequests.map((request) => [request.id, crypto.randomUUID()]),
+        );
+        const citationIdMap = new Map(
+          citations.map((citation) => [citation.id, crypto.randomUUID()]),
+        );
+        const replacements = new Map<string, string>([
+          [conversationId, forkConversationId],
+          [source.codexThreadId, forkedThread.codexThreadId],
+          ...turnIdMap,
+          ...messageIdMap,
+          ...eventIdMap,
+          ...fileIdMap,
+          ...planReviewIdMap,
+          ...userInputRequestIdMap,
+          ...citationIdMap,
+        ]);
+
+        const created = await this.prisma.$transaction(async (tx) => {
+          const existing = await tx.conversation.findFirst({
+            where: { ownerId, forkIdempotencyKey: idempotencyKey },
+          });
+          if (existing) {
+            if (
+              existing.forkSourceConversationId !== conversationId ||
+              existing.forkSourceMessageId !== messageId
+            ) {
+              throw new AppError("CONFLICT");
+            }
+            return existing;
+          }
+
+          const rootConversationId = source.forkRootId ?? source.id;
+          const baseTitle = forkBaseTitle(source.title, source.forkSequence);
+          const counter = await tx.conversationForkCounter.upsert({
+            where: { rootConversationId },
+            create: {
+              rootConversationId,
+              ownerId,
+              baseTitle,
+              nextSequence: 3,
+            },
+            update: { nextSequence: { increment: 1 } },
+          });
+          const forkSequence = counter.nextSequence - 1;
+          const forkedConversation = await tx.conversation.create({
+            data: {
+              id: forkConversationId,
+              ownerId,
+              title: forkedConversationTitle(counter.baseTitle, forkSequence),
+              titleSource: "manual",
+              archiveStatus: "active",
+              pinnedAt: null,
+              sortOrder: null,
+              workspaceRelPath: conversationWorkspaceRelativePath(
+                ownerId,
+                forkConversationId,
+              ),
+              codexThreadId: forkedThread.codexThreadId,
+              agentsTemplateVersion: runtime.agentsTemplateVersion,
+              collaborationMode: source.collaborationMode,
+              runtimeGeneration: runtime.runtimeGeneration,
+              preferredModel: source.preferredModel,
+              lastTurnStatus: sourceTurn.status,
+              lastRunAt: sourceTurn.completedAt ?? sourceTurn.startedAt,
+              completionUnread: false,
+              selectedKnowledgeBaseIdsJson:
+                sourceTurn.knowledgeBaseIdsJson as Prisma.InputJsonValue,
+              applicationId: source.applicationId,
+              applicationNameSnapshot: source.applicationNameSnapshot,
+              interactiveApplicationPackageId:
+                source.interactiveApplicationPackageId,
+              forkRootId: rootConversationId,
+              forkSequence,
+              forkSourceConversationId: conversationId,
+              forkSourceMessageId: messageId,
+              forkIdempotencyKey: idempotencyKey,
+            },
+          });
+
+          await tx.conversationTurn.createMany({
+            data: turns.map((turn) => ({
+              id: turnIdMap.get(turn.id)!,
+              conversationId: forkConversationId,
+              sequenceNo: turn.sequenceNo,
+              submittedBy: turn.submittedBy,
+              codexThreadId: forkedThread.codexThreadId,
+              codexTurnId: turn.codexTurnId,
+              status: turn.status,
+              taskKind: turn.taskKind,
+              collaborationMode: turn.collaborationMode,
+              submitMode: turn.submitMode,
+              idempotencyKey: null,
+              idempotencyRequestHash: null,
+              knowledgeBaseIdsJson:
+                turn.knowledgeBaseIdsJson as Prisma.InputJsonValue,
+              capabilityGeneration: turn.capabilityGeneration,
+              capabilitiesJson: remapForkedJson(
+                turn.capabilitiesJson,
+                replacements,
+              ) as Prisma.InputJsonValue,
+              mcpGeneration: turn.mcpGeneration,
+              mcpServersJson: remapForkedJson(
+                turn.mcpServersJson,
+                replacements,
+              ) as Prisma.InputJsonValue,
+              model: turn.model,
+              reasoningEffort: turn.reasoningEffort,
+              startedAt: turn.startedAt,
+              completedAt: turn.completedAt,
+              interruptRequestedAt: turn.interruptRequestedAt,
+              interruptedAt: turn.interruptedAt,
+              errorCode: turn.errorCode,
+              errorMessage: turn.errorMessage,
+              createdAt: turn.createdAt,
+              updatedAt: turn.updatedAt,
+            })),
+          });
+          await tx.conversationMessage.createMany({
+            data: messages.map((message) => ({
+              id: messageIdMap.get(message.id)!,
+              conversationId: forkConversationId,
+              turnId: message.turnId ? turnIdMap.get(message.turnId)! : null,
+              sequenceNo: message.sequenceNo,
+              role: message.role,
+              contentText: message.contentText,
+              createdAt: message.createdAt,
+              updatedAt: message.updatedAt,
+            })),
+          });
+          if (events.length > 0) {
+            await tx.conversationEvent.createMany({
+              data: events.map((event) => ({
+                id: eventIdMap.get(event.id)!,
+                conversationId: forkConversationId,
+                turnId: event.turnId ? turnIdMap.get(event.turnId)! : null,
+                sequenceNo: event.sequenceNo,
+                eventType: event.eventType,
+                visibility: event.visibility,
+                payloadJson: remapForkedJson(
+                  event.payloadJson,
+                  replacements,
+                ) as Prisma.InputJsonValue,
+                sseEventId: `fork:${forkConversationId}:${event.sequenceNo}`,
+                createdAt: event.createdAt,
+              })),
+            });
+          }
+          if (files.length > 0) {
+            await tx.conversationFile.createMany({
+              data: files.map((file) => ({
+                id: fileIdMap.get(file.id)!,
+                conversationId: forkConversationId,
+                draftId: null,
+                pendingRequestId: null,
+                turnId: file.turnId ? turnIdMap.get(file.turnId)! : null,
+                kind: file.kind,
+                source: file.source,
+                status: file.status,
+                filename: file.filename,
+                mimeType: file.mimeType,
+                sizeBytes: file.sizeBytes,
+                checksumSha256: file.checksumSha256,
+                storageBackend: file.storageBackend,
+                workspaceRelativePath: file.workspaceRelativePath,
+                minioObjectKey: file.minioObjectKey,
+                downloadable: file.downloadable,
+                downloadCardEventId: file.downloadCardEventId
+                  ? (eventIdMap.get(file.downloadCardEventId) ?? null)
+                  : null,
+                createdBy: file.createdBy,
+                createdAt: file.createdAt,
+                updatedAt: file.updatedAt,
+              })),
+            });
+          }
+          if (turnKnowledgeBases.length > 0) {
+            await tx.conversationTurnKnowledgeBase.createMany({
+              data: turnKnowledgeBases.map((selection) => ({
+                id: crypto.randomUUID(),
+                turnId: turnIdMap.get(selection.turnId)!,
+                knowledgeBaseId: selection.knowledgeBaseId,
+                selectionOrder: selection.selectionOrder,
+                createdAt: selection.createdAt,
+              })),
+            });
+          }
+          if (planReviews.length > 0) {
+            await tx.conversationPlanReview.createMany({
+              data: planReviews.map((review) => {
+                const followUpTurnId = review.followUpTurnId
+                  ? (turnIdMap.get(review.followUpTurnId) ?? null)
+                  : null;
+                return {
+                  id: planReviewIdMap.get(review.id)!,
+                  conversationId: forkConversationId,
+                  ownerId,
+                  sourceTurnId: turnIdMap.get(review.sourceTurnId)!,
+                  planMessageId: messageIdMap.get(review.planMessageId)!,
+                  codexItemId: review.codexItemId,
+                  status:
+                    review.followUpTurnId && !followUpTurnId
+                      ? "pending"
+                      : review.status,
+                  decision:
+                    review.followUpTurnId && !followUpTurnId
+                      ? null
+                      : review.decision,
+                  followUpTurnId,
+                  resolvedAt:
+                    review.followUpTurnId && !followUpTurnId
+                      ? null
+                      : review.resolvedAt,
+                  createdAt: review.createdAt,
+                  updatedAt: review.updatedAt,
+                };
+              }),
+            });
+          }
+          if (userInputRequests.length > 0) {
+            await tx.conversationUserInputRequest.createMany({
+              data: userInputRequests.map((request) => ({
+                id: userInputRequestIdMap.get(request.id)!,
+                conversationId: forkConversationId,
+                turnId: turnIdMap.get(request.turnId)!,
+                ownerId,
+                codexThreadId: forkedThread.codexThreadId,
+                codexTurnId: request.codexTurnId,
+                codexItemId: request.codexItemId,
+                nativeRequestId: request.nativeRequestId,
+                requestKind: request.requestKind,
+                questionsJson: remapForkedJson(
+                  request.questionsJson,
+                  replacements,
+                ) as Prisma.InputJsonValue,
+                serverName: request.serverName,
+                messageText: request.messageText,
+                formSchemaJson: request.formSchemaJson
+                  ? (remapForkedJson(
+                      request.formSchemaJson,
+                      replacements,
+                    ) as Prisma.InputJsonValue)
+                  : Prisma.DbNull,
+                formUiHintsJson: request.formUiHintsJson
+                  ? (remapForkedJson(
+                      request.formUiHintsJson,
+                      replacements,
+                    ) as Prisma.InputJsonValue)
+                  : Prisma.DbNull,
+                formResponseSemanticsJson: request.formResponseSemanticsJson
+                  ? (remapForkedJson(
+                      request.formResponseSemanticsJson,
+                      replacements,
+                    ) as Prisma.InputJsonValue)
+                  : Prisma.DbNull,
+                responseContentJson: request.responseContentJson
+                  ? (remapForkedJson(
+                      request.responseContentJson,
+                      replacements,
+                    ) as Prisma.InputJsonValue)
+                  : Prisma.DbNull,
+                status: request.status,
+                autoResolveAt: request.autoResolveAt,
+                resolvedAction: request.resolvedAction,
+                resolvedAt: request.resolvedAt,
+                createdAt: request.createdAt,
+                updatedAt: request.updatedAt,
+              })),
+            });
+          }
+          if (citations.length > 0) {
+            await tx.conversationMessageKnowledgeCitation.createMany({
+              data: citations.map((citation) => ({
+                id: citationIdMap.get(citation.id)!,
+                conversationId: forkConversationId,
+                turnId: turnIdMap.get(citation.turnId)!,
+                messageId: messageIdMap.get(citation.messageId)!,
+                knowledgeBaseId: citation.knowledgeBaseId,
+                documentId: citation.documentId,
+                documentVersionId: citation.documentVersionId,
+                knowledgeBaseNameSnapshot:
+                  citation.knowledgeBaseNameSnapshot,
+                documentNameSnapshot: citation.documentNameSnapshot,
+                parentId: citation.parentId,
+                citationNo: citation.citationNo,
+                titlePath: citation.titlePath,
+                matchedChildIds: citation.matchedChildIds,
+                pageNumbers: citation.pageNumbers,
+                createdAt: citation.createdAt,
+                updatedAt: citation.updatedAt,
+              })),
+            });
+          }
+          if (citationAnchors.length > 0) {
+            await tx.conversationMessageKnowledgeCitationAnchor.createMany({
+              data: citationAnchors.map((anchor) => ({
+                id: crypto.randomUUID(),
+                messageId: messageIdMap.get(anchor.messageId)!,
+                citationId: citationIdMap.get(anchor.citationId)!,
+                occurrenceNo: anchor.occurrenceNo,
+                anchorAfterOffsetUtf16: anchor.anchorAfterOffsetUtf16,
+                createdAt: anchor.createdAt,
+                updatedAt: anchor.updatedAt,
+              })),
+            });
+          }
+          await tx.usageActivityRecord.create({
+            data: {
+              activityType: "task_created",
+              sourceId: forkedConversation.id,
+              ownerId,
+              conversationId: forkedConversation.id,
+              applicationId: forkedConversation.applicationId,
+              applicationNameSnapshot:
+                forkedConversation.applicationNameSnapshot,
+              occurredAt: forkedConversation.createdAt,
+            },
+          });
+          return forkedConversation;
+        });
+        forkRuntimePrepared = false;
+
+        await this.audit
+          .write({
+            ...context,
+            actorId: ownerId,
+            action: "conversation_forked",
+            targetType: "conversation",
+            targetId: created.id,
+            result: "success",
+            metadata: {
+              source_conversation_id: conversationId,
+              source_message_id: messageId,
+              fork_sequence: created.forkSequence,
+            },
+          })
+          .catch(() => undefined);
+        return projectConversation(created, created.lastTurnStatus ?? "idle");
+      } catch (error) {
+        if (forkRuntimePrepared) {
+          await this.cleanup
+            .enqueueRuntimeCleanup(ownerId, forkConversationId)
+            .catch(() => undefined);
+        }
+        throw error;
+      } finally {
+        await this.redis
+          .releaseConversationLock(conversationId, lock)
+          .catch(() => undefined);
+      }
+    });
+  }
+
   async createApplicationConversation(
     ownerId: string,
     application: {
@@ -8593,6 +9198,53 @@ export class ConversationService {
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
     }
     throw new AppError("CONFLICT");
+  }
+}
+
+async function copyForkWorkspaceFiles(input: {
+  workspaceRoot: string;
+  ownerId: string;
+  sourceConversationId: string;
+  targetConversationId: string;
+  relativePaths: readonly string[];
+}): Promise<void> {
+  const targetWorkspace = resolveConversationWorkspaceRoot(
+    input.workspaceRoot,
+    input.ownerId,
+    input.targetConversationId,
+  );
+  const uniqueRelativePaths = [...new Set(input.relativePaths)].sort();
+  for (const relativePath of uniqueRelativePaths) {
+    const sourcePath = resolveConversationWorkspaceEntry(
+      input.workspaceRoot,
+      input.ownerId,
+      input.sourceConversationId,
+      relativePath,
+    );
+    const destinationPath = resolveConversationWorkspaceEntry(
+      input.workspaceRoot,
+      input.ownerId,
+      input.targetConversationId,
+      relativePath,
+    );
+    const sourceInfo = await lstat(sourcePath);
+    if (!sourceInfo.isFile() || sourceInfo.isSymbolicLink()) {
+      throw new AppError("CONFLICT");
+    }
+    await access(sourcePath, constants.R_OK);
+    if (dirname(destinationPath) !== targetWorkspace) {
+      await ensureSharedWorkspaceDirectory(
+        targetWorkspace,
+        dirname(destinationPath),
+      );
+    }
+    await copyFile(sourcePath, destinationPath);
+    await chmod(
+      destinationPath,
+      sourceInfo.mode & 0o111
+        ? workspacePermissionPolicy.sharedExecutableFile
+        : workspacePermissionPolicy.sharedWritableFile,
+    );
   }
 }
 
