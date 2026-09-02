@@ -947,8 +947,129 @@ describe("CapabilityRuntimeManager", () => {
         "plugin-sources",
       ),
       marketplacePath: fixture.marketplacePath,
+      pluginContentDigest: expect.stringMatching(/^[0-9a-f]{64}$/u),
       generation,
     })
+  })
+
+  it("accepts host-mapped UIDs when the shared GID and modes are correct", async () => {
+    const fixture = await publishedRuntimeFixture()
+    const gid = process.getgid?.() ?? 1000
+    const hostMappedIdentity = {
+      uid: (process.getuid?.() ?? 1000) + 10_000,
+      gid,
+    }
+    const manager = new CapabilityRuntimeManager({
+      apiIdentity: hostMappedIdentity,
+      taskIdentity: hostMappedIdentity,
+    })
+
+    await expect(
+      manager.resolvePublished({
+        userHome: fixture.userHome,
+        controlRoot: fixture.controlRoot,
+        expectedGeneration: generation,
+        capabilities: [
+          {
+            id: "019f45dd-a318-7d02-b03b-eaece8887881",
+            name: "documents",
+            type: "plugin",
+            revision: "current",
+          },
+          {
+            id: "019f45dd-a318-7d02-b03b-eaece8887882",
+            name: "reports",
+            type: "skill",
+            revision: "current",
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({ generation })
+  })
+
+  it("rejects a capability projection outside the shared GID", async () => {
+    const fixture = await publishedRuntimeFixture()
+    const identity = {
+      uid: process.getuid?.() ?? 1000,
+      gid: (process.getgid?.() ?? 1000) + 10_000,
+    }
+    const manager = new CapabilityRuntimeManager({
+      apiIdentity: identity,
+      taskIdentity: identity,
+    })
+
+    await expect(
+      manager.resolvePublished({
+        userHome: fixture.userHome,
+        controlRoot: fixture.controlRoot,
+        expectedGeneration: generation,
+        capabilities: [
+          {
+            id: "019f45dd-a318-7d02-b03b-eaece8887881",
+            name: "documents",
+            type: "plugin",
+            revision: "current",
+          },
+          {
+            id: "019f45dd-a318-7d02-b03b-eaece8887882",
+            name: "reports",
+            type: "skill",
+            revision: "current",
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(CapabilityRuntimeError)
+  })
+
+  it("keeps the plugin digest stable when only skill content changes", async () => {
+    const fixture = await publishedRuntimeFixture()
+    const manager = localCapabilityRuntimeManager()
+    const capabilities = [
+      {
+        id: "019f45dd-a318-7d02-b03b-eaece8887881",
+        name: "documents",
+        type: "plugin" as const,
+        revision: "current",
+      },
+      {
+        id: "019f45dd-a318-7d02-b03b-eaece8887882",
+        name: "reports",
+        type: "skill" as const,
+        revision: "current",
+      },
+    ]
+    const before = await manager.resolvePublished({
+      userHome: fixture.userHome,
+      controlRoot: fixture.controlRoot,
+      expectedGeneration: generation,
+      capabilities,
+    })
+    await writeFile(
+      path.join(fixture.skillsRoot, "reports", "SKILL.md"),
+      "updated reports",
+    )
+    const contentDigest = await testCapabilityContentDigest({
+      skillsRoot: fixture.skillsRoot,
+      pluginsRoot: fixture.pluginsRoot,
+      marketplacePath: fixture.marketplacePath,
+      pluginNames: ["documents"],
+    })
+    await writeFile(
+      path.join(
+        fixture.capabilityControl,
+        "capability-content-sha256",
+      ),
+      `${contentDigest}\n`,
+    )
+    const after = await manager.resolvePublished({
+      userHome: fixture.userHome,
+      controlRoot: fixture.controlRoot,
+      expectedGeneration: generation,
+      capabilities,
+    })
+
+    expect(after.contentDigest).not.toBe(before.contentDigest)
+    expect(after.pluginContentDigest).toBe(before.pluginContentDigest)
   })
 
   it("fails closed for a stale generation or mismatched marketplace", async () => {

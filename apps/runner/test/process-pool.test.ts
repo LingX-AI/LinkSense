@@ -5094,6 +5094,7 @@ trust_level = "trusted"
       nativePluginManager.reconcileBeforeStart.mock.calls[1]?.[0],
     ).toMatchObject({
       expectedGeneration: nextCapabilityGeneration,
+      pluginContentDigest: "d".repeat(64),
     });
     expect(capabilityRuntimeManager.resolvePublished).toHaveBeenCalledTimes(2);
     expect(
@@ -8711,6 +8712,7 @@ trust_level = "trusted"
       Object.assign(new Error("no such file or directory"), {
         code: "ENOENT",
         errno: -2,
+        stage: "generation-before",
         syscall: "open",
         path: "/app/node_modules/@linksense/shared/package.json",
       }),
@@ -8734,6 +8736,7 @@ trust_level = "trusted"
           errorName: "Error",
           errorCode: "ENOENT",
           errorErrno: -2,
+          errorStage: "generation-before",
           errorSyscall: "open",
           errorPath: "/app/node_modules/@linksense/shared/package.json",
         }),
@@ -10064,6 +10067,7 @@ function createCapabilityRuntimeManagerMock() {
         ),
         capabilityControl: join(controlRoot, "capabilities"),
         contentDigest: "c".repeat(64),
+        pluginContentDigest: "d".repeat(64),
         generation: expectedGeneration,
       }),
     ),
@@ -10073,12 +10077,11 @@ function createCapabilityRuntimeManagerMock() {
 function createNativePluginManagerMock() {
   return {
     reconcileBeforeStart: vi.fn(
-      async ({
-        validatePublished,
-      }: {
-        validatePublished?: () => Promise<void>;
+      async (_input: {
+        expectedGeneration: string;
+        pluginContentDigest: string;
       }) => {
-        await validatePublished?.();
+        void _input;
       },
     ),
     verifyAfterStart: vi.fn(

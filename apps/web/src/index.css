@@ -5154,10 +5154,10 @@ button.annotation-hover-file:focus-visible {
 
 .message-actions {
   display: flex;
-  min-height: 28px;
+  min-height: 31px;
   align-items: center;
   gap: 2px;
-  margin-top: 3px;
+  padding-top: 3px;
   color: var(--app-muted);
   opacity: 0;
   pointer-events: none;
@@ -6401,8 +6401,8 @@ button.annotation-hover-file:focus-visible {
 .turn-summary-heading {
   width: 100%;
   min-width: 0;
-  border-bottom-width: 0.5px;
-  border-bottom-color: color-mix(in srgb, var(--app-divider) 80%, transparent);
+  border-bottom-width: 1px;
+  border-bottom-color: color-mix(in srgb, var(--foreground) 10%, transparent);
   padding-bottom: 10px;
   color: inherit;
   font-size: inherit;

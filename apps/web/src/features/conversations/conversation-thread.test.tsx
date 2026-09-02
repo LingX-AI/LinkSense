@@ -104,6 +104,7 @@ const completedConversation: Conversation = {
       id: "message-user-1",
       role: "user",
       turn_id: "turn-1",
+      sequence_no: 1,
       content: "请给出处理结果",
       created_at: "2026-07-11T15:47:00",
     },
@@ -111,6 +112,7 @@ const completedConversation: Conversation = {
       id: "message-assistant-1",
       role: "assistant",
       turn_id: "turn-1",
+      sequence_no: 2,
       content:
         "**处理完成**\n\n- 已检查 `pnpm dev`\n- [查看文档](https://example.com/docs)",
       created_at: "2026-07-11T15:54:00",
@@ -183,6 +185,104 @@ describe("conversation turn responses", () => {
     expect(onForkMessage).toHaveBeenCalledWith(
       expect.objectContaining({ id: "message-assistant-1" })
     )
+  })
+
+  it("renders a source-task link at the copied-context boundary", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            fork_source: {
+              available: true,
+              conversation_id: "source-conversation-1",
+              message_id: "source-message-1",
+              title: "源任务",
+              boundary_sequence_no: 2,
+            },
+            messages: [
+              ...(completedConversation.messages ?? []),
+              {
+                id: "message-user-2",
+                role: "user",
+                turn_id: "turn-2",
+                sequence_no: 3,
+                content: "分支中的新问题",
+                created_at: "2026-07-11T16:00:00",
+              },
+            ],
+            turns: [
+              ...(completedConversation.turns ?? []),
+              {
+                id: "turn-2",
+                status: "completed",
+                started_at: "2026-07-11T08:00:04.000Z",
+                completed_at: "2026-07-11T08:00:05.000Z",
+              },
+            ],
+          }}
+          onDownload={vi.fn()}
+        />
+      </MemoryRouter>
+    )
+
+    const sourceLink = screen.getByRole("link", {
+      name: "打开源任务：源任务",
+    })
+    const copiedAnswer = screen.getByText("处理完成")
+    const nextQuestion = screen.getByText("分支中的新问题")
+
+    expect(sourceLink).toHaveAttribute(
+      "href",
+      "/conversations/source-conversation-1"
+    )
+    expect(sourceLink).toHaveTextContent("从聊天中继续")
+    expect(sourceLink).toHaveClass(
+      "before:bg-foreground/10",
+      "after:bg-foreground/10",
+      "hover:before:bg-foreground/20",
+      "hover:after:bg-foreground/20"
+    )
+    expect(
+      copiedAnswer.compareDocumentPosition(sourceLink) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      sourceLink.compareDocumentPosition(nextQuestion) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      container.querySelectorAll("[data-slot='fork-source-marker']")
+    ).toHaveLength(1)
+  })
+
+  it("renders a non-clickable marker when the source task is unavailable", () => {
+    render(
+      <MemoryRouter>
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            fork_source: {
+              available: false,
+              boundary_sequence_no: 2,
+            },
+          }}
+          onDownload={vi.fn()}
+        />
+      </MemoryRouter>
+    )
+
+    const unavailableMarker = screen.getByRole("note", {
+      name: "源任务不可用",
+    })
+    expect(unavailableMarker).toHaveTextContent("源任务不可用")
+    expect(unavailableMarker).toHaveClass(
+      "before:bg-foreground/10",
+      "after:bg-foreground/10"
+    )
+    expect(
+      screen.queryByRole("link", { name: /打开源任务/u })
+    ).not.toBeInTheDocument()
   })
 
   it("renders the localized welcome state for a new task", async () => {

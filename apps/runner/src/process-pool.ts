@@ -4655,6 +4655,14 @@ export class AppServerProcessPool {
         };
       }
 
+      const capabilityRuntime =
+        await this.options.capabilityRuntimeManager.resolvePublished({
+          userHome: paths.home,
+          controlRoot: paths.control,
+          expectedGeneration: input.capabilityGeneration,
+          capabilities: input.capabilities,
+          lockHeld: true,
+        });
       await this.options.workspaceManager.configureBuiltInMcp(
         input.conversationId,
         {
@@ -4666,7 +4674,6 @@ export class AppServerProcessPool {
           knowledgeSearchTimeoutMs: this.knowledgeSearchTimeoutMs,
         },
       );
-      let capabilityRuntime: PreparedCapabilityRuntime | undefined;
       await this.nativePluginManager.reconcileBeforeStart({
         command: this.options.command,
         userHome: paths.home,
@@ -4674,6 +4681,7 @@ export class AppServerProcessPool {
         workspace: paths.workspace,
         capabilityControl: join(paths.control, "capabilities"),
         expectedGeneration: input.capabilityGeneration,
+        pluginContentDigest: capabilityRuntime.pluginContentDigest,
         pluginNames: input.capabilities
           .filter((capability) => capability.type === "plugin")
           .map((capability) => capability.name),
@@ -4681,22 +4689,7 @@ export class AppServerProcessPool {
         ...(this.options.codexProcessIdentity
           ? { processIdentity: this.options.codexProcessIdentity }
           : {}),
-        validatePublished: async () => {
-          capabilityRuntime =
-            await this.options.capabilityRuntimeManager.resolvePublished({
-              userHome: paths.home,
-              controlRoot: paths.control,
-              expectedGeneration: input.capabilityGeneration,
-              capabilities: input.capabilities,
-              lockHeld: true,
-            });
-        },
       });
-      if (!capabilityRuntime) {
-        throw new CodexProtocolError(
-          "published capability runtime is unavailable",
-        );
-      }
       return { capabilityRuntime, leaseToken };
     } catch (error) {
       await this.releaseOwnerCapabilityLeaseToken(leaseToken);
@@ -7575,6 +7568,7 @@ type SanitizedErrorDetails = {
   errorCode?: string | number;
   errorErrno?: number;
   errorPath?: string;
+  errorStage?: string;
   errorSyscall?: string;
 };
 
@@ -7599,6 +7593,10 @@ function sanitizedErrorDetails(error: unknown): SanitizedErrorDetails {
   const path = (error as { path?: unknown }).path;
   if (typeof path === "string" && path.trim().length > 0) {
     details.errorPath = truncateErrorDiagnostic(path);
+  }
+  const stage = (error as { stage?: unknown }).stage;
+  if (typeof stage === "string" && stage.trim().length > 0) {
+    details.errorStage = truncateErrorDiagnostic(stage);
   }
   return details;
 }

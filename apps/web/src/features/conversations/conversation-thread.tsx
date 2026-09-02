@@ -75,6 +75,7 @@ import {
   useProductName,
 } from "@/app/product-branding"
 import { getConversationMessageAnchorId } from "@/features/conversations/conversation-message-anchor"
+import { ConversationForkSourceMarker } from "@/features/conversations/conversation-fork-source-marker"
 import { AssistantHtmlPreviewLoading } from "@/features/conversations/assistant-html-preview-loading"
 import {
   NativeActivityItem,
@@ -4771,6 +4772,16 @@ export function ConversationThread({
   const renderedConversationMessageIds = new Set(
     renderedConversationMessages.map((message) => message.id)
   )
+  const forkSource = conversation.fork_source
+  const forkBoundaryMessageId = forkSource
+    ? [...renderedConversationMessages]
+        .reverse()
+        .find(
+          (message) =>
+            message.sequence_no !== undefined &&
+            message.sequence_no <= forkSource.boundary_sequence_no
+        )?.id
+    : undefined
   const previousRenderedMessageById = new Map(
     renderedConversationMessages
       .slice(1)
@@ -4853,6 +4864,14 @@ export function ConversationThread({
 
     if (rendersMessage) {
       nodes.push(renderConversationMessage(message, isFinal))
+    }
+    if (forkSource && message.id === forkBoundaryMessageId) {
+      nodes.push(
+        <ConversationForkSourceMarker
+          key={`fork-source-${conversation.id}`}
+          source={forkSource}
+        />
+      )
     }
 
     return nodes

@@ -531,6 +531,43 @@ describe("API response contracts", () => {
     expect(result.turn_file_change_counts).toEqual({})
   })
 
+  it("preserves fork-source metadata and copied message sequence numbers", () => {
+    const result = conversationDetailSchema.parse({
+      conversation: {
+        id: "forked-conversation",
+        title: "源任务(2)",
+        archive_status: "active",
+        updated_at: now,
+        fork_source: {
+          available: true,
+          conversation_id: "source-conversation",
+          message_id: "source-message",
+          title: "源任务",
+          boundary_sequence_no: 2,
+        },
+      },
+      messages: [
+        {
+          id: "copied-message",
+          turn_id: "copied-turn",
+          sequence_no: 2,
+          role: "assistant",
+          content_text: "复制的回答",
+          created_at: now,
+        },
+      ],
+    })
+
+    expect(result.fork_source).toEqual({
+      available: true,
+      conversation_id: "source-conversation",
+      message_id: "source-message",
+      title: "源任务",
+      boundary_sequence_no: 2,
+    })
+    expect(result.messages?.[0]?.sequence_no).toBe(2)
+  })
+
   it("projects current-turn guidance metadata onto its user message", () => {
     const conversationId = "20000000-0000-4000-8000-000000000001"
     const turnId = "30000000-0000-4000-8000-000000000001"

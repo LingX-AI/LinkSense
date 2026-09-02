@@ -1868,6 +1868,147 @@ describe("ConversationService ownership and draft lifecycle", () => {
     },
   );
 
+  it("projects the direct source task and copied-message boundary for a fork", async () => {
+    const fixture = await conversationFixture();
+    const copiedTurn = turnRow({
+      id: TURN_ID,
+      conversationId: CONVERSATION_ID,
+      codexThreadId: "codex-thread-forked",
+      status: "completed",
+      completedAt: NOW,
+    });
+    const copiedUserMessage = messageRow({
+      id: "30000000-0000-4000-8000-000000000021",
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      sequenceNo: 1,
+      role: "user",
+    });
+    const copiedAssistantMessage = messageRow({
+      id: "30000000-0000-4000-8000-000000000022",
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      sequenceNo: 2,
+      role: "assistant",
+      contentText: "Copied answer",
+    });
+    fixture.prisma.conversation.findFirst.mockImplementation(
+      async (input?: { where?: Record<string, unknown> }) => {
+        if (input?.where?.id === CONVERSATION_ID) {
+          return conversationRow({
+            codexThreadId: "codex-thread-forked",
+            forkRootId: SECOND_CONVERSATION_ID,
+            forkSequence: 2,
+            forkSourceConversationId: SECOND_CONVERSATION_ID,
+            forkSourceMessageId: MESSAGE_ID,
+          });
+        }
+        if (input?.where?.id === SECOND_CONVERSATION_ID) {
+          return conversationRow({
+            id: SECOND_CONVERSATION_ID,
+            title: "Source task",
+            titleSource: "manual",
+          });
+        }
+        return null;
+      },
+    );
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([copiedTurn]);
+    fixture.prisma.conversationMessage.findMany.mockResolvedValue([
+      copiedUserMessage,
+      copiedAssistantMessage,
+    ]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValue(
+      messageRow({
+        id: MESSAGE_ID,
+        conversationId: SECOND_CONVERSATION_ID,
+        sequenceNo: 2,
+        role: "assistant",
+      }),
+    );
+
+    const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+
+    expect(result.conversation).toMatchObject({
+      fork_source: {
+        available: true,
+        conversation_id: SECOND_CONVERSATION_ID,
+        message_id: MESSAGE_ID,
+        title: "Source task",
+        boundary_sequence_no: 2,
+      },
+    });
+    expect(fixture.prisma.conversation.findFirst).toHaveBeenLastCalledWith({
+      where: { id: SECOND_CONVERSATION_ID, ownerId: OWNER_ID },
+      select: { id: true, title: true, titleSource: true },
+    });
+    expect(fixture.prisma.conversationMessage.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: MESSAGE_ID,
+        conversationId: SECOND_CONVERSATION_ID,
+      },
+      select: { id: true, sequenceNo: true },
+    });
+  });
+
+  it("projects a non-clickable fork marker without exposing an unavailable source task", async () => {
+    const fixture = await conversationFixture();
+    const forkCreatedAt = new Date("2026-07-11T08:05:00.000Z");
+    fixture.prisma.conversation.findFirst.mockImplementation(
+      async (input?: { where?: Record<string, unknown> }) =>
+        input?.where?.id === CONVERSATION_ID
+          ? conversationRow({
+              codexThreadId: "codex-thread-forked",
+              forkRootId: SECOND_CONVERSATION_ID,
+              forkSequence: 2,
+              forkSourceConversationId: SECOND_CONVERSATION_ID,
+              forkSourceMessageId: MESSAGE_ID,
+              createdAt: forkCreatedAt,
+            })
+          : null,
+    );
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([
+      turnRow({
+        id: TURN_ID,
+        conversationId: CONVERSATION_ID,
+        codexThreadId: "codex-thread-forked",
+        status: "completed",
+        completedAt: NOW,
+      }),
+    ]);
+    fixture.prisma.conversationMessage.findMany.mockResolvedValue([
+      messageRow({
+        id: "30000000-0000-4000-8000-000000000021",
+        conversationId: CONVERSATION_ID,
+        turnId: TURN_ID,
+        sequenceNo: 1,
+        createdAt: NOW,
+      }),
+      messageRow({
+        id: "30000000-0000-4000-8000-000000000022",
+        conversationId: CONVERSATION_ID,
+        turnId: TURN_ID,
+        sequenceNo: 2,
+        role: "assistant",
+        createdAt: NOW,
+      }),
+    ]);
+
+    const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+
+    expect(result.conversation).toMatchObject({
+      fork_source: {
+        available: false,
+        boundary_sequence_no: 2,
+      },
+    });
+    expect(result.conversation.fork_source).not.toHaveProperty(
+      "conversation_id",
+    );
+    expect(result.conversation.fork_source).not.toHaveProperty("message_id");
+    expect(fixture.prisma.conversationMessage.findFirst).not.toHaveBeenCalled();
+  });
+
   it("projects the latest durable model context usage in conversation detail", async () => {
     const fixture = await conversationFixture();
     const observedAt = new Date("2026-08-15T10:47:46.687Z");
@@ -11332,6 +11473,11 @@ function conversationRow(overrides: Record<string, unknown> = {}) {
     selectedKnowledgeBaseIdsJson: [],
     applicationId: null,
     applicationNameSnapshot: null,
+    forkRootId: null,
+    forkSequence: null,
+    forkSourceConversationId: null,
+    forkSourceMessageId: null,
+    forkIdempotencyKey: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,

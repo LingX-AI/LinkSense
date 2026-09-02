@@ -1845,6 +1845,11 @@ export const zhCN = {
     forkMessage: "分支到新聊天",
     forkingMessage: "正在创建分支…",
     forkMessageFailed: "无法创建分支任务，请重试。",
+    forkSource: {
+      continueFromChat: "从聊天中继续",
+      openSourceTask: "打开源任务：{{title}}",
+      unavailable: "源任务不可用",
+    },
     copyCode: "复制代码",
     codeCopied: "代码已复制",
     previewHtmlCode: "预览 HTML 代码",

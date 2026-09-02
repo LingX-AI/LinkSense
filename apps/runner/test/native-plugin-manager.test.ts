@@ -1,6 +1,7 @@
 import {
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -18,6 +19,7 @@ import {
 
 const roots: string[] = [];
 const generation = "a".repeat(64);
+const pluginContentDigest = "d".repeat(64);
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -42,8 +44,6 @@ describe("NativePluginManager", () => {
     const runCommand = vi.fn<NativePluginCommand>(async () => ({
       stdout: JSON.stringify(responses.shift()),
     }));
-    const validatePublished = vi.fn(async () => undefined);
-
     await expect(
       new NativePluginManager(runCommand).reconcileBeforeStart({
         command: "/usr/local/bin/codex",
@@ -52,13 +52,12 @@ describe("NativePluginManager", () => {
         workspace: fixture.workspace,
         capabilityControl: fixture.capabilityControl,
         expectedGeneration: generation,
+        pluginContentDigest,
         pluginNames: ["documents"],
-        validatePublished,
         processIdentity: { uid: 1001, gid: 1000 },
       }),
     ).resolves.toBeUndefined();
 
-    expect(validatePublished).toHaveBeenCalledOnce();
     expect(runCommand.mock.calls.map(([input]) => input.args)).toEqual([
       [
         "plugin",
@@ -120,6 +119,7 @@ describe("NativePluginManager", () => {
       workspace: fixture.workspace,
       capabilityControl: fixture.capabilityControl,
       expectedGeneration: generation,
+      pluginContentDigest,
       pluginNames: ["documents"],
     });
 
@@ -129,6 +129,152 @@ describe("NativePluginManager", () => {
       `documents@${NATIVE_PLUGIN_MARKETPLACE_NAME}`,
       "--json",
     ]);
+  });
+
+  it("does not reinstall unchanged plugins when only the capability generation changes", async () => {
+    const fixture = await createFixture();
+    const nextGeneration = "b".repeat(64);
+    const responses = [
+      pluginList([plugin("documents")]),
+      {},
+      pluginList([plugin("documents")]),
+      pluginList([plugin("documents")]),
+    ];
+    const runCommand = vi.fn<NativePluginCommand>(async () => ({
+      stdout: JSON.stringify(responses.shift()),
+    }));
+    const manager = new NativePluginManager(runCommand);
+
+    await manager.reconcileBeforeStart({
+      command: "codex",
+      userHome: fixture.userHome,
+      codexHome: fixture.codexHome,
+      workspace: fixture.workspace,
+      capabilityControl: fixture.capabilityControl,
+      expectedGeneration: generation,
+      pluginContentDigest,
+      pluginNames: ["documents"],
+    });
+    await writeFile(
+      path.join(fixture.capabilityControl, "capability-generation"),
+      `${nextGeneration}\n`,
+    );
+
+    await manager.reconcileBeforeStart({
+      command: "codex",
+      userHome: fixture.userHome,
+      codexHome: fixture.codexHome,
+      workspace: fixture.workspace,
+      capabilityControl: fixture.capabilityControl,
+      expectedGeneration: nextGeneration,
+      pluginContentDigest,
+      pluginNames: ["documents"],
+    });
+
+    expect(
+      runCommand.mock.calls.filter(
+        ([input]) => input.args[0] === "plugin" && input.args[1] === "add",
+      ),
+    ).toHaveLength(1);
+    await expect(
+      readFile(
+        path.join(
+          fixture.capabilityControl,
+          ".linksense-native-plugins.json",
+        ),
+        "utf8",
+      ),
+    ).resolves.toContain(pluginContentDigest);
+  });
+
+  it("reinstalls plugins when their verified content digest changes", async () => {
+    const fixture = await createFixture();
+    const nextGeneration = "b".repeat(64);
+    const nextPluginContentDigest = "e".repeat(64);
+    const responses = [
+      pluginList([plugin("documents")]),
+      {},
+      pluginList([plugin("documents")]),
+      pluginList([plugin("documents")]),
+      {},
+      pluginList([plugin("documents")]),
+    ];
+    const runCommand = vi.fn<NativePluginCommand>(async () => ({
+      stdout: JSON.stringify(responses.shift()),
+    }));
+    const manager = new NativePluginManager(runCommand);
+    const baseInput = {
+      command: "codex",
+      userHome: fixture.userHome,
+      codexHome: fixture.codexHome,
+      workspace: fixture.workspace,
+      capabilityControl: fixture.capabilityControl,
+      pluginNames: ["documents"],
+    };
+
+    await manager.reconcileBeforeStart({
+      ...baseInput,
+      expectedGeneration: generation,
+      pluginContentDigest,
+    });
+    await writeFile(
+      path.join(fixture.capabilityControl, "capability-generation"),
+      `${nextGeneration}\n`,
+    );
+    await manager.reconcileBeforeStart({
+      ...baseInput,
+      expectedGeneration: nextGeneration,
+      pluginContentDigest: nextPluginContentDigest,
+    });
+
+    expect(
+      runCommand.mock.calls.filter(
+        ([input]) => input.args[0] === "plugin" && input.args[1] === "add",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("self-heals an invalid persisted plugin state instead of blocking starts", async () => {
+    const fixture = await createFixture();
+    await writeFile(
+      path.join(
+        fixture.capabilityControl,
+        ".linksense-native-plugins.json",
+      ),
+      "not-json\n",
+      { mode: 0o600 },
+    );
+    const responses = [
+      pluginList([plugin("documents")]),
+      {},
+      pluginList([plugin("documents")]),
+    ];
+    const runCommand = vi.fn<NativePluginCommand>(async () => ({
+      stdout: JSON.stringify(responses.shift()),
+    }));
+
+    await expect(
+      new NativePluginManager(runCommand).reconcileBeforeStart({
+        command: "codex",
+        userHome: fixture.userHome,
+        codexHome: fixture.codexHome,
+        workspace: fixture.workspace,
+        capabilityControl: fixture.capabilityControl,
+        expectedGeneration: generation,
+        pluginContentDigest,
+        pluginNames: ["documents"],
+      }),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      readFile(
+        path.join(
+          fixture.capabilityControl,
+          ".linksense-native-plugins.json",
+        ),
+        "utf8",
+      ),
+    ).resolves.toContain('"version":1');
   });
 
   it("removes a configured managed plugin after it disappears from the marketplace", async () => {
@@ -154,6 +300,7 @@ describe("NativePluginManager", () => {
         workspace: fixture.workspace,
         capabilityControl: fixture.capabilityControl,
         expectedGeneration: generation,
+        pluginContentDigest,
         pluginNames: [],
       }),
     ).resolves.toBeUndefined();
@@ -203,6 +350,7 @@ describe("NativePluginManager", () => {
         workspace: fixture.workspace,
         capabilityControl: fixture.capabilityControl,
         expectedGeneration: generation,
+        pluginContentDigest,
         pluginNames: [],
       }),
     ).rejects.toBeInstanceOf(NativePluginRefreshError);
@@ -211,23 +359,23 @@ describe("NativePluginManager", () => {
   it("fails closed before invoking Codex when the published generation differs", async () => {
     const fixture = await createFixture("b".repeat(64));
     const runCommand = vi.fn<NativePluginCommand>();
-    const validatePublished = vi.fn(async () => undefined);
+    const result = new NativePluginManager(runCommand).reconcileBeforeStart({
+      command: "codex",
+      userHome: fixture.userHome,
+      codexHome: fixture.codexHome,
+      workspace: fixture.workspace,
+      capabilityControl: fixture.capabilityControl,
+      expectedGeneration: generation,
+      pluginContentDigest,
+      pluginNames: [],
+    });
 
-    await expect(
-      new NativePluginManager(runCommand).reconcileBeforeStart({
-        command: "codex",
-        userHome: fixture.userHome,
-        codexHome: fixture.codexHome,
-        workspace: fixture.workspace,
-        capabilityControl: fixture.capabilityControl,
-        expectedGeneration: generation,
-        pluginNames: [],
-        validatePublished,
-      }),
-    ).rejects.toBeInstanceOf(NativePluginRefreshError);
+    await expect(result).rejects.toMatchObject({
+      name: "NativePluginRefreshError",
+      stage: "generation-before",
+    });
 
     expect(runCommand).not.toHaveBeenCalled();
-    expect(validatePublished).not.toHaveBeenCalled();
   });
 
   it("fails closed when Codex does not report the exact desired installed set", async () => {
@@ -245,6 +393,7 @@ describe("NativePluginManager", () => {
         workspace: fixture.workspace,
         capabilityControl: fixture.capabilityControl,
         expectedGeneration: generation,
+        pluginContentDigest,
         pluginNames: ["documents"],
       }),
     ).rejects.toBeInstanceOf(NativePluginRefreshError);

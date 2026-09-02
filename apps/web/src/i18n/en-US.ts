@@ -1996,6 +1996,11 @@ export const enUS = {
     forkMessage: "Branch to new chat",
     forkingMessage: "Creating branch…",
     forkMessageFailed: "Unable to create the branched task. Try again.",
+    forkSource: {
+      continueFromChat: "Continued from chat",
+      openSourceTask: "Open source task: {{title}}",
+      unavailable: "Source task unavailable",
+    },
     copyCode: "Copy code",
     codeCopied: "Code copied",
     previewHtmlCode: "Preview HTML code",

@@ -594,7 +594,7 @@ describe("conversation activity typography", () => {
     expect(subAgentStatusRule).toMatch(/font-size:\s*var\(--app-font-13\);/u)
   })
 
-  it("keeps divider geometry stable while hiding it during initial thinking", () => {
+  it("matches the completed-turn divider to the fork-source marker while hiding it during initial thinking", () => {
     const summaryHeadingRule = conversationStyles.match(
       /\.turn-summary-heading\s*\{([^}]*)\}/u
     )?.[1]
@@ -602,9 +602,9 @@ describe("conversation activity typography", () => {
       /\.turn-summary-heading\[data-initial-thinking="true"\]\s*\{([^}]*)\}/u
     )?.[1]
 
-    expect(summaryHeadingRule).toMatch(/border-bottom-width:\s*0\.5px;/u)
+    expect(summaryHeadingRule).toMatch(/border-bottom-width:\s*1px;/u)
     expect(summaryHeadingRule).toMatch(
-      /border-bottom-color:\s*color-mix\(\s*in srgb,\s*var\(--app-divider\) 80%,\s*transparent\s*\);/u
+      /border-bottom-color:\s*color-mix\(\s*in srgb,\s*var\(--foreground\) 10%,\s*transparent\s*\);/u
     )
     expect(initialThinkingRule).toMatch(/border-bottom-color:\s*transparent;/u)
     expect(initialThinkingRule).not.toMatch(/border-bottom-width:\s*0;/u)
@@ -1495,6 +1495,16 @@ describe("conversation artifact tile", () => {
     expect(imageMessageRule).toMatch(/position:\s*relative;/u)
     expect(actionRule).toMatch(/position:\s*absolute;/u)
     expect(actionRule).toMatch(/top:\s*100%;/u)
+  })
+
+  it("keeps the gap above absolutely positioned image actions hoverable", () => {
+    const actionRule = conversationStyles.match(
+      /\.message-actions\s*\{([^}]*)\}/u
+    )?.[1]
+
+    expect(actionRule).toMatch(/min-height:\s*31px;/u)
+    expect(actionRule).toMatch(/padding-top:\s*3px;/u)
+    expect(actionRule).not.toMatch(/margin-top:/u)
   })
 
   it("keeps the completed Goal marker aligned with message metadata", () => {
