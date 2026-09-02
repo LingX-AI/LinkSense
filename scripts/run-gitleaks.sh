@@ -50,6 +50,7 @@ tar -xzf "$temporary_directory/$archive" -C "$temporary_directory" gitleaks
 "$temporary_directory/gitleaks" git \
   --redact \
   --verbose \
+  --log-opts=HEAD \
   --no-banner \
   --exit-code 1 \
   "$repository_root"

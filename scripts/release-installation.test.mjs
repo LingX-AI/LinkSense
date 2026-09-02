@@ -809,6 +809,7 @@ test("the secret scanner pins and verifies the downloaded Gitleaks binary", asyn
   assert.match(source, /--retry-all-errors/u)
   assert.match(source, /\[ "\$actual_sha256" = "\$expected_sha256" \]/u)
   assert.match(source, /gitleaks" git \\\n\s+--redact \\\n\s+--verbose/u)
+  assert.match(source, /--log-opts=HEAD/u)
   execFileSync("sh", ["-n", path.join(root, "scripts/run-gitleaks.sh")])
 })
 
