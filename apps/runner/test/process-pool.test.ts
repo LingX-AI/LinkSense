@@ -276,7 +276,7 @@ describe("AppServerProcessPool", () => {
       input: [
         {
           type: "text",
-          text: "使用我选择的技能制作 PPT",
+          text: "$frontend-slides 使用我选择的技能制作 PPT",
           text_elements: [],
         },
         {
@@ -2826,7 +2826,7 @@ trust_level = "trusted"
       input: [
         {
           type: "text",
-          text: "整理项目计划",
+          text: "$reports 整理项目计划",
           text_elements: [],
         },
         {
@@ -4734,11 +4734,19 @@ trust_level = "trusted"
         .map((request) => request.params),
     ).toEqual([
       expect.objectContaining({
-        input: [expect.objectContaining({ type: "text" })],
+        input: [
+          expect.objectContaining({
+            type: "text",
+            text: "start exactly once",
+          }),
+        ],
       }),
       expect.objectContaining({
         input: [
-          expect.objectContaining({ type: "text" }),
+          expect.objectContaining({
+            type: "text",
+            text: "@pdf continue in Default mode",
+          }),
           {
             type: "mention",
             name: "pdf",

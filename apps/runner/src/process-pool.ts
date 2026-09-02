@@ -1724,7 +1724,10 @@ export class AppServerProcessPool {
         };
       }
 
-      const turnInput = buildTurnInput(input.context);
+      const turnInput = buildTurnInput(
+        input.context,
+        input.collaborationMode,
+      );
       const prioritySkills = resolvePrioritySkills(
         input.context,
         managed.authorizedSkills,

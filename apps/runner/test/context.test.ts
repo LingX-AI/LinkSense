@@ -7,7 +7,7 @@ import {
 } from "../src/context.js";
 
 describe("buildTurnInput", () => {
-  it("keeps the native user input free of LinkSense wrapper labels", () => {
+  it("adds the model-visible tokens required by native capability mentions", () => {
     const context = {
       userInput: "整理附件",
       officeSelectionContext:
@@ -30,7 +30,46 @@ describe("buildTurnInput", () => {
       ],
     };
 
-    expect(buildTurnInput(context)).toBe("整理附件");
+    expect(buildTurnInput(context)).toBe(
+      "@microsoft-365 $report-writing 整理附件",
+    );
+  });
+
+  it("keeps capability mention tokens out of Plan mode input", () => {
+    const context = {
+      userInput: "制定实施方案",
+      attachments: [],
+      priorityPlugins: [
+        {
+          id: "01900000-0000-7000-8000-000000000010",
+          name: "microsoft-365",
+        },
+      ],
+      prioritySkills: [
+        {
+          id: "01900000-0000-7000-8000-000000000011",
+          name: "report-writing",
+        },
+      ],
+    };
+
+    expect(buildTurnInput(context, "plan")).toBe("制定实施方案");
+  });
+
+  it("supports a capability-only native user input", () => {
+    expect(
+      buildTurnInput({
+        userInput: "",
+        attachments: [],
+        priorityPlugins: [
+          {
+            id: "01900000-0000-7000-8000-000000000010",
+            name: "microsoft-365",
+          },
+        ],
+        prioritySkills: [],
+      }),
+    ).toBe("@microsoft-365");
   });
 
   it("moves untrusted selections and attachments into typed additional context", () => {
