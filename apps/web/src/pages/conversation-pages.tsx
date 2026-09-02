@@ -17,7 +17,6 @@ import {
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
-  ArrowDownIcon,
   CircleAlertIcon,
   EllipsisIcon,
   InfoIcon,
@@ -88,6 +87,7 @@ import { StatusBanner } from "@/components/feedback/status-banner"
 import { ConversationSearchDialog } from "@/components/shell/conversation-search-dialog"
 import { PageLayout } from "@/components/shell/page-layout"
 import { Button } from "@/components/ui/button"
+import { ConversationScrollToBottomIndicator } from "@/features/conversations/conversation-scroll-to-bottom-indicator"
 import {
   Card,
   CardAction,
@@ -5080,7 +5080,7 @@ export function ConversationPage({
               title={t("conversation.scrollToBottom")}
               onClick={handleScrollToBottom}
             >
-              <ArrowDownIcon aria-hidden="true" />
+              <ConversationScrollToBottomIndicator running={visuallyRunning} />
             </Button>
           </div>
         )}

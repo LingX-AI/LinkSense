@@ -138,38 +138,23 @@ export class EmbedSessionClient {
     schema: TSchema,
     init: RequestInit = {}
   ): Promise<z.infer<TSchema>> {
-    if (!this.authenticated) {
-      throw new EmbedRequestError(
-        401,
-        "APPLICATION_EMBED_SESSION_EXPIRED",
-        "External session is not authenticated"
-      )
-    }
-    if (this.#mode === "public" && Date.now() >= this.#sessionExpiresAt) {
-      this.#requireReauthentication()
-      throw new EmbedRequestError(
-        401,
-        "APPLICATION_EMBED_SESSION_EXPIRED",
-        "External session expired"
-      )
-    }
-    if (this.#mode === "token" && Date.now() >= this.#accessExpiresAt - 5_000) {
-      await this.#renew()
-    }
-    let response = await this.#sessionFetch(path, init)
-    if (this.#mode === "token" && response.status === 401) {
-      await this.#renew()
-      response = await this.#sessionFetch(path, init)
-    } else if (
-      this.#mode === "public" &&
-      (response.status === 401 || response.status === 403)
-    ) {
-      this.#requireReauthentication()
-    }
+    const response = await this.#requestResponse(path, init)
     return parseResponse(response, schema)
   }
 
   async requestBlob(path: string, init: RequestInit = {}): Promise<Blob> {
+    const response = await this.#requestResponse(path, init)
+    if (!response.ok) throw await responseError(response)
+    return response.blob()
+  }
+
+  async requestStream(path: string, init: RequestInit = {}): Promise<Response> {
+    const response = await this.#requestResponse(path, init)
+    if (!response.ok) throw await responseError(response)
+    return response
+  }
+
+  async #requestResponse(path: string, init: RequestInit): Promise<Response> {
     if (!this.authenticated) {
       throw new EmbedRequestError(
         401,
@@ -198,8 +183,7 @@ export class EmbedSessionClient {
     ) {
       this.#requireReauthentication()
     }
-    if (!response.ok) throw await responseError(response)
-    return response.blob()
+    return response
   }
 
   async upload(path: string, file: File, schema: z.ZodType) {
@@ -354,6 +338,10 @@ export class EmbedSessionClient {
       headers.set("x-linksense-embed-origin", this.#origin)
     }
     headers.set("accept", headers.get("accept") ?? "application/json")
+    const language = document.documentElement.lang
+    if (language === "zh-CN" || language === "en-US") {
+      headers.set("accept-language", language)
+    }
     return fetch(path, {
       ...init,
       headers,

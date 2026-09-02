@@ -46,12 +46,25 @@ export type VoiceInputFailure =
   | { kind: "transcription_no_content" }
   | { kind: "service_failed"; cause: unknown }
 
+export type VoiceTranscriptionRequester = (
+  body: VoiceTranscriptionRequest,
+  signal: AbortSignal
+) => Promise<Response>
+
 type UseVoiceTranscriptionOptions = {
   language: SupportedLanguage
   onTranscriptPreview: (transcript: string) => void
   onTranscript: (transcript: string) => void
   onError: (failure: VoiceInputFailure) => void
+  request?: VoiceTranscriptionRequester
 }
+
+const requestVoiceTranscription: VoiceTranscriptionRequester = (body, signal) =>
+  apiStreamRequest("/voice/transcriptions", {
+    method: "POST",
+    body,
+    signal,
+  })
 
 type AudioContextConstructor = new () => AudioContext
 
@@ -225,6 +238,7 @@ export function useVoiceTranscription({
   onTranscriptPreview,
   onTranscript,
   onError,
+  request = requestVoiceTranscription,
 }: UseVoiceTranscriptionOptions) {
   const [phase, setPhase] = useState<VoiceInputPhase>("idle")
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
@@ -259,13 +273,15 @@ export function useVoiceTranscription({
   const onTranscriptRef = useRef(onTranscript)
   const onErrorRef = useRef(onError)
   const languageRef = useRef(language)
+  const requestRef = useRef(request)
 
   useEffect(() => {
     onTranscriptPreviewRef.current = onTranscriptPreview
     onTranscriptRef.current = onTranscript
     onErrorRef.current = onError
     languageRef.current = language
-  }, [language, onError, onTranscript, onTranscriptPreview])
+    requestRef.current = request
+  }, [language, onError, onTranscript, onTranscriptPreview, request])
 
   const updatePhase = useCallback((nextPhase: VoiceInputPhase) => {
     phaseRef.current = nextPhase
@@ -446,11 +462,7 @@ export function useVoiceTranscription({
           language: languageRef.current,
           stream: true,
         } satisfies VoiceTranscriptionRequest
-        const response = await apiStreamRequest("/voice/transcriptions", {
-          method: "POST",
-          body,
-          signal: controller.signal,
-        })
+        const response = await requestRef.current(body, controller.signal)
         const transcript = await readVoiceTranscript(
           response,
           controller.signal,

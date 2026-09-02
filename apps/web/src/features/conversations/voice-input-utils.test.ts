@@ -38,4 +38,24 @@ describe("voice input utilities", () => {
       )
     ).toBe("Speech recognition timed out. Try again.")
   })
+
+  it("shows the voice request limit in the active language", async () => {
+    const failure = {
+      kind: "service_failed" as const,
+      cause: new ApiError({
+        status: 429,
+        errorCode: "VOICE_TRANSCRIPTION_RATE_LIMITED",
+        params: { retry_after_seconds: 42 },
+      }),
+    }
+
+    expect(getVoiceInputFailureMessage(failure, i18n.t)).toBe(
+      "语音输入每分钟最多使用 20 次，请稍后再试。"
+    )
+
+    await i18n.changeLanguage("en-US")
+    expect(getVoiceInputFailureMessage(failure, i18n.t)).toBe(
+      "Voice input can be used up to 20 times per minute. Try again shortly."
+    )
+  })
 })

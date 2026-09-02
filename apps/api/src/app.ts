@@ -315,6 +315,7 @@ export async function buildApi(
       applicationApp.addHook("preHandler", app.authenticate);
       await applicationApp.register(applicationRoutes, {
         service: services.applications,
+        usageAnalytics: services.usageAnalytics,
         createConversation: (ownerId, application) =>
           services.conversations.createApplicationConversation(
             ownerId,
@@ -524,6 +525,7 @@ export async function buildApi(
   await app.register(voiceTranscriptionRoutes, {
     prefix: "/api/v1/voice",
     service: services.voiceTranscription,
+    rateLimits: services.voiceTranscriptionRateLimits,
     tokenLimits: services.tokenLimits,
     defaultLocale: services.system.defaultLocale,
   });

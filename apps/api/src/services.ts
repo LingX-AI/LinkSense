@@ -57,7 +57,10 @@ import { KnowledgeModelSettingsService } from "./modules/system/knowledge-model-
 import { VercelAiImageUnderstandingClient } from "./modules/knowledge-processing/image-understanding-client.js";
 import { LiveKnowledgeModelConfigurationProbe } from "./modules/knowledge-processing/knowledge-model-runtime.js";
 import { DashScopeAsrClient } from "./adapters/dashscope-asr.js";
-import { VoiceTranscriptionService } from "./modules/voice/service.js";
+import {
+  VoiceTranscriptionRateLimiter,
+  VoiceTranscriptionService,
+} from "./modules/voice/service.js";
 import { ManagedTaskTitleGenerator } from "./adapters/dashscope-title.js";
 import { ConversationTitleService } from "./modules/conversations/title-service.js";
 import { SiteIconService } from "./modules/site-icons/service.js";
@@ -190,6 +193,7 @@ export type AppServices = {
   mcpServers: McpServerService;
   users: UserService;
   voiceTranscription: VoiceTranscriptionService;
+  voiceTranscriptionRateLimits: VoiceTranscriptionRateLimiter;
   siteIcons: SiteIconService;
   externalImages: ExternalImageService;
   knowledge: KnowledgeService | null;
@@ -462,6 +466,9 @@ export function createServices(input: {
     new DashScopeAsrClient({
       ...input.config.dashscopeAsr,
     }),
+  );
+  const voiceTranscriptionRateLimits = new VoiceTranscriptionRateLimiter(
+    input.redis,
   );
   const siteIcons = new SiteIconService(input.redis, {
     allowBenchmarkProxyAddresses:
@@ -847,6 +854,7 @@ export function createServices(input: {
     mcpServers,
     users,
     voiceTranscription,
+    voiceTranscriptionRateLimits,
     siteIcons,
     externalImages,
     knowledge,

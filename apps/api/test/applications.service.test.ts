@@ -315,6 +315,11 @@ describe("ApplicationService owner lifecycle", () => {
         ],
       },
     ]);
+    expect(ownerPrisma.application.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      }),
+    );
 
     const recipientPrisma = {
       user: {

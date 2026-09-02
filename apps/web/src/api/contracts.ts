@@ -1,4 +1,5 @@
 import {
+  applicationUsageReportSchema as sharedApplicationUsageReportSchema,
   authSessionSchema as sharedAuthSessionSchema,
   authUserSchema as sharedAuthUserSchema,
   applicationConversationSchema as sharedApplicationConversationSchema,
@@ -71,6 +72,7 @@ import {
   type RegistrationSettings as SharedRegistrationSettings,
   type ExecutionConcurrencySettings as SharedExecutionConcurrencySettings,
   type Application as SharedApplication,
+  type ApplicationUsageReport as SharedApplicationUsageReport,
   type ApplicationGrant as SharedApplicationGrant,
   type ApplicationShareTarget as SharedApplicationShareTarget,
   type Automation as SharedAutomation,
@@ -139,7 +141,9 @@ export const applicationSchema = sharedApplicationSchema
 export const applicationGrantSchema = sharedApplicationGrantSchema
 export const applicationShareTargetSchema = sharedApplicationShareTargetSchema
 export const applicationConversationSchema = sharedApplicationConversationSchema
+export const applicationUsageReportSchema = sharedApplicationUsageReportSchema
 export type Application = SharedApplication
+export type ApplicationUsageReport = SharedApplicationUsageReport
 export type ApplicationGrant = SharedApplicationGrant
 export type ApplicationShareTarget = SharedApplicationShareTarget
 

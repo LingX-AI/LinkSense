@@ -41,7 +41,7 @@ export function externalIframeSnippet(
   id="linksense-app"
   src="${iframeUrl}"
   sandbox="allow-scripts allow-same-origin allow-forms allow-downloads"
-  allow="clipboard-write"
+  allow="clipboard-write; microphone"
   style="width:100%;height:720px;border:0"
   title="${copy.title}"
 ></iframe>
@@ -60,7 +60,7 @@ export function externalIframeSnippet(
   id="linksense-app"
   src="${iframeUrl}"
   sandbox="allow-scripts allow-same-origin allow-forms allow-downloads"
-  allow="clipboard-write"
+  allow="clipboard-write; microphone"
   style="width:100%;height:720px;border:0"
   title="${copy.title}"
 ></iframe>

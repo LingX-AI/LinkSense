@@ -214,6 +214,119 @@ describe("EmbedSessionClient", () => {
     client.destroy()
   })
 
+  it("streams public-session voice requests with the embedded session headers", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(BASE_TIME)
+    const voiceRequestHeaders: Headers[] = []
+    const voiceRequestBodies: unknown[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input)
+        if (path.endsWith("/public-sessions")) {
+          return successEnvelope({
+            session_id: SESSION_ID,
+            session_expires_at: new Date(
+              BASE_TIME.getTime() + 7 * 24 * 60 * 60_000
+            ).toISOString(),
+          })
+        }
+        if (path.endsWith("/session/voice/transcriptions")) {
+          voiceRequestHeaders.push(new Headers(init?.headers))
+          voiceRequestBodies.push(JSON.parse(String(init?.body)))
+          return new Response(
+            `${JSON.stringify({ type: "done", text: "嵌入识别" })}\n`,
+            {
+              status: 200,
+              headers: { "content-type": "application/x-ndjson" },
+            }
+          )
+        }
+        throw new Error(`Unexpected request: ${path}`)
+      })
+    )
+    const client = new EmbedSessionClient(ORIGIN, {
+      onAuthenticationRequired: vi.fn(),
+      onConnectionStateChange: vi.fn(),
+    })
+
+    await client.startPublicSession("lsa_application_identifier")
+    const response = await client.requestStream(
+      "/api/v1/embed/session/voice/transcriptions",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          audio_data_url: "data:audio/webm;base64,UklGRg==",
+          stream: true,
+        }),
+      }
+    )
+
+    expect(response.status).toBe(200)
+    expect(voiceRequestHeaders[0]?.get("authorization")).toBeNull()
+    expect(voiceRequestHeaders[0]?.get("x-linksense-embed-session-id")).toBe(
+      SESSION_ID
+    )
+    expect(voiceRequestHeaders[0]?.get("x-linksense-embed-app-id")).toBe(
+      "lsa_application_identifier"
+    )
+    expect(voiceRequestBodies).toEqual([
+      {
+        audio_data_url: "data:audio/webm;base64,UklGRg==",
+        stream: true,
+      },
+    ])
+    client.destroy()
+  })
+
+  it("preserves the stable embedded voice rate-limit error", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(BASE_TIME)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path.endsWith("/public-sessions")) {
+          return successEnvelope({
+            session_id: SESSION_ID,
+            session_expires_at: new Date(
+              BASE_TIME.getTime() + 7 * 24 * 60 * 60_000
+            ).toISOString(),
+          })
+        }
+        if (path.endsWith("/session/voice/transcriptions")) {
+          return Response.json(
+            {
+              success: false,
+              error_code: "VOICE_TRANSCRIPTION_RATE_LIMITED",
+              message: "语音输入每分钟最多使用 20 次，请稍后再试。",
+            },
+            { status: 429 }
+          )
+        }
+        throw new Error(`Unexpected request: ${path}`)
+      })
+    )
+    const client = new EmbedSessionClient(ORIGIN, {
+      onAuthenticationRequired: vi.fn(),
+      onConnectionStateChange: vi.fn(),
+    })
+
+    await client.startPublicSession("lsa_application_identifier")
+
+    await expect(
+      client.requestStream("/api/v1/embed/session/voice/transcriptions", {
+        method: "POST",
+      })
+    ).rejects.toMatchObject({
+      status: 429,
+      code: "VOICE_TRANSCRIPTION_RATE_LIMITED",
+    })
+    expect(client.authenticated).toBe(true)
+    client.destroy()
+  })
+
   it("applies refreshed authenticated tokens after switching conversations", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(BASE_TIME)

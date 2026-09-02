@@ -13,6 +13,7 @@ import {
   createApplicationInputSchema,
   updateApplicationInputSchema,
   interactiveApplicationRuntimeTokenResultSchema,
+  usageAnalyticsReportQuerySchema,
 } from "@linksense/shared";
 
 import { AppError } from "../../lib/errors.js";
@@ -23,10 +24,12 @@ import type {
   ResolveRequestActor,
 } from "../capabilities/types.js";
 import type { ApplicationService } from "./service.js";
+import type { UsageAnalyticsService } from "../usage/service.js";
 import { interactiveApplicationSdkV1 } from "./interactive-sdk.js";
 
 export interface ApplicationRoutesOptions {
   service: ApplicationService;
+  usageAnalytics: Pick<UsageAnalyticsService, "applicationReport">;
   createConversation: (
     ownerId: string,
     application: {
@@ -132,6 +135,20 @@ export const applicationRoutes: FastifyPluginAsync<
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
     return reply.send(ok(await options.service.get(actor, id), request));
+  });
+
+  app.get("/:id/usage", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    const query = usageAnalyticsReportQuerySchema.parse(request.query);
+    const report = await options.usageAnalytics.applicationReport(
+      actor.id,
+      id,
+      query,
+    );
+    return reply
+      .header("cache-control", "private, no-store")
+      .send(ok(report, request));
   });
 
   app.patch("/:id", async (request, reply) => {

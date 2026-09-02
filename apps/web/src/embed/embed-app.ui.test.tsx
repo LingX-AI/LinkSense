@@ -35,6 +35,10 @@ type MockComposerProps = Readonly<{
     model: string,
     reasoningEffort: ReasoningEffort
   ) => void
+  requestVoiceTranscription?: (
+    body: unknown,
+    signal: AbortSignal
+  ) => Promise<Response>
 }>
 
 type MockThreadProps = Readonly<{
@@ -188,6 +192,13 @@ vi.mock("./session-client", () => {
       return attachment("60000000-0000-4000-8000-000000000099", "上传完成.pdf")
     }
 
+    async requestStream() {
+      return new Response(
+        `${JSON.stringify({ type: "done", text: "嵌入识别" })}\n`,
+        { status: 200 }
+      )
+    }
+
     connectEvents() {
       return () => undefined
     }
@@ -289,6 +300,9 @@ describe("embedded application chat", () => {
     })
     expect(composerState.props?.allowManagedApplicationModelSelection).toBe(
       true
+    )
+    expect(composerState.props?.requestVoiceTranscription).toEqual(
+      expect.any(Function)
     )
     expect(composerState.props?.modelPreferencePending).toBe(false)
 

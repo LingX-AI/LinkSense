@@ -1,4 +1,5 @@
 import {
+  VOICE_TRANSCRIPTION_REQUEST_BODY_LIMIT_BYTES,
   applicationEmbedAccessTokenClaimsSchema,
   applicationExternalOriginSchema,
   conversationEventSchema,
@@ -10,6 +11,7 @@ import {
   updateModelPreferenceSchema,
   updateApplicationEmbedExternalApplicationSessionInputSchema,
   updateApplicationExternalAccessInputSchema,
+  voiceTranscriptionRequestSchema,
 } from "@linksense/shared";
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -20,10 +22,11 @@ import {
 } from "../../lib/content-disposition.js";
 import { sseCorsHeaders } from "../../lib/cors.js";
 import { AppError } from "../../lib/errors.js";
-import { ok } from "../../lib/http.js";
+import { ok, sendAppError } from "../../lib/http.js";
 import type { AppServices } from "../../services.js";
 import type { RequestActor } from "../capabilities/types.js";
 import { KnowledgeCitationReadService } from "../knowledge/citation-read.js";
+import { sendVoiceTranscription } from "../voice/http.js";
 import type {
   ApplicationEmbedAccessTokenIssuer,
   ApplicationExternalAccessService,
@@ -206,7 +209,10 @@ window.__vite_plugin_react_preamble_installed__ = true
         ),
       )
       .header("referrer-policy", "no-referrer")
-      .header("permissions-policy", "camera=(), microphone=(), geolocation=()")
+      .header(
+        "permissions-policy",
+        "camera=(), microphone=(self), geolocation=()",
+      )
       .send(`<!doctype html>
 <html lang="${locale}">
   <head>
@@ -401,6 +407,60 @@ window.__vite_plugin_react_preamble_installed__ = true
     );
     return reply.code(202).send(ok(result, request.id));
   });
+
+  app.post(
+    "/session/voice/transcriptions",
+    { bodyLimit: VOICE_TRANSCRIPTION_REQUEST_BODY_LIMIT_BYTES },
+    async (request, reply) => {
+      const { mode, session } = await authenticateEmbedRequest(
+        request,
+        external,
+      );
+      await services.tokenLimits.assertCanStartTask(session.ownerId);
+      const body = voiceTranscriptionRequestSchema.parse(request.body);
+
+      try {
+        if (mode === "public") {
+          await services.voiceTranscriptionRateLimits.assertApplicationEmbedSessionAllowed(
+            session.sessionId,
+          );
+        } else {
+          await services.voiceTranscriptionRateLimits.assertAllowed(
+            session.ownerId,
+          );
+        }
+      } catch (error) {
+        if (
+          error instanceof AppError &&
+          error.code === "VOICE_TRANSCRIPTION_RATE_LIMITED"
+        ) {
+          const retryAfterSeconds = Number(error.params?.retry_after_seconds);
+          if (
+            Number.isSafeInteger(retryAfterSeconds) &&
+            retryAfterSeconds > 0
+          ) {
+            reply.header("retry-after", String(retryAfterSeconds));
+          }
+          return sendAppError(
+            reply,
+            request,
+            error,
+            body.language ?? null,
+          );
+        }
+        throw error;
+      }
+
+      return sendVoiceTranscription({
+        request,
+        reply,
+        body,
+        service: services.voiceTranscription,
+        defaultLocale: services.system.defaultLocale,
+        preferredLocale: body.language ?? null,
+      });
+    },
+  );
 
   app.post("/session/turns/:turnId/interrupt", async (request, reply) => {
     const { session } = await authenticateEmbedRequest(request, external);

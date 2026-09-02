@@ -813,6 +813,80 @@ describe("UsageAnalyticsService reporting", () => {
   );
 });
 
+describe("UsageAnalyticsService application reporting", () => {
+  it("aggregates only one owned application's usage and distinct active users", async () => {
+    const prisma = applicationReportPrisma();
+    const service = new UsageAnalyticsService(prisma as never, {
+      now: () => NOW,
+    });
+
+    const report = await service.applicationReport(USER_1, APPLICATION_1, {
+      range: "7d",
+      time_zone: "UTC",
+    });
+
+    expect(report).toMatchObject({
+      application: { id: APPLICATION_1, name: "知识助手" },
+      range: "7d",
+      active_user_count: 2,
+      totals: {
+        task_count: 3,
+        turn_count: 4,
+        request_count: 5,
+        token_usage: { total_tokens: "420" },
+      },
+    });
+    expect(report.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          model_id: "model-a",
+          turn_count: 4,
+          token_usage: expect.objectContaining({ total_tokens: "400" }),
+        }),
+        expect.objectContaining({
+          model_id: "title-model",
+          turn_count: 0,
+          request_count: 1,
+          workload_types: ["task_title_generation"],
+        }),
+      ]),
+    );
+    expect(prisma.application.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: APPLICATION_1,
+        ownerId: USER_1,
+        status: { in: ["active", "disabled"] },
+      },
+      select: { id: true, name: true },
+    });
+    expect(prisma.usageActivityRecord.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ applicationId: APPLICATION_1 }),
+      }),
+    );
+    expect(prisma.tokenUsageRecord.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ applicationId: APPLICATION_1 }),
+      }),
+    );
+  });
+
+  it("does not expose usage for a shared or missing application", async () => {
+    const prisma = applicationReportPrisma({ owned: false });
+    const service = new UsageAnalyticsService(prisma as never, {
+      now: () => NOW,
+    });
+
+    await expect(
+      service.applicationReport(USER_1, APPLICATION_1, {
+        range: "all",
+        time_zone: "UTC",
+      }),
+    ).rejects.toMatchObject({ code: "APPLICATION_NOT_FOUND" });
+    expect(prisma.usageActivityRecord.groupBy).not.toHaveBeenCalled();
+  });
+});
+
 describe("UsageAnalyticsService personal profiles", () => {
   it("returns only the requested owner's all-time metrics and 365-day activity", async () => {
     const prisma = {
@@ -1367,6 +1441,75 @@ function reportPrisma(options?: {
             ),
           ],
       ),
+    },
+  };
+}
+
+function applicationReportPrisma(options?: { owned?: boolean }) {
+  return {
+    $queryRaw: vi.fn(async () => [
+      trendSumRow("2026-07-27", 420n, 290n, 60n, 130n, 40n, {
+        requestCount: 5n,
+      }),
+    ]),
+    application: {
+      findFirst: vi.fn(async () =>
+        options?.owned === false
+          ? null
+          : { id: APPLICATION_1, name: "知识助手" },
+      ),
+    },
+    usageAnalyticsState: {
+      findUnique: vi.fn(async () => ({
+        tokenMeasurementStartedAt: MEASUREMENT_STARTED_AT,
+      })),
+    },
+    usageActivityRecord: {
+      groupBy: vi.fn(async (input: { where: { activityType: string } }) =>
+        input.where.activityType === "task_created"
+          ? [
+              { ownerId: USER_1, _count: { _all: 2 } },
+              { ownerId: USER_2, _count: { _all: 1 } },
+            ]
+          : [
+              { ownerId: USER_1, model: "model-a", _count: { _all: 3 } },
+              { ownerId: USER_2, model: "model-a", _count: { _all: 1 } },
+            ],
+      ),
+    },
+    tokenUsageRecord: {
+      aggregate: vi.fn(async () => ({
+        _min: { observedAt: MEASUREMENT_STARTED_AT },
+      })),
+      groupBy: vi.fn(async () => [
+        tokenSumRow(
+          USER_1,
+          "model-a",
+          400n,
+          280n,
+          60n,
+          120n,
+          40n,
+          APPLICATION_1,
+          "知识助手",
+        ),
+      ]),
+    },
+    modelUsageRecord: {
+      aggregate: vi.fn(async () => ({
+        _min: { observedAt: MEASUREMENT_STARTED_AT },
+      })),
+      groupBy: vi.fn(async () => [
+        modelUsageSumRow(
+          USER_1,
+          "title-model",
+          "generation",
+          "task_title_generation",
+          "provider",
+          1n,
+          20n,
+        ),
+      ]),
     },
   };
 }

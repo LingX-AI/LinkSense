@@ -8,6 +8,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   DatabaseIcon,
+  ChartNoAxesCombinedIcon,
   ExternalLinkIcon,
   FileArchiveIcon,
   MoreHorizontalIcon,
@@ -563,17 +564,25 @@ export function ApplicationCatalogPanel({
                           className="w-max min-w-32"
                         >
                           <DropdownMenuGroup>
-                            {application.kind === "standard" && (
+                            {application.kind === "standard" ? (
                               <DropdownMenuItem
                                 className="whitespace-nowrap"
-                                render={
-                                  <Link
-                                    to={`/capabilities/applications/${application.id}/external-access`}
-                                  />
+                                onClick={() =>
+                                  setEditor({ open: true, application })
                                 }
                               >
-                                <ExternalLinkIcon aria-hidden="true" />
-                                {t("applications.externalAccess.action")}
+                                <PencilIcon aria-hidden="true" />
+                                {t("common.edit")}
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                className="whitespace-nowrap"
+                                onClick={() =>
+                                  setInteractiveImportTarget(application)
+                                }
+                              >
+                                <FileArchiveIcon aria-hidden="true" />
+                                {t("applications.updateInteractivePackage")}
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuItem
@@ -597,25 +606,28 @@ export function ApplicationCatalogPanel({
                                   : "common.enable"
                               )}
                             </DropdownMenuItem>
-                            {application.kind === "standard" ? (
+                            <DropdownMenuItem
+                              className="whitespace-nowrap"
+                              render={
+                                <Link
+                                  to={`/capabilities/applications/${application.id}/usage`}
+                                />
+                              }
+                            >
+                              <ChartNoAxesCombinedIcon aria-hidden="true" />
+                              {t("applications.usage.action")}
+                            </DropdownMenuItem>
+                            {application.kind === "standard" && (
                               <DropdownMenuItem
                                 className="whitespace-nowrap"
-                                onClick={() =>
-                                  setEditor({ open: true, application })
+                                render={
+                                  <Link
+                                    to={`/capabilities/applications/${application.id}/external-access`}
+                                  />
                                 }
                               >
-                                <PencilIcon aria-hidden="true" />
-                                {t("common.edit")}
-                              </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem
-                                className="whitespace-nowrap"
-                                onClick={() =>
-                                  setInteractiveImportTarget(application)
-                                }
-                              >
-                                <FileArchiveIcon aria-hidden="true" />
-                                {t("applications.updateInteractivePackage")}
+                                <ExternalLinkIcon aria-hidden="true" />
+                                {t("applications.externalAccess.action")}
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuItem

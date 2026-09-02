@@ -2302,6 +2302,26 @@ export const enUS = {
     dependencyUnavailableShort: "Currently unavailable; it can be removed",
     usesPluginCredentials: "Uses plugin credentials",
     share: "Share",
+    usage: {
+      action: "Usage analytics",
+      title: "Application usage",
+      description:
+        "Review usage and model costs for “{{name}}” during the selected period.",
+      backToApplications: "Back to applications",
+      activeUsers: "Active users",
+      activeUsersHint:
+        "Distinct users who created a task or started an actual turn during the selected period",
+      coverageTitle: "Token and cost data starts when collection began",
+      coverageDescription:
+        "Coverage starts on {{date}}. Earlier tasks and turns are still counted, but historical tokens and costs are not estimated using current prices.",
+      tokenBreakdownTitle: "Token composition",
+      costBreakdownTitle: "Cost composition",
+      unpricedTokens: "Unpriced tokens",
+      modelBreakdownDescription:
+        "Review calls, turns, tokens, and cost by model.",
+      workloadBreakdownDescription:
+        "Review calls, tokens, and cost by model workload.",
+    },
     startChat: "Try now",
     deleteTitle: "Delete this application?",
     deleteDescription:
@@ -4312,6 +4332,8 @@ export const enUS = {
     composer: {
       voiceTranscriptionFailed:
         "Speech-to-text failed. Try again or enter the text manually.",
+      voiceTranscriptionRateLimited:
+        "Voice input can be used up to 20 times per minute. Try again shortly.",
     },
     mcp: {
       insecureHttpAcknowledgementRequired:

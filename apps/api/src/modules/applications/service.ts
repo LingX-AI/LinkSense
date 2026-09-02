@@ -116,7 +116,7 @@ export class ApplicationService {
             }
           : {}),
       },
-      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: input.limit,
     });
     return this.#projectApplications(actor.id, rows, access);

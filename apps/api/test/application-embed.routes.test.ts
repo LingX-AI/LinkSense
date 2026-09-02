@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import fastifyJwt from "@fastify/jwt";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { AppError } from "../src/lib/errors.js";
 import { applicationEmbedRoutes } from "../src/modules/application-embed/routes.js";
 
 const APP_ID = "lsa_application_identifier_1234";
@@ -11,6 +12,7 @@ const CONVERSATION_ID = "40000000-0000-4000-8000-000000000001";
 const SESSION_ID = "50000000-0000-4000-8000-000000000001";
 const TURN_ID = "50000000-0000-4000-8000-000000000002";
 const ORIGIN = "https://partner.example.test";
+const AUDIO_DATA_URL = "data:audio/webm;base64,UklGRg==";
 const apps: Array<ReturnType<typeof Fastify>> = [];
 
 afterEach(async () => {
@@ -23,6 +25,12 @@ describe("application embed routes", () => {
 
     expect(
       app.hasRoute({ method: "POST", url: "/api/v1/embed/session/turns" }),
+    ).toBe(true);
+    expect(
+      app.hasRoute({
+        method: "POST",
+        url: "/api/v1/embed/session/voice/transcriptions",
+      }),
     ).toBe(true);
     expect(
       app.hasRoute({
@@ -158,7 +166,7 @@ describe("application embed routes", () => {
       `frame-ancestors ${ORIGIN}`,
     );
     expect(response.headers["permissions-policy"]).toBe(
-      "camera=(), microphone=(), geolocation=()",
+      "camera=(), microphone=(self), geolocation=()",
     );
     expect(response.body).toContain("Partner operations");
     expect(response.body).toContain('<html lang="en-US">');
@@ -314,6 +322,128 @@ describe("application embed routes", () => {
         accepted: true,
       },
     });
+  });
+
+  it("streams public embedded voice transcription and limits it by session id", async () => {
+    const {
+      app,
+      assertApplicationEmbedSessionAllowed,
+      assertVoiceUserAllowed,
+      assertCanStartTask,
+      streamVoiceTranscription,
+    } = await routeFixture("public");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/embed/session/voice/transcriptions",
+      headers: {
+        "x-linksense-embed-app-id": APP_ID,
+        "x-linksense-embed-session-id": SESSION_ID,
+        "x-linksense-embed-origin": ORIGIN,
+      },
+      payload: {
+        audio_data_url: AUDIO_DATA_URL,
+        language: "zh-CN",
+        stream: true,
+      },
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.headers["content-type"]).toContain("application/x-ndjson");
+    expect(assertCanStartTask).toHaveBeenCalledWith(OWNER_ID);
+    expect(assertApplicationEmbedSessionAllowed).toHaveBeenCalledWith(
+      SESSION_ID,
+    );
+    expect(assertVoiceUserAllowed).not.toHaveBeenCalled();
+    expect(streamVoiceTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        audioDataUrl: AUDIO_DATA_URL,
+        language: "zh-CN",
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(parseNdjson(response.body)).toEqual([
+      { type: "delta", text: "嵌入识别" },
+      { type: "done", text: "嵌入识别" },
+    ]);
+  });
+
+  it("returns a localized 429 before public embedded voice transcription", async () => {
+    const {
+      app,
+      assertApplicationEmbedSessionAllowed,
+      streamVoiceTranscription,
+    } = await routeFixture("public");
+    assertApplicationEmbedSessionAllowed.mockRejectedValueOnce(
+      new AppError("VOICE_TRANSCRIPTION_RATE_LIMITED", {
+        retry_after_seconds: 38,
+      }),
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/embed/session/voice/transcriptions",
+      headers: {
+        "x-linksense-embed-app-id": APP_ID,
+        "x-linksense-embed-session-id": SESSION_ID,
+        "x-linksense-embed-origin": ORIGIN,
+      },
+      payload: {
+        audio_data_url: AUDIO_DATA_URL,
+        language: "en-US",
+        stream: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(response.headers["retry-after"]).toBe("38");
+    expect(response.json()).toMatchObject({
+      success: false,
+      error_code: "VOICE_TRANSCRIPTION_RATE_LIMITED",
+      message:
+        "Voice input can be used up to 20 times per minute. Try again shortly.",
+      params: { retry_after_seconds: 38 },
+    });
+    expect(assertApplicationEmbedSessionAllowed).toHaveBeenCalledWith(
+      SESSION_ID,
+    );
+    expect(streamVoiceTranscription).not.toHaveBeenCalled();
+  });
+
+  it("limits authenticated embedded voice transcription by its external principal", async () => {
+    const {
+      app,
+      assertApplicationEmbedSessionAllowed,
+      assertVoiceUserAllowed,
+    } = await routeFixture("required");
+    const accessToken = await app.jwt.sign(
+      {
+        token_use: "application_embed",
+        sub: OWNER_ID,
+        session_id: SESSION_ID,
+        application_id: APPLICATION_ID,
+        conversation_id: CONVERSATION_ID,
+        external_access_id: "60000000-0000-4000-8000-000000000001",
+        origin: ORIGIN,
+        credential_version: 1,
+        jti: "70000000-0000-4000-8000-000000000011",
+      },
+      { expiresIn: "1h" },
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/embed/session/voice/transcriptions",
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: {
+        audio_data_url: AUDIO_DATA_URL,
+        stream: true,
+      },
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(assertVoiceUserAllowed).toHaveBeenCalledWith(OWNER_ID);
+    expect(assertApplicationEmbedSessionAllowed).not.toHaveBeenCalled();
   });
 
   it("clears an exact attachment batch with one authenticated file operation", async () => {
@@ -576,6 +706,13 @@ async function routeFixture(
     }),
   );
   const deleteDraftAttachments = vi.fn(async () => undefined);
+  const assertCanStartTask = vi.fn(async () => undefined);
+  const assertVoiceUserAllowed = vi.fn(async () => undefined);
+  const assertApplicationEmbedSessionAllowed = vi.fn(async () => undefined);
+  const streamVoiceTranscription = vi.fn(async function* () {
+    yield "嵌入识别";
+  });
+  const transcribeVoice = vi.fn(async () => "嵌入识别");
   const services = {
     applicationExternalAccess: external,
     conversations: { acceptTurn, assertModelPreferenceMutable },
@@ -584,6 +721,16 @@ async function routeFixture(
       updatePreference: updateModelPreference,
     },
     files: { deleteDraftAttachments },
+    tokenLimits: { assertCanStartTask },
+    voiceTranscriptionRateLimits: {
+      assertAllowed: assertVoiceUserAllowed,
+      assertApplicationEmbedSessionAllowed,
+    },
+    voiceTranscription: {
+      stream: streamVoiceTranscription,
+      transcribe: transcribeVoice,
+    },
+    system: { defaultLocale: "zh-CN" },
     prisma: {},
     knowledge: options.knowledgeInstalled === false ? null : {},
     knowledgeRuntime:
@@ -605,5 +752,17 @@ async function routeFixture(
     getModelPreference,
     updateModelPreference,
     deleteDraftAttachments,
+    assertCanStartTask,
+    assertVoiceUserAllowed,
+    assertApplicationEmbedSessionAllowed,
+    streamVoiceTranscription,
   };
+}
+
+function parseNdjson(body: string): unknown[] {
+  return body
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as unknown);
 }

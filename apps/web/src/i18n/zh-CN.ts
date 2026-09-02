@@ -2134,6 +2134,22 @@ export const zhCN = {
     dependencyUnavailableShort: "当前不可用，可取消选择",
     usesPluginCredentials: "使用插件凭据",
     share: "共享",
+    usage: {
+      action: "用量统计",
+      title: "应用用量",
+      description: "查看“{{name}}”在所选周期内的使用情况与模型费用。",
+      backToApplications: "返回应用列表",
+      activeUsers: "使用人数",
+      activeUsersHint: "所选周期内创建过任务或实际发起过轮次的去重用户",
+      coverageTitle: "Token 与费用数据仅覆盖采集开始后的调用",
+      coverageDescription:
+        "覆盖起始时间为 {{date}}；更早的任务和轮次仍会统计，但不会用当前价格推算历史 Token 或费用。",
+      tokenBreakdownTitle: "Token 构成",
+      costBreakdownTitle: "费用构成",
+      unpricedTokens: "未定价 Token",
+      modelBreakdownDescription: "按模型查看调用、轮次、Token 和费用。",
+      workloadBreakdownDescription: "按模型用途查看调用、Token 和费用。",
+    },
     startChat: "立即试用",
     deleteTitle: "删除这个应用？",
     deleteDescription:
@@ -3989,6 +4005,8 @@ export const zhCN = {
     },
     composer: {
       voiceTranscriptionFailed: "语音转文字失败，请重试或手动输入。",
+      voiceTranscriptionRateLimited:
+        "语音输入每分钟最多使用 20 次，请稍后再试。",
     },
     mcp: {
       insecureHttpAcknowledgementRequired:

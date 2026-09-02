@@ -22,6 +22,7 @@ describe("application external access embed code", () => {
       ticketComment: "Request a ticket from your backend.",
     })
     expect(snippet).toContain("<iframe")
+    expect(snippet).toContain('allow="clipboard-write; microphone"')
     expect(snippet).toContain("<script")
     expect(snippet).toContain("locale=zh-CN")
     expect(snippet).toContain('type: "linksense:locale"')
@@ -40,6 +41,7 @@ describe("application external access embed code", () => {
     })
 
     expect(snippet).toContain('fetch("/your-backend/linksense-ticket"')
+    expect(snippet).toContain('allow="clipboard-write; microphone"')
     expect(snippet).toContain(
       'event.origin !== "https://linksense.example.test"'
     )
