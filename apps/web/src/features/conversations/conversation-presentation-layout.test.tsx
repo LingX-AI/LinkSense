@@ -1,3 +1,4 @@
+import { useState } from "react"
 import {
   cleanup,
   fireEvent,
@@ -7,6 +8,13 @@ import {
 } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { OfficePreviewShell } from "@/components/media/office-preview/office-preview-shell"
+import {
+  OFFICE_PREVIEW_ENTER_ANIMATION_NAME,
+  OFFICE_PREVIEW_ENTER_CLASS,
+  OFFICE_PREVIEW_EXIT_ANIMATION_NAME,
+  OfficePreviewSuspenseBoundary,
+} from "@/components/media/office-preview/office-preview-suspense-boundary"
 import { ConversationPresentationLayout } from "@/features/conversations/conversation-presentation-layout"
 import {
   DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO,
@@ -29,6 +37,71 @@ function rectWithWidth(width: number): DOMRect {
     height: 800,
     toJSON: () => ({}),
   }
+}
+
+function ReopenPreviewHarness() {
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewClosing, setPreviewClosing] = useState(false)
+  const closePreview = () => setPreviewClosing(true)
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setPreviewClosing(false)
+          setPreviewOpen(true)
+        }}
+      >
+        打开文件预览
+      </button>
+      <ConversationPresentationLayout
+        resizeLabel="调整文件预览宽度"
+        previewClosing={previewClosing}
+        onPreviewExitComplete={() => {
+          setPreviewClosing(false)
+          setPreviewOpen(false)
+        }}
+        preview={
+          previewOpen ? (
+            <OfficePreviewSuspenseBoundary
+              fallback={(className) => (
+                <OfficePreviewShell
+                  className={className}
+                  document={{ status: "loading" }}
+                  fileName="cached-preview.md"
+                  mimeType="text/markdown"
+                  onClose={closePreview}
+                />
+              )}
+            >
+              {(className) => (
+                <OfficePreviewShell
+                  className={className}
+                  document={{ status: "ready" }}
+                  fileName="cached-preview.md"
+                  mimeType="text/markdown"
+                  onClose={closePreview}
+                >
+                  <div>缓存后的文件内容</div>
+                </OfficePreviewShell>
+              )}
+            </OfficePreviewSuspenseBoundary>
+          ) : undefined
+        }
+      >
+        <main>任务内容</main>
+      </ConversationPresentationLayout>
+    </>
+  )
+}
+
+function dispatchPreviewAnimation(preview: Element, animationName: string) {
+  const animationEvent = new Event("animationend", { bubbles: true })
+  Object.defineProperty(animationEvent, "animationName", {
+    value: animationName,
+  })
+  fireEvent(preview, animationEvent)
 }
 
 describe("ConversationPresentationLayout", () => {
@@ -101,11 +174,90 @@ describe("ConversationPresentationLayout", () => {
 
     const animationEnd = new Event("animationend", { bubbles: true })
     Object.defineProperty(animationEnd, "animationName", {
-      value: "conversation-file-preview-pane-out",
+      value: OFFICE_PREVIEW_EXIT_ANIMATION_NAME,
     })
     fireEvent(closingPreview, animationEnd)
 
     expect(onPreviewExitComplete).toHaveBeenCalledOnce()
+  })
+
+  it("closes a cached file preview after opening it for the second time", () => {
+    render(<ReopenPreviewHarness />)
+
+    const openPreview = screen.getByRole("button", { name: "打开文件预览" })
+    const completePreviewCycle = () => {
+      fireEvent.click(openPreview)
+      const preview = screen
+        .getByText("缓存后的文件内容")
+        .closest(".office-preview-pane")
+      if (!preview) throw new Error("Expected the cached preview pane to open")
+      expect(preview).toHaveClass(OFFICE_PREVIEW_ENTER_CLASS)
+
+      dispatchPreviewAnimation(preview, OFFICE_PREVIEW_ENTER_ANIMATION_NAME)
+      expect(preview).not.toHaveClass(OFFICE_PREVIEW_ENTER_CLASS)
+
+      const closePreview = preview.querySelector(".office-preview-close-button")
+      if (!closePreview) throw new Error("Expected the preview close button")
+      fireEvent.click(closePreview)
+      expect(preview.parentElement).toHaveAttribute(
+        "data-preview-closing",
+        "true"
+      )
+
+      dispatchPreviewAnimation(preview, OFFICE_PREVIEW_EXIT_ANIMATION_NAME)
+      expect(screen.queryByText("缓存后的文件内容")).toBeNull()
+    }
+
+    completePreviewCycle()
+    completePreviewCycle()
+  })
+
+  it("does not finish a closing preview when reopening cancels its exit animation", async () => {
+    const onPreviewExitComplete = vi.fn()
+    render(
+      <ConversationPresentationLayout
+        resizeLabel="调整文件预览宽度"
+        preview={<aside className="office-preview-pane">文件预览内容</aside>}
+        previewClosing
+        onPreviewExitComplete={onPreviewExitComplete}
+      >
+        <main>任务内容</main>
+      </ConversationPresentationLayout>
+    )
+
+    await screen.findByRole("separator", { name: "调整文件预览宽度" })
+    const closingPreview = screen.getByText("文件预览内容")
+    const animationCancel = new Event("animationcancel", { bubbles: true })
+    Object.defineProperty(animationCancel, "animationName", {
+      value: OFFICE_PREVIEW_EXIT_ANIMATION_NAME,
+    })
+    fireEvent(closingPreview, animationCancel)
+
+    expect(onPreviewExitComplete).not.toHaveBeenCalled()
+  })
+
+  it("ignores unrelated preview animations while waiting for the exit animation", async () => {
+    const onPreviewExitComplete = vi.fn()
+    render(
+      <ConversationPresentationLayout
+        resizeLabel="调整文件预览宽度"
+        preview={<aside className="office-preview-pane">文件预览内容</aside>}
+        previewClosing
+        onPreviewExitComplete={onPreviewExitComplete}
+      >
+        <main>任务内容</main>
+      </ConversationPresentationLayout>
+    )
+
+    await screen.findByRole("separator", { name: "调整文件预览宽度" })
+    const closingPreview = screen.getByText("文件预览内容")
+    const entranceAnimationEnd = new Event("animationend", { bubbles: true })
+    Object.defineProperty(entranceAnimationEnd, "animationName", {
+      value: OFFICE_PREVIEW_ENTER_ANIMATION_NAME,
+    })
+    fireEvent(closingPreview, entranceAnimationEnd)
+
+    expect(onPreviewExitComplete).not.toHaveBeenCalled()
   })
 
   it("starts subagent details at two fifths of the viewport width", async () => {

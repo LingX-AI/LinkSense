@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react"
 
+import { OFFICE_PREVIEW_EXIT_ANIMATION_NAME } from "@/components/media/office-preview/office-preview-suspense-boundary"
 import { SidebarResizer } from "@/components/shell/sidebar-resizer"
 import {
   DEFAULT_PRESENTATION_PREVIEW_VIEWPORT_RATIO,
@@ -94,6 +95,8 @@ export function ConversationOfficeLayout({
     const handlePreviewExitEnd = (event: Event) => {
       const animationTarget = event.target
       if (
+        (event as AnimationEvent).animationName ===
+          OFFICE_PREVIEW_EXIT_ANIMATION_NAME &&
         animationTarget instanceof Element &&
         animationTarget.classList.contains("office-preview-pane")
       ) {
@@ -101,10 +104,8 @@ export function ConversationOfficeLayout({
       }
     }
     layout.addEventListener("animationend", handlePreviewExitEnd)
-    layout.addEventListener("animationcancel", handlePreviewExitEnd)
     return () => {
       layout.removeEventListener("animationend", handlePreviewExitEnd)
-      layout.removeEventListener("animationcancel", handlePreviewExitEnd)
     }
   }, [activePreviewClosing, onPreviewExitComplete])
 
