@@ -5,6 +5,7 @@ export function testEnvironment(
 ): NodeJS.ProcessEnv {
   return {
     NODE_ENV: "test",
+    LINKSENSE_VERSION: "v0.1.1",
     DATABASE_URL: "postgresql://test:test@127.0.0.1:5432/linksense_test",
     REDIS_URL: "redis://127.0.0.1:6379/15",
     LINKSENSE_PUBLIC_BASE_URL: "https://linksense.example.test",

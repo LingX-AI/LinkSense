@@ -417,7 +417,7 @@ function ClawHubInstallPreviewDialog({
             <div className="flex flex-col gap-5">
               {preview.source.source_type === "clawhub" &&
                 preview.source.security_has_warnings && (
-                  <Alert>
+                  <Alert className="border-[color:var(--app-border)]">
                     <ShieldAlertIcon aria-hidden="true" />
                     <AlertTitle>{t("clawHub.security.warning")}</AlertTitle>
                     <AlertDescription>

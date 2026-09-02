@@ -15,6 +15,7 @@ import { AppError } from "../src/lib/errors.js"
 import { sendAppError } from "../src/lib/http.js"
 import { voiceTranscriptionRoutes } from "../src/modules/voice/routes.js"
 import {
+  VoiceTranscriptionRateLimiter,
   VoiceTranscriptionService,
   type VoiceTranscription,
   type VoiceTranscriptionInput,
@@ -155,6 +156,67 @@ describe("DashScope ASR adapter", () => {
 })
 
 describe("voice transcription service", () => {
+  it("allows requests admitted by the per-user rate-limit store", async () => {
+    const takeVoiceTranscriptionRequest = vi.fn(async () => ({
+      allowed: true,
+      retryAfterSeconds: 60,
+    }))
+    const rateLimits = new VoiceTranscriptionRateLimiter({
+      takeVoiceTranscriptionRequest,
+      takeApplicationEmbedVoiceTranscriptionRequest: async () => ({
+        allowed: true,
+        retryAfterSeconds: 60,
+      }),
+    })
+
+    await expect(rateLimits.assertAllowed(USER_ID)).resolves.toBeUndefined()
+    expect(takeVoiceTranscriptionRequest).toHaveBeenCalledWith(USER_ID)
+  })
+
+  it("returns a stable error and retry delay when the per-user limit is exceeded", async () => {
+    const rateLimits = new VoiceTranscriptionRateLimiter({
+      takeVoiceTranscriptionRequest: async () => ({
+        allowed: false,
+        retryAfterSeconds: 37,
+      }),
+      takeApplicationEmbedVoiceTranscriptionRequest: async () => ({
+        allowed: true,
+        retryAfterSeconds: 60,
+      }),
+    })
+
+    await expect(rateLimits.assertAllowed(USER_ID)).rejects.toMatchObject({
+      code: "VOICE_TRANSCRIPTION_RATE_LIMITED",
+      params: { retry_after_seconds: 37 },
+    })
+  })
+
+  it("uses the embedded session bucket for public voice requests", async () => {
+    const takeApplicationEmbedVoiceTranscriptionRequest = vi.fn(async () => ({
+      allowed: false,
+      retryAfterSeconds: 29,
+    }))
+    const rateLimits = new VoiceTranscriptionRateLimiter({
+      takeVoiceTranscriptionRequest: async () => ({
+        allowed: true,
+        retryAfterSeconds: 60,
+      }),
+      takeApplicationEmbedVoiceTranscriptionRequest,
+    })
+
+    await expect(
+      rateLimits.assertApplicationEmbedSessionAllowed(
+        "50000000-0000-4000-8000-000000000001",
+      ),
+    ).rejects.toMatchObject({
+      code: "VOICE_TRANSCRIPTION_RATE_LIMITED",
+      params: { retry_after_seconds: 29 },
+    })
+    expect(
+      takeApplicationEmbedVoiceTranscriptionRequest,
+    ).toHaveBeenCalledWith("50000000-0000-4000-8000-000000000001")
+  })
+
   it("maps provider timeouts to the stable API error and 504 status", async () => {
     const service = new VoiceTranscriptionService({
       async *streamTranscription() {
@@ -190,10 +252,15 @@ describe("voice transcription service", () => {
 
 describe("voice transcription route", () => {
   it("requires authentication before invoking the service", async () => {
-    const { app, stream, transcribe, assertCanStartTask } =
-      await voiceRouteFixture({
+    const {
+      app,
+      stream,
+      transcribe,
+      assertCanStartTask,
+      assertRateLimitAllowed,
+    } = await voiceRouteFixture({
       authenticated: false,
-      })
+    })
 
     const response = await app.inject({
       method: "POST",
@@ -204,17 +271,23 @@ describe("voice transcription route", () => {
     expect(response.statusCode).toBe(401)
     expect(response.json()).toMatchObject({ error_code: "AUTH_REQUIRED" })
     expect(assertCanStartTask).not.toHaveBeenCalled()
+    expect(assertRateLimitAllowed).not.toHaveBeenCalled()
     expect(stream).not.toHaveBeenCalled()
     expect(transcribe).not.toHaveBeenCalled()
   })
 
   it("rejects exhausted token quota before invoking the service", async () => {
-    const { app, stream, transcribe, assertCanStartTask } =
-      await voiceRouteFixture({
-        assertCanStartTask: async () => {
-          throw new AppError("TOKEN_LIMIT_EXCEEDED")
-        },
-      })
+    const {
+      app,
+      stream,
+      transcribe,
+      assertCanStartTask,
+      assertRateLimitAllowed,
+    } = await voiceRouteFixture({
+      assertCanStartTask: async () => {
+        throw new AppError("TOKEN_LIMIT_EXCEEDED")
+      },
+    })
 
     const response = await app.inject({
       method: "POST",
@@ -228,6 +301,37 @@ describe("voice transcription route", () => {
     })
     expect(assertCanStartTask).toHaveBeenCalledOnce()
     expect(assertCanStartTask).toHaveBeenCalledWith(USER_ID)
+    expect(assertRateLimitAllowed).not.toHaveBeenCalled()
+    expect(stream).not.toHaveBeenCalled()
+    expect(transcribe).not.toHaveBeenCalled()
+  })
+
+  it("returns a localized 429 response before transcription when the user limit is exceeded", async () => {
+    const { app, stream, transcribe, assertRateLimitAllowed } =
+      await voiceRouteFixture({
+        assertRateLimitAllowed: async () => {
+          throw new AppError("VOICE_TRANSCRIPTION_RATE_LIMITED", {
+            retry_after_seconds: 41,
+          })
+        },
+      })
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/voice/transcriptions",
+      payload: { audio_data_url: AUDIO_DATA_URL },
+    })
+
+    expect(response.statusCode).toBe(429)
+    expect(response.headers["retry-after"]).toBe("41")
+    expect(response.json()).toMatchObject({
+      success: false,
+      error_code: "VOICE_TRANSCRIPTION_RATE_LIMITED",
+      message_key: "errors.composer.voiceTranscriptionRateLimited",
+      message: "语音输入每分钟最多使用 20 次，请稍后再试。",
+      params: { retry_after_seconds: 41 },
+    })
+    expect(assertRateLimitAllowed).toHaveBeenCalledWith(USER_ID)
     expect(stream).not.toHaveBeenCalled()
     expect(transcribe).not.toHaveBeenCalled()
   })
@@ -426,6 +530,7 @@ type VoiceRouteFixtureOptions = {
   stream?: (input: VoiceTranscriptionInput) => AsyncIterable<string>
   transcribe?: (input: VoiceTranscriptionInput) => Promise<string>
   assertCanStartTask?: (userId: string) => Promise<void>
+  assertRateLimitAllowed?: (userId: string) => Promise<void>
 }
 
 async function voiceRouteFixture(options: VoiceRouteFixtureOptions = {}) {
@@ -459,12 +564,22 @@ async function voiceRouteFixture(options: VoiceRouteFixtureOptions = {}) {
   const assertCanStartTask = vi.fn(
     options.assertCanStartTask ?? (async () => undefined),
   )
+  const assertRateLimitAllowed = vi.fn(
+    options.assertRateLimitAllowed ?? (async () => undefined),
+  )
   const service: VoiceTranscription = { stream, transcribe }
   await app.register(voiceTranscriptionRoutes, {
     prefix: "/voice",
     service,
+    rateLimits: { assertAllowed: assertRateLimitAllowed },
     tokenLimits: { assertCanStartTask },
     defaultLocale: options.defaultLocale ?? "zh-CN",
   })
-  return { app, stream, transcribe, assertCanStartTask }
+  return {
+    app,
+    stream,
+    transcribe,
+    assertCanStartTask,
+    assertRateLimitAllowed,
+  }
 }

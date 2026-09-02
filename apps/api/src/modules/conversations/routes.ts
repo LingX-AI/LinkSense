@@ -475,6 +475,22 @@ export const conversationRoutes: FastifyPluginAsync<{
     return reply.code(202).send(ok(result, request.id));
   });
 
+  app.post("/:id/messages/:messageId/fork", async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id, messageId } = messageParamsSchema.parse(request.params);
+    const body = z
+      .strictObject({ idempotency_key: z.string().uuid() })
+      .parse(request.body);
+    const result = await services.conversations.forkConversationAtMessage(
+      user.id,
+      id,
+      messageId,
+      body.idempotency_key,
+      auditContext(request),
+    );
+    return reply.code(201).send(ok(result, request.id));
+  });
+
   app.post("/:id/turns/:turnId/steer", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
     const { id, turnId } = turnParamsSchema.parse(request.params);

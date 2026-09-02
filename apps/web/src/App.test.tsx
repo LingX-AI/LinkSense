@@ -624,6 +624,7 @@ function installApiMock(options?: {
     conversationId: string,
     callIndex: number
   ) => Promise<Response>
+  newTaskDraftStart?: Promise<void>
   newTaskDetailResponse?: (callIndex: number) => Promise<Response>
   eventStreamUnavailable?: boolean
   eventStreamBody?: string
@@ -656,7 +657,8 @@ function installApiMock(options?: {
   userGroupsOverride?: UserGroup[]
   modelPreferenceByConversation?: Record<string, string>
   conversationListResponse?: (
-    query: URLSearchParams
+    query: URLSearchParams,
+    state: { forkCalls: number }
   ) => Response | Promise<Response>
   conversationPatchResponse?: (
     conversationId: string,
@@ -710,6 +712,7 @@ function installApiMock(options?: {
   let attachmentUploadCalls = 0
   let conversationGetCalls = 0
   let newTaskGetCalls = 0
+  let forkCalls = 0
   let currentConversations = conversations.map((item) => ({ ...item }))
   let userGroups = [...(options?.userGroupsOverride ?? [])]
   let managedUsers = (
@@ -1025,6 +1028,23 @@ function installApiMock(options?: {
           202
         )
       }
+      if (
+        /^\/api\/v1\/conversations\/[^/]+\/messages\/[^/]+\/fork$/u.test(
+          path
+        ) &&
+        method === "POST"
+      ) {
+        forkCalls += 1
+        const forkedConversation = {
+          ...conversations[0],
+          id: `c${forkCalls + 3}`,
+          title: `活动风险评估(${forkCalls + 1})`,
+          execution_status: "completed",
+          updated_at: new Date().toISOString(),
+        }
+        currentConversations = [forkedConversation, ...currentConversations]
+        return json({ success: true, data: forkedConversation }, 201)
+      }
       const conversationEventsMatch = path.match(
         /^\/api\/v1\/conversations\/([^/]+)\/events$/u
       )
@@ -1105,6 +1125,7 @@ function installApiMock(options?: {
         path === "/api/v1/conversations/drafts" &&
         method === "POST"
       ) {
+        await options.newTaskDraftStart
         return json({ success: true, data: newTaskConversation }, 201)
       }
       if (
@@ -1529,7 +1550,9 @@ function installApiMock(options?: {
       }
       if (path === "/api/v1/conversations") {
         if (options?.conversationListResponse) {
-          return options.conversationListResponse(url.searchParams)
+          return options.conversationListResponse(url.searchParams, {
+            forkCalls,
+          })
         }
         const archived = url.searchParams.get("archived") === "true"
         const items = currentConversations.filter(
@@ -2150,6 +2173,53 @@ describe("LinkSense application", () => {
         document.getElementById("conversation-message-new-task-message-1")
       ).toHaveTextContent("生成一段欢迎语音")
     )
+  })
+
+  it("keeps starter questions hidden while the first new-task message is being created", async () => {
+    let releaseNewTaskDraft: (() => void) | undefined
+    const newTaskDraftStart = new Promise<void>((resolve) => {
+      releaseNewTaskDraft = resolve
+    })
+    installApiMock({
+      newTaskDraftStart,
+      newTaskDetailResponse: async () =>
+        json({
+          success: true,
+          data: {
+            id: "new-task-1",
+            title: "未命名任务",
+            archived: false,
+            updated_at: "2026-07-18T08:00:02.000Z",
+            draft_input: "",
+            draft_capability_ids: [],
+            messages: [],
+            attachments: [],
+            artifacts: [],
+            turns: [],
+            running_turn: null,
+            pending_requests: [],
+          },
+        }),
+    })
+    const interaction = userEvent.setup()
+    renderApp("/conversations/new")
+
+    expect(
+      await screen.findByRole("group", { name: "常见任务建议" })
+    ).toBeVisible()
+    await interaction.type(
+      screen.getByRole("textbox", { name: "任务输入框" }),
+      "排查页面闪烁"
+    )
+    await interaction.keyboard("{Enter}")
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("group", { name: "常见任务建议" })
+      ).not.toBeInTheDocument()
+    )
+
+    releaseNewTaskDraft?.()
   })
 
   it("creates and starts a new task with the selected native Plan mode", async () => {
@@ -5793,7 +5863,7 @@ describe("LinkSense application", () => {
     const settingsNavigationLinks = settingsSidebar.querySelectorAll(
       ".settings-navigation-link"
     )
-    expect(settingsNavigationLinks).toHaveLength(19)
+    expect(settingsNavigationLinks).toHaveLength(20)
     settingsNavigationLinks.forEach((link) => {
       expect(link.querySelectorAll(":scope > span")).toHaveLength(1)
       expect(link.querySelector(":scope > span > span")).toBeNull()
@@ -7080,6 +7150,139 @@ describe("LinkSense application", () => {
           request.method === "PUT"
       )
     ).toBe(false)
+  })
+
+  it("branches from an assistant message and opens the new numbered task", async () => {
+    let conversationListCalls = 0
+    let finishSidebarRefresh: ((response: Response) => void) | undefined
+    const pendingSidebarRefresh = new Promise<Response>((resolve) => {
+      finishSidebarRefresh = resolve
+    })
+    const { requests } = installApiMock({
+      conversationListResponse: (_query, state) => {
+        conversationListCalls += 1
+        if (state.forkCalls === 0) {
+          return json({
+            success: true,
+            data: {
+              items: conversations,
+              next_cursor: null,
+              total_count: conversations.length,
+            },
+          })
+        }
+        return pendingSidebarRefresh
+      },
+      conversationOverride: {
+        execution_status: "completed",
+        messages: [
+          {
+            id: "m1",
+            role: "user",
+            turn_id: "turn-1",
+            created_at: "2026-07-11T08:00:00.000Z",
+            content: "请评估活动风险",
+          },
+          {
+            id: "m2",
+            role: "assistant",
+            turn_id: "turn-1",
+            phase: "final_answer",
+            created_at: "2026-07-11T08:00:03.000Z",
+            content: "原始风险评估。",
+          },
+        ],
+        turns: [
+          {
+            id: "turn-1",
+            status: "completed",
+            started_at: "2026-07-11T08:00:00.000Z",
+            completed_at: "2026-07-11T08:00:03.000Z",
+          },
+        ],
+        running_turn: null,
+        pending_requests: [],
+      },
+    })
+    const interaction = userEvent.setup()
+    renderApp()
+
+    const assistantMessage = await screen.findByRole(
+      "article",
+      { name: "助手回复" },
+      { timeout: 5_000 }
+    )
+    await interaction.click(
+      within(assistantMessage).getByRole("button", { name: "分支到新聊天" })
+    )
+
+    await waitFor(() =>
+      expect(
+        requests.find(
+          (request) =>
+            request.path === "/api/v1/conversations/c1/messages/m2/fork" &&
+            request.method === "POST"
+        )?.body
+      ).toEqual({ idempotency_key: expect.any(String) })
+    )
+    expect(await screen.findByText("活动风险评估(2)已加载。")).toBeVisible()
+    const sidebar = screen.getByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+    expect(within(sidebar).getByText("活动风险评估(2)")).toBeVisible()
+    expect(conversationListCalls).toBeGreaterThan(1)
+
+    await interaction.click(
+      within(sidebar).getByText("活动风险评估", { exact: true })
+    )
+    const sourceAssistantMessage = await screen.findByRole("article", {
+      name: "助手回复",
+    })
+    await interaction.click(
+      within(sourceAssistantMessage).getByRole("button", {
+        name: "分支到新聊天",
+      })
+    )
+
+    expect(await screen.findByText("活动风险评估(3)已加载。")).toBeVisible()
+    expect(within(sidebar).getByText("活动风险评估(3)")).toBeVisible()
+    const forkRequests = requests.filter(
+      (request) =>
+        request.path === "/api/v1/conversations/c1/messages/m2/fork" &&
+        request.method === "POST"
+    )
+    expect(forkRequests).toHaveLength(2)
+    expect(forkRequests[0]?.body).toEqual({
+      idempotency_key: expect.any(String),
+    })
+    expect(forkRequests[1]?.body).toEqual({
+      idempotency_key: expect.any(String),
+    })
+    expect(
+      (forkRequests[1]?.body as { idempotency_key: string }).idempotency_key
+    ).not.toBe(
+      (forkRequests[0]?.body as { idempotency_key: string }).idempotency_key
+    )
+
+    finishSidebarRefresh?.(
+      json({
+        success: true,
+        data: {
+          items: [
+            {
+              ...conversations[0],
+              id: "c4",
+              title: "活动风险评估(2)",
+              execution_status: "completed",
+              updated_at: new Date().toISOString(),
+            },
+            ...conversations,
+          ],
+          next_cursor: null,
+          total_count: conversations.length + 1,
+        },
+      })
+    )
   })
 
   it("replaces the latest turn optimistically without waiting for regeneration admission", async () => {
@@ -9347,7 +9550,7 @@ describe("LinkSense application", () => {
     ).toBe(false)
   })
 
-  it("orders administrator navigation with usage analytics last", async () => {
+  it("orders administrator navigation with system update last", async () => {
     installApiMock()
     renderApp("/admin/users")
 
@@ -9365,9 +9568,13 @@ describe("LinkSense application", () => {
     const auditLinkIndex = links.findIndex(
       (link) => link.getAttribute("href") === "/admin/audit"
     )
+    const systemUpdateLinkIndex = links.findIndex(
+      (link) => link.getAttribute("href") === "/admin/system-update"
+    )
 
     expect(usageLinkIndex).toBeGreaterThanOrEqual(0)
     expect(usersAndGroupsLinkIndex).toBeGreaterThanOrEqual(0)
+    expect(systemUpdateLinkIndex).toBeGreaterThan(usageLinkIndex)
     expect(
       links.filter((link) => link.textContent === "用户与用户组")
     ).toHaveLength(1)
@@ -9375,7 +9582,7 @@ describe("LinkSense application", () => {
       links.some((link) => link.getAttribute("href") === "/admin/groups")
     ).toBe(false)
     expect(usageLinkIndex).toBeGreaterThan(auditLinkIndex)
-    expect(links.at(-1)).toHaveAttribute("href", "/admin/usage")
+    expect(links.at(-1)).toHaveAttribute("href", "/admin/system-update")
   })
 
   it("disables the user group combobox when no groups are available", async () => {

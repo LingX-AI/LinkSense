@@ -104,6 +104,7 @@ import {
 import {
   useVoiceTranscription,
   type VoiceInputFailure,
+  type VoiceTranscriptionRequester,
 } from "@/features/conversations/use-voice-transcription"
 import {
   appendVoiceTranscript,
@@ -419,6 +420,7 @@ type ConversationComposerProps = Readonly<{
     files: readonly ConversationFile[]
   ) => Promise<unknown> | void
   onError: (message: string | null) => void
+  requestVoiceTranscription?: VoiceTranscriptionRequester
 }>
 
 export const ConversationComposer = forwardRef<
@@ -480,6 +482,7 @@ export const ConversationComposer = forwardRef<
     onRemoveAttachment,
     onClearAttachments,
     onError,
+    requestVoiceTranscription,
   }: ConversationComposerProps,
   ref
 ) {
@@ -632,6 +635,7 @@ export const ConversationComposer = forwardRef<
     onTranscriptPreview: applyTranscript,
     onTranscript: applyTranscript,
     onError: reportVoiceFailure,
+    request: requestVoiceTranscription,
   })
   const voiceBusy = voice.phase !== "idle"
   const selected = useMemo(

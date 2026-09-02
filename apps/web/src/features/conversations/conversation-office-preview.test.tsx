@@ -566,7 +566,7 @@ describe("conversation Office preview", () => {
     expect(screen.queryByRole("button", { name: /待发送标注/u })).toBeNull()
   })
 
-  it("animates an XLSX pane only during its initial load", async () => {
+  it("keeps the entrance animation active when the initial file finishes loading", async () => {
     const warmup = render(
       <ConversationOfficePreview
         file={officeFile(
@@ -606,7 +606,9 @@ describe("conversation Office preview", () => {
     expect(preview.spreadsheetClasses[loadingRender]).toBe(
       OFFICE_PREVIEW_ENTER_CLASS
     )
-    expect(preview.spreadsheetClasses[readyRender]).toBeUndefined()
+    expect(preview.spreadsheetClasses[readyRender]).toBe(
+      OFFICE_PREVIEW_ENTER_CLASS
+    )
     await enableOfficeAnnotationMode()
     await userEvent.click(
       screen.getByRole("button", { name: "ask-spreadsheet" })

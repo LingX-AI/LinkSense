@@ -58,6 +58,19 @@ const authenticationSettings = {
   },
 }
 
+const executionConcurrencySettings = {
+  max_concurrent_conversations: null,
+  runner_app_server_process_limit: null,
+  environment_defaults: {
+    max_concurrent_conversations: 20,
+    runner_app_server_process_limit: 20,
+  },
+  effective: {
+    max_concurrent_conversations: 20,
+    runner_app_server_process_limit: 20,
+  },
+}
+
 function chatModel(
   id: string,
   displayName: string,
@@ -196,6 +209,9 @@ const selectedKnowledgeModelSettings = {
 
 function settingsPayload(path: string) {
   if (path.endsWith("/product-settings")) return productSettings
+  if (path.endsWith("/execution-concurrency-settings")) {
+    return executionConcurrencySettings
+  }
   if (path.endsWith("/registration-settings")) {
     return { enabled: false, total_token_limit: null }
   }
@@ -357,6 +373,70 @@ describe("administrator authentication settings", () => {
       })
     )
     expect(await screen.findByText("开放注册设置已更新。")).toBeVisible()
+  })
+
+  it("saves task concurrency overrides and leaves blank fields on deployment defaults", async () => {
+    const requests: RecordedRequest[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        requests.push({ path, init })
+        if (
+          path.endsWith("/execution-concurrency-settings") &&
+          init?.method === "PUT"
+        ) {
+          return envelope({
+            code: "SYSTEM_SETTINGS_UPDATED",
+            settings: {
+              ...executionConcurrencySettings,
+              max_concurrent_conversations: 8,
+              effective: {
+                max_concurrent_conversations: 8,
+                runner_app_server_process_limit: 20,
+              },
+            },
+          })
+        }
+        return envelope(settingsPayload(path))
+      })
+    )
+    const interaction = userEvent.setup()
+    renderSettings()
+
+    await interaction.click(
+      await screen.findByRole("tab", { name: "任务并发" })
+    )
+    const globalLimit = screen.getByLabelText("系统同时运行任务数上限")
+    const processLimit = screen.getByLabelText("单用户任务进程数上限")
+    expect(globalLimit).toHaveValue(null)
+    expect(processLimit).toHaveValue(null)
+    expect(
+      screen.getByText(
+        "调低上限不会中断正在运行的任务；新任务会在当前用量低于新上限后恢复启动。"
+      )
+    ).toBeVisible()
+
+    await interaction.type(globalLimit, "8")
+    await interaction.click(screen.getByRole("button", { name: "保存" }))
+
+    await waitFor(() =>
+      expect(
+        requests.find(
+          (request) =>
+            request.path.endsWith("/execution-concurrency-settings") &&
+            request.init?.method === "PUT"
+        )
+      ).toMatchObject({
+        init: {
+          body: JSON.stringify({
+            max_concurrent_conversations: 8,
+            runner_app_server_process_limit: null,
+          }),
+        },
+      })
+    )
+    expect(await screen.findByText("任务并发设置已更新。")).toBeVisible()
   })
 
   it("switches between setting categories without ever filling stored secrets", async () => {
@@ -2673,6 +2753,100 @@ describe("administrator authentication settings", () => {
           ],
         },
       ],
+    })
+  })
+
+  it("keeps unrelated save buttons available and serializes a subsequent save", async () => {
+    const settings = {
+      ...modelProviderSettings,
+      providers: [
+        {
+          ...modelProviderSettings.providers[0],
+          models: [
+            modelProviderSettings.providers[0].models[0],
+            chatModel("model-b", "Model B"),
+          ],
+        },
+      ],
+    }
+    let resolveSave!: (response: Response) => void
+    const pendingSave = new Promise<Response>((resolve) => {
+      resolveSave = resolve
+    })
+    const saveRequests: Array<Record<string, unknown>> = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        if (
+          path.endsWith("/model-provider-settings") &&
+          init?.method === "PUT"
+        ) {
+          saveRequests.push(JSON.parse(String(init.body)))
+          if (saveRequests.length === 1) return pendingSave
+          return Promise.resolve(
+            envelope({
+              code: "SYSTEM_SETTINGS_UPDATED",
+              settings: { ...settings, revision: 4 },
+            })
+          )
+        }
+        return Promise.resolve(
+          envelope(
+            path.endsWith("/model-provider-settings")
+              ? settings
+              : settingsPayload(path)
+          )
+        )
+      })
+    )
+
+    const interaction = userEvent.setup()
+    renderSettings("models")
+
+    const provider = await screen.findByRole("group", { name: "模型渠道 1" })
+    const modelA = screen.getByRole("group", { name: "Model A" })
+    const modelB = screen.getByRole("group", { name: "Model B" })
+    const modelASave = within(modelA).getByRole("button", {
+      name: "保存模型 Model A",
+    })
+    const modelBSave = within(modelB).getByRole("button", {
+      name: "保存模型 Model B",
+    })
+    const providerSave = within(provider).getByRole("button", {
+      name: "保存模型渠道 模型渠道 1",
+    })
+    const selectionSave = screen.getByRole("button", {
+      name: "保存任务与系统模型选择",
+    })
+
+    await interaction.click(modelASave)
+
+    await waitFor(() => expect(modelASave).toHaveAttribute("aria-busy", "true"))
+    expect(modelASave.querySelector('[data-slot="spinner"]')).not.toBeNull()
+    for (const otherSave of [modelBSave, providerSave, selectionSave]) {
+      expect(otherSave).toBeEnabled()
+      expect(otherSave).not.toHaveAttribute("aria-busy")
+      expect(otherSave.querySelector('[data-slot="spinner"]')).toBeNull()
+    }
+
+    await interaction.click(modelBSave)
+    await waitFor(() => expect(modelBSave).toHaveAttribute("aria-busy", "true"))
+    expect(modelBSave).toBeDisabled()
+    expect(modelBSave.querySelector('[data-slot="spinner"]')).not.toBeNull()
+    expect(saveRequests).toHaveLength(1)
+
+    resolveSave(
+      envelope({
+        code: "SYSTEM_SETTINGS_UPDATED",
+        settings: { ...settings, revision: 3 },
+      })
+    )
+    await waitFor(() => expect(saveRequests).toHaveLength(2))
+    expect(saveRequests[1]).toMatchObject({ expected_revision: 3 })
+    await waitFor(() => {
+      expect(modelASave).not.toHaveAttribute("aria-busy")
+      expect(modelBSave).not.toHaveAttribute("aria-busy")
     })
   })
 

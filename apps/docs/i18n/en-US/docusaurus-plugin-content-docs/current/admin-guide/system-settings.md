@@ -17,9 +17,40 @@ Permanent audit records the actor, setting key, before and after values, and req
 
 ## Read-only deployment configuration
 
-Database, Redis, MinIO, document processing, runner, concurrency, file limits, JWT/HMAC/encryption keys, token periods, and retention remain in controlled `.env` or deployment configuration.
+Database, Redis, MinIO, document processing, other runner runtime parameters, file limits, JWT/HMAC/encryption keys, token periods, and retention remain in controlled `.env` or deployment configuration.
 
 The page may show a redacted configured state but never connection strings, complete internal endpoints, passwords, keys, tokens, or encryption material. Model channels are an explicit exception managed on the Model Settings page.
+
+## Task concurrency
+
+The **Task concurrency** tab lets administrators override two deployment defaults:
+
+- The system-wide running task limit caps running tasks across all users.
+- The per-user task process limit caps Codex app-server processes loaded by each user worker.
+
+Leaving either field blank keeps the corresponding deployment default. New task starts read the latest saved settings without a service restart. Lowering a limit does not interrupt running tasks; new task or process admission pauses until current usage falls below the new limit.
+
+## System update
+
+The **System update** item at the end of the Administration menu automatically checks official LinkSense GitHub releases and shows the current version, latest version, publication time, and release notes. Only administrators can view update status or request an immediate check. A failed check does not affect other LinkSense features. The update guide is shown only when a newer version is available.
+
+When a new version is available, LinkSense shows an administrator notice. Dismissing it applies only to that administrator and release version; a later release appears again.
+
+LinkSense never starts an upgrade silently from the web application. Schedule a maintenance window first, then sign in to the LinkSense host and run the appropriate command.
+
+Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh | sudo sh
+```
+
+macOS (do not use `sudo`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh | sh
+```
+
+The script detects the Core or Full edition, waits for running work, and creates a validated PostgreSQL backup before database migration. Save the backup location printed by the script. A failure after migration begins does not automatically roll the database back. When the upgrade finishes, open **System health** and confirm that every service has recovered.
 
 ## Scheduled maintenance
 

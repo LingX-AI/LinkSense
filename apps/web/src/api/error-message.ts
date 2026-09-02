@@ -124,6 +124,8 @@ const errorCodeToKey: Record<string, string> = {
   TEAMS_SSO_NOT_CONFIGURED: "auth.teamsNotConfigured",
   TEAMS_SSO_FAILED: "errors.teamsFailed",
   VOICE_TRANSCRIPTION_FAILED: "errors.composer.voiceTranscriptionFailed",
+  VOICE_TRANSCRIPTION_RATE_LIMITED:
+    "errors.composer.voiceTranscriptionRateLimited",
   VOICE_TRANSCRIPTION_TIMEOUT: "conversation.voiceTimeout",
   VOICE_TRANSCRIPTION_NO_CONTENT: "conversation.voiceNoContent",
   VOICE_AUDIO_TOO_LARGE: "conversation.voiceTooLarge",

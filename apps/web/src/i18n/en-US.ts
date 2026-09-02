@@ -349,6 +349,9 @@ export const enUS = {
     systemSettingsDescription: "Product and authentication settings",
     systemHealth: "System health",
     systemHealthDescription: "Service and dependency status",
+    systemUpdate: "System update",
+    systemUpdateDescription:
+      "Check for new releases and review safe update guidance",
     noResults: "No settings match your search.",
     generalPageDescription:
       "Manage interface preferences that apply only to your account.",
@@ -1990,6 +1993,9 @@ export const enUS = {
     copyMessage: "Copy message",
     messageCopied: "Message copied",
     copyMessageFailed: "Unable to copy the message. Try again.",
+    forkMessage: "Branch to new chat",
+    forkingMessage: "Creating branch…",
+    forkMessageFailed: "Unable to create the branched task. Try again.",
     copyCode: "Copy code",
     codeCopied: "Code copied",
     previewHtmlCode: "Preview HTML code",
@@ -2299,6 +2305,26 @@ export const enUS = {
     dependencyUnavailableShort: "Currently unavailable; it can be removed",
     usesPluginCredentials: "Uses plugin credentials",
     share: "Share",
+    usage: {
+      action: "Usage analytics",
+      title: "Application usage",
+      description:
+        "Review usage and model costs for “{{name}}” during the selected period.",
+      backToApplications: "Back to applications",
+      activeUsers: "Active users",
+      activeUsersHint:
+        "Distinct users who created a task or started an actual turn during the selected period",
+      coverageTitle: "Token and cost data starts when collection began",
+      coverageDescription:
+        "Coverage starts on {{date}}. Earlier tasks and turns are still counted, but historical tokens and costs are not estimated using current prices.",
+      tokenBreakdownTitle: "Token composition",
+      costBreakdownTitle: "Cost composition",
+      unpricedTokens: "Unpriced tokens",
+      modelBreakdownDescription:
+        "Review calls, turns, tokens, and cost by model.",
+      workloadBreakdownDescription:
+        "Review calls, tokens, and cost by model workload.",
+    },
     startChat: "Try now",
     deleteTitle: "Delete this application?",
     deleteDescription:
@@ -3290,6 +3316,60 @@ export const enUS = {
     deleting: "Deleting…",
     deleteSuccess: "Feedback deleted.",
   },
+  systemUpdate: {
+    notice: {
+      title: "LinkSense {{version}} is available",
+      description:
+        "Administrators can review the release and follow the guided upgrade process.",
+      action: "View update",
+      dismiss: "Dismiss the update notice for this version",
+    },
+    status: {
+      update_available: "Update available",
+      up_to_date: "Up to date",
+      check_failed: "Check failed",
+    },
+    overview: {
+      title: "Version status",
+      description: "Automatically check official LinkSense GitHub releases.",
+    },
+    currentVersion: "Current version",
+    latestVersion: "Latest version",
+    checkedAt: "Last checked",
+    publishedAt: "Published",
+    checkNow: "Check now",
+    openRelease: "View GitHub release",
+    releaseNotes: "Release notes",
+    refreshFailed: "Could not check for updates again",
+    checkFailed: {
+      title: "The latest version is temporarily unavailable",
+      GITHUB_UNAVAILABLE:
+        "The server could not reach GitHub. Check its network access and try again.",
+      GITHUB_RATE_LIMITED:
+        "GitHub temporarily limited update checks. Try again later.",
+      GITHUB_RESPONSE_INVALID:
+        "GitHub returned release information that LinkSense could not recognize. Try again later.",
+    },
+    tutorial: {
+      title: "Update guide",
+      description:
+        "The upgrade script detects the Core or Full edition, waits for running work, and creates a validated database backup before migration.",
+      safetyTitle: "The web application never starts the upgrade automatically",
+      safetyDescription:
+        "Run the command in a terminal on the LinkSense host. Schedule a maintenance window first and make sure an administrator can inspect service health.",
+      linux: "Linux",
+      macos: "macOS (do not use sudo)",
+      steps: {
+        maintenance:
+          "Schedule a maintenance window during a quiet period and notify active users.",
+        run: "Sign in to the LinkSense host and run the command for its operating system.",
+        backup:
+          "Save the PostgreSQL backup location printed by the script. A failure after database migration begins does not automatically roll the database back.",
+        health:
+          "After the upgrade finishes, open System health and confirm that every service has recovered.",
+      },
+    },
+  },
   admin: {
     usersAndGroupsTitle: "Users & groups",
     usersAndGroupsDescription:
@@ -3422,21 +3502,69 @@ export const enUS = {
     exportTargetType: "Target type",
     exportTargetId: "Target ID",
     exportMetadata: "Metadata",
+    auditId: "Log ID",
+    userAgent: "User-Agent",
+    auditDetailsTitle: "Audit log details",
+    auditDetailsDescription:
+      "All redacted information available for this audit log entry is shown below.",
+    auditEventInformation: "Log information",
+    auditSubjectInformation: "Actor and target",
+    auditRequestInformation: "Request information",
+    auditMetadataTitle: "Redacted metadata",
+    auditMetadataEmpty: "No additional metadata.",
+    auditConversationDetailsTitle: "Task execution details",
+    auditConversationDetailsDescription:
+      "All redacted execution metadata available for this task is shown below.",
+    retainedArtifactDetailsTitle: "Deleted-task artifact details",
+    retainedArtifactDetailsDescription:
+      "All available summary information for permanently retained artifacts from this deleted task is shown below.",
+    auditExecutionInformation: "Execution information",
+    auditArtifactInformation: "Artifact information",
+    ownerId: "Owner ID",
+    ownerName: "Owner name",
+    ownerEmail: "Owner email",
+    executionDuration: "Execution duration",
+    executionErrorType: "Error type",
+    attachmentCount: "Attachment count",
+    attachmentSize: "Total attachment size",
+    artifactCount: "Artifact count",
+    artifactSize: "Total artifact size",
+    firstArtifactCreatedAt: "First artifact created",
+    lastArtifactCreatedAt: "Last artifact created",
     export: "Export CSV",
     exporting: "Exporting…",
     auditEmpty: "No matching audit records.",
     settingsTitle: "System settings",
     managementTitle: "Management",
     settingsDescription:
-      "Manage product display, authentication email, and sign-in features. Secrets are encrypted and never shown again.",
+      "Manage product display, task concurrency, authentication email, and sign-in features. Secrets are encrypted and never shown again.",
     settingsTabsLabel: "System settings categories",
     settingsTabs: {
       product: "Product settings",
+      concurrency: "Task concurrency",
       smtp: "Authentication email",
       registration: "Open registration",
       oidc: "OIDC sign-in",
       teams: "Teams sign-in",
       maintenance: "System maintenance",
+    },
+    concurrency: {
+      title: "Task concurrency",
+      description:
+        "Set the number of tasks that can run across the system and for each user. Leave a field blank to use the deployment default.",
+      globalLimit: "System-wide running task limit",
+      globalLimitDescription:
+        "Maximum number of running tasks across all users. Leave blank to use the deployment default of {{defaultValue}}; the current effective value is {{effectiveValue}}.",
+      processLimit: "Per-user task process limit",
+      processLimitDescription:
+        "Maximum number of task processes loaded for each user. Leave blank to use the deployment default of {{defaultValue}}; the current effective value is {{effectiveValue}}.",
+      loweringBehavior:
+        "Lowering a limit does not stop running tasks. New tasks can start again after current usage falls below the new limit.",
+      saved: "Task concurrency settings updated.",
+      errors: {
+        positiveInteger:
+          "Enter an integer greater than 0, or leave blank to use the deployment default.",
+      },
     },
     registration: {
       enabled: "Allow self-service registration",
@@ -4236,6 +4364,8 @@ export const enUS = {
     composer: {
       voiceTranscriptionFailed:
         "Speech-to-text failed. Try again or enter the text manually.",
+      voiceTranscriptionRateLimited:
+        "Voice input can be used up to 20 times per minute. Try again shortly.",
     },
     mcp: {
       insecureHttpAcknowledgementRequired:

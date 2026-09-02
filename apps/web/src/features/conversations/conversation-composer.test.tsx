@@ -1417,6 +1417,39 @@ describe("conversation voice input", () => {
     })
   })
 
+  it("uses an injected embedded-session requester for voice transcription", async () => {
+    installMediaRecorder()
+    let now = 1_000
+    vi.spyOn(Date, "now").mockImplementation(() => now)
+    const requestVoiceTranscription = vi.fn(async () => voiceStreamResponse())
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const interaction = userEvent.setup()
+    const { props } = renderComposer({ requestVoiceTranscription })
+
+    await interaction.click(screen.getByRole("button", { name: "语音输入" }))
+    await screen.findByTestId("voice-recording-panel")
+    now = 2_500
+    await interaction.click(
+      screen.getByRole("button", { name: "停止语音输入" })
+    )
+
+    await waitFor(() =>
+      expect(props.onValueChange).toHaveBeenLastCalledWith(
+        "Existing text 整理会议纪要"
+      )
+    )
+    expect(requestVoiceTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        audio_data_url: expect.stringMatching(/^data:audio\/webm;base64,/u),
+        language: "zh-CN",
+        stream: true,
+      }),
+      expect.any(AbortSignal)
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it("does not overwrite text the user edits while transcription is streaming", async () => {
     installMediaRecorder()
     let now = 1_000
@@ -1610,6 +1643,43 @@ describe("conversation voice input", () => {
     expect(screen.getByRole("textbox", { name: "任务输入框" })).toHaveValue(
       "Existing text"
     )
+  })
+
+  it("shows the per-user voice request limit returned before streaming", async () => {
+    installMediaRecorder()
+    let now = 2_000
+    vi.spyOn(Date, "now").mockImplementation(() => now)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json(
+          {
+            success: false,
+            error_code: "VOICE_TRANSCRIPTION_RATE_LIMITED",
+            message_key: "errors.composer.voiceTranscriptionRateLimited",
+            message: "语音输入每分钟最多使用 20 次，请稍后再试。",
+            params: { retry_after_seconds: 45 },
+          },
+          { status: 429 }
+        )
+      )
+    )
+    const interaction = userEvent.setup()
+    const { props } = renderComposer()
+
+    await interaction.click(screen.getByRole("button", { name: "语音输入" }))
+    await screen.findByTestId("voice-recording-panel")
+    now = 3_500
+    await interaction.click(
+      screen.getByRole("button", { name: "停止语音输入" })
+    )
+
+    await waitFor(() =>
+      expect(props.onError).toHaveBeenLastCalledWith(
+        "语音输入每分钟最多使用 20 次，请稍后再试。"
+      )
+    )
+    expect(props.onValueChange).not.toHaveBeenCalled()
   })
 
   it.each([

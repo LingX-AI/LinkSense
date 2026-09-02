@@ -5,14 +5,20 @@ import { cn } from "@/lib/utils"
 function Card({
   className,
   size = "default",
+  appearance = "default",
   ...props
-}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
+}: React.ComponentProps<"div"> & {
+  size?: "default" | "sm"
+  appearance?: "default" | "soft"
+}) {
   return (
     <div
       data-slot="card"
       data-size={size}
+      data-appearance={appearance}
       className={cn(
         "group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-[min(var(--radius-4xl),24px)] border border-[color:var(--app-border)] bg-card py-(--card-spacing) text-sm text-card-foreground shadow-none [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)]",
+        appearance === "soft" && "border-transparent bg-muted/40",
         className
       )}
       {...props}

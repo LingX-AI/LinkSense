@@ -16,6 +16,7 @@ import {
   conversationUserInputAnswersSchema,
   conversationUserInputRequestSchema,
   conversationEventSchema,
+  executionConcurrencySettingsSchema,
   currentUserInfoFailureSchema,
   currentUserInfoSuccessSchema,
   createCredentialInputSchema,
@@ -54,6 +55,7 @@ import {
   patchProductSettingsSchema,
   productSettingsSchema,
   updateMaintenanceSettingsSchema,
+  updateExecutionConcurrencySettingsSchema,
   priorityCapabilityIdsSchema,
   DEFAULT_ORGANIZATION_DISPLAY_NAME,
   productFilenamePrefix,
@@ -1139,7 +1141,7 @@ describe("shared boundary contracts", () => {
 
   it("publishes one stable runner turn-start contract version", () => {
     expect(RUNNER_TURN_START_CONTRACT_VERSION).toBe(
-      "model-switch-source-compact-v15",
+      "execution-concurrency-process-limit-v16",
     );
   });
 
@@ -2208,6 +2210,35 @@ describe("shared boundary contracts", () => {
       patchProductSettingsSchema.safeParse({ DATABASE_URL: "secret" }).success,
     ).toBe(false);
     expect(patchProductSettingsSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("validates nullable execution concurrency overrides and effective values", () => {
+    expect(
+      updateExecutionConcurrencySettingsSchema.safeParse({
+        max_concurrent_conversations: null,
+        runner_app_server_process_limit: 12,
+      }).success,
+    ).toBe(true);
+    expect(
+      updateExecutionConcurrencySettingsSchema.safeParse({
+        max_concurrent_conversations: 0,
+        runner_app_server_process_limit: 12,
+      }).success,
+    ).toBe(false);
+    expect(
+      executionConcurrencySettingsSchema.safeParse({
+        max_concurrent_conversations: null,
+        runner_app_server_process_limit: 12,
+        environment_defaults: {
+          max_concurrent_conversations: 20,
+          runner_app_server_process_limit: 20,
+        },
+        effective: {
+          max_concurrent_conversations: 20,
+          runner_app_server_process_limit: 12,
+        },
+      }).success,
+    ).toBe(true);
   });
 
   it("requires a complete, ordered maintenance window when maintenance is enabled", () => {

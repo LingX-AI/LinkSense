@@ -143,6 +143,7 @@ function startBody() {
   return {
     ownerId: "01900000-0000-7000-8000-000000000002",
     projectionTurnId: "01900000-0000-7000-8000-000000000099",
+    appServerProcessLimit: 20,
     expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
     capabilityGeneration: "a".repeat(64),
     mcpGeneration: "b".repeat(64),

@@ -178,6 +178,8 @@ export type StartTurnInput = {
   conversationId: string;
   /** Durable start-operation id. Defaults to the projected logical turn id. */
   projectionTurnId: string;
+  /** Effective per-worker app-server process limit for this admission. */
+  appServerProcessLimit?: number;
   /** Native start operation to execute. Defaults to a regular model turn. */
   operationKind?: "turn" | "compact";
   /** Starts app-server for a persisted control mutation without loading turn capabilities. */
@@ -313,6 +315,16 @@ export type GoalClearInput = Pick<
   | "reasoningEffort"
   | "modelProvider"
 >;
+
+export type ForkThreadInput = Omit<GoalClearInput, "codexThreadId"> & {
+  sourceCodexThreadId: string;
+  throughCodexTurnId: string;
+};
+
+export type ForkThreadResult = {
+  codexThreadId: string;
+  codexTurnIds: string[];
+};
 
 export type SubAgentReadRuntimeInput = GoalClearInput & {
   codexTurnId: string;
@@ -1299,7 +1311,9 @@ export class AppServerProcessPool {
     }
     let reservedProcessSlot = false;
     if (!existing) {
-      await this.reserveProcessSlot();
+      await this.reserveProcessSlot(
+        input.appServerProcessLimit ?? this.options.processLimit,
+      );
       reservedProcessSlot = true;
     }
     let paths: EnsuredConversationPaths;
@@ -2418,6 +2432,115 @@ export class AppServerProcessPool {
         } finally {
           if (managed && this.processes.get(input.conversationId) === managed) {
             managed.starting = false;
+            this.scheduleIdleClose(managed);
+          }
+        }
+      }),
+    );
+  }
+
+  async forkThread(input: ForkThreadInput): Promise<ForkThreadResult> {
+    this.assertAcceptingOperations();
+    this.options.workspaceManager.bindOwner(
+      input.conversationId,
+      input.ownerId,
+    );
+    return this.withOwnerCapabilityLock(input.ownerId, () =>
+      this.withProcessLifecycleLock(input.conversationId, async () => {
+        let managed: ManagedProcess | undefined;
+        try {
+          const recovered = await this.readThreadForAuthorizedRecoveryLocked({
+            conversationId: input.conversationId,
+            projectionTurnId: input.projectionTurnId,
+            ownerId: input.ownerId,
+            expectedRuntimeGeneration: input.expectedRuntimeGeneration,
+            capabilityGeneration: EMPTY_MCP_GENERATION,
+            mcpGeneration: EMPTY_MCP_GENERATION,
+            mcpServers: [],
+            codexThreadId: input.sourceCodexThreadId,
+            runtimePurpose: "control",
+            collaborationMode: "default",
+            capabilities: [],
+            environment: {},
+            model: input.model,
+            reasoningEffort: input.reasoningEffort,
+            modelProvider: input.modelProvider,
+          });
+          managed = recovered.managed;
+          const sourceTurns = recovered.thread.turns ?? [];
+          const targetIndex = sourceTurns.findIndex(
+            (turn) => turn.id === input.throughCodexTurnId,
+          );
+          if (targetIndex < 0) {
+            throw new CodexProtocolError("fork source turn was not found");
+          }
+          if (!isTerminalTurn(sourceTurns[targetIndex]!)) {
+            throw new CodexProtocolError("fork source turn is not terminal");
+          }
+
+          const workspace = this.options.workspaceManager.pathsFor(
+            input.conversationId,
+          ).workspace;
+          const forked = await this.forkManagedThread(
+            managed,
+            input.model,
+            workspace,
+          );
+          const expectedTurnIds = sourceTurns
+            .slice(0, targetIndex + 1)
+            .map((turn) => turn.id);
+          const rollbackCount = sourceTurns.length - targetIndex - 1;
+          const resultingThread =
+            rollbackCount > 0
+              ? (
+                  await managed.client.request<ThreadRollbackResponse>(
+                    "thread/rollback",
+                    {
+                      threadId: managed.codexThreadId!,
+                      numTurns: rollbackCount,
+                    } satisfies ThreadRollbackParams,
+                  )
+                ).thread
+              : forked.thread;
+          if (resultingThread.id !== managed.codexThreadId) {
+            throw new CodexProtocolError(
+              "Codex returned an invalid forked thread",
+            );
+          }
+          assertLinkSenseThreadProvider(
+            resultingThread,
+            rollbackCount > 0 ? "rollback" : "fork",
+          );
+          const resultingTurnIds =
+            resultingThread.turns?.map((turn) => turn.id) ?? [];
+          if (!sameStringSequence(resultingTurnIds, expectedTurnIds)) {
+            throw new CodexProtocolError("fork history verification failed");
+          }
+
+          managed.activeProjectionTurnId = null;
+          managed.activeCollaborationMode = null;
+          this.syncModelGatewayTurnCorrelation(managed);
+          await this.options.eventSink.alignConversationThread?.(
+            managed.conversationId,
+            managed.codexThreadId,
+          );
+          await managed.client.request<{ cleared: boolean }>(
+            "thread/goal/clear",
+            { threadId: managed.codexThreadId },
+          );
+          managed.activeGoal = null;
+          managed.knownTurnIds = new Set(resultingTurnIds);
+          managed.runtimeFingerprint = null;
+          managed.lastUsedAt = Date.now();
+          return {
+            codexThreadId: managed.codexThreadId!,
+            codexTurnIds: resultingTurnIds,
+          };
+        } finally {
+          if (managed && this.processes.get(input.conversationId) === managed) {
+            managed.starting = false;
+            managed.lastUsedAt = Date.now();
+            await this.releaseManagedCapabilityLeaseIfIdle(managed);
             this.scheduleIdleClose(managed);
           }
         }
@@ -5180,7 +5303,10 @@ export class AppServerProcessPool {
         );
         throw error;
       }
-    }, creationContext?.reservedProcessSlot ?? false);
+    },
+      creationContext?.reservedProcessSlot ?? false,
+      input.appServerProcessLimit ?? this.options.processLimit,
+    );
   }
 
   private async authorizedSkillCatalog(
@@ -5344,6 +5470,17 @@ export class AppServerProcessPool {
       }
     }
     const notifiedTurnId = params?.turn?.id ?? params?.turnId;
+    // Forking a native thread can emit cumulative token snapshots for turns
+    // copied into the child history. Those turns are not an active LinkSense
+    // execution and internal Codex-only turns intentionally have no local
+    // projection, so publishing their snapshots would permanently block the
+    // ordered outbox behind TURN_PROJECTION_PENDING.
+    if (
+      notification.method === "thread/tokenUsage/updated" &&
+      notifiedTurnId !== managed.activeTurnId
+    ) {
+      return;
+    }
     if (notifiedTurnId) managed.knownTurnIds.add(notifiedTurnId);
     if (managed.internalModelTransitionCompaction) {
       if (
@@ -6132,13 +6269,13 @@ export class AppServerProcessPool {
     return managed;
   }
 
-  private async reserveProcessSlot(): Promise<void> {
+  private async reserveProcessSlot(processLimit: number): Promise<void> {
     for (;;) {
       let evictionTarget: ManagedProcess | undefined;
       const reserved = await this.withProcessCapacityLock(async () => {
         if (
           this.processes.size + this.pendingProcessSlots <
-          this.options.processLimit
+          processLimit
         ) {
           this.pendingProcessSlots += 1;
           return true;
@@ -6194,8 +6331,9 @@ export class AppServerProcessPool {
       commit: (managed: ManagedProcess) => Promise<void>,
     ) => Promise<T>,
     reservationAlreadyActive = false,
+    processLimit = this.options.processLimit,
   ): Promise<T> {
-    if (!reservationAlreadyActive) await this.reserveProcessSlot();
+    if (!reservationAlreadyActive) await this.reserveProcessSlot(processLimit);
     let reservationActive = true;
     const commit = async (managed: ManagedProcess): Promise<void> => {
       await this.withProcessCapacityLock(async () => {

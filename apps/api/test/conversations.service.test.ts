@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -71,6 +78,221 @@ afterEach(async () => {
 });
 
 describe("ConversationService ownership and draft lifecycle", () => {
+  it("forks a terminal assistant message into an independent numbered task", async () => {
+    const fixture = await conversationFixture();
+    const source = conversationRow({
+      title: "Task",
+      titleSource: "manual",
+      codexThreadId: "codex-thread-source",
+      forkRootId: null,
+      forkSequence: null,
+      forkSourceConversationId: null,
+      forkSourceMessageId: null,
+      forkIdempotencyKey: null,
+    });
+    const turn = turnRow({
+      id: TURN_ID,
+      codexThreadId: "codex-thread-source",
+      codexTurnId: "codex-turn-target",
+      status: "completed",
+      completedAt: NOW,
+    });
+    const userMessage = messageRow({
+      id: "30000000-0000-4000-8000-000000000021",
+      turnId: TURN_ID,
+      sequenceNo: 1,
+      role: "user",
+      contentText: "Build it",
+    });
+    const assistantMessage = messageRow({
+      id: MESSAGE_ID,
+      turnId: TURN_ID,
+      sequenceNo: 2,
+      role: "assistant",
+      contentText: "Done",
+    });
+    const attachment = attachmentRow({ turnId: TURN_ID });
+    const sourceAttachmentPath = join(
+      fixture.root,
+      OWNER_ID,
+      "home",
+      "workspaces",
+      CONVERSATION_ID,
+      attachment.workspaceRelativePath,
+    );
+    await mkdir(dirname(sourceAttachmentPath), { recursive: true });
+    await writeFile(sourceAttachmentPath, "forked context", "utf8");
+    fixture.prisma.conversation.findFirst.mockImplementation(
+      async (query?: { where?: Record<string, unknown> }) =>
+        query?.where?.forkIdempotencyKey ? null : source,
+    );
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValue(turn);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([turn]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValue(
+      assistantMessage,
+    );
+    fixture.prisma.conversationMessage.findMany.mockResolvedValue([
+      userMessage,
+      assistantMessage,
+    ]);
+    fixture.prisma.conversationEvent.findMany.mockResolvedValue([
+      eventRow({
+        turnId: TURN_ID,
+        payloadJson: {
+          conversation_id: CONVERSATION_ID,
+          turn_id: TURN_ID,
+          message_id: MESSAGE_ID,
+        },
+      }),
+    ]);
+    fixture.prisma.conversationFile.findMany.mockResolvedValue([attachment]);
+    fixture.runner.forkThread.mockResolvedValue({
+      codexThreadId: "codex-thread-forked",
+      codexTurnIds: ["codex-turn-internal", "codex-turn-target"],
+    });
+    fixture.defaultTransaction.conversationForkCounter.upsert.mockResolvedValue(
+      {
+        rootConversationId: CONVERSATION_ID,
+        ownerId: OWNER_ID,
+        baseTitle: "Task",
+        nextSequence: 3,
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+    );
+    fixture.defaultTransaction.conversation.create.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) =>
+        conversationRow(data),
+    );
+
+    const result = await fixture.service.forkConversationAtMessage(
+      OWNER_ID,
+      CONVERSATION_ID,
+      MESSAGE_ID,
+      REGENERATION_ID,
+      {},
+    );
+
+    expect(result).toMatchObject({
+      title: "Task(2)",
+      codex_thread_id: "codex-thread-forked",
+      last_turn_status: "completed",
+    });
+    expect(fixture.runner.forkThread).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceCodexThreadId: "codex-thread-source",
+        throughCodexTurnId: "codex-turn-target",
+      }),
+    );
+    expect(
+      fixture.defaultTransaction.conversation.create,
+    ).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        title: "Task(2)",
+        forkRootId: CONVERSATION_ID,
+        forkSequence: 2,
+        forkSourceConversationId: CONVERSATION_ID,
+        forkSourceMessageId: MESSAGE_ID,
+        forkIdempotencyKey: REGENERATION_ID,
+      }),
+    });
+    expect(
+      fixture.defaultTransaction.conversationTurn.createMany,
+    ).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          conversationId: result.id,
+          codexThreadId: "codex-thread-forked",
+          codexTurnId: "codex-turn-target",
+        }),
+      ],
+    });
+    expect(
+      fixture.defaultTransaction.conversationMessage.createMany,
+    ).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({ role: "user", contentText: "Build it" }),
+        expect.objectContaining({ role: "assistant", contentText: "Done" }),
+      ],
+    });
+    const turnCreateCalls = fixture.defaultTransaction.conversationTurn
+      .createMany.mock.calls as unknown as Array<
+      [{ data: Array<Record<string, unknown>> }]
+    >;
+    const messageCreateCalls = fixture.defaultTransaction.conversationMessage
+      .createMany.mock.calls as unknown as Array<
+      [{ data: Array<Record<string, unknown>> }]
+    >;
+    const clonedTurn = turnCreateCalls[0]?.[0].data[0];
+    const clonedAssistantMessage = messageCreateCalls[0]?.[0].data.find(
+      (message) => message.role === "assistant",
+    );
+    if (!clonedTurn || !clonedAssistantMessage) {
+      throw new Error("missing copied context rows");
+    }
+    expect(
+      fixture.defaultTransaction.conversationEvent.createMany,
+    ).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          conversationId: result.id,
+          payloadJson: {
+            conversation_id: result.id,
+            turn_id: clonedTurn.id,
+            message_id: clonedAssistantMessage.id,
+          },
+        }),
+      ],
+    });
+    await expect(
+      readFile(
+        join(
+          fixture.root,
+          OWNER_ID,
+          "home",
+          "workspaces",
+          result.id,
+          attachment.workspaceRelativePath,
+        ),
+        "utf8",
+      ),
+    ).resolves.toBe("forked context");
+    expect(fixture.cleanup.enqueueRuntimeCleanup).not.toHaveBeenCalled();
+  });
+
+  it("returns the same fork for a repeated idempotency key", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(
+      conversationRow({
+        id: SECOND_CONVERSATION_ID,
+        title: "Task(2)",
+        titleSource: "manual",
+        codexThreadId: "codex-thread-forked",
+        lastTurnStatus: "completed",
+        forkRootId: CONVERSATION_ID,
+        forkSequence: 2,
+        forkSourceConversationId: CONVERSATION_ID,
+        forkSourceMessageId: MESSAGE_ID,
+        forkIdempotencyKey: REGENERATION_ID,
+      }),
+    );
+
+    await expect(
+      fixture.service.forkConversationAtMessage(
+        OWNER_ID,
+        CONVERSATION_ID,
+        MESSAGE_ID,
+        REGENERATION_ID,
+        {},
+      ),
+    ).resolves.toMatchObject({
+      id: SECOND_CONVERSATION_ID,
+      title: "Task(2)",
+    });
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.runner.forkThread).not.toHaveBeenCalled();
+  });
+
   it.each(["completed", "failed", "interrupted"] as const)(
     "accepts manual compaction after a %s latest turn and projects no user message",
     async (terminalStatus) => {
@@ -6336,6 +6558,7 @@ describe("ConversationService pending and turn materialization", () => {
       expect(fixture.runner.acceptStartTurn).toHaveBeenCalledWith({
         conversationId: CONVERSATION_ID,
         projectionTurnId: intent.projectionTurnId,
+        appServerProcessLimit: 5,
         ownerId: OWNER_ID,
         collaborationMode: "default",
         expectedRuntimeGeneration: intent.runtimeGeneration,
@@ -6446,6 +6669,7 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.runner.acceptStartTurn).toHaveBeenCalledWith({
       conversationId: CONVERSATION_ID,
       projectionTurnId: intent.projectionTurnId,
+      appServerProcessLimit: 5,
       ownerId: OWNER_ID,
       collaborationMode: "default",
       expectedRuntimeGeneration: intent.runtimeGeneration,
@@ -10061,9 +10285,11 @@ async function conversationFixture() {
   let preparedRuntimeGeneration = "80000000-0000-4000-8000-000000000001";
   const prisma = {
     conversation: {
-      findFirst: vi.fn(
-        async () => conversationRow() as Record<string, unknown> | null,
-      ),
+      findFirst: vi.fn<
+        (
+          input?: { where?: Record<string, unknown> },
+        ) => Promise<Record<string, unknown> | null>
+      >(async () => conversationRow()),
       findUnique: vi.fn(
         async () => conversationRow() as Record<string, unknown> | null,
       ),
@@ -10108,6 +10334,7 @@ async function conversationFixture() {
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
       count: vi.fn(async () => 0),
       create: vi.fn(async () => ({})),
+      createMany: vi.fn(async () => ({ count: 0 })),
       update: vi.fn(async () => ({})),
     },
     conversationTurnAttempt: {
@@ -10127,6 +10354,7 @@ async function conversationFixture() {
       findUnique: vi.fn(async () => null as Record<string, unknown> | null),
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
       updateMany: vi.fn(async () => ({ count: 0 })),
+      createMany: vi.fn(async () => ({ count: 0 })),
     },
     conversationPlanReview: {
       findFirst: vi.fn(async () => storedPlanReview),
@@ -10156,6 +10384,7 @@ async function conversationFixture() {
         storedPlanReview = null;
         return { count };
       }),
+      createMany: vi.fn(async () => ({ count: 0 })),
     },
     conversationTurnStartIntent: {
       findFirst: vi.fn(async () => storedStartIntent),
@@ -10198,12 +10427,19 @@ async function conversationFixture() {
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
       findUnique: vi.fn(async () => null as Record<string, unknown> | null),
       create: vi.fn(async () => ({})),
+      createMany: vi.fn(async () => ({ count: 0 })),
+      count: vi.fn(async () => 0),
+    },
+    conversationTurnKnowledgeBase: {
+      findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
     },
     conversationMessageKnowledgeCitation: {
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
+      createMany: vi.fn(async () => ({ count: 0 })),
     },
     conversationMessageKnowledgeCitationAnchor: {
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
+      createMany: vi.fn(async () => ({ count: 0 })),
     },
     knowledgeBaseDocument: {
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
@@ -10226,10 +10462,12 @@ async function conversationFixture() {
     conversationFile: {
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
+      createMany: vi.fn(async () => ({ count: 0 })),
     },
     conversationEvent: {
       findFirst: vi.fn(async () => null as { sseEventId: string } | null),
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
+      createMany: vi.fn(async () => ({ count: 0 })),
     },
     codexThreadTokenUsageCursor: {
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
@@ -10343,6 +10581,10 @@ async function conversationFixture() {
     getGoal: vi.fn(async () => null),
     setGoal: vi.fn<() => Promise<RunnerCodexGoal>>(async () => runnerGoal()),
     clearGoal: vi.fn(async () => true),
+    forkThread: vi.fn(async () => ({
+      codexThreadId: "codex-thread-forked",
+      codexTurnIds: ["codex-turn-1"],
+    })),
     readSubAgentDetail: vi.fn(async () => ({
       agentKey: `agent_${"a".repeat(24)}`,
       status: "completed" as const,
@@ -10442,8 +10684,8 @@ async function conversationFixture() {
   defaultTransaction.conversation.update.mockImplementation((input) =>
     prisma.conversation.update(input),
   );
-  defaultTransaction.conversation.findFirst.mockImplementation(() =>
-    prisma.conversation.findFirst(),
+  defaultTransaction.conversation.findFirst.mockImplementation((input) =>
+    prisma.conversation.findFirst(input),
   );
   defaultTransaction.conversation.create.mockImplementation((input) =>
     prisma.conversation.create(input),
@@ -10822,6 +11064,7 @@ function transactionFixture() {
           data: Record<string, unknown>;
         }) => Promise<ReturnType<typeof turnRow>>
       >(async () => turnRow()),
+      createMany: vi.fn(async () => ({ count: 0 })),
       updateMany: vi.fn(async () => ({ count: 0 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
@@ -10847,6 +11090,7 @@ function transactionFixture() {
       ),
       updateMany: vi.fn(async () => ({ count: 1 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),
+      createMany: vi.fn(async () => ({ count: 0 })),
     },
     conversationTurnAttempt: {
       findUnique: vi.fn(async () => null as Record<string, unknown> | null),
@@ -10873,15 +11117,18 @@ function transactionFixture() {
       update: vi.fn(async () => ({})),
       updateMany: vi.fn(async () => ({ count: 0 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),
+      createMany: vi.fn(async () => ({ count: 0 })),
     },
     conversationMessageKnowledgeCitation: {
       findMany: vi.fn(
         async () => [] as Array<{ id: string; documentVersionId: string }>,
       ),
       deleteMany: vi.fn(async () => ({ count: 0 })),
+      createMany: vi.fn(async () => ({ count: 0 })),
     },
     conversationMessageKnowledgeCitationAnchor: {
       deleteMany: vi.fn(async () => ({ count: 0 })),
+      createMany: vi.fn(async () => ({ count: 0 })),
     },
     knowledgeBaseDocumentVersion: {
       findMany: vi.fn(
@@ -10913,6 +11160,7 @@ function transactionFixture() {
           data: Record<string, unknown>;
         }) => Promise<Record<string, unknown>>
       >(async () => ({})),
+      createMany: vi.fn(async () => ({ count: 0 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
     pendingRequest: {
@@ -10954,6 +11202,7 @@ function transactionFixture() {
       })),
       updateMany: vi.fn(async () => ({ count: 1 })),
       create: vi.fn(async () => ({})),
+      createMany: vi.fn(async () => ({ count: 0 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
     conversationEvent: {
@@ -10965,12 +11214,15 @@ function transactionFixture() {
           data: Record<string, unknown>;
         }) => Promise<Record<string, unknown>>
       >(async () => eventRow()),
+      createMany: vi.fn(async () => ({ count: 0 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
     conversation: {
-      findFirst: vi.fn<() => Promise<Record<string, unknown> | null>>(
-        async () => conversationRow(),
-      ),
+      findFirst: vi.fn<
+        (
+          input?: { where?: Record<string, unknown> },
+        ) => Promise<Record<string, unknown> | null>
+      >(async () => conversationRow()),
       findUnique: vi.fn<() => Promise<Record<string, unknown> | null>>(
         async () => conversationRow(),
       ),
@@ -10992,6 +11244,16 @@ function transactionFixture() {
         }) => Promise<{ count: number }>
       >(async () => ({ count: 1 })),
       delete: vi.fn(async () => ({})),
+    },
+    conversationForkCounter: {
+      upsert: vi.fn(async () => ({
+        rootConversationId: CONVERSATION_ID,
+        ownerId: OWNER_ID,
+        baseTitle: "未命名任务",
+        nextSequence: 3,
+        createdAt: NOW,
+        updatedAt: NOW,
+      })),
     },
     automation: {
       count: vi.fn(async () => 0),

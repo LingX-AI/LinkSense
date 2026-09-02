@@ -242,6 +242,7 @@ export const startTurnBodySchema = z
   .strictObject({
     ownerId: uuid,
     projectionTurnId: uuid,
+    appServerProcessLimit: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     operationKind: z.enum(["turn", "compact"]).default("turn"),
     eventProjectionTurnId: uuid.optional(),
     expectedRuntimeGeneration: uuid,
@@ -491,6 +492,11 @@ export const goalClearBodySchema = z.strictObject({
   model: modelIdentifierSchema,
   reasoningEffort: reasoningEffortSchema,
   modelProvider: modelProviderRuntimeSchema,
+});
+export const forkThreadBodySchema = z.strictObject({
+  ...goalClearBodySchema.omit({ codexThreadId: true }).shape,
+  sourceCodexThreadId: z.string().min(1).max(240),
+  throughCodexTurnId: z.string().min(1).max(240),
 });
 export const goalSetBodySchema = z
   .strictObject({
@@ -1400,6 +1406,7 @@ export function buildRunnerServer(
         const operation = await pool.beginStartOperation({
           conversationId,
           projectionTurnId: body.projectionTurnId,
+          appServerProcessLimit: body.appServerProcessLimit,
           operationKind: body.operationKind,
           ...(body.eventProjectionTurnId !== undefined
             ? { eventProjectionTurnId: body.eventProjectionTurnId }
@@ -1757,6 +1764,72 @@ export function buildRunnerServer(
         return reply
           .code(409)
           .send({ error_code: "TURN_INTERRUPT_REQUEST_FAILED" });
+      }
+    },
+  );
+
+  app.post<{ Params: { conversationId: string } }>(
+    "/conversations/:conversationId/fork",
+    async (request, reply) => {
+      const conversationId = uuid.parse(request.params.conversationId);
+      const parsedBody = forkThreadBodySchema.safeParse(request.body);
+      if (!parsedBody.success) {
+        request.log.warn(
+          {
+            requestId: request.id,
+            conversationId,
+            phase: "fork-input",
+            issues: sanitizeZodIssues(parsedBody.error),
+          },
+          "runner thread-fork validation failed",
+        );
+        return reply.code(400).send({ error_code: "RUNNER_FORK_INVALID" });
+      }
+      const body = parsedBody.data;
+      try {
+        return await pool.forkThread({
+          conversationId,
+          ownerId: body.ownerId,
+          expectedRuntimeGeneration: body.expectedRuntimeGeneration,
+          sourceCodexThreadId: body.sourceCodexThreadId,
+          throughCodexTurnId: body.throughCodexTurnId,
+          projectionTurnId: body.projectionTurnId,
+          model: body.model,
+          reasoningEffort: body.reasoningEffort,
+          modelProvider: {
+            revision: body.modelProvider.revision,
+            baseUrl: body.modelProvider.baseUrl,
+            protocolMode: body.modelProvider.protocolMode,
+            apiKey: body.modelProvider.apiKey,
+            ...(body.modelProvider.pricing
+              ? { pricing: body.modelProvider.pricing }
+              : {}),
+            ...(body.modelProvider.modelContextWindow === undefined
+              ? {}
+              : { modelContextWindow: body.modelProvider.modelContextWindow }),
+            ...(body.modelProvider.modelAutoCompactTokenLimit === undefined
+              ? {}
+              : {
+                  modelAutoCompactTokenLimit:
+                    body.modelProvider.modelAutoCompactTokenLimit,
+                }),
+          },
+        });
+      } catch (error) {
+        request.log.warn(
+          {
+            requestId: request.id,
+            conversationId,
+            errorClass: error instanceof Error ? error.name : "unknown",
+          },
+          "runner thread fork failed",
+        );
+        if (error instanceof StartOperationRuntimeGenerationMismatchError) {
+          return reply
+            .code(409)
+            .send({ error_code: "RUNNER_RUNTIME_GENERATION_MISMATCH" });
+        }
+        return reply.code(503).send({ error_code: "RUNNER_FORK_UNAVAILABLE" });
       }
     },
   );

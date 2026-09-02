@@ -10,7 +10,9 @@ describe("parseConfig", () => {
     expect(config.oidc.status).toBe("not_configured")
     expect(config.teams.status).toBe("not_configured")
     expect(config.maxConcurrentConversations).toBe(20)
+    expect(config.runnerAppServerProcessLimit).toBe(20)
     expect(config.adminModelManagementEnabled).toBe(true)
+    expect(config.releaseVersion).toBe("v0.1.1")
     expect(config.initializationToken).toBeUndefined()
     expect(config.clawHubSyncTimeZone).toBe("Asia/Shanghai")
     expect(config.clawHubSyncTransactionTimeoutMs).toBe(300_000)
@@ -43,6 +45,20 @@ describe("parseConfig", () => {
         "video/x-msvideo",
       ]),
     )
+  })
+
+  it("accepts only a stable v-prefixed deployment release version", () => {
+    expect(
+      parseConfig(
+        testEnvironment({ LINKSENSE_VERSION: "v1.24.3" }),
+      ).releaseVersion,
+    ).toBe("v1.24.3")
+    expect(() =>
+      parseConfig(testEnvironment({ LINKSENSE_VERSION: "1.24.3" })),
+    ).toThrow()
+    expect(() =>
+      parseConfig(testEnvironment({ LINKSENSE_VERSION: "v1.24.3-beta.1" })),
+    ).toThrow()
   })
 
   it("accepts only a sufficiently strong optional initialization token", () => {
@@ -231,6 +247,13 @@ describe("parseConfig", () => {
     ).toThrow()
     expect(() =>
       parseConfig(testEnvironment({ LINKSENSE_MAX_CONCURRENT_CONVERSATIONS: "0" })),
+    ).toThrow()
+    expect(() =>
+      parseConfig(
+        testEnvironment({
+          LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT: "0",
+        }),
+      ),
     ).toThrow()
   })
 

@@ -24,6 +24,7 @@ import {
 import { FileService } from "./modules/files/service.js";
 import { ConversationEventService } from "./modules/events/service.js";
 import { SystemService } from "./modules/system/service.js";
+import { SystemUpdateChecker } from "./modules/system/update-checker.js";
 import { AppError } from "./lib/errors.js";
 import { BackgroundJobs } from "./adapters/jobs.js";
 import { PasswordResetMailDeliveryQueue } from "./adapters/password-reset-mail-queue.js";
@@ -56,7 +57,10 @@ import { KnowledgeModelSettingsService } from "./modules/system/knowledge-model-
 import { VercelAiImageUnderstandingClient } from "./modules/knowledge-processing/image-understanding-client.js";
 import { LiveKnowledgeModelConfigurationProbe } from "./modules/knowledge-processing/knowledge-model-runtime.js";
 import { DashScopeAsrClient } from "./adapters/dashscope-asr.js";
-import { VoiceTranscriptionService } from "./modules/voice/service.js";
+import {
+  VoiceTranscriptionRateLimiter,
+  VoiceTranscriptionService,
+} from "./modules/voice/service.js";
 import { ManagedTaskTitleGenerator } from "./adapters/dashscope-title.js";
 import { ConversationTitleService } from "./modules/conversations/title-service.js";
 import { SiteIconService } from "./modules/site-icons/service.js";
@@ -175,6 +179,7 @@ export type AppServices = {
   files: FileService;
   events: ConversationEventService;
   system: SystemService;
+  systemUpdate: SystemUpdateChecker;
   jobs: BackgroundJobs;
   passwordResetMail: PasswordResetMailDeliveryQueue;
   capabilities: CapabilityService;
@@ -188,6 +193,7 @@ export type AppServices = {
   mcpServers: McpServerService;
   users: UserService;
   voiceTranscription: VoiceTranscriptionService;
+  voiceTranscriptionRateLimits: VoiceTranscriptionRateLimiter;
   siteIcons: SiteIconService;
   externalImages: ExternalImageService;
   knowledge: KnowledgeService | null;
@@ -461,6 +467,9 @@ export function createServices(input: {
       ...input.config.dashscopeAsr,
     }),
   );
+  const voiceTranscriptionRateLimits = new VoiceTranscriptionRateLimiter(
+    input.redis,
+  );
   const siteIcons = new SiteIconService(input.redis, {
     allowBenchmarkProxyAddresses:
       input.config.safeHttp.allowBenchmarkProxyAddresses,
@@ -683,6 +692,18 @@ export function createServices(input: {
     new ManagedTaskTitleGenerator(modelProviderSettings),
     usageAnalytics,
   );
+  const system = new SystemService(
+    input.prisma,
+    input.redis,
+    input.runner,
+    input.storage,
+    mailer,
+    audit,
+    input.config,
+    jobs,
+    authenticationSettings,
+    knowledgeRuntime?.health,
+  );
   const conversations = new ConversationService(
     input.prisma,
     input.redis,
@@ -696,6 +717,7 @@ export function createServices(input: {
     applications,
     conversationTitles,
     tokenLimits,
+    system,
   );
   const applicationExternalAccess = new ApplicationExternalAccessService(
     input.prisma,
@@ -797,17 +819,9 @@ export function createServices(input: {
     knowledgeSources,
     usageAnalytics,
   );
-  const system = new SystemService(
-    input.prisma,
+  const systemUpdate = new SystemUpdateChecker(
+    input.config.releaseVersion,
     input.redis,
-    input.runner,
-    input.storage,
-    mailer,
-    audit,
-    input.config,
-    jobs,
-    authenticationSettings,
-    knowledgeRuntime?.health,
   );
   return {
     ...input,
@@ -826,6 +840,7 @@ export function createServices(input: {
     files,
     events,
     system,
+    systemUpdate,
     jobs,
     passwordResetMail,
     capabilities,
@@ -839,6 +854,7 @@ export function createServices(input: {
     mcpServers,
     users,
     voiceTranscription,
+    voiceTranscriptionRateLimits,
     siteIcons,
     externalImages,
     knowledge,

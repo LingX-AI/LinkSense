@@ -1659,6 +1659,15 @@ export const errorCatalog = {
       "en-US": "Speech-to-text failed. Try again or enter the text manually.",
     },
   },
+  VOICE_TRANSCRIPTION_RATE_LIMITED: {
+    message_key: "errors.composer.voiceTranscriptionRateLimited",
+    http_status: 429,
+    messages: {
+      "zh-CN": "语音输入每分钟最多使用 20 次，请稍后再试。",
+      "en-US":
+        "Voice input can be used up to 20 times per minute. Try again shortly.",
+    },
+  },
   TEAMS_SSO_NOT_CONFIGURED: {
     message_key: "auth.teamsSso.notConfigured",
     http_status: 503,

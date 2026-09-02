@@ -1,4 +1,5 @@
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
+import type { ComponentProps } from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -65,4 +66,26 @@ function TooltipContent({
   )
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider }
+function ActionTooltipContent({
+  className,
+  ...props
+}: ComponentProps<typeof TooltipContent>) {
+  return (
+    <TooltipContent
+      showArrow={false}
+      className={cn(
+        "rounded-md border border-[var(--app-border)] bg-[var(--app-popover)] font-medium text-[var(--app-text)]",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export {
+  ActionTooltipContent,
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+}

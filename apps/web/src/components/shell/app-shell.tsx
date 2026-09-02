@@ -14,9 +14,7 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query"
 import type { ConversationOrderGroup } from "@linksense/shared"
-import { TbPin, TbPinFilled } from "react-icons/tb"
 import {
-  ArchiveIcon,
   BellIcon,
   BlocksIcon,
   BookOpenIcon,
@@ -82,6 +80,7 @@ import {
 } from "@/components/ui/sheet"
 import { ConversationSearchDialog } from "@/components/shell/conversation-search-dialog"
 import { ConversationAutomationIcon } from "@/components/shell/conversation-automation-icon"
+import { SidebarConversationActions } from "@/components/shell/sidebar-conversation-actions"
 import { SidebarResizer } from "@/components/shell/sidebar-resizer"
 import { conversationSettingsReturnState } from "@/components/shell/settings-return-navigation"
 import {
@@ -91,6 +90,7 @@ import {
 import { SupportMenu } from "@/components/shell/support-menu"
 import { ApplicationIconDisplay } from "@/features/applications/application-icon"
 import { defaultApplicationIcon } from "@/features/applications/application-icon-default"
+import { SystemUpdateNotice } from "@/features/admin/system-update"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import {
   applySidebarConversationOrder,
@@ -854,65 +854,17 @@ function AppSidebarContent({
                             />
                           </span>
                         )}
-                        <div
-                          className={cn(
-                            "sidebar-conversation-actions pointer-events-none absolute top-1/2 right-1 flex -translate-y-1/2 cursor-default items-center gap-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100",
-                            allowFocusActions &&
-                              "group-focus-within:pointer-events-auto group-focus-within:opacity-100"
-                          )}
-                          onPointerDown={(event) => event.stopPropagation()}
-                        >
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-xs"
-                            className="w-5 text-[var(--app-muted)] transition-none hover:bg-transparent hover:text-[var(--app-text)] dark:hover:bg-transparent"
-                            aria-label={t(
-                              pinned
-                                ? "conversation.unpinNamed"
-                                : "conversation.pinNamed",
-                              { title }
-                            )}
-                            title={t(
-                              pinned ? "conversation.unpin" : "conversation.pin"
-                            )}
-                            disabled={pinMutation.isPending}
-                            onClick={() => pinMutation.mutate(conversation)}
-                          >
-                            {pinned ? (
-                              <TbPinFilled
-                                className="size-4"
-                                data-icon="sidebar-pin-filled"
-                                aria-hidden="true"
-                              />
-                            ) : (
-                              <TbPin
-                                className="size-4"
-                                data-icon="sidebar-pin"
-                                strokeWidth={2}
-                                aria-hidden="true"
-                              />
-                            )}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-xs"
-                            className="w-5 text-[var(--app-muted)] transition-none hover:bg-transparent hover:text-[var(--app-text)] dark:hover:bg-transparent"
-                            aria-label={t("conversation.archiveNamed", {
-                              title,
-                            })}
-                            title={t("conversation.archive")}
-                            disabled={archiveMutation.isPending}
-                            onClick={() => archiveMutation.mutate(conversation)}
-                          >
-                            <ArchiveIcon
-                              className="size-3.5"
-                              strokeWidth={2}
-                              aria-hidden="true"
-                            />
-                          </Button>
-                        </div>
+                        <SidebarConversationActions
+                          title={title}
+                          pinned={pinned}
+                          pinDisabled={pinMutation.isPending}
+                          archiveDisabled={archiveMutation.isPending}
+                          focusActionsVisible={allowFocusActions}
+                          onTogglePinned={() =>
+                            pinMutation.mutate(conversation)
+                          }
+                          onArchive={() => archiveMutation.mutate(conversation)}
+                        />
                       </div>
                     )
                   }}
@@ -1140,6 +1092,7 @@ export function AppShell() {
         >
           <MenuIcon aria-hidden="true" />
         </Button>
+        <SystemUpdateNotice />
         <Outlet />
       </main>
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>

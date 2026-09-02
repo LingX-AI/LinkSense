@@ -105,6 +105,11 @@ const InteractiveApplicationPage = lazy(() =>
     (module) => ({ default: module.InteractiveApplicationPage })
   )
 )
+const ApplicationUsagePage = lazy(() =>
+  import("@/features/applications/application-usage-page").then((module) => ({
+    default: module.ApplicationUsagePage,
+  }))
+)
 const AutomationPage = lazy(() =>
   import("@/pages/automation-pages").then((module) => ({
     default: module.AutomationPage,
@@ -286,6 +291,10 @@ export function App() {
                   path="/admin/health"
                   element={<AdminPages page="health" />}
                 />
+                <Route
+                  path="/admin/system-update"
+                  element={<AdminPages page="updates" />}
+                />
               </Route>
             </Route>
             <Route element={<AppShell />}>
@@ -310,6 +319,10 @@ export function App() {
               <Route
                 path="/capabilities/applications/:applicationId/external-access"
                 element={<ApplicationExternalAccessPage />}
+              />
+              <Route
+                path="/capabilities/applications/:applicationId/usage"
+                element={<ApplicationUsagePage />}
               />
               <Route
                 path="/applications/:applicationId/run/:conversationId"

@@ -359,7 +359,7 @@ describe("system health", () => {
       observed_unresolved_running_turn_slot_count: 4,
       app_server_process_count: 3,
       concurrency_limit: 20,
-      process_limit: 7,
+      process_limit: 20,
     })
     expect(recovered.runner_metadata).toMatchObject({
       status: "available",

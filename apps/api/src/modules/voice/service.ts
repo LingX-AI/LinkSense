@@ -18,6 +18,36 @@ export interface VoiceTranscriptionProvider {
   streamTranscription(input: VoiceTranscriptionInput): AsyncIterable<string>
 }
 
+export interface VoiceTranscriptionRateLimitStore {
+  takeVoiceTranscriptionRequest(
+    userId: string,
+  ): Promise<{ allowed: boolean; retryAfterSeconds: number }>
+  takeApplicationEmbedVoiceTranscriptionRequest(
+    sessionId: string,
+  ): Promise<{ allowed: boolean; retryAfterSeconds: number }>
+}
+
+export class VoiceTranscriptionRateLimiter {
+  constructor(private readonly store: VoiceTranscriptionRateLimitStore) {}
+
+  async assertAllowed(userId: string): Promise<void> {
+    const admission = await this.store.takeVoiceTranscriptionRequest(userId)
+    if (admission.allowed) return
+    throw new AppError("VOICE_TRANSCRIPTION_RATE_LIMITED", {
+      retry_after_seconds: admission.retryAfterSeconds,
+    })
+  }
+
+  async assertApplicationEmbedSessionAllowed(sessionId: string): Promise<void> {
+    const admission =
+      await this.store.takeApplicationEmbedVoiceTranscriptionRequest(sessionId)
+    if (admission.allowed) return
+    throw new AppError("VOICE_TRANSCRIPTION_RATE_LIMITED", {
+      retry_after_seconds: admission.retryAfterSeconds,
+    })
+  }
+}
+
 export class VoiceTranscriptionService implements VoiceTranscription {
   constructor(private readonly client: VoiceTranscriptionProvider) {}
 

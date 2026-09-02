@@ -2,7 +2,7 @@ import multipart from "@fastify/multipart"
 import Fastify, { type FastifyRequest } from "fastify"
 import { describe, expect, it, vi } from "vitest"
 
-import { errorDetails, normalizeError } from "../src/lib/errors.js"
+import { AppError, errorDetails, normalizeError } from "../src/lib/errors.js"
 import { adminSystemRoutes, systemRoutes } from "../src/modules/system/routes.js"
 import type { AppServices } from "../src/services.js"
 
@@ -60,6 +60,90 @@ function multipartLogo(
 }
 
 describe("admin system routes", () => {
+  it("reads the cached update status and supports an explicit refresh", async () => {
+    const updateStatus = {
+      status: "update_available",
+      current_version: "v0.1.1",
+      latest_release: {
+        version: "v0.2.0",
+        name: "LinkSense v0.2.0",
+        published_at: "2026-09-01T08:00:00.000Z",
+        url: "https://github.com/LingX-AI/linksense/releases/tag/v0.2.0",
+        release_notes: null,
+      },
+      checked_at: "2026-09-01T09:00:00.000Z",
+      error_code: null,
+    }
+    const getStatus = vi.fn().mockResolvedValue(updateStatus)
+    const app = Fastify()
+    app.decorate("requireAdmin", async (request: FastifyRequest) => {
+      request.authUser = {
+        id: "01900000-0000-7000-8000-000000000099",
+        email: "admin@example.test",
+        name: "Admin",
+        role: "admin",
+        status: "active",
+        preferredLocale: "zh-CN",
+        avatarObjectKey: null,
+        authValidAfter: new Date(0),
+      }
+    })
+    await app.register(adminSystemRoutes, {
+      prefix: "/api/v1/admin",
+      services: {
+        systemUpdate: { getStatus },
+      } as unknown as AppServices,
+    })
+
+    const automaticResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/system-update",
+    })
+    expect(automaticResponse.statusCode).toBe(200)
+    expect(automaticResponse.headers["cache-control"]).toBe(
+      "private, no-store",
+    )
+    expect(automaticResponse.json().data).toEqual(updateStatus)
+    expect(getStatus).toHaveBeenNthCalledWith(1)
+
+    const refreshResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/system-update/check",
+    })
+    expect(refreshResponse.statusCode).toBe(200)
+    expect(getStatus).toHaveBeenNthCalledWith(2, true)
+    await app.close()
+  })
+
+  it("rejects update checks before calling the service when admin access is denied", async () => {
+    const getStatus = vi.fn()
+    const app = Fastify()
+    app.setErrorHandler((error, _request, reply) => {
+      const normalized = normalizeError(error)
+      const details = errorDetails(normalized.code, "zh-CN")
+      return reply.code(details.status).send({ error_code: normalized.code })
+    })
+    app.decorate("requireAdmin", async () => {
+      throw new AppError("FORBIDDEN")
+    })
+    await app.register(adminSystemRoutes, {
+      prefix: "/api/v1/admin",
+      services: {
+        systemUpdate: { getStatus },
+      } as unknown as AppServices,
+    })
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/system-update",
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json()).toEqual({ error_code: "FORBIDDEN" })
+    expect(getStatus).not.toHaveBeenCalled()
+    await app.close()
+  })
+
   it("reads and updates open registration as an administrator", async () => {
     const getRegistrationSettings = vi.fn().mockResolvedValue({
       enabled: false,
@@ -127,6 +211,94 @@ describe("admin system routes", () => {
       "01900000-0000-7000-8000-000000000099",
       { enabled: true, total_token_limit: "12500000" },
       expect.objectContaining({ userAgent: "registration-settings-test" }),
+    )
+    await app.close()
+  })
+
+  it("reads and updates execution concurrency overrides as an administrator", async () => {
+    const settings = {
+      max_concurrent_conversations: null,
+      runner_app_server_process_limit: 12,
+      environment_defaults: {
+        max_concurrent_conversations: 20,
+        runner_app_server_process_limit: 20,
+      },
+      effective: {
+        max_concurrent_conversations: 20,
+        runner_app_server_process_limit: 12,
+      },
+    }
+    const getExecutionConcurrencySettings = vi.fn().mockResolvedValue(settings)
+    const updateExecutionConcurrencySettings = vi
+      .fn()
+      .mockResolvedValue(settings)
+    const app = Fastify()
+    app.setErrorHandler((error, _request, reply) => {
+      const normalized = normalizeError(error)
+      const details = errorDetails(normalized.code, "zh-CN")
+      return reply.code(details.status).send({ error_code: normalized.code })
+    })
+    app.decorate("requireAdmin", async (request: FastifyRequest) => {
+      request.authUser = {
+        id: "01900000-0000-7000-8000-000000000099",
+        email: "admin@example.test",
+        name: "Admin",
+        role: "admin",
+        status: "active",
+        preferredLocale: "zh-CN",
+        avatarObjectKey: null,
+        authValidAfter: new Date(0),
+      }
+    })
+    await app.register(adminSystemRoutes, {
+      prefix: "/api/v1/admin",
+      services: {
+        system: {
+          getExecutionConcurrencySettings,
+          updateExecutionConcurrencySettings,
+        },
+      } as unknown as AppServices,
+    })
+
+    const readResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/execution-concurrency-settings",
+    })
+    expect(readResponse.statusCode).toBe(200)
+    expect(readResponse.json().data).toEqual(settings)
+
+    const invalidResponse = await app.inject({
+      method: "PUT",
+      url: "/api/v1/admin/execution-concurrency-settings",
+      payload: {
+        max_concurrent_conversations: 0,
+        runner_app_server_process_limit: null,
+      },
+    })
+    expect(invalidResponse.statusCode).toBe(400)
+    expect(updateExecutionConcurrencySettings).not.toHaveBeenCalled()
+
+    const updateResponse = await app.inject({
+      method: "PUT",
+      url: "/api/v1/admin/execution-concurrency-settings",
+      headers: { "user-agent": "concurrency-settings-test" },
+      payload: {
+        max_concurrent_conversations: null,
+        runner_app_server_process_limit: 12,
+      },
+    })
+    expect(updateResponse.statusCode).toBe(200)
+    expect(updateResponse.json().data).toEqual({
+      code: "SYSTEM_SETTINGS_UPDATED",
+      settings,
+    })
+    expect(updateExecutionConcurrencySettings).toHaveBeenCalledWith(
+      "01900000-0000-7000-8000-000000000099",
+      {
+        max_concurrent_conversations: null,
+        runner_app_server_process_limit: 12,
+      },
+      expect.objectContaining({ userAgent: "concurrency-settings-test" }),
     )
     await app.close()
   })

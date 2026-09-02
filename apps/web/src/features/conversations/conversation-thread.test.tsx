@@ -163,6 +163,28 @@ describe("conversation turn responses", () => {
     restoreUrlMethod("revokeObjectURL", originalRevokeObjectUrl)
   })
 
+  it("branches from the final terminal assistant message", async () => {
+    const interaction = userEvent.setup()
+    const onForkMessage = vi.fn(async () => undefined)
+    render(
+      <MemoryRouter>
+        <ConversationThread
+          conversation={completedConversation}
+          onDownload={vi.fn()}
+          onForkMessage={onForkMessage}
+        />
+      </MemoryRouter>
+    )
+
+    await interaction.click(
+      screen.getByRole("button", { name: "分支到新聊天" })
+    )
+
+    expect(onForkMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "message-assistant-1" })
+    )
+  })
+
   it("renders the localized welcome state for a new task", async () => {
     const interaction = userEvent.setup()
     const onStarterQuestionSelect = vi.fn()
@@ -1487,6 +1509,7 @@ describe("conversation turn responses", () => {
           activities: [],
         }}
         onDownload={vi.fn()}
+        showNewTaskWelcome
         suppressEmptyState
       />
     )
@@ -6349,6 +6372,60 @@ describe("conversation turn responses", () => {
       completedConversation.messages![1]!.content
     )
     expect(execCommand).not.toHaveBeenCalled()
+  })
+
+  it("shows assistant action names immediately without tooltip arrows", () => {
+    render(
+      <ConversationThread
+        conversation={completedConversation}
+        onDownload={vi.fn()}
+        onForkMessage={vi.fn().mockResolvedValue(undefined)}
+      />
+    )
+
+    const assistantMessage = screen.getByRole("article", { name: "助手回复" })
+    const copyButton = within(assistantMessage).getByRole("button", {
+      name: "复制消息",
+    })
+    const forkButton = within(assistantMessage).getByRole("button", {
+      name: "分支到新聊天",
+    })
+
+    expect(copyButton).not.toHaveAttribute("title")
+    expect(forkButton).not.toHaveAttribute("title")
+
+    fireEvent.pointerEnter(copyButton, { pointerType: "mouse" })
+    fireEvent.mouseEnter(copyButton)
+    fireEvent.mouseMove(copyButton, { movementX: 3, movementY: 0 })
+    const copyTooltip = screen.getByRole("tooltip")
+    expect(copyTooltip).toHaveTextContent("复制消息")
+    expect(copyTooltip).toHaveClass(
+      "rounded-md",
+      "border",
+      "border-[var(--app-border)]",
+      "bg-[var(--app-popover)]",
+      "font-medium",
+      "text-[var(--app-text)]"
+    )
+    expect(copyTooltip).not.toHaveClass("rounded-full", "rounded-xl")
+
+    fireEvent.pointerLeave(copyButton, { pointerType: "mouse" })
+    fireEvent.mouseLeave(copyButton)
+    fireEvent.pointerEnter(forkButton, { pointerType: "mouse" })
+    fireEvent.mouseEnter(forkButton)
+    fireEvent.mouseMove(forkButton, { movementX: 3, movementY: 0 })
+    const forkTooltip = screen.getByRole("tooltip")
+    expect(forkTooltip).toHaveTextContent("分支到新聊天")
+    expect(forkTooltip).toHaveClass(
+      "rounded-md",
+      "border",
+      "border-[var(--app-border)]",
+      "bg-[var(--app-popover)]",
+      "font-medium",
+      "text-[var(--app-text)]"
+    )
+    expect(forkTooltip).not.toHaveClass("rounded-full", "rounded-xl")
+    expect(document.querySelector(".rotate-45")).not.toBeInTheDocument()
   })
 
   it("separates a new user turn after more than two hours of inactivity", () => {

@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react"
 
+import { OFFICE_PREVIEW_EXIT_ANIMATION_NAME } from "@/components/media/office-preview/office-preview-suspense-boundary"
 import { SidebarResizer } from "@/components/shell/sidebar-resizer"
 import {
   DEFAULT_PRESENTATION_PREVIEW_VIEWPORT_RATIO,
@@ -26,12 +27,16 @@ export function ConversationOfficeLayout({
   resizeLabel,
   defaultPreviewViewportRatio = DEFAULT_PRESENTATION_PREVIEW_VIEWPORT_RATIO,
   taskOverviewOpen = false,
+  previewClosing = false,
+  onPreviewExitComplete,
 }: Readonly<{
   children: ReactNode
   preview?: ReactNode
   resizeLabel: string
   defaultPreviewViewportRatio?: number
   taskOverviewOpen?: boolean
+  previewClosing?: boolean
+  onPreviewExitComplete?: () => void
 }>) {
   const layoutRef = useRef<HTMLDivElement | null>(null)
   const [layoutWidth, setLayoutWidth] = useState(0)
@@ -39,6 +44,8 @@ export function ConversationOfficeLayout({
     number | null
   >(null)
   const [resizing, setResizing] = useState(false)
+  const hasPreview = preview !== undefined && preview !== null
+  const activePreviewClosing = hasPreview && previewClosing
 
   const updateLayoutWidth = useCallback((element: HTMLElement) => {
     const nextWidth = measureWidth(element)
@@ -72,6 +79,36 @@ export function ConversationOfficeLayout({
     }
   }, [updateLayoutWidth])
 
+  useEffect(() => {
+    if (!activePreviewClosing || !onPreviewExitComplete) return
+
+    if (
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      onPreviewExitComplete()
+      return
+    }
+
+    const layout = layoutRef.current
+    if (!layout) return
+    const handlePreviewExitEnd = (event: Event) => {
+      const animationTarget = event.target
+      if (
+        (event as AnimationEvent).animationName ===
+          OFFICE_PREVIEW_EXIT_ANIMATION_NAME &&
+        animationTarget instanceof Element &&
+        animationTarget.classList.contains("office-preview-pane")
+      ) {
+        onPreviewExitComplete()
+      }
+    }
+    layout.addEventListener("animationend", handlePreviewExitEnd)
+    return () => {
+      layout.removeEventListener("animationend", handlePreviewExitEnd)
+    }
+  }, [activePreviewClosing, onPreviewExitComplete])
+
   const viewportWidth =
     typeof window === "undefined" ? layoutWidth : window.innerWidth
   const workspaceWidth = resolveConversationWorkspaceWidth({
@@ -93,13 +130,14 @@ export function ConversationOfficeLayout({
     <div
       ref={setLayoutNode}
       className="conversation-office-layout conversation-presentation-layout"
-      data-has-office-preview={preview ? "true" : undefined}
-      data-has-presentation-preview={preview ? "true" : undefined}
+      data-has-office-preview={hasPreview ? "true" : undefined}
+      data-has-presentation-preview={hasPreview ? "true" : undefined}
+      data-preview-closing={activePreviewClosing ? "true" : undefined}
       data-overlay-office-preview={
-        preview && overlayPreview ? "true" : undefined
+        hasPreview && overlayPreview ? "true" : undefined
       }
       data-overlay-presentation-preview={
-        preview && overlayPreview ? "true" : undefined
+        hasPreview && overlayPreview ? "true" : undefined
       }
       data-preview-resizing={resizing ? "true" : undefined}
       style={layoutStyle}

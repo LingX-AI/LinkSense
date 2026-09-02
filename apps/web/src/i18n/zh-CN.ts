@@ -324,6 +324,8 @@ export const zhCN = {
     systemSettingsDescription: "产品与认证功能设置",
     systemHealth: "系统健康",
     systemHealthDescription: "服务与依赖状态",
+    systemUpdate: "系统更新",
+    systemUpdateDescription: "检查新版本并查看安全更新指引",
     noResults: "没有匹配的设置。",
     generalPageDescription: "管理仅与你的账号相关的界面偏好。",
     interfaceLanguage: "界面语言",
@@ -1840,6 +1842,9 @@ export const zhCN = {
     copyMessage: "复制消息",
     messageCopied: "消息已复制",
     copyMessageFailed: "无法复制消息，请重试。",
+    forkMessage: "分支到新聊天",
+    forkingMessage: "正在创建分支…",
+    forkMessageFailed: "无法创建分支任务，请重试。",
     copyCode: "复制代码",
     codeCopied: "代码已复制",
     previewHtmlCode: "预览 HTML 代码",
@@ -2132,6 +2137,22 @@ export const zhCN = {
     dependencyUnavailableShort: "当前不可用，可取消选择",
     usesPluginCredentials: "使用插件凭据",
     share: "共享",
+    usage: {
+      action: "用量统计",
+      title: "应用用量",
+      description: "查看“{{name}}”在所选周期内的使用情况与模型费用。",
+      backToApplications: "返回应用列表",
+      activeUsers: "使用人数",
+      activeUsersHint: "所选周期内创建过任务或实际发起过轮次的去重用户",
+      coverageTitle: "Token 与费用数据仅覆盖采集开始后的调用",
+      coverageDescription:
+        "覆盖起始时间为 {{date}}；更早的任务和轮次仍会统计，但不会用当前价格推算历史 Token 或费用。",
+      tokenBreakdownTitle: "Token 构成",
+      costBreakdownTitle: "费用构成",
+      unpricedTokens: "未定价 Token",
+      modelBreakdownDescription: "按模型查看调用、轮次、Token 和费用。",
+      workloadBreakdownDescription: "按模型用途查看调用、Token 和费用。",
+    },
     startChat: "立即试用",
     deleteTitle: "删除这个应用？",
     deleteDescription:
@@ -3066,6 +3087,54 @@ export const zhCN = {
     deleting: "正在删除…",
     deleteSuccess: "反馈已删除。",
   },
+  systemUpdate: {
+    notice: {
+      title: "LinkSense {{version}} 已发布",
+      description: "管理员可以查看发布说明，并按安全升级流程完成更新。",
+      action: "查看更新",
+      dismiss: "暂时关闭此版本的更新提示",
+    },
+    status: {
+      update_available: "有新版本",
+      up_to_date: "已是最新版",
+      check_failed: "检查失败",
+    },
+    overview: {
+      title: "版本状态",
+      description: "自动检查 LinkSense 的 GitHub 正式发布。",
+    },
+    currentVersion: "当前版本",
+    latestVersion: "最新版本",
+    checkedAt: "最近检查",
+    publishedAt: "发布时间",
+    checkNow: "立即检查",
+    openRelease: "查看 GitHub 发布页",
+    releaseNotes: "发布说明",
+    refreshFailed: "无法重新检查更新",
+    checkFailed: {
+      title: "暂时无法获取最新版本",
+      GITHUB_UNAVAILABLE: "无法连接 GitHub，请检查服务器网络后重试。",
+      GITHUB_RATE_LIMITED: "GitHub 暂时限制了检查请求，请稍后重试。",
+      GITHUB_RESPONSE_INVALID: "GitHub 返回的发布信息无法识别，请稍后重试。",
+    },
+    tutorial: {
+      title: "更新教程",
+      description:
+        "升级脚本会自动识别 Core 或 Full 版本，等待运行中的任务结束，并在迁移前创建经过验证的数据库备份。",
+      safetyTitle: "升级不会由网页自动执行",
+      safetyDescription:
+        "请在 LinkSense 所在主机的终端中执行命令。建议先安排维护窗口，并确保当前管理员能够查看服务状态。",
+      linux: "Linux",
+      macos: "macOS（不要使用 sudo）",
+      steps: {
+        maintenance: "在业务低峰安排系统维护窗口，并通知正在使用系统的用户。",
+        run: "登录 LinkSense 所在主机，在终端执行与操作系统对应的升级命令。",
+        backup:
+          "保存脚本输出的 PostgreSQL 备份地址；数据库迁移开始后的失败不会自动回滚数据库。",
+        health: "升级完成后进入“系统健康”确认各项服务均已恢复。",
+      },
+    },
+  },
   admin: {
     usersAndGroupsTitle: "用户与用户组",
     usersAndGroupsDescription: "集中管理用户账号、角色、状态以及用户组和成员。",
@@ -3190,21 +3259,67 @@ export const zhCN = {
     exportTargetType: "目标类型",
     exportTargetId: "目标 ID",
     exportMetadata: "元数据",
+    auditId: "日志 ID",
+    userAgent: "User-Agent",
+    auditDetailsTitle: "审计日志详情",
+    auditDetailsDescription: "以下为该条审计日志中全部可查看的脱敏信息。",
+    auditEventInformation: "日志信息",
+    auditSubjectInformation: "操作主体与目标",
+    auditRequestInformation: "请求信息",
+    auditMetadataTitle: "脱敏元数据",
+    auditMetadataEmpty: "没有额外元数据。",
+    auditConversationDetailsTitle: "任务执行详情",
+    auditConversationDetailsDescription:
+      "以下为该任务中全部可查看的脱敏执行元数据。",
+    retainedArtifactDetailsTitle: "已删除任务产物详情",
+    retainedArtifactDetailsDescription:
+      "以下为该已删除任务中永久保留产物的全部可查看汇总信息。",
+    auditExecutionInformation: "执行信息",
+    auditArtifactInformation: "产物信息",
+    ownerId: "创建用户 ID",
+    ownerName: "创建用户名称",
+    ownerEmail: "创建用户邮箱",
+    executionDuration: "执行时长",
+    executionErrorType: "错误类型",
+    attachmentCount: "附件数量",
+    attachmentSize: "附件总大小",
+    artifactCount: "产物数量",
+    artifactSize: "产物总大小",
+    firstArtifactCreatedAt: "首个产物创建时间",
+    lastArtifactCreatedAt: "最后产物创建时间",
     export: "导出 CSV",
     exporting: "正在导出…",
     auditEmpty: "没有匹配的审计记录。",
     settingsTitle: "系统设置",
     managementTitle: "管理",
     settingsDescription:
-      "管理产品显示、认证邮件与登录功能；敏感值加密保存且不会回显。",
+      "管理产品显示、任务并发、认证邮件与登录功能；敏感值加密保存且不会回显。",
     settingsTabsLabel: "系统设置分类",
     settingsTabs: {
       product: "产品设置",
+      concurrency: "任务并发",
       smtp: "认证邮件",
       registration: "开放注册",
       oidc: "OIDC 登录",
       teams: "Teams 登录",
       maintenance: "系统维护",
+    },
+    concurrency: {
+      title: "任务并发",
+      description:
+        "设置系统和单个用户可同时运行的任务规模。留空时使用部署默认值。",
+      globalLimit: "系统同时运行任务数上限",
+      globalLimitDescription:
+        "所有用户合计的运行中任务上限。留空时使用部署默认值 {{defaultValue}}；当前生效值为 {{effectiveValue}}。",
+      processLimit: "单用户任务进程数上限",
+      processLimitDescription:
+        "每个用户可同时加载的任务进程上限。留空时使用部署默认值 {{defaultValue}}；当前生效值为 {{effectiveValue}}。",
+      loweringBehavior:
+        "调低上限不会中断正在运行的任务；新任务会在当前用量低于新上限后恢复启动。",
+      saved: "任务并发设置已更新。",
+      errors: {
+        positiveInteger: "请输入大于 0 的整数，或留空使用部署默认值。",
+      },
     },
     registration: {
       enabled: "允许用户自行注册",
@@ -3921,6 +4036,8 @@ export const zhCN = {
     },
     composer: {
       voiceTranscriptionFailed: "语音转文字失败，请重试或手动输入。",
+      voiceTranscriptionRateLimited:
+        "语音输入每分钟最多使用 20 次，请稍后再试。",
     },
     mcp: {
       insecureHttpAcknowledgementRequired:

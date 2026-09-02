@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import {
+  applicationUsageReportSchema,
   modelTokenPricingSchema,
   personalUsageProfileQuerySchema,
   personalUsageProfileSchema,
@@ -12,6 +13,7 @@ import {
   usageWorkloadSchema,
   type ModelProviderSettings,
   type ModelTokenPricing,
+  type ApplicationUsageReport,
   type PersonalUsageProfile,
   type UsageAnalyticsReport,
   type UsageAnalyticsReportQuery,
@@ -32,6 +34,7 @@ import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
 
 import type { Prisma, PrismaClient } from "../../generated/prisma/client.js";
+import { AppError } from "../../lib/errors.js";
 import {
   calculatePriceAndCostSnapshot,
   modelUsageCaptureSchema,
@@ -186,6 +189,7 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
         select: {
           ownerId: true,
           codexThreadId: true,
+          forkRootId: true,
           applicationId: true,
           applicationNameSnapshot: true,
         },
@@ -207,6 +211,17 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
         select: { id: true, model: true, startedAt: true },
       });
       if (!turn) {
+        // Codex may emit cumulative snapshots for native-only turns copied
+        // into a fork. They can never acquire a LinkSense turn projection and
+        // must be acknowledged so an older durable outbox cannot block every
+        // subsequent event from the new branch.
+        if (conversation.forkRootId !== null) {
+          return {
+            accepted: true,
+            ignored: true,
+            reason_code: "UNPROJECTED_FORK_HISTORY",
+          };
+        }
         return {
           accepted: false,
           reason_code: "TURN_PROJECTION_PENDING",
@@ -915,11 +930,187 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
     });
   }
 
+  async applicationReport(
+    ownerId: string,
+    applicationId: string,
+    rawQuery: unknown,
+  ): Promise<ApplicationUsageReport> {
+    const query = usageAnalyticsReportQuerySchema.parse(rawQuery);
+    const application = await this.prisma.application.findFirst({
+      where: {
+        id: applicationId,
+        ownerId,
+        status: { in: ["active", "disabled"] },
+      },
+      select: { id: true, name: true },
+    });
+    if (!application) throw new AppError("APPLICATION_NOT_FOUND");
+
+    const generatedAt = this.now();
+    const period = reportPeriod(query, generatedAt);
+    const dateWindow = period.from
+      ? { gte: period.from, lt: period.upperBoundExclusive }
+      : { lt: period.upperBoundExclusive };
+    const [state, catalog, tokenUsageBounds, modelUsageBounds] =
+      await Promise.all([
+        this.prisma.usageAnalyticsState.findUnique({
+          where: { id: USAGE_ANALYTICS_STATE_ID },
+        }),
+        this.loadModelCatalog(),
+        this.prisma.tokenUsageRecord.aggregate({
+          where: { applicationId },
+          _min: { observedAt: true },
+        }),
+        this.prisma.modelUsageRecord.aggregate({
+          where: { applicationId },
+          _min: { observedAt: true },
+        }),
+      ]);
+    const measurementStartedAt =
+      state?.tokenMeasurementStartedAt ?? generatedAt;
+    const earliestUsageAt = earliestDefinedDate(
+      tokenUsageBounds._min.observedAt,
+      modelUsageBounds._min.observedAt,
+    );
+    const tokenTrendFrom = period.from ?? earliestUsageAt ?? generatedAt;
+    const tokenTrendTo = earlierDate(period.to, generatedAt);
+    const tokenTrendUpperBoundExclusive = earlierDate(
+      period.upperBoundExclusive,
+      nextMillisecond(generatedAt),
+    );
+
+    const [taskRows, turnRows, tokenRows, modelUsageRows, tokenTrend] =
+      await Promise.all([
+        this.prisma.usageActivityRecord.groupBy({
+          by: ["ownerId"],
+          where: {
+            applicationId,
+            activityType: "task_created",
+            occurredAt: dateWindow,
+          },
+          _count: { _all: true },
+        }),
+        this.prisma.usageActivityRecord.groupBy({
+          by: ["ownerId", "model"],
+          where: {
+            applicationId,
+            activityType: "turn_started",
+            occurredAt: dateWindow,
+          },
+          _count: { _all: true },
+        }),
+        this.prisma.tokenUsageRecord.groupBy({
+          by: ["ownerId", "model"],
+          where: { applicationId, observedAt: dateWindow },
+          _sum: {
+            totalTokens: true,
+            inputTokens: true,
+            cachedInputTokens: true,
+            outputTokens: true,
+            reasoningOutputTokens: true,
+            inputCostPicoCny: true,
+            cachedInputCostPicoCny: true,
+            outputCostPicoCny: true,
+            totalCostPicoCny: true,
+            unpricedTokens: true,
+          },
+        }),
+        this.prisma.modelUsageRecord.groupBy({
+          by: [
+            "ownerId",
+            "model",
+            "modelKind",
+            "workload",
+            "measurementMethod",
+          ],
+          where: { applicationId, observedAt: dateWindow },
+          _sum: {
+            requestCount: true,
+            totalTokens: true,
+            inputTokens: true,
+            cachedInputTokens: true,
+            outputTokens: true,
+            reasoningOutputTokens: true,
+            inputCostPicoCny: true,
+            cachedInputCostPicoCny: true,
+            outputCostPicoCny: true,
+            totalCostPicoCny: true,
+            unpricedTokens: true,
+          },
+        }),
+        this.loadTokenTrend({
+          from: tokenTrendFrom,
+          to: tokenTrendTo,
+          upperBoundExclusive: tokenTrendUpperBoundExclusive,
+          timeZone: period.timeZone,
+          applicationId,
+        }),
+      ]);
+
+    const usage = emptyUsage();
+    const activeUserIds = new Set<string>();
+    for (const row of taskRows) {
+      usage.taskCount += row._count._all;
+      activeUserIds.add(row.ownerId);
+    }
+    for (const row of turnRows) {
+      applyGenerationTurns(
+        usage,
+        row.model ?? UNKNOWN_USAGE_MODEL_ID,
+        row._count._all,
+      );
+      activeUserIds.add(row.ownerId);
+    }
+    for (const row of tokenRows) {
+      applyGenerationUsage(
+        usage,
+        row.model,
+        nullableTokenSum(row._sum),
+        nullableCostSum(row._sum),
+      );
+    }
+    for (const row of modelUsageRows) {
+      applyModelUsage(usage, {
+        modelId: row.model,
+        modelKind: usageModelKindSchema.parse(row.modelKind),
+        workload: usageWorkloadSchema.parse(row.workload),
+        measurementMethod: usageMeasurementMethodSchema.parse(
+          row.measurementMethod,
+        ),
+        requestCount: toSafeCount(row._sum.requestCount),
+        tokens: nullableTokenSum(row._sum),
+        cost: nullableCostSum(row._sum),
+      });
+    }
+
+    return applicationUsageReportSchema.parse({
+      application,
+      range: query.range,
+      generated_at: generatedAt.toISOString(),
+      period: {
+        from: period.from?.toISOString() ?? null,
+        to: period.to.toISOString(),
+        time_zone: period.timeZone,
+      },
+      token_coverage: {
+        started_at: measurementStartedAt.toISOString(),
+        complete_for_period:
+          period.from !== null && period.from >= measurementStartedAt,
+      },
+      active_user_count: activeUserIds.size,
+      totals: projectMetrics(usage),
+      token_trend: tokenTrend,
+      workloads: projectWorkloads(usage.workloads),
+      models: projectModels(usage.models, catalog.displayNames),
+    });
+  }
+
   private async loadTokenTrend(input: {
     from: Date;
     to: Date;
     upperBoundExclusive: Date;
     timeZone: string;
+    applicationId?: string;
   }): Promise<{
     granularity: UsageTokenTrendGranularity;
     points: Array<{
@@ -940,6 +1131,7 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
       WITH "all_usage" AS (
         SELECT
           "observed_at",
+          "application_id" AS "applicationId",
           'assistant_response'::text AS "workload",
           'provider'::text AS "measurementMethod",
           "turn_id"::text AS "requestId",
@@ -957,6 +1149,7 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
         UNION ALL
         SELECT
           "observed_at",
+          "application_id" AS "applicationId",
           "workload",
           "measurement_method" AS "measurementMethod",
           "request_id"::text AS "requestId",
@@ -993,6 +1186,10 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
       FROM "all_usage"
       WHERE "observed_at" >= ${input.from}
         AND "observed_at" < ${input.upperBoundExclusive}
+        AND (
+          ${input.applicationId ?? null}::uuid IS NULL
+          OR "applicationId" = ${input.applicationId ?? null}::uuid
+        )
       GROUP BY 1, 2, 3
       ORDER BY 1 ASC, 2 ASC, 3 ASC
     `;

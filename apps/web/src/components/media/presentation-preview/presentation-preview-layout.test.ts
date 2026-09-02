@@ -51,16 +51,67 @@ describe("presentation preview layout", () => {
     expect(expanded).not.toMatch(/100vw|100dvh/u)
   })
 
-  it("slides file preview panes in from the right while respecting reduced motion", () => {
-    expect(previewStyles).toMatch(
-      /\[data-has-office-preview="true"\][\s\S]*?> \.office-preview-pane\.office-preview-pane-entering:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\)[\s\S]*?\{[\s\S]*?animation:\s*conversation-file-preview-pane-in 220ms[\s\S]*?cubic-bezier\(0\.22, 1, 0\.36, 1\) both;/u
+  it("uses a slower right-side transition when file preview panes open and close", () => {
+    const previewMotion = previewStyles.match(
+      /\.conversation-office-layout,\s*\.conversation-presentation-layout\s*\{(?<body>[^}]*)\}/u
+    )?.groups?.body
+    const animatedPanes = Array.from(
+      previewStyles.matchAll(
+        /animation:\s*(conversation-file-preview-pane-(?:in|out))\s+var\(--conversation-file-preview-motion-duration\)\s+var\(--conversation-file-preview-motion-easing\)\s+both;/gu
+      ),
+      ([, name]) => name
     )
+    expect(previewMotion).toMatch(
+      /--conversation-file-preview-motion-duration:\s*360ms;/u
+    )
+    expect(previewMotion).toMatch(
+      /--conversation-file-preview-motion-easing:\s*cubic-bezier\(0\.22, 1, 0\.36, 1\);/u
+    )
+    expect(animatedPanes).toEqual([
+      "conversation-file-preview-pane-in",
+      "conversation-file-preview-pane-out",
+    ])
     expect(previewStyles).toMatch(
       /@keyframes conversation-file-preview-pane-in[\s\S]*?from\s*\{[\s\S]*?transform:\s*translate3d\(100%, 0, 0\);[\s\S]*?to\s*\{[\s\S]*?transform:\s*translate3d\(0, 0, 0\);/u
     )
     expect(previewStyles).toMatch(
-      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\[data-has-office-preview="true"\][\s\S]*?> \.office-preview-pane\.office-preview-pane-entering:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\)[\s\S]*?\{[\s\S]*?animation:\s*none;/u
+      /@keyframes conversation-file-preview-pane-out[\s\S]*?from\s*\{[\s\S]*?transform:\s*translate3d\(0, 0, 0\);[\s\S]*?to\s*\{[\s\S]*?transform:\s*translate3d\(100%, 0, 0\);/u
     )
+    expect(previewStyles).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\[data-has-office-preview="true"\][\s\S]*?> \.office-preview-pane\.office-preview-pane-entering:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\),[\s\S]*?\[data-preview-closing="true"\][\s\S]*?> \.office-preview-pane:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\)[\s\S]*?\{[\s\S]*?animation:\s*none;/u
+    )
+  })
+
+  it("animates the conversation workspace width in sync with the preview pane", () => {
+    expect(previewStyles).toMatch(
+      /\.conversation-office-layout > \.conversation-workspace,\s*\.conversation-presentation-layout > \.conversation-workspace\s*\{[^}]*flex:\s*0 0 100%;[^}]*transition:\s*flex-basis var\(--conversation-file-preview-motion-duration\)\s*var\(--conversation-file-preview-motion-easing\);/u
+    )
+    expect(previewStyles).toMatch(
+      /\[data-has-office-preview="true"\][\s\S]*?> \.conversation-workspace,[\s\S]*?\[data-has-presentation-preview="true"\][\s\S]*?> \.conversation-workspace\s*\{[^}]*flex-basis:\s*var\(--conversation-workspace-width, calc\(100% - 40vw\)\);/u
+    )
+    expect(previewStyles).toMatch(
+      /\[data-preview-closing="true"\][\s\S]*?> \.conversation-workspace\s*\{[^}]*flex-basis:\s*100%;/u
+    )
+  })
+
+  it("skips workspace width motion while resizing or when reduced motion is preferred", () => {
+    expect(previewStyles).toMatch(
+      /\.conversation-office-layout\[data-preview-resizing="true"\]\s*> \.conversation-workspace,[\s\S]*?\.conversation-presentation-layout\[data-preview-resizing="true"\]\s*> \.conversation-workspace\s*\{[^}]*transition:\s*none;/u
+    )
+    expect(previewStyles).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.conversation-office-layout > \.conversation-workspace,[\s\S]*?\.conversation-presentation-layout > \.conversation-workspace[\s\S]*?\{[^}]*transition:\s*none;/u
+    )
+  })
+
+  it("lets exit override entrance without disabling preview interaction", () => {
+    const closingRule = previewStyles.match(
+      /\.conversation-office-layout\[data-has-office-preview="true"\]\[data-preview-closing="true"\][\s\S]*?> \.office-preview-pane:not\(\.subagent-detail-pane\)\s*\{(?<body>[^}]*)\}/u
+    )?.groups?.body
+
+    expect(closingRule).toContain(
+      "animation: conversation-file-preview-pane-out"
+    )
+    expect(closingRule).not.toContain("pointer-events: none")
   })
 
   it("removes the embedded editor inspector and its resize handle", () => {

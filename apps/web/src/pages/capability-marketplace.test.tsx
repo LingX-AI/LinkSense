@@ -1969,6 +1969,15 @@ describe("capability marketplace pages", () => {
     expect(
       actionMenu.querySelector('[data-slot="dropdown-menu-group"]')
     ).not.toBeNull()
+    expect(
+      within(actionMenu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent)
+    ).toEqual(["编辑", "共享", "停用", "用量统计", "外部访问", "删除"])
+    expect(screen.getByRole("menuitem", { name: "用量统计" })).toHaveAttribute(
+      "href",
+      `/capabilities/applications/${applications[0]!.id}/usage`
+    )
     expect(screen.getByRole("menuitem", { name: "共享" })).toBeVisible()
     expect(screen.getByRole("menuitem", { name: "编辑" })).toBeVisible()
     expect(screen.getByRole("menuitem", { name: "删除" })).toBeVisible()

@@ -146,6 +146,56 @@ describe("Redis atomic protection", () => {
     expect(ttl).toBeLessThanOrEqual(60)
   })
 
+  it("allows 20 voice transcription requests per user in a fixed minute without storing the raw user id", async () => {
+    const userId = "10000000-0000-4000-8000-000000000021"
+    const calls = []
+    for (let index = 0; index < 21; index += 1) {
+      calls.push(await protection.takeVoiceTranscriptionRequest(userId))
+    }
+
+    expect(calls.slice(0, 20).every((call) => call.allowed)).toBe(true)
+    expect(calls[20]).toMatchObject({
+      allowed: false,
+      retryAfterSeconds: expect.any(Number),
+    })
+
+    const keys = await client.keys("linksense:v1:voice-transcription-rate:*")
+    expect(keys).toHaveLength(1)
+    expect(keys[0]).not.toContain(userId)
+    const ttl = await client.ttl(keys[0]!)
+    expect(ttl).toBeGreaterThan(0)
+    expect(ttl).toBeLessThanOrEqual(60)
+    expect(calls[20]!.retryAfterSeconds).toBe(ttl)
+  })
+
+  it("allows 20 embedded voice transcription requests per session without storing the raw session id", async () => {
+    const sessionId = "50000000-0000-4000-8000-000000000021"
+    const calls = []
+    for (let index = 0; index < 21; index += 1) {
+      calls.push(
+        await protection.takeApplicationEmbedVoiceTranscriptionRequest(
+          sessionId,
+        ),
+      )
+    }
+
+    expect(calls.slice(0, 20).every((call) => call.allowed)).toBe(true)
+    expect(calls[20]).toMatchObject({
+      allowed: false,
+      retryAfterSeconds: expect.any(Number),
+    })
+
+    const keys = await client.keys(
+      "linksense:v1:application-embed-voice-transcription-rate:*",
+    )
+    expect(keys).toHaveLength(1)
+    expect(keys[0]).not.toContain(sessionId)
+    const ttl = await client.ttl(keys[0]!)
+    expect(ttl).toBeGreaterThan(0)
+    expect(ttl).toBeLessThanOrEqual(60)
+    expect(calls[20]!.retryAfterSeconds).toBe(ttl)
+  })
+
   it("serializes ClawHub previews and only releases the owning admission", async () => {
     const userId = "10000000-0000-4000-8000-000000000901"
     const first = await protection.beginClawHubInstallPreview(userId)
@@ -247,6 +297,22 @@ describe("Redis atomic protection", () => {
     )
     expect(results.filter((result) => result.acquired)).toHaveLength(20)
     expect(await protection.runningTurnCount()).toBe(20)
+  })
+
+  it("uses the effective system setting supplied for the current admission", async () => {
+    const results = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        protection.acquireTurnSlot(
+          `configured-conversation-${index}`,
+          `configured-turn-${index}`,
+          `configured-owner-${index}`,
+          3,
+        ),
+      ),
+    )
+
+    expect(results.filter((result) => result.acquired)).toHaveLength(3)
+    expect(await protection.runningTurnCount()).toBe(3)
   })
 
   it("fails admission closed after Redis state is flushed", async () => {

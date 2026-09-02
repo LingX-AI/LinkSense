@@ -116,7 +116,7 @@ export class ApplicationService {
             }
           : {}),
       },
-      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: input.limit,
     });
     return this.#projectApplications(actor.id, rows, access);
@@ -1284,8 +1284,9 @@ export class ApplicationService {
             select: { conversationId: true, knowledgeBaseIdsJson: true },
           })
         : locator.codexTurnId
-          ? this.prisma.conversationTurn.findUnique({
+          ? this.prisma.conversationTurn.findFirst({
               where: { codexTurnId: locator.codexTurnId },
+              orderBy: { createdAt: "desc" },
               select: { conversationId: true, knowledgeBaseIdsJson: true },
             })
           : Promise.resolve(null),

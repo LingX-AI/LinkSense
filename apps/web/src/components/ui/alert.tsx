@@ -15,6 +15,7 @@ const alertVariants = cva(
       appearance: {
         default: "",
         borderless: "border-0",
+        soft: "border-0 bg-muted/60",
       },
     },
     defaultVariants: {

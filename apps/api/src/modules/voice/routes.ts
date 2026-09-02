@@ -1,20 +1,21 @@
-import { Readable } from "node:stream"
-
 import type { FastifyPluginAsync } from "fastify"
 import {
   VOICE_TRANSCRIPTION_REQUEST_BODY_LIMIT_BYTES,
   voiceTranscriptionRequestSchema,
   type Locale,
-  type VoiceTranscriptionStreamEvent,
 } from "@linksense/shared"
 
 import { AppError, errorDetails } from "../../lib/errors.js"
-import { errorEnvelope, ok } from "../../lib/http.js"
+import { errorEnvelope } from "../../lib/http.js"
 import { resolveLocale } from "../../lib/locale.js"
+import { sendVoiceTranscription } from "./http.js"
 import type { VoiceTranscription } from "./service.js"
 
 type VoiceTranscriptionRoutesOptions = {
   service: VoiceTranscription
+  rateLimits: {
+    assertAllowed(userId: string): Promise<void>
+  }
   tokenLimits: {
     assertCanStartTask(userId: string): Promise<void>
   }
@@ -23,8 +24,34 @@ type VoiceTranscriptionRoutesOptions = {
 
 export const voiceTranscriptionRoutes: FastifyPluginAsync<
   VoiceTranscriptionRoutesOptions
-> = async (app, { service, tokenLimits, defaultLocale }) => {
+> = async (app, { service, rateLimits, tokenLimits, defaultLocale }) => {
   app.setErrorHandler((error, request, reply) => {
+    if (
+      error instanceof AppError &&
+      error.code === "VOICE_TRANSCRIPTION_RATE_LIMITED"
+    ) {
+      const locale = resolveLocale(
+        request,
+        request.authUser?.preferredLocale,
+        defaultLocale,
+      )
+      const details = errorDetails(error.code, locale)
+      const retryAfterSeconds = Number(error.params?.retry_after_seconds)
+      if (Number.isSafeInteger(retryAfterSeconds) && retryAfterSeconds > 0) {
+        reply.header("retry-after", String(retryAfterSeconds))
+      }
+      return reply
+        .code(details.status)
+        .send(
+          errorEnvelope(
+            error.code,
+            details.messageKey,
+            details.message,
+            error.params,
+            request.id,
+          ),
+        )
+    }
     if (!isBodyTooLargeError(error)) throw error
 
     const locale = resolveLocale(
@@ -58,72 +85,17 @@ export const voiceTranscriptionRoutes: FastifyPluginAsync<
       await tokenLimits.assertCanStartTask(userId)
 
       const body = voiceTranscriptionRequestSchema.parse(request.body)
-      const abortController = new AbortController()
-      const abort = () => abortController.abort()
-      request.raw.once("aborted", abort)
-      reply.raw.once("close", abort)
-
-      const input = {
-        audioDataUrl: body.audio_data_url,
-        ...(body.language ? { language: body.language } : {}),
-        signal: abortController.signal,
-      }
-
-      if (!body.stream) {
-        try {
-          const text = await service.transcribe(input)
-          return reply.send(ok({ text }, request))
-        } finally {
-          request.raw.off("aborted", abort)
-          reply.raw.off("close", abort)
-        }
-      }
-
-      const events = async function* () {
-        let transcript = ""
-        try {
-          for await (const delta of service.stream(input)) {
-            transcript += delta
-            yield encodeEvent({ type: "delta", text: delta })
-          }
-
-          const text = transcript.trim()
-          if (!text) {
-            throw new AppError("VOICE_TRANSCRIPTION_FAILED", undefined, 502)
-          }
-          yield encodeEvent({ type: "done", text })
-        } catch {
-          const locale = resolveLocale(
-            request,
-            request.authUser?.preferredLocale,
-            defaultLocale,
-          )
-          const details = errorDetails("VOICE_TRANSCRIPTION_FAILED", locale)
-          yield encodeEvent({
-            type: "error",
-            error_code: "VOICE_TRANSCRIPTION_FAILED",
-            message_key: "errors.composer.voiceTranscriptionFailed",
-            message: details.message,
-          })
-        } finally {
-          request.raw.off("aborted", abort)
-          reply.raw.off("close", abort)
-        }
-      }
-
-      return reply
-        .headers({
-          "content-type": "application/x-ndjson; charset=utf-8",
-          "cache-control": "no-store, no-transform",
-          "x-accel-buffering": "no",
-        })
-        .send(Readable.from(events()))
+      await rateLimits.assertAllowed(userId)
+      return sendVoiceTranscription({
+        request,
+        reply,
+        body,
+        service,
+        defaultLocale,
+        preferredLocale: request.authUser?.preferredLocale ?? null,
+      })
     },
   )
-}
-
-function encodeEvent(event: VoiceTranscriptionStreamEvent): string {
-  return `${JSON.stringify(event)}\n`
 }
 
 function isBodyTooLargeError(error: unknown): boolean {

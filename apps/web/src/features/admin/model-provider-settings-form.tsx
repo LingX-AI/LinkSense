@@ -7,7 +7,11 @@ import {
   useState,
   type FormEvent,
 } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useMutationState,
+  useQueryClient,
+} from "@tanstack/react-query"
 import {
   BotIcon,
   ChevronDownIcon,
@@ -241,8 +245,21 @@ type ModelProviderSettingsDraft = {
 }
 
 type ModelProviderSettingsSaveInput = ModelProviderSettingsDraft & {
-  expectedRevision: number
+  saveTarget: ModelProviderSettingsSaveTarget
 }
+
+type ModelProviderSettingsSaveTarget =
+  `provider:${string}` | `model:${string}` | "selections" | "form"
+
+const modelProviderSettingsSaveMutationKey = [
+  "admin",
+  "model-provider-settings",
+  "save",
+] as const
+
+const modelProviderSettingsSaveMutationScope = {
+  id: "admin-model-provider-settings-save",
+} as const
 
 function toSettingsProviderUpdate(
   provider: ModelProviderSettings["providers"][number]
@@ -1042,11 +1059,13 @@ export function ModelProviderSettingsForm({
   }
 
   const mutation = useMutation({
+    mutationKey: modelProviderSettingsSaveMutationKey,
+    scope: modelProviderSettingsSaveMutationScope,
     mutationFn: (input: ModelProviderSettingsSaveInput) =>
       apiRequest("/admin/model-provider-settings", {
         method: "PUT",
         body: {
-          expected_revision: input.expectedRevision,
+          expected_revision: revisionRef.current,
           providers: input.providers,
           default_model: input.default_model,
           title_model: input.title_model,
@@ -1280,16 +1299,34 @@ export function ModelProviderSettingsForm({
     },
   })
 
-  const saveBlocked =
-    mutation.isPending ||
+  const pendingSaveTargets = useMutationState({
+    filters: {
+      mutationKey: modelProviderSettingsSaveMutationKey,
+      status: "pending",
+    },
+    select: (pendingMutation) =>
+      (
+        pendingMutation.state.variables as
+          ModelProviderSettingsSaveInput | undefined
+      )?.saveTarget,
+  })
+  const conflictingMutationPending =
     availabilityMutation.isPending ||
     deleteModelMutation.isPending ||
     deleteProviderMutation.isPending
+  const anyMutationPending =
+    pendingSaveTargets.length > 0 || conflictingMutationPending
+  const isSaveTargetPending = (target: ModelProviderSettingsSaveTarget) =>
+    pendingSaveTargets.includes(target)
 
   const saveModelProviderSettings = ({
     includeDraftModelFormKey,
-  }: { includeDraftModelFormKey?: string } = {}) => {
-    if (readOnly || !formValid || saveBlocked) return
+    saveTarget = "form",
+  }: {
+    includeDraftModelFormKey?: string
+    saveTarget?: ModelProviderSettingsSaveTarget
+  } = {}) => {
+    if (readOnly || !formValid || conflictingMutationPending) return
     const nextDraft = includeDraftModelFormKey
       ? createModelProviderSettingsDraft({
           providers,
@@ -1302,7 +1339,7 @@ export function ModelProviderSettingsForm({
     setApiError(null)
     mutation.mutate({
       ...nextDraft,
-      expectedRevision: revisionRef.current,
+      saveTarget,
     })
   }
 
@@ -1381,6 +1418,8 @@ export function ModelProviderSettingsForm({
             const selectedServiceProvider = serviceProviderItems.find(
               (item) => item.value === provider.provider
             )
+            const providerSaveTarget = `provider:${provider.formKey}` as const
+            const providerSaving = isSaveTargetPending(providerSaveTarget)
             return (
               <Card
                 key={provider.formKey}
@@ -1436,19 +1475,26 @@ export function ModelProviderSettingsForm({
                     <Button
                       type="button"
                       size="sm"
-                      aria-busy={mutation.isPending || undefined}
+                      aria-busy={providerSaving || undefined}
                       aria-label={t("admin.modelProvider.saveProvider", {
                         name: providerName,
                       })}
                       title={t("admin.modelProvider.saveProvider", {
                         name: providerName,
                       })}
-                      disabled={readOnly || !formValid || saveBlocked}
-                      onClick={() => saveModelProviderSettings()}
+                      disabled={
+                        readOnly ||
+                        !formValid ||
+                        conflictingMutationPending ||
+                        providerSaving
+                      }
+                      onClick={() =>
+                        saveModelProviderSettings({
+                          saveTarget: providerSaveTarget,
+                        })
+                      }
                     >
-                      {mutation.isPending && (
-                        <Spinner data-icon="inline-start" />
-                      )}
+                      {providerSaving && <Spinner data-icon="inline-start" />}
                       {t("common.save")}
                     </Button>
                     <Button
@@ -1462,7 +1508,7 @@ export function ModelProviderSettingsForm({
                         name: providerName,
                       })}
                       disabled={
-                        readOnly || providers.length === 1 || saveBlocked
+                        readOnly || providers.length === 1 || anyMutationPending
                       }
                       onClick={() => setDeleteProviderKey(provider.formKey)}
                     >
@@ -1705,6 +1751,9 @@ export function ModelProviderSettingsForm({
                         const availabilityLabel = t(
                           "admin.modelProvider.showInComposer"
                         )
+                        const modelSaveTarget =
+                          `model:${model.formKey}` as const
+                        const modelSaving = isSaveTargetPending(modelSaveTarget)
                         return (
                           <Fragment key={model.formKey}>
                             <FieldSet className="@container/model-card gap-3 rounded-xl border border-border/60 bg-card p-3">
@@ -1742,7 +1791,7 @@ export function ModelProviderSettingsForm({
                                       }
                                       disabled={
                                         readOnly ||
-                                        mutation.isPending ||
+                                        pendingSaveTargets.length > 0 ||
                                         availabilityMutation.isPending ||
                                         deleteModelMutation.isPending ||
                                         deleteProviderMutation.isPending
@@ -1774,7 +1823,7 @@ export function ModelProviderSettingsForm({
                                 <Button
                                   type="button"
                                   size="sm"
-                                  aria-busy={mutation.isPending || undefined}
+                                  aria-busy={modelSaving || undefined}
                                   aria-label={t(
                                     "admin.modelProvider.saveModel",
                                     {
@@ -1785,15 +1834,19 @@ export function ModelProviderSettingsForm({
                                     name: modelName,
                                   })}
                                   disabled={
-                                    readOnly || !formValid || saveBlocked
+                                    readOnly ||
+                                    !formValid ||
+                                    conflictingMutationPending ||
+                                    modelSaving
                                   }
                                   onClick={() =>
                                     saveModelProviderSettings({
                                       includeDraftModelFormKey: model.formKey,
+                                      saveTarget: modelSaveTarget,
                                     })
                                   }
                                 >
-                                  {mutation.isPending && (
+                                  {modelSaving && (
                                     <Spinner data-icon="inline-start" />
                                   )}
                                   {t("common.save")}
@@ -1814,7 +1867,7 @@ export function ModelProviderSettingsForm({
                                   disabled={
                                     readOnly ||
                                     provider.models.length === 1 ||
-                                    saveBlocked
+                                    anyMutationPending
                                   }
                                   onClick={() => {
                                     if (model.persistedId) {
@@ -2286,13 +2339,22 @@ export function ModelProviderSettingsForm({
             type="button"
             size="sm"
             className="w-auto self-start"
-            aria-busy={mutation.isPending || undefined}
+            aria-busy={isSaveTargetPending("selections") || undefined}
             aria-label={t("admin.modelProvider.saveModelSelections")}
             title={t("admin.modelProvider.saveModelSelections")}
-            disabled={readOnly || !formValid || saveBlocked}
-            onClick={() => saveModelProviderSettings()}
+            disabled={
+              readOnly ||
+              !formValid ||
+              conflictingMutationPending ||
+              isSaveTargetPending("selections")
+            }
+            onClick={() =>
+              saveModelProviderSettings({ saveTarget: "selections" })
+            }
           >
-            {mutation.isPending && <Spinner data-icon="inline-start" />}
+            {isSaveTargetPending("selections") && (
+              <Spinner data-icon="inline-start" />
+            )}
             {t("common.save")}
           </Button>
         </div>

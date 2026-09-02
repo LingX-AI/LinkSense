@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  forkThreadBodySchema,
   goalSetBodySchema,
   reconcileBodySchema,
   startTurnBodySchema,
@@ -8,10 +9,40 @@ import {
 import { sanitizeZodIssues } from "../src/turn-start-contract.js";
 
 describe("turn-start contract diagnostics", () => {
+  it("accepts only a complete thread-fork boundary", () => {
+    const body = {
+      ownerId: "01900000-0000-7000-8000-000000000002",
+      projectionTurnId: "01900000-0000-7000-8000-000000000004",
+      expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
+      sourceCodexThreadId: "thread-source-1",
+      throughCodexTurnId: "turn-native-2",
+      model: "test-model",
+      reasoningEffort: "medium" as const,
+      modelProvider: {
+        revision: 1,
+        baseUrl: "https://models.example.test/v1",
+        protocolMode: "native_responses" as const,
+        apiKey: "test-provider-key",
+      },
+    };
+
+    expect(forkThreadBodySchema.safeParse(body).success).toBe(true);
+    expect(
+      forkThreadBodySchema.safeParse({
+        ...body,
+        throughCodexTurnId: "",
+      }).success,
+    ).toBe(false);
+    expect(
+      forkThreadBodySchema.safeParse({ ...body, unknown: true }).success,
+    ).toBe(false);
+  });
+
   it("accepts only empty, existing-thread context compaction starts", () => {
     const body = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000004",
+      appServerProcessLimit: 20,
       operationKind: "compact" as const,
       expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
       capabilityGeneration: "a".repeat(64),
@@ -76,6 +107,7 @@ describe("turn-start contract diagnostics", () => {
         startTurnBodySchema.safeParse({
           ownerId: "01900000-0000-7000-8000-000000000002",
           projectionTurnId: "01900000-0000-7000-8000-000000000004",
+          appServerProcessLimit: 20,
           eventProjectionTurnId: "01900000-0000-7000-8000-000000000005",
           expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
           capabilityGeneration: "a".repeat(64),
@@ -105,6 +137,7 @@ describe("turn-start contract diagnostics", () => {
     const body = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000004",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
       capabilityGeneration: "a".repeat(64),
       context: {
@@ -164,6 +197,7 @@ describe("turn-start contract diagnostics", () => {
     const body = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000004",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
       capabilityGeneration: "a".repeat(64),
       context: {
@@ -261,6 +295,7 @@ describe("turn-start contract diagnostics", () => {
     const body = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000004",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
       capabilityGeneration: "a".repeat(64),
       codexThreadId: "thread-native-1",

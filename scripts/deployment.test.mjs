@@ -2327,7 +2327,7 @@ test("deployment keeps development host storage but production uses managed exte
     readFile(environmentExamplePath, "utf8"),
   ]);
   const defaults = {
-    LINKSENSE_MAX_CONCURRENT_CONVERSATIONS: "20",
+    LINKSENSE_MAX_CONCURRENT_CONVERSATIONS: "500",
     LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT: "20",
     LINKSENSE_WORKER_IDLE_TTL_SECONDS: "900",
     LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN: "false",

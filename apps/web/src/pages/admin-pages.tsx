@@ -26,7 +26,7 @@ import {
   Trash2Icon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { z } from "zod"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
@@ -35,6 +35,7 @@ import {
   auditRecordSchema,
   authenticationSettingsSchema,
   authenticationSettingsUpdateResultSchema,
+  executionConcurrencySettingsSchema,
   healthSchema,
   imageGenerationSettingsSchema,
   imageUnderstandingSettingsSchema,
@@ -54,6 +55,7 @@ import {
   type AuthenticationSettings,
   type BootstrapStatus,
   type HealthStatus,
+  type ExecutionConcurrencySettings,
   type ImportResult,
   type ProductSettings,
   type RegistrationSettings,
@@ -64,6 +66,12 @@ import {
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
+import { ExecutionConcurrencySettingsForm } from "@/features/admin/execution-concurrency-settings-form"
+import {
+  AuditConversationDetailDialog,
+  AuditLogDetailDialog,
+  RetainedArtifactDetailDialog,
+} from "@/features/admin/audit-log-detail-dialog"
 import { productFilenamePrefix, useProductName } from "@/app/product-branding"
 import { downloadBlob } from "@/lib/download-blob"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
@@ -189,11 +197,35 @@ import { ImageGenerationSettingsForm } from "@/features/admin/image-generation-s
 import { ImageUnderstandingSettingsForm } from "@/features/admin/image-understanding-settings-form"
 import { KnowledgeModelSettingsForm } from "@/features/admin/knowledge-model-settings-form"
 import { MaintenanceSettingsForm } from "@/features/admin/maintenance-settings-form"
+import { SystemUpdateSettings } from "@/features/admin/system-update"
 
 type AdminPage =
-  "users" | "roles" | "groups" | "audit" | "models" | "settings" | "health"
+  | "users"
+  | "roles"
+  | "groups"
+  | "audit"
+  | "models"
+  | "settings"
+  | "health"
+  | "updates"
 
 type UsersAndGroupsTab = "groups" | "users"
+const systemSettingsSections = [
+  "product",
+  "concurrency",
+  "smtp",
+  "registration",
+  "oidc",
+  "teams",
+  "maintenance",
+] as const
+type SystemSettingsSection = (typeof systemSettingsSections)[number]
+
+function isSystemSettingsSection(
+  value: string | null
+): value is SystemSettingsSection {
+  return systemSettingsSections.some((section) => section === value)
+}
 
 const emptySchema = z.unknown()
 const emptySelectValue = "__linksense_empty_select_value__"
@@ -3214,55 +3246,78 @@ function AuditTable({
   language: SupportedLanguage
 }) {
   const { t } = useTranslation()
+  const [selectedRecord, setSelectedRecord] = useState<AuditRecord | null>(null)
   return (
-    <div className="data-table-scroll">
-      <Table className="data-table">
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t("admin.action")}</TableHead>
-            <TableHead>{t("admin.actor")}</TableHead>
-            <TableHead>{t("admin.target")}</TableHead>
-            <TableHead>{t("admin.result")}</TableHead>
-            <TableHead>{t("admin.sourceIp")}</TableHead>
-            <TableHead>{t("common.createdAt")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {records.map((record) => (
-            <TableRow key={record.id}>
-              <TableCell>
-                <span className="table-primary">
-                  {formatPublicTechnicalIdentifier(record.action)}
-                </span>
-                {record.error_code && (
-                  <span className="table-secondary table-metadata">
-                    {formatPublicTechnicalIdentifier(record.error_code)}
-                  </span>
-                )}
-              </TableCell>
-              <TableCell>{record.actor_name ?? t("common.system")}</TableCell>
-              <TableCell>
-                <span className="table-primary">
-                  {record.target_type
-                    ? formatPublicTechnicalIdentifier(record.target_type)
-                    : "—"}
-                </span>
-                <span className="table-secondary table-metadata">
-                  {record.target_id ?? "—"}
-                </span>
-              </TableCell>
-              <TableCell>{record.result ?? "—"}</TableCell>
-              <TableCell className="table-metadata">
-                {record.source_ip ?? t("common.system")}
-              </TableCell>
-              <TableCell className="table-metadata">
-                {formatDateTime(record.created_at, language)}
-              </TableCell>
+    <>
+      <div className="data-table-scroll">
+        <Table className="data-table audit-log-table audit-details-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("admin.action")}</TableHead>
+              <TableHead>{t("admin.actor")}</TableHead>
+              <TableHead>{t("admin.target")}</TableHead>
+              <TableHead>{t("admin.result")}</TableHead>
+              <TableHead>{t("admin.sourceIp")}</TableHead>
+              <TableHead>{t("common.createdAt")}</TableHead>
+              <TableHead className="audit-details-actions-column text-right">
+                {t("common.actions")}
+              </TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+          </TableHeader>
+          <TableBody>
+            {records.map((record) => (
+              <TableRow key={record.id}>
+                <TableCell>
+                  <span className="table-primary">
+                    {formatPublicTechnicalIdentifier(record.action)}
+                  </span>
+                  {record.error_code && (
+                    <span className="table-secondary table-metadata">
+                      {formatPublicTechnicalIdentifier(record.error_code)}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>{record.actor_name ?? t("common.system")}</TableCell>
+                <TableCell>
+                  <span className="table-primary">
+                    {record.target_type
+                      ? formatPublicTechnicalIdentifier(record.target_type)
+                      : "—"}
+                  </span>
+                  <span className="table-secondary table-metadata">
+                    {record.target_id ?? "—"}
+                  </span>
+                </TableCell>
+                <TableCell>{record.result ?? "—"}</TableCell>
+                <TableCell className="table-metadata">
+                  {record.source_ip ?? t("common.system")}
+                </TableCell>
+                <TableCell className="table-metadata">
+                  {formatDateTime(record.created_at, language)}
+                </TableCell>
+                <TableCell className="audit-details-actions-column text-right">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedRecord(record)}
+                  >
+                    {t("common.details")}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <AuditLogDetailDialog
+        language={language}
+        record={selectedRecord}
+        onOpenChange={(open) => {
+          if (!open) setSelectedRecord(null)
+        }}
+      />
+    </>
   )
 }
 
@@ -3274,117 +3329,144 @@ function AuditConversationTable({
   language: SupportedLanguage
 }) {
   const { t } = useTranslation()
+  const [selectedRecord, setSelectedRecord] =
+    useState<AuditConversationMetadata | null>(null)
   return (
-    <div className="data-table-scroll">
-      <Table className="data-table audit-conversation-table">
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t("admin.conversation")}</TableHead>
-            <TableHead>{t("admin.owner")}</TableHead>
-            <TableHead>{t("common.status")}</TableHead>
-            <TableHead>{t("admin.capabilitiesUsed")}</TableHead>
-            <TableHead>{t("admin.files")}</TableHead>
-            <TableHead>{t("admin.execution")}</TableHead>
-            <TableHead>{t("admin.lastRun")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {records.map((record) => (
-            <TableRow key={record.conversation_id}>
-              <TableCell>
-                <span className="table-primary break-all">
-                  {record.conversation_id}
-                </span>
-                <span className="table-secondary">
-                  {t(
-                    record.archive_status === "archived"
-                      ? "admin.archivedConversation"
-                      : "admin.activeConversation"
-                  )}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="table-primary">
-                  {record.owner_name ?? record.owner_id}
-                </span>
-                <span className="table-secondary">
-                  {record.owner_email ?? record.owner_id}
-                </span>
-              </TableCell>
-              <TableCell>
-                <Badge
-                  variant={
-                    record.execution_status === "failed"
-                      ? "outline"
-                      : "secondary"
-                  }
-                >
-                  {t(`statuses.${record.execution_status}`)}
-                </Badge>
-                {record.error_type && (
+    <>
+      <div className="data-table-scroll">
+        <Table className="data-table audit-conversation-table audit-details-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("admin.conversation")}</TableHead>
+              <TableHead>{t("admin.owner")}</TableHead>
+              <TableHead>{t("common.status")}</TableHead>
+              <TableHead>{t("admin.capabilitiesUsed")}</TableHead>
+              <TableHead>{t("admin.files")}</TableHead>
+              <TableHead>{t("admin.execution")}</TableHead>
+              <TableHead>{t("admin.lastRun")}</TableHead>
+              <TableHead className="audit-details-actions-column text-right">
+                {t("common.actions")}
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {records.map((record) => (
+              <TableRow key={record.conversation_id}>
+                <TableCell>
+                  <span className="table-primary break-all">
+                    {record.conversation_id}
+                  </span>
                   <span className="table-secondary">
-                    {t(`admin.errorTypes.${record.error_type}`, {
-                      defaultValue: t("admin.executionError"),
+                    {t(
+                      record.archive_status === "archived"
+                        ? "admin.archivedConversation"
+                        : "admin.activeConversation"
+                    )}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <span className="table-primary">
+                    {record.owner_name ?? record.owner_id}
+                  </span>
+                  <span className="table-secondary">
+                    {record.owner_email ?? record.owner_id}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={
+                      record.execution_status === "failed"
+                        ? "outline"
+                        : "secondary"
+                    }
+                  >
+                    {t(`statuses.${record.execution_status}`)}
+                  </Badge>
+                  {record.error_type && (
+                    <span className="table-secondary">
+                      {t(`admin.errorTypes.${record.error_type}`, {
+                        defaultValue: t("admin.executionError"),
+                      })}
+                    </span>
+                  )}
+                  {record.error_code && (
+                    <span className="table-secondary table-metadata break-all">
+                      {formatPublicTechnicalIdentifier(record.error_code)}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <span className="table-secondary">
+                    {t("capability.plugin")}:{" "}
+                    {record.plugin_names.join(", ") || "-"}
+                  </span>
+                  <span className="table-secondary">
+                    {t("capability.skill")}:{" "}
+                    {record.skill_names.join(", ") || "-"}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <span className="table-secondary">
+                    {t("admin.attachmentsSummary", {
+                      count: record.attachment_count,
+                      size: formatFileSize(
+                        record.attachment_size_bytes,
+                        language
+                      ),
                     })}
                   </span>
-                )}
-                {record.error_code && (
-                  <span className="table-secondary table-metadata break-all">
-                    {formatPublicTechnicalIdentifier(record.error_code)}
+                  <span className="table-secondary">
+                    {t("admin.artifactsSummary", {
+                      count: record.artifact_count,
+                      size: formatFileSize(
+                        record.artifact_size_bytes,
+                        language
+                      ),
+                    })}
                   </span>
-                )}
-              </TableCell>
-              <TableCell>
-                <span className="table-secondary">
-                  {t("capability.plugin")}:{" "}
-                  {record.plugin_names.join(", ") || "-"}
-                </span>
-                <span className="table-secondary">
-                  {t("capability.skill")}:{" "}
-                  {record.skill_names.join(", ") || "-"}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="table-secondary">
-                  {t("admin.attachmentsSummary", {
-                    count: record.attachment_count,
-                    size: formatFileSize(
-                      record.attachment_size_bytes,
-                      language
-                    ),
-                  })}
-                </span>
-                <span className="table-secondary">
-                  {t("admin.artifactsSummary", {
-                    count: record.artifact_count,
-                    size: formatFileSize(record.artifact_size_bytes, language),
-                  })}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="table-primary">
-                  {formatDuration(record.execution_duration_ms, language)}
-                </span>
-                <span className="table-secondary">
-                  {t(`admin.runnerStatuses.${record.runner_status}`, {
-                    defaultValue: t("common.notAvailable"),
-                  })}
-                </span>
-              </TableCell>
-              <TableCell className="table-metadata">
-                <span className="table-primary">
-                  {formatDateTime(record.last_run_at, language)}
-                </span>
-                <span className="table-secondary">
-                  {t("common.createdAt")}:{" "}
-                  {formatDateTime(record.created_at, language)}
-                </span>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+                </TableCell>
+                <TableCell>
+                  <span className="table-primary">
+                    {formatDuration(record.execution_duration_ms, language)}
+                  </span>
+                  <span className="table-secondary">
+                    {t(`admin.runnerStatuses.${record.runner_status}`, {
+                      defaultValue: t("common.notAvailable"),
+                    })}
+                  </span>
+                </TableCell>
+                <TableCell className="table-metadata">
+                  <span className="table-primary">
+                    {formatDateTime(record.last_run_at, language)}
+                  </span>
+                  <span className="table-secondary">
+                    {t("common.createdAt")}:{" "}
+                    {formatDateTime(record.created_at, language)}
+                  </span>
+                </TableCell>
+                <TableCell className="audit-details-actions-column text-right">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedRecord(record)}
+                  >
+                    {t("common.details")}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <AuditConversationDetailDialog
+        language={language}
+        record={selectedRecord}
+        onOpenChange={(open) => {
+          if (!open) setSelectedRecord(null)
+        }}
+      />
+    </>
   )
 }
 
@@ -3396,57 +3478,87 @@ function RetainedArtifactTable({
   language: SupportedLanguage
 }) {
   const { t } = useTranslation()
+  const [selectedRecord, setSelectedRecord] =
+    useState<RetainedArtifactSummary | null>(null)
   return (
-    <div className="data-table-scroll">
-      <Table className="data-table">
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t("admin.conversation")}</TableHead>
-            <TableHead>{t("admin.owner")}</TableHead>
-            <TableHead>{t("admin.retainedArtifactCount")}</TableHead>
-            <TableHead>{t("admin.totalSize")}</TableHead>
-            <TableHead>{t("admin.checksum")}</TableHead>
-            <TableHead>{t("admin.deletedAt")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {records.map((record) => (
-            <TableRow key={record.conversation_id}>
-              <TableCell className="table-metadata break-all">
-                {record.conversation_id}
-              </TableCell>
-              <TableCell>
-                <span className="table-primary">
-                  {record.owner_name ?? record.owner_id}
-                </span>
-                <span className="table-secondary">
-                  {record.owner_email ?? record.owner_id}
-                </span>
-              </TableCell>
-              <TableCell>
-                <span className="table-primary">{record.artifact_count}</span>
-                {record.first_artifact_created_at && (
-                  <span className="table-secondary table-metadata">
-                    {formatDateTime(record.first_artifact_created_at, language)}{" "}
-                    –{" "}
-                    {formatDateTime(record.last_artifact_created_at, language)}
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className="table-metadata">
-                {formatFileSize(record.total_size_bytes, language)}
-              </TableCell>
-              <TableCell>
-                {t(record.checksum_present ? "common.yes" : "common.no")}
-              </TableCell>
-              <TableCell className="table-metadata">
-                {formatDateTime(record.conversation_deleted_at, language)}
-              </TableCell>
+    <>
+      <div className="data-table-scroll">
+        <Table className="data-table retained-artifact-table audit-details-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("admin.conversation")}</TableHead>
+              <TableHead>{t("admin.owner")}</TableHead>
+              <TableHead>{t("admin.retainedArtifactCount")}</TableHead>
+              <TableHead>{t("admin.totalSize")}</TableHead>
+              <TableHead>{t("admin.checksum")}</TableHead>
+              <TableHead>{t("admin.deletedAt")}</TableHead>
+              <TableHead className="audit-details-actions-column text-right">
+                {t("common.actions")}
+              </TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+          </TableHeader>
+          <TableBody>
+            {records.map((record) => (
+              <TableRow key={record.conversation_id}>
+                <TableCell className="table-metadata break-all">
+                  {record.conversation_id}
+                </TableCell>
+                <TableCell>
+                  <span className="table-primary">
+                    {record.owner_name ?? record.owner_id}
+                  </span>
+                  <span className="table-secondary">
+                    {record.owner_email ?? record.owner_id}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <span className="table-primary">{record.artifact_count}</span>
+                  {record.first_artifact_created_at && (
+                    <span className="table-secondary table-metadata">
+                      {formatDateTime(
+                        record.first_artifact_created_at,
+                        language
+                      )}{" "}
+                      –{" "}
+                      {formatDateTime(
+                        record.last_artifact_created_at,
+                        language
+                      )}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell className="table-metadata">
+                  {formatFileSize(record.total_size_bytes, language)}
+                </TableCell>
+                <TableCell>
+                  {t(record.checksum_present ? "common.yes" : "common.no")}
+                </TableCell>
+                <TableCell className="table-metadata">
+                  {formatDateTime(record.conversation_deleted_at, language)}
+                </TableCell>
+                <TableCell className="audit-details-actions-column text-right">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedRecord(record)}
+                  >
+                    {t("common.details")}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <RetainedArtifactDetailDialog
+        language={language}
+        record={selectedRecord}
+        onOpenChange={(open) => {
+          if (!open) setSelectedRecord(null)
+        }}
+      />
+    </>
   )
 }
 
@@ -3485,8 +3597,19 @@ function ProductSettingsPage() {
         signal,
       }),
   })
+  const executionConcurrencyQuery = useQuery({
+    queryKey: ["admin", "execution-concurrency-settings"],
+    queryFn: ({ signal }) =>
+      apiRequest("/admin/execution-concurrency-settings", {
+        schema: executionConcurrencySettingsSchema,
+        signal,
+      }),
+  })
   const error =
-    productQuery.error ?? authenticationQuery.error ?? registrationQuery.error
+    productQuery.error ??
+    authenticationQuery.error ??
+    registrationQuery.error ??
+    executionConcurrencyQuery.error
   return (
     <PageLayout
       title={t("admin.managementTitle")}
@@ -3494,7 +3617,8 @@ function ProductSettingsPage() {
     >
       {(productQuery.isLoading ||
         authenticationQuery.isLoading ||
-        registrationQuery.isLoading) && <LoadingState />}
+        registrationQuery.isLoading ||
+        executionConcurrencyQuery.isLoading) && <LoadingState />}
       {Boolean(error) && (
         <ErrorState
           message={getErrorMessage(error, t)}
@@ -3502,19 +3626,34 @@ function ProductSettingsPage() {
             void productQuery.refetch()
             void authenticationQuery.refetch()
             void registrationQuery.refetch()
+            void executionConcurrencyQuery.refetch()
           }}
         />
       )}
       {productQuery.data &&
         authenticationQuery.data &&
-        registrationQuery.data && (
+        registrationQuery.data &&
+        executionConcurrencyQuery.data && (
           <ProductSettingsEditor
             key={`${productQuery.data.system_name}:${productQuery.data.logo_url ?? ""}`}
             settings={productQuery.data}
             authenticationSettings={authenticationQuery.data}
             registrationSettings={registrationQuery.data}
+            executionConcurrencySettings={executionConcurrencyQuery.data}
           />
         )}
+    </PageLayout>
+  )
+}
+
+function SystemUpdatePage() {
+  const { t } = useTranslation()
+  return (
+    <PageLayout
+      title={t("settings.systemUpdate")}
+      description={t("settings.systemUpdateDescription")}
+    >
+      <SystemUpdateSettings />
     </PageLayout>
   )
 }
@@ -3523,13 +3662,22 @@ function ProductSettingsEditor({
   settings,
   authenticationSettings,
   registrationSettings,
+  executionConcurrencySettings,
 }: {
   settings: ProductSettings
   authenticationSettings: AuthenticationSettings
   registrationSettings: RegistrationSettings
+  executionConcurrencySettings: ExecutionConcurrencySettings
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedSection = searchParams.get("section")
+  const activeSection: SystemSettingsSection = isSystemSettingsSection(
+    requestedSection
+  )
+    ? requestedSection
+    : "product"
   const [name, setName] = useState(settings.system_name)
   const [logoUrl, setLogoUrl] = useState(settings.logo_url)
   const [message, setMessage] = useState<string | null>(null)
@@ -3602,13 +3750,30 @@ function ProductSettingsEditor({
   })
   const logoBusy = uploadLogoMutation.isPending || deleteLogoMutation.isPending
   return (
-    <Tabs defaultValue="product" className="gap-4">
+    <Tabs
+      value={activeSection}
+      className="gap-4"
+      onValueChange={(value) => {
+        setSearchParams(
+          (current) => {
+            const next = new URLSearchParams(current)
+            if (value === "product") next.delete("section")
+            else next.set("section", value)
+            return next
+          },
+          { replace: true }
+        )
+      }}
+    >
       <TabsList
         aria-label={t("admin.settingsTabsLabel")}
         className="max-w-full justify-start overflow-x-auto"
       >
         <TabsTrigger value="product">
           {t("admin.settingsTabs.product")}
+        </TabsTrigger>
+        <TabsTrigger value="concurrency">
+          {t("admin.settingsTabs.concurrency")}
         </TabsTrigger>
         <TabsTrigger value="smtp">{t("admin.settingsTabs.smtp")}</TabsTrigger>
         <TabsTrigger value="registration">
@@ -3729,6 +3894,12 @@ function ProductSettingsEditor({
             </div>
           </form>
         </section>
+      </TabsContent>
+
+      <TabsContent value="concurrency" className="min-w-0" keepMounted>
+        <ExecutionConcurrencySettingsForm
+          settings={executionConcurrencySettings}
+        />
       </TabsContent>
 
       <TabsContent value="maintenance" className="min-w-0">
@@ -5562,5 +5733,6 @@ export function AdminPages({ page }: { page: AdminPage }) {
   if (page === "audit") return <AuditPage />
   if (page === "models") return <ModelSettingsPage />
   if (page === "settings") return <ProductSettingsPage />
+  if (page === "updates") return <SystemUpdatePage />
   return <HealthPage />
 }

@@ -1,4 +1,5 @@
 import {
+  applicationUsageReportSchema as sharedApplicationUsageReportSchema,
   authSessionSchema as sharedAuthSessionSchema,
   authUserSchema as sharedAuthUserSchema,
   applicationConversationSchema as sharedApplicationConversationSchema,
@@ -25,6 +26,7 @@ import {
   conversationOrderResultSchema as sharedConversationOrderResultSchema,
   conversationPlanReviewSchema as sharedConversationPlanReviewSchema,
   conversationUserInputRequestSchema,
+  executionConcurrencySettingsSchema as sharedExecutionConcurrencySettingsSchema,
   imageGenerationSettingsSchema as sharedImageGenerationSettingsSchema,
   imageUnderstandingSettingsSchema as sharedImageUnderstandingSettingsSchema,
   initializeSystemResultSchema as sharedInitializeSystemResultSchema,
@@ -68,7 +70,9 @@ import {
   type AuthSession as SharedAuthSession,
   type AuthUser as SharedAuthUser,
   type RegistrationSettings as SharedRegistrationSettings,
+  type ExecutionConcurrencySettings as SharedExecutionConcurrencySettings,
   type Application as SharedApplication,
+  type ApplicationUsageReport as SharedApplicationUsageReport,
   type ApplicationGrant as SharedApplicationGrant,
   type ApplicationShareTarget as SharedApplicationShareTarget,
   type Automation as SharedAutomation,
@@ -137,7 +141,9 @@ export const applicationSchema = sharedApplicationSchema
 export const applicationGrantSchema = sharedApplicationGrantSchema
 export const applicationShareTargetSchema = sharedApplicationShareTargetSchema
 export const applicationConversationSchema = sharedApplicationConversationSchema
+export const applicationUsageReportSchema = sharedApplicationUsageReportSchema
 export type Application = SharedApplication
+export type ApplicationUsageReport = SharedApplicationUsageReport
 export type ApplicationGrant = SharedApplicationGrant
 export type ApplicationShareTarget = SharedApplicationShareTarget
 
@@ -358,6 +364,14 @@ export const registrationSettingsUpdateResultSchema = z.strictObject({
   settings: registrationSettingsSchema,
 })
 export type RegistrationSettings = SharedRegistrationSettings
+
+export const executionConcurrencySettingsSchema =
+  sharedExecutionConcurrencySettingsSchema
+export const executionConcurrencySettingsUpdateResultSchema = z.strictObject({
+  code: z.literal("SYSTEM_SETTINGS_UPDATED"),
+  settings: executionConcurrencySettingsSchema,
+})
+export type ExecutionConcurrencySettings = SharedExecutionConcurrencySettings
 
 export const authUserSchema = sharedAuthUserSchema
 export const authSessionSchema = sharedAuthSessionSchema

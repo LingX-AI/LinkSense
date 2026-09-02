@@ -206,9 +206,16 @@ const RUNNING_TURN_RECOVERY_ATTEMPT_KEY =
 const RUNNING_TURN_RECOVERY_STATUS_KEY =
   "linksense:running-turn-recovery-status"
 const SITE_ICON_CACHE_KEY_PREFIX = "linksense:v2:site-icon:"
+const SYSTEM_UPDATE_CACHE_KEY = "linksense:v1:system-update"
 const SITE_ICON_RATE_LIMIT_KEY_PREFIX = "linksense:v2:site-icon-rate:"
 const SITE_ICON_RATE_LIMIT_MAX_REQUESTS = 60
 const SITE_ICON_RATE_LIMIT_WINDOW_SECONDS = 60
+const VOICE_TRANSCRIPTION_RATE_LIMIT_KEY_PREFIX =
+  "linksense:v1:voice-transcription-rate:"
+const APPLICATION_EMBED_VOICE_TRANSCRIPTION_RATE_LIMIT_KEY_PREFIX =
+  "linksense:v1:application-embed-voice-transcription-rate:"
+const VOICE_TRANSCRIPTION_RATE_LIMIT_MAX_REQUESTS = 20
+const VOICE_TRANSCRIPTION_RATE_LIMIT_WINDOW_SECONDS = 60
 const CLAWHUB_PREVIEW_RATE_LIMIT_KEY_PREFIX =
   "linksense:v1:clawhub-preview-rate:"
 const CLAWHUB_PREVIEW_LOCK_KEY_PREFIX =
@@ -229,6 +236,15 @@ local count = redis.call('INCR', KEYS[1])
 if count == 1 then redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2])) end
 if count <= tonumber(ARGV[1]) then return 1 end
 return 0
+`
+
+const TAKE_VOICE_TRANSCRIPTION_REQUEST_SCRIPT = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2])) end
+local ttl = redis.call('TTL', KEYS[1])
+if ttl < 1 then ttl = tonumber(ARGV[2]) end
+if count <= tonumber(ARGV[1]) then return {1, ttl} end
+return {0, ttl}
 `
 
 const BEGIN_CLAWHUB_PREVIEW_SCRIPT = `
@@ -485,6 +501,7 @@ export class LinkSenseRedis {
     conversationId: string,
     turnId: string,
     ownerId: string,
+    maxConcurrentTurns = this.config.maxConcurrentConversations,
   ): Promise<{ acquired: boolean; count: number; capacityReady: boolean }> {
     try {
       const result = await this.client.eval(
@@ -497,7 +514,7 @@ export class LinkSenseRedis {
         conversationId,
         turnId,
         ownerId,
-        this.config.maxConcurrentConversations,
+        maxConcurrentTurns,
       )
       const [acquired, count, capacityReady] = parseNumberArray(result, 3)
       return {
@@ -852,6 +869,25 @@ export class LinkSenseRedis {
     }
   }
 
+  async getSystemUpdateCache(): Promise<string | null> {
+    try {
+      return await this.client.get(SYSTEM_UPDATE_CACHE_KEY)
+    } catch {
+      throw new RedisUnavailableError("system_update_cache_get")
+    }
+  }
+
+  async setSystemUpdateCache(
+    value: string,
+    ttlSeconds: number,
+  ): Promise<void> {
+    try {
+      await this.client.set(SYSTEM_UPDATE_CACHE_KEY, value, "EX", ttlSeconds)
+    } catch {
+      throw new RedisUnavailableError("system_update_cache_set")
+    }
+  }
+
   async setSiteIconCache(
     cacheKey: string,
     value: Buffer,
@@ -886,6 +922,53 @@ export class LinkSenseRedis {
       return Number(result) === 1
     } catch {
       throw new RedisUnavailableError("site_icon_rate_limit")
+    }
+  }
+
+  async takeVoiceTranscriptionRequest(
+    userId: string,
+  ): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
+    const userDigest = hmacSha256(
+      this.config.loginRateLimitHmacSecret,
+      "voice-transcription:user:",
+      userId,
+    )
+    try {
+      const result = await this.client.eval(
+        TAKE_VOICE_TRANSCRIPTION_REQUEST_SCRIPT,
+        1,
+        VOICE_TRANSCRIPTION_RATE_LIMIT_KEY_PREFIX + userDigest,
+        VOICE_TRANSCRIPTION_RATE_LIMIT_MAX_REQUESTS,
+        VOICE_TRANSCRIPTION_RATE_LIMIT_WINDOW_SECONDS,
+      )
+      return parseVoiceTranscriptionRateLimitAdmission(result)
+    } catch {
+      throw new RedisUnavailableError("voice_transcription_rate_limit")
+    }
+  }
+
+  async takeApplicationEmbedVoiceTranscriptionRequest(
+    sessionId: string,
+  ): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
+    const sessionDigest = hmacSha256(
+      this.config.loginRateLimitHmacSecret,
+      "application-embed-voice-transcription:session:",
+      sessionId,
+    )
+    try {
+      const result = await this.client.eval(
+        TAKE_VOICE_TRANSCRIPTION_REQUEST_SCRIPT,
+        1,
+        APPLICATION_EMBED_VOICE_TRANSCRIPTION_RATE_LIMIT_KEY_PREFIX +
+          sessionDigest,
+        VOICE_TRANSCRIPTION_RATE_LIMIT_MAX_REQUESTS,
+        VOICE_TRANSCRIPTION_RATE_LIMIT_WINDOW_SECONDS,
+      )
+      return parseVoiceTranscriptionRateLimitAdmission(result)
+    } catch {
+      throw new RedisUnavailableError(
+        "application_embed_voice_transcription_rate_limit",
+      )
     }
   }
 
@@ -1009,10 +1092,24 @@ function assertRecoveryTimestamp(value: string): void {
   }
 }
 
+function parseVoiceTranscriptionRateLimitAdmission(
+  result: unknown,
+): { allowed: boolean; retryAfterSeconds: number } {
+  const [allowed, retryAfterSeconds] = parseNumberArray(result, 2)
+  if (allowed !== 0 && allowed !== 1) {
+    throw new Error("invalid voice transcription rate limit response")
+  }
+  return {
+    allowed: allowed === 1,
+    retryAfterSeconds: Math.max(1, retryAfterSeconds ?? 0),
+  }
+}
+
 export const redisScriptsForTesting = {
   LOGIN_PRECHECK_SCRIPT,
   LOGIN_RECORD_FAILURE_SCRIPT,
   RESET_RATE_LIMIT_SCRIPT,
+  TAKE_VOICE_TRANSCRIPTION_REQUEST_SCRIPT,
   ACQUIRE_CONCURRENCY_SCRIPT,
   BEGIN_RUNNING_TURN_RECOVERY_SCRIPT,
   COMPLETE_RUNNING_TURN_RECOVERY_SCRIPT,

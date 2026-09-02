@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const RUNNER_TURN_START_CONTRACT_VERSION =
-  "model-switch-source-compact-v15" as const;
+  "execution-concurrency-process-limit-v16" as const;
 
 export const RUNNER_TURN_INTERRUPT_REQUESTED =
   "TURN_INTERRUPT_REQUESTED" as const;

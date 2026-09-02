@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applicationUsageReportSchema,
   personalUsageProfileQuerySchema,
   personalUsageProfileSchema,
   usageAnalyticsReportQuerySchema,
@@ -188,6 +189,58 @@ describe("usage analytics contracts", () => {
             unpriced_tokens: "0",
           },
         },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("validates an application-scoped usage report without user identities", () => {
+    const report = {
+      application: {
+        id: "50000000-0000-4000-8000-000000000001",
+        name: "研究助手",
+      },
+      range: "7d",
+      generated_at: "2026-07-27T12:00:00.000Z",
+      period: {
+        from: "2026-07-21T00:00:00.000Z",
+        to: "2026-07-27T12:00:00.000Z",
+        time_zone: "UTC",
+      },
+      token_coverage: {
+        started_at: "2026-07-01T00:00:00.000Z",
+        complete_for_period: true,
+      },
+      active_user_count: 2,
+      totals: {
+        task_count: 3,
+        turn_count: 5,
+        request_count: 6,
+        token_usage: {
+          total_tokens: "1200",
+          input_tokens: "900",
+          cached_input_tokens: "300",
+          output_tokens: "300",
+          reasoning_output_tokens: "100",
+        },
+        cost: {
+          currency: "CNY",
+          total_cost: "1.2",
+          input_cost: "0.7",
+          cached_input_cost: "0.1",
+          output_cost: "0.4",
+          unpriced_tokens: "0",
+        },
+      },
+      token_trend: { granularity: "day", points: [] },
+      workloads: [],
+      models: [],
+    };
+
+    expect(applicationUsageReportSchema.parse(report)).toEqual(report);
+    expect(
+      applicationUsageReportSchema.safeParse({
+        ...report,
+        users: [{ email: "private@example.test" }],
       }).success,
     ).toBe(false);
   });

@@ -127,6 +127,7 @@ describe("runner health", () => {
     const base = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000099",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration,
       capabilityGeneration,
       ...modelRuntimeInput,
@@ -206,6 +207,7 @@ describe("runner health", () => {
     const parsed = runnerServerTesting.startTurnBodySchema.parse({
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000099",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration,
       capabilityGeneration,
       ...modelRuntimeInput,
@@ -232,6 +234,7 @@ describe("runner health", () => {
     const body = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000099",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration,
       capabilityGeneration,
       ...modelRuntimeInput,
@@ -289,6 +292,7 @@ describe("runner health", () => {
     const validBody = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000099",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration,
       capabilityGeneration,
       ...modelRuntimeInput,
@@ -342,6 +346,7 @@ describe("runner health", () => {
     const base = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000099",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration,
       capabilityGeneration,
       ...modelRuntimeInput,
@@ -542,6 +547,7 @@ describe("runner health", () => {
       payload: {
         ownerId,
         projectionTurnId,
+        appServerProcessLimit: 20,
         expectedRuntimeGeneration,
         capabilityGeneration,
         codexThreadId: "thread-native-1",
@@ -582,6 +588,7 @@ describe("runner health", () => {
     const base = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000099",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration,
       capabilityGeneration,
       ...modelRuntimeInput,
@@ -641,6 +648,7 @@ describe("runner health", () => {
       payload: {
         ownerId: "01900000-0000-7000-8000-000000000002",
         projectionTurnId: "01900000-0000-7000-8000-000000000099",
+        appServerProcessLimit: 20,
         expectedRuntimeGeneration,
         capabilityGeneration,
         ...modelRuntimeInput,

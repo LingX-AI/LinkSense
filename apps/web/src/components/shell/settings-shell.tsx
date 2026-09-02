@@ -11,6 +11,7 @@ import {
   HeartPulseIcon,
   MessageSquareTextIcon,
   MessagesSquareIcon,
+  RefreshCwIcon,
   SearchIcon,
   ServerCogIcon,
   Settings2Icon,
@@ -33,6 +34,7 @@ import {
 } from "@/components/shell/settings-return-navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { SystemUpdateNotice } from "@/features/admin/system-update"
 import { cn } from "@/lib/utils"
 
 type SettingsNavigationItem = {
@@ -162,6 +164,12 @@ const administratorItems: SettingsNavigationItem[] = [
     labelKey: "nav.usage",
     descriptionKey: "settings.usageDescription",
     icon: ChartNoAxesCombinedIcon,
+  },
+  {
+    to: "/admin/system-update",
+    labelKey: "settings.systemUpdate",
+    descriptionKey: "settings.systemUpdateDescription",
+    icon: RefreshCwIcon,
   },
 ]
 
@@ -293,6 +301,9 @@ export function SettingsShell() {
             isAdministrationPage && "settings-content-administration"
           )}
         >
+          {location.pathname !== "/admin/system-update" && (
+            <SystemUpdateNotice placement="settings" />
+          )}
           <Outlet />
         </div>
       </main>

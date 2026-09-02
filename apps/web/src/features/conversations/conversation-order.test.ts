@@ -4,6 +4,7 @@ import {
   applySidebarConversationOrder,
   reorderConversationIds,
   sortSidebarConversations,
+  upsertSidebarConversation,
 } from "@/features/conversations/conversation-order"
 
 function conversation(
@@ -78,5 +79,32 @@ describe("sidebar conversation ordering", () => {
       { ...second, sort_order: 0 },
     ])
     expect(result?.pages[0]?.items[0]).toBe(pinned)
+  })
+
+  it("inserts a newly created task into the first cached sidebar page without duplicating it", () => {
+    const first = conversation("first", "2026-08-12T10:00:00.000Z")
+    const second = conversation("second", "2026-08-12T09:00:00.000Z")
+    const created = conversation("created", "2026-08-12T11:00:00.000Z")
+    const data = {
+      pages: [
+        { items: [first], total_count: 2, next_cursor: "next" },
+        { items: [second], total_count: 2, next_cursor: null },
+      ],
+      pageParams: [undefined, "next"],
+    }
+
+    const inserted = upsertSidebarConversation(data, created)
+    const replaced = upsertSidebarConversation(inserted, {
+      ...created,
+      title: "created-updated",
+    })
+
+    expect(
+      inserted?.pages.map((page) => page.items.map((item) => item.id))
+    ).toEqual([["created", "first"], ["second"]])
+    expect(inserted?.pages.map((page) => page.total_count)).toEqual([3, 3])
+    expect(replaced?.pages[0]?.items[0]?.title).toBe("created-updated")
+    expect(replaced?.pages.map((page) => page.total_count)).toEqual([3, 3])
+    expect(data.pages[0]?.items).toEqual([first])
   })
 })

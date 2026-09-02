@@ -241,6 +241,10 @@ const rawConfigSchema = z
     HOST: z.string().trim().min(1).default("0.0.0.0"),
     PORT: z.coerce.number().int().min(1).max(65_535).default(4000),
     LINKSENSE_EDITION: z.enum(["core", "full"]).default("full"),
+    LINKSENSE_VERSION: z
+      .string()
+      .regex(/^v\d+\.\d+\.\d+$/u)
+      .default("v0.0.0"),
     DATABASE_URL: z.string().min(1),
     REDIS_URL: z.string().min(1),
     LINKSENSE_BILLING_TIME_ZONE: timeZoneSchema.default("Asia/Shanghai"),
@@ -275,6 +279,7 @@ const rawConfigSchema = z
     LINKSENSE_PASSWORD_RESET_IP_WINDOW_SECONDS: positiveInteger(3600),
     LINKSENSE_PASSWORD_RESET_TOKEN_TTL_MINUTES: positiveInteger(30),
     LINKSENSE_MAX_CONCURRENT_CONVERSATIONS: positiveInteger(20),
+    LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT: positiveInteger(20),
     LINKSENSE_UPLOAD_MAX_FILE_SIZE_MB: positiveInteger(100),
     LINKSENSE_UPLOAD_MAX_FILES_PER_CONVERSATION: positiveInteger(100),
     LINKSENSE_UPLOAD_ALLOWED_TYPES: z.string().default(DEFAULT_FILE_MIME_TYPES),
@@ -458,6 +463,7 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
   return {
     nodeEnv: raw.NODE_ENV,
     edition: raw.LINKSENSE_EDITION,
+    releaseVersion: raw.LINKSENSE_VERSION,
     host: raw.HOST,
     port: raw.PORT,
     databaseUrl: raw.DATABASE_URL,
@@ -495,6 +501,8 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
       tokenTtlMinutes: raw.LINKSENSE_PASSWORD_RESET_TOKEN_TTL_MINUTES,
     },
     maxConcurrentConversations: raw.LINKSENSE_MAX_CONCURRENT_CONVERSATIONS,
+    runnerAppServerProcessLimit:
+      raw.LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT,
     upload: {
       maxFileSizeBytes: raw.LINKSENSE_UPLOAD_MAX_FILE_SIZE_MB * 1024 * 1024,
       maxFilesPerConversation: raw.LINKSENSE_UPLOAD_MAX_FILES_PER_CONVERSATION,

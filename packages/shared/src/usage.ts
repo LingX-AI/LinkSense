@@ -274,6 +274,29 @@ export const usageAnalyticsReportSchema = z.strictObject({
   users: z.array(usageUserBreakdownSchema),
 });
 
+export const applicationUsageReportSchema = z.strictObject({
+  application: z.strictObject({
+    id: uuidSchema,
+    name: z.string().min(1).max(160),
+  }),
+  range: usageAnalyticsRangeSchema,
+  generated_at: timestampSchema,
+  period: z.strictObject({
+    from: timestampSchema.nullable(),
+    to: timestampSchema,
+    time_zone: usageAnalyticsTimeZoneSchema,
+  }),
+  token_coverage: z.strictObject({
+    started_at: timestampSchema,
+    complete_for_period: z.boolean(),
+  }),
+  active_user_count: z.number().int().nonnegative(),
+  totals: usageMetricsSchema,
+  token_trend: usageTokenTrendSchema,
+  workloads: z.array(usageWorkloadBreakdownSchema),
+  models: z.array(usageModelBreakdownSchema),
+});
+
 export const billingStatementStatusSchema = z.literal("generated");
 export const billingStatementPricingModeSchema = z.enum(["uniform", "mixed"]);
 export const billingStatementMonthSchema = z.string().regex(/^\d{4}-\d{2}$/u);
@@ -370,6 +393,9 @@ export type PersonalUsageDailyActivity = z.infer<
 >;
 export type PersonalUsageProfile = z.infer<typeof personalUsageProfileSchema>;
 export type UsageAnalyticsReport = z.infer<typeof usageAnalyticsReportSchema>;
+export type ApplicationUsageReport = z.infer<
+  typeof applicationUsageReportSchema
+>;
 
 function isSupportedTimeZone(value: string): boolean {
   try {

@@ -24,6 +24,28 @@ afterEach(async () => {
 });
 
 describe("internal application routes", () => {
+  it("returns an owner-scoped application usage report", async () => {
+    const { app, usageAnalytics } = await applicationRouteFixture();
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/applications/${APPLICATION_ID}/usage?range=7d&time_zone=Asia%2FShanghai`,
+      headers: { authorization: "Bearer internal-user" },
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.headers["cache-control"]).toBe("private, no-store");
+    expect(response.json()).toMatchObject({
+      success: true,
+      data: { active_user_count: 2 },
+    });
+    expect(usageAnalytics.applicationReport).toHaveBeenCalledWith(
+      USER_ID,
+      APPLICATION_ID,
+      { range: "7d", time_zone: "Asia/Shanghai" },
+    );
+  });
+
   it("requires an authenticated organization user", async () => {
     const { app, service } = await applicationRouteFixture();
 
@@ -326,15 +348,19 @@ async function applicationRouteFixture() {
     createInteractiveRuntimeTicket: vi.fn(),
   };
   const createConversation = vi.fn(async () => ({ id: CONVERSATION_ID }));
+  const usageAnalytics = {
+    applicationReport: vi.fn(async () => ({ active_user_count: 2 })),
+  };
   await app.register(
     async (scope) => {
       scope.addHook("preHandler", app.authenticate);
       await scope.register(applicationRoutes, {
         service: service as unknown as ApplicationService,
+        usageAnalytics: usageAnalytics as never,
         createConversation,
       });
     },
     { prefix: "/api/v1/applications" },
   );
-  return { app, service, createConversation };
+  return { app, service, usageAnalytics, createConversation };
 }

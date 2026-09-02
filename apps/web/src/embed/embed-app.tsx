@@ -21,6 +21,7 @@ import {
   type NativeMessagePhase,
   type ReasoningEffort,
 } from "@/api/contracts"
+import { ApiError } from "@/api/client"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,6 +50,7 @@ import {
   type ConversationComposerHandle,
   type PendingAttachmentUpload,
 } from "@/features/conversations/conversation-composer"
+import type { VoiceTranscriptionRequester } from "@/features/conversations/use-voice-transcription"
 import {
   appendConversationLiveEvent,
   isStreamOnlyNativeEvent,
@@ -299,6 +301,39 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
       }
     },
     [config.application.allows_user_model_selection, config.auth_mode]
+  )
+
+  const requestVoiceTranscription = useCallback<VoiceTranscriptionRequester>(
+    async (body, signal) => {
+      const client = clientRef.current
+      if (!client?.authenticated) {
+        throw new ApiError({
+          status: 401,
+          errorCode: "APPLICATION_EMBED_SESSION_EXPIRED",
+        })
+      }
+      try {
+        return await client.requestStream(
+          "/api/v1/embed/session/voice/transcriptions",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+            signal,
+          }
+        )
+      } catch (nextError) {
+        if (nextError instanceof EmbedRequestError) {
+          throw new ApiError({
+            status: nextError.status,
+            errorCode: nextError.code,
+            message: nextError.message,
+          })
+        }
+        throw nextError
+      }
+    },
+    []
   )
 
   const scheduleRefresh = useCallback(
@@ -1337,6 +1372,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
                 onRemoveAttachment={(file) => void removeAttachment(file)}
                 onClearAttachments={clearAttachments}
                 onError={setError}
+                requestVoiceTranscription={requestVoiceTranscription}
               />
             )}
           </div>
