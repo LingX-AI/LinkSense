@@ -104,8 +104,8 @@ jobs:
                 repo,
                 issue_number: issue.number,
                 body: `${marker}
-This issue is waiting for the requested information. Please add the missing details when convenient. This reminder does not close the issue; a maintainer will decide its status.
+            This issue is waiting for the requested information. Please add the missing details when convenient. This reminder does not close the issue; a maintainer will decide its status.
 
-这个 Issue 仍在等待所需信息。请在方便时补充缺失内容。本提醒不会关闭 Issue，后续状态由维护者决定。`,
+            这个 Issue 仍在等待所需信息。请在方便时补充缺失内容。本提醒不会关闭 Issue，后续状态由维护者决定。`,
               })
             }

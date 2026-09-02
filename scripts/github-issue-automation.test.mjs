@@ -35,6 +35,16 @@ test("deterministic issue workflows pin actions and never close issues", async (
   assert.match(workflows[0], /status:triage/u)
   assert.match(workflows[1], /sevenDays/u)
   assert.match(workflows[1], /This reminder does not close the issue/u)
+  assert.match(
+    workflows[0],
+    /^ {12}Thank you for opening this issue\./mu,
+    "the intake comment must remain inside the YAML script block",
+  )
+  assert.match(
+    workflows[1],
+    /^ {12}This issue is waiting for the requested information\./mu,
+    "the reminder comment must remain inside the YAML script block",
+  )
 })
 
 test("AI triage can only apply low-risk labels with issue intents", async () => {

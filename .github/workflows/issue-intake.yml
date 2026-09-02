@@ -52,7 +52,7 @@ jobs:
               repo,
               issue_number: issueNumber,
               body: `${marker}
-Thank you for opening this issue. A maintainer will review the report. If more information is needed, we will add the \`needs-info\` label and ask focused follow-up questions. Please do not post secrets, tokens, personal data, or private deployment details.
+            Thank you for opening this issue. A maintainer will review the report. If more information is needed, we will add the \`needs-info\` label and ask focused follow-up questions. Please do not post secrets, tokens, personal data, or private deployment details.
 
-感谢提交 Issue。维护者会审阅报告；如果还需要信息，我们会添加 \`needs-info\` 标签并提出明确的问题。请勿在 Issue 中发布密钥、Token、个人数据或私有部署信息。`,
+            感谢提交 Issue。维护者会审阅报告；如果还需要信息，我们会添加 \`needs-info\` 标签并提出明确的问题。请勿在 Issue 中发布密钥、Token、个人数据或私有部署信息。`,
             })
