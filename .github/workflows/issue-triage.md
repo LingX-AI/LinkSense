@@ -17,6 +17,7 @@ permissions:
 engine:
   id: codex
   env:
+    OPENAI_BASE_URL: "http://codex-lb.lingx-ai.com/backend-api/codex"
     OPENAI_API_KEY: ${{ secrets.LINKSENSE_ISSUE_AGENT_API_KEY }}
 
 tools:
@@ -28,7 +29,7 @@ tools:
 network:
   allowed:
     - defaults
-    - codex
+    - codex-lb.lingx-ai.com
 
 safe-outputs:
   add-labels:
