@@ -582,13 +582,14 @@ describe("WorkspaceManager", () => {
       'env_vars = ["HOME", "CODEX_HOME", "LINKSENSE_CONVERSATION_ID", "LINKSENSE_BROWSER_READ_ONLY"]',
     )
     expect(managedServiceConfig).toContain(
-      "tool_timeout_sec = 630 # linksense-core-service:end",
+      "tool_timeout_sec = 630",
     )
     expect(managedServiceConfig).toContain(
-      "tool_timeout_sec = 130 # linksense-managed-browser-service:end",
+      "tool_timeout_sec = 130",
     )
-    expect(managedServiceConfig).not.toMatch(
-      /^# linksense-(?:core|managed-browser)-service:end$/gmu,
+    expect(managedServiceConfig).not.toContain("linksense-core-service:")
+    expect(managedServiceConfig).not.toContain(
+      "linksense-managed-browser-service:",
     )
 
     const nativePluginConfig = [
@@ -681,7 +682,7 @@ describe("WorkspaceManager", () => {
 
     const config = await readFile(configPath, "utf8")
     expect(config.match(/^\[model_providers\.link-sense\]$/gmu)).toHaveLength(1)
-    expect(config).toContain("# revision = 9")
+    expect(config).toContain("# linksense-model-provider-revision = 9")
     expect(config).toContain('base_url = "https://provider.example.test/v2"')
     expect(config).toContain(
       'env_key = "LINKSENSE_MODEL_GATEWAY_TOKEN"',
@@ -689,19 +690,87 @@ describe("WorkspaceManager", () => {
     expect(config).toContain("supports_websockets = true")
     expect(config).toContain("stream_max_retries = 2")
     expect(config).toContain("websocket_connect_timeout_ms = 12000")
-    expect(config).toContain(
-      "requires_openai_auth = false # linksense-model-provider:end",
-    )
-    expect(config).not.toMatch(/^# linksense-model-provider:end$/gmu)
+    expect(config).toContain("requires_openai_auth = false")
+    expect(config).not.toContain("linksense-model-provider:")
     expect(config).not.toContain("env_http_headers")
     expect(config).not.toContain("legacy-provider.example.test")
     expect(config).toContain(
       '[plugins."managebac-connector@linksense-personal"]',
     )
     expect(config).toContain("enabled = true")
-    expect(config).toContain("# linksense-file-service:start")
     expect(config).toContain("[mcp_servers.linksense_file_service]")
-    expect(config).toContain("# linksense-file-service:end")
+    expect(config).not.toContain("linksense-file-service:")
+  })
+
+  it("preserves native plugin tables that Codex inserts inside legacy managed ranges", async () => {
+    const root = await tempRoot()
+    const template = path.join(root, "template")
+    await mkdir(template)
+    await writeFile(
+      path.join(template, "config.toml"),
+      [
+        'model_provider = "link-sense"',
+        "",
+        "# linksense-model-provider:start",
+        "# revision = 7",
+        "model_context_window = 100000",
+        "model_auto_compact_token_limit = 85000",
+        'model_auto_compact_token_limit_scope = "total"',
+        "",
+        '[plugins."linksense-lark-office@linksense-personal"]',
+        "enabled = true",
+        "",
+        "[model_providers.link-sense]",
+        'name = "LinkSense"',
+        'base_url = "https://old-provider.example.test"',
+        'wire_api = "responses"',
+        'env_key = "LINKSENSE_MODEL_GATEWAY_TOKEN"',
+        "requires_openai_auth = false # linksense-model-provider:end",
+        "",
+        "# linksense-core-service:start",
+        '[plugins."managebac-connector@linksense-personal"]',
+        "enabled = true",
+        "",
+        "[mcp_servers.linksense_core]",
+        'command = "old-node"',
+        'args = ["old-core.js"]',
+        "tool_timeout_sec = 60 # linksense-core-service:end",
+        "",
+      ].join("\n"),
+    )
+    const manager = new WorkspaceManager(root, template)
+    manager.bindOwner(taskA, ownerA)
+    const paths = await manager.ensureConversation(taskA, "current")
+
+    await manager.configureModelProvider(taskA, {
+      revision: 8,
+      baseUrl: "https://provider.example.test/v2",
+      protocolMode: "native_responses",
+      modelContextWindow: 150_000,
+    })
+    await manager.configureBuiltInMcp(taskA, {
+      command: "node",
+      args: ["core-service.js"],
+      managedBrowserArgs: ["managed-browser-service.js"],
+    })
+
+    const config = await readFile(path.join(paths.codexHome, "config.toml"), "utf8")
+    expect(
+      config.match(
+        /^\[plugins\."linksense-lark-office@linksense-personal"\]$/gmu,
+      ),
+    ).toHaveLength(1)
+    expect(
+      config.match(
+        /^\[plugins\."managebac-connector@linksense-personal"\]$/gmu,
+      ),
+    ).toHaveLength(1)
+    expect(config.match(/^\[model_providers\.link-sense\]$/gmu)).toHaveLength(1)
+    expect(config.match(/^\[mcp_servers\.linksense_core\]$/gmu)).toHaveLength(1)
+    expect(config).toContain('base_url = "https://provider.example.test/v2"')
+    expect(config).toContain('args = ["core-service.js"]')
+    expect(config).not.toContain("linksense-model-provider:")
+    expect(config).not.toContain("linksense-core-service:")
   })
 
   it("writes Codex context-window based automatic compaction settings", async () => {
@@ -794,7 +863,7 @@ describe("WorkspaceManager", () => {
 
     expect((await lstat(configPath)).mode & 0o777).toBe(0o660)
     const config = await readFile(configPath, "utf8")
-    expect(config).toContain("# revision = 10")
+    expect(config).toContain("# linksense-model-provider-revision = 10")
     expect(config).toContain("supports_websockets = false")
   })
 

@@ -70,6 +70,11 @@ import {
   type CodexClientUnhealthyReason,
 } from "./codex/json-rpc-client.js";
 import {
+  builtInMcpConfigOverrides,
+  linkSenseModelProviderConfigOverrides,
+  linkSenseModelProviderId,
+} from "./codex/runtime-config-overrides.js";
+import {
   NativePluginManager,
   type NativePluginActivation,
 } from "./codex/native-plugin-manager.js";
@@ -155,7 +160,6 @@ import {
   type PersonalizationSnapshot,
 } from "./workspace/workspace-manager.js";
 
-const CODEX_MODEL_PROVIDER_ID = "link-sense";
 const zeroModelTokenPricing: ModelTokenPricing = {
   input_price_per_million: "0",
   cached_input_price_per_million: "0",
@@ -1352,30 +1356,6 @@ export class AppServerProcessPool {
       this.releaseStartingProcess(existing);
       throw new StartOperationRuntimeGenerationMismatchError();
     }
-    try {
-      await this.options.workspaceManager.configureModelProvider(
-        input.conversationId,
-        {
-          revision: input.modelProvider.revision,
-          baseUrl: this.options.modelGateway.baseUrl,
-          protocolMode: input.modelProvider.protocolMode,
-          allowWebSockets: input.modelTransitionSource === undefined,
-          ...(input.modelProvider.modelContextWindow === undefined
-            ? {}
-            : { modelContextWindow: input.modelProvider.modelContextWindow }),
-          ...(input.modelProvider.modelAutoCompactTokenLimit === undefined
-            ? {}
-            : {
-                modelAutoCompactTokenLimit:
-                  input.modelProvider.modelAutoCompactTokenLimit,
-              }),
-        },
-      );
-    } catch (error) {
-      if (reservedProcessSlot) await this.releaseReservedProcessSlot();
-      this.releaseStartingProcess(existing);
-      throw error;
-    }
     let capabilityRuntime: PreparedCapabilityRuntime | null = null;
     let leaseToken: OwnerCapabilityLeaseToken | null = null;
     if (operationKind !== "compact") {
@@ -1440,23 +1420,17 @@ export class AppServerProcessPool {
             throw new StartOperationRuntimeGenerationMismatchError();
           }
         }
+        await this.reconcileNativePluginsBeforeProcessCreation(
+          input,
+          paths,
+          capabilityRuntime,
+        );
         const fileServiceToken = randomBytes(32).toString("base64url");
         const imageGenerationToken = randomBytes(32).toString("base64url");
         const knowledgeServiceToken = randomBytes(32).toString("base64url");
         const skillCreatorToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
-        await this.options.workspaceManager.configureBuiltInMcp(
-          input.conversationId,
-          {
-            command: this.options.mcpCommand,
-            args: this.options.mcpArgs,
-            ...(this.options.managedBrowserMcpArgs
-              ? { managedBrowserArgs: this.options.managedBrowserMcpArgs }
-              : {}),
-            knowledgeSearchTimeoutMs: this.knowledgeSearchTimeoutMs,
-          },
-        );
         const transferredReservation = reservedProcessSlot;
         reservedProcessSlot = false;
         managed = await this.getOrCreate(
@@ -3196,24 +3170,6 @@ export class AppServerProcessPool {
       if (paths.runtimeGeneration !== input.expectedRuntimeGeneration) {
         throw new StartOperationRuntimeGenerationMismatchError();
       }
-      await this.options.workspaceManager.configureModelProvider(
-        input.conversationId,
-        {
-          revision: input.modelProvider.revision,
-          baseUrl: this.options.modelGateway.baseUrl,
-          protocolMode: input.modelProvider.protocolMode,
-          allowWebSockets: input.modelTransitionSource === undefined,
-          ...(input.modelProvider.modelContextWindow === undefined
-            ? {}
-            : { modelContextWindow: input.modelProvider.modelContextWindow }),
-          ...(input.modelProvider.modelAutoCompactTokenLimit === undefined
-            ? {}
-            : {
-                modelAutoCompactTokenLimit:
-                  input.modelProvider.modelAutoCompactTokenLimit,
-              }),
-        },
-      );
       if (
         input.operationKind !== "compact" &&
         input.runtimePurpose !== "control"
@@ -3266,23 +3222,17 @@ export class AppServerProcessPool {
             throw new StartOperationRuntimeGenerationMismatchError();
           }
         }
+        await this.reconcileNativePluginsBeforeProcessCreation(
+          recoveryStartInput,
+          paths,
+          capabilityRuntime,
+        );
         const fileServiceToken = randomBytes(32).toString("base64url");
         const imageGenerationToken = randomBytes(32).toString("base64url");
         const knowledgeServiceToken = randomBytes(32).toString("base64url");
         const skillCreatorToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
-        await this.options.workspaceManager.configureBuiltInMcp(
-          input.conversationId,
-          {
-            command: this.options.mcpCommand,
-            args: this.options.mcpArgs,
-            ...(this.options.managedBrowserMcpArgs
-              ? { managedBrowserArgs: this.options.managedBrowserMcpArgs }
-              : {}),
-            knowledgeSearchTimeoutMs: this.knowledgeSearchTimeoutMs,
-          },
-        );
         managed = await this.getOrCreate(
           {
             ...recoveryStartInput,
@@ -4641,20 +4591,6 @@ export class AppServerProcessPool {
       generation: input.capabilityGeneration,
     });
     try {
-      if (generationAlreadyLoaded) {
-        return {
-          capabilityRuntime:
-            await this.options.capabilityRuntimeManager.resolvePublished({
-              userHome: paths.home,
-              controlRoot: paths.control,
-              expectedGeneration: input.capabilityGeneration,
-              capabilities: input.capabilities,
-              lockHeld: true,
-            }),
-          leaseToken,
-        };
-      }
-
       const capabilityRuntime =
         await this.options.capabilityRuntimeManager.resolvePublished({
           userHome: paths.home,
@@ -4663,38 +4599,41 @@ export class AppServerProcessPool {
           capabilities: input.capabilities,
           lockHeld: true,
         });
-      await this.options.workspaceManager.configureBuiltInMcp(
-        input.conversationId,
-        {
-          command: this.options.mcpCommand,
-          args: this.options.mcpArgs,
-          ...(this.options.managedBrowserMcpArgs
-            ? { managedBrowserArgs: this.options.managedBrowserMcpArgs }
-            : {}),
-          knowledgeSearchTimeoutMs: this.knowledgeSearchTimeoutMs,
-        },
-      );
-      await this.nativePluginManager.reconcileBeforeStart({
-        command: this.options.command,
-        userHome: paths.home,
-        codexHome: paths.codexHome,
-        workspace: paths.workspace,
-        capabilityControl: join(paths.control, "capabilities"),
-        expectedGeneration: input.capabilityGeneration,
-        pluginContentDigest: capabilityRuntime.pluginContentDigest,
-        pluginNames: input.capabilities
-          .filter((capability) => capability.type === "plugin")
-          .map((capability) => capability.name),
-        lockHeld: true,
-        ...(this.options.codexProcessIdentity
-          ? { processIdentity: this.options.codexProcessIdentity }
-          : {}),
-      });
       return { capabilityRuntime, leaseToken };
     } catch (error) {
       await this.releaseOwnerCapabilityLeaseToken(leaseToken);
       throw error;
     }
+  }
+
+  /**
+   * Codex owns native plugin state under the shared owner CODEX_HOME. Verify
+   * that state immediately before every real app-server creation while the
+   * cross-process capability lease is held. Healthy process reuse does not
+   * need another check, and the manager's exact-match path is read-only.
+   */
+  private async reconcileNativePluginsBeforeProcessCreation(
+    input: StartTurnInput,
+    paths: EnsuredConversationPaths,
+    capabilityRuntime: PreparedCapabilityRuntime | null,
+  ): Promise<void> {
+    if (!capabilityRuntime) return;
+    await this.nativePluginManager.reconcileBeforeStart({
+      command: this.options.command,
+      userHome: paths.home,
+      codexHome: paths.codexHome,
+      workspace: paths.workspace,
+      capabilityControl: join(paths.control, "capabilities"),
+      expectedGeneration: input.capabilityGeneration,
+      pluginContentDigest: capabilityRuntime.pluginContentDigest,
+      pluginNames: input.capabilities
+        .filter((capability) => capability.type === "plugin")
+        .map((capability) => capability.name),
+      lockHeld: true,
+      ...(this.options.codexProcessIdentity
+        ? { processIdentity: this.options.codexProcessIdentity }
+        : {}),
+    });
   }
 
   private async waitForOwnerProcessesToBecomeIdle(
@@ -4889,8 +4828,35 @@ export class AppServerProcessPool {
             ...preparedMcpProxy.childEnvironment,
             [modelGatewayEnvironmentKey]: modelGatewayLease.token,
           },
+          // Keep task-scoped runtime settings out of the owner-shared
+          // config.toml. Codex alone persists native plugin selections there.
           configOverrides: [
             ...this.globalFeatureOverrides,
+            ...linkSenseModelProviderConfigOverrides({
+              baseUrl: this.options.modelGateway.baseUrl,
+              protocolMode: input.modelProvider.protocolMode,
+              allowWebSockets: input.modelTransitionSource === undefined,
+              ...(input.modelProvider.modelContextWindow === undefined
+                ? {}
+                : {
+                    modelContextWindow:
+                      input.modelProvider.modelContextWindow,
+                  }),
+              ...(input.modelProvider.modelAutoCompactTokenLimit === undefined
+                ? {}
+                : {
+                    modelAutoCompactTokenLimit:
+                      input.modelProvider.modelAutoCompactTokenLimit,
+                  }),
+            }),
+            ...builtInMcpConfigOverrides({
+              command: this.options.mcpCommand,
+              args: this.options.mcpArgs,
+              ...(this.options.managedBrowserMcpArgs
+                ? { managedBrowserArgs: this.options.managedBrowserMcpArgs }
+                : {}),
+              knowledgeSearchTimeoutMs: this.knowledgeSearchTimeoutMs,
+            }),
             ...planRuntimeConfigOverrides(input.collaborationMode),
             ...memoryConfigOverrides(
               {
@@ -7146,7 +7112,7 @@ export function planRuntimeConfigOverrides(
 
 type LinkSenseThreadRuntimeOverrides = {
   model: string;
-  modelProvider: typeof CODEX_MODEL_PROVIDER_ID;
+  modelProvider: typeof linkSenseModelProviderId;
   cwd: string;
   runtimeWorkspaceRoots: string[];
   approvalPolicy: typeof LINKSENSE_APPROVAL_POLICY;
@@ -7159,7 +7125,7 @@ function linkSenseThreadRuntimeOverrides(
 ): LinkSenseThreadRuntimeOverrides {
   return {
     model,
-    modelProvider: CODEX_MODEL_PROVIDER_ID,
+    modelProvider: linkSenseModelProviderId,
     cwd: workspace,
     runtimeWorkspaceRoots: [workspace],
     approvalPolicy: LINKSENSE_APPROVAL_POLICY,
@@ -7171,7 +7137,7 @@ function assertLinkSenseThreadProvider(
   thread: CodexThread,
   operation: "start" | "resume" | "fork" | "rollback" | "read",
 ): void {
-  if (thread.modelProvider !== CODEX_MODEL_PROVIDER_ID) {
+  if (thread.modelProvider !== linkSenseModelProviderId) {
     throw new CodexProtocolError(
       `Codex ${operation} returned an unexpected model provider`,
     );
@@ -7183,7 +7149,7 @@ function assertLinkSenseThreadRuntime(
   operation: "start" | "resume" | "fork",
   expectedModel?: string,
 ): string {
-  if (response.modelProvider !== CODEX_MODEL_PROVIDER_ID) {
+  if (response.modelProvider !== linkSenseModelProviderId) {
     throw new CodexProtocolError(
       `Codex ${operation} returned an unexpected model provider`,
     );

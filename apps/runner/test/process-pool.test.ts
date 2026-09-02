@@ -483,6 +483,56 @@ describe("AppServerProcessPool", () => {
     await pool.closeAll();
   });
 
+  it("passes provider and built-in MCP config only to the app-server process", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "linksense-process-runtime-config-"),
+    );
+    roots.push(root);
+    const workspaceManager = createWorkspaceManager(root);
+    const configureModelProvider = vi.spyOn(
+      workspaceManager,
+      "configureModelProvider",
+    );
+    const configureBuiltInMcp = vi.spyOn(
+      workspaceManager,
+      "configureBuiltInMcp",
+    );
+    const controlled = createControlledAppServer();
+    const { pool } = createStartOperationPool(
+      root,
+      controlled.factory,
+      workspaceManager,
+    );
+
+    await pool.startTurn({
+      ...startOperationInput(),
+      modelProvider: {
+        ...startOperationInput().modelProvider,
+        modelContextWindow: 200_000,
+        modelAutoCompactTokenLimit: 150_000,
+      },
+    });
+
+    expect(configureModelProvider).not.toHaveBeenCalled();
+    expect(configureBuiltInMcp).not.toHaveBeenCalled();
+    expect(controlled.args).toEqual(
+      expect.arrayContaining([
+        'model_providers.link-sense.base_url="http://127.0.0.1:4011/v1"',
+        "model_providers.link-sense.supports_websockets=true",
+        "model_context_window=200000",
+        "model_auto_compact_token_limit=150000",
+        'model_auto_compact_token_limit_scope="total"',
+        `mcp_servers.linksense_core.command=${JSON.stringify(process.execPath)}`,
+        "mcp_servers.linksense_core.enabled=true",
+        "mcp_servers.linksense_core.required=true",
+        "mcp_servers.linksense_managed_browser.enabled=false",
+        "mcp_servers.linksense_managed_browser.required=false",
+      ]),
+    );
+
+    await pool.closeAll();
+  });
+
   it("forces template features for an existing user without rewriting user-owned config state", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-feature-policy-"));
     roots.push(root);
@@ -1536,12 +1586,10 @@ trust_level = "trusted"
       codexTurnId: "turn-native-1",
       modelTransitionNonce: null,
     });
-    const config = await readFile(
-      join(root, "home", ".codex", "config.toml"),
-      "utf8",
+    expect(controlled.args).toContain(
+      'model_providers.link-sense.base_url="http://127.0.0.1:4011/v1"',
     );
-    expect(config).toContain('base_url = "http://127.0.0.1:4011/v1"');
-    expect(config).not.toContain("test-provider-key");
+    expect(JSON.stringify(controlled.args)).not.toContain("test-provider-key");
     controlled.notify({
       method: "turn/completed",
       params: {
@@ -5106,6 +5154,69 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("reconciles native plugins for each new same-generation app-server but not for healthy reuse", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "linksense-same-generation-native-reconcile-"),
+    );
+    roots.push(root);
+    const controlled = createControlledAppServer({
+      turnStartIds: ["turn-native-1", "turn-native-2", "turn-native-3"],
+    });
+    const nativePluginManager = createNativePluginManagerMock();
+    const { pool } = createStartOperationPool(
+      root,
+      controlled.factory,
+      createWorkspaceManager(root),
+      { nativePluginManager },
+    );
+    const firstInput = startOperationInput();
+
+    const first = await pool.startTurn(firstInput);
+    controlled.notify({
+      method: "turn/completed",
+      params: {
+        threadId: first.codexThreadId,
+        turn: { id: first.codexTurnId, status: "completed" },
+      },
+    });
+    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await confirmRecoveryProjection(pool, firstInput);
+
+    const continuationInput = {
+      ...firstInput,
+      projectionTurnId: "01900000-0000-7000-8000-000000000124",
+      codexThreadId: first.codexThreadId,
+    };
+    const continuation = await pool.startTurn(continuationInput);
+
+    expect(nativePluginManager.reconcileBeforeStart).toHaveBeenCalledOnce();
+    expect(
+      controlled.methods.filter((method) => method === "initialize"),
+    ).toHaveLength(1);
+
+    controlled.notify({
+      method: "turn/completed",
+      params: {
+        threadId: continuation.codexThreadId,
+        turn: { id: continuation.codexTurnId, status: "completed" },
+      },
+    });
+    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await confirmRecoveryProjection(pool, continuationInput);
+
+    await pool.startTurn({
+      ...firstInput,
+      conversationId: "01900000-0000-7000-8000-000000000003",
+      projectionTurnId: "01900000-0000-7000-8000-000000000125",
+    });
+
+    expect(nativePluginManager.reconcileBeforeStart).toHaveBeenCalledTimes(2);
+    expect(
+      controlled.methods.filter((method) => method === "initialize"),
+    ).toHaveLength(2);
+    await pool.closeAll();
+  });
+
   it("shares one owner lock across same-generation conversation tokens", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-shared-capability-lease-"),
@@ -7241,7 +7352,7 @@ trust_level = "trusted"
     });
 
     expect(capabilityRuntimeManager.resolvePublished).toHaveBeenCalledTimes(3);
-    expect(nativePluginManager.reconcileBeforeStart).toHaveBeenCalledOnce();
+    expect(nativePluginManager.reconcileBeforeStart).toHaveBeenCalledTimes(2);
     expect(nativePluginManager.verifyAfterStart).toHaveBeenCalledTimes(2);
     expect(controlled.kill).toHaveBeenCalledOnce();
     expect(
@@ -7252,6 +7363,66 @@ trust_level = "trusted"
       "credential-version-two",
     );
     expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
+    await pool.closeAll();
+  });
+
+  it("reconciles native plugins when cold recovery creates another same-generation app-server", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "linksense-cold-recovery-native-reconcile-"),
+    );
+    roots.push(root);
+    const nativePluginManager = createNativePluginManagerMock();
+    const controlled = createControlledAppServer({
+      threadReadById: {
+        "thread-native-1": {
+          turns: [
+            {
+              id: "turn-native-1",
+              status: "completed",
+              items: [],
+              error: null,
+            },
+          ],
+        },
+        "thread-native-2": {
+          turns: [
+            {
+              id: "turn-native-2",
+              status: "completed",
+              items: [],
+              error: null,
+            },
+          ],
+        },
+      },
+    });
+    const { pool } = createStartOperationPool(
+      root,
+      controlled.factory,
+      createWorkspaceManager(root),
+      { nativePluginManager },
+    );
+    const firstInput = startOperationInput();
+    const firstRecovery = {
+      ...firstInput,
+      codexThreadId: "thread-native-1",
+      codexTurnId: "turn-native-1",
+      taskKind: "turn" as const,
+    };
+
+    await pool.reconcile(firstRecovery);
+    await pool.reconcile({
+      ...firstRecovery,
+      conversationId: "01900000-0000-7000-8000-000000000003",
+      projectionTurnId: "01900000-0000-7000-8000-000000000126",
+      codexThreadId: "thread-native-2",
+      codexTurnId: "turn-native-2",
+    });
+
+    expect(nativePluginManager.reconcileBeforeStart).toHaveBeenCalledTimes(2);
+    expect(
+      controlled.methods.filter((method) => method === "initialize"),
+    ).toHaveLength(2);
     await pool.closeAll();
   });
 
@@ -8810,9 +8981,6 @@ trust_level = "trusted"
     );
     roots.push(root);
     const workspaceManager = createWorkspaceManager(root);
-    vi.spyOn(workspaceManager, "configureModelProvider").mockRejectedValueOnce(
-      new Error("model runtime unavailable"),
-    );
     const sourceTurn: CodexTurn = {
       id: "turn-before-compact-retry",
       status: "completed",
@@ -8829,11 +8997,14 @@ trust_level = "trusted"
       threadReadTurns: [sourceTurn],
       compactTurn,
     });
-    const { pool } = createStartOperationPool(
+    const { pool, modelGateway } = createStartOperationPool(
       root,
       controlled.factory,
       workspaceManager,
     );
+    modelGateway.issueLease.mockImplementationOnce(() => {
+      throw new Error("model runtime unavailable");
+    });
     const input: StartTurnInput = {
       ...startOperationInput(),
       operationKind: "compact",

@@ -59,8 +59,7 @@ generate_memories = true
 use_memories = true
 disable_on_external_context = true
 
-# linksense-model-provider:start
-# 管理员保存模型服务设置后，Runner 会在每位用户的隔离配置中替换此占位块。
+# Runner 启动 app-server 时以进程级配置覆盖此占位项，不改写用户共享配置。
 # 该占位地址只用于启动期协议检查，不会作为可用模型服务。
 [model_providers.link-sense]
 name = "LinkSense"
@@ -74,4 +73,3 @@ stream_max_retries = 2
 websocket_connect_timeout_ms = 12000
 # Codex 只读取会话级网关令牌；真实上游密钥保留在 Runner supervisor 内存中。
 requires_openai_auth = false
-# linksense-model-provider:end

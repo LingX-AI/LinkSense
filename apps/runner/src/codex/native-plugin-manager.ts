@@ -245,7 +245,10 @@ export class NativePluginManager {
       const installedBefore = installedManagedPluginNames(before)
       const currentStateIsExact =
         sameStrings(installedBefore, desiredNames) &&
-        containsOnlyDesiredManagedPlugins(configuredPluginIds, desiredSet)
+        configuredManagedPluginNamesAreExact(
+          configuredPluginIds,
+          desiredNames,
+        )
 
       stage = "read-state"
       const appliedState = await readNativePluginState(
@@ -322,9 +325,9 @@ export class NativePluginManager {
         input.codexHome,
       )
       if (
-        !containsOnlyDesiredManagedPlugins(
+        !configuredManagedPluginNamesAreExact(
           configuredAfterRefresh,
-          desiredSet,
+          desiredNames,
         )
       ) {
         throw new NativePluginRefreshError()
@@ -610,14 +613,18 @@ function installedManagedPluginNames(
     .sort()
 }
 
-function containsOnlyDesiredManagedPlugins(
+function configuredManagedPluginNamesAreExact(
   configuredPluginIds: string[],
-  desiredNames: ReadonlySet<string>,
+  desiredNames: string[],
 ): boolean {
-  return configuredPluginIds.every((pluginId) => {
-    const pluginName = managedPluginName(pluginId)
-    return pluginName !== null && desiredNames.has(pluginName)
-  })
+  const configuredNames = configuredPluginIds
+    .map(managedPluginName)
+    .filter((pluginName): pluginName is string => pluginName !== null)
+    .sort()
+  return (
+    configuredNames.length === configuredPluginIds.length &&
+    sameStrings(configuredNames, desiredNames)
+  )
 }
 
 async function assertPublishedGeneration(input: {

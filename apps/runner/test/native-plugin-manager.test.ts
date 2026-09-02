@@ -41,9 +41,12 @@ describe("NativePluginManager", () => {
       {},
       pluginList([plugin("documents"), plugin("foreign", "another-marketplace")]),
     ];
-    const runCommand = vi.fn<NativePluginCommand>(async () => ({
-      stdout: JSON.stringify(responses.shift()),
-    }));
+    const runCommand = vi.fn<NativePluginCommand>(async (input) => {
+      if (input.args[1] === "add") {
+        await writeConfiguredPlugins(fixture.codexHome, ["documents"]);
+      }
+      return { stdout: JSON.stringify(responses.shift()) };
+    });
     await expect(
       new NativePluginManager(runCommand).reconcileBeforeStart({
         command: "/usr/local/bin/codex",
@@ -101,16 +104,34 @@ describe("NativePluginManager", () => {
     }
   });
 
-  it("re-runs native add when an installed plugin keeps the same name", async () => {
+  it("restores a missing config table even when the catalog and applied state still look current", async () => {
     const fixture = await createFixture();
+    await writeFile(
+      path.join(
+        fixture.capabilityControl,
+        ".linksense-native-plugins.json",
+      ),
+      `${JSON.stringify({
+        version: 1,
+        pluginContentDigest,
+        pluginNames: ["documents"],
+      })}\n`,
+      { mode: 0o600 },
+    );
     const responses = [
       pluginList([plugin("documents")]),
       {},
       pluginList([plugin("documents")]),
     ];
-    const runCommand = vi.fn<NativePluginCommand>(async () => ({
-      stdout: JSON.stringify(responses.shift()),
-    }));
+    const runCommand = vi.fn<NativePluginCommand>(async (input) => {
+      if (input.args[1] === "add") {
+        await writeFile(
+          path.join(fixture.codexHome, "config.toml"),
+          `[plugins."documents@${NATIVE_PLUGIN_MARKETPLACE_NAME}"]\nenabled = true\n`,
+        );
+      }
+      return { stdout: JSON.stringify(responses.shift()) };
+    });
 
     await new NativePluginManager(runCommand).reconcileBeforeStart({
       command: "codex",
@@ -131,6 +152,46 @@ describe("NativePluginManager", () => {
     ]);
   });
 
+  it("fails closed when native add does not restore a missing desired plugin table", async () => {
+    const fixture = await createFixture();
+    await writeFile(
+      path.join(
+        fixture.capabilityControl,
+        ".linksense-native-plugins.json",
+      ),
+      `${JSON.stringify({
+        version: 1,
+        pluginContentDigest,
+        pluginNames: ["documents"],
+      })}\n`,
+      { mode: 0o600 },
+    );
+    const responses = [
+      pluginList([plugin("documents")]),
+      {},
+      pluginList([plugin("documents")]),
+    ];
+    const runCommand = vi.fn<NativePluginCommand>(async () => ({
+      stdout: JSON.stringify(responses.shift()),
+    }));
+
+    await expect(
+      new NativePluginManager(runCommand).reconcileBeforeStart({
+        command: "codex",
+        userHome: fixture.userHome,
+        codexHome: fixture.codexHome,
+        workspace: fixture.workspace,
+        capabilityControl: fixture.capabilityControl,
+        expectedGeneration: generation,
+        pluginContentDigest,
+        pluginNames: ["documents"],
+      }),
+    ).rejects.toMatchObject({
+      name: "NativePluginRefreshError",
+      stage: "verify-current",
+    });
+  });
+
   it("does not reinstall unchanged plugins when only the capability generation changes", async () => {
     const fixture = await createFixture();
     const nextGeneration = "b".repeat(64);
@@ -140,9 +201,12 @@ describe("NativePluginManager", () => {
       pluginList([plugin("documents")]),
       pluginList([plugin("documents")]),
     ];
-    const runCommand = vi.fn<NativePluginCommand>(async () => ({
-      stdout: JSON.stringify(responses.shift()),
-    }));
+    const runCommand = vi.fn<NativePluginCommand>(async (input) => {
+      if (input.args[1] === "add") {
+        await writeConfiguredPlugins(fixture.codexHome, ["documents"]);
+      }
+      return { stdout: JSON.stringify(responses.shift()) };
+    });
     const manager = new NativePluginManager(runCommand);
 
     await manager.reconcileBeforeStart({
@@ -199,9 +263,12 @@ describe("NativePluginManager", () => {
       {},
       pluginList([plugin("documents")]),
     ];
-    const runCommand = vi.fn<NativePluginCommand>(async () => ({
-      stdout: JSON.stringify(responses.shift()),
-    }));
+    const runCommand = vi.fn<NativePluginCommand>(async (input) => {
+      if (input.args[1] === "add") {
+        await writeConfiguredPlugins(fixture.codexHome, ["documents"]);
+      }
+      return { stdout: JSON.stringify(responses.shift()) };
+    });
     const manager = new NativePluginManager(runCommand);
     const baseInput = {
       command: "codex",
@@ -249,9 +316,12 @@ describe("NativePluginManager", () => {
       {},
       pluginList([plugin("documents")]),
     ];
-    const runCommand = vi.fn<NativePluginCommand>(async () => ({
-      stdout: JSON.stringify(responses.shift()),
-    }));
+    const runCommand = vi.fn<NativePluginCommand>(async (input) => {
+      if (input.args[1] === "add") {
+        await writeConfiguredPlugins(fixture.codexHome, ["documents"]);
+      }
+      return { stdout: JSON.stringify(responses.shift()) };
+    });
 
     await expect(
       new NativePluginManager(runCommand).reconcileBeforeStart({
@@ -733,6 +803,21 @@ function plugin(
 
 function pluginList(installed: ReturnType<typeof plugin>[]) {
   return { installed, available: [] };
+}
+
+async function writeConfiguredPlugins(
+  codexHome: string,
+  pluginNames: string[],
+): Promise<void> {
+  await writeFile(
+    path.join(codexHome, "config.toml"),
+    pluginNames
+      .map(
+        (pluginName) =>
+          `[plugins."${pluginName}@${NATIVE_PLUGIN_MARKETPLACE_NAME}"]\nenabled = true`,
+      )
+      .join("\n\n"),
+  );
 }
 
 function pluginSummary(

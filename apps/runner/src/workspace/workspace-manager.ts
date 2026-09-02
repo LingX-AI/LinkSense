@@ -16,6 +16,7 @@ import {
   symlink,
 } from "node:fs/promises"
 import path from "node:path"
+import { isDeepStrictEqual } from "node:util"
 
 import {
   conversationFormAutoResolutionMs,
@@ -29,6 +30,7 @@ import {
   type PersonalizationSettings,
   type UpdatePersonalizationSettings,
 } from "@linksense/shared"
+import { parse } from "smol-toml"
 import { z } from "zod"
 
 import {
@@ -49,22 +51,28 @@ import { removeConversationRuntimeDirectories } from "../runtime-cleanup.js"
 
 const conversationIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const fileServiceConfigPattern =
-  /\n?# linksense-file-service:start[\s\S]*?# linksense-file-service:end\n?/gu
-const imageGenerationServiceConfigPattern =
-  /\n?# linksense-image-generation-service:start[\s\S]*?# linksense-image-generation-service:end\n?/gu
-const knowledgeServiceConfigPattern =
-  /\n?# linksense-knowledge-service:start[\s\S]*?# linksense-knowledge-service:end\n?/gu
-const skillCreatorServiceConfigPattern =
-  /\n?# linksense-skill-creator-service:start[\s\S]*?# linksense-skill-creator-service:end\n?/gu
-const coreServiceConfigPattern =
-  /\n?# linksense-core-service:start[\s\S]*?# linksense-core-service:end\n?/gu
-const managedBrowserServiceConfigPattern =
-  /\n?# linksense-managed-browser-service:start[\s\S]*?# linksense-managed-browser-service:end\n?/gu
-const modelProviderConfigPattern =
-  /\n?# linksense-model-provider:start[\s\S]*?# linksense-model-provider:end\n?/gu
-const legacyModelProviderConfigPattern =
-  /(?:^|\n)\[model_providers\.link-sense\][^\n]*(?:\n(?!\[|# linksense-)[^\n]*)*\n?/gu
+const managedMcpServerNames = [
+  "linksense_core",
+  "linksense_file_service",
+  "linksense_image_generation",
+  "linksense_knowledge_service",
+  "linksense_skill_creator",
+  "linksense_managed_browser",
+] as const
+const managedMarkerNames = [
+  "file-service",
+  "image-generation-service",
+  "knowledge-service",
+  "skill-creator-service",
+  "core-service",
+  "managed-browser-service",
+  "model-provider",
+] as const
+const managedModelTopLevelKeys = [
+  "model_context_window",
+  "model_auto_compact_token_limit",
+  "model_auto_compact_token_limit_scope",
+] as const
 const runtimeGenerationFileName = "runtime-generation"
 const personalizationFileName = "personalization.json"
 const globalAgentsFileName = "AGENTS.md"
@@ -448,11 +456,7 @@ export class WorkspaceManager {
       coreMcpInteractiveFormToolTimeoutSeconds,
       knowledgeSearchTimeouts.codexToolSeconds,
     )
-    // Codex writes plugin tables before a trailing standalone comment. Keep
-    // each managed end marker inline so later block replacement cannot absorb
-    // Codex-owned plugin configuration appended after this block.
     const block = [
-      "# linksense-core-service:start",
       `[mcp_servers.${coreMcpServerKey}]`,
       `command = ${tomlString(input.command)}`,
       `args = [${input.args.map(tomlString).join(", ")}]`,
@@ -460,11 +464,10 @@ export class WorkspaceManager {
       "enabled = true",
       "required = true",
       "startup_timeout_sec = 10",
-      `tool_timeout_sec = ${coreToolTimeoutSeconds} # linksense-core-service:end`,
+      `tool_timeout_sec = ${coreToolTimeoutSeconds}`,
       "",
       ...(input.managedBrowserArgs
         ? [
-            "# linksense-managed-browser-service:start",
             `[mcp_servers.${managedBrowserMcpServerKey}]`,
             `command = ${tomlString(input.command)}`,
             `args = [${input.managedBrowserArgs.map(tomlString).join(", ")}]`,
@@ -472,7 +475,7 @@ export class WorkspaceManager {
             "enabled = false",
             "required = false",
             "startup_timeout_sec = 10",
-            "tool_timeout_sec = 130 # linksense-managed-browser-service:end",
+            "tool_timeout_sec = 130",
             "",
           ]
         : []),
@@ -480,14 +483,12 @@ export class WorkspaceManager {
     await this.updateCodexConfig(
       configPath,
       (existing) =>
-        `${existing
-            .replace(coreServiceConfigPattern, "\n")
-            .replace(fileServiceConfigPattern, "\n")
-            .replace(imageGenerationServiceConfigPattern, "\n")
-            .replace(knowledgeServiceConfigPattern, "\n")
-            .replace(skillCreatorServiceConfigPattern, "\n")
-            .replace(managedBrowserServiceConfigPattern, "\n")
-            .trimEnd()}\n\n${block}`,
+        rewriteManagedToml(existing, {
+          removeTables: managedMcpServerNames.map(
+            (serverName) => `mcp_servers.${serverName}`,
+          ),
+          appendBlocks: [block],
+        }),
     )
   }
 
@@ -504,15 +505,14 @@ export class WorkspaceManager {
   ): Promise<void> {
     const { codexHome } = this.pathsFor(conversationId)
     const configPath = path.join(codexHome, "config.toml")
-    // See configureBuiltInMcp: the inline end marker protects Codex-owned
-    // tables from being placed inside this replaceable managed block.
-    const block = [
-      "# linksense-model-provider:start",
-      `# revision = ${input.revision}`,
+    const topLevelBlock = [
+      `# linksense-model-provider-revision = ${input.revision}`,
       ...modelContextWindowConfig(
         input.modelContextWindow,
         input.modelAutoCompactTokenLimit,
       ),
+    ].join("\n")
+    const providerBlock = [
       "[model_providers.link-sense]",
       'name = "LinkSense"',
       `base_url = ${tomlString(input.baseUrl)}`,
@@ -524,16 +524,21 @@ export class WorkspaceManager {
       }`,
       "stream_max_retries = 2",
       "websocket_connect_timeout_ms = 12000",
-      "requires_openai_auth = false # linksense-model-provider:end",
+      "requires_openai_auth = false",
       "",
     ].join("\n")
     await this.updateCodexConfig(
       configPath,
       (existing) =>
-        `${existing
-          .replace(modelProviderConfigPattern, "\n")
-          .replace(legacyModelProviderConfigPattern, "\n")
-          .trimEnd()}\n\n${block}`,
+        rewriteManagedToml(existing, {
+          removeTables: ["model_providers.link-sense"],
+          removeAssignments: managedModelTopLevelKeys,
+          removeCommentPatterns: [
+            /^\s*#\s*(?:revision|linksense-model-provider-revision)\s*=.*$/u,
+          ],
+          topLevelBlock,
+          appendBlocks: [providerBlock],
+        }),
     )
   }
 
@@ -1026,6 +1031,145 @@ async function syncDirectory(directory: string): Promise<void> {
 
 function tomlString(value: string): string {
   return JSON.stringify(value)
+}
+
+type ManagedTomlRewrite = {
+  removeTables: readonly string[]
+  appendBlocks: readonly string[]
+  removeAssignments?: readonly string[]
+  removeCommentPatterns?: readonly RegExp[]
+  topLevelBlock?: string
+}
+
+/**
+ * Rewrites only LinkSense-owned TOML keys and tables. Codex's native TOML
+ * editor is free to reorder plugin tables, so paired text markers must never
+ * define a range that can accidentally absorb a native `[plugins.*]` table.
+ */
+function rewriteManagedToml(
+  source: string,
+  input: ManagedTomlRewrite,
+): string {
+  const before = parseCodexToml(source)
+  const pluginStateBefore = before.plugins
+  const removableAssignments = new Set(input.removeAssignments ?? [])
+  let insideTable = false
+  const lines = stripManagedTomlTables(source, input.removeTables)
+    .split("\n")
+    .filter((line) => {
+      const withoutCarriageReturn = line.endsWith("\r")
+        ? line.slice(0, -1)
+        : line
+      if (isTomlTableHeader(withoutCarriageReturn)) {
+        insideTable = true
+      }
+      if (
+        input.removeCommentPatterns?.some((pattern) =>
+          pattern.test(withoutCarriageReturn),
+        )
+      ) {
+        return false
+      }
+      const assignment = /^\s*([A-Za-z0-9_-]+)\s*=/u.exec(
+        withoutCarriageReturn,
+      )
+      return (
+        insideTable ||
+        !assignment ||
+        !removableAssignments.has(assignment[1]!)
+      )
+    })
+    .join("\n")
+    .replace(managedMarkerCommentPattern(), "")
+
+  const lineValues = lines.split("\n")
+  const firstTableIndex = lineValues.findIndex(isTomlTableHeader)
+  const preamble =
+    firstTableIndex === -1
+      ? lines
+      : lineValues.slice(0, firstTableIndex).join("\n")
+  const tables =
+    firstTableIndex === -1
+      ? ""
+      : lineValues.slice(firstTableIndex).join("\n")
+  const rewritten = joinTomlFragments([
+    preamble,
+    input.topLevelBlock ?? "",
+    tables,
+    ...input.appendBlocks,
+  ])
+  const after = parseCodexToml(rewritten)
+  if (!isDeepStrictEqual(pluginStateBefore, after.plugins)) {
+    throw new WorkspaceBoundaryError(
+      "managed Codex configuration update changed native plugin state",
+    )
+  }
+  return rewritten
+}
+
+function stripManagedTomlTables(
+  source: string,
+  tablePaths: readonly string[],
+): string {
+  let removing = false
+  return source
+    .split("\n")
+    .filter((line) => {
+      if (isTomlTableHeader(line)) {
+        removing = tablePaths.some((tablePath) =>
+          isTomlTableAtOrBelow(line, tablePath),
+        )
+      }
+      return !removing
+    })
+    .join("\n")
+}
+
+function isTomlTableHeader(line: string): boolean {
+  return /^\s*\[\[?.+?\]\]?\s*(?:#.*)?\r?$/u.test(line)
+}
+
+function isTomlTableAtOrBelow(line: string, tablePath: string): boolean {
+  const components = tablePath.split(".").map(escapeRegularExpression)
+  const pathPattern = components
+    .map((component) => `(?:${component}|"${component}"|'${component}')`)
+    .join("\\s*\\.\\s*")
+  return new RegExp(
+    `^\\s*\\[\\s*${pathPattern}(?:\\s*\\..+)?\\s*\\]\\s*(?:#.*)?\\r?$`,
+    "u",
+  ).test(line)
+}
+
+function escapeRegularExpression(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")
+}
+
+function managedMarkerCommentPattern(): RegExp {
+  const names = managedMarkerNames.map(escapeRegularExpression).join("|")
+  return new RegExp(
+    `[ \\t]*#\\s*linksense-(?:${names}):(?:start|end)[^\\r\\n]*`,
+    "gu",
+  )
+}
+
+function joinTomlFragments(fragments: readonly string[]): string {
+  const contents = fragments
+    .map((fragment) => fragment.trim())
+    .filter((fragment) => fragment.length > 0)
+    .join("\n\n")
+  return contents.length === 0 ? "" : `${contents}\n`
+}
+
+function parseCodexToml(source: string): Record<string, unknown> {
+  const parsed = parse(source)
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    Array.isArray(parsed)
+  ) {
+    throw new WorkspaceBoundaryError("Codex configuration is invalid")
+  }
+  return parsed
 }
 
 function modelContextWindowConfig(
