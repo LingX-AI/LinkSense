@@ -29,11 +29,15 @@ Interactive application tasks remain available in the task sidebar. After switch
 
 An application cannot start new work when it is disabled or a required model, capability, credential, or knowledge base is unavailable. Existing task history remains. Contact the creator or an administrator to resolve the dependency.
 
+To build or maintain an entry point, see [Create and manage applications](./create-applications.md). [Share applications and configure external access](./application-access.md) explains organization grants and iframe access.
+
 ## Usage analytics for creators
 
 Application creators can open **More actions → Usage analytics** on an application card and review active users, tasks, turns, model calls, tokens, and costs for all time, the last 7 or 30 days, or a custom date range. The page also provides trends, token and cost composition, and breakdowns by model and workload without exposing user names or email addresses.
 
 Token and cost totals cover only calls recorded after collection began. Task and turn counts may include earlier history, but LinkSense does not estimate older tokens or costs using current model prices. Tokens without a reliable price snapshot are identified as unpriced.
+
+See [View application usage](./application-usage.md) for range and metric definitions.
 
 ## Difference from regular tasks
 

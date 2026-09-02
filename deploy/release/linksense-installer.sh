@@ -661,6 +661,11 @@ write_runtime_env() {
   mv "$env_tmp" "$INSTALL_DIR/.env"
 }
 
+write_and_activate_runtime_env() {
+  write_runtime_env
+  load_runtime_env
+}
+
 write_env() {
   LINKSENSE_PUBLIC_BASE_URL=$(detect_public_url)
   case "$LINKSENSE_PUBLIC_BASE_URL" in
@@ -682,7 +687,7 @@ write_env() {
     ELASTICSEARCH_ROOT_PASSWORD=$(random_hex)
     ELASTICSEARCH_PASSWORD=$(random_hex)
   fi
-  write_runtime_env
+  write_and_activate_runtime_env
 }
 
 install_resources() {
@@ -1242,8 +1247,7 @@ repair_action() {
   fetch_manifest "$(release_base)"
   [ "$MANIFEST_SHA256" = "$state_manifest" ] || fail "The published manifest no longer matches the installed immutable version."
   fetch_release_resources
-  write_runtime_env
-  load_runtime_env
+  write_and_activate_runtime_env
   install_resources
   log_stage "Stage 4/7: pull immutable container images."
   pull_images
@@ -1352,7 +1356,7 @@ upgrade_action() {
 
   log_stage "Stage 7/9: install target configuration and run database migration."
   UPGRADE_CONFIG_CHANGED=true
-  write_runtime_env
+  write_and_activate_runtime_env
   install_resources
   publish_tokenizer
   compose config --quiet

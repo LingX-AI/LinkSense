@@ -46,7 +46,7 @@ describe("linksense-docs built-in Skill", () => {
       markdownPaths(sourceRoots["zh-CN"]),
     ])
 
-    expect(chinesePaths).toHaveLength(44)
+    expect(chinesePaths).toHaveLength(56)
     expect(englishPaths).toEqual(chinesePaths)
     expect(chinesePaths).toEqual(sourceChinesePaths)
     await expect(
@@ -61,6 +61,16 @@ describe("linksense-docs built-in Skill", () => {
       readFile(path.join(skillRoot, "references", "catalog.md"), "utf8"),
     ).resolves.toMatch(
       /\[创建与运行任务\]\(zh-CN\/user-guide\/tasks\/create-and-run\.md\)[\s\S]*`\/help\/user-guide\/tasks\/create-and-run\/`[\s\S]*\[Create and run tasks\]\(en-US\/user-guide\/tasks\/create-and-run\.md\)/u,
+    )
+    const catalog = await readFile(
+      path.join(skillRoot, "references", "catalog.md"),
+      "utf8",
+    )
+    expect(catalog).toContain(
+      "[使用计划模式](zh-CN/user-guide/tasks/plan-mode.md)",
+    )
+    expect(catalog).toContain(
+      "[Check for and install LinkSense updates](en-US/admin-guide/system-update.md)",
     )
     await expect(
       readFile(
@@ -101,7 +111,7 @@ describe("linksense-docs built-in Skill", () => {
       markdownPaths(path.join(outputRoot, "zh-CN")),
       markdownPaths(path.join(outputRoot, "en-US")),
     ])
-    expect(chinesePaths).toHaveLength(44)
+    expect(chinesePaths).toHaveLength(56)
     expect(englishPaths).toEqual(chinesePaths)
     await expect(
       readFile(path.join(outputRoot, "zh-CN", "introduction.md"), "utf8"),

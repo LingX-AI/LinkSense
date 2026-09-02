@@ -17,13 +17,15 @@ Supported attachments and deliverables open inside the task with format-specific
 
 Previews are read-only. HTML deliverables run in an isolated surface and cannot inherit the LinkSense page's privileges.
 
+Presentation, Word, spreadsheet, and HTML previews can attach a request to selected content. You can collect several requests before sending them; see [Annotate a file preview](./file-annotations.md).
+
 ## Download deliverables
 
 Generated documents and media appear as deliverable cards. A download action creates a short-lived authorized URL. If it expires, download again from the task; do not treat the temporary URL as a permanent share.
 
 ## Browse task artifacts in one place
 
-Open **Library** from the sidebar and choose **Task artifacts** to browse registered deliverables from your tasks by task name and creation time. Supported files use the same preview experience as the task page, and every listed file can be downloaded directly. Artifacts from archived tasks remain listed with an archived label.
+Open **Knowledge Bases** from the sidebar and choose **Task artifacts** to browse registered deliverables from your tasks by task name and creation time. Supported files use the same preview experience as the task page, and every listed file can be downloaded directly. Artifacts from archived tasks remain listed with an archived label.
 
 Search matches both task names and filenames. Select a task name to return to the original task for context. Artifacts from a permanently deleted task are no longer available through this list.
 

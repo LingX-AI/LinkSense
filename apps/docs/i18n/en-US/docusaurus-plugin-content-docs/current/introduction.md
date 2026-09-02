@@ -11,6 +11,7 @@ This site explains how to complete tasks, manage automations, use plugins and kn
 ## Choose a guide
 
 - [User guide](./user-guide/overview.md): for everyone who creates tasks, uploads files, installs capabilities, or manages personal settings.
+- [Developer guide](./developer-guide/interactive-application.md): for interactive application packages and external iframe integration.
 - [Administrator guide](./admin-guide/overview.md): for user, permission, plugin, knowledge base, model, authentication, health, audit, and usage management.
 
 Every help article is publicly readable. The pages and operations described in the administrator guide are still protected by LinkSense administrator authorization.
@@ -28,4 +29,4 @@ The search index ships with the static help site. Queries and documentation cont
 
 ## Documentation scope
 
-These articles describe the product features visible in the current LinkSense interface. Deployment parameters, database maintenance, and infrastructure secrets are not regular UI operations; administrator articles identify settings that must remain under deployment control.
+These articles describe capabilities in the current LinkSense interface, including task planning and branching, file annotations, message channels, application creation and embedding, feedback, and system upgrades. Deployment parameters, database maintenance, and infrastructure secrets are not regular UI operations; administrator articles identify settings that must remain under deployment control.

@@ -11,6 +11,18 @@ const startsWithSegment = (pathname: string, prefix: string) =>
 const helpRoutes: readonly HelpRoute[] = [
   {
     matches: (pathname) =>
+      /^\/capabilities\/applications\/[^/]+\/external-access(?:\/|$)/u.test(
+        pathname
+      ),
+    documentPath: "user-guide/plugin-center/application-access",
+  },
+  {
+    matches: (pathname) =>
+      /^\/capabilities\/applications\/[^/]+\/usage(?:\/|$)/u.test(pathname),
+    documentPath: "user-guide/plugin-center/application-usage",
+  },
+  {
+    matches: (pathname) =>
       /^\/knowledge-bases\/[^/]+\/documents(?:\/|$)/u.test(pathname),
     documentPath: "user-guide/knowledge-bases/documents",
   },
@@ -68,6 +80,10 @@ const helpRoutes: readonly HelpRoute[] = [
     documentPath: "user-guide/mcp/connect-and-manage",
   },
   {
+    matches: (pathname) => startsWithSegment(pathname, "/settings/weixin"),
+    documentPath: "user-guide/message-channels/weixin",
+  },
+  {
     matches: (pathname) => startsWithSegment(pathname, "/archived"),
     documentPath: "user-guide/settings/archived-tasks",
   },
@@ -110,12 +126,20 @@ const helpRoutes: readonly HelpRoute[] = [
     documentPath: "admin-guide/health",
   },
   {
+    matches: (pathname) => startsWithSegment(pathname, "/admin/feedback"),
+    documentPath: "admin-guide/feedback",
+  },
+  {
     matches: (pathname) => startsWithSegment(pathname, "/admin/audit"),
     documentPath: "admin-guide/audit",
   },
   {
     matches: (pathname) => startsWithSegment(pathname, "/admin/usage"),
     documentPath: "admin-guide/usage",
+  },
+  {
+    matches: (pathname) => startsWithSegment(pathname, "/admin/system-update"),
+    documentPath: "admin-guide/system-update",
   },
 ]
 

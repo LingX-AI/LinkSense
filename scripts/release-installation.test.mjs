@@ -141,7 +141,11 @@ test("the installer checks the host before creating persistent state", async () 
   assert.match(source, /load_strict_env "\$INSTALL_DIR\/\.env" runtime/u)
   assert.match(
     source,
-    /fetch_release_resources\n  write_runtime_env\n  load_runtime_env\n  install_resources/u,
+    /write_and_activate_runtime_env\(\) \{\n  write_runtime_env\n  load_runtime_env\n\}/u,
+  )
+  assert.match(
+    source,
+    /fetch_release_resources\n  write_and_activate_runtime_env\n  install_resources/u,
   )
   assert.match(source, /Required Full secret \$required_secret is missing/u)
   assert.match(
@@ -177,7 +181,10 @@ test("upgrade drains writes and creates a validated atomic database backup befor
   assert.match(source, /partial_path="\$\{final_path\}\.partial"[\s\S]*mv "\$partial_path" "\$final_path"/u)
   assert.match(source, /volume:\/\/\$LINKSENSE_BACKUP_VOLUME\/postgres\/\$backup_name/u)
   assert.match(source, /UPGRADE_MIGRATION_STARTED=true[\s\S]*write_upgrade_pending true[\s\S]*compose run --rm migrate/u)
-  assert.match(source, /UPGRADE_CONFIG_CHANGED=true\n  write_runtime_env\n  install_resources/u)
+  assert.match(
+    source,
+    /UPGRADE_CONFIG_CHANGED=true\n  write_and_activate_runtime_env\n  install_resources/u,
+  )
   assert.match(source, /UPGRADE_PREVIOUS_TOKENIZER_REVISION[\s\S]*\/tokenizer\/current/u)
   assert.match(source, /Only the published v0\.1\.0 installation state can be upgraded from format 1/u)
   assert.match(source, /load_runtime_env "\$STATE_FORMAT"/u)

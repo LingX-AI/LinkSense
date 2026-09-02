@@ -34,11 +34,18 @@ When a request cannot be completed in a single reply, use a [Goal task](./goal-t
 
 Goal tasks show a Goal label on the user message and a Goal card while work is running. After completion, the final reply shows how long it took to reach the Goal.
 
+## Plan before implementation
+
+When you need to confirm scope, risk, and implementation steps first, select **Add → Plan mode**. LinkSense analyzes the request, asks clarification questions when needed, and waits for you to implement, revise, skip, or exit after the plan is ready. See [Use Plan mode](./plan-mode.md).
+
+Type `/` to open shortcuts for a new task, context compaction, plugins, Skills, applications, knowledge bases, and MCP. Availability still depends on the current task state and your resource permissions.
+
 ## Run controls
 
 - **Stop** requests interruption of the current turn.
 - A temporary connection loss recovers the same turn rather than creating a duplicate.
 - Refreshing the page does not erase task state.
+- The task overview summarizes live plan steps, file changes, artifacts, and sub-agents. Select an item to open the details that your account is allowed to see.
 - After failure, resolve the visible model, capability, or input problem before retrying.
 
 :::info Tasks and turns

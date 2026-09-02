@@ -7,6 +7,8 @@ description: Install plugins, Skills, MCP extensions, and organization content f
 
 Plugin Center provides one catalog for published plugins, Skills, MCP extensions, and applications.
 
+The **ClawHub Skill repository** is a separate external Skill source. See [Install Skills from ClawHub](./clawhub.md) for its pre-install checks and trust boundary.
+
 ## Browse and search
 
 1. Open **Plugin Center**.
@@ -19,6 +21,8 @@ Plugin Center provides one catalog for published plugins, Skills, MCP extensions
 Installation creates a personal copy from the current approved release. Before confirming, check whether it contains executable scripts or an MCP server, reaches external services, requires environment variables or credentials, and comes from a trusted publisher.
 
 Manage the installed copy's enabled state from the Installed or Personal area.
+
+Applications do not require installation. Shared applications appear directly under **Applications**, and creators can [create and manage applications](./create-applications.md).
 
 ## Update
 
