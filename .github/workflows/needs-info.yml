@@ -1,0 +1,111 @@
+name: Needs info lifecycle
+
+on:
+  issue_comment:
+    types:
+      - created
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  reopen-triage-on-author-response:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request == null &&
+      github.event.comment.user.login == github.event.issue.user.login
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Return author responses to triage
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const labels = context.payload.issue.labels.map((label) =>
+              typeof label === "string" ? label : label.name,
+            )
+            if (!labels.includes("needs-info")) {
+              return
+            }
+
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const issueNumber = context.issue.number
+            await github.rest.issues.removeLabel({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              name: "needs-info",
+            })
+            if (!labels.includes("status:triage")) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                labels: ["status:triage"],
+              })
+            }
+
+  remind-after-seven-days:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Remind reporters without closing issues
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const sevenDays = 7 * 24 * 60 * 60 * 1000
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: "open",
+              labels: "needs-info",
+              per_page: 100,
+            })
+
+            for (const issue of issues) {
+              if (issue.pull_request) {
+                continue
+              }
+
+              const events = await github.paginate(
+                github.rest.issues.listEventsForTimeline,
+                { owner, repo, issue_number: issue.number, per_page: 100 },
+              )
+              const labelEvent = [...events].reverse().find(
+                (event) =>
+                  event.event === "labeled" && event.label?.name === "needs-info",
+              )
+              if (!labelEvent?.created_at) {
+                continue
+              }
+              if (Date.now() - Date.parse(labelEvent.created_at) < sevenDays) {
+                continue
+              }
+
+              const marker = `<!-- linksense-needs-info-reminder:${labelEvent.id} -->`
+              const comments = await github.paginate(
+                github.rest.issues.listComments,
+                { owner, repo, issue_number: issue.number, per_page: 100 },
+              )
+              if (comments.some((comment) => comment.body?.includes(marker))) {
+                continue
+              }
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body: `${marker}
+This issue is waiting for the requested information. Please add the missing details when convenient. This reminder does not close the issue; a maintainer will decide its status.
+
+这个 Issue 仍在等待所需信息。请在方便时补充缺失内容。本提醒不会关闭 Issue，后续状态由维护者决定。`,
+              })
+            }
