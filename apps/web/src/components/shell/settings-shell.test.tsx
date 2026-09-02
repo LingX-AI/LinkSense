@@ -12,6 +12,10 @@ vi.mock("@/app/auth-state", () => ({
   }),
 }))
 
+vi.mock("@/features/admin/system-update", () => ({
+  SystemUpdateNotice: () => null,
+}))
+
 describe("SettingsShell administrator navigation", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
@@ -21,7 +25,7 @@ describe("SettingsShell administrator navigation", () => {
     cleanup()
   })
 
-  it("places usage analytics at the end of the management group", () => {
+  it("places system update at the end of the management group", () => {
     render(
       <MemoryRouter initialEntries={["/admin/users"]}>
         <SettingsShell />
@@ -31,8 +35,11 @@ describe("SettingsShell administrator navigation", () => {
     const navigation = screen.getByRole("navigation", { name: "管理" })
     const links = within(navigation).getAllByRole("link")
 
-    expect(links.at(-1)).toHaveAttribute("href", "/admin/usage")
-    expect(links.at(-1)).toHaveTextContent("用量统计")
+    expect(links.at(-1)).toHaveAttribute("href", "/admin/system-update")
+    expect(links.at(-1)).toHaveTextContent("系统更新")
+    expect(
+      within(navigation).getByRole("link", { name: "用量统计" })
+    ).toHaveAttribute("href", "/admin/usage")
     expect(
       within(navigation).getByRole("link", { name: "审计日志" })
     ).toHaveAttribute("href", "/admin/audit")

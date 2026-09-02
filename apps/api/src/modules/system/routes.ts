@@ -3,6 +3,7 @@ import {
   deleteModelProviderSchema,
   deleteModelProviderModelSchema,
   patchProductSettingsSchema,
+  updateExecutionConcurrencySettingsSchema,
   updateKnowledgeModelSettingsSchema,
   updateImageGenerationSettingsSchema,
   updateImageUnderstandingSelectionSchema,
@@ -80,9 +81,45 @@ export const adminSystemRoutes: FastifyPluginAsync<{
 }> = async (app, { services }) => {
   app.addHook("preHandler", app.requireAdmin)
 
+  app.get("/system-update", async (request, reply) =>
+    reply
+      .header("cache-control", "private, no-store")
+      .send(ok(await services.systemUpdate.getStatus(), request.id)),
+  )
+
+  app.post("/system-update/check", async (request, reply) =>
+    reply
+      .header("cache-control", "private, no-store")
+      .send(ok(await services.systemUpdate.getStatus(true), request.id)),
+  )
+
   app.get("/product-settings", async (request, reply) =>
     reply.send(ok(await services.system.getProductSettings(), request.id))
   )
+
+  app.get("/execution-concurrency-settings", async (request, reply) =>
+    reply.send(
+      ok(
+        await services.system.getExecutionConcurrencySettings(),
+        request.id,
+      ),
+    )
+  )
+
+  app.put("/execution-concurrency-settings", async (request, reply) => {
+    const actor = (request as AuthenticatedRequest).authUser
+    const settings = await services.system.updateExecutionConcurrencySettings(
+      actor.id,
+      updateExecutionConcurrencySettingsSchema.parse(request.body),
+      {
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"] ?? null,
+      },
+    )
+    return reply.send(
+      ok({ code: "SYSTEM_SETTINGS_UPDATED", settings }, request.id),
+    )
+  })
 
   app.patch("/product-settings", async (request, reply) => {
     const raw =

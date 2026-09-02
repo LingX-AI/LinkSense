@@ -203,6 +203,7 @@ export type RunnerModelProviderRuntime = {
 export type RunnerStartInput = {
   conversationId: string;
   projectionTurnId: string;
+  appServerProcessLimit: number;
   operationKind?: "turn" | "compact";
   eventProjectionTurnId?: string;
   ownerId: string;

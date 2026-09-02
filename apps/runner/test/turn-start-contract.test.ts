@@ -12,6 +12,7 @@ describe("turn-start contract diagnostics", () => {
     const body = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000004",
+      appServerProcessLimit: 20,
       operationKind: "compact" as const,
       expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
       capabilityGeneration: "a".repeat(64),
@@ -76,6 +77,7 @@ describe("turn-start contract diagnostics", () => {
         startTurnBodySchema.safeParse({
           ownerId: "01900000-0000-7000-8000-000000000002",
           projectionTurnId: "01900000-0000-7000-8000-000000000004",
+          appServerProcessLimit: 20,
           eventProjectionTurnId: "01900000-0000-7000-8000-000000000005",
           expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
           capabilityGeneration: "a".repeat(64),
@@ -105,6 +107,7 @@ describe("turn-start contract diagnostics", () => {
     const body = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000004",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
       capabilityGeneration: "a".repeat(64),
       context: {
@@ -164,6 +167,7 @@ describe("turn-start contract diagnostics", () => {
     const body = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000004",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
       capabilityGeneration: "a".repeat(64),
       context: {
@@ -261,6 +265,7 @@ describe("turn-start contract diagnostics", () => {
     const body = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000004",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
       capabilityGeneration: "a".repeat(64),
       codexThreadId: "thread-native-1",

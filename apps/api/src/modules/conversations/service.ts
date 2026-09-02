@@ -77,6 +77,7 @@ import {
   type WordAnnotation,
   type RuntimeMcpServer,
   type RunnerCodexGoal,
+  type ResolvedExecutionConcurrencySettings,
   type ThreadGoal,
 } from "@linksense/shared";
 import { capabilityPackageNameSchema } from "../capabilities/package-name.js";
@@ -666,6 +667,10 @@ type StartedRunnerTurn = {
   goal?: RunnerCodexGoal | undefined;
 };
 
+export type ExecutionConcurrencySettingsReader = {
+  resolveExecutionConcurrencySettings(): Promise<ResolvedExecutionConcurrencySettings>;
+};
+
 type ConversationDetailEventRow = {
   id: string;
   conversationId: string;
@@ -707,7 +712,17 @@ export class ConversationService {
       "scheduleForUserMessage"
     >,
     private readonly tokenLimits?: TokenLimitEnforcer,
+    private readonly executionConcurrencySettings?: ExecutionConcurrencySettingsReader,
   ) {}
+
+  private async executionConcurrencyForStart(): Promise<ResolvedExecutionConcurrencySettings> {
+    return this.executionConcurrencySettings
+      ? this.executionConcurrencySettings.resolveExecutionConcurrencySettings()
+      : {
+          max_concurrent_conversations: this.redis.maxConcurrentTurns,
+          runner_app_server_process_limit: this.redis.maxConcurrentTurns,
+        };
+  }
 
   runnerForRecovery(): RunnerClient {
     return this.runner;
@@ -1209,7 +1224,7 @@ export class ConversationService {
         model: turn.model,
         reasoningEffort: turn.reasoningEffort,
       });
-      const [runtime, capabilityEvents] = await Promise.all([
+      const [runtime, capabilityEvents, executionConcurrency] = await Promise.all([
         this.resolveRecoveryRuntime(conversation.ownerId, persistedState),
         this.prisma.conversationEvent.findMany({
           where: {
@@ -1220,6 +1235,7 @@ export class ConversationService {
           orderBy: { sequenceNo: "asc" },
           select: { payloadJson: true },
         }),
+        this.executionConcurrencyForStart(),
       ]);
       const storedContext = contextWindowContinuationContextSchema.safeParse(
         sourceAttempt?.continuationContextJson,
@@ -1245,6 +1261,8 @@ export class ConversationService {
           turn.collaborationMode,
         ),
         projectionTurnId: attempt.id,
+        appServerProcessLimit:
+          executionConcurrency.runner_app_server_process_limit,
         eventProjectionTurnId: turn.id,
         ownerId: conversation.ownerId,
         expectedRuntimeGeneration: z
@@ -1584,6 +1602,7 @@ export class ConversationService {
       modelRuntime.model,
       conversation.codexThreadId,
     );
+    const executionConcurrency = await this.executionConcurrencyForStart();
     return this.runner.acceptStartTurn(
       buildRunnerStartInputFromIntent(
         intent,
@@ -1592,6 +1611,7 @@ export class ConversationService {
         recovery.environment ?? {},
         modelRuntime,
         modelTransitionSource,
+        executionConcurrency,
       ),
     );
   }
@@ -3836,6 +3856,7 @@ export class ConversationService {
           throw new AppError("CONVERSATION_COMPACTION_UNAVAILABLE");
         }
 
+        const executionConcurrency = await this.executionConcurrencyForStart();
         let startIntent = await this.prisma.$transaction(async (tx) => {
           await tx.$queryRaw<Array<{ id: string }>>`
             SELECT id
@@ -3929,6 +3950,7 @@ export class ConversationService {
           conversationId,
           projectionTurnId,
           ownerId,
+          executionConcurrency.max_concurrent_conversations,
         );
         if (!acquired.capacityReady || !acquired.acquired) {
           await this.prisma.conversationTurnStartIntent.deleteMany({
@@ -3961,6 +3983,7 @@ export class ConversationService {
               {},
               modelRuntime,
               null,
+              executionConcurrency,
             ),
           );
           this.trackAcceptedStartRecovery(projectionTurnId);
@@ -8232,6 +8255,7 @@ export class ConversationService {
         throw error;
       }
 
+      const executionConcurrency = await this.executionConcurrencyForStart();
       let startIntent = await this.preflight.withCapabilityStartBarrier(
         {
           userId: ownerId,
@@ -8290,6 +8314,7 @@ export class ConversationService {
         conversationId,
         projectionTurnId,
         ownerId,
+        executionConcurrency.max_concurrent_conversations,
       );
       if (!acquired.capacityReady) {
         const released =
@@ -8365,7 +8390,8 @@ export class ConversationService {
             metadata: {
               conversation_id: conversationId,
               current_running_count: acquired.count,
-              max_concurrent_conversations: this.redis.maxConcurrentTurns,
+              max_concurrent_conversations:
+                executionConcurrency.max_concurrent_conversations,
             },
           });
         } else {
@@ -8404,6 +8430,7 @@ export class ConversationService {
         resolved.environment ?? {},
         modelRuntime,
         modelTransitionSource,
+        executionConcurrency,
       );
       try {
         if (returnWhenAccepted) {
@@ -9835,11 +9862,14 @@ function buildRunnerStartInputFromIntent(
   environment: Record<string, string>,
   modelRuntime: ResolvedModelRuntime,
   modelTransitionSource: ResolvedModelTransitionRuntime | null,
+  executionConcurrency: ResolvedExecutionConcurrencySettings,
 ): RunnerStartInput {
   const runnerContext = buildOfficeAnnotationRunnerContext(intent.inputText);
   const isCompact = intent.taskKind === "compact";
   return {
     conversationId: intent.conversationId,
+    appServerProcessLimit:
+      executionConcurrency.runner_app_server_process_limit,
     collaborationMode: intent.collaborationMode,
     projectionTurnId: intent.projectionTurnId,
     ...(isCompact ? { operationKind: "compact" as const } : {}),

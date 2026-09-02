@@ -28,6 +28,7 @@ export * from "./personalization.js";
 export * from "./runner.js";
 export * from "./schedules.js";
 export * from "./settings.js";
+export * from "./system-update.js";
 export * from "./skill-creator.js";
 export * from "./token-limits.js";
 export * from "./upload-files.js";

@@ -286,6 +286,10 @@ export function App() {
                   path="/admin/health"
                   element={<AdminPages page="health" />}
                 />
+                <Route
+                  path="/admin/system-update"
+                  element={<AdminPages page="updates" />}
+                />
               </Route>
             </Route>
             <Route element={<AppShell />}>

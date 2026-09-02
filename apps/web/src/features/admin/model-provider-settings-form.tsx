@@ -242,7 +242,11 @@ type ModelProviderSettingsDraft = {
 
 type ModelProviderSettingsSaveInput = ModelProviderSettingsDraft & {
   expectedRevision: number
+  saveTarget: ModelProviderSettingsSaveTarget
 }
+
+type ModelProviderSettingsSaveTarget =
+  `provider:${string}` | `model:${string}` | "selections" | "form"
 
 function toSettingsProviderUpdate(
   provider: ModelProviderSettings["providers"][number]
@@ -1288,7 +1292,11 @@ export function ModelProviderSettingsForm({
 
   const saveModelProviderSettings = ({
     includeDraftModelFormKey,
-  }: { includeDraftModelFormKey?: string } = {}) => {
+    saveTarget = "form",
+  }: {
+    includeDraftModelFormKey?: string
+    saveTarget?: ModelProviderSettingsSaveTarget
+  } = {}) => {
     if (readOnly || !formValid || saveBlocked) return
     const nextDraft = includeDraftModelFormKey
       ? createModelProviderSettingsDraft({
@@ -1303,6 +1311,7 @@ export function ModelProviderSettingsForm({
     mutation.mutate({
       ...nextDraft,
       expectedRevision: revisionRef.current,
+      saveTarget,
     })
   }
 
@@ -1381,6 +1390,10 @@ export function ModelProviderSettingsForm({
             const selectedServiceProvider = serviceProviderItems.find(
               (item) => item.value === provider.provider
             )
+            const providerSaveTarget = `provider:${provider.formKey}` as const
+            const providerSaving =
+              mutation.isPending &&
+              mutation.variables?.saveTarget === providerSaveTarget
             return (
               <Card
                 key={provider.formKey}
@@ -1436,7 +1449,7 @@ export function ModelProviderSettingsForm({
                     <Button
                       type="button"
                       size="sm"
-                      aria-busy={mutation.isPending || undefined}
+                      aria-busy={providerSaving || undefined}
                       aria-label={t("admin.modelProvider.saveProvider", {
                         name: providerName,
                       })}
@@ -1444,11 +1457,13 @@ export function ModelProviderSettingsForm({
                         name: providerName,
                       })}
                       disabled={readOnly || !formValid || saveBlocked}
-                      onClick={() => saveModelProviderSettings()}
+                      onClick={() =>
+                        saveModelProviderSettings({
+                          saveTarget: providerSaveTarget,
+                        })
+                      }
                     >
-                      {mutation.isPending && (
-                        <Spinner data-icon="inline-start" />
-                      )}
+                      {providerSaving && <Spinner data-icon="inline-start" />}
                       {t("common.save")}
                     </Button>
                     <Button
@@ -1705,6 +1720,11 @@ export function ModelProviderSettingsForm({
                         const availabilityLabel = t(
                           "admin.modelProvider.showInComposer"
                         )
+                        const modelSaveTarget =
+                          `model:${model.formKey}` as const
+                        const modelSaving =
+                          mutation.isPending &&
+                          mutation.variables?.saveTarget === modelSaveTarget
                         return (
                           <Fragment key={model.formKey}>
                             <FieldSet className="@container/model-card gap-3 rounded-xl border border-border/60 bg-card p-3">
@@ -1774,7 +1794,7 @@ export function ModelProviderSettingsForm({
                                 <Button
                                   type="button"
                                   size="sm"
-                                  aria-busy={mutation.isPending || undefined}
+                                  aria-busy={modelSaving || undefined}
                                   aria-label={t(
                                     "admin.modelProvider.saveModel",
                                     {
@@ -1790,10 +1810,11 @@ export function ModelProviderSettingsForm({
                                   onClick={() =>
                                     saveModelProviderSettings({
                                       includeDraftModelFormKey: model.formKey,
+                                      saveTarget: modelSaveTarget,
                                     })
                                   }
                                 >
-                                  {mutation.isPending && (
+                                  {modelSaving && (
                                     <Spinner data-icon="inline-start" />
                                   )}
                                   {t("common.save")}
@@ -2286,13 +2307,22 @@ export function ModelProviderSettingsForm({
             type="button"
             size="sm"
             className="w-auto self-start"
-            aria-busy={mutation.isPending || undefined}
+            aria-busy={
+              (mutation.isPending &&
+                mutation.variables?.saveTarget === "selections") ||
+              undefined
+            }
             aria-label={t("admin.modelProvider.saveModelSelections")}
             title={t("admin.modelProvider.saveModelSelections")}
             disabled={readOnly || !formValid || saveBlocked}
-            onClick={() => saveModelProviderSettings()}
+            onClick={() =>
+              saveModelProviderSettings({ saveTarget: "selections" })
+            }
           >
-            {mutation.isPending && <Spinner data-icon="inline-start" />}
+            {mutation.isPending &&
+              mutation.variables?.saveTarget === "selections" && (
+                <Spinner data-icon="inline-start" />
+              )}
             {t("common.save")}
           </Button>
         </div>

@@ -45,6 +45,28 @@ export const patchProductSettingsSchema = editableProductSettingsSchema
     message: "product_settings_patch_cannot_be_empty",
   });
 
+export const executionConcurrencyLimitSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(Number.MAX_SAFE_INTEGER);
+
+const executionConcurrencyValuesSchema = z.strictObject({
+  max_concurrent_conversations: executionConcurrencyLimitSchema,
+  runner_app_server_process_limit: executionConcurrencyLimitSchema,
+});
+
+export const updateExecutionConcurrencySettingsSchema = z.strictObject({
+  max_concurrent_conversations: executionConcurrencyLimitSchema.nullable(),
+  runner_app_server_process_limit: executionConcurrencyLimitSchema.nullable(),
+});
+
+export const executionConcurrencySettingsSchema =
+  updateExecutionConcurrencySettingsSchema.extend({
+    environment_defaults: executionConcurrencyValuesSchema,
+    effective: executionConcurrencyValuesSchema,
+  });
+
 const nullableTimestampSchema = timestampSchema.nullable();
 
 export const updateMaintenanceSettingsSchema = z
@@ -112,6 +134,15 @@ export const healthComponentSchema = z.strictObject({
 
 export type ProductSettings = z.infer<typeof productSettingsSchema>;
 export type PatchProductSettings = z.input<typeof patchProductSettingsSchema>;
+export type ExecutionConcurrencySettings = z.infer<
+  typeof executionConcurrencySettingsSchema
+>;
+export type UpdateExecutionConcurrencySettings = z.input<
+  typeof updateExecutionConcurrencySettingsSchema
+>;
+export type ResolvedExecutionConcurrencySettings = z.infer<
+  typeof executionConcurrencyValuesSchema
+>;
 export type MaintenanceStatus = z.infer<typeof maintenanceStatusSchema>;
 export type UpdateMaintenanceSettings = z.input<
   typeof updateMaintenanceSettingsSchema

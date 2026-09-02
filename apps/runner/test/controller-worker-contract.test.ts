@@ -168,6 +168,7 @@ describe("controller to dynamic worker turn-start contract", () => {
           payload: {
             ownerId,
             projectionTurnId,
+            appServerProcessLimit: 20,
             model: "test-model",
             reasoningEffort: "medium",
             modelProvider: {

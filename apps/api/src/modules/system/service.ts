@@ -3,8 +3,11 @@ import { access, constants, mkdir } from "node:fs/promises"
 import type { Readable } from "node:stream"
 import {
   resolveOrganizationDisplayName,
+  type ExecutionConcurrencySettings,
   type MaintenanceStatus,
   type RegistrationSettings,
+  type ResolvedExecutionConcurrencySettings,
+  type UpdateExecutionConcurrencySettings,
   type UpdateMaintenanceSettings,
   type UpdateRegistrationSettings,
 } from "@linksense/shared"
@@ -44,6 +47,7 @@ const SYSTEM_SETTINGS_ID = "00000000-0000-4000-8000-000000000001"
 const PRODUCT_LOGO_MAX_BYTES = 2 * 1024 * 1024
 const PRODUCT_LOGO_SETTING_KEY = "organization_logo"
 const PRODUCT_LOGO_OBJECT_PREFIX = "system/product-logo"
+const EXECUTION_CONCURRENCY_SETTING_KEY = "execution_concurrency"
 const PRODUCT_LOGO_EXTENSIONS: Record<SafeRasterImageMimeType, string> = {
   "image/gif": "gif",
   "image/jpeg": "jpg",
@@ -162,6 +166,91 @@ export class SystemService {
     const settings = productSettings(asObject(row?.settingsJson))
     this.defaultLocaleCache = settings.default_locale
     return settings
+  }
+
+  async resolveExecutionConcurrencySettings(): Promise<ResolvedExecutionConcurrencySettings> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: SYSTEM_SETTINGS_ID },
+      select: { settingsJson: true },
+    })
+    return executionConcurrencySettings(
+      asObject(row?.settingsJson),
+      this.executionConcurrencyEnvironmentDefaults(),
+    ).effective
+  }
+
+  async getExecutionConcurrencySettings(): Promise<ExecutionConcurrencySettings> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: SYSTEM_SETTINGS_ID },
+      select: { settingsJson: true },
+    })
+    return executionConcurrencySettings(
+      asObject(row?.settingsJson),
+      this.executionConcurrencyEnvironmentDefaults(),
+    )
+  }
+
+  async updateExecutionConcurrencySettings(
+    actorId: string,
+    settings: UpdateExecutionConcurrencySettings,
+    context: AuditContext,
+  ): Promise<ExecutionConcurrencySettings> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended('linksense-system-settings', 0))
+      `
+      const row = await tx.systemSetting.findUnique({
+        where: { id: SYSTEM_SETTINGS_ID },
+      })
+      const current = asObject(row?.settingsJson)
+      const merged = {
+        ...current,
+        [EXECUTION_CONCURRENCY_SETTING_KEY]: {
+          max_concurrent_conversations:
+            settings.max_concurrent_conversations,
+          runner_app_server_process_limit:
+            settings.runner_app_server_process_limit,
+        },
+      }
+      await tx.systemSetting.upsert({
+        where: { id: SYSTEM_SETTINGS_ID },
+        create: {
+          id: SYSTEM_SETTINGS_ID,
+          settingsJson: merged,
+          updatedBy: actorId,
+        },
+        update: { settingsJson: merged, updatedBy: actorId },
+      })
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: "execution_concurrency_settings_updated",
+          targetType: "system_settings",
+          targetId: SYSTEM_SETTINGS_ID,
+          result: "success",
+          metadataJson: {
+            max_concurrent_conversations:
+              settings.max_concurrent_conversations,
+            runner_app_server_process_limit:
+              settings.runner_app_server_process_limit,
+          },
+          ipAddress: context.ipAddress ?? null,
+          userAgent: context.userAgent ?? null,
+        },
+      })
+      return executionConcurrencySettings(
+        merged,
+        this.executionConcurrencyEnvironmentDefaults(),
+      )
+    })
+  }
+
+  private executionConcurrencyEnvironmentDefaults(): ResolvedExecutionConcurrencySettings {
+    return {
+      max_concurrent_conversations: this.config.maxConcurrentConversations,
+      runner_app_server_process_limit:
+        this.config.runnerAppServerProcessLimit,
+    }
   }
 
   async getMaintenanceStatus(now = new Date()): Promise<MaintenanceStatus> {
@@ -498,6 +587,7 @@ export class SystemService {
       cleanup,
       durableCleanup,
       knowledgeProbe,
+      executionConcurrencyProbe,
     ] = await Promise.all([
         probe(async () => {
           await this.prisma.$queryRaw`SELECT 1`
@@ -550,7 +640,14 @@ export class SystemService {
               reason_code: null,
               value: null,
             }),
+        probeValue(
+          () => this.resolveExecutionConcurrencySettings(),
+          "EXECUTION_CONCURRENCY_SETTINGS_UNAVAILABLE",
+        ),
       ])
+    const executionConcurrency =
+      executionConcurrencyProbe.value ??
+      this.executionConcurrencyEnvironmentDefaults()
     const runnerHealth = runnerProbe.value
     const dockerResourceUsage = runnerHealth?.docker_resource_usage ?? {
       status: "unavailable" as const,
@@ -650,7 +747,8 @@ export class SystemService {
               observedUnresolvedSlotCount,
           }),
       ...(recoveryStatus ? { running_turn_recovery: recoveryStatus } : {}),
-      concurrency_limit: this.config.maxConcurrentConversations,
+      concurrency_limit: executionConcurrency.max_concurrent_conversations,
+      process_limit: executionConcurrency.runner_app_server_process_limit,
       ...(options.includeCleanupFailures
         ? {
             cleanup_failures: cleanupFailures,
@@ -967,6 +1065,40 @@ function productSettings(raw: Record<string, unknown>): ProductSettings {
     logo_url: productLogoUrl(logoMetadata),
     logo_updated_at: logoMetadata?.updatedAt ?? null,
   }
+}
+
+export function executionConcurrencySettings(
+  raw: Record<string, unknown>,
+  environmentDefaults: ResolvedExecutionConcurrencySettings,
+): ExecutionConcurrencySettings {
+  const concurrency = asObject(raw[EXECUTION_CONCURRENCY_SETTING_KEY])
+  const maxConcurrentConversations = positiveSafeInteger(
+    concurrency.max_concurrent_conversations,
+  )
+  const runnerAppServerProcessLimit = positiveSafeInteger(
+    concurrency.runner_app_server_process_limit,
+  )
+  return {
+    max_concurrent_conversations: maxConcurrentConversations,
+    runner_app_server_process_limit: runnerAppServerProcessLimit,
+    environment_defaults: environmentDefaults,
+    effective: {
+      max_concurrent_conversations:
+        maxConcurrentConversations ??
+        environmentDefaults.max_concurrent_conversations,
+      runner_app_server_process_limit:
+        runnerAppServerProcessLimit ??
+        environmentDefaults.runner_app_server_process_limit,
+    },
+  }
+}
+
+function positiveSafeInteger(value: unknown): number | null {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0
+    ? value
+    : null
 }
 
 export function registrationSettings(

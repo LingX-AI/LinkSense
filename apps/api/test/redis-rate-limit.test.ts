@@ -249,6 +249,22 @@ describe("Redis atomic protection", () => {
     expect(await protection.runningTurnCount()).toBe(20)
   })
 
+  it("uses the effective system setting supplied for the current admission", async () => {
+    const results = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        protection.acquireTurnSlot(
+          `configured-conversation-${index}`,
+          `configured-turn-${index}`,
+          `configured-owner-${index}`,
+          3,
+        ),
+      ),
+    )
+
+    expect(results.filter((result) => result.acquired)).toHaveLength(3)
+    expect(await protection.runningTurnCount()).toBe(3)
+  })
+
   it("fails admission closed after Redis state is flushed", async () => {
     await client.flushdb()
 

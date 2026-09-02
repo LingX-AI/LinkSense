@@ -25,6 +25,7 @@ import {
   conversationOrderResultSchema as sharedConversationOrderResultSchema,
   conversationPlanReviewSchema as sharedConversationPlanReviewSchema,
   conversationUserInputRequestSchema,
+  executionConcurrencySettingsSchema as sharedExecutionConcurrencySettingsSchema,
   imageGenerationSettingsSchema as sharedImageGenerationSettingsSchema,
   imageUnderstandingSettingsSchema as sharedImageUnderstandingSettingsSchema,
   initializeSystemResultSchema as sharedInitializeSystemResultSchema,
@@ -68,6 +69,7 @@ import {
   type AuthSession as SharedAuthSession,
   type AuthUser as SharedAuthUser,
   type RegistrationSettings as SharedRegistrationSettings,
+  type ExecutionConcurrencySettings as SharedExecutionConcurrencySettings,
   type Application as SharedApplication,
   type ApplicationGrant as SharedApplicationGrant,
   type ApplicationShareTarget as SharedApplicationShareTarget,
@@ -358,6 +360,14 @@ export const registrationSettingsUpdateResultSchema = z.strictObject({
   settings: registrationSettingsSchema,
 })
 export type RegistrationSettings = SharedRegistrationSettings
+
+export const executionConcurrencySettingsSchema =
+  sharedExecutionConcurrencySettingsSchema
+export const executionConcurrencySettingsUpdateResultSchema = z.strictObject({
+  code: z.literal("SYSTEM_SETTINGS_UPDATED"),
+  settings: executionConcurrencySettingsSchema,
+})
+export type ExecutionConcurrencySettings = SharedExecutionConcurrencySettings
 
 export const authUserSchema = sharedAuthUserSchema
 export const authSessionSchema = sharedAuthSessionSchema

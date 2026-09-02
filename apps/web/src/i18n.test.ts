@@ -32,6 +32,25 @@ describe("i18n resources", () => {
     expect(leafKeys(enUS).sort()).toEqual(leafKeys(zhCN).sort())
   })
 
+  it("localizes administrator update guidance and keeps zh-CN fallback", async () => {
+    expect(
+      i18n.t("systemUpdate.notice.title", {
+        lng: "zh-CN",
+        version: "v0.2.0",
+      })
+    ).toBe("LinkSense v0.2.0 已发布")
+    expect(
+      i18n.t("systemUpdate.notice.title", {
+        lng: "en-US",
+        version: "v0.2.0",
+      })
+    ).toBe("LinkSense v0.2.0 is available")
+
+    await i18n.changeLanguage("fr-FR")
+    expect(i18n.t("systemUpdate.checkNow")).toBe("立即检查")
+    await i18n.changeLanguage("zh-CN")
+  })
+
   it("localizes every built-in application icon scene", () => {
     expect(Object.keys(zhCN.applications.iconPresets)).toEqual([
       ...applicationIconPresets,

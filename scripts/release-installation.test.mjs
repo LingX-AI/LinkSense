@@ -659,6 +659,24 @@ test("release Web waits for a healthy API before Nginx resolves its upstream", (
   }
 })
 
+test("release API receives the immutable installed LinkSense version", () => {
+  const docker = spawnSync("docker", ["compose", "version"], {
+    encoding: "utf8",
+  })
+  if (docker.status !== 0) return
+
+  for (const edition of ["core", "full"]) {
+    const compose = JSON.parse(
+      execFileSync(
+        "docker",
+        composeArguments(edition, ["config", "--format", "json"]),
+        { encoding: "utf8", env: composeEnvironment(edition) },
+      ),
+    )
+    assert.equal(compose.services.api.environment.LINKSENSE_VERSION, "v0.1.0")
+  }
+})
+
 test("Full runs the official Docling image offline as a constrained non-root user", async () => {
   const compose = await readFile(
     path.join(releaseDirectory, "compose.full.yml"),

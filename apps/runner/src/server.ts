@@ -242,6 +242,7 @@ export const startTurnBodySchema = z
   .strictObject({
     ownerId: uuid,
     projectionTurnId: uuid,
+    appServerProcessLimit: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     operationKind: z.enum(["turn", "compact"]).default("turn"),
     eventProjectionTurnId: uuid.optional(),
     expectedRuntimeGeneration: uuid,
@@ -1400,6 +1401,7 @@ export function buildRunnerServer(
         const operation = await pool.beginStartOperation({
           conversationId,
           projectionTurnId: body.projectionTurnId,
+          appServerProcessLimit: body.appServerProcessLimit,
           operationKind: body.operationKind,
           ...(body.eventProjectionTurnId !== undefined
             ? { eventProjectionTurnId: body.eventProjectionTurnId }

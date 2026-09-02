@@ -6237,6 +6237,29 @@ trust_level = "trusted"
     await limitedPool.closeAll();
   });
 
+  it("applies a lower per-start process limit without stopping an active process", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-dynamic-capacity-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const firstInput = startOperationInput();
+
+    await expect(pool.startTurn(firstInput)).resolves.toMatchObject({
+      codexTurnId: "turn-native-1",
+    });
+    await expect(
+      pool.startTurn({
+        ...firstInput,
+        conversationId: "01900000-0000-7000-8000-000000000003",
+        projectionTurnId: "01900000-0000-7000-8000-000000000098",
+        appServerProcessLimit: 1,
+      }),
+    ).rejects.toThrow("runner app-server process limit reached");
+    expect(pool.size).toBe(1);
+
+    await pool.closeAll();
+  });
+
   it("waits for an in-flight app-server creation before shutdown completes", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-pool-shutdown-creation-"),

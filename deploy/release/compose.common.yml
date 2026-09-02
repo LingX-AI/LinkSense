@@ -198,6 +198,7 @@ services:
       HOST: 0.0.0.0
       PORT: 4000
       LINKSENSE_EDITION: ${LINKSENSE_EDITION}
+      LINKSENSE_VERSION: ${LINKSENSE_VERSION}
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       LINKSENSE_PUBLIC_BASE_URL: ${LINKSENSE_PUBLIC_BASE_URL}
@@ -208,6 +209,7 @@ services:
       LINKSENSE_CREDENTIAL_MASTER_KEY: ${LINKSENSE_CREDENTIAL_MASTER_KEY}
       LINKSENSE_CREDENTIAL_KEY_ID: ${LINKSENSE_CREDENTIAL_KEY_ID}
       LINKSENSE_MAX_CONCURRENT_CONVERSATIONS: ${LINKSENSE_MAX_CONCURRENT_CONVERSATIONS:-20}
+      LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT: ${LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT:-20}
       LINKSENSE_UPLOAD_MAX_FILE_SIZE_MB: "100"
       LINKSENSE_UPLOAD_MAX_FILES_PER_CONVERSATION: "100"
       LINKSENSE_UPLOAD_ALLOWED_TYPES: application/pdf,text/plain,text/csv,text/markdown,text/html,text/css,text/javascript,application/json,application/yaml,application/xml,application/zip,image/png,image/jpeg,image/webp,image/gif,image/avif,audio/mpeg,audio/mp4,audio/wav,audio/ogg,audio/opus,audio/aac,audio/flac,video/mp4,video/webm,video/ogg,video/quicktime,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation

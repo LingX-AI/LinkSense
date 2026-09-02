@@ -206,6 +206,7 @@ const RUNNING_TURN_RECOVERY_ATTEMPT_KEY =
 const RUNNING_TURN_RECOVERY_STATUS_KEY =
   "linksense:running-turn-recovery-status"
 const SITE_ICON_CACHE_KEY_PREFIX = "linksense:v2:site-icon:"
+const SYSTEM_UPDATE_CACHE_KEY = "linksense:v1:system-update"
 const SITE_ICON_RATE_LIMIT_KEY_PREFIX = "linksense:v2:site-icon-rate:"
 const SITE_ICON_RATE_LIMIT_MAX_REQUESTS = 60
 const SITE_ICON_RATE_LIMIT_WINDOW_SECONDS = 60
@@ -485,6 +486,7 @@ export class LinkSenseRedis {
     conversationId: string,
     turnId: string,
     ownerId: string,
+    maxConcurrentTurns = this.config.maxConcurrentConversations,
   ): Promise<{ acquired: boolean; count: number; capacityReady: boolean }> {
     try {
       const result = await this.client.eval(
@@ -497,7 +499,7 @@ export class LinkSenseRedis {
         conversationId,
         turnId,
         ownerId,
-        this.config.maxConcurrentConversations,
+        maxConcurrentTurns,
       )
       const [acquired, count, capacityReady] = parseNumberArray(result, 3)
       return {
@@ -849,6 +851,25 @@ export class LinkSenseRedis {
       return await this.client.getBuffer(SITE_ICON_CACHE_KEY_PREFIX + cacheKey)
     } catch {
       throw new RedisUnavailableError("site_icon_cache_get")
+    }
+  }
+
+  async getSystemUpdateCache(): Promise<string | null> {
+    try {
+      return await this.client.get(SYSTEM_UPDATE_CACHE_KEY)
+    } catch {
+      throw new RedisUnavailableError("system_update_cache_get")
+    }
+  }
+
+  async setSystemUpdateCache(
+    value: string,
+    ttlSeconds: number,
+  ): Promise<void> {
+    try {
+      await this.client.set(SYSTEM_UPDATE_CACHE_KEY, value, "EX", ttlSeconds)
+    } catch {
+      throw new RedisUnavailableError("system_update_cache_set")
     }
   }
 

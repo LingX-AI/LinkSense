@@ -91,6 +91,7 @@ import {
 import { SupportMenu } from "@/components/shell/support-menu"
 import { ApplicationIconDisplay } from "@/features/applications/application-icon"
 import { defaultApplicationIcon } from "@/features/applications/application-icon-default"
+import { SystemUpdateNotice } from "@/features/admin/system-update"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import {
   applySidebarConversationOrder,
@@ -1140,6 +1141,7 @@ export function AppShell() {
         >
           <MenuIcon aria-hidden="true" />
         </Button>
+        <SystemUpdateNotice />
         <Outlet />
       </main>
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>

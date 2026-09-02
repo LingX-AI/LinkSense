@@ -16,6 +16,7 @@ export type SanitizedZodIssue = {
 const safePathSegments = new Set([
   "ownerId",
   "projectionTurnId",
+  "appServerProcessLimit",
   "operationKind",
   "eventProjectionTurnId",
   "capabilityGeneration",

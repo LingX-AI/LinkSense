@@ -26,7 +26,7 @@ import {
   Trash2Icon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { z } from "zod"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
@@ -35,6 +35,7 @@ import {
   auditRecordSchema,
   authenticationSettingsSchema,
   authenticationSettingsUpdateResultSchema,
+  executionConcurrencySettingsSchema,
   healthSchema,
   imageGenerationSettingsSchema,
   imageUnderstandingSettingsSchema,
@@ -54,6 +55,7 @@ import {
   type AuthenticationSettings,
   type BootstrapStatus,
   type HealthStatus,
+  type ExecutionConcurrencySettings,
   type ImportResult,
   type ProductSettings,
   type RegistrationSettings,
@@ -64,6 +66,7 @@ import {
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
+import { ExecutionConcurrencySettingsForm } from "@/features/admin/execution-concurrency-settings-form"
 import { productFilenamePrefix, useProductName } from "@/app/product-branding"
 import { downloadBlob } from "@/lib/download-blob"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
@@ -189,11 +192,35 @@ import { ImageGenerationSettingsForm } from "@/features/admin/image-generation-s
 import { ImageUnderstandingSettingsForm } from "@/features/admin/image-understanding-settings-form"
 import { KnowledgeModelSettingsForm } from "@/features/admin/knowledge-model-settings-form"
 import { MaintenanceSettingsForm } from "@/features/admin/maintenance-settings-form"
+import { SystemUpdateSettings } from "@/features/admin/system-update"
 
 type AdminPage =
-  "users" | "roles" | "groups" | "audit" | "models" | "settings" | "health"
+  | "users"
+  | "roles"
+  | "groups"
+  | "audit"
+  | "models"
+  | "settings"
+  | "health"
+  | "updates"
 
 type UsersAndGroupsTab = "groups" | "users"
+const systemSettingsSections = [
+  "product",
+  "concurrency",
+  "smtp",
+  "registration",
+  "oidc",
+  "teams",
+  "maintenance",
+] as const
+type SystemSettingsSection = (typeof systemSettingsSections)[number]
+
+function isSystemSettingsSection(
+  value: string | null
+): value is SystemSettingsSection {
+  return systemSettingsSections.some((section) => section === value)
+}
 
 const emptySchema = z.unknown()
 const emptySelectValue = "__linksense_empty_select_value__"
@@ -3485,8 +3512,19 @@ function ProductSettingsPage() {
         signal,
       }),
   })
+  const executionConcurrencyQuery = useQuery({
+    queryKey: ["admin", "execution-concurrency-settings"],
+    queryFn: ({ signal }) =>
+      apiRequest("/admin/execution-concurrency-settings", {
+        schema: executionConcurrencySettingsSchema,
+        signal,
+      }),
+  })
   const error =
-    productQuery.error ?? authenticationQuery.error ?? registrationQuery.error
+    productQuery.error ??
+    authenticationQuery.error ??
+    registrationQuery.error ??
+    executionConcurrencyQuery.error
   return (
     <PageLayout
       title={t("admin.managementTitle")}
@@ -3494,7 +3532,8 @@ function ProductSettingsPage() {
     >
       {(productQuery.isLoading ||
         authenticationQuery.isLoading ||
-        registrationQuery.isLoading) && <LoadingState />}
+        registrationQuery.isLoading ||
+        executionConcurrencyQuery.isLoading) && <LoadingState />}
       {Boolean(error) && (
         <ErrorState
           message={getErrorMessage(error, t)}
@@ -3502,19 +3541,34 @@ function ProductSettingsPage() {
             void productQuery.refetch()
             void authenticationQuery.refetch()
             void registrationQuery.refetch()
+            void executionConcurrencyQuery.refetch()
           }}
         />
       )}
       {productQuery.data &&
         authenticationQuery.data &&
-        registrationQuery.data && (
+        registrationQuery.data &&
+        executionConcurrencyQuery.data && (
           <ProductSettingsEditor
             key={`${productQuery.data.system_name}:${productQuery.data.logo_url ?? ""}`}
             settings={productQuery.data}
             authenticationSettings={authenticationQuery.data}
             registrationSettings={registrationQuery.data}
+            executionConcurrencySettings={executionConcurrencyQuery.data}
           />
         )}
+    </PageLayout>
+  )
+}
+
+function SystemUpdatePage() {
+  const { t } = useTranslation()
+  return (
+    <PageLayout
+      title={t("settings.systemUpdate")}
+      description={t("settings.systemUpdateDescription")}
+    >
+      <SystemUpdateSettings />
     </PageLayout>
   )
 }
@@ -3523,13 +3577,22 @@ function ProductSettingsEditor({
   settings,
   authenticationSettings,
   registrationSettings,
+  executionConcurrencySettings,
 }: {
   settings: ProductSettings
   authenticationSettings: AuthenticationSettings
   registrationSettings: RegistrationSettings
+  executionConcurrencySettings: ExecutionConcurrencySettings
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedSection = searchParams.get("section")
+  const activeSection: SystemSettingsSection = isSystemSettingsSection(
+    requestedSection
+  )
+    ? requestedSection
+    : "product"
   const [name, setName] = useState(settings.system_name)
   const [logoUrl, setLogoUrl] = useState(settings.logo_url)
   const [message, setMessage] = useState<string | null>(null)
@@ -3602,13 +3665,30 @@ function ProductSettingsEditor({
   })
   const logoBusy = uploadLogoMutation.isPending || deleteLogoMutation.isPending
   return (
-    <Tabs defaultValue="product" className="gap-4">
+    <Tabs
+      value={activeSection}
+      className="gap-4"
+      onValueChange={(value) => {
+        setSearchParams(
+          (current) => {
+            const next = new URLSearchParams(current)
+            if (value === "product") next.delete("section")
+            else next.set("section", value)
+            return next
+          },
+          { replace: true }
+        )
+      }}
+    >
       <TabsList
         aria-label={t("admin.settingsTabsLabel")}
         className="max-w-full justify-start overflow-x-auto"
       >
         <TabsTrigger value="product">
           {t("admin.settingsTabs.product")}
+        </TabsTrigger>
+        <TabsTrigger value="concurrency">
+          {t("admin.settingsTabs.concurrency")}
         </TabsTrigger>
         <TabsTrigger value="smtp">{t("admin.settingsTabs.smtp")}</TabsTrigger>
         <TabsTrigger value="registration">
@@ -3729,6 +3809,12 @@ function ProductSettingsEditor({
             </div>
           </form>
         </section>
+      </TabsContent>
+
+      <TabsContent value="concurrency" className="min-w-0" keepMounted>
+        <ExecutionConcurrencySettingsForm
+          settings={executionConcurrencySettings}
+        />
       </TabsContent>
 
       <TabsContent value="maintenance" className="min-w-0">
@@ -5562,5 +5648,6 @@ export function AdminPages({ page }: { page: AdminPage }) {
   if (page === "audit") return <AuditPage />
   if (page === "models") return <ModelSettingsPage />
   if (page === "settings") return <ProductSettingsPage />
+  if (page === "updates") return <SystemUpdatePage />
   return <HealthPage />
 }

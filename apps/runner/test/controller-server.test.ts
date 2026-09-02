@@ -599,6 +599,7 @@ describe("controller authentication and routing", () => {
     const startBody = {
       ownerId,
       projectionTurnId: "01900000-0000-7000-8000-000000000004",
+      appServerProcessLimit: 20,
       expectedRuntimeGeneration,
       capabilityGeneration,
       ...modelRuntimeInput,
@@ -650,6 +651,7 @@ describe("controller authentication and routing", () => {
       payload: {
         ownerId,
         projectionTurnId: "01900000-0000-7000-8000-000000000004",
+        appServerProcessLimit: 20,
         expectedRuntimeGeneration,
         capabilityGeneration,
         ...modelRuntimeInput,
@@ -693,6 +695,7 @@ describe("controller authentication and routing", () => {
       payload: {
         ownerId,
         projectionTurnId: "01900000-0000-7000-8000-000000000004",
+        appServerProcessLimit: 20,
         expectedRuntimeGeneration,
         capabilityGeneration,
         ...modelRuntimeInput,
@@ -763,6 +766,7 @@ describe("controller authentication and routing", () => {
       payload: {
         ownerId,
         projectionTurnId: "01900000-0000-7000-8000-000000000004",
+        appServerProcessLimit: 20,
         expectedRuntimeGeneration,
         capabilityGeneration,
         ...modelRuntimeInput,
@@ -857,6 +861,7 @@ describe("controller authentication and routing", () => {
       payload: {
         ownerId,
         projectionTurnId: "01900000-0000-7000-8000-000000000004",
+        appServerProcessLimit: 20,
         expectedRuntimeGeneration,
         capabilityGeneration,
         ...modelRuntimeInput,

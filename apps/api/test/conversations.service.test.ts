@@ -6336,6 +6336,7 @@ describe("ConversationService pending and turn materialization", () => {
       expect(fixture.runner.acceptStartTurn).toHaveBeenCalledWith({
         conversationId: CONVERSATION_ID,
         projectionTurnId: intent.projectionTurnId,
+        appServerProcessLimit: 5,
         ownerId: OWNER_ID,
         collaborationMode: "default",
         expectedRuntimeGeneration: intent.runtimeGeneration,
@@ -6446,6 +6447,7 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.runner.acceptStartTurn).toHaveBeenCalledWith({
       conversationId: CONVERSATION_ID,
       projectionTurnId: intent.projectionTurnId,
+      appServerProcessLimit: 5,
       ownerId: OWNER_ID,
       collaborationMode: "default",
       expectedRuntimeGeneration: intent.runtimeGeneration,

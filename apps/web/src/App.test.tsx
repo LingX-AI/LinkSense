@@ -5793,7 +5793,7 @@ describe("LinkSense application", () => {
     const settingsNavigationLinks = settingsSidebar.querySelectorAll(
       ".settings-navigation-link"
     )
-    expect(settingsNavigationLinks).toHaveLength(19)
+    expect(settingsNavigationLinks).toHaveLength(20)
     settingsNavigationLinks.forEach((link) => {
       expect(link.querySelectorAll(":scope > span")).toHaveLength(1)
       expect(link.querySelector(":scope > span > span")).toBeNull()
@@ -9347,7 +9347,7 @@ describe("LinkSense application", () => {
     ).toBe(false)
   })
 
-  it("orders administrator navigation with usage analytics last", async () => {
+  it("orders administrator navigation with system update last", async () => {
     installApiMock()
     renderApp("/admin/users")
 
@@ -9365,9 +9365,13 @@ describe("LinkSense application", () => {
     const auditLinkIndex = links.findIndex(
       (link) => link.getAttribute("href") === "/admin/audit"
     )
+    const systemUpdateLinkIndex = links.findIndex(
+      (link) => link.getAttribute("href") === "/admin/system-update"
+    )
 
     expect(usageLinkIndex).toBeGreaterThanOrEqual(0)
     expect(usersAndGroupsLinkIndex).toBeGreaterThanOrEqual(0)
+    expect(systemUpdateLinkIndex).toBeGreaterThan(usageLinkIndex)
     expect(
       links.filter((link) => link.textContent === "用户与用户组")
     ).toHaveLength(1)
@@ -9375,7 +9379,7 @@ describe("LinkSense application", () => {
       links.some((link) => link.getAttribute("href") === "/admin/groups")
     ).toBe(false)
     expect(usageLinkIndex).toBeGreaterThan(auditLinkIndex)
-    expect(links.at(-1)).toHaveAttribute("href", "/admin/usage")
+    expect(links.at(-1)).toHaveAttribute("href", "/admin/system-update")
   })
 
   it("disables the user group combobox when no groups are available", async () => {

@@ -324,6 +324,8 @@ export const zhCN = {
     systemSettingsDescription: "产品与认证功能设置",
     systemHealth: "系统健康",
     systemHealthDescription: "服务与依赖状态",
+    systemUpdate: "系统更新",
+    systemUpdateDescription: "检查新版本并查看安全更新指引",
     noResults: "没有匹配的设置。",
     generalPageDescription: "管理仅与你的账号相关的界面偏好。",
     interfaceLanguage: "界面语言",
@@ -3066,6 +3068,54 @@ export const zhCN = {
     deleting: "正在删除…",
     deleteSuccess: "反馈已删除。",
   },
+  systemUpdate: {
+    notice: {
+      title: "LinkSense {{version}} 已发布",
+      description: "管理员可以查看发布说明，并按安全升级流程完成更新。",
+      action: "查看更新",
+      dismiss: "暂时关闭此版本的更新提示",
+    },
+    status: {
+      update_available: "有新版本",
+      up_to_date: "已是最新版",
+      check_failed: "检查失败",
+    },
+    overview: {
+      title: "版本状态",
+      description: "自动检查 LinkSense 的 GitHub 正式发布。",
+    },
+    currentVersion: "当前版本",
+    latestVersion: "最新版本",
+    checkedAt: "最近检查",
+    publishedAt: "发布时间",
+    checkNow: "立即检查",
+    openRelease: "查看 GitHub 发布页",
+    releaseNotes: "发布说明",
+    refreshFailed: "无法重新检查更新",
+    checkFailed: {
+      title: "暂时无法获取最新版本",
+      GITHUB_UNAVAILABLE: "无法连接 GitHub，请检查服务器网络后重试。",
+      GITHUB_RATE_LIMITED: "GitHub 暂时限制了检查请求，请稍后重试。",
+      GITHUB_RESPONSE_INVALID: "GitHub 返回的发布信息无法识别，请稍后重试。",
+    },
+    tutorial: {
+      title: "更新教程",
+      description:
+        "升级脚本会自动识别 Core 或 Full 版本，等待运行中的任务结束，并在迁移前创建经过验证的数据库备份。",
+      safetyTitle: "升级不会由网页自动执行",
+      safetyDescription:
+        "请在 LinkSense 所在主机的终端中执行命令。建议先安排维护窗口，并确保当前管理员能够查看服务状态。",
+      linux: "Linux",
+      macos: "macOS（不要使用 sudo）",
+      steps: {
+        maintenance: "在业务低峰安排系统维护窗口，并通知正在使用系统的用户。",
+        run: "登录 LinkSense 所在主机，在终端执行与操作系统对应的升级命令。",
+        backup:
+          "保存脚本输出的 PostgreSQL 备份地址；数据库迁移开始后的失败不会自动回滚数据库。",
+        health: "升级完成后进入“系统健康”确认各项服务均已恢复。",
+      },
+    },
+  },
   admin: {
     usersAndGroupsTitle: "用户与用户组",
     usersAndGroupsDescription: "集中管理用户账号、角色、状态以及用户组和成员。",
@@ -3196,15 +3246,33 @@ export const zhCN = {
     settingsTitle: "系统设置",
     managementTitle: "管理",
     settingsDescription:
-      "管理产品显示、认证邮件与登录功能；敏感值加密保存且不会回显。",
+      "管理产品显示、任务并发、认证邮件与登录功能；敏感值加密保存且不会回显。",
     settingsTabsLabel: "系统设置分类",
     settingsTabs: {
       product: "产品设置",
+      concurrency: "任务并发",
       smtp: "认证邮件",
       registration: "开放注册",
       oidc: "OIDC 登录",
       teams: "Teams 登录",
       maintenance: "系统维护",
+    },
+    concurrency: {
+      title: "任务并发",
+      description:
+        "设置系统和单个用户可同时运行的任务规模。留空时使用部署默认值。",
+      globalLimit: "系统同时运行任务数上限",
+      globalLimitDescription:
+        "所有用户合计的运行中任务上限。留空时使用部署默认值 {{defaultValue}}；当前生效值为 {{effectiveValue}}。",
+      processLimit: "单用户任务进程数上限",
+      processLimitDescription:
+        "每个用户可同时加载的任务进程上限。留空时使用部署默认值 {{defaultValue}}；当前生效值为 {{effectiveValue}}。",
+      loweringBehavior:
+        "调低上限不会中断正在运行的任务；新任务会在当前用量低于新上限后恢复启动。",
+      saved: "任务并发设置已更新。",
+      errors: {
+        positiveInteger: "请输入大于 0 的整数，或留空使用部署默认值。",
+      },
     },
     registration: {
       enabled: "允许用户自行注册",

@@ -178,6 +178,8 @@ export type StartTurnInput = {
   conversationId: string;
   /** Durable start-operation id. Defaults to the projected logical turn id. */
   projectionTurnId: string;
+  /** Effective per-worker app-server process limit for this admission. */
+  appServerProcessLimit?: number;
   /** Native start operation to execute. Defaults to a regular model turn. */
   operationKind?: "turn" | "compact";
   /** Starts app-server for a persisted control mutation without loading turn capabilities. */
@@ -1299,7 +1301,9 @@ export class AppServerProcessPool {
     }
     let reservedProcessSlot = false;
     if (!existing) {
-      await this.reserveProcessSlot();
+      await this.reserveProcessSlot(
+        input.appServerProcessLimit ?? this.options.processLimit,
+      );
       reservedProcessSlot = true;
     }
     let paths: EnsuredConversationPaths;
@@ -5180,7 +5184,10 @@ export class AppServerProcessPool {
         );
         throw error;
       }
-    }, creationContext?.reservedProcessSlot ?? false);
+    },
+      creationContext?.reservedProcessSlot ?? false,
+      input.appServerProcessLimit ?? this.options.processLimit,
+    );
   }
 
   private async authorizedSkillCatalog(
@@ -6132,13 +6139,13 @@ export class AppServerProcessPool {
     return managed;
   }
 
-  private async reserveProcessSlot(): Promise<void> {
+  private async reserveProcessSlot(processLimit: number): Promise<void> {
     for (;;) {
       let evictionTarget: ManagedProcess | undefined;
       const reserved = await this.withProcessCapacityLock(async () => {
         if (
           this.processes.size + this.pendingProcessSlots <
-          this.options.processLimit
+          processLimit
         ) {
           this.pendingProcessSlots += 1;
           return true;
@@ -6194,8 +6201,9 @@ export class AppServerProcessPool {
       commit: (managed: ManagedProcess) => Promise<void>,
     ) => Promise<T>,
     reservationAlreadyActive = false,
+    processLimit = this.options.processLimit,
   ): Promise<T> {
-    if (!reservationAlreadyActive) await this.reserveProcessSlot();
+    if (!reservationAlreadyActive) await this.reserveProcessSlot(processLimit);
     let reservationActive = true;
     const commit = async (managed: ManagedProcess): Promise<void> => {
       await this.withProcessCapacityLock(async () => {

@@ -24,6 +24,7 @@ import {
 import { FileService } from "./modules/files/service.js";
 import { ConversationEventService } from "./modules/events/service.js";
 import { SystemService } from "./modules/system/service.js";
+import { SystemUpdateChecker } from "./modules/system/update-checker.js";
 import { AppError } from "./lib/errors.js";
 import { BackgroundJobs } from "./adapters/jobs.js";
 import { PasswordResetMailDeliveryQueue } from "./adapters/password-reset-mail-queue.js";
@@ -175,6 +176,7 @@ export type AppServices = {
   files: FileService;
   events: ConversationEventService;
   system: SystemService;
+  systemUpdate: SystemUpdateChecker;
   jobs: BackgroundJobs;
   passwordResetMail: PasswordResetMailDeliveryQueue;
   capabilities: CapabilityService;
@@ -683,6 +685,18 @@ export function createServices(input: {
     new ManagedTaskTitleGenerator(modelProviderSettings),
     usageAnalytics,
   );
+  const system = new SystemService(
+    input.prisma,
+    input.redis,
+    input.runner,
+    input.storage,
+    mailer,
+    audit,
+    input.config,
+    jobs,
+    authenticationSettings,
+    knowledgeRuntime?.health,
+  );
   const conversations = new ConversationService(
     input.prisma,
     input.redis,
@@ -696,6 +710,7 @@ export function createServices(input: {
     applications,
     conversationTitles,
     tokenLimits,
+    system,
   );
   const applicationExternalAccess = new ApplicationExternalAccessService(
     input.prisma,
@@ -797,17 +812,9 @@ export function createServices(input: {
     knowledgeSources,
     usageAnalytics,
   );
-  const system = new SystemService(
-    input.prisma,
+  const systemUpdate = new SystemUpdateChecker(
+    input.config.releaseVersion,
     input.redis,
-    input.runner,
-    input.storage,
-    mailer,
-    audit,
-    input.config,
-    jobs,
-    authenticationSettings,
-    knowledgeRuntime?.health,
   );
   return {
     ...input,
@@ -826,6 +833,7 @@ export function createServices(input: {
     files,
     events,
     system,
+    systemUpdate,
     jobs,
     passwordResetMail,
     capabilities,

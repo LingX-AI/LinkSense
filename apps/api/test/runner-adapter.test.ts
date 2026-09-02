@@ -1165,6 +1165,7 @@ function startInput(): RunnerStartInput {
   return {
     conversationId,
     projectionTurnId,
+    appServerProcessLimit: 20,
     ownerId,
     expectedRuntimeGeneration: runtimeGeneration,
     capabilityGeneration,
