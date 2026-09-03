@@ -614,6 +614,10 @@ function installApiMock(options?: {
   eventStreamUnavailable?: boolean
   eventStreamBody?: string
   eventStreamStart?: Promise<void>
+  backgroundEventStreams?: Record<
+    string,
+    { body: string; start?: Promise<void> }
+  >
   downloadResponse?: Promise<Response>
   attachmentUploadResponse?: (
     formData: FormData,
@@ -1022,6 +1026,27 @@ function installApiMock(options?: {
         /^\/api\/v1\/conversations\/([^/]+)\/events$/u
       )
       if (conversationEventsMatch) {
+        const backgroundStream =
+          options?.backgroundEventStreams?.[conversationEventsMatch[1] ?? ""]
+        if (backgroundStream) {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                const enqueue = () =>
+                  controller.enqueue(
+                    new TextEncoder().encode(backgroundStream.body)
+                  )
+                return backgroundStream.start
+                  ? backgroundStream.start.then(enqueue)
+                  : enqueue()
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "text/event-stream" },
+            }
+          )
+        }
         if (
           conversationEventsMatch[1] === newTaskId &&
           (options?.newTaskEventStreamInitialBody ||
@@ -4821,7 +4846,7 @@ describe("LinkSense application", () => {
     ).toHaveClass("size-4", "text-[var(--app-muted)]", "opacity-70")
   })
 
-  it("reconciles a completed turn when the event stream disconnects before the terminal event", async () => {
+  it("reconciles a completed turn from detail when the event stream disconnects without polling the task list", async () => {
     let releaseCompletedDetail: (() => void) | undefined
     let listRequestCount = 0
     const completedDetailReady = new Promise<void>((resolve) => {
@@ -4920,10 +4945,10 @@ describe("LinkSense application", () => {
         (request) =>
           request.path === "/api/v1/conversations" && request.method === "GET"
       )
-    ).toHaveLength(2)
+    ).toHaveLength(1)
   }, 10_000)
 
-  it("refreshes the sidebar when the initial detail already contains a terminal turn", async () => {
+  it("updates the sidebar directly when the initial detail already contains a terminal turn", async () => {
     let releaseCompletedDetail: ((response: Response) => void) | undefined
     let listRequestCount = 0
     const completedDetail = new Promise<Response>((resolve) => {
@@ -4996,7 +5021,7 @@ describe("LinkSense application", () => {
         (request) =>
           request.path === "/api/v1/conversations" && request.method === "GET"
       )
-    ).toHaveLength(2)
+    ).toHaveLength(1)
   })
 
   it("does not poll conversation detail while its event stream remains connected", async () => {
@@ -5036,29 +5061,36 @@ describe("LinkSense application", () => {
     ).toHaveLength(1)
   })
 
-  it("refreshes a background running task until its completion indicator is visible", async () => {
+  it("does not poll the task list while a background task remains running", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
-    let listRequestCount = 0
     const { requests } = installApiMock({
-      conversationListResponse: () => {
-        listRequestCount += 1
-        return json({
+      conversationListResponse: () =>
+        json({
           success: true,
           data: {
             items: conversations.map((item) =>
               item.id === "c2"
                 ? {
                     ...item,
-                    execution_status:
-                      listRequestCount === 1 ? "running" : "completed",
-                    has_unread_completion: listRequestCount > 1,
+                    execution_status: "running",
                   }
                 : item
             ),
             next_cursor: null,
           },
-        })
-      },
+        }),
+      conversationDetailResponse: async (conversationId) =>
+        json({
+          success: true,
+          data: {
+            ...conversation,
+            ...conversations.find((item) => item.id === conversationId),
+            execution_status: "running",
+            turns: [{ id: "turn-c2-running", status: "running" }],
+            running_turn: { id: "turn-c2-running", status: "running" },
+            last_event_id: "c2:running",
+          },
+        }),
     })
     renderApp()
 
@@ -5072,23 +5104,16 @@ describe("LinkSense application", () => {
     expect(backgroundTaskLink).toHaveAttribute("aria-busy", "true")
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_500)
+      await vi.advanceTimersByTimeAsync(4_500)
     })
 
-    await waitFor(() => {
-      expect(backgroundTaskLink).not.toHaveAttribute("aria-busy")
-      expect(
-        within(sidebar).getByRole("status", {
-          name: "任务已完成，尚未查看",
-        })
-      ).toBeVisible()
-    })
+    expect(backgroundTaskLink).toHaveAttribute("aria-busy", "true")
     expect(
       requests.filter(
         (request) =>
           request.path === "/api/v1/conversations" && request.method === "GET"
       )
-    ).toHaveLength(2)
+    ).toHaveLength(1)
   })
 
   it("keeps recent conversations as title-only rows without textual execution status", async () => {
@@ -5421,9 +5446,11 @@ describe("LinkSense application", () => {
     const interaction = userEvent.setup()
     renderApp()
 
-    const sidebar = await screen.findByRole("complementary", {
-      name: "LinkSense 导航",
-    })
+    const sidebar = await screen.findByRole(
+      "complementary",
+      { name: "LinkSense 导航" },
+      { timeout: 5_000 }
+    )
     const sidebarTitle = await within(sidebar).findByText(applicationName)
     const applicationLink = sidebarTitle.closest("a")
     expect(applicationLink).not.toBeNull()
@@ -8128,6 +8155,345 @@ describe("LinkSense application", () => {
       within(item as HTMLElement).getByRole("status", { name: "执行中" })
     ).toBeVisible()
     expect(title.closest("a")).toHaveAttribute("aria-busy", "true")
+  })
+
+  it("keeps a just-submitted task running after immediately switching tasks", async () => {
+    const submittedTurnId = "30000000-0000-4000-8000-000000000084"
+    let releaseTurnStart: (() => void) | undefined
+    const turnStartReady = new Promise<void>((resolve) => {
+      releaseTurnStart = resolve
+    })
+    const completedConversation = {
+      ...conversation,
+      execution_status: "completed",
+      turns: [{ id: "turn-1", status: "completed" }],
+      running_turn: null,
+    }
+    const { requests } = installApiMock({
+      conversationGetResponse: async () =>
+        json({ success: true, data: completedConversation }),
+      conversationListResponse: () =>
+        json({
+          success: true,
+          data: {
+            items: conversations.map((item) => ({
+              ...item,
+              execution_status: "completed",
+            })),
+            next_cursor: null,
+            total_count: conversations.length,
+          },
+        }),
+      turnStartResponse: async () => {
+        await turnStartReady
+        return json(
+          {
+            success: true,
+            data: {
+              turn_id: submittedTurnId,
+              accepted: true,
+              status: "starting",
+            },
+          },
+          202
+        )
+      },
+    })
+    const interaction = userEvent.setup()
+    renderApp()
+
+    const sidebar = await screen.findByRole(
+      "complementary",
+      { name: "LinkSense 导航" },
+      { timeout: 5_000 }
+    )
+    const submittedTaskTitle = await within(sidebar).findByText(
+      "活动风险评估",
+      undefined,
+      { timeout: 5_000 }
+    )
+    const submittedTask = submittedTaskTitle.closest(
+      ".sidebar-conversation-item"
+    )
+    await interaction.type(
+      await screen.findByRole("textbox", { name: "任务输入框" }),
+      "立即切换任务也要保持执行中"
+    )
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+
+    expect(submittedTaskTitle.closest("a")).toHaveAttribute("aria-busy", "true")
+    expect(
+      within(submittedTask as HTMLElement).getByRole("status", {
+        name: "执行中",
+      })
+    ).toBeVisible()
+
+    await interaction.click(within(sidebar).getByText("整理项目会议纪要"))
+    expect(
+      await screen.findByText("整理项目会议纪要已加载。", undefined, {
+        timeout: 5_000,
+      })
+    ).toBeVisible()
+    await act(
+      () => new Promise<void>((resolve) => window.setTimeout(resolve, 50))
+    )
+
+    expect(submittedTaskTitle.closest("a")).toHaveAttribute("aria-busy", "true")
+    expect(
+      within(submittedTask as HTMLElement).queryByRole("status", {
+        name: "任务已完成，尚未查看",
+      })
+    ).toBeNull()
+
+    await act(async () => releaseTurnStart?.())
+    await waitFor(() =>
+      expect(
+        requests.some(
+          (request) =>
+            request.path === "/api/v1/conversations/c1/turns" &&
+            request.method === "POST"
+        )
+      ).toBe(true)
+    )
+    await act(
+      () => new Promise<void>((resolve) => window.setTimeout(resolve, 50))
+    )
+
+    await interaction.click(within(sidebar).getByText("活动风险评估"))
+    expect(
+      await screen.findByText("立即切换任务也要保持执行中", undefined, {
+        timeout: 5_000,
+      })
+    ).toBeVisible()
+    expect(
+      within(submittedTask as HTMLElement).queryByRole("status", {
+        name: "任务已完成，尚未查看",
+      })
+    ).toBeNull()
+    expect(submittedTaskTitle.closest("a")).toHaveAttribute("aria-busy", "true")
+  })
+
+  it("ends a background task loading state from its completion event without polling the task list", async () => {
+    const previousTurnId = "30000000-0000-4000-8000-000000000081"
+    const backgroundTurnId = "30000000-0000-4000-8000-000000000082"
+    const eventId = "c2:82"
+    let releaseCompletion: (() => void) | undefined
+    const completionReady = new Promise<void>((resolve) => {
+      releaseCompletion = resolve
+    })
+    const { requests } = installApiMock({
+      conversationListResponse: () =>
+        json({
+          success: true,
+          data: {
+            items: conversations.map((item) =>
+              item.id === "c1"
+                ? { ...item, execution_status: "completed" }
+                : item.id === "c2"
+                  ? { ...item, execution_status: "running" }
+                  : item
+            ),
+            next_cursor: null,
+            total_count: conversations.length,
+          },
+        }),
+      conversationDetailResponse: async (conversationId) =>
+        json({
+          success: true,
+          data: {
+            ...conversation,
+            ...conversations.find((item) => item.id === conversationId),
+            execution_status: "running",
+            turns: [{ id: backgroundTurnId, status: "running" }],
+            running_turn: { id: backgroundTurnId, status: "running" },
+            last_event_id: "c2:79",
+          },
+        }),
+      backgroundEventStreams: {
+        c2: {
+          start: completionReady,
+          body: [
+            `id: c2:80\nevent: turn/completed\ndata: ${JSON.stringify({
+              id: "60000000-0000-4000-8000-000000000080",
+              conversation_id: "20000000-0000-4000-8000-000000000002",
+              turn_id: previousTurnId,
+              sequence_no: 80,
+              event_type: "turn/completed",
+              visibility: "user_visible",
+              payload: {
+                schema_version: 2,
+                source: "codex_app_server",
+                method: "turn/completed",
+                params: {
+                  threadId: "thread-background",
+                  turn: {
+                    id: "native-previous-turn",
+                    status: "completed",
+                  },
+                },
+              },
+              sse_event_id: "c2:80",
+              created_at: "2026-08-13T08:00:01.000Z",
+            })}\n\n`,
+            `id: ${eventId}\nevent: turn/completed\ndata: ${JSON.stringify({
+              id: "60000000-0000-4000-8000-000000000082",
+              conversation_id: "20000000-0000-4000-8000-000000000002",
+              turn_id: backgroundTurnId,
+              sequence_no: 82,
+              event_type: "turn/completed",
+              visibility: "user_visible",
+              payload: {
+                schema_version: 2,
+                source: "codex_app_server",
+                method: "turn/completed",
+                params: {
+                  threadId: "thread-background",
+                  turn: {
+                    id: "native-background-turn",
+                    status: "completed",
+                  },
+                },
+              },
+              sse_event_id: eventId,
+              created_at: "2026-08-13T08:00:02.000Z",
+            })}\n\n`,
+          ].join(""),
+        },
+      },
+    })
+    renderApp()
+
+    const sidebar = await screen.findByRole(
+      "complementary",
+      { name: "LinkSense 导航" },
+      { timeout: 5_000 }
+    )
+    const backgroundTitle = await within(sidebar).findByText("整理项目会议纪要")
+    const backgroundItem = backgroundTitle.closest(".sidebar-conversation-item")
+    expect(backgroundTitle.closest("a")).toHaveAttribute("aria-busy", "true")
+
+    await act(async () => releaseCompletion?.())
+
+    await waitFor(() =>
+      expect(backgroundTitle.closest("a")).not.toHaveAttribute("aria-busy")
+    )
+    expect(
+      within(backgroundItem as HTMLElement).getByRole("status", {
+        name: "任务已完成，尚未查看",
+      })
+    ).toBeVisible()
+    expect(
+      requests.filter(
+        (request) =>
+          request.path === "/api/v1/conversations" && request.method === "GET"
+      )
+    ).toHaveLength(1)
+    expect(
+      requests.filter(
+        (request) =>
+          request.path === "/api/v1/conversations/c2" &&
+          request.method === "GET"
+      )
+    ).toHaveLength(1)
+  })
+
+  it("ends the active task loading state as soon as its completion event arrives", async () => {
+    const activeTurnId = "30000000-0000-4000-8000-000000000083"
+    const eventId = "c1:83"
+    let releaseCompletion: (() => void) | undefined
+    const completionReady = new Promise<void>((resolve) => {
+      releaseCompletion = resolve
+    })
+    const pendingDetailRefresh = new Promise<Response>(() => undefined)
+    const { requests } = installApiMock({
+      conversationOverride: {
+        execution_status: "completed",
+        turns: [{ id: "turn-1", status: "completed" }],
+        running_turn: null,
+      },
+      conversationGetResponse: async (callIndex) =>
+        callIndex === 1
+          ? json({
+              success: true,
+              data: {
+                ...conversation,
+                execution_status: "completed",
+                turns: [{ id: "turn-1", status: "completed" }],
+                running_turn: null,
+              },
+            })
+          : pendingDetailRefresh,
+      conversationListResponse: () =>
+        json({
+          success: true,
+          data: {
+            items: conversations.map((item) =>
+              item.id === "c1"
+                ? { ...item, execution_status: "completed" }
+                : item
+            ),
+            next_cursor: null,
+            total_count: conversations.length,
+          },
+        }),
+      turnStartResponse: async () =>
+        json(
+          {
+            success: true,
+            data: {
+              turn_id: activeTurnId,
+              accepted: true,
+              status: "starting",
+            },
+          },
+          202
+        ),
+      eventStreamStart: completionReady,
+      eventStreamBody: `id: ${eventId}\nevent: turn/completed\ndata: ${JSON.stringify(
+        {
+          id: "60000000-0000-4000-8000-000000000083",
+          conversation_id: "20000000-0000-4000-8000-000000000001",
+          turn_id: activeTurnId,
+          sequence_no: 83,
+          event_type: "turn/completed",
+          visibility: "user_visible",
+          payload: {
+            schema_version: 2,
+            source: "codex_app_server",
+            method: "turn/completed",
+            params: {
+              threadId: "thread-active",
+              turn: { id: "native-active-turn", status: "completed" },
+            },
+          },
+          sse_event_id: eventId,
+          created_at: "2026-08-13T08:00:03.000Z",
+        }
+      )}\n\n`,
+    })
+    const interaction = userEvent.setup()
+    renderApp()
+
+    const composer = await screen.findByRole(
+      "textbox",
+      { name: "任务输入框" },
+      { timeout: 5_000 }
+    )
+    await interaction.type(composer, "完成后立即结束加载")
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+    expect(await screen.findByRole("button", { name: "停止" })).toBeVisible()
+
+    await act(async () => releaseCompletion?.())
+
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "停止" })).toBeNull()
+    )
+    expect(
+      requests.filter(
+        (request) =>
+          request.path === "/api/v1/conversations" && request.method === "GET"
+      )
+    ).toHaveLength(1)
   })
 
   it("regenerates from the edited latest user message without changing the composer draft", async () => {

@@ -182,12 +182,17 @@ export function patchSidebarConversationTitle<
 }
 
 export function patchSidebarConversationExecutionStatus<
-  T extends { id: string; execution_status?: Conversation["execution_status"] },
+  T extends {
+    id: string
+    execution_status?: Conversation["execution_status"]
+    has_unread_completion?: boolean
+  },
   TData extends SidebarConversationData<T>,
 >(
   data: TData | undefined,
   conversationId: string,
-  executionStatus: Conversation["execution_status"]
+  executionStatus: Conversation["execution_status"],
+  options: { hasUnreadCompletion?: boolean } = {}
 ) {
   if (!data) return data
   let changed = false
@@ -196,12 +201,20 @@ export function patchSidebarConversationExecutionStatus<
     const items = page.items.map((conversation) => {
       if (
         conversation.id !== conversationId ||
-        conversation.execution_status === executionStatus
+        (conversation.execution_status === executionStatus &&
+          (options.hasUnreadCompletion === undefined ||
+            conversation.has_unread_completion === options.hasUnreadCompletion))
       ) {
         return conversation
       }
       pageChanged = true
-      return { ...conversation, execution_status: executionStatus }
+      return {
+        ...conversation,
+        execution_status: executionStatus,
+        ...(options.hasUnreadCompletion === undefined
+          ? {}
+          : { has_unread_completion: options.hasUnreadCompletion }),
+      }
     })
     if (!pageChanged) return page
     changed = true

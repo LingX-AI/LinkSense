@@ -68,7 +68,6 @@ import {
   type PendingRequest,
   type Application,
   type ThreadGoal,
-  type TurnStartReceipt,
   type User,
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
@@ -126,6 +125,27 @@ import {
   isDefinitiveConversationUnavailableError,
   selectFreshConversationEventSubscriptionId,
 } from "@/features/conversations/conversation-detail-query"
+import {
+  applyConversationExecutionTransition,
+  getConversationExecutionTransition,
+  isTerminalConversationExecutionStatus,
+} from "@/features/conversations/conversation-execution-lifecycle"
+import {
+  bindPendingConversationTurn,
+  clearPendingConversationExecution,
+  getPendingConversationExecution,
+  markConversationExecutionPending,
+  movePendingConversationExecution,
+  usePendingConversationExecution,
+} from "@/features/conversations/conversation-pending-execution"
+import {
+  clearPendingConversationTurnSubmission,
+  movePendingConversationTurnSubmission,
+  setPendingConversationTurnSubmission,
+  updatePendingConversationTurnSubmission,
+  usePendingConversationTurnSubmission,
+  type PendingConversationTurnSubmission,
+} from "@/features/conversations/conversation-pending-turn-submission"
 import {
   clearLocalConversationDraft,
   readLocalConversationDraft,
@@ -243,16 +263,7 @@ type OfficePreviewUpdate = Readonly<{
   knownFileIds: readonly string[]
 }>
 
-type PendingTurnSubmission = Readonly<{
-  conversationId: string
-  idempotencyKey: string
-  message: ConversationMessage
-  optimisticId?: string
-  turnId?: string
-  status?: TurnStartReceipt["status"]
-  replacesTurnId?: string
-  interruptRequested?: boolean
-}>
+type PendingTurnSubmission = PendingConversationTurnSubmission
 
 type PendingOfficeQuestion = Readonly<{
   conversationId: string
@@ -324,6 +335,7 @@ type OptimisticSidebarExecutionStatus =
 type OptimisticTurnStart = Readonly<{
   attachmentConsumption: OptimisticAttachmentConsumption | undefined
   sidebarExecutionStatus: OptimisticSidebarExecutionStatus | undefined
+  pendingExecutionConversationId: string | undefined
 }>
 
 type UserTokenQuotaUsage = NonNullable<
@@ -675,7 +687,6 @@ export function ConversationPage({
   const invalidateTimerRef = useRef<number | null>(null)
   const pendingDetailRefreshRef = useRef(false)
   const pendingListRefreshRef = useRef(false)
-  const terminalSidebarSyncRef = useRef<string | null>(null)
   const seenEventIdsRef = useRef(new Set<string>())
   const liveConversationIdRef = useRef<string | undefined>(
     conversationId ?? newConversationPlaceholderId
@@ -972,6 +983,12 @@ export function ConversationPage({
     (knowledgeBasesLoading || knowledgeBaseSelectionVerificationFailed)
 
   const conversation = conversationQuery.data
+  const pendingConversationExecution = usePendingConversationExecution(
+    conversationId ?? newConversationPlaceholderId
+  )
+  const cachedPendingTurnSubmission = usePendingConversationTurnSubmission(
+    conversationId ?? newConversationPlaceholderId
+  )
   const pendingSubmissionBelongsToConversation = Boolean(
     pendingTurnSubmission &&
     (pendingTurnSubmission.conversationId === conversationId ||
@@ -983,22 +1000,25 @@ export function ConversationPage({
       (isNewTaskPromotion &&
         pendingTurnSubmission.conversationId === newConversationPlaceholderId))
   )
-  const reconciledPendingUserMessage = pendingSubmissionBelongsToConversation
+  const currentPendingTurnSubmission = pendingSubmissionBelongsToConversation
+    ? pendingTurnSubmission
+    : cachedPendingTurnSubmission
+  const reconciledPendingUserMessage = currentPendingTurnSubmission
     ? conversation?.messages?.find(
         (message) =>
           message.role === "user" &&
-          (pendingTurnSubmission?.turnId
-            ? message.turn_id === pendingTurnSubmission.turnId
+          (currentPendingTurnSubmission.turnId
+            ? message.turn_id === currentPendingTurnSubmission.turnId
             : isNewTaskPromotion &&
               pendingFirstMessageConversationId === conversationId &&
-              message.content === pendingTurnSubmission?.message.content)
+              message.content === currentPendingTurnSubmission.message.content)
       )
     : undefined
   const reconciledPendingUserMessageId = reconciledPendingUserMessage?.id
   const reconciledPendingUserMessageRenderKey =
-    reconciledPendingUserMessageId && pendingTurnSubmission
-      ? (pendingTurnSubmission.message.client_render_key ??
-        `message-${pendingTurnSubmission.message.id}`)
+    reconciledPendingUserMessageId && currentPendingTurnSubmission
+      ? (currentPendingTurnSubmission.message.client_render_key ??
+        `message-${currentPendingTurnSubmission.message.id}`)
       : undefined
 
   useLayoutEffect(() => {
@@ -1102,7 +1122,8 @@ export function ConversationPage({
   })
   const reconnectExhausted = nativeReconnectState?.phase === "failed"
   const visuallyRunning = Boolean(
-    (running || pendingTurnExecutionActive) && !reconnectExhausted
+    (running || pendingTurnExecutionActive || pendingConversationExecution) &&
+    !reconnectExhausted
   )
   const runningMessageAction = user?.running_message_action ?? "queue"
   const previewUpdateCandidate =
@@ -1249,14 +1270,14 @@ export function ConversationPage({
   )
 
   const pendingSubmittedTurnNotProjected = Boolean(
-    pendingTurnSubmission &&
-    pendingTurnSubmission.conversationId === conversationId &&
-    (!pendingTurnSubmission.turnId ||
+    currentPendingTurnSubmission &&
+    currentPendingTurnSubmission.conversationId === conversationId &&
+    (!currentPendingTurnSubmission.turnId ||
       !conversation?.turns?.some(
-        (turn) => turn.id === pendingTurnSubmission.turnId
+        (turn) => turn.id === currentPendingTurnSubmission.turnId
       ) ||
       !conversation.messages?.some(
-        (message) => message.turn_id === pendingTurnSubmission.turnId
+        (message) => message.turn_id === currentPendingTurnSubmission.turnId
       ))
   )
 
@@ -1273,20 +1294,41 @@ export function ConversationPage({
     ) {
       return
     }
-    const revision = [
-      conversationId,
-      executionStatus,
-      conversation?.last_event_id ?? "",
-    ].join(":")
-    if (terminalSidebarSyncRef.current === revision) return
-    terminalSidebarSyncRef.current = revision
-    void queryClient.invalidateQueries({ queryKey: ["conversations"] })
+    const pendingExecution = getPendingConversationExecution(
+      queryClient,
+      conversationId
+    )
+    if (pendingExecution) {
+      const pendingTurn = pendingExecution.turnId
+        ? conversation?.turns?.find(
+            (turn) => turn.id === pendingExecution.turnId
+          )
+        : undefined
+      const pendingTurnCompleted = Boolean(
+        pendingTurn && pendingTurn.status !== "running"
+      )
+      // The first detail response after a submission may still describe the
+      // preceding turn. Keep the optimistic running state until this exact
+      // submitted turn reaches a terminal state.
+      if (!pendingTurnCompleted) return
+      clearPendingConversationExecution(queryClient, conversationId)
+    }
+    queryClient.setQueryData<
+      InfiniteData<Paginated<Conversation>, string | undefined>
+    >(["conversations", "sidebar"], (current) =>
+      patchSidebarConversationExecutionStatus(
+        current,
+        conversationId,
+        executionStatus
+      )
+    )
   }, [
     conversation?.execution_status,
-    conversation?.last_event_id,
+    conversation?.turns,
     conversationId,
     conversationQuery.isSuccess,
     isNew,
+    pendingConversationExecution?.turnId,
     pendingSubmittedTurnNotProjected,
     queryClient,
   ])
@@ -1455,6 +1497,82 @@ export function ConversationPage({
         if (event.id && seenEventIdsRef.current.has(event.id)) return
         if (event.id) seenEventIdsRef.current.add(event.id)
 
+        const executionTransition = getConversationExecutionTransition(event)
+        if (executionTransition && conversationId) {
+          const terminal = isTerminalConversationExecutionStatus(
+            executionTransition.status
+          )
+          if (
+            executionTransition.status === "running" &&
+            executionTransition.turnId &&
+            getPendingConversationExecution(queryClient, conversationId)
+          ) {
+            bindPendingConversationTurn(
+              queryClient,
+              conversationId,
+              executionTransition.turnId
+            )
+          }
+          const pendingExecution = getPendingConversationExecution(
+            queryClient,
+            conversationId
+          )
+          const matchesPendingExecution =
+            !terminal ||
+            !pendingExecution ||
+            (Boolean(executionTransition.turnId) &&
+              pendingExecution.turnId === executionTransition.turnId)
+          const currentConversation = queryClient.getQueryData<Conversation>([
+            "conversation",
+            conversationId,
+          ])
+          const transitionedConversation = currentConversation
+            ? applyConversationExecutionTransition(
+                currentConversation,
+                executionTransition
+              )
+            : undefined
+          const matchesCurrentTurn =
+            matchesPendingExecution &&
+            (!terminal ||
+              !currentConversation?.running_turn?.id ||
+              transitionedConversation !== currentConversation)
+          if (matchesCurrentTurn) {
+            if (transitionedConversation) {
+              queryClient.setQueryData<Conversation>(
+                ["conversation", conversationId],
+                transitionedConversation
+              )
+            }
+            queryClient.setQueryData<
+              InfiniteData<Paginated<Conversation>, string | undefined>
+            >(["conversations", "sidebar"], (current) =>
+              patchSidebarConversationExecutionStatus(
+                current,
+                conversationId,
+                executionTransition.status
+              )
+            )
+          }
+          if (terminal && matchesCurrentTurn) {
+            clearPendingConversationExecution(queryClient, conversationId)
+            setPendingTurnSubmission((current) =>
+              current?.conversationId === conversationId &&
+              (!event.turn_id ||
+                !current.turnId ||
+                current.turnId === event.turn_id)
+                ? null
+                : current
+            )
+            setPendingCompaction((current) =>
+              current?.conversationId === conversationId &&
+              (!event.turn_id || current.turnId === event.turn_id)
+                ? null
+                : current
+            )
+          }
+        }
+
         const native = getNativeCodexPayload(event)
         if (native) {
           if (isNativeStreamDisconnectRetry(event)) {
@@ -1520,9 +1638,13 @@ export function ConversationPage({
           const refreshScope = getConversationEventQueryRefreshScope(event, {
             projectedTurnId,
           })
+          const reconciliationScope =
+            executionTransition && refreshScope === "detail-and-list"
+              ? "detail"
+              : refreshScope
           if (
             native.method === "thread/name/updated" ||
-            (native.method === "turn/started" && refreshScope === "none")
+            (native.method === "turn/started" && reconciliationScope === "none")
           ) {
             return
           }
@@ -1648,7 +1770,7 @@ export function ConversationPage({
               removeStreamingReasoningSummariesForTurn(current, event.turn_id)
             )
           }
-          scheduleConversationRefresh(refreshScope)
+          scheduleConversationRefresh(reconciliationScope)
           return
         }
 
@@ -1803,8 +1925,11 @@ export function ConversationPage({
           if (event.type !== "conversation.status.changed")
             setLiveActivities([])
         }
+        const refreshScope = getConversationQueryRefreshScope(event.type)
         scheduleConversationRefresh(
-          getConversationQueryRefreshScope(event.type)
+          executionTransition && refreshScope === "detail-and-list"
+            ? "detail"
+            : refreshScope
         )
       },
       [
@@ -1903,7 +2028,7 @@ export function ConversationPage({
   }, [conversation?.id, persistedGoalRevision])
 
   useEffect(() => {
-    const pending = pendingTurnSubmission
+    const pending = currentPendingTurnSubmission
     const projectedTurn = conversation?.turns?.find(
       (turn) => turn.id === pending?.turnId
     )
@@ -1924,6 +2049,10 @@ export function ConversationPage({
       return
     }
     const timer = window.setTimeout(() => {
+      clearPendingConversationTurnSubmission(
+        queryClient,
+        pending.conversationId
+      )
       setPendingTurnSubmission((current) =>
         current?.conversationId === pending.conversationId &&
         current.turnId === pending.turnId
@@ -1937,7 +2066,8 @@ export function ConversationPage({
     conversation?.messages,
     conversation?.running_turn?.id,
     conversation?.turns,
-    pendingTurnSubmission,
+    currentPendingTurnSubmission,
+    queryClient,
   ])
 
   useEffect(() => {
@@ -2033,6 +2163,16 @@ export function ConversationPage({
           ...createdConversation,
           execution_status: "running",
         }
+        movePendingConversationExecution(
+          queryClient,
+          newConversationPlaceholderId,
+          createdConversation.id
+        )
+        movePendingConversationTurnSubmission(
+          queryClient,
+          newConversationPlaceholderId,
+          createdConversation.id
+        )
         queryClient.setQueryData<
           InfiniteData<Paginated<Conversation>, string | undefined>
         >(["conversations", "sidebar"], (cached) =>
@@ -2285,13 +2425,44 @@ export function ConversationPage({
 
   const sendMutation = useMutation({
     onMutate: async (submission): Promise<OptimisticTurnStart> => {
+      // A sidebar refetch may have started before this submission. Cancel it
+      // before applying the optimistic status so its older snapshot cannot
+      // replace this task -- or the other running task rows -- when it settles.
+      const sidebarCancellation = queryClient.cancelQueries(
+        { queryKey: ["conversations", "sidebar"], exact: true },
+        { silent: true, revert: false }
+      )
       const sidebarExecutionStatus =
         optimisticallyMarkSidebarConversationRunning()
+      const pendingExecutionConversationId =
+        sidebarExecutionStatus?.conversationId ??
+        (isNew ? newConversationPlaceholderId : conversationId)
+      if (pendingExecutionConversationId) {
+        markConversationExecutionPending(
+          queryClient,
+          pendingExecutionConversationId
+        )
+      }
+      await sidebarCancellation
       try {
         const attachmentConsumption =
           await optimisticallyConsumeSubmissionAttachments(submission)
-        return { attachmentConsumption, sidebarExecutionStatus }
+        return {
+          attachmentConsumption,
+          sidebarExecutionStatus,
+          pendingExecutionConversationId,
+        }
       } catch (error) {
+        if (pendingExecutionConversationId) {
+          clearPendingConversationExecution(
+            queryClient,
+            pendingExecutionConversationId
+          )
+          clearPendingConversationTurnSubmission(
+            queryClient,
+            pendingExecutionConversationId
+          )
+        }
         restoreOptimisticSidebarExecutionStatus(sidebarExecutionStatus)
         throw error
       }
@@ -2380,6 +2551,12 @@ export function ConversationPage({
           },
         }
       })
+      updatePendingConversationTurnSubmission(queryClient, id, (current) => ({
+        ...current,
+        conversationId: id,
+        optimisticId: submission.optimisticId,
+        idempotencyKey,
+      }))
       const receipt = await apiRequest(`/conversations/${id}/turns`, {
         method: "POST",
         body: {
@@ -2403,6 +2580,13 @@ export function ConversationPage({
             }
           : current
       )
+      updatePendingConversationTurnSubmission(queryClient, id, (current) => ({
+        ...current,
+        turnId: receipt.turn_id,
+        status: receipt.status,
+        message: { ...current.message, turn_id: receipt.turn_id },
+      }))
+      bindPendingConversationTurn(queryClient, id, receipt.turn_id)
       return { id, idempotencyKey }
     },
     onSuccess: (result, _submission, optimisticTurnStart) => {
@@ -2453,6 +2637,27 @@ export function ConversationPage({
         optimisticTurnStart?.sidebarExecutionStatus,
         targetConversationId
       )
+      if (targetConversationId) {
+        clearPendingConversationExecution(queryClient, targetConversationId)
+        clearPendingConversationTurnSubmission(
+          queryClient,
+          targetConversationId
+        )
+      }
+      if (
+        optimisticTurnStart?.pendingExecutionConversationId &&
+        optimisticTurnStart.pendingExecutionConversationId !==
+          targetConversationId
+      ) {
+        clearPendingConversationExecution(
+          queryClient,
+          optimisticTurnStart.pendingExecutionConversationId
+        )
+        clearPendingConversationTurnSubmission(
+          queryClient,
+          optimisticTurnStart.pendingExecutionConversationId
+        )
+      }
       if (routeConversationIdRef.current !== targetConversationId) {
         setPendingFirstMessageConversationId((current) =>
           current === targetConversationId ? null : current
@@ -3321,6 +3526,7 @@ export function ConversationPage({
         await refreshAfterMutation(targetConversationId)
       } finally {
         dispatchedInterruptTurnIdsRef.current.delete(turnId)
+        clearPendingConversationExecution(queryClient, targetConversationId)
         setPendingTurnSubmission((current) =>
           current?.turnId === turnId && current.interruptRequested
             ? null
@@ -3328,8 +3534,9 @@ export function ConversationPage({
         )
       }
     },
-    onError: (nextError, { turnId }) => {
+    onError: (nextError, { targetConversationId, turnId }) => {
       dispatchedInterruptTurnIdsRef.current.delete(turnId)
+      clearPendingConversationExecution(queryClient, targetConversationId)
       setInterrupting(false)
       setError(getErrorMessage(nextError, t))
     },
@@ -3851,6 +4058,8 @@ export function ConversationPage({
     }
     if (!turnExecutionActive) {
       const optimisticId = crypto.randomUUID()
+      const optimisticConversationId =
+        conversationId ?? newConversationPlaceholderId
       const selectedCapabilities = new Map(
         (
           capabilityQuery.data?.items ??
@@ -3858,8 +4067,8 @@ export function ConversationPage({
           []
         ).map((capability) => [capability.id, capability])
       )
-      setPendingTurnSubmission({
-        conversationId: conversationId ?? newConversationPlaceholderId,
+      const optimisticSubmission: PendingTurnSubmission = {
+        conversationId: optimisticConversationId,
         optimisticId,
         idempotencyKey: optimisticId,
         message: {
@@ -3885,7 +4094,13 @@ export function ConversationPage({
           ),
           selected_knowledge_base_ids: submission.knowledgeBaseIds,
         },
-      })
+      }
+      setPendingTurnSubmission(optimisticSubmission)
+      setPendingConversationTurnSubmission(
+        queryClient,
+        optimisticConversationId,
+        optimisticSubmission
+      )
       scrollToBottom("auto")
       composerSubmissionInFlightRef.current = true
       setValue("")
@@ -4296,9 +4511,7 @@ export function ConversationPage({
     setRenameValue(displayConversation.title || t("conversation.untitled"))
     setRenameOpen(true)
   }
-  const activePendingTurnSubmission = pendingSubmissionBelongsToConversation
-    ? pendingTurnSubmission
-    : null
+  const activePendingTurnSubmission = currentPendingTurnSubmission
   const hasCurrentLiveState = liveStateBelongsToConversation
   const optimisticallyReplacedTurnId =
     activePendingTurnSubmission?.replacesTurnId

@@ -94,8 +94,21 @@ import { SystemUpdateNotice } from "@/features/admin/system-update"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import {
   applySidebarConversationOrder,
+  patchSidebarConversationExecutionStatus,
   sortSidebarConversations,
 } from "@/features/conversations/conversation-order"
+import {
+  applyConversationExecutionTransition,
+  getConversationExecutionTransition,
+  isTerminalConversationExecutionStatus,
+} from "@/features/conversations/conversation-execution-lifecycle"
+import { conversationDetailQueryOptions } from "@/features/conversations/conversation-detail-query"
+import {
+  bindPendingConversationTurn,
+  clearPendingConversationExecution,
+  getPendingConversationExecution,
+  usePendingConversationExecution,
+} from "@/features/conversations/conversation-pending-execution"
 import {
   conversationPath,
   isConversationPathActive,
@@ -106,6 +119,7 @@ import {
   useNativeReconnectStoreRevision,
 } from "@/features/conversations/native-reconnect-simulation"
 import { SortableConversationGroup } from "@/features/conversations/sortable-conversation-group"
+import { useConversationEvents } from "@/features/conversations/use-conversation-events"
 import { formatRelativeDate } from "@/i18n/date"
 import { normalizeLanguage } from "@/i18n"
 import { cn } from "@/lib/utils"
@@ -150,15 +164,160 @@ const userItems: NavItem[] = [
   },
 ]
 
-const backgroundConversationListRefetchIntervalMs = 1_500
 const automationNotificationRefetchIntervalMs = 10_000
+
+function BackgroundConversationExecutionEvents({
+  conversationId,
+}: {
+  conversationId: string
+}) {
+  const queryClient = useQueryClient()
+  const [observationReady, setObservationReady] = useState(false)
+  useEffect(() => {
+    // New-task promotion updates the optimistic sidebar row immediately before
+    // navigation. Waiting one task prevents that row from being mistaken for a
+    // background task during the brief route transition.
+    const timer = window.setTimeout(() => setObservationReady(true), 0)
+    return () => window.clearTimeout(timer)
+  }, [])
+  const conversationQuery = useQuery({
+    ...conversationDetailQueryOptions(conversationId),
+    enabled: observationReady,
+  })
+  const conversation =
+    conversationQuery.isSuccess && conversationQuery.isFetchedAfterMount
+      ? conversationQuery.data
+      : undefined
+  const pendingExecution = usePendingConversationExecution(conversationId)
+
+  useEffect(() => {
+    const status = conversation?.execution_status
+    if (!status || status === "running") return
+    if (pendingExecution) {
+      const pendingTurn = pendingExecution.turnId
+        ? conversation.turns?.find(
+            (turn) => turn.id === pendingExecution.turnId
+          )
+        : undefined
+      if (!pendingTurn || pendingTurn.status === "running") return
+      clearPendingConversationExecution(queryClient, conversationId)
+    }
+    queryClient.setQueryData<
+      InfiniteData<Paginated<Conversation>, string | undefined>
+    >(["conversations", "sidebar"], (current) =>
+      patchSidebarConversationExecutionStatus(
+        current,
+        conversationId,
+        status,
+        isTerminalConversationExecutionStatus(status)
+          ? { hasUnreadCompletion: true }
+          : undefined
+      )
+    )
+  }, [
+    conversation?.execution_status,
+    conversation?.turns,
+    conversationId,
+    pendingExecution,
+    queryClient,
+  ])
+
+  useConversationEvents(
+    conversation &&
+      (conversation.execution_status === "running" || pendingExecution)
+      ? conversationId
+      : undefined,
+    useCallback(
+      (event) => {
+        const transition = getConversationExecutionTransition(event)
+        if (!transition) return
+        const terminal = isTerminalConversationExecutionStatus(
+          transition.status
+        )
+        if (
+          transition.status === "running" &&
+          transition.turnId &&
+          getPendingConversationExecution(queryClient, conversationId)
+        ) {
+          bindPendingConversationTurn(
+            queryClient,
+            conversationId,
+            transition.turnId
+          )
+        }
+        const currentPendingExecution = getPendingConversationExecution(
+          queryClient,
+          conversationId
+        )
+        if (
+          terminal &&
+          currentPendingExecution &&
+          (!currentPendingExecution.turnId ||
+            currentPendingExecution.turnId !== transition.turnId)
+        ) {
+          // A terminal event can beat the turn-start HTTP receipt across two
+          // connections. Reconcile detail once; it is grounded by that event
+          // on the API and will be matched after the receipt binds the turn.
+          if (!currentPendingExecution.turnId) {
+            void queryClient.invalidateQueries({
+              queryKey: ["conversation", conversationId],
+              exact: true,
+            })
+          }
+          return
+        }
+        const currentConversation = queryClient.getQueryData<Conversation>([
+          "conversation",
+          conversationId,
+        ])
+        if (!currentConversation) return
+        const transitionedConversation = applyConversationExecutionTransition(
+          currentConversation,
+          transition
+        )
+        // The detail boundary identifies the exact running turn. A replayed
+        // terminal event for an older turn must not stop the current task.
+        if (terminal && transitionedConversation === currentConversation) return
+        queryClient.setQueryData<Conversation>(
+          ["conversation", conversationId],
+          transitionedConversation
+        )
+        queryClient.setQueryData<
+          InfiniteData<Paginated<Conversation>, string | undefined>
+        >(["conversations", "sidebar"], (current) =>
+          patchSidebarConversationExecutionStatus(
+            current,
+            conversationId,
+            transition.status,
+            terminal ? { hasUnreadCompletion: true } : undefined
+          )
+        )
+        if (terminal) {
+          clearPendingConversationExecution(queryClient, conversationId)
+          // Keep any inactive detail snapshot stale so opening the completed
+          // task fetches its persisted final content, without polling it now.
+          void queryClient.invalidateQueries({
+            queryKey: ["conversation", conversationId],
+            exact: true,
+            refetchType: "none",
+          })
+        }
+      },
+      [conversationId, queryClient]
+    ),
+    conversation?.last_event_id
+  )
+  return null
+}
 
 function AppSidebarContent({
   onNavigate,
   onCollapse,
+  observeBackgroundExecutions = false,
 }: {
   onNavigate?: () => void
   onCollapse?: () => void
+  observeBackgroundExecutions?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const productName = useProductName()
@@ -202,19 +361,6 @@ function AppSidebarContent({
         ? nextCursor
         : undefined
     },
-    refetchInterval: (query) => {
-      const hasBackgroundRunningConversation = query.state.data?.pages.some(
-        (page) =>
-          page.items.some(
-            (conversation) =>
-              conversation.execution_status === "running" &&
-              !isConversationPathActive(location.pathname, conversation)
-          )
-      )
-      return hasBackgroundRunningConversation
-        ? backgroundConversationListRefetchIntervalMs
-        : false
-    },
   })
   const automationNotificationsQuery = useQuery({
     queryKey: automationNotificationQueryKey,
@@ -235,6 +381,17 @@ function AppSidebarContent({
   const conversations = useMemo(
     () => conversationsData?.pages.flatMap((page) => page.items) ?? [],
     [conversationsData]
+  )
+  const backgroundRunningConversationIds = useMemo(
+    () =>
+      conversations
+        .filter(
+          (conversation) =>
+            conversation.execution_status === "running" &&
+            !isConversationPathActive(location.pathname, conversation)
+        )
+        .map((conversation) => conversation.id),
+    [conversations, location.pathname]
   )
   const pinnedConversations = useMemo(
     () =>
@@ -527,6 +684,13 @@ function AppSidebarContent({
 
   return (
     <>
+      {observeBackgroundExecutions &&
+        backgroundRunningConversationIds.map((conversationId) => (
+          <BackgroundConversationExecutionEvents
+            key={conversationId}
+            conversationId={conversationId}
+          />
+        ))}
       <div className="flex h-full min-h-0 flex-col overflow-hidden px-3 pt-3 pb-2">
         <div className="flex h-11 shrink-0 items-center justify-between gap-2 px-2">
           <ProductLogo
@@ -1077,7 +1241,10 @@ export function AppShell() {
         aria-hidden={sidebarCollapsed ? "true" : undefined}
         inert={sidebarCollapsed}
       >
-        <AppSidebarContent onCollapse={() => setSidebarCollapsed(true)} />
+        <AppSidebarContent
+          observeBackgroundExecutions
+          onCollapse={() => setSidebarCollapsed(true)}
+        />
       </aside>
       {!sidebarCollapsed && (
         <SidebarResizer
