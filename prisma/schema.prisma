@@ -747,21 +747,6 @@ model ConversationGoal {
   @@map("conversation_goals")
 }
 
-model ConversationDraft {
-  id                        String   @id @default(uuid()) @db.Uuid
-  conversationId            String   @unique(map: "conversation_drafts_conversation_id_key") @map("conversation_id") @db.Uuid
-  ownerId                   String   @map("owner_id") @db.Uuid
-  inputText                 String   @map("input_text") @db.Text
-  priorityCapabilityIdsJson Json     @default("[]") @map("priority_capability_ids_json") @db.JsonB
-  knowledgeBaseIdsJson      Json     @default("[]") @map("knowledge_base_ids_json") @db.JsonB
-  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                 DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  @@index([ownerId], map: "conversation_drafts_owner_id_idx")
-  @@index([updatedAt], map: "conversation_drafts_updated_at_idx")
-  @@map("conversation_drafts")
-}
-
 model PendingRequest {
   id                        String    @id @default(uuid()) @db.Uuid
   conversationId            String    @map("conversation_id") @db.Uuid
@@ -876,7 +861,7 @@ model ConversationTurnStartIntent {
   messageDisplayJson             Json?     @map("message_display_json") @db.JsonB
   submitMode                     String    @map("submit_mode") @db.VarChar(32)
   idempotencyKey                 String?   @map("idempotency_key") @db.VarChar(120)
-  preservesDraft                 Boolean   @default(false) @map("preserves_draft")
+  preservesStagedAttachments     Boolean   @default(false) @map("preserves_staged_attachments")
   pendingRequestId               String?   @map("pending_request_id") @db.Uuid
   planReviewId                   String?   @unique(map: "conversation_turn_start_intents_plan_review_key") @map("plan_review_id") @db.Uuid
   planReviewAction               String?   @map("plan_review_action") @db.VarChar(24)
@@ -1192,7 +1177,6 @@ model BillingStatementLine {
 model ConversationFile {
   id                    String   @id @default(uuid()) @db.Uuid
   conversationId        String   @map("conversation_id") @db.Uuid
-  draftId               String?  @map("draft_id") @db.Uuid
   pendingRequestId      String?  @map("pending_request_id") @db.Uuid
   turnId                String?  @map("turn_id") @db.Uuid
   kind                  String   @db.VarChar(32)
@@ -1212,7 +1196,6 @@ model ConversationFile {
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([conversationId, kind, createdAt], map: "conversation_files_conversation_kind_created_idx")
-  @@index([draftId], map: "conversation_files_draft_id_idx")
   @@index([pendingRequestId], map: "conversation_files_pending_request_id_idx")
   @@index([turnId], map: "conversation_files_turn_id_idx")
   @@index([minioObjectKey], map: "conversation_files_minio_object_key_idx")

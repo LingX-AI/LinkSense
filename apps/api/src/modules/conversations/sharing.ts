@@ -36,7 +36,6 @@ const sharedConversationFileSchema = z
   .object({
     id: z.string().uuid(),
     conversation_id: z.string().uuid().optional(),
-    draft_id: z.string().uuid().nullable().optional(),
     pending_request_id: z.string().uuid().nullable().optional(),
     turn_id: z.string().uuid().nullable().optional(),
     kind: z.enum(["attachment", "artifact"]),

@@ -95,7 +95,7 @@ describe("WeixinRuntime", () => {
         ConversationService,
         | "acceptTurn"
         | "createApplicationConversation"
-        | "createOrUpdateDraft"
+        | "create"
       >,
       encryption,
       () => NOW,
@@ -194,7 +194,7 @@ describe("WeixinRuntime", () => {
         ConversationService,
         | "acceptTurn"
         | "createApplicationConversation"
-        | "createOrUpdateDraft"
+        | "create"
       >,
       encryption,
       () => NOW,
@@ -258,7 +258,7 @@ describe("WeixinRuntime", () => {
       releaseLease: vi.fn(async () => undefined),
     };
     const conversations = {
-      createOrUpdateDraft: vi.fn(),
+      create: vi.fn(),
       createApplicationConversation: vi.fn(),
       acceptTurn: vi.fn(),
     };
@@ -270,7 +270,7 @@ describe("WeixinRuntime", () => {
         ConversationService,
         | "acceptTurn"
         | "createApplicationConversation"
-        | "createOrUpdateDraft"
+        | "create"
       >,
       encryption,
       () => NOW,
@@ -284,7 +284,7 @@ describe("WeixinRuntime", () => {
       CONVERSATION_ID,
       `weixin-inbound:${MESSAGE_ID}`,
     );
-    expect(conversations.createOrUpdateDraft).not.toHaveBeenCalled();
+    expect(conversations.create).not.toHaveBeenCalled();
     expect(conversations.createApplicationConversation).not.toHaveBeenCalled();
     expect(conversations.acceptTurn).not.toHaveBeenCalled();
     expect(markInboundAccepted).toHaveBeenCalledWith(
@@ -399,10 +399,7 @@ describe("WeixinRuntime", () => {
       releaseLease: vi.fn(async () => undefined),
     };
     const conversations = {
-      createOrUpdateDraft: vi.fn(async () => ({
-        conversation: { id: CONVERSATION_ID },
-        draft: {},
-      })),
+      create: vi.fn(async () => ({ id: CONVERSATION_ID })),
       createApplicationConversation: vi.fn(),
       acceptTurn: vi.fn(async () => ({
         turn_id: TURN_ID,
@@ -428,7 +425,7 @@ describe("WeixinRuntime", () => {
         ConversationService,
         | "acceptTurn"
         | "createApplicationConversation"
-        | "createOrUpdateDraft"
+        | "create"
       >,
       encryption,
       () => NOW,
@@ -439,10 +436,8 @@ describe("WeixinRuntime", () => {
     await vi.waitFor(() => expect(markInboundAccepted).toHaveBeenCalledTimes(1));
     await runtime.close();
 
-    expect(conversations.createOrUpdateDraft).toHaveBeenCalledWith(OWNER_ID, {
-      inputText: "",
-      priorityCapabilityIds: [],
-      knowledgeBaseIds: [],
+    expect(conversations.create).toHaveBeenCalledWith(OWNER_ID, {
+      collaborationMode: "default",
     });
     expect(conversations.createApplicationConversation).not.toHaveBeenCalled();
     expect(repository.conversationIsAvailable).toHaveBeenCalledWith(
@@ -459,7 +454,7 @@ describe("WeixinRuntime", () => {
       expect.objectContaining({
         inputText: "请总结今天的任务",
         idempotencyKey: `weixin-inbound:${MESSAGE_ID}`,
-        draftPolicy: "preserve",
+        preserveStagedAttachments: true,
       }),
       expect.objectContaining({ userAgent: "LinkSense Weixin" }),
     );
@@ -543,7 +538,7 @@ describe("WeixinRuntime", () => {
         ConversationService,
         | "acceptTurn"
         | "createApplicationConversation"
-        | "createOrUpdateDraft"
+        | "create"
       >,
       encryption,
       () => NOW,
@@ -641,7 +636,7 @@ describe("WeixinRuntime", () => {
         ConversationService,
         | "acceptTurn"
         | "createApplicationConversation"
-        | "createOrUpdateDraft"
+        | "create"
       >,
       encryption,
       () => NOW,
@@ -750,7 +745,7 @@ describe("WeixinRuntime", () => {
         ConversationService,
         | "acceptTurn"
         | "createApplicationConversation"
-        | "createOrUpdateDraft"
+        | "create"
       >,
       encryption,
       () => NOW,
@@ -855,7 +850,7 @@ describe("WeixinRuntime", () => {
         ConversationService,
         | "acceptTurn"
         | "createApplicationConversation"
-        | "createOrUpdateDraft"
+        | "create"
       >,
       encryption,
       () => NOW,
@@ -913,7 +908,7 @@ describe("WeixinRuntime", () => {
         ConversationService,
         | "acceptTurn"
         | "createApplicationConversation"
-        | "createOrUpdateDraft"
+        | "create"
       >,
       encryption,
       () => NOW,

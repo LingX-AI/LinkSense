@@ -1559,15 +1559,6 @@ export const errorCatalog = {
         "The plugin execution environment is unsafe or unsupported. Check its MCP configuration.",
     },
   },
-  CONVERSATION_OVERLOADED_DRAFT_SAVED: {
-    message_key: "errors.conversation.overloadedDraftSaved",
-    http_status: 429,
-    messages: {
-      "zh-CN": "当前系统使用人数过载，草稿已保存，请稍后重试。",
-      "en-US":
-        "The system is currently at capacity. Your draft has been saved; try again later.",
-    },
-  },
   CONVERSATION_OVERLOADED: {
     message_key: "errors.conversation.overloaded",
     http_status: 429,
@@ -1585,14 +1576,6 @@ export const errorCatalog = {
         "Your available token quota is exhausted and you cannot start a new task right now.",
     },
   },
-  DRAFT_VERSION_CONFLICT: {
-    message_key: "errors.conversation.draftVersionConflict",
-    http_status: 409,
-    messages: {
-      "zh-CN": "草稿已在其他位置更新，请刷新后重试。",
-      "en-US": "The draft was updated elsewhere. Refresh and try again.",
-    },
-  },
   PENDING_REQUEST_LIMIT_REACHED: {
     message_key: "errors.conversation.pendingRequestLimitReached",
     http_status: 409,
@@ -1608,15 +1591,6 @@ export const errorCatalog = {
     messages: {
       "zh-CN": "只能继续执行队首请求。",
       "en-US": "Only the first pending request can be continued.",
-    },
-  },
-  PENDING_REQUEST_RESTORE_DRAFT_NOT_EMPTY: {
-    message_key: "errors.conversation.pendingRequestRestoreDraftNotEmpty",
-    http_status: 409,
-    messages: {
-      "zh-CN": "输入框中已有未发送内容，请先处理后再编辑后续请求。",
-      "en-US":
-        "The composer already has unsent content. Handle it before editing the pending request.",
     },
   },
   TURN_INTERRUPT_REQUESTED: {
@@ -1801,7 +1775,7 @@ export const errorCodeSchema = z.enum(
 export const legacyErrorCodeAliases = {
   ADMIN_SELF_PRIVILEGE_CHANGE_FORBIDDEN:
     "ADMIN_SELF_ROLE_OR_STATUS_CHANGE_FORBIDDEN",
-  SYSTEM_CONCURRENCY_LIMIT_REACHED: "CONVERSATION_OVERLOADED_DRAFT_SAVED",
+  SYSTEM_CONCURRENCY_LIMIT_REACHED: "CONVERSATION_OVERLOADED",
   SYSTEM_SETTINGS_INVALID: "PRODUCT_SETTING_UNKNOWN",
 } as const satisfies Record<string, ErrorCode>;
 

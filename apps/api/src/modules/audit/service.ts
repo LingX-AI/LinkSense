@@ -107,7 +107,7 @@ const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
     "retained_artifact_ids",
     "total_size_bytes",
   ],
-  conversation_draft_attachment_removed: ["conversation_id", "file_id"],
+  conversation_staged_attachment_removed: ["conversation_id", "file_id"],
   conversation_pending_request_cancelled: ["conversation_id"],
   conversation_pending_request_cancelled_user_disabled: [
     "conversation_id",
@@ -119,11 +119,6 @@ const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
     "pending_request_ids",
   ],
   conversation_pending_request_steered: ["conversation_id", "turn_id"],
-  conversation_run_rejected_overload_draft_saved: [
-    "conversation_id",
-    "current_running_count",
-    "max_concurrent_conversations",
-  ],
   conversation_turn_completed: ["conversation_id"],
   conversation_turn_failed: ["conversation_id"],
   conversation_turn_interrupted: ["conversation_id"],

@@ -95,7 +95,7 @@ export const fileRoutes: FastifyPluginAsync<{ services: AppServices }> = async (
       const user = (request as AuthenticatedRequest).authUser;
       const { id } = conversationParams.parse(request.params);
       const { file_ids: fileIds } = attachmentDeleteBody.parse(request.body);
-      await services.files.deleteDraftAttachments(
+      await services.files.deleteStagedAttachments(
         user.id,
         id,
         fileIds,
@@ -111,7 +111,7 @@ export const fileRoutes: FastifyPluginAsync<{ services: AppServices }> = async (
     async (request, reply) => {
       const user = (request as AuthenticatedRequest).authUser;
       const { id, fileId } = fileParams.parse(request.params);
-      await services.files.deleteDraftAttachment(
+      await services.files.deleteStagedAttachment(
         user.id,
         id,
         fileId,

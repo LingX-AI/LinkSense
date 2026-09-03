@@ -398,7 +398,7 @@ window.__vite_plugin_react_preamble_installed__ = true
         knowledgeBaseIds: [],
         collaborationMode: "default",
         submitMode: "normal",
-        draftPolicy: "preserve",
+        preserveStagedAttachments: true,
         ...(body.idempotency_key
           ? { idempotencyKey: body.idempotency_key }
           : {}),
@@ -758,7 +758,7 @@ window.__vite_plugin_react_preamble_installed__ = true
   app.delete("/session/attachments/:fileId", async (request, reply) => {
     const { session } = await authenticateEmbedRequest(request, external);
     const { fileId } = fileParams.parse(request.params);
-    await services.files.deleteDraftAttachment(
+    await services.files.deleteStagedAttachment(
       session.ownerId,
       session.conversationId,
       fileId,
@@ -770,7 +770,7 @@ window.__vite_plugin_react_preamble_installed__ = true
   app.delete("/session/attachments", async (request, reply) => {
     const { session } = await authenticateEmbedRequest(request, external);
     const { file_ids: fileIds } = attachmentDeleteBody.parse(request.body);
-    await services.files.deleteDraftAttachments(
+    await services.files.deleteStagedAttachments(
       session.ownerId,
       session.conversationId,
       fileIds,

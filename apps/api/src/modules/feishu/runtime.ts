@@ -32,7 +32,7 @@ const HEARTBEAT_WRITE_INTERVAL_MS = 30_000;
 
 type RuntimeConversations = Pick<
   ConversationService,
-  "acceptTurn" | "createOrUpdateDraft"
+  "acceptTurn" | "create"
 >;
 
 type ActiveSession = {
@@ -430,13 +430,9 @@ export class FeishuRuntime {
       peer = null;
     }
     if (!peer) {
-      const conversation = (
-        await this.conversations.createOrUpdateDraft(ownerId, {
-          inputText: "",
-          priorityCapabilityIds: [],
-          knowledgeBaseIds: [],
-        })
-      ).conversation;
+      const conversation = await this.conversations.create(ownerId, {
+        collaborationMode: "default",
+      });
       peer = await this.repository.upsertPeerSession({
         id: this.createId(),
         connectionId: message.connectionId,
@@ -507,7 +503,7 @@ export class FeishuRuntime {
         knowledgeBaseIds: [],
         idempotencyKey,
         submitMode: "normal",
-        draftPolicy: "preserve",
+        preserveStagedAttachments: true,
       },
       { actorId: ownerId, userAgent: "LinkSense Feishu" },
     );

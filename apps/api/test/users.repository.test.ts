@@ -276,7 +276,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
     });
   });
 
-  it("disables a user atomically, invalidates auth, cancels pending requests, and restores their attachments to draft", async () => {
+  it("disables a user atomically, invalidates auth, cancels pending requests, and stages their attachments", async () => {
     const actor = persistedUser({
       id: ACTOR_ID,
       role: "admin",
@@ -315,15 +315,6 @@ describe("PrismaUserRepository administrator lifecycle", () => {
       { id: conversationId },
     ]);
     transaction.pendingRequest.findMany.mockResolvedValueOnce(pending);
-    transaction.conversationDraft.upsert.mockResolvedValueOnce({
-      id: "00000000-0000-4000-8000-000000000030",
-      conversationId,
-      ownerId: target.id,
-      inputText: "",
-      priorityCapabilityIdsJson: [],
-      createdAt: NOW,
-      updatedAt: NOW,
-    });
     const repository = new PrismaUserRepository(
       prismaWithTransaction(transaction),
     );
@@ -359,8 +350,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
       },
       data: expect.objectContaining({
         pendingRequestId: null,
-        draftId: "00000000-0000-4000-8000-000000000030",
-        status: "draft",
+        status: "staged",
       }),
     });
     expect(transaction.pendingRequest.deleteMany).toHaveBeenCalledWith({
@@ -420,15 +410,6 @@ describe("PrismaUserRepository administrator lifecycle", () => {
       protectedPending,
       cancellablePending,
     ]);
-    transaction.conversationDraft.upsert.mockResolvedValueOnce({
-      id: "00000000-0000-4000-8000-000000000030",
-      conversationId,
-      ownerId: target.id,
-      inputText: "",
-      priorityCapabilityIdsJson: [],
-      createdAt: NOW,
-      updatedAt: NOW,
-    });
     const repository = new PrismaUserRepository(
       prismaWithTransaction(transaction),
     );
@@ -450,8 +431,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
       },
       data: expect.objectContaining({
         pendingRequestId: null,
-        draftId: "00000000-0000-4000-8000-000000000030",
-        status: "draft",
+        status: "staged",
       }),
     });
     expect(transaction.pendingRequest.deleteMany).toHaveBeenCalledWith({
@@ -822,7 +802,6 @@ function baseTransaction() {
         async (): Promise<Array<{ pendingRequestId: string | null }>> => [],
       ),
     },
-    conversationDraft: { upsert: vi.fn() },
     conversationFile: { updateMany: vi.fn(async () => ({ count: 0 })) },
     userGroupMember: {
       findMany: vi.fn(async (): Promise<Array<Record<string, unknown>>> => []),

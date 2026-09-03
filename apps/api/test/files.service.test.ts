@@ -436,10 +436,9 @@ describe("FileService workspace and MIME boundaries", () => {
     });
   });
 
-  it("creates a missing draft before uploading to a newly created conversation", async () => {
+  it("stages an upload directly on the task", async () => {
     const fixture = await fileFixture();
     const tx = attachmentUploadTransactionFixture();
-    tx.conversationDraft.findUnique.mockResolvedValueOnce(null);
     fixture.prisma.$transaction.mockImplementationOnce(
       async (operation: (transaction: typeof tx) => Promise<unknown>) =>
         operation(tx),
@@ -458,18 +457,10 @@ describe("FileService workspace and MIME boundaries", () => {
       ),
     ).resolves.toMatchObject({ filename: "new-task.txt" });
 
-    expect(tx.conversationDraft.create).toHaveBeenCalledWith({
-      data: {
-        conversationId: CONVERSATION_ID,
-        ownerId: OWNER_ID,
-        inputText: "",
-        priorityCapabilityIdsJson: [],
-        knowledgeBaseIdsJson: [],
-      },
-    });
     expect(tx.conversationFile.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        draftId: "40000000-0000-4000-8000-000000000002",
+        conversationId: CONVERSATION_ID,
+        status: "staged",
       }),
     });
   });
@@ -909,7 +900,7 @@ describe("FileService workspace and MIME boundaries", () => {
       id: FILE_ID,
       conversationId: CONVERSATION_ID,
       kind: "attachment",
-      status: "draft",
+      status: "staged",
       workspaceRelativePath: relativePath,
     });
     fixture.prisma.$transaction.mockResolvedValueOnce({
@@ -917,7 +908,7 @@ describe("FileService workspace and MIME boundaries", () => {
         id: FILE_ID,
         conversationId: CONVERSATION_ID,
         kind: "attachment",
-        status: "draft",
+        status: "staged",
         workspaceRelativePath: relativePath,
       }],
       events: [fileEvent()],
@@ -925,7 +916,7 @@ describe("FileService workspace and MIME boundaries", () => {
     fixture.removeDirectory.mockRejectedValueOnce(new Error("filesystem busy"));
 
     await expect(
-      fixture.service.deleteDraftAttachment(
+      fixture.service.deleteStagedAttachment(
         OWNER_ID,
         CONVERSATION_ID,
         FILE_ID,
@@ -966,7 +957,7 @@ describe("FileService workspace and MIME boundaries", () => {
     );
 
     await expect(
-      fixture.service.deleteDraftAttachment(
+      fixture.service.deleteStagedAttachment(
         OWNER_ID,
         CONVERSATION_ID,
         FILE_ID,
@@ -995,14 +986,14 @@ describe("FileService workspace and MIME boundaries", () => {
         id: FILE_ID,
         conversationId: CONVERSATION_ID,
         kind: "attachment",
-        status: "draft",
+        status: "staged",
         workspaceRelativePath: null,
       },
       {
         id: secondFileId,
         conversationId: CONVERSATION_ID,
         kind: "attachment",
-        status: "draft",
+        status: "staged",
         workspaceRelativePath: null,
       },
     ];
@@ -1041,7 +1032,7 @@ describe("FileService workspace and MIME boundaries", () => {
     );
 
     await expect(
-      fixture.service.deleteDraftAttachments(
+      fixture.service.deleteStagedAttachments(
         OWNER_ID,
         CONVERSATION_ID,
         [FILE_ID, secondFileId, FILE_ID],
@@ -1070,7 +1061,7 @@ describe("FileService workspace and MIME boundaries", () => {
       id: secondFileId,
       conversationId: CONVERSATION_ID,
       kind: "attachment",
-      status: "draft",
+      status: "staged",
       workspaceRelativePath: null,
     };
     const tx = {
@@ -1097,7 +1088,7 @@ describe("FileService workspace and MIME boundaries", () => {
         operation(tx),
     );
 
-    await fixture.service.deleteDraftAttachments(
+    await fixture.service.deleteStagedAttachments(
       OWNER_ID,
       CONVERSATION_ID,
       [FILE_ID, secondFileId],
@@ -1109,7 +1100,7 @@ describe("FileService workspace and MIME boundaries", () => {
         id: { in: [secondFileId] },
         conversationId: CONVERSATION_ID,
         kind: "attachment",
-        status: "draft",
+        status: "staged",
       },
       orderBy: { id: "asc" },
     });
@@ -1133,7 +1124,7 @@ describe("FileService workspace and MIME boundaries", () => {
         events: [],
       });
 
-      const deletion = fixture.service.deleteDraftAttachment(
+      const deletion = fixture.service.deleteStagedAttachment(
         OWNER_ID,
         CONVERSATION_ID,
         FILE_ID,
@@ -1184,14 +1175,14 @@ describe("FileService workspace and MIME boundaries", () => {
         })
         .mockResolvedValueOnce({ files: [], events: [] });
 
-      const firstDeletion = fixture.service.deleteDraftAttachment(
+      const firstDeletion = fixture.service.deleteStagedAttachment(
         OWNER_ID,
         CONVERSATION_ID,
         FILE_ID,
         {},
       );
       await firstTransactionStarted;
-      const secondDeletion = fixture.service.deleteDraftAttachment(
+      const secondDeletion = fixture.service.deleteStagedAttachment(
         OWNER_ID,
         CONVERSATION_ID,
         "30000000-0000-4000-8000-000000000002",
@@ -1246,7 +1237,7 @@ describe("FileService workspace and MIME boundaries", () => {
 });
 
 describe("FileService attachment previews", () => {
-  it("returns original verified draft image bytes without acquiring a conversation write lock", async () => {
+  it("returns original verified staged image bytes without acquiring a conversation write lock", async () => {
     const fixture = await fileFixture();
     await stageAttachmentImage(fixture);
 
@@ -1273,7 +1264,7 @@ describe("FileService attachment previews", () => {
         id: FILE_ID,
         conversationId: CONVERSATION_ID,
         kind: "attachment",
-        status: { in: ["draft", "bound"] },
+        status: { in: ["staged", "bound"] },
         storageBackend: "workspace",
       },
       select: {
@@ -1354,7 +1345,7 @@ describe("FileService attachment previews", () => {
     });
   });
 
-  it("rejects attachment statuses outside draft and bound even if the repository boundary is bypassed", async () => {
+  it("rejects attachment statuses outside staged and bound even if the repository boundary is bypassed", async () => {
     const fixture = await fileFixture();
     await stageAttachmentImage(fixture, { status: "pending" });
 
@@ -2648,16 +2639,6 @@ function attachmentUploadTransactionFixture() {
   return {
     $queryRaw: vi.fn(async () => [{ id: CONVERSATION_ID }]),
     $executeRaw: vi.fn(async () => 1),
-    conversationDraft: {
-      findUnique: vi.fn(
-        async (): Promise<{ id: string } | null> => ({
-          id: "40000000-0000-4000-8000-000000000002",
-        }),
-      ),
-      create: vi.fn(async () => ({
-        id: "40000000-0000-4000-8000-000000000002",
-      })),
-    },
     conversationFile: {
       create: vi.fn(async (input: { data: Record<string, unknown> }) => ({
         ...input.data,
@@ -2716,7 +2697,7 @@ function attachmentImageRow(overrides: Record<string, unknown> = {}) {
   return {
     filename: "preview.png",
     mimeType: "image/png",
-    status: "draft",
+    status: "staged",
     sizeBytes: BigInt(PNG.byteLength),
     checksumSha256: checksum(PNG),
     workspaceRelativePath: "attachments/file-1/preview.png",

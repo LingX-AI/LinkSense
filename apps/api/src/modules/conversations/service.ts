@@ -264,7 +264,7 @@ type TurnSubmissionBase = {
   knowledgeBaseIds?: string[];
   idempotencyKey?: string;
   submitMode: "normal" | "next_turn" | "manual_retry";
-  draftPolicy?: "consume" | "preserve";
+  preserveStagedAttachments?: boolean;
   modelPreference?: {
     modelId: string;
     reasoningEffort: ReasoningEffort;
@@ -320,7 +320,7 @@ type PendingTurnSubmissionBase = {
   priorityCapabilityIds: string[];
   knowledgeBaseIds?: string[];
   idempotencyKey?: string;
-  draftPolicy?: "consume" | "preserve";
+  preserveStagedAttachments?: boolean;
   modelPreference?: {
     modelId: string;
     reasoningEffort: ReasoningEffort;
@@ -348,12 +348,11 @@ type PendingTurnSubmission = PendingTurnSubmissionBase &
 
 type PreparedTurnSubmission = Omit<
   TurnSubmissionBase,
-  "draftPolicy" | "knowledgeBaseIds"
+  "knowledgeBaseIds"
 > & {
   inputText: string;
   collaborationMode: ConversationCollaborationMode;
   knowledgeBaseIds: string[];
-  draftPolicy?: "consume" | "preserve";
   messageDisplay: UserMessageDisplay | null;
 };
 
@@ -557,7 +556,7 @@ const turnStartIntentSchema = z.strictObject({
   messageDisplayJson: userMessageDisplaySchema.nullable(),
   submitMode: z.enum(["normal", "next_turn", "manual_retry"]),
   idempotencyKey: z.string().min(1).max(120).nullable(),
-  preservesDraft: z.boolean(),
+  preservesStagedAttachments: z.boolean(),
   pendingRequestId: z.uuid().nullable(),
   planReviewId: z
     .uuid()
@@ -911,7 +910,7 @@ export class ConversationService {
     if (!this.knowledgeStore) {
       throw new AppError("KNOWLEDGE_PROCESSING_UNAVAILABLE");
     }
-    // Keep the user's ordered selection as the immutable draft/turn snapshot.
+    // Keep the user's ordered selection as the immutable turn snapshot.
     // Authorization and availability are intentionally intersected again at
     // retrieval time. A revoked, archived, disabled, or deleted selection must
     // not block an otherwise valid task submission, and preserving it here lets
@@ -2051,7 +2050,6 @@ export class ConversationService {
       visibility: { in: ["user_visible", "user_collapsed"] },
     } satisfies Prisma.ConversationEventWhereInput;
     const [
-      draft,
       messages,
       pending,
       files,
@@ -2066,7 +2064,6 @@ export class ConversationService {
       goal,
       latestModelContextUsage,
     ] = await Promise.all([
-      this.prisma.conversationDraft.findUnique({ where: { conversationId } }),
       this.prisma.conversationMessage.findMany({
         where: { conversationId, turnId: { in: activeTurnIds } },
         orderBy: { sequenceNo: "asc" },
@@ -2212,7 +2209,6 @@ export class ConversationService {
         ...(forkSource ? { fork_source: forkSource } : {}),
       },
       goal: goal ? projectConversationGoal(goal) : null,
-      draft: draft ? projectDraft(draft) : null,
       messages: visibleMessages.map((message) =>
         projectMessage(
           message,
@@ -2587,156 +2583,25 @@ export class ConversationService {
     return counts;
   }
 
-  async createOrUpdateDraft(
+  async create(
     ownerId: string,
     input: {
-      conversationId?: string;
-      inputText: string;
-      priorityCapabilityIds: string[];
-      knowledgeBaseIds?: string[];
-      collaborationMode?: ConversationCollaborationMode;
+      collaborationMode: ConversationCollaborationMode;
       fallbackLocale?: Locale;
-      expectedUpdatedAt?: Date | null;
     },
   ) {
-    const conversation = input.conversationId
-      ? await this.assertOwner(ownerId, input.conversationId)
-      : await this.createConversation(ownerId, input.fallbackLocale, undefined, {
-          collaborationMode: input.collaborationMode ?? "default",
-        });
-    const applicationRuntime = await this.applicationRuntimeForConversation(
-      ownerId,
-      conversation.applicationId,
-      conversation.interactiveApplicationPackageId,
-    );
-    const priorityCapabilityIds =
-      applicationRuntime?.kind === "standard"
-        ? applicationRuntime.capabilityIds
-        : input.priorityCapabilityIds;
-    const knowledgeBaseIds = applicationRuntime?.kind === "standard"
-      ? applicationRuntime.knowledgeBaseIds
-      : await this.validateKnowledgeBaseSelection(
-          ownerId,
-          input.knowledgeBaseIds,
-        );
-    const expectedUpdatedAt = input.expectedUpdatedAt;
-    if (expectedUpdatedAt !== undefined) {
-      const lock = await this.acquireConversationLock(conversation.id);
-      try {
-        await this.assertOwner(ownerId, conversation.id);
-        const saved = await this.prisma.$transaction(async (tx) => {
-          let draft;
-          if (expectedUpdatedAt === null) {
-            const existing = await tx.conversationDraft.findUnique({
-              where: { conversationId: conversation.id },
-            });
-            if (existing) {
-              if (
-                !draftContentMatches(existing, {
-                  ownerId,
-                  inputText: input.inputText,
-                  priorityCapabilityIds,
-                  knowledgeBaseIds,
-                })
-              ) {
-                throw new AppError("DRAFT_VERSION_CONFLICT");
-              }
-              draft = existing;
-            } else {
-              draft = await tx.conversationDraft.create({
-                data: {
-                  conversationId: conversation.id,
-                  ownerId,
-                  inputText: input.inputText,
-                  priorityCapabilityIdsJson: priorityCapabilityIds,
-                  knowledgeBaseIdsJson: knowledgeBaseIds,
-                },
-              });
-            }
-          } else {
-            const updated = await tx.conversationDraft.updateMany({
-              where: {
-                conversationId: conversation.id,
-                ownerId,
-                updatedAt: expectedUpdatedAt,
-              },
-              data: {
-                inputText: input.inputText,
-                priorityCapabilityIdsJson: priorityCapabilityIds,
-                knowledgeBaseIdsJson: knowledgeBaseIds,
-              },
-            });
-            if (updated.count !== 1) {
-              const existing = await tx.conversationDraft.findUnique({
-                where: { conversationId: conversation.id },
-              });
-              if (
-                !existing ||
-                !draftContentMatches(existing, {
-                  ownerId,
-                  inputText: input.inputText,
-                  priorityCapabilityIds,
-                  knowledgeBaseIds,
-                })
-              ) {
-                throw new AppError("DRAFT_VERSION_CONFLICT");
-              }
-              draft = existing;
-            } else {
-              draft = await tx.conversationDraft.findUnique({
-                where: { conversationId: conversation.id },
-              });
-              if (!draft) throw new AppError("DRAFT_VERSION_CONFLICT");
-            }
-          }
-          const updatedConversation = await tx.conversation.update({
-            where: { id: conversation.id },
-            data: { selectedKnowledgeBaseIdsJson: knowledgeBaseIds },
-          });
-          return { draft, updatedConversation };
-        });
-        return {
-          conversation: projectConversation(
-            saved.updatedConversation,
-            saved.updatedConversation.lastTurnStatus ?? "idle",
-          ),
-          draft: projectDraft(saved.draft),
-        };
-      } finally {
-        await this.redis
-          .releaseConversationLock(conversation.id, lock)
-          .catch(() => undefined);
-      }
-    }
-    const saved = await this.prisma.$transaction(async (tx) => {
-      const draft = await tx.conversationDraft.upsert({
-        where: { conversationId: conversation.id },
-        create: {
-          conversationId: conversation.id,
-          ownerId,
-          inputText: input.inputText,
-          priorityCapabilityIdsJson: priorityCapabilityIds,
-          knowledgeBaseIdsJson: knowledgeBaseIds,
-        },
-        update: {
-          inputText: input.inputText,
-          priorityCapabilityIdsJson: priorityCapabilityIds,
-          knowledgeBaseIdsJson: knowledgeBaseIds,
-        },
-      });
-      const updatedConversation = await tx.conversation.update({
-        where: { id: conversation.id },
-        data: { selectedKnowledgeBaseIdsJson: knowledgeBaseIds },
-      });
-      return { draft, updatedConversation };
+    return this.withActiveUserLifecycleLock(ownerId, async () => {
+      const conversation = await this.createConversation(
+        ownerId,
+        input.fallbackLocale,
+        undefined,
+        { collaborationMode: input.collaborationMode },
+      );
+      return projectConversation(
+        conversation,
+        conversation.lastTurnStatus ?? "idle",
+      );
     });
-    return {
-      conversation: projectConversation(
-        saved.updatedConversation,
-        saved.updatedConversation.lastTurnStatus ?? "idle",
-      ),
-      draft: projectDraft(saved.draft),
-    };
   }
 
   async patch(
@@ -3122,8 +2987,8 @@ export class ConversationService {
       : "inputText" in input
         ? input.inputText
         : "";
-    const preservesDraft =
-      Boolean(officeAnnotation) || input.draftPolicy === "preserve";
+    const preservesStagedAttachments =
+      Boolean(officeAnnotation) || input.preserveStagedAttachments === true;
     const lock = await this.acquireConversationLock(conversationId);
     try {
       const result = await this.prisma.$transaction(async (tx) => {
@@ -3158,21 +3023,17 @@ export class ConversationService {
         });
         if (existing.length >= 5)
           throw new AppError("PENDING_REQUEST_LIMIT_REACHED");
-        const draft = await tx.conversationDraft.findUnique({
-          where: { conversationId },
-        });
         if (inputText.trim().length === 0) {
-          const attachment = draft
-            ? await tx.conversationFile.findFirst({
-                where: {
-                  conversationId,
-                  draftId: draft.id,
-                  kind: "attachment",
-                  status: "draft",
-                },
-                select: { id: true },
-              })
-            : null;
+          const attachment = await tx.conversationFile.findFirst({
+            where: {
+              conversationId,
+              pendingRequestId: null,
+              turnId: null,
+              kind: "attachment",
+              status: "staged",
+            },
+            select: { id: true },
+          });
           if (!attachment) throw new AppError("VALIDATION_ERROR");
         }
         const nextQueueNo = (existing.at(-1)?.queueNo ?? 0n) + 1n;
@@ -3189,31 +3050,17 @@ export class ConversationService {
             idempotencyKey: input.idempotencyKey ?? null,
           },
         });
-        if (!preservesDraft && draft) {
+        if (!preservesStagedAttachments) {
           await tx.conversationFile.updateMany({
-            where: { draftId: draft.id, status: "draft" },
+            where: {
+              conversationId,
+              pendingRequestId: null,
+              turnId: null,
+              status: "staged",
+            },
             data: {
-              draftId: null,
               pendingRequestId: pending.id,
               status: "pending",
-            },
-          });
-          await tx.conversationDraft.update({
-            where: { id: draft.id },
-            data: {
-              inputText: "",
-              priorityCapabilityIdsJson: [],
-              knowledgeBaseIdsJson: [],
-            },
-          });
-        } else if (!preservesDraft) {
-          await tx.conversationDraft.create({
-            data: {
-              conversationId,
-              ownerId,
-              inputText: "",
-              priorityCapabilityIdsJson: [],
-              knowledgeBaseIdsJson: [],
             },
           });
         }
@@ -3417,23 +3264,9 @@ export class ConversationService {
             select: { projectionTurnId: true },
           });
         if (protectedByStartIntent) throw new AppError("CONFLICT");
-        let draft = await tx.conversationDraft.findUnique({
-          where: { conversationId },
-        });
-        if (!draft) {
-          draft = await tx.conversationDraft.create({
-            data: {
-              conversationId,
-              ownerId,
-              inputText: "",
-              priorityCapabilityIdsJson: [],
-              knowledgeBaseIdsJson: [],
-            },
-          });
-        }
         await tx.conversationFile.updateMany({
           where: { pendingRequestId: pendingId, status: "pending" },
-          data: { pendingRequestId: null, draftId: draft.id, status: "draft" },
+          data: { pendingRequestId: null, status: "staged" },
         });
         await tx.pendingRequest.delete({ where: { id: pendingId } });
         const sequenceNo = await nextConversationEventSequence(
@@ -3497,7 +3330,7 @@ export class ConversationService {
     return { was_head: wasHead };
   }
 
-  async restorePendingToDraft(
+  async restorePendingToInput(
     ownerId: string,
     conversationId: string,
     pendingId: string,
@@ -3526,54 +3359,6 @@ export class ConversationService {
           });
         if (protectedByStartIntent) throw new AppError("CONFLICT");
 
-        let draft = await tx.conversationDraft.findUnique({
-          where: { conversationId },
-        });
-        if (draft) {
-          const existingDraftAttachment = await tx.conversationFile.findFirst({
-            where: {
-              conversationId,
-              draftId: draft.id,
-              status: "draft",
-            },
-            select: { id: true },
-          });
-          if (
-            draft.inputText.length > 0 ||
-            jsonStringArray(draft.priorityCapabilityIdsJson).length > 0 ||
-            jsonStringArray(draft.knowledgeBaseIdsJson).length > 0 ||
-            existingDraftAttachment
-          ) {
-            throw new AppError("PENDING_REQUEST_RESTORE_DRAFT_NOT_EMPTY");
-          }
-          draft = await tx.conversationDraft.update({
-            where: { id: draft.id },
-            data: {
-              inputText: pending.inputText,
-              priorityCapabilityIdsJson: jsonStringArray(
-                pending.priorityCapabilityIdsJson,
-              ),
-              knowledgeBaseIdsJson: jsonStringArray(
-                pending.knowledgeBaseIdsJson,
-              ),
-            },
-          });
-        } else {
-          draft = await tx.conversationDraft.create({
-            data: {
-              conversationId,
-              ownerId,
-              inputText: pending.inputText,
-              priorityCapabilityIdsJson: jsonStringArray(
-                pending.priorityCapabilityIdsJson,
-              ),
-              knowledgeBaseIdsJson: jsonStringArray(
-                pending.knowledgeBaseIdsJson,
-              ),
-            },
-          });
-        }
-
         await tx.conversation.update({
           where: { id: conversationId },
           data: {
@@ -3585,7 +3370,7 @@ export class ConversationService {
 
         await tx.conversationFile.updateMany({
           where: { pendingRequestId: pendingId, status: "pending" },
-          data: { pendingRequestId: null, draftId: draft.id, status: "draft" },
+          data: { pendingRequestId: null, status: "staged" },
         });
         await tx.pendingRequest.delete({ where: { id: pendingId } });
         const sequenceNo = await nextConversationEventSequence(
@@ -3605,12 +3390,12 @@ export class ConversationService {
             sseEventId: `${conversationId}:${sequenceNo}`,
           },
         });
-        return { draft, event };
+        return { pending, event };
       });
       await this.audit.write({
         ...context,
         actorId: ownerId,
-        action: "conversation_pending_request_restored_to_draft",
+        action: "conversation_pending_request_restored_to_input",
         targetType: "pending_request",
         targetId: pendingId,
         result: "success",
@@ -3624,7 +3409,13 @@ export class ConversationService {
         .catch(() => undefined);
       return {
         pending_request_id: pendingId,
-        draft: projectDraft(result.draft),
+        input_text: result.pending.inputText,
+        priority_capability_ids: jsonStringArray(
+          result.pending.priorityCapabilityIdsJson,
+        ),
+        knowledge_base_ids: jsonStringArray(
+          result.pending.knowledgeBaseIdsJson,
+        ),
       };
     } finally {
       await this.redis
@@ -3778,7 +3569,6 @@ export class ConversationService {
             ? { idempotencyKey: input.idempotencyKey }
             : {}),
           submitMode: "normal",
-          draftPolicy: "consume",
           goal: {
             objective,
             ...(input.tokenBudget !== undefined
@@ -4037,7 +3827,7 @@ export class ConversationService {
                 messageDisplayJson: Prisma.DbNull,
                 submitMode: "normal",
                 idempotencyKey: normalizedKey,
-                preservesDraft: true,
+                preservesStagedAttachments: true,
                 pendingRequestId: null,
                 planReviewId: null,
                 planReviewAction: null,
@@ -4196,6 +3986,7 @@ export class ConversationService {
       const lock = await this.acquireConversationLock(conversationId);
       let lockTransferred = false;
       try {
+        const conversation = await this.assertOwner(ownerId, conversationId);
         const goal = await this.requireConversationGoal(
           ownerId,
           conversationId,
@@ -4250,15 +4041,10 @@ export class ConversationService {
           });
           return startReceipt(runningGoalTurn.id, "running");
         }
-        const draft = await this.prisma.conversationDraft.findUnique({
-          where: { conversationId },
-        });
-        const priorityCapabilityIds = draft
-          ? jsonStringArray(draft.priorityCapabilityIdsJson)
-          : [];
-        const knowledgeBaseIds = draft
-          ? jsonStringArray(draft.knowledgeBaseIdsJson)
-          : [];
+        const priorityCapabilityIds: string[] = [];
+        const knowledgeBaseIds = jsonStringArray(
+          conversation.selectedKnowledgeBaseIdsJson,
+        );
         lockTransferred = true;
         return this.startTurnInternal(
           ownerId,
@@ -4277,7 +4063,7 @@ export class ConversationService {
               knowledgeBaseIds,
             }),
             submitMode: "normal",
-            draftPolicy: "preserve",
+            preserveStagedAttachments: true,
             goal: {
               objective: goal.objective,
               tokenBudget:
@@ -4400,7 +4186,7 @@ export class ConversationService {
               priorityCapabilityIds: [],
               knowledgeBaseIds: [],
               idempotencyKey,
-              draftPolicy: "preserve",
+              preserveStagedAttachments: true,
               ...(modelPreference ? { modelPreference } : {}),
             },
             context,
@@ -4416,7 +4202,7 @@ export class ConversationService {
             knowledgeBaseIds: [],
             idempotencyKey,
             submitMode: "normal",
-            draftPolicy: "preserve",
+            preserveStagedAttachments: true,
             ...(modelPreference ? { modelPreference } : {}),
           },
           context,
@@ -4463,7 +4249,7 @@ export class ConversationService {
         capabilityEvents.map((event) => event.payloadJson),
       ),
       knowledgeBaseIds: jsonStringArray(turn.knowledgeBaseIdsJson),
-      preservesDraft: false,
+      preservesStagedAttachments: false,
       pendingRequestId: null,
       regenerationMessageId,
       taskKind: "turn",
@@ -4698,10 +4484,6 @@ export class ConversationService {
           ) {
             throw new AppError("CONFLICT");
           }
-          await this.prisma.conversationDraft.updateMany({
-            where: { conversationId, ownerId, inputText: text },
-            data: { inputText: "", priorityCapabilityIdsJson: [] },
-          });
           return { turn_id: localTurnId, accepted: true };
         }
 
@@ -4771,10 +4553,6 @@ export class ConversationService {
               },
               sseEventId: `${conversationId}:${sequenceNo}`,
             },
-          });
-          await tx.conversationDraft.updateMany({
-            where: { conversationId, ownerId, inputText: text },
-            data: { inputText: "", priorityCapabilityIdsJson: [] },
           });
           await tx.auditLog.create({
             data: {
@@ -5791,7 +5569,7 @@ export class ConversationService {
                 capabilityEvents.map((event) => event.payloadJson),
               ),
               knowledgeBaseIds: jsonStringArray(turn.knowledgeBaseIdsJson),
-              preservesDraft: true,
+              preservesStagedAttachments: true,
               pendingRequestId: null,
               regenerationMessageId: null,
               taskKind: "turn",
@@ -5891,7 +5669,7 @@ export class ConversationService {
             knowledgeBaseIds,
             idempotencyKey: requestedIdempotencyKey,
             submitMode: "normal",
-            draftPolicy: "preserve",
+            preserveStagedAttachments: true,
           },
           context,
           undefined,
@@ -6494,7 +6272,6 @@ export class ConversationService {
               data: files.map((file) => ({
                 id: fileIdMap.get(file.id)!,
                 conversationId: forkConversationId,
-                draftId: null,
                 pendingRequestId: null,
                 turnId: file.turnId ? turnIdMap.get(file.turnId)! : null,
                 kind: file.kind,
@@ -6915,8 +6692,7 @@ export class ConversationService {
     applicationRuntime: ApplicationTurnConfiguration | null;
     expectedCodexThreadId: string | null;
     prepared: PreparedTurnSubmission;
-    preservesDraft: boolean;
-    sourceDraftId: string | null;
+    preservesStagedAttachments: boolean;
     pendingRequestId: string | null;
     regeneration: RegenerationSource | null;
     attachments: TurnStartIntentAttachment[];
@@ -7036,7 +6812,7 @@ export class ConversationService {
           input.prepared.goal ||
           input.prepared.collaborationMode !== expectedMode ||
           input.prepared.inputText.trim() !== expectedInput ||
-          !input.preservesDraft ||
+          !input.preservesStagedAttachments ||
           input.pendingRequestId ||
           input.regeneration ||
           pendingCount > 0
@@ -7165,7 +6941,7 @@ export class ConversationService {
             ownerId: input.ownerId,
             conversationId: input.conversationId,
             input: input.prepared,
-            preservesDraft: input.preservesDraft,
+            preservesStagedAttachments: input.preservesStagedAttachments,
             files: input.attachments,
             ...(input.pendingRequestId
               ? { pendingId: input.pendingRequestId }
@@ -7307,31 +7083,6 @@ export class ConversationService {
         ) {
           throw new AppError("CONFLICT");
         }
-      } else if (!input.preservesDraft) {
-        if (!input.sourceDraftId) throw new AppError("CONFLICT");
-        await tx.$queryRaw<Array<{ id: string }>>`
-          SELECT id
-          FROM conversation_drafts
-          WHERE id = ${input.sourceDraftId}::uuid
-          FOR UPDATE
-        `;
-        const draft = await tx.conversationDraft.findUnique({
-          where: { conversationId: input.conversationId },
-        });
-        if (
-          !draft ||
-          draft.id !== input.sourceDraftId ||
-          draft.ownerId !== input.ownerId ||
-          draft.inputText !== input.prepared.inputText ||
-          (!input.applicationRuntime &&
-            (JSON.stringify(
-              jsonStringArray(draft.priorityCapabilityIdsJson),
-            ) !== JSON.stringify(input.prepared.priorityCapabilityIds) ||
-              JSON.stringify(jsonStringArray(draft.knowledgeBaseIdsJson)) !==
-                JSON.stringify(input.prepared.knowledgeBaseIds)))
-        ) {
-          throw new AppError("CONFLICT");
-        }
       }
 
       const sourceWhere = input.regeneration
@@ -7344,20 +7095,18 @@ export class ConversationService {
         : input.pendingRequestId
           ? {
               conversationId: input.conversationId,
-              draftId: null,
               pendingRequestId: input.pendingRequestId,
               turnId: null,
               kind: "attachment",
               status: "pending",
             }
-          : !input.preservesDraft && input.sourceDraftId
+          : !input.preservesStagedAttachments
             ? {
                 conversationId: input.conversationId,
-                draftId: input.sourceDraftId,
                 pendingRequestId: null,
                 turnId: null,
                 kind: "attachment",
-                status: "draft",
+                status: "staged",
               }
             : null;
       let currentAttachments: Array<{
@@ -7384,8 +7133,8 @@ export class ConversationService {
               input.regeneration
                 ? Prisma.sql`turn_id = ${input.regeneration.turnId}::uuid AND status = 'bound'`
                 : input.pendingRequestId
-                  ? Prisma.sql`pending_request_id = ${input.pendingRequestId}::uuid AND draft_id IS NULL AND turn_id IS NULL AND status = 'pending'`
-                  : Prisma.sql`draft_id = ${input.sourceDraftId}::uuid AND pending_request_id IS NULL AND turn_id IS NULL AND status = 'draft'`
+                  ? Prisma.sql`pending_request_id = ${input.pendingRequestId}::uuid AND turn_id IS NULL AND status = 'pending'`
+                  : Prisma.sql`pending_request_id IS NULL AND turn_id IS NULL AND status = 'staged'`
             }
           ORDER BY id
           FOR UPDATE
@@ -7460,7 +7209,7 @@ export class ConversationService {
             messageDisplayJson: input.prepared.messageDisplay ?? Prisma.DbNull,
             submitMode: input.prepared.submitMode,
             idempotencyKey: input.prepared.idempotencyKey ?? null,
-            preservesDraft: input.preservesDraft,
+            preservesStagedAttachments: input.preservesStagedAttachments,
             pendingRequestId: input.pendingRequestId,
             planReviewId: input.planReviewAction?.reviewId ?? null,
             planReviewAction: input.planReviewAction?.action ?? null,
@@ -7873,7 +7622,6 @@ export class ConversationService {
                 `regenerated-attachment:${file.id}`,
               ),
               conversationId: intent.conversationId,
-              draftId: null,
               pendingRequestId: null,
               turnId: created.id,
               kind: file.kind,
@@ -7892,7 +7640,10 @@ export class ConversationService {
             },
           });
         }
-      } else if (!intent.preservesDraft && intent.attachmentsJson.length > 0) {
+      } else if (
+        !intent.preservesStagedAttachments &&
+        intent.attachmentsJson.length > 0
+      ) {
         const attachmentIds = intent.attachmentsJson.map((file) => file.id);
         const bound = await tx.conversationFile.updateMany({
           where: {
@@ -7902,18 +7653,15 @@ export class ConversationService {
             turnId: null,
             ...(intent.pendingRequestId
               ? {
-                  draftId: null,
                   pendingRequestId: intent.pendingRequestId,
                   status: "pending",
                 }
               : {
-                  draftId: { not: null },
                   pendingRequestId: null,
-                  status: "draft",
+                  status: "staged",
                 }),
           },
           data: {
-            draftId: null,
             pendingRequestId: null,
             turnId: created.id,
             status: "bound",
@@ -8009,41 +7757,6 @@ export class ConversationService {
           },
           data: { title: firstTurnTitle },
         });
-      }
-      if (!intent.preservesDraft) {
-        const draft = await tx.conversationDraft.findUnique({
-          where: { conversationId: intent.conversationId },
-        });
-        if (!intent.pendingRequestId && !regeneration) {
-          await tx.conversationDraft.updateMany({
-            where: {
-              conversationId: intent.conversationId,
-              ownerId: intent.ownerId,
-              inputText: intent.inputText,
-              priorityCapabilityIdsJson: {
-                equals: intent.priorityCapabilityIdsJson,
-              },
-              knowledgeBaseIdsJson: {
-                equals: intent.knowledgeBaseIdsJson,
-              },
-            },
-            data: {
-              inputText: "",
-              priorityCapabilityIdsJson: [],
-              knowledgeBaseIdsJson: [],
-            },
-          });
-        } else if (intent.pendingRequestId && !draft) {
-          await tx.conversationDraft.create({
-            data: {
-              conversationId: intent.conversationId,
-              ownerId: intent.ownerId,
-              inputText: "",
-              priorityCapabilityIdsJson: [],
-              knowledgeBaseIdsJson: [],
-            },
-          });
-        }
       }
       await tx.auditLog.create({
         data: {
@@ -8384,20 +8097,6 @@ export class ConversationService {
       select: { status: true },
     });
     if (owner?.status === "disabled") {
-      let draft = await tx.conversationDraft.findUnique({
-        where: { conversationId: intent.conversationId },
-      });
-      if (!draft) {
-        draft = await tx.conversationDraft.create({
-          data: {
-            conversationId: intent.conversationId,
-            ownerId: intent.ownerId,
-            inputText: "",
-            priorityCapabilityIdsJson: [],
-            knowledgeBaseIdsJson: [],
-          },
-        });
-      }
       await tx.conversationFile.updateMany({
         where: {
           conversationId: intent.conversationId,
@@ -8408,8 +8107,7 @@ export class ConversationService {
         },
         data: {
           pendingRequestId: null,
-          draftId: draft.id,
-          status: "draft",
+          status: "staged",
         },
       });
       const cancelled = await tx.pendingRequest.deleteMany({
@@ -8571,9 +8269,11 @@ export class ConversationService {
         conversation.interactiveApplicationPackageId,
       );
       const officeAnnotation = submissionOfficeAnnotation(submission);
-      const preservesDraft =
+      const preservesStagedAttachments =
         Boolean(officeAnnotation) ||
-        (submission.draftPolicy === "preserve" && !pendingId && !regeneration);
+        (submission.preserveStagedAttachments === true &&
+          !pendingId &&
+          !regeneration);
       const preparedAnnotation = officeAnnotation
         ? await this.prepareOfficeAnnotation(conversationId, officeAnnotation)
         : null;
@@ -8612,11 +8312,9 @@ export class ConversationService {
               },
             }
           : {}),
-        ...(preparedAnnotation
-          ? { draftPolicy: "preserve" as const }
-          : submission.draftPolicy
-            ? { draftPolicy: submission.draftPolicy }
-            : {}),
+        ...(preservesStagedAttachments
+          ? { preserveStagedAttachments: true }
+          : {}),
         messageDisplay: preparedAnnotation?.display ?? null,
       };
       const currentCollaborationMode =
@@ -8640,7 +8338,7 @@ export class ConversationService {
             submitMode: input.submitMode,
             priorityCapabilityIds: input.priorityCapabilityIds,
             knowledgeBaseIds: input.knowledgeBaseIds,
-            preservesDraft,
+            preservesStagedAttachments,
             pendingRequestId: pendingId ?? null,
             regenerationMessageId: regeneration?.messageId ?? null,
             taskKind: input.goal ? "goal" : "turn",
@@ -8680,24 +8378,6 @@ export class ConversationService {
               existingMessage.id,
               input.messageDisplay,
             );
-          }
-          if (!preservesDraft && !pendingId && !regeneration) {
-            await this.prisma.conversationDraft.updateMany({
-              where: {
-                conversationId,
-                ownerId,
-                inputText: input.inputText,
-                priorityCapabilityIdsJson: {
-                  equals: input.priorityCapabilityIds,
-                },
-                knowledgeBaseIdsJson: { equals: input.knowledgeBaseIds },
-              },
-              data: {
-                inputText: "",
-                priorityCapabilityIdsJson: [],
-                knowledgeBaseIdsJson: [],
-              },
-            });
           }
           return returnWhenAccepted
             ? startReceipt(existingTurn.id, "running")
@@ -8748,13 +8428,7 @@ export class ConversationService {
         }
       }
 
-      const sourceDraft =
-        !preservesDraft && !pendingId && !regeneration
-          ? await this.prisma.conversationDraft.findUnique({
-              where: { conversationId },
-            })
-          : null;
-      const files = preservesDraft
+      const files = preservesStagedAttachments
         ? []
         : await this.prisma.conversationFile.findMany({
             where: regeneration
@@ -8768,21 +8442,17 @@ export class ConversationService {
                 ? {
                     conversationId,
                     pendingRequestId: pendingId,
-                    draftId: null,
                     turnId: null,
                     kind: "attachment",
                     status: "pending",
                   }
-                : sourceDraft
-                  ? {
-                      conversationId,
-                      draftId: sourceDraft.id,
-                      pendingRequestId: null,
-                      turnId: null,
-                      kind: "attachment",
-                      status: "draft",
-                    }
-                  : { id: { in: [] } },
+                : {
+                    conversationId,
+                    pendingRequestId: null,
+                    turnId: null,
+                    kind: "attachment",
+                    status: "staged",
+                  },
           });
       if (input.inputText.trim().length === 0 && files.length === 0) {
         throw new AppError("VALIDATION_ERROR");
@@ -8815,7 +8485,7 @@ export class ConversationService {
             ownerId,
             conversationId,
             input,
-            preservesDraft,
+            preservesStagedAttachments,
             files,
             ...(pendingId ? { pendingId } : {}),
             ...(regeneration ? { regeneration } : {}),
@@ -8993,8 +8663,7 @@ export class ConversationService {
             applicationRuntime,
             expectedCodexThreadId: conversation.codexThreadId,
             prepared: input,
-            preservesDraft,
-            sourceDraftId: sourceDraft?.id ?? null,
+            preservesStagedAttachments,
             pendingRequestId: pendingId ?? null,
             regeneration: regeneration ?? null,
             attachments: files.map(snapshotTurnStartAttachment),
@@ -9075,17 +8744,11 @@ export class ConversationService {
               projectStoredEvent(update),
             )
             .catch(() => undefined);
-        } else if (!regeneration && !preservesDraft) {
-          await this.createOrUpdateDraft(ownerId, {
-            conversationId,
-            inputText: input.inputText,
-            priorityCapabilityIds: input.priorityCapabilityIds,
-            knowledgeBaseIds: input.knowledgeBaseIds,
-          });
+        } else if (!regeneration && !preservesStagedAttachments) {
           await this.audit.write({
             ...context,
             actorId: ownerId,
-            action: "conversation_run_rejected_overload_draft_saved",
+            action: "conversation_run_rejected_overload",
             targetType: "conversation",
             targetId: conversationId,
             result: "rejected",
@@ -9099,7 +8762,7 @@ export class ConversationService {
         } else {
           throw new AppError("CONVERSATION_OVERLOADED");
         }
-        throw new AppError("CONVERSATION_OVERLOADED_DRAFT_SAVED");
+        throw new AppError("CONVERSATION_OVERLOADED");
       }
 
       try {
@@ -9563,52 +9226,6 @@ export function projectTaskTitle(
       : "未命名任务";
   }
   return title;
-}
-
-function projectDraft(row: {
-  id: string;
-  conversationId: string;
-  ownerId: string;
-  inputText: string;
-  priorityCapabilityIdsJson: unknown;
-  knowledgeBaseIdsJson: unknown;
-  createdAt: Date;
-  updatedAt: Date;
-}) {
-  return {
-    id: row.id,
-    conversation_id: row.conversationId,
-    owner_id: row.ownerId,
-    input_text: row.inputText,
-    priority_capability_ids: jsonStringArray(row.priorityCapabilityIdsJson),
-    knowledge_base_ids: jsonStringArray(row.knowledgeBaseIdsJson),
-    created_at: row.createdAt.toISOString(),
-    updated_at: row.updatedAt.toISOString(),
-  };
-}
-
-function draftContentMatches(
-  draft: {
-    ownerId: string;
-    inputText: string;
-    priorityCapabilityIdsJson: unknown;
-    knowledgeBaseIdsJson: unknown;
-  },
-  expected: {
-    ownerId: string;
-    inputText: string;
-    priorityCapabilityIds: string[];
-    knowledgeBaseIds: string[];
-  },
-): boolean {
-  return (
-    draft.ownerId === expected.ownerId &&
-    draft.inputText === expected.inputText &&
-    JSON.stringify(jsonStringArray(draft.priorityCapabilityIdsJson)) ===
-      JSON.stringify(expected.priorityCapabilityIds) &&
-    JSON.stringify(jsonStringArray(draft.knowledgeBaseIdsJson)) ===
-      JSON.stringify(expected.knowledgeBaseIds)
-  );
 }
 
 function projectPending(row: {
@@ -10439,7 +10056,6 @@ function projectMessage(
 function projectFile(row: {
   id: string;
   conversationId: string;
-  draftId: string | null;
   pendingRequestId: string | null;
   turnId: string | null;
   kind: string;
@@ -10458,7 +10074,6 @@ function projectFile(row: {
   return {
     id: row.id,
     conversation_id: row.conversationId,
-    draft_id: row.draftId,
     pending_request_id: row.pendingRequestId,
     turn_id: row.turnId,
     kind: row.kind,
@@ -10825,7 +10440,7 @@ function turnIdempotencyRequestHash(input: {
   submitMode: PreparedTurnSubmission["submitMode"];
   priorityCapabilityIds: string[];
   knowledgeBaseIds: string[];
-  preservesDraft: boolean;
+  preservesStagedAttachments: boolean;
   pendingRequestId: string | null;
   regenerationMessageId: string | null;
   taskKind: "turn" | "goal" | "compact";
@@ -10838,7 +10453,7 @@ function turnIdempotencyRequestHash(input: {
   return createHash("sha256")
     .update(
       JSON.stringify({
-        schema_version: 2,
+        schema_version: 3,
         input_text: input.inputText,
         message_display: input.messageDisplay,
         submit_mode: input.submitMode,
@@ -10846,7 +10461,7 @@ function turnIdempotencyRequestHash(input: {
         ...(input.knowledgeBaseIds.length > 0
           ? { knowledge_base_ids: input.knowledgeBaseIds }
           : {}),
-        preserves_draft: input.preservesDraft,
+        preserves_staged_attachments: input.preservesStagedAttachments,
         pending_request_id: input.pendingRequestId,
         regeneration_message_id: input.regenerationMessageId,
         task_kind: input.taskKind,
@@ -10894,7 +10509,7 @@ function turnStartIntentIdempotencyRequestHash(
     | "submitMode"
     | "priorityCapabilityIdsJson"
     | "knowledgeBaseIdsJson"
-    | "preservesDraft"
+    | "preservesStagedAttachments"
     | "pendingRequestId"
     | "regenerationJson"
     | "taskKind"
@@ -10911,7 +10526,7 @@ function turnStartIntentIdempotencyRequestHash(
     submitMode: intent.submitMode,
     priorityCapabilityIds: intent.priorityCapabilityIdsJson,
     knowledgeBaseIds: intent.knowledgeBaseIdsJson,
-    preservesDraft: intent.preservesDraft,
+    preservesStagedAttachments: intent.preservesStagedAttachments,
     pendingRequestId: intent.pendingRequestId,
     regenerationMessageId: intent.regenerationJson?.messageId ?? null,
     taskKind: intent.taskKind,
@@ -10969,7 +10584,7 @@ function matchesStartIntentSubmission(
     ownerId: string;
     conversationId: string;
     input: PreparedTurnSubmission;
-    preservesDraft: boolean;
+    preservesStagedAttachments: boolean;
     pendingId?: string;
     regeneration?: RegenerationSource;
     planReviewAction?: PlanReviewTurnAction;
@@ -10989,7 +10604,7 @@ function matchesStartIntentSubmission(
       (input.input.goal?.tokenBudget ?? null) &&
     intent.submitMode === input.input.submitMode &&
     intent.idempotencyKey === (input.input.idempotencyKey ?? null) &&
-    intent.preservesDraft === input.preservesDraft &&
+    intent.preservesStagedAttachments === input.preservesStagedAttachments &&
     intent.pendingRequestId === (input.pendingId ?? null) &&
     intent.planReviewId === (input.planReviewAction?.reviewId ?? null) &&
     intent.planReviewAction === (input.planReviewAction?.action ?? null) &&
@@ -11069,7 +10684,6 @@ async function deleteConversationGraph(
     where: { conversationId },
   });
   await tx.pendingRequest.deleteMany({ where: { conversationId } });
-  await tx.conversationDraft.deleteMany({ where: { conversationId } });
   await tx.conversation.delete({ where: { id: conversationId } });
 }
 

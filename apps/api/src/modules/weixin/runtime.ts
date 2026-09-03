@@ -40,7 +40,7 @@ const TYPING_CONFIG_MAX_RETRY_MS = 60 * 60 * 1_000;
 
 type RuntimeConversations = Pick<
   ConversationService,
-  "acceptTurn" | "createApplicationConversation" | "createOrUpdateDraft"
+  "acceptTurn" | "create" | "createApplicationConversation"
 >;
 
 type WeixinTypingTicketEntry = {
@@ -454,13 +454,10 @@ export class WeixinRuntime {
       }
       const applicationChanged = peer && peer.applicationIdSnapshot !== null;
       if (!peer || applicationChanged) {
-        const conversation = (
-          await this.conversations.createOrUpdateDraft(connection.ownerId, {
-            inputText: "",
-            priorityCapabilityIds: [],
-            knowledgeBaseIds: [],
-          })
-        ).conversation;
+        const conversation = await this.conversations.create(
+          connection.ownerId,
+          { collaborationMode: "default" },
+        );
         const peerId = peer?.id ?? persistedPeerId ?? this.createId();
         peer = await this.repository.upsertPeerSession({
           id: peerId,
@@ -592,7 +589,7 @@ export class WeixinRuntime {
         knowledgeBaseIds: [],
         idempotencyKey,
         submitMode: "normal",
-        draftPolicy: "preserve",
+        preserveStagedAttachments: true,
       },
       {
         actorId: ownerId,
