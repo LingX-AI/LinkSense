@@ -3,7 +3,8 @@ set -eu
 
 EDITION=${LINKSENSE_INSTALL_EDITION:-}
 ACTION=${LINKSENSE_INSTALL_ACTION:-}
-HTTP_PORT=10080
+REQUESTED_HTTP_PORT=${LINKSENSE_HTTP_PORT:-}
+HTTP_PORT=${REQUESTED_HTTP_PORT:-18081}
 ELASTICSEARCH_ROOT_USERNAME=elastic
 REQUIRED_DOCKER_API=1.45
 REQUIRED_COMPOSE_VERSION=2.24.4
@@ -169,6 +170,34 @@ verify_private_file() {
   [ "$mode" = 600 ] || fail "$label must have mode 0600: $file"
 }
 
+validate_http_port() {
+  port=$1
+  printf '%s' "$port" | grep -Eq '^[1-9][0-9]{0,4}$' || fail "LINKSENSE_HTTP_PORT must be an integer between 1 and 65535."
+  [ "$port" -le 65535 ] || fail "LINKSENSE_HTTP_PORT must be an integer between 1 and 65535."
+}
+
+resolve_http_port() {
+  installed_port=
+  state_file=$INSTALL_DIR/install-state.env
+  if [ -e "$state_file" ] || [ -L "$state_file" ]; then
+    verify_private_file "$state_file" "The installation state"
+    installed_port=$(awk -F= '$1 == "STATE_HTTP_PORT" { print $2; exit }' "$state_file")
+  elif [ -f "$INSTALL_DIR/install.pending" ] && [ -e "$INSTALL_DIR/.env" ]; then
+    verify_private_file "$INSTALL_DIR/install.pending" "The interrupted installation state"
+    verify_private_file "$INSTALL_DIR/.env" "The protected environment file"
+    installed_port=$(awk -F= '$1 == "LINKSENSE_HTTP_PORT" { print $2; exit }' "$INSTALL_DIR/.env")
+  fi
+
+  if [ -n "$installed_port" ]; then
+    validate_http_port "$installed_port"
+    if [ -n "$REQUESTED_HTTP_PORT" ] && [ "$REQUESTED_HTTP_PORT" != "$installed_port" ]; then
+      fail "This installation already uses TCP $installed_port. Changing the port requires a dedicated port migration instead of an install, repair, or upgrade run."
+    fi
+    HTTP_PORT=$installed_port
+  fi
+  validate_http_port "$HTTP_PORT"
+}
+
 log() {
   printf '%s\n' "[$PROGRAM] $*"
 }
@@ -274,7 +303,8 @@ check_port() {
   elif command -v netstat >/dev/null 2>&1; then
     listener=$(netstat -ltnp 2>/dev/null | awk -v port=":$HTTP_PORT" '$4 ~ port "$" { print; exit }')
   else
-    listener=$(awk '$2 ~ /:2760$/ && $4 == "0A" { print; exit }' /proc/net/tcp /proc/net/tcp6 2>/dev/null || true)
+    port_hex=$(printf '%04X' "$HTTP_PORT")
+    listener=$(awk -v port=":$port_hex" '$2 ~ port "$" && $4 == "0A" { print; exit }' /proc/net/tcp /proc/net/tcp6 2>/dev/null || true)
   fi
   if [ -n "${listener:-}" ] && [ "$own_container" != true ]; then
     fail "TCP $HTTP_PORT is already in use: $listener"
@@ -354,26 +384,9 @@ preflight() {
   printf '%s' "$memory_bytes" | grep -Eq '^[1-9][0-9]*$' || fail "Could not determine memory available to the Docker Engine."
   memory_kb=$((memory_bytes / 1024))
   if [ "$EDITION" = full ]; then
-    required_disk_kb=$((40 * 1024 * 1024))
     required_memory_kb=$((16 * 1024 * 1024))
-    required_inodes=200000
   else
-    required_disk_kb=$((20 * 1024 * 1024))
     required_memory_kb=$((8 * 1024 * 1024))
-    required_inodes=100000
-  fi
-  if [ "$HOST_OS" = Darwin ]; then
-    disk_probe=${HOME:?HOME is required on macOS}
-    available_kb=$(df -Pk "$disk_probe" | awk 'NR == 2 { print $4 }')
-    printf '%s' "$available_kb" | grep -Eq '^[0-9]+$' || fail "Could not determine free space available to Docker Desktop."
-    [ "$available_kb" -ge "$required_disk_kb" ] || fail "Insufficient free host space for Docker Desktop: ${available_kb} KiB available, ${required_disk_kb} KiB required."
-  else
-    docker_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)
-    [ -n "$docker_root" ] || fail "Could not determine Docker's storage directory."
-    available_kb=$(df -Pk "$docker_root" | awk 'NR == 2 { print $4 }')
-    available_inodes=$(df -Pi "$docker_root" | awk 'NR == 2 { print $4 }')
-    [ "$available_kb" -ge "$required_disk_kb" ] || fail "Insufficient free space in $docker_root: ${available_kb} KiB available, ${required_disk_kb} KiB required."
-    [ "$available_inodes" -ge "$required_inodes" ] || fail "Insufficient free inodes in $docker_root: $available_inodes available, $required_inodes required."
   fi
   [ "$memory_kb" -ge "$required_memory_kb" ] || fail "Insufficient memory: ${memory_kb} KiB detected, ${required_memory_kb} KiB required for $EDITION."
   check_port
@@ -466,8 +479,8 @@ fetch_manifest() {
   esac
   [ "${MIN_DOCKER_API:-}" = "$REQUIRED_DOCKER_API" ] || fail "The release manifest has an inconsistent Docker API requirement."
   [ "${MIN_DOCKER_COMPOSE:-}" = "$REQUIRED_COMPOSE_VERSION" ] || fail "The release manifest has an inconsistent Docker Compose requirement."
-  [ "${CORE_MIN_MEMORY_GIB:-}" = 8 ] && [ "${CORE_MIN_DISK_GIB:-}" = 20 ] && [ "${CORE_MIN_FREE_INODES:-}" = 100000 ] || fail "The release manifest has inconsistent Core host requirements."
-  [ "${FULL_MIN_MEMORY_GIB:-}" = 16 ] && [ "${FULL_MIN_DISK_GIB:-}" = 40 ] && [ "${FULL_MIN_FREE_INODES:-}" = 200000 ] || fail "The release manifest has inconsistent Full host requirements."
+  [ "${CORE_MIN_MEMORY_GIB:-}" = 8 ] || fail "The release manifest has inconsistent Core host requirements."
+  [ "${FULL_MIN_MEMORY_GIB:-}" = 16 ] || fail "The release manifest has inconsistent Full host requirements."
   for required_hash in RESOURCE_LICENSE_SHA256 RESOURCE_COMPOSE_COMMON_SHA256 RESOURCE_COMPOSE_CORE_SHA256 RESOURCE_COMPOSE_FULL_SHA256 RESOURCE_GATEWAY_SHA256 RESOURCE_INSTALLER_ENGINE_SHA256 RESOURCE_INSTALL_CORE_SHA256 RESOURCE_INSTALL_FULL_SHA256 RESOURCE_REPAIR_CORE_SHA256 RESOURCE_REPAIR_FULL_SHA256 RESOURCE_UPGRADE_SHA256; do
     eval "hash_value=\${$required_hash:-}"
     printf '%s' "$hash_value" | grep -Eq '^[0-9a-f]{64}$' || fail "The release manifest is missing a valid $required_hash."
@@ -1379,6 +1392,7 @@ upgrade_action() {
 
 log_stage "Stage 1: run the read-only host preflight."
 validate_install_dir
+resolve_http_port
 preflight
 TMP_ROOT=$(mktemp -d)
 

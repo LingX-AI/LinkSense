@@ -21,6 +21,10 @@ test("the concise bilingual READMEs expose the same public entry points", async 
   assert.match(english, /\b(?:We|Our)\b/u)
   assert.doesNotMatch(chinese, /它/u)
   assert.doesNotMatch(english, /\b(?:it|its)\b/iu)
+  assert.match(english, /60\+ GiB/u)
+  assert.match(english, /120\+ GiB/u)
+  assert.match(chinese, /60 GiB\+/u)
+  assert.match(chinese, /120 GiB\+/u)
 
   for (const heading of [
     "## 特性",
@@ -61,11 +65,8 @@ test("the concise bilingual READMEs expose the same public entry points", async 
       "Apple Silicon",
       "v1.45",
       "v2.24.4",
-      "20 GiB",
-      "40 GiB",
-      "100,000",
-      "200,000",
-      "10080",
+      "18081",
+      "LINKSENSE_HTTP_PORT=19090",
       "pnpm dev",
       "AGENTS.md",
       "docker compose --env-file .env.example build",

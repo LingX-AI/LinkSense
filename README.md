@@ -23,11 +23,11 @@ We provide a lightweight Core edition and a Full edition with complete knowledge
 - macOS: Intel Mac or Apple Silicon with Docker Desktop; run from the signed-in macOS account without `sudo`.
 - Release images support both `linux/amd64` and `linux/arm64`. Docker automatically selects the matching image.
 - Install `curl`; start a local Linux Docker Engine with API v1.45+ and Docker Compose v2.24.4+.
-- Keep TCP port `10080` free and allow access to GitHub, GHCR, upstream registries, and Full tokenizer files.
-- Core requires at least 8 GiB memory and 20 GiB free space. Full requires at least 16 GiB memory and 40 GiB free space. These are installation minimums; use the recommended capacity below for production workloads, upgrades, backups, and data growth.
-- Linux additionally requires 100,000 free inodes for Core or 200,000 for Full.
+- Keep TCP port `18081` free by default and allow access to GitHub, GHCR, upstream registries, and Full tokenizer files.
+- Core requires at least 8 GiB memory, and Full requires at least 16 GiB memory.
+- The installer does not enforce a free-disk-space or inode minimum. Use the recommended SSD capacity below and monitor available space because Docker will fail if storage is exhausted.
 
-The installer validates the host and Docker platform before writing persistent state, then generates runtime secrets. On macOS, allocate enough memory and disk to Docker Desktop first. A domain and HTTPS are optional for local startup; public deployments should place an HTTPS reverse proxy in front of port `10080`.
+The installer validates the host and Docker platform before writing persistent state, then generates runtime secrets. On macOS, allocate enough memory and disk to Docker Desktop first. A domain and HTTPS are optional for local startup; public deployments should place an HTTPS reverse proxy in front of port `18081`.
 
 Linux installation:
 
@@ -36,14 +36,19 @@ curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-cor
 curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh | sudo sh
 ```
 
+To choose another unused TCP port during installation, pass `LINKSENSE_HTTP_PORT` to the installer process, not to `curl`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh \
+  | sudo env LINKSENSE_HTTP_PORT=19090 sh
+```
 macOS installation:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh | sh
 curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh | sh
 ```
-
-After installation, open `http://<server-address>:10080` on Linux or `http://localhost:10080` on macOS. The terminal prints a one-time initialization credential for creating the first administrator. Linux stores deployment files under `/opt/linksense`; macOS uses `~/.linksense`.
+After installation, open `http://<server-address>:18081` on Linux or `http://localhost:18081` on macOS. When a custom port is selected, replace `18081` with that value. The terminal prints a one-time initialization credential for creating the first administrator. Linux stores deployment files under `/opt/linksense`; macOS uses `~/.linksense`.
 
 Core excludes Elasticsearch, Docling, and the tokenizer. Full adds complete document processing and knowledge-base retrieval.
 

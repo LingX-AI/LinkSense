@@ -284,7 +284,7 @@ services:
       NGINX_EXTERNAL_SCHEME: ${LINKSENSE_PUBLIC_SCHEME}
       NGINX_MINIO_UPSTREAM: http://minio:9000
     ports:
-      - "0.0.0.0:10080:80"
+      - "0.0.0.0:${LINKSENSE_HTTP_PORT:?LINKSENSE_HTTP_PORT is required}:80"
     volumes:
       - ./gateway.conf.template:/etc/nginx/templates/default.conf.template:ro
     depends_on:
