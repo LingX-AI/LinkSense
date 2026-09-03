@@ -2175,6 +2175,77 @@ describe("LinkSense application", () => {
     )
   })
 
+  it("keeps the task workspace and composer mounted when the first message creates the task", async () => {
+    const { requests } = installApiMock({
+      newTaskDetailResponse: async () =>
+        json({
+          success: true,
+          data: {
+            id: "new-task-1",
+            title: "未命名任务",
+            archived: false,
+            updated_at: "2026-07-18T08:00:02.000Z",
+            draft_input: "",
+            draft_capability_ids: [],
+            messages: [],
+            attachments: [],
+            artifacts: [],
+            turns: [
+              {
+                id: "00000000-0000-4000-8000-000000000002",
+                status: "running",
+              },
+            ],
+            running_turn: {
+              id: "00000000-0000-4000-8000-000000000002",
+              status: "running",
+            },
+            pending_requests: [],
+            user_input_requests: [],
+          },
+        }),
+    })
+    const interaction = userEvent.setup()
+    renderApp("/conversations/new")
+
+    const composer = await screen.findByRole(
+      "textbox",
+      { name: "任务输入框" },
+      { timeout: 15_000 }
+    )
+    const initialWorkspace = document.querySelector(".conversation-workspace")
+    expect(initialWorkspace).toBeInTheDocument()
+
+    await interaction.type(composer, "排查页面闪烁")
+    await interaction.keyboard("{Enter}")
+
+    await waitFor(() =>
+      expect(requests).toContainEqual(
+        expect.objectContaining({
+          path: "/api/v1/conversations/new-task-1/turns",
+          method: "POST",
+        })
+      )
+    )
+    expect(
+      await screen.findByRole("button", { name: "打开任务概览" })
+    ).toBeVisible()
+    expect(screen.queryByText("任务概览")).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(document.querySelector(".conversation-workspace")).toBe(
+        initialWorkspace
+      )
+    )
+    expect(initialWorkspace).not.toHaveAttribute("data-task-overview-open")
+    expect(screen.getByRole("textbox", { name: "任务输入框" })).toBe(composer)
+
+    await interaction.click(
+      screen.getByRole("button", { name: "打开任务概览" })
+    )
+    expect(await screen.findByText("任务概览")).toBeVisible()
+    expect(initialWorkspace).toHaveAttribute("data-task-overview-open", "true")
+  })
+
   it("keeps starter questions hidden while the first new-task message is being created", async () => {
     let releaseNewTaskDraft: (() => void) | undefined
     const newTaskDraftStart = new Promise<void>((resolve) => {

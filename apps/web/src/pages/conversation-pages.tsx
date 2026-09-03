@@ -494,6 +494,12 @@ export function ConversationPage({
     pendingFirstMessageConversationId,
     setPendingFirstMessageConversationId,
   ] = useState<string | null>(null)
+  const [
+    taskOverviewSuppressedConversationId,
+    setTaskOverviewSuppressedConversationId,
+  ] = useState<string | null>(null)
+  const [newTaskPromotionConversationId, setNewTaskPromotionConversationId] =
+    useState<string | null>(null)
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<string[]>(
     []
   )
@@ -681,6 +687,13 @@ export function ConversationPage({
   const dispatchedInterruptTurnIdsRef = useRef(new Set<string>())
 
   useLayoutEffect(() => {
+    const previousRouteConversationId = routeConversationIdRef.current
+    if (
+      previousRouteConversationId !== currentRouteConversationId &&
+      currentRouteConversationId === null
+    ) {
+      setNewTaskResetVersion((current) => current + 1)
+    }
     routeEpochRef.current += 1
     routeConversationIdRef.current = currentRouteConversationId
   }, [currentRouteConversationId, location.key, newTaskResetVersion])
@@ -1077,6 +1090,8 @@ export function ConversationPage({
       return
     }
     setPendingFirstMessageConversationId(null)
+    setTaskOverviewSuppressedConversationId(null)
+    setNewTaskPromotionConversationId(null)
     setValue("")
     setGoalMode(false)
     setNewTaskCollaborationMode("default")
@@ -2287,6 +2302,8 @@ export function ConversationPage({
         routeEpochRef.current === routeEpoch &&
         routeConversationIdRef.current === null
       ) {
+        setNewTaskPromotionConversationId(draft.id)
+        setTaskOverviewSuppressedConversationId(draft.id)
         synchronizeDraftMetadata(draft)
         routeConversationIdRef.current = draft.id
         if (suppressEmptyStateUntilFirstMessage) {
@@ -4769,10 +4786,16 @@ export function ConversationPage({
     />
   ) : null
   const blockingPanelActive = blockingPanel !== null
+  const taskOverviewSuppressed =
+    taskOverviewSuppressedConversationId === conversationId
+  const composerInstanceId =
+    newTaskPromotionConversationId === displayConversation.id
+      ? newConversationPlaceholderId
+      : displayConversation.id
 
   return (
     <ConversationOfficeLayout
-      taskOverviewOpen={!isNew && taskOverviewOpen}
+      taskOverviewOpen={!isNew && !taskOverviewSuppressed && taskOverviewOpen}
       defaultPreviewViewportRatio={
         activeSubAgent ? DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO : undefined
       }
@@ -4999,10 +5022,14 @@ export function ConversationPage({
               key={conversationId}
               events={visibleEvents}
               files={overviewFiles}
+              defaultOpen={!taskOverviewSuppressed && taskOverviewOpen}
               subAgentSummariesByTurnId={subAgentSummariesByTurnId}
               downloadingFileId={downloadingFileId}
               onDownload={handleDownloadArtifact}
-              onOpenChange={setTaskOverviewOpen}
+              onOpenChange={(open) => {
+                setTaskOverviewSuppressedConversationId(null)
+                setTaskOverviewOpen(open)
+              }}
             />
           )}
           {headerActions}
@@ -5234,7 +5261,7 @@ export function ConversationPage({
         {!blockingPanelActive && (
           <ConversationComposer
             ref={composerRef}
-            key={`${displayConversation.id}:${newTaskResetVersion}`}
+            key={`${composerInstanceId}:${newTaskResetVersion}`}
             value={value}
             onValueChange={setValue}
             capabilities={availableCapabilities}
