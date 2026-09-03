@@ -6,8 +6,16 @@ import adminFeedbackPageSource from "@/pages/admin-feedback-page.tsx?raw"
 import { describe, expect, it } from "vitest"
 
 describe("image display containment", () => {
-  it("keeps image previews complete while allowing avatars to crop", () => {
-    expect(appStyles).not.toMatch(/object-fit:\s*cover;/u)
+  it("keeps full image previews complete while allowing thumbnails and avatars to crop", () => {
+    expect(appStyles).toMatch(
+      /\.image-preview-image\s*\{[^}]*object-fit:\s*contain;/u
+    )
+    expect(appStyles).toMatch(
+      /\.assistant-markdown img:not\(\.conversation-image-thumbnail-image\)\s*\{[^}]*object-fit:\s*contain;/u
+    )
+    expect(appStyles).toMatch(
+      /\.conversation-image-thumbnail-image,\s*\.native-activity-image-preview-image\s*\{[^}]*object-fit:\s*cover;/u
+    )
 
     const previewSources = [
       adminFeedbackPageSource,
