@@ -406,7 +406,10 @@ jobs:
           set -euo pipefail
           export RELEASE_BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           mkdir release-assets
-          install -m 0755 deploy/release/linksense-installer.sh release-assets/
+          install -m 0755 \
+            deploy/release/linksense-installer.sh \
+            deploy/release/linksense-cli.sh \
+            release-assets/
           install -m 0644 \
             LICENSE \
             deploy/release/compose.common.yml \

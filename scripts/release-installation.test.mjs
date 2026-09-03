@@ -40,6 +40,7 @@ test("the five release entry scripts download only their matching release entry"
     "-n",
     path.join(releaseDirectory, "linksense-installer.sh"),
   ])
+  execFileSync("sh", ["-n", path.join(releaseDirectory, "linksense-cli.sh")])
 })
 
 test("the release gateway preserves the public protocol reported by a reverse proxy", async () => {
@@ -159,12 +160,161 @@ test("the installer checks the host before creating persistent state", async () 
   )
   assert.match(
     source,
-    /for resource in LICENSE compose\.common\.yml "compose\.\$EDITION\.yml" gateway\.conf\.template/u,
+    /for resource in LICENSE compose\.common\.yml "compose\.\$EDITION\.yml" gateway\.conf\.template linksense-cli\.sh "repair-\$EDITION\.sh" upgrade\.sh/u,
   )
   assert.match(source, /RESOURCE_LICENSE_SHA256/u)
+  assert.match(source, /RESOURCE_CLI_SHA256/u)
   assert.match(source, /RESOURCE_UPGRADE_SHA256/u)
+  assert.match(source, /activate_management_cli/u)
+  assert.match(source, /STATE_RELEASE_BASE_URL=\$RELEASE_RESOURCE_BASE/u)
+  assert.match(source, /\/usr\/local\/bin\/linksense/u)
+  assert.match(source, /\$HOME\/\.local\/bin\/linksense/u)
+  assert.match(source, /exec sudo env LINKSENSE_INSTALL_DIR=/u)
+  assert.match(source, /LINKSENSE_CLI_LANGUAGE=/u)
+  assert.match(source, /LINKSENSE_RELEASE_BASE_URL=/u)
   assert.doesNotMatch(source, /^\s*\. "\$INSTALL_DIR\/\.env"/mu)
   assert.doesNotMatch(source, /docker\s+(?:system\s+)?prune|compose\s+down\s+-v|volume\s+rm|reset --hard/iu)
+})
+
+test("the generated Linux management launcher elevates before entering the protected install directory", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-launcher-"))
+  try {
+    const bin = path.join(directory, "bin")
+    const installDirectory = path.join(directory, "install")
+    const launcher = path.join(directory, "linksense")
+    const trace = path.join(directory, "trace")
+    await mkdir(bin)
+    await mkdir(path.join(installDirectory, "bin"), { recursive: true })
+    await writeExecutable(
+      path.join(bin, "id"),
+      '#!/bin/sh\nprintf "%s\\n" "${LINKSENSE_TEST_UID:-1000}"\n',
+    )
+    await writeExecutable(
+      path.join(bin, "sudo"),
+      '#!/bin/sh\nprintf "sudo %s\\n" "$*" >> "$LINKSENSE_TEST_TRACE"\n',
+    )
+    await writeExecutable(
+      path.join(installDirectory, "bin", "linksense-cli.sh"),
+      '#!/bin/sh\nprintf "cli language=%s args=%s\\n" "${LINKSENSE_CLI_LANGUAGE:-}" "$*" >> "$LINKSENSE_TEST_TRACE"\n',
+    )
+
+    const installer = await readFile(
+      path.join(releaseDirectory, "linksense-installer.sh"),
+      "utf8",
+    )
+    const functionStart = installer.indexOf("activate_management_cli() {")
+    const functionEnd = installer.indexOf("\nvalidate_managed_volume() {", functionStart)
+    assert.ok(functionStart > 0 && functionEnd > functionStart)
+    const activateFunction = installer
+      .slice(functionStart, functionEnd)
+      .replace(
+        "launcher_path=/usr/local/bin/linksense",
+        `launcher_path=${launcher}`,
+      )
+      .replace("install -d -m 0755 /usr/local/bin", ":")
+    const harness = path.join(directory, "generate-launcher.sh")
+    await writeExecutable(
+      harness,
+      `#!/bin/sh
+set -eu
+HOST_OS=Linux
+HOME=${directory}
+INSTALL_DIR=${installDirectory}
+TMP_ROOT=${directory}
+log() { :; }
+fail() { printf '%s\\n' "$*" >&2; exit 1; }
+${activateFunction}
+activate_management_cli
+`,
+    )
+    execFileSync("/bin/sh", [harness])
+    execFileSync("/bin/sh", ["-n", launcher])
+
+    const userResult = spawnSync("/bin/sh", [launcher, "upgrade", "v0.3.0"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        LINKSENSE_CLI_LANGUAGE: "zh-CN",
+        LINKSENSE_RELEASE_BASE_URL:
+          "https://downloads.example/linksense-v0.3.0",
+        LINKSENSE_TEST_TRACE: trace,
+        PATH: `${bin}:/usr/bin:/bin`,
+      },
+    })
+    assert.equal(userResult.status, 0, userResult.stderr)
+    const userTrace = await readFile(trace, "utf8")
+    assert.match(userTrace, /^sudo env LINKSENSE_INSTALL_DIR=/mu)
+    assert.match(userTrace, /LINKSENSE_CLI_LANGUAGE=zh-CN/u)
+    assert.match(userTrace, /LINKSENSE_RELEASE_BASE_URL=https:\/\/downloads\.example\/linksense-v0\.3\.0/u)
+    assert.match(userTrace, /linksense-cli\.sh upgrade v0\.3\.0/u)
+
+    await writeFile(trace, "")
+    const rootResult = spawnSync("/bin/sh", [launcher, "status"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        LINKSENSE_CLI_LANGUAGE: "en-US",
+        LINKSENSE_TEST_TRACE: trace,
+        LINKSENSE_TEST_UID: "0",
+        PATH: `${bin}:/usr/bin:/bin`,
+      },
+    })
+    assert.equal(rootResult.status, 0, rootResult.stderr)
+    assert.match(await readFile(trace, "utf8"), /cli language=en-US args=status/u)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("the generated macOS management launcher stays in the Docker Desktop user context", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-macos-launcher-"))
+  try {
+    const installDirectory = path.join(directory, "install")
+    const trace = path.join(directory, "trace")
+    await mkdir(path.join(installDirectory, "bin"), { recursive: true })
+    await writeExecutable(
+      path.join(installDirectory, "bin", "linksense-cli.sh"),
+      '#!/bin/sh\nprintf "install=%s args=%s\\n" "$LINKSENSE_INSTALL_DIR" "$*" > "$LINKSENSE_TEST_TRACE"\n',
+    )
+    const installer = await readFile(
+      path.join(releaseDirectory, "linksense-installer.sh"),
+      "utf8",
+    )
+    const functionStart = installer.indexOf("activate_management_cli() {")
+    const functionEnd = installer.indexOf("\nvalidate_managed_volume() {", functionStart)
+    const activateFunction = installer.slice(functionStart, functionEnd)
+    const harness = path.join(directory, "generate-launcher.sh")
+    await writeExecutable(
+      harness,
+      `#!/bin/sh
+set -eu
+HOST_OS=Darwin
+HOME=${directory}
+PATH=/usr/bin:/bin
+INSTALL_DIR=${installDirectory}
+TMP_ROOT=${directory}
+log() { :; }
+fail() { printf '%s\\n' "$*" >&2; exit 1; }
+${activateFunction}
+activate_management_cli
+`,
+    )
+    execFileSync("/bin/sh", [harness])
+    const launcher = path.join(directory, ".local", "bin", "linksense")
+    execFileSync("/bin/sh", ["-n", launcher])
+    const result = spawnSync("/bin/sh", [launcher, "status"], {
+      encoding: "utf8",
+      env: { ...process.env, LINKSENSE_TEST_TRACE: trace },
+    })
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(
+      await readFile(trace, "utf8"),
+      `install=${installDirectory} args=status\n`,
+    )
+    assert.doesNotMatch(await readFile(launcher, "utf8"), /sudo/u)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test("the installer validates custom ports and preserves an installed port", async () => {
@@ -858,6 +1008,7 @@ test("the private-source release workflow validates candidates before promotion"
   assert.match(workflow, /gh release download "\$RELEASE_VERSION" --dir verified-release-assets/u)
   assert.match(workflow, /sha256sum -c "\$GITHUB_WORKSPACE\/release-assets\/SHA256SUMS"/u)
   assert.match(workflow, /install -m 0644 \\\n\s+LICENSE/u)
+  assert.match(workflow, /deploy\/release\/linksense-cli\.sh/u)
   assert.doesNotMatch(workflow, /environment: public-release/u)
   assert.doesNotMatch(workflow, /attestations: write/u)
   assert.doesNotMatch(workflow, /actions\/attest-build-provenance/u)
@@ -997,6 +1148,13 @@ test("the release manifest generator records immutable images and artifact hashe
       manifest,
       new RegExp(
         `RESOURCE_UPGRADE_SHA256=${createHash("sha256").update(upgrade).digest("hex")}`,
+      ),
+    )
+    const cli = await readFile(path.join(assetDirectory, "linksense-cli.sh"))
+    assert.match(
+      manifest,
+      new RegExp(
+        `RESOURCE_CLI_SHA256=${createHash("sha256").update(cli).digest("hex")}`,
       ),
     )
   } finally {

@@ -62,6 +62,25 @@ curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh 
 
 macOS 使用相同命令但不加 `sudo`。修复脚本固定使用已安装版本；升级脚本自动识别 Core/Full，在数据库迁移前等待运行中的任务结束，并把经过校验的 PostgreSQL 备份保存到 `volume://linksense-backups/postgres/`。脚本不会删除数据卷；迁移开始后的失败不会自动回滚数据库，请保留终端显示的备份地址并在排查后重新执行升级脚本。
 
+## 命令行管理
+
+安装完成后，运行 `linksense` 进入交互式管理菜单，也可以直接执行子命令：
+
+```bash
+linksense status
+linksense start
+linksense stop
+linksense restart
+linksense port 19090
+linksense credential
+linksense logs api
+linksense doctor
+linksense repair
+linksense upgrade v0.3.0
+```
+
+Linux 会在需要时请求 `sudo`，macOS 需要把 `$HOME/.local/bin` 加入 `PATH` 并且不要使用 `sudo`。修改端口前会检查占用情况，只重建受影响的服务；健康检查失败时自动恢复原配置。只有创建首个管理员前，凭证命令才会显示一次性初始化凭据。
+
 ## 推荐配置
 
 | 版本 | 推荐 CPU | 推荐内存 | 推荐 SSD 可用空间 | 适用场景 |

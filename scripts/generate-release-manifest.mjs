@@ -41,6 +41,7 @@ const resourcePaths = {
   COMPOSE_CORE: "compose.core.yml",
   COMPOSE_FULL: "compose.full.yml",
   GATEWAY: "gateway.conf.template",
+  CLI: "linksense-cli.sh",
   INSTALLER_ENGINE: "linksense-installer.sh",
   INSTALL_CORE: "install-core.sh",
   INSTALL_FULL: "install-full.sh",

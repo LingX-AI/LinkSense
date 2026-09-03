@@ -62,6 +62,25 @@ curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh 
 
 Run the same commands without `sudo` on macOS. Repair scripts stay on the installed release. The upgrade script detects Core/Full, waits for active work, and stores a validated PostgreSQL backup under `volume://linksense-backups/postgres/` before migration. No data volume is deleted. A failure after migration begins does not trigger an automatic database rollback; retain the printed backup location and rerun the upgrade after reviewing diagnostics.
 
+## Command-line management
+
+After installation, run `linksense` to open the interactive control menu, or use direct commands:
+
+```bash
+linksense status
+linksense start
+linksense stop
+linksense restart
+linksense port 19090
+linksense credential
+linksense logs api
+linksense doctor
+linksense repair
+linksense upgrade v0.3.0
+```
+
+Linux requests `sudo` when needed. On macOS, add `$HOME/.local/bin` to `PATH` and run the command without `sudo`. Port changes validate availability, recreate only affected services, and automatically restore the previous configuration after a failed health check. The credential command displays the one-time credential only before the first administrator is created.
+
 ## Recommended configuration
 
 | Edition | Recommended CPU | Recommended memory | Recommended free SSD space | Best for |

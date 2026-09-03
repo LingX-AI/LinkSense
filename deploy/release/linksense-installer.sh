@@ -19,6 +19,7 @@ UPGRADE_PENDING_EXISTED=false
 UPGRADE_BACKUP_URI=
 UPGRADE_PREVIOUS_DIR=
 UPGRADE_PREVIOUS_TOKENIZER_REVISION=
+RELEASE_RESOURCE_BASE=
 
 HOST_OS=$(uname -s)
 HOST_ARCHITECTURE=$(uname -m)
@@ -481,7 +482,7 @@ fetch_manifest() {
   [ "${MIN_DOCKER_COMPOSE:-}" = "$REQUIRED_COMPOSE_VERSION" ] || fail "The release manifest has an inconsistent Docker Compose requirement."
   [ "${CORE_MIN_MEMORY_GIB:-}" = 8 ] || fail "The release manifest has inconsistent Core host requirements."
   [ "${FULL_MIN_MEMORY_GIB:-}" = 16 ] || fail "The release manifest has inconsistent Full host requirements."
-  for required_hash in RESOURCE_LICENSE_SHA256 RESOURCE_COMPOSE_COMMON_SHA256 RESOURCE_COMPOSE_CORE_SHA256 RESOURCE_COMPOSE_FULL_SHA256 RESOURCE_GATEWAY_SHA256 RESOURCE_INSTALLER_ENGINE_SHA256 RESOURCE_INSTALL_CORE_SHA256 RESOURCE_INSTALL_FULL_SHA256 RESOURCE_REPAIR_CORE_SHA256 RESOURCE_REPAIR_FULL_SHA256 RESOURCE_UPGRADE_SHA256; do
+  for required_hash in RESOURCE_LICENSE_SHA256 RESOURCE_COMPOSE_COMMON_SHA256 RESOURCE_COMPOSE_CORE_SHA256 RESOURCE_COMPOSE_FULL_SHA256 RESOURCE_GATEWAY_SHA256 RESOURCE_CLI_SHA256 RESOURCE_INSTALLER_ENGINE_SHA256 RESOURCE_INSTALL_CORE_SHA256 RESOURCE_INSTALL_FULL_SHA256 RESOURCE_REPAIR_CORE_SHA256 RESOURCE_REPAIR_FULL_SHA256 RESOURCE_UPGRADE_SHA256; do
     eval "hash_value=\${$required_hash:-}"
     printf '%s' "$hash_value" | grep -Eq '^[0-9a-f]{64}$' || fail "The release manifest is missing a valid $required_hash."
   done
@@ -524,15 +525,20 @@ fetch_release_resources() {
   else
     base=$RELEASE_ASSET_BASE_URL
   fi
+  RELEASE_RESOURCE_BASE=$base
   stage=$TMP_ROOT/resources
   mkdir "$stage"
-  for resource in LICENSE compose.common.yml "compose.$EDITION.yml" gateway.conf.template; do
+  for resource in LICENSE compose.common.yml "compose.$EDITION.yml" gateway.conf.template linksense-cli.sh "repair-$EDITION.sh" upgrade.sh; do
     case "$resource" in
       LICENSE) expected=$RESOURCE_LICENSE_SHA256 ;;
       compose.common.yml) expected=$RESOURCE_COMPOSE_COMMON_SHA256 ;;
       compose.core.yml) expected=$RESOURCE_COMPOSE_CORE_SHA256 ;;
       compose.full.yml) expected=$RESOURCE_COMPOSE_FULL_SHA256 ;;
       gateway.conf.template) expected=$RESOURCE_GATEWAY_SHA256 ;;
+      linksense-cli.sh) expected=$RESOURCE_CLI_SHA256 ;;
+      repair-core.sh) expected=$RESOURCE_REPAIR_CORE_SHA256 ;;
+      repair-full.sh) expected=$RESOURCE_REPAIR_FULL_SHA256 ;;
+      upgrade.sh) expected=$RESOURCE_UPGRADE_SHA256 ;;
     esac
     download "$base/$resource" "$stage/$resource"
     verify_file "$stage/$resource" "$expected"
@@ -710,6 +716,56 @@ install_resources() {
   install -m 0644 "$TMP_ROOT/release-manifest.env" "$INSTALL_DIR/release-manifest.env"
   printf '%s  %s\n' "$MANIFEST_SHA256" release-manifest.env > "$INSTALL_DIR/release-manifest.env.sha256"
   chmod 0644 "$INSTALL_DIR/release-manifest.env.sha256"
+  install -d -m 0700 "$INSTALL_DIR/bin"
+  install -m 0755 "$TMP_ROOT/resources/linksense-cli.sh" "$INSTALL_DIR/bin/linksense-cli.sh"
+  install -m 0755 "$TMP_ROOT/resources/repair-$EDITION.sh" "$INSTALL_DIR/bin/repair-$EDITION.sh"
+  install -m 0755 "$TMP_ROOT/resources/upgrade.sh" "$INSTALL_DIR/bin/upgrade.sh"
+}
+
+activate_management_cli() {
+  launcher_tmp=$TMP_ROOT/linksense-launcher
+  {
+    printf '%s\n' '#!/bin/sh' '# LinkSense managed launcher; updated by install, repair, and upgrade.'
+    if [ "$HOST_OS" = Linux ]; then
+      printf '%s\n' \
+        'cli_language=${LINKSENSE_CLI_LANGUAGE:-${LC_ALL:-${LC_MESSAGES:-${LANG:-en-US}}}}' \
+        'if [ "$(id -u)" -eq 0 ]; then' \
+        "  exec env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\"" \
+        'fi' \
+        'command -v sudo >/dev/null 2>&1 || {' \
+        '  printf "%s\\n" "Managing LinkSense requires root privileges, but sudo is not installed." >&2' \
+        '  exit 1' \
+        '}' \
+        'if [ -n "${LINKSENSE_RELEASE_BASE_URL:-}" ]; then' \
+        "  exec sudo env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" \"LINKSENSE_RELEASE_BASE_URL=\$LINKSENSE_RELEASE_BASE_URL\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\"" \
+        'fi' \
+        "exec sudo env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\""
+      launcher_path=/usr/local/bin/linksense
+      install -d -m 0755 /usr/local/bin
+    else
+      printf '%s\n' \
+        "LINKSENSE_INSTALL_DIR=$INSTALL_DIR" \
+        'export LINKSENSE_INSTALL_DIR' \
+        "exec $INSTALL_DIR/bin/linksense-cli.sh \"\$@\""
+      install -d -m 0755 "$HOME/.local/bin"
+      launcher_path=$HOME/.local/bin/linksense
+    fi
+  } > "$launcher_tmp"
+  chmod 0755 "$launcher_tmp"
+  if [ -e "$launcher_path" ] && [ ! -f "$launcher_path" ]; then
+    fail "Refusing to replace a non-file LinkSense command at $launcher_path."
+  fi
+  if [ -f "$launcher_path" ] && ! grep -F 'LinkSense managed launcher' "$launcher_path" >/dev/null 2>&1; then
+    fail "Refusing to replace an unmanaged command at $launcher_path."
+  fi
+  install -m 0755 "$launcher_tmp" "$launcher_path"
+  log "Management command installed: linksense"
+  if [ "$HOST_OS" = Darwin ]; then
+    case ":$PATH:" in
+      *":$HOME/.local/bin:"*) ;;
+      *) log "Add $HOME/.local/bin to PATH to run the linksense command from any directory." ;;
+    esac
+  fi
 }
 
 validate_managed_volume() {
@@ -1098,6 +1154,7 @@ write_success_state() {
       "STATE_INSTALL_DIR=$INSTALL_DIR" \
       "STATE_ENV_FILE=$INSTALL_DIR/.env" \
       "STATE_HTTP_PORT=$HTTP_PORT" \
+      "STATE_RELEASE_BASE_URL=$RELEASE_RESOURCE_BASE" \
       "STATE_COMPOSE_COMMON_SHA256=$RESOURCE_COMPOSE_COMMON_SHA256" \
       "STATE_COMPOSE_EDITION_SHA256=$edition_compose_sha" \
       "STATE_GATEWAY_CONFIG_SHA256=$RESOURCE_GATEWAY_SHA256" \
@@ -1230,6 +1287,7 @@ install_action() {
   wait_for_health
   run_full_release_probe
   log_stage "Stage 7/7: record the verified installation state."
+  activate_management_cli
   write_success_state "$installed_at"
   log "Installed LinkSense $EDITION $RELEASE_VERSION successfully."
   log "Install directory: $INSTALL_DIR"
@@ -1271,6 +1329,7 @@ repair_action() {
   wait_for_health
   run_full_release_probe
   log_stage "Stage 7/7: record the verified repair state."
+  activate_management_cli
   write_success_state "$STATE_INSTALLED_AT"
   log "Repaired LinkSense $EDITION $state_release successfully without changing secrets or data volumes."
   log "Open: $LINKSENSE_PUBLIC_BASE_URL"
@@ -1384,6 +1443,7 @@ upgrade_action() {
   wait_for_health
   run_full_release_probe
   log_stage "Stage 9/9: record the verified upgrade state."
+  activate_management_cli
   write_success_state "$UPGRADE_INSTALLED_AT"
   log "Upgraded LinkSense $EDITION from $UPGRADE_FROM_VERSION to $RELEASE_VERSION successfully."
   log "Pre-upgrade database backup: $UPGRADE_BACKUP_URI"
