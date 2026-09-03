@@ -354,11 +354,11 @@ preflight() {
   printf '%s' "$memory_bytes" | grep -Eq '^[1-9][0-9]*$' || fail "Could not determine memory available to the Docker Engine."
   memory_kb=$((memory_bytes / 1024))
   if [ "$EDITION" = full ]; then
-    required_disk_kb=$((80 * 1024 * 1024))
+    required_disk_kb=$((40 * 1024 * 1024))
     required_memory_kb=$((16 * 1024 * 1024))
     required_inodes=200000
   else
-    required_disk_kb=$((40 * 1024 * 1024))
+    required_disk_kb=$((20 * 1024 * 1024))
     required_memory_kb=$((8 * 1024 * 1024))
     required_inodes=100000
   fi
@@ -466,8 +466,8 @@ fetch_manifest() {
   esac
   [ "${MIN_DOCKER_API:-}" = "$REQUIRED_DOCKER_API" ] || fail "The release manifest has an inconsistent Docker API requirement."
   [ "${MIN_DOCKER_COMPOSE:-}" = "$REQUIRED_COMPOSE_VERSION" ] || fail "The release manifest has an inconsistent Docker Compose requirement."
-  [ "${CORE_MIN_MEMORY_GIB:-}" = 8 ] && [ "${CORE_MIN_DISK_GIB:-}" = 40 ] && [ "${CORE_MIN_FREE_INODES:-}" = 100000 ] || fail "The release manifest has inconsistent Core host requirements."
-  [ "${FULL_MIN_MEMORY_GIB:-}" = 16 ] && [ "${FULL_MIN_DISK_GIB:-}" = 80 ] && [ "${FULL_MIN_FREE_INODES:-}" = 200000 ] || fail "The release manifest has inconsistent Full host requirements."
+  [ "${CORE_MIN_MEMORY_GIB:-}" = 8 ] && [ "${CORE_MIN_DISK_GIB:-}" = 20 ] && [ "${CORE_MIN_FREE_INODES:-}" = 100000 ] || fail "The release manifest has inconsistent Core host requirements."
+  [ "${FULL_MIN_MEMORY_GIB:-}" = 16 ] && [ "${FULL_MIN_DISK_GIB:-}" = 40 ] && [ "${FULL_MIN_FREE_INODES:-}" = 200000 ] || fail "The release manifest has inconsistent Full host requirements."
   for required_hash in RESOURCE_LICENSE_SHA256 RESOURCE_COMPOSE_COMMON_SHA256 RESOURCE_COMPOSE_CORE_SHA256 RESOURCE_COMPOSE_FULL_SHA256 RESOURCE_GATEWAY_SHA256 RESOURCE_INSTALLER_ENGINE_SHA256 RESOURCE_INSTALL_CORE_SHA256 RESOURCE_INSTALL_FULL_SHA256 RESOURCE_REPAIR_CORE_SHA256 RESOURCE_REPAIR_FULL_SHA256 RESOURCE_UPGRADE_SHA256; do
     eval "hash_value=\${$required_hash:-}"
     printf '%s' "$hash_value" | grep -Eq '^[0-9a-f]{64}$' || fail "The release manifest is missing a valid $required_hash."

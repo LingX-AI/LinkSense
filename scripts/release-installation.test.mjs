@@ -882,6 +882,8 @@ test("the release manifest generator records immutable images and artifact hashe
     const manifest = await readFile(output, "utf8")
     assert.match(manifest, /^MANIFEST_FORMAT=2$/mu)
     assert.match(manifest, /RELEASE_VERSION=v0\.1\.0/u)
+    assert.match(manifest, /^CORE_MIN_DISK_GIB=20$/mu)
+    assert.match(manifest, /^FULL_MIN_DISK_GIB=40$/mu)
     assert.match(
       manifest,
       /^RELEASE_PLATFORMS=linux-amd64,linux-arm64$/mu,

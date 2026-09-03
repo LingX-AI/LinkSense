@@ -24,7 +24,7 @@ We provide a lightweight Core edition and a Full edition with complete knowledge
 - Release images support both `linux/amd64` and `linux/arm64`. Docker automatically selects the matching image.
 - Install `curl`; start a local Linux Docker Engine with API v1.45+ and Docker Compose v2.24.4+.
 - Keep TCP port `10080` free and allow access to GitHub, GHCR, upstream registries, and Full tokenizer files.
-- Core requires 8 GiB memory and 40 GiB free space. Full requires 16 GiB memory and 80 GiB free space.
+- Core requires at least 8 GiB memory and 20 GiB free space. Full requires at least 16 GiB memory and 40 GiB free space. These are installation minimums; use the recommended capacity below for production workloads, upgrades, backups, and data growth.
 - Linux additionally requires 100,000 free inodes for Core or 200,000 for Full.
 
 The installer validates the host and Docker platform before writing persistent state, then generates runtime secrets. On macOS, allocate enough memory and disk to Docker Desktop first. A domain and HTTPS are optional for local startup; public deployments should place an HTTPS reverse proxy in front of port `10080`.

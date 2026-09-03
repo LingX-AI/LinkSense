@@ -24,7 +24,7 @@ LinkSense 是我们面向组织打造的自托管 AI Agent 平台。我们将 AI
 - 发行镜像同时支持 `linux/amd64` 和 `linux/arm64`，Docker 会自动选择与当前环境匹配的镜像。
 - 提前安装 `curl`，启动本机 Linux Docker Engine；Docker API 不低于 v1.45，Docker Compose 不低于 v2.24.4。
 - TCP 端口 `10080` 必须空闲，并允许访问 GitHub、GHCR、上游镜像仓库；Full 还需要下载 tokenizer 文件。
-- Core 至少需要 8 GiB 内存和 40 GiB 可用空间；Full 至少需要 16 GiB 内存和 80 GiB 可用空间。
+- Core 至少需要 8 GiB 内存和 20 GiB 可用空间；Full 至少需要 16 GiB 内存和 40 GiB 可用空间。这些是安装下限；生产负载、版本升级、数据备份和长期数据增长应采用下方的推荐容量。
 - Linux 还需要为 Core 保留 100,000 个可用 inode，或为 Full 保留 200,000 个可用 inode。
 
 安装器会在写入持久数据前检查主机与 Docker 平台，并自动生成运行密钥。macOS 用户需要先在 Docker Desktop 中分配足够的内存和磁盘。域名和 HTTPS 不是本地启动的前置条件；公网部署建议在端口 `10080` 前配置 HTTPS 反向代理。
