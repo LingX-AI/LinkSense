@@ -2016,10 +2016,9 @@ describe("ConversationService ownership and draft lifecycle", () => {
     fixture.prisma.conversationTurn.findMany.mockResolvedValueOnce([
       latestPlanTurn,
     ]);
-    fixture.prisma.conversationEvent.findFirst
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ sseEventId: `${CONVERSATION_ID}:900` });
-
+    fixture.prisma.conversationEvent.findFirst.mockResolvedValueOnce({
+      sseEventId: `${CONVERSATION_ID}:900`,
+    });
     const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
 
     expect(result.conversation).toMatchObject({
@@ -2247,14 +2246,11 @@ describe("ConversationService ownership and draft lifecycle", () => {
     );
   });
 
-  it("keeps transient stream events from displacing durable detail events", async () => {
+  it("does not advance the detail cursor past durable events returned in the snapshot", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValueOnce(
       conversationRow(),
     );
-    fixture.prisma.conversationEvent.findFirst.mockResolvedValueOnce({
-      sseEventId: `${CONVERSATION_ID}:950`,
-    });
 
     const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
 
@@ -2277,16 +2273,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       orderBy: { sequenceNo: "desc" },
       take: 200,
     });
-    expect(fixture.prisma.conversationEvent.findFirst).toHaveBeenCalledWith({
-      where: {
-        conversationId: CONVERSATION_ID,
-        OR: [{ turnId: null }, { turnId: { in: [] } }],
-        visibility: { in: ["user_visible", "user_collapsed"] },
-      },
-      orderBy: [{ sequenceNo: "desc" }, { id: "desc" }],
-      select: { sseEventId: true },
-    });
-    expect(result.last_event_id).toBe(`${CONVERSATION_ID}:950`);
+    expect(result.last_event_id).toBeUndefined();
     expect(fixture.prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
@@ -2351,23 +2338,86 @@ describe("ConversationService ownership and draft lifecycle", () => {
         sseEventId: `${CONVERSATION_ID}:860`,
       }),
     ]);
-    fixture.prisma.conversationEvent.findFirst.mockResolvedValueOnce({
-      sseEventId: `${CONVERSATION_ID}:950`,
-    });
 
     const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
 
-    expect(fixture.prisma.conversationEvent.findFirst).toHaveBeenCalledWith({
-      where: {
-        conversationId: CONVERSATION_ID,
-        OR: [{ turnId: null }, { turnId: { in: [activeTurn.id] } }],
-        visibility: { in: ["user_visible", "user_collapsed"] },
-      },
-      orderBy: [{ sequenceNo: "desc" }, { id: "desc" }],
-      select: { sseEventId: true },
-    });
     expect(result.last_event_id).toBe(`${CONVERSATION_ID}:800`);
     expect(result.conversation.execution_status).toBe("running");
+  });
+
+  it("uses a native terminal event to correct a stale running detail row", async () => {
+    const fixture = await conversationFixture();
+    const activeTurn = turnRow({
+      id: TURN_ID,
+      codexThreadId: "codex-thread-active",
+      status: "running",
+    });
+    const assistantMessageId = "50000000-0000-4000-8000-000000000090";
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(
+      conversationRow({
+        codexThreadId: "codex-thread-active",
+        lastTurnStatus: "running",
+      }),
+    );
+    fixture.prisma.conversationTurn.findMany.mockResolvedValueOnce([
+      activeTurn,
+    ]);
+    fixture.prisma.conversationMessage.findMany.mockResolvedValueOnce([
+      messageRow({
+        id: assistantMessageId,
+        turnId: activeTurn.id,
+        role: "assistant",
+        contentText: "任务已经完成。",
+      }),
+    ]);
+    fixture.prisma.conversationEvent.findMany.mockResolvedValueOnce([
+      nativeAssistantMessageCompletedEvent({
+        turn: activeTurn,
+        messageId: assistantMessageId,
+        sequenceNo: 900n,
+      }),
+      nativeTurnCompletedEvent(activeTurn, 901n),
+    ]);
+
+    const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+
+    expect(result.conversation.execution_status).toBe("completed");
+    expect(result).not.toHaveProperty("running_turn");
+    expect(result.turns).toEqual([
+      expect.objectContaining({ id: activeTurn.id, status: "completed" }),
+    ]);
+    expect(result.last_event_id).toBe(`${CONVERSATION_ID}:901`);
+  });
+
+  it("replays a terminal assistant item when its message missed the detail snapshot", async () => {
+    const fixture = await conversationFixture();
+    const activeTurn = turnRow({
+      id: TURN_ID,
+      codexThreadId: "codex-thread-active",
+      status: "running",
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(
+      conversationRow({
+        codexThreadId: "codex-thread-active",
+        lastTurnStatus: "running",
+      }),
+    );
+    fixture.prisma.conversationTurn.findMany.mockResolvedValueOnce([
+      activeTurn,
+    ]);
+    fixture.prisma.conversationEvent.findMany.mockResolvedValueOnce([
+      nativeAssistantMessageCompletedEvent({
+        turn: activeTurn,
+        messageId: "50000000-0000-4000-8000-000000000091",
+        sequenceNo: 900n,
+      }),
+      nativeTurnCompletedEvent(activeTurn, 901n),
+    ]);
+
+    const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+
+    expect(result.conversation.execution_status).toBe("completed");
+    expect(result.last_event_id).toBe(`${CONVERSATION_ID}:899`);
   });
 
   it("projects current-turn guidance metadata outside the bounded detail event window", async () => {
@@ -2492,15 +2542,6 @@ describe("ConversationService ownership and draft lifecycle", () => {
       },
       orderBy: { sequenceNo: "desc" },
       take: 200,
-    });
-    expect(fixture.prisma.conversationEvent.findFirst).toHaveBeenCalledWith({
-      where: {
-        conversationId: CONVERSATION_ID,
-        OR: [{ turnId: null }, { turnId: { in: [activeTurn.id] } }],
-        visibility: { in: ["user_visible", "user_collapsed"] },
-      },
-      orderBy: [{ sequenceNo: "desc" }, { id: "desc" }],
-      select: { sseEventId: true },
     });
   });
 
@@ -11281,6 +11322,60 @@ function eventRow(overrides: Record<string, unknown> = {}) {
     createdAt: NOW,
     ...overrides,
   };
+}
+
+function nativeAssistantMessageCompletedEvent(input: {
+  turn: ReturnType<typeof turnRow>;
+  messageId: string;
+  sequenceNo: bigint;
+}) {
+  return eventRow({
+    id: `50000000-0000-4000-8000-${input.sequenceNo.toString().padStart(12, "0")}`,
+    turnId: input.turn.id,
+    sequenceNo: input.sequenceNo,
+    eventType: "item/completed",
+    visibility: "user_visible",
+    payloadJson: {
+      schema_version: 2,
+      source: "codex_app_server",
+      method: "item/completed",
+      params: {
+        threadId: input.turn.codexThreadId,
+        turnId: input.turn.codexTurnId,
+        item: {
+          id: `agent-message-${input.sequenceNo.toString()}`,
+          type: "agentMessage",
+          text: "任务已经完成。",
+          phase: "final_answer",
+        },
+      },
+      local: { message_id: input.messageId },
+    },
+    sseEventId: `${CONVERSATION_ID}:${input.sequenceNo}`,
+  });
+}
+
+function nativeTurnCompletedEvent(
+  turn: ReturnType<typeof turnRow>,
+  sequenceNo: bigint,
+) {
+  return eventRow({
+    id: `50000000-0000-4000-8000-${sequenceNo.toString().padStart(12, "0")}`,
+    turnId: turn.id,
+    sequenceNo,
+    eventType: "turn/completed",
+    visibility: "user_visible",
+    payloadJson: {
+      schema_version: 2,
+      source: "codex_app_server",
+      method: "turn/completed",
+      params: {
+        threadId: turn.codexThreadId,
+        turn: { id: turn.codexTurnId, status: "completed", items: [] },
+      },
+    },
+    sseEventId: `${CONVERSATION_ID}:${sequenceNo}`,
+  });
 }
 
 function nativePlanEventRow(input: {

@@ -2042,7 +2042,6 @@ export class ConversationService {
           orderBy: { sequenceNo: "asc" },
         })
       : [];
-    const runningTurn = turns.find((turn) => turn.status === "running");
     const activeTurnIds = turns.map((turn) => turn.id);
     const visibleEventScope = {
       conversationId,
@@ -2054,7 +2053,6 @@ export class ConversationService {
       pending,
       files,
       events,
-      latestVisibleEvent,
       latestPlanEvents,
       turnFileChangeCounts,
       userMessageDisplayEvents,
@@ -2088,11 +2086,6 @@ export class ConversationService {
         },
         orderBy: { sequenceNo: "desc" },
         take: CONVERSATION_DETAIL_EVENT_LIMIT,
-      }),
-      this.prisma.conversationEvent.findFirst({
-        where: visibleEventScope,
-        orderBy: [{ sequenceNo: "desc" }, { id: "desc" }],
-        select: { sseEventId: true },
       }),
       this.findLatestPlanEvents(conversationId, activeTurnIds),
       this.countTurnFileChanges(conversationId, activeTurnIds),
@@ -2181,14 +2174,41 @@ export class ConversationService {
       ),
       latestPlanEvents,
     );
+    // Event ingestion commits the native terminal notification and the local
+    // turn transition atomically. Detail reads span several independent
+    // projections, so a request crossing that commit can otherwise combine a
+    // stale `running` turn row with a newer `turn/completed` cursor. Ground the
+    // lifecycle in the native event whenever it is present; this also prevents
+    // returning a cursor that permanently skips the completion on re-entry.
+    const terminalStatusByTurnId = indexNativeTerminalTurnStatuses(detailEvents);
+    const projectedTurns = turns.map((turn) => {
+      const terminal = terminalStatusByTurnId.get(turn.id);
+      return terminal
+        ? {
+            ...turn,
+            status: terminal.status,
+            completedAt:
+              terminal.status === "interrupted"
+                ? turn.completedAt
+                : (turn.completedAt ?? terminal.completedAt),
+            interruptedAt:
+              terminal.status === "interrupted"
+                ? (turn.interruptedAt ?? terminal.completedAt)
+                : turn.interruptedAt,
+          }
+        : turn;
+    });
+    const runningTurn = projectedTurns.find(
+      (turn) => turn.status === "running",
+    );
     const firstUserMessageIds = indexFirstUserMessageIds(visibleMessages);
     const knowledgeBaseIdsByTurn = new Map(
-      turns.map((turn) => [
+      projectedTurns.map((turn) => [
         turn.id,
         jsonStringArray(turn.knowledgeBaseIdsJson),
       ]),
     );
-    const latestTurn = turns.at(-1);
+    const latestTurn = projectedTurns.at(-1);
     const planOutputMissing =
       latestTurn && !planReviewTurnIds.has(latestTurn.id)
       ? await this.hasPlanOutputMissingEvent(conversationId, latestTurn.id)
@@ -2199,10 +2219,22 @@ export class ConversationService {
         ? "pending"
         : planOutputMissing
           ? "failed"
-          : (conversation.lastTurnStatus ?? "idle");
+          : latestTurn &&
+              (latestTurn.status === "completed" ||
+                latestTurn.status === "failed" ||
+                latestTurn.status === "interrupted")
+            ? latestTurn.status
+            : (conversation.lastTurnStatus ?? "idle");
     const runningResumeAnchor = runningTurn
       ? selectRunningResumeAnchor(detailEvents, runningTurn.id)
       : undefined;
+    const terminalResumeCursor = runningTurn
+      ? undefined
+      : selectTerminalResumeCursor(
+          conversationId,
+          detailEvents,
+          new Set(messages.map((message) => message.id)),
+        );
     return {
       conversation: {
         ...projectConversation(conversation, executionStatus),
@@ -2226,7 +2258,7 @@ export class ConversationService {
           steeredMessageMetadata.get(message.id),
         ),
       ),
-      turns: turns.map(projectTurn),
+      turns: projectedTurns.map(projectTurn),
       pending_requests: pending.map(projectPending),
       user_input_requests: userInputRequests.map(projectUserInputRequest),
       plan_reviews: planReviews.map(projectPlanReview),
@@ -2242,8 +2274,8 @@ export class ConversationService {
             last_event_id:
               runningResumeAnchor?.sseEventId ?? `${conversationId}:0`,
           }
-        : latestVisibleEvent
-          ? { last_event_id: latestVisibleEvent.sseEventId }
+        : terminalResumeCursor
+          ? { last_event_id: terminalResumeCursor }
           : {}),
       turn_file_change_counts: turnFileChangeCounts,
       activities: detailEvents
@@ -9035,6 +9067,67 @@ function isSupersededPlanOutputMissingEvent(
     asRecord(event.payloadJson).error_code ===
       PLAN_OUTPUT_MISSING_ERROR_CODE
   );
+}
+
+type NativeTerminalTurnStatus = {
+  status: (typeof TERMINAL_TURN_STATUSES)[number];
+  completedAt: Date;
+};
+
+function indexNativeTerminalTurnStatuses(
+  detailEvents: readonly ConversationDetailEventRow[],
+): ReadonlyMap<string, NativeTerminalTurnStatus> {
+  const statuses = new Map<string, NativeTerminalTurnStatus>();
+  for (const event of detailEvents) {
+    if (event.eventType !== "turn/completed" || !event.turnId) continue;
+    const payload = asRecord(event.payloadJson);
+    if (
+      payload.source !== "codex_app_server" ||
+      payload.method !== "turn/completed"
+    ) {
+      continue;
+    }
+    const status = asRecord(asRecord(payload.params).turn).status;
+    if (
+      status !== "completed" &&
+      status !== "failed" &&
+      status !== "interrupted"
+    ) {
+      continue;
+    }
+    statuses.set(event.turnId, { status, completedAt: event.createdAt });
+  }
+  return statuses;
+}
+
+function selectTerminalResumeCursor(
+  conversationId: string,
+  detailEvents: readonly ConversationDetailEventRow[],
+  projectedMessageIds: ReadonlySet<string>,
+): string | undefined {
+  for (const event of detailEvents) {
+    if (event.eventType !== "item/completed") continue;
+    const payload = asRecord(event.payloadJson);
+    if (
+      payload.source !== "codex_app_server" ||
+      payload.method !== "item/completed"
+    ) {
+      continue;
+    }
+    const item = asRecord(asRecord(payload.params).item);
+    if (item.type !== "agentMessage" && item.type !== "plan") continue;
+    const messageId = asRecord(payload.local).message_id;
+    if (
+      typeof messageId !== "string" ||
+      projectedMessageIds.has(messageId)
+    ) {
+      continue;
+    }
+    const beforeMissingProjection =
+      event.sequenceNo > 0n ? event.sequenceNo - 1n : 0n;
+    return `${conversationId}:${beforeMissingProjection}`;
+  }
+  return detailEvents.at(-1)?.sseEventId;
 }
 
 function selectRunningResumeAnchor(
