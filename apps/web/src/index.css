@@ -1247,10 +1247,17 @@
   place-items: center;
 }
 
+@property --conversation-file-preview-pane-offset {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 0%;
+}
+
 .conversation-office-layout,
 .conversation-presentation-layout {
   --conversation-file-preview-motion-duration: 360ms;
   --conversation-file-preview-motion-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  --conversation-file-preview-pane-offset: 0%;
   position: relative;
   display: flex;
   width: 100%;
@@ -1298,22 +1305,31 @@
   color: var(--app-text);
 }
 
-.conversation-office-layout[data-has-office-preview="true"]
-  > .office-preview-pane.office-preview-pane-entering:not(
-    .subagent-detail-pane
+.conversation-office-layout[data-has-office-preview="true"]:has(
+    > .office-preview-pane.office-preview-pane-entering:not(
+        .subagent-detail-pane
+      )
   ) {
   animation: conversation-file-preview-pane-in
     var(--conversation-file-preview-motion-duration)
     var(--conversation-file-preview-motion-easing) both;
 }
 
+.conversation-office-layout[data-has-office-preview="true"]
+  > .office-preview-pane.office-preview-pane-entering:not(
+    .subagent-detail-pane
+  ) {
+  transform: translate3d(var(--conversation-file-preview-pane-offset), 0, 0);
+  will-change: transform;
+}
+
 @keyframes conversation-file-preview-pane-in {
   from {
-    transform: translate3d(100%, 0, 0);
+    --conversation-file-preview-pane-offset: 100%;
   }
 
   to {
-    transform: translate3d(0, 0, 0);
+    --conversation-file-preview-pane-offset: 0%;
   }
 }
 
@@ -1340,9 +1356,10 @@
     transition: none;
   }
 
-  .conversation-office-layout[data-has-office-preview="true"]
-    > .office-preview-pane.office-preview-pane-entering:not(
-      .subagent-detail-pane
+  .conversation-office-layout[data-has-office-preview="true"]:has(
+      > .office-preview-pane.office-preview-pane-entering:not(
+          .subagent-detail-pane
+        )
     ),
   .conversation-office-layout[data-has-office-preview="true"][data-preview-closing="true"]
     > .office-preview-pane:not(.subagent-detail-pane) {

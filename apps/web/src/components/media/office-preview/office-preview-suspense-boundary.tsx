@@ -20,6 +20,19 @@ function shouldSkipEntranceAnimation() {
   )
 }
 
+function isOfficePreviewEntranceAnimationTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false
+
+  if (target.classList.contains(OFFICE_PREVIEW_ENTER_CLASS)) return true
+
+  return (
+    target.classList.contains("conversation-office-layout") &&
+    target.querySelector(
+      `:scope > .office-preview-pane.${OFFICE_PREVIEW_ENTER_CLASS}`
+    ) !== null
+  )
+}
+
 function OfficePreviewSuspenseFallback({
   children,
   onPresented,
@@ -49,8 +62,10 @@ export function OfficePreviewSuspenseBoundary({
     setFallbackPresented(true)
   }, [])
 
-  // A cached lazy preview skips the Suspense fallback, so the boundary owns
-  // removing the entrance class after the actual pane finishes its motion.
+  // The stable conversation layout owns the entrance progress so replacing a
+  // loading pane with the ready document cannot restart the motion. A cached
+  // lazy preview skips the Suspense fallback, so this boundary still owns
+  // removing the pane marker when that layout animation finishes.
   useEffect(() => {
     if (entranceFinished) return
 
@@ -58,8 +73,7 @@ export function OfficePreviewSuspenseBoundary({
       const animationTarget = event.target
       if (
         event.animationName === OFFICE_PREVIEW_ENTER_ANIMATION_NAME &&
-        animationTarget instanceof Element &&
-        animationTarget.classList.contains(OFFICE_PREVIEW_ENTER_CLASS)
+        isOfficePreviewEntranceAnimationTarget(animationTarget)
       ) {
         setEntranceFinished(true)
       }

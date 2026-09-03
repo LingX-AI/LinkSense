@@ -96,6 +96,47 @@ function ReopenPreviewHarness() {
   )
 }
 
+function ReplacePreviewPaneDuringEntranceHarness() {
+  const [documentReady, setDocumentReady] = useState(false)
+
+  return (
+    <>
+      <button type="button" onClick={() => setDocumentReady(true)}>
+        完成第二份 Word 加载
+      </button>
+      <ConversationPresentationLayout
+        resizeLabel="调整文件预览宽度"
+        preview={
+          <OfficePreviewSuspenseBoundary
+            fallback={(className) => (
+              <OfficePreviewShell
+                className={className}
+                document={{ status: "loading" }}
+                fileName="second.docx"
+                mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              />
+            )}
+          >
+            {(className) => (
+              <OfficePreviewShell
+                key={documentReady ? "ready" : "loading"}
+                className={className}
+                document={{ status: documentReady ? "ready" : "loading" }}
+                fileName="second.docx"
+                mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              >
+                {documentReady ? <div>第二份 Word 内容</div> : null}
+              </OfficePreviewShell>
+            )}
+          </OfficePreviewSuspenseBoundary>
+        }
+      >
+        <main>任务内容</main>
+      </ConversationPresentationLayout>
+    </>
+  )
+}
+
 function dispatchPreviewAnimation(preview: Element, animationName: string) {
   const animationEvent = new Event("animationend", { bubbles: true })
   Object.defineProperty(animationEvent, "animationName", {
@@ -210,6 +251,34 @@ describe("ConversationPresentationLayout", () => {
 
     completePreviewCycle()
     completePreviewCycle()
+  })
+
+  it("keeps one entrance animation when a reopened Word pane is replaced after loading", () => {
+    render(<ReplacePreviewPaneDuringEntranceHarness />)
+
+    const loadingPreview = document.querySelector(".office-preview-pane")
+    if (!loadingPreview) throw new Error("Expected the loading Word pane")
+    const animationTarget = loadingPreview.parentElement
+    if (!animationTarget) throw new Error("Expected the stable preview layout")
+    expect(loadingPreview).toHaveClass(OFFICE_PREVIEW_ENTER_CLASS)
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "完成第二份 Word 加载" })
+    )
+
+    const readyPreview = screen
+      .getByText("第二份 Word 内容")
+      .closest(".office-preview-pane")
+    if (!readyPreview) throw new Error("Expected the loaded Word pane")
+    expect(readyPreview).not.toBe(loadingPreview)
+    expect(readyPreview.parentElement).toBe(animationTarget)
+    expect(readyPreview).toHaveClass(OFFICE_PREVIEW_ENTER_CLASS)
+
+    dispatchPreviewAnimation(
+      animationTarget,
+      OFFICE_PREVIEW_ENTER_ANIMATION_NAME
+    )
+    expect(readyPreview).not.toHaveClass(OFFICE_PREVIEW_ENTER_CLASS)
   })
 
   it("does not finish a closing preview when reopening cancels its exit animation", async () => {
