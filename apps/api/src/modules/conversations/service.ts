@@ -2817,6 +2817,17 @@ export class ConversationService {
         });
         if (automationCount > 0) throw new AppError("AUTOMATION_TASK_IN_USE");
       }
+      if (input.completionRead) {
+        await tx.automationRun.updateMany({
+          where: {
+            ownerId,
+            conversationId,
+            completedAt: { not: null },
+            completionReadAt: null,
+          },
+          data: { completionReadAt: now },
+        });
+      }
       return tx.conversation.update({
         where: { id: conversationId },
         data: {
@@ -11026,6 +11037,7 @@ async function deleteConversationGraph(
   const citedVersionIds = [
     ...new Set(citations.map((citation) => citation.documentVersionId)),
   ];
+  await tx.conversationShare.deleteMany({ where: { conversationId } });
   await tx.weixinOutboundDelivery.deleteMany({ where: { conversationId } });
   await tx.weixinInboundMessage.deleteMany({ where: { conversationId } });
   await tx.weixinPeerSession.deleteMany({ where: { conversationId } });

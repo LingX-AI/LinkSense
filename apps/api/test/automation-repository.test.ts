@@ -27,12 +27,26 @@ describe("PrismaAutomationRepository completion notifications", () => {
     expect(fixture.automationRun.findFirst).toHaveBeenCalledWith({
       where: {
         ownerId: OWNER_ID,
+        conversationId: { in: [CONVERSATION_ID] },
         completedAt: { not: null },
         completionReadAt: null,
       },
       select: { conversationId: true, completedAt: true },
       orderBy: [{ completedAt: "desc" }, { id: "desc" }],
     });
+    expect(fixture.conversation.findMany).toHaveBeenCalledWith({
+      where: { ownerId: OWNER_ID, completionUnread: true },
+      select: { id: true },
+    });
+  });
+
+  it("does not report stale automation runs after every task is read", async () => {
+    const fixture = repositoryFixture({ unreadConversationIds: [] });
+
+    await expect(
+      fixture.repository.latestUnreadCompletion(OWNER_ID),
+    ).resolves.toBeNull();
+    expect(fixture.automationRun.findFirst).not.toHaveBeenCalled();
   });
 
   it("acknowledges only unread completions at or before the observed cursor", async () => {
@@ -243,15 +257,24 @@ describe("PrismaAutomationRepository manual runs", () => {
   });
 });
 
-function repositoryFixture() {
+function repositoryFixture(options?: { unreadConversationIds?: string[] }) {
   const automationRun = {
     findFirst: vi.fn(),
     updateMany: vi.fn(async () => ({ count: 0 })),
   };
+  const conversation = {
+    findMany: vi.fn(async () =>
+      (options?.unreadConversationIds ?? [CONVERSATION_ID]).map((id) => ({
+        id,
+      })),
+    ),
+  };
   return {
     automationRun,
+    conversation,
     repository: new PrismaAutomationRepository({
       automationRun,
+      conversation,
     } as never),
   };
 }

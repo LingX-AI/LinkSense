@@ -1092,6 +1092,17 @@ describe("ConversationService ownership and draft lifecycle", () => {
       where: { id: CONVERSATION_ID },
       data: { completionUnread: false },
     });
+    expect(
+      fixture.defaultTransaction.automationRun.updateMany,
+    ).toHaveBeenCalledWith({
+      where: {
+        ownerId: OWNER_ID,
+        conversationId: CONVERSATION_ID,
+        completedAt: { not: null },
+        completionReadAt: null,
+      },
+      data: { completionReadAt: expect.any(Date) },
+    });
     expect(result.has_unread_completion).toBe(false);
   });
 
@@ -3489,6 +3500,9 @@ describe("ConversationService ownership and draft lifecycle", () => {
       where: { conversationId: CONVERSATION_ID },
     });
     expect(transaction.weixinPeerSession.deleteMany).toHaveBeenCalledWith({
+      where: { conversationId: CONVERSATION_ID },
+    });
+    expect(transaction.conversationShare.deleteMany).toHaveBeenCalledWith({
       where: { conversationId: CONVERSATION_ID },
     });
     expect(transaction.usageActivityRecord.deleteMany).not.toHaveBeenCalled();
@@ -11218,6 +11232,9 @@ function transactionFixture() {
     weixinPeerSession: {
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
+    conversationShare: {
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
     conversationPlanReview: {
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
       findUnique: vi.fn(async () => null as Record<string, unknown> | null),
@@ -11398,6 +11415,9 @@ function transactionFixture() {
     },
     automation: {
       count: vi.fn(async () => 0),
+    },
+    automationRun: {
+      updateMany: vi.fn(async () => ({ count: 0 })),
     },
     usageActivityRecord: {
       create: vi.fn(async () => ({})),

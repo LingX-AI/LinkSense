@@ -240,6 +240,16 @@ export const conversationRoutes: FastifyPluginAsync<{
     );
   });
 
+  app.post("/:id/share", async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id } = uuidParamsSchema.parse(request.params);
+    return reply
+      .code(201)
+      .send(
+        ok(await services.conversationShares.create(user.id, id), request.id),
+      );
+  });
+
   app.get("/:id/model-preference", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
     const { id } = uuidParamsSchema.parse(request.params);

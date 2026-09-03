@@ -141,6 +141,7 @@ import {
   ApplicationExternalAccessService,
   decryptExternalApplicationSessionId,
 } from "./modules/application-embed/service.js";
+import { ConversationShareService } from "./modules/conversations/sharing.js";
 
 const EMPTY_MCP_RUNTIME = {
   servers: [],
@@ -173,6 +174,7 @@ export type AppServices = {
   sharePointSettings: SharePointSettingsService | null;
   audit: AuditService;
   conversations: ConversationService;
+  conversationShares: ConversationShareService;
   automations: AutomationService;
   completionNotifications: CompletionNotificationService;
   automationScheduler: AutomationScheduler;
@@ -719,6 +721,10 @@ export function createServices(input: {
     tokenLimits,
     system,
   );
+  const conversationShares = new ConversationShareService(
+    input.prisma,
+    conversations,
+  );
   const applicationExternalAccess = new ApplicationExternalAccessService(
     input.prisma,
     input.redis,
@@ -834,6 +840,7 @@ export function createServices(input: {
     sharePointSettings,
     audit,
     conversations,
+    conversationShares,
     automations,
     completionNotifications,
     automationScheduler,

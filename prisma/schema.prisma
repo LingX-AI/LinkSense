@@ -973,6 +973,19 @@ model ConversationMessage {
   @@map("conversation_messages")
 }
 
+model ConversationShare {
+  id             String   @id @default(uuid()) @db.Uuid
+  conversationId String   @unique(map: "conversation_shares_conversation_id_key") @map("conversation_id") @db.Uuid
+  ownerId        String   @map("owner_id") @db.Uuid
+  titleSnapshot  String   @map("title_snapshot") @db.VarChar(240)
+  snapshotJson   Json     @map("snapshot_json") @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, updatedAt(sort: Desc)], map: "conversation_shares_owner_updated_idx")
+  @@map("conversation_shares")
+}
+
 model ConversationEvent {
   id             String   @id @default(uuid()) @db.Uuid
   conversationId String   @map("conversation_id") @db.Uuid

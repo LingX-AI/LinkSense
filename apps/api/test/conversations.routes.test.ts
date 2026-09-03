@@ -72,6 +72,24 @@ describe("conversation archived clear route", () => {
   });
 });
 
+describe("conversation share route", () => {
+  it("creates a snapshot share for the authenticated owner's task", async () => {
+    const { app, createShare } = await conversationRouteFixture();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/conversations/${CONVERSATION_ID}/share`,
+    });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(createShare).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID);
+    expect(response.json()).toMatchObject({
+      success: true,
+      data: { url_path: `/share/${MESSAGE_ID}` },
+    });
+  });
+});
+
 describe("conversation pinning route", () => {
   it.each([true, false])(
     "passes pinned=%s to the authenticated owner's task",
@@ -1379,6 +1397,14 @@ async function conversationRouteFixture(
       throw new AppError("FORBIDDEN");
     }
   });
+  const createShare = vi.fn(async () => ({
+    id: MESSAGE_ID,
+    conversation_id: CONVERSATION_ID,
+    title: "Shared task",
+    url_path: `/share/${MESSAGE_ID}`,
+    created_at: "2026-09-03T04:00:00.000Z",
+    updated_at: "2026-09-03T04:00:00.000Z",
+  }));
   const app = Fastify();
   apps.push(app);
   app.decorate("authenticate", async (request: FastifyRequest) => {
@@ -1425,6 +1451,7 @@ async function conversationRouteFixture(
         getSubAgentDetail,
         getSubAgentSummaries,
       },
+      conversationShares: { create: createShare },
       modelProviderSettings: {
         getPreference: getModelPreference,
         updatePreference: updateModelPreference,
@@ -1457,5 +1484,6 @@ async function conversationRouteFixture(
     actOnPlanReview,
     getSubAgentDetail,
     getSubAgentSummaries,
+    createShare,
   };
 }
