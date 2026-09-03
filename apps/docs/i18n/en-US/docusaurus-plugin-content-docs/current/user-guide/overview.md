@@ -11,11 +11,12 @@ LinkSense is organized around tasks. A task keeps your conversation, files, and 
 
 | Area | Purpose |
 | --- | --- |
-| New task | Submit a request and choose a model and capabilities |
+| New task | Submit a request and choose a model, Plan or Goal mode, and capabilities |
 | Automations | Start work hourly, daily, weekly, monthly, or yearly |
-| Plugin Center | Discover, install, update, and manage plugins, Skills, and organization apps |
+| Plugin Center | Discover, install, update, and manage plugins, Skills, MCP, and applications |
 | Knowledge bases | Create reusable document collections, share them, and retrieve from them |
-| Settings | Manage language, profile, personalization, appearance, security, credentials, and MCP |
+| Settings | Manage language, profile, personalization, message channels, security, credentials, and MCP |
+| Feedback and help | Submit feedback and open help for the current page |
 
 ## Recommended first steps
 
@@ -23,7 +24,8 @@ LinkSense is organized around tasks. A task keeps your conversation, files, and 
 2. Create a first task and review its execution status and result.
 3. Add files, plugins, Skills, or knowledge bases as needed.
 4. Continue refining the result in the same task and download deliverables.
-5. Create an automation for work that repeats.
+5. Use Plan mode for complex work, or branch from a historical response to try a different direction.
+6. Create an automation for repeating work, or turn a stable workflow into a shared application.
 
 ## Your data boundary
 

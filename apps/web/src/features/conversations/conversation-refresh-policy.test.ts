@@ -118,4 +118,82 @@ describe("conversation query refresh policy", () => {
       })
     ).toBe("none")
   })
+
+  it("does not refetch when the started turn is already projected locally", () => {
+    const event = {
+      id: "conversation:44",
+      type: "turn/started",
+      turn_id: "10000000-0000-4000-8000-000000000001",
+      created_at: "2026-08-09T12:00:00.000Z",
+      sequence_no: 44,
+      payload: {
+        schema_version: 2,
+        source: "codex_app_server",
+        method: "turn/started",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            id: "native-turn-1",
+            status: "inProgress",
+          },
+        },
+      },
+    }
+
+    expect(
+      getConversationEventQueryRefreshScope(event, {
+        projectedTurnId: event.turn_id,
+      })
+    ).toBe("none")
+    expect(getConversationEventQueryRefreshScope(event)).toBe("detail-and-list")
+  })
+
+  it("refetches when turn started is not yet present in the cached snapshot", () => {
+    const event = {
+      id: "conversation:46",
+      type: "turn/started",
+      turn_id: "10000000-0000-4000-8000-000000000006",
+      created_at: "2026-08-09T12:00:00.000Z",
+      sequence_no: 46,
+      payload: {
+        schema_version: 2,
+        source: "codex_app_server",
+        method: "turn/started",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            id: "native-turn-6",
+            status: "inProgress",
+          },
+        },
+      },
+    }
+
+    expect(
+      getConversationEventQueryRefreshScope(event, {
+        projectedTurnId: null,
+      })
+    ).toBe("detail-and-list")
+  })
+
+  it("does not refetch for a native task-name notification", () => {
+    expect(
+      getConversationEventQueryRefreshScope({
+        id: "conversation:45",
+        type: "thread/name/updated",
+        turn_id: null,
+        created_at: "2026-08-09T12:00:00.000Z",
+        sequence_no: 45,
+        payload: {
+          schema_version: 2,
+          source: "codex_app_server",
+          method: "thread/name/updated",
+          params: {
+            threadId: "thread-1",
+            threadName: "Native task name",
+          },
+        },
+      })
+    ).toBe("none")
+  })
 })

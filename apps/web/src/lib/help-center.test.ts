@@ -8,6 +8,14 @@ describe("help center routing", () => {
     ["/conversations/task-1", "user-guide/tasks/create-and-run"],
     ["/automations", "user-guide/automations/create-and-manage"],
     ["/capabilities", "user-guide/plugin-center/discover-and-install"],
+    [
+      "/capabilities/applications/app-1/external-access",
+      "user-guide/plugin-center/application-access",
+    ],
+    [
+      "/capabilities/applications/app-1/usage",
+      "user-guide/plugin-center/application-usage",
+    ],
     ["/knowledge-bases/kb-1", "user-guide/knowledge-bases/create-and-manage"],
     [
       "/applications/app-1/run/conversation-1",
@@ -28,6 +36,7 @@ describe("help center routing", () => {
     ["/settings/security", "user-guide/settings/security"],
     ["/settings/credentials", "user-guide/plugin-center/credentials"],
     ["/settings/mcp", "user-guide/mcp/connect-and-manage"],
+    ["/settings/weixin", "user-guide/message-channels/weixin"],
     ["/archived", "user-guide/settings/archived-tasks"],
     ["/admin/users", "admin-guide/users"],
     ["/admin/groups", "admin-guide/groups"],
@@ -38,8 +47,10 @@ describe("help center routing", () => {
     ["/admin/models", "admin-guide/model-settings"],
     ["/admin/settings", "admin-guide/system-settings"],
     ["/admin/health", "admin-guide/health"],
+    ["/admin/feedback", "admin-guide/feedback"],
     ["/admin/audit", "admin-guide/audit"],
     ["/admin/usage", "admin-guide/usage"],
+    ["/admin/system-update", "admin-guide/system-update"],
   ])("maps %s to %s", (pathname, documentPath) => {
     expect(resolveHelpDocumentPath(pathname)).toBe(documentPath)
   })

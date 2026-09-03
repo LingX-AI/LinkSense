@@ -1,5 +1,14 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { ReactNode } from "react"
 
 import {
   apiRequest,
@@ -65,29 +74,54 @@ const bootstrap = bootstrapSchema.parse({
 })
 
 function AuthProbe() {
-  const { status, user: currentUser } = useAuth()
+  const { status, user: currentUser, signOut } = useAuth()
   return (
     <>
       <output data-testid="auth-status">{status}</output>
       <output data-testid="auth-user">{currentUser?.email ?? ""}</output>
+      <button type="button" onClick={() => void signOut()}>
+        sign out
+      </button>
     </>
   )
 }
 
-function renderAuthProvider() {
+function AuthRefreshProbe({ onRender }: { onRender: () => void }) {
+  const { refreshUser } = useAuth()
+  onRender()
+  return (
+    <button type="button" onClick={() => void refreshUser()}>
+      refresh user
+    </button>
+  )
+}
+
+function createAuthQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  })
+}
+
+function renderAuthProvider(
+  queryClient = createAuthQueryClient(),
+  children: ReactNode = <AuthProbe />
+) {
   return render(
-    <BootstrapContext.Provider
-      value={{
-        bootstrap,
-        isLoading: false,
-        error: null,
-        refetch: vi.fn(),
-      }}
-    >
-      <AuthProvider>
-        <AuthProbe />
-      </AuthProvider>
-    </BootstrapContext.Provider>
+    <QueryClientProvider client={queryClient}>
+      <BootstrapContext.Provider
+        value={{
+          bootstrap,
+          isLoading: false,
+          error: null,
+          refetch: vi.fn(),
+        }}
+      >
+        <AuthProvider>{children}</AuthProvider>
+      </BootstrapContext.Provider>
+    </QueryClientProvider>
   )
 }
 
@@ -160,6 +194,68 @@ describe("AuthProvider session restoration", () => {
       "authenticated"
     )
     expect(setAppLanguage).not.toHaveBeenCalled()
+  })
+
+  it("does not broadcast an unchanged user snapshot to auth consumers", async () => {
+    sessionState.token = "persisted-access-token"
+    vi.mocked(apiRequest).mockImplementation(async () => ({
+      ...user,
+      user_groups: [],
+    }))
+    const onRender = vi.fn()
+
+    renderAuthProvider(
+      createAuthQueryClient(),
+      <>
+        <AuthProbe />
+        <AuthRefreshProbe onRender={onRender} />
+      </>
+    )
+    expect(await screen.findByTestId("auth-status")).toHaveTextContent(
+      "authenticated"
+    )
+    const renderCountAfterRestore = onRender.mock.calls.length
+
+    fireEvent.click(screen.getByRole("button", { name: "refresh user" }))
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(onRender).toHaveBeenCalledTimes(renderCountAfterRestore)
+  })
+
+  it("clears account queries and model preferences before signing out", async () => {
+    sessionState.token = "persisted-access-token"
+    vi.mocked(apiRequest).mockImplementation(async (path) =>
+      path === "/me" ? user : null
+    )
+    const queryClient = createAuthQueryClient()
+    queryClient.setQueryData(["system", "bootstrap"], bootstrap)
+    queryClient.setQueryData(["conversations", "sidebar"], {
+      pages: [{ items: [{ id: "previous-account-task" }] }],
+    })
+    queryClient.setQueryData(["me", "model-preference", "new"], {
+      selected_model: "previous-account-model",
+    })
+
+    renderAuthProvider(queryClient)
+    expect(await screen.findByTestId("auth-status")).toHaveTextContent(
+      "authenticated"
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "sign out" }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId("auth-status")).toHaveTextContent("anonymous")
+    )
+    expect(
+      queryClient.getQueryData(["conversations", "sidebar"])
+    ).toBeUndefined()
+    expect(
+      queryClient.getQueryData(["me", "model-preference", "new"])
+    ).toBeUndefined()
+    expect(queryClient.getQueryData(["system", "bootstrap"])).toEqual(bootstrap)
   })
 
   it("keeps the session loading after a temporary failure and retries automatically", async () => {

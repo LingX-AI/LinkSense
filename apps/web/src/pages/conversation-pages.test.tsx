@@ -1180,7 +1180,10 @@ describe("conversation knowledge base snapshots", () => {
       screen.queryByText("草稿已在其他位置更新，请刷新后重试。")
     ).not.toBeInTheDocument()
     expect(newComposer).toHaveValue("")
-    expect(screen.queryByRole("button", { name: "发送" })).toBeNull()
+    expect(screen.getByRole("button", { name: "发送" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    )
     expect(
       fetchMock.mock.calls.filter(
         ([request, requestInit]) =>
@@ -1788,7 +1791,9 @@ describe("conversation knowledge base snapshots", () => {
     )
 
     expect(await screen.findByText("批量清理附件")).toBeVisible()
-    expect(screen.queryByRole("button", { name: "发送" })).toBeNull()
+    const send = screen.getByRole("button", { name: "发送" })
+    expect(send).toBeEnabled()
+    expect(send).toHaveAttribute("aria-disabled", "false")
     await interaction.hover(
       screen.getByRole("button", { name: "查看全部 4 个附件" })
     )
@@ -1807,12 +1812,15 @@ describe("conversation knowledge base snapshots", () => {
         })
       ).toHaveLength(1)
     )
-    expect(screen.queryByRole("button", { name: "发送" })).toBeNull()
+    expect(screen.getByRole("button", { name: "发送" })).toBe(send)
+    expect(send).toBeDisabled()
+    expect(send).toHaveAttribute("aria-disabled", "true")
     await interaction.type(
       screen.getByRole("textbox", { name: "任务输入框" }),
       "清理完成后继续"
     )
-    expect(screen.getByRole("button", { name: "发送" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "发送" })).toBe(send)
+    expect(send).toBeDisabled()
     await new Promise((resolve) => window.setTimeout(resolve, 650))
     expect(draftUpdates).toHaveLength(0)
 

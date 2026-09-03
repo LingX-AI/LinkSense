@@ -20,6 +20,7 @@ Choose all time, the last 7 days, the last 30 days, or custom dates. Trends aggr
 - Global: tasks, actual turns, model calls, tokens, and total cost.
 - Workload: AI responses, document embeddings, retrieval embeddings, and reranking.
 - Model: type, collection method, calls, turns, token details, and cost.
+- Application: tasks, turns, calls, tokens, costs, and per-model detail attributed when each task was created; tasks created outside an application appear as unassociated.
 - Group: current members' activity projected into each group.
 - User: active and disabled users, current groups, and per-model detail.
 
@@ -38,6 +39,10 @@ Future price changes do not recalculate history. Zero is a valid price; older to
 ## Group overlap
 
 A user in multiple groups contributes to every group. Group rows overlap and must not be summed for a global total. Users with no effective group appear as ungrouped.
+
+## Sorting and export
+
+Detail tables can be sorted by the columns exposed on the page. CSV export uses the current range and filter definitions. Recheck the scope before exporting and store or transfer the file under organizational policy. Exports do not contain prompts, response text, file contents, or credentials.
 
 ## Retention
 

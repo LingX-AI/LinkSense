@@ -32,25 +32,7 @@ Leaving either field blank keeps the corresponding deployment default. New task 
 
 ## System update
 
-The **System update** item at the end of the Administration menu automatically checks official LinkSense GitHub releases and shows the current version, latest version, publication time, and release notes. Only administrators can view update status or request an immediate check. A failed check does not affect other LinkSense features. The update guide is shown only when a newer version is available.
-
-When a new version is available, LinkSense shows an administrator notice. Dismissing it applies only to that administrator and release version; a later release appears again.
-
-LinkSense never starts an upgrade silently from the web application. Schedule a maintenance window first, then sign in to the LinkSense host and run the appropriate command.
-
-Linux:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh | sudo sh
-```
-
-macOS (do not use `sudo`):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh | sh
-```
-
-The script detects the Core or Full edition, waits for running work, and creates a validated PostgreSQL backup before database migration. Save the backup location printed by the script. A failure after migration begins does not automatically roll the database back. When the upgrade finishes, open **System health** and confirm that every service has recovered.
+**System update** is a separate administrator page that checks official GitHub releases and shows the safe upgrade workflow. The web page never upgrades the deployment silently. See [Check for and install LinkSense updates](./system-update.md) for preparation, host commands, and post-upgrade verification.
 
 ## Scheduled maintenance
 

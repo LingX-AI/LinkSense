@@ -71,7 +71,14 @@ export async function setAppLanguage(
   language: SupportedLanguage,
   options: { persist?: boolean } = {}
 ) {
-  await i18n.changeLanguage(language)
+  const currentLanguage = normalizeLanguage(
+    i18n.language ?? i18n.resolvedLanguage
+  )
+  if (currentLanguage !== language) {
+    await i18n.changeLanguage(language)
+  } else if (document.documentElement.lang !== language) {
+    document.documentElement.lang = language
+  }
   if (options.persist === false) return
   try {
     window.localStorage?.setItem(LANGUAGE_STORAGE_KEY, language)

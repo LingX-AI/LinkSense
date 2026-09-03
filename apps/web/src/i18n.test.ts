@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { applicationIconPresets } from "@linksense/shared"
 
-import i18n, { resolveBrowserLanguage } from "@/i18n"
+import i18n, { resolveBrowserLanguage, setAppLanguage } from "@/i18n"
 import { enUS } from "@/i18n/en-US"
 import { zhCN } from "@/i18n/zh-CN"
 
@@ -26,6 +26,62 @@ describe("i18n resources", () => {
     expect(resolveBrowserLanguage([], "zh-TW")).toBe("zh-CN")
     expect(resolveBrowserLanguage(["fr-FR"], "fr-FR")).toBe("en-US")
     expect(resolveBrowserLanguage(undefined, undefined)).toBe("en-US")
+  })
+
+  it("does not broadcast a language change when the language is unchanged", async () => {
+    await i18n.changeLanguage("zh-CN")
+    window.localStorage.removeItem("linksense.language")
+    const onLanguageChanged = vi.fn()
+    i18n.on("languageChanged", onLanguageChanged)
+
+    try {
+      await setAppLanguage("zh-CN")
+
+      expect(onLanguageChanged).not.toHaveBeenCalled()
+      expect(document.documentElement.lang).toBe("zh-CN")
+      expect(window.localStorage.getItem("linksense.language")).toBe("zh-CN")
+    } finally {
+      i18n.off("languageChanged", onLanguageChanged)
+      window.localStorage.removeItem("linksense.language")
+    }
+  })
+
+  it("broadcasts one event when the application language changes", async () => {
+    await i18n.changeLanguage("zh-CN")
+    window.localStorage.removeItem("linksense.language")
+    const onLanguageChanged = vi.fn()
+    i18n.on("languageChanged", onLanguageChanged)
+
+    try {
+      await setAppLanguage("en-US", { persist: false })
+
+      expect(onLanguageChanged).toHaveBeenCalledTimes(1)
+      expect(onLanguageChanged).toHaveBeenCalledWith("en-US")
+      expect(document.documentElement.lang).toBe("en-US")
+      expect(window.localStorage.getItem("linksense.language")).toBeNull()
+    } finally {
+      i18n.off("languageChanged", onLanguageChanged)
+      await i18n.changeLanguage("zh-CN")
+      window.localStorage.removeItem("linksense.language")
+    }
+  })
+
+  it("replaces an unsupported runtime language with the requested language", async () => {
+    await i18n.changeLanguage("zh-CN")
+    i18n.language = "fr-FR"
+    const onLanguageChanged = vi.fn()
+    i18n.on("languageChanged", onLanguageChanged)
+
+    try {
+      await setAppLanguage("zh-CN", { persist: false })
+
+      expect(i18n.language).toBe("zh-CN")
+      expect(onLanguageChanged).toHaveBeenCalledTimes(1)
+      expect(onLanguageChanged).toHaveBeenCalledWith("zh-CN")
+    } finally {
+      i18n.off("languageChanged", onLanguageChanged)
+      await i18n.changeLanguage("zh-CN")
+    }
   })
 
   it("keeps zh-CN and en-US key sets aligned", () => {

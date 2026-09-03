@@ -2144,6 +2144,11 @@ export class ConversationService {
     const visibleMessages = messages.filter(
       (message) => !supersededAssistantMessageIds.has(message.id),
     );
+    const forkSource = await this.resolveForkSourceProjection(
+      ownerId,
+      conversation,
+      visibleMessages,
+    );
     const publicKnowledgeCitations = await this.loadPublicKnowledgeCitations(
       conversationId,
       activeTurnIds,
@@ -2202,7 +2207,10 @@ export class ConversationService {
       ? selectRunningResumeAnchor(detailEvents, runningTurn.id)
       : undefined;
     return {
-      conversation: projectConversation(conversation, executionStatus),
+      conversation: {
+        ...projectConversation(conversation, executionStatus),
+        ...(forkSource ? { fork_source: forkSource } : {}),
+      },
       goal: goal ? projectConversationGoal(goal) : null,
       draft: draft ? projectDraft(draft) : null,
       messages: visibleMessages.map((message) =>
@@ -2245,6 +2253,84 @@ export class ConversationService {
       activities: detailEvents
         .map(projectActivity)
         .filter((value) => value !== null),
+    };
+  }
+
+  private async resolveForkSourceProjection(
+    ownerId: string,
+    conversation: {
+      createdAt: Date;
+      forkSourceConversationId: string | null;
+      forkSourceMessageId: string | null;
+    },
+    messages: readonly { sequenceNo: number; createdAt: Date }[],
+  ): Promise<
+    | {
+        available: true;
+        conversation_id: string;
+        message_id: string;
+        title: string;
+        boundary_sequence_no: number;
+      }
+    | {
+        available: false;
+        boundary_sequence_no: number;
+      }
+    | null
+  > {
+    const sourceConversationId = conversation.forkSourceConversationId;
+    const sourceMessageId = conversation.forkSourceMessageId;
+    if (!sourceConversationId || !sourceMessageId) return null;
+
+    // Copied messages keep their original timestamps and sequence numbers,
+    // while the child conversation is created at the fork boundary. This
+    // fallback keeps the marker renderable if the direct source was deleted.
+    const fallbackBoundarySequenceNo = messages
+      .filter((message) => message.createdAt <= conversation.createdAt)
+      .at(-1)?.sequenceNo;
+    const sourceConversation = await this.prisma.conversation.findFirst({
+      where: { id: sourceConversationId, ownerId },
+      select: { id: true, title: true, titleSource: true },
+    });
+    if (!sourceConversation) {
+      return fallbackBoundarySequenceNo === undefined
+        ? null
+        : {
+            available: false,
+            boundary_sequence_no: fallbackBoundarySequenceNo,
+          };
+    }
+
+    const sourceMessage = await this.prisma.conversationMessage.findFirst({
+      where: {
+        id: sourceMessageId,
+        conversationId: sourceConversationId,
+      },
+      select: { id: true, sequenceNo: true },
+    });
+    const boundarySequenceNo = sourceMessage
+      ? messages.some(
+          (message) => message.sequenceNo === sourceMessage.sequenceNo,
+        )
+        ? sourceMessage.sequenceNo
+        : fallbackBoundarySequenceNo
+      : fallbackBoundarySequenceNo;
+    if (boundarySequenceNo === undefined) return null;
+    if (!sourceMessage) {
+      return {
+        available: false,
+        boundary_sequence_no: boundarySequenceNo,
+      };
+    }
+    return {
+      available: true,
+      conversation_id: sourceConversationId,
+      message_id: sourceMessage.id,
+      title: projectTaskTitle(
+        sourceConversation.title,
+        sourceConversation.titleSource,
+      ),
+      boundary_sequence_no: boundarySequenceNo,
     };
   }
 
@@ -2730,6 +2816,17 @@ export class ConversationService {
           where: { conversationId, deletedAt: null },
         });
         if (automationCount > 0) throw new AppError("AUTOMATION_TASK_IN_USE");
+      }
+      if (input.completionRead) {
+        await tx.automationRun.updateMany({
+          where: {
+            ownerId,
+            conversationId,
+            completedAt: { not: null },
+            completionReadAt: null,
+          },
+          data: { completionReadAt: now },
+        });
       }
       return tx.conversation.update({
         where: { id: conversationId },
@@ -10940,6 +11037,7 @@ async function deleteConversationGraph(
   const citedVersionIds = [
     ...new Set(citations.map((citation) => citation.documentVersionId)),
   ];
+  await tx.conversationShare.deleteMany({ where: { conversationId } });
   await tx.weixinOutboundDelivery.deleteMany({ where: { conversationId } });
   await tx.weixinInboundMessage.deleteMany({ where: { conversationId } });
   await tx.weixinPeerSession.deleteMany({ where: { conversationId } });

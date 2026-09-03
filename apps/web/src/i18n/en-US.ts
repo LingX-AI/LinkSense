@@ -1544,6 +1544,20 @@ export const enUS = {
   conversation: {
     untitled: "Untitled task",
     title: "Task",
+    share: {
+      action: "Share",
+      title: "Share {{title}}",
+      description:
+        "After sharing, your name and messages added later won't appear in the shared task.",
+      previewLabel: "Shared task preview",
+      anyoneWithLink: "Anyone with this link can view this task",
+      copyLink: "Copy link",
+      copied: "Copied",
+      copyFailed:
+        "The link couldn't be copied. Check browser permissions and try again.",
+      unavailable: "This shared link doesn't exist or is no longer available.",
+      continueInProduct: "Continue in {{productName}}",
+    },
     rename: "Rename",
     archive: "Archive task",
     archiveNamed: "Archive task “{{title}}”",
@@ -1996,6 +2010,11 @@ export const enUS = {
     forkMessage: "Branch to new chat",
     forkingMessage: "Creating branch…",
     forkMessageFailed: "Unable to create the branched task. Try again.",
+    forkSource: {
+      continueFromChat: "Continued from chat",
+      openSourceTask: "Open source task: {{title}}",
+      unavailable: "Source task unavailable",
+    },
     copyCode: "Copy code",
     codeCopied: "Code copied",
     previewHtmlCode: "Preview HTML code",
@@ -3544,8 +3563,7 @@ export const enUS = {
       concurrency: "Task concurrency",
       smtp: "Authentication email",
       registration: "Open registration",
-      oidc: "OIDC sign-in",
-      teams: "Teams sign-in",
+      sso: "Single sign-on",
       maintenance: "System maintenance",
     },
     concurrency: {

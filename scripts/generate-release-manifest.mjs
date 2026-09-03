@@ -41,6 +41,7 @@ const resourcePaths = {
   COMPOSE_CORE: "compose.core.yml",
   COMPOSE_FULL: "compose.full.yml",
   GATEWAY: "gateway.conf.template",
+  CLI: "linksense-cli.sh",
   INSTALLER_ENGINE: "linksense-installer.sh",
   INSTALL_CORE: "install-core.sh",
   INSTALL_FULL: "install-full.sh",
@@ -68,11 +69,7 @@ const lines = [
   "MIN_DOCKER_API=1.45",
   "MIN_DOCKER_COMPOSE=2.24.4",
   "CORE_MIN_MEMORY_GIB=8",
-  "CORE_MIN_DISK_GIB=40",
-  "CORE_MIN_FREE_INODES=100000",
   "FULL_MIN_MEMORY_GIB=16",
-  "FULL_MIN_DISK_GIB=80",
-  "FULL_MIN_FREE_INODES=200000",
 ]
 
 for (const imageKey of imageKeys) {

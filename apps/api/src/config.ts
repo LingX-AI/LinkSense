@@ -301,7 +301,7 @@ const rawConfigSchema = z
       .min(3)
       .max(63)
       .default("linksense-knowledge"),
-    LINKSENSE_ARTIFACT_DOWNLOAD_TTL_SECONDS: positiveInteger(300),
+    LINKSENSE_ARTIFACT_DOWNLOAD_TTL_SECONDS: positiveInteger(7_200),
     LINKSENSE_KB_MAX_FILE_SIZE_BYTES: safePositiveInteger(209_715_200),
     LINKSENSE_KB_UPLOAD_MAX_FILES_PER_BATCH: safePositiveInteger(100),
     LINKSENSE_KB_STORAGE_QUOTA_BYTES: safePositiveInteger(10_737_418_240),

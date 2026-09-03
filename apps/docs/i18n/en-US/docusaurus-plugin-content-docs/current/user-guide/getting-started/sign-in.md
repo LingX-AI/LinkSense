@@ -7,6 +7,8 @@ description: Enter LinkSense with a local account, enterprise SSO, or Microsoft 
 
 Depending on deployment configuration, LinkSense can offer email and password, enterprise single sign-on, and Microsoft Teams sign-in. The login page only displays methods that are currently enabled.
 
+If the login page shows **Create account**, you can also use the administrator-enabled [open registration flow](./registration.md) to request and activate an account.
+
 ## Email and password
 
 1. Open the LinkSense login page.

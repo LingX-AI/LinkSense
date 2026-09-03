@@ -7,6 +7,8 @@ description: 使用本地账号、单点登录或 Teams 进入 LinkSense。
 
 LinkSense 可以按部署配置提供邮箱密码、企业单点登录和 Microsoft Teams 登录。登录页只显示当前部署已经启用的方式。
 
+如果登录页显示“注册账号”，也可以通过管理员开启的[开放注册流程](./registration.md)申请并激活账号。
+
 ## 使用邮箱和密码
 
 1. 打开 LinkSense 登录页。

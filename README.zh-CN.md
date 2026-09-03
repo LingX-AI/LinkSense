@@ -23,11 +23,11 @@ LinkSense 是我们面向组织打造的自托管 AI Agent 平台。我们将 AI
 - macOS：支持 Intel Mac 和 Apple Silicon，需要安装 Docker Desktop，并使用当前登录的 macOS 账号执行，不要使用 `sudo`。
 - 发行镜像同时支持 `linux/amd64` 和 `linux/arm64`，Docker 会自动选择与当前环境匹配的镜像。
 - 提前安装 `curl`，启动本机 Linux Docker Engine；Docker API 不低于 v1.45，Docker Compose 不低于 v2.24.4。
-- TCP 端口 `10080` 必须空闲，并允许访问 GitHub、GHCR、上游镜像仓库；Full 还需要下载 tokenizer 文件。
-- Core 至少需要 8 GiB 内存和 40 GiB 可用空间；Full 至少需要 16 GiB 内存和 80 GiB 可用空间。
-- Linux 还需要为 Core 保留 100,000 个可用 inode，或为 Full 保留 200,000 个可用 inode。
+- 默认 TCP 端口 `18081` 必须空闲，并允许访问 GitHub、GHCR、上游镜像仓库；Full 还需要下载 tokenizer 文件。
+- Core 至少需要 8 GiB 内存，Full 至少需要 16 GiB 内存。
+- 安装器不再设置可用磁盘空间或 inode 硬性下限。请采用下方推荐的 SSD 容量并监控剩余空间；存储耗尽时 Docker 仍会安装失败。
 
-安装器会在写入持久数据前检查主机与 Docker 平台，并自动生成运行密钥。macOS 用户需要先在 Docker Desktop 中分配足够的内存和磁盘。域名和 HTTPS 不是本地启动的前置条件；公网部署建议在端口 `10080` 前配置 HTTPS 反向代理。
+安装器会在写入持久数据前检查主机与 Docker 平台，并自动生成运行密钥。macOS 用户需要先在 Docker Desktop 中分配足够的内存和磁盘。域名和 HTTPS 不是本地启动的前置条件；公网部署建议在端口 `18081` 前配置 HTTPS 反向代理。
 
 Linux 安装：
 
@@ -36,14 +36,19 @@ curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-cor
 curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh | sudo sh
 ```
 
+如需在安装时指定其他未占用的 TCP 端口，应把 `LINKSENSE_HTTP_PORT` 传给安装器进程，而不是传给 `curl`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh \
+  | sudo env LINKSENSE_HTTP_PORT=19090 sh
+```
 macOS 安装：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh | sh
 curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh | sh
 ```
-
-安装完成后，Linux 访问 `http://<服务器地址>:10080`，macOS 访问 `http://localhost:10080`。终端会显示一次性初始化凭据，用于创建首个管理员。Linux 部署文件位于 `/opt/linksense`，macOS 部署文件位于 `~/.linksense`。
+安装完成后，Linux 访问 `http://<服务器地址>:18081`，macOS 访问 `http://localhost:18081`；使用自定义端口时，请把 `18081` 替换成对应值。终端会显示一次性初始化凭据，用于创建首个管理员。Linux 部署文件位于 `/opt/linksense`，macOS 部署文件位于 `~/.linksense`。
 
 Core 不包含 Elasticsearch、Docling 和 tokenizer；Full 在 Core 的基础上启用完整的文档解析和知识库检索。
 
@@ -56,6 +61,25 @@ curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh 
 ```
 
 macOS 使用相同命令但不加 `sudo`。修复脚本固定使用已安装版本；升级脚本自动识别 Core/Full，在数据库迁移前等待运行中的任务结束，并把经过校验的 PostgreSQL 备份保存到 `volume://linksense-backups/postgres/`。脚本不会删除数据卷；迁移开始后的失败不会自动回滚数据库，请保留终端显示的备份地址并在排查后重新执行升级脚本。
+
+## 命令行管理
+
+安装完成后，运行 `linksense` 进入交互式管理菜单，也可以直接执行子命令：
+
+```bash
+linksense status
+linksense start
+linksense stop
+linksense restart
+linksense port 19090
+linksense credential
+linksense logs api
+linksense doctor
+linksense repair
+linksense upgrade v0.3.0
+```
+
+Linux 会在需要时请求 `sudo`，macOS 需要把 `$HOME/.local/bin` 加入 `PATH` 并且不要使用 `sudo`。修改端口前会检查占用情况，只重建受影响的服务；健康检查失败时自动恢复原配置。只有创建首个管理员前，凭证命令才会显示一次性初始化凭据。
 
 ## 推荐配置
 

@@ -225,7 +225,7 @@
     0 0 0 1px var(--word-preview-page-edge),
     0 8px 18px -14px rgb(32 32 32 / 16%), 0 1px 2px rgb(32 32 32 / 4%);
   --app-border: rgb(32 32 32 / 10%);
-  --app-divider: rgb(32 32 32 / 8%);
+  --app-divider: rgb(32 32 32 / 6%);
   --app-avatar: #dedede;
   --app-profile-avatar: color-mix(
     in srgb,
@@ -343,7 +343,7 @@
     0 0 0 1px var(--word-preview-page-edge), 0 10px 22px -18px rgb(0 0 0 / 30%),
     0 1px 2px rgb(0 0 0 / 14%);
   --app-border: rgb(255 255 255 / 11%);
-  --app-divider: rgb(255 255 255 / 8%);
+  --app-divider: rgb(255 255 255 / 6%);
   --app-avatar: #363636;
   --app-profile-avatar: color-mix(
     in srgb,
@@ -1160,6 +1160,10 @@
   color: var(--app-text);
 }
 
+.sidebar-link-current {
+  color: var(--app-text);
+}
+
 .mobile-shell-trigger {
   position: absolute;
   top: 11px;
@@ -1243,10 +1247,17 @@
   place-items: center;
 }
 
+@property --conversation-file-preview-pane-offset {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 0%;
+}
+
 .conversation-office-layout,
 .conversation-presentation-layout {
   --conversation-file-preview-motion-duration: 360ms;
   --conversation-file-preview-motion-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  --conversation-file-preview-pane-offset: 0%;
   position: relative;
   display: flex;
   width: 100%;
@@ -1294,22 +1305,31 @@
   color: var(--app-text);
 }
 
-.conversation-office-layout[data-has-office-preview="true"]
-  > .office-preview-pane.office-preview-pane-entering:not(
-    .subagent-detail-pane
+.conversation-office-layout[data-has-office-preview="true"]:has(
+    > .office-preview-pane.office-preview-pane-entering:not(
+        .subagent-detail-pane
+      )
   ) {
   animation: conversation-file-preview-pane-in
     var(--conversation-file-preview-motion-duration)
     var(--conversation-file-preview-motion-easing) both;
 }
 
+.conversation-office-layout[data-has-office-preview="true"]
+  > .office-preview-pane.office-preview-pane-entering:not(
+    .subagent-detail-pane
+  ) {
+  transform: translate3d(var(--conversation-file-preview-pane-offset), 0, 0);
+  will-change: transform;
+}
+
 @keyframes conversation-file-preview-pane-in {
   from {
-    transform: translate3d(100%, 0, 0);
+    --conversation-file-preview-pane-offset: 100%;
   }
 
   to {
-    transform: translate3d(0, 0, 0);
+    --conversation-file-preview-pane-offset: 0%;
   }
 }
 
@@ -1336,9 +1356,10 @@
     transition: none;
   }
 
-  .conversation-office-layout[data-has-office-preview="true"]
-    > .office-preview-pane.office-preview-pane-entering:not(
-      .subagent-detail-pane
+  .conversation-office-layout[data-has-office-preview="true"]:has(
+      > .office-preview-pane.office-preview-pane-entering:not(
+          .subagent-detail-pane
+        )
     ),
   .conversation-office-layout[data-has-office-preview="true"][data-preview-closing="true"]
     > .office-preview-pane:not(.subagent-detail-pane) {
@@ -1640,7 +1661,7 @@
 
 .office-preview-zoom-value {
   min-width: 48px;
-  padding-inline: 6px;
+  padding-inline: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2305,7 +2326,8 @@
   width: 100%;
   justify-content: flex-start;
   overflow: hidden;
-  padding-inline: 6px;
+  padding-right: 12px;
+  padding-left: 12px;
   color: var(--app-text);
   font-size: var(--app-ui-font-size);
   font-weight: 400;
@@ -3424,6 +3446,291 @@
   font-size: var(--app-ui-font-size);
   font-weight: 500;
   line-height: var(--app-ui-compact-line-height);
+}
+
+.conversation-share-trigger {
+  gap: 5px;
+  min-width: 60px;
+  padding-inline: 8px;
+  color: var(--app-muted);
+  font-size: var(--app-font-13);
+  font-weight: 500;
+}
+
+.conversation-share-trigger:hover,
+.conversation-share-trigger:focus-visible {
+  background: var(--app-hover);
+  color: var(--app-text);
+}
+
+.conversation-share-trigger > svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.8;
+}
+
+.conversation-share-dialog-overlay {
+  background: rgb(0 0 0 / 14%);
+  backdrop-filter: none;
+}
+
+.conversation-share-dialog {
+  grid-template-rows: auto minmax(220px, 1fr) auto auto;
+  gap: 16px;
+  width: min(540px, calc(100vw - 40px));
+  max-width: none;
+  height: min(480px, calc(100svh - 64px));
+  padding: 24px 26px 22px;
+  border-radius: 20px;
+  background: var(--app-canvas);
+  box-shadow:
+    0 20px 52px rgb(0 0 0 / 16%),
+    0 2px 8px rgb(0 0 0 / 8%);
+}
+
+.conversation-share-dialog [data-slot="dialog-close"] {
+  top: 19px;
+  right: 19px;
+  background: transparent;
+  color: var(--app-muted);
+}
+
+.conversation-share-dialog-header {
+  gap: 7px;
+  padding-right: 34px;
+}
+
+.conversation-share-dialog-title {
+  font-size: var(--app-font-20);
+  font-weight: 600;
+  line-height: var(--app-line-28);
+  letter-spacing: -0.015em;
+}
+
+.conversation-share-dialog-description {
+  color: var(--app-muted);
+  font-size: var(--app-ui-font-size);
+  line-height: var(--app-line-22);
+}
+
+.conversation-share-preview {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 15px;
+  background: var(--app-canvas);
+}
+
+.conversation-share-preview .conversation-column-embedded {
+  padding: 22px 24px 42px;
+}
+
+.conversation-share-preview .message-action-metadata {
+  display: none;
+}
+
+.conversation-share-preview .conversation-scroll {
+  scrollbar-gutter: auto;
+}
+
+.conversation-share-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.conversation-share-dialog-footer > p {
+  color: var(--app-muted);
+  font-size: var(--app-font-13);
+  line-height: var(--app-line-20);
+}
+
+.conversation-share-copy-button {
+  width: 92px;
+  min-width: 92px;
+  height: 32px;
+  gap: 5px;
+  padding-right: 12px;
+  padding-left: 12px;
+  border-color: var(--app-border);
+  border-radius: 9px;
+  font-size: var(--app-font-12-5);
+  font-weight: 600;
+}
+
+.conversation-share-copy-button > svg {
+  width: 12px;
+  height: 12px;
+}
+
+.conversation-share-error .status-banner {
+  margin: 0;
+}
+
+.dark .conversation-share-dialog-overlay {
+  background: rgb(0 0 0 / 46%);
+}
+
+.dark .conversation-share-dialog {
+  border: 1px solid rgb(255 255 255 / 7%);
+  background: #2a2a2a;
+  box-shadow:
+    0 24px 64px rgb(0 0 0 / 48%),
+    0 2px 10px rgb(0 0 0 / 34%);
+}
+
+.dark .conversation-share-preview {
+  border-color: rgb(255 255 255 / 9%);
+  background: #191919;
+}
+
+.dark .conversation-share-copy-button {
+  border-color: rgb(255 255 255 / 10%);
+  background: rgb(255 255 255 / 3%);
+}
+
+.dark .conversation-share-copy-button:hover,
+.dark .conversation-share-copy-button:focus-visible {
+  background: rgb(255 255 255 / 7%);
+}
+
+.shared-conversation-page {
+  display: flex;
+  width: 100%;
+  height: 100svh;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--app-canvas);
+  color: var(--app-text);
+}
+
+.shared-conversation-header {
+  position: relative;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 780px) minmax(220px, 1fr);
+  min-height: 72px;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--app-divider);
+  background: var(--app-canvas);
+}
+
+.shared-conversation-brand {
+  width: auto;
+  max-width: 116px;
+  height: 24px;
+  justify-self: start;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.shared-conversation-header h1 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--app-font-16);
+  font-weight: 600;
+  line-height: var(--app-line-24);
+}
+
+.shared-conversation-continue {
+  min-height: 40px;
+  justify-self: end;
+  gap: 5px;
+  border-radius: 999px;
+  padding-inline: 16px;
+  background: var(--app-control-surface);
+  color: var(--app-text);
+  font-size: var(--app-font-13);
+  font-weight: 600;
+}
+
+.shared-conversation-continue > svg {
+  width: 15px;
+  height: 15px;
+}
+
+.shared-conversation-main {
+  --conversation-horizontal-gutter: 24px;
+  --conversation-message-inner-padding: 0px;
+  --conversation-content-width: min(calc(100% - 48px), 780px);
+  position: relative;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.shared-conversation-main .conversation-column-embedded {
+  width: var(--conversation-content-width);
+  min-height: 100%;
+  padding: 28px 0 96px;
+}
+
+.shared-conversation-state {
+  display: grid;
+  min-height: 100svh;
+  place-items: center;
+  padding: 24px;
+  background: var(--app-canvas);
+}
+
+@media (max-width: 720px) {
+  .conversation-share-dialog {
+    width: calc(100vw - 20px);
+    height: calc(100svh - 20px);
+    padding: 24px 18px 20px;
+    border-radius: 18px;
+  }
+
+  .conversation-share-dialog-title {
+    font-size: var(--app-font-20);
+    line-height: var(--app-line-28);
+  }
+
+  .conversation-share-preview .conversation-column-embedded {
+    padding-inline: 16px;
+  }
+
+  .conversation-share-dialog-footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .conversation-share-copy-button {
+    width: 100%;
+  }
+
+  .shared-conversation-header {
+    grid-template-columns: minmax(76px, 1fr) auto;
+    min-height: 64px;
+    gap: 12px;
+    padding-inline: 14px;
+  }
+
+  .shared-conversation-brand {
+    max-width: 92px;
+    height: 20px;
+  }
+
+  .shared-conversation-header h1 {
+    display: none;
+  }
+
+  .shared-conversation-continue {
+    min-height: 36px;
+    padding-inline: 13px;
+  }
+
+  .shared-conversation-main {
+    --conversation-content-width: calc(100% - 28px);
+  }
 }
 
 .conversation-top-overlay-stack {
@@ -5154,10 +5461,10 @@ button.annotation-hover-file:focus-visible {
 
 .message-actions {
   display: flex;
-  min-height: 28px;
+  min-height: 31px;
   align-items: center;
   gap: 2px;
-  margin-top: 3px;
+  padding-top: 3px;
   color: var(--app-muted);
   opacity: 0;
   pointer-events: none;
@@ -6082,12 +6389,29 @@ button.annotation-hover-file:focus-visible {
 }
 
 .assistant-markdown .markdown-table-toolbar {
+  position: absolute;
+  z-index: 3;
+  top: 3px;
+  right: 4px;
   display: flex;
-  min-height: 30px;
+  height: 28px;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  margin-bottom: 4px;
+  padding-left: 8px;
+  border-radius: 8px;
+  background: var(--background);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.assistant-markdown .markdown-copy-block-table:hover .markdown-table-toolbar,
+.assistant-markdown
+  .markdown-copy-block-table:focus-within
+  .markdown-table-toolbar {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .assistant-markdown .markdown-table-actions {
@@ -6401,8 +6725,8 @@ button.annotation-hover-file:focus-visible {
 .turn-summary-heading {
   width: 100%;
   min-width: 0;
-  border-bottom-width: 0.5px;
-  border-bottom-color: color-mix(in srgb, var(--app-divider) 80%, transparent);
+  border-bottom-width: 1px;
+  border-bottom-color: var(--app-divider);
   padding-bottom: 10px;
   color: inherit;
   font-size: inherit;
@@ -6989,7 +7313,8 @@ button.annotation-hover-file:focus-visible {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
+  object-position: center;
 }
 
 .process-commentary {

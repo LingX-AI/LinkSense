@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const minio = vi.hoisted(() => ({
   bucketExists: vi.fn(),
   makeBucket: vi.fn(),
+  putObject: vi.fn(),
   presignedGetObject: vi.fn(),
   constructorOptions: [] as unknown[],
 }))
@@ -15,6 +16,7 @@ vi.mock("minio", () => ({
 
     bucketExists = minio.bucketExists
     makeBucket = minio.makeBucket
+    putObject = minio.putObject
     presignedGetObject = minio.presignedGetObject
   },
 }))
@@ -26,8 +28,31 @@ describe("MinioObjectStorage deployment boundary", () => {
   beforeEach(() => {
     minio.bucketExists.mockReset()
     minio.makeBucket.mockReset()
+    minio.putObject.mockReset()
     minio.presignedGetObject.mockReset()
     minio.constructorOptions.length = 0
+  })
+
+  it("encodes non-ASCII object metadata before sending HTTP headers", async () => {
+    minio.putObject.mockResolvedValue(undefined)
+    const storage = new MinioObjectStorage(testConfig())
+    const data = Buffer.from("png")
+
+    await storage.putObject("users/user-id/avatars/avatar.png", data, {
+      "content-type": "image/png",
+      "original-filename": "截图.png",
+    })
+
+    expect(minio.putObject).toHaveBeenCalledWith(
+      "linksense-files",
+      "users/user-id/avatars/avatar.png",
+      data,
+      data.byteLength,
+      {
+        "content-type": "image/png",
+        "original-filename": "%E6%88%AA%E5%9B%BE.png",
+      },
+    )
   })
 
   it("accepts a bucket provisioned by the external deployment", async () => {

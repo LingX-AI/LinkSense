@@ -108,6 +108,18 @@ describe("conversation detail event subscription", () => {
     ).toBe("conversation-b")
   })
 
+  it("subscribes from the server-fresh draft snapshot after a new task is promoted", () => {
+    expect(
+      selectFreshConversationEventSubscriptionId({
+        conversationId: "conversation-new",
+        isNew: false,
+        isSuccess: true,
+        isFetchedAfterMount: false,
+        isPromotedNewTask: true,
+      })
+    ).toBe("conversation-new")
+  })
+
   it.each([
     {
       name: "new task",

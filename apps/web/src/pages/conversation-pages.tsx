@@ -13,6 +13,7 @@ import {
   useQueries,
   useQuery,
   useQueryClient,
+  type InfiniteData,
 } from "@tanstack/react-query"
 import {
   ArchiveIcon,
@@ -22,6 +23,7 @@ import {
   InfoIcon,
   PencilIcon,
   SearchIcon,
+  UploadIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react"
@@ -66,6 +68,7 @@ import {
   type ConversationUserInputRequest,
   type NativeMessagePhase,
   type NativeMessageOutputKind,
+  type Paginated,
   type PendingRequest,
   type Application,
   type ThreadGoal,
@@ -154,9 +157,17 @@ import {
 } from "@/features/conversations/conversation-office-preview-update"
 import { buildConversationLineSidebarItems } from "@/features/conversations/conversation-line-sidebar-items"
 import { getConversationMessageAnchorId } from "@/features/conversations/conversation-message-anchor"
-import { upsertSidebarConversation } from "@/features/conversations/conversation-order"
+import {
+  patchConversationTitle,
+  patchSidebarConversationExecutionStatus,
+  patchSidebarConversationTitle,
+  removeSidebarConversation,
+  replaceSidebarConversation,
+  upsertSidebarConversation,
+} from "@/features/conversations/conversation-order"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import { ConversationTaskOverviewPanel } from "@/features/conversations/conversation-task-overview-panel"
+import { ConversationShareDialog } from "@/features/conversations/conversation-share"
 import { buildConversationTaskOverview } from "@/features/conversations/conversation-task-overview"
 import { readTaskOverviewOpenPreference } from "@/features/conversations/conversation-task-overview-preference"
 import {
@@ -311,6 +322,22 @@ type OptimisticAttachmentConsumption = Readonly<{
   conversationId: string
   previousAttachments: ConversationFile[]
   submittedAttachmentIds: string[]
+}>
+
+type OptimisticSidebarExecutionStatus =
+  | Readonly<{
+      kind: "patched"
+      conversationId: string
+      previousExecutionStatus: Conversation["execution_status"]
+    }>
+  | Readonly<{
+      kind: "inserted"
+      conversationId: string
+    }>
+
+type OptimisticTurnStart = Readonly<{
+  attachmentConsumption: OptimisticAttachmentConsumption | undefined
+  sidebarExecutionStatus: OptimisticSidebarExecutionStatus | undefined
 }>
 
 type UserTokenQuotaUsage = NonNullable<
@@ -494,6 +521,12 @@ export function ConversationPage({
     pendingFirstMessageConversationId,
     setPendingFirstMessageConversationId,
   ] = useState<string | null>(null)
+  const [
+    taskOverviewSuppressedConversationId,
+    setTaskOverviewSuppressedConversationId,
+  ] = useState<string | null>(null)
+  const [newTaskPromotionConversationId, setNewTaskPromotionConversationId] =
+    useState<string | null>(null)
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<string[]>(
     []
   )
@@ -545,6 +578,7 @@ export function ConversationPage({
     "edit" | "pause" | "resume" | "clear" | null
   >(null)
   const [renameOpen, setRenameOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [renameValue, setRenameValue] = useState("")
   const [pendingActionId, setPendingActionId] = useState<string>()
@@ -597,7 +631,11 @@ export function ConversationPage({
     []
   )
   const [liveEvents, setLiveEvents] = useState<ConversationEvent[]>([])
-  const [liveConversationId, setLiveConversationId] = useState(conversationId)
+  const [liveConversationId, setLiveConversationId] = useState<
+    string | undefined
+  >(
+    conversationId ?? newConversationPlaceholderId
+  )
   const [downloadingFileId, setDownloadingFileId] = useState<string>()
   const [officePreview, setOfficePreview] = useState<{
     conversationId: string | undefined
@@ -681,6 +719,13 @@ export function ConversationPage({
   const dispatchedInterruptTurnIdsRef = useRef(new Set<string>())
 
   useLayoutEffect(() => {
+    const previousRouteConversationId = routeConversationIdRef.current
+    if (
+      previousRouteConversationId !== currentRouteConversationId &&
+      currentRouteConversationId === null
+    ) {
+      setNewTaskResetVersion((current) => current + 1)
+    }
     routeEpochRef.current += 1
     routeConversationIdRef.current = currentRouteConversationId
   }, [currentRouteConversationId, location.key, newTaskResetVersion])
@@ -699,8 +744,31 @@ export function ConversationPage({
   const pendingListRefreshRef = useRef(false)
   const terminalSidebarSyncRef = useRef<string | null>(null)
   const seenEventIdsRef = useRef(new Set<string>())
-  const liveConversationIdRef = useRef(conversationId)
+  const liveConversationIdRef = useRef<string | undefined>(
+    conversationId ?? newConversationPlaceholderId
+  )
   const autoInterruptedTurnIdRef = useRef<string | null>(null)
+  const observedNewTaskPromotionIdRef = useRef<string | null>(null)
+  const isNewTaskPromotion =
+    newTaskPromotionConversationId !== null &&
+    newTaskPromotionConversationId === conversationId
+  useLayoutEffect(() => {
+    const promotedConversationId = newTaskPromotionConversationId
+    if (!promotedConversationId) {
+      observedNewTaskPromotionIdRef.current = null
+      return
+    }
+    if (conversationId === promotedConversationId) {
+      observedNewTaskPromotionIdRef.current = promotedConversationId
+      return
+    }
+    if (observedNewTaskPromotionIdRef.current === promotedConversationId) {
+      observedNewTaskPromotionIdRef.current = null
+      setNewTaskPromotionConversationId((current) =>
+        current === promotedConversationId ? null : current
+      )
+    }
+  }, [conversationId, newTaskPromotionConversationId])
   const {
     scrollContainerRef,
     contentRef,
@@ -709,7 +777,9 @@ export function ConversationPage({
     scrollToElement,
     pauseAutoFollow,
     preserveScrollPositionForInteraction,
-  } = useConversationScroll(conversationId ?? "new")
+  } = useConversationScroll(conversationId ?? newConversationPlaceholderId, {
+    preservePositionOnConversationChange: isNewTaskPromotion,
+  })
   const bottomStackRef = useConversationBottomStackHeight()
 
   const handleScrollToBottom = useCallback(() => {
@@ -800,6 +870,9 @@ export function ConversationPage({
       ),
     enabled:
       isNew || (conversationQuery.isSuccess && canSelectConversationModel),
+    placeholderData: isNewTaskPromotion
+      ? (previousData) => previousData
+      : undefined,
   })
   const modelPreferenceMutation = useMutation({
     mutationFn: async ({
@@ -967,6 +1040,70 @@ export function ConversationPage({
     (knowledgeBasesLoading || knowledgeBaseSelectionVerificationFailed)
 
   const conversation = conversationQuery.data
+  const pendingSubmissionBelongsToConversation = Boolean(
+    pendingTurnSubmission &&
+    (pendingTurnSubmission.conversationId === conversationId ||
+      (isNew &&
+        (pendingTurnSubmission.conversationId ===
+          newConversationPlaceholderId ||
+          newTaskPromotionConversationId ===
+            pendingTurnSubmission.conversationId)) ||
+      (isNewTaskPromotion &&
+        pendingTurnSubmission.conversationId === newConversationPlaceholderId))
+  )
+  const reconciledPendingUserMessage = pendingSubmissionBelongsToConversation
+    ? conversation?.messages?.find(
+        (message) =>
+          message.role === "user" &&
+          (pendingTurnSubmission?.turnId
+            ? message.turn_id === pendingTurnSubmission.turnId
+            : isNewTaskPromotion &&
+              pendingFirstMessageConversationId === conversationId &&
+              message.content === pendingTurnSubmission?.message.content)
+      )
+    : undefined
+  const reconciledPendingUserMessageId = reconciledPendingUserMessage?.id
+  const reconciledPendingUserMessageRenderKey =
+    reconciledPendingUserMessageId && pendingTurnSubmission
+      ? (pendingTurnSubmission.message.client_render_key ??
+        `message-${pendingTurnSubmission.message.id}`)
+      : undefined
+
+  useLayoutEffect(() => {
+    if (
+      !conversationId ||
+      !reconciledPendingUserMessageId ||
+      !reconciledPendingUserMessageRenderKey
+    ) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      setPersistedMessageRenderKeyState((current) => {
+        const currentKeys =
+          current.conversationId === conversationId
+            ? current.keys
+            : emptyPersistedMessageRenderKeys
+        if (
+          currentKeys.get(reconciledPendingUserMessageId) ===
+          reconciledPendingUserMessageRenderKey
+        ) {
+          return current
+        }
+        return {
+          conversationId,
+          keys: new Map(currentKeys).set(
+            reconciledPendingUserMessageId,
+            reconciledPendingUserMessageRenderKey
+          ),
+        }
+      })
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [
+    conversationId,
+    reconciledPendingUserMessageId,
+    reconciledPendingUserMessageRenderKey,
+  ])
   const persistedGoalRevision = threadGoalRevision(conversation?.goal)
   const refetchConversation = conversationQuery.refetch
   const hasConversation = Boolean(conversation)
@@ -993,11 +1130,7 @@ export function ConversationPage({
     (attachment) => !optimisticallyConsumedAttachmentIds?.has(attachment.id)
   )
   const running = conversation?.running_turn?.status === "running"
-  const currentConversationViewId =
-    conversationId ?? newConversationPlaceholderId
-  const pendingTurnExecutionActive = Boolean(
-    pendingTurnSubmission?.conversationId === currentConversationViewId
-  )
+  const pendingTurnExecutionActive = pendingSubmissionBelongsToConversation
   const acceptedTurnAwaitingProjection = Boolean(
     pendingTurnExecutionActive &&
     pendingTurnSubmission?.status !== undefined &&
@@ -1077,6 +1210,8 @@ export function ConversationPage({
       return
     }
     setPendingFirstMessageConversationId(null)
+    setTaskOverviewSuppressedConversationId(null)
+    setNewTaskPromotionConversationId(null)
     setValue("")
     setGoalMode(false)
     setNewTaskCollaborationMode("default")
@@ -1629,12 +1764,25 @@ export function ConversationPage({
     [conversationId, isNew, queryClient]
   )
 
+  const pendingSubmittedTurnNotProjected = Boolean(
+    pendingTurnSubmission &&
+    pendingTurnSubmission.conversationId === conversationId &&
+    (!pendingTurnSubmission.turnId ||
+      !conversation?.turns?.some(
+        (turn) => turn.id === pendingTurnSubmission.turnId
+      ) ||
+      !conversation.messages?.some(
+        (message) => message.turn_id === pendingTurnSubmission.turnId
+      ))
+  )
+
   useEffect(() => {
     const executionStatus = conversation?.execution_status
     if (
       isNew ||
       !conversationId ||
       !conversationQuery.isSuccess ||
+      pendingSubmittedTurnNotProjected ||
       (executionStatus !== "completed" &&
         executionStatus !== "failed" &&
         executionStatus !== "interrupted")
@@ -1655,6 +1803,7 @@ export function ConversationPage({
     conversationId,
     conversationQuery.isSuccess,
     isNew,
+    pendingSubmittedTurnNotProjected,
     queryClient,
   ])
 
@@ -1676,6 +1825,45 @@ export function ConversationPage({
     pendingNativeMessageDeltaTimersRef.current.clear()
     pendingNativeMessageDeltasByItemIdRef.current.clear()
   }, [])
+
+  const synchronizeLiveConversationScope = useCallback(
+    (nextConversationId: string | undefined) => {
+      if (liveConversationIdRef.current === nextConversationId) return
+      liveConversationIdRef.current = nextConversationId
+      setLiveConversationId(nextConversationId)
+      seenEventIdsRef.current.clear()
+      setStreamedMessages({})
+      legacyStreamItemIdByTurnRef.current.clear()
+      nativeMessagePhaseByItemIdRef.current.clear()
+      stopHookSupersededItemIdsByTurnRef.current.clear()
+      planOutputMissingMessagesByTurnRef.current.clear()
+      clearPendingNativeMessageDeltas()
+      setPersistedMessageRenderKeyState({
+        conversationId: nextConversationId,
+        keys: emptyPersistedMessageRenderKeys,
+      })
+      setLiveReasoningSummaries({})
+      setLiveActivities([])
+      setLiveEvents([])
+    },
+    [clearPendingNativeMessageDeltas]
+  )
+
+  useLayoutEffect(() => {
+    const nextConversationId = conversationId ?? newConversationPlaceholderId
+    if (
+      isNewTaskPromotion &&
+      liveConversationIdRef.current === newConversationPlaceholderId
+    ) {
+      return
+    }
+    synchronizeLiveConversationScope(nextConversationId)
+  }, [
+    conversationId,
+    isNewTaskPromotion,
+    location.key,
+    synchronizeLiveConversationScope,
+  ])
 
   const appendNativeMessageDelta = useCallback(
     (
@@ -1765,28 +1953,20 @@ export function ConversationPage({
       isNew,
       isSuccess: conversationQuery.isSuccess,
       isFetchedAfterMount: conversationQuery.isFetchedAfterMount,
+      isPromotedNewTask: isNewTaskPromotion,
     })
   const { connectionState, reconnectingWarningVisible } = useConversationEvents(
     eventSubscriptionConversationId,
     useCallback(
       (event) => {
-        if (liveConversationIdRef.current !== conversationId) {
-          liveConversationIdRef.current = conversationId
-          setLiveConversationId(conversationId)
-          seenEventIdsRef.current.clear()
-          setStreamedMessages({})
-          legacyStreamItemIdByTurnRef.current.clear()
-          nativeMessagePhaseByItemIdRef.current.clear()
-          stopHookSupersededItemIdsByTurnRef.current.clear()
-          planOutputMissingMessagesByTurnRef.current.clear()
-          clearPendingNativeMessageDeltas()
-          setPersistedMessageRenderKeyState({
-            conversationId,
-            keys: emptyPersistedMessageRenderKeys,
-          })
-          setLiveReasoningSummaries({})
-          setLiveActivities([])
-          setLiveEvents([])
+        const preservesPromotedNewTaskState =
+          isNewTaskPromotion &&
+          liveConversationIdRef.current === newConversationPlaceholderId
+        if (
+          liveConversationIdRef.current !== conversationId &&
+          !preservesPromotedNewTaskState
+        ) {
+          synchronizeLiveConversationScope(conversationId)
         }
         if (event.id && seenEventIdsRef.current.has(event.id)) return
         if (event.id) seenEventIdsRef.current.add(event.id)
@@ -1829,6 +2009,39 @@ export function ConversationPage({
             return
           }
           if (isStreamOnlyNativeEvent(event)) return
+          if (
+            native.method === "turn/started" &&
+            event.turn_id &&
+            pendingTurnSubmission &&
+            pendingSubmissionBelongsToConversation &&
+            !pendingTurnSubmission.turnId
+          ) {
+            setPendingTurnSubmission((current) =>
+              current === pendingTurnSubmission && !current.turnId
+                ? {
+                    ...current,
+                    turnId: event.turn_id ?? undefined,
+                    status: "starting",
+                    message: { ...current.message, turn_id: event.turn_id },
+                  }
+                : current
+            )
+          }
+          const projectedTurnId =
+            event.turn_id !== null &&
+            (conversation?.running_turn?.id === event.turn_id ||
+              conversation?.turns?.some((turn) => turn.id === event.turn_id))
+              ? event.turn_id
+              : null
+          const refreshScope = getConversationEventQueryRefreshScope(event, {
+            projectedTurnId,
+          })
+          if (
+            native.method === "thread/name/updated" ||
+            (native.method === "turn/started" && refreshScope === "none")
+          ) {
+            return
+          }
           setLiveEvents((current) =>
             appendConversationLiveEvent(current, event)
           )
@@ -1951,13 +2164,42 @@ export function ConversationPage({
               removeStreamingReasoningSummariesForTurn(current, event.turn_id)
             )
           }
-          scheduleConversationRefresh(
-            getConversationEventQueryRefreshScope(event)
-          )
+          scheduleConversationRefresh(refreshScope)
           return
         }
 
         const payload = event.payload as Record<string, unknown>
+        if (event.type === "conversation.title.updated") {
+          const title = typeof payload.title === "string" ? payload.title : null
+          if (
+            title &&
+            conversationId &&
+            conversation?.title_source !== "manual"
+          ) {
+            queryClient.setQueryData<Conversation>(
+              ["conversation", conversationId],
+              (current) =>
+                current ? patchConversationTitle(current, title) : current
+            )
+            queryClient.setQueryData(
+              ["conversations", "sidebar"],
+              (
+                current: { pages: Array<{ items: Conversation[] }> } | undefined
+              ) => patchSidebarConversationTitle(current, conversationId, title)
+            )
+            void Promise.all([
+              queryClient.invalidateQueries({
+                queryKey: ["conversation", conversationId],
+                exact: true,
+              }),
+              queryClient.invalidateQueries({
+                queryKey: ["conversations", "sidebar"],
+                exact: true,
+              }),
+            ])
+          }
+          return
+        }
         if (event.type === "conversation.message.delta") {
           clearNativeReconnect()
           const delta = typeof payload.delta === "string" ? payload.delta : ""
@@ -2083,12 +2325,19 @@ export function ConversationPage({
       },
       [
         clearNativeReconnect,
-        clearPendingNativeMessageDeltas,
+        conversation?.title_source,
+        conversation?.running_turn?.id,
+        conversation?.turns,
         conversationId,
         enqueueNativeMessageDelta,
         flushPendingNativeMessageDeltas,
+        isNewTaskPromotion,
+        pendingTurnSubmission,
+        pendingSubmissionBelongsToConversation,
+        queryClient,
         scheduleConversationRefresh,
         startNativeReconnect,
+        synchronizeLiveConversationScope,
         t,
       ]
     ),
@@ -2171,9 +2420,18 @@ export function ConversationPage({
 
   useEffect(() => {
     const pending = pendingTurnSubmission
+    const projectedTurn = conversation?.turns?.find(
+      (turn) => turn.id === pending?.turnId
+    )
+    const pendingTurnLifecycleProjected = Boolean(
+      pending?.turnId &&
+      (conversation?.running_turn?.id === pending.turnId ||
+        (projectedTurn && projectedTurn.status !== "running"))
+    )
     if (
       !pending?.turnId ||
       pending.conversationId !== conversation?.id ||
+      !pendingTurnLifecycleProjected ||
       !conversation.messages?.some(
         (message) =>
           message.role === "user" && message.turn_id === pending.turnId
@@ -2190,7 +2448,13 @@ export function ConversationPage({
       )
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [conversation?.id, conversation?.messages, pendingTurnSubmission])
+  }, [
+    conversation?.id,
+    conversation?.messages,
+    conversation?.running_turn?.id,
+    conversation?.turns,
+    pendingTurnSubmission,
+  ])
 
   useEffect(() => {
     const pending = pendingCompaction
@@ -2283,10 +2547,27 @@ export function ConversationPage({
         schema: conversationDraftResultSchema,
       })
       queryClient.setQueryData(["conversation", draft.id], draft)
+      if (suppressEmptyStateUntilFirstMessage) {
+        const runningDraft: Conversation = {
+          ...draft,
+          execution_status: "running",
+        }
+        queryClient.setQueryData<
+          InfiniteData<Paginated<Conversation>, string | undefined>
+        >(["conversations", "sidebar"], (cached) =>
+          replaceSidebarConversation(
+            cached,
+            newConversationPlaceholderId,
+            runningDraft
+          )
+        )
+      }
       if (
         routeEpochRef.current === routeEpoch &&
         routeConversationIdRef.current === null
       ) {
+        setNewTaskPromotionConversationId(draft.id)
+        setTaskOverviewSuppressedConversationId(draft.id)
         synchronizeDraftMetadata(draft)
         routeConversationIdRef.current = draft.id
         if (suppressEmptyStateUntilFirstMessage) {
@@ -2308,13 +2589,15 @@ export function ConversationPage({
   }
 
   const refreshSubmittedConversation = async (id: string) => {
-    const detail = await apiRequest(`/conversations/${id}`, {
-      schema: conversationDetailSchema,
+    const queryKey = ["conversation", id] as const
+    await queryClient.cancelQueries({ queryKey, exact: true }, { silent: true })
+    const detail = await queryClient.fetchQuery({
+      ...conversationDetailQueryOptions(id),
+      staleTime: 0,
     })
     if (routeConversationIdRef.current === id) {
       synchronizeDraftMetadata(detail)
     }
-    queryClient.setQueryData(["conversation", id], detail)
     return detail
   }
 
@@ -2437,8 +2720,104 @@ export function ConversationPage({
     [clearOptimisticAttachmentConsumption, queryClient]
   )
 
+  const optimisticallyMarkSidebarConversationRunning = useCallback(() => {
+    const queryKey = ["conversations", "sidebar"] as const
+    const current =
+      queryClient.getQueryData<
+        InfiniteData<Paginated<Conversation>, string | undefined>
+      >(queryKey)
+    if (!current) return undefined
+    if (isNew) {
+      const optimisticConversation = conversationSchema.parse({
+        id: newConversationPlaceholderId,
+        title: t("conversation.untitled"),
+        archived: false,
+        pinned_at: null,
+        sort_order: null,
+        updated_at: new Date().toISOString(),
+        execution_status: "running",
+        has_unread_completion: false,
+        has_automation: false,
+        collaboration_mode: collaborationMode,
+      })
+      queryClient.setQueryData<
+        InfiniteData<Paginated<Conversation>, string | undefined>
+      >(queryKey, (cached) =>
+        upsertSidebarConversation(cached, optimisticConversation)
+      )
+      return {
+        kind: "inserted",
+        conversationId: newConversationPlaceholderId,
+      } satisfies OptimisticSidebarExecutionStatus
+    }
+    if (!conversationId) return undefined
+    const sidebarConversation = current?.pages
+      .flatMap((page) => page.items)
+      .find((item) => item.id === conversationId)
+    if (
+      !sidebarConversation ||
+      sidebarConversation.execution_status === "running"
+    ) {
+      return undefined
+    }
+    const optimisticStatus = {
+      kind: "patched",
+      conversationId,
+      previousExecutionStatus: sidebarConversation.execution_status,
+    } satisfies OptimisticSidebarExecutionStatus
+    queryClient.setQueryData<
+      InfiniteData<Paginated<Conversation>, string | undefined>
+    >(queryKey, (cached) =>
+      patchSidebarConversationExecutionStatus(cached, conversationId, "running")
+    )
+    return optimisticStatus
+  }, [collaborationMode, conversationId, isNew, queryClient, t])
+
+  const restoreOptimisticSidebarExecutionStatus = useCallback(
+    (
+      optimisticStatus: OptimisticSidebarExecutionStatus | undefined,
+      persistedConversationId?: string | null
+    ) => {
+      if (!optimisticStatus) return
+      queryClient.setQueryData<
+        InfiniteData<Paginated<Conversation>, string | undefined>
+      >(["conversations", "sidebar"], (cached) => {
+        if (optimisticStatus.kind === "inserted") {
+          const withoutPlaceholder = removeSidebarConversation(
+            cached,
+            optimisticStatus.conversationId
+          )
+          return persistedConversationId
+            ? patchSidebarConversationExecutionStatus(
+                withoutPlaceholder,
+                persistedConversationId,
+                undefined
+              )
+            : withoutPlaceholder
+        }
+        return patchSidebarConversationExecutionStatus(
+          cached,
+          optimisticStatus.conversationId,
+          optimisticStatus.previousExecutionStatus
+        )
+      })
+    },
+    [queryClient]
+  )
+
   const sendMutation = useMutation({
-    onMutate: optimisticallyConsumeSubmissionAttachments,
+    onMutate: async (submission): Promise<OptimisticTurnStart> => {
+      const sidebarExecutionStatus =
+        optimisticallyMarkSidebarConversationRunning()
+      try {
+        const attachmentConsumption =
+          await optimisticallyConsumeSubmissionAttachments(submission)
+        return { attachmentConsumption, sidebarExecutionStatus }
+      } catch (error) {
+        restoreOptimisticSidebarExecutionStatus(sidebarExecutionStatus)
+        throw error
+      }
+    },
     mutationFn: async (submission: ComposerSubmission) => {
       sendSubmissionConversationIdRef.current = isNew
         ? null
@@ -2570,8 +2949,10 @@ export function ConversationPage({
       })
       return { id, idempotencyKey, persistedSnapshot }
     },
-    onSuccess: (result, _submission, optimisticAttachmentConsumption) => {
-      commitOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
+    onSuccess: (result, _submission, optimisticTurnStart) => {
+      commitOptimisticallyConsumedAttachments(
+        optimisticTurnStart?.attachmentConsumption
+      )
       composerSubmissionInFlightRef.current = false
       setPendingFirstMessageConversationId(null)
       if (routeConversationIdRef.current !== result.id) {
@@ -2583,7 +2964,6 @@ export function ConversationPage({
         }
         submittedDraftSnapshotRef.current = null
         sendSubmissionConversationIdRef.current = null
-        void refreshConversationList()
         return
       }
       turnSubmitOperationRef.current = null
@@ -2598,18 +2978,26 @@ export function ConversationPage({
       queuedDraftSaveRef.current = null
       submittedDraftSnapshotRef.current = null
       sendSubmissionConversationIdRef.current = null
+      // Keep the optimistic running state until the submitted turn is
+      // projected. An immediate list refresh can still return the preceding
+      // terminal state and make the sidebar indicator flicker.
       void refreshSubmittedConversation(result.id).catch(() => {
         void queryClient.invalidateQueries({
           queryKey: ["conversation", result.id],
         })
       })
-      void refreshConversationList()
     },
-    onError: (nextError, submission, optimisticAttachmentConsumption) => {
+    onError: (nextError, submission, optimisticTurnStart) => {
       const targetConversationId = sendSubmissionConversationIdRef.current
       composerSubmissionInFlightRef.current = false
       setInterrupting(false)
-      restoreOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
+      restoreOptimisticallyConsumedAttachments(
+        optimisticTurnStart?.attachmentConsumption
+      )
+      restoreOptimisticSidebarExecutionStatus(
+        optimisticTurnStart?.sidebarExecutionStatus,
+        targetConversationId
+      )
       const failedSnapshot = submittedDraftSnapshotRef.current
       submittedDraftSnapshotRef.current = null
       if (routeConversationIdRef.current !== targetConversationId) {
@@ -4278,11 +4666,19 @@ export function ConversationPage({
     [conversationId, isNew]
   )
 
+  const reportFileDownloadError = useCallback(
+    (nextError: unknown) => {
+      notify.error(getErrorMessage(nextError, t), {
+        id: "conversation-file-download-error",
+      })
+    },
+    [t]
+  )
+
   const downloadArtifact = useCallback(
     async (file: ConversationFile) => {
       if (downloadInFlightRef.current || !conversationId || isNew) return
       downloadInFlightRef.current = true
-      setError(null)
       setDownloadingFileId(file.id)
       try {
         const blob = await downloadApiFile(
@@ -4290,13 +4686,13 @@ export function ConversationPage({
         )
         downloadBlob(blob, file.name)
       } catch (nextError) {
-        setError(getErrorMessage(nextError, t))
+        reportFileDownloadError(nextError)
       } finally {
         downloadInFlightRef.current = false
         setDownloadingFileId(undefined)
       }
     },
-    [conversationId, isNew, t]
+    [conversationId, isNew, reportFileDownloadError]
   )
 
   const downloadOfficePreview = (
@@ -4305,7 +4701,6 @@ export function ConversationPage({
   ) => {
     if (downloadInFlightRef.current) return
     downloadInFlightRef.current = true
-    setError(null)
     setDownloadingFileId(file.id)
     try {
       downloadBlob(
@@ -4315,35 +4710,34 @@ export function ConversationPage({
         file.name
       )
     } catch (nextError) {
-      setError(getErrorMessage(nextError, t))
+      reportFileDownloadError(nextError)
     } finally {
       downloadInFlightRef.current = false
       setDownloadingFileId(undefined)
     }
   }
 
-  const downloadMediaPreview = useCallback(
+  const downloadSourcePreview = useCallback(
     async (file: ConversationFile) => {
       if (downloadInFlightRef.current || !conversationId || isNew) return
       downloadInFlightRef.current = true
-      setError(null)
       setDownloadingFileId(file.id)
       try {
         const fileRoute = isAttachmentConversationFile(file)
           ? `attachments/${file.id}/content`
-          : `files/${file.id}/media`
+          : `files/${file.id}/download`
         const blob = await downloadApiFile(
           `/conversations/${conversationId}/${fileRoute}`
         )
         downloadBlob(blob, file.name)
       } catch (nextError) {
-        setError(getErrorMessage(nextError, t))
+        reportFileDownloadError(nextError)
       } finally {
         downloadInFlightRef.current = false
         setDownloadingFileId(undefined)
       }
     },
-    [conversationId, isNew, t]
+    [conversationId, isNew, reportFileDownloadError]
   )
 
   const handleSubAgentSelect = useCallback(
@@ -4446,15 +4840,15 @@ export function ConversationPage({
   )
 
   const subAgentProjectionPendingSubmission =
-    pendingTurnSubmission?.conversationId === conversation?.id
-      ? pendingTurnSubmission
-      : null
+    pendingSubmissionBelongsToConversation ? pendingTurnSubmission : null
   const subAgentProjectionReplacedTurnId =
     subAgentProjectionPendingSubmission?.replacesTurnId
-  const subAgentProjectionHasLiveState = liveConversationId === conversationId
+  const liveStateBelongsToConversation =
+    liveConversationId === conversationId ||
+    (isNewTaskPromotion && liveConversationId === newConversationPlaceholderId)
   const subAgentProjectionEvents = [
     ...(conversation?.events ?? []),
-    ...(subAgentProjectionHasLiveState ? liveEvents : []),
+    ...(liveStateBelongsToConversation ? liveEvents : []),
   ].filter((event) => event.turn_id !== subAgentProjectionReplacedTurnId)
   const subAgentSummariesByTurnId = useSubAgentSummaries({
     conversationId: isNew ? undefined : conversation?.id,
@@ -4552,11 +4946,12 @@ export function ConversationPage({
     setRenameValue(displayConversation.title || t("conversation.untitled"))
     setRenameOpen(true)
   }
-  const hasCurrentLiveState = liveConversationId === conversationId
+  const activePendingTurnSubmission = pendingSubmissionBelongsToConversation
+    ? pendingTurnSubmission
+    : null
+  const hasCurrentLiveState = liveStateBelongsToConversation
   const optimisticallyReplacedTurnId =
-    pendingTurnSubmission?.conversationId === displayConversation.id
-      ? pendingTurnSubmission.replacesTurnId
-      : undefined
+    activePendingTurnSubmission?.replacesTurnId
   const visibleEvents = [
     ...(displayConversation.events ?? []),
     ...(hasCurrentLiveState ? liveEvents : []),
@@ -4603,20 +4998,31 @@ export function ConversationPage({
       ? [...persistedMessages, ...visibleStreamedMessages]
       : persistedMessages
   const optimisticMessage =
-    pendingTurnSubmission?.conversationId === displayConversation.id &&
+    activePendingTurnSubmission &&
+    !reconciledPendingUserMessageId &&
     !projectedMessages.some(
       (message) =>
-        pendingTurnSubmission.turnId &&
+        activePendingTurnSubmission.turnId &&
         message.role === "user" &&
-        message.turn_id === pendingTurnSubmission.turnId
+        message.turn_id === activePendingTurnSubmission.turnId
     )
-      ? pendingTurnSubmission.message
+      ? activePendingTurnSubmission.message
       : null
+  const visiblePersistedMessageRenderKeys =
+    reconciledPendingUserMessageId &&
+    reconciledPendingUserMessageRenderKey &&
+    persistedMessageRenderKeys.get(reconciledPendingUserMessageId) !==
+      reconciledPendingUserMessageRenderKey
+      ? new Map(persistedMessageRenderKeys).set(
+          reconciledPendingUserMessageId,
+          reconciledPendingUserMessageRenderKey
+        )
+      : persistedMessageRenderKeys
   const visibleMessages = projectVisibleConversationMessages(
     persistedMessages,
     hasCurrentLiveState ? visibleStreamedMessages : [],
     optimisticMessage,
-    persistedMessageRenderKeys
+    visiblePersistedMessageRenderKeys
   )
   const visibleActivities = [
     ...(displayConversation.activities ?? []),
@@ -4631,10 +5037,15 @@ export function ConversationPage({
     t("conversation.awaitingAssistant")
   )
   const showConnectionWarning = visuallyRunning && reconnectingWarningVisible
+  const reconciledPendingTurnId = activePendingTurnSubmission
+    ? (activePendingTurnSubmission.turnId ??
+      reconciledPendingUserMessage?.turn_id ??
+      undefined)
+    : undefined
   const pendingTurnProjected = Boolean(
-    pendingTurnSubmission?.turnId &&
+    reconciledPendingTurnId &&
     displayConversation.turns?.some(
-      (turn) => turn.id === pendingTurnSubmission.turnId
+      (turn) => turn.id === reconciledPendingTurnId
     )
   )
   const pendingCompactionProjected = Boolean(
@@ -4644,15 +5055,14 @@ export function ConversationPage({
     )
   )
   const optimisticPendingTurn: ConversationTurn | null =
-    pendingTurnSubmission?.conversationId === displayConversation.id &&
-    !pendingTurnProjected
+    activePendingTurnSubmission && !pendingTurnProjected
       ? {
           id:
-            pendingTurnSubmission.turnId ??
-            `pending-${pendingTurnSubmission.idempotencyKey}`,
+            reconciledPendingTurnId ??
+            `pending-${activePendingTurnSubmission.idempotencyKey}`,
           status: "running",
           collaboration_mode: collaborationMode,
-          started_at: pendingTurnSubmission.message.created_at,
+          started_at: activePendingTurnSubmission.message.created_at,
         }
       : null
   const persistedVisibleTurns = (displayConversation.turns ?? []).filter(
@@ -4769,10 +5179,15 @@ export function ConversationPage({
     />
   ) : null
   const blockingPanelActive = blockingPanel !== null
+  const taskOverviewSuppressed =
+    taskOverviewSuppressedConversationId === conversationId
+  const composerInstanceId = isNewTaskPromotion
+    ? newConversationPlaceholderId
+    : displayConversation.id
 
   return (
     <ConversationOfficeLayout
-      taskOverviewOpen={!isNew && taskOverviewOpen}
+      taskOverviewOpen={!isNew && !taskOverviewSuppressed && taskOverviewOpen}
       defaultPreviewViewportRatio={
         activeSubAgent ? DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO : undefined
       }
@@ -4820,7 +5235,7 @@ export function ConversationPage({
               knowledgeBaseSelectionPending
             }
             onDownload={downloadOfficePreview}
-            onDownloadSource={downloadMediaPreview}
+            onDownloadSource={downloadSourcePreview}
             updateAction={
               previewUpdateCandidate
                 ? {
@@ -4995,19 +5410,43 @@ export function ConversationPage({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {!isNew && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="conversation-share-trigger"
+              onClick={() => setShareOpen(true)}
+            >
+              <UploadIcon aria-hidden="true" />
+              {t("conversation.share.action")}
+            </Button>
+          )}
+          {!isNew && (
             <ConversationTaskOverviewPanel
               key={conversationId}
               events={visibleEvents}
               files={overviewFiles}
+              defaultOpen={!taskOverviewSuppressed && taskOverviewOpen}
               subAgentSummariesByTurnId={subAgentSummariesByTurnId}
               downloadingFileId={downloadingFileId}
               onDownload={handleDownloadArtifact}
-              onOpenChange={setTaskOverviewOpen}
+              onOpenChange={(open) => {
+                setTaskOverviewSuppressedConversationId(null)
+                setTaskOverviewOpen(open)
+              }}
             />
           )}
           {headerActions}
         </div>
       </header>
+
+      {!isNew && (
+        <ConversationShareDialog
+          conversation={displayConversation}
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+        />
+      )}
 
       {(error || draftConflict || showConnectionWarning) && (
         <div className="conversation-top-overlay-stack">
@@ -5234,7 +5673,7 @@ export function ConversationPage({
         {!blockingPanelActive && (
           <ConversationComposer
             ref={composerRef}
-            key={`${displayConversation.id}:${newTaskResetVersion}`}
+            key={`${composerInstanceId}:${newTaskResetVersion}`}
             value={value}
             onValueChange={setValue}
             capabilities={availableCapabilities}
@@ -5351,10 +5790,7 @@ export function ConversationPage({
                 : undefined
             }
             onInterrupt={() => {
-              const pending =
-                pendingTurnSubmission?.conversationId === displayConversation.id
-                  ? pendingTurnSubmission
-                  : null
+              const pending = activePendingTurnSubmission
               if (pending) {
                 setInterrupting(true)
                 setPendingTurnSubmission((current) =>

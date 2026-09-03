@@ -22,9 +22,11 @@ Administration appears under the **Management** group in Settings. The server va
 | Knowledge sources | Configure external sources such as SharePoint |
 | Model settings | Manage providers, models, prices, and retrieval models |
 | System settings | Manage supported product and authentication settings |
-| System health | Observe dependencies and execution state |
-| Audit logs | Query safe cross-user security and administration metadata |
+| System health | Inspect dependencies, execution runtime, container resources, and failed cleanup |
+| User feedback | Review text and issue screenshots submitted by users |
+| Audit logs | Query permanent events, task execution metadata, and deleted-task artifact summaries |
 | Usage | Analyze tasks, turns, models, tokens, and cost |
+| System update | Check official versions and follow the safe deployment upgrade process |
 
 ## Content administrators do not receive
 

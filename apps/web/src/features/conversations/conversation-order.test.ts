@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest"
 
 import {
   applySidebarConversationOrder,
+  patchConversationTitle,
+  patchSidebarConversationExecutionStatus,
+  patchSidebarConversationTitle,
+  removeSidebarConversation,
+  replaceSidebarConversation,
   reorderConversationIds,
   sortSidebarConversations,
   upsertSidebarConversation,
@@ -106,5 +111,123 @@ describe("sidebar conversation ordering", () => {
     expect(replaced?.pages[0]?.items[0]?.title).toBe("created-updated")
     expect(replaced?.pages.map((page) => page.total_count)).toEqual([3, 3])
     expect(data.pages[0]?.items).toEqual([first])
+  })
+
+  it("replaces a temporary new task without duplicating or changing the total", () => {
+    const placeholder = conversation("new", "2026-08-12T10:00:00.000Z")
+    const persisted = conversation("persisted", "2026-08-12T10:00:01.000Z")
+    const existing = conversation("existing", "2026-08-12T09:00:00.000Z")
+    const data = {
+      pages: [
+        {
+          items: [placeholder, existing],
+          total_count: 2,
+          next_cursor: null,
+        },
+      ],
+      pageParams: [undefined],
+    }
+
+    const result = replaceSidebarConversation(data, placeholder.id, persisted)
+
+    expect(result?.pages[0]?.items).toEqual([persisted, existing])
+    expect(result?.pages[0]?.total_count).toBe(2)
+    expect(data.pages[0]?.items).toEqual([placeholder, existing])
+  })
+
+  it("removes an optimistic new task and restores the cached total", () => {
+    const placeholder = conversation("new", "2026-08-12T10:00:00.000Z")
+    const existing = conversation("existing", "2026-08-12T09:00:00.000Z")
+    const data = {
+      pages: [
+        {
+          items: [placeholder, existing],
+          total_count: 2,
+          next_cursor: null,
+        },
+      ],
+      pageParams: [undefined],
+    }
+
+    const result = removeSidebarConversation(data, placeholder.id)
+
+    expect(result?.pages[0]?.items).toEqual([existing])
+    expect(result?.pages[0]?.total_count).toBe(1)
+    expect(removeSidebarConversation(result, placeholder.id)).toBe(result)
+  })
+
+  it("patches only the matching cached task title", () => {
+    const first = conversation("first", "2026-08-12T10:00:00.000Z")
+    const second = conversation("second", "2026-08-12T09:00:00.000Z")
+    const data = {
+      pages: [
+        { items: [first], next_cursor: "next" },
+        { items: [second], next_cursor: null },
+      ],
+      pageParams: [undefined, "next"],
+    }
+
+    const result = patchSidebarConversationTitle(data, "second", "新标题")
+
+    expect(result?.pages[0]).toBe(data.pages[0])
+    expect(result?.pages[1]?.items[0]).toEqual({
+      ...second,
+      title: "新标题",
+    })
+    expect(second.title).toBe("second")
+    expect(patchSidebarConversationTitle(result, "second", "新标题")).toBe(
+      result
+    )
+  })
+
+  it("does not replace a manually assigned cached task title", () => {
+    const manual = {
+      ...conversation("manual", "2026-08-12T10:00:00.000Z"),
+      title: "手动标题",
+      title_source: "manual",
+    }
+    const data = {
+      pages: [{ items: [manual], next_cursor: null }],
+      pageParams: [undefined],
+    }
+
+    expect(
+      patchSidebarConversationTitle(data, manual.id, "延迟的自动标题")
+    ).toBe(data)
+    expect(patchConversationTitle(manual, "延迟的自动标题")).toBe(manual)
+  })
+
+  it("patches only the matching cached task execution status", () => {
+    const first = {
+      ...conversation("first", "2026-08-12T10:00:00.000Z"),
+      execution_status: "completed" as const,
+    }
+    const second = {
+      ...conversation("second", "2026-08-12T09:00:00.000Z"),
+      execution_status: "idle" as const,
+    }
+    const data = {
+      pages: [
+        { items: [first], next_cursor: "next" },
+        { items: [second], next_cursor: null },
+      ],
+      pageParams: [undefined, "next"],
+    }
+
+    const result = patchSidebarConversationExecutionStatus(
+      data,
+      "second",
+      "running"
+    )
+
+    expect(result?.pages[0]).toBe(data.pages[0])
+    expect(result?.pages[1]?.items[0]).toEqual({
+      ...second,
+      execution_status: "running",
+    })
+    expect(second.execution_status).toBe("idle")
+    expect(
+      patchSidebarConversationExecutionStatus(result, "second", "running")
+    ).toBe(result)
   })
 })

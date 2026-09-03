@@ -72,13 +72,22 @@ describe("presentation preview layout", () => {
       "conversation-file-preview-pane-out",
     ])
     expect(previewStyles).toMatch(
-      /@keyframes conversation-file-preview-pane-in[\s\S]*?from\s*\{[\s\S]*?transform:\s*translate3d\(100%, 0, 0\);[\s\S]*?to\s*\{[\s\S]*?transform:\s*translate3d\(0, 0, 0\);/u
+      /@property --conversation-file-preview-pane-offset\s*\{[\s\S]*?syntax:\s*"<percentage>";[\s\S]*?inherits:\s*true;[\s\S]*?initial-value:\s*0%;/u
+    )
+    expect(previewStyles).toMatch(
+      /\.conversation-office-layout\[data-has-office-preview="true"\]:has\([\s\S]*?> \.office-preview-pane\.office-preview-pane-entering:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\)[\s\S]*?\)\s*\{[\s\S]*?animation:\s*conversation-file-preview-pane-in/u
+    )
+    expect(previewStyles).toMatch(
+      /> \.office-preview-pane\.office-preview-pane-entering:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\)\s*\{[\s\S]*?transform:\s*translate3d\([\s\S]*?var\(--conversation-file-preview-pane-offset\)/u
+    )
+    expect(previewStyles).toMatch(
+      /@keyframes conversation-file-preview-pane-in[\s\S]*?from\s*\{[\s\S]*?--conversation-file-preview-pane-offset:\s*100%;[\s\S]*?to\s*\{[\s\S]*?--conversation-file-preview-pane-offset:\s*0%;/u
     )
     expect(previewStyles).toMatch(
       /@keyframes conversation-file-preview-pane-out[\s\S]*?from\s*\{[\s\S]*?transform:\s*translate3d\(0, 0, 0\);[\s\S]*?to\s*\{[\s\S]*?transform:\s*translate3d\(100%, 0, 0\);/u
     )
     expect(previewStyles).toMatch(
-      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\[data-has-office-preview="true"\][\s\S]*?> \.office-preview-pane\.office-preview-pane-entering:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\),[\s\S]*?\[data-preview-closing="true"\][\s\S]*?> \.office-preview-pane:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\)[\s\S]*?\{[\s\S]*?animation:\s*none;/u
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\[data-has-office-preview="true"\]:has\([\s\S]*?> \.office-preview-pane\.office-preview-pane-entering:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\)[\s\S]*?\),[\s\S]*?\[data-preview-closing="true"\][\s\S]*?> \.office-preview-pane:not\([\s\S]*?\.subagent-detail-pane[\s\S]*?\)[\s\S]*?\{[\s\S]*?animation:\s*none;/u
     )
   })
 

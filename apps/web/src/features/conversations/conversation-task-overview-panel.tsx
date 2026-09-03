@@ -46,6 +46,7 @@ function TaskOverviewIcon(props: SVGProps<SVGSVGElement>) {
 type ConversationTaskOverviewPanelProps = {
   events: readonly ConversationEvent[]
   files: readonly ConversationFile[]
+  defaultOpen?: boolean
   subAgentSummariesByTurnId?: ReadonlyMap<
     string,
     readonly NativeSubAgentSummary[]
@@ -58,6 +59,7 @@ type ConversationTaskOverviewPanelProps = {
 export function ConversationTaskOverviewPanel({
   events,
   files,
+  defaultOpen,
   subAgentSummariesByTurnId,
   downloadingFileId,
   onDownload,
@@ -65,7 +67,9 @@ export function ConversationTaskOverviewPanel({
 }: ConversationTaskOverviewPanelProps) {
   const { t } = useTranslation()
   const triggerId = useId()
-  const [open, setOpen] = useState(readTaskOverviewOpenPreference)
+  const [open, setOpen] = useState(
+    () => defaultOpen ?? readTaskOverviewOpenPreference()
+  )
   const overview = buildConversationTaskOverview({
     events,
     files,

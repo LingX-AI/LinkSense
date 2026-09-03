@@ -222,6 +222,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
       MINIO_KNOWLEDGE_BUCKET: ${MINIO_KNOWLEDGE_BUCKET}
+      LINKSENSE_ARTIFACT_DOWNLOAD_TTL_SECONDS: ${LINKSENSE_ARTIFACT_DOWNLOAD_TTL_SECONDS:-7200}
       LINKSENSE_USER_DATA_ROOT: /srv/linksense/users
       LINKSENSE_RUNNER_URL: http://runner:4010
       LINKSENSE_RUNNER_SHARED_SECRET: ${LINKSENSE_RUNNER_SHARED_SECRET}
@@ -283,7 +284,7 @@ services:
       NGINX_EXTERNAL_SCHEME: ${LINKSENSE_PUBLIC_SCHEME}
       NGINX_MINIO_UPSTREAM: http://minio:9000
     ports:
-      - "0.0.0.0:10080:80"
+      - "0.0.0.0:${LINKSENSE_HTTP_PORT:?LINKSENSE_HTTP_PORT is required}:80"
     volumes:
       - ./gateway.conf.template:/etc/nginx/templates/default.conf.template:ro
     depends_on:

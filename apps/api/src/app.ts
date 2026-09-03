@@ -19,6 +19,7 @@ import { AppError, errorDetails, normalizeError } from "./lib/errors.js";
 import { authenticationPlugin } from "./plugins/authentication.js";
 import { systemRoutes, adminSystemRoutes } from "./modules/system/routes.js";
 import { conversationRoutes } from "./modules/conversations/routes.js";
+import { publicConversationShareRoutes } from "./modules/conversations/share-routes.js";
 import { fileRoutes } from "./modules/files/routes.js";
 import { internalRunnerRoutes, sseRoutes } from "./modules/events/routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
@@ -450,6 +451,10 @@ export async function buildApi(
   await app.register(conversationRoutes, {
     prefix: "/api/v1/conversations",
     services,
+  });
+  await app.register(publicConversationShareRoutes, {
+    prefix: "/api/v1/shared-conversations",
+    service: services.conversationShares,
   });
   await app.register(automationRoutes, {
     prefix: "/api/v1/automations",

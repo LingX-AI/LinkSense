@@ -22,17 +22,20 @@ export function useConversationEvents(
   onEvent: ConversationEventHandlers["onEvent"],
   initialEventId?: string
 ) {
-  const [connectionState, setConnectionState] = useState<
-    "connected" | "reconnecting"
-  >("connected")
+  const [connectionState, setConnectionState] = useState<{
+    conversationId: string | undefined
+    state: "connected" | "reconnecting"
+  }>({ conversationId, state: "connected" })
   const [warningConversationId, setWarningConversationId] = useState<
     string | null
   >(null)
   const dispatchEvent = useEffectEvent(onEvent)
   const readInitialEventId = useEffectEvent(() => initialEventId)
+  const readActiveConversationId = useEffectEvent(() => conversationId)
 
   useEffect(() => {
     if (!conversationId) return
+    let active = true
     let reconnecting = false
     let warningTimer: number | null = null
     let streamFrame: number | null = null
@@ -41,6 +44,8 @@ export function useConversationEvents(
       event: ConversationEvent
       commitCursor?: () => void
     }> = []
+    const isActiveConversation = () =>
+      active && readActiveConversationId() === conversationId
     const clearWarningTimer = () => {
       if (warningTimer === null) return
       window.clearTimeout(warningTimer)
@@ -57,6 +62,11 @@ export function useConversationEvents(
       }
     }
     const flushStreamEvents = () => {
+      if (!isActiveConversation()) {
+        pendingStreamEvents = []
+        cancelStreamFlush()
+        return
+      }
       if (pendingStreamEvents.length === 0) {
         cancelStreamFlush()
         return
@@ -84,6 +94,7 @@ export function useConversationEvents(
       event,
       commitCursor
     ) => {
+      if (!isActiveConversation()) return false
       if (shouldBufferUntilAnimationFrame(event)) {
         pendingStreamEvents.push({ event, commitCursor })
         scheduleStreamFlush()
@@ -97,8 +108,13 @@ export function useConversationEvents(
     const handleConnectionChange: NonNullable<
       ConversationEventHandlers["onConnectionChange"]
     > = (nextState) => {
+      if (!isActiveConversation()) return
       if (nextState === "reconnecting") flushStreamEvents()
-      setConnectionState(nextState)
+      setConnectionState((current) =>
+        current.conversationId === conversationId && current.state === nextState
+          ? current
+          : { conversationId, state: nextState }
+      )
       if (nextState === "connected") {
         reconnecting = false
         clearWarningTimer()
@@ -114,6 +130,7 @@ export function useConversationEvents(
       )
       warningTimer = window.setTimeout(() => {
         warningTimer = null
+        if (!isActiveConversation()) return
         setWarningConversationId(conversationId)
       }, conversationReconnectingWarningDelayMs)
     }
@@ -128,6 +145,7 @@ export function useConversationEvents(
       { initialEventId: readInitialEventId() ?? "" }
     )
     return () => {
+      active = false
       clearWarningTimer()
       cancelStreamFlush()
       pendingStreamEvents = []
@@ -136,7 +154,10 @@ export function useConversationEvents(
   }, [conversationId])
 
   return {
-    connectionState,
+    connectionState:
+      connectionState.conversationId === conversationId
+        ? connectionState.state
+        : "connected",
     reconnectingWarningVisible: warningConversationId === conversationId,
   }
 }

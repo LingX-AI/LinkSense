@@ -215,9 +215,18 @@ export class PrismaAutomationRepository implements AutomationRepository {
     conversationId: string;
     completedAt: Date;
   } | null> {
+    const unreadConversations = await this.prisma.conversation.findMany({
+      where: { ownerId, completionUnread: true },
+      select: { id: true },
+    });
+    if (unreadConversations.length === 0) return null;
+
     const latest = await this.prisma.automationRun.findFirst({
       where: {
         ownerId,
+        conversationId: {
+          in: unreadConversations.map((conversation) => conversation.id),
+        },
         completedAt: { not: null },
         completionReadAt: null,
       },

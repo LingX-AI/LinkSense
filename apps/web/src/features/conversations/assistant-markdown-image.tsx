@@ -28,9 +28,17 @@ type PreviewState =
     }>
   | Readonly<{ status: "error"; requestKey: string }>
 
+type PreviewRequest = {
+  promise: Promise<ArtifactPreviewSource>
+  expiresAt?: number
+  evictionTimer?: number
+}
+
+const PREVIEW_REFRESH_SAFETY_MS = 30_000
+
 const previewRequests = new WeakMap<
   LoadArtifactPreview,
-  Map<string, Promise<ArtifactPreviewSource>>
+  Map<string, PreviewRequest>
 >()
 
 export function AssistantMarkdownImage({
@@ -90,7 +98,10 @@ export function AssistantMarkdownImage({
           throw new Error("inline_image_preview_expired")
         }
         setState({ status: "ready", requestKey, source: sourceValue })
-        const refreshDelay = Math.max(1_000, expiresAt - Date.now() - 30_000)
+        const refreshDelay = Math.max(
+          1_000,
+          expiresAt - Date.now() - PREVIEW_REFRESH_SAFETY_MS
+        )
         if (refreshDelay <= 2_147_483_647) {
           refreshTimer = window.setTimeout(
             () => setReloadKey((current) => current + 1),
@@ -195,17 +206,79 @@ function loadCachedPreview(
     previewRequests.set(loadPreview, requests)
   }
   const existing = requests.get(requestKey)
-  if (existing) return existing
-
-  for (const key of requests.keys()) {
-    if (key.startsWith(`${file.id}:`)) requests.delete(key)
+  if (
+    existing &&
+    (existing.expiresAt === undefined ||
+      existing.expiresAt - PREVIEW_REFRESH_SAFETY_MS > Date.now())
+  ) {
+    return existing.promise
   }
-  const request = loadPreview(file, new AbortController().signal)
-  requests.set(requestKey, request)
-  void request.catch(() => {
-    if (requests?.get(requestKey) === request) {
-      requests.delete(requestKey)
+  if (existing) deletePreviewRequest(requests, requestKey, existing)
+
+  for (const [key, entry] of requests) {
+    if (key.startsWith(`${file.id}:`)) {
+      deletePreviewRequest(requests, key, entry)
     }
-  })
-  return request
+  }
+
+  const entry: PreviewRequest = {
+    promise: loadPreview(file, new AbortController().signal),
+  }
+  requests.set(requestKey, entry)
+  void entry.promise.then(
+    (sourceValue) => {
+      if (requests?.get(requestKey) !== entry) return
+      const expiresAt = Date.parse(sourceValue.expiresAt)
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        deletePreviewRequest(requests, requestKey, entry)
+        return
+      }
+      entry.expiresAt = expiresAt
+      schedulePreviewRequestEviction(requests, requestKey, entry)
+    },
+    () => {
+      if (requests?.get(requestKey) === entry) {
+        deletePreviewRequest(requests, requestKey, entry)
+      }
+    }
+  )
+  return entry.promise
+}
+
+function schedulePreviewRequestEviction(
+  requests: Map<string, PreviewRequest>,
+  requestKey: string,
+  entry: PreviewRequest
+) {
+  if (entry.evictionTimer !== undefined) {
+    window.clearTimeout(entry.evictionTimer)
+  }
+  const expiresAt = entry.expiresAt
+  if (expiresAt === undefined) return
+  const delay = Math.max(
+    0,
+    Math.min(expiresAt - PREVIEW_REFRESH_SAFETY_MS - Date.now(), 2_147_483_647)
+  )
+  entry.evictionTimer = window.setTimeout(() => {
+    if (requests.get(requestKey) !== entry) return
+    if (
+      entry.expiresAt !== undefined &&
+      entry.expiresAt - PREVIEW_REFRESH_SAFETY_MS > Date.now()
+    ) {
+      schedulePreviewRequestEviction(requests, requestKey, entry)
+      return
+    }
+    deletePreviewRequest(requests, requestKey, entry)
+  }, delay)
+}
+
+function deletePreviewRequest(
+  requests: Map<string, PreviewRequest>,
+  requestKey: string,
+  entry: PreviewRequest
+) {
+  if (entry.evictionTimer !== undefined) {
+    window.clearTimeout(entry.evictionTimer)
+  }
+  if (requests.get(requestKey) === entry) requests.delete(requestKey)
 }

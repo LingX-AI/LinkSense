@@ -466,6 +466,12 @@ describe("conversation message spacing", () => {
   })
 
   it("shows borderless table action backgrounds only on interaction", () => {
+    const tableToolbarRule = conversationStyles.match(
+      /\.assistant-markdown \.markdown-table-toolbar\s*\{([^}]*)\}/u
+    )?.[1]
+    const visibleTableToolbarRule = conversationStyles.match(
+      /\.assistant-markdown\s+\.markdown-copy-block-table:hover\s+\.markdown-table-toolbar,[\s\S]*?\.markdown-copy-block-table:focus-within\s+\.markdown-table-toolbar\s*\{([^}]*)\}/u
+    )?.[1]
     const tableActionRule = conversationStyles.match(
       /\.assistant-markdown \.markdown-table-toolbar \.markdown-copy-button,\s*\.assistant-markdown \.markdown-table-expand-button\s*\{([^}]*)\}/u
     )?.[1]
@@ -473,6 +479,13 @@ describe("conversation message spacing", () => {
       /\.assistant-markdown \.markdown-table-toolbar \.markdown-copy-button:hover,[\s\S]*?\.assistant-markdown \.markdown-table-expand-button:focus-visible\s*\{([^}]*)\}/u
     )?.[1]
 
+    expect(tableToolbarRule).toMatch(/position:\s*absolute;/u)
+    expect(tableToolbarRule).toMatch(/top:\s*3px;/u)
+    expect(tableToolbarRule).toMatch(/right:\s*4px;/u)
+    expect(tableToolbarRule).toMatch(/opacity:\s*0;/u)
+    expect(tableToolbarRule).toMatch(/pointer-events:\s*none;/u)
+    expect(visibleTableToolbarRule).toMatch(/opacity:\s*1;/u)
+    expect(visibleTableToolbarRule).toMatch(/pointer-events:\s*auto;/u)
     expect(tableActionRule).toMatch(/border-color:\s*transparent;/u)
     expect(tableActionRule).toMatch(/background:\s*transparent;/u)
     expect(tableActionRule).toMatch(/color:\s*var\(--app-muted\);/u)
@@ -594,7 +607,7 @@ describe("conversation activity typography", () => {
     expect(subAgentStatusRule).toMatch(/font-size:\s*var\(--app-font-13\);/u)
   })
 
-  it("keeps divider geometry stable while hiding it during initial thinking", () => {
+  it("matches the completed-turn divider to the fork-source marker while hiding it during initial thinking", () => {
     const summaryHeadingRule = conversationStyles.match(
       /\.turn-summary-heading\s*\{([^}]*)\}/u
     )?.[1]
@@ -602,9 +615,9 @@ describe("conversation activity typography", () => {
       /\.turn-summary-heading\[data-initial-thinking="true"\]\s*\{([^}]*)\}/u
     )?.[1]
 
-    expect(summaryHeadingRule).toMatch(/border-bottom-width:\s*0\.5px;/u)
+    expect(summaryHeadingRule).toMatch(/border-bottom-width:\s*1px;/u)
     expect(summaryHeadingRule).toMatch(
-      /border-bottom-color:\s*color-mix\(\s*in srgb,\s*var\(--app-divider\) 80%,\s*transparent\s*\);/u
+      /border-bottom-color:\s*var\(--app-divider\);/u
     )
     expect(initialThinkingRule).toMatch(/border-bottom-color:\s*transparent;/u)
     expect(initialThinkingRule).not.toMatch(/border-bottom-width:\s*0;/u)
@@ -781,12 +794,13 @@ describe("conversation activity typography", () => {
     expect(nativePreviewErrorRule).toMatch(/border-style:\s*solid;/u)
   })
 
-  it("shows running image previews without cropping", () => {
+  it("fills image preview boxes without stretching the image", () => {
     const previewImageRule = conversationStyles.match(
       /\.conversation-image-thumbnail-image,\s*\.native-activity-image-preview-image\s*\{([^}]*)\}/u
     )?.[1]
 
-    expect(previewImageRule).toMatch(/object-fit:\s*contain;/u)
+    expect(previewImageRule).toMatch(/object-fit:\s*cover;/u)
+    expect(previewImageRule).toMatch(/object-position:\s*center;/u)
   })
 
   it("uses a stable centered image placeholder without visible loading copy", () => {
@@ -1495,6 +1509,16 @@ describe("conversation artifact tile", () => {
     expect(imageMessageRule).toMatch(/position:\s*relative;/u)
     expect(actionRule).toMatch(/position:\s*absolute;/u)
     expect(actionRule).toMatch(/top:\s*100%;/u)
+  })
+
+  it("keeps the gap above absolutely positioned image actions hoverable", () => {
+    const actionRule = conversationStyles.match(
+      /\.message-actions\s*\{([^}]*)\}/u
+    )?.[1]
+
+    expect(actionRule).toMatch(/min-height:\s*31px;/u)
+    expect(actionRule).toMatch(/padding-top:\s*3px;/u)
+    expect(actionRule).not.toMatch(/margin-top:/u)
   })
 
   it("keeps the completed Goal marker aligned with message metadata", () => {

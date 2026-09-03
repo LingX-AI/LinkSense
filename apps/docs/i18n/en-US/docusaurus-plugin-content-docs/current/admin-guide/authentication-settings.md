@@ -23,11 +23,17 @@ Changing away from managed mode or disabling configured authentication requires 
 
 Configure SMTP host, port, STARTTLS or direct TLS, sender, optional username, and password. An empty username means no SMTP password authentication. This service sends first-password and reset email; verify its connection in System Health.
 
+## Open registration
+
+Enabling **Open registration** adds a registration entry to the sign-in page. You must set a positive total token allowance per registered user. Changes apply to accounts previously created by open registration too, but do not reset consumed usage or add weekly or monthly renewal.
+
+Disabling open registration blocks new requests and invalidates activation links that were issued but not yet used. It does not delete accounts created directly by administrators, existing activated accounts, or other configured sign-in methods.
+
 ## OIDC
 
 Enter an HTTPS issuer URL, client ID, and client secret. LinkSense derives and displays a read-only callback URL that must also be registered with the provider.
 
-A new revision invalidates an unfinished callback started under an old revision. The user must restart sign-in. Successful provider authentication still respects LinkSense account activation.
+A new revision invalidates an unfinished callback started under an old revision. The user must restart sign-in. A first-time SSO identity creates a pending account by email; an administrator must enable it before the user signs in again.
 
 ## Teams
 

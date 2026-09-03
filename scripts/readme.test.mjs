@@ -13,19 +13,24 @@ test("the concise bilingual READMEs expose the same public entry points", async 
     readFile(englishPath, "utf8"),
   ])
 
-  assert.ok(chinese.split("\n").length <= 150)
-  assert.ok(english.split("\n").length <= 150)
+  assert.ok(chinese.split("\n").length <= 175)
+  assert.ok(english.split("\n").length <= 175)
   assert.match(chinese, /\[English\]\(\.\/README\.md\)/u)
   assert.match(english, /\[简体中文\]\(\.\/README\.zh-CN\.md\)/u)
   assert.match(chinese, /我们/u)
   assert.match(english, /\b(?:We|Our)\b/u)
   assert.doesNotMatch(chinese, /它/u)
   assert.doesNotMatch(english, /\b(?:it|its)\b/iu)
+  assert.match(english, /60\+ GiB/u)
+  assert.match(english, /120\+ GiB/u)
+  assert.match(chinese, /60 GiB\+/u)
+  assert.match(chinese, /120 GiB\+/u)
 
   for (const heading of [
     "## 特性",
     "## 一键安装",
     "### 安装环境要求",
+    "## 命令行管理",
     "## 推荐配置",
     "## 本地开发",
     "### AI 开发指南",
@@ -38,6 +43,7 @@ test("the concise bilingual READMEs expose the same public entry points", async 
     "## Features",
     "## One-line installation",
     "### Host requirements",
+    "## Command-line management",
     "## Recommended configuration",
     "## Local development",
     "### AI development guide",
@@ -61,11 +67,11 @@ test("the concise bilingual READMEs expose the same public entry points", async 
       "Apple Silicon",
       "v1.45",
       "v2.24.4",
-      "40 GiB",
-      "80 GiB",
-      "100,000",
-      "200,000",
-      "10080",
+      "18081",
+      "LINKSENSE_HTTP_PORT=19090",
+      "linksense port 19090",
+      "linksense credential",
+      "linksense upgrade v0.3.0",
       "pnpm dev",
       "AGENTS.md",
       "docker compose --env-file .env.example build",

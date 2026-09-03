@@ -100,14 +100,25 @@ export function upsertSidebarConversation<
   T extends { id: string },
   TData extends SidebarConversationData<T>,
 >(data: TData | undefined, conversation: T) {
+  return replaceSidebarConversation(data, conversation.id, conversation)
+}
+
+export function replaceSidebarConversation<
+  T extends { id: string },
+  TData extends SidebarConversationData<T>,
+>(data: TData | undefined, previousConversationId: string, conversation: T) {
   if (!data || data.pages.length === 0) return data
 
   const alreadyPresent = data.pages.some((page) =>
-    page.items.some((item) => item.id === conversation.id)
+    page.items.some(
+      (item) =>
+        item.id === previousConversationId || item.id === conversation.id
+    )
   )
   const pages = data.pages.map((page, index) => {
     const remainingItems = page.items.filter(
-      (item) => item.id !== conversation.id
+      (item) =>
+        item.id !== previousConversationId && item.id !== conversation.id
     )
     return {
       ...page,
@@ -123,4 +134,87 @@ export function upsertSidebarConversation<
   })
 
   return { ...data, pages }
+}
+
+export function removeSidebarConversation<
+  T extends { id: string },
+  TData extends SidebarConversationData<T>,
+>(data: TData | undefined, conversationId: string) {
+  if (!data) return data
+  const exists = data.pages.some((page) =>
+    page.items.some((item) => item.id === conversationId)
+  )
+  if (!exists) return data
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      items: page.items.filter((item) => item.id !== conversationId),
+      ...(page.total_count === undefined
+        ? {}
+        : { total_count: Math.max(0, page.total_count - 1) }),
+    })),
+  }
+}
+
+export function patchSidebarConversationTitle<
+  T extends { id: string; title: string; title_source?: string },
+  TData extends SidebarConversationData<T>,
+>(data: TData | undefined, conversationId: string, title: string) {
+  if (!data) return data
+  let changed = false
+  const pages = data.pages.map((page) => {
+    let pageChanged = false
+    const items = page.items.map((conversation) => {
+      if (conversation.id !== conversationId) {
+        return conversation
+      }
+      const patched = patchConversationTitle(conversation, title)
+      if (patched === conversation) return conversation
+      pageChanged = true
+      return patched
+    })
+    if (!pageChanged) return page
+    changed = true
+    return { ...page, items }
+  })
+  return changed ? { ...data, pages } : data
+}
+
+export function patchSidebarConversationExecutionStatus<
+  T extends { id: string; execution_status?: Conversation["execution_status"] },
+  TData extends SidebarConversationData<T>,
+>(
+  data: TData | undefined,
+  conversationId: string,
+  executionStatus: Conversation["execution_status"]
+) {
+  if (!data) return data
+  let changed = false
+  const pages = data.pages.map((page) => {
+    let pageChanged = false
+    const items = page.items.map((conversation) => {
+      if (
+        conversation.id !== conversationId ||
+        conversation.execution_status === executionStatus
+      ) {
+        return conversation
+      }
+      pageChanged = true
+      return { ...conversation, execution_status: executionStatus }
+    })
+    if (!pageChanged) return page
+    changed = true
+    return { ...page, items }
+  })
+  return changed ? { ...data, pages } : data
+}
+
+export function patchConversationTitle<
+  T extends { title: string; title_source?: string },
+>(conversation: T, title: string): T {
+  if (conversation.title_source === "manual" || conversation.title === title) {
+    return conversation
+  }
+  return { ...conversation, title }
 }

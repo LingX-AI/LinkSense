@@ -38,25 +38,7 @@ description: 管理可在线变更的产品设置并理解部署配置边界。
 
 ## 系统更新
 
-管理区最后的“系统更新”菜单会自动检查 LinkSense 的 GitHub 正式发布，并展示当前版本、最新版本、发布时间和发布说明。只有管理员能够查看更新状态或发起一次立即检查；检查失败不会影响系统的其他功能。只有检测到新版本时，页面才会显示更新教程。
-
-发现新版本后，管理员界面会显示更新提示。关闭提示只对当前管理员和当前发布版本生效；以后发布的新版本仍会再次提示。
-
-LinkSense 不会从网页静默升级。请先安排维护窗口，再登录部署 LinkSense 的主机执行对应命令：
-
-Linux：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh | sudo sh
-```
-
-macOS（不要使用 `sudo`）：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh | sh
-```
-
-升级脚本会自动识别 Core 或 Full 版本，等待运行中的任务结束，并在数据库迁移前创建经过验证的 PostgreSQL 备份。请保存脚本输出的备份地址；迁移开始后的失败不会自动回滚数据库。升级完成后进入“系统健康”确认所有服务均已恢复。
+“系统更新”是独立管理员页面，用于检查 GitHub 正式发布并展示安全升级流程。网页不会静默升级；完整准备、主机命令和升级后验证见[检查并升级 LinkSense](./system-update.md)。
 
 ## 计划维护
 

@@ -11,9 +11,13 @@ Open **Settings → Audit logs**. Audit is for security facts, not browsing user
 
 ## Events
 
-Audit covers account and role changes, groups, capability import and publication, credential lifecycle, knowledge governance, model and system configuration, safe task execution metadata, and error states.
+The audit area has three data surfaces:
 
-Filter by time, actor, target type, action, or result. Details contain stable actions, necessary IDs, time, and redacted request metadata.
+- **Permanent audit logs** cover account and role changes, groups, capability import and publication, credential lifecycle, knowledge governance, model and system configuration, and management results.
+- **Task execution metadata** is a cross-user redacted summary of execution status, capability names, and file counts, without titles, messages, or download actions.
+- **Deleted-task artifacts** reports retained artifact count, size, checksum state, and deletion time without content viewing, recovery, or download.
+
+Filter permanent events by time, actor, target type, action, or result. Task execution metadata can also be filtered by plugin, Skill, error code, Runner status, archive status, and creation or run dates. Open a record to inspect stable actions, required IDs, timestamps, and structured redacted metadata. The UI does not expose raw protocol fields as user content.
 
 ## Content boundary
 

@@ -143,8 +143,23 @@ const PLAN_MODE_POLICY_INSTRUCTIONS = [
   "</linksense_plan_mode_policy>",
 ].join("\n");
 
-export function buildTurnInput(context: TurnContextInput): string {
-  return context.userInput;
+export function buildTurnInput(
+  context: TurnContextInput,
+  collaborationMode: "default" | "plan" = "default",
+): string {
+  if (collaborationMode === "plan") return context.userInput;
+
+  // Codex's native mention contract requires both the structured input item
+  // and a model-visible token in the text. LinkSense renders the structured
+  // selection as a separate chip, so restore only the hidden textual part for
+  // app-server without changing the user-facing message.
+  const mentionTokens = [
+    ...context.priorityPlugins.map((plugin) => `@${plugin.name}`),
+    ...context.prioritySkills.map((skill) => `$${skill.name}`),
+  ];
+  return [mentionTokens.join(" "), context.userInput]
+    .filter((part) => part.length > 0)
+    .join(" ");
 }
 
 export function buildTurnCollaborationMode(

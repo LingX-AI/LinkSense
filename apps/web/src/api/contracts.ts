@@ -436,6 +436,7 @@ export const conversationMessageSchema = z
       .optional(),
     knowledge_citations: z.array(publicKnowledgeCitationSchema).optional(),
     turn_id: z.string().nullable().optional(),
+    sequence_no: z.number().int().positive().optional(),
     created_at: z.string().optional(),
     item_id: z.string().optional(),
     phase: nativeMessagePhaseSchema.nullable().optional(),
@@ -843,6 +844,24 @@ export const pendingRequestRestoreResultSchema = z
   })
   .passthrough()
 
+export const conversationForkSourceSchema = z.discriminatedUnion("available", [
+  z.strictObject({
+    available: z.literal(true),
+    conversation_id: z.string(),
+    message_id: z.string(),
+    title: z.string(),
+    boundary_sequence_no: z.number().int().positive(),
+  }),
+  z.strictObject({
+    available: z.literal(false),
+    boundary_sequence_no: z.number().int().positive(),
+  }),
+])
+
+export type ConversationForkSource = z.infer<
+  typeof conversationForkSourceSchema
+>
+
 export const conversationSchema = z
   .object({
     id: z.string(),
@@ -867,6 +886,7 @@ export const conversationSchema = z
     has_unread_completion: z.boolean().default(false),
     has_automation: z.boolean().default(false),
     collaboration_mode: conversationCollaborationModeSchema.default("default"),
+    fork_source: conversationForkSourceSchema.nullable().optional(),
     draft: conversationDraftSchema.nullable().optional(),
     draft_input: z.string().optional(),
     draft_capability_ids: z.array(z.string()).optional(),

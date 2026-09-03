@@ -61,7 +61,7 @@ export class MinioObjectStorage implements ObjectStorage {
       key,
       data,
       data.byteLength,
-      metadata,
+      encodeMetadataHeaderValues(metadata),
     );
   }
 
@@ -104,4 +104,26 @@ export class MinioObjectStorage implements ObjectStorage {
       throw new Error("MINIO_BUCKET_NOT_FOUND");
     }
   }
+}
+
+function encodeMetadataHeaderValues(
+  metadata: Readonly<Record<string, string>>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(metadata).map(([key, value]) => [
+      key,
+      [...value]
+        .map((character) =>
+          /^[\x20-\x7E]$/u.test(character)
+            ? character
+            : [...Buffer.from(character, "utf8")]
+                .map(
+                  (byte) =>
+                    `%${byte.toString(16).toUpperCase().padStart(2, "0")}`,
+                )
+                .join(""),
+        )
+        .join(""),
+    ]),
+  );
 }

@@ -1,5 +1,13 @@
+import { randomUUID } from "node:crypto"
 import { execFile } from "node:child_process"
-import { readFile, realpath } from "node:fs/promises"
+import {
+  lstat,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import path from "node:path"
 import { promisify } from "node:util"
 
@@ -19,6 +27,8 @@ const capabilityGenerationPattern = /^[0-9a-f]{64}$/u
 const pluginNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 const MAX_CLI_JSON_BYTES = 4 * 1024 * 1024
 const MAX_CODEX_CONFIG_BYTES = 4 * 1024 * 1024
+const MAX_NATIVE_PLUGIN_STATE_BYTES = 64 * 1024
+const NATIVE_PLUGIN_STATE_FILE = ".linksense-native-plugins.json"
 const execFileAsync = promisify(execFile)
 
 export type NativePluginClient = {
@@ -116,6 +126,12 @@ const pluginDetailResponseSchema = z
   })
   .passthrough()
 
+const nativePluginStateSchema = z.strictObject({
+  version: z.literal(1),
+  pluginContentDigest: z.string().regex(capabilityGenerationPattern),
+  pluginNames: z.array(z.string().regex(pluginNamePattern)).max(512),
+})
+
 export type NativePluginSkillActivation = {
   name: string
   sourcePath: string
@@ -132,10 +148,32 @@ export type NativePluginActivation = {
   mcpServers: string[]
 }
 
+export type NativePluginRefreshStage =
+  | "input"
+  | "lock"
+  | "generation-before"
+  | "inspect-current"
+  | "read-state"
+  | "remove-stale"
+  | "install-desired"
+  | "verify-current"
+  | "generation-after"
+  | "write-state"
+  | "app-server-verification"
+
 export class NativePluginRefreshError extends CodexProtocolError {
-  constructor() {
+  constructor(
+    readonly stage: NativePluginRefreshStage = "app-server-verification",
+    cause?: unknown,
+  ) {
     super("native plugin refresh failed")
     this.name = "NativePluginRefreshError"
+    if (cause !== undefined) {
+      Object.defineProperty(this, "cause", {
+        configurable: true,
+        value: cause,
+      })
+    }
   }
 }
 
@@ -152,19 +190,24 @@ export class NativePluginManager {
     workspace: string
     capabilityControl: string
     expectedGeneration: string
+    pluginContentDigest: string
     pluginNames: string[]
-    validatePublished?: () => Promise<void>
     processIdentity?: ProcessIdentity
     lockHeld?: boolean
   }): Promise<void> {
-    const desiredNames = normalizePluginNames(input.pluginNames)
-    if (!capabilityGenerationPattern.test(input.expectedGeneration)) {
-      throw new NativePluginRefreshError()
-    }
-
+    let stage: NativePluginRefreshStage = "input"
     let release: (() => Promise<void>) | undefined
     try {
+      const desiredNames = normalizePluginNames(input.pluginNames)
+      if (
+        !capabilityGenerationPattern.test(input.expectedGeneration) ||
+        !capabilityGenerationPattern.test(input.pluginContentDigest)
+      ) {
+        throw new NativePluginRefreshError()
+      }
+
       if (!input.lockHeld) {
+        stage = "lock"
         release = await lockfile.lock(input.capabilityControl, {
           realpath: false,
           lockfilePath: path.join(
@@ -182,6 +225,7 @@ export class NativePluginManager {
           },
         })
       }
+      stage = "generation-before"
       const publishedGeneration = (
         await readFile(
           path.join(input.capabilityControl, "capability-generation"),
@@ -191,13 +235,47 @@ export class NativePluginManager {
       if (publishedGeneration !== input.expectedGeneration) {
         throw new NativePluginRefreshError()
       }
-      await input.validatePublished?.()
 
+      stage = "inspect-current"
       const before = await this.listManagedPlugins(input)
       const configuredPluginIds = await configuredManagedPluginIds(
         input.codexHome,
       )
       const desiredSet = new Set(desiredNames)
+      const installedBefore = installedManagedPluginNames(before)
+      const currentStateIsExact =
+        sameStrings(installedBefore, desiredNames) &&
+        configuredManagedPluginNamesAreExact(
+          configuredPluginIds,
+          desiredNames,
+        )
+
+      stage = "read-state"
+      const appliedState = await readNativePluginState(
+        input.capabilityControl,
+      )
+      const contentIsAlreadyApplied =
+        appliedState !== null &&
+        appliedState.pluginContentDigest === input.pluginContentDigest &&
+        sameStrings(appliedState.pluginNames, desiredNames)
+
+      if (
+        currentStateIsExact &&
+        (contentIsAlreadyApplied || desiredNames.length === 0)
+      ) {
+        stage = "generation-after"
+        await assertPublishedGeneration(input)
+        if (!contentIsAlreadyApplied) {
+          stage = "write-state"
+          await writeNativePluginState({
+            capabilityControl: input.capabilityControl,
+            pluginContentDigest: input.pluginContentDigest,
+            pluginNames: desiredNames,
+          })
+        }
+        return
+      }
+
       const stalePluginIds = [
         ...new Set([
           ...before.installed
@@ -216,6 +294,7 @@ export class NativePluginManager {
       ].sort()
       for (const pluginId of stalePluginIds) {
         if (!isManagedPluginId(pluginId)) throw new NativePluginRefreshError()
+        stage = "remove-stale"
         await this.runJsonCommand(input, [
           "plugin",
           "remove",
@@ -227,6 +306,7 @@ export class NativePluginManager {
       // supported refresh path and also covers source changes that keep the
       // same plugin manifest version.
       for (const pluginName of desiredNames) {
+        stage = "install-desired"
         await this.runJsonCommand(input, [
           "plugin",
           "add",
@@ -235,16 +315,9 @@ export class NativePluginManager {
         ])
       }
 
+      stage = "verify-current"
       const after = await this.listManagedPlugins(input)
-      const installedManaged = after.installed
-        .filter(
-          (plugin) =>
-            plugin.marketplaceName === NATIVE_PLUGIN_MARKETPLACE_NAME &&
-            plugin.installed &&
-            plugin.enabled,
-        )
-        .map((plugin) => plugin.name)
-        .sort()
+      const installedManaged = installedManagedPluginNames(after)
       if (!sameStrings(installedManaged, desiredNames)) {
         throw new NativePluginRefreshError()
       }
@@ -252,25 +325,29 @@ export class NativePluginManager {
         input.codexHome,
       )
       if (
-        configuredAfterRefresh.some((pluginId) => {
-          const pluginName = managedPluginName(pluginId)
-          return pluginName === null || !desiredSet.has(pluginName)
-        })
+        !configuredManagedPluginNamesAreExact(
+          configuredAfterRefresh,
+          desiredNames,
+        )
       ) {
         throw new NativePluginRefreshError()
       }
-      const generationAfterRefresh = (
-        await readFile(
-          path.join(input.capabilityControl, "capability-generation"),
-          "utf8",
-        )
-      ).trim()
-      if (generationAfterRefresh !== input.expectedGeneration) {
-        throw new NativePluginRefreshError()
-      }
+      stage = "generation-after"
+      await assertPublishedGeneration(input)
+      stage = "write-state"
+      await writeNativePluginState({
+        capabilityControl: input.capabilityControl,
+        pluginContentDigest: input.pluginContentDigest,
+        pluginNames: desiredNames,
+      })
     } catch (error) {
-      if (error instanceof NativePluginRefreshError) throw error
-      throw new NativePluginRefreshError()
+      if (
+        error instanceof NativePluginRefreshError &&
+        error.stage !== "app-server-verification"
+      ) {
+        throw error
+      }
+      throw new NativePluginRefreshError(stage, error)
     } finally {
       await release?.().catch(() => undefined)
     }
@@ -520,6 +597,110 @@ function normalizePluginNames(pluginNames: string[]): string[] {
     throw new NativePluginRefreshError()
   }
   return names
+}
+
+function installedManagedPluginNames(
+  plugins: z.infer<typeof cliPluginListSchema>,
+): string[] {
+  return plugins.installed
+    .filter(
+      (plugin) =>
+        plugin.marketplaceName === NATIVE_PLUGIN_MARKETPLACE_NAME &&
+        plugin.installed &&
+        plugin.enabled,
+    )
+    .map((plugin) => plugin.name)
+    .sort()
+}
+
+function configuredManagedPluginNamesAreExact(
+  configuredPluginIds: string[],
+  desiredNames: string[],
+): boolean {
+  const configuredNames = configuredPluginIds
+    .map(managedPluginName)
+    .filter((pluginName): pluginName is string => pluginName !== null)
+    .sort()
+  return (
+    configuredNames.length === configuredPluginIds.length &&
+    sameStrings(configuredNames, desiredNames)
+  )
+}
+
+async function assertPublishedGeneration(input: {
+  capabilityControl: string
+  expectedGeneration: string
+}): Promise<void> {
+  const generation = (
+    await readFile(
+      path.join(input.capabilityControl, "capability-generation"),
+      "utf8",
+    )
+  ).trim()
+  if (generation !== input.expectedGeneration) {
+    throw new NativePluginRefreshError()
+  }
+}
+
+async function readNativePluginState(
+  capabilityControl: string,
+): Promise<z.infer<typeof nativePluginStateSchema> | null> {
+  const statePath = path.join(
+    capabilityControl,
+    NATIVE_PLUGIN_STATE_FILE,
+  )
+  let source: string
+  try {
+    const info = await lstat(statePath)
+    if (
+      !info.isFile() ||
+      info.isSymbolicLink() ||
+      info.size > MAX_NATIVE_PLUGIN_STATE_BYTES ||
+      (info.mode & 0o7777) !== 0o600
+    ) {
+      return null
+    }
+    source = await readFile(statePath, "utf8")
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return null
+    throw error
+  }
+  try {
+    const state = nativePluginStateSchema.safeParse(JSON.parse(source))
+    if (!state.success) return null
+    const pluginNames = [...state.data.pluginNames].sort()
+    if (new Set(pluginNames).size !== pluginNames.length) return null
+    return { ...state.data, pluginNames }
+  } catch (error) {
+    if (error instanceof SyntaxError) return null
+    throw error
+  }
+}
+
+async function writeNativePluginState(input: {
+  capabilityControl: string
+  pluginContentDigest: string
+  pluginNames: string[]
+}): Promise<void> {
+  const statePath = path.join(
+    input.capabilityControl,
+    NATIVE_PLUGIN_STATE_FILE,
+  )
+  const temporaryPath = `${statePath}.${randomUUID()}.tmp`
+  try {
+    await writeFile(
+      temporaryPath,
+      `${JSON.stringify({
+        version: 1,
+        pluginContentDigest: input.pluginContentDigest,
+        pluginNames: input.pluginNames,
+      })}\n`,
+      { encoding: "utf8", flag: "wx", mode: 0o600 },
+    )
+    await rename(temporaryPath, statePath)
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined)
+  }
 }
 
 function isManagedPluginId(pluginId: string): boolean {

@@ -27,6 +27,7 @@ export type PreparedCapabilityRuntime = {
   marketplacePath: string
   capabilityControl: string
   contentDigest: string
+  pluginContentDigest: string
   generation: string
 }
 
@@ -93,7 +94,10 @@ export class CapabilityRuntimeManager {
   pathsFor(
     userHome: string,
     controlRoot: string,
-  ): Omit<PreparedCapabilityRuntime, "contentDigest" | "generation"> {
+  ): Omit<
+    PreparedCapabilityRuntime,
+    "contentDigest" | "pluginContentDigest" | "generation"
+  > {
     return {
       skillsRoot: path.join(userHome, ".agents", "skills"),
       pluginSourceRoot: path.join(
@@ -186,7 +190,19 @@ export class CapabilityRuntimeManager {
         0o640,
         this.#apiIdentity,
       )
-      return { ...paths, contentDigest, generation }
+      const marketplace = marketplaceSchema.safeParse(
+        JSON.parse(await readFile(paths.marketplacePath, "utf8")),
+      )
+      if (!marketplace.success) throw new CapabilityRuntimeError()
+      const pluginNames = marketplace.data.plugins
+        .map((plugin) => plugin.name)
+        .sort()
+      const pluginContentDigest = await calculatePluginContentDigest({
+        pluginSourceRoot: paths.pluginSourceRoot,
+        marketplacePath: paths.marketplacePath,
+        pluginNames,
+      })
+      return { ...paths, contentDigest, pluginContentDigest, generation }
     } catch (error) {
       if (isMissing(error)) return null
       throw error
@@ -330,18 +346,20 @@ export class CapabilityRuntimeManager {
       throw new CapabilityRuntimeError()
     }
 
-    const actualContentDigest = await calculateContentDigest({
-      skillsRoot: paths.skillsRoot,
-      pluginSourceRoot: paths.pluginSourceRoot,
-      marketplacePath: paths.marketplacePath,
-      pluginNames: expectedPluginNames,
-    })
+    const { contentDigest: actualContentDigest, pluginContentDigest } =
+      await calculateContentDigests({
+        skillsRoot: paths.skillsRoot,
+        pluginSourceRoot: paths.pluginSourceRoot,
+        marketplacePath: paths.marketplacePath,
+        pluginNames: expectedPluginNames,
+      })
     if (actualContentDigest !== trustedContentDigest) {
       throw new CapabilityRuntimeError()
     }
     return {
       ...paths,
       contentDigest: trustedContentDigest,
+      pluginContentDigest,
       generation,
     }
   }
@@ -385,14 +403,14 @@ export class CapabilityRuntimeManager {
     const info = await lstat(target)
     if (info.isSymbolicLink()) throw new CapabilityRuntimeError()
     if (info.isDirectory()) {
-      this.assertIdentityAndMode(info, 0o750, this.#apiIdentity)
+      this.assertAccessDomain(info, 0o750, this.#apiIdentity)
       for (const entry of (await readdir(target)).sort()) {
         await this.assertCapabilityTree(path.join(target, entry))
       }
       return
     }
     if (!info.isFile()) throw new CapabilityRuntimeError()
-    this.assertIdentityAndMode(
+    this.assertAccessDomain(
       info,
       info.mode & 0o111 ? 0o750 : 0o640,
       this.#apiIdentity,
@@ -408,7 +426,7 @@ export class CapabilityRuntimeManager {
     if (!info.isDirectory() || info.isSymbolicLink()) {
       throw new CapabilityRuntimeError()
     }
-    this.assertIdentityAndMode(info, mode, identity)
+    this.assertAccessDomain(info, mode, identity)
   }
 
   private async assertRegularFile(
@@ -420,19 +438,19 @@ export class CapabilityRuntimeManager {
     if (!info.isFile() || info.isSymbolicLink()) {
       throw new CapabilityRuntimeError()
     }
-    this.assertIdentityAndMode(info, mode, identity)
+    this.assertAccessDomain(info, mode, identity)
   }
 
-  private assertIdentityAndMode(
+  private assertAccessDomain(
     info: Stats,
     mode: number,
     identity: RuntimeIdentity,
   ): void {
-    if (
-      info.uid !== identity.uid ||
-      info.gid !== identity.gid ||
-      (info.mode & 0o7777) !== mode
-    ) {
+    // Numeric UIDs are not portable across Linux bind mounts and Docker
+    // Desktop's virtual filesystem. The shared GID and exact modes define
+    // the access domain; symlink, path and content checks above preserve the
+    // trust boundary without rejecting a valid host-side UID projection.
+    if (info.gid !== identity.gid || (info.mode & 0o7777) !== mode) {
       throw new CapabilityRuntimeError()
     }
   }
@@ -446,15 +464,48 @@ export class CapabilityRuntimeManager {
   }
 }
 
-async function calculateContentDigest(input: {
+async function calculateContentDigests(input: {
   skillsRoot: string
+  pluginSourceRoot: string
+  marketplacePath: string
+  pluginNames: string[]
+}): Promise<{ contentDigest: string; pluginContentDigest: string }> {
+  const contentHash = createHash("sha256")
+  const pluginHash = createHash("sha256")
+  contentHash.update("linksense-capability-content\n")
+  pluginHash.update("linksense-native-plugin-content\n")
+  await hashTree(input.skillsRoot, "skills", [contentHash])
+  const pluginRoot = await lstat(input.pluginSourceRoot)
+  if (!pluginRoot.isDirectory() || pluginRoot.isSymbolicLink()) {
+    throw new CapabilityRuntimeError()
+  }
+  for (const hash of [contentHash, pluginHash]) {
+    hash.update("directory\0plugins\0")
+  }
+  for (const pluginName of [...input.pluginNames].sort()) {
+    await hashTree(
+      path.join(input.pluginSourceRoot, pluginName),
+      `plugins/${pluginName}`,
+      [contentHash, pluginHash],
+    )
+  }
+  await hashTree(input.marketplacePath, "marketplace.json", [
+    contentHash,
+    pluginHash,
+  ])
+  return {
+    contentDigest: contentHash.digest("hex"),
+    pluginContentDigest: pluginHash.digest("hex"),
+  }
+}
+
+async function calculatePluginContentDigest(input: {
   pluginSourceRoot: string
   marketplacePath: string
   pluginNames: string[]
 }): Promise<string> {
   const hash = createHash("sha256")
-  hash.update("linksense-capability-content\n")
-  await hashTree(input.skillsRoot, "skills", hash)
+  hash.update("linksense-native-plugin-content\n")
   const pluginRoot = await lstat(input.pluginSourceRoot)
   if (!pluginRoot.isDirectory() || pluginRoot.isSymbolicLink()) {
     throw new CapabilityRuntimeError()
@@ -464,33 +515,39 @@ async function calculateContentDigest(input: {
     await hashTree(
       path.join(input.pluginSourceRoot, pluginName),
       `plugins/${pluginName}`,
-      hash,
+      [hash],
     )
   }
-  await hashTree(input.marketplacePath, "marketplace.json", hash)
+  await hashTree(input.marketplacePath, "marketplace.json", [hash])
   return hash.digest("hex")
 }
 
 async function hashTree(
   currentPath: string,
   relativePath: string,
-  hash: ReturnType<typeof createHash>,
+  hashes: ReturnType<typeof createHash>[],
 ): Promise<void> {
   const info = await lstat(currentPath)
   if (info.isSymbolicLink()) throw new CapabilityRuntimeError()
   if (info.isFile()) {
-    hash.update(`file\0${relativePath}\0${info.mode & 0o111 ? "x" : "-"}\0`)
-    hash.update(await readFile(currentPath))
-    hash.update("\0")
+    const header = `file\0${relativePath}\0${info.mode & 0o111 ? "x" : "-"}\0`
+    const content = await readFile(currentPath)
+    for (const hash of hashes) {
+      hash.update(header)
+      hash.update(content)
+      hash.update("\0")
+    }
     return
   }
   if (!info.isDirectory()) throw new CapabilityRuntimeError()
-  hash.update(`directory\0${relativePath}\0`)
+  for (const hash of hashes) {
+    hash.update(`directory\0${relativePath}\0`)
+  }
   for (const entry of (await readdir(currentPath)).sort()) {
     await hashTree(
       path.join(currentPath, entry),
       `${relativePath}/${entry}`,
-      hash,
+      hashes,
     )
   }
 }

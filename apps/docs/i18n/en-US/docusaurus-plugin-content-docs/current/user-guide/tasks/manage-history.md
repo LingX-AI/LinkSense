@@ -15,7 +15,13 @@ Use **Search** in the sidebar to find your own tasks. Results never include anot
 
 ## Rename and pin
 
-Rename a task from its actions. Pin ongoing work to the top of the list; unpin it to return to activity ordering. If the pin limit is reached, unpin an older task first.
+Rename a task from its actions. Pin ongoing work into the Pinned group; unpin it into Recent. If the pin limit is reached, unpin an older task first.
+
+Pinned and recent tasks can each be reordered by drag and drop or keyboard. Concurrent changes from two windows use the latest server version. See [Branch and reorder tasks](./branch-and-organize.md) for complete instructions.
+
+## Continue a different direction from history
+
+Select **Branch into new chat** on the final assistant response of a finished turn to copy history and runtime context through that point into a new independent task. A task cannot be branched while running, when it has a queued request, or after it is archived.
 
 ## Archive
 

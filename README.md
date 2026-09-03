@@ -23,11 +23,11 @@ We provide a lightweight Core edition and a Full edition with complete knowledge
 - macOS: Intel Mac or Apple Silicon with Docker Desktop; run from the signed-in macOS account without `sudo`.
 - Release images support both `linux/amd64` and `linux/arm64`. Docker automatically selects the matching image.
 - Install `curl`; start a local Linux Docker Engine with API v1.45+ and Docker Compose v2.24.4+.
-- Keep TCP port `10080` free and allow access to GitHub, GHCR, upstream registries, and Full tokenizer files.
-- Core requires 8 GiB memory and 40 GiB free space. Full requires 16 GiB memory and 80 GiB free space.
-- Linux additionally requires 100,000 free inodes for Core or 200,000 for Full.
+- Keep TCP port `18081` free by default and allow access to GitHub, GHCR, upstream registries, and Full tokenizer files.
+- Core requires at least 8 GiB memory, and Full requires at least 16 GiB memory.
+- The installer does not enforce a free-disk-space or inode minimum. Use the recommended SSD capacity below and monitor available space because Docker will fail if storage is exhausted.
 
-The installer validates the host and Docker platform before writing persistent state, then generates runtime secrets. On macOS, allocate enough memory and disk to Docker Desktop first. A domain and HTTPS are optional for local startup; public deployments should place an HTTPS reverse proxy in front of port `10080`.
+The installer validates the host and Docker platform before writing persistent state, then generates runtime secrets. On macOS, allocate enough memory and disk to Docker Desktop first. A domain and HTTPS are optional for local startup; public deployments should place an HTTPS reverse proxy in front of port `18081`.
 
 Linux installation:
 
@@ -36,14 +36,19 @@ curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-cor
 curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh | sudo sh
 ```
 
+To choose another unused TCP port during installation, pass `LINKSENSE_HTTP_PORT` to the installer process, not to `curl`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh \
+  | sudo env LINKSENSE_HTTP_PORT=19090 sh
+```
 macOS installation:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh | sh
 curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh | sh
 ```
-
-After installation, open `http://<server-address>:10080` on Linux or `http://localhost:10080` on macOS. The terminal prints a one-time initialization credential for creating the first administrator. Linux stores deployment files under `/opt/linksense`; macOS uses `~/.linksense`.
+After installation, open `http://<server-address>:18081` on Linux or `http://localhost:18081` on macOS. When a custom port is selected, replace `18081` with that value. The terminal prints a one-time initialization credential for creating the first administrator. Linux stores deployment files under `/opt/linksense`; macOS uses `~/.linksense`.
 
 Core excludes Elasticsearch, Docling, and the tokenizer. Full adds complete document processing and knowledge-base retrieval.
 
@@ -56,6 +61,25 @@ curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh 
 ```
 
 Run the same commands without `sudo` on macOS. Repair scripts stay on the installed release. The upgrade script detects Core/Full, waits for active work, and stores a validated PostgreSQL backup under `volume://linksense-backups/postgres/` before migration. No data volume is deleted. A failure after migration begins does not trigger an automatic database rollback; retain the printed backup location and rerun the upgrade after reviewing diagnostics.
+
+## Command-line management
+
+After installation, run `linksense` to open the interactive control menu, or use direct commands:
+
+```bash
+linksense status
+linksense start
+linksense stop
+linksense restart
+linksense port 19090
+linksense credential
+linksense logs api
+linksense doctor
+linksense repair
+linksense upgrade v0.3.0
+```
+
+Linux requests `sudo` when needed. On macOS, add `$HOME/.local/bin` to `PATH` and run the command without `sudo`. Port changes validate availability, recreate only affected services, and automatically restore the previous configuration after a failed health check. The credential command displays the one-time credential only before the first administrator is created.
 
 ## Recommended configuration
 
