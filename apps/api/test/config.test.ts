@@ -11,6 +11,7 @@ describe("parseConfig", () => {
     expect(config.teams.status).toBe("not_configured")
     expect(config.maxConcurrentConversations).toBe(20)
     expect(config.runnerAppServerProcessLimit).toBe(20)
+    expect(config.minio.downloadTtlSeconds).toBe(7_200)
     expect(config.adminModelManagementEnabled).toBe(true)
     expect(config.releaseVersion).toBe("v0.1.1")
     expect(config.initializationToken).toBeUndefined()

@@ -1572,7 +1572,7 @@ describe("FileService artifact direct previews", () => {
     );
     expect(fixture.storage.presignedGetObject).toHaveBeenCalledWith(
       "conversations/private/preview.png",
-      300,
+      7_200,
     );
     expect(fixture.redis.acquireConversationLock).not.toHaveBeenCalled();
     expect(fixture.redis.releaseConversationLock).not.toHaveBeenCalled();
@@ -1607,7 +1607,7 @@ describe("FileService artifact direct previews", () => {
 
     expect(fixture.storage.presignedGetObject).toHaveBeenCalledWith(
       "conversations/private/chart.svg",
-      300,
+      7_200,
     );
   });
 
@@ -1662,7 +1662,7 @@ describe("FileService artifact direct previews", () => {
     );
     expect(fixture.storage.presignedGetObject).toHaveBeenCalledWith(
       "conversations/private/demo.mp4",
-      300,
+      7_200,
     );
   });
 
@@ -2382,7 +2382,7 @@ describe("FileService download authorization audit", () => {
     });
     expect(fixture.storage.presignedGetObject).toHaveBeenCalledWith(
       "conversations/private/artifact.pdf",
-      300,
+      7_200,
     );
     expect(fixture.audit.write).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2392,7 +2392,7 @@ describe("FileService download authorization audit", () => {
         result: "success",
         metadata: {
           conversation_id: CONVERSATION_ID,
-          expires_seconds: 300,
+          expires_seconds: 7_200,
         },
       }),
     );

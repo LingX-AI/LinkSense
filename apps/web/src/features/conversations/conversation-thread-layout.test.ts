@@ -794,12 +794,13 @@ describe("conversation activity typography", () => {
     expect(nativePreviewErrorRule).toMatch(/border-style:\s*solid;/u)
   })
 
-  it("shows running image previews without cropping", () => {
+  it("fills image preview boxes without stretching the image", () => {
     const previewImageRule = conversationStyles.match(
       /\.conversation-image-thumbnail-image,\s*\.native-activity-image-preview-image\s*\{([^}]*)\}/u
     )?.[1]
 
-    expect(previewImageRule).toMatch(/object-fit:\s*contain;/u)
+    expect(previewImageRule).toMatch(/object-fit:\s*cover;/u)
+    expect(previewImageRule).toMatch(/object-position:\s*center;/u)
   })
 
   it("uses a stable centered image placeholder without visible loading copy", () => {
