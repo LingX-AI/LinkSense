@@ -343,6 +343,136 @@ describe("conversation stream render stability", () => {
     )
   })
 
+  it("keeps the first user message and turn summary mounted through turn admission", () => {
+    const pendingTurn = {
+      ...runningTurn,
+      id: "pending-turn-render-stability",
+    }
+    const optimisticMessage: ConversationMessage = {
+      ...userMessage,
+      id: "optimistic-message-render-stability",
+      turn_id: null,
+    }
+    const onDownload = vi.fn()
+    const { rerender } = render(
+      <ConversationThread
+        conversation={{
+          ...createConversation([optimisticMessage]),
+          turns: [pendingTurn],
+          running_turn: pendingTurn,
+        }}
+        onDownload={onDownload}
+      />
+    )
+    const initialArticle = screen.getByRole("article", { name: "用户消息" })
+    const initialSummary = screen.getByTestId(`turn-summary-${pendingTurn.id}`)
+
+    const admittedMessage = {
+      ...optimisticMessage,
+      turn_id: runningTurn.id,
+    }
+    rerender(
+      <ConversationThread
+        conversation={createConversation([admittedMessage])}
+        onDownload={onDownload}
+      />
+    )
+
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      initialArticle
+    )
+    expect(screen.getByTestId(`turn-summary-${runningTurn.id}`)).toBe(
+      initialSummary
+    )
+
+    const persistedMessage: ConversationMessage = {
+      ...admittedMessage,
+      id: "persisted-user-message-render-stability",
+      client_render_key: `message-${optimisticMessage.id}`,
+    }
+    rerender(
+      <ConversationThread
+        conversation={createConversation([persistedMessage])}
+        onDownload={onDownload}
+      />
+    )
+
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      initialArticle
+    )
+    expect(screen.getByTestId(`turn-summary-${runningTurn.id}`)).toBe(
+      initialSummary
+    )
+  })
+
+  it("keeps a regenerated message turn summary mounted through readmission", () => {
+    const sourceTurn = {
+      ...runningTurn,
+      id: "source-turn-render-stability",
+      status: "completed" as const,
+      completed_at: "2026-08-02T08:00:03.000Z",
+    }
+    const pendingTurn = {
+      ...runningTurn,
+      id: "pending-regenerated-turn-render-stability",
+    }
+    const sourceMessage: ConversationMessage = {
+      ...userMessage,
+      id: "persisted-regenerated-source-message",
+      turn_id: sourceTurn.id,
+    }
+    const baseConversation = createConversation([sourceMessage])
+    const onDownload = vi.fn()
+    const { rerender } = render(
+      <ConversationThread
+        conversation={{
+          ...baseConversation,
+          turns: [sourceTurn],
+          running_turn: null,
+        }}
+        onDownload={onDownload}
+      />
+    )
+    const initialArticle = screen.getByRole("article", { name: "用户消息" })
+    const initialSummary = screen.getByTestId(`turn-summary-${sourceTurn.id}`)
+
+    rerender(
+      <ConversationThread
+        conversation={{
+          ...baseConversation,
+          messages: [{ ...sourceMessage, turn_id: null }],
+          turns: [pendingTurn],
+          running_turn: pendingTurn,
+        }}
+        onDownload={onDownload}
+      />
+    )
+
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      initialArticle
+    )
+    expect(screen.getByTestId(`turn-summary-${pendingTurn.id}`)).toBe(
+      initialSummary
+    )
+
+    rerender(
+      <ConversationThread
+        conversation={{
+          ...baseConversation,
+          messages: [{ ...sourceMessage, turn_id: runningTurn.id }],
+        }}
+        onDownload={onDownload}
+      />
+    )
+
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      initialArticle
+    )
+    expect(screen.getByTestId(`turn-summary-${runningTurn.id}`)).toBe(
+      initialSummary
+    )
+  })
+
   it("keeps a native tool row mounted when command details arrive", () => {
     const itemId = "native-command-render-stability"
     const { rerender } = render(

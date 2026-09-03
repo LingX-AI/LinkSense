@@ -1416,6 +1416,18 @@ export const zhCN = {
   conversation: {
     untitled: "未命名任务",
     title: "任务",
+    share: {
+      action: "分享",
+      title: "分享 {{title}}",
+      description: "分享后，你的姓名以及之后新增的消息不会显示在共享任务中。",
+      previewLabel: "共享任务预览",
+      anyoneWithLink: "任何拥有此链接的人都可以查看此任务",
+      copyLink: "复制链接",
+      copied: "已复制",
+      copyFailed: "无法复制链接，请检查浏览器权限后重试。",
+      unavailable: "这个分享链接不存在或已失效。",
+      continueInProduct: "Continue in {{productName}}",
+    },
     rename: "重命名",
     archive: "归档任务",
     archiveNamed: "归档任务“{{title}}”",

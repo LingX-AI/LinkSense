@@ -626,6 +626,12 @@ function installApiMock(options?: {
   ) => Promise<Response>
   newTaskDraftStart?: Promise<void>
   newTaskDetailResponse?: (callIndex: number) => Promise<Response>
+  newTaskEventStreamInitialBody?: string
+  newTaskEventStreamBody?: string
+  newTaskEventStreamStart?: Promise<void>
+  newTaskModelPreferenceStart?: Promise<void>
+  modelPreferenceStart?: (conversationId: string) => Promise<void>
+  newTaskTurnStart?: Promise<void>
   eventStreamUnavailable?: boolean
   eventStreamBody?: string
   eventStreamStart?: Promise<void>
@@ -818,6 +824,16 @@ function installApiMock(options?: {
         const scopedPreference = path.match(
           /^\/api\/v1\/conversations\/([^/]+)\/model-preference$/u
         )
+        if (
+          method === "GET" &&
+          scopedPreference?.[1] === newTaskId &&
+          options?.newTaskModelPreferenceStart
+        ) {
+          await options.newTaskModelPreferenceStart
+        }
+        if (method === "GET" && scopedPreference) {
+          await options?.modelPreferenceStart?.(scopedPreference[1])
+        }
         const selectedModel = scopedPreference
           ? (modelPreferenceByConversation[scopedPreference[1]] ?? newTaskModel)
           : newTaskModel
@@ -1049,6 +1065,44 @@ function installApiMock(options?: {
         /^\/api\/v1\/conversations\/([^/]+)\/events$/u
       )
       if (conversationEventsMatch) {
+        if (
+          conversationEventsMatch[1] === newTaskId &&
+          (options?.newTaskEventStreamInitialBody ||
+            options?.newTaskEventStreamBody)
+        ) {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                if (options.newTaskEventStreamInitialBody) {
+                  controller.enqueue(
+                    new TextEncoder().encode(
+                      options.newTaskEventStreamInitialBody
+                    )
+                  )
+                }
+                const enqueueEventStreamBody = () => {
+                  if (!options.newTaskEventStreamBody) return
+                  controller.enqueue(
+                    new TextEncoder().encode(options.newTaskEventStreamBody)
+                  )
+                }
+                if (
+                  options.newTaskEventStreamBody &&
+                  options.newTaskEventStreamStart
+                ) {
+                  return options.newTaskEventStreamStart.then(
+                    enqueueEventStreamBody
+                  )
+                }
+                enqueueEventStreamBody()
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "text/event-stream" },
+            }
+          )
+        }
         return new Response(null, {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
@@ -1153,6 +1207,7 @@ function installApiMock(options?: {
         path === `/api/v1/conversations/${newTaskId}/turns` &&
         method === "POST"
       ) {
+        await options.newTaskTurnStart
         return json(
           {
             success: true,
@@ -2176,7 +2231,427 @@ describe("LinkSense application", () => {
   })
 
   it("keeps the task workspace and composer mounted when the first message creates the task", async () => {
+    let releaseNewTaskDraft!: () => void
+    const newTaskDraftStart = new Promise<void>((resolve) => {
+      releaseNewTaskDraft = resolve
+    })
+    let releaseNewTaskTurn!: () => void
+    const newTaskTurnStart = new Promise<void>((resolve) => {
+      releaseNewTaskTurn = resolve
+    })
+    let releaseNewTaskModelPreference!: () => void
+    const newTaskModelPreferenceStart = new Promise<void>((resolve) => {
+      releaseNewTaskModelPreference = resolve
+    })
+    let releaseStaleNewTaskDetail!: () => void
+    const staleNewTaskDetailStart = new Promise<void>((resolve) => {
+      releaseStaleNewTaskDetail = resolve
+    })
+    let releaseHydratedNewTaskDetail!: () => void
+    const hydratedNewTaskDetailStart = new Promise<void>((resolve) => {
+      releaseHydratedNewTaskDetail = resolve
+    })
+    let resolveStaleNewTaskDetailSettled!: () => void
+    const staleNewTaskDetailSettled = new Promise<void>((resolve) => {
+      resolveStaleNewTaskDetailSettled = resolve
+    })
+    let releaseDelayedNewTaskEvent!: () => void
+    const newTaskEventStreamStart = new Promise<void>((resolve) => {
+      releaseDelayedNewTaskEvent = resolve
+    })
+    const projectedTurnId = "00000000-0000-4000-8000-000000000002"
+    const turnStartedEventId = "new-task-1:2"
+    const generatedTitle = "页面闪烁排查"
+    const titleEventId = "new-task-1:3"
     const { requests } = installApiMock({
+      newTaskDraftStart,
+      newTaskTurnStart,
+      newTaskModelPreferenceStart,
+      newTaskEventStreamStart,
+      newTaskEventStreamInitialBody: `id: ${turnStartedEventId}\nevent: turn/started\ndata: ${JSON.stringify(
+        {
+          id: "60000000-0000-4000-8000-000000000002",
+          conversation_id: "20000000-0000-4000-8000-000000000001",
+          turn_id: projectedTurnId,
+          sequence_no: 2,
+          event_type: "turn/started",
+          visibility: "user_visible",
+          payload: {
+            schema_version: 2,
+            source: "codex_app_server",
+            method: "turn/started",
+            params: {
+              threadId: "native-thread-new-task-1",
+              turn: {
+                id: "native-turn-new-task-1",
+                status: "inProgress",
+              },
+            },
+          },
+          sse_event_id: turnStartedEventId,
+          created_at: "2026-07-18T08:00:02.000Z",
+        }
+      )}\n\n`,
+      newTaskEventStreamBody: `id: ${titleEventId}\nevent: conversation.title.updated\ndata: ${JSON.stringify(
+        {
+          id: "60000000-0000-4000-8000-000000000003",
+          conversation_id: "20000000-0000-4000-8000-000000000001",
+          turn_id: null,
+          sequence_no: 3,
+          event_type: "conversation.title.updated",
+          visibility: "user_visible",
+          payload: { schema_version: 1, title: generatedTitle },
+          sse_event_id: titleEventId,
+          created_at: "2026-07-18T08:00:03.000Z",
+        }
+      )}\n\n`,
+      modelPreferenceByConversation: { "new-task-1": "model-a" },
+      newTaskDetailResponse: async (callIndex) => {
+        const hydrated = callIndex > 1
+        if (!hydrated) await staleNewTaskDetailStart
+        if (hydrated) await hydratedNewTaskDetailStart
+        const response = json({
+          success: true,
+          data: {
+            id: "new-task-1",
+            title: callIndex > 2 ? generatedTitle : "未命名任务",
+            archived: false,
+            updated_at: "2026-07-18T08:00:02.000Z",
+            draft_input: "",
+            draft_capability_ids: [],
+            messages: hydrated
+              ? [
+                  {
+                    id: "new-task-message-1",
+                    role: "user",
+                    turn_id: projectedTurnId,
+                    content: "排查页面闪烁",
+                    created_at: "2026-07-18T08:00:02.000Z",
+                  },
+                ]
+              : [],
+            attachments: [],
+            artifacts: [],
+            turns: hydrated
+              ? [
+                  {
+                    id: projectedTurnId,
+                    status: "running",
+                  },
+                ]
+              : [],
+            running_turn: hydrated
+              ? {
+                  id: projectedTurnId,
+                  status: "running",
+                }
+              : null,
+            pending_requests: [],
+            user_input_requests: [],
+          },
+        })
+        if (!hydrated) {
+          window.setTimeout(resolveStaleNewTaskDetailSettled, 0)
+        }
+        return response
+      },
+    })
+    const interaction = userEvent.setup()
+    renderApp("/conversations/new")
+
+    const composer = await screen.findByRole(
+      "textbox",
+      { name: "任务输入框" },
+      { timeout: 15_000 }
+    )
+    const initialWorkspace = document.querySelector(".conversation-workspace")
+    const initialScroller = document.querySelector(".conversation-scroll")
+    const initialConversationColumn = document.querySelector(
+      ".conversation-column"
+    )
+    const initialComposerShell = screen.getByRole("form", {
+      name: "任务输入框",
+    })
+    const initialModelSelector = await screen.findByRole("button", {
+      name: "选择模型与推理强度",
+    })
+    const initialSendButton = await screen.findByRole("button", {
+      name: "发送",
+    })
+    expect(initialSendButton).toBeVisible()
+    expect(initialSendButton).toHaveAttribute("aria-disabled", "true")
+    expect(initialWorkspace).toBeInTheDocument()
+    expect(initialScroller).toBeInTheDocument()
+    expect(initialConversationColumn).toBeInTheDocument()
+    if (!(initialScroller instanceof HTMLElement)) {
+      throw new Error("conversation scroller was not mounted")
+    }
+    const promotionScrollTo = vi.fn()
+    Object.defineProperty(initialScroller, "scrollTo", {
+      configurable: true,
+      value: promotionScrollTo,
+    })
+
+    await interaction.type(composer, "排查页面闪烁")
+    expect(screen.getByRole("button", { name: "发送" })).toBe(initialSendButton)
+    expect(initialSendButton).toHaveAttribute("aria-disabled", "false")
+    await interaction.keyboard("{Enter}")
+
+    await waitFor(() =>
+      expect(requests).toContainEqual(
+        expect.objectContaining({
+          path: "/api/v1/conversations/drafts",
+          method: "POST",
+        })
+      )
+    )
+    const optimisticUserMessage = await screen.findByRole("article", {
+      name: "用户消息",
+    })
+    const optimisticTurnSummary = document.querySelector(
+      '[data-testid^="turn-summary-"]'
+    )
+    const optimisticStopButton = await screen.findByRole("button", {
+      name: "停止",
+    })
+    expect(optimisticTurnSummary).toBeInTheDocument()
+    promotionScrollTo.mockClear()
+    initialScroller.scrollTop = 37
+
+    releaseNewTaskDraft()
+
+    await waitFor(() =>
+      expect(requests).toContainEqual(
+        expect.objectContaining({
+          path: "/api/v1/conversations/new-task-1/turns",
+          method: "POST",
+        })
+      )
+    )
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/new-task-1" &&
+            request.method === "GET"
+        )
+      ).toHaveLength(1)
+    )
+    expect(
+      await screen.findByRole("button", { name: "打开任务概览" })
+    ).toBeVisible()
+    expect(screen.getByTestId(`turn-summary-${projectedTurnId}`)).toBe(
+      optimisticTurnSummary
+    )
+    expect(document.querySelector(".conversation-scroll")).toBe(initialScroller)
+    expect(document.querySelector(".conversation-column")).toBe(
+      initialConversationColumn
+    )
+    expect(screen.getByRole("form", { name: "任务输入框" })).toBe(
+      initialComposerShell
+    )
+    expect(screen.getByRole("textbox", { name: "任务输入框" })).toBe(composer)
+    expect(screen.getByRole("button", { name: "选择模型与推理强度" })).toBe(
+      initialModelSelector
+    )
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      optimisticUserMessage
+    )
+    expect(document.querySelector('[data-testid^="turn-summary-"]')).toBe(
+      optimisticTurnSummary
+    )
+    expect(screen.getByRole("button", { name: "停止" })).toBe(
+      optimisticStopButton
+    )
+
+    releaseNewTaskTurn()
+    await waitFor(() =>
+      expect(screen.getByTestId(`turn-summary-${projectedTurnId}`)).toBe(
+        optimisticTurnSummary
+      )
+    )
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/new-task-1" &&
+            request.method === "GET"
+        )
+      ).toHaveLength(2)
+    )
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      optimisticUserMessage
+    )
+    expect(screen.getByRole("button", { name: "停止" })).toBe(
+      optimisticStopButton
+    )
+
+    releaseHydratedNewTaskDetail()
+    await waitFor(() =>
+      expect(
+        document.getElementById("conversation-message-new-task-message-1")
+      ).toBeInTheDocument()
+    )
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      optimisticUserMessage
+    )
+    expect(document.querySelector('[data-testid^="turn-summary-"]')).toBe(
+      optimisticTurnSummary
+    )
+    expect(screen.getByRole("button", { name: "停止" })).toBe(
+      optimisticStopButton
+    )
+    releaseStaleNewTaskDetail()
+    await staleNewTaskDetailSettled
+    expect(screen.queryByText("任务概览")).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(document.querySelector(".conversation-workspace")).toBe(
+        initialWorkspace
+      )
+      expect(
+        document.getElementById("conversation-message-new-task-message-1")
+      ).toBeInTheDocument()
+      expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+        optimisticUserMessage
+      )
+      expect(document.querySelector('[data-testid^="turn-summary-"]')).toBe(
+        optimisticTurnSummary
+      )
+    })
+    expect(initialWorkspace).not.toHaveAttribute("data-task-overview-open")
+    expect(
+      document.querySelector(".page-state-loading-fullscreen")
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("form", { name: "任务输入框" })).toBe(
+      initialComposerShell
+    )
+    expect(screen.getByRole("textbox", { name: "任务输入框" })).toBe(composer)
+    expect(document.querySelector(".conversation-scroll")).toBe(initialScroller)
+    expect(screen.getByRole("button", { name: "选择模型与推理强度" })).toBe(
+      initialModelSelector
+    )
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      optimisticUserMessage
+    )
+    expect(initialScroller).toHaveProperty("scrollTop", 37)
+    expect(promotionScrollTo).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "停止" })).toBe(
+      optimisticStopButton
+    )
+
+    await act(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+    })
+    releaseDelayedNewTaskEvent()
+    await screen.findByRole("heading", { name: generatedTitle })
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/new-task-1" &&
+            request.method === "GET"
+        )
+      ).toHaveLength(3)
+    )
+    expect(document.querySelector(".conversation-workspace")).toBe(
+      initialWorkspace
+    )
+    expect(document.querySelector(".conversation-scroll")).toBe(initialScroller)
+    expect(screen.getByRole("form", { name: "任务输入框" })).toBe(
+      initialComposerShell
+    )
+    expect(screen.getByRole("textbox", { name: "任务输入框" })).toBe(composer)
+    expect(screen.getByRole("button", { name: "选择模型与推理强度" })).toBe(
+      initialModelSelector
+    )
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      optimisticUserMessage
+    )
+    expect(document.querySelector('[data-testid^="turn-summary-"]')).toBe(
+      optimisticTurnSummary
+    )
+    expect(initialScroller).toHaveProperty("scrollTop", 37)
+    expect(promotionScrollTo).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "停止" })).toBe(
+      optimisticStopButton
+    )
+
+    await waitFor(() =>
+      expect(requests).toContainEqual(
+        expect.objectContaining({
+          path: "/api/v1/conversations/new-task-1/model-preference",
+          method: "GET",
+        })
+      )
+    )
+    expect(screen.getByRole("button", { name: "选择模型与推理强度" })).toBe(
+      initialModelSelector
+    )
+    expect(promotionScrollTo).not.toHaveBeenCalled()
+
+    releaseNewTaskModelPreference()
+    await waitFor(() =>
+      expect(initialModelSelector).toHaveTextContent("Model A")
+    )
+    expect(screen.getByRole("button", { name: "选择模型与推理强度" })).toBe(
+      initialModelSelector
+    )
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      optimisticUserMessage
+    )
+    expect(document.querySelector('[data-testid^="turn-summary-"]')).toBe(
+      optimisticTurnSummary
+    )
+    expect(screen.getByRole("button", { name: "停止" })).toBe(
+      optimisticStopButton
+    )
+
+    await interaction.click(
+      screen.getByRole("button", { name: "打开任务概览" })
+    )
+    expect(await screen.findByText("任务概览")).toBeVisible()
+    expect(initialWorkspace).toHaveAttribute("data-task-overview-open", "true")
+  })
+
+  it("keeps the stop control mounted while the first task turn is being projected", async () => {
+    let releaseNewTaskDraft!: () => void
+    const newTaskDraftStart = new Promise<void>((resolve) => {
+      releaseNewTaskDraft = resolve
+    })
+    let releaseTurnStartedEvent!: () => void
+    const newTaskEventStreamStart = new Promise<void>((resolve) => {
+      releaseTurnStartedEvent = resolve
+    })
+    let exposeRunningProjection = false
+    const projectedTurnId = "00000000-0000-4000-8000-000000000002"
+    const turnStartedEventId = "new-task-1:2"
+    const { requests } = installApiMock({
+      newTaskDraftStart,
+      newTaskEventStreamStart,
+      newTaskEventStreamBody: `id: ${turnStartedEventId}\nevent: turn/started\ndata: ${JSON.stringify(
+        {
+          id: "60000000-0000-4000-8000-000000000002",
+          conversation_id: "20000000-0000-4000-8000-000000000001",
+          turn_id: projectedTurnId,
+          sequence_no: 2,
+          event_type: "turn/started",
+          visibility: "user_visible",
+          payload: {
+            schema_version: 2,
+            source: "codex_app_server",
+            method: "turn/started",
+            params: {
+              threadId: "native-thread-new-task-1",
+              turn: {
+                id: "native-turn-new-task-1",
+                status: "inProgress",
+              },
+            },
+          },
+          sse_event_id: turnStartedEventId,
+          created_at: "2026-07-18T08:00:02.000Z",
+        }
+      )}\n\n`,
       newTaskDetailResponse: async () =>
         json({
           success: true,
@@ -2187,19 +2662,179 @@ describe("LinkSense application", () => {
             updated_at: "2026-07-18T08:00:02.000Z",
             draft_input: "",
             draft_capability_ids: [],
-            messages: [],
-            attachments: [],
-            artifacts: [],
-            turns: [
+            messages: [
               {
-                id: "00000000-0000-4000-8000-000000000002",
-                status: "running",
+                id: "new-task-message-1",
+                role: "user",
+                turn_id: projectedTurnId,
+                content: "保持停止按钮",
+                created_at: "2026-07-18T08:00:02.000Z",
               },
             ],
-            running_turn: {
-              id: "00000000-0000-4000-8000-000000000002",
-              status: "running",
+            attachments: [],
+            artifacts: [],
+            turns: exposeRunningProjection
+              ? [{ id: projectedTurnId, status: "running" }]
+              : [],
+            running_turn: exposeRunningProjection
+              ? { id: projectedTurnId, status: "running" }
+              : null,
+            pending_requests: [],
+            user_input_requests: [],
+          },
+        }),
+    })
+    const interaction = userEvent.setup()
+    renderApp()
+
+    await screen.findByRole(
+      "heading",
+      { name: conversations[0]!.title },
+      { timeout: 15_000 }
+    )
+    await waitFor(() =>
+      expect(requests).toContainEqual(
+        expect.objectContaining({
+          path: "/api/v1/conversations/c1/events",
+          method: "GET",
+        })
+      )
+    )
+    const sidebar = screen.getByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+    await interaction.click(
+      within(sidebar).getByRole("link", { name: "新任务" })
+    )
+    const composer = await screen.findByRole("textbox", { name: "任务输入框" })
+    const workspace = document.querySelector(".conversation-workspace")
+    const scroller = document.querySelector(".conversation-scroll")
+    const composerShell = screen.getByRole("form", { name: "任务输入框" })
+
+    await interaction.type(composer, "保持停止按钮")
+    await interaction.keyboard("{Enter}")
+
+    const optimisticMessage = await screen.findByRole("article", {
+      name: "用户消息",
+    })
+    const optimisticSummary = document.querySelector(
+      '[data-testid^="turn-summary-"]'
+    )
+    const stopControl = await screen.findByRole("button", { name: "停止" })
+    expect(optimisticSummary).toBeInTheDocument()
+
+    releaseNewTaskDraft()
+    await waitFor(() =>
+      expect(
+        document.getElementById("conversation-message-new-task-message-1")
+      ).toBeInTheDocument()
+    )
+    await act(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+    })
+
+    expect(screen.getByRole("button", { name: "停止" })).toBe(stopControl)
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      optimisticMessage
+    )
+    expect(document.querySelector('[data-testid^="turn-summary-"]')).toBe(
+      optimisticSummary
+    )
+    expect(document.querySelector(".conversation-workspace")).toBe(workspace)
+    expect(document.querySelector(".conversation-scroll")).toBe(scroller)
+    expect(screen.getByRole("form", { name: "任务输入框" })).toBe(composerShell)
+
+    const detailRequestCountBeforeTurnStarted = requests.filter(
+      (request) =>
+        request.path === "/api/v1/conversations/new-task-1" &&
+        request.method === "GET"
+    ).length
+    exposeRunningProjection = true
+    releaseTurnStartedEvent()
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/new-task-1" &&
+            request.method === "GET"
+        ).length
+      ).toBeGreaterThan(detailRequestCountBeforeTurnStarted)
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "停止" })).toBe(stopControl)
+    )
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      optimisticMessage
+    )
+    expect(document.querySelector('[data-testid^="turn-summary-"]')).toBe(
+      optimisticSummary
+    )
+    expect(document.querySelector(".conversation-workspace")).toBe(workspace)
+    expect(document.querySelector(".conversation-scroll")).toBe(scroller)
+    expect(screen.getByRole("form", { name: "任务输入框" })).toBe(composerShell)
+  })
+
+  it("keeps one user message when promoted detail arrives before the turn receipt", async () => {
+    let releaseNewTaskDraft!: () => void
+    const newTaskDraftStart = new Promise<void>((resolve) => {
+      releaseNewTaskDraft = resolve
+    })
+    let releaseNewTaskTurn!: () => void
+    const newTaskTurnStart = new Promise<void>((resolve) => {
+      releaseNewTaskTurn = resolve
+    })
+    const projectedTurnId = "00000000-0000-4000-8000-000000000002"
+    const detailRefreshEventId = "new-task-1:2"
+    const { requests } = installApiMock({
+      newTaskDraftStart,
+      newTaskTurnStart,
+      newTaskEventStreamBody: `id: ${detailRefreshEventId}\nevent: turn/started\ndata: ${JSON.stringify(
+        {
+          id: "60000000-0000-4000-8000-000000000002",
+          conversation_id: "20000000-0000-4000-8000-000000000001",
+          turn_id: projectedTurnId,
+          sequence_no: 2,
+          event_type: "turn/started",
+          visibility: "user_visible",
+          payload: {
+            schema_version: 2,
+            source: "codex_app_server",
+            method: "turn/started",
+            params: {
+              threadId: "native-thread-new-task-1",
+              turn: {
+                id: "native-turn-new-task-1",
+                status: "inProgress",
+              },
             },
+          },
+          sse_event_id: detailRefreshEventId,
+          created_at: "2026-07-18T08:00:02.000Z",
+        }
+      )}\n\n`,
+      newTaskDetailResponse: async () =>
+        json({
+          success: true,
+          data: {
+            id: "new-task-1",
+            title: "未命名任务",
+            archived: false,
+            updated_at: "2026-07-18T08:00:02.000Z",
+            draft_input: "",
+            draft_capability_ids: [],
+            messages: [
+              {
+                id: "new-task-message-before-receipt",
+                role: "user",
+                turn_id: projectedTurnId,
+                content: "详情先于回执",
+                created_at: "2026-07-18T08:00:02.000Z",
+              },
+            ],
+            attachments: [],
+            artifacts: [],
+            turns: [{ id: projectedTurnId, status: "running" }],
+            running_turn: { id: projectedTurnId, status: "running" },
             pending_requests: [],
             user_input_requests: [],
           },
@@ -2213,12 +2848,25 @@ describe("LinkSense application", () => {
       { name: "任务输入框" },
       { timeout: 15_000 }
     )
-    const initialWorkspace = document.querySelector(".conversation-workspace")
-    expect(initialWorkspace).toBeInTheDocument()
-
-    await interaction.type(composer, "排查页面闪烁")
+    await interaction.type(composer, "详情先于回执")
     await interaction.keyboard("{Enter}")
+    await waitFor(() =>
+      expect(requests).toContainEqual(
+        expect.objectContaining({
+          path: "/api/v1/conversations/drafts",
+          method: "POST",
+        })
+      )
+    )
+    const optimisticUserMessage = await screen.findByRole("article", {
+      name: "用户消息",
+    })
+    const optimisticTurnSummary = document.querySelector(
+      '[data-testid^="turn-summary-"]'
+    )
+    expect(optimisticTurnSummary).toBeInTheDocument()
 
+    releaseNewTaskDraft()
     await waitFor(() =>
       expect(requests).toContainEqual(
         expect.objectContaining({
@@ -2227,23 +2875,47 @@ describe("LinkSense application", () => {
         })
       )
     )
-    expect(
-      await screen.findByRole("button", { name: "打开任务概览" })
-    ).toBeVisible()
-    expect(screen.queryByText("任务概览")).not.toBeInTheDocument()
     await waitFor(() =>
-      expect(document.querySelector(".conversation-workspace")).toBe(
-        initialWorkspace
-      )
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/new-task-1" &&
+            request.method === "GET"
+        )
+      ).toHaveLength(1)
     )
-    expect(initialWorkspace).not.toHaveAttribute("data-task-overview-open")
-    expect(screen.getByRole("textbox", { name: "任务输入框" })).toBe(composer)
+    await waitFor(() =>
+      expect(
+        document.getElementById(
+          "conversation-message-new-task-message-before-receipt"
+        )
+      ).toBeInTheDocument()
+    )
 
-    await interaction.click(
-      screen.getByRole("button", { name: "打开任务概览" })
+    expect(screen.getAllByRole("article", { name: "用户消息" })).toHaveLength(1)
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      optimisticUserMessage
     )
-    expect(await screen.findByText("任务概览")).toBeVisible()
-    expect(initialWorkspace).toHaveAttribute("data-task-overview-open", "true")
+    expect(document.querySelector('[data-testid^="turn-summary-"]')).toBe(
+      optimisticTurnSummary
+    )
+
+    releaseNewTaskTurn()
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/new-task-1" &&
+            request.method === "GET"
+        )
+      ).toHaveLength(2)
+    )
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      optimisticUserMessage
+    )
+    expect(document.querySelector('[data-testid^="turn-summary-"]')).toBe(
+      optimisticTurnSummary
+    )
   })
 
   it("keeps starter questions hidden while the first new-task message is being created", async () => {
@@ -3394,7 +4066,9 @@ describe("LinkSense application", () => {
 
     renderApp()
 
-    const inlineError = await screen.findByRole("alert")
+    const inlineError = await screen.findByRole("alert", undefined, {
+      timeout: 15_000,
+    })
     expect(inlineError).toHaveTextContent(
       "stream disconnected before completion."
     )
@@ -3431,7 +4105,10 @@ describe("LinkSense application", () => {
     ).toBeNull()
 
     expect(screen.queryByRole("button", { name: "停止" })).toBeNull()
-    expect(screen.queryByRole("button", { name: "发送" })).toBeNull()
+    expect(screen.getByRole("button", { name: "发送" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    )
     const summary = screen.getByTestId("turn-summary-turn-1")
     expect(within(summary).getByText("已中断", { exact: true })).toBeVisible()
     expect(summary.querySelector('[aria-busy="true"]')).toBeNull()
@@ -4033,7 +4710,8 @@ describe("LinkSense application", () => {
     expect(
       titleActions?.querySelector(".conversation-title-application-icon")
     ).toBeNull()
-    expect(within(banner).getAllByRole("button")).toHaveLength(2)
+    expect(within(banner).getAllByRole("button")).toHaveLength(3)
+    expect(within(banner).getByRole("button", { name: "分享" })).toBeVisible()
     expect(
       within(banner).getByRole("button", { name: "关闭任务概览" })
     ).toBeVisible()
@@ -5083,7 +5761,11 @@ describe("LinkSense application", () => {
     const conversationId = "20000000-0000-4000-8000-000000000001"
     const eventId = "20000000-0000-4000-8000-000000000002"
     const sseEventId = "c1:2"
-    installApiMock({
+    let releaseTitleEvent!: () => void
+    const eventStreamStart = new Promise<void>((resolve) => {
+      releaseTitleEvent = resolve
+    })
+    const { requests } = installApiMock({
       conversationGetResponse: (callIndex) =>
         Promise.resolve(
           json({
@@ -5094,6 +5776,7 @@ describe("LinkSense application", () => {
             },
           })
         ),
+      eventStreamStart,
       eventStreamBody: `id: ${sseEventId}\nevent: conversation.title.updated\ndata: ${JSON.stringify(
         {
           id: eventId,
@@ -5115,12 +5798,42 @@ describe("LinkSense application", () => {
     renderApp()
 
     expect(
+      await screen.findByRole("heading", { name: conversations[0]!.title })
+    ).toBeVisible()
+    const initialWorkspace = document.querySelector(".conversation-workspace")
+    const initialScroller = document.querySelector(".conversation-scroll")
+    const initialComposer = screen.getByRole("form", { name: "任务输入框" })
+    const initialUserMessage = screen.getByRole("article", {
+      name: "用户消息",
+    })
+
+    releaseTitleEvent()
+    expect(
       await screen.findByRole(
         "heading",
         { name: latestTitle },
         { timeout: 10_000 }
       )
     ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/c1" &&
+            request.method === "GET"
+        )
+      ).toHaveLength(2)
+    )
+    expect(document.querySelector(".conversation-workspace")).toBe(
+      initialWorkspace
+    )
+    expect(document.querySelector(".conversation-scroll")).toBe(initialScroller)
+    expect(screen.getByRole("form", { name: "任务输入框" })).toBe(
+      initialComposer
+    )
+    expect(screen.getByRole("article", { name: "用户消息" })).toBe(
+      initialUserMessage
+    )
 
     const topBar = screen.getByRole("banner")
     await interaction.click(
@@ -5683,6 +6396,52 @@ describe("LinkSense application", () => {
               JSON.stringify({ through: completedAt })
         )
       ).toBe(true)
+      expect(
+        requests.some(
+          (request) =>
+            request.path === `/api/v1/conversations/${targetConversation.id}` &&
+            request.method === "PATCH" &&
+            JSON.stringify(request.body) ===
+              JSON.stringify({ completion_read: true })
+        )
+      ).toBe(true)
+      expect(
+        within(sidebar)
+          .getByRole("button", { name: "自动化通知" })
+          .querySelector("[data-automation-unread-indicator]")
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  it("clears the bell indicator when the unread task is opened directly", async () => {
+    const targetConversation = {
+      ...conversations[0],
+      execution_status: "completed",
+      has_unread_completion: true,
+      has_automation: true,
+    }
+    const { requests } = installApiMock({
+      conversationListResponse: () =>
+        json({
+          success: true,
+          data: {
+            items: [targetConversation, conversations[1]],
+            next_cursor: null,
+          },
+        }),
+      automationCompletionNotification: {
+        latest_unread: {
+          conversation_id: targetConversation.id,
+          completed_at: "2026-07-31T01:02:03.000Z",
+        },
+      },
+    })
+
+    renderApp()
+    const sidebar = await screen.findByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+    await waitFor(() => {
       expect(
         requests.some(
           (request) =>
@@ -7065,7 +7824,7 @@ describe("LinkSense application", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
-  it("shows Send for an attachment draft only after text is entered", async () => {
+  it("keeps Send visible for an attachment-only draft", async () => {
     const { requests } = installApiMock({
       conversationOverride: {
         draft_input: "",
@@ -7086,11 +7845,17 @@ describe("LinkSense application", () => {
     const interaction = userEvent.setup()
     renderApp()
 
-    const input = await screen.findByRole("textbox", { name: "任务输入框" })
-    expect(screen.queryByRole("button", { name: "发送" })).toBeNull()
+    const input = await screen.findByRole(
+      "textbox",
+      { name: "任务输入框" },
+      { timeout: 15_000 }
+    )
+    const send = screen.getByRole("button", { name: "发送" })
+    expect(send).toBeEnabled()
+    expect(send).toHaveAttribute("aria-disabled", "false")
 
     await interaction.type(input, "请分析附件")
-    const send = screen.getByRole("button", { name: "发送" })
+    expect(screen.getByRole("button", { name: "发送" })).toBe(send)
     await waitFor(() => expect(send).toBeEnabled())
     await interaction.click(send)
     await waitFor(() =>
@@ -9297,11 +10062,19 @@ describe("LinkSense application", () => {
   })
 
   it("keeps model selection scoped to each task when navigating between tasks", async () => {
+    let releaseSecondTaskModelPreference!: () => void
+    const secondTaskModelPreferenceStart = new Promise<void>((resolve) => {
+      releaseSecondTaskModelPreference = resolve
+    })
     const { requests } = installApiMock({
       modelPreferenceByConversation: {
         c1: "model-a",
         c2: "model-b",
       },
+      modelPreferenceStart: (conversationId) =>
+        conversationId === "c2"
+          ? secondTaskModelPreferenceStart
+          : Promise.resolve(),
     })
     const interaction = userEvent.setup()
     renderApp()
@@ -9314,6 +10087,19 @@ describe("LinkSense application", () => {
     await interaction.click(
       screen.getByRole("button", { name: "整理项目会议纪要" })
     )
+    await waitFor(() =>
+      expect(requests).toContainEqual(
+        expect.objectContaining({
+          path: "/api/v1/conversations/c2/model-preference",
+          method: "GET",
+        })
+      )
+    )
+    expect(
+      screen.queryByRole("button", { name: "选择模型与推理强度" })
+    ).not.toBeInTheDocument()
+
+    releaseSecondTaskModelPreference()
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: "选择模型与推理强度" })

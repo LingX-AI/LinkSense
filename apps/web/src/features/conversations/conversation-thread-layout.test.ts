@@ -466,6 +466,12 @@ describe("conversation message spacing", () => {
   })
 
   it("shows borderless table action backgrounds only on interaction", () => {
+    const tableToolbarRule = conversationStyles.match(
+      /\.assistant-markdown \.markdown-table-toolbar\s*\{([^}]*)\}/u
+    )?.[1]
+    const visibleTableToolbarRule = conversationStyles.match(
+      /\.assistant-markdown\s+\.markdown-copy-block-table:hover\s+\.markdown-table-toolbar,[\s\S]*?\.markdown-copy-block-table:focus-within\s+\.markdown-table-toolbar\s*\{([^}]*)\}/u
+    )?.[1]
     const tableActionRule = conversationStyles.match(
       /\.assistant-markdown \.markdown-table-toolbar \.markdown-copy-button,\s*\.assistant-markdown \.markdown-table-expand-button\s*\{([^}]*)\}/u
     )?.[1]
@@ -473,6 +479,13 @@ describe("conversation message spacing", () => {
       /\.assistant-markdown \.markdown-table-toolbar \.markdown-copy-button:hover,[\s\S]*?\.assistant-markdown \.markdown-table-expand-button:focus-visible\s*\{([^}]*)\}/u
     )?.[1]
 
+    expect(tableToolbarRule).toMatch(/position:\s*absolute;/u)
+    expect(tableToolbarRule).toMatch(/top:\s*3px;/u)
+    expect(tableToolbarRule).toMatch(/right:\s*4px;/u)
+    expect(tableToolbarRule).toMatch(/opacity:\s*0;/u)
+    expect(tableToolbarRule).toMatch(/pointer-events:\s*none;/u)
+    expect(visibleTableToolbarRule).toMatch(/opacity:\s*1;/u)
+    expect(visibleTableToolbarRule).toMatch(/pointer-events:\s*auto;/u)
     expect(tableActionRule).toMatch(/border-color:\s*transparent;/u)
     expect(tableActionRule).toMatch(/background:\s*transparent;/u)
     expect(tableActionRule).toMatch(/color:\s*var\(--app-muted\);/u)
@@ -604,7 +617,7 @@ describe("conversation activity typography", () => {
 
     expect(summaryHeadingRule).toMatch(/border-bottom-width:\s*1px;/u)
     expect(summaryHeadingRule).toMatch(
-      /border-bottom-color:\s*color-mix\(\s*in srgb,\s*var\(--foreground\) 10%,\s*transparent\s*\);/u
+      /border-bottom-color:\s*var\(--app-divider\);/u
     )
     expect(initialThinkingRule).toMatch(/border-bottom-color:\s*transparent;/u)
     expect(initialThinkingRule).not.toMatch(/border-bottom-width:\s*0;/u)

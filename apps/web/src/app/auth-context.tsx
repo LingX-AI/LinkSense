@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
+import {
+  replaceEqualDeep,
+  useQueryClient,
+  type Query,
+} from "@tanstack/react-query"
 
 import {
   apiRequest,
@@ -21,16 +26,53 @@ import { z } from "zod"
 const AUTH_RESTORE_RETRY_DELAY_MS = 2_000
 const AUTH_RESTORE_MAX_ATTEMPTS = 3
 
+function isAccountScopedQuery(query: Query) {
+  return !(query.queryKey[0] === "system" && query.queryKey[1] === "bootstrap")
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { bootstrap } = useBootstrap()
+  const queryClient = useQueryClient()
   const bootstrapInitialized = bootstrap?.initialized
   const [status, setStatus] = useState<AuthContextValue["status"]>("loading")
   const [user, setUser] = useState<User | null>(null)
+  const accountResetPromiseRef = useRef<Promise<void> | null>(null)
+
+  const resetAccountState = useCallback(() => {
+    if (accountResetPromiseRef.current) {
+      return accountResetPromiseRef.current
+    }
+
+    const resetPromise = (async () => {
+      try {
+        await queryClient.cancelQueries({ predicate: isAccountScopedQuery })
+      } finally {
+        queryClient.removeQueries({ predicate: isAccountScopedQuery })
+        queryClient.getMutationCache().clear()
+        setUser(null)
+        setStatus("anonymous")
+      }
+    })()
+    accountResetPromiseRef.current = resetPromise
+    void resetPromise.then(
+      () => {
+        if (accountResetPromiseRef.current === resetPromise) {
+          accountResetPromiseRef.current = null
+        }
+      },
+      () => {
+        if (accountResetPromiseRef.current === resetPromise) {
+          accountResetPromiseRef.current = null
+        }
+      }
+    )
+    return resetPromise
+  }, [queryClient])
 
   const refreshUser = useCallback(async () => {
     const nextUser = await apiRequest("/me", { schema: userSchema })
     if (nextUser.language) await setAppLanguage(nextUser.language)
-    setUser(nextUser)
+    setUser((currentUser) => replaceEqualDeep(currentUser, nextUser))
     setStatus("authenticated")
   }, [])
 
@@ -54,10 +96,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
     } finally {
       setAccessToken(null)
-      setUser(null)
-      setStatus("anonymous")
+      await resetAccountState()
     }
-  }, [])
+  }, [resetAccountState])
 
   useEffect(() => {
     if (bootstrapInitialized !== true) return
@@ -81,8 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (isDefinitiveAuthenticationError(error)) {
           setAccessToken(null)
-          setUser(null)
-          setStatus("anonymous")
+          await resetAccountState()
           return
         }
 
@@ -108,17 +148,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true
       if (retryTimer !== null) window.clearTimeout(retryTimer)
     }
-  }, [acceptSession, bootstrapInitialized, refreshUser])
+  }, [acceptSession, bootstrapInitialized, refreshUser, resetAccountState])
 
   useEffect(
     () =>
       subscribeToAccessToken((token) => {
         if (!token && status === "authenticated") {
-          setUser(null)
-          setStatus("anonymous")
+          void resetAccountState()
         }
       }),
-    [status]
+    [resetAccountState, status]
   )
 
   const effectiveStatus =

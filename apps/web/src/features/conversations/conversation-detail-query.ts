@@ -37,13 +37,20 @@ export function selectFreshConversationEventSubscriptionId({
   isNew,
   isSuccess,
   isFetchedAfterMount,
+  isPromotedNewTask = false,
 }: {
   conversationId: string | undefined
   isNew: boolean
   isSuccess: boolean
   isFetchedAfterMount: boolean
+  isPromotedNewTask?: boolean
 }) {
-  if (isNew || !conversationId || !isSuccess || !isFetchedAfterMount) {
+  if (
+    isNew ||
+    !conversationId ||
+    !isSuccess ||
+    (!isFetchedAfterMount && !isPromotedNewTask)
+  ) {
     return undefined
   }
   return conversationId

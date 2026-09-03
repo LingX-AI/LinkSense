@@ -980,38 +980,38 @@ function MarkdownTable({
         data-table-scroll-end={scrollState.atEnd}
         data-table-scroll-start={scrollState.atStart}
       >
-        <div
-          className="markdown-table-toolbar"
-          role="toolbar"
-          aria-label={t("conversation.tableActions")}
-        >
-          <span className="markdown-table-scroll-hint">
-            {t("conversation.tableScrollHint")}
-          </span>
-          <div className="markdown-table-actions">
-            <MarkdownCopyButton
-              copyLabel={t("conversation.copyTable")}
-              copiedLabel={t("conversation.tableCopied")}
-              getContent={getClipboardContent}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              className="markdown-table-expand-button"
-              aria-label={t("conversation.expandTable")}
-              title={t("conversation.expandTable")}
-              onClick={() => setExpanded(true)}
-            >
-              <Maximize2Icon
-                data-icon="inline-start"
-                strokeWidth={1.7}
-                aria-hidden="true"
-              />
-            </Button>
-          </div>
-        </div>
         <div className="markdown-table-scroll-shell">
+          <div
+            className="markdown-table-toolbar"
+            role="toolbar"
+            aria-label={t("conversation.tableActions")}
+          >
+            <span className="markdown-table-scroll-hint">
+              {t("conversation.tableScrollHint")}
+            </span>
+            <div className="markdown-table-actions">
+              <MarkdownCopyButton
+                copyLabel={t("conversation.copyTable")}
+                copiedLabel={t("conversation.tableCopied")}
+                getContent={getClipboardContent}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="markdown-table-expand-button"
+                aria-label={t("conversation.expandTable")}
+                title={t("conversation.expandTable")}
+                onClick={() => setExpanded(true)}
+              >
+                <Maximize2Icon
+                  data-icon="inline-start"
+                  strokeWidth={1.7}
+                  aria-hidden="true"
+                />
+              </Button>
+            </div>
+          </div>
           <Table
             {...props}
             ref={tableRef}
@@ -2375,6 +2375,7 @@ type MessageProps = Readonly<{
     durationLabel: string
   }>
   proposedPlan?: boolean
+  hideActions?: boolean
 }>
 
 const Message = memo(function Message({
@@ -2403,6 +2404,7 @@ const Message = memo(function Message({
   isGoalTask,
   goalCompletion,
   proposedPlan = false,
+  hideActions = false,
 }: MessageProps) {
   const { t, i18n } = useTranslation()
   const user = message.role === "user"
@@ -2447,7 +2449,7 @@ const Message = memo(function Message({
   const canSubmit = nextContent.length > 0 && !submitting && !editingDisabled
   const displayedUserContent = optimisticContent ?? persistedUserContent
   const hasDisplayedUserContent = displayedUserContent.trim().length > 0
-  const showMessageActions = !editing
+  const showMessageActions = !editing && !hideActions
   const assistantActionsPending = !user && message.streaming === true
 
   const startEditing = () => {
@@ -4114,6 +4116,7 @@ export function ConversationThread({
   onActivityDisclosureToggle,
   embedded = false,
   defaultActivityOpen = false,
+  hideMessageActions = false,
 }: {
   conversation: Conversation
   knowledgeBases?: KnowledgeBase[]
@@ -4159,6 +4162,7 @@ export function ConversationThread({
   onActivityDisclosureToggle?: () => void
   embedded?: boolean
   defaultActivityOpen?: boolean
+  hideMessageActions?: boolean
 }) {
   const { t } = useTranslation()
   const productName = useProductName()
@@ -4348,6 +4352,26 @@ export function ConversationThread({
       firstAssistantMessageByTurn.set(message.turn_id, message.id)
     }
   }
+  const messagesById = new Map(messages.map((message) => [message.id, message]))
+  const latestUnassignedUserMessage = [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "user" &&
+        !message.turn_id &&
+        message.usage_type !== "steer_current_turn"
+    )
+  const getTurnRenderKey = (turn: ConversationTurn) => {
+    const firstUserMessageId = firstUserMessageByTurn.get(turn.id)
+    const anchorMessage = firstUserMessageId
+      ? messagesById.get(firstUserMessageId)
+      : turn.id === recentTurn?.id
+        ? latestUnassignedUserMessage
+        : undefined
+    return anchorMessage
+      ? getConversationMessageRenderKey(anchorMessage)
+      : `turn-${turn.id}`
+  }
   const finalMessageByTurn = new Map<string, ConversationMessage>()
   for (const [turnId, messages] of assistantMessagesByTurn) {
     const agentMessages = messages.filter(
@@ -4523,12 +4547,14 @@ export function ConversationThread({
             : undefined
         }
         proposedPlan={isProposedPlanMessage(message)}
+        hideActions={hideMessageActions}
       />
     )
   }
   const summaryFor = (turn: ConversationTurn) => {
     const turnRunning = isTurnActiveRunning(turn)
-    const turnActivityKey = `${conversation.id}:${turn.id}`
+    const turnRenderKey = getTurnRenderKey(turn)
+    const turnActivityKey = `${conversation.id}:${turnRenderKey}`
     const turnNativeEvents = nativeEventsByTurn.get(turn.id) ?? []
     const turnAssistantMessages = assistantMessagesByTurn.get(turn.id) ?? []
     const turnGuidedMessages = guidedMessagesByTurn.get(turn.id) ?? []
@@ -4650,11 +4676,11 @@ export function ConversationThread({
         ? false
         : (turnActivityOpenByKey[turnActivityKey] ?? defaultTurnActivityOpen)
     const nativeActivityKey = (itemId: string) =>
-      `${conversation.id}:${turn.id}:${itemId}`
+      `${conversation.id}:${turnRenderKey}:${itemId}`
 
     return (
       <TurnSummary
-        key={`turn-summary-${turn.id}`}
+        key={`turn-summary-${turnRenderKey}`}
         turn={turn}
         conversationId={conversation.id}
         running={turnRunning}

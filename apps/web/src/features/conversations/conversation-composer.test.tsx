@@ -1836,33 +1836,26 @@ describe("conversation voice input", () => {
     expect(screen.queryByRole("button", { name: "发送" })).toBeNull()
   })
 
-  it("shows Send only when the textarea contains non-whitespace text", async () => {
+  it("keeps Send visible while idle and reflects whether the draft can be sent", async () => {
     const interaction = userEvent.setup()
-    renderStatefulComposer({
-      value: "",
-      attachments: [
-        {
-          id: "attachment-1",
-          name: "brief.pdf",
-          size: 1024,
-          kind: "attachment",
-          download_available: false,
-        },
-      ],
-      selectedKnowledgeBaseIds: ["knowledge-1"],
-    })
+    renderStatefulComposer({ value: "" })
 
     const input = screen.getByRole("textbox", { name: "任务输入框" })
-    expect(screen.queryByRole("button", { name: "发送" })).toBeNull()
+    const send = screen.getByRole("button", { name: "发送" })
+    expect(send).toBeVisible()
+    expect(send).toHaveAttribute("aria-disabled", "true")
 
     await interaction.type(input, "   ")
-    expect(screen.queryByRole("button", { name: "发送" })).toBeNull()
+    expect(screen.getByRole("button", { name: "发送" })).toBe(send)
+    expect(send).toHaveAttribute("aria-disabled", "true")
 
     await interaction.type(input, "请根据资料回答")
-    expect(screen.getByRole("button", { name: "发送" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "发送" })).toBe(send)
+    expect(send).toHaveAttribute("aria-disabled", "false")
 
     await interaction.clear(input)
-    expect(screen.queryByRole("button", { name: "发送" })).toBeNull()
+    expect(screen.getByRole("button", { name: "发送" })).toBe(send)
+    expect(send).toHaveAttribute("aria-disabled", "true")
   })
 
   it("submits the latest textarea value before the parent value prop catches up on click", async () => {

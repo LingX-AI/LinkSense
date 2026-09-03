@@ -799,7 +799,7 @@ export const ConversationComposer = forwardRef<
     modelReady &&
     !knowledgeBaseSelectionPending
   const canSend = canSendValue(value)
-  const showSendButton = hasTextContent
+  const showSendButton = hasTextContent || !isRunning
   const sendButtonDisabled =
     voiceBusy ||
     submitting ||

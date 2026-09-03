@@ -100,6 +100,11 @@ const ConversationPage = lazy(() =>
     default: module.ConversationPage,
   }))
 )
+const SharedConversationPage = lazy(() =>
+  import("@/pages/shared-conversation-page").then((module) => ({
+    default: module.SharedConversationPage,
+  }))
+)
 const InteractiveApplicationPage = lazy(() =>
   import("@/features/applications/interactive-application-page").then(
     (module) => ({ default: module.InteractiveApplicationPage })
@@ -198,6 +203,7 @@ export function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/auth/oidc/callback" element={<OidcCallbackPage />} />
+          <Route path="/share/:shareId" element={<SharedConversationPage />} />
 
           <Route element={<ProtectedRoute />}>
             <Route

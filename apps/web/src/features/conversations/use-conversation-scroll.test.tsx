@@ -75,7 +75,13 @@ function restoreProperty(
   }
 }
 
-function ScrollHarness({ conversationId }: { conversationId: string }) {
+function ScrollHarness({
+  conversationId,
+  preservePositionOnConversationChange = false,
+}: {
+  conversationId: string
+  preservePositionOnConversationChange?: boolean
+}) {
   const {
     scrollContainerRef,
     contentRef,
@@ -84,7 +90,9 @@ function ScrollHarness({ conversationId }: { conversationId: string }) {
     scrollToElement,
     pauseAutoFollow,
     preserveScrollPositionForInteraction,
-  } = useConversationScroll(conversationId)
+  } = useConversationScroll(conversationId, {
+    preservePositionOnConversationChange,
+  })
 
   return (
     <>
@@ -315,6 +323,33 @@ describe("conversation scroll behavior", () => {
     fireEvent.click(screen.getByRole("button", { name: "暂停自动跟随" }))
     act(() => setScrollTop(container, 700))
     scrollToMock.mockClear()
+
+    view.rerender(<ScrollHarness conversationId="conversation-2" />)
+
+    expect(container.scrollTop).toBe(1_500)
+    expect(scrollToMock).toHaveBeenCalledWith({
+      top: 2_000,
+      behavior: "auto",
+    })
+  })
+
+  it("preserves position for a new-task promotion and resets on the next task switch", () => {
+    const view = render(<ScrollHarness conversationId="new" />)
+    const container = screen.getByTestId("scroll-container")
+
+    fireEvent.click(screen.getByRole("button", { name: "暂停自动跟随" }))
+    act(() => setScrollTop(container, 700))
+    scrollToMock.mockClear()
+
+    view.rerender(
+      <ScrollHarness
+        conversationId="conversation-1"
+        preservePositionOnConversationChange
+      />
+    )
+
+    expect(container.scrollTop).toBe(700)
+    expect(scrollToMock).not.toHaveBeenCalled()
 
     view.rerender(<ScrollHarness conversationId="conversation-2" />)
 

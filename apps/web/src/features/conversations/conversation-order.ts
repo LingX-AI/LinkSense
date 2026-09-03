@@ -124,3 +124,36 @@ export function upsertSidebarConversation<
 
   return { ...data, pages }
 }
+
+export function patchSidebarConversationTitle<
+  T extends { id: string; title: string; title_source?: string },
+  TData extends SidebarConversationData<T>,
+>(data: TData | undefined, conversationId: string, title: string) {
+  if (!data) return data
+  let changed = false
+  const pages = data.pages.map((page) => {
+    let pageChanged = false
+    const items = page.items.map((conversation) => {
+      if (conversation.id !== conversationId) {
+        return conversation
+      }
+      const patched = patchConversationTitle(conversation, title)
+      if (patched === conversation) return conversation
+      pageChanged = true
+      return patched
+    })
+    if (!pageChanged) return page
+    changed = true
+    return { ...page, items }
+  })
+  return changed ? { ...data, pages } : data
+}
+
+export function patchConversationTitle<
+  T extends { title: string; title_source?: string },
+>(conversation: T, title: string): T {
+  if (conversation.title_source === "manual" || conversation.title === title) {
+    return conversation
+  }
+  return { ...conversation, title }
+}

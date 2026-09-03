@@ -2,6 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it } from "vitest"
 
+import appStyles from "@/index.css?raw"
 import { Button } from "@/components/ui/button"
 import { Card, CardFooter, CardHeader } from "@/components/ui/card"
 import { Command, CommandList, CommandSeparator } from "@/components/ui/command"
@@ -33,6 +34,12 @@ import {
 describe("divider treatment", () => {
   afterEach(() => {
     cleanup()
+  })
+
+  it("uses the same lighter divider color in light and dark themes", () => {
+    expect(appStyles).toContain("--app-divider: rgb(32 32 32 / 6%);")
+    expect(appStyles).toContain("--app-divider: rgb(255 255 255 / 6%);")
+    expect(appStyles).toContain("--color-divider: var(--app-divider);")
   })
 
   it("draws table rows with the shared half-pixel divider treatment", () => {

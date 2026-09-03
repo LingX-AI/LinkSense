@@ -39,9 +39,20 @@ export function getConversationQueryRefreshScope(
 }
 
 export function getConversationEventQueryRefreshScope(
-  event: ConversationEvent
+  event: ConversationEvent,
+  options: {
+    projectedTurnId?: string | null
+  } = {}
 ): ConversationQueryRefreshScope {
   const native = getNativeCodexPayload(event)
+  if (native?.method === "thread/name/updated") return "none"
+  if (
+    native?.method === "turn/started" &&
+    event.turn_id !== null &&
+    event.turn_id === options.projectedTurnId
+  ) {
+    return "none"
+  }
   if (
     native?.method === "item/completed" &&
     native.params.item.type === "plan" &&

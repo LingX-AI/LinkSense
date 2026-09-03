@@ -186,6 +186,121 @@ describe("useConversationEvents", () => {
     unmount()
   })
 
+  it("ignores a lifecycle event from the connection replaced by a route change", () => {
+    const onEvent = vi.fn()
+    const { rerender, unmount } = renderHook(
+      ({ conversationId }) =>
+        useConversationEvents(conversationId, onEvent, "event-1"),
+      { initialProps: { conversationId: "conversation-1" } }
+    )
+    const firstHandlers = sseMocks.connectConversationEvents.mock
+      .calls[0]?.[1] as ConversationEventHandlers
+    const commitCursor = vi.fn()
+
+    rerender({ conversationId: "conversation-2" })
+    act(() =>
+      firstHandlers.onEvent(
+        {
+          id: "event-2",
+          type: "conversation.title.updated",
+          turn_id: null,
+          payload: { schema_version: 1, title: "旧任务标题" },
+          created_at: "2026-07-15T00:00:02.000Z",
+          sequence_no: 2,
+        },
+        commitCursor
+      )
+    )
+
+    expect(onEvent).not.toHaveBeenCalled()
+    expect(commitCursor).not.toHaveBeenCalled()
+    unmount()
+  })
+
+  it("does not revive an obsolete connection after navigating back to its task", () => {
+    const onEvent = vi.fn()
+    const { rerender, result, unmount } = renderHook(
+      ({ conversationId }) =>
+        useConversationEvents(conversationId, onEvent, "event-1"),
+      { initialProps: { conversationId: "conversation-1" } }
+    )
+    const obsoleteHandlers = sseMocks.connectConversationEvents.mock
+      .calls[0]?.[1] as ConversationEventHandlers
+
+    rerender({ conversationId: "conversation-2" })
+    rerender({ conversationId: "conversation-1" })
+    const activeHandlers = sseMocks.connectConversationEvents.mock
+      .calls[2]?.[1] as ConversationEventHandlers
+    const obsoleteEvent: ConversationEvent = {
+      id: "event-obsolete",
+      type: "turn/completed",
+      turn_id: "turn-obsolete",
+      payload: {},
+      created_at: "2026-07-15T00:00:02.000Z",
+      sequence_no: 2,
+    }
+    const activeEvent: ConversationEvent = {
+      ...obsoleteEvent,
+      id: "event-active",
+      turn_id: "turn-active",
+      sequence_no: 3,
+    }
+    const obsoleteCommitCursor = vi.fn()
+
+    act(() => {
+      obsoleteHandlers.onEvent(obsoleteEvent, obsoleteCommitCursor)
+      obsoleteHandlers.onConnectionChange?.("reconnecting")
+      activeHandlers.onEvent(activeEvent)
+    })
+
+    expect(onEvent).toHaveBeenCalledOnce()
+    expect(onEvent).toHaveBeenCalledWith(activeEvent)
+    expect(obsoleteCommitCursor).not.toHaveBeenCalled()
+    expect(result.current.connectionState).toBe("connected")
+    unmount()
+  })
+
+  it("ignores callbacks that arrive after the event hook is unmounted", () => {
+    const onEvent = vi.fn()
+    const { unmount } = renderHook(() =>
+      useConversationEvents("conversation-1", onEvent, "event-1")
+    )
+    const handlers = sseMocks.connectConversationEvents.mock
+      .calls[0]?.[1] as ConversationEventHandlers
+
+    unmount()
+    act(() =>
+      handlers.onEvent({
+        id: "event-after-unmount",
+        type: "turn/completed",
+        turn_id: "turn-1",
+        payload: {},
+        created_at: "2026-07-15T00:00:02.000Z",
+        sequence_no: 2,
+      })
+    )
+
+    expect(onEvent).not.toHaveBeenCalled()
+  })
+
+  it("does not carry a reconnecting state into another task", () => {
+    const onEvent = vi.fn()
+    const { rerender, result, unmount } = renderHook(
+      ({ conversationId }) =>
+        useConversationEvents(conversationId, onEvent, "event-1"),
+      { initialProps: { conversationId: "conversation-1" } }
+    )
+    const firstHandlers = sseMocks.connectConversationEvents.mock
+      .calls[0]?.[1] as ConversationEventHandlers
+
+    act(() => firstHandlers.onConnectionChange?.("reconnecting"))
+    expect(result.current.connectionState).toBe("reconnecting")
+
+    rerender({ conversationId: "conversation-2" })
+    expect(result.current.connectionState).toBe("connected")
+    unmount()
+  })
+
   it("keeps one stream for a conversation when its persisted cursor advances", () => {
     const firstOnEvent = vi.fn()
     const latestOnEvent = vi.fn()

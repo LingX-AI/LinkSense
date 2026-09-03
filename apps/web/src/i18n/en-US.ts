@@ -1544,6 +1544,20 @@ export const enUS = {
   conversation: {
     untitled: "Untitled task",
     title: "Task",
+    share: {
+      action: "Share",
+      title: "Share {{title}}",
+      description:
+        "After sharing, your name and messages added later won't appear in the shared task.",
+      previewLabel: "Shared task preview",
+      anyoneWithLink: "Anyone with this link can view this task",
+      copyLink: "Copy link",
+      copied: "Copied",
+      copyFailed:
+        "The link couldn't be copied. Check browser permissions and try again.",
+      unavailable: "This shared link doesn't exist or is no longer available.",
+      continueInProduct: "Continue in {{productName}}",
+    },
     rename: "Rename",
     archive: "Archive task",
     archiveNamed: "Archive task “{{title}}”",

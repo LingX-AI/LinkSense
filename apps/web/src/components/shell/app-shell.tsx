@@ -114,6 +114,7 @@ type NavItem = {
   to: string
   labelKey: string
   icon: typeof SearchIcon
+  activeClassName: "sidebar-link-active" | "sidebar-link-current"
 }
 
 function formatTokenQuotaRemaining(
@@ -127,17 +128,25 @@ const userItems: NavItem[] = [
     to: "/conversations/new",
     labelKey: "nav.newConversation",
     icon: MessageSquarePlusIcon,
+    activeClassName: "sidebar-link-current",
   },
   {
     to: "/automations",
     labelKey: "nav.automations",
     icon: CalendarClockIcon,
+    activeClassName: "sidebar-link-active",
   },
-  { to: "/capabilities", labelKey: "nav.capabilities", icon: BlocksIcon },
+  {
+    to: "/capabilities",
+    labelKey: "nav.capabilities",
+    icon: BlocksIcon,
+    activeClassName: "sidebar-link-active",
+  },
   {
     to: "/knowledge-bases",
     labelKey: "nav.knowledgeBases",
     icon: BookOpenIcon,
+    activeClassName: "sidebar-link-active",
   },
 ]
 
@@ -403,7 +412,13 @@ function AppSidebarContent({
             ? { ...currentConversation, ...nextConversation }
             : nextConversation
       )
-      await queryClient.invalidateQueries({ queryKey: ["conversations"] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["conversations"] }),
+        queryClient.invalidateQueries({
+          queryKey: automationNotificationQueryKey,
+          exact: true,
+        }),
+      ])
     },
     onError: (error, conversation) => {
       completionReadInFlightIdsRef.current.delete(conversation.id)
@@ -476,8 +491,24 @@ function AppSidebarContent({
     }
   }
 
+  const latestAutomationNotification =
+    automationNotificationsQuery.data?.latest_unread
+  const latestAutomationConversation = latestAutomationNotification
+    ? conversations.find(
+        (conversation) =>
+          conversation.id === latestAutomationNotification.conversation_id
+      )
+    : undefined
+  const visibleAutomationNotification =
+    latestAutomationNotification &&
+    (!latestAutomationConversation ||
+      (latestAutomationConversation.has_unread_completion &&
+        !locallyReadConversationIds.has(latestAutomationConversation.id)))
+      ? latestAutomationNotification
+      : null
+
   const handleOpenAutomationNotifications = () => {
-    const latestUnread = automationNotificationsQuery.data?.latest_unread
+    const latestUnread = visibleAutomationNotification
     if (!latestUnread) return
 
     if (!markAutomationNotificationsReadMutation.isPending) {
@@ -543,7 +574,7 @@ function AppSidebarContent({
               size="icon-sm"
               className="sidebar-nav-item relative border-0 bg-transparent shadow-none"
               aria-label={t(
-                automationNotificationsQuery.data?.latest_unread
+                visibleAutomationNotification
                   ? "nav.automationNotificationsUnread"
                   : "nav.automationNotifications"
               )}
@@ -554,7 +585,7 @@ function AppSidebarContent({
                 strokeWidth={2}
                 aria-hidden="true"
               />
-              {automationNotificationsQuery.data?.latest_unread && (
+              {visibleAutomationNotification && (
                 <span
                   className="absolute top-1 right-1 size-1.5 rounded-full bg-[var(--app-selection)] ring-1 ring-[var(--app-sidebar)]"
                   data-automation-unread-indicator
@@ -569,16 +600,13 @@ function AppSidebarContent({
           aria-label={t("nav.navigationLabel", { productName })}
           className="mt-2 shrink-0 space-y-0.5"
         >
-          {userItems.map(({ to, labelKey, icon: Icon }) => (
+          {userItems.map(({ to, labelKey, icon: Icon, activeClassName }) => (
             <NavLink
               key={to}
               to={to}
               onClick={onNavigate}
               className={({ isActive }) =>
-                cn(
-                  "sidebar-link font-medium",
-                  isActive && "sidebar-link-active"
-                )
+                cn("sidebar-link font-medium", isActive && activeClassName)
               }
             >
               <Icon className="size-3.5" aria-hidden="true" />

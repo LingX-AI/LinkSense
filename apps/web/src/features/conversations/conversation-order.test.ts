@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 
 import {
   applySidebarConversationOrder,
+  patchConversationTitle,
+  patchSidebarConversationTitle,
   reorderConversationIds,
   sortSidebarConversations,
   upsertSidebarConversation,
@@ -106,5 +108,46 @@ describe("sidebar conversation ordering", () => {
     expect(replaced?.pages[0]?.items[0]?.title).toBe("created-updated")
     expect(replaced?.pages.map((page) => page.total_count)).toEqual([3, 3])
     expect(data.pages[0]?.items).toEqual([first])
+  })
+
+  it("patches only the matching cached task title", () => {
+    const first = conversation("first", "2026-08-12T10:00:00.000Z")
+    const second = conversation("second", "2026-08-12T09:00:00.000Z")
+    const data = {
+      pages: [
+        { items: [first], next_cursor: "next" },
+        { items: [second], next_cursor: null },
+      ],
+      pageParams: [undefined, "next"],
+    }
+
+    const result = patchSidebarConversationTitle(data, "second", "新标题")
+
+    expect(result?.pages[0]).toBe(data.pages[0])
+    expect(result?.pages[1]?.items[0]).toEqual({
+      ...second,
+      title: "新标题",
+    })
+    expect(second.title).toBe("second")
+    expect(patchSidebarConversationTitle(result, "second", "新标题")).toBe(
+      result
+    )
+  })
+
+  it("does not replace a manually assigned cached task title", () => {
+    const manual = {
+      ...conversation("manual", "2026-08-12T10:00:00.000Z"),
+      title: "手动标题",
+      title_source: "manual",
+    }
+    const data = {
+      pages: [{ items: [manual], next_cursor: null }],
+      pageParams: [undefined],
+    }
+
+    expect(
+      patchSidebarConversationTitle(data, manual.id, "延迟的自动标题")
+    ).toBe(data)
+    expect(patchConversationTitle(manual, "延迟的自动标题")).toBe(manual)
   })
 })

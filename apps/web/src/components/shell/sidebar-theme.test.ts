@@ -1,4 +1,5 @@
 import sidebarStyles from "@/index.css?raw"
+import appShellSource from "@/components/shell/app-shell.tsx?raw"
 import { describe, expect, it } from "vitest"
 
 function cssRule(selector: string) {
@@ -117,6 +118,16 @@ describe("sidebar theme", () => {
     expect(cssRule(".settings-navigation-link-active")).toContain(
       "background: var(--app-sidebar-active);"
     )
+  })
+
+  it("keeps the current new-task link emphasized without an active surface", () => {
+    expect(appShellSource).toMatch(
+      /to:\s*"\/conversations\/new",[\s\S]*?activeClassName:\s*"sidebar-link-current"/u
+    )
+    expect(cssRule(".sidebar-link-current")).toContain(
+      "color: var(--app-text);"
+    )
+    expect(cssRule(".sidebar-link-current")).not.toContain("background:")
   })
 
   it("keeps the divider attached to the sidebar without narrowing the resize target", () => {

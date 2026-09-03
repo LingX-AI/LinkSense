@@ -2236,6 +2236,9 @@ describe("conversation turn responses", () => {
     expect(tableButton).toHaveClass("markdown-copy-button")
     expect(tableButton.closest(".markdown-copy-block-table")).not.toBeNull()
     expect(
+      tableButton.closest(".markdown-table-toolbar")?.parentElement
+    ).toHaveClass("markdown-table-scroll-shell")
+    expect(
       tableButton.closest(".markdown-copy-block-table")?.querySelector("table")
     ).not.toBeNull()
 

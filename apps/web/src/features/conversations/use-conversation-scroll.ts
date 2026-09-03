@@ -39,7 +39,10 @@ export function getConversationDistanceFromBottom(
   )
 }
 
-export function useConversationScroll(conversationId: string) {
+export function useConversationScroll(
+  conversationId: string,
+  options: { preservePositionOnConversationChange?: boolean } = {}
+) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const followingLatestRef = useRef(true)
   const lastScrollTopRef = useRef(0)
@@ -49,6 +52,8 @@ export function useConversationScroll(conversationId: string) {
   const resizeFollowFrameRef = useRef<number | null>(null)
   const resizeFollowTimestampRef = useRef<number | null>(null)
   const interactionRestoreFrameRef = useRef<number | null>(null)
+  const activeConversationIdRef = useRef(conversationId)
+  const activeContainerRef = useRef<HTMLDivElement | null>(null)
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
   const [content, setContent] = useState<HTMLDivElement | null>(null)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
@@ -351,8 +356,29 @@ export function useConversationScroll(conversationId: string) {
 
   useLayoutEffect(() => {
     if (!container) return
+    const containerChanged = activeContainerRef.current !== container
+    const conversationChanged =
+      activeConversationIdRef.current !== conversationId
+    activeContainerRef.current = container
+    activeConversationIdRef.current = conversationId
+    if (
+      !containerChanged &&
+      conversationChanged &&
+      options.preservePositionOnConversationChange
+    ) {
+      lastScrollTopRef.current = container.scrollTop
+      updateButtonVisibility()
+      return
+    }
+    if (!containerChanged && !conversationChanged) return
     scrollToBottomImmediately()
-  }, [container, conversationId, scrollToBottomImmediately])
+  }, [
+    container,
+    conversationId,
+    options.preservePositionOnConversationChange,
+    scrollToBottomImmediately,
+    updateButtonVisibility,
+  ])
 
   useEffect(() => {
     if (!container) return
