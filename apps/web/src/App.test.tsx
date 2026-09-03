@@ -18,6 +18,7 @@ import type { UserGroup } from "@/api/contracts"
 import { setAccessToken } from "@/api/session"
 import { AppProviders } from "@/app/providers"
 import { clearConversationAttachmentPreviewCacheForTests } from "@/features/conversations/conversation-attachment-preview-cache"
+import { writeLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
 import i18n from "@/i18n"
 import { formatRelativeDate } from "@/i18n/date"
 import { stableOperationId } from "@/features/conversations/operation-id"
@@ -215,6 +216,21 @@ const user = {
       reset_at: string
     } | null
   },
+}
+
+function seedLocalDraft(
+  conversationId: string,
+  draft: {
+    input?: string
+    capabilityIds?: readonly string[]
+    knowledgeBaseIds?: readonly string[]
+  }
+) {
+  writeLocalConversationDraft(window.localStorage, user.id, conversationId, {
+    input: draft.input ?? "",
+    capabilityIds: draft.capabilityIds ?? [],
+    knowledgeBaseIds: draft.knowledgeBaseIds ?? [],
+  })
 }
 
 function authenticationSession(
@@ -418,43 +434,6 @@ const personalManagedCapabilities = capabilities.filter(
 
 type CapabilityFixture = (typeof capabilities)[number]
 
-function knowledgeBaseFixture(id: string, name: string) {
-  return {
-    id,
-    name,
-    description: "用于验证连续对话中的知识库选择",
-    lifecycle_status: "active",
-    availability_status: "enabled",
-    owner: {
-      id: "10000000-0000-4000-8000-000000000002",
-      name: "管理员",
-    },
-    is_owner: true,
-    access_sources: [{ type: "owner" }],
-    document_count: 1,
-    ready_document_count: 1,
-    storage_used_bytes: 1_024,
-    storage_reserved_bytes: 0,
-    storage_quota_bytes: 10_240,
-    permissions: {
-      view_content: true,
-      update: true,
-      manage_documents: true,
-      manage_grants: true,
-      create_grants: true,
-      revoke_grants: true,
-      archive: true,
-      restore: false,
-      delete: false,
-      remove_direct_share: false,
-    },
-    archived_at: null,
-    disabled_reason: null,
-    created_at: "2026-07-11T08:00:00.000Z",
-    updated_at: "2026-07-11T08:00:00.000Z",
-  }
-}
-
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -624,7 +603,7 @@ function installApiMock(options?: {
     conversationId: string,
     callIndex: number
   ) => Promise<Response>
-  newTaskDraftStart?: Promise<void>
+  newTaskCreationStart?: Promise<void>
   newTaskDetailResponse?: (callIndex: number) => Promise<Response>
   newTaskEventStreamInitialBody?: string
   newTaskEventStreamBody?: string
@@ -640,7 +619,6 @@ function installApiMock(options?: {
     formData: FormData,
     callIndex: number
   ) => Response | Promise<Response>
-  draftPutResponse?: (body: unknown, callIndex: number) => Promise<Response>
   turnStartResponse?: () => Promise<Response>
   pendingRequestResponse?: (body: unknown) => Response | Promise<Response>
   interruptResponse?: () => Response | Promise<Response>
@@ -689,32 +667,11 @@ function installApiMock(options?: {
   let currentLanguage = options?.initialLanguage ?? "zh-CN"
   let currentRunningMessageAction =
     options?.userOverride?.running_message_action ?? user.running_message_action
-  let draftInput = String(options?.conversationOverride?.draft_input ?? "")
-  let draftCapabilityIds: string[] = Array.isArray(
-    options?.conversationOverride?.draft_capability_ids
-  )
-    ? options.conversationOverride.draft_capability_ids.filter(
-        (value): value is string => typeof value === "string"
-      )
-    : []
-  let draftKnowledgeBaseIds: string[] = Array.isArray(
-    options?.conversationOverride?.draft_knowledge_base_ids
-  )
-    ? options.conversationOverride.draft_knowledge_base_ids.filter(
-        (value): value is string => typeof value === "string"
-      )
-    : Array.isArray(options?.conversationOverride?.selected_knowledge_base_ids)
-      ? options.conversationOverride.selected_knowledge_base_ids.filter(
-          (value): value is string => typeof value === "string"
-        )
-      : []
-  let draftUpdatedAt = "2026-07-11T08:00:00.000Z"
   let pendingRequests = Array.isArray(
     options?.conversationOverride?.pending_requests
   )
     ? [...options.conversationOverride.pending_requests]
     : null
-  let draftPutCalls = 0
   let attachmentUploadCalls = 0
   let conversationGetCalls = 0
   let newTaskGetCalls = 0
@@ -1131,76 +1088,9 @@ function installApiMock(options?: {
           },
         })
       }
-      if (path === "/api/v1/conversations/c1/draft" && method === "PUT") {
-        draftPutCalls += 1
-        const body = requestBody as {
-          input_text?: string
-          priority_capability_ids?: string[]
-          knowledge_base_ids?: string[]
-        }
-        if (options?.draftPutResponse) {
-          const response = await options.draftPutResponse(
-            requestBody,
-            draftPutCalls
-          )
-          if (response.ok) {
-            draftInput = body.input_text ?? ""
-            draftCapabilityIds = body.priority_capability_ids ?? []
-            draftKnowledgeBaseIds = body.knowledge_base_ids ?? []
-            const payload = (await response.clone().json()) as {
-              data?: { updated_at?: unknown }
-            }
-            draftUpdatedAt =
-              typeof payload.data?.updated_at === "string"
-                ? payload.data.updated_at
-                : "2026-07-11T08:00:01.000Z"
-          }
-          return response
-        }
-        draftInput = body.input_text ?? ""
-        draftCapabilityIds = body.priority_capability_ids ?? []
-        draftKnowledgeBaseIds = body.knowledge_base_ids ?? []
-        draftUpdatedAt = new Date(
-          Date.parse(draftUpdatedAt) + 1_000
-        ).toISOString()
-        return json({
-          success: true,
-          data: {
-            ...conversation.draft,
-            input_text: draftInput,
-            priority_capability_ids: draftCapabilityIds,
-            knowledge_base_ids: draftKnowledgeBaseIds,
-            updated_at: draftUpdatedAt,
-          },
-        })
-      }
-      if (
-        options?.newTaskDetailResponse &&
-        path === "/api/v1/conversations/drafts" &&
-        method === "POST"
-      ) {
-        await options.newTaskDraftStart
+      if (path === "/api/v1/conversations" && method === "POST") {
+        await options?.newTaskCreationStart
         return json({ success: true, data: newTaskConversation }, 201)
-      }
-      if (
-        options?.newTaskDetailResponse &&
-        path === `/api/v1/conversations/${newTaskId}/draft` &&
-        method === "PUT"
-      ) {
-        const body = requestBody as {
-          input_text?: string
-          priority_capability_ids?: string[]
-        }
-        return json({
-          success: true,
-          data: {
-            id: "draft-new-task-1",
-            conversation_id: newTaskId,
-            input_text: body.input_text ?? "",
-            priority_capability_ids: body.priority_capability_ids ?? [],
-            updated_at: "2026-07-18T08:00:01.000Z",
-          },
-        })
       }
       if (
         options?.newTaskDetailResponse &&
@@ -1277,16 +1167,6 @@ function installApiMock(options?: {
           path.endsWith("/steer")) &&
         method === "POST"
       ) {
-        const preservesDraft =
-          (requestBody as { draft_policy?: string } | undefined)
-            ?.draft_policy === "preserve"
-        if (!preservesDraft) {
-          draftInput = ""
-          draftCapabilityIds = []
-          draftUpdatedAt = new Date(
-            Date.parse(draftUpdatedAt) + 1_000
-          ).toISOString()
-        }
         if (path === "/api/v1/conversations/c1/turns") {
           if (options?.turnStartResponse) {
             return options.turnStartResponse()
@@ -1315,7 +1195,7 @@ function installApiMock(options?: {
         )
       }
       const restorePendingMatch = path.match(
-        /^\/api\/v1\/conversations\/c1\/pending-requests\/([^/]+)\/restore-draft$/u
+        /^\/api\/v1\/conversations\/c1\/pending-requests\/([^/]+)\/restore-input$/u
       )
       if (restorePendingMatch && method === "POST") {
         const currentPendingRequests = pendingRequests ?? []
@@ -1325,20 +1205,24 @@ function installApiMock(options?: {
             item !== null &&
             item.id === restorePendingMatch[1]
         )
-        draftInput =
+        const restoredInput =
           typeof pendingRequest?.input_text === "string"
             ? pendingRequest.input_text
             : ""
-        draftCapabilityIds = Array.isArray(
+        const restoredCapabilityIds = Array.isArray(
           pendingRequest?.priority_capability_ids
         )
           ? pendingRequest.priority_capability_ids.filter(
               (value): value is string => typeof value === "string"
             )
           : []
-        draftUpdatedAt = new Date(
-          Date.parse(draftUpdatedAt) + 1_000
-        ).toISOString()
+        const restoredKnowledgeBaseIds = Array.isArray(
+          pendingRequest?.knowledge_base_ids
+        )
+          ? pendingRequest.knowledge_base_ids.filter(
+              (value): value is string => typeof value === "string"
+            )
+          : []
         pendingRequests = currentPendingRequests.filter(
           (item) =>
             typeof item !== "object" ||
@@ -1349,12 +1233,9 @@ function installApiMock(options?: {
           success: true,
           data: {
             pending_request_id: restorePendingMatch[1],
-            draft: {
-              ...conversation.draft,
-              input_text: draftInput,
-              priority_capability_ids: draftCapabilityIds,
-              updated_at: draftUpdatedAt,
-            },
+            input_text: restoredInput,
+            priority_capability_ids: restoredCapabilityIds,
+            knowledge_base_ids: restoredKnowledgeBaseIds,
           },
         })
       }
@@ -1486,17 +1367,6 @@ function installApiMock(options?: {
             ...conversation,
             ...currentConversation,
             ...options?.conversationOverride,
-            draft_input: draftInput,
-            draft_capability_ids: draftCapabilityIds,
-            draft_knowledge_base_ids: draftKnowledgeBaseIds,
-            selected_knowledge_base_ids: draftKnowledgeBaseIds,
-            draft: {
-              ...conversation.draft,
-              input_text: draftInput,
-              priority_capability_ids: draftCapabilityIds,
-              knowledge_base_ids: draftKnowledgeBaseIds,
-              updated_at: draftUpdatedAt,
-            },
             ...(pendingRequests ? { pending_requests: pendingRequests } : {}),
           },
         })
@@ -1941,6 +1811,30 @@ async function chooseSelectOption(
 }
 
 describe("LinkSense application", () => {
+  beforeEach(async () => {
+    setAccessToken(null)
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    document.documentElement.classList.remove("dark")
+    delete document.documentElement.dataset.theme
+    delete document.documentElement.dataset.themePreference
+    delete document.documentElement.dataset.uiFontSize
+    document.documentElement.style.removeProperty("--app-ui-font-size")
+    document.documentElement.style.colorScheme = ""
+    await i18n.changeLanguage("zh-CN")
+  })
+
+  afterEach(() => {
+    cleanup()
+    clearConversationAttachmentPreviewCacheForTests()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    restoreUrlMethod("createObjectURL", originalCreateObjectUrl)
+    restoreUrlMethod("revokeObjectURL", originalRevokeObjectUrl)
+    window.history.replaceState(null, "", "/")
+  })
+
   it("redirects the removed conversations list path to a new task", async () => {
     installApiMock()
     renderApp("/conversations")
@@ -2231,16 +2125,16 @@ describe("LinkSense application", () => {
   })
 
   it("shows a new task loading indicator before task creation finishes", async () => {
-    let releaseNewTaskDraft: (() => void) | undefined
-    const newTaskDraftStart = new Promise<void>((resolve) => {
-      releaseNewTaskDraft = resolve
+    let releaseNewTaskCreation: (() => void) | undefined
+    const newTaskCreationStart = new Promise<void>((resolve) => {
+      releaseNewTaskCreation = resolve
     })
     let releaseNewTaskTurn: (() => void) | undefined
     const newTaskTurnStart = new Promise<void>((resolve) => {
       releaseNewTaskTurn = resolve
     })
     const { requests } = installApiMock({
-      newTaskDraftStart,
+      newTaskCreationStart,
       newTaskTurnStart,
       conversationListResponse: () =>
         json({
@@ -2305,7 +2199,7 @@ describe("LinkSense application", () => {
       )
     ).toBe(false)
 
-    releaseNewTaskDraft?.()
+    releaseNewTaskCreation?.()
     await waitFor(() =>
       expect(
         requests.some(
@@ -2349,9 +2243,9 @@ describe("LinkSense application", () => {
   })
 
   it("keeps the task workspace and composer mounted when the first message creates the task", async () => {
-    let releaseNewTaskDraft!: () => void
-    const newTaskDraftStart = new Promise<void>((resolve) => {
-      releaseNewTaskDraft = resolve
+    let releaseNewTaskCreation!: () => void
+    const newTaskCreationStart = new Promise<void>((resolve) => {
+      releaseNewTaskCreation = resolve
     })
     let releaseNewTaskTurn!: () => void
     const newTaskTurnStart = new Promise<void>((resolve) => {
@@ -2382,7 +2276,7 @@ describe("LinkSense application", () => {
     const generatedTitle = "页面闪烁排查"
     const titleEventId = "new-task-1:3"
     const { requests } = installApiMock({
-      newTaskDraftStart,
+      newTaskCreationStart,
       newTaskTurnStart,
       newTaskModelPreferenceStart,
       newTaskEventStreamStart,
@@ -2518,7 +2412,7 @@ describe("LinkSense application", () => {
     await waitFor(() =>
       expect(requests).toContainEqual(
         expect.objectContaining({
-          path: "/api/v1/conversations/drafts",
+          path: "/api/v1/conversations",
           method: "POST",
         })
       )
@@ -2536,7 +2430,7 @@ describe("LinkSense application", () => {
     promotionScrollTo.mockClear()
     initialScroller.scrollTop = 37
 
-    releaseNewTaskDraft()
+    releaseNewTaskCreation()
 
     await waitFor(() =>
       expect(requests).toContainEqual(
@@ -2732,9 +2626,9 @@ describe("LinkSense application", () => {
   })
 
   it("keeps the stop control mounted while the first task turn is being projected", async () => {
-    let releaseNewTaskDraft!: () => void
-    const newTaskDraftStart = new Promise<void>((resolve) => {
-      releaseNewTaskDraft = resolve
+    let releaseNewTaskCreation!: () => void
+    const newTaskCreationStart = new Promise<void>((resolve) => {
+      releaseNewTaskCreation = resolve
     })
     let releaseTurnStartedEvent!: () => void
     const newTaskEventStreamStart = new Promise<void>((resolve) => {
@@ -2744,7 +2638,7 @@ describe("LinkSense application", () => {
     const projectedTurnId = "00000000-0000-4000-8000-000000000002"
     const turnStartedEventId = "new-task-1:2"
     const { requests } = installApiMock({
-      newTaskDraftStart,
+      newTaskCreationStart,
       newTaskEventStreamStart,
       newTaskEventStreamBody: `id: ${turnStartedEventId}\nevent: turn/started\ndata: ${JSON.stringify(
         {
@@ -2841,7 +2735,7 @@ describe("LinkSense application", () => {
     const stopControl = await screen.findByRole("button", { name: "停止" })
     expect(optimisticSummary).toBeInTheDocument()
 
-    releaseNewTaskDraft()
+    releaseNewTaskCreation()
     await waitFor(() =>
       expect(
         document.getElementById("conversation-message-new-task-message-1")
@@ -2893,9 +2787,9 @@ describe("LinkSense application", () => {
   })
 
   it("keeps one user message when promoted detail arrives before the turn receipt", async () => {
-    let releaseNewTaskDraft!: () => void
-    const newTaskDraftStart = new Promise<void>((resolve) => {
-      releaseNewTaskDraft = resolve
+    let releaseNewTaskCreation!: () => void
+    const newTaskCreationStart = new Promise<void>((resolve) => {
+      releaseNewTaskCreation = resolve
     })
     let releaseNewTaskTurn!: () => void
     const newTaskTurnStart = new Promise<void>((resolve) => {
@@ -2904,7 +2798,7 @@ describe("LinkSense application", () => {
     const projectedTurnId = "00000000-0000-4000-8000-000000000002"
     const detailRefreshEventId = "new-task-1:2"
     const { requests } = installApiMock({
-      newTaskDraftStart,
+      newTaskCreationStart,
       newTaskTurnStart,
       newTaskEventStreamBody: `id: ${detailRefreshEventId}\nevent: turn/started\ndata: ${JSON.stringify(
         {
@@ -2971,7 +2865,7 @@ describe("LinkSense application", () => {
     await waitFor(() =>
       expect(requests).toContainEqual(
         expect.objectContaining({
-          path: "/api/v1/conversations/drafts",
+          path: "/api/v1/conversations",
           method: "POST",
         })
       )
@@ -2984,7 +2878,7 @@ describe("LinkSense application", () => {
     )
     expect(optimisticTurnSummary).toBeInTheDocument()
 
-    releaseNewTaskDraft()
+    releaseNewTaskCreation()
     await waitFor(() =>
       expect(requests).toContainEqual(
         expect.objectContaining({
@@ -3037,12 +2931,12 @@ describe("LinkSense application", () => {
   })
 
   it("keeps starter questions hidden while the first new-task message is being created", async () => {
-    let releaseNewTaskDraft: (() => void) | undefined
-    const newTaskDraftStart = new Promise<void>((resolve) => {
-      releaseNewTaskDraft = resolve
+    let releaseNewTaskCreation: (() => void) | undefined
+    const newTaskCreationStart = new Promise<void>((resolve) => {
+      releaseNewTaskCreation = resolve
     })
     installApiMock({
-      newTaskDraftStart,
+      newTaskCreationStart,
       newTaskDetailResponse: async () =>
         json({
           success: true,
@@ -3080,7 +2974,7 @@ describe("LinkSense application", () => {
       ).not.toBeInTheDocument()
     )
 
-    releaseNewTaskDraft?.()
+    releaseNewTaskCreation?.()
   })
 
   it("creates and starts a new task with the selected native Plan mode", async () => {
@@ -3133,20 +3027,19 @@ describe("LinkSense application", () => {
       expect(
         requests.find(
           (request) =>
-            request.path === "/api/v1/conversations/drafts" &&
+            request.path === "/api/v1/conversations" &&
             request.method === "POST"
         )?.body
       ).toEqual({
-        input_text: planPrompt,
-        priority_capability_ids: [],
-        knowledge_base_ids: [],
         collaboration_mode: "plan",
       })
       expect(
         requests.find(
           (request) =>
             request.path === "/api/v1/conversations/new-task-1/turns" &&
-            request.method === "POST"
+            request.method === "POST" &&
+            (request.body as { input_text?: string } | undefined)
+              ?.input_text === planPrompt
         )?.body
       ).toEqual({
         input_text: planPrompt,
@@ -4234,49 +4127,25 @@ describe("LinkSense application", () => {
     expect(summary.querySelector(".shimmer")).toBeNull()
   })
 
-  it("derives the same operation id after a reload for the same saved draft version", async () => {
+  it("derives the same operation id after a reload for the same submission", async () => {
     const payload = {
       operation: "turn_steer",
       conversation_id: "c1",
       turn_id: "turn-1",
-      draft_updated_at: "2026-07-11T08:00:01.000Z",
+      submitted_at: "2026-07-11T08:00:01.000Z",
     }
     const first = await stableOperationId({ current: null }, payload)
     const afterReload = await stableOperationId({ current: null }, payload)
-    const nextDraft = await stableOperationId(
+    const nextSubmission = await stableOperationId(
       { current: null },
-      { ...payload, draft_updated_at: "2026-07-11T08:00:02.000Z" }
+      { ...payload, submitted_at: "2026-07-11T08:00:02.000Z" }
     )
 
     expect(afterReload).toBe(first)
-    expect(nextDraft).not.toBe(first)
+    expect(nextSubmission).not.toBe(first)
     expect(first).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
     )
-  })
-
-  beforeEach(async () => {
-    setAccessToken(null)
-    window.localStorage.clear()
-    window.sessionStorage.clear()
-    document.documentElement.classList.remove("dark")
-    delete document.documentElement.dataset.theme
-    delete document.documentElement.dataset.themePreference
-    delete document.documentElement.dataset.uiFontSize
-    document.documentElement.style.removeProperty("--app-ui-font-size")
-    document.documentElement.style.colorScheme = ""
-    await i18n.changeLanguage("zh-CN")
-  })
-
-  afterEach(() => {
-    cleanup()
-    clearConversationAttachmentPreviewCacheForTests()
-    vi.useRealTimers()
-    vi.restoreAllMocks()
-    vi.unstubAllGlobals()
-    restoreUrlMethod("createObjectURL", originalCreateObjectUrl)
-    restoreUrlMethod("revokeObjectURL", originalRevokeObjectUrl)
-    window.history.replaceState(null, "", "/")
   })
 
   it("renders the protected Codex-style shell and conversation controls", async () => {
@@ -7812,7 +7681,7 @@ describe("LinkSense application", () => {
       requests.some(
         (request) =>
           request.path ===
-            "/api/v1/conversations/c1/pending-requests/pending-edit-1/restore-draft" &&
+            "/api/v1/conversations/c1/pending-requests/pending-edit-1/restore-input" &&
           request.method === "POST"
       )
     ).toBe(true)
@@ -7954,7 +7823,7 @@ describe("LinkSense application", () => {
             id: "draft-attachment-1",
             name: "活动简报.pdf",
             kind: "attachment",
-            status: "draft",
+            status: "staged",
             size: 1024,
           },
         ],
@@ -7991,6 +7860,146 @@ describe("LinkSense application", () => {
         idempotency_key: expect.any(String),
       })
     )
+  })
+
+  it("keeps submitted files and images out of the composer while stale detail refreshes", async () => {
+    const submittedAttachments = [
+      {
+        id: "draft-file-1",
+        name: "成员周报.xlsx",
+        mime_type:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        kind: "attachment",
+        status: "staged",
+        size: 1024,
+      },
+      {
+        id: "draft-image-1",
+        name: "活动现场.png",
+        mime_type: "image/png",
+        kind: "attachment",
+        status: "staged",
+        size: 2048,
+      },
+    ]
+    let resolveStaleRefresh: ((response: Response) => void) | undefined
+    const staleRefresh = new Promise<Response>((resolve) => {
+      resolveStaleRefresh = resolve
+    })
+    let turnAdmitted = false
+    let resolveStaleRefreshRequested: (() => void) | undefined
+    const staleRefreshRequested = new Promise<void>((resolve) => {
+      resolveStaleRefreshRequested = resolve
+    })
+    installApiMock({
+      conversationGetResponse: async () => {
+        if (turnAdmitted) {
+          resolveStaleRefreshRequested?.()
+          return staleRefresh
+        }
+        return json({
+          success: true,
+          data: {
+            ...conversation,
+            execution_status: "completed",
+            turns: [{ id: "turn-1", status: "completed" }],
+            running_turn: null,
+            attachments: submittedAttachments,
+          },
+        })
+      },
+      turnStartResponse: async () => {
+        turnAdmitted = true
+        return json(
+          {
+            success: true,
+            data: {
+              turn_id: "00000000-0000-4000-8000-000000000001",
+              accepted: true,
+              status: "starting",
+            },
+          },
+          202
+        )
+      },
+    })
+    const interaction = userEvent.setup()
+    renderApp()
+
+    const composerInput = await screen.findByRole(
+      "textbox",
+      { name: "任务输入框" },
+      { timeout: 5_000 }
+    )
+    const composerForm = composerInput.closest("form")
+    expect(composerForm).not.toBeNull()
+    expect(
+      within(composerForm as HTMLFormElement).getByRole("button", {
+        name: "移除附件 成员周报.xlsx",
+      })
+    ).toBeVisible()
+    expect(
+      within(composerForm as HTMLFormElement).getByRole("button", {
+        name: "移除附件 活动现场.png",
+      })
+    ).toBeVisible()
+
+    await interaction.type(composerInput, "请分析这些附件")
+    await interaction.click(
+      within(composerForm as HTMLFormElement).getByRole("button", {
+        name: "发送",
+      })
+    )
+
+    expect(
+      within(composerForm as HTMLFormElement).queryByRole("button", {
+        name: "移除附件 成员周报.xlsx",
+      })
+    ).toBeNull()
+    expect(
+      within(composerForm as HTMLFormElement).queryByRole("button", {
+        name: "移除附件 活动现场.png",
+      })
+    ).toBeNull()
+    await staleRefreshRequested
+
+    await act(async () => {
+      resolveStaleRefresh?.(
+        json({
+          success: true,
+          data: {
+            ...conversation,
+            title: "刷新详情已返回",
+            execution_status: "running",
+            turns: [
+              { id: "turn-1", status: "completed" },
+              {
+                id: "00000000-0000-4000-8000-000000000001",
+                status: "running",
+              },
+            ],
+            running_turn: {
+              id: "00000000-0000-4000-8000-000000000001",
+              status: "running",
+            },
+            attachments: submittedAttachments,
+          },
+        })
+      )
+      await staleRefresh
+    })
+
+    await screen.findByText("刷新详情已返回")
+    expect(
+      within(composerForm as HTMLFormElement).queryByRole("button", {
+        name: "移除附件 成员周报.xlsx",
+      })
+    ).toBeNull()
+    expect(
+      within(composerForm as HTMLFormElement).queryByRole("button", {
+        name: "移除附件 活动现场.png",
+      })
+    ).toBeNull()
   })
 
   it("returns to the latest message immediately when sending a new turn", async () => {
@@ -8122,6 +8131,7 @@ describe("LinkSense application", () => {
   })
 
   it("regenerates from the edited latest user message without changing the composer draft", async () => {
+    seedLocalDraft("c1", { input: "输入框里保留的草稿" })
     const { requests } = installApiMock({
       conversationOverride: {
         draft_input: "输入框里保留的草稿",
@@ -8588,7 +8598,7 @@ describe("LinkSense application", () => {
               name: "活动现场.png",
               mime_type: "image/png",
               kind: "attachment",
-              status: "draft",
+              status: "staged",
               size: 1024,
             },
           ],
@@ -8636,101 +8646,14 @@ describe("LinkSense application", () => {
     }
   })
 
-  it("waits for an in-flight autosave and submits with the advanced draft version", async () => {
-    let resolveDraftSave: ((response: Response) => void) | undefined
-    const { requests } = installApiMock({
-      conversationOverride: {
-        turns: [],
-        running_turn: null,
-        execution_status: "idle",
-      },
-      draftPutResponse: async () =>
-        new Promise((resolve) => {
-          resolveDraftSave = resolve
-        }),
-    })
-    const interaction = userEvent.setup()
-    renderApp()
-
-    await interaction.type(
-      await screen.findByRole("textbox", { name: "任务输入框" }),
-      "提交前先保存"
-    )
-    await waitFor(
-      () =>
-        expect(
-          requests.filter(
-            (request) =>
-              request.path === "/api/v1/conversations/c1/draft" &&
-              request.method === "PUT"
-          )
-        ).toHaveLength(1),
-      { timeout: 2_000 }
-    )
-
-    await interaction.click(screen.getByRole("button", { name: "发送" }))
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(
-      requests.some(
-        (request) =>
-          request.path === "/api/v1/conversations/c1/turns" &&
-          request.method === "POST"
-      )
-    ).toBe(false)
-
-    resolveDraftSave?.(
-      json({
-        success: true,
-        data: {
-          ...conversation.draft,
-          input_text: "提交前先保存",
-          updated_at: "2026-07-11T08:00:01.000Z",
-        },
-      })
-    )
-    await waitFor(() =>
-      expect(
-        requests.find(
-          (request) =>
-            request.path === "/api/v1/conversations/c1/turns" &&
-            request.method === "POST"
-        )?.body
-      ).toEqual({
-        input_text: "提交前先保存",
-        priority_capability_ids: [],
-        knowledge_base_ids: [],
-        collaboration_mode: "default",
-        idempotency_key: expect.any(String),
-      })
-    )
-    expect(
-      requests.find(
-        (request) =>
-          request.path === "/api/v1/conversations/c1/draft" &&
-          request.method === "PUT"
-      )?.body
-    ).toEqual({
-      input_text: "提交前先保存",
-      priority_capability_ids: [],
-      knowledge_base_ids: [],
-      expected_updated_at: "2026-07-11T08:00:00.000Z",
-    })
-  })
-
   it("interrupts once without an error when Stop is clicked before the turn start receipt", async () => {
-    let resolveDraftSave: ((response: Response) => void) | undefined
     let resolveTurnStart: ((response: Response) => void) | undefined
-    const draftSave = new Promise<Response>((resolve) => {
-      resolveDraftSave = resolve
-    })
     const { requests } = installApiMock({
       conversationOverride: {
         turns: [],
         running_turn: null,
         execution_status: "idle",
       },
-      draftPutResponse: async () =>
-        draftSave.then((response) => response.clone()),
       turnStartResponse: async () =>
         new Promise((resolve) => {
           resolveTurnStart = resolve
@@ -8779,56 +8702,18 @@ describe("LinkSense application", () => {
       expect(
         requests.some(
           (request) =>
-            request.path === "/api/v1/conversations/c1/draft" &&
-            request.method === "PUT"
+            request.path === "/api/v1/conversations/c1/turns" &&
+            request.method === "POST"
         )
       ).toBe(true)
     )
     expect(
       requests.some(
         (request) =>
-          request.path === "/api/v1/conversations/c1/turns" &&
-          request.method === "POST"
+          request.path === "/api/v1/conversations/c1/draft" &&
+          request.method === "PUT"
       )
     ).toBe(false)
-
-    resolveDraftSave?.(
-      json({
-        success: true,
-        data: {
-          ...conversation.draft,
-          input_text: "立即显示这条消息",
-          updated_at: "2026-07-11T08:00:01.000Z",
-        },
-      })
-    )
-    await waitFor(() =>
-      expect(
-        requests.some(
-          (request) =>
-            request.path === "/api/v1/conversations/c1/turns" &&
-            request.method === "POST"
-        )
-      ).toBe(true)
-    )
-    const draftRequestIndex = requests.findIndex(
-      (request) =>
-        request.path === "/api/v1/conversations/c1/draft" &&
-        request.method === "PUT"
-    )
-    const turnRequestIndex = requests.findIndex(
-      (request) =>
-        request.path === "/api/v1/conversations/c1/turns" &&
-        request.method === "POST"
-    )
-    expect(draftRequestIndex).toBeGreaterThanOrEqual(0)
-    expect(turnRequestIndex).toBeGreaterThan(draftRequestIndex)
-    expect(requests[draftRequestIndex]?.body).toEqual({
-      input_text: "立即显示这条消息",
-      priority_capability_ids: [],
-      knowledge_base_ids: [],
-      expected_updated_at: "2026-07-11T08:00:00.000Z",
-    })
 
     resolveTurnStart?.(
       json(
@@ -8937,594 +8822,6 @@ describe("LinkSense application", () => {
     )
   })
 
-  it("recovers an unchanged draft version before starting a turn and saving a follow-up", async () => {
-    const firstInput = "先生成一份概览"
-    const followUp = "用于科普阅读"
-    const { requests } = installApiMock({
-      conversationOverride: {
-        turns: [],
-        running_turn: null,
-        execution_status: "idle",
-      },
-      conversationGetResponse: async (callIndex) => {
-        const isInitialLoad = callIndex === 1
-        return json({
-          success: true,
-          data: {
-            ...conversation,
-            turns: [],
-            running_turn: null,
-            execution_status: "idle",
-            draft_input: "",
-            draft_capability_ids: [],
-            draft: {
-              ...conversation.draft,
-              input_text: "",
-              priority_capability_ids: [],
-              updated_at: isInitialLoad
-                ? "2026-07-11T08:00:00.000Z"
-                : callIndex === 2
-                  ? "2026-07-11T08:00:01.000Z"
-                  : "2026-07-11T08:00:04.000Z",
-            },
-          },
-        })
-      },
-      draftPutResponse: async (body, callIndex) => {
-        if (callIndex === 1) {
-          return json(
-            {
-              success: false,
-              error_code: "DRAFT_VERSION_CONFLICT",
-              message_key: "errors.draftVersionConflict",
-            },
-            409
-          )
-        }
-        const input = body as {
-          input_text: string
-          priority_capability_ids: string[]
-        }
-        return json({
-          success: true,
-          data: {
-            ...conversation.draft,
-            input_text: input.input_text,
-            priority_capability_ids: input.priority_capability_ids,
-            updated_at:
-              callIndex === 1
-                ? "2026-07-11T08:00:01.000Z"
-                : "2026-07-11T08:00:03.000Z",
-          },
-        })
-      },
-    })
-    const interaction = userEvent.setup()
-    renderApp()
-
-    const composer = await screen.findByRole("textbox", {
-      name: "任务输入框",
-    })
-    await interaction.type(composer, firstInput)
-    await waitFor(() =>
-      expect(
-        requests.filter(
-          (request) =>
-            request.path === "/api/v1/conversations/c1/draft" &&
-            request.method === "PUT"
-        )
-      ).toHaveLength(2)
-    )
-    await interaction.click(screen.getByRole("button", { name: "发送" }))
-    await waitFor(() => expect(composer).toHaveValue(""))
-
-    await interaction.type(composer, followUp)
-
-    await waitFor(() => {
-      const saves = requests.filter(
-        (request) =>
-          request.path === "/api/v1/conversations/c1/draft" &&
-          request.method === "PUT"
-      )
-      expect(saves).toHaveLength(3)
-      expect(saves[0]?.body).toEqual({
-        input_text: firstInput,
-        priority_capability_ids: [],
-        knowledge_base_ids: [],
-        expected_updated_at: "2026-07-11T08:00:00.000Z",
-      })
-      expect(saves[1]?.body).toEqual({
-        input_text: firstInput,
-        priority_capability_ids: [],
-        knowledge_base_ids: [],
-        expected_updated_at: "2026-07-11T08:00:01.000Z",
-      })
-      expect(saves[2]?.body).toEqual({
-        input_text: followUp,
-        priority_capability_ids: [],
-        knowledge_base_ids: [],
-        expected_updated_at: "2026-07-11T08:00:04.000Z",
-      })
-    })
-    expect(
-      screen.queryByText("草稿已在其他位置更新，请刷新后重试。")
-    ).not.toBeInTheDocument()
-  })
-
-  it("treats an already-saved matching server draft as a successful autosave", async () => {
-    const desiredDraft = "已经由同一页面保存的内容"
-    const { requests } = installApiMock({
-      conversationOverride: {
-        turns: [],
-        running_turn: null,
-        execution_status: "idle",
-      },
-      conversationGetResponse: async (callIndex) =>
-        json({
-          success: true,
-          data: {
-            ...conversation,
-            turns: [],
-            running_turn: null,
-            execution_status: "idle",
-            draft_input: callIndex === 1 ? "" : desiredDraft,
-            draft_capability_ids: [],
-            draft: {
-              ...conversation.draft,
-              input_text: callIndex === 1 ? "" : desiredDraft,
-              priority_capability_ids: [],
-              knowledge_base_ids: [],
-              updated_at:
-                callIndex === 1
-                  ? "2026-07-11T08:00:00.000Z"
-                  : "2026-07-11T08:00:01.000Z",
-            },
-          },
-        }),
-      draftPutResponse: async () =>
-        json(
-          {
-            success: false,
-            error_code: "DRAFT_VERSION_CONFLICT",
-            message_key: "errors.draftVersionConflict",
-          },
-          409
-        ),
-    })
-    const interaction = userEvent.setup()
-    renderApp()
-
-    await interaction.type(
-      await screen.findByRole("textbox", { name: "任务输入框" }),
-      desiredDraft
-    )
-    await waitFor(() =>
-      expect(
-        requests.filter(
-          (request) =>
-            request.path === "/api/v1/conversations/c1" &&
-            request.method === "GET"
-        )
-      ).toHaveLength(2)
-    )
-    await new Promise((resolve) => setTimeout(resolve, 700))
-
-    expect(
-      requests.filter(
-        (request) =>
-          request.path === "/api/v1/conversations/c1/draft" &&
-          request.method === "PUT"
-      )
-    ).toHaveLength(1)
-    expect(screen.queryByText("草稿内容发生冲突")).not.toBeInTheDocument()
-  })
-
-  it("merges non-overlapping local and server draft changes before retrying", async () => {
-    const knowledgeBaseId = "10000000-0000-4000-8000-000000000001"
-    const localDraft = "当前页面补充的内容"
-    const { requests } = installApiMock({
-      conversationOverride: {
-        turns: [],
-        running_turn: null,
-        execution_status: "idle",
-      },
-      knowledgeBasesOverride: [
-        knowledgeBaseFixture(knowledgeBaseId, "AISG Policy"),
-      ],
-      conversationGetResponse: async (callIndex) =>
-        json({
-          success: true,
-          data: {
-            ...conversation,
-            turns: [],
-            running_turn: null,
-            execution_status: "idle",
-            draft_input: "",
-            draft_capability_ids: [],
-            selected_knowledge_base_ids:
-              callIndex === 1 ? [] : [knowledgeBaseId],
-            draft: {
-              ...conversation.draft,
-              input_text: "",
-              priority_capability_ids: [],
-              knowledge_base_ids: callIndex === 1 ? [] : [knowledgeBaseId],
-              updated_at:
-                callIndex === 1
-                  ? "2026-07-11T08:00:00.000Z"
-                  : "2026-07-11T08:00:01.000Z",
-            },
-          },
-        }),
-      draftPutResponse: async (body, callIndex) => {
-        if (callIndex === 1) {
-          return json(
-            {
-              success: false,
-              error_code: "DRAFT_VERSION_CONFLICT",
-              message_key: "errors.draftVersionConflict",
-            },
-            409
-          )
-        }
-        const input = body as {
-          input_text: string
-          priority_capability_ids: string[]
-          knowledge_base_ids: string[]
-        }
-        return json({
-          success: true,
-          data: {
-            ...conversation.draft,
-            input_text: input.input_text,
-            priority_capability_ids: input.priority_capability_ids,
-            knowledge_base_ids: input.knowledge_base_ids,
-            updated_at: "2026-07-11T08:00:02.000Z",
-          },
-        })
-      },
-    })
-    const interaction = userEvent.setup()
-    renderApp()
-
-    const composer = await screen.findByRole("textbox", {
-      name: "任务输入框",
-    })
-    await interaction.type(composer, localDraft)
-
-    await waitFor(() => {
-      const saves = requests.filter(
-        (request) =>
-          request.path === "/api/v1/conversations/c1/draft" &&
-          request.method === "PUT"
-      )
-      expect(saves).toHaveLength(2)
-      expect(saves[1]?.body).toEqual({
-        input_text: localDraft,
-        priority_capability_ids: [],
-        knowledge_base_ids: [knowledgeBaseId],
-        expected_updated_at: "2026-07-11T08:00:01.000Z",
-      })
-    })
-    expect(composer).toHaveValue(localDraft)
-    expect(
-      await screen.findByRole("button", {
-        name: "移除知识库 AISG Policy",
-      })
-    ).toBeVisible()
-    expect(screen.queryByText("草稿内容发生冲突")).not.toBeInTheDocument()
-  })
-
-  it("reuses the latest saved draft version after navigating away and back", async () => {
-    const { requests } = installApiMock({
-      conversationOverride: {
-        turns: [],
-        running_turn: null,
-        execution_status: "idle",
-      },
-    })
-    const interaction = userEvent.setup()
-    renderApp()
-
-    let composer = await screen.findByRole("textbox", { name: "任务输入框" })
-    await interaction.type(composer, "缓存中的草稿")
-    await waitFor(() =>
-      expect(
-        requests.filter(
-          (request) =>
-            request.path === "/api/v1/conversations/c1/draft" &&
-            request.method === "PUT"
-        )
-      ).toHaveLength(1)
-    )
-
-    const sidebar = screen.getByRole("complementary", {
-      name: "LinkSense 导航",
-    })
-    await interaction.click(
-      within(sidebar).getByText("整理项目会议纪要").closest("a") as HTMLElement
-    )
-    expect(await screen.findByText("整理项目会议纪要已加载。")).toBeVisible()
-    await interaction.click(
-      within(sidebar).getByText("活动风险评估").closest("a") as HTMLElement
-    )
-    composer = await screen.findByRole("textbox", { name: "任务输入框" })
-    await waitFor(() => expect(composer).toHaveValue("缓存中的草稿"))
-    await interaction.type(composer, "（已追加）")
-
-    await waitFor(() => {
-      const saves = requests.filter(
-        (request) =>
-          request.path === "/api/v1/conversations/c1/draft" &&
-          request.method === "PUT"
-      )
-      expect(saves).toHaveLength(2)
-      expect(saves[1]?.body).toEqual({
-        input_text: "缓存中的草稿（已追加）",
-        priority_capability_ids: [],
-        knowledge_base_ids: [],
-        expected_updated_at: "2026-07-11T08:00:01.000Z",
-      })
-    })
-  })
-
-  it("refreshes the consumed draft version while preserving the submitted knowledge-base selection", async () => {
-    const knowledgeBaseId = "10000000-0000-4000-8000-000000000001"
-    const firstInput = "如何使用 OneDrive"
-    const followUp = "给我教程"
-    const { requests } = installApiMock({
-      conversationOverride: {
-        turns: [],
-        running_turn: null,
-        execution_status: "idle",
-        selected_knowledge_base_ids: [knowledgeBaseId],
-      },
-      knowledgeBasesOverride: [
-        knowledgeBaseFixture(knowledgeBaseId, "AISG Policy"),
-      ],
-      conversationGetResponse: async (callIndex) =>
-        json({
-          success: true,
-          data: {
-            ...conversation,
-            turns: [],
-            running_turn: null,
-            execution_status: "idle",
-            selected_knowledge_base_ids: [knowledgeBaseId],
-            draft_input: callIndex === 1 ? firstInput : "",
-            draft_capability_ids: [],
-            draft: {
-              ...conversation.draft,
-              input_text: callIndex === 1 ? firstInput : "",
-              priority_capability_ids: [],
-              knowledge_base_ids: callIndex === 1 ? [knowledgeBaseId] : [],
-              updated_at:
-                callIndex === 1
-                  ? "2026-07-11T08:00:00.000Z"
-                  : "2026-07-11T08:00:02.000Z",
-            },
-          },
-        }),
-      draftPutResponse: async (body) => {
-        const input = body as {
-          input_text: string
-          priority_capability_ids: string[]
-          knowledge_base_ids: string[]
-        }
-        return json({
-          success: true,
-          data: {
-            ...conversation.draft,
-            input_text: input.input_text,
-            priority_capability_ids: input.priority_capability_ids,
-            knowledge_base_ids: input.knowledge_base_ids,
-            updated_at: "2026-07-11T08:00:03.000Z",
-          },
-        })
-      },
-    })
-    const interaction = userEvent.setup()
-    renderApp()
-
-    const composer = await screen.findByRole("textbox", {
-      name: "任务输入框",
-    })
-    await waitFor(() => expect(composer).toHaveValue(firstInput))
-    expect(
-      await screen.findByRole("button", {
-        name: "移除知识库 AISG Policy",
-      })
-    ).toBeVisible()
-
-    await interaction.click(screen.getByRole("button", { name: "发送" }))
-    await waitFor(() => expect(composer).toHaveValue(""))
-
-    await interaction.type(composer, followUp)
-
-    await waitFor(() => {
-      const saves = requests.filter(
-        (request) =>
-          request.path === "/api/v1/conversations/c1/draft" &&
-          request.method === "PUT"
-      )
-      expect(saves).toHaveLength(1)
-      expect(saves[0]?.body).toEqual({
-        input_text: followUp,
-        priority_capability_ids: [],
-        knowledge_base_ids: [knowledgeBaseId],
-        expected_updated_at: "2026-07-11T08:00:02.000Z",
-      })
-    })
-    expect(
-      screen.queryByText("草稿已在其他位置更新，请刷新后重试。")
-    ).not.toBeInTheDocument()
-    expect(
-      screen.getByRole("button", {
-        name: "移除知识库 AISG Policy",
-      })
-    ).toBeVisible()
-  })
-
-  it("pauses autosave for a genuine conflict and keeps the latest local content on request", async () => {
-    const otherLocationDraft = "另一处保存的内容"
-    const { requests } = installApiMock({
-      conversationOverride: {
-        turns: [],
-        running_turn: null,
-        execution_status: "idle",
-      },
-      conversationGetResponse: async (callIndex) =>
-        json({
-          success: true,
-          data: {
-            ...conversation,
-            turns: [],
-            running_turn: null,
-            execution_status: "idle",
-            draft_input: callIndex === 1 ? "" : otherLocationDraft,
-            draft_capability_ids: [],
-            draft: {
-              ...conversation.draft,
-              input_text: callIndex === 1 ? "" : otherLocationDraft,
-              priority_capability_ids: [],
-              updated_at:
-                callIndex === 1
-                  ? "2026-07-11T08:00:00.000Z"
-                  : "2026-07-11T08:00:01.000Z",
-            },
-          },
-        }),
-      draftPutResponse: async (body, callIndex) => {
-        if (callIndex === 1) {
-          return json(
-            {
-              success: false,
-              error_code: "DRAFT_VERSION_CONFLICT",
-              message_key: "errors.draftVersionConflict",
-            },
-            409
-          )
-        }
-        const input = body as {
-          input_text: string
-          priority_capability_ids: string[]
-          knowledge_base_ids: string[]
-        }
-        return json({
-          success: true,
-          data: {
-            ...conversation.draft,
-            input_text: input.input_text,
-            priority_capability_ids: input.priority_capability_ids,
-            knowledge_base_ids: input.knowledge_base_ids,
-            updated_at: "2026-07-11T08:00:02.000Z",
-          },
-        })
-      },
-    })
-    const interaction = userEvent.setup()
-    renderApp()
-
-    const composer = await screen.findByRole("textbox", { name: "任务输入框" })
-    await interaction.type(composer, "当前页面的新内容")
-
-    expect(await screen.findByText("草稿内容发生冲突")).toBeVisible()
-    expect(composer).toHaveValue("当前页面的新内容")
-    await interaction.type(composer, "，继续编辑")
-    await new Promise((resolve) => setTimeout(resolve, 750))
-    expect(
-      requests.filter(
-        (request) =>
-          request.path === "/api/v1/conversations/c1/draft" &&
-          request.method === "PUT"
-      )
-    ).toHaveLength(1)
-
-    await interaction.click(
-      screen.getByRole("button", { name: "保留当前内容" })
-    )
-    await waitFor(() => {
-      const saves = requests.filter(
-        (request) =>
-          request.path === "/api/v1/conversations/c1/draft" &&
-          request.method === "PUT"
-      )
-      expect(saves).toHaveLength(2)
-      expect(saves[1]?.body).toEqual({
-        input_text: "当前页面的新内容，继续编辑",
-        priority_capability_ids: [],
-        knowledge_base_ids: [],
-        expected_updated_at: "2026-07-11T08:00:01.000Z",
-      })
-    })
-    expect(screen.queryByText("草稿内容发生冲突")).not.toBeInTheDocument()
-    expect(composer).toHaveValue("当前页面的新内容，继续编辑")
-  })
-
-  it("can replace local content with the latest server draft without another save", async () => {
-    const serverDraft = "服务器上的最新草稿"
-    const { requests } = installApiMock({
-      conversationOverride: {
-        turns: [],
-        running_turn: null,
-        execution_status: "idle",
-      },
-      conversationGetResponse: async (callIndex) =>
-        json({
-          success: true,
-          data: {
-            ...conversation,
-            turns: [],
-            running_turn: null,
-            execution_status: "idle",
-            draft_input: callIndex === 1 ? "" : serverDraft,
-            draft_capability_ids: [],
-            draft: {
-              ...conversation.draft,
-              input_text: callIndex === 1 ? "" : serverDraft,
-              priority_capability_ids: [],
-              knowledge_base_ids: [],
-              updated_at:
-                callIndex === 1
-                  ? "2026-07-11T08:00:00.000Z"
-                  : "2026-07-11T08:00:01.000Z",
-            },
-          },
-        }),
-      draftPutResponse: async () =>
-        json(
-          {
-            success: false,
-            error_code: "DRAFT_VERSION_CONFLICT",
-            message_key: "errors.draftVersionConflict",
-          },
-          409
-        ),
-    })
-    const interaction = userEvent.setup()
-    renderApp()
-
-    const composer = await screen.findByRole("textbox", {
-      name: "任务输入框",
-    })
-    await interaction.type(composer, "当前页面内容")
-    expect(await screen.findByText("草稿内容发生冲突")).toBeVisible()
-
-    await interaction.click(
-      screen.getByRole("button", { name: "使用最新草稿" })
-    )
-    await waitFor(() => expect(composer).toHaveValue(serverDraft))
-    await new Promise((resolve) => setTimeout(resolve, 700))
-
-    expect(screen.queryByText("草稿内容发生冲突")).not.toBeInTheDocument()
-    expect(
-      requests.filter(
-        (request) =>
-          request.path === "/api/v1/conversations/c1/draft" &&
-          request.method === "PUT"
-      )
-    ).toHaveLength(1)
-  })
-
   it("stores an attachment-only running follow-up as a pending request", async () => {
     const { requests } = installApiMock({
       conversationOverride: {
@@ -9534,7 +8831,7 @@ describe("LinkSense application", () => {
             id: "draft-attachment-1",
             name: "补充材料.pdf",
             kind: "attachment",
-            status: "draft",
+            status: "staged",
             size: 1024,
           },
         ],
@@ -9861,8 +9158,7 @@ describe("LinkSense application", () => {
     expect(
       requests.some(
         (request) =>
-          request.path ===
-          "/api/v1/conversations/c1/files/artifact-1/media"
+          request.path === "/api/v1/conversations/c1/files/artifact-1/media"
       )
     ).toBe(false)
   })
@@ -9920,6 +9216,7 @@ describe("LinkSense application", () => {
   })
 
   it("shows a PPTX selection question immediately without waiting for turn admission", async () => {
+    seedLocalDraft("c1", { input: "主输入框原有草稿" })
     let resolveTurnStart: ((response: Response) => void) | undefined
     const { requests } = installApiMock({
       conversationOverride: {
@@ -10040,12 +9337,11 @@ describe("LinkSense application", () => {
     const body = turnRequest?.body as {
       input_text?: string
       priority_capability_ids?: string[]
-      draft_policy?: string
       message_display?: Record<string, unknown>
     }
     expect(body.input_text).toBeUndefined()
     expect(body.priority_capability_ids).toEqual([])
-    expect(body.draft_policy).toBe("preserve")
+    expect(body).not.toHaveProperty("draft_policy")
     expect(body.message_display).toEqual({
       kind: "presentation_annotation",
       file_id: "70000000-0000-4000-8000-000000000001",
@@ -10089,6 +9385,7 @@ describe("LinkSense application", () => {
   })
 
   it("queues a PPTX selection question while the current task is running", async () => {
+    seedLocalDraft("c1", { input: "主输入框原有草稿" })
     const { requests } = installApiMock({
       conversationOverride: {
         execution_status: "running",
@@ -10197,12 +9494,11 @@ describe("LinkSense application", () => {
     const body = pendingRequest?.body as {
       input_text?: string
       priority_capability_ids?: string[]
-      draft_policy?: string
       message_display?: Record<string, unknown>
     }
     expect(body.input_text).toBeUndefined()
     expect(body.priority_capability_ids).toEqual([])
-    expect(body.draft_policy).toBe("preserve")
+    expect(body).not.toHaveProperty("draft_policy")
     expect(body.message_display).toEqual({
       kind: "presentation_annotation",
       file_id: "70000000-0000-4000-8000-000000000001",

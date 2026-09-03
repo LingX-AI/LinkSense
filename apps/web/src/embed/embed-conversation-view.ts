@@ -30,9 +30,7 @@ export function projectExternalEmbedConversation(
 
   return {
     ...conversation,
-    draft_capability_ids: [],
     selected_knowledge_base_ids: [],
-    draft_knowledge_base_ids: [],
     messages: projectVisibleConversationMessages(
       messages,
       [],

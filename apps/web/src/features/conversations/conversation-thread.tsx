@@ -178,7 +178,7 @@ import {
   normalizeAssistantMessageContent,
   parseAssistantProposedPlanSourceSegments,
 } from "@/features/conversations/assistant-message-content"
-import { assistantMarkdownPlugins } from "@/features/conversations/assistant-markdown-math"
+import { assistantMarkdownPlugins } from "@/features/conversations/assistant-markdown-plugins"
 import { ConversationPlanCard } from "@/features/conversations/conversation-plan-card"
 import { ConversationProposedPlanCard } from "@/features/conversations/conversation-proposed-plan-card"
 import {

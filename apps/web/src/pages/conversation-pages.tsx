@@ -45,9 +45,6 @@ import {
   applicationConversationSchema,
   applicationSchema,
   capabilitySummarySchema,
-  conversationDetailSchema,
-  conversationDraftSchema,
-  conversationDraftResultSchema,
   conversationFileSchema,
   conversationPlanReviewActionResultSchema,
   conversationSchema,
@@ -60,7 +57,6 @@ import {
   turnStartReceiptSchema,
   type Conversation,
   type ConversationActivity,
-  type ConversationDraft,
   type ConversationEvent,
   type ConversationFile,
   type ConversationMessage,
@@ -131,16 +127,10 @@ import {
   selectFreshConversationEventSubscriptionId,
 } from "@/features/conversations/conversation-detail-query"
 import {
-  conversationDraftSnapshotFromConversation,
-  conversationDraftSnapshotKey,
-  conversationDraftSnapshotsEqual,
-  createConversationDraftSnapshot,
-  effectiveDraftCapabilityIds,
-  effectiveDraftKnowledgeBaseIds,
-  mergeConversationDraftSnapshots,
-  type ConversationDraftField,
-  type ConversationDraftSnapshot,
-} from "@/features/conversations/conversation-draft-sync"
+  clearLocalConversationDraft,
+  readLocalConversationDraft,
+  writeLocalConversationDraft,
+} from "@/features/conversations/conversation-local-draft"
 import { ConversationLineSidebar } from "@/features/conversations/conversation-line-sidebar"
 import { buildOfficeAnnotationInput } from "@/features/conversations/conversation-office-annotation"
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
@@ -303,10 +293,6 @@ type ComposerSubmission = Readonly<{
   optimisticId?: string
 }>
 
-type DraftSaveOptions = Readonly<{
-  useLatestComposerSnapshot?: boolean
-}>
-
 type PlanReviewActionSubmission =
   | Readonly<{ reviewId: string; action: "implement" }>
   | Readonly<{ reviewId: string; action: "revise"; feedback: string }>
@@ -449,37 +435,6 @@ function threadGoalRevision(
   })
 }
 
-type DraftConflictState = Readonly<{
-  conversationId: string
-  local: ConversationDraftSnapshot
-  remote: ConversationDraftSnapshot
-  remoteUpdatedAt: string | null
-  conflictingFields: readonly ConversationDraftField[]
-}>
-
-class DraftConflictPendingError extends Error {
-  constructor() {
-    super("Draft conflict requires a user decision")
-    this.name = "DraftConflictPendingError"
-  }
-}
-
-function isDraftConflictPendingError(error: unknown) {
-  return error instanceof DraftConflictPendingError
-}
-
-function isNewerDraftVersion(
-  candidate: string | null,
-  current: string | null
-): boolean {
-  if (!candidate || candidate === current) return false
-  if (!current) return true
-  const candidateTime = Date.parse(candidate)
-  const currentTime = Date.parse(current)
-  if (Number.isNaN(candidateTime) || Number.isNaN(currentTime)) return true
-  return candidateTime > currentTime
-}
-
 function isAttachmentConversationFile(file: ConversationFile) {
   return (
     file.kind === "attachment" ||
@@ -559,10 +514,6 @@ export function ConversationPage({
     },
     [refreshUser, t]
   )
-  const [draftConflict, setDraftConflict] = useState<DraftConflictState | null>(
-    null
-  )
-  const [resolvingDraftConflict, setResolvingDraftConflict] = useState(false)
   const [interrupting, setInterrupting] = useState(false)
   const [goalModeState, setGoalModeState] = useState<{
     conversationId: string | undefined
@@ -633,9 +584,7 @@ export function ConversationPage({
   const [liveEvents, setLiveEvents] = useState<ConversationEvent[]>([])
   const [liveConversationId, setLiveConversationId] = useState<
     string | undefined
-  >(
-    conversationId ?? newConversationPlaceholderId
-  )
+  >(conversationId ?? newConversationPlaceholderId)
   const [downloadingFileId, setDownloadingFileId] = useState<string>()
   const [officePreview, setOfficePreview] = useState<{
     conversationId: string | undefined
@@ -672,16 +621,7 @@ export function ConversationPage({
       : null
   const downloadInFlightRef = useRef(false)
   const composerRef = useRef<ConversationComposerHandle>(null)
-  const hydratedIdRef = useRef<string | null>(null)
-  const lastDraftRef = useRef("")
-  const lastDraftSnapshotRef = useRef<ConversationDraftSnapshot>(
-    createConversationDraftSnapshot("", [], [])
-  )
-  const lastQueuedDraftRef = useRef("")
-  const composerDraftSnapshotRef = useRef<ConversationDraftSnapshot>(
-    createConversationDraftSnapshot("", [], [])
-  )
-  const draftConflictRef = useRef<DraftConflictState | null>(null)
+  const hydratedDraftScopeRef = useRef<string | null>(null)
   const turnSubmitOperationRef =
     useRef<Parameters<typeof stableOperationId>[0]["current"]>(null)
   const goalStartOperationRef =
@@ -697,7 +637,6 @@ export function ConversationPage({
     useRef<Parameters<typeof stableOperationId>[0]["current"]>(null)
   const planReviewOperationRef =
     useRef<Parameters<typeof stableOperationId>[0]["current"]>(null)
-  const submittedDraftSnapshotRef = useRef<string | null>(null)
   const composerSubmissionInFlightRef = useRef(false)
   const composerAttachmentOperationInFlightRef = useRef(false)
   const composerModelPreferenceOperationInFlightRef = useRef(false)
@@ -733,12 +672,6 @@ export function ConversationPage({
   const regenerateOperationRef =
     useRef<Parameters<typeof stableOperationId>[0]["current"]>(null)
   const forkOperationRef = useRef<string | null>(null)
-  const draftUpdatedAtRef = useRef<string | null>(null)
-  const draftQueueRef = useRef<Promise<void>>(Promise.resolve())
-  const queuedDraftSaveRef = useRef<{
-    snapshot: string
-    promise: Promise<ConversationDraftSnapshot>
-  } | null>(null)
   const invalidateTimerRef = useRef<number | null>(null)
   const pendingDetailRefreshRef = useRef(false)
   const pendingListRefreshRef = useRef(false)
@@ -884,7 +817,6 @@ export function ConversationPage({
       reasoningEffort: string
       targetConversationId: string | null
     }) => {
-      await draftQueueRef.current
       return apiRequest(
         targetConversationId
           ? `/conversations/${targetConversationId}/model-preference`
@@ -1212,6 +1144,8 @@ export function ConversationPage({
     setPendingFirstMessageConversationId(null)
     setTaskOverviewSuppressedConversationId(null)
     setNewTaskPromotionConversationId(null)
+    if (user) clearLocalConversationDraft(window.localStorage, user.id, "new")
+    hydratedDraftScopeRef.current = null
     setValue("")
     setGoalMode(false)
     setNewTaskCollaborationMode("default")
@@ -1224,7 +1158,7 @@ export function ConversationPage({
     setOptimisticGoal(null)
     setNewTaskResetVersion((current) => current + 1)
     window.setTimeout(() => composerRef.current?.focus(), 0)
-  }, [isNew, navigate, setGoalMode])
+  }, [isNew, navigate, setGoalMode, user])
 
   useEffect(() => {
     legacyStreamItemIdByTurnRef.current.clear()
@@ -1254,487 +1188,37 @@ export function ConversationPage({
     setOfficePreviewUpdate(null)
   }, [officePreviewUpdate, previewUpdateCandidate])
 
-  useEffect(() => {
-    composerDraftSnapshotRef.current = createConversationDraftSnapshot(
-      value,
-      selectedCapabilityIds,
-      selectedKnowledgeBaseIds
+  const localDraftScope = isNew ? "new" : (conversationId ?? "new")
+
+  useLayoutEffect(() => {
+    if (!user) return
+    if (hydratedDraftScopeRef.current === localDraftScope) return
+    const draft = readLocalConversationDraft(
+      window.localStorage,
+      user.id,
+      localDraftScope
     )
-  }, [selectedCapabilityIds, selectedKnowledgeBaseIds, value])
-
-  const applyComposerDraftSnapshot = useCallback(
-    (snapshot: ConversationDraftSnapshot) => {
-      setValue(snapshot.input)
-      setSelectedCapabilityIds([...snapshot.capabilityIds])
-      setSelectedKnowledgeBaseIds([...snapshot.knowledgeBaseIds])
-    },
-    []
-  )
-
-  const recordAcknowledgedDraft = useCallback(
-    (
-      id: string,
-      snapshot: ConversationDraftSnapshot,
-      updatedAt: string | null
-    ) => {
-      if (hydratedIdRef.current !== id && routeConversationIdRef.current !== id)
-        return
-      hydratedIdRef.current = id
-      lastDraftSnapshotRef.current = snapshot
-      lastDraftRef.current = conversationDraftSnapshotKey(snapshot)
-      draftUpdatedAtRef.current = updatedAt
-    },
-    []
-  )
-
-  const updateConversationDraftCache = useCallback(
-    (
-      id: string,
-      snapshot: ConversationDraftSnapshot,
-      draft: ConversationDraft
-    ) => {
-      queryClient.setQueryData<Conversation>(
-        ["conversation", id],
-        (currentConversation) =>
-          currentConversation
-            ? {
-                ...currentConversation,
-                draft: {
-                  ...(currentConversation.draft ?? {}),
-                  ...draft,
-                  input_text: snapshot.input,
-                  priority_capability_ids: [...snapshot.capabilityIds],
-                  knowledge_base_ids: [...snapshot.knowledgeBaseIds],
-                },
-                draft_input: snapshot.input,
-                draft_capability_ids: [...snapshot.capabilityIds],
-                draft_knowledge_base_ids: [...snapshot.knowledgeBaseIds],
-                selected_knowledge_base_ids: [...snapshot.knowledgeBaseIds],
-              }
-            : currentConversation
-      )
-    },
-    [queryClient]
-  )
-
-  const publishDraftConflict = useCallback(
-    (nextConflict: DraftConflictState) => {
-      draftConflictRef.current = nextConflict
-      setDraftConflict(nextConflict)
-      setError(null)
-    },
-    []
-  )
-
-  const clearDraftConflict = useCallback(() => {
-    draftConflictRef.current = null
-    setDraftConflict(null)
-  }, [])
+    hydratedDraftScopeRef.current = localDraftScope
+    setValue(draft.input)
+    setSelectedCapabilityIds([...draft.capabilityIds])
+    setSelectedKnowledgeBaseIds([...draft.knowledgeBaseIds])
+  }, [localDraftScope, newTaskResetVersion, user])
 
   useEffect(() => {
-    if (
-      !isNew &&
-      conversation &&
-      hydratedIdRef.current !== conversation.id &&
-      conversationQuery.isFetching &&
-      !conversationQuery.isFetchedAfterMount
-    ) {
-      return
-    }
-    const timer = window.setTimeout(() => {
-      if (isNew) {
-        hydratedIdRef.current = null
-        lastDraftRef.current = ""
-        lastDraftSnapshotRef.current = createConversationDraftSnapshot(
-          "",
-          [],
-          []
-        )
-        lastQueuedDraftRef.current = ""
-        draftUpdatedAtRef.current = null
-        draftQueueRef.current = Promise.resolve()
-        queuedDraftSaveRef.current = null
-        draftConflictRef.current = null
-        setDraftConflict(null)
-        setValue("")
-        setSelectedCapabilityIds([])
-        setSelectedKnowledgeBaseIds([])
-        return
-      }
-      if (!conversation) return
-      const serverSnapshot =
-        conversationDraftSnapshotFromConversation(conversation)
-      const serverSnapshotKey = conversationDraftSnapshotKey(serverSnapshot)
-      const serverUpdatedAt = conversation.draft?.updated_at ?? null
-      if (hydratedIdRef.current !== conversation.id) {
-        hydratedIdRef.current = conversation.id
-        applyComposerDraftSnapshot(serverSnapshot)
-        setRenameValue(conversation.title)
-        lastDraftSnapshotRef.current = serverSnapshot
-        lastDraftRef.current = serverSnapshotKey
-        lastQueuedDraftRef.current = serverSnapshotKey
-        draftUpdatedAtRef.current = serverUpdatedAt
-        draftQueueRef.current = Promise.resolve()
-        queuedDraftSaveRef.current = null
-        draftConflictRef.current = null
-        setDraftConflict(null)
-        return
-      }
-
-      if (!isNewerDraftVersion(serverUpdatedAt, draftUpdatedAtRef.current)) {
-        return
-      }
-      const baseSnapshot = lastDraftSnapshotRef.current
-      const localSnapshot = composerDraftSnapshotRef.current
-      if (conversationDraftSnapshotsEqual(serverSnapshot, baseSnapshot)) {
-        draftUpdatedAtRef.current = serverUpdatedAt
-        return
-      }
-      if (conversationDraftSnapshotsEqual(localSnapshot, baseSnapshot)) {
-        applyComposerDraftSnapshot(serverSnapshot)
-        lastDraftSnapshotRef.current = serverSnapshot
-        lastDraftRef.current = serverSnapshotKey
-        lastQueuedDraftRef.current = serverSnapshotKey
-        draftUpdatedAtRef.current = serverUpdatedAt
-        queuedDraftSaveRef.current = null
-        draftConflictRef.current = null
-        setDraftConflict(null)
-        return
-      }
-
-      const merged = mergeConversationDraftSnapshots(
-        baseSnapshot,
-        localSnapshot,
-        serverSnapshot
-      )
-      lastDraftSnapshotRef.current = serverSnapshot
-      lastDraftRef.current = serverSnapshotKey
-      lastQueuedDraftRef.current = serverSnapshotKey
-      draftUpdatedAtRef.current = serverUpdatedAt
-      queuedDraftSaveRef.current = null
-      if (merged.conflictingFields.length > 0) {
-        const nextConflict = {
-          conversationId: conversation.id,
-          local: localSnapshot,
-          remote: serverSnapshot,
-          remoteUpdatedAt: serverUpdatedAt,
-          conflictingFields: merged.conflictingFields,
-        } satisfies DraftConflictState
-        draftConflictRef.current = nextConflict
-        setDraftConflict(nextConflict)
-        setError(null)
-        return
-      }
-      applyComposerDraftSnapshot(merged.snapshot)
-    }, 0)
-    return () => window.clearTimeout(timer)
+    if (!user) return
+    if (hydratedDraftScopeRef.current !== localDraftScope) return
+    if (composerSubmissionInFlightRef.current) return
+    writeLocalConversationDraft(window.localStorage, user.id, localDraftScope, {
+      input: value,
+      capabilityIds: selectedCapabilityIds,
+      knowledgeBaseIds: selectedKnowledgeBaseIds,
+    })
   }, [
-    applyComposerDraftSnapshot,
-    conversation,
-    conversationQuery.isFetchedAfterMount,
-    conversationQuery.isFetching,
-    isNew,
-  ])
-
-  const enqueueDraftOperation = useCallback(
-    <T,>(operation: () => Promise<T>): Promise<T> => {
-      const result = draftQueueRef.current.then(operation)
-      draftQueueRef.current = result.then(
-        () => undefined,
-        () => undefined
-      )
-      return result
-    },
-    []
-  )
-
-  const queueDraftSave = useCallback(
-    (
-      id: string,
-      nextInput: string,
-      nextCapabilityIds: string[],
-      nextKnowledgeBaseIds: string[],
-      options: DraftSaveOptions = {}
-    ): Promise<ConversationDraftSnapshot> => {
-      const requestedSnapshot = createConversationDraftSnapshot(
-        nextInput,
-        nextCapabilityIds,
-        nextKnowledgeBaseIds
-      )
-      const snapshot = conversationDraftSnapshotKey(requestedSnapshot)
-      const activeConflict = draftConflictRef.current
-      if (activeConflict?.conversationId === id) {
-        publishDraftConflict({
-          ...activeConflict,
-          local: requestedSnapshot,
-        })
-        return Promise.reject(new DraftConflictPendingError())
-      }
-      if (
-        snapshot === lastDraftRef.current &&
-        snapshot === lastQueuedDraftRef.current
-      ) {
-        return draftQueueRef.current.then(() => requestedSnapshot)
-      }
-      if (
-        snapshot === lastQueuedDraftRef.current &&
-        queuedDraftSaveRef.current?.snapshot === snapshot
-      ) {
-        return queuedDraftSaveRef.current.promise
-      }
-      lastQueuedDraftRef.current = snapshot
-      const operationSnapshots = new Set([snapshot])
-      const save = enqueueDraftOperation(async () => {
-        let localSnapshot = requestedSnapshot
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          if (draftConflictRef.current?.conversationId === id) {
-            throw new DraftConflictPendingError()
-          }
-          await queryClient.cancelQueries(
-            { queryKey: ["conversation", id], exact: true },
-            { silent: true }
-          )
-          try {
-            const draft = await apiRequest(`/conversations/${id}/draft`, {
-              method: "PUT",
-              body: {
-                input_text: localSnapshot.input,
-                priority_capability_ids: localSnapshot.capabilityIds,
-                knowledge_base_ids: localSnapshot.knowledgeBaseIds,
-                expected_updated_at: draftUpdatedAtRef.current,
-              },
-              schema: conversationDraftSchema,
-            })
-            const savedSnapshot = createConversationDraftSnapshot(
-              draft.input_text ?? localSnapshot.input,
-              draft.priority_capability_ids ?? localSnapshot.capabilityIds,
-              draft.knowledge_base_ids ?? localSnapshot.knowledgeBaseIds
-            )
-            recordAcknowledgedDraft(id, savedSnapshot, draft.updated_at ?? null)
-            if (options.useLatestComposerSnapshot !== false) {
-              updateConversationDraftCache(id, savedSnapshot, draft)
-            }
-            return savedSnapshot
-          } catch (nextError) {
-            if (
-              !(nextError instanceof ApiError) ||
-              nextError.errorCode !== "DRAFT_VERSION_CONFLICT" ||
-              hydratedIdRef.current !== id ||
-              routeConversationIdRef.current !== id
-            ) {
-              throw nextError
-            }
-          }
-
-          const detail = await apiRequest(`/conversations/${id}`, {
-            schema: conversationDetailSchema,
-          })
-          if (options.useLatestComposerSnapshot !== false) {
-            queryClient.setQueryData(["conversation", id], detail)
-          }
-          if (routeConversationIdRef.current !== id) {
-            throw new DraftConflictPendingError()
-          }
-          const remoteSnapshot =
-            conversationDraftSnapshotFromConversation(detail)
-          const remoteUpdatedAt = detail.draft?.updated_at ?? null
-          const baseSnapshot = lastDraftSnapshotRef.current
-          if (conversationDraftSnapshotsEqual(remoteSnapshot, localSnapshot)) {
-            recordAcknowledgedDraft(id, remoteSnapshot, remoteUpdatedAt)
-            return remoteSnapshot
-          }
-
-          const latestLocalSnapshot =
-            options.useLatestComposerSnapshot !== false &&
-            hydratedIdRef.current === id
-              ? composerDraftSnapshotRef.current
-              : localSnapshot
-          const merged = mergeConversationDraftSnapshots(
-            baseSnapshot,
-            latestLocalSnapshot,
-            remoteSnapshot
-          )
-          recordAcknowledgedDraft(id, remoteSnapshot, remoteUpdatedAt)
-          if (merged.conflictingFields.length > 0 || attempt === 2) {
-            lastQueuedDraftRef.current =
-              conversationDraftSnapshotKey(remoteSnapshot)
-            publishDraftConflict({
-              conversationId: id,
-              local: latestLocalSnapshot,
-              remote: remoteSnapshot,
-              remoteUpdatedAt,
-              conflictingFields: merged.conflictingFields,
-            })
-            throw new DraftConflictPendingError()
-          }
-
-          if (
-            options.useLatestComposerSnapshot !== false &&
-            !conversationDraftSnapshotsEqual(
-              composerDraftSnapshotRef.current,
-              merged.snapshot
-            )
-          ) {
-            applyComposerDraftSnapshot(merged.snapshot)
-          }
-          if (
-            conversationDraftSnapshotsEqual(merged.snapshot, remoteSnapshot)
-          ) {
-            return remoteSnapshot
-          }
-          const previousSnapshotKey =
-            conversationDraftSnapshotKey(localSnapshot)
-          localSnapshot = merged.snapshot
-          const mergedSnapshotKey = conversationDraftSnapshotKey(localSnapshot)
-          operationSnapshots.add(mergedSnapshotKey)
-          if (lastQueuedDraftRef.current === previousSnapshotKey) {
-            lastQueuedDraftRef.current = mergedSnapshotKey
-          }
-        }
-        throw new DraftConflictPendingError()
-      })
-      const tracked: Promise<ConversationDraftSnapshot> = save.then(
-        (savedSnapshot) => {
-          if (queuedDraftSaveRef.current?.promise === tracked) {
-            queuedDraftSaveRef.current = null
-          }
-          if (operationSnapshots.has(lastQueuedDraftRef.current)) {
-            lastQueuedDraftRef.current =
-              conversationDraftSnapshotKey(savedSnapshot)
-          }
-          return savedSnapshot
-        },
-        (nextError: unknown) => {
-          if (queuedDraftSaveRef.current?.promise === tracked) {
-            queuedDraftSaveRef.current = null
-          }
-          if (
-            !isDraftConflictPendingError(nextError) &&
-            hydratedIdRef.current === id &&
-            operationSnapshots.has(lastQueuedDraftRef.current)
-          ) {
-            lastQueuedDraftRef.current = lastDraftRef.current
-          }
-          throw nextError
-        }
-      )
-      queuedDraftSaveRef.current = { snapshot, promise: tracked }
-      return tracked
-    },
-    [
-      applyComposerDraftSnapshot,
-      enqueueDraftOperation,
-      publishDraftConflict,
-      queryClient,
-      recordAcknowledgedDraft,
-      updateConversationDraftCache,
-    ]
-  )
-
-  useEffect(() => {
-    if (!conversationId || isNew || hydratedIdRef.current !== conversationId)
-      return
-    const snapshot = conversationDraftSnapshotKey(
-      createConversationDraftSnapshot(
-        value,
-        selectedCapabilityIds,
-        selectedKnowledgeBaseIds
-      )
-    )
-    if (snapshot === lastDraftRef.current) return
-    const timer = window.setTimeout(() => {
-      if (
-        composerSubmissionInFlightRef.current ||
-        composerAttachmentOperationInFlightRef.current ||
-        composerModelPreferenceOperationInFlightRef.current
-      )
-        return
-      if (submittedDraftSnapshotRef.current === snapshot) return
-      void queueDraftSave(
-        conversationId,
-        value,
-        selectedCapabilityIds,
-        selectedKnowledgeBaseIds
-      ).catch((nextError: unknown) => {
-        if (
-          routeConversationIdRef.current === conversationId &&
-          !isDraftConflictPendingError(nextError)
-        ) {
-          setError(getErrorMessage(nextError, t))
-        }
-      })
-    }, 600)
-    return () => window.clearTimeout(timer)
-  }, [
-    composerAttachmentOperationPending,
-    modelPreferenceMutation.isPending,
-    conversationId,
-    isNew,
-    queueDraftSave,
+    localDraftScope,
     selectedCapabilityIds,
     selectedKnowledgeBaseIds,
-    t,
+    user,
     value,
-  ])
-
-  const keepCurrentDraft = useCallback(async () => {
-    const activeConflict = draftConflictRef.current
-    if (!activeConflict || resolvingDraftConflict) return
-    const localSnapshot = composerDraftSnapshotRef.current
-    setResolvingDraftConflict(true)
-    setError(null)
-    clearDraftConflict()
-    recordAcknowledgedDraft(
-      activeConflict.conversationId,
-      activeConflict.remote,
-      activeConflict.remoteUpdatedAt
-    )
-    lastQueuedDraftRef.current = conversationDraftSnapshotKey(
-      activeConflict.remote
-    )
-    queuedDraftSaveRef.current = null
-    try {
-      await queueDraftSave(
-        activeConflict.conversationId,
-        localSnapshot.input,
-        [...localSnapshot.capabilityIds],
-        [...localSnapshot.knowledgeBaseIds]
-      )
-    } catch (nextError) {
-      if (!isDraftConflictPendingError(nextError)) {
-        setError(getErrorMessage(nextError, t))
-      }
-    } finally {
-      setResolvingDraftConflict(false)
-    }
-  }, [
-    clearDraftConflict,
-    queueDraftSave,
-    recordAcknowledgedDraft,
-    resolvingDraftConflict,
-    t,
-  ])
-
-  const useLatestDraft = useCallback(() => {
-    const activeConflict = draftConflictRef.current
-    if (!activeConflict || resolvingDraftConflict) return
-    applyComposerDraftSnapshot(activeConflict.remote)
-    recordAcknowledgedDraft(
-      activeConflict.conversationId,
-      activeConflict.remote,
-      activeConflict.remoteUpdatedAt
-    )
-    lastQueuedDraftRef.current = conversationDraftSnapshotKey(
-      activeConflict.remote
-    )
-    queuedDraftSaveRef.current = null
-    clearDraftConflict()
-    setError(null)
-  }, [
-    applyComposerDraftSnapshot,
-    clearDraftConflict,
-    recordAcknowledgedDraft,
-    resolvingDraftConflict,
   ])
 
   const scheduleConversationRefresh = useCallback(
@@ -2498,22 +1982,6 @@ export function ConversationPage({
     return () => window.clearTimeout(timer)
   }, [conversation?.id, conversation?.pending_requests, pendingOfficeQuestion])
 
-  const synchronizeDraftMetadata = useCallback(
-    (nextConversation: Conversation) => {
-      hydratedIdRef.current = nextConversation.id
-      draftUpdatedAtRef.current = nextConversation.draft?.updated_at ?? null
-      const snapshot =
-        conversationDraftSnapshotFromConversation(nextConversation)
-      const snapshotKey = conversationDraftSnapshotKey(snapshot)
-      lastDraftSnapshotRef.current = snapshot
-      lastDraftRef.current = snapshotKey
-      lastQueuedDraftRef.current = snapshotKey
-      queuedDraftSaveRef.current = null
-      clearDraftConflict()
-    },
-    [clearDraftConflict]
-  )
-
   const ensureConversation = async ({
     suppressEmptyStateUntilFirstMessage = false,
     initialInput = "",
@@ -2536,20 +2004,33 @@ export function ConversationPage({
       if (suppressEmptyStateUntilFirstMessage) {
         setPendingFirstMessageConversationId(newConversationPlaceholderId)
       }
-      const draft = await apiRequest("/conversations/drafts", {
+      const createdConversation = await apiRequest("/conversations", {
         method: "POST",
         body: {
-          input_text: initialInput,
-          priority_capability_ids: initialCapabilityIds,
-          knowledge_base_ids: initialKnowledgeBaseIds,
           collaboration_mode: initialCollaborationMode,
         },
-        schema: conversationDraftResultSchema,
+        schema: conversationSchema,
       })
-      queryClient.setQueryData(["conversation", draft.id], draft)
+      if (user) {
+        writeLocalConversationDraft(
+          window.localStorage,
+          user.id,
+          createdConversation.id,
+          {
+            input: initialInput,
+            capabilityIds: initialCapabilityIds,
+            knowledgeBaseIds: initialKnowledgeBaseIds,
+          }
+        )
+        clearLocalConversationDraft(window.localStorage, user.id, "new")
+      }
+      queryClient.setQueryData(
+        ["conversation", createdConversation.id],
+        createdConversation
+      )
       if (suppressEmptyStateUntilFirstMessage) {
-        const runningDraft: Conversation = {
-          ...draft,
+        const runningConversation: Conversation = {
+          ...createdConversation,
           execution_status: "running",
         }
         queryClient.setQueryData<
@@ -2558,7 +2039,7 @@ export function ConversationPage({
           replaceSidebarConversation(
             cached,
             newConversationPlaceholderId,
-            runningDraft
+            runningConversation
           )
         )
       }
@@ -2566,16 +2047,16 @@ export function ConversationPage({
         routeEpochRef.current === routeEpoch &&
         routeConversationIdRef.current === null
       ) {
-        setNewTaskPromotionConversationId(draft.id)
-        setTaskOverviewSuppressedConversationId(draft.id)
-        synchronizeDraftMetadata(draft)
-        routeConversationIdRef.current = draft.id
+        setNewTaskPromotionConversationId(createdConversation.id)
+        setTaskOverviewSuppressedConversationId(createdConversation.id)
+        hydratedDraftScopeRef.current = createdConversation.id
+        routeConversationIdRef.current = createdConversation.id
         if (suppressEmptyStateUntilFirstMessage) {
-          setPendingFirstMessageConversationId(draft.id)
+          setPendingFirstMessageConversationId(createdConversation.id)
         }
-        navigate(`/conversations/${draft.id}`, { replace: true })
+        navigate(`/conversations/${createdConversation.id}`, { replace: true })
       }
-      return draft.id
+      return createdConversation.id
     })()
     const pendingCreation = { epoch: routeEpoch, promise: creation }
     ensureConversationPromiseRef.current = pendingCreation
@@ -2595,9 +2076,6 @@ export function ConversationPage({
       ...conversationDetailQueryOptions(id),
       staleTime: 0,
     })
-    if (routeConversationIdRef.current === id) {
-      synchronizeDraftMetadata(detail)
-    }
     return detail
   }
 
@@ -2842,36 +2320,16 @@ export function ConversationPage({
           return { ...current, conversationId: id }
         })
       }
-      const requestedSnapshot = createConversationDraftSnapshot(
-        requestedInput,
-        requestedCapabilityIds,
-        requestedKnowledgeBaseIds
-      )
-      submittedDraftSnapshotRef.current =
-        conversationDraftSnapshotKey(requestedSnapshot)
-      // Turn admission consumes the exact persisted draft. Persist first so a
-      // stale version can converge before creating an optimistic turn.
-      const persistedSnapshot = await queueDraftSave(
-        id,
-        requestedInput,
-        requestedCapabilityIds,
-        requestedKnowledgeBaseIds,
-        { useLatestComposerSnapshot: false }
-      )
-      const nextInput = persistedSnapshot.input
-      const nextCapabilityIds = [...persistedSnapshot.capabilityIds]
-      const nextKnowledgeBaseIds = [...persistedSnapshot.knowledgeBaseIds]
       const idempotencyKey = await stableOperationId(turnSubmitOperationRef, {
         operation: "turn_start",
         conversation_id: id,
-        draft_updated_at: draftUpdatedAtRef.current,
         preceding_turn_id:
           conversation?.running_turn?.id ??
           conversation?.turns?.at(-1)?.id ??
           null,
-        input_text: nextInput,
-        priority_capability_ids: nextCapabilityIds,
-        knowledge_base_ids: nextKnowledgeBaseIds,
+        input_text: requestedInput,
+        priority_capability_ids: requestedCapabilityIds,
+        knowledge_base_ids: requestedKnowledgeBaseIds,
         attachment_ids: nextAttachments.map((attachment) => attachment.id),
         collaboration_mode: submission.collaborationMode,
       })
@@ -2882,8 +2340,6 @@ export function ConversationPage({
           []
         ).map((capability) => [capability.id, capability])
       )
-      submittedDraftSnapshotRef.current =
-        conversationDraftSnapshotKey(persistedSnapshot)
       setPendingTurnSubmission((current) => {
         const optimisticSubmission =
           submission.optimisticId &&
@@ -2900,92 +2356,91 @@ export function ConversationPage({
               optimisticSubmission?.message.id ??
               `optimistic-${idempotencyKey}`,
             role: "user",
-            content: nextInput,
+            content: requestedInput,
             turn_id: null,
             created_at:
               optimisticSubmission?.message.created_at ??
               new Date().toISOString(),
             attachments: nextAttachments,
-            selected_capabilities: nextCapabilityIds.flatMap((capabilityId) => {
-              const capability = selectedCapabilities.get(capabilityId)
-              return capability
-                ? [
-                    {
-                      id: capability.id,
-                      name: capability.name,
-                      type: capability.type,
-                    },
-                  ]
-                : []
-            }),
-            selected_knowledge_base_ids: nextKnowledgeBaseIds,
+            selected_capabilities: requestedCapabilityIds.flatMap(
+              (capabilityId) => {
+                const capability = selectedCapabilities.get(capabilityId)
+                return capability
+                  ? [
+                      {
+                        id: capability.id,
+                        name: capability.name,
+                        type: capability.type,
+                      },
+                    ]
+                  : []
+              }
+            ),
+            selected_knowledge_base_ids: requestedKnowledgeBaseIds,
           },
         }
       })
-      await enqueueDraftOperation(async () => {
-        const receipt = await apiRequest(`/conversations/${id}/turns`, {
-          method: "POST",
-          body: {
-            input_text: nextInput,
-            priority_capability_ids: nextCapabilityIds,
-            knowledge_base_ids: nextKnowledgeBaseIds,
-            idempotency_key: idempotencyKey,
-            collaboration_mode: submission.collaborationMode,
-          },
-          schema: turnStartReceiptSchema,
-        })
-        setPendingTurnSubmission((current) =>
-          current?.conversationId === id &&
-          (current.idempotencyKey === idempotencyKey ||
-            current.optimisticId === submission.optimisticId)
-            ? {
-                ...current,
-                turnId: receipt.turn_id,
-                status: receipt.status,
-                message: { ...current.message, turn_id: receipt.turn_id },
-              }
-            : current
-        )
+      const receipt = await apiRequest(`/conversations/${id}/turns`, {
+        method: "POST",
+        body: {
+          input_text: requestedInput,
+          priority_capability_ids: requestedCapabilityIds,
+          knowledge_base_ids: requestedKnowledgeBaseIds,
+          idempotency_key: idempotencyKey,
+          collaboration_mode: submission.collaborationMode,
+        },
+        schema: turnStartReceiptSchema,
       })
-      return { id, idempotencyKey, persistedSnapshot }
+      setPendingTurnSubmission((current) =>
+        current?.conversationId === id &&
+        (current.idempotencyKey === idempotencyKey ||
+          current.optimisticId === submission.optimisticId)
+          ? {
+              ...current,
+              turnId: receipt.turn_id,
+              status: receipt.status,
+              message: { ...current.message, turn_id: receipt.turn_id },
+            }
+          : current
+      )
+      return { id, idempotencyKey }
     },
     onSuccess: (result, _submission, optimisticTurnStart) => {
-      commitOptimisticallyConsumedAttachments(
-        optimisticTurnStart?.attachmentConsumption
-      )
+      const attachmentConsumption = optimisticTurnStart?.attachmentConsumption
       composerSubmissionInFlightRef.current = false
       setPendingFirstMessageConversationId(null)
       if (routeConversationIdRef.current !== result.id) {
+        commitOptimisticallyConsumedAttachments(attachmentConsumption)
         setPendingTurnSubmission((current) =>
           current?.conversationId === result.id ? null : current
         )
         if (turnSubmitOperationRef.current?.id === result.idempotencyKey) {
           turnSubmitOperationRef.current = null
         }
-        submittedDraftSnapshotRef.current = null
         sendSubmissionConversationIdRef.current = null
+        if (user)
+          clearLocalConversationDraft(window.localStorage, user.id, result.id)
         return
       }
       turnSubmitOperationRef.current = null
-      const consumedSnapshot = createConversationDraftSnapshot(
-        "",
-        [],
-        result.persistedSnapshot.knowledgeBaseIds
-      )
-      lastDraftSnapshotRef.current = consumedSnapshot
-      lastDraftRef.current = conversationDraftSnapshotKey(consumedSnapshot)
-      lastQueuedDraftRef.current = lastDraftRef.current
-      queuedDraftSaveRef.current = null
-      submittedDraftSnapshotRef.current = null
       sendSubmissionConversationIdRef.current = null
+      if (user)
+        clearLocalConversationDraft(window.localStorage, user.id, result.id)
       // Keep the optimistic running state until the submitted turn is
       // projected. An immediate list refresh can still return the preceding
       // terminal state and make the sidebar indicator flicker.
-      void refreshSubmittedConversation(result.id).catch(() => {
-        void queryClient.invalidateQueries({
-          queryKey: ["conversation", result.id],
+      // Keep submitted attachments filtered until the admission refresh has
+      // settled too. That refresh can briefly return pre-consumption staged
+      // attachments and must not put them back into the composer.
+      void refreshSubmittedConversation(result.id)
+        .catch(() =>
+          queryClient.invalidateQueries({
+            queryKey: ["conversation", result.id],
+          })
+        )
+        .finally(() => {
+          commitOptimisticallyConsumedAttachments(attachmentConsumption)
         })
-      })
     },
     onError: (nextError, submission, optimisticTurnStart) => {
       const targetConversationId = sendSubmissionConversationIdRef.current
@@ -2998,8 +2453,6 @@ export function ConversationPage({
         optimisticTurnStart?.sidebarExecutionStatus,
         targetConversationId
       )
-      const failedSnapshot = submittedDraftSnapshotRef.current
-      submittedDraftSnapshotRef.current = null
       if (routeConversationIdRef.current !== targetConversationId) {
         setPendingFirstMessageConversationId((current) =>
           current === targetConversationId ? null : current
@@ -3019,22 +2472,10 @@ export function ConversationPage({
       setSelectedCapabilityIds((current) =>
         current.length > 0 ? current : [...submission.capabilityIds]
       )
-      if (
-        conversationId &&
-        !isNew &&
-        failedSnapshot &&
-        failedSnapshot !== lastDraftRef.current
-      ) {
-        void queueDraftSave(
-          conversationId,
-          submission.input,
-          submission.capabilityIds,
-          submission.knowledgeBaseIds
-        ).catch(() => undefined)
-      }
-      if (!isDraftConflictPendingError(nextError)) {
-        setTurnAdmissionError(nextError)
-      }
+      setSelectedKnowledgeBaseIds((current) =>
+        current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
+      setTurnAdmissionError(nextError)
       sendSubmissionConversationIdRef.current = null
     },
   })
@@ -3051,7 +2492,6 @@ export function ConversationPage({
       routeEpoch: number
       precedingTurnId: string | null
     }) => {
-      await draftQueueRef.current
       if (
         routeEpochRef.current !== routeEpoch ||
         routeConversationIdRef.current !== targetConversationId
@@ -3122,6 +2562,13 @@ export function ConversationPage({
       if (contextCompactionOperationRef.current?.id === result.idempotencyKey) {
         contextCompactionOperationRef.current = null
       }
+      if (user) {
+        clearLocalConversationDraft(
+          window.localStorage,
+          user.id,
+          result.conversationId
+        )
+      }
       if (routeConversationIdRef.current === result.conversationId) {
         setValue((current) => (current === result.commandValue ? "" : current))
       }
@@ -3175,27 +2622,12 @@ export function ConversationPage({
           previousGoalRevision: threadGoalRevision(conversation?.goal),
         }
       })
-      const requestedSnapshot = createConversationDraftSnapshot(
-        requestedObjective,
-        requestedCapabilityIds,
-        requestedKnowledgeBaseIds
-      )
-      submittedDraftSnapshotRef.current =
-        conversationDraftSnapshotKey(requestedSnapshot)
-      const persistedSnapshot = await queueDraftSave(
-        id,
-        requestedObjective,
-        requestedCapabilityIds,
-        requestedKnowledgeBaseIds,
-        { useLatestComposerSnapshot: false }
-      )
-      const objective = persistedSnapshot.input.trim()
-      const capabilityIds = [...persistedSnapshot.capabilityIds]
-      const knowledgeBaseIds = [...persistedSnapshot.knowledgeBaseIds]
+      const objective = requestedObjective
+      const capabilityIds = requestedCapabilityIds
+      const knowledgeBaseIds = requestedKnowledgeBaseIds
       const idempotencyKey = await stableOperationId(goalStartOperationRef, {
         operation: "goal_start",
         conversation_id: id,
-        draft_updated_at: draftUpdatedAtRef.current,
         preceding_turn_id:
           conversation?.running_turn?.id ??
           conversation?.turns?.at(-1)?.id ??
@@ -3237,29 +2669,27 @@ export function ConversationPage({
           selected_knowledge_base_ids: knowledgeBaseIds,
         },
       })
-      await enqueueDraftOperation(async () => {
-        const receipt = await apiRequest(`/conversations/${id}/goal`, {
-          method: "POST",
-          body: {
-            objective,
-            priority_capability_ids: capabilityIds,
-            knowledge_base_ids: knowledgeBaseIds,
-            idempotency_key: idempotencyKey,
-          },
-          schema: turnStartReceiptSchema,
-        })
-        setPendingTurnSubmission((current) =>
-          current?.conversationId === id &&
-          current.idempotencyKey === idempotencyKey
-            ? {
-                ...current,
-                turnId: receipt.turn_id,
-                status: receipt.status,
-                message: { ...current.message, turn_id: receipt.turn_id },
-              }
-            : current
-        )
+      const receipt = await apiRequest(`/conversations/${id}/goal`, {
+        method: "POST",
+        body: {
+          objective,
+          priority_capability_ids: capabilityIds,
+          knowledge_base_ids: knowledgeBaseIds,
+          idempotency_key: idempotencyKey,
+        },
+        schema: turnStartReceiptSchema,
       })
+      setPendingTurnSubmission((current) =>
+        current?.conversationId === id &&
+        current.idempotencyKey === idempotencyKey
+          ? {
+              ...current,
+              turnId: receipt.turn_id,
+              status: receipt.status,
+              message: { ...current.message, turn_id: receipt.turn_id },
+            }
+          : current
+      )
       let refreshedConversation: Conversation | null = null
       try {
         refreshedConversation = await refreshSubmittedConversation(id)
@@ -3268,7 +2698,7 @@ export function ConversationPage({
           queryKey: ["conversation", id],
         })
       }
-      return { id, idempotencyKey, persistedSnapshot, refreshedConversation }
+      return { id, idempotencyKey, refreshedConversation }
     },
     onSuccess: (result, _submission, optimisticAttachmentConsumption) => {
       commitOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
@@ -3289,25 +2719,16 @@ export function ConversationPage({
         if (goalStartOperationRef.current?.id === result.idempotencyKey) {
           goalStartOperationRef.current = null
         }
-        submittedDraftSnapshotRef.current = null
         goalStartSubmissionConversationIdRef.current = null
+        if (user)
+          clearLocalConversationDraft(window.localStorage, user.id, result.id)
         void refreshConversationList()
         return
       }
       setGoalMode(false)
       goalStartOperationRef.current = null
-      if (!result.refreshedConversation) {
-        const consumedSnapshot = createConversationDraftSnapshot(
-          "",
-          [],
-          result.persistedSnapshot.knowledgeBaseIds
-        )
-        lastDraftSnapshotRef.current = consumedSnapshot
-        lastDraftRef.current = conversationDraftSnapshotKey(consumedSnapshot)
-        lastQueuedDraftRef.current = lastDraftRef.current
-        queuedDraftSaveRef.current = null
-      }
-      submittedDraftSnapshotRef.current = null
+      if (user)
+        clearLocalConversationDraft(window.localStorage, user.id, result.id)
       goalStartSubmissionConversationIdRef.current = null
       void refreshConversationList()
     },
@@ -3315,7 +2736,6 @@ export function ConversationPage({
       const targetConversationId = goalStartSubmissionConversationIdRef.current
       composerSubmissionInFlightRef.current = false
       restoreOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
-      submittedDraftSnapshotRef.current = null
       if (routeConversationIdRef.current !== targetConversationId) {
         setPendingFirstMessageConversationId((current) =>
           current === targetConversationId ? null : current
@@ -3341,21 +2761,14 @@ export function ConversationPage({
       setSelectedCapabilityIds((current) =>
         current.length > 0 ? current : [...submission.capabilityIds]
       )
+      setSelectedKnowledgeBaseIds((current) =>
+        current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
       setOptimisticGoal((current) =>
         current?.goal.objective === submission.input.trim() ? null : current
       )
       setGoalMode(true)
-      if (conversationId && !isNew) {
-        void queueDraftSave(
-          conversationId,
-          submission.input,
-          submission.capabilityIds,
-          submission.knowledgeBaseIds
-        ).catch(() => undefined)
-      }
-      if (!isDraftConflictPendingError(nextError)) {
-        setTurnAdmissionError(nextError)
-      }
+      setTurnAdmissionError(nextError)
       goalStartSubmissionConversationIdRef.current = null
     },
   })
@@ -3499,7 +2912,6 @@ export function ConversationPage({
               knowledge_base_ids: validSelectedKnowledgeBaseIds,
               collaboration_mode: collaborationMode,
               idempotency_key: idempotencyKey,
-              draft_policy: "preserve",
               message_display: messageDisplay,
             },
             schema: pendingRequestSchema,
@@ -3541,7 +2953,6 @@ export function ConversationPage({
           knowledge_base_ids: validSelectedKnowledgeBaseIds,
           collaboration_mode: collaborationMode,
           idempotency_key: idempotencyKey,
-          draft_policy: "preserve",
           message_display: messageDisplay,
         },
         schema: turnStartReceiptSchema,
@@ -3784,32 +3195,6 @@ export function ConversationPage({
     removeAttachmentMutation.isPending ||
     clearAttachmentsMutation.isPending
 
-  const flushDraftAfterAttachmentOperation = async (
-    targetConversationId: string
-  ) => {
-    if (
-      routeConversationIdRef.current !== targetConversationId ||
-      hydratedIdRef.current !== targetConversationId
-    )
-      return
-    const snapshot = composerDraftSnapshotRef.current
-    try {
-      await queueDraftSave(
-        targetConversationId,
-        snapshot.input,
-        [...snapshot.capabilityIds],
-        [...snapshot.knowledgeBaseIds]
-      )
-    } catch (nextError: unknown) {
-      if (
-        routeConversationIdRef.current === targetConversationId &&
-        !isDraftConflictPendingError(nextError)
-      ) {
-        setError(getErrorMessage(nextError, t))
-      }
-    }
-  }
-
   const attachComposerFiles = (files: File[]) => {
     if (
       composerSubmissionInFlightRef.current ||
@@ -3823,8 +3208,8 @@ export function ConversationPage({
     setComposerAttachmentOperationPending(true)
     attachmentMutationTargetConversationIdRef.current = null
     let targetConversationId: string | null = null
-    return draftQueueRef.current
-      .then(() => attachMutation.mutateAsync(files))
+    return attachMutation
+      .mutateAsync(files)
       .then(async (id) => {
         targetConversationId = id
         return true
@@ -3841,12 +3226,9 @@ export function ConversationPage({
         }
         throw nextError
       })
-      .finally(async () => {
+      .finally(() => {
         targetConversationId ??=
           attachmentMutationTargetConversationIdRef.current
-        if (targetConversationId) {
-          await flushDraftAfterAttachmentOperation(targetConversationId)
-        }
         attachmentMutationTargetConversationIdRef.current = null
         composerAttachmentOperationInFlightRef.current = false
         setComposerAttachmentOperationPending(false)
@@ -3867,7 +3249,6 @@ export function ConversationPage({
     composerAttachmentOperationInFlightRef.current = true
     setComposerAttachmentOperationPending(true)
     try {
-      await draftQueueRef.current
       await removeAttachmentMutation.mutateAsync({
         targetConversationId,
         file,
@@ -3880,7 +3261,6 @@ export function ConversationPage({
         setError(getErrorMessage(nextError, t))
       }
     } finally {
-      await flushDraftAfterAttachmentOperation(targetConversationId)
       composerAttachmentOperationInFlightRef.current = false
       setComposerAttachmentOperationPending(false)
     }
@@ -3903,7 +3283,6 @@ export function ConversationPage({
     composerAttachmentOperationInFlightRef.current = true
     setComposerAttachmentOperationPending(true)
     try {
-      await draftQueueRef.current
       await clearAttachmentsMutation.mutateAsync({
         targetConversationId,
         files,
@@ -3916,7 +3295,6 @@ export function ConversationPage({
         setError(getErrorMessage(nextError, t))
       }
     } finally {
-      await flushDraftAfterAttachmentOperation(targetConversationId)
       composerAttachmentOperationInFlightRef.current = false
       setComposerAttachmentOperationPending(false)
     }
@@ -4001,40 +3379,29 @@ export function ConversationPage({
       if (!conversationId) throw new Error("conversation id is required")
       steerSubmissionConversationIdRef.current = conversationId
       const targetConversationId = conversationId
-      const nextInput = submission.input
-      const nextCapabilityIds = [...submission.capabilityIds]
-      const nextKnowledgeBaseIds = [...submission.knowledgeBaseIds]
-      const persistedSnapshot = await queueDraftSave(
-        targetConversationId,
-        nextInput,
-        nextCapabilityIds,
-        nextKnowledgeBaseIds,
-        { useLatestComposerSnapshot: false }
-      )
       const idempotencyKey = await stableOperationId(steerOperationRef, {
         operation: "turn_steer",
         conversation_id: targetConversationId,
         turn_id: conversation?.running_turn?.id,
-        draft_updated_at: draftUpdatedAtRef.current,
       })
-      await enqueueDraftOperation(async () => {
-        await apiRequest(
-          `/conversations/${targetConversationId}/turns/${conversation?.running_turn?.id}/steer`,
-          {
-            method: "POST",
-            body: {
-              text: persistedSnapshot.input,
-              idempotency_key: idempotencyKey,
-            },
-            schema: emptyResponseSchema,
-          }
-        )
-        await refreshSubmittedConversation(targetConversationId)
-      })
+      await apiRequest(
+        `/conversations/${targetConversationId}/turns/${conversation?.running_turn?.id}/steer`,
+        {
+          method: "POST",
+          body: {
+            text: submission.input,
+            idempotency_key: idempotencyKey,
+          },
+          schema: emptyResponseSchema,
+        }
+      )
+      await refreshSubmittedConversation(targetConversationId)
       return { id: targetConversationId }
     },
     onSuccess: async (result) => {
       composerSubmissionInFlightRef.current = false
+      if (user)
+        clearLocalConversationDraft(window.localStorage, user.id, result.id)
       if (routeConversationIdRef.current !== result.id) {
         steerOperationRef.current = null
         steerSubmissionConversationIdRef.current = null
@@ -4053,9 +3420,13 @@ export function ConversationPage({
         return
       }
       setValue((current) => current || submission.input)
-      if (!isDraftConflictPendingError(nextError)) {
-        setError(getErrorMessage(nextError, t))
-      }
+      setSelectedCapabilityIds((current) =>
+        current.length > 0 ? current : [...submission.capabilityIds]
+      )
+      setSelectedKnowledgeBaseIds((current) =>
+        current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
+      setError(getErrorMessage(nextError, t))
       steerSubmissionConversationIdRef.current = null
     },
   })
@@ -4066,44 +3437,33 @@ export function ConversationPage({
       if (!conversationId) throw new Error("conversation id is required")
       pendingSubmissionConversationIdRef.current = conversationId
       const targetConversationId = conversationId
-      const nextInput = submission.input
-      const nextCapabilityIds = [...submission.capabilityIds]
-      const nextKnowledgeBaseIds = [...submission.knowledgeBaseIds]
-      const persistedSnapshot = await queueDraftSave(
-        targetConversationId,
-        nextInput,
-        nextCapabilityIds,
-        nextKnowledgeBaseIds,
-        { useLatestComposerSnapshot: false }
-      )
       const idempotencyKey = await stableOperationId(pendingOperationRef, {
         operation: "pending_create",
         conversation_id: targetConversationId,
-        draft_updated_at: draftUpdatedAtRef.current,
         collaboration_mode: submission.collaborationMode,
       })
-      await enqueueDraftOperation(async () => {
-        await apiRequest(
-          `/conversations/${targetConversationId}/pending-requests`,
-          {
-            method: "POST",
-            body: {
-              input_text: persistedSnapshot.input,
-              priority_capability_ids: persistedSnapshot.capabilityIds,
-              knowledge_base_ids: persistedSnapshot.knowledgeBaseIds,
-              collaboration_mode: submission.collaborationMode,
-              idempotency_key: idempotencyKey,
-            },
-            schema: emptyResponseSchema,
-          }
-        )
-        await refreshSubmittedConversation(targetConversationId)
-      })
+      await apiRequest(
+        `/conversations/${targetConversationId}/pending-requests`,
+        {
+          method: "POST",
+          body: {
+            input_text: submission.input,
+            priority_capability_ids: submission.capabilityIds,
+            knowledge_base_ids: submission.knowledgeBaseIds,
+            collaboration_mode: submission.collaborationMode,
+            idempotency_key: idempotencyKey,
+          },
+          schema: emptyResponseSchema,
+        }
+      )
+      await refreshSubmittedConversation(targetConversationId)
       return { id: targetConversationId }
     },
     onSuccess: async (result, _submission, optimisticAttachmentConsumption) => {
       commitOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
       composerSubmissionInFlightRef.current = false
+      if (user)
+        clearLocalConversationDraft(window.localStorage, user.id, result.id)
       if (routeConversationIdRef.current !== result.id) {
         pendingOperationRef.current = null
         pendingSubmissionConversationIdRef.current = null
@@ -4126,9 +3486,10 @@ export function ConversationPage({
       setSelectedCapabilityIds((current) =>
         current.length > 0 ? current : [...submission.capabilityIds]
       )
-      if (!isDraftConflictPendingError(nextError)) {
-        setError(getErrorMessage(nextError, t))
-      }
+      setSelectedKnowledgeBaseIds((current) =>
+        current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
+      setError(getErrorMessage(nextError, t))
       pendingSubmissionConversationIdRef.current = null
     },
   })
@@ -4221,34 +3582,25 @@ export function ConversationPage({
       if (!conversationId) throw new Error("conversation id is required")
       setError(null)
       setPendingActionId(request.id)
-      await queueDraftSave(
-        conversationId,
-        value,
-        [...selectedCapabilityIds],
-        [...selectedKnowledgeBaseIds]
-      )
-      await apiRequest(
-        `/conversations/${conversationId}/pending-requests/${request.id}/restore-draft`,
+      const restored = await apiRequest(
+        `/conversations/${conversationId}/pending-requests/${request.id}/restore-input`,
         {
           method: "POST",
           schema: pendingRequestRestoreResultSchema,
         }
       )
-      return refreshSubmittedConversation(conversationId)
+      await refreshSubmittedConversation(conversationId)
+      return restored
     },
     onSettled: () => setPendingActionId(undefined),
-    onSuccess: async (detail) => {
-      setValue(detail.draft_input ?? "")
-      setSelectedCapabilityIds(effectiveDraftCapabilityIds(detail))
-      setSelectedKnowledgeBaseIds(effectiveDraftKnowledgeBaseIds(detail))
+    onSuccess: async (restored) => {
+      setValue(restored.input_text)
+      setSelectedCapabilityIds(restored.priority_capability_ids)
+      setSelectedKnowledgeBaseIds(restored.knowledge_base_ids)
       await refreshConversationList()
       window.setTimeout(() => composerRef.current?.focus(), 0)
     },
-    onError: (nextError) => {
-      if (!isDraftConflictPendingError(nextError)) {
-        setError(getErrorMessage(nextError, t))
-      }
-    },
+    onError: (nextError) => setError(getErrorMessage(nextError, t)),
   })
 
   const patchConversationMutation = useMutation({
@@ -4905,8 +4257,6 @@ export function ConversationPage({
     attachments: [],
     pending_requests: [],
     user_input_requests: [],
-    draft_input: "",
-    draft_capability_ids: [],
   }
   const currentOptimisticGoal =
     optimisticGoal?.conversationId === displayConversation.id
@@ -5448,38 +4798,9 @@ export function ConversationPage({
         />
       )}
 
-      {(error || draftConflict || showConnectionWarning) && (
+      {(error || showConnectionWarning) && (
         <div className="conversation-top-overlay-stack">
           <div className="conversation-banner-stack">
-            {draftConflict && (
-              <StatusBanner
-                variant="warning"
-                title={t("conversation.draftConflict.title")}
-                actions={
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={resolvingDraftConflict}
-                      onClick={useLatestDraft}
-                    >
-                      {t("conversation.draftConflict.useLatest")}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={resolvingDraftConflict}
-                      onClick={() => void keepCurrentDraft()}
-                    >
-                      {t("conversation.draftConflict.keepCurrent")}
-                    </Button>
-                  </div>
-                }
-              >
-                {t("conversation.draftConflict.description")}
-              </StatusBanner>
-            )}
             {error && <StatusBanner variant="error">{error}</StatusBanner>}
             {showConnectionWarning && (
               <StatusBanner variant="warning">

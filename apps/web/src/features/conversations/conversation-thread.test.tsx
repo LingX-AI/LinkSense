@@ -94,8 +94,6 @@ const completedConversation: Conversation = {
   collaboration_mode: "default",
   user_input_requests: [],
   plan_reviews: [],
-  draft_input: "",
-  draft_capability_ids: [],
   updated_at: "2026-07-11T08:00:03.250Z",
   has_unread_completion: false,
   has_automation: false,
@@ -545,6 +543,24 @@ describe("conversation turn responses", () => {
       )
       expect(screen.getByText("**行内示例： **value")).toBeVisible()
       expect(screen.getByText("**代码块： **value")).toBeVisible()
+    }
+  )
+
+  it.each([false, true])(
+    "renders strong emphasis next to Chinese text when streaming=%s",
+    (streaming) => {
+      const emphasized = "安装、迁移、新增或变更（IMAC）"
+      const { container } = render(
+        <AssistantMarkdown
+          streaming={streaming}
+          content={`本政策为教职工申请**${emphasized}**技术设备提供指引。`}
+        />
+      )
+
+      expect(screen.getByText(emphasized, { selector: "strong" })).toBeVisible()
+      expect(
+        container.querySelector(".assistant-markdown")
+      ).not.toHaveTextContent(`**${emphasized}**`)
     }
   )
 

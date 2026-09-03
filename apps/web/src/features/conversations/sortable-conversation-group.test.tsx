@@ -17,8 +17,6 @@ const conversations = [
     has_unread_completion: false,
     has_automation: false,
     user_input_requests: [],
-    draft_input: "",
-    draft_capability_ids: [],
   },
   {
     id: "task-second",
@@ -31,8 +29,6 @@ const conversations = [
     has_unread_completion: false,
     has_automation: false,
     user_input_requests: [],
-    draft_input: "",
-    draft_capability_ids: [],
   },
 ] satisfies Conversation[]
 

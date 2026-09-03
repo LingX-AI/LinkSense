@@ -390,7 +390,6 @@ export const conversationFileSchema = z
     size: z.number().optional(),
     size_bytes: z.number().optional(),
     kind: z.enum(["attachment", "artifact"]).optional(),
-    draft_id: z.string().nullable().optional(),
     pending_request_id: z.string().nullable().optional(),
     turn_id: z.string().nullable().optional(),
     status: z.string().optional(),
@@ -807,21 +806,6 @@ export type CapabilityImportPreview = z.infer<
   typeof capabilityImportPreviewSchema
 >
 
-export const conversationDraftSchema = z
-  .object({
-    id: z.string().optional(),
-    conversation_id: z.string().optional(),
-    owner_id: z.string().optional(),
-    input_text: z.string().optional(),
-    priority_capability_ids: z.array(z.string()).optional(),
-    knowledge_base_ids: z.array(z.string()).optional(),
-    created_at: z.string().optional(),
-    updated_at: z.string().optional(),
-  })
-  .passthrough()
-
-export type ConversationDraft = z.infer<typeof conversationDraftSchema>
-
 export const conversationModelContextUsageSchema = z
   .object({
     used_tokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
@@ -840,7 +824,9 @@ export const conversationOrderResultSchema = sharedConversationOrderResultSchema
 export const pendingRequestRestoreResultSchema = z
   .object({
     pending_request_id: z.string(),
-    draft: conversationDraftSchema,
+    input_text: z.string(),
+    priority_capability_ids: z.array(z.string()),
+    knowledge_base_ids: z.array(z.string()),
   })
   .passthrough()
 
@@ -887,11 +873,7 @@ export const conversationSchema = z
     has_automation: z.boolean().default(false),
     collaboration_mode: conversationCollaborationModeSchema.default("default"),
     fork_source: conversationForkSourceSchema.nullable().optional(),
-    draft: conversationDraftSchema.nullable().optional(),
-    draft_input: z.string().optional(),
-    draft_capability_ids: z.array(z.string()).optional(),
     selected_knowledge_base_ids: z.array(z.string()).optional(),
-    draft_knowledge_base_ids: z.array(z.string()).optional(),
     application: z
       .object({
         id: z.string(),
@@ -937,9 +919,6 @@ export const conversationSchema = z
           : value.title,
     archived: value.archived ?? value.archive_status === "archived",
     user_input_requests: value.user_input_requests ?? [],
-    draft_input: value.draft_input ?? value.draft?.input_text ?? "",
-    draft_capability_ids:
-      value.draft_capability_ids ?? value.draft?.priority_capability_ids ?? [],
   }))
 
 export type Conversation = z.infer<typeof conversationSchema>
@@ -948,7 +927,6 @@ const conversationDetailPayloadSchema = z
   .object({
     conversation: conversationSchema,
     goal: threadGoalSchema.nullable().optional(),
-    draft: conversationDraftSchema.nullable().optional(),
     messages: z.array(conversationMessageSchema).default([]),
     turns: z.array(turnSchema).default([]),
     pending_requests: z.array(pendingRequestSchema).default([]),
@@ -1088,11 +1066,6 @@ const conversationDetailPayloadSchema = z
     return conversationSchema.parse({
       ...value.conversation,
       goal: value.goal ?? value.conversation.goal ?? null,
-      draft: value.draft,
-      draft_input: value.draft?.input_text ?? value.conversation.draft_input,
-      draft_capability_ids:
-        value.draft?.priority_capability_ids ??
-        value.conversation.draft_capability_ids,
       messages,
       turns: value.turns,
       running_turn: runningTurn ?? null,
@@ -1106,9 +1079,7 @@ const conversationDetailPayloadSchema = z
       user_input_requests: value.user_input_requests,
       plan_reviews: value.plan_reviews,
       attachments: value.files.filter(
-        (file) =>
-          file.kind !== "artifact" &&
-          (file.status === "draft" || Boolean(file.draft_id))
+        (file) => file.kind !== "artifact" && file.status === "staged"
       ),
       artifacts: value.files.filter(
         (file) => file.kind === "artifact" && !attachedArtifactIds.has(file.id)
@@ -1129,33 +1100,6 @@ const conversationDetailPayloadSchema = z
 
 export const conversationDetailSchema = z.union([
   conversationDetailPayloadSchema,
-  conversationSchema,
-])
-
-export const conversationDraftResultSchema = z.union([
-  z
-    .object({
-      conversation: conversationSchema,
-      draft: conversationDraftSchema.nullable().optional(),
-    })
-    .passthrough()
-    .transform((value) =>
-      conversationSchema.parse({
-        ...value.conversation,
-        draft: value.draft,
-        draft_input: value.draft?.input_text ?? value.conversation.draft_input,
-        draft_capability_ids:
-          value.draft?.priority_capability_ids ??
-          value.conversation.draft_capability_ids,
-        messages: [],
-        turns: [],
-        pending_requests: [],
-        user_input_requests: [],
-        plan_reviews: [],
-        attachments: [],
-        artifacts: [],
-      })
-    ),
   conversationSchema,
 ])
 

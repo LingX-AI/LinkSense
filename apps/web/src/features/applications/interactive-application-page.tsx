@@ -256,7 +256,6 @@ function InteractiveApplicationRuntime({
                 idempotency_key:
                   input.idempotency_key ?? `interactive:${crypto.randomUUID()}`,
                 collaboration_mode: "default",
-                draft_policy: "preserve",
               },
               schema: turnStartReceiptSchema,
             }

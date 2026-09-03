@@ -1956,18 +1956,11 @@ export const enUS = {
     maxPending:
       "You can keep up to 5 pending requests. Process an existing request first.",
     pendingCancelled:
-      "The pending request was cancelled, and its attachments were restored to the task draft.",
+      "The pending request was cancelled, and its attachments were restored to the composer.",
     pendingContinued:
       "{{productName}} was asked to continue the first pending request.",
     pendingGuided: "The first pending request now guides the current run.",
     reconnecting: "Connection is recovering",
-    draftConflict: {
-      title: "Draft changes conflict",
-      description:
-        "This page and the server draft were both changed. Autosave is paused and your current content is safe; choose which version to keep.",
-      keepCurrent: "Keep current content",
-      useLatest: "Use latest draft",
-    },
     planTitle: "Execution plan",
     planProgress: "Step {{current}} of {{total}}",
     planChangedFiles_one: "{{count}} file changed",
@@ -4351,15 +4344,9 @@ export const enUS = {
       "The password setup link is invalid or has expired. Request a new one.",
     concurrencyLimit:
       "The system is currently at capacity. Please try again later.",
-    overloadedDraftSaved:
-      "The system is currently at capacity. Your draft has been saved; try again later.",
-    draftVersionConflict:
-      "The draft was updated elsewhere. Refresh and try again.",
     pendingLimit:
       "The pending request limit has been reached. Handle an existing request first.",
     pendingNotHead: "Only the first pending request can be continued.",
-    pendingRestoreDraftNotEmpty:
-      "The composer has unsent content. Handle it before editing the queued request.",
     interruptFailed: "Unable to interrupt the current run. Please try again.",
     conversation: {
       collaborationModeUnavailable:

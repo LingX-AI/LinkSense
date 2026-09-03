@@ -7,7 +7,6 @@ import {
   capabilityImportPreviewSchema,
   capabilitySummarySchema,
   conversationDetailSchema,
-  conversationDraftResultSchema,
   conversationSchema,
   credentialBindingSchema,
   credentialSchema,
@@ -302,7 +301,7 @@ describe("API response contracts", () => {
     ).toBe(false)
   })
 
-  it("flattens a conversation detail projection and keeps only draft attachments in the composer", () => {
+  it("flattens a conversation detail projection and keeps only staged attachments in the composer", () => {
     const result = conversationDetailSchema.parse({
       conversation: {
         id: "conversation-1",
@@ -310,7 +309,6 @@ describe("API response contracts", () => {
         archive_status: "active",
         updated_at: now,
       },
-      draft: { input_text: "草稿", priority_capability_ids: ["skill-1"] },
       turns: [{ id: "turn-1", status: "running", model: "gpt-5.6-sol" }],
       messages: [
         {
@@ -392,7 +390,7 @@ describe("API response contracts", () => {
           id: "draft-file",
           filename: "draft.pdf",
           kind: "attachment",
-          status: "draft",
+          status: "staged",
         },
         {
           id: "used-file",
@@ -419,7 +417,6 @@ describe("API response contracts", () => {
       ],
     })
 
-    expect(result.draft_input).toBe("草稿")
     expect(result.running_turn?.id).toBe("turn-1")
     expect(result.running_turn?.model).toBe("gpt-5.6-sol")
     expect(result.attachments?.map((file) => file.id)).toEqual(["draft-file"])
@@ -461,11 +458,6 @@ describe("API response contracts", () => {
         updated_at: now,
         selected_knowledge_base_ids: [knowledgeBaseId],
       },
-      draft: {
-        input_text: "继续查询",
-        priority_capability_ids: [],
-        knowledge_base_ids: [knowledgeBaseId],
-      },
       pending_requests: [
         {
           id: "pending-knowledge",
@@ -503,7 +495,6 @@ describe("API response contracts", () => {
     })
 
     expect(result.selected_knowledge_base_ids).toEqual([knowledgeBaseId])
-    expect(result.draft?.knowledge_base_ids).toEqual([knowledgeBaseId])
     expect(result.pending_requests?.[0]?.knowledge_base_ids).toEqual([
       knowledgeBaseId,
     ])
@@ -999,16 +990,13 @@ describe("API response contracts", () => {
     ).toBeNull()
   })
 
-  it("normalizes draft, capability preference, and SSE fields", () => {
-    const draft = conversationDraftResultSchema.parse({
-      conversation: {
-        id: "conversation-1",
-        title: "未命名对话",
-        title_source: "fallback",
-        archive_status: "active",
-        updated_at: now,
-      },
-      draft: { input_text: "hello", priority_capability_ids: [] },
+  it("normalizes conversation, capability preference, and SSE fields", () => {
+    const conversation = conversationSchema.parse({
+      id: "conversation-1",
+      title: "未命名对话",
+      title_source: "fallback",
+      archive_status: "active",
+      updated_at: now,
     })
     const capability = capabilitySummarySchema.parse({
       id: "capability-1",
@@ -1048,8 +1036,7 @@ describe("API response contracts", () => {
       created_at: now,
     })
 
-    expect(draft.draft_input).toBe("hello")
-    expect(draft.title).toBe("未命名任务")
+    expect(conversation.title).toBe("未命名任务")
     expect(capability.personally_disabled).toBe(true)
     expect(capability).toMatchObject({
       builtin_key: null,

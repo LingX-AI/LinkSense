@@ -468,10 +468,7 @@ function conversation() {
     execution_status: "idle",
     has_unread_completion: false,
     collaboration_mode: "default",
-    draft_input: "",
-    draft_capability_ids: [],
     selected_knowledge_base_ids: [],
-    draft_knowledge_base_ids: [],
     messages: [],
     attachments: [...clientState.attachments],
     artifacts: [],
@@ -493,9 +490,8 @@ function attachment(id: string, name: string): ConversationFile {
     mime_type: "application/pdf",
     size: 1_024,
     kind: "attachment",
-    draft_id: "70000000-0000-4000-8000-000000000001",
     turn_id: null,
-    status: "draft",
+    status: "staged",
     download_available: false,
   }
 }

@@ -1804,17 +1804,10 @@ export const zhCN = {
     pendingUnknownBlock: "启动前检查未通过，请联系管理员。",
     cancelPending: "取消后续请求",
     maxPending: "最多只能保留 5 条后续请求，请先处理已有请求。",
-    pendingCancelled: "后续请求已取消，待用附件已恢复为任务草稿附件。",
+    pendingCancelled: "后续请求已取消，待用附件已恢复到输入区。",
     pendingContinued: "已请求继续执行队首后续请求。",
     pendingGuided: "已将队首后续请求引导到当前执行。",
     reconnecting: "连接正在恢复",
-    draftConflict: {
-      title: "草稿内容发生冲突",
-      description:
-        "当前页面和服务器上的草稿都已修改。自动保存已暂停，当前内容不会丢失；请选择要保留的版本。",
-      keepCurrent: "保留当前内容",
-      useLatest: "使用最新草稿",
-    },
     planTitle: "执行计划",
     planProgress: "第 {{current}} / {{total}} 步",
     planChangedFiles_one: "{{count}} 个文件已更改",
@@ -4031,12 +4024,8 @@ export const zhCN = {
     },
     passwordResetInvalid: "密码设置链接无效或已过期，请重新申请。",
     concurrencyLimit: "当前系统使用人数过载，请稍后再试。",
-    overloadedDraftSaved: "当前系统使用人数过载，草稿已保存，请稍后重试。",
-    draftVersionConflict: "草稿已在其他位置更新，请刷新后重试。",
     pendingLimit: "后续请求已达上限，请先处理现有请求。",
     pendingNotHead: "只能继续执行队首请求。",
-    pendingRestoreDraftNotEmpty:
-      "输入框中已有未发送内容，请先处理后再编辑排队信息。",
     interruptFailed: "暂时无法中断当前执行，请稍后重试。",
     conversation: {
       collaborationModeUnavailable:
