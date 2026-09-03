@@ -2230,6 +2230,124 @@ describe("LinkSense application", () => {
     )
   })
 
+  it("shows a new task loading indicator before task creation finishes", async () => {
+    let releaseNewTaskDraft: (() => void) | undefined
+    const newTaskDraftStart = new Promise<void>((resolve) => {
+      releaseNewTaskDraft = resolve
+    })
+    let releaseNewTaskTurn: (() => void) | undefined
+    const newTaskTurnStart = new Promise<void>((resolve) => {
+      releaseNewTaskTurn = resolve
+    })
+    const { requests } = installApiMock({
+      newTaskDraftStart,
+      newTaskTurnStart,
+      conversationListResponse: () =>
+        json({
+          success: true,
+          data: {
+            items: conversations.map((item) => ({
+              ...item,
+              execution_status: "completed",
+            })),
+            next_cursor: null,
+            total_count: conversations.length,
+          },
+        }),
+      newTaskDetailResponse: async () =>
+        json({
+          success: true,
+          data: {
+            ...conversation,
+            id: "new-task-1",
+            title: "未命名任务",
+            execution_status: "running",
+            messages: [],
+            turns: [
+              {
+                id: "00000000-0000-4000-8000-000000000002",
+                status: "running",
+              },
+            ],
+            running_turn: {
+              id: "00000000-0000-4000-8000-000000000002",
+              status: "running",
+            },
+          },
+        }),
+    })
+    const interaction = userEvent.setup()
+    renderApp("/conversations/new")
+
+    const sidebar = await screen.findByRole(
+      "complementary",
+      { name: "LinkSense 导航" },
+      { timeout: 5_000 }
+    )
+    await interaction.type(
+      screen.getByRole("textbox", { name: "任务输入框" }),
+      "生成一段欢迎语音"
+    )
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+
+    const title = within(sidebar).getByText("未命名任务")
+    const item = title.closest(".sidebar-conversation-item")
+    expect(item).not.toBeNull()
+    expect(
+      within(item as HTMLElement).getByRole("status", { name: "执行中" })
+    ).toBeVisible()
+    expect(title.closest("a")).toHaveAttribute("aria-busy", "true")
+    expect(
+      requests.some(
+        (request) =>
+          request.path === "/api/v1/conversations/new-task-1/turns" &&
+          request.method === "POST"
+      )
+    ).toBe(false)
+
+    releaseNewTaskDraft?.()
+    await waitFor(() =>
+      expect(
+        requests.some(
+          (request) =>
+            request.path === "/api/v1/conversations/new-task-1/turns" &&
+            request.method === "POST"
+        )
+      ).toBe(true)
+    )
+    const detailRequestCountBeforeAdmission = requests.filter(
+      (request) =>
+        request.path === "/api/v1/conversations/new-task-1" &&
+        request.method === "GET"
+    ).length
+    await act(async () => {
+      releaseNewTaskTurn?.()
+      await newTaskTurnStart
+    })
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/new-task-1" &&
+            request.method === "GET"
+        ).length
+      ).toBeGreaterThan(detailRequestCountBeforeAdmission)
+    )
+    await act(
+      () => new Promise<void>((resolve) => window.setTimeout(resolve, 50))
+    )
+
+    const persistedTitle = within(sidebar).getByText("未命名任务")
+    const persistedItem = persistedTitle.closest(".sidebar-conversation-item")
+    expect(persistedItem).not.toBeNull()
+    expect(
+      within(persistedItem as HTMLElement).getByRole("status", {
+        name: "执行中",
+      })
+    ).toBeVisible()
+    expect(persistedTitle.closest("a")).toHaveAttribute("aria-busy", "true")
+  })
+
   it("keeps the task workspace and composer mounted when the first message creates the task", async () => {
     let releaseNewTaskDraft!: () => void
     const newTaskDraftStart = new Promise<void>((resolve) => {
@@ -7909,6 +8027,98 @@ describe("LinkSense application", () => {
 
     expect(log.scrollTop).toBe(2_000)
     expect(screen.queryByRole("button", { name: "回到底部" })).toBeNull()
+  })
+
+  it("shows the active task loading indicator immediately when sending a new turn", async () => {
+    let resolveTurnStart: ((response: Response) => void) | undefined
+    const pendingTurnStart = new Promise<Response>((resolve) => {
+      resolveTurnStart = resolve
+    })
+    const { requests } = installApiMock({
+      conversationOverride: {
+        draft_input: "",
+        execution_status: "completed",
+        turns: [{ id: "turn-1", status: "completed" }],
+        running_turn: null,
+      },
+      conversationListResponse: () =>
+        json({
+          success: true,
+          data: {
+            items: conversations.map((item) =>
+              item.id === "c1"
+                ? { ...item, execution_status: "completed" }
+                : item
+            ),
+            next_cursor: null,
+            total_count: conversations.length,
+          },
+        }),
+      turnStartResponse: () => pendingTurnStart,
+    })
+    const interaction = userEvent.setup()
+    renderApp()
+
+    const sidebar = await screen.findByRole(
+      "complementary",
+      { name: "LinkSense 导航" },
+      { timeout: 5_000 }
+    )
+    const title = await within(sidebar).findByText("活动风险评估")
+    const item = title.closest(".sidebar-conversation-item")
+    expect(item).not.toBeNull()
+    expect(
+      within(item as HTMLElement).queryByRole("status", { name: "执行中" })
+    ).toBeNull()
+
+    await interaction.type(
+      screen.getByRole("textbox", { name: "任务输入框" }),
+      "请补充风险建议"
+    )
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+
+    expect(
+      within(item as HTMLElement).getByRole("status", { name: "执行中" })
+    ).toBeVisible()
+    expect(title.closest("a")).toHaveAttribute("aria-busy", "true")
+
+    const detailRequestCountBeforeAdmission = requests.filter(
+      (request) =>
+        request.path === "/api/v1/conversations/c1" && request.method === "GET"
+    ).length
+    await act(async () => {
+      resolveTurnStart?.(
+        json(
+          {
+            success: true,
+            data: {
+              turn_id: "00000000-0000-4000-8000-000000000001",
+              accepted: true,
+              status: "starting",
+            },
+          },
+          202
+        )
+      )
+      await pendingTurnStart
+    })
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/c1" &&
+            request.method === "GET"
+        ).length
+      ).toBeGreaterThan(detailRequestCountBeforeAdmission)
+    )
+    await act(
+      () => new Promise<void>((resolve) => window.setTimeout(resolve, 50))
+    )
+
+    expect(
+      within(item as HTMLElement).getByRole("status", { name: "执行中" })
+    ).toBeVisible()
+    expect(title.closest("a")).toHaveAttribute("aria-busy", "true")
   })
 
   it("regenerates from the edited latest user message without changing the composer draft", async () => {

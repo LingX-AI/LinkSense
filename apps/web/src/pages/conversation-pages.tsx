@@ -13,6 +13,7 @@ import {
   useQueries,
   useQuery,
   useQueryClient,
+  type InfiniteData,
 } from "@tanstack/react-query"
 import {
   ArchiveIcon,
@@ -67,6 +68,7 @@ import {
   type ConversationUserInputRequest,
   type NativeMessagePhase,
   type NativeMessageOutputKind,
+  type Paginated,
   type PendingRequest,
   type Application,
   type ThreadGoal,
@@ -157,7 +159,10 @@ import { buildConversationLineSidebarItems } from "@/features/conversations/conv
 import { getConversationMessageAnchorId } from "@/features/conversations/conversation-message-anchor"
 import {
   patchConversationTitle,
+  patchSidebarConversationExecutionStatus,
   patchSidebarConversationTitle,
+  removeSidebarConversation,
+  replaceSidebarConversation,
   upsertSidebarConversation,
 } from "@/features/conversations/conversation-order"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
@@ -317,6 +322,22 @@ type OptimisticAttachmentConsumption = Readonly<{
   conversationId: string
   previousAttachments: ConversationFile[]
   submittedAttachmentIds: string[]
+}>
+
+type OptimisticSidebarExecutionStatus =
+  | Readonly<{
+      kind: "patched"
+      conversationId: string
+      previousExecutionStatus: Conversation["execution_status"]
+    }>
+  | Readonly<{
+      kind: "inserted"
+      conversationId: string
+    }>
+
+type OptimisticTurnStart = Readonly<{
+  attachmentConsumption: OptimisticAttachmentConsumption | undefined
+  sidebarExecutionStatus: OptimisticSidebarExecutionStatus | undefined
 }>
 
 type UserTokenQuotaUsage = NonNullable<
@@ -1743,12 +1764,25 @@ export function ConversationPage({
     [conversationId, isNew, queryClient]
   )
 
+  const pendingSubmittedTurnNotProjected = Boolean(
+    pendingTurnSubmission &&
+    pendingTurnSubmission.conversationId === conversationId &&
+    (!pendingTurnSubmission.turnId ||
+      !conversation?.turns?.some(
+        (turn) => turn.id === pendingTurnSubmission.turnId
+      ) ||
+      !conversation.messages?.some(
+        (message) => message.turn_id === pendingTurnSubmission.turnId
+      ))
+  )
+
   useEffect(() => {
     const executionStatus = conversation?.execution_status
     if (
       isNew ||
       !conversationId ||
       !conversationQuery.isSuccess ||
+      pendingSubmittedTurnNotProjected ||
       (executionStatus !== "completed" &&
         executionStatus !== "failed" &&
         executionStatus !== "interrupted")
@@ -1769,6 +1803,7 @@ export function ConversationPage({
     conversationId,
     conversationQuery.isSuccess,
     isNew,
+    pendingSubmittedTurnNotProjected,
     queryClient,
   ])
 
@@ -2512,6 +2547,21 @@ export function ConversationPage({
         schema: conversationDraftResultSchema,
       })
       queryClient.setQueryData(["conversation", draft.id], draft)
+      if (suppressEmptyStateUntilFirstMessage) {
+        const runningDraft: Conversation = {
+          ...draft,
+          execution_status: "running",
+        }
+        queryClient.setQueryData<
+          InfiniteData<Paginated<Conversation>, string | undefined>
+        >(["conversations", "sidebar"], (cached) =>
+          replaceSidebarConversation(
+            cached,
+            newConversationPlaceholderId,
+            runningDraft
+          )
+        )
+      }
       if (
         routeEpochRef.current === routeEpoch &&
         routeConversationIdRef.current === null
@@ -2670,8 +2720,104 @@ export function ConversationPage({
     [clearOptimisticAttachmentConsumption, queryClient]
   )
 
+  const optimisticallyMarkSidebarConversationRunning = useCallback(() => {
+    const queryKey = ["conversations", "sidebar"] as const
+    const current =
+      queryClient.getQueryData<
+        InfiniteData<Paginated<Conversation>, string | undefined>
+      >(queryKey)
+    if (!current) return undefined
+    if (isNew) {
+      const optimisticConversation = conversationSchema.parse({
+        id: newConversationPlaceholderId,
+        title: t("conversation.untitled"),
+        archived: false,
+        pinned_at: null,
+        sort_order: null,
+        updated_at: new Date().toISOString(),
+        execution_status: "running",
+        has_unread_completion: false,
+        has_automation: false,
+        collaboration_mode: collaborationMode,
+      })
+      queryClient.setQueryData<
+        InfiniteData<Paginated<Conversation>, string | undefined>
+      >(queryKey, (cached) =>
+        upsertSidebarConversation(cached, optimisticConversation)
+      )
+      return {
+        kind: "inserted",
+        conversationId: newConversationPlaceholderId,
+      } satisfies OptimisticSidebarExecutionStatus
+    }
+    if (!conversationId) return undefined
+    const sidebarConversation = current?.pages
+      .flatMap((page) => page.items)
+      .find((item) => item.id === conversationId)
+    if (
+      !sidebarConversation ||
+      sidebarConversation.execution_status === "running"
+    ) {
+      return undefined
+    }
+    const optimisticStatus = {
+      kind: "patched",
+      conversationId,
+      previousExecutionStatus: sidebarConversation.execution_status,
+    } satisfies OptimisticSidebarExecutionStatus
+    queryClient.setQueryData<
+      InfiniteData<Paginated<Conversation>, string | undefined>
+    >(queryKey, (cached) =>
+      patchSidebarConversationExecutionStatus(cached, conversationId, "running")
+    )
+    return optimisticStatus
+  }, [collaborationMode, conversationId, isNew, queryClient, t])
+
+  const restoreOptimisticSidebarExecutionStatus = useCallback(
+    (
+      optimisticStatus: OptimisticSidebarExecutionStatus | undefined,
+      persistedConversationId?: string | null
+    ) => {
+      if (!optimisticStatus) return
+      queryClient.setQueryData<
+        InfiniteData<Paginated<Conversation>, string | undefined>
+      >(["conversations", "sidebar"], (cached) => {
+        if (optimisticStatus.kind === "inserted") {
+          const withoutPlaceholder = removeSidebarConversation(
+            cached,
+            optimisticStatus.conversationId
+          )
+          return persistedConversationId
+            ? patchSidebarConversationExecutionStatus(
+                withoutPlaceholder,
+                persistedConversationId,
+                undefined
+              )
+            : withoutPlaceholder
+        }
+        return patchSidebarConversationExecutionStatus(
+          cached,
+          optimisticStatus.conversationId,
+          optimisticStatus.previousExecutionStatus
+        )
+      })
+    },
+    [queryClient]
+  )
+
   const sendMutation = useMutation({
-    onMutate: optimisticallyConsumeSubmissionAttachments,
+    onMutate: async (submission): Promise<OptimisticTurnStart> => {
+      const sidebarExecutionStatus =
+        optimisticallyMarkSidebarConversationRunning()
+      try {
+        const attachmentConsumption =
+          await optimisticallyConsumeSubmissionAttachments(submission)
+        return { attachmentConsumption, sidebarExecutionStatus }
+      } catch (error) {
+        restoreOptimisticSidebarExecutionStatus(sidebarExecutionStatus)
+        throw error
+      }
+    },
     mutationFn: async (submission: ComposerSubmission) => {
       sendSubmissionConversationIdRef.current = isNew
         ? null
@@ -2803,8 +2949,10 @@ export function ConversationPage({
       })
       return { id, idempotencyKey, persistedSnapshot }
     },
-    onSuccess: (result, _submission, optimisticAttachmentConsumption) => {
-      commitOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
+    onSuccess: (result, _submission, optimisticTurnStart) => {
+      commitOptimisticallyConsumedAttachments(
+        optimisticTurnStart?.attachmentConsumption
+      )
       composerSubmissionInFlightRef.current = false
       setPendingFirstMessageConversationId(null)
       if (routeConversationIdRef.current !== result.id) {
@@ -2816,7 +2964,6 @@ export function ConversationPage({
         }
         submittedDraftSnapshotRef.current = null
         sendSubmissionConversationIdRef.current = null
-        void refreshConversationList()
         return
       }
       turnSubmitOperationRef.current = null
@@ -2831,18 +2978,26 @@ export function ConversationPage({
       queuedDraftSaveRef.current = null
       submittedDraftSnapshotRef.current = null
       sendSubmissionConversationIdRef.current = null
+      // Keep the optimistic running state until the submitted turn is
+      // projected. An immediate list refresh can still return the preceding
+      // terminal state and make the sidebar indicator flicker.
       void refreshSubmittedConversation(result.id).catch(() => {
         void queryClient.invalidateQueries({
           queryKey: ["conversation", result.id],
         })
       })
-      void refreshConversationList()
     },
-    onError: (nextError, submission, optimisticAttachmentConsumption) => {
+    onError: (nextError, submission, optimisticTurnStart) => {
       const targetConversationId = sendSubmissionConversationIdRef.current
       composerSubmissionInFlightRef.current = false
       setInterrupting(false)
-      restoreOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
+      restoreOptimisticallyConsumedAttachments(
+        optimisticTurnStart?.attachmentConsumption
+      )
+      restoreOptimisticSidebarExecutionStatus(
+        optimisticTurnStart?.sidebarExecutionStatus,
+        targetConversationId
+      )
       const failedSnapshot = submittedDraftSnapshotRef.current
       submittedDraftSnapshotRef.current = null
       if (routeConversationIdRef.current !== targetConversationId) {
