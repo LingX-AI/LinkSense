@@ -4511,11 +4511,19 @@ export function ConversationPage({
     [conversationId, isNew]
   )
 
+  const reportFileDownloadError = useCallback(
+    (nextError: unknown) => {
+      notify.error(getErrorMessage(nextError, t), {
+        id: "conversation-file-download-error",
+      })
+    },
+    [t]
+  )
+
   const downloadArtifact = useCallback(
     async (file: ConversationFile) => {
       if (downloadInFlightRef.current || !conversationId || isNew) return
       downloadInFlightRef.current = true
-      setError(null)
       setDownloadingFileId(file.id)
       try {
         const blob = await downloadApiFile(
@@ -4523,13 +4531,13 @@ export function ConversationPage({
         )
         downloadBlob(blob, file.name)
       } catch (nextError) {
-        setError(getErrorMessage(nextError, t))
+        reportFileDownloadError(nextError)
       } finally {
         downloadInFlightRef.current = false
         setDownloadingFileId(undefined)
       }
     },
-    [conversationId, isNew, t]
+    [conversationId, isNew, reportFileDownloadError]
   )
 
   const downloadOfficePreview = (
@@ -4538,7 +4546,6 @@ export function ConversationPage({
   ) => {
     if (downloadInFlightRef.current) return
     downloadInFlightRef.current = true
-    setError(null)
     setDownloadingFileId(file.id)
     try {
       downloadBlob(
@@ -4548,35 +4555,34 @@ export function ConversationPage({
         file.name
       )
     } catch (nextError) {
-      setError(getErrorMessage(nextError, t))
+      reportFileDownloadError(nextError)
     } finally {
       downloadInFlightRef.current = false
       setDownloadingFileId(undefined)
     }
   }
 
-  const downloadMediaPreview = useCallback(
+  const downloadSourcePreview = useCallback(
     async (file: ConversationFile) => {
       if (downloadInFlightRef.current || !conversationId || isNew) return
       downloadInFlightRef.current = true
-      setError(null)
       setDownloadingFileId(file.id)
       try {
         const fileRoute = isAttachmentConversationFile(file)
           ? `attachments/${file.id}/content`
-          : `files/${file.id}/media`
+          : `files/${file.id}/download`
         const blob = await downloadApiFile(
           `/conversations/${conversationId}/${fileRoute}`
         )
         downloadBlob(blob, file.name)
       } catch (nextError) {
-        setError(getErrorMessage(nextError, t))
+        reportFileDownloadError(nextError)
       } finally {
         downloadInFlightRef.current = false
         setDownloadingFileId(undefined)
       }
     },
-    [conversationId, isNew, t]
+    [conversationId, isNew, reportFileDownloadError]
   )
 
   const handleSubAgentSelect = useCallback(
@@ -5074,7 +5080,7 @@ export function ConversationPage({
               knowledgeBaseSelectionPending
             }
             onDownload={downloadOfficePreview}
-            onDownloadSource={downloadMediaPreview}
+            onDownloadSource={downloadSourcePreview}
             updateAction={
               previewUpdateCandidate
                 ? {

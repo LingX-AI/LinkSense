@@ -9503,7 +9503,7 @@ describe("LinkSense application", () => {
     await waitFor(() => expect(download).toBeEnabled())
   })
 
-  it("keeps the current page unchanged when an artifact download fails", async () => {
+  it("shows the reusable top notification when an artifact download fails", async () => {
     const open = vi.fn()
     vi.stubGlobal("open", open)
     const click = vi
@@ -9514,10 +9514,10 @@ describe("LinkSense application", () => {
         json(
           {
             success: false,
-            error_code: "NETWORK_UNAVAILABLE",
-            message_key: "errors.networkUnavailable",
+            error_code: "ARTIFACT_NOT_FOUND",
+            message_key: "errors.artifactNotFound",
           },
-          503
+          404
         )
       ),
       conversationOverride: {
@@ -9550,13 +9550,26 @@ describe("LinkSense application", () => {
       })
     )
 
-    expect(await screen.findByRole("alert")).toBeVisible()
+    const notification = await screen.findByText("未找到该产物。")
+    expect(notification.closest("[data-sonner-toast]")).not.toBeNull()
+    expect(notification.closest(".conversation-top-overlay-stack")).toBeNull()
     expect(click).not.toHaveBeenCalled()
     expect(open).not.toHaveBeenCalled()
     expect(window.location.href).toBe("http://localhost/")
   })
 
-  it("loads an image artifact thumbnail and opens the shared preview dialog", async () => {
+  it("downloads an image artifact from the shared preview through the artifact download route", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:image-artifact-download"),
+    })
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    })
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined)
     const { requests } = installApiMock({
       conversationOverride: {
         messages: [
@@ -9616,6 +9629,32 @@ describe("LinkSense application", () => {
         { timeout: 3_000 }
       )
     ).toHaveAttribute("src", "https://files.example.test/artifact-preview.png")
+
+    const previewPane = await screen.findByRole("region", {
+      name: "预览文档 小狗和可乐.png",
+    })
+    await interaction.click(
+      within(previewPane).getByRole("button", {
+        name: "下载文档 小狗和可乐.png",
+      })
+    )
+
+    await waitFor(() => expect(click).toHaveBeenCalledOnce())
+    expect(
+      requests.filter(
+        (request) =>
+          request.path ===
+            "/api/v1/conversations/c1/files/artifact-1/download" &&
+          request.method === "GET"
+      )
+    ).toHaveLength(1)
+    expect(
+      requests.some(
+        (request) =>
+          request.path ===
+          "/api/v1/conversations/c1/files/artifact-1/media"
+      )
+    ).toBe(false)
   })
 
   it("opens a sent XLSX attachment with the shared file preview", async () => {

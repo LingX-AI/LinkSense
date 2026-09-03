@@ -212,11 +212,10 @@ type AdminPage =
 type UsersAndGroupsTab = "groups" | "users"
 const systemSettingsSections = [
   "product",
-  "concurrency",
   "smtp",
   "registration",
-  "oidc",
-  "teams",
+  "sso",
+  "concurrency",
   "maintenance",
 ] as const
 type SystemSettingsSection = (typeof systemSettingsSections)[number]
@@ -3772,15 +3771,14 @@ function ProductSettingsEditor({
         <TabsTrigger value="product">
           {t("admin.settingsTabs.product")}
         </TabsTrigger>
-        <TabsTrigger value="concurrency">
-          {t("admin.settingsTabs.concurrency")}
-        </TabsTrigger>
         <TabsTrigger value="smtp">{t("admin.settingsTabs.smtp")}</TabsTrigger>
         <TabsTrigger value="registration">
           {t("admin.settingsTabs.registration")}
         </TabsTrigger>
-        <TabsTrigger value="oidc">{t("admin.settingsTabs.oidc")}</TabsTrigger>
-        <TabsTrigger value="teams">{t("admin.settingsTabs.teams")}</TabsTrigger>
+        <TabsTrigger value="sso">{t("admin.settingsTabs.sso")}</TabsTrigger>
+        <TabsTrigger value="concurrency">
+          {t("admin.settingsTabs.concurrency")}
+        </TabsTrigger>
         <TabsTrigger value="maintenance">
           {t("admin.settingsTabs.maintenance")}
         </TabsTrigger>
@@ -3913,12 +3911,10 @@ function ProductSettingsEditor({
       <TabsContent value="registration" className="min-w-0" keepMounted>
         <RegistrationSettingsForm settings={registrationSettings} />
       </TabsContent>
-      <TabsContent value="oidc" className="min-w-0" keepMounted>
+      <TabsContent value="sso" className="min-w-0" keepMounted>
         <OidcAuthenticationSettingsForm
           settings={authenticationSettings.oidc}
         />
-      </TabsContent>
-      <TabsContent value="teams" className="min-w-0" keepMounted>
         <TeamsAuthenticationSettingsForm
           settings={authenticationSettings.teams}
         />

@@ -3317,8 +3317,7 @@ export const zhCN = {
       concurrency: "任务并发",
       smtp: "认证邮件",
       registration: "开放注册",
-      oidc: "OIDC 登录",
-      teams: "Teams 登录",
+      sso: "单点登录",
       maintenance: "系统维护",
     },
     concurrency: {

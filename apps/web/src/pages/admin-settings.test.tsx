@@ -456,6 +456,14 @@ describe("administrator authentication settings", () => {
     expect(await screen.findByRole("heading", { name: "管理" })).toBeVisible()
     const productTab = await screen.findByRole("tab", { name: "产品设置" })
     expect(productTab).toHaveAttribute("aria-selected", "true")
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "产品设置",
+      "认证邮件",
+      "开放注册",
+      "单点登录",
+      "任务并发",
+      "系统维护",
+    ])
     expect(productTab.closest('[data-slot="tabs-list"]')).toHaveClass(
       "rounded-none",
       "bg-transparent"
@@ -486,9 +494,21 @@ describe("administrator authentication settings", () => {
     await interaction.click(screen.getByRole("tab", { name: "认证邮件" }))
     expect(screen.getByRole("heading", { name: "认证邮件功能" })).toBeVisible()
 
-    await interaction.click(screen.getByRole("tab", { name: "OIDC 登录" }))
+    await interaction.click(screen.getByRole("tab", { name: "单点登录" }))
     const oidcHeading = screen.getByRole("heading", { name: "OIDC 登录" })
+    const teamsHeading = screen.getByRole("heading", { name: "Teams 登录" })
     expect(oidcHeading).toBeVisible()
+    expect(teamsHeading).toBeVisible()
+    expect(
+      oidcHeading.compareDocumentPosition(teamsHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).not.toBe(0)
+    expect(
+      screen.queryByRole("tab", { name: "OIDC 登录" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("tab", { name: "Teams 登录" })
+    ).not.toBeInTheDocument()
     const oidcTitleRow = oidcHeading.closest<HTMLElement>(
       '[data-slot="settings-section-title-row"]'
     )
@@ -512,9 +532,6 @@ describe("administrator authentication settings", () => {
     ).not.toBeInTheDocument()
     expect(oidcSection).toHaveTextContent("已保存密钥；留空会保留当前值。")
     expect(oidcSection).not.toHaveTextContent("first-secret")
-
-    await interaction.click(screen.getByRole("tab", { name: "Teams 登录" }))
-    expect(screen.getByRole("heading", { name: "Teams 登录" })).toBeVisible()
 
     await interaction.click(screen.getByRole("tab", { name: "系统维护" }))
     expect(
@@ -3259,7 +3276,7 @@ describe("administrator authentication settings", () => {
       "draft.smtp.example.com"
     )
 
-    await interaction.click(screen.getByRole("tab", { name: "OIDC 登录" }))
+    await interaction.click(screen.getByRole("tab", { name: "单点登录" }))
     await interaction.click(screen.getByRole("tab", { name: "认证邮件" }))
 
     expect(within(smtpSection!).getByLabelText("SMTP 主机")).toHaveValue(
@@ -3296,7 +3313,7 @@ describe("administrator authentication settings", () => {
     renderSettings()
 
     await interaction.click(
-      await screen.findByRole("tab", { name: "OIDC 登录" })
+      await screen.findByRole("tab", { name: "单点登录" })
     )
     const oidcSection = screen
       .getByRole("heading", { name: "OIDC 登录" })

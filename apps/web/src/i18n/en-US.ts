@@ -3563,8 +3563,7 @@ export const enUS = {
       concurrency: "Task concurrency",
       smtp: "Authentication email",
       registration: "Open registration",
-      oidc: "OIDC sign-in",
-      teams: "Teams sign-in",
+      sso: "Single sign-on",
       maintenance: "System maintenance",
     },
     concurrency: {

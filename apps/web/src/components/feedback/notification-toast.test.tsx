@@ -81,6 +81,7 @@ describe("notification toast", () => {
   it("shares the same duration through the imperative notification API", () => {
     notify.loading("正在处理。", { id: "connection-warning" })
     notify.warning("连接不稳定。", { id: "connection-warning" })
+    notify.error("下载失败。", { id: "file-download-error" })
     notify.dismiss("connection-warning")
 
     expect(toastSpies.loading).toHaveBeenCalledWith("正在处理。", {
@@ -90,6 +91,10 @@ describe("notification toast", () => {
     expect(toastSpies.warning).toHaveBeenCalledWith("连接不稳定。", {
       duration: notificationDuration,
       id: "connection-warning",
+    })
+    expect(toastSpies.error).toHaveBeenCalledWith("下载失败。", {
+      duration: notificationDuration,
+      id: "file-download-error",
     })
     expect(toastSpies.dismiss).toHaveBeenCalledWith("connection-warning")
   })
