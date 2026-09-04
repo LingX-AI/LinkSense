@@ -52,11 +52,11 @@ import { PrismaUserRepository, UserService } from "./modules/users/index.js";
 import { AuthenticationSettingsService } from "./modules/system/authentication-settings.js";
 import { ModelProviderSettingsService } from "./modules/system/model-provider-settings.js";
 import { ImageGenerationSettingsService } from "./modules/system/image-generation-settings.js";
+import { VoiceTranscriptionSettingsService } from "./modules/system/voice-transcription-settings.js";
 import { ImageUnderstandingSettingsService } from "./modules/system/image-understanding-settings.js";
 import { KnowledgeModelSettingsService } from "./modules/system/knowledge-model-settings.js";
 import { VercelAiImageUnderstandingClient } from "./modules/knowledge-processing/image-understanding-client.js";
 import { LiveKnowledgeModelConfigurationProbe } from "./modules/knowledge-processing/knowledge-model-runtime.js";
-import { DashScopeAsrClient } from "./adapters/dashscope-asr.js";
 import {
   VoiceTranscriptionRateLimiter,
   VoiceTranscriptionService,
@@ -169,6 +169,7 @@ export type AppServices = {
   authenticationSettings: AuthenticationSettingsService;
   modelProviderSettings: ModelProviderSettingsService;
   imageGenerationSettings: ImageGenerationSettingsService;
+  voiceTranscriptionSettings: VoiceTranscriptionSettingsService;
   imageUnderstandingSettings: ImageUnderstandingSettingsService;
   knowledgeModelSettings: KnowledgeModelSettingsService | null;
   sharePointSettings: SharePointSettingsService | null;
@@ -242,6 +243,10 @@ export function createServices(input: {
     input.prisma,
     input.config,
     usageAnalytics,
+  );
+  const voiceTranscriptionSettings = new VoiceTranscriptionSettingsService(
+    input.prisma,
+    input.config,
   );
   const tokenLimits = new TokenLimitService(input.prisma, {
     timeZone: input.config.billingTimeZone,
@@ -465,9 +470,7 @@ export function createServices(input: {
     materializeUserHomes: (userIds) => materializeUserHomes({ userIds }),
   });
   const voiceTranscription = new VoiceTranscriptionService(
-    new DashScopeAsrClient({
-      ...input.config.dashscopeAsr,
-    }),
+    voiceTranscriptionSettings,
   );
   const voiceTranscriptionRateLimits = new VoiceTranscriptionRateLimiter(
     input.redis,
@@ -835,6 +838,7 @@ export function createServices(input: {
     authenticationSettings,
     modelProviderSettings,
     imageGenerationSettings,
+    voiceTranscriptionSettings,
     imageUnderstandingSettings,
     knowledgeModelSettings,
     sharePointSettings,

@@ -1,6 +1,7 @@
 import type { Locale } from "@linksense/shared"
 
 import { DashScopeAsrError } from "../../adapters/dashscope-asr.js"
+import { VoiceTranscriptionProviderError } from "../../adapters/voice-transcription-provider.js"
 import { AppError } from "../../lib/errors.js"
 
 export type VoiceTranscriptionInput = {
@@ -71,7 +72,10 @@ export class VoiceTranscriptionService implements VoiceTranscription {
 }
 
 function mapTranscriptionError(error: unknown) {
-  if (!(error instanceof DashScopeAsrError)) {
+  if (
+    !(error instanceof DashScopeAsrError) &&
+    !(error instanceof VoiceTranscriptionProviderError)
+  ) {
     return new AppError("VOICE_TRANSCRIPTION_FAILED", undefined, 502)
   }
 

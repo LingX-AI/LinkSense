@@ -34,6 +34,12 @@ describe("application embed routes", () => {
     ).toBe(true);
     expect(
       app.hasRoute({
+        method: "GET",
+        url: "/api/v1/embed/session/voice/transcriptions/status",
+      }),
+    ).toBe(true);
+    expect(
+      app.hasRoute({
         method: "PUT",
         url: "/api/v1/embed/session/external-application-session",
       }),
@@ -366,6 +372,32 @@ describe("application embed routes", () => {
       { type: "delta", text: "嵌入识别" },
       { type: "done", text: "嵌入识别" },
     ]);
+  });
+
+  it("reports voice transcription availability to an authenticated embedded session", async () => {
+    const { app, getVoiceTranscriptionAvailability } = await routeFixture(
+      "public",
+    );
+    getVoiceTranscriptionAvailability.mockResolvedValueOnce({
+      available: false,
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/embed/session/voice/transcriptions/status",
+      headers: {
+        "x-linksense-embed-app-id": APP_ID,
+        "x-linksense-embed-session-id": SESSION_ID,
+        "x-linksense-embed-origin": ORIGIN,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      success: true,
+      data: { available: false },
+    });
+    expect(getVoiceTranscriptionAvailability).toHaveBeenCalledOnce();
   });
 
   it("returns a localized 429 before public embedded voice transcription", async () => {
@@ -713,6 +745,9 @@ async function routeFixture(
     yield "嵌入识别";
   });
   const transcribeVoice = vi.fn(async () => "嵌入识别");
+  const getVoiceTranscriptionAvailability = vi.fn(async () => ({
+    available: true,
+  }));
   const services = {
     applicationExternalAccess: external,
     conversations: { acceptTurn, assertModelPreferenceMutable },
@@ -729,6 +764,9 @@ async function routeFixture(
     voiceTranscription: {
       stream: streamVoiceTranscription,
       transcribe: transcribeVoice,
+    },
+    voiceTranscriptionSettings: {
+      getAvailability: getVoiceTranscriptionAvailability,
     },
     system: { defaultLocale: "zh-CN" },
     prisma: {},
@@ -756,6 +794,7 @@ async function routeFixture(
     assertVoiceUserAllowed,
     assertApplicationEmbedSessionAllowed,
     streamVoiceTranscription,
+    getVoiceTranscriptionAvailability,
   };
 }
 

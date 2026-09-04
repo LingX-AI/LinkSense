@@ -16,7 +16,6 @@ backup_volume="${LINKSENSE_BACKUP_VOLUME:-linksense-backups}"
 public_base_url="${LINKSENSE_PUBLIC_BASE_URL:?LINKSENSE_PUBLIC_BASE_URL is required}"
 source_revision="${LINKSENSE_SOURCE_REVISION:?LINKSENSE_SOURCE_REVISION is required}"
 production_image_tag="${LINKSENSE_PRODUCTION_IMAGE_TAG:-pro-latest}"
-dashscope_environment_file="${LINKSENSE_DASHSCOPE_ENV_FILE:-}"
 minio_container="${LINKSENSE_MINIO_CONTAINER:-minio}"
 minio_network="${LINKSENSE_MINIO_NETWORK:-minio_default}"
 elasticsearch_admin_url="${LINKSENSE_ELASTICSEARCH_ADMIN_URL:-http://127.0.0.1:9200}"
@@ -488,24 +487,6 @@ set_environment_value DOCLING_SERVE_URL http://host.docker.internal:8110
 set_environment_value DOCLING_SERVE_API_KEY "$docling_api_key"
 set_environment_value DOCLING_SERVE_TENANT_ID linksense
 set_environment_value LINKSENSE_TRUST_PROXY true
-
-read_optional_environment_value() {
-  key="$1"
-  if [ -z "$dashscope_environment_file" ] || [ ! -f "$dashscope_environment_file" ]; then
-    return
-  fi
-  value="$(sed -n "s/^${key}=//p" "$dashscope_environment_file" | head -n 1)"
-  if [ -n "$value" ]; then
-    set_environment_value "$key" "$value"
-  fi
-}
-for dashscope_key in \
-  DASHSCOPE_API_KEY \
-  DASHSCOPE_BASE_URL \
-  DASHSCOPE_ASR_MODEL
-do
-  read_optional_environment_value "$dashscope_key"
-done
 
 chmod 0600 "$environment_working_file"
 ensure_managed_volume "$user_data_volume" user-data

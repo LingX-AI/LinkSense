@@ -581,6 +581,7 @@ describe("admin system routes", () => {
     const deleteProvider = vi.fn()
     const updateImageUnderstanding = vi.fn()
     const updateKnowledgeModels = vi.fn()
+    const updateVoiceTranscription = vi.fn()
     const app = Fastify()
     app.decorate("requireAdmin", async (request: FastifyRequest) => {
       request.authUser = {
@@ -610,6 +611,7 @@ describe("admin system routes", () => {
       },
       imageUnderstandingSettings: { update: updateImageUnderstanding },
       knowledgeModelSettings: { update: updateKnowledgeModels },
+      voiceTranscriptionSettings: { update: updateVoiceTranscription },
     } as unknown as AppServices
     await app.register(adminSystemRoutes, {
       prefix: "/api/v1/admin",
@@ -642,6 +644,7 @@ describe("admin system routes", () => {
       },
       { method: "PUT", url: "/api/v1/admin/image-understanding-settings" },
       { method: "PUT", url: "/api/v1/admin/knowledge-model-settings" },
+      { method: "PUT", url: "/api/v1/admin/voice-transcription-settings" },
     ] as const
 
     for (const request of mutationRequests) {
@@ -657,6 +660,7 @@ describe("admin system routes", () => {
     expect(deleteProvider).not.toHaveBeenCalled()
     expect(updateImageUnderstanding).not.toHaveBeenCalled()
     expect(updateKnowledgeModels).not.toHaveBeenCalled()
+    expect(updateVoiceTranscription).not.toHaveBeenCalled()
     await app.close()
   })
 
@@ -1068,6 +1072,73 @@ describe("admin system routes", () => {
         rerank: { enabled: false, model: null },
       }),
       expect.objectContaining({ userAgent: "knowledge-model-page-test" })
+    )
+    await app.close()
+  })
+
+  it("reads and updates administrator-managed voice transcription settings", async () => {
+    const settings = {
+      configured: true,
+      revision: 2,
+      enabled: true,
+      provider: "openai",
+      provider_options: { api_version: null },
+      base_url: "https://api.openai.com/v1",
+      api_key_configured: true,
+      model: "gpt-4o-mini-transcribe",
+      providers: [],
+    }
+    const getAdminSettings = vi.fn().mockResolvedValue(settings)
+    const update = vi.fn().mockResolvedValue({ ...settings, revision: 3 })
+    const app = Fastify()
+    app.decorate("requireAdmin", async (request: FastifyRequest) => {
+      request.authUser = {
+        id: "01900000-0000-7000-8000-000000000099",
+        email: "admin@example.test",
+        name: "Admin",
+        role: "admin",
+        status: "active",
+        preferredLocale: "zh-CN",
+        avatarObjectKey: null,
+        authValidAfter: new Date(0),
+      }
+    })
+    await app.register(adminSystemRoutes, {
+      prefix: "/api/v1/admin",
+      services: {
+        voiceTranscriptionSettings: { getAdminSettings, update },
+      } as unknown as AppServices,
+    })
+
+    const read = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/voice-transcription-settings",
+    })
+    expect(read.statusCode).toBe(200)
+    expect(read.json().data).not.toHaveProperty("api_key")
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/v1/admin/voice-transcription-settings",
+      headers: { "user-agent": "voice-transcription-page-test" },
+      payload: {
+        expected_revision: 2,
+        enabled: true,
+        provider: "openai",
+        provider_options: { api_version: null },
+        base_url: "https://api.openai.com/v1",
+        model: "gpt-4o-transcribe",
+      },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(update).toHaveBeenCalledWith(
+      "01900000-0000-7000-8000-000000000099",
+      expect.objectContaining({
+        expected_revision: 2,
+        provider: "openai",
+        model: "gpt-4o-transcribe",
+      }),
+      expect.objectContaining({ userAgent: "voice-transcription-page-test" }),
     )
     await app.close()
   })

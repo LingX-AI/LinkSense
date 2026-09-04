@@ -160,6 +160,10 @@ const actionMessages = {
   system_initialization_rejected: ["已拒绝系统初始化", "System initialization rejected"],
   system_initialized: ["系统已初始化", "System initialized"],
   usage_exported: ["已导出用量统计", "Usage analytics exported"],
+  voice_transcription_settings_updated: [
+    "已更新语音转文字设置",
+    "Speech-to-text settings updated",
+  ],
   user_admin_self_change_rejected: ["已拒绝管理员修改自身权限", "Administrator self-change rejected"],
   user_avatar_replaced: ["已更换用户头像", "User avatar replaced"],
   user_created: ["已创建用户", "User created"],
@@ -226,6 +230,7 @@ const targetTypeMessages = {
   user_batch: ["用户批次", "User batch"],
   user_group: ["用户组", "User group"],
   user_import: ["用户导入", "User import"],
+  voice_transcription: ["语音转文字配置", "Speech-to-text configuration"],
   weixin_connection: ["微信连接", "Weixin connection"],
 } as const satisfies AuditMessages
 

@@ -23,10 +23,6 @@ describe("parseConfig", () => {
       "/tmp/linksense-test/users/.capabilities",
     )
     expect(config.safeHttp.allowBenchmarkProxyAddresses).toBe(false)
-    expect(config.dashscopeAsr).toEqual({
-      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      model: "qwen3-asr-flash",
-    })
     expect([...config.upload.allowedTypes]).toEqual(
       expect.arrayContaining([
         "application/pdf",
@@ -200,32 +196,6 @@ describe("parseConfig", () => {
       "audio/mpeg",
       "video/mp4",
     ])
-  })
-
-  it("loads the optional DashScope ASR provider configuration", () => {
-    const config = parseConfig(
-      testEnvironment({
-        DASHSCOPE_API_KEY: "dashscope-secret",
-        DASHSCOPE_BASE_URL: "https://dashscope.example.test/v1",
-        DASHSCOPE_ASR_MODEL: "custom-asr-model",
-      }),
-    )
-
-    expect(config.dashscopeAsr).toEqual({
-      apiKey: "dashscope-secret",
-      baseUrl: "https://dashscope.example.test/v1",
-      model: "custom-asr-model",
-    })
-  })
-
-  it("requires an HTTPS DashScope base URL in every environment", () => {
-    expect(() =>
-      parseConfig(
-        testEnvironment({
-          DASHSCOPE_BASE_URL: "http://dashscope.example.test/v1",
-        }),
-      ),
-    ).toThrow("dashscope_base_url_must_use_https")
   })
 
   it("marks a partial optional integration as invalid without failing startup", () => {

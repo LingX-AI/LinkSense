@@ -1,18 +1,23 @@
 import type { FastifyPluginAsync } from "fastify"
 import {
   VOICE_TRANSCRIPTION_REQUEST_BODY_LIMIT_BYTES,
+  voiceTranscriptionAvailabilitySchema,
   voiceTranscriptionRequestSchema,
   type Locale,
+  type VoiceTranscriptionAvailability,
 } from "@linksense/shared"
 
 import { AppError, errorDetails } from "../../lib/errors.js"
-import { errorEnvelope } from "../../lib/http.js"
+import { errorEnvelope, ok } from "../../lib/http.js"
 import { resolveLocale } from "../../lib/locale.js"
 import { sendVoiceTranscription } from "./http.js"
 import type { VoiceTranscription } from "./service.js"
 
 type VoiceTranscriptionRoutesOptions = {
   service: VoiceTranscription
+  availability: {
+    getAvailability(): Promise<VoiceTranscriptionAvailability>
+  }
   rateLimits: {
     assertAllowed(userId: string): Promise<void>
   }
@@ -24,7 +29,10 @@ type VoiceTranscriptionRoutesOptions = {
 
 export const voiceTranscriptionRoutes: FastifyPluginAsync<
   VoiceTranscriptionRoutesOptions
-> = async (app, { service, rateLimits, tokenLimits, defaultLocale }) => {
+> = async (
+  app,
+  { service, availability, rateLimits, tokenLimits, defaultLocale },
+) => {
   app.setErrorHandler((error, request, reply) => {
     if (
       error instanceof AppError &&
@@ -72,6 +80,22 @@ export const voiceTranscriptionRoutes: FastifyPluginAsync<
         ),
       )
   })
+
+  app.get(
+    "/transcriptions/status",
+    { preHandler: app.authenticate },
+    async (request, reply) => {
+      if (!request.authUser?.id) throw new AppError("AUTH_REQUIRED")
+      return reply.send(
+        ok(
+          voiceTranscriptionAvailabilitySchema.parse(
+          await availability.getAvailability(),
+          ),
+          request,
+        ),
+      )
+    },
+  )
 
   app.post(
     "/transcriptions",

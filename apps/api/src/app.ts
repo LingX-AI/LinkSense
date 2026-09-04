@@ -530,6 +530,7 @@ export async function buildApi(
   await app.register(voiceTranscriptionRoutes, {
     prefix: "/api/v1/voice",
     service: services.voiceTranscription,
+    availability: services.voiceTranscriptionSettings,
     rateLimits: services.voiceTranscriptionRateLimits,
     tokenLimits: services.tokenLimits,
     defaultLocale: services.system.defaultLocale,

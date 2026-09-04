@@ -36,5 +36,6 @@ export * from "./upload-files.js";
 export * from "./usage.js";
 export * from "./users.js";
 export * from "./voice.js";
+export * from "./voice-transcription-settings.js";
 export * from "./weixin.js";
 export * from "./workspace-permissions.js";
