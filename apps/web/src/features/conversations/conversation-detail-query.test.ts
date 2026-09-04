@@ -112,14 +112,14 @@ describe("conversation detail event subscription", () => {
     ).toBe("conversation-b")
   })
 
-  it("subscribes from the server-fresh draft snapshot after a new task is promoted", () => {
+  it("reconnects immediately when the page retains a reusable replay boundary", () => {
     expect(
       selectFreshConversationEventSubscriptionId({
         conversationId: "conversation-new",
         isNew: false,
         isSuccess: true,
         isFetchedAfterMount: false,
-        isPromotedNewTask: true,
+        hasReusableReplayBoundary: true,
       })
     ).toBe("conversation-new")
   })

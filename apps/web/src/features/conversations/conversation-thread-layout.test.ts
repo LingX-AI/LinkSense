@@ -494,15 +494,12 @@ describe("conversation message spacing", () => {
     expect(tableActionHoverRule).toMatch(/color:\s*var\(--app-text\);/u)
   })
 
-  it("keeps Markdown tables readable before allowing horizontal scroll", () => {
+  it("sizes Markdown table columns from their content before allowing horizontal scroll", () => {
     const tableRule = conversationStyles.match(
       /\.assistant-markdown \.markdown-responsive-table,\s*\.markdown-table-dialog \.markdown-responsive-table\s*\{([^}]*)\}/u
     )?.[1]
-    const firstColumnRule = conversationStyles.match(
-      /\.assistant-markdown \.markdown-copy-block-table th:first-child,\s*\.assistant-markdown \.markdown-copy-block-table td:first-child,\s*\.markdown-table-dialog th:first-child,\s*\.markdown-table-dialog td:first-child\s*\{([^}]*)\}/u
-    )?.[1]
-    const remainingColumnsRule = conversationStyles.match(
-      /\.assistant-markdown \.markdown-copy-block-table th:not\(:first-child\),\s*\.assistant-markdown \.markdown-copy-block-table td:not\(:first-child\),\s*\.markdown-table-dialog th:not\(:first-child\),\s*\.markdown-table-dialog td:not\(:first-child\)\s*\{([^}]*)\}/u
+    const cellRule = conversationStyles.match(
+      /\.assistant-markdown \.markdown-copy-block-table th,\s*\.assistant-markdown \.markdown-copy-block-table td,\s*\.markdown-table-dialog th,\s*\.markdown-table-dialog td\s*\{([^}]*)\}/u
     )?.[1]
 
     expect(tableRule).toMatch(/display:\s*table;/u)
@@ -510,12 +507,13 @@ describe("conversation message spacing", () => {
     expect(tableRule).toMatch(/min-width:\s*100%;/u)
     expect(tableRule).toMatch(/max-width:\s*none;/u)
     expect(tableRule).toMatch(/table-layout:\s*auto;/u)
-    expect(firstColumnRule).toMatch(/min-width:\s*160px;/u)
-    expect(firstColumnRule).toMatch(/max-width:\s*260px;/u)
-    expect(firstColumnRule).toMatch(/overflow-wrap:\s*break-word;/u)
-    expect(remainingColumnsRule).toMatch(/min-width:\s*112px;/u)
-    expect(remainingColumnsRule).toMatch(/max-width:\s*240px;/u)
-    expect(remainingColumnsRule).toMatch(/white-space:\s*normal;/u)
+    expect(cellRule).toMatch(/min-width:\s*0;/u)
+    expect(cellRule).toMatch(/max-width:\s*min\(36rem,\s*70vw\);/u)
+    expect(cellRule).toMatch(/overflow-wrap:\s*anywhere;/u)
+    expect(cellRule).toMatch(/white-space:\s*normal;/u)
+    expect(conversationStyles).not.toMatch(
+      /\.markdown-copy-block-table (?:th|td):(?:first-child|not\(:first-child\))[^}]*min-width:/u
+    )
     expect(conversationStyles).not.toMatch(
       /\.assistant-markdown \.markdown-copy-block-table th:first-child,[^{]*\{[^}]*position:\s*sticky;[^}]*left:\s*0;/u
     )

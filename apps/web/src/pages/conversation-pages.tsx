@@ -56,8 +56,6 @@ import {
   threadGoalSchema,
   turnStartReceiptSchema,
   type Conversation,
-  type ConversationActivity,
-  type ConversationEvent,
   type ConversationFile,
   type ConversationMessage,
   type ConversationTurn,
@@ -224,17 +222,16 @@ import {
   projectVisibleConversationMessages,
   removeStreamingMessageItems,
   removePersistedStreamingMessages,
-  type StreamingAssistantMessages,
 } from "@/features/conversations/streaming-messages"
 import {
   appendStreamingReasoningSummaryDelta,
   removeStreamingReasoningSummariesForTurn,
   removeStreamingReasoningSummaryItem,
-  type StreamingReasoningSummaries,
 } from "@/features/conversations/streaming-reasoning-summaries"
 import { useConversationScroll } from "@/features/conversations/use-conversation-scroll"
 import { useConversationBottomStackHeight } from "@/features/conversations/use-conversation-bottom-stack-height"
 import { useConversationEvents } from "@/features/conversations/use-conversation-events"
+import { useConversationLiveState } from "@/features/conversations/use-conversation-live-state"
 import {
   appendConversationLiveEvent,
   isStreamOnlyNativeEvent,
@@ -588,8 +585,22 @@ export function ConversationPage({
   const [pendingAttachmentUploads, setPendingAttachmentUploads] = useState<
     PendingAttachmentUpload[]
   >([])
-  const [streamedMessages, setStreamedMessages] =
-    useState<StreamingAssistantMessages>({})
+  const {
+    conversationId: liveConversationId,
+    conversationIdRef: liveConversationIdRef,
+    streamedMessages,
+    setStreamedMessages,
+    reasoningSummaries: liveReasoningSummaries,
+    setReasoningSummaries: setLiveReasoningSummaries,
+    activities: liveActivities,
+    setActivities: setLiveActivities,
+    events: liveEvents,
+    setEvents: setLiveEvents,
+    switchConversation: switchLiveConversation,
+    promoteConversation: promoteLiveConversation,
+    hasConversationLiveState,
+    clearConversationLiveState,
+  } = useConversationLiveState(conversationId ?? newConversationPlaceholderId)
   const legacyStreamItemIdByTurnRef = useRef(new Map<string, string>())
   const nativeMessagePhaseByItemIdRef = useRef(
     new Map<string, NativeMessagePhase | null>()
@@ -611,15 +622,6 @@ export function ConversationPage({
     persistedMessageRenderKeyState.conversationId === conversationId
       ? persistedMessageRenderKeyState.keys
       : emptyPersistedMessageRenderKeys
-  const [liveReasoningSummaries, setLiveReasoningSummaries] =
-    useState<StreamingReasoningSummaries>({})
-  const [liveActivities, setLiveActivities] = useState<ConversationActivity[]>(
-    []
-  )
-  const [liveEvents, setLiveEvents] = useState<ConversationEvent[]>([])
-  const [liveConversationId, setLiveConversationId] = useState<
-    string | undefined
-  >(conversationId ?? newConversationPlaceholderId)
   const [downloadingFileId, setDownloadingFileId] = useState<string>()
   const [officePreview, setOfficePreview] = useState<{
     conversationId: string | undefined
@@ -720,9 +722,6 @@ export function ConversationPage({
   const pendingDetailRefreshRef = useRef(false)
   const pendingListRefreshRef = useRef(false)
   const seenEventIdsRef = useRef(new Set<string>())
-  const liveConversationIdRef = useRef<string | undefined>(
-    conversationId ?? newConversationPlaceholderId
-  )
   const autoInterruptedTurnIdRef = useRef<string | null>(null)
   const observedNewTaskPromotionIdRef = useRef<string | null>(null)
   const isNewTaskPromotion =
@@ -1428,10 +1427,8 @@ export function ConversationPage({
   const synchronizeLiveConversationScope = useCallback(
     (nextConversationId: string | undefined) => {
       if (liveConversationIdRef.current === nextConversationId) return
-      liveConversationIdRef.current = nextConversationId
-      setLiveConversationId(nextConversationId)
+      switchLiveConversation(nextConversationId)
       seenEventIdsRef.current.clear()
-      setStreamedMessages({})
       legacyStreamItemIdByTurnRef.current.clear()
       nativeMessagePhaseByItemIdRef.current.clear()
       stopHookSupersededItemIdsByTurnRef.current.clear()
@@ -1441,19 +1438,22 @@ export function ConversationPage({
         conversationId: nextConversationId,
         keys: emptyPersistedMessageRenderKeys,
       })
-      setLiveReasoningSummaries({})
-      setLiveActivities([])
-      setLiveEvents([])
     },
-    [clearPendingNativeMessageDeltas]
+    [
+      clearPendingNativeMessageDeltas,
+      liveConversationIdRef,
+      switchLiveConversation,
+    ]
   )
 
   useLayoutEffect(() => {
     const nextConversationId = conversationId ?? newConversationPlaceholderId
     if (
       isNewTaskPromotion &&
-      liveConversationIdRef.current === newConversationPlaceholderId
+      liveConversationIdRef.current === newConversationPlaceholderId &&
+      conversationId
     ) {
+      promoteLiveConversation(newConversationPlaceholderId, conversationId)
       return
     }
     synchronizeLiveConversationScope(nextConversationId)
@@ -1461,6 +1461,8 @@ export function ConversationPage({
     conversationId,
     isNewTaskPromotion,
     location.key,
+    liveConversationIdRef,
+    promoteLiveConversation,
     synchronizeLiveConversationScope,
   ])
 
@@ -1482,7 +1484,7 @@ export function ConversationPage({
         })
       )
     },
-    []
+    [setStreamedMessages]
   )
 
   const flushPendingNativeMessageDeltas = useCallback(
@@ -1513,7 +1515,7 @@ export function ConversationPage({
         )
       )
     },
-    []
+    [setStreamedMessages]
   )
 
   const enqueueNativeMessageDelta = useCallback(
@@ -1552,7 +1554,8 @@ export function ConversationPage({
       isNew,
       isSuccess: conversationQuery.isSuccess,
       isFetchedAfterMount: conversationQuery.isFetchedAfterMount,
-      isPromotedNewTask: isNewTaskPromotion,
+      hasReusableReplayBoundary:
+        isNewTaskPromotion || hasConversationLiveState(conversationId),
     })
   const { connectionState, reconnectingWarningVisible } = useConversationEvents(
     eventSubscriptionConversationId,
@@ -2067,10 +2070,15 @@ export function ConversationPage({
         enqueueNativeMessageDelta,
         flushPendingNativeMessageDeltas,
         isNewTaskPromotion,
+        liveConversationIdRef,
         pendingTurnSubmission,
         pendingSubmissionBelongsToConversation,
         queryClient,
         scheduleConversationRefresh,
+        setLiveActivities,
+        setLiveEvents,
+        setLiveReasoningSummaries,
+        setStreamedMessages,
         startNativeReconnect,
         synchronizeLiveConversationScope,
         t,
@@ -2145,13 +2153,11 @@ export function ConversationPage({
     const timer = window.setTimeout(() => {
       clearInterruptingConversation(conversationId)
       clearNativeReconnect()
-      setStreamedMessages({})
-      setLiveReasoningSummaries({})
-      setLiveActivities([])
-      setLiveEvents([])
+      clearConversationLiveState(conversationId)
     }, 2_000)
     return () => window.clearTimeout(timer)
   }, [
+    clearConversationLiveState,
     clearInterruptingConversation,
     clearNativeReconnect,
     conversationId,
@@ -2178,7 +2184,7 @@ export function ConversationPage({
       )
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [conversation?.messages])
+  }, [conversation?.messages, setStreamedMessages])
 
   useEffect(() => {
     if (!conversation?.id) return
@@ -3426,11 +3432,8 @@ export function ConversationPage({
     },
     onSuccess: ({ id }) => {
       regenerateOperationRef.current = null
-      setStreamedMessages({})
-      setLiveReasoningSummaries({})
-      setLiveActivities([])
-      setLiveEvents([])
-      clearNativeReconnect()
+      clearConversationLiveState(id)
+      if (liveConversationIdRef.current === id) clearNativeReconnect()
       void refreshSubmittedConversation(id).catch(() =>
         queryClient
           .invalidateQueries({ queryKey: ["conversation", id] })

@@ -8296,6 +8296,102 @@ describe("LinkSense application", () => {
     expect(submittedTaskTitle.closest("a")).toHaveAttribute("aria-busy", "true")
   })
 
+  it("keeps visible streamed output when switching away and back before completion", async () => {
+    const partialText = "已经生成的回复切换任务后仍然可见。"
+    const continuedText = "切换回来后新增的回复也会继续显示。"
+    const localTurnId = "30000000-0000-4000-8000-000000000090"
+    let releaseEventStream: (() => void) | undefined
+    const eventStreamStart = new Promise<void>((resolve) => {
+      releaseEventStream = resolve
+    })
+    const eventStreamBody = (sequence: number, delta: string) =>
+      `id: c1:${sequence}\nevent: item/agentMessage/delta\ndata: ${JSON.stringify(
+        {
+          id: `60000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`,
+          conversation_id: "20000000-0000-4000-8000-000000000001",
+          turn_id: localTurnId,
+          sequence_no: sequence,
+          event_type: "item/agentMessage/delta",
+          visibility: "user_visible",
+          payload: {
+            schema_version: 2,
+            source: "codex_app_server",
+            method: "item/agentMessage/delta",
+            params: {
+              threadId: "thread-native-switch",
+              turnId: "turn-native-switch",
+              itemId: "native-switch-stream",
+              delta,
+            },
+          },
+          sse_event_id: `c1:${sequence}`,
+          created_at: "2026-08-13T08:00:01.000Z",
+        }
+      )}\n\n`
+    const apiOptions: NonNullable<Parameters<typeof installApiMock>[0]> = {
+      eventStreamBody: eventStreamBody(91, partialText),
+      eventStreamStart,
+      conversationGetResponse: async () =>
+        json({
+          success: true,
+          data: {
+            ...conversation,
+            turns: [{ id: localTurnId, status: "running" }],
+            running_turn: { id: localTurnId, status: "running" },
+            last_event_id: "c1:0",
+          },
+        }),
+    }
+    const { requests } = installApiMock(apiOptions)
+    const interaction = userEvent.setup()
+    renderApp()
+
+    await screen.findByRole("log", undefined, { timeout: 10_000 })
+    await act(async () => releaseEventStream?.())
+    expect(
+      await screen.findByText(partialText, undefined, { timeout: 10_000 })
+    ).toBeVisible()
+    // Keep the replacement foreground stream empty so this assertion proves
+    // that navigation restores content already rendered before the switch.
+    apiOptions.eventStreamBody = undefined
+
+    const sidebar = screen.getByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+    await interaction.click(within(sidebar).getByText("整理项目会议纪要"))
+    expect(await screen.findByText("整理项目会议纪要已加载。")).toBeVisible()
+    expect(screen.queryByText(partialText)).toBeNull()
+
+    let releaseContinuedEventStream: (() => void) | undefined
+    apiOptions.eventStreamStart = new Promise<void>((resolve) => {
+      releaseContinuedEventStream = resolve
+    })
+    apiOptions.eventStreamBody = eventStreamBody(92, continuedText)
+    const eventStreamRequestCountBeforeReturn = requests.filter(
+      (request) => request.path === "/api/v1/conversations/c1/events"
+    ).length
+    await interaction.click(within(sidebar).getByText("活动风险评估"))
+
+    expect(await screen.findByText(partialText)).toBeVisible()
+    expect(screen.getByRole("button", { name: "停止" })).toBeVisible()
+    await waitFor(() => {
+      const eventStreamRequestCount = requests.filter(
+        (request) => request.path === "/api/v1/conversations/c1/events"
+      ).length
+      expect(eventStreamRequestCount).toBeGreaterThan(
+        eventStreamRequestCountBeforeReturn
+      )
+    })
+
+    await act(async () => releaseContinuedEventStream?.())
+
+    expect(
+      await screen.findByText(`${partialText}${continuedText}`, undefined, {
+        timeout: 10_000,
+      })
+    ).toBeVisible()
+  }, 15_000)
+
   it("clears a submitted task after its terminal event when the user switched away", async () => {
     const submittedTurnId = "30000000-0000-4000-8000-000000000085"
     let releaseCompletion: (() => void) | undefined
