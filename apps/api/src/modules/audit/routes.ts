@@ -1,10 +1,17 @@
 import type { FastifyPluginAsync } from "fastify"
-import { productFilenamePrefix } from "@linksense/shared"
+import {
+  auditTranslationKey,
+  productFilenamePrefix,
+  type AuditTranslationKind,
+  type Locale,
+} from "@linksense/shared"
 import { z } from "zod"
 import type { Prisma } from "../../generated/prisma/client.js"
 
 import { attachmentContentDisposition } from "../../lib/content-disposition.js"
 import { ok } from "../../lib/http.js"
+import { translateBackend } from "../../lib/i18n.js"
+import { resolveLocale } from "../../lib/locale.js"
 import type { AuthenticatedRequest } from "../../plugins/authentication.js"
 import type { AppServices } from "../../services.js"
 import { sanitizeAuditMetadata } from "./service.js"
@@ -104,11 +111,8 @@ export const auditRoutes: FastifyPluginAsync<{
   app.get("/export.csv", async (request, reply) => {
     const actor = (request as AuthenticatedRequest).authUser
     const view = exportViewSchema.parse(request.query).view
-    const isEnglish = Boolean(
-      actor.preferredLocale === "en-US" ||
-      (!actor.preferredLocale &&
-        request.headers["accept-language"]?.includes("en")),
-    )
+    const locale = resolveLocale(request, actor.preferredLocale)
+    const isEnglish = locale === "en-US"
     const productName = (
       await services.system.getProductSettings()
     ).organization_display_name
@@ -172,14 +176,14 @@ export const auditRoutes: FastifyPluginAsync<{
         streamCsvPages({
           writable: reply.raw,
           signal,
-          header: auditLogExportRows([], isEnglish)[0]!,
+          header: auditLogExportRows([], locale)[0]!,
           loadPage: (cursor) =>
             listAuditLogs(services, {
               ...filters,
               ...(cursor ? { cursor } : {}),
               limit: EXPORT_PAGE_SIZE,
             }),
-          rowsForPage: (items) => auditLogExportRows(items, isEnglish).slice(1),
+          rowsForPage: (items) => auditLogExportRows(items, locale).slice(1),
           onRowCount,
         })
     }
@@ -969,16 +973,20 @@ async function writeCsvChunk(
 
 function auditLogExportRows(
   items: Awaited<ReturnType<typeof listAuditLogs>>["items"],
-  isEnglish: boolean,
+  locale: Locale,
 ): string[][] {
+  const isEnglish = locale === "en-US"
   const header = isEnglish
     ? [
         "Created At",
         "Actor ID",
         "Action",
+        "Action Code",
         "Target Type",
+        "Target Type Code",
         "Target ID",
         "Result",
+        "Result Code",
         "Metadata",
         "Source IP",
         "User-Agent",
@@ -987,9 +995,12 @@ function auditLogExportRows(
         "创建时间",
         "操作人 ID",
         "操作",
+        "动作代码",
         "目标类型",
+        "目标类型代码",
         "目标 ID",
         "结果",
+        "结果代码",
         "元数据",
         "来源 IP",
         "User-Agent",
@@ -999,15 +1010,30 @@ function auditLogExportRows(
     ...items.map((item) => [
       item.created_at,
       item.actor_id ?? "",
+      translateAuditExportValue("actions", item.action, locale),
       item.action,
+      item.target_type
+        ? translateAuditExportValue("targetTypes", item.target_type, locale)
+        : "",
       item.target_type ?? "",
       item.target_id ?? "",
+      translateAuditExportValue("results", item.result, locale),
       item.result,
       JSON.stringify(item.metadata),
       item.ip_address ?? "",
       item.user_agent ?? "",
     ]),
   ]
+}
+
+function translateAuditExportValue(
+  kind: AuditTranslationKind,
+  code: string,
+  locale: Locale,
+): string {
+  const key = auditTranslationKey(kind, code)
+  const translated = translateBackend(key, locale)
+  return translated === key ? code : translated
 }
 
 function conversationExportRows(

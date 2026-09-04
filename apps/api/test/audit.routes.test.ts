@@ -271,6 +271,14 @@ describe("administrator audit privacy contracts", () => {
         expect(response.body).not.toContain('"Conversation ID"')
         expect(response.body).not.toContain('"Conversation Deleted At"')
       }
+      if (view === "audit_logs") {
+        expect(response.body).toContain('"Action Code"')
+        expect(response.body).toContain('"Artifact download link issued"')
+        expect(response.body).toContain('"artifact_download_link_issued"')
+        expect(response.body).toContain('"Task file"')
+        expect(response.body).toContain('"conversation_file"')
+        expect(response.body).toContain('"Success","success"')
+      }
       expect(response.body).not.toContain("PRIVATE TITLE")
       expect(response.body).not.toContain("SECRET CONTENT")
       expect(response.body).not.toContain("secret/object/key")
@@ -286,6 +294,19 @@ describe("administrator audit privacy contracts", () => {
   )
 
   it("uses Chinese task terminology in audit CSV headers", async () => {
+    const auditLogFixture = await auditFixture("zh-CN")
+    seedExportView(auditLogFixture, "audit_logs")
+    const auditLogResponse = await auditLogFixture.app.inject({
+      method: "GET",
+      url: "/admin/audit/export.csv?view=audit_logs",
+    })
+
+    expect(auditLogResponse.statusCode).toBe(200)
+    expect(auditLogResponse.body).toContain('"动作代码"')
+    expect(auditLogResponse.body).toContain('"已签发产物下载链接"')
+    expect(auditLogResponse.body).toContain('"任务文件"')
+    expect(auditLogResponse.body).toContain('"成功","success"')
+
     const conversationFixture = await auditFixture("zh-CN")
     seedExportView(conversationFixture, "conversations")
     const conversationResponse = await conversationFixture.app.inject({

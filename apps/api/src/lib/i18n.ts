@@ -1,5 +1,10 @@
 import { createInstance } from "i18next";
-import { errorCatalog, type ErrorCode, type Locale } from "@linksense/shared";
+import {
+  auditFlatTranslations,
+  errorCatalog,
+  type ErrorCode,
+  type Locale,
+} from "@linksense/shared";
 
 const translations = (locale: Locale) =>
   Object.fromEntries(
@@ -349,6 +354,7 @@ await backendI18n.init({
         ...usageExportTranslations["zh-CN"],
         ...userImportTranslations["zh-CN"],
         ...feishuTranslations["zh-CN"],
+        ...auditFlatTranslations("zh-CN"),
       },
     },
     "en-US": {
@@ -358,6 +364,7 @@ await backendI18n.init({
         ...usageExportTranslations["en-US"],
         ...userImportTranslations["en-US"],
         ...feishuTranslations["en-US"],
+        ...auditFlatTranslations("en-US"),
       },
     },
   },
