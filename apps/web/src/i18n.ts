@@ -1,5 +1,6 @@
 import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
+import { auditTranslationResource } from "@linksense/shared"
 
 import { enUS } from "@/i18n/en-US"
 import { zhCN } from "@/i18n/zh-CN"
@@ -49,8 +50,18 @@ function resolveInitialLanguage(): SupportedLanguage {
 
 void i18n.use(initReactI18next).init({
   resources: {
-    "zh-CN": { translation: zhCN },
-    "en-US": { translation: enUS },
+    "zh-CN": {
+      translation: {
+        ...zhCN,
+        auditValues: auditTranslationResource("zh-CN"),
+      },
+    },
+    "en-US": {
+      translation: {
+        ...enUS,
+        auditValues: auditTranslationResource("en-US"),
+      },
+    },
   },
   lng: resolveInitialLanguage(),
   fallbackLng: "zh-CN",

@@ -72,6 +72,11 @@ import {
   AuditLogDetailDialog,
   RetainedArtifactDetailDialog,
 } from "@/features/admin/audit-log-detail-dialog"
+import {
+  auditActionOptions,
+  translateAuditValue,
+  type AuditActionOption,
+} from "@/features/admin/audit-i18n"
 import { productFilenamePrefix, useProductName } from "@/app/product-branding"
 import { downloadBlob } from "@/lib/download-blob"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
@@ -99,6 +104,7 @@ import {
   ComboboxChipsInput,
   ComboboxContent,
   ComboboxEmpty,
+  ComboboxInput,
   ComboboxItem,
   ComboboxList,
   ComboboxValue,
@@ -2789,12 +2795,11 @@ function AuditPage() {
                 />
               </FieldShell>
               <FieldShell id="audit-action" label={t("admin.action")}>
-                <Input
+                <AuditActionFilter
                   id="audit-action"
-                  className="h-9"
                   value={action}
-                  onChange={(event) => {
-                    setAction(event.target.value)
+                  onValueChange={(nextAction) => {
+                    setAction(nextAction)
                     resetEventPagination()
                   }}
                 />
@@ -3268,7 +3273,7 @@ function AuditTable({
               <TableRow key={record.id}>
                 <TableCell>
                   <span className="table-primary">
-                    {formatPublicTechnicalIdentifier(record.action)}
+                    {translateAuditValue(t, "actions", record.action)}
                   </span>
                   {record.error_code && (
                     <span className="table-secondary table-metadata">
@@ -3280,14 +3285,22 @@ function AuditTable({
                 <TableCell>
                   <span className="table-primary">
                     {record.target_type
-                      ? formatPublicTechnicalIdentifier(record.target_type)
+                      ? translateAuditValue(
+                          t,
+                          "targetTypes",
+                          record.target_type
+                        )
                       : "—"}
                   </span>
                   <span className="table-secondary table-metadata">
                     {record.target_id ?? "—"}
                   </span>
                 </TableCell>
-                <TableCell>{record.result ?? "—"}</TableCell>
+                <TableCell>
+                  {record.result
+                    ? translateAuditValue(t, "results", record.result)
+                    : "—"}
+                </TableCell>
                 <TableCell className="table-metadata">
                   {record.source_ip ?? t("common.system")}
                 </TableCell>
@@ -3317,6 +3330,56 @@ function AuditTable({
         }}
       />
     </>
+  )
+}
+
+function AuditActionFilter({
+  id,
+  value,
+  onValueChange,
+}: {
+  id: string
+  value: string
+  onValueChange: (value: string) => void
+}) {
+  const { t } = useTranslation()
+  const options = auditActionOptions(t)
+  const selected = options.find((option) => option.code === value) ?? null
+
+  return (
+    <Combobox
+      items={options}
+      value={selected}
+      itemToStringLabel={(option) => option.label}
+      itemToStringValue={(option) => option.code}
+      isItemEqualToValue={(option, current) => option.code === current.code}
+      onValueChange={(option) => onValueChange(option?.code ?? "")}
+    >
+      <ComboboxInput
+        id={id}
+        aria-label={t("admin.action")}
+        className="h-9"
+        placeholder={t("admin.actionSearchPlaceholder")}
+        showClear={Boolean(value)}
+      />
+      <ComboboxContent>
+        <ComboboxEmpty>{t("admin.actionSearchEmpty")}</ComboboxEmpty>
+        <ComboboxList>
+          {(option: AuditActionOption) => (
+            <ComboboxItem key={option.code} value={option}>
+              <span className="min-w-0">
+                <span className="block truncate font-medium">
+                  {option.label}
+                </span>
+                <span className="block truncate text-muted-foreground">
+                  {formatPublicTechnicalIdentifier(option.code)}
+                </span>
+              </span>
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   )
 }
 
