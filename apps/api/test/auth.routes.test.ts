@@ -156,6 +156,45 @@ describe("authentication Fastify integration", () => {
     expect(response.json()).toMatchObject({ error_code: "AUTH_SESSION_EXPIRED" })
   })
 
+  it("projects the persisted self-registration source into authenticated requests", async () => {
+    const app = Fastify()
+    apps.push(app)
+    await registerAuthentication(app, { jwtSecret: "s".repeat(32) })
+    const latestUser = {
+      ...makeUser({ role: "user" }),
+      accountType: "member",
+      selfRegisteredAt: new Date("2026-09-01T00:00:00.000Z"),
+    }
+    await app.register(authenticationPlugin, {
+      prisma: {
+        user: { findUnique: vi.fn(async () => latestUser) },
+      } as never,
+    })
+    app.get("/registration-source", {
+      preHandler: app.authenticate,
+      handler: async (request) => ({
+        registrationSource: request.authUser?.registrationSource,
+      }),
+    })
+    const token = app.jwt.sign({
+      sub: latestUser.id,
+      email: latestUser.email,
+      role: latestUser.role,
+      auth_valid_after: latestUser.authValidAfter.toISOString(),
+    })
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/registration-source",
+      headers: { authorization: `Bearer ${token}` },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      registrationSource: "self_registration",
+    })
+  })
+
   it("sets Retry-After for a merged login cooldown without account disclosure", async () => {
     const app = Fastify()
     apps.push(app)

@@ -201,6 +201,7 @@ interface AuthenticatedRequestCarrier {
     id?: unknown;
     role?: unknown;
     status?: unknown;
+    registrationSource?: unknown;
   };
 }
 
@@ -218,6 +219,10 @@ function defaultActorResolver(request: FastifyRequest): RequestActor {
     id: user.id,
     role: user.role,
     status: user.status,
+    ...(user.registrationSource === "self_registration" ||
+      user.registrationSource === "organization_invitation"
+      ? { registrationSource: user.registrationSource }
+      : {}),
     ipAddress: request.ip,
     ...(request.headers["user-agent"] === undefined
       ? {}

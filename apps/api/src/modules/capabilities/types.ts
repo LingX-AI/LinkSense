@@ -7,6 +7,7 @@ export interface RequestActor {
   id: string;
   role: UserRole;
   status: "active" | "disabled";
+  registrationSource?: "self_registration" | "organization_invitation";
   ipAddress?: string;
   userAgent?: string;
 }

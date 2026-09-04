@@ -612,6 +612,9 @@ describe("ApplicationService display icons", () => {
         },
       ]);
     const prisma = {
+      user: {
+        findFirst: vi.fn(async () => ({ selfRegisteredAt: null })),
+      },
       application: { findMany: applicationFindMany },
       userGroupMember: { findMany: vi.fn(async () => []) },
       applicationGrant: { findMany: vi.fn(async () => []) },
@@ -663,6 +666,31 @@ describe("ApplicationService display icons", () => {
 });
 
 describe("ApplicationService share targets", () => {
+  it("blocks organization sharing for self-registered users", async () => {
+    const prisma = {
+      user: { findMany: vi.fn() },
+      userGroup: { findMany: vi.fn() },
+    };
+    const service = new ApplicationService(
+      prisma as never,
+      modelSettings(),
+      { write: vi.fn() } as never,
+      credentialResolver(),
+    );
+
+    await expect(
+      service.searchShareTargets(
+        {
+          ...activeActor(),
+          registrationSource: "self_registration",
+        },
+        { limit: 25 },
+      ),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
+    expect(prisma.userGroup.findMany).not.toHaveBeenCalled();
+  });
+
   it("searches only user groups when a group target type is requested", async () => {
     const prisma = {
       user: {
@@ -721,6 +749,34 @@ describe("ApplicationService share targets", () => {
 });
 
 describe("ApplicationService runtime resolution", () => {
+  it("does not grant self-registered users access to shared applications", async () => {
+    const prisma = runtimePrisma({
+      model: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+      instructions: "Use the workflow.",
+      capabilityId: CAPABILITY_ID,
+      knowledgeBaseId: KNOWLEDGE_BASE_ID,
+      updatedAt: new Date("2026-07-27T01:00:00.000Z"),
+    });
+    prisma.user.findFirst.mockResolvedValue({
+      id: RECIPIENT_ID,
+      accountType: "member",
+      selfRegisteredAt: new Date("2026-09-01T00:00:00.000Z"),
+    });
+    const service = new ApplicationService(
+      prisma as never,
+      modelSettings(),
+      { write: vi.fn() } as never,
+      credentialResolver(),
+    );
+
+    await expect(
+      service.resolveRuntime(RECIPIENT_ID, APPLICATION_ID),
+    ).rejects.toMatchObject({ code: "APPLICATION_NOT_FOUND" });
+    expect(prisma.userGroupMember.findMany).not.toHaveBeenCalled();
+    expect(prisma.applicationGrant.findMany).not.toHaveBeenCalled();
+  });
+
   it("resolves the latest application bindings without owning model selection", async () => {
     const state = {
       model: "gpt-5.6-terra",
@@ -1094,7 +1150,13 @@ function runtimePrisma(state: {
 }) {
   return {
     user: {
-      findFirst: vi.fn(async () => ({ id: RECIPIENT_ID })),
+      findFirst: vi.fn(
+        async (): Promise<{
+          id: string;
+          accountType?: string;
+          selfRegisteredAt?: Date | null;
+        }> => ({ id: RECIPIENT_ID }),
+      ),
     },
     userGroupMember: {
       findMany: vi.fn(async () => [] as Array<{ userGroupId: string }>),
