@@ -3478,6 +3478,12 @@ trust_level = "trusted"
       controlled.methods.filter((method) => method === "initialize"),
     ).toHaveLength(1);
     expect(capabilityRuntimeManager.resolvePublished).toHaveBeenCalledTimes(2);
+    expect(capabilityRuntimeManager.resolvePublished.mock.calls[0]?.[0]).not.toMatchObject({
+      reuseVerified: true,
+    });
+    expect(capabilityRuntimeManager.resolvePublished.mock.calls[1]?.[0]).toMatchObject({
+      reuseVerified: true,
+    });
     expect(controlled.kill).not.toHaveBeenCalled();
     await pool.closeAll();
   });
@@ -4426,6 +4432,76 @@ trust_level = "trusted"
     expect(controlled.kill).not.toHaveBeenCalled();
     expect(pool.size).toBe(1);
 
+    await pool.closeAll();
+  });
+
+  it("prewarms a native thread without starting a turn and reuses it on submit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-native-prewarm-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ threadReadTurns: [] });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+
+    const warmed = await pool.prewarmConversation({
+      ...input,
+      codexThreadId: null,
+      context: {
+        userInput: "",
+        attachments: [],
+        priorityPlugins: [],
+        prioritySkills: [],
+      },
+    });
+
+    expect(warmed.codexThreadId).toBe("thread-native-1");
+    expect(controlled.methods).toContain("thread/start");
+    expect(controlled.methods).toContain("thread/read");
+    expect(controlled.methods).not.toContain("turn/start");
+    await expect(
+      pool.inspectPrewarmedConversation(input.conversationId, input.ownerId),
+    ).resolves.toEqual(warmed);
+
+    await pool.startTurn({ ...input, codexThreadId: null });
+    expect(
+      controlled.methods.filter((method) => method === "initialize"),
+    ).toHaveLength(1);
+    expect(
+      controlled.methods.filter((method) => method === "thread/start"),
+    ).toHaveLength(1);
+    expect(controlled.methods).toContain("turn/start");
+    expect(controlled.kill).not.toHaveBeenCalled();
+    await pool.closeAll();
+  });
+
+  it("does not make task creation wait for an in-flight app-server prewarm", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-native-prewarm-inspect-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({
+      initialize: "manual",
+      threadReadTurns: [],
+    });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    const prewarm = pool.prewarmConversation({
+      ...input,
+      codexThreadId: null,
+      context: {
+        userInput: "",
+        attachments: [],
+        priorityPlugins: [],
+        prioritySkills: [],
+      },
+    });
+    await vi.waitFor(() => expect(controlled.methods).toContain("initialize"));
+
+    await expect(
+      pool.inspectPrewarmedConversation(input.conversationId, input.ownerId),
+    ).resolves.toBeNull();
+
+    controlled.completeInitialize();
+    await expect(prewarm).resolves.toMatchObject({
+      codexThreadId: "thread-native-1",
+    });
     await pool.closeAll();
   });
 
@@ -10231,6 +10307,7 @@ function createCapabilityRuntimeManagerMock() {
         userHome: string;
         controlRoot: string;
         expectedGeneration: string;
+        reuseVerified?: boolean;
       }) => ({
         skillsRoot: join(userHome, ".agents", "skills"),
         pluginSourceRoot: join(

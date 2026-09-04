@@ -82,6 +82,7 @@ const TRUSTED_WORKER_SUPERVISOR_CAPABILITIES = [
 // container removal has completed. Keep this bounded below the controller
 // startup timeout while allowing the mount release to converge.
 const USER_DIRECTORY_REMOVAL_ATTEMPTS = 120
+const DOCKER_RESOURCE_USAGE_CACHE_TTL_MS = 60_000
 const RETRYABLE_DIRECTORY_REMOVAL_CODES = new Set([
   "EACCES",
   "EBUSY",
@@ -211,6 +212,12 @@ export class WorkerManager {
   private idleTimer: NodeJS.Timeout | undefined
   private runtimeProbeCheckedAt: string | undefined
   private runtimeModelCatalog: CodexModelReasoningCatalog | undefined
+  private dockerResourceUsageCache:
+    | { expiresAt: number; snapshot: DockerResourceUsageSnapshot }
+    | undefined
+  private dockerResourceUsageInFlight:
+    | Promise<DockerResourceUsageSnapshot>
+    | undefined
 
   constructor(
     private readonly config: RunnerConfig,
@@ -543,7 +550,7 @@ export class WorkerManager {
         }
       }),
     )
-    const dockerResourceUsage = await this.collectDockerResourceUsage(checkedAt)
+    const dockerResourceUsage = await this.cachedDockerResourceUsage(checkedAt)
     const runtimeProbeAvailable =
       dependenciesAvailable && this.runtimeProbeCheckedAt !== undefined
     const available =
@@ -729,6 +736,32 @@ export class WorkerManager {
         reason_code: "DOCKER_RESOURCE_USAGE_UNAVAILABLE",
         services: [],
       }
+    }
+  }
+
+  private async cachedDockerResourceUsage(
+    checkedAt: string,
+  ): Promise<DockerResourceUsageSnapshot> {
+    const now = Date.now()
+    if (
+      this.dockerResourceUsageCache &&
+      this.dockerResourceUsageCache.expiresAt > now
+    ) {
+      return this.dockerResourceUsageCache.snapshot
+    }
+    if (this.dockerResourceUsageInFlight) {
+      return this.dockerResourceUsageInFlight
+    }
+    this.dockerResourceUsageInFlight = this.collectDockerResourceUsage(checkedAt)
+    try {
+      const snapshot = await this.dockerResourceUsageInFlight
+      this.dockerResourceUsageCache = {
+        expiresAt: Date.now() + DOCKER_RESOURCE_USAGE_CACHE_TTL_MS,
+        snapshot,
+      }
+      return snapshot
+    } finally {
+      this.dockerResourceUsageInFlight = undefined
     }
   }
 

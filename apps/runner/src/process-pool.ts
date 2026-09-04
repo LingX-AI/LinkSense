@@ -295,11 +295,18 @@ export type GoalRuntimeInput = Pick<
 > & {
   codexThreadId: string;
 };
-type AuthorizedRecoveryInput = GoalRuntimeInput & {
+type AuthorizedRecoveryInput = Omit<GoalRuntimeInput, "codexThreadId"> & {
+  codexThreadId?: string | null;
   collaborationMode?: StartTurnInput["collaborationMode"];
   operationKind?: StartTurnInput["operationKind"];
   modelTransitionSource?: StartTurnInput["modelTransitionSource"];
   runtimePurpose?: StartTurnInput["runtimePurpose"];
+};
+
+export type PrewarmedConversationRuntime = {
+  codexThreadId: string;
+  agentsTemplateVersion: string;
+  runtimeGeneration: string;
 };
 
 export type GoalSetInput = GoalRuntimeInput & {
@@ -405,6 +412,7 @@ const SUB_AGENT_THREAD_PAGE_SIZE = 100;
 const MAX_SUB_AGENT_THREAD_PAGES = 100;
 const PROCESS_EXIT_RETRY_BASE_MS = 100;
 const PROCESS_EXIT_RETRY_MAX_MS = 5_000;
+const DEFAULT_CODEX_HEALTH_PROBE_TTL_MS = 60_000;
 const NATIVE_TURN_REGISTRATION_TIMEOUT_MS = 5_000;
 const MODEL_TRANSITION_COMPACTION_TIMEOUT_MS = 180_000;
 const SUB_AGENT_THREAD_SOURCE_KINDS = [
@@ -913,7 +921,9 @@ export class AppServerProcessPool {
     try {
       const result = await this.healthProbeInFlight;
       this.healthProbeCache = {
-        expiresAt: Date.now() + (this.options.healthProbeTtlMs ?? 5_000),
+        expiresAt:
+          Date.now() +
+          (this.options.healthProbeTtlMs ?? DEFAULT_CODEX_HEALTH_PROBE_TTL_MS),
         result,
       };
       return { ...result, cached: false };
@@ -998,6 +1008,88 @@ export class AppServerProcessPool {
         conversationId,
         this.options.templateVersion,
       );
+    });
+  }
+
+  async prewarmConversation(
+    input: StartTurnInput,
+  ): Promise<PrewarmedConversationRuntime> {
+    this.assertAcceptingOperations();
+    this.options.workspaceManager.bindOwner(
+      input.conversationId,
+      input.ownerId,
+    );
+    const startedAt = Date.now();
+    return this.withOwnerCapabilityLock(input.ownerId, () =>
+      this.withProcessLifecycleLock(input.conversationId, async () => {
+        let managed: ManagedProcess | undefined;
+        try {
+          const recovered =
+            await this.readThreadForAuthorizedRecoveryLocked(input);
+          managed = recovered.managed;
+          if (!managed.codexThreadId) {
+            throw new CodexProtocolError("conversation has no Codex thread");
+          }
+          this.options.logger.info(
+            {
+              conversationId: input.conversationId,
+              durationMs: Date.now() - startedAt,
+            },
+            "conversation app-server prewarm completed",
+          );
+          return {
+            codexThreadId: managed.codexThreadId,
+            agentsTemplateVersion: this.options.templateVersion,
+            runtimeGeneration: managed.runtimeGeneration,
+          };
+        } finally {
+          if (managed && this.processes.get(input.conversationId) === managed) {
+            managed.starting = false;
+            managed.lastUsedAt = Date.now();
+            await this.releaseManagedCapabilityLeaseIfIdle(managed);
+            this.scheduleIdleClose(managed);
+          }
+        }
+      }),
+    );
+  }
+
+  async inspectPrewarmedConversation(
+    conversationId: string,
+    ownerId: string,
+  ): Promise<PrewarmedConversationRuntime | null> {
+    this.assertAcceptingOperations();
+    this.options.workspaceManager.bindOwner(conversationId, ownerId);
+    // Creation must never queue behind an in-flight app-server prewarm. The
+    // runtime directory can already be claimed by the API while this method
+    // reports "not ready"; a later turn will reuse the finished native thread.
+    if (this.processLifecycleLocks.has(conversationId)) return null;
+    return this.withProcessLifecycleLock(conversationId, async () => {
+      const managed = this.processes.get(conversationId);
+      if (
+        !managed ||
+        managed.ownerId !== ownerId ||
+        managed.closing ||
+        managed.evicting ||
+        !managed.client.isHealthy ||
+        !managed.codexThreadId ||
+        managed.activeTurnId ||
+        managed.uncertainStartOperationId
+      ) {
+        return null;
+      }
+      const runtimeGeneration =
+        await this.options.workspaceManager.readRuntimeGeneration(
+          conversationId,
+        );
+      if (!runtimeGeneration || runtimeGeneration !== managed.runtimeGeneration) {
+        return null;
+      }
+      return {
+        codexThreadId: managed.codexThreadId,
+        agentsTemplateVersion: this.options.templateVersion,
+        runtimeGeneration,
+      };
     });
   }
 
@@ -1356,12 +1448,38 @@ export class AppServerProcessPool {
       this.releaseStartingProcess(existing);
       throw new StartOperationRuntimeGenerationMismatchError();
     }
+    // A task can be persisted as soon as its reserved runtime exists, before
+    // background prewarm has returned the native thread id to the API. Adopt
+    // that trusted, owner-bound thread instead of rebuilding the process.
+    const expectedThreadId =
+      input.codexThreadId ??
+      (existing?.ownerId === input.ownerId ? existing.codexThreadId : null);
+    const desiredRuntimeFingerprint = this.runtimeFingerprintFor(
+      input,
+      runtimeEnvironment,
+      expectedThreadId,
+    );
+    const canReuseValidatedProcess =
+      existing !== undefined &&
+      !existing.closing &&
+      !existing.evicting &&
+      existing.client.isHealthy &&
+      existing.ownerId === input.ownerId &&
+      existing.codexThreadId === expectedThreadId &&
+      existing.runtimeGeneration === input.expectedRuntimeGeneration &&
+      existing.capabilityGeneration === input.capabilityGeneration &&
+      existing.mcpGeneration === mcpGenerationFor(input) &&
+      existing.runtimeFingerprint === desiredRuntimeFingerprint;
     let capabilityRuntime: PreparedCapabilityRuntime | null = null;
     let leaseToken: OwnerCapabilityLeaseToken | null = null;
     if (operationKind !== "compact") {
       try {
         const preparedCapability =
-          await this.prepareOwnerCapabilityGeneration(input, paths);
+          await this.prepareOwnerCapabilityGeneration(
+            input,
+            paths,
+            canReuseValidatedProcess,
+          );
         capabilityRuntime = preparedCapability.capabilityRuntime;
         leaseToken = preparedCapability.leaseToken;
       } catch (error) {
@@ -1370,24 +1488,8 @@ export class AppServerProcessPool {
         throw error;
       }
     }
-    const expectedThreadId = input.codexThreadId ?? null;
-    const desiredRuntimeFingerprint = this.runtimeFingerprintFor(
-      input,
-      runtimeEnvironment,
-      expectedThreadId,
-    );
     let managed = this.processes.get(input.conversationId);
-    const canReuse =
-      managed !== undefined &&
-      !managed.closing &&
-      !managed.evicting &&
-      managed.client.isHealthy &&
-      managed.ownerId === input.ownerId &&
-      managed.codexThreadId === expectedThreadId &&
-      managed.runtimeGeneration === input.expectedRuntimeGeneration &&
-      managed.capabilityGeneration === input.capabilityGeneration &&
-      managed.mcpGeneration === mcpGenerationFor(input) &&
-      managed.runtimeFingerprint === desiredRuntimeFingerprint;
+    const canReuse = managed === existing && canReuseValidatedProcess;
     const reusedHealthyProcess = canReuse;
     if (managed && !canReuse) {
       this.options.logger.debug(
@@ -3109,7 +3211,9 @@ export class AppServerProcessPool {
       capabilityGeneration: input.capabilityGeneration,
       mcpGeneration: mcpGenerationFor(input),
       mcpServers: mcpServersFor(input),
-      codexThreadId: input.codexThreadId,
+      ...(input.codexThreadId !== undefined
+        ? { codexThreadId: input.codexThreadId }
+        : {}),
       ...(input.operationKind ? { operationKind: input.operationKind } : {}),
       ...(input.runtimePurpose ? { runtimePurpose: input.runtimePurpose } : {}),
       collaborationMode: input.collaborationMode ?? "default",
@@ -3187,7 +3291,7 @@ export class AppServerProcessPool {
       const desiredRuntimeFingerprint = this.runtimeFingerprintFor(
         recoveryStartInput,
         runtimeEnvironment,
-        input.codexThreadId,
+        input.codexThreadId ?? null,
       );
       const canReuse =
         managed !== undefined &&
@@ -4542,6 +4646,7 @@ export class AppServerProcessPool {
   private async prepareOwnerCapabilityGeneration(
     input: StartTurnInput,
     paths: EnsuredConversationPaths,
+    reuseVerified = false,
   ): Promise<PreparedCapabilityRuntimeLease> {
     const generationAlreadyLoaded =
       this.loadedCapabilityGenerations.get(input.ownerId) ===
@@ -4601,6 +4706,7 @@ export class AppServerProcessPool {
           expectedGeneration: input.capabilityGeneration,
           capabilities: input.capabilities,
           lockHeld: true,
+          reuseVerified,
         });
       return { capabilityRuntime, leaseToken };
     } catch (error) {
@@ -6769,7 +6875,10 @@ export class AppServerProcessPool {
         try {
           const catalog = await loadCodexModelCatalog(client);
           this.modelCatalogCache = {
-            expiresAt: Date.now() + (this.options.healthProbeTtlMs ?? 5_000),
+            expiresAt:
+              Date.now() +
+              (this.options.healthProbeTtlMs ??
+                DEFAULT_CODEX_HEALTH_PROBE_TTL_MS),
             catalog,
           };
         } catch {
