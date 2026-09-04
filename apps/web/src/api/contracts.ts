@@ -29,6 +29,7 @@ import {
   executionConcurrencySettingsSchema as sharedExecutionConcurrencySettingsSchema,
   imageGenerationSettingsSchema as sharedImageGenerationSettingsSchema,
   imageUnderstandingSettingsSchema as sharedImageUnderstandingSettingsSchema,
+  voiceTranscriptionSettingsSchema as sharedVoiceTranscriptionSettingsSchema,
   initializeSystemResultSchema as sharedInitializeSystemResultSchema,
   knowledgeModelSettingsSchema as sharedKnowledgeModelSettingsSchema,
   maintenanceStatusSchema as sharedMaintenanceStatusSchema,
@@ -84,6 +85,7 @@ import {
   type AutomationUpdateInput as SharedAutomationUpdateInput,
   type ImageGenerationSettings as SharedImageGenerationSettings,
   type ImageUnderstandingSettings as SharedImageUnderstandingSettings,
+  type VoiceTranscriptionSettings as SharedVoiceTranscriptionSettings,
   type KnowledgeModelSettings as SharedKnowledgeModelSettings,
   type MaintenanceStatus as SharedMaintenanceStatus,
   type ModelPreference as SharedModelPreference,
@@ -284,6 +286,14 @@ export const imageGenerationSettingsUpdateResultSchema = z.strictObject({
   settings: imageGenerationSettingsSchema,
 })
 export type ImageGenerationSettings = SharedImageGenerationSettings
+
+export const voiceTranscriptionSettingsSchema =
+  sharedVoiceTranscriptionSettingsSchema
+export const voiceTranscriptionSettingsUpdateResultSchema = z.strictObject({
+  code: z.literal("SYSTEM_SETTINGS_UPDATED"),
+  settings: voiceTranscriptionSettingsSchema,
+})
+export type VoiceTranscriptionSettings = SharedVoiceTranscriptionSettings
 
 export const knowledgeModelSettingsSchema = sharedKnowledgeModelSettingsSchema
 export const knowledgeModelSettingsUpdateResultSchema = z.strictObject({

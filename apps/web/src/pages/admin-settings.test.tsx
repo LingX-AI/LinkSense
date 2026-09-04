@@ -9,7 +9,10 @@ import {
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter } from "react-router-dom"
-import { imageGenerationProviderDefinitions } from "@linksense/shared"
+import {
+  imageGenerationProviderDefinitions,
+  voiceTranscriptionProviderDefinitions,
+} from "@linksense/shared"
 
 import { setAccessToken } from "@/api/session"
 import { ThemeProvider } from "@/app/theme-context"
@@ -179,6 +182,18 @@ const imageGenerationSettings = {
   providers: imageGenerationProviderDefinitions,
 }
 
+const voiceTranscriptionSettings = {
+  configured: true,
+  revision: 3,
+  enabled: true,
+  provider: "openai" as const,
+  provider_options: { api_version: null },
+  base_url: "https://api.openai.com/v1",
+  api_key_configured: true,
+  model: "gpt-4o-mini-transcribe",
+  providers: voiceTranscriptionProviderDefinitions,
+}
+
 const retrievalModelProviderSettings = {
   ...modelProviderSettings,
   providers: [
@@ -232,6 +247,9 @@ function settingsPayload(path: string) {
   }
   if (path.endsWith("/image-generation-settings")) {
     return imageGenerationSettings
+  }
+  if (path.endsWith("/voice-transcription-settings")) {
+    return voiceTranscriptionSettings
   }
   if (path.endsWith("/knowledge-model-settings")) {
     return knowledgeModelSettings
@@ -1006,6 +1024,7 @@ describe("administrator authentication settings", () => {
         "/api/v1/admin/model-provider-settings",
         "/api/v1/admin/knowledge-model-settings",
         "/api/v1/admin/image-generation-settings",
+        "/api/v1/admin/voice-transcription-settings",
         "/api/v1/admin/image-understanding-settings",
       ])
     )
@@ -1020,6 +1039,9 @@ describe("administrator authentication settings", () => {
     ).toHaveLength(5)
     expect(
       requests.filter((path) => path.endsWith("/image-generation-settings"))
+    ).toHaveLength(1)
+    expect(
+      requests.filter((path) => path.endsWith("/voice-transcription-settings"))
     ).toHaveLength(1)
     expect(
       consoleError.mock.calls.some((call) =>
@@ -1066,6 +1088,9 @@ describe("administrator authentication settings", () => {
             })
           )
         }
+        if (path.endsWith("/voice-transcription-settings")) {
+          return Promise.resolve(envelope(voiceTranscriptionSettings))
+        }
         return Promise.resolve(envelope(settingsPayload(path)))
       })
     )
@@ -1086,6 +1111,9 @@ describe("administrator authentication settings", () => {
       expect(requestCounts.get("/api/v1/admin/image-generation-settings")).toBe(
         1
       )
+      expect(
+        requestCounts.get("/api/v1/admin/voice-transcription-settings")
+      ).toBe(1)
     })
 
     await interaction.click(screen.getByRole("tab", { name: "知识检索模型" }))
@@ -1099,20 +1127,29 @@ describe("administrator authentication settings", () => {
       ).toBe(2)
     })
 
+    await interaction.click(screen.getByRole("tab", { name: "语音转文字模型" }))
+    expect(
+      await screen.findByDisplayValue("gpt-4o-mini-transcribe")
+    ).toBeVisible()
+    expect(requestCounts.get("/api/v1/admin/model-provider-settings")).toBe(3)
+    expect(
+      requestCounts.get("/api/v1/admin/voice-transcription-settings")
+    ).toBe(2)
+
     await interaction.click(screen.getByRole("tab", { name: "图片生成模型" }))
     expect(await screen.findByDisplayValue("image-model-2")).toBeVisible()
-    expect(requestCounts.get("/api/v1/admin/model-provider-settings")).toBe(3)
+    expect(requestCounts.get("/api/v1/admin/model-provider-settings")).toBe(4)
 
     await interaction.click(
       screen.getByRole("tab", { name: "用户初始 Token 用量" })
     )
     await waitFor(() =>
-      expect(requestCounts.get("/api/v1/admin/model-provider-settings")).toBe(4)
+      expect(requestCounts.get("/api/v1/admin/model-provider-settings")).toBe(5)
     )
 
     await interaction.click(screen.getByRole("tab", { name: "模型渠道" }))
     expect(
-      await screen.findByDisplayValue("https://models.example.test/v5")
+      await screen.findByDisplayValue("https://models.example.test/v6")
     ).toBeVisible()
   })
 
@@ -1936,6 +1973,118 @@ describe("administrator authentication settings", () => {
       default_model: "model-b",
       title_model: "model-b",
     })
+  })
+
+  it("shows voice transcription before image generation and saves its service settings", async () => {
+    const requests: Array<{ path: string; init?: RequestInit }> = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        requests.push({ path, ...(init ? { init } : {}) })
+        if (
+          path.endsWith("/voice-transcription-settings") &&
+          init?.method === "PUT"
+        ) {
+          const body = JSON.parse(String(init.body)) as {
+            enabled: boolean
+            provider: "openai"
+            provider_options: { api_version: null }
+            base_url: string
+            api_key?: string
+            model: string
+          }
+          return Promise.resolve(
+            envelope({
+              code: "SYSTEM_SETTINGS_UPDATED",
+              settings: {
+                ...voiceTranscriptionSettings,
+                revision: 4,
+                enabled: body.enabled,
+                provider: body.provider,
+                provider_options: body.provider_options,
+                base_url: body.base_url,
+                api_key_configured:
+                  voiceTranscriptionSettings.api_key_configured ||
+                  Boolean(body.api_key),
+                model: body.model,
+              },
+            })
+          )
+        }
+        return Promise.resolve(envelope(settingsPayload(path)))
+      })
+    )
+
+    const interaction = userEvent.setup()
+    renderSettings("models")
+
+    const knowledgeTab = await screen.findByRole("tab", {
+      name: "知识检索模型",
+    })
+    const voiceTranscriptionTab = screen.getByRole("tab", {
+      name: "语音转文字模型",
+    })
+    const imageGenerationTab = screen.getByRole("tab", {
+      name: "图片生成模型",
+    })
+    expect(
+      knowledgeTab.compareDocumentPosition(voiceTranscriptionTab) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      voiceTranscriptionTab.compareDocumentPosition(imageGenerationTab) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+
+    await interaction.click(voiceTranscriptionTab)
+    const heading = await screen.findByRole("heading", {
+      level: 2,
+      name: "语音转文字模型",
+    })
+    const section = heading.closest("section")
+    expect(section).not.toBeNull()
+    expect(
+      within(section!).getByRole("combobox", { name: "模型服务商" })
+    ).toHaveTextContent("OpenAI")
+    expect(within(section!).getByLabelText("Base URL")).toHaveValue(
+      "https://api.openai.com/v1"
+    )
+    expect(within(section!).getByLabelText("语音转文字模型名称")).toHaveValue(
+      "gpt-4o-mini-transcribe"
+    )
+
+    await interaction.clear(
+      within(section!).getByLabelText("语音转文字模型名称")
+    )
+    await interaction.type(
+      within(section!).getByLabelText("语音转文字模型名称"),
+      "gpt-4o-transcribe"
+    )
+    await interaction.click(
+      within(section!).getByRole("button", {
+        name: "保存语音转文字模型",
+      })
+    )
+
+    const update = await waitFor(() => {
+      const matched = requests.find(
+        (request) =>
+          request.path.endsWith("/voice-transcription-settings") &&
+          request.init?.method === "PUT"
+      )
+      expect(matched).toBeDefined()
+      return matched
+    })
+    expect(JSON.parse(String(update?.init?.body))).toMatchObject({
+      expected_revision: 3,
+      enabled: true,
+      provider: "openai",
+      provider_options: { api_version: null },
+      base_url: "https://api.openai.com/v1",
+      model: "gpt-4o-transcribe",
+    })
+    expect(JSON.parse(String(update?.init?.body))).not.toHaveProperty("api_key")
   })
 
   it("shows image generation settings in its own tab after knowledge retrieval models and saves them", async () => {

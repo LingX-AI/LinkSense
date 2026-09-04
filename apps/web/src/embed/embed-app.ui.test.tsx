@@ -39,6 +39,7 @@ type MockComposerProps = Readonly<{
     body: unknown,
     signal: AbortSignal
   ) => Promise<Response>
+  voiceTranscriptionAvailability?: string
 }>
 
 type MockThreadProps = Readonly<{
@@ -164,6 +165,9 @@ vi.mock("./session-client", () => {
           )
         }
         return modelPreference("gpt-5.6-terra", "medium")
+      }
+      if (path === "/api/v1/embed/session/voice/transcriptions/status") {
+        return { available: true }
       }
       if (
         path === "/api/v1/embed/session/attachments" &&

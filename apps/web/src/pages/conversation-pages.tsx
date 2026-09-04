@@ -73,6 +73,7 @@ import {
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
+import { useVoiceTranscriptionAvailability } from "@/features/conversations/use-voice-transcription-availability"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import {
   EmptyState,
@@ -745,6 +746,7 @@ export function ConversationPage({
     ...conversationDetailQueryOptions(conversationId),
     enabled: !isNew,
   })
+  const voiceTranscriptionAvailability = useVoiceTranscriptionAvailability()
   const isApplicationConversation = Boolean(conversationQuery.data?.application)
   const isManagedApplicationConversation =
     conversationQuery.data?.application?.kind === "standard"
@@ -5216,6 +5218,7 @@ export function ConversationPage({
         {!blockingPanelActive && (
           <ConversationComposer
             ref={composerRef}
+            voiceTranscriptionAvailability={voiceTranscriptionAvailability}
             key={`${composerInstanceId}:${newTaskResetVersion}`}
             value={value}
             onValueChange={setValue}

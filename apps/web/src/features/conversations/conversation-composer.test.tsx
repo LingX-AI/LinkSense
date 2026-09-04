@@ -896,6 +896,24 @@ describe("conversation voice input", () => {
     expect(props.onAttach).not.toHaveBeenCalled()
   })
 
+  it("disables and grays the microphone with guidance when speech to text is not configured", async () => {
+    const interaction = userEvent.setup()
+    renderComposer({ voiceTranscriptionAvailability: "not_configured" })
+
+    const voiceButton = screen.getByRole("button", { name: "语音输入" })
+    expect(voiceButton).toBeDisabled()
+    expect(voiceButton).toHaveClass("text-muted-foreground", "opacity-50")
+
+    const trigger = voiceButton.parentElement
+    expect(trigger).not.toBeNull()
+    await interaction.hover(trigger!)
+    expect(
+      await screen.findByRole("tooltip", {
+        name: "语音转文字服务尚未配置，请联系管理员。",
+      })
+    ).toBeVisible()
+  })
+
   it("hides model, capability, and knowledge controls for an application-managed conversation", async () => {
     const interaction = userEvent.setup()
     renderComposer({

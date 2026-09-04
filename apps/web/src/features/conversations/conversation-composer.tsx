@@ -106,6 +106,7 @@ import {
   type VoiceInputFailure,
   type VoiceTranscriptionRequester,
 } from "@/features/conversations/use-voice-transcription"
+import type { VoiceTranscriptionAvailabilityState } from "@/features/conversations/use-voice-transcription-availability"
 import {
   appendVoiceTranscript,
   getVoiceInputFailureMessage,
@@ -421,6 +422,7 @@ type ConversationComposerProps = Readonly<{
   ) => Promise<unknown> | void
   onError: (message: string | null) => void
   requestVoiceTranscription?: VoiceTranscriptionRequester
+  voiceTranscriptionAvailability?: VoiceTranscriptionAvailabilityState
 }>
 
 export const ConversationComposer = forwardRef<
@@ -483,6 +485,7 @@ export const ConversationComposer = forwardRef<
     onClearAttachments,
     onError,
     requestVoiceTranscription,
+    voiceTranscriptionAvailability = "available",
   }: ConversationComposerProps,
   ref
 ) {
@@ -638,6 +641,15 @@ export const ConversationComposer = forwardRef<
     request: requestVoiceTranscription,
   })
   const voiceBusy = voice.phase !== "idle"
+  const voiceAvailable = voiceTranscriptionAvailability === "available"
+  const voiceTooltipKey =
+    voiceTranscriptionAvailability === "not_configured"
+      ? "conversation.voiceNotConfigured"
+      : voiceTranscriptionAvailability === "checking"
+        ? "conversation.voiceChecking"
+        : voiceTranscriptionAvailability === "unavailable"
+          ? "conversation.voiceServiceUnavailable"
+          : "conversation.voice"
   const selected = useMemo(
     () =>
       capabilities.filter((capability) => selectedIds.includes(capability.id)),
@@ -2104,25 +2116,39 @@ export const ConversationComposer = forwardRef<
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="composer-control"
-                    aria-label={t("conversation.voice")}
-                    disabled={taskStartDisabled || attachmentActionDisabled}
-                    onClick={() => {
-                      onError(null)
-                      voiceBaseValueRef.current = latestValueRef.current
-                      voiceLastAppliedValueRef.current = latestValueRef.current
-                      void voice.startRecording()
-                    }}
+                  <span
+                    className="inline-flex"
+                    role="group"
+                    tabIndex={voiceAvailable ? undefined : 0}
+                    aria-label={voiceAvailable ? undefined : t(voiceTooltipKey)}
                   />
                 }
               >
-                <MicIcon aria-hidden="true" />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className={cn(
+                    "composer-control",
+                    !voiceAvailable && "text-muted-foreground opacity-50"
+                  )}
+                  aria-label={t("conversation.voice")}
+                  disabled={
+                    !voiceAvailable ||
+                    taskStartDisabled ||
+                    attachmentActionDisabled
+                  }
+                  onClick={() => {
+                    onError(null)
+                    voiceBaseValueRef.current = latestValueRef.current
+                    voiceLastAppliedValueRef.current = latestValueRef.current
+                    void voice.startRecording()
+                  }}
+                >
+                  <MicIcon aria-hidden="true" />
+                </Button>
               </TooltipTrigger>
-              <TooltipContent>{t("conversation.voice")}</TooltipContent>
+              <TooltipContent>{t(voiceTooltipKey)}</TooltipContent>
             </Tooltip>
           )}
 

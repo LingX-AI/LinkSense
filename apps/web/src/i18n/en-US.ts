@@ -1692,6 +1692,11 @@ export const enUS = {
     htmlAnnotationCount_one: "{{count}} annotation",
     htmlAnnotationCount_other: "{{count}} annotations",
     voice: "Voice input",
+    voiceChecking: "Checking the speech-to-text service…",
+    voiceNotConfigured:
+      "Speech-to-text has not been configured. Contact an administrator.",
+    voiceServiceUnavailable:
+      "Speech-to-text is temporarily unavailable. Try again later.",
     voiceStop: "Stop voice input",
     voiceRecording: "Recording",
     voiceDuration: "Recording duration",
@@ -3669,6 +3674,7 @@ export const enUS = {
       channels: "Model channels",
       conversation: "Conversation models",
       knowledge: "Knowledge retrieval models",
+      voiceTranscription: "Speech-to-text model",
       imageGeneration: "Image generation model",
       initialQuota: "Initial user token usage",
     },
@@ -3834,6 +3840,45 @@ export const enUS = {
         "New document processing and semantic retrieval will use this configuration.",
       savedAfterEmbeddingChangeDescription:
         "The model setting was saved. Go to System health and rebuild all knowledge-base indexes; retrieval is temporarily unavailable until it finishes.",
+    },
+    voiceTranscription: {
+      title: "Speech-to-text model",
+      description:
+        "Configure the model service used for voice input transcription. Once enabled, regular tasks and embedded apps use these settings. The key is stored securely and never displayed again.",
+      enabled: "Enable speech to text",
+      provider: "Model provider",
+      providerHint:
+        "Choose the speech-to-text service you have activated and want to use.",
+      providerPlaceholder: "Select a model provider",
+      providers: {
+        dashscope: "Alibaba Cloud Bailian",
+        openai: "OpenAI",
+        openai_compatible: "OpenAI-compatible service",
+        azure_openai: "Azure OpenAI",
+        groq: "Groq",
+        deepgram: "Deepgram",
+        assemblyai: "AssemblyAI",
+        elevenlabs: "ElevenLabs",
+        revai: "Rev.ai",
+        gladia: "Gladia",
+        fal: "fal.ai",
+      },
+      baseUrl: "Base URL",
+      baseUrlHint:
+        "Enter the speech-to-text connection address supplied by the provider.",
+      apiVersion: "API version",
+      apiVersionHint:
+        "Enter the API version used by your Azure OpenAI deployment.",
+      apiKey: "API key",
+      apiKeyConfiguredHint:
+        "A key is configured. Leave this blank to keep the existing key.",
+      apiKeyRequiredHint:
+        "A key is required when enabling this for the first time or after switching providers. It is never displayed again.",
+      model: "Speech-to-text model name",
+      modelHint: "Enter the model or deployment name supplied by the provider.",
+      save: "Save speech-to-text model",
+      saving: "Saving…",
+      saved: "Speech-to-text model settings updated.",
     },
     imageGeneration: {
       title: "Image generation model",
