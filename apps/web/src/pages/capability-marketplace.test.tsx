@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import type { ReactNode } from "react"
 import {
   act,
   cleanup,
@@ -21,6 +22,8 @@ import {
 import { APPLICATION_ICON_MAX_BYTES } from "@linksense/shared"
 
 import { setAccessToken } from "@/api/session"
+import { userSchema } from "@/api/contracts"
+import { AuthContext } from "@/app/auth-state"
 import { ThemeProvider } from "@/app/theme-context"
 import { notify } from "@/components/feedback/notification"
 import { NotificationCenter } from "@/components/feedback/notification-toast"
@@ -36,6 +39,41 @@ const CAPABILITY_ID = "20000000-0000-4000-8000-000000000001"
 const LISTING_ID = "30000000-0000-4000-8000-000000000001"
 const RELEASE_ID = "40000000-0000-4000-8000-000000000001"
 const NOW = "2026-07-25T08:00:00.000Z"
+
+function testUser(
+  registrationSource: "self_registration" | "organization_invitation"
+) {
+  return userSchema.parse({
+    id: PUBLISHER_ID,
+    name: "发布者",
+    email: "publisher@example.test",
+    role: "user",
+    status: "active",
+    registration_source: registrationSource,
+  })
+}
+
+function TestAuthProvider({
+  children,
+  registrationSource = "organization_invitation",
+}: {
+  children: ReactNode
+  registrationSource?: "self_registration" | "organization_invitation"
+}) {
+  return (
+    <AuthContext.Provider
+      value={{
+        status: "authenticated",
+        user: testUser(registrationSource),
+        acceptSession: async () => undefined,
+        refreshUser: async () => undefined,
+        signOut: async () => undefined,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  )
+}
 
 const riskSummary = {
   contains_mcp_server: false,
@@ -193,7 +231,11 @@ function CapabilityLocationProbe() {
   )
 }
 
-function renderUserPageWithRouter(initialEntry: string) {
+function renderUserPageWithRouter(
+  initialEntry: string,
+  registrationSource:
+    "self_registration" | "organization_invitation" = "organization_invitation"
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -216,7 +258,9 @@ function renderUserPageWithRouter(initialEntry: string) {
     ...render(
       <ThemeProvider>
         <QueryClientProvider client={queryClient}>
-          <RouterProvider router={router} />
+          <TestAuthProvider registrationSource={registrationSource}>
+            <RouterProvider router={router} />
+          </TestAuthProvider>
         </QueryClientProvider>
         <NotificationCenter />
       </ThemeProvider>
@@ -224,7 +268,10 @@ function renderUserPageWithRouter(initialEntry: string) {
   }
 }
 
-function renderUserPage() {
+function renderUserPage(
+  registrationSource:
+    "self_registration" | "organization_invitation" = "organization_invitation"
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -232,7 +279,9 @@ function renderUserPage() {
     <ThemeProvider>
       <MemoryRouter>
         <QueryClientProvider client={queryClient}>
-          <CapabilityManagementPage />
+          <TestAuthProvider registrationSource={registrationSource}>
+            <CapabilityManagementPage />
+          </TestAuthProvider>
         </QueryClientProvider>
       </MemoryRouter>
       <NotificationCenter />
@@ -248,16 +297,18 @@ function renderUserPageWithSettingsDestination() {
     <ThemeProvider>
       <MemoryRouter initialEntries={["/capabilities"]}>
         <QueryClientProvider client={queryClient}>
-          <Routes>
-            <Route
-              path="/capabilities"
-              element={<CapabilityManagementPage />}
-            />
-            <Route
-              path="/settings/mcp"
-              element={<SettingsDestinationProbe />}
-            />
-          </Routes>
+          <TestAuthProvider>
+            <Routes>
+              <Route
+                path="/capabilities"
+                element={<CapabilityManagementPage />}
+              />
+              <Route
+                path="/settings/mcp"
+                element={<SettingsDestinationProbe />}
+              />
+            </Routes>
+          </TestAuthProvider>
         </QueryClientProvider>
       </MemoryRouter>
       <NotificationCenter />
@@ -331,6 +382,58 @@ describe("capability marketplace pages", () => {
     expect(screen.getByTestId("capability-location")).toHaveTextContent(
       "/capabilities?section=skill&scope=public&search=deck"
     )
+  })
+
+  it("keeps the Skill repository while hiding organization marketplace controls for self-registered users", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.origin)
+      if (url.pathname === "/api/v1/mcp-servers") {
+        return Promise.resolve(envelope({ items: [] }))
+      }
+      return Promise.resolve(envelope({ items: [], next_cursor: null }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const interaction = userEvent.setup()
+    renderUserPageWithRouter(
+      "/capabilities?section=skill&scope=public",
+      "self_registration"
+    )
+
+    expect(
+      await screen.findByText("管理已安装内容、个人内容、技能仓库与 MCP 连接。")
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: "我的发布" })
+    ).not.toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText("内容范围")).queryByRole("button", {
+        name: "公开",
+      })
+    ).not.toBeInTheDocument()
+    const skillRepository = within(screen.getByLabelText("内容范围")).getByRole(
+      "button",
+      { name: "技能仓库" }
+    )
+    expect(skillRepository).toBeVisible()
+    await waitFor(() =>
+      expect(screen.getByTestId("capability-location")).toHaveTextContent(
+        "/capabilities?section=skill&scope=personal"
+      )
+    )
+
+    await interaction.click(skillRepository)
+    expect(screen.getByTestId("capability-location")).toHaveTextContent(
+      "/capabilities?section=skill&scope=clawhub"
+    )
+    expect(
+      fetchMock.mock.calls.some(([input]) => {
+        const pathname = new URL(String(input), window.location.origin).pathname
+        return (
+          pathname === "/api/v1/marketplace" ||
+          pathname === "/api/v1/marketplace/mine"
+        )
+      })
+    ).toBe(false)
   })
 
   it("shows built-in skills as installed but excludes them from the personal skill catalog", async () => {
@@ -1820,6 +1923,80 @@ describe("capability marketplace pages", () => {
     )
   })
 
+  it("shows only personal applications and hides organization sharing for self-registered users", async () => {
+    const applicationId = "50000000-0000-4000-8000-000000000090"
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.origin)
+      if (url.pathname === "/api/v1/applications") {
+        expect(url.searchParams.get("scope")).toBe("owned")
+        return Promise.resolve(
+          envelope({
+            items: [
+              {
+                id: applicationId,
+                owner: { id: PUBLISHER_ID, name: "发布者" },
+                name: "个人助手",
+                icon: { type: "preset", preset: "bot" },
+                description: null,
+                instructions: "Personal instructions",
+                model: null,
+                reasoning_effort: null,
+                status: "active",
+                is_owner: true,
+                can_manage: true,
+                access_source: "owner",
+                capability_count: 0,
+                mcp_server_count: 0,
+                knowledge_base_count: 0,
+                dependencies_available: true,
+                capabilities: [],
+                mcp_servers: [],
+                knowledge_bases: [],
+                share_targets: [
+                  {
+                    id: "10000000-0000-4000-8000-000000000090",
+                    type: "user",
+                    name: "历史共享对象",
+                  },
+                ],
+                created_at: NOW,
+                updated_at: NOW,
+              },
+            ],
+            next_cursor: null,
+          })
+        )
+      }
+      return Promise.resolve(envelope({ items: [], next_cursor: null }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const interaction = userEvent.setup()
+    renderUserPageWithRouter(
+      "/capabilities?section=application&scope=personal&app_scope=shared",
+      "self_registration"
+    )
+
+    expect(
+      await screen.findByRole("heading", { name: "个人助手" })
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("combobox", { name: "应用范围" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/历史共享对象/u)).not.toBeInTheDocument()
+
+    await interaction.click(
+      screen.getByRole("button", { name: "个人助手的更多操作" })
+    )
+    expect(
+      screen.queryByRole("menuitem", { name: "组织内共享" })
+    ).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByTestId("capability-location")).toHaveTextContent(
+        "app_scope=owned"
+      )
+    )
+  })
+
   it("renders wide two-column application cards with status and owner actions aligned", async () => {
     const applications = [
       {
@@ -1848,6 +2025,19 @@ describe("capability marketplace pages", () => {
         id: "50000000-0000-4000-8000-000000000012",
         name: "教职工流程助手",
         model: "gpt-5.6-terra",
+        kind: "interactive" as const,
+        interactive_package: {
+          id: "50000000-0000-4000-8000-000000000013",
+          version: "1.1.0",
+          manifest: {
+            schema_version: 1 as const,
+            id: "faculty-workflow-assistant",
+            name: "教职工流程助手",
+            version: "1.1.0",
+            sdk_version: 1 as const,
+          },
+          created_at: NOW,
+        },
       },
     ].map((application) => ({
       ...application,
@@ -1897,6 +2087,17 @@ describe("capability marketplace pages", () => {
     const cardAction = card.querySelector<HTMLElement>(
       '[data-slot="card-action"]'
     )
+    const cardHeader = card.querySelector<HTMLElement>(
+      '[data-slot="card-header"]'
+    )
+    const creator = within(card).getByText("由我创建")
+    const description = within(card).getByText("暂无说明")
+    const modelSlot = card.querySelector<HTMLElement>(
+      '[data-slot="application-card-model"]'
+    )
+    const statistics = card.querySelector<HTMLElement>(
+      '[data-slot="application-card-statistics"]'
+    )
     const statusBadge = within(card)
       .getByText("已启用")
       .closest<HTMLElement>('[data-slot="badge"]')
@@ -1910,6 +2111,23 @@ describe("capability marketplace pages", () => {
 
     expect(grid).toHaveClass("grid", "md:grid-cols-2")
     expect(grid).not.toHaveClass("xl:grid-cols-3")
+    expect(cardHeader).toHaveClass("gap-x-4", "gap-y-0")
+    expect(creator.parentElement).toHaveClass("min-h-14", "flex-col")
+    expect(creator).toHaveClass("mt-auto", "text-xs", "leading-4")
+    expect(description).toHaveClass(
+      "line-clamp-2",
+      "min-h-10",
+      "break-words",
+      "leading-5"
+    )
+    expect(modelSlot).toHaveClass("min-h-5", "min-w-0")
+    expect(modelSlot).toBeEmptyDOMElement()
+    expect(statistics).toHaveClass(
+      "min-h-5",
+      "flex-wrap",
+      "items-start",
+      "tabular-nums"
+    )
     expect(cardAction).not.toBeNull()
     expect(cardAction).toContainElement(statusBadge)
     expect(cardAction).toHaveClass("col-start-2", "justify-self-end")
@@ -1947,6 +2165,18 @@ describe("capability marketplace pages", () => {
     }
     expect(within(fixedModelCard).getByText("gpt-5.6-terra")).toBeVisible()
     expect(
+      within(fixedModelCard).getByText("交互式应用 · v1.1.0")
+    ).toBeVisible()
+    expect(
+      within(fixedModelCard).getByText("由我创建").parentElement
+    ).toHaveClass("min-h-14", "flex-col")
+    expect(
+      fixedModelCard.querySelector('[data-slot="application-card-model"]')
+    ).toHaveTextContent("gpt-5.6-terra")
+    expect(
+      fixedModelCard.querySelector('[data-slot="application-card-statistics"]')
+    ).not.toHaveTextContent("gpt-5.6-terra")
+    expect(
       within(footer!)
         .getAllByRole("button")
         .map((button) => button.textContent)
@@ -1973,12 +2203,12 @@ describe("capability marketplace pages", () => {
       within(actionMenu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent)
-    ).toEqual(["编辑", "共享", "停用", "用量统计", "外部访问", "删除"])
+    ).toEqual(["编辑", "组织内共享", "停用", "用量统计", "外部访问", "删除"])
     expect(screen.getByRole("menuitem", { name: "用量统计" })).toHaveAttribute(
       "href",
       `/capabilities/applications/${applications[0]!.id}/usage`
     )
-    expect(screen.getByRole("menuitem", { name: "共享" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "组织内共享" })).toBeVisible()
     expect(screen.getByRole("menuitem", { name: "编辑" })).toBeVisible()
     expect(screen.getByRole("menuitem", { name: "删除" })).toBeVisible()
   })
@@ -2104,7 +2334,7 @@ describe("capability marketplace pages", () => {
       })
     )
     await interaction.click(
-      await screen.findByRole("menuitem", { name: "共享" })
+      await screen.findByRole("menuitem", { name: "组织内共享" })
     )
 
     const dialog = await screen.findByRole("dialog", { name: "共享应用" })

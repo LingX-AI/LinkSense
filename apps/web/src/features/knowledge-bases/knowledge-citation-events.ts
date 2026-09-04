@@ -6,6 +6,7 @@ import {
   refreshSession,
 } from "@/api/client"
 import { parseSseFrame } from "@/api/sse"
+import { waitForSseReconnectDelay } from "@/api/sse-reconnect-delay"
 import { getAccessToken, setAccessToken } from "@/api/session"
 
 type KnowledgeCitationEventHandlers = {
@@ -15,20 +16,6 @@ type KnowledgeCitationEventHandlers = {
 }
 
 const MAX_SSE_BUFFER_CHARACTERS = 1_000_000
-
-function delay(milliseconds: number, signal: AbortSignal) {
-  return new Promise<void>((resolve) => {
-    const timer = window.setTimeout(resolve, milliseconds)
-    signal.addEventListener(
-      "abort",
-      () => {
-        window.clearTimeout(timer)
-        resolve()
-      },
-      { once: true }
-    )
-  })
-}
 
 export function connectKnowledgeCitationEvents(
   citationId: string,
@@ -131,7 +118,7 @@ export function connectKnowledgeCitationEvents(
           handlers.shouldReconnect(controller.signal)
         ).catch(() => true)
         if (controller.signal.aborted || !shouldReconnect) return
-        await delay(reconnectDelay, controller.signal)
+        await waitForSseReconnectDelay(reconnectDelay, controller.signal)
         reconnectDelay = Math.min(reconnectDelay * 2, 15_000)
       }
     }

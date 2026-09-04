@@ -627,6 +627,7 @@ function installApiMock(options?: {
   pendingRequestResponse?: (body: unknown) => Response | Promise<Response>
   interruptResponse?: () => Response | Promise<Response>
   regenerateResponse?: () => Response | Promise<Response>
+  forkStart?: Promise<void>
   planReviewActionResponse?: (
     reviewId: string,
     body: unknown
@@ -1011,6 +1012,7 @@ function installApiMock(options?: {
         ) &&
         method === "POST"
       ) {
+        if (options?.forkStart) await options.forkStart
         forkCalls += 1
         const forkedConversation = {
           ...conversations[0],
@@ -6183,7 +6185,7 @@ describe("LinkSense application", () => {
     })
   })
 
-  it("places search, collapse, and notification controls beside the LinkSense logo", async () => {
+  it("places search, notification, and collapse controls beside the LinkSense logo", async () => {
     installApiMock()
     const interaction = userEvent.setup()
     renderApp()
@@ -6217,11 +6219,11 @@ describe("LinkSense application", () => {
     expect(brand.parentElement).toContainElement(collapseButton)
     expect(brand.parentElement).toContainElement(notificationButton)
     expect(
-      searchButton.compareDocumentPosition(collapseButton) &
+      searchButton.compareDocumentPosition(notificationButton) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     expect(
-      collapseButton.compareDocumentPosition(notificationButton) &
+      notificationButton.compareDocumentPosition(collapseButton) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     expect(searchButton).toHaveClass(
@@ -6526,21 +6528,37 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("keeps the recent-task scrollbar on the outer sidebar edge", async () => {
+  it("keeps all navigation below new task in the sidebar scroll area", async () => {
     installApiMock()
     renderApp()
     const sidebar = await screen.findByRole("complementary", {
       name: "LinkSense 导航",
     })
     const taskScroller = sidebar.querySelector(".sidebar-conversation-scroll")
+    const newTaskLink = within(sidebar).getByRole("link", { name: "新任务" })
+    const automationLink = within(sidebar).getByRole("link", {
+      name: "自动化",
+    })
+    const capabilitiesLink = within(sidebar).getByRole("link", {
+      name: "插件中心",
+    })
+    const knowledgeBasesLink = within(sidebar).getByRole("link", {
+      name: "文件库",
+    })
 
     expect(taskScroller).not.toBeNull()
-    expect(taskScroller?.closest("section")).toHaveClass("-mr-3")
+    expect(taskScroller?.contains(newTaskLink)).toBe(false)
+    expect(taskScroller?.contains(automationLink)).toBe(true)
+    expect(taskScroller?.contains(capabilitiesLink)).toBe(true)
+    expect(taskScroller?.contains(knowledgeBasesLink)).toBe(true)
+    expect(taskScroller?.closest(".sidebar-conversation-region")).toHaveClass(
+      "-mr-3"
+    )
     expect(taskScroller).toHaveClass("pr-3.5")
     expect(taskScroller).not.toHaveClass("pr-0.5")
   })
 
-  it("shows the recent-task top divider only while the list is scrolled", async () => {
+  it("shows the shared sidebar top divider only while its content is scrolled", async () => {
     installApiMock()
     renderApp()
     const sidebar = await screen.findByRole("complementary", {
@@ -6551,7 +6569,7 @@ describe("LinkSense application", () => {
 
     expect(taskScroller).not.toBeNull()
     expect(taskRegion).not.toBeNull()
-    expect(taskRegion).toHaveClass("mt-2")
+    expect(taskRegion).not.toHaveClass("mt-2")
     expect(taskRegion).not.toHaveClass("mt-5")
     expect(taskRegion).not.toHaveAttribute("data-scrolled")
 
@@ -8575,12 +8593,17 @@ describe("LinkSense application", () => {
   })
 
   it("branches from an assistant message and opens the new numbered task", async () => {
+    let finishFork: (() => void) | undefined
+    const forkStart = new Promise<void>((resolve) => {
+      finishFork = resolve
+    })
     let conversationListCalls = 0
     let finishSidebarRefresh: ((response: Response) => void) | undefined
     const pendingSidebarRefresh = new Promise<Response>((resolve) => {
       finishSidebarRefresh = resolve
     })
     const { requests } = installApiMock({
+      forkStart,
       conversationListResponse: (_query, state) => {
         conversationListCalls += 1
         if (state.forkCalls === 0) {
@@ -8647,7 +8670,26 @@ describe("LinkSense application", () => {
         )?.body
       ).toEqual({ idempotency_key: expect.any(String) })
     )
+    const forkLoadingNotification = await waitFor(() => {
+      const notification = screen
+        .getAllByText("正在创建分支…", { exact: true })
+        .find((element) => element.closest("[data-sonner-toast]"))
+      expect(notification).toBeDefined()
+      return notification!
+    })
+    expect(
+      forkLoadingNotification.closest("[data-sonner-toast]")
+    ).toHaveAttribute("data-type", "loading")
+
+    finishFork?.()
     expect(await screen.findByText("活动风险评估(2)已加载。")).toBeVisible()
+    await waitFor(() =>
+      expect(
+        screen
+          .queryAllByText("正在创建分支…", { exact: true })
+          .some((element) => element.closest("[data-sonner-toast]"))
+      ).toBe(false)
+    )
     const sidebar = screen.getByRole("complementary", {
       name: "LinkSense 导航",
     })

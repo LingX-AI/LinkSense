@@ -1,4 +1,10 @@
-import { useDeferredValue, useMemo, useState, type ReactNode } from "react"
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react"
 import { coreMcpServerKey } from "@linksense/shared"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useLocation, useNavigate } from "react-router-dom"
@@ -48,6 +54,7 @@ import {
   type McpServer,
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
+import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
 import {
   CapabilityLibraryItem,
@@ -1212,6 +1219,7 @@ function MyCapabilitiesPanel({
   category,
   search,
   sectionTitle,
+  publishingEnabled,
   onFeedback,
   onInspect,
   onUpdate,
@@ -1220,6 +1228,7 @@ function MyCapabilitiesPanel({
   category: Exclude<MarketplaceCatalogSection, "application">
   search: string
   sectionTitle?: string
+  publishingEnabled: boolean
   onFeedback: (message: string, isError?: boolean) => void
   onInspect: (capability: CapabilitySummary) => void
   onUpdate: (capability: CapabilitySummary) => void
@@ -1240,17 +1249,20 @@ function MyCapabilitiesPanel({
       apiRequest("/marketplace/mine", {
         schema: marketplacePublicationPageSchema,
       }),
+    enabled: publishingEnabled,
   })
   const categoryCapabilities = capabilities.filter(
     (capability) =>
       matchesCapabilityCatalogSection(capability, category) &&
       !capability.is_builtin
   )
-  const hasMarketplaceInstallations = categoryCapabilities.some(
-    (capability) =>
-      capability.source_type === "marketplace" &&
-      capability.marketplace_listing_id !== null
-  )
+  const hasMarketplaceInstallations =
+    publishingEnabled &&
+    categoryCapabilities.some(
+      (capability) =>
+        capability.source_type === "marketplace" &&
+        capability.marketplace_listing_id !== null
+    )
   const marketplaceInstallations = useQuery({
     queryKey: ["marketplace", "installations"],
     queryFn: () =>
@@ -1363,12 +1375,12 @@ function MyCapabilitiesPanel({
   })
 
   if (
-    publications.isLoading ||
+    (publishingEnabled && publications.isLoading) ||
     (hasMarketplaceInstallations && marketplaceInstallations.isLoading)
   ) {
     return <LoadingState />
   }
-  if (publications.isError) {
+  if (publishingEnabled && publications.isError) {
     return (
       <ErrorState
         message={getErrorMessage(publications.error, t)}
@@ -1502,24 +1514,26 @@ function MyCapabilitiesPanel({
                                   )
                                 )}
                               </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="whitespace-nowrap"
-                                disabled={reviewPending}
-                                onClick={() => setPublishTarget(capability)}
-                              >
-                                {reviewPending ? (
-                                  <Clock3Icon aria-hidden="true" />
-                                ) : (
-                                  <StoreIcon aria-hidden="true" />
-                                )}
-                                {t(
-                                  reviewPending
-                                    ? "marketplace.pendingReviewAction"
-                                    : publication
-                                      ? "marketplace.submitUpdate"
-                                      : "marketplace.applyForListing"
-                                )}
-                              </DropdownMenuItem>
+                              {publishingEnabled && (
+                                <DropdownMenuItem
+                                  className="whitespace-nowrap"
+                                  disabled={reviewPending}
+                                  onClick={() => setPublishTarget(capability)}
+                                >
+                                  {reviewPending ? (
+                                    <Clock3Icon aria-hidden="true" />
+                                  ) : (
+                                    <StoreIcon aria-hidden="true" />
+                                  )}
+                                  {t(
+                                    reviewPending
+                                      ? "marketplace.pendingReviewAction"
+                                      : publication
+                                        ? "marketplace.submitUpdate"
+                                        : "marketplace.applyForListing"
+                                  )}
+                                </DropdownMenuItem>
+                              )}
                             </>
                           )}
                           <DropdownMenuItem
@@ -1933,16 +1947,43 @@ function PersonalMcpPanel({
 
 function MarketplaceCatalogPanel({
   onFeedback,
+  organizationMarketplaceEnabled,
 }: {
   onFeedback: (message: string, isError?: boolean) => void
+  organizationMarketplaceEnabled: boolean
 }) {
   const { t } = useTranslation()
   const productName = useProductName()
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const catalogLocation = capabilityCenterLocationFromSearch(location.search)
+  const requestedCatalogLocation = capabilityCenterLocationFromSearch(
+    location.search
+  )
+  const catalogLocation =
+    !organizationMarketplaceEnabled &&
+    requestedCatalogLocation.scope === "public"
+      ? { ...requestedCatalogLocation, scope: "personal" as const }
+      : requestedCatalogLocation
   const { search, section, scope } = catalogLocation
+  const normalizedPersonalPath = capabilityCenterPath(catalogLocation)
+  useEffect(() => {
+    if (
+      organizationMarketplaceEnabled ||
+      requestedCatalogLocation.scope !== "public" ||
+      `${location.pathname}${location.search}` === normalizedPersonalPath
+    ) {
+      return
+    }
+    navigate(normalizedPersonalPath, { replace: true })
+  }, [
+    location.pathname,
+    location.search,
+    navigate,
+    normalizedPersonalPath,
+    organizationMarketplaceEnabled,
+    requestedCatalogLocation.scope,
+  ])
   const deferredSearch = useDeferredValue(search.trim())
   const updateCatalogLocation = (
     update: Partial<{
@@ -1973,7 +2014,8 @@ function MarketplaceCatalogPanel({
   const [updateTarget, setUpdateTarget] = useState<CapabilitySummary | null>(
     null
   )
-  const publicScopeAvailable = section !== "mcp"
+  const publicScopeAvailable =
+    organizationMarketplaceEnabled && section !== "mcp"
 
   const managed = useQuery({
     queryKey: ["capabilities", "managed"],
@@ -2345,6 +2387,7 @@ function MarketplaceCatalogPanel({
           capabilities={capabilities}
           category={section}
           search={deferredSearch}
+          publishingEnabled={organizationMarketplaceEnabled}
           onFeedback={onFeedback}
           onInspect={setSelectedCapability}
           onUpdate={openCapabilityImport}
@@ -2373,6 +2416,7 @@ function MarketplaceCatalogPanel({
           category="mcp"
           search={deferredSearch}
           sectionTitle={t("marketplace.personalMcpPackages")}
+          publishingEnabled={organizationMarketplaceEnabled}
           onFeedback={onFeedback}
           onInspect={setSelectedCapability}
           onUpdate={openCapabilityImport}
@@ -2407,7 +2451,10 @@ function MarketplaceCatalogPanel({
           >
             {section === value ? (
               value === "application" ? (
-                <ApplicationCatalogPanel onFeedback={onFeedback} />
+                <ApplicationCatalogPanel
+                  onFeedback={onFeedback}
+                  organizationSharingEnabled={organizationMarketplaceEnabled}
+                />
               ) : (
                 <div className="capability-center-catalog">
                   <div className="capability-center-search-row">
@@ -3202,6 +3249,9 @@ function MyPublicationsPanel({
 
 export function CapabilityManagementPage() {
   const { t } = useTranslation()
+  const { user } = useAuth()
+  const organizationMarketplaceEnabled =
+    user?.registration_source === "organization_invitation"
   const [view, setView] = useState<UserCapabilityView>("store")
   const [error, setError] = useState<string | null>(null)
   const feedback = (message: string, isError = false) => {
@@ -3216,7 +3266,11 @@ export function CapabilityManagementPage() {
   return (
     <PageLayout
       title={t("marketplace.title")}
-      description={t("marketplace.description")}
+      description={t(
+        organizationMarketplaceEnabled
+          ? "marketplace.description"
+          : "marketplace.personalAccountDescription"
+      )}
       actions={
         <>
           {view !== "store" && (
@@ -3230,24 +3284,31 @@ export function CapabilityManagementPage() {
               {t("marketplace.tabs.store")}
             </Button>
           )}
-          <Button
-            type="button"
-            variant={view === "publishing" ? "secondary" : "ghost"}
-            size="sm"
-            aria-pressed={view === "publishing"}
-            onClick={() => setView("publishing")}
-          >
-            <UploadIcon data-icon="inline-start" />
-            {t("marketplace.tabs.publishing")}
-          </Button>
+          {organizationMarketplaceEnabled && (
+            <Button
+              type="button"
+              variant={view === "publishing" ? "secondary" : "ghost"}
+              size="sm"
+              aria-pressed={view === "publishing"}
+              onClick={() => setView("publishing")}
+            >
+              <UploadIcon data-icon="inline-start" />
+              {t("marketplace.tabs.publishing")}
+            </Button>
+          )}
         </>
       }
       afterHeader={
         view !== "publishing" && error ? <Feedback error={error} /> : null
       }
     >
-      {view === "store" && <MarketplaceCatalogPanel onFeedback={feedback} />}
-      {view === "publishing" && (
+      {view === "store" && (
+        <MarketplaceCatalogPanel
+          onFeedback={feedback}
+          organizationMarketplaceEnabled={organizationMarketplaceEnabled}
+        />
+      )}
+      {view === "publishing" && organizationMarketplaceEnabled && (
         <MyPublicationsPanel onFeedback={feedback} error={error} />
       )}
     </PageLayout>

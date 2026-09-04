@@ -2317,6 +2317,7 @@ export const enUS = {
     dependencyUnavailableShort: "Currently unavailable; it can be removed",
     usesPluginCredentials: "Uses plugin credentials",
     share: "Share",
+    shareWithinOrganization: "Share within organization",
     usage: {
       action: "Usage analytics",
       title: "Application usage",
@@ -2509,6 +2510,8 @@ export const enUS = {
     title: "Plugin Center",
     description:
       "Browse public plugins and Skills, and manage installed content, personal content, and MCP connections in one place.",
+    personalAccountDescription:
+      "Manage installed content, personal content, the Skill repository, and MCP connections.",
     adminTitle: "Plugin Center",
     adminDescription:
       "Review immutable release snapshots, manage Plugin Center visibility, and suspend listings immediately when risks are found.",

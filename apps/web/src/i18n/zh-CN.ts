@@ -2147,6 +2147,7 @@ export const zhCN = {
     dependencyUnavailableShort: "当前不可用，可取消选择",
     usesPluginCredentials: "使用插件凭据",
     share: "共享",
+    shareWithinOrganization: "组织内共享",
     usage: {
       action: "用量统计",
       title: "应用用量",
@@ -2329,6 +2330,8 @@ export const zhCN = {
     title: "插件中心",
     description:
       "浏览公开的插件与技能，并在同一处管理已安装内容、个人内容与 MCP 连接。",
+    personalAccountDescription:
+      "管理已安装内容、个人内容、技能仓库与 MCP 连接。",
     adminTitle: "插件中心",
     adminDescription:
       "审核不可变发布快照，管理插件中心可见性，并在发现风险时立即停用条目。",

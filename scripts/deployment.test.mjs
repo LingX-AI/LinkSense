@@ -292,6 +292,27 @@ test("Nginx revalidates stable embed assets and only caches fingerprinted assets
   assert.doesNotMatch(config, /\/assets\/app\.css "public,[^"]*immutable";/u);
 });
 
+test("Nginx never caches the application entry document or SPA fallbacks", async () => {
+  const config = await readFile(nginxConfigPath, "utf8");
+  const indexLocation = section(
+    config,
+    "location = /index.html",
+    "location = /health/live",
+  );
+  const spaLocation = section(config, "location / {", undefined);
+
+  assert.match(
+    config,
+    /\/index\.html "no-store, no-cache, must-revalidate, max-age=0";/u,
+  );
+  assert.match(config, /map \$uri \$linksense_pragma \{[^}]*\/index\.html "no-cache";/su);
+  assert.match(config, /map \$uri \$linksense_expires \{[^}]*\/index\.html "0";/su);
+  assert.match(config, /add_header Pragma \$linksense_pragma always;/u);
+  assert.match(config, /add_header Expires \$linksense_expires always;/u);
+  assert.match(indexLocation, /try_files \$uri =404;/u);
+  assert.match(spaLocation, /try_files \$uri \$uri\/ \/index\.html;/u);
+});
+
 test("Nginx serves JavaScript modules with an executable MIME type", async () => {
   const config = await readFile(nginxConfigPath, "utf8");
   const moduleLocation = section(

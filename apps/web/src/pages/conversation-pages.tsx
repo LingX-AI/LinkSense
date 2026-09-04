@@ -254,6 +254,7 @@ const artifactPreviewLinkSchema = z.object({
 })
 const reconnectingConversationRefetchIntervalMs = 1_500
 const newConversationPlaceholderId = "new"
+const conversationForkNotificationId = "conversation-fork-loading"
 const goalClearResultSchema = z.strictObject({ cleared: z.boolean() })
 const emptyPersistedMessageRenderKeys: ReadonlyMap<string, string> = new Map()
 const nativeMessageDeltaPhaseFallbackDelayMs = 120
@@ -3293,6 +3294,11 @@ export function ConversationPage({
         }
       )
     },
+    onMutate: () => {
+      notify.loading(t("conversation.forkingMessage"), {
+        id: conversationForkNotificationId,
+      })
+    },
     onSuccess: (forkedConversation) => {
       forkOperationRef.current = null
       queryClient.setQueryData(
@@ -3305,6 +3311,9 @@ export function ConversationPage({
     },
     onError: () => {
       setError(t("conversation.forkMessageFailed"))
+    },
+    onSettled: () => {
+      notify.dismiss(conversationForkNotificationId)
     },
   })
 

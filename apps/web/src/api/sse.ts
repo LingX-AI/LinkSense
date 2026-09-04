@@ -11,6 +11,7 @@ import {
   type ConversationEventHistoryPage,
 } from "@/api/contracts"
 import { getAccessToken, setAccessToken } from "@/api/session"
+import { waitForSseReconnectDelay } from "@/api/sse-reconnect-delay"
 
 export type ConversationEventHandlers = {
   /**
@@ -83,20 +84,6 @@ function saveLastEventId(conversationId: string, id: string) {
   } catch {
     // A disabled storage backend must not break event delivery.
   }
-}
-
-function delay(milliseconds: number, signal: AbortSignal) {
-  return new Promise<void>((resolve) => {
-    const timer = window.setTimeout(resolve, milliseconds)
-    signal.addEventListener(
-      "abort",
-      () => {
-        window.clearTimeout(timer)
-        resolve()
-      },
-      { once: true }
-    )
-  })
 }
 
 export function connectConversationEvents(
@@ -221,7 +208,7 @@ export function connectConversationEvents(
 
       if (!controller.signal.aborted) {
         handlers.onConnectionChange?.("reconnecting")
-        await delay(reconnectDelay, controller.signal)
+        await waitForSseReconnectDelay(reconnectDelay, controller.signal)
         reconnectDelay = Math.min(reconnectDelay * 2, 15_000)
       }
     }

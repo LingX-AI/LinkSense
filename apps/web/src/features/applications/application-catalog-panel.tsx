@@ -1,5 +1,6 @@
 import {
   useDeferredValue,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -334,19 +335,29 @@ function RequiredFieldLabel({
 
 export function ApplicationCatalogPanel({
   onFeedback,
+  organizationSharingEnabled = true,
 }: {
   onFeedback: (message: string, isError?: boolean) => void
+  organizationSharingEnabled?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const scope = readUrlEnum<ApplicationScope>(
+  const requestedScope = readUrlEnum<ApplicationScope>(
     searchParams,
     "app_scope",
     ["all", "owned", "shared"],
     "all"
   )
+  const scope = organizationSharingEnabled ? requestedScope : "owned"
+  useEffect(() => {
+    if (organizationSharingEnabled || requestedScope === "owned") return
+    setSearchParams(
+      (current) => updateUrlSearchParams(current, { app_scope: "owned" }),
+      { replace: true }
+    )
+  }, [organizationSharingEnabled, requestedScope, setSearchParams])
   const search = searchParams.get("app_search") ?? ""
   const updateCatalogParams = (
     updates: Readonly<Record<string, string | null>>
@@ -445,31 +456,33 @@ export function ApplicationCatalogPanel({
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row">
-          <Select
-            items={scopeItems}
-            value={scope}
-            onValueChange={(value) =>
-              updateCatalogParams({
-                app_scope: value === "all" ? null : value,
-              })
-            }
-          >
-            <SelectTrigger
-              className="w-full sm:w-40"
-              aria-label={t("applications.scopeLabel")}
+          {organizationSharingEnabled && (
+            <Select
+              items={scopeItems}
+              value={scope}
+              onValueChange={(value) =>
+                updateCatalogParams({
+                  app_scope: value === "all" ? null : value,
+                })
+              }
             >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {scopeItems.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+              <SelectTrigger
+                className="w-full sm:w-40"
+                aria-label={t("applications.scopeLabel")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {scopeItems.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
           <Input
             value={search}
             aria-label={t("applications.search")}
@@ -506,13 +519,13 @@ export function ApplicationCatalogPanel({
             )
             return (
               <Card key={application.id} className="min-w-0">
-                <CardHeader className="gap-4">
+                <CardHeader className="gap-x-4 gap-y-0">
                   <div className="flex min-w-0 items-start gap-3">
                     <ApplicationIconDisplay
                       icon={application.icon}
                       className="size-10"
                     />
-                    <div className="min-w-0">
+                    <div className="flex min-h-14 min-w-0 flex-col">
                       <h3 className="truncate font-medium">
                         {application.name}
                       </h3>
@@ -524,7 +537,7 @@ export function ApplicationCatalogPanel({
                             : ""}
                         </p>
                       )}
-                      <p className="truncate text-sm text-muted-foreground">
+                      <p className="mt-auto truncate text-xs leading-4 text-muted-foreground">
                         {application.is_owner
                           ? t("applications.createdByMe")
                           : t("applications.createdBy", {
@@ -585,13 +598,15 @@ export function ApplicationCatalogPanel({
                                 {t("applications.updateInteractivePackage")}
                               </DropdownMenuItem>
                             )}
-                            <DropdownMenuItem
-                              className="whitespace-nowrap"
-                              onClick={() => setShareTarget(application)}
-                            >
-                              <Share2Icon aria-hidden="true" />
-                              {t("applications.share")}
-                            </DropdownMenuItem>
+                            {organizationSharingEnabled && (
+                              <DropdownMenuItem
+                                className="whitespace-nowrap"
+                                onClick={() => setShareTarget(application)}
+                              >
+                                <Share2Icon aria-hidden="true" />
+                                {t("applications.shareWithinOrganization")}
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
                               className="whitespace-nowrap"
                               disabled={toggleApplicationStatus.isPending}
@@ -644,14 +659,26 @@ export function ApplicationCatalogPanel({
                     )}
                   </CardAction>
                 </CardHeader>
-                <CardContent className="flex flex-1 flex-col gap-4">
-                  <p className="min-h-10 text-sm text-muted-foreground">
+                <CardContent className="flex flex-1 flex-col gap-3">
+                  <p className="line-clamp-2 min-h-10 text-sm leading-5 break-words text-muted-foreground">
                     {application.description || t("applications.noDescription")}
                   </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div
+                    data-slot="application-card-model"
+                    className="flex min-h-5 min-w-0 items-start"
+                  >
                     {application.model && (
-                      <Badge variant="outline">{application.model}</Badge>
+                      <Badge variant="outline" className="max-w-full">
+                        <span className="min-w-0 truncate">
+                          {application.model}
+                        </span>
+                      </Badge>
                     )}
+                  </div>
+                  <div
+                    data-slot="application-card-statistics"
+                    className="flex min-h-5 flex-wrap items-start gap-2 tabular-nums"
+                  >
                     <Badge variant="outline">
                       <WrenchIcon aria-hidden="true" />
                       {t("applications.capabilityCount", {
@@ -670,7 +697,7 @@ export function ApplicationCatalogPanel({
                         count: application.mcp_server_count,
                       })}
                     </Badge>
-                    {shareTargetSummary && (
+                    {organizationSharingEnabled && shareTargetSummary && (
                       <Badge
                         variant="outline"
                         className="application-share-target-summary max-w-full min-w-0"
@@ -793,7 +820,7 @@ export function ApplicationCatalogPanel({
         }}
       />
       <ApplicationShareDialog
-        application={shareTarget}
+        application={organizationSharingEnabled ? shareTarget : null}
         onOpenChange={(open) => {
           if (!open) setShareTarget(null)
         }}

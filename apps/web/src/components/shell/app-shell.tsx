@@ -714,24 +714,6 @@ function AppSidebarContent({
                 aria-hidden="true"
               />
             </Button>
-            {onCollapse && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="sidebar-collapse-control sidebar-nav-item border-0 bg-transparent shadow-none"
-                aria-label={t("nav.collapseSidebar")}
-                aria-controls="app-sidebar"
-                aria-expanded="true"
-                onClick={onCollapse}
-              >
-                <PanelLeftIcon
-                  className="size-3.5"
-                  strokeWidth={2}
-                  aria-hidden="true"
-                />
-              </Button>
-            )}
             <Button
               type="button"
               variant="ghost"
@@ -757,32 +739,51 @@ function AppSidebarContent({
                 />
               )}
             </Button>
+            {onCollapse && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="sidebar-collapse-control sidebar-nav-item border-0 bg-transparent shadow-none"
+                aria-label={t("nav.collapseSidebar")}
+                aria-controls="app-sidebar"
+                aria-expanded="true"
+                onClick={onCollapse}
+              >
+                <PanelLeftIcon
+                  className="size-3.5"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
+              </Button>
+            )}
           </div>
         </div>
 
         <nav
           aria-label={t("nav.navigationLabel", { productName })}
-          className="mt-2 shrink-0 space-y-0.5"
+          className="sidebar-primary-navigation mt-2 shrink-0 space-y-0.5"
         >
-          {userItems.map(({ to, labelKey, icon: Icon, activeClassName }) => (
-            <NavLink
-              key={to}
-              to={to}
-              onClick={onNavigate}
-              className={({ isActive }) =>
-                cn("sidebar-link font-medium", isActive && activeClassName)
-              }
-            >
-              <Icon className="size-3.5" aria-hidden="true" />
-              <span>{t(labelKey)}</span>
-            </NavLink>
-          ))}
+          {userItems
+            .slice(0, 1)
+            .map(({ to, labelKey, icon: Icon, activeClassName }) => (
+              <NavLink
+                key={to}
+                to={to}
+                onClick={onNavigate}
+                className={({ isActive }) =>
+                  cn("sidebar-link font-medium", isActive && activeClassName)
+                }
+              >
+                <Icon className="size-3.5" aria-hidden="true" />
+                <span>{t(labelKey)}</span>
+              </NavLink>
+            ))}
         </nav>
 
-        <section
-          aria-label={t("nav.conversations")}
+        <div
           data-scrolled={conversationListScrolled ? "true" : undefined}
-          className="sidebar-conversation-region mt-2 -mr-3 flex min-h-[72px] flex-1 flex-col overflow-hidden"
+          className="sidebar-conversation-region -mr-3 flex min-h-[72px] flex-1 flex-col overflow-hidden"
         >
           <div
             className="sidebar-conversation-scroll min-h-0 flex-1 space-y-3 overflow-y-auto pr-3.5"
@@ -790,6 +791,29 @@ function AppSidebarContent({
               setConversationListScrolled(event.currentTarget.scrollTop > 0)
             }}
           >
+            <nav
+              aria-label={t("nav.navigationLabel", { productName })}
+              className="space-y-0.5 pt-0.5"
+            >
+              {userItems
+                .slice(1)
+                .map(({ to, labelKey, icon: Icon, activeClassName }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    onClick={onNavigate}
+                    className={({ isActive }) =>
+                      cn(
+                        "sidebar-link font-medium",
+                        isActive && activeClassName
+                      )
+                    }
+                  >
+                    <Icon className="size-3.5" aria-hidden="true" />
+                    <span>{t(labelKey)}</span>
+                  </NavLink>
+                ))}
+            </nav>
             {conversationsQuery.isLoading && (
               <p className="px-2.5 py-2 text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-medium text-[var(--app-muted)]">
                 {t("common.loading")}
@@ -1074,7 +1098,7 @@ function AppSidebarContent({
               </p>
             )}
           </div>
-        </section>
+        </div>
 
         <div className="sidebar-account-bar mt-1 flex shrink-0 items-center gap-1">
           <DropdownMenu>

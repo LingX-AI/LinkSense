@@ -1,12 +1,22 @@
 map $uri $linksense_cache_control {
   default "";
-  /index.html "no-store";
+  /index.html "no-store, no-cache, must-revalidate, max-age=0";
   /assets/embed-app.js "no-cache";
   /assets/embed-app.css "no-cache";
   ~^/assets/ "public, max-age=31536000, immutable";
   ~^/help/(?:en-US/)?assets/ "public, max-age=31536000, immutable";
   ~^/help/(?:.*\/)?index\.html$ "no-store";
   ~^/help/(?:.*\/)?$ "no-store";
+}
+
+map $uri $linksense_pragma {
+  default "";
+  /index.html "no-cache";
+}
+
+map $uri $linksense_expires {
+  default "";
+  /index.html "0";
 }
 
 log_format linksense_safe '$request_method $uri $server_protocol';
@@ -29,6 +39,12 @@ server {
   # backed by WebAssembly. Permit only Wasm compilation, not generic eval.
   add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data: blob: http: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self' https:; form-action 'self' https:; frame-ancestors 'self' https://teams.microsoft.com https://*.teams.microsoft.com" always;
   add_header Cache-Control $linksense_cache_control always;
+  add_header Pragma $linksense_pragma always;
+  add_header Expires $linksense_expires always;
+
+  location = /index.html {
+    try_files $uri =404;
+  }
 
   location = /health/live {
     access_log off;
