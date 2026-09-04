@@ -337,7 +337,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -557,7 +562,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -671,7 +681,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -833,7 +848,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1040,7 +1060,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1200,7 +1225,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1386,7 +1416,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1517,7 +1552,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1652,7 +1692,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1800,7 +1845,12 @@ describe("conversation knowledge base snapshots", () => {
       const url = String(input)
       const path = new URL(url, window.location.origin).pathname
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1958,7 +2008,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (url.endsWith("/api/v1/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -2100,7 +2155,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -2313,7 +2373,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -2505,7 +2570,12 @@ describe("conversation knowledge base snapshots", () => {
           )
         }
         if (path.endsWith("/conversations/prewarm")) {
-          return Promise.resolve(envelope({ accepted: true }))
+          return Promise.resolve(
+            envelope({
+              accepted: true,
+              conversation_id: "71000000-0000-4000-8000-000000000001",
+            })
+          )
         }
         if (
           path.endsWith(`/conversations/${conversationId}/model-preference`)

@@ -141,6 +141,7 @@ import {
 } from "@/features/conversations/conversation-pending-execution"
 import {
   clearPendingConversationTurnSubmission,
+  getPendingConversationTurnSubmission,
   movePendingConversationTurnSubmission,
   setPendingConversationTurnSubmission,
   updatePendingConversationTurnSubmission,
@@ -249,6 +250,10 @@ import { formatLongDateTime } from "@/i18n/date"
 import { downloadBlob } from "@/lib/download-blob"
 
 const emptyResponseSchema = z.unknown()
+const conversationPrewarmReceiptSchema = z.strictObject({
+  accepted: z.literal(true),
+  conversation_id: z.string().uuid(),
+})
 const artifactPreviewLinkSchema = z.object({
   url: z.url(),
   expires_at: z.string().datetime({ offset: true }),
@@ -669,6 +674,8 @@ export function ConversationPage({
   const steerSubmissionConversationIdRef = useRef<string | null>(null)
   const pendingSubmissionConversationIdRef = useRef<string | null>(null)
   const runnerPrewarmAtRef = useRef(0)
+  const runnerPrewarmKeyRef = useRef("")
+  const prewarmedConversationIdRef = useRef<string | null>(null)
   const dispatchedInterruptTurnIdsRef = useRef(new Set<string>())
 
   useLayoutEffect(() => {
@@ -677,6 +684,9 @@ export function ConversationPage({
       previousRouteConversationId !== currentRouteConversationId &&
       currentRouteConversationId === null
     ) {
+      prewarmedConversationIdRef.current = null
+      runnerPrewarmAtRef.current = 0
+      runnerPrewarmKeyRef.current = ""
       setNewTaskResetVersion((current) => current + 1)
     }
     routeEpochRef.current += 1
@@ -1142,16 +1152,43 @@ export function ConversationPage({
 
   const prewarmRunner = useCallback(() => {
     const now = Date.now()
-    if (now - runnerPrewarmAtRef.current < 60_000) return
+    const targetConversationId = isNew
+      ? prewarmedConversationIdRef.current
+      : (conversationId ?? null)
+    const prewarmKey = [targetConversationId ?? "new", collaborationMode].join(
+      ":"
+    )
+    if (
+      prewarmKey === runnerPrewarmKeyRef.current &&
+      now - runnerPrewarmAtRef.current < 60_000
+    )
+      return
     runnerPrewarmAtRef.current = now
+    runnerPrewarmKeyRef.current = prewarmKey
     void apiRequest("/conversations/prewarm", {
       method: "POST",
-      body: {},
-      schema: emptyResponseSchema,
-    }).catch(() => {
-      runnerPrewarmAtRef.current = 0
+      body: {
+        ...(targetConversationId
+          ? { conversation_id: targetConversationId }
+          : {}),
+        collaboration_mode: collaborationMode,
+      },
+      schema: conversationPrewarmReceiptSchema,
     })
-  }, [])
+      .then((receipt) => {
+        if (isNew && routeConversationIdRef.current === null) {
+          prewarmedConversationIdRef.current = receipt.conversation_id
+          runnerPrewarmKeyRef.current = [
+            receipt.conversation_id,
+            collaborationMode,
+          ].join(":")
+        }
+      })
+      .catch(() => {
+        runnerPrewarmAtRef.current = 0
+        runnerPrewarmKeyRef.current = ""
+      })
+  }, [collaborationMode, conversationId, isNew])
 
   const startNewTaskFromComposer = useCallback(() => {
     if (
@@ -1166,6 +1203,9 @@ export function ConversationPage({
       return
     }
     setPendingFirstMessageConversationId(null)
+    prewarmedConversationIdRef.current = null
+    runnerPrewarmAtRef.current = 0
+    runnerPrewarmKeyRef.current = ""
     setTaskOverviewSuppressedConversationId(null)
     setNewTaskPromotionConversationId(null)
     if (user) clearLocalConversationDraft(window.localStorage, user.id, "new")
@@ -1190,16 +1230,6 @@ export function ConversationPage({
 
   useEffect(() => {
     prewarmRunner()
-    const handleFocus = () => prewarmRunner()
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") prewarmRunner()
-    }
-    window.addEventListener("focus", handleFocus)
-    document.addEventListener("visibilitychange", handleVisibilityChange)
-    return () => {
-      window.removeEventListener("focus", handleFocus)
-      document.removeEventListener("visibilitychange", handleVisibilityChange)
-    }
   }, [prewarmRunner])
 
   const applyOfficePreviewUpdate = useCallback(() => {
@@ -1520,11 +1550,26 @@ export function ConversationPage({
             queryClient,
             conversationId
           )
+          const pendingSubmission = getPendingConversationTurnSubmission(
+            queryClient,
+            conversationId
+          )
+          const pendingTurnId =
+            pendingSubmission?.turnId ?? pendingExecution?.turnId
+          if (
+            terminal &&
+            (pendingExecution || pendingSubmission) &&
+            !pendingTurnId
+          ) {
+            void queryClient.invalidateQueries({
+              queryKey: ["conversation", conversationId],
+              exact: true,
+            })
+          }
           const matchesPendingExecution =
             !terminal ||
-            !pendingExecution ||
-            (Boolean(executionTransition.turnId) &&
-              pendingExecution.turnId === executionTransition.turnId)
+            (!pendingExecution && !pendingSubmission) ||
+            pendingTurnId === executionTransition.turnId
           const currentConversation = queryClient.getQueryData<Conversation>([
             "conversation",
             conversationId,
@@ -1559,6 +1604,7 @@ export function ConversationPage({
           }
           if (terminal && matchesCurrentTurn) {
             clearPendingConversationExecution(queryClient, conversationId)
+            clearPendingConversationTurnSubmission(queryClient, conversationId)
             setPendingTurnSubmission((current) =>
               current?.conversationId === conversationId &&
               (!event.turn_id ||
@@ -2141,6 +2187,11 @@ export function ConversationPage({
         method: "POST",
         body: {
           collaboration_mode: initialCollaborationMode,
+          ...(prewarmedConversationIdRef.current
+            ? {
+                prewarmed_conversation_id: prewarmedConversationIdRef.current,
+              }
+            : {}),
         },
         schema: conversationSchema,
       })
@@ -2190,6 +2241,7 @@ export function ConversationPage({
         routeEpochRef.current === routeEpoch &&
         routeConversationIdRef.current === null
       ) {
+        prewarmedConversationIdRef.current = null
         setNewTaskPromotionConversationId(createdConversation.id)
         setTaskOverviewSuppressedConversationId(createdConversation.id)
         hydratedDraftScopeRef.current = createdConversation.id

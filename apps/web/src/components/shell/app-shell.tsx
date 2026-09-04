@@ -110,6 +110,11 @@ import {
   usePendingConversationExecution,
 } from "@/features/conversations/conversation-pending-execution"
 import {
+  clearPendingConversationTurnSubmission,
+  getPendingConversationTurnSubmission,
+  usePendingConversationTurnSubmission,
+} from "@/features/conversations/conversation-pending-turn-submission"
+import {
   conversationPath,
   isConversationPathActive,
   isInteractiveApplicationRunPath,
@@ -184,23 +189,29 @@ function BackgroundConversationExecutionEvents({
     ...conversationDetailQueryOptions(conversationId),
     enabled: observationReady,
   })
-  const conversation =
-    conversationQuery.isSuccess && conversationQuery.isFetchedAfterMount
-      ? conversationQuery.data
-      : undefined
+  // Keep the task event stream continuous while the active-page observer is
+  // handed off to this background observer. Waiting for a refetch that was
+  // already in flight before this component mounted can leave
+  // `isFetchedAfterMount` false forever and permanently drop the completion
+  // event. The cached detail still provides a safe replay cursor; exact turn
+  // matching below rejects terminal events from older turns.
+  const conversation = conversationQuery.data
   const pendingExecution = usePendingConversationExecution(conversationId)
+  const pendingTurnSubmission =
+    usePendingConversationTurnSubmission(conversationId)
 
   useEffect(() => {
     const status = conversation?.execution_status
     if (!status || status === "running") return
-    if (pendingExecution) {
-      const pendingTurn = pendingExecution.turnId
-        ? conversation.turns?.find(
-            (turn) => turn.id === pendingExecution.turnId
-          )
+    if (pendingExecution || pendingTurnSubmission) {
+      const pendingTurnId =
+        pendingTurnSubmission?.turnId ?? pendingExecution?.turnId
+      const pendingTurn = pendingTurnId
+        ? conversation.turns?.find((turn) => turn.id === pendingTurnId)
         : undefined
       if (!pendingTurn || pendingTurn.status === "running") return
       clearPendingConversationExecution(queryClient, conversationId)
+      clearPendingConversationTurnSubmission(queryClient, conversationId)
     }
     queryClient.setQueryData<
       InfiniteData<Paginated<Conversation>, string | undefined>
@@ -219,12 +230,15 @@ function BackgroundConversationExecutionEvents({
     conversation?.turns,
     conversationId,
     pendingExecution,
+    pendingTurnSubmission,
     queryClient,
   ])
 
   useConversationEvents(
     conversation &&
-      (conversation.execution_status === "running" || pendingExecution)
+      (conversation.execution_status === "running" ||
+        pendingExecution ||
+        pendingTurnSubmission)
       ? conversationId
       : undefined,
     useCallback(
@@ -249,16 +263,21 @@ function BackgroundConversationExecutionEvents({
           queryClient,
           conversationId
         )
+        const currentPendingTurnSubmission =
+          getPendingConversationTurnSubmission(queryClient, conversationId)
+        const pendingTurnId =
+          currentPendingTurnSubmission?.turnId ??
+          currentPendingExecution?.turnId
         if (
           terminal &&
-          currentPendingExecution &&
-          (!currentPendingExecution.turnId ||
-            currentPendingExecution.turnId !== transition.turnId)
+          (currentPendingExecution || currentPendingTurnSubmission) &&
+          (!pendingTurnId || pendingTurnId !== transition.turnId)
         ) {
-          // A terminal event can beat the turn-start HTTP receipt across two
-          // connections. Reconcile detail once; it is grounded by that event
-          // on the API and will be matched after the receipt binds the turn.
-          if (!currentPendingExecution.turnId) {
+          // A replayed terminal event for another turn must not stop the
+          // pending submission currently represented by the sidebar. If the
+          // receipt has not bound its turn yet, reconcile from persisted
+          // detail rather than guessing that a replay belongs to it.
+          if (!pendingTurnId) {
             void queryClient.invalidateQueries({
               queryKey: ["conversation", conversationId],
               exact: true,
@@ -276,8 +295,19 @@ function BackgroundConversationExecutionEvents({
           transition
         )
         // The detail boundary identifies the exact running turn. A replayed
-        // terminal event for an older turn must not stop the current task.
-        if (terminal && transitionedConversation === currentConversation) return
+        // terminal event for an older turn must not stop the current task. A
+        // matching pending submission is newer than a lagging detail snapshot,
+        // so its terminal event remains authoritative even when applying it
+        // cannot mutate that older snapshot.
+        if (
+          terminal &&
+          transitionedConversation === currentConversation &&
+          !(
+            (currentPendingExecution || currentPendingTurnSubmission) &&
+            pendingTurnId === transition.turnId
+          )
+        )
+          return
         queryClient.setQueryData<Conversation>(
           ["conversation", conversationId],
           transitionedConversation
@@ -294,6 +324,7 @@ function BackgroundConversationExecutionEvents({
         )
         if (terminal) {
           clearPendingConversationExecution(queryClient, conversationId)
+          clearPendingConversationTurnSubmission(queryClient, conversationId)
           // Keep any inactive detail snapshot stale so opening the completed
           // task fetches its persisted final content, without polling it now.
           void queryClient.invalidateQueries({

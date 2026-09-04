@@ -938,7 +938,16 @@ function installApiMock(options?: {
         })
       }
       if (path === "/api/v1/conversations/prewarm" && method === "POST") {
-        return json({ success: true, data: { accepted: true } }, 202)
+        return json(
+          {
+            success: true,
+            data: {
+              accepted: true,
+              conversation_id: "71000000-0000-4000-8000-000000000001",
+            },
+          },
+          202
+        )
       }
       if (path === "/api/v1/conversations/c1/events") {
         if (options?.eventStreamUnavailable) {
@@ -1849,6 +1858,46 @@ describe("LinkSense application", () => {
     document.documentElement.style.removeProperty("--app-ui-font-size")
     document.documentElement.style.colorScheme = ""
     await i18n.changeLanguage("zh-CN")
+  })
+
+  it("prewarms a new task once without creating a sidebar task on focus changes", async () => {
+    const { requests } = installApiMock()
+    renderApp("/conversations/new")
+
+    await screen.findByRole(
+      "textbox",
+      { name: "任务输入框" },
+      { timeout: 15_000 }
+    )
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/prewarm" &&
+            request.method === "POST"
+        )
+      ).toHaveLength(1)
+    )
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"))
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+    expect(
+      requests.filter(
+        (request) =>
+          request.path === "/api/v1/conversations/prewarm" &&
+          request.method === "POST"
+      )
+    ).toHaveLength(1)
+    expect(
+      requests.some(
+        (request) =>
+          request.path === "/api/v1/conversations" && request.method === "POST"
+      )
+    ).toBe(false)
   })
 
   afterEach(() => {
@@ -3059,6 +3108,7 @@ describe("LinkSense application", () => {
         )?.body
       ).toEqual({
         collaboration_mode: "plan",
+        prewarmed_conversation_id: "71000000-0000-4000-8000-000000000001",
       })
       expect(
         requests.find(
@@ -8289,6 +8339,138 @@ describe("LinkSense application", () => {
       })
     ).toBeNull()
     expect(submittedTaskTitle.closest("a")).toHaveAttribute("aria-busy", "true")
+  })
+
+  it("clears a submitted task after its terminal event when the user switched away", async () => {
+    const submittedTurnId = "30000000-0000-4000-8000-000000000085"
+    let releaseCompletion: (() => void) | undefined
+    const completionReady = new Promise<void>((resolve) => {
+      releaseCompletion = resolve
+    })
+    const precedingConversationSnapshot = {
+      ...conversation,
+      execution_status: "completed",
+      turns: [{ id: "turn-1", status: "completed" }],
+      running_turn: null,
+    }
+    const eventId = "c1:85"
+    const { requests } = installApiMock({
+      conversationGetResponse: async () =>
+        json({ success: true, data: precedingConversationSnapshot }),
+      conversationListResponse: () =>
+        json({
+          success: true,
+          data: {
+            items: conversations.map((item) => ({
+              ...item,
+              execution_status: item.id === "c1" ? "running" : "completed",
+            })),
+            next_cursor: null,
+            total_count: conversations.length,
+          },
+        }),
+      turnStartResponse: async () =>
+        json(
+          {
+            success: true,
+            data: {
+              turn_id: submittedTurnId,
+              accepted: true,
+              status: "starting",
+            },
+          },
+          202
+        ),
+      eventStreamStart: completionReady,
+      eventStreamBody: `id: ${eventId}\nevent: turn/completed\ndata: ${JSON.stringify(
+        {
+          id: "60000000-0000-4000-8000-000000000085",
+          conversation_id: "20000000-0000-4000-8000-000000000001",
+          turn_id: submittedTurnId,
+          sequence_no: 85,
+          event_type: "turn/completed",
+          visibility: "user_visible",
+          payload: {
+            schema_version: 2,
+            source: "codex_app_server",
+            method: "turn/completed",
+            params: {
+              threadId: "thread-submitted-background",
+              turn: {
+                id: "native-submitted-background",
+                status: "completed",
+              },
+            },
+          },
+          sse_event_id: eventId,
+          created_at: "2026-08-13T08:00:03.000Z",
+        }
+      )}\n\n`,
+    })
+    const interaction = userEvent.setup()
+    renderApp()
+
+    const sidebar = await screen.findByRole(
+      "complementary",
+      { name: "LinkSense 导航" },
+      { timeout: 5_000 }
+    )
+    const submittedTaskTitle = await within(sidebar).findByText("活动风险评估")
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/c1/events" &&
+            request.method === "GET"
+        ).length
+      ).toBeGreaterThanOrEqual(1)
+    )
+    await interaction.type(
+      await screen.findByRole("textbox", { name: "任务输入框" }),
+      "切换任务后也要正确结束"
+    )
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+    await waitFor(() =>
+      expect(
+        requests.some(
+          (request) =>
+            request.path === "/api/v1/conversations/c1/turns" &&
+            request.method === "POST"
+        )
+      ).toBe(true)
+    )
+
+    await interaction.click(within(sidebar).getByText("整理项目会议纪要"))
+    expect(submittedTaskTitle.closest("a")).toHaveAttribute("aria-busy", "true")
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/c1" &&
+            request.method === "GET"
+        ).length
+      ).toBeGreaterThanOrEqual(2)
+    )
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/c1/events" &&
+            request.method === "GET"
+        ).length
+      ).toBeGreaterThanOrEqual(2)
+    )
+    await act(async () => releaseCompletion?.())
+
+    await waitFor(() =>
+      expect(submittedTaskTitle.closest("a")).not.toHaveAttribute("aria-busy")
+    )
+    await interaction.click(submittedTaskTitle)
+    await waitFor(() =>
+      expect(
+        screen.queryByText("正在思考", { exact: true })
+      ).not.toBeInTheDocument()
+    )
   })
 
   it("ends a background task loading state from its completion event without polling the task list", async () => {
