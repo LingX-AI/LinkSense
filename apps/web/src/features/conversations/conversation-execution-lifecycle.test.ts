@@ -47,6 +47,49 @@ describe("conversation execution lifecycle", () => {
     )
   })
 
+  it("does not let a retained historical turn completion stop the active turn", () => {
+    const newerTurnId = "30000000-0000-4000-8000-000000000002"
+    const conversation: Conversation = {
+      ...runningConversation(newerTurnId),
+      turns: [
+        { id: activeTurnId, status: "completed" },
+        { id: newerTurnId, status: "running" },
+      ],
+    }
+    const transition = getConversationExecutionTransition(
+      nativeTurnCompletedEvent(activeTurnId, "completed")
+    )
+    if (!transition) throw new Error("missing execution transition")
+
+    expect(applyConversationExecutionTransition(conversation, transition)).toBe(
+      conversation
+    )
+  })
+
+  it("ignores a terminal event for a turn missing from a terminal snapshot", () => {
+    const conversation = runningConversation()
+    const terminalConversation: Conversation = {
+      ...conversation,
+      execution_status: "completed",
+      turns: conversation.turns?.map((turn) => ({
+        ...turn,
+        status: "completed" as const,
+      })),
+      running_turn: null,
+    }
+    const transition = getConversationExecutionTransition(
+      nativeTurnCompletedEvent(
+        "30000000-0000-4000-8000-000000000099",
+        "completed"
+      )
+    )
+    if (!transition) throw new Error("missing execution transition")
+
+    expect(
+      applyConversationExecutionTransition(terminalConversation, transition)
+    ).toBe(terminalConversation)
+  })
+
   it("supports the legacy status event during protocol transition", () => {
     const transition = getConversationExecutionTransition({
       id: "conversation:9",

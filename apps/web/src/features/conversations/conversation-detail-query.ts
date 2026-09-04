@@ -15,6 +15,7 @@ export function conversationDetailQueryOptions(
 ) {
   return queryOptions({
     queryKey: ["conversation", conversationId] as const,
+    gcTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: "always",
     retry: (failureCount, error) =>

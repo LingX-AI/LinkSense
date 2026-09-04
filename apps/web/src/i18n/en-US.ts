@@ -1693,8 +1693,7 @@ export const enUS = {
     htmlAnnotationCount_other: "{{count}} annotations",
     voice: "Voice input",
     voiceChecking: "Checking the speech-to-text service…",
-    voiceNotConfigured:
-      "Speech-to-text has not been configured. Contact an administrator.",
+    voiceNotConfigured: "Speech-to-text has not been configured",
     voiceServiceUnavailable:
       "Speech-to-text is temporarily unavailable. Try again later.",
     voiceStop: "Stop voice input",

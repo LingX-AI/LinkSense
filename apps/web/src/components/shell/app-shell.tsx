@@ -67,11 +67,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
-import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -177,6 +172,11 @@ function BackgroundConversationExecutionEvents({
   conversationId: string
 }) {
   const queryClient = useQueryClient()
+  const [mountedDetailUpdateCount] = useState(
+    () =>
+      queryClient.getQueryState<Conversation>(["conversation", conversationId])
+        ?.dataUpdateCount ?? 0
+  )
   const [observationReady, setObservationReady] = useState(false)
   useEffect(() => {
     // New-task promotion updates the optimistic sidebar row immediately before
@@ -196,13 +196,18 @@ function BackgroundConversationExecutionEvents({
   // event. The cached detail still provides a safe replay cursor; exact turn
   // matching below rejects terminal events from older turns.
   const conversation = conversationQuery.data
+  const observedDetailUpdateCount =
+    queryClient.getQueryState<Conversation>(["conversation", conversationId])
+      ?.dataUpdateCount ?? 0
+  const hasObservedFreshDetail =
+    observedDetailUpdateCount > mountedDetailUpdateCount
   const pendingExecution = usePendingConversationExecution(conversationId)
   const pendingTurnSubmission =
     usePendingConversationTurnSubmission(conversationId)
 
   useEffect(() => {
     const status = conversation?.execution_status
-    if (!status || status === "running") return
+    if (!hasObservedFreshDetail || !status || status === "running") return
     if (pendingExecution || pendingTurnSubmission) {
       const pendingTurnId =
         pendingTurnSubmission?.turnId ?? pendingExecution?.turnId
@@ -229,18 +234,14 @@ function BackgroundConversationExecutionEvents({
     conversation?.execution_status,
     conversation?.turns,
     conversationId,
+    hasObservedFreshDetail,
     pendingExecution,
     pendingTurnSubmission,
     queryClient,
   ])
 
   useConversationEvents(
-    conversation &&
-      (conversation.execution_status === "running" ||
-        pendingExecution ||
-        pendingTurnSubmission)
-      ? conversationId
-      : undefined,
+    conversation ? conversationId : undefined,
     useCallback(
       (event) => {
         const transition = getConversationExecutionTransition(event)
@@ -308,6 +309,18 @@ function BackgroundConversationExecutionEvents({
           )
         )
           return
+        if (terminal) {
+          // The API persists assistant output before publishing turn/completed.
+          // Keep this observer mounted and reconcile that durable snapshot
+          // before the sidebar stops treating the task as a background run.
+          // This also cancels an older in-flight detail request, preventing its
+          // pre-completion snapshot from winning the race.
+          void queryClient.invalidateQueries({
+            queryKey: ["conversation", conversationId],
+            exact: true,
+          })
+          return
+        }
         queryClient.setQueryData<Conversation>(
           ["conversation", conversationId],
           transitionedConversation
@@ -322,17 +335,6 @@ function BackgroundConversationExecutionEvents({
             terminal ? { hasUnreadCompletion: true } : undefined
           )
         )
-        if (terminal) {
-          clearPendingConversationExecution(queryClient, conversationId)
-          clearPendingConversationTurnSubmission(queryClient, conversationId)
-          // Keep any inactive detail snapshot stale so opening the completed
-          // task fetches its persisted final content, without polling it now.
-          void queryClient.invalidateQueries({
-            queryKey: ["conversation", conversationId],
-            exact: true,
-            refetchType: "none",
-          })
-        }
       },
       [conversationId, queryClient]
     ),
@@ -361,7 +363,6 @@ function AppSidebarContent({
   const [signOutPending, setSignOutPending] = useState(false)
   const [conversationListScrolled, setConversationListScrolled] =
     useState(false)
-  const [hoveredConversationId, setHoveredConversationId] = useState<string>()
   const [locallyReadConversationIds, setLocallyReadConversationIds] = useState(
     () => new Set<string>()
   )
@@ -928,9 +929,6 @@ function AppSidebarContent({
                       conversation.id
                     )
                     const running = isConversationRunning && !reconnectFailed
-                    const allowFocusActions =
-                      hoveredConversationId === undefined ||
-                      hoveredConversationId === conversation.id
                     const relativeUpdatedAt = formatRelativeDate(
                       conversation.updated_at,
                       language
@@ -951,128 +949,85 @@ function AppSidebarContent({
                           sortable.isDragging && "opacity-60 shadow-sm"
                         )}
                         onPointerDown={sortable.onPointerDown}
-                        onMouseEnter={() => {
-                          setHoveredConversationId(conversation.id)
-                        }}
-                        onMouseLeave={() => {
-                          setHoveredConversationId((current) =>
-                            current === conversation.id ? undefined : current
-                          )
-                        }}
                       >
                         {sortable.keyboardActivator}
-                        <HoverCard
-                          onOpenChange={(_open, eventDetails) => {
-                            if (
-                              eventDetails.reason === "trigger-press" &&
-                              eventDetails.event.detail !== 0
-                            ) {
-                              eventDetails.cancel()
-                            }
+                        <NavLink
+                          to={to}
+                          title={`${title}\n${relativeUpdatedAt}`}
+                          onClick={() => {
+                            markCompletionRead(conversation)
+                            onNavigate?.()
                           }}
+                          onKeyDown={
+                            renameAllowed
+                              ? (event) => {
+                                  if (event.key !== "F2") return
+                                  event.preventDefault()
+                                  openRenameDialog(conversation)
+                                }
+                              : undefined
+                          }
+                          aria-busy={running || undefined}
+                          aria-current={active ? "page" : undefined}
+                          aria-keyshortcuts={renameAllowed ? "F2" : undefined}
+                          className="sidebar-conversation-link min-h-9 py-2"
                         >
-                          <HoverCardTrigger
-                            nativeButton={false}
-                            render={
-                              <NavLink
-                                to={to}
-                                onClick={() => {
-                                  markCompletionRead(conversation)
-                                  onNavigate?.()
-                                }}
-                                onKeyDown={
-                                  renameAllowed
-                                    ? (event) => {
-                                        if (event.key !== "F2") return
-                                        event.preventDefault()
-                                        openRenameDialog(conversation)
-                                      }
-                                    : undefined
-                                }
-                                aria-busy={running || undefined}
-                                aria-current={active ? "page" : undefined}
-                                aria-keyshortcuts={
-                                  renameAllowed ? "F2" : undefined
-                                }
-                                className="sidebar-conversation-link min-h-9 py-2"
-                              />
-                            }
-                          >
-                            <ConversationAutomationIcon
-                              hasAutomation={conversation.has_automation}
+                          <ConversationAutomationIcon
+                            hasAutomation={conversation.has_automation}
+                          />
+                          {conversation.application && (
+                            <ApplicationIconDisplay
+                              icon={
+                                conversation.application.icon ??
+                                defaultApplicationIcon
+                              }
+                              compact
+                              className="sidebar-conversation-application-icon size-5 shrink-0"
                             />
-                            {conversation.application && (
-                              <ApplicationIconDisplay
-                                icon={
-                                  conversation.application.icon ??
-                                  defaultApplicationIcon
-                                }
-                                compact
-                                className="sidebar-conversation-application-icon size-5 shrink-0"
-                              />
-                            )}
-                            <span className="flex min-w-0 flex-1 items-center gap-2">
-                              <span
-                                className="sidebar-conversation-title-fade min-w-0 flex-1 text-[length:var(--app-ui-font-size)] font-medium"
-                                onDoubleClick={
-                                  renameAllowed
-                                    ? (event) => {
-                                        event.preventDefault()
-                                        event.stopPropagation()
-                                        openRenameDialog(conversation)
-                                      }
-                                    : undefined
-                                }
-                              >
-                                {title}
-                              </span>
-                              {hasUnreadResult &&
-                                (hasUnreadFailure ? (
-                                  <span
-                                    role="status"
-                                    aria-label={t("nav.unreadFailure")}
-                                    className="shrink-0 text-destructive"
-                                  >
-                                    <CircleAlertIcon
-                                      aria-hidden="true"
-                                      className="size-3.5"
-                                    />
-                                  </span>
-                                ) : (
-                                  <span
-                                    role="status"
-                                    aria-label={t("nav.unreadCompletion")}
-                                    className="size-2 shrink-0 rounded-full bg-[var(--app-selection)]"
-                                  />
-                                ))}
-                            </span>
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            side="right"
-                            sideOffset={2}
-                            align="start"
-                            aria-label={title}
-                            className="sidebar-conversation-preview flex w-72 max-w-[calc(100vw-1rem)] flex-col items-stretch gap-2 shadow-md!"
-                          >
-                            <span className="sidebar-conversation-preview-title line-clamp-3 w-full min-w-0 text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-medium break-words whitespace-normal">
+                          )}
+                          <span className="flex min-w-0 flex-1 items-center gap-2">
+                            <span
+                              className="sidebar-conversation-title-fade min-w-0 flex-1 text-[length:var(--app-ui-font-size)] font-medium"
+                              onDoubleClick={
+                                renameAllowed
+                                  ? (event) => {
+                                      event.preventDefault()
+                                      event.stopPropagation()
+                                      openRenameDialog(conversation)
+                                    }
+                                  : undefined
+                              }
+                            >
                               {title}
                             </span>
-                            <time
-                              dateTime={conversation.updated_at}
-                              className="sidebar-conversation-preview-time block w-full text-left text-[length:var(--app-font-10-5)] leading-5 font-medium whitespace-nowrap text-[var(--app-muted)]"
-                            >
-                              {relativeUpdatedAt}
-                            </time>
-                          </HoverCardContent>
-                        </HoverCard>
+                            {hasUnreadResult &&
+                              (hasUnreadFailure ? (
+                                <span
+                                  role="status"
+                                  aria-label={t("nav.unreadFailure")}
+                                  className="shrink-0 text-destructive"
+                                >
+                                  <CircleAlertIcon
+                                    aria-hidden="true"
+                                    className="size-3.5"
+                                  />
+                                </span>
+                              ) : (
+                                <span
+                                  role="status"
+                                  aria-label={t("nav.unreadCompletion")}
+                                  className="size-2 shrink-0 rounded-full bg-[var(--app-selection)]"
+                                />
+                              ))}
+                          </span>
+                        </NavLink>
                         {running && (
                           <span
                             role="status"
                             aria-label={t("statuses.running")}
                             className={cn(
                               "sidebar-conversation-running pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--app-muted)] opacity-100 group-hover:opacity-0",
-                              allowFocusActions &&
-                                "group-focus-within:opacity-0"
+                              "group-has-[:focus-visible]:opacity-0"
                             )}
                           >
                             <LoaderCircleIcon
@@ -1090,8 +1045,7 @@ function AppSidebarContent({
                             )}
                             className={cn(
                               "sidebar-conversation-warning pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--destructive)] opacity-100 group-hover:opacity-0",
-                              allowFocusActions &&
-                                "group-focus-within:opacity-0"
+                              "group-has-[:focus-visible]:opacity-0"
                             )}
                           >
                             <CircleAlertIcon
@@ -1106,7 +1060,6 @@ function AppSidebarContent({
                           pinned={pinned}
                           pinDisabled={pinMutation.isPending}
                           archiveDisabled={archiveMutation.isPending}
-                          focusActionsVisible={allowFocusActions}
                           onTogglePinned={() =>
                             pinMutation.mutate(conversation)
                           }

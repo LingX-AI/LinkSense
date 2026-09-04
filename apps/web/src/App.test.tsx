@@ -2065,7 +2065,7 @@ describe("LinkSense application", () => {
     expect(screen.queryByText("任务概览")).not.toBeInTheDocument()
 
     await interaction.click(
-      within(sidebar).getByRole("button", { name: "整理项目会议纪要" })
+      within(sidebar).getByRole("link", { name: "整理项目会议纪要" })
     )
 
     await waitFor(() =>
@@ -5537,8 +5537,7 @@ describe("LinkSense application", () => {
     ).toBe(false)
   })
 
-  it("uses faded titles, hover details, and a running indicator in compact task rows", async () => {
-    const interaction = userEvent.setup()
+  it("uses native title details and a running indicator in compact task rows", async () => {
     const longTitle =
       "请创建 artifacts/mcp-e2e-verification 中的完整任务并验证导入结果"
     const updatedAt = "2026-07-13T08:00:00.000Z"
@@ -5580,6 +5579,10 @@ describe("LinkSense application", () => {
     expect(title).not.toHaveClass("truncate")
     expect(title).not.toHaveClass("font-semibold")
     expect(title).not.toHaveAttribute("title")
+    expect(link).toHaveAttribute(
+      "title",
+      `${longTitle}\n${formatRelativeDate(updatedAt, "zh-CN")}`
+    )
     expect(item!.querySelector("time")).toBeNull()
 
     const runningStatus = within(item as HTMLElement).getByRole("status", {
@@ -5588,7 +5591,7 @@ describe("LinkSense application", () => {
     expect(runningStatus).toHaveClass(
       "sidebar-conversation-running",
       "group-hover:opacity-0",
-      "group-focus-within:opacity-0"
+      "group-has-[:focus-visible]:opacity-0"
     )
     expect(runningStatus).not.toHaveClass("transition-opacity")
     expect(runningStatus.querySelector("svg")).toHaveClass(
@@ -5644,60 +5647,15 @@ describe("LinkSense application", () => {
       "pointer-events-none",
       "group-hover:opacity-100",
       "group-hover:pointer-events-auto",
-      "group-focus-within:opacity-100",
-      "group-focus-within:pointer-events-auto"
+      "group-has-[:focus-visible]:opacity-100",
+      "group-has-[:focus-visible]:pointer-events-auto"
     )
     expect(actions).not.toHaveClass("transition-opacity")
 
-    await interaction.hover(link as HTMLElement)
-    const preview = await screen.findByRole("dialog", { name: longTitle })
-    expect(link).toHaveAttribute("data-popup-open", "")
-    expect(preview).toHaveAttribute("data-slot", "hover-card-content")
-    const previewTitle = within(preview).getByText(longTitle)
-    const previewTime = preview.querySelector("time")
-    expect(preview).toHaveClass(
-      "sidebar-conversation-preview",
-      "w-72",
-      "flex-col",
-      "items-stretch",
-      "gap-2",
-      "rounded-xl",
-      "border",
-      "border-[var(--app-border)]",
-      "bg-[var(--app-popover)]",
-      "p-3.5",
-      "text-[var(--app-text)]",
-      "shadow-md!"
-    )
-    expect(previewTitle).toHaveClass(
-      "sidebar-conversation-preview-title",
-      "line-clamp-3",
-      "w-full",
-      "whitespace-normal",
-      "break-words"
-    )
-    expect(preview).not.toHaveClass("w-56")
-    expect(previewTime).toHaveAttribute("datetime", updatedAt)
-    expect(previewTime).toHaveClass(
-      "sidebar-conversation-preview-time",
-      "block",
-      "w-full",
-      "text-left",
-      "font-medium"
-    )
-    expect(previewTime).not.toHaveClass("shrink-0")
-    expect(previewTime).toHaveTextContent(
-      formatRelativeDate(updatedAt, "zh-CN")
-    )
-
-    await interaction.unhover(link as HTMLElement)
-    await waitFor(() => {
-      expect(link).not.toHaveAttribute("data-popup-open")
-      expect(screen.queryByRole("dialog", { name: longTitle })).toBeNull()
-    })
+    expect(screen.queryByRole("dialog", { name: longTitle })).toBeNull()
   })
 
-  it("closes a task hover preview after its clicked link loses hover", async () => {
+  it("does not mount task preview portals while hovering and switching tasks", async () => {
     const interaction = userEvent.setup()
     installApiMock()
     renderApp()
@@ -5710,21 +5668,18 @@ describe("LinkSense application", () => {
 
     await interaction.hover(link as HTMLElement)
     expect(
-      await screen.findByRole("dialog", { name: conversations[1]!.title })
-    ).toBeVisible()
+      screen.queryByRole("dialog", { name: conversations[1]!.title })
+    ).toBeNull()
 
     await interaction.click(link as HTMLElement)
     expect(link).toHaveFocus()
     await interaction.unhover(link as HTMLElement)
-
-    await waitFor(() => {
-      expect(
-        screen.queryByRole("dialog", { name: conversations[1]!.title })
-      ).toBeNull()
-    })
+    expect(
+      screen.queryByRole("dialog", { name: conversations[1]!.title })
+    ).toBeNull()
   })
 
-  it("hides actions for a focused task while another task is hovered", async () => {
+  it("keeps task focus styling stable while another task is hovered", async () => {
     installApiMock()
     renderApp()
     const sidebar = await screen.findByRole("complementary", {
@@ -5757,27 +5712,27 @@ describe("LinkSense application", () => {
     focusedLink!.focus()
     expect(document.activeElement).toBe(focusedLink)
     expect(focusedActions).toHaveClass(
-      "group-focus-within:pointer-events-auto",
-      "group-focus-within:opacity-100"
+      "group-has-[:focus-visible]:pointer-events-auto",
+      "group-has-[:focus-visible]:opacity-100"
     )
-    expect(runningStatus).toHaveClass("group-focus-within:opacity-0")
+    expect(runningStatus).toHaveClass("group-has-[:focus-visible]:opacity-0")
 
     fireEvent.mouseEnter(hoveredItem as HTMLElement)
 
     expect(document.activeElement).toBe(focusedLink)
-    expect(focusedActions).not.toHaveClass(
-      "group-focus-within:pointer-events-auto",
-      "group-focus-within:opacity-100"
+    expect(focusedActions).toHaveClass(
+      "group-has-[:focus-visible]:pointer-events-auto",
+      "group-has-[:focus-visible]:opacity-100"
     )
-    expect(runningStatus).not.toHaveClass("group-focus-within:opacity-0")
+    expect(runningStatus).toHaveClass("group-has-[:focus-visible]:opacity-0")
 
     fireEvent.mouseLeave(hoveredItem as HTMLElement)
 
     expect(focusedActions).toHaveClass(
-      "group-focus-within:pointer-events-auto",
-      "group-focus-within:opacity-100"
+      "group-has-[:focus-visible]:pointer-events-auto",
+      "group-has-[:focus-visible]:opacity-100"
     )
-    expect(runningStatus).toHaveClass("group-focus-within:opacity-0")
+    expect(runningStatus).toHaveClass("group-has-[:focus-visible]:opacity-0")
   })
 
   it("renames a recent task from its double-click dialog", async () => {
@@ -8354,9 +8309,47 @@ describe("LinkSense application", () => {
       running_turn: null,
     }
     const eventId = "c1:85"
+    let completionPersisted = false
+    const completedConversationSnapshot = {
+      ...precedingConversationSnapshot,
+      messages: [
+        ...(precedingConversationSnapshot.messages ?? []),
+        {
+          id: "submitted-background-user-message",
+          role: "user",
+          turn_id: submittedTurnId,
+          content: "切换任务后也要正确结束",
+          created_at: "2026-08-13T08:00:00.000Z",
+        },
+        {
+          id: "submitted-background-assistant-message",
+          role: "assistant",
+          turn_id: submittedTurnId,
+          item_id: "submitted-background-answer",
+          phase: "final_answer",
+          content: "切换回来后可以直接看到最终结果。",
+          created_at: "2026-08-13T08:00:02.000Z",
+        },
+      ],
+      turns: [
+        ...(precedingConversationSnapshot.turns ?? []),
+        {
+          id: submittedTurnId,
+          status: "completed",
+          started_at: "2026-08-13T08:00:00.000Z",
+          completed_at: "2026-08-13T08:00:03.000Z",
+        },
+      ],
+      last_event_id: eventId,
+    }
     const { requests } = installApiMock({
       conversationGetResponse: async () =>
-        json({ success: true, data: precedingConversationSnapshot }),
+        json({
+          success: true,
+          data: completionPersisted
+            ? completedConversationSnapshot
+            : precedingConversationSnapshot,
+        }),
       conversationListResponse: () =>
         json({
           success: true,
@@ -8460,6 +8453,7 @@ describe("LinkSense application", () => {
         ).length
       ).toBeGreaterThanOrEqual(2)
     )
+    completionPersisted = true
     await act(async () => releaseCompletion?.())
 
     await waitFor(() =>
@@ -8471,6 +8465,12 @@ describe("LinkSense application", () => {
         screen.queryByText("正在思考", { exact: true })
       ).not.toBeInTheDocument()
     )
+    expect(
+      await screen.findByText("切换回来后可以直接看到最终结果。")
+    ).toBeVisible()
+    expect(
+      screen.queryByText("本轮执行已结束，但没有产出可展示的内容，请重新执行。")
+    ).toBeNull()
   })
 
   it("ends a background task loading state from its completion event without polling the task list", async () => {
@@ -8481,6 +8481,7 @@ describe("LinkSense application", () => {
     const completionReady = new Promise<void>((resolve) => {
       releaseCompletion = resolve
     })
+    let backgroundDetailCalls = 0
     const { requests } = installApiMock({
       conversationListResponse: () =>
         json({
@@ -8497,18 +8498,52 @@ describe("LinkSense application", () => {
             total_count: conversations.length,
           },
         }),
-      conversationDetailResponse: async (conversationId) =>
-        json({
+      conversationDetailResponse: async (conversationId) => {
+        if (conversationId === "c2") backgroundDetailCalls += 1
+        const completed = conversationId === "c2" && backgroundDetailCalls > 1
+        return json({
           success: true,
           data: {
             ...conversation,
             ...conversations.find((item) => item.id === conversationId),
-            execution_status: "running",
-            turns: [{ id: backgroundTurnId, status: "running" }],
-            running_turn: { id: backgroundTurnId, status: "running" },
-            last_event_id: "c2:79",
+            execution_status: completed ? "completed" : "running",
+            messages: completed
+              ? [
+                  {
+                    id: "background-user-message",
+                    role: "user",
+                    turn_id: backgroundTurnId,
+                    content: "请整理项目会议纪要",
+                    created_at: "2026-08-13T08:00:00.000Z",
+                  },
+                  {
+                    id: "background-assistant-message",
+                    role: "assistant",
+                    turn_id: backgroundTurnId,
+                    item_id: "native-background-answer",
+                    phase: "final_answer",
+                    content: "项目会议纪要已经整理完成。",
+                    created_at: "2026-08-13T08:00:01.000Z",
+                  },
+                ]
+              : [],
+            turns: [
+              {
+                id: backgroundTurnId,
+                status: completed ? "completed" : "running",
+                started_at: "2026-08-13T08:00:00.000Z",
+                ...(completed
+                  ? { completed_at: "2026-08-13T08:00:02.000Z" }
+                  : {}),
+              },
+            ],
+            running_turn: completed
+              ? null
+              : { id: backgroundTurnId, status: "running" },
+            last_event_id: completed ? eventId : "c2:79",
           },
-        }),
+        })
+      },
       backgroundEventStreams: {
         c2: {
           start: completionReady,
@@ -8533,6 +8568,34 @@ describe("LinkSense application", () => {
                 },
               },
               sse_event_id: "c2:80",
+              created_at: "2026-08-13T08:00:01.000Z",
+            })}\n\n`,
+            `id: c2:81\nevent: item/completed\ndata: ${JSON.stringify({
+              id: "60000000-0000-4000-8000-000000000081",
+              conversation_id: "20000000-0000-4000-8000-000000000002",
+              turn_id: backgroundTurnId,
+              sequence_no: 81,
+              event_type: "item/completed",
+              visibility: "user_visible",
+              payload: {
+                schema_version: 2,
+                source: "codex_app_server",
+                method: "item/completed",
+                params: {
+                  threadId: "thread-background",
+                  turnId: "native-background-turn",
+                  item: {
+                    id: "native-background-answer",
+                    type: "agentMessage",
+                    text: "项目会议纪要已经整理完成。",
+                    phase: "final_answer",
+                  },
+                },
+                local: {
+                  message_id: "background-assistant-message",
+                },
+              },
+              sse_event_id: "c2:81",
               created_at: "2026-08-13T08:00:01.000Z",
             })}\n\n`,
             `id: ${eventId}\nevent: turn/completed\ndata: ${JSON.stringify({
@@ -8574,6 +8637,7 @@ describe("LinkSense application", () => {
 
     await act(async () => releaseCompletion?.())
 
+    await waitFor(() => expect(backgroundDetailCalls).toBeGreaterThanOrEqual(2))
     await waitFor(() =>
       expect(backgroundTitle.closest("a")).not.toHaveAttribute("aria-busy")
     )
@@ -8594,7 +8658,13 @@ describe("LinkSense application", () => {
           request.path === "/api/v1/conversations/c2" &&
           request.method === "GET"
       )
-    ).toHaveLength(1)
+    ).toHaveLength(2)
+
+    await userEvent.setup().click(backgroundTitle)
+    expect(await screen.findByText("项目会议纪要已经整理完成。")).toBeVisible()
+    expect(
+      screen.queryByText("本轮执行已结束，但没有产出可展示的内容，请重新执行。")
+    ).toBeNull()
   })
 
   it("ends the active task loading state as soon as its completion event arrives", async () => {
@@ -8622,7 +8692,27 @@ describe("LinkSense application", () => {
                 running_turn: null,
               },
             })
-          : pendingDetailRefresh,
+          : callIndex === 2
+            ? json({
+                success: true,
+                data: {
+                  ...conversation,
+                  execution_status: "running",
+                  messages: [
+                    {
+                      id: "active-terminal-user-message",
+                      role: "user",
+                      turn_id: activeTurnId,
+                      content: "完成后立即结束加载",
+                      created_at: "2026-08-13T08:00:00.000Z",
+                    },
+                  ],
+                  turns: [{ id: activeTurnId, status: "running" }],
+                  running_turn: { id: activeTurnId, status: "running" },
+                  last_event_id: "c1:82",
+                },
+              })
+            : pendingDetailRefresh,
       conversationListResponse: () =>
         json({
           success: true,
@@ -8689,11 +8779,88 @@ describe("LinkSense application", () => {
       expect(screen.queryByRole("button", { name: "停止" })).toBeNull()
     )
     expect(
+      screen.queryByText("本轮执行已结束，但没有产出可展示的内容，请重新执行。")
+    ).toBeNull()
+    expect(
       requests.filter(
         (request) =>
           request.path === "/api/v1/conversations" && request.method === "GET"
       )
     ).toHaveLength(1)
+  })
+
+  it("keeps interrupt progress scoped to the task being stopped", async () => {
+    const interruptedTurnId = "30000000-0000-4000-8000-000000000086"
+    const otherTurnId = "30000000-0000-4000-8000-000000000087"
+    let resolveInterrupt!: (response: Response) => void
+    const pendingInterrupt = new Promise<Response>((resolve) => {
+      resolveInterrupt = resolve
+    })
+    installApiMock({
+      conversationOverride: {
+        execution_status: "running",
+        turns: [{ id: interruptedTurnId, status: "running" }],
+        running_turn: { id: interruptedTurnId, status: "running" },
+      },
+      conversationListResponse: () =>
+        json({
+          success: true,
+          data: {
+            items: conversations.map((item) => ({
+              ...item,
+              execution_status:
+                item.id === "c1" || item.id === "c2"
+                  ? "running"
+                  : item.execution_status,
+            })),
+            next_cursor: null,
+            total_count: conversations.length,
+          },
+        }),
+      conversationDetailResponse: async (conversationId) =>
+        json({
+          success: true,
+          data: {
+            ...conversation,
+            ...conversations.find((item) => item.id === conversationId),
+            execution_status: "running",
+            messages: [],
+            turns: [{ id: otherTurnId, status: "running" }],
+            running_turn: { id: otherTurnId, status: "running" },
+          },
+        }),
+      interruptResponse: () => pendingInterrupt,
+    })
+    const interaction = userEvent.setup()
+    renderApp()
+
+    await interaction.click(
+      await screen.findByRole("button", { name: "停止" }, { timeout: 5_000 })
+    )
+    expect(screen.getByRole("button", { name: "正在中断…" })).toBeDisabled()
+
+    const sidebar = screen.getByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+    await interaction.click(within(sidebar).getByText("整理项目会议纪要"))
+
+    const otherTaskStop = await screen.findByRole("button", { name: "停止" })
+    expect(otherTaskStop).toBeEnabled()
+
+    await act(async () =>
+      resolveInterrupt(
+        json(
+          {
+            success: false,
+            error_code: "TURN_INTERRUPT_FAILED",
+            message: "停止任务失败",
+          },
+          500
+        )
+      )
+    )
+    await waitFor(() => expect(otherTaskStop).toBeEnabled())
+    expect(document.querySelector(".conversation-banner-stack")).toBeNull()
   })
 
   it("regenerates from the edited latest user message without changing the composer draft", async () => {
@@ -10220,7 +10387,7 @@ describe("LinkSense application", () => {
     expect(modelSelector).toHaveTextContent("Model A")
 
     await interaction.click(
-      screen.getByRole("button", { name: "整理项目会议纪要" })
+      screen.getByRole("link", { name: "整理项目会议纪要" })
     )
     await waitFor(() =>
       expect(requests).toContainEqual(
@@ -10263,9 +10430,7 @@ describe("LinkSense application", () => {
       )
     ).toBe(true)
 
-    await interaction.click(
-      screen.getByRole("button", { name: "活动风险评估" })
-    )
+    await interaction.click(screen.getByRole("link", { name: "活动风险评估" }))
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: "选择模型与推理强度" })

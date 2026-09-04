@@ -15,6 +15,10 @@ import {
 describe("conversation detail event subscription", () => {
   afterEach(() => vi.unstubAllGlobals())
 
+  it("releases an inactive task detail immediately", () => {
+    expect(conversationDetailQueryOptions("conversation-b").gcTime).toBe(0)
+  })
+
   it("does not subscribe from cached task data while its fresh detail is loading", async () => {
     const conversationId = "conversation-b"
     const cachedCursor = `${conversationId}:95`

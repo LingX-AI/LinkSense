@@ -213,7 +213,7 @@ describe("OfficeSelectionPrompt", () => {
     await user.hover(voiceButton.parentElement!)
     expect(
       await screen.findByRole("tooltip", {
-        name: "语音转文字服务尚未配置，请联系管理员。",
+        name: "语音转文字服务尚未配置",
       })
     ).toBeVisible()
     expect(voiceInput.startRecording).not.toHaveBeenCalled()

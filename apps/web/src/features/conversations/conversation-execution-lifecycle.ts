@@ -63,32 +63,46 @@ export function applyConversationExecutionTransition(
   transition: ConversationExecutionTransition
 ): Conversation {
   const activeTurn = conversation.running_turn
+  const matchingTurn = transition.turnId
+    ? conversation.turns?.find((turn) => turn.id === transition.turnId)
+    : undefined
   if (
     isTerminalConversationExecutionStatus(transition.status) &&
     transition.turnId &&
-    activeTurn?.id &&
-    activeTurn.id !== transition.turnId
+    ((activeTurn?.id && activeTurn.id !== transition.turnId) ||
+      (!activeTurn?.id && !matchingTurn))
   ) {
-    // A replayed completion for an older turn must not stop a newer turn.
+    // Terminal events are replayed whenever the foreground/background event
+    // observer changes. Ignore a turn that the current detail boundary cannot
+    // identify instead of projecting it onto an unrelated cached snapshot.
     return conversation
   }
 
   const turnStatus = isTurnExecutionStatus(transition.status)
     ? transition.status
     : null
-  const turns = turnStatus
-    ? conversation.turns?.map((turn) =>
-        transition.turnId && turn.id === transition.turnId
-          ? {
-              ...turn,
-              status: turnStatus,
-              ...(isTerminalConversationExecutionStatus(turnStatus)
-                ? { completed_at: turn.completed_at ?? transition.occurredAt }
-                : {}),
-            }
-          : turn
-      )
-    : conversation.turns
+  let turns = conversation.turns
+  if (turnStatus && transition.turnId && turns) {
+    let changed = false
+    const nextTurns = turns.map((turn) => {
+      if (turn.id !== transition.turnId) return turn
+      const completedAt = isTerminalConversationExecutionStatus(turnStatus)
+        ? (turn.completed_at ?? transition.occurredAt)
+        : turn.completed_at
+      if (turn.status === turnStatus && turn.completed_at === completedAt) {
+        return turn
+      }
+      changed = true
+      return {
+        ...turn,
+        status: turnStatus,
+        ...(isTerminalConversationExecutionStatus(turnStatus)
+          ? { completed_at: completedAt }
+          : {}),
+      }
+    })
+    if (changed) turns = nextTurns
+  }
   const transitionedTurn = transition.turnId
     ? turns?.find((turn) => turn.id === transition.turnId)
     : undefined

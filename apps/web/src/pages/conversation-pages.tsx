@@ -533,7 +533,23 @@ export function ConversationPage({
     },
     [refreshUser, t]
   )
-  const [interrupting, setInterrupting] = useState(false)
+  const [interruptingConversationId, setInterruptingConversationId] = useState<
+    string | null
+  >(null)
+  const [terminalDetailReconciliations, setTerminalDetailReconciliations] =
+    useState<
+      Record<
+        string,
+        {
+          turnId: string
+          status: "completed" | "failed" | "interrupted"
+          detailUpdateCount: number
+        }
+      >
+    >({})
+  const terminalDetailReconciliation = conversationId
+    ? terminalDetailReconciliations[conversationId]
+    : undefined
   const [goalModeState, setGoalModeState] = useState<{
     conversationId: string | undefined
     enabled: boolean
@@ -680,6 +696,10 @@ export function ConversationPage({
 
   useLayoutEffect(() => {
     const previousRouteConversationId = routeConversationIdRef.current
+    if (previousRouteConversationId !== currentRouteConversationId) {
+      setError(null)
+      setTokenQuotaNotice(null)
+    }
     if (
       previousRouteConversationId !== currentRouteConversationId &&
       currentRouteConversationId === null
@@ -708,6 +728,20 @@ export function ConversationPage({
   const isNewTaskPromotion =
     newTaskPromotionConversationId !== null &&
     newTaskPromotionConversationId === conversationId
+  const interrupting =
+    interruptingConversationId ===
+      (isNew ? newConversationPlaceholderId : conversationId) ||
+    (isNewTaskPromotion &&
+      interruptingConversationId === newConversationPlaceholderId)
+  const clearInterruptingConversation = useCallback(
+    (targetConversationId: string | null | undefined) => {
+      if (!targetConversationId) return
+      setInterruptingConversationId((current) =>
+        current === targetConversationId ? null : current
+      )
+    },
+    []
+  )
   useLayoutEffect(() => {
     const promotedConversationId = newTaskPromotionConversationId
     if (!promotedConversationId) {
@@ -815,6 +849,7 @@ export function ConversationPage({
   ] as const
   const modelPreferenceQuery = useQuery({
     queryKey: modelPreferenceQueryKey,
+    gcTime: 0,
     queryFn: ({ signal }) =>
       apiRequest(
         isNew
@@ -1320,6 +1355,8 @@ export function ConversationPage({
       isNew ||
       !conversationId ||
       !conversationQuery.isSuccess ||
+      (!conversationQuery.isFetchedAfterMount && !isNewTaskPromotion) ||
+      terminalDetailReconciliation !== undefined ||
       pendingSubmittedTurnNotProjected ||
       (executionStatus !== "completed" &&
         executionStatus !== "failed" &&
@@ -1359,11 +1396,14 @@ export function ConversationPage({
     conversation?.execution_status,
     conversation?.turns,
     conversationId,
+    conversationQuery.isFetchedAfterMount,
     conversationQuery.isSuccess,
+    isNewTaskPromotion,
     isNew,
     pendingConversationExecution?.turnId,
     pendingSubmittedTurnNotProjected,
     queryClient,
+    terminalDetailReconciliation,
   ])
 
   useEffect(() => {
@@ -1583,8 +1623,8 @@ export function ConversationPage({
           const matchesCurrentTurn =
             matchesPendingExecution &&
             (!terminal ||
-              !currentConversation?.running_turn?.id ||
-              transitionedConversation !== currentConversation)
+              transitionedConversation !== currentConversation ||
+              pendingTurnId === executionTransition.turnId)
           if (matchesCurrentTurn) {
             if (transitionedConversation) {
               queryClient.setQueryData<Conversation>(
@@ -1592,17 +1632,43 @@ export function ConversationPage({
                 transitionedConversation
               )
             }
-            queryClient.setQueryData<
-              InfiniteData<Paginated<Conversation>, string | undefined>
-            >(["conversations", "sidebar"], (current) =>
-              patchSidebarConversationExecutionStatus(
-                current,
-                conversationId,
-                executionTransition.status
+            if (!terminal) {
+              queryClient.setQueryData<
+                InfiniteData<Paginated<Conversation>, string | undefined>
+              >(["conversations", "sidebar"], (current) =>
+                patchSidebarConversationExecutionStatus(
+                  current,
+                  conversationId,
+                  executionTransition.status
+                )
               )
-            )
+            }
           }
           if (terminal && matchesCurrentTurn) {
+            const terminalTurnId = executionTransition.turnId
+            const terminalStatus = executionTransition.status
+            if (
+              terminalTurnId &&
+              isTerminalConversationExecutionStatus(terminalStatus)
+            ) {
+              const projectedDetailUpdateCount =
+                queryClient.getQueryState<Conversation>([
+                  "conversation",
+                  conversationId,
+                ])?.dataUpdateCount ?? 0
+              setTerminalDetailReconciliations((current) => ({
+                ...current,
+                [conversationId]: {
+                  turnId: terminalTurnId,
+                  status: terminalStatus,
+                  detailUpdateCount: projectedDetailUpdateCount,
+                },
+              }))
+            }
+            void queryClient.invalidateQueries({
+              queryKey: ["conversation", conversationId],
+              exact: true,
+            })
             clearPendingConversationExecution(queryClient, conversationId)
             clearPendingConversationTurnSubmission(queryClient, conversationId)
             setPendingTurnSubmission((current) =>
@@ -1814,12 +1880,17 @@ export function ConversationPage({
             if (event.turn_id) {
               stopHookSupersededItemIdsByTurnRef.current.delete(event.turn_id)
             }
-            setInterrupting(false)
+            clearInterruptingConversation(conversationId)
             setLiveReasoningSummaries((current) =>
               removeStreamingReasoningSummariesForTurn(current, event.turn_id)
             )
           }
-          scheduleConversationRefresh(reconciliationScope)
+          if (
+            !executionTransition ||
+            !isTerminalConversationExecutionStatus(executionTransition.status)
+          ) {
+            scheduleConversationRefresh(reconciliationScope)
+          }
           return
         }
 
@@ -1967,21 +2038,27 @@ export function ConversationPage({
           event.type === "conversation.status.changed"
         ) {
           clearNativeReconnect()
-          setInterrupting(false)
+          clearInterruptingConversation(conversationId)
           setLiveReasoningSummaries((current) =>
             removeStreamingReasoningSummariesForTurn(current, event.turn_id)
           )
           if (event.type !== "conversation.status.changed")
             setLiveActivities([])
         }
-        const refreshScope = getConversationQueryRefreshScope(event.type)
-        scheduleConversationRefresh(
-          executionTransition && refreshScope === "detail-and-list"
-            ? "detail"
-            : refreshScope
-        )
+        if (
+          !executionTransition ||
+          !isTerminalConversationExecutionStatus(executionTransition.status)
+        ) {
+          const refreshScope = getConversationQueryRefreshScope(event.type)
+          scheduleConversationRefresh(
+            executionTransition && refreshScope === "detail-and-list"
+              ? "detail"
+              : refreshScope
+          )
+        }
       },
       [
+        clearInterruptingConversation,
         clearNativeReconnect,
         conversation?.title_source,
         conversation?.running_turn?.id,
@@ -2001,6 +2078,41 @@ export function ConversationPage({
     ),
     conversation?.last_event_id
   )
+
+  useEffect(() => {
+    const reconciliation = terminalDetailReconciliation
+    if (!reconciliation) return
+    const detailUpdateCount = conversationId
+      ? (queryClient.getQueryState<Conversation>([
+          "conversation",
+          conversationId,
+        ])?.dataUpdateCount ?? 0)
+      : 0
+    if (
+      conversationQuery.isFetching ||
+      detailUpdateCount <= reconciliation.detailUpdateCount
+    ) {
+      return
+    }
+    const timer = window.setTimeout(
+      () =>
+        setTerminalDetailReconciliations((current) => {
+          if (!conversationId || current[conversationId] !== reconciliation) {
+            return current
+          }
+          const next = { ...current }
+          delete next[conversationId]
+          return next
+        }),
+      0
+    )
+    return () => window.clearTimeout(timer)
+  }, [
+    conversationId,
+    conversationQuery.isFetching,
+    queryClient,
+    terminalDetailReconciliation,
+  ])
 
   useEffect(() => {
     if (
@@ -2031,7 +2143,7 @@ export function ConversationPage({
   useEffect(() => {
     if (!hasConversation || turnExecutionActive) return
     const timer = window.setTimeout(() => {
-      setInterrupting(false)
+      clearInterruptingConversation(conversationId)
       clearNativeReconnect()
       setStreamedMessages({})
       setLiveReasoningSummaries({})
@@ -2039,7 +2151,13 @@ export function ConversationPage({
       setLiveEvents([])
     }, 2_000)
     return () => window.clearTimeout(timer)
-  }, [clearNativeReconnect, hasConversation, turnExecutionActive])
+  }, [
+    clearInterruptingConversation,
+    clearNativeReconnect,
+    conversationId,
+    hasConversation,
+    turnExecutionActive,
+  ])
 
   useEffect(() => {
     const persistedMessageIds = new Set(
@@ -2684,7 +2802,7 @@ export function ConversationPage({
     onError: (nextError, submission, optimisticTurnStart) => {
       const targetConversationId = sendSubmissionConversationIdRef.current
       composerSubmissionInFlightRef.current = false
-      setInterrupting(false)
+      clearInterruptingConversation(targetConversationId)
       restoreOptimisticallyConsumedAttachments(
         optimisticTurnStart?.attachmentConsumption
       )
@@ -3583,7 +3701,8 @@ export function ConversationPage({
           schema: emptyResponseSchema,
         }
       ),
-    onMutate: () => setInterrupting(true),
+    onMutate: ({ targetConversationId }) =>
+      setInterruptingConversationId(targetConversationId),
     onSuccess: async (_result, { targetConversationId, turnId }) => {
       try {
         await refreshAfterMutation(targetConversationId)
@@ -3600,8 +3719,10 @@ export function ConversationPage({
     onError: (nextError, { targetConversationId, turnId }) => {
       dispatchedInterruptTurnIdsRef.current.delete(turnId)
       clearPendingConversationExecution(queryClient, targetConversationId)
-      setInterrupting(false)
-      setError(getErrorMessage(nextError, t))
+      clearInterruptingConversation(targetConversationId)
+      if (routeConversationIdRef.current === targetConversationId) {
+        setError(getErrorMessage(nextError, t))
+      }
     },
   })
   const requestTurnInterrupt = interruptMutation.mutate
@@ -5127,6 +5248,11 @@ export function ConversationPage({
         nativeReconnectState={
           hasCurrentLiveState ? nativeReconnectState : undefined
         }
+        reconcilingCompletedTurnId={
+          terminalDetailReconciliation?.status === "completed"
+            ? terminalDetailReconciliation.turnId
+            : undefined
+        }
         loadAttachmentPreview={loadAttachmentPreview}
         loadArtifactPreview={loadArtifactPreview}
         selectedSubAgent={
@@ -5390,7 +5516,7 @@ export function ConversationPage({
             onInterrupt={() => {
               const pending = activePendingTurnSubmission
               if (pending) {
-                setInterrupting(true)
+                setInterruptingConversationId(pending.conversationId)
                 setPendingTurnSubmission((current) =>
                   current === pending
                     ? { ...current, interruptRequested: true }

@@ -1105,10 +1105,6 @@
   );
 }
 
-.sidebar-conversation-preview-title {
-  color: color-mix(in srgb, var(--app-text) 70%, var(--app-muted));
-}
-
 .sidebar-conversation-item[data-running="true"] .sidebar-conversation-link,
 .sidebar-conversation-item[data-warning="true"] .sidebar-conversation-link {
   padding-right: 30px;
@@ -1126,15 +1122,33 @@
   .sidebar-conversation-link,
 .sidebar-conversation-item:not([data-active="true"]):not(
     .sidebar-link-active
-  ):focus-within
+  ):has(:focus-visible)
   .sidebar-conversation-link {
   background: var(--app-sidebar-hover);
   color: var(--app-text);
 }
 
 .sidebar-conversation-item:hover .sidebar-conversation-link,
-.sidebar-conversation-item:focus-within .sidebar-conversation-link {
+.sidebar-conversation-item:has(:focus-visible) .sidebar-conversation-link {
   padding-right: 60px;
+}
+
+@media (hover: hover) {
+  .sidebar-conversation-scroll:has(.sidebar-conversation-item:hover)
+    .sidebar-conversation-item:not(:hover)
+    .sidebar-conversation-actions {
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  .sidebar-conversation-scroll:has(.sidebar-conversation-item:hover)
+    .sidebar-conversation-item:not(:hover)
+    .sidebar-conversation-running,
+  .sidebar-conversation-scroll:has(.sidebar-conversation-item:hover)
+    .sidebar-conversation-item:not(:hover)
+    .sidebar-conversation-warning {
+    opacity: 1;
+  }
 }
 
 @media (hover: none) {

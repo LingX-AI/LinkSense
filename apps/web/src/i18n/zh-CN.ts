@@ -1560,7 +1560,7 @@ export const zhCN = {
     htmlAnnotationCount_other: "{{count}} 条注释",
     voice: "语音输入",
     voiceChecking: "正在检查语音转文字服务…",
-    voiceNotConfigured: "语音转文字服务尚未配置，请联系管理员。",
+    voiceNotConfigured: "语音转文字服务尚未配置",
     voiceServiceUnavailable: "语音转文字服务暂时不可用，请稍后重试。",
     voiceStop: "停止语音输入",
     voiceRecording: "正在录音",

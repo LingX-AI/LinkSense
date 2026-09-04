@@ -1943,6 +1943,39 @@ describe("conversation turn responses", () => {
     ).toBeVisible()
   })
 
+  it("waits for terminal detail reconciliation before reporting missing output", () => {
+    const emptyCompletedConversation = {
+      ...completedConversation,
+      messages: [completedConversation.messages![0]!],
+      activities: [],
+      events: [],
+      artifacts: [],
+    }
+    const { rerender } = render(
+      <ConversationThread
+        conversation={emptyCompletedConversation}
+        reconcilingCompletedTurnId="turn-1"
+        onDownload={vi.fn()}
+      />
+    )
+
+    const summary = screen.getByTestId("turn-summary-turn-1")
+    expect(
+      within(summary).queryByText("执行失败", { exact: true })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("本轮执行已结束，但没有产出可展示的内容，请重新执行。")
+    ).toBeNull()
+
+    rerender(
+      <ConversationThread
+        conversation={emptyCompletedConversation}
+        onDownload={vi.fn()}
+      />
+    )
+    expect(within(summary).getByText("执行失败", { exact: true })).toBeVisible()
+  })
+
   it("shows elapsed time for a completed context compaction without an empty-output failure", async () => {
     const interaction = userEvent.setup()
     render(
