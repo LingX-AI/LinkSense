@@ -720,9 +720,11 @@ export function createServices(input: {
     knowledgeStore,
     modelProviderSettings,
     applications,
-    conversationTitles,
     tokenLimits,
     system,
+  );
+  jobs.registerConversationPrewarmProcessor((job) =>
+    conversations.executePrewarm(job),
   );
   const conversationShares = new ConversationShareService(
     input.prisma,
@@ -898,7 +900,9 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       UserHomeCapabilityMaterializer,
       | "reconcile"
       | "reconcileWithinPublicationStartFence"
+      | "resolvePublishedRuntimeWithinPublicationStartFence"
       | "withPublicationStartFence"
+      | "withPublishedRuntime"
       | "withVerifiedRuntime"
     >,
     private readonly mcpServers: ConversationMcpRuntimeResolver = {
@@ -924,7 +928,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     capabilityScope?: CapabilityResolutionScope;
   }) {
     try {
-      return await this.#resolveAndPublish(input);
+      return await this.#resolveAndPublish(input, true);
     } catch (error) {
       if (
         error instanceof UserHomeCapabilityMaterializationError ||
@@ -958,7 +962,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     userId: string;
     priorityCapabilityIds: string[];
     capabilityScope?: CapabilityResolutionScope;
-  }) {
+  }, preferPublishedRuntime = false) {
     return this.capabilityMaterializer.withPublicationStartFence(
       input.userId,
       async () => {
@@ -973,13 +977,17 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
         ]);
         let materialized: ReconciledUserHomeCapabilities;
         try {
-          materialized =
-            await this.capabilityMaterializer.reconcileWithinPublicationStartFence(
-              {
-                ownerId: input.userId,
-                capabilities: catalog.materializationCapabilities,
-              },
-            );
+          const materializationInput = {
+            ownerId: input.userId,
+            capabilities: catalog.materializationCapabilities,
+          };
+          materialized = preferPublishedRuntime
+            ? await this.capabilityMaterializer.resolvePublishedRuntimeWithinPublicationStartFence(
+                materializationInput,
+              )
+            : await this.capabilityMaterializer.reconcileWithinPublicationStartFence(
+                materializationInput,
+              );
         } catch (error) {
           if (
             error instanceof UserHomeCapabilityMaterializationError ||
@@ -1226,7 +1234,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     action: () => Promise<T>,
   ): Promise<T> {
     try {
-      return await this.capabilityMaterializer.withVerifiedRuntime(
+      return await this.capabilityMaterializer.withPublishedRuntime(
         {
           ownerId: input.userId,
           verification: input.capabilityVerification,

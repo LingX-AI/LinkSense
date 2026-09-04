@@ -1015,7 +1015,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       name: "presentation-builder",
     };
     const verification = capabilityVerification();
-    const withVerifiedRuntime = vi.fn(
+    const withPublishedRuntime = vi.fn(
       async (_input: unknown, action: () => Promise<unknown>) => action(),
     );
     const preflight = new DatabaseConversationPreflight(
@@ -1031,7 +1031,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
           generation: CAPABILITY_GENERATION,
           verification,
         })),
-        withVerifiedRuntime,
+        withPublishedRuntime,
       ),
     );
     const resolved = await preflight.resolve({
@@ -1053,7 +1053,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
         action,
       ),
     ).resolves.toBe("created");
-    expect(withVerifiedRuntime).toHaveBeenCalledWith(
+    expect(withPublishedRuntime).toHaveBeenCalledWith(
       expect.objectContaining({ verification }),
       expect.any(Function),
     );
@@ -1375,7 +1375,9 @@ type MaterializerTestDouble = Pick<
   UserHomeCapabilityMaterializer,
   | "reconcile"
   | "reconcileWithinPublicationStartFence"
+  | "resolvePublishedRuntimeWithinPublicationStartFence"
   | "withPublicationStartFence"
+  | "withPublishedRuntime"
   | "withVerifiedRuntime"
 >;
 
@@ -1388,7 +1390,7 @@ function materializerWithReconcile<
     generation: string;
     verification?: CapabilityRuntimeVerification;
   }>,
-  withVerifiedRuntime = vi.fn(
+  withPublishedRuntime = vi.fn(
     async (_input: unknown, action: () => Promise<unknown>) => action(),
   ),
 ): MaterializerTestDouble {
@@ -1402,12 +1404,20 @@ function materializerWithReconcile<
   });
   return {
     reconcile: reconciler,
-    reconcileWithinPublicationStartFence: reconciler,
+    reconcileWithinPublicationStartFence: vi.fn((input: T) =>
+      reconciler(input),
+    ),
+    resolvePublishedRuntimeWithinPublicationStartFence: vi.fn((input: T) =>
+      reconciler(input),
+    ),
     withPublicationStartFence: async (
       _ownerId: string,
       action: () => Promise<unknown>,
     ) => action(),
-    withVerifiedRuntime,
+    withPublishedRuntime,
+    withVerifiedRuntime: vi.fn(
+      async (_input: unknown, action: () => Promise<unknown>) => action(),
+    ),
   } as unknown as MaterializerTestDouble;
 }
 

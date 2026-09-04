@@ -8,6 +8,7 @@ import { z } from "zod"
 import type { AppConfig } from "../config.js"
 import type { PrismaClient } from "../generated/prisma/client.js"
 import type { ObjectStorage } from "./object-storage.js"
+import type { ConversationCollaborationMode } from "@linksense/shared"
 import {
   RunnerRuntimeCleanupError,
   type RunnerClient,
@@ -39,6 +40,12 @@ const maintenanceJobSchema = z.discriminatedUnion("type", [
     outboxId: z.uuid().optional(),
   }),
   z.strictObject({ type: z.literal("runtime-cleanup-outbox-dispatch") }),
+  z.strictObject({
+    type: z.literal("conversation-prewarm"),
+    ownerId: z.uuid(),
+    conversationId: z.uuid(),
+    collaborationMode: z.enum(["default", "plan"]),
+  }),
   z.strictObject({
     type: z.literal("capability-preview-prune"),
     cursor: z.string().min(1).optional(),
@@ -112,6 +119,13 @@ export class BackgroundJobs {
     unknown,
     MaintenanceJob["type"]
   > | null = null
+  private conversationPrewarmProcessor:
+    | ((input: {
+        ownerId: string
+        conversationId: string
+        collaborationMode: ConversationCollaborationMode
+      }) => Promise<void>)
+    | null = null
 
   constructor(
     config: AppConfig,
@@ -293,6 +307,37 @@ export class BackgroundJobs {
     })
   }
 
+  registerConversationPrewarmProcessor(
+    processor: (input: {
+      ownerId: string
+      conversationId: string
+      collaborationMode: ConversationCollaborationMode
+    }) => Promise<void>,
+  ): void {
+    this.conversationPrewarmProcessor = processor
+  }
+
+  async enqueueConversationPrewarm(input: {
+    ownerId: string
+    conversationId: string
+    collaborationMode: ConversationCollaborationMode
+  }): Promise<void> {
+    const minuteBucket = Math.floor(Date.now() / 60_000)
+    await this.queue.add(
+      "conversation-prewarm",
+      { type: "conversation-prewarm", ...input },
+      {
+        jobId: `conversation-prewarm-${digest(
+          `${input.ownerId}:${input.conversationId}:${input.collaborationMode}:${minuteBucket}`,
+        )}`,
+        attempts: 1,
+        priority: 100,
+        removeOnComplete: true,
+        removeOnFail: true,
+      },
+    )
+  }
+
   async enqueueWorkspaceDirectoryRemoval(
     ownerId: string,
     conversationId: string,
@@ -351,6 +396,25 @@ export class BackgroundJobs {
     if (data.type === "object-delete") {
       await this.storage.removeObject(data.objectKey)
       return { deleted: true }
+    }
+    if (data.type === "conversation-prewarm") {
+      if (!this.conversationPrewarmProcessor) {
+        await this.audit.write({
+          actorId: data.ownerId,
+          action: "conversation_prewarm_discarded",
+          targetType: "conversation",
+          targetId: data.conversationId,
+          result: "rejected",
+          metadata: { reason_code: "PREWARM_PROCESSOR_UNAVAILABLE" },
+        })
+        return { discarded: true }
+      }
+      await this.conversationPrewarmProcessor({
+        ownerId: data.ownerId,
+        conversationId: data.conversationId,
+        collaborationMode: data.collaborationMode,
+      })
+      return { prewarmed: true }
     }
     if (data.type === "runtime-cleanup") {
       const result = await executeRuntimeCleanupJob({

@@ -165,6 +165,35 @@ describe("maintenance cleanup failures", () => {
     ).rejects.toThrow("outside its conversation root")
   })
 
+  it("queues low-priority conversation prewarm as a deduplicated one-shot job", async () => {
+    const queue = queueControl({ failedJobs: [] })
+    const jobs = createBackgroundJobs(queue)
+    const conversationId = "01900000-0000-7000-8000-000000000001"
+
+    await jobs.enqueueConversationPrewarm({
+      ownerId: OWNER_ID,
+      conversationId,
+      collaborationMode: "default",
+    })
+
+    expect(queue.add).toHaveBeenCalledWith(
+      "conversation-prewarm",
+      {
+        type: "conversation-prewarm",
+        ownerId: OWNER_ID,
+        conversationId,
+        collaborationMode: "default",
+      },
+      {
+        jobId: expect.stringMatching(/^conversation-prewarm-[a-f0-9]{32}$/u),
+        attempts: 1,
+        priority: 100,
+        removeOnComplete: true,
+        removeOnFail: true,
+      },
+    )
+  })
+
   it("keeps a database-discoverable runtime cleanup when BullMQ enqueue fails", async () => {
     const queue = queueControl({ failedJobs: [] })
     vi.mocked(queue.add).mockRejectedValueOnce(new Error("redis unavailable"))

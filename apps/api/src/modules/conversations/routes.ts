@@ -126,6 +126,10 @@ const archivedQuery = z
   .enum(["true", "false"])
   .default("false")
   .transform((value) => value === "true");
+const prewarmBodySchema = z.strictObject({
+  conversation_id: z.string().uuid().optional(),
+  collaboration_mode: conversationCollaborationModeSchema.default("default"),
+});
 
 export const conversationRoutes: FastifyPluginAsync<{
   services: AppServices;
@@ -134,7 +138,13 @@ export const conversationRoutes: FastifyPluginAsync<{
 
   app.post("/prewarm", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
-    const receipt = await services.conversations.prewarm(user.id);
+    const body = prewarmBodySchema.parse(request.body ?? {});
+    const receipt = await services.conversations.prewarm(user.id, {
+      ...(body.conversation_id
+        ? { conversationId: body.conversation_id }
+        : {}),
+      collaborationMode: body.collaboration_mode,
+    });
     return reply.code(202).send(ok(receipt, request.id));
   });
 
@@ -177,10 +187,14 @@ export const conversationRoutes: FastifyPluginAsync<{
         collaboration_mode: conversationCollaborationModeSchema.default(
           "default",
         ),
+        prewarmed_conversation_id: z.string().uuid().optional(),
       })
       .parse(request.body);
     const result = await services.conversations.create(user.id, {
       collaborationMode: body.collaboration_mode,
+      ...(body.prewarmed_conversation_id
+        ? { prewarmedConversationId: body.prewarmed_conversation_id }
+        : {}),
       fallbackLocale: resolveLocale(
         request,
         user.preferredLocale,

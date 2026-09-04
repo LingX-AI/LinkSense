@@ -362,7 +362,9 @@ describe("conversation turn route", () => {
       success: true,
       data: { accepted: true },
     });
-    expect(prewarm).toHaveBeenCalledWith(OWNER_ID);
+    expect(prewarm).toHaveBeenCalledWith(OWNER_ID, {
+      collaborationMode: "default",
+    });
   });
 
   it("保留用户选择的知识库顺序", async () => {
@@ -1283,7 +1285,10 @@ async function conversationRouteFixture(
       selected_reasoning_effort: input.selected_reasoning_effort,
     }),
   );
-  const prewarm = vi.fn(async () => ({ accepted: true as const }));
+  const prewarm = vi.fn(async () => ({
+    accepted: true as const,
+    conversation_id: CONVERSATION_ID,
+  }));
   const regenerate = vi.fn(async () => ({
     turn_id: "50000000-0000-4000-8000-000000000001",
     accepted: true as const,

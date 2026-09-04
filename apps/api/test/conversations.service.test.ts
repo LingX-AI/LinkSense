@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ApplicationIcon,
+  ConversationCollaborationMode,
   RunnerCodexGoal,
   RunnerCodexSubAgentSummaries,
 } from "@linksense/shared";
@@ -394,9 +395,6 @@ describe("ConversationService ownership and draft lifecycle", () => {
       expect(
         fixture.defaultTransaction.conversationMessage.create,
       ).not.toHaveBeenCalled();
-      expect(
-        fixture.titleRefresh.scheduleForUserMessage,
-      ).not.toHaveBeenCalled();
     },
   );
 
@@ -461,26 +459,59 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
   });
 
-  it("prewarms only after revalidating that the authenticated user is active", async () => {
+  it("queues native conversation prewarm without blocking or creating a sidebar task", async () => {
     const fixture = await conversationFixture();
 
-    await expect(fixture.service.prewarm(OWNER_ID)).resolves.toEqual({
+    const result = await fixture.service.prewarm(OWNER_ID, {
+      collaborationMode: "default",
+    });
+    expect(result).toEqual({
       accepted: true,
+      conversation_id: expect.any(String),
     });
 
     expect(fixture.prisma.user.findUnique).toHaveBeenCalledWith({
       where: { id: OWNER_ID },
       select: { status: true },
     });
-    expect(fixture.preflight.ensureUserHome).toHaveBeenCalledWith(OWNER_ID);
-    expect(
-      fixture.preflight.ensureUserHome.mock.invocationCallOrder[0],
-    ).toBeLessThan(fixture.runner.prewarmWorker.mock.invocationCallOrder[0]!);
+    expect(fixture.cleanup.enqueueConversationPrewarm).toHaveBeenCalledWith({
+      ownerId: OWNER_ID,
+      conversationId: result.conversation_id,
+      collaborationMode: "default",
+    });
+    expect(fixture.preflight.resolve).not.toHaveBeenCalled();
+    expect(fixture.runner.prewarmWorker).not.toHaveBeenCalled();
+    expect(fixture.runner.prewarmConversation).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.redis.acquireUserLifecycleLock).not.toHaveBeenCalled();
+  });
+
+  it("executes queued native prewarm without acquiring the active-user lifecycle lock", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+    const conversationId = "71000000-0000-4000-8000-000000000002";
+
+    await fixture.service.executePrewarm({
+      ownerId: OWNER_ID,
+      conversationId,
+      collaborationMode: "default",
+    });
+
+    expect(fixture.preflight.resolve).toHaveBeenCalledWith({
+      userId: OWNER_ID,
+      priorityCapabilityIds: [],
+    });
     expect(fixture.runner.prewarmWorker).toHaveBeenCalledWith(OWNER_ID);
-    expect(fixture.redis.releaseUserLifecycleLock).toHaveBeenCalledWith(
-      OWNER_ID,
-      "user-lifecycle-lock",
+    expect(fixture.runner.prewarmConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId,
+        codexThreadId: null,
+        collaborationMode: "default",
+        context: expect.objectContaining({ userInput: "" }),
+      }),
     );
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.redis.acquireUserLifecycleLock).not.toHaveBeenCalled();
   });
 
   it("recovers the persisted running-turn capability generation and snapshot without using current preflight state", async () => {
@@ -743,6 +774,75 @@ describe("ConversationService ownership and draft lifecycle", () => {
     },
   );
 
+  it("claims a prewarmed native thread only when the first task is created", async () => {
+    const fixture = await conversationFixture();
+    const reservationId = "71000000-0000-4000-8000-000000000001";
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+
+    await fixture.service.create(OWNER_ID, {
+      collaborationMode: "default",
+      prewarmedConversationId: reservationId,
+    });
+
+    expect(fixture.runner.inspectPrewarmedConversation).toHaveBeenCalledWith(
+      reservationId,
+      OWNER_ID,
+    );
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        id: reservationId,
+        codexThreadId: "codex-thread-prewarmed",
+      }),
+    });
+  });
+
+  it("claims a reserved runtime without waiting for app-server prewarm to finish", async () => {
+    const fixture = await conversationFixture();
+    const reservationId = "71000000-0000-4000-8000-000000000002";
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+    fixture.runner.inspectPrewarmedConversation.mockResolvedValueOnce(
+      null as never,
+    );
+    fixture.runner.inspectRuntime.mockImplementationOnce(
+      async () => {
+        await mkdir(
+          join(
+            fixture.root,
+            OWNER_ID,
+            "home",
+            "workspaces",
+            reservationId,
+          ),
+          { recursive: true },
+        );
+        return {
+          agentsTemplateVersion: "v1",
+          runtimeGeneration: "80000000-0000-4000-8000-000000000001",
+        };
+      },
+    );
+
+    await fixture.service.create(OWNER_ID, {
+      collaborationMode: "default",
+      prewarmedConversationId: reservationId,
+    });
+
+    expect(fixture.runner.inspectRuntime).toHaveBeenCalledWith(
+      reservationId,
+      OWNER_ID,
+    );
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.preflight.ensureUserHome).not.toHaveBeenCalled();
+    expect(fixture.preflight.resolve).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        id: reservationId,
+        codexThreadId: null,
+      }),
+    });
+  });
+
   it("prevents unpinning a task while a live automation uses it", async () => {
     const fixture = await conversationFixture();
     fixture.defaultTransaction.automation.count.mockResolvedValueOnce(1);
@@ -870,10 +970,13 @@ describe("ConversationService ownership and draft lifecycle", () => {
         pinnedAt: expect.any(Date),
       }),
     });
-    expect(fixture.preflight.ensureUserHome).toHaveBeenCalledWith(OWNER_ID);
+    expect(fixture.preflight.resolve).toHaveBeenCalledWith({
+      userId: OWNER_ID,
+      priorityCapabilityIds: [],
+    });
     const createdId = fixture.runner.prepareRuntime.mock.calls[0]?.[0];
     expect(
-      fixture.preflight.ensureUserHome.mock.invocationCallOrder[0],
+      fixture.preflight.resolve.mock.invocationCallOrder[0],
     ).toBeLessThan(fixture.runner.prepareRuntime.mock.invocationCallOrder[0]!);
     expect(createdId).toEqual(expect.any(String));
     for (const directory of ["attachments", "artifacts", "temp"]) {
@@ -3711,7 +3814,8 @@ describe("ConversationService ownership and draft lifecycle", () => {
 
     expect(
       fixture.preflight.resolve.mock.invocationCallOrder[0],
-    ).toBeLessThan(fixture.runner.prepareRuntime.mock.invocationCallOrder[0]!);
+    ).toBeLessThan(fixture.runner.inspectRuntime.mock.invocationCallOrder[0]!);
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
 
     expect(fixture.runner.startTurn).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -4083,6 +4187,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       agentsTemplateVersion: "v2",
       runtimeGeneration: "80000000-0000-4000-8000-000000000002",
     });
+    fixture.runner.inspectRuntime.mockResolvedValueOnce(null);
     fixture.preflight.resolve.mockResolvedValueOnce({
       capabilityGeneration: CAPABILITY_GENERATION,
       capabilityVerification: CAPABILITY_VERIFICATION,
@@ -4852,15 +4957,7 @@ describe("ConversationService pending and turn materialization", () => {
       turn_id: expect.stringMatching(/^[0-9a-f-]{36}$/u),
     });
     expect(fixture.runner.acceptStartTurn).toHaveBeenCalledOnce();
-    expect(fixture.titleRefresh.scheduleForUserMessage).toHaveBeenCalledWith(
-      CONVERSATION_ID,
-      "accept without native wait",
-    );
-    expect(
-      fixture.runner.acceptStartTurn.mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      fixture.titleRefresh.scheduleForUserMessage.mock.invocationCallOrder[0]!,
-    );
+    expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
     expect(
       fixture.runner.acceptStartTurn.mock.calls[0]?.[0].context,
     ).not.toHaveProperty("requireFinalResponse");
@@ -5213,6 +5310,7 @@ describe("ConversationService pending and turn materialization", () => {
           resolveRuntime = resolve;
         }),
     );
+    fixture.runner.inspectRuntime.mockResolvedValueOnce(null);
     fixture.preflight.resolve.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -5573,10 +5671,7 @@ describe("ConversationService pending and turn materialization", () => {
       codexTurnId: "codex-turn-1",
     });
     await expect(start).resolves.toMatchObject({ status: "running" });
-    expect(fixture.titleRefresh.scheduleForUserMessage).toHaveBeenCalledWith(
-      CONVERSATION_ID,
-      "start",
-    );
+    expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
     expect(fixture.redis.releaseUserLifecycleLock).toHaveBeenCalledWith(
       OWNER_ID,
       "user-lifecycle-lock",
@@ -5826,6 +5921,7 @@ describe("ConversationService pending and turn materialization", () => {
     fixture.prisma.conversationTurnStartIntent.findMany.mockResolvedValueOnce(
       projectionTurnIds.map((projectionTurnId) => ({
         projectionTurnId,
+        conversationId: CONVERSATION_ID,
       })) as never,
     );
     const recover = vi
@@ -5855,6 +5951,29 @@ describe("ConversationService pending and turn materialization", () => {
       result: "failed",
       metadata: { reason_code: "TURN_PROJECTION_UNAVAILABLE" },
     });
+    expect(fixture.redis.acquireRecoveryLock).toHaveBeenCalledTimes(
+      projectionTurnIds.length,
+    );
+    expect(fixture.redis.releaseRecoveryLock).toHaveBeenCalledTimes(
+      projectionTurnIds.length,
+    );
+  });
+
+  it("does not duplicate a start operation while its accepted recovery owns the lease", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversationTurnStartIntent.findMany.mockResolvedValueOnce([
+      {
+        projectionTurnId: TURN_ID,
+        conversationId: CONVERSATION_ID,
+      },
+    ] as never);
+    fixture.redis.acquireRecoveryLock.mockResolvedValueOnce(null);
+    const recover = vi.spyOn(fixture.service, "recoverStartIntent");
+
+    await expect(fixture.service.recoverStartIntents()).resolves.toBeUndefined();
+
+    expect(recover).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseRecoveryLock).not.toHaveBeenCalled();
   });
 
   it("returns the stable projection-unavailable error when durable intent discovery fails", async () => {
@@ -6146,10 +6265,7 @@ describe("ConversationService pending and turn materialization", () => {
       data: { runnerStatus: "prepared" },
     });
     expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
-    expect(fixture.titleRefresh.scheduleForUserMessage).toHaveBeenCalledWith(
-      CONVERSATION_ID,
-      "recover this accepted turn",
-    );
+    expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -6178,7 +6294,7 @@ describe("ConversationService pending and turn materialization", () => {
       goal: null,
     },
   ])(
-    "schedules automatic naming when projecting a recovered $name start",
+    "defers automatic naming when projecting a recovered $name start",
     async ({ inputText, intent: mode, goal }) => {
       const fixture = await conversationFixture();
       const intent = startIntentRow({
@@ -6224,10 +6340,10 @@ describe("ConversationService pending and turn materialization", () => {
         fixture.service.recoverStartIntent(intent.projectionTurnId),
       ).resolves.toBe("projected");
 
-      expect(fixture.titleRefresh.scheduleForUserMessage).toHaveBeenCalledWith(
-        CONVERSATION_ID,
-        inputText,
-      );
+      expect(inputText).toBeTruthy();
+      expect(
+        fixture.titleRefresh.scheduleForUserMessage,
+      ).not.toHaveBeenCalled();
     },
   );
 
@@ -10211,6 +10327,14 @@ async function conversationFixture() {
     releaseUserLifecycleLock: vi.fn(async () => undefined),
     acquireConversationLock: vi.fn(async () => "conversation-lock"),
     releaseConversationLock: vi.fn(async () => undefined),
+    acquireRecoveryLock: vi.fn<
+      (
+        conversationId: string,
+        ttlMilliseconds?: number,
+      ) => Promise<string | null>
+    >(async () => "recovery-lock"),
+    renewRecoveryLock: vi.fn(async () => true),
+    releaseRecoveryLock: vi.fn(async () => undefined),
     acquireTurnSlot: vi.fn<
       (
         conversationId: string,
@@ -10235,6 +10359,24 @@ async function conversationFixture() {
   };
   const runner = {
     prewarmWorker: vi.fn(async () => undefined),
+    prewarmConversation: vi.fn(async (input: RunnerStartInput) => ({
+      codexThreadId: input.codexThreadId ?? "codex-thread-prewarmed",
+      agentsTemplateVersion: "v1",
+      runtimeGeneration: input.expectedRuntimeGeneration,
+    })),
+    inspectPrewarmedConversation: vi.fn(
+      async (conversationId: string, ownerId: string) => {
+        await mkdir(
+          join(root, ownerId, "home", "workspaces", conversationId),
+          { recursive: true },
+        );
+        return {
+          codexThreadId: "codex-thread-prewarmed",
+          agentsTemplateVersion: "v1",
+          runtimeGeneration: "80000000-0000-4000-8000-000000000001",
+        };
+      },
+    ),
     prepareRuntime: vi.fn<
       (
         conversationId: string,
@@ -10344,7 +10486,10 @@ async function conversationFixture() {
       async (_input: unknown, action: () => Promise<unknown>) => action(),
     ),
   };
-  const cleanup = { enqueueRuntimeCleanup: vi.fn(async () => undefined) };
+  const cleanup = {
+    enqueueRuntimeCleanup: vi.fn(async () => undefined),
+    enqueueConversationPrewarm: vi.fn(async () => undefined),
+  };
   const titleRefresh = { scheduleForUserMessage: vi.fn() };
   const tokenLimits = {
     assertCanStartTask: vi.fn(async () => undefined),
@@ -10540,6 +10685,11 @@ function createService(
         ownerId: string,
         conversationId: string,
       ): Promise<void>;
+      enqueueConversationPrewarm(input: {
+        ownerId: string;
+        conversationId: string;
+        collaborationMode: ConversationCollaborationMode;
+      }): Promise<void>;
     };
     knowledgeStore: {
       resolveUsableKnowledgeBaseIds(
@@ -10557,9 +10707,6 @@ function createService(
         ownerId: string,
         applicationId: string,
       ): Promise<boolean>;
-    };
-    titleRefresh: {
-      scheduleForUserMessage(conversationId: string, content: string): void;
     };
     tokenLimits: {
       assertCanStartTask(userId: string): Promise<void>;
@@ -10600,7 +10747,6 @@ function createService(
       })),
     } as never,
     fixture.applicationResolver as never,
-    fixture.titleRefresh,
     fixture.tokenLimits,
   );
 }

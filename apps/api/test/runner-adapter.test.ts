@@ -966,6 +966,42 @@ describe("RunnerClient owner routing", () => {
     expect(ownerHeader(fetchMock.mock.calls[0])).toBe(ownerId);
   });
 
+  it("prewarms and inspects an owner-scoped native conversation runtime", async () => {
+    const response = {
+      codexThreadId: "thread-prewarmed-1",
+      agentsTemplateVersion: "v1",
+      runtimeGeneration,
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(response))
+      .mockResolvedValueOnce(jsonResponse(response));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RunnerClient(testConfig());
+    const input = {
+      ...startInput(),
+      context: {
+        userInput: "",
+        attachments: [],
+        priorityPlugins: [],
+        prioritySkills: [],
+      },
+    };
+
+    await expect(client.prewarmConversation(input)).resolves.toEqual(response);
+    await expect(
+      client.inspectPrewarmedConversation(conversationId, ownerId),
+    ).resolves.toEqual(response);
+    expect(new URL(String(fetchMock.mock.calls[0]?.[0])).pathname).toBe(
+      `/conversations/${conversationId}/runtime/prewarm`,
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).not.toHaveProperty(
+      "conversationId",
+    );
+    expect(ownerHeader(fetchMock.mock.calls[0])).toBe(ownerId);
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("GET");
+  });
+
   it("reads a strict subagent snapshot without exposing a native child thread id", async () => {
     const agentKey = `agent_${"a".repeat(24)}`;
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(

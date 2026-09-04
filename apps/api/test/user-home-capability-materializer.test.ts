@@ -591,6 +591,84 @@ describe("UserHomeCapabilityMaterializer", () => {
     expect(lifecycle).toEqual(["stage", "sync"])
   })
 
+  it("uses durable publication markers on the conversation hot path and fully republishes stale descriptors", async () => {
+    const root = await temporaryDirectory()
+    const pluginSource = await createPluginSource(
+      join(root, "sources"),
+      "calendar-tools",
+      "trusted plugin",
+    )
+    const lifecycle: string[] = []
+    const materializer = new UserHomeCapabilityMaterializer({
+      userDataRoot: join(root, "users"),
+      instrumentation: {
+        onStage: () => lifecycle.push("stage"),
+        onDurabilitySync: () => lifecycle.push("sync"),
+      },
+    })
+    const capability = pluginCapability(pluginSource)
+    const initial = await materializer.reconcile({
+      ownerId: OWNER_ID,
+      capabilities: [capability],
+    })
+    lifecycle.length = 0
+
+    await expect(
+      materializer.withPublicationStartFence(OWNER_ID, () =>
+        materializer.resolvePublishedRuntimeWithinPublicationStartFence({
+          ownerId: OWNER_ID,
+          capabilities: [capability],
+        }),
+      ),
+    ).resolves.toMatchObject({ verification: initial.verification })
+    expect(lifecycle).toEqual([])
+
+    const republished = await materializer.withPublicationStartFence(
+      OWNER_ID,
+      () =>
+        materializer.resolvePublishedRuntimeWithinPublicationStartFence({
+          ownerId: OWNER_ID,
+          capabilities: [{ ...capability, revision: "revision-2" }],
+        }),
+    )
+    expect(republished.generation).not.toBe(initial.generation)
+    expect(lifecycle).toEqual(["stage", "sync"])
+  })
+
+  it("admits a hot-path start only while the durable publication markers match", async () => {
+    const root = await temporaryDirectory()
+    const pluginSource = await createPluginSource(
+      join(root, "sources"),
+      "calendar-tools",
+      "trusted plugin",
+    )
+    const materializer = new UserHomeCapabilityMaterializer({
+      userDataRoot: join(root, "users"),
+    })
+    const input = {
+      ownerId: OWNER_ID,
+      capabilities: [pluginCapability(pluginSource)],
+    }
+    const published = await materializer.reconcile(input)
+
+    await expect(
+      materializer.withPublishedRuntime(
+        { ...input, verification: published.verification },
+        async () => "intent-created",
+      ),
+    ).resolves.toBe("intent-created")
+
+    await writeFile(published.generationPath, `${"f".repeat(64)}\n`)
+    await expect(
+      materializer.withPublishedRuntime(
+        { ...input, verification: published.verification },
+        async () => "should-not-run",
+      ),
+    ).rejects.toMatchObject({
+      name: "UserHomeCapabilityMaterializationError",
+    })
+  })
+
   it("keeps the prior HOME generation and content when an active turn blocks a different publication", async () => {
     const root = await temporaryDirectory()
     const pluginSource = await createPluginSource(

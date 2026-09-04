@@ -94,7 +94,6 @@ import {
   inspectOfficeAnnotationPrompt,
   OFFICE_ANNOTATION_PROMPT_MARKER,
 } from "./annotation-prompt.js";
-import type { ConversationTitleService } from "./title-service.js";
 import {
   forkBaseTitle,
   forkedConversationTitle,
@@ -256,6 +255,11 @@ function projectRunnerCapabilities(
 
 export interface RuntimeCleanupScheduler {
   enqueueRuntimeCleanup(ownerId: string, conversationId: string): Promise<void>;
+  enqueueConversationPrewarm(input: {
+    ownerId: string;
+    conversationId: string;
+    collaborationMode: ConversationCollaborationMode;
+  }): Promise<void>;
 }
 
 type TurnSubmissionBase = {
@@ -394,6 +398,9 @@ const CONVERSATION_DETAIL_EVENT_LIMIT = 200;
 const PLAN_OUTPUT_MISSING_ERROR_CODE = "PLAN_OUTPUT_MISSING";
 const ACCEPTED_START_RECOVERY_WINDOW_MILLISECONDS = 60_000;
 const ACCEPTED_START_RECOVERY_POLL_MILLISECONDS = 250;
+const START_INTENT_RECOVERY_LOCK_TTL_MILLISECONDS = 15_000;
+const RESERVED_RUNTIME_CLAIM_WINDOW_MILLISECONDS = 1_000;
+const RESERVED_RUNTIME_CLAIM_POLL_MILLISECONDS = 25;
 const CONVERSATION_DETAIL_TRANSIENT_EVENT_TYPES = [
   "conversation.message.delta",
   "item/agentMessage/delta",
@@ -713,10 +720,6 @@ export class ConversationService {
       Partial<Pick<KnowledgeStore, "findKnowledgeBaseAccess">>,
     private readonly modelRuntimeSettings?: ModelRuntimeSettingsReader,
     private readonly applicationResolver?: ConversationApplicationResolver,
-    private readonly titleRefresh?: Pick<
-      ConversationTitleService,
-      "scheduleForUserMessage"
-    >,
     private readonly tokenLimits?: TokenLimitEnforcer,
     private readonly executionConcurrencySettings?: ExecutionConcurrencySettingsReader,
   ) {}
@@ -922,11 +925,106 @@ export class ConversationService {
     return parsed.data;
   }
 
-  async prewarm(ownerId: string): Promise<{ accepted: true }> {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
-      await this.preflight.ensureUserHome(ownerId);
-      await this.runner.prewarmWorker(ownerId);
-      return { accepted: true as const };
+  async prewarm(
+    ownerId: string,
+    input: {
+      conversationId?: string;
+      collaborationMode: ConversationCollaborationMode;
+    },
+  ): Promise<{ accepted: true; conversation_id: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { status: true },
+    });
+    if (!user || user.status !== "active") throw new AppError("USER_DISABLED");
+    const conversationId = input.conversationId ?? crypto.randomUUID();
+    if (input.conversationId) {
+      const existing = await this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: { ownerId: true },
+      });
+      if (!existing || existing.ownerId !== ownerId) {
+        throw new AppError("CONVERSATION_NOT_FOUND");
+      }
+    }
+    await this.cleanup.enqueueConversationPrewarm({
+      ownerId,
+      conversationId,
+      collaborationMode: input.collaborationMode,
+    });
+    return { accepted: true as const, conversation_id: conversationId };
+  }
+
+  async executePrewarm(input: {
+    ownerId: string;
+    conversationId: string;
+    collaborationMode: ConversationCollaborationMode;
+  }): Promise<void> {
+    const existing = await this.prisma.conversation.findUnique({
+      where: { id: input.conversationId },
+      select: {
+        ownerId: true,
+        applicationId: true,
+        codexThreadId: true,
+        collaborationMode: true,
+      },
+    });
+    if (existing && existing.ownerId !== input.ownerId) return;
+    if (existing?.applicationId) {
+      await this.preflight.ensureUserHome(input.ownerId);
+      await this.runner.prewarmWorker(input.ownerId);
+      return;
+    }
+
+    const [resolved, modelRuntime, executionConcurrency] = await Promise.all([
+      this.preflight.resolve({
+        userId: input.ownerId,
+        priorityCapabilityIds: [],
+      }),
+      this.modelRuntimeForUser(
+        input.ownerId,
+        existing ? input.conversationId : undefined,
+      ),
+      this.executionConcurrencyForStart(),
+    ]);
+    const [runtime] = await Promise.all([
+      this.runner.prepareRuntime(input.conversationId, input.ownerId),
+      this.runner.prewarmWorker(input.ownerId),
+    ]);
+    const collaborationMode = existing
+      ? conversationCollaborationModeSchema.parse(existing.collaborationMode)
+      : input.collaborationMode;
+    const modelTransitionSource = existing
+      ? await this.modelTransitionSourceForConversation(
+          input.conversationId,
+          modelRuntime.model,
+          existing.codexThreadId,
+        )
+      : null;
+    await this.runner.prewarmConversation({
+      conversationId: input.conversationId,
+      projectionTurnId: crypto.randomUUID(),
+      appServerProcessLimit:
+        executionConcurrency.runner_app_server_process_limit,
+      ownerId: input.ownerId,
+      expectedRuntimeGeneration: runtime.runtimeGeneration,
+      capabilityGeneration: resolved.capabilityGeneration,
+      mcpGeneration: resolved.mcpGeneration ?? EMPTY_MCP_GENERATION,
+      mcpServers: resolved.mcpServers ?? [],
+      codexThreadId: existing?.codexThreadId ?? null,
+      ...(modelTransitionSource ? { modelTransitionSource } : {}),
+      collaborationMode,
+      context: {
+        userInput: "",
+        attachments: [],
+        priorityPlugins: [],
+        prioritySkills: [],
+      },
+      capabilities: projectRunnerCapabilities(resolved.capabilities),
+      environment: resolved.environment ?? {},
+      model: modelRuntime.model,
+      reasoningEffort: modelRuntime.reasoningEffort,
+      modelProvider: modelRuntime.provider,
     });
   }
 
@@ -1098,11 +1196,11 @@ export class ConversationService {
   }
 
   async recoverStartIntents(): Promise<void> {
-    let intents: Array<{ projectionTurnId: string }>;
+    let intents: Array<{ projectionTurnId: string; conversationId: string }>;
     try {
       intents = await this.prisma.conversationTurnStartIntent.findMany({
         orderBy: { createdAt: "asc" },
-        select: { projectionTurnId: true },
+        select: { projectionTurnId: true, conversationId: true },
       });
     } catch {
       throw turnProjectionUnavailableError();
@@ -1110,8 +1208,11 @@ export class ConversationService {
     let recoveryFailed = false;
     for (let index = 0; index < intents.length; index += 5) {
       await Promise.all(
-        intents.slice(index, index + 5).map(({ projectionTurnId }) =>
-          this.recoverStartIntent(projectionTurnId).catch(async () => {
+        intents.slice(index, index + 5).map(({ projectionTurnId, conversationId }) =>
+          this.recoverStartIntentUnderLease(
+            projectionTurnId,
+            conversationId,
+          ).catch(async () => {
             recoveryFailed = true;
             await this.audit
               .write({
@@ -1128,6 +1229,24 @@ export class ConversationService {
       );
     }
     if (recoveryFailed) throw turnProjectionUnavailableError();
+  }
+
+  private async recoverStartIntentUnderLease(
+    projectionTurnId: string,
+    conversationId: string,
+  ): Promise<void> {
+    const token = await this.redis.acquireRecoveryLock(
+      conversationId,
+      START_INTENT_RECOVERY_LOCK_TTL_MILLISECONDS,
+    );
+    if (!token) return;
+    try {
+      await this.recoverStartIntent(projectionTurnId);
+    } finally {
+      await this.redis
+        .releaseRecoveryLock(conversationId, token)
+        .catch(() => undefined);
+    }
   }
 
   async recoverContextWindowAttempts(): Promise<void> {
@@ -1652,23 +1771,48 @@ export class ConversationService {
   private async recoverAcceptedStartUntilSettled(
     projectionTurnId: string,
   ): Promise<void> {
-    const deadline = Date.now() + ACCEPTED_START_RECOVERY_WINDOW_MILLISECONDS;
-    while (Date.now() < deadline) {
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(
-          resolve,
-          ACCEPTED_START_RECOVERY_POLL_MILLISECONDS,
-        );
-        timer.unref();
-      });
-      // The accepted POST has already handed the operation to Runner. This
-      // bounded fast path only observes that durable operation; resubmission
-      // is reserved for the periodic crash-recovery coordinator so a healthy
-      // `starting` operation cannot be POSTed again on every poll.
-      const outcome = await this.recoverStartIntent(projectionTurnId, {
-        resubmitNonTerminal: false,
-      });
-      if (outcome !== "pending") return;
+    const intent = await this.prisma.conversationTurnStartIntent.findUnique({
+      where: { projectionTurnId },
+      select: { conversationId: true },
+    });
+    if (!intent) return;
+    const lockTtlMilliseconds =
+      START_INTENT_RECOVERY_LOCK_TTL_MILLISECONDS;
+    const token = await this.redis.acquireRecoveryLock(
+      intent.conversationId,
+      lockTtlMilliseconds,
+    );
+    if (!token) return;
+    try {
+      const deadline = Date.now() + ACCEPTED_START_RECOVERY_WINDOW_MILLISECONDS;
+      let delayMilliseconds = ACCEPTED_START_RECOVERY_POLL_MILLISECONDS;
+      let renewAt = Date.now() + Math.floor(lockTtlMilliseconds / 2);
+      while (Date.now() < deadline) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, delayMilliseconds);
+          timer.unref();
+        });
+        if (Date.now() >= renewAt) {
+          const renewed = await this.redis.renewRecoveryLock(
+            intent.conversationId,
+            token,
+            lockTtlMilliseconds,
+          );
+          if (!renewed) return;
+          renewAt = Date.now() + Math.floor(lockTtlMilliseconds / 2);
+        }
+        // Observe the durable Runner operation only. Native turn submission is
+        // never replayed by this fast projection path.
+        const outcome = await this.recoverStartIntent(projectionTurnId, {
+          resubmitNonTerminal: false,
+        });
+        if (outcome !== "pending") return;
+        delayMilliseconds = Math.min(delayMilliseconds * 2, 1_000);
+      }
+    } finally {
+      await this.redis
+        .releaseRecoveryLock(intent.conversationId, token)
+        .catch(() => undefined);
     }
   }
 
@@ -2620,6 +2764,7 @@ export class ConversationService {
     input: {
       collaborationMode: ConversationCollaborationMode;
       fallbackLocale?: Locale;
+      prewarmedConversationId?: string;
     },
   ) {
     return this.withActiveUserLifecycleLock(ownerId, async () => {
@@ -2628,6 +2773,7 @@ export class ConversationService {
         input.fallbackLocale,
         undefined,
         { collaborationMode: input.collaborationMode },
+        input.prewarmedConversationId,
       );
       return projectConversation(
         conversation,
@@ -6561,14 +6707,45 @@ export class ConversationService {
       collaborationMode?: ConversationCollaborationMode;
       autoGenerateTitle?: boolean;
     },
+    prewarmedConversationId?: string,
   ) {
-    const id = crypto.randomUUID();
+    let id = prewarmedConversationId ?? crypto.randomUUID();
     try {
-      // A Worker mounts the API-owned managed/agents projection read-only.
-      // Publish and validate that projection before Docker resolves its
-      // Subpath; otherwise a new or just-migrated user can race Worker start.
-      await this.preflight.ensureUserHome(ownerId);
-      const runtime = await this.runner.prepareRuntime(id, ownerId);
+      let prewarmedRuntime = null;
+      if (prewarmedConversationId) {
+        const collision = await this.prisma.conversation.findUnique({
+          where: { id: prewarmedConversationId },
+          select: { id: true },
+        });
+        if (collision) {
+          id = crypto.randomUUID();
+        } else {
+          prewarmedRuntime = await this.runner
+            .inspectPrewarmedConversation(id, ownerId)
+            .catch(() => null);
+        }
+      }
+      let runtime: Awaited<ReturnType<RunnerClient["prepareRuntime"]>>;
+      if (prewarmedRuntime) {
+        runtime = prewarmedRuntime;
+      } else {
+        const reservedRuntime = prewarmedConversationId
+          ? await this.waitForReservedRuntime(id, ownerId)
+          : null;
+        if (reservedRuntime) {
+          runtime = reservedRuntime;
+        } else {
+          // The hot resolve validates the durable capability publication and
+          // falls back to a full repair only when its markers are stale. This
+          // keeps an immediate first send from repeating the expensive full
+          // HOME scan already performed by capability mutations or prewarm.
+          await this.preflight.resolve({
+            userId: ownerId,
+            priorityCapabilityIds: [],
+          });
+          runtime = await this.runner.prepareRuntime(id, ownerId);
+        }
+      }
       const workspace = resolveConversationWorkspaceRoot(
         this.workspaceRoot,
         ownerId,
@@ -6609,6 +6786,7 @@ export class ConversationService {
             agentsTemplateVersion: runtime.agentsTemplateVersion,
             collaborationMode: options?.collaborationMode ?? "default",
             runtimeGeneration: runtime.runtimeGeneration,
+            codexThreadId: prewarmedRuntime?.codexThreadId ?? null,
             applicationId: application?.id ?? null,
             applicationNameSnapshot: application?.name ?? null,
             interactiveApplicationPackageId:
@@ -6636,6 +6814,28 @@ export class ConversationService {
         .catch(() => undefined);
       throw error;
     }
+  }
+
+  private async waitForReservedRuntime(
+    conversationId: string,
+    ownerId: string,
+  ): Promise<Awaited<ReturnType<RunnerClient["inspectRuntime"]>>> {
+    const deadline = Date.now() + RESERVED_RUNTIME_CLAIM_WINDOW_MILLISECONDS;
+    do {
+      const runtime = await this.runner
+        .inspectRuntime(conversationId, ownerId)
+        .catch(() => null);
+      if (runtime) return runtime;
+      if (Date.now() >= deadline) return null;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(
+          resolve,
+          RESERVED_RUNTIME_CLAIM_POLL_MILLISECONDS,
+        );
+        timer.unref();
+      });
+    } while (Date.now() < deadline);
+    return null;
   }
 
   private async prepareOfficeAnnotation(
@@ -7355,7 +7555,6 @@ export class ConversationService {
   ) {
     const projection = await this.persistStartProjection(intent, startedTurn);
     await this.publishAttachedStartEvents(intent.conversationId, projection);
-    this.scheduleTitleForAcceptedMessage(intent);
     return projection;
   }
 
@@ -8578,9 +8777,24 @@ export class ConversationService {
         // Dynamic Worker creation must happen after the API has atomically
         // published managed/agents. Keeping the dependency in this promise
         // preserves parallel attachment/model checks without racing Subpath.
-        const runtimePromise = authorizationPromise.then(() =>
-          this.runner.prepareRuntime(conversationId, ownerId),
+        const runtimeInspectionPromise = this.runner.inspectRuntime(
+          conversationId,
+          ownerId,
         );
+        const runtimePromise = Promise.all([
+          authorizationPromise,
+          runtimeInspectionPromise,
+        ]).then(async ([, inspected]) => {
+          if (
+            inspected &&
+            inspected.runtimeGeneration === conversation.runtimeGeneration &&
+            inspected.agentsTemplateVersion ===
+              conversation.agentsTemplateVersion
+          ) {
+            return inspected;
+          }
+          return this.runner.prepareRuntime(conversationId, ownerId);
+        });
         const [
           runtimeResult,
           authorizationResult,
@@ -8832,13 +9046,11 @@ export class ConversationService {
       try {
         if (returnWhenAccepted) {
           await this.runner.acceptStartTurn(runnerStartInput);
-          this.scheduleTitleForAcceptedMessage(startIntent);
           this.trackAcceptedStartRecovery(projectionTurnId);
           return startReceipt(projectionTurnId, "starting");
         }
 
         const startedTurn = await this.runner.startTurn(runnerStartInput);
-        this.scheduleTitleForAcceptedMessage(startIntent);
         runnerTurn = startedTurn;
         startIntent = await this.recordSucceededStartIntent(
           startIntent,
@@ -8936,20 +9148,6 @@ export class ConversationService {
         .releaseConversationLock(conversationId, lock)
         .catch(() => undefined);
     }
-  }
-
-  private scheduleTitleForAcceptedMessage(intent: TurnStartIntent): void {
-    if (
-      intent.taskKind === "compact" ||
-      intent.planReviewAction === "implement"
-    ) {
-      return;
-    }
-    const content = intent.messageDisplayJson
-      ? officeAnnotationRequestText(intent.messageDisplayJson).trim()
-      : intent.inputText.trim();
-    if (!content) return;
-    this.titleRefresh?.scheduleForUserMessage(intent.conversationId, content);
   }
 
   private async withActiveUserLifecycleLock<T>(

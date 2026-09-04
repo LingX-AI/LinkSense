@@ -698,6 +698,24 @@ describe("Redis atomic protection", () => {
     expect(second).toBeTruthy()
     await protection.releaseUserLifecycleLock(userId, second!)
   })
+
+  it("renews only the recovery lock held by the calling API instance", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000321"
+    const token = await protection.acquireRecoveryLock(conversationId, 500)
+    expect(token).toBeTruthy()
+
+    await expect(
+      protection.renewRecoveryLock(conversationId, "not-the-owner", 5_000),
+    ).resolves.toBe(false)
+    await expect(
+      protection.renewRecoveryLock(conversationId, token!, 5_000),
+    ).resolves.toBe(true)
+    expect(
+      await client.pttl(`linksense:recovery-lock:${conversationId}`),
+    ).toBeGreaterThan(500)
+
+    await protection.releaseRecoveryLock(conversationId, token!)
+  })
 })
 
 async function waitForSocket(socket: string): Promise<void> {
