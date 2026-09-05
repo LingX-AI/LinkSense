@@ -119,6 +119,10 @@ pnpm lint
 pnpm build
 ```
 
+`pnpm test` builds shared contracts, then runs service, shared, documentation, and deployment tests in parallel. The complete frontend unit and browser E2E suites run together afterwards to bound resource contention. E2E always builds the current frontend and serves the build with Vite preview. To inspect individual durations, use `pnpm --filter @linksense/web test:unit --reporter=verbose`; measure the entire command with `/usr/bin/time -p pnpm test`.
+
+Frontend tests reuse environments only for explicitly approved files. New component tests remain isolated; tests that mock modules must stay isolated. Shared fixtures reset DOM, timers, globals, storage, and session state. Materializer rule tests simulate disk flushes, while a separate durability test retains real filesystem flushes.
+
 ### AI development guide
 
 Before using Codex or another AI coding tool, read and follow [`AGENTS.md`](./AGENTS.md). We use this guide to document the project structure, technology choices, testing requirements, security practices, database migration rules, and collaboration conventions.

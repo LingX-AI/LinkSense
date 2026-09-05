@@ -149,22 +149,35 @@ function extractProductionHeredoc(script, filename) {
   return script.slice(contentStart, endIndex);
 }
 
-test("workspace tests use bounded Vitest workers and serial package scheduling", async () => {
-  const [rootPackage, apiPackage, webPackage] = await Promise.all(
+test("workspace tests bound parallel services before running the complete web suite", async () => {
+  const [rootPackage, apiPackage, webPackage, runnerPackage] = await Promise.all(
     [
       resolve("package.json"),
       resolve("apps/api/package.json"),
       resolve("apps/web/package.json"),
+      resolve("apps/runner/package.json"),
     ].map(async (path) => JSON.parse(await readFile(path, "utf8"))),
   );
 
-  assert.match(rootPackage.scripts.test, /--workspace-concurrency=1/u);
-  assert.equal(apiPackage.scripts.test, "vitest run --maxWorkers=4");
+  assert.equal(
+    rootPackage.scripts.test,
+    "pnpm --filter @linksense/shared build && pnpm run '/^test:(deployment|packages)$/' && pnpm --filter @linksense/web test",
+  );
+  assert.equal(
+    rootPackage.scripts["test:packages"],
+    "pnpm -r --parallel --filter './apps/**' --filter './packages/**' --filter '!@linksense/web' --if-present test",
+  );
+  assert.equal(
+    apiPackage.scripts.test,
+    "vitest run --pool=threads --maxWorkers=4 --maxConcurrency=2",
+  );
   assert.equal(
     webPackage.scripts.test,
-    "vitest run --maxWorkers=2 && playwright test",
+    "pnpm run '/^test:(unit|e2e)$/'",
   );
-  assert.equal(webPackage.scripts["test:unit"], "vitest run --maxWorkers=2");
+  assert.equal(webPackage.scripts["test:unit"], "vitest run --maxWorkers=4");
+  assert.equal(webPackage.scripts["test:e2e"], "playwright test");
+  assert.equal(runnerPackage.scripts.test, "vitest run --pool=forks --maxWorkers=4");
 });
 
 function instrumentNormalizerForUnprivilegedFixture(source) {
@@ -1957,7 +1970,7 @@ test("worker enables only the managed Plan output Stop hook", async () => {
   assert.match(hook, /MAX_TRANSCRIPT_TAIL_BYTES/u);
 });
 
-test("worker Chromium capability is pinned, broad by default, Plan-read-only, and smoke tested", async () => {
+test("worker full Chromium capability is pinned, broad by default, Plan-read-only, and smoke tested", async () => {
   const [
     dockerfile,
     browserProjectText,
@@ -1990,7 +2003,19 @@ test("worker Chromium capability is pinned, broad by default, Plan-read-only, an
   assert.match(browserStage, /pnpm install --prod --frozen-lockfile/u);
   assert.match(
     browserStage,
-    /playwright-cli install-browser chromium --only-shell/u,
+    /playwright-cli install-browser chromium;/u,
+  );
+  assert.equal(
+    dockerfile.match(/install-browser chromium/gu)?.length,
+    6,
+  );
+  assert.doesNotMatch(
+    dockerfile,
+    /install-browser chromium --only-shell/u,
+  );
+  assert.doesNotMatch(
+    dockerfile,
+    /install-browser chromium --no-shell/u,
   );
   assert.match(
     browserStage,

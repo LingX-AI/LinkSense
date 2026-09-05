@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import * as ts from "typescript"
 import { describe, expect, it } from "vitest"
 

@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import appStyles from "@/index.css?raw"
 import capabilityPageSource from "@/pages/capability-pages.tsx?raw"
 import { describe, expect, it } from "vitest"

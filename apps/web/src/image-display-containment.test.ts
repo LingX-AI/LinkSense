@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import appStyles from "@/index.css?raw"
 import prototypeComposerSource from "@/components/prototype/composer.tsx?raw"
 import supportMenuSource from "@/components/shell/support-menu.tsx?raw"

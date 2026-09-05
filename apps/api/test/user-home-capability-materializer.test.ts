@@ -1,318 +1,95 @@
 import {
-  chmod,
-  lstat,
   mkdir,
-  mkdtemp,
   readFile,
   readdir,
   rm,
   symlink,
   writeFile,
 } from "node:fs/promises"
-import { tmpdir } from "node:os"
 import { join } from "node:path"
-
-import { afterEach, describe, expect, it, vi } from "vitest"
 import { lock } from "proper-lockfile"
-import {
-  managedProjectionProbeContents,
-  managedProjectionProbeFileName,
-} from "@linksense/shared"
-
+import { describe, expect, it, vi } from "vitest"
 import {
   BUILT_IN_CAPABILITY_RUNTIME_REVISION,
   CAPABILITY_RECONCILE_LOCK_FILE,
   CAPABILITY_SOURCE_DIGEST_FILE,
-  PERSONAL_PLUGIN_MARKETPLACE_NAME,
   PLUGIN_STDIO_LAUNCHER_COMMAND,
   UserHomeCapabilityMaterializer,
-  type UserHomeCapabilityInput,
 } from "../src/modules/capabilities/user-home-materializer.js"
+import {
+  CREDENTIAL_SOURCE,
+  OWNER_ID,
+  SECOND_CREDENTIAL_SOURCE,
+  createPluginSource,
+  createSkillSource,
+  pluginCapability,
+  skillCapability,
+  useCapabilityFilesystem,
+} from "./user-home-capability-fixture.js"
+const { temporaryDirectory } = useCapabilityFilesystem()
 
-const OWNER_ID = "11111111-1111-4111-8111-111111111111"
-const PLUGIN_ID = "22222222-2222-4222-8222-222222222222"
-const SKILL_ID = "33333333-3333-4333-8333-333333333333"
-const CREDENTIAL_SOURCE =
-  "LINKSENSE_CREDENTIAL_0123456789ABCDEF0123456789ABCDEF"
-const SECOND_CREDENTIAL_SOURCE =
-  "LINKSENSE_CREDENTIAL_FEDCBA9876543210FEDCBA9876543210"
-const temporaryDirectories: string[] = []
+const { syncFileHandle } = vi.hoisted(() => ({
+  syncFileHandle: vi.fn(async () => undefined),
+}))
 
-afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true }),
-    ),
-  )
+// Publication rules exercise real files and atomic renames. Physical flushes
+// are covered separately by user-home-capability-durability.test.ts.
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...actual,
+    open: async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args)
+      handle.sync = syncFileHandle
+      return handle
+    },
+  }
 })
 
-describe("UserHomeCapabilityMaterializer", () => {
-  it("atomically publishes API-owned capabilities without mutating task-owned HOME", async () => {
-    const root = await temporaryDirectory()
-    const sourceRoot = join(root, "sources")
-    const userDataRoot = join(root, "users")
-    const pluginSource = await createPluginSource(
-      sourceRoot,
-      "calendar-tools",
-      "first plugin body",
-    )
-    const skillSource = await createSkillSource(
-      sourceRoot,
-      "report-writer",
-      "Write a concise report.",
-    )
-    const materializer = new UserHomeCapabilityMaterializer({ userDataRoot })
-    const paths = materializer.pathsFor(OWNER_ID)
-    const homeRoot = join(paths.ownerRoot, "home")
-    const codexHome = join(homeRoot, ".codex")
+describe.concurrent("UserHomeCapabilityMaterializer", () => {
+  it.sequential(
+    "rolls back publication when flushing the new content fails",
+    async () => {
+      const root = await temporaryDirectory()
+      const source = await createPluginSource(
+        join(root, "sources"),
+        "calendar-tools",
+        "before",
+      )
+      const materializer = new UserHomeCapabilityMaterializer({
+        userDataRoot: join(root, "users"),
+      })
+      const input = {
+        ownerId: OWNER_ID,
+        capabilities: [pluginCapability(source)],
+      }
+      const initial = await materializer.reconcile(input)
+      await writeFile(join(source, "README.md"), "after")
+      syncFileHandle.mockRejectedValueOnce(new Error("disk flush failed"))
 
-    await mkdir(codexHome, { recursive: true })
-    await writeFile(join(codexHome, "config.toml"), "model = \"test\"\n")
-    await Promise.all([
-      chmod(homeRoot, 0o710),
-      chmod(codexHome, 0o700),
-    ])
-
-    const result = await materializer.reconcile({
-      ownerId: OWNER_ID,
-      capabilities: [
-        pluginCapability(pluginSource, {
-          API_KEY: CREDENTIAL_SOURCE,
-        }),
-        skillCapability(skillSource),
-      ],
-    })
-
-    expect(result.generation).toMatch(/^[a-f0-9]{64}$/u)
-    await expect(readFile(result.generationPath, "utf8")).resolves.toBe(
-      `${result.generation}\n`,
-    )
-    await expect(readFile(result.contentDigestPath, "utf8")).resolves.toMatch(
-      /^[a-f0-9]{64}\n$/u,
-    )
-    await expect(pathMode(result.managedRoot)).resolves.toBe(0o750)
-    await expect(pathMode(result.managedAgentsRoot)).resolves.toBe(0o750)
-    await expect(
-      readFile(
-        join(result.managedAgentsRoot, managedProjectionProbeFileName),
-        "utf8",
-      ),
-    ).resolves.toBe(managedProjectionProbeContents)
-    await expect(
-      pathMode(
-        join(result.managedAgentsRoot, managedProjectionProbeFileName),
-      ),
-    ).resolves.toBe(0o640)
-    await expect(
-      pathMode(join(result.managedAgentsRoot, "plugins")),
-    ).resolves.toBe(0o750)
-    await expect(pathMode(result.pluginsRoot)).resolves.toBe(0o750)
-    await expect(pathMode(result.skillsRoot)).resolves.toBe(0o750)
-    await expect(pathMode(homeRoot)).resolves.toBe(0o710)
-    await expect(pathMode(codexHome)).resolves.toBe(0o700)
-    await expect(
-      pathMode(join(result.pluginsRoot, "calendar-tools")),
-    ).resolves.toBe(0o750)
-    await expect(
-      pathMode(join(result.pluginsRoot, "calendar-tools", "README.md")),
-    ).resolves.toBe(0o640)
-    await expect(pathMode(result.marketplacePath)).resolves.toBe(0o640)
-    await expect(pathMode(result.contentDigestPath)).resolves.toBe(0o600)
-    await expect(pathMode(result.sourceDigestPath)).resolves.toBe(0o600)
-    await expect(pathMode(result.generationPath)).resolves.toBe(0o600)
-    await expect(
-      readFile(join(result.skillsRoot, "report-writer", "SKILL.md"), "utf8"),
-    ).resolves.toContain("Write a concise report.")
-    const browserSkill = await readFile(
-      join(result.skillsRoot, "linksense-browser", "SKILL.md"),
-      "utf8",
-    )
-    expect(browserSkill).toContain("managed Chromium")
-    expect(browserSkill).toContain("command -v linksense-browser")
-    expect(browserSkill).toContain("linksense-browser --help")
-    expect(browserSkill).toContain("open-workspace-html")
-    expect(browserSkill).toContain("does not mean Chromium is missing")
-    await expect(
-      readFile(
-        join(result.skillsRoot, "linksense-file-service", "SKILL.md"),
-        "utf8",
-      ),
-    ).resolves.toContain("register_artifact")
-    const documentReaderSkill = await readFile(
-      join(result.skillsRoot, "linksense-document-reader", "SKILL.md"),
-      "utf8",
-    )
-    expect(documentReaderSkill).toContain(
-      "linksense_core.convert_document_to_markdown",
-    )
-    expect(documentReaderSkill).toContain("expected_markdown_sha256")
-    expect(documentReaderSkill).toContain("Scanned or image-only PDFs")
-    const imageGenerationSkill = await readFile(
-      join(result.skillsRoot, "linksense-image-generation", "SKILL.md"),
-      "utf8",
-    )
-    expect(imageGenerationSkill).toContain(
-      "linksense_core.generate_image",
-    )
-    expect(imageGenerationSkill).toContain("IMAGE_GENERATION_NOT_CONFIGURED")
-    expect(imageGenerationSkill).toContain('background: "transparent"')
-    expect(imageGenerationSkill).toContain('transparency_mode` from the subject')
-    expect(imageGenerationSkill).toContain(
-      "IMAGE_GENERATION_TRANSPARENCY_UNSUPPORTED",
-    )
-    expect(imageGenerationSkill).toContain(
-      "IMAGE_GENERATION_TRANSPARENCY_INVALID",
-    )
-    expect(imageGenerationSkill).toContain("do not silently switch providers")
-    const knowledgeSkill = await readFile(
-      join(result.skillsRoot, "linksense-knowledge-base", "SKILL.md"),
-      "utf8",
-    )
-    expect(knowledgeSkill).toContain("search_knowledge_base")
-    expect(knowledgeSkill).toContain("list_knowledge_documents")
-    expect(knowledgeSkill).toContain("get_knowledge_document_markdown")
-    expect(knowledgeSkill).toContain("complete` is true")
-    expect(knowledgeSkill).toContain(
-      "Do not fetch an entire document for a simple focused question.",
-    )
-    const docsRoot = join(result.skillsRoot, "linksense-docs")
-    await expect(
-      readFile(join(docsRoot, "SKILL.md"), "utf8"),
-    ).resolves.toContain("references/catalog.md")
-    await expect(
-      readFile(
-        join(
-          docsRoot,
-          "references",
-          "zh-CN",
-          "user-guide",
-          "tasks",
-          "create-and-run.md",
+      await expect(materializer.reconcile(input)).rejects.toMatchObject({
+        name: "UserHomeCapabilityMaterializationError",
+        cause: expect.objectContaining({ message: "disk flush failed" }),
+      })
+      await expect(readFile(initial.generationPath, "utf8")).resolves.toBe(
+        `${initial.generation}\n`,
+      )
+      await expect(
+        readFile(
+          join(initial.pluginsRoot, "calendar-tools", "README.md"),
+          "utf8",
         ),
-        "utf8",
-      ),
-    ).resolves.toContain("# 创建与运行任务")
-    await expect(
-      readFile(
-        join(
-          docsRoot,
-          "references",
-          "en-US",
-          "user-guide",
-          "tasks",
-          "create-and-run.md",
+      ).resolves.toBe("before")
+      const retried = await materializer.reconcile(input)
+      expect(retried.generation).not.toBe(initial.generation)
+      await expect(
+        readFile(
+          join(retried.pluginsRoot, "calendar-tools", "README.md"),
+          "utf8",
         ),
-        "utf8",
-      ),
-    ).resolves.toContain("# Create and run tasks")
-    const creatorRoot = join(
-      result.skillsRoot,
-      "linksense-skill-creator",
-    )
-    await expect(
-      readFile(join(creatorRoot, "SKILL.md"), "utf8"),
-    ).resolves.toContain("linksense_core.preview_skill_zip")
-    await expect(
-      readFile(join(creatorRoot, "agents", "openai.yaml"), "utf8"),
-    ).resolves.toContain("$linksense-skill-creator")
-    await expect(
-      pathMode(join(creatorRoot, "scripts", "package_skill.py")),
-    ).resolves.toBe(0o750)
-    await expect(
-      readFile(
-        join(result.pluginsRoot, "calendar-tools", "README.md"),
-        "utf8",
-      ),
-    ).resolves.toBe("first plugin body")
-
-    const manifest = JSON.parse(
-      await readFile(
-        join(
-          result.pluginsRoot,
-          "calendar-tools",
-          ".codex-plugin",
-          "plugin.json",
-        ),
-        "utf8",
-      ),
-    ) as {
-      mcpServers: Record<
-        string,
-        {
-          command?: string
-          args?: string[]
-          env?: Record<string, string>
-          env_vars?: unknown[]
-        }
-      >
-    }
-    const calendarServer = manifest.mcpServers.calendar
-    expect(calendarServer?.env).toEqual({
-      API_KEY: "static-default",
-      UNRELATED: "kept",
-    })
-    expect(calendarServer?.env_vars).toEqual([CREDENTIAL_SOURCE])
-    expect(calendarServer?.command).toBe(PLUGIN_STDIO_LAUNCHER_COMMAND)
-    const descriptor = JSON.parse(
-      Buffer.from(calendarServer?.args?.[0] ?? "", "base64url").toString(
-        "utf8",
-      ),
-    ) as Record<string, unknown>
-    expect(descriptor).toEqual({
-      version: 1,
-      command: "node",
-      args: ["server.js"],
-      environmentVariables: [
-        { name: "API_KEY", source: CREDENTIAL_SOURCE },
-      ],
-    })
-
-    const marketplace = JSON.parse(
-      await readFile(result.marketplacePath, "utf8"),
-    ) as {
-      name: string
-      plugins: Array<{
-        name: string
-        source: { source: string; path: string }
-      }>
-    }
-    expect(marketplace).toMatchObject({
-      name: PERSONAL_PLUGIN_MARKETPLACE_NAME,
-      plugins: [
-        {
-          name: "calendar-tools",
-          source: {
-            source: "local",
-            path: "./.agents/plugin-sources/calendar-tools",
-          },
-        },
-      ],
-    })
-    await expect(
-      readFile(join(codexHome, "config.toml"), "utf8"),
-    ).resolves.toBe("model = \"test\"\n")
-
-    const cleared = await materializer.reconcile({
-      ownerId: OWNER_ID,
-      capabilities: [],
-    })
-    expect(cleared.generation).not.toBe(result.generation)
-    await expect(
-      readFile(
-        join(cleared.pluginsRoot, "calendar-tools", "README.md"),
-        "utf8",
-      ),
-    ).rejects.toMatchObject({ code: "ENOENT" })
-    await expect(
-      readFile(
-        join(cleared.skillsRoot, "report-writer", "SKILL.md"),
-        "utf8",
-      ),
-    ).rejects.toMatchObject({ code: "ENOENT" })
-    await expect(
-      readFile(join(codexHome, "config.toml"), "utf8"),
-    ).resolves.toBe("model = \"test\"\n")
-  })
+      ).resolves.toBe("after")
+    },
+  )
 
   it("injects each mapped credential only into MCP servers that declare it", async () => {
     const root = await temporaryDirectory()
@@ -1216,52 +993,55 @@ describe("UserHomeCapabilityMaterializer", () => {
     ).toEqual([])
   })
 
-  it("uses the strict read-only fast path while a running turn holds the publication lock", async () => {
-    const root = await temporaryDirectory()
-    const pluginSource = await createPluginSource(
-      join(root, "sources"),
-      "calendar-tools",
-      "trusted plugin",
-    )
-    const publicationGuard = vi.fn(async () => true)
-    const materializer = new UserHomeCapabilityMaterializer({
-      userDataRoot: join(root, "users"),
-      publicationGuard,
-    })
-    const input = {
-      ownerId: OWNER_ID,
-      capabilities: [pluginCapability(pluginSource)],
-    }
-    const initial = await materializer.reconcile(input)
-    publicationGuard.mockClear()
-    publicationGuard.mockResolvedValue(false)
-    const release = await lock(initial.controlCapabilitiesRoot, {
-      realpath: false,
-      lockfilePath: join(
-        initial.controlCapabilitiesRoot,
-        CAPABILITY_RECONCILE_LOCK_FILE,
-      ),
-      stale: 120_000,
-      update: 10_000,
-    })
+  it.sequential(
+    "uses the strict read-only fast path while a running turn holds the publication lock",
+    async () => {
+      const root = await temporaryDirectory()
+      const pluginSource = await createPluginSource(
+        join(root, "sources"),
+        "calendar-tools",
+        "trusted plugin",
+      )
+      const publicationGuard = vi.fn(async () => true)
+      const materializer = new UserHomeCapabilityMaterializer({
+        userDataRoot: join(root, "users"),
+        publicationGuard,
+      })
+      const input = {
+        ownerId: OWNER_ID,
+        capabilities: [pluginCapability(pluginSource)],
+      }
+      const initial = await materializer.reconcile(input)
+      publicationGuard.mockClear()
+      publicationGuard.mockResolvedValue(false)
+      const release = await lock(initial.controlCapabilitiesRoot, {
+        realpath: false,
+        lockfilePath: join(
+          initial.controlCapabilitiesRoot,
+          CAPABILITY_RECONCILE_LOCK_FILE,
+        ),
+        stale: 120_000,
+        update: 10_000,
+      })
 
-    try {
-      await expect(
-        Promise.race([
-          materializer.reconcile(input),
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error("strict read-only fast path timed out")),
-              500,
+      try {
+        await expect(
+          Promise.race([
+            materializer.reconcile(input),
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error("strict read-only fast path timed out")),
+                500,
+              ),
             ),
-          ),
-        ]),
-      ).resolves.toMatchObject({ generation: initial.generation })
-    } finally {
-      await release()
-    }
-    expect(publicationGuard).not.toHaveBeenCalled()
-  })
+          ]),
+        ).resolves.toMatchObject({ generation: initial.generation })
+      } finally {
+        await release()
+      }
+      expect(publicationGuard).not.toHaveBeenCalled()
+    },
+  )
 
   it("does not replace canonical sources until a running-turn lease is released", async () => {
     const root = await temporaryDirectory()
@@ -1497,82 +1277,3 @@ describe("UserHomeCapabilityMaterializer", () => {
     ).resolves.toBe("old")
   })
 })
-
-async function temporaryDirectory(): Promise<string> {
-  const directory = await mkdtemp(
-    join(tmpdir(), "linksense-user-capabilities-"),
-  )
-  temporaryDirectories.push(directory)
-  return directory
-}
-
-async function createPluginSource(
-  parent: string,
-  name: string,
-  body: string,
-): Promise<string> {
-  const root = join(parent, name)
-  await mkdir(join(root, ".codex-plugin"), { recursive: true })
-  await writeFile(
-    join(root, ".codex-plugin", "plugin.json"),
-    JSON.stringify({
-      name,
-      version: "1.0.0",
-      mcpServers: {
-        calendar: {
-          command: "node",
-          args: ["server.js"],
-          env_vars: ["API_KEY"],
-          env: {
-            API_KEY: "static-default",
-            UNRELATED: "kept",
-          },
-        },
-      },
-    }),
-  )
-  await writeFile(join(root, "README.md"), body)
-  return root
-}
-
-async function createSkillSource(
-  parent: string,
-  name: string,
-  body: string,
-): Promise<string> {
-  const root = join(parent, name)
-  await mkdir(root, { recursive: true })
-  await writeFile(
-    join(root, "SKILL.md"),
-    `---\nname: ${name}\n---\n\n${body}\n`,
-  )
-  return root
-}
-
-function pluginCapability(
-  sourcePath: string,
-  credentialEnvironment?: Record<string, string>,
-): UserHomeCapabilityInput {
-  return {
-    id: PLUGIN_ID,
-    name: "calendar-tools",
-    type: "plugin",
-    sourcePath,
-    revision: "same-revision",
-    ...(credentialEnvironment ? { credentialEnvironment } : {}),
-  }
-}
-
-function skillCapability(sourcePath: string): UserHomeCapabilityInput {
-  return {
-    id: SKILL_ID,
-    name: "report-writer",
-    type: "skill",
-    sourcePath,
-    revision: "skill-revision",
-  }
-}
-
-async function pathMode(target: string): Promise<number> {
-  return (await lstat(target)).mode & 0o7777
-}

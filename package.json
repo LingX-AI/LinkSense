@@ -30,8 +30,8 @@
     "db:validate": "prisma validate",
     "knowledge:reset-storage": "pnpm --filter @linksense/api knowledge:reset-storage",
     "lint": "pnpm -r --filter './apps/**' --filter './packages/**' --if-present lint",
-    "test": "pnpm --filter @linksense/shared build && pnpm run test:deployment && pnpm -r --workspace-concurrency=1 --filter './apps/**' --filter './packages/**' --if-present test",
-    "test:deployment": "node --test scripts/*.test.mjs",
+    "test": "pnpm --filter @linksense/shared build && pnpm run '/^test:(deployment|packages)$/' && pnpm --filter @linksense/web test",
+    "test:deployment": "node --test --test-concurrency=2 scripts/*.test.mjs",
     "test:runtime:standalone": "pnpm --filter @linksense/runner exec tsx ../../scripts/runtime-standalone-smoke.mts",
     "benchmark:latency": "node scripts/latency-smoke.mjs",
     "test:codex:integration": "tsx scripts/codex-thread-smoke.mts",
@@ -39,7 +39,8 @@
     "test:codex:model-switch": "tsx scripts/codex-model-switch-smoke.mts",
     "test:codex:native-plugin-refresh": "tsx scripts/codex-native-plugin-refresh-smoke.mts",
     "test:codex:skill-discovery": "tsx scripts/codex-skill-discovery-smoke.mts",
-    "typecheck": "pnpm -r --filter './apps/**' --filter './packages/**' --if-present typecheck"
+    "typecheck": "pnpm -r --filter './apps/**' --filter './packages/**' --if-present typecheck",
+    "test:packages": "pnpm -r --parallel --filter './apps/**' --filter './packages/**' --filter '!@linksense/web' --if-present test"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.8.0",

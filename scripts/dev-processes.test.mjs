@@ -7,10 +7,62 @@ import test from "node:test";
 import {
   createDevelopmentProcessRegistry,
   developmentProcessRegistryPath,
+  parseDevelopmentComposeProcesses,
   removeDevelopmentProcessRegistry,
   stopDevelopmentApplications,
   writeDevelopmentProcessRegistry,
 } from "./dev-processes.mjs";
+
+test("Compose discovery reads working directories only for development Watch and log candidates", () => {
+  const reads = [];
+  const processes = parseDevelopmentComposeProcesses(
+    [
+      "  PID PGID COMMAND",
+      "  101 101 /usr/bin/window-server",
+      "  202 202 node another-project/server.mjs",
+      "  303 303 docker compose -f docker-compose.dev.yml build runner-worker-image",
+      "  404 404 docker compose -f docker-compose.yml logs --follow",
+      "  505 505 node watcher.mjs docker-compose.dev.yml",
+      "  606 606 docker compose -f docker-compose.dev.yml watch --no-up api runner web",
+      "  607 606 /opt/docker/cli-plugins/docker-compose compose -f docker-compose.dev.yml watch --no-up",
+      "  707 707 /usr/local/bin/docker compose -f docker-compose.dev.yml logs --follow",
+      "  808 808 docker compose -f docker-compose.dev.yml watch --no-up",
+      "invalid process row",
+    ].join("\n"),
+    {
+      readWorkingDirectory(pid) {
+        reads.push(pid);
+        return pid === 808 ? "/tmp/another-project" : "/tmp/linksense";
+      },
+    },
+  );
+
+  assert.deepEqual(reads, [606, 607, 707, 808]);
+  assert.deepEqual(processes.map(({ pid }) => pid), reads);
+  assert.equal(processes[1].processGroupId, 606);
+  // Discovery keeps other repositories as candidates; shutdown must still
+  // verify working directories and every process-group member before signaling.
+  assert.equal(processes[3].workingDirectory, "/tmp/another-project");
+});
+
+test("Compose discovery avoids directory probes when no development helpers exist", () => {
+  const reads = [];
+  const processes = parseDevelopmentComposeProcesses(
+    Array.from(
+      { length: 1000 },
+      (_, index) => `${index + 1} 1 node app.mjs`,
+    ).join("\n"),
+    {
+      readWorkingDirectory(pid) {
+        reads.push(pid);
+        return "/tmp/another-project";
+      },
+    },
+  );
+
+  assert.deepEqual(processes, []);
+  assert.deepEqual(reads, []);
+});
 
 test("development process registry is replaced atomically and only removed by its owner", () => {
   const root = mkdtempSync(join(tmpdir(), "linksense-dev-processes-"));

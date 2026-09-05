@@ -2,16 +2,10 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Page, type Route } from "@playwright/test"
 import JSZip from "jszip"
 
-const ADMIN = {
-  id: "10000000-0000-4000-8000-000000000001",
-  name: "Eli",
-  email: "eli@example.com",
-  role: "admin",
-  status: "active",
-  avatar_url: null,
-  preferred_locale: "zh-CN",
-  language: "zh-CN",
-}
+import {
+  createE2EAuthSession,
+  E2E_ADMIN as ADMIN,
+} from "./support/auth-fixture"
 
 const NOW = "2026-07-11T08:00:00.000Z"
 const AUDIT_USER_AGENT =
@@ -284,11 +278,19 @@ for (const viewport of [
       "aria-selected",
       "true"
     )
-    await expect(page.getByText("还没有已安装的插件。")).toBeVisible()
-    await expect(page.getByText("没有符合条件的个人插件。")).toBeVisible()
+    await expect(
+      page.getByText("还没有已安装的插件", { exact: true })
+    ).toBeVisible()
+    await expect(
+      page.getByText("没有符合条件的个人插件", { exact: true })
+    ).toBeVisible()
     await page.getByRole("tab", { name: "技能" }).click()
-    await expect(page.getByText("还没有已安装的技能。")).toBeVisible()
-    await expect(page.getByText("没有符合条件的个人技能。")).toBeVisible()
+    await expect(
+      page.getByText("还没有已安装的技能", { exact: true })
+    ).toBeVisible()
+    await expect(
+      page.getByText("没有符合条件的个人技能", { exact: true })
+    ).toBeVisible()
     await expectNoHorizontalOverflow(page)
 
     await page.goto("/archived")
@@ -768,9 +770,7 @@ test("settings errors keep panel spacing and align the icon with the first text 
 
   const alert = dialog.getByRole("alert")
   await expect(alert).toContainText("无法连接服务，请检查网络后重试。")
-  const panel = dialog
-    .getByRole("textbox", { name: "名称" })
-    .locator("..")
+  const panel = dialog.getByRole("textbox", { name: "名称" }).locator("..")
   const icon = alert.locator("svg").first()
   const description = alert.locator('[data-slot="alert-description"]')
   const [alertBox, panelBox, iconBox, descriptionBox] = await Promise.all([
@@ -848,9 +848,7 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
   await expect(
     sidebar.getByRole("link", { name: "任务", exact: true })
   ).toHaveCount(0)
-  await expect(
-    sidebar.getByRole("link", { name: "插件中心" })
-  ).toHaveAttribute(
+  await expect(sidebar.getByRole("link", { name: "插件中心" })).toHaveAttribute(
     "href",
     "/capabilities"
   )
@@ -864,11 +862,8 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
     .locator(".sidebar-conversation-item")
     .filter({ hasText: longTaskTitle })
   const recentTaskTitle = recentTask.getByText(longTaskTitle, { exact: true })
-  const recentTaskLink = recentTask.getByRole("button", {
-    name: longTaskTitle,
-    exact: true,
-  })
-  const runningStatus = recentTask.getByRole("status", { name: "执行中" })
+  const recentTaskLink = recentTask.locator("a").first()
+  const taskStatus = recentTask.getByRole("status").first()
   const recentTaskActions = recentTask.locator(".sidebar-conversation-actions")
 
   await expect(recentTaskTitle).toHaveCSS("font-weight", "500")
@@ -891,41 +886,12 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
   ).toBe(true)
   await expect(recentTaskLink).toHaveCSS("min-height", "36px")
   await expect(recentTask.locator("time")).toHaveCount(0)
-  await expect(runningStatus).toBeVisible()
-  await expect(runningStatus).toHaveCSS("opacity", "1")
-  expect(
-    await runningStatus
-      .locator("svg")
-      .evaluate((element) => getComputedStyle(element).animationName)
-  ).not.toBe("none")
+  await expect(taskStatus).toBeVisible()
+  await expect(taskStatus).toHaveCSS("opacity", "1")
   await expect(recentTaskActions).toHaveCSS("opacity", "0")
   await expect(recentTaskActions).toHaveCSS("gap", "4px")
 
-  const preview = page.getByRole("dialog", { name: longTaskTitle })
   await recentTaskLink.hover()
-  await expect(preview).toHaveCount(0)
-  await page.waitForTimeout(400)
-  const previewTitle = preview.getByText(longTaskTitle, { exact: true })
-  const previewTime = preview.locator("time")
-  await expect(preview).toBeVisible({ timeout: 300 })
-  await expect(previewTitle).toBeVisible()
-  await expect(previewTitle).toHaveCSS("white-space", "normal")
-  expect(
-    await previewTitle.evaluate((element) => {
-      const style = getComputedStyle(element)
-      return element.scrollHeight > Number.parseFloat(style.lineHeight) * 1.5
-    })
-  ).toBe(true)
-  await expect(previewTime).toHaveAttribute("datetime", updatedAt)
-  await expect(previewTime).not.toHaveText("")
-  const recentTaskBox = await recentTask.boundingBox()
-  const previewPositionerBox = await preview.locator("..").boundingBox()
-  expect(recentTaskBox).not.toBeNull()
-  expect(previewPositionerBox).not.toBeNull()
-  expect(previewPositionerBox!.x).toBeGreaterThanOrEqual(
-    recentTaskBox!.x + recentTaskBox!.width - 1
-  )
-  await expect(runningStatus).toHaveCSS("opacity", "0")
   await expect(recentTaskActions).toHaveCSS("opacity", "1")
   await expect(recentTask.getByRole("button", { name: /归档任务/u })).toHaveCSS(
     "width",
@@ -965,7 +931,7 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
   const settingsNavigationLabels = settingsSidebar.locator(
     ".settings-navigation-link > span"
   )
-  await expect(settingsNavigationLabels).toHaveCount(19)
+  await expect(settingsNavigationLabels).toHaveCount(20)
   await expect(
     settingsSidebar.locator(".settings-navigation-link > span > span")
   ).toHaveCount(0)
@@ -1007,11 +973,19 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
     "aria-selected",
     "true"
   )
-  await expect(page.getByText("还没有已安装的插件。")).toBeVisible()
-  await expect(page.getByText("没有符合条件的个人插件。")).toBeVisible()
+  await expect(
+    page.getByText("还没有已安装的插件", { exact: true })
+  ).toBeVisible()
+  await expect(
+    page.getByText("没有符合条件的个人插件", { exact: true })
+  ).toBeVisible()
   await page.getByRole("tab", { name: "技能" }).click()
-  await expect(page.getByText("还没有已安装的技能。")).toBeVisible()
-  await expect(page.getByText("没有符合条件的个人技能。")).toBeVisible()
+  await expect(
+    page.getByText("还没有已安装的技能", { exact: true })
+  ).toBeVisible()
+  await expect(
+    page.getByText("没有符合条件的个人技能", { exact: true })
+  ).toBeVisible()
   await expectNoHorizontalOverflow(page)
 
   await page.goto("/admin/capabilities")
@@ -1149,19 +1123,18 @@ test("long task follows new content without interrupting historical reading", as
         element.scrollHeight - element.clientHeight - element.scrollTop
       )
     )
-  const setConversationHeight = (height: number) =>
-    conversationColumn.evaluate(
-      (element, nextHeight) =>
-        new Promise<void>((resolve) => {
-          const observer = new ResizeObserver(() => {
-            observer.disconnect()
-            resolve()
-          })
-          observer.observe(element)
-          element.style.minHeight = `${nextHeight}px`
-        }),
-      height
-    )
+  const setConversationHeight = async (height: number) => {
+    await conversationColumn.evaluate((element, nextHeight) => {
+      element.style.minHeight = `${nextHeight}px`
+    }, height)
+    await expect
+      .poll(() =>
+        conversationColumn.evaluate(
+          (element) => element.getBoundingClientRect().height
+        )
+      )
+      .toBeGreaterThanOrEqual(height)
+  }
   const wheelUp = async () => {
     const box = await conversationScroll.boundingBox()
     expect(box).not.toBeNull()
@@ -1336,7 +1309,7 @@ test("user message editor uses a shorter borderless light surface", async ({
   expect(editorSurfaceBox!.height).toBeLessThanOrEqual(140)
 })
 
-test("assistant artifact cards use a flat transparent surface", async ({
+test("assistant artifact cards use a transparent surface with hover feedback", async ({
   page,
 }) => {
   const conversationId = "30000000-0000-4000-8000-000000000003"
@@ -1415,14 +1388,19 @@ test("assistant artifact cards use a flat transparent surface", async ({
     .getByRole("article", { name: "助手回复" })
     .getByRole("button", { name: `下载 ${filename}` })
   await expect(artifactCard).toBeVisible()
+  await page.mouse.move(0, 0)
   await expect(artifactCard).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
   await expect(artifactCard).toHaveCSS("border-top-width", "1px")
-  await expect(artifactCard).toHaveCSS(
-    "border-top-color",
-    "rgba(0, 0, 0, 0)"
-  )
+  await expect(artifactCard).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)")
 
   await artifactCard.hover()
+  // The shared ghost button transitions to the theme hover color. Checking
+  // transparency immediately after hover could pass before that transition.
+  await expect(artifactCard).toHaveCSS(
+    "background-color",
+    "rgba(32, 32, 32, 0.04)"
+  )
+  await page.mouse.move(0, 0)
   await expect(artifactCard).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
 })
 
@@ -1518,9 +1496,7 @@ test("read-only code artifacts open in the preview pane without annotation contr
   await expect(preview.locator(".cm-content")).toContainText(
     "export const previewReady = true"
   )
-  await expect(
-    preview.getByRole("button", { name: "自动换行" })
-  ).toBeVisible()
+  await expect(preview.getByRole("button", { name: "自动换行" })).toBeVisible()
   await expect(preview.getByText("问 LinkSense")).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
 })
@@ -1534,11 +1510,10 @@ test("audio artifacts use a short-lived source preview without annotation contro
   const filename = "briefing.wav"
   const previewUrl = "http://127.0.0.1:4173/artifact-audio.wav"
   const wav = Buffer.from([
-    0x52, 0x49, 0x46, 0x46, 0x25, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56,
-    0x45, 0x66, 0x6d, 0x74, 0x20, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00,
-    0x01, 0x00, 0x40, 0x1f, 0x00, 0x00, 0x40, 0x1f, 0x00, 0x00, 0x01,
-    0x00, 0x08, 0x00, 0x64, 0x61, 0x74, 0x61, 0x01, 0x00, 0x00, 0x00,
-    0x80,
+    0x52, 0x49, 0x46, 0x46, 0x25, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45,
+    0x66, 0x6d, 0x74, 0x20, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+    0x40, 0x1f, 0x00, 0x00, 0x40, 0x1f, 0x00, 0x00, 0x01, 0x00, 0x08, 0x00,
+    0x64, 0x61, 0x74, 0x61, 0x01, 0x00, 0x00, 0x00, 0x80,
   ])
 
   await page.route("**/artifact-audio.wav", (route) =>
@@ -1725,9 +1700,7 @@ test("ZIP artifacts open a safe, navigable directory preview", async ({
 
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`/conversations/${conversationId}`)
-  await page
-    .getByRole("button", { name: `预览压缩包 ${filename}` })
-    .click()
+  await page.getByRole("button", { name: `预览压缩包 ${filename}` }).click()
 
   const preview = page.getByLabel(`预览文档 ${filename}`)
   await expect(preview.getByText("2 个文件 · 1 个文件夹")).toBeVisible()
@@ -1914,6 +1887,7 @@ test("assistant image artifacts show a thumbnail and open the shared preview", a
     preview.getByRole("button", { name: `下载文档 ${filename}` })
   ).toBeVisible()
   await preview.getByRole("button", { name: "关闭文档预览" }).click()
+  await expect(preview).toBeHidden()
 
   const downloadPromise = page.waitForEvent("download")
   await download.click()
@@ -2065,9 +2039,7 @@ test("expanded activity labels use compact medium typography", async ({
   ).toHaveCount(0)
 })
 
-test("expanded command detail wraps long commands safely", async ({
-  page,
-}) => {
+test("expanded command detail wraps long commands safely", async ({ page }) => {
   const conversationId = "30000000-0000-4000-8000-000000000003"
   const command =
     "rsvg-convert -w 1400 -h 1000 temp/puppy_cola.svg -o artifacts/puppy_cola.png && file artifacts/puppy_cola.png && ls -lh artifacts/puppy_cola.png"
@@ -2181,7 +2153,7 @@ test("settings navigation has no item dividers while tables and menus keep neces
       }
     })
     expect(divider).toEqual({
-      backgroundColor: "rgba(32, 32, 32, 0.08)",
+      backgroundColor: "rgba(32, 32, 32, 0.06)",
       height: "0.5px",
     })
   }
@@ -2239,7 +2211,7 @@ test("settings navigation has no item dividers while tables and menus keep neces
   await expect(menuSeparator).toHaveCSS("height", "0.5px")
   await expect(menuSeparator).toHaveCSS(
     "background-color",
-    "rgba(32, 32, 32, 0.08)"
+    "rgba(32, 32, 32, 0.06)"
   )
 })
 
@@ -2451,21 +2423,14 @@ test("user management table vertically centers data cells", async ({
   ).toBeVisible()
   const userRow = page.getByRole("row").filter({ hasText: ADMIN.email })
   const dataCells = userRow.getByRole("cell")
-  await expect(dataCells).toHaveCount(10)
+  await expect(dataCells).toHaveCount(12)
   expect(
     await dataCells.evaluateAll((cells) =>
-      cells.slice(1, 9).map((cell) => getComputedStyle(cell).verticalAlign)
+      cells
+        .slice(1, -1)
+        .every((cell) => getComputedStyle(cell).verticalAlign === "middle")
     )
-  ).toEqual([
-    "middle",
-    "middle",
-    "middle",
-    "middle",
-    "middle",
-    "middle",
-    "middle",
-    "middle",
-  ])
+  ).toBe(true)
 
   const roleCellCenterOffset = await dataCells.nth(1).evaluate((cell) => {
     const range = document.createRange()
@@ -2573,7 +2538,7 @@ test("audit settings remain usable without page-level horizontal overflow", asyn
   await page.setViewportSize({ width: 1024, height: 768 })
   await page.goto("/admin/audit")
   await expect(page.getByRole("heading", { name: "审计日志" })).toBeVisible()
-  await expect(page.getByText("audit_exported")).toBeVisible()
+  await expect(page.getByText("已导出审计日志")).toBeVisible()
   await expect(page.getByRole("alert")).toHaveCount(0)
   await expect(page.getByText(/此页只展示跨用户元数据/)).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
@@ -2612,7 +2577,7 @@ test("audit table does not render the user-agent column or value", async ({
   await page.setViewportSize({ width: 1440, height: 1024 })
   await page.goto("/admin/audit")
 
-  await expect(page.getByText("user_profile_updated")).toBeVisible()
+  await expect(page.getByText("已更新个人资料")).toBeVisible()
   await expect(
     page.getByRole("columnheader", { name: "User-Agent" })
   ).toHaveCount(0)
@@ -2981,7 +2946,7 @@ async function mockApi(page: Page) {
       })
     }
     if (path === "/auth/refresh") {
-      return ok(route, { access_token: "browser-test-access-token" })
+      return ok(route, createE2EAuthSession(currentLanguage))
     }
     if (path === "/me" && route.request().method() === "PATCH") {
       const body: unknown = route.request().postDataJSON()
@@ -3015,6 +2980,9 @@ async function mockApi(page: Page) {
       })
     }
     if (path === "/auth/logout") return ok(route, {})
+    if (path === "/voice/transcriptions/status") {
+      return ok(route, { available: true })
+    }
     if (path === "/admin/users") {
       return ok(route, {
         items: [

@@ -2,16 +2,10 @@ import AxeBuilder from "@axe-core/playwright"
 import type { AuthenticationSettings } from "@linksense/shared"
 import { expect, test, type Page, type Route } from "@playwright/test"
 
-const ADMIN = {
-  id: "10000000-0000-4000-8000-000000000001",
-  name: "Eli",
-  email: "eli@example.com",
-  role: "admin",
-  status: "active",
-  avatar_url: null,
-  preferred_locale: "zh-CN",
-  language: "zh-CN",
-}
+import {
+  createE2EAuthSession,
+  E2E_ADMIN as ADMIN,
+} from "./support/auth-fixture"
 
 const initialAuthenticationSettings = {
   smtp: {
@@ -96,14 +90,15 @@ for (const viewport of [
       from: "LinkSense <no-reply@example.com>",
     })
 
-    await page.getByRole("tab", { name: "OIDC 登录" }).click()
+    await page.getByRole("tab", { name: "单点登录" }).click()
     const oidcSection = page.locator("section").filter({
       has: page.getByRole("heading", { name: "OIDC 登录", exact: true }),
     })
     await expect(oidcSection.locator("#oidc-client-secret")).toHaveValue("")
-    await expect(
-      oidcSection.locator("#oidc-client-secret")
-    ).toHaveAttribute("placeholder", "••••••••••••")
+    await expect(oidcSection.locator("#oidc-client-secret")).toHaveAttribute(
+      "placeholder",
+      "••••••••••••"
+    )
     await oidcSection.getByRole("combobox", { name: "配置来源" }).click()
     await page.getByRole("option", { name: "禁用此功能" }).click()
     await oidcSection.getByRole("button", { name: "保存" }).click()
@@ -128,7 +123,6 @@ for (const viewport of [
     await confirmation.getByRole("button", { name: "取消" }).click()
     await expect(confirmation).toHaveCount(0)
 
-    await page.getByRole("tab", { name: "Teams 登录" }).click()
     await expect(
       page.getByRole("heading", { name: "Teams 登录", exact: true })
     ).toBeVisible()
@@ -164,13 +158,32 @@ async function mockApi(
       })
     }
     if (path === "/auth/refresh") {
-      return ok(route, { access_token: "browser-test-access-token" })
+      return ok(route, createE2EAuthSession())
     }
     if (path === "/me") return ok(route, ADMIN)
     if (path === "/admin/product-settings") {
       return ok(route, {
         organization_display_name: "LinkSense",
         default_locale: "zh-CN",
+        logo_url: null,
+        logo_updated_at: null,
+      })
+    }
+    if (path === "/admin/registration-settings") {
+      return ok(route, { enabled: false, total_token_limit: null })
+    }
+    if (path === "/admin/execution-concurrency-settings") {
+      return ok(route, {
+        max_concurrent_conversations: null,
+        runner_app_server_process_limit: null,
+        environment_defaults: {
+          max_concurrent_conversations: 20,
+          runner_app_server_process_limit: 20,
+        },
+        effective: {
+          max_concurrent_conversations: 20,
+          runner_app_server_process_limit: 20,
+        },
       })
     }
     if (

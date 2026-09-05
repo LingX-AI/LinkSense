@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import appStyles from "@/index.css?raw"
 import weixinChannelPageSource from "@/pages/weixin-channel-page.tsx?raw"
 import { describe, expect, it } from "vitest"

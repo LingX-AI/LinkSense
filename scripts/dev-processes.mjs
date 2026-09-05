@@ -101,15 +101,21 @@ function isPathWithin(parentPath, candidatePath) {
   );
 }
 
+function isDevelopmentComposeHelperCommand(command) {
+  return (
+    /(?:^|[/\s])(?:docker|docker-compose)(?:\s|$)/u.test(command) &&
+    command.includes("docker-compose.dev.yml") &&
+    /(?:^|\s)(?:watch|logs)(?:\s|$)/u.test(command)
+  );
+}
+
 function processMatchesService(processInformation, service, repositoryRoot) {
   const command = processInformation.command ?? "";
   const workingDirectory = processInformation.workingDirectory;
   if (service.processKind === "compose-helper") {
     return (
       isPathWithin(repositoryRoot, workingDirectory) &&
-      /(?:^|[/\s])(?:docker|docker-compose)(?:\s|$)/u.test(command) &&
-      command.includes("docker-compose.dev.yml") &&
-      /(?:^|\s)(?:watch|logs)(?:\s|$)/u.test(command)
+      isDevelopmentComposeHelperCommand(command)
     );
   }
   if (command.includes(`${service.directory}${sep}`)) return true;
@@ -130,6 +136,7 @@ function parseProcessGroupMembers(
   output,
   processInspector,
   expectedProcessGroupId,
+  commandFilter,
 ) {
   return output.split("\n").flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/u.exec(line);
@@ -142,6 +149,7 @@ function parseProcessGroupMembers(
     ) {
       return [];
     }
+    if (commandFilter && !commandFilter(match[3])) return [];
     return [
       {
         pid,
@@ -151,6 +159,17 @@ function parseProcessGroupMembers(
       },
     ];
   });
+}
+
+export function parseDevelopmentComposeProcesses(output, processInspector) {
+  // On macOS each directory probe spawns lsof. Filter the cheap ps snapshot
+  // first; shutdown still verifies repository ownership and the full group.
+  return parseProcessGroupMembers(
+    output,
+    processInspector,
+    undefined,
+    isDevelopmentComposeHelperCommand,
+  );
 }
 
 function runInspectionCommand(command, argumentsList) {
@@ -245,7 +264,7 @@ function createSystemProcessInspector() {
         "-axo",
         "pid=,pgid=,command=",
       ]);
-      return parseProcessGroupMembers(output ?? "", {
+      return parseDevelopmentComposeProcesses(output ?? "", {
         readWorkingDirectory,
       });
     },

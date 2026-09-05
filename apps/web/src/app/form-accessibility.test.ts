@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import imageGenerationSource from "@/features/admin/image-generation-settings-form.tsx?raw"
 import imageUnderstandingSource from "@/features/admin/image-understanding-settings-form.tsx?raw"
 import knowledgeModelsSource from "@/features/admin/knowledge-model-settings-form.tsx?raw"

@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import conversationStyles from "@/index.css?raw"
 import nativeActivityItemSource from "@/features/conversations/native-activity-item.tsx?raw"
 import { describe, expect, it } from "vitest"

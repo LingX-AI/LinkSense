@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from "vitest"
 
 import viteConfig from "../vite.config"
@@ -44,5 +46,9 @@ describe("Vite production asset naming", () => {
 describe("Vitest execution limits", () => {
   it("keeps local failures fast while allowing for constrained CI runners", () => {
     expect(viteConfig.test?.testTimeout).toBe(process.env.CI ? 20_000 : 5_000)
+  })
+
+  it("reuses worker threads to reduce per-file process startup", () => {
+    expect(viteConfig.test?.pool).toBe("threads")
   })
 })

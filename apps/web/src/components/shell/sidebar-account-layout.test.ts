@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import appShellSource from "@/components/shell/app-shell.tsx?raw"
 import { describe, expect, it } from "vitest"
 
