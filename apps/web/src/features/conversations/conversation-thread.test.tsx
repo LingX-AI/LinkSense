@@ -547,6 +547,41 @@ describe("conversation turn responses", () => {
   )
 
   it.each([false, true])(
+    "renders assistant emphasis whose opening markers contain leading whitespace when streaming=%s",
+    (streaming) => {
+      const { container } = render(
+        <AssistantMarkdown
+          streaming={streaming}
+          content={[
+            "- 9月1日：公司宣布** Neo He 提前转正**，表扬其项目表现。",
+            "- 8月31日：任命** Jegan Chen、Rhoda Chen、Liz Xukur**分别兼任产品线负责人。",
+            "- 8月28日：通知** 9月1日 16:00–18:00**举行 OKR 回顾会议。",
+            "- 8月27日：欢迎新同事** Mayme Diao**加入 Infocare。",
+            "- 8月16日：Rhoda 获奖励** 300元京东购物卡**。",
+            "- 8月10日：Kate Chen 获** 200元沃尔玛购物卡**奖励。",
+          ].join("\n")}
+        />
+      )
+
+      expect(
+        [...container.querySelectorAll("strong")].map(
+          (element) => element.textContent
+        )
+      ).toEqual([
+        "Neo He 提前转正",
+        "Jegan Chen、Rhoda Chen、Liz Xukur",
+        "9月1日 16:00–18:00",
+        "Mayme Diao",
+        "300元京东购物卡",
+        "200元沃尔玛购物卡",
+      ])
+      expect(
+        container.querySelector(".assistant-markdown")
+      ).not.toHaveTextContent("**")
+    }
+  )
+
+  it.each([false, true])(
     "renders strong emphasis next to Chinese text when streaming=%s",
     (streaming) => {
       const emphasized = "安装、迁移、新增或变更（IMAC）"
