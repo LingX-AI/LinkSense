@@ -246,7 +246,7 @@ describe("managed browser CLI", () => {
     ).rejects.toThrow("invalid managed browser policy")
   })
 
-  it("creates an isolated Chromium config and reuses only the current task session", async () => {
+  it("creates an isolated full Chromium config and reuses only the current task session", async () => {
     const root = await temporaryRoot()
     const runtimeRoot = path.join(root, "runtime")
     const userHome = path.join(root, "home")
@@ -307,6 +307,7 @@ describe("managed browser CLI", () => {
         browserName: string
         isolated: boolean
         launchOptions: {
+          channel: string
           headless: boolean
           chromiumSandbox: boolean
           ignoreDefaultArgs: string[]
@@ -325,6 +326,7 @@ describe("managed browser CLI", () => {
         browserName: "chromium",
         isolated: true,
         launchOptions: {
+          channel: "chromium",
           headless: true,
           chromiumSandbox: false,
           ignoreDefaultArgs: ["--disable-dev-shm-usage"],

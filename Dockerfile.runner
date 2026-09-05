@@ -81,10 +81,10 @@ COPY deploy/runtime/browser/package.json deploy/runtime/browser/pnpm-lock.yaml .
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/linksense/runtime/browser-browsers
 ENV PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
 RUN pnpm install --prod --frozen-lockfile --ignore-workspace \
-  && if ! pnpm exec playwright-cli install-browser chromium --only-shell; then \
+  && if ! pnpm exec playwright-cli install-browser chromium; then \
       if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then \
         echo "Playwright mirror download failed; retrying with the default upstream." >&2; \
-        PLAYWRIGHT_DOWNLOAD_HOST= pnpm exec playwright-cli install-browser chromium --only-shell; \
+        PLAYWRIGHT_DOWNLOAD_HOST= pnpm exec playwright-cli install-browser chromium; \
       else \
         exit 1; \
       fi; \
@@ -182,10 +182,10 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
     unzip \
     util-linux \
     zip \
-  && if ! node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --only-shell --with-deps; then \
+  && if ! node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --with-deps; then \
       if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then \
         echo "Playwright mirror dependency install failed; retrying with the default upstream." >&2; \
-        PLAYWRIGHT_DOWNLOAD_HOST= node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --only-shell --with-deps; \
+        PLAYWRIGHT_DOWNLOAD_HOST= node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --with-deps; \
       else \
         exit 1; \
       fi; \
@@ -303,10 +303,10 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
     unzip \
     util-linux \
     zip \
-  && if ! node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --only-shell --with-deps; then \
+  && if ! node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --with-deps; then \
       if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then \
         echo "Playwright mirror dependency install failed; retrying with the default upstream." >&2; \
-        PLAYWRIGHT_DOWNLOAD_HOST= node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --only-shell --with-deps; \
+        PLAYWRIGHT_DOWNLOAD_HOST= node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --with-deps; \
       else \
         exit 1; \
       fi; \

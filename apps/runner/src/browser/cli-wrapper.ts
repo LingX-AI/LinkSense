@@ -637,6 +637,10 @@ async function writeBrowserConfig(
       browserName: "chromium",
       isolated: true,
       launchOptions: {
+        // Use the complete Chromium binary and its new headless mode instead
+        // of the reduced headless-shell runtime. The browser then supplies
+        // its own version-matched Chrome UA and client hints.
+        channel: "chromium",
         headless: true,
         // Chromium's setuid/user-namespace sandbox is incompatible with the
         // worker's no-new-privileges boundary. The browser instead runs as the
