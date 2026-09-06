@@ -12,6 +12,46 @@ type ErrorCatalogEntry = {
 };
 
 export const errorCatalog = {
+  BOT_CHANNEL_CONNECTION_CONFLICT: {
+    message_key: "errors.botChannels.BOT_CHANNEL_CONNECTION_CONFLICT",
+    http_status: 409,
+    messages: {
+      "zh-CN": "此渠道或机器人已连接，请先断开已有连接。",
+      "en-US": "This channel or bot is already connected. Disconnect the existing connection first.",
+    },
+  },
+  BOT_CHANNEL_BUSY: {
+    message_key: "errors.botChannels.BOT_CHANNEL_BUSY",
+    http_status: 409,
+    messages: {
+      "zh-CN": "该渠道正在处理消息，请稍后再断开。",
+      "en-US": "This channel is processing a message. Try disconnecting again shortly.",
+    },
+  },
+  BOT_CHANNEL_CONNECTION_FAILED: {
+    message_key: "errors.botChannels.BOT_CHANNEL_CONNECTION_FAILED",
+    http_status: 502,
+    messages: {
+      "zh-CN": "无法连接消息渠道，请检查应用配置、授权和网络。",
+      "en-US": "Unable to connect. Check the app configuration, permissions, and network.",
+    },
+  },
+  BOT_CHANNEL_DELIVERY_FAILED: {
+    message_key: "errors.botChannels.BOT_CHANNEL_DELIVERY_FAILED",
+    http_status: 502,
+    messages: {
+      "zh-CN": "消息暂未送达，请检查渠道状态和发送权限。",
+      "en-US": "The message could not be delivered. Check the channel status and messaging permissions.",
+    },
+  },
+  BOT_CHANNEL_PROTOCOL_INVALID: {
+    message_key: "errors.botChannels.BOT_CHANNEL_PROTOCOL_INVALID",
+    http_status: 502,
+    messages: {
+      "zh-CN": "消息渠道返回了无法识别的数据。",
+      "en-US": "The messaging channel returned an invalid response.",
+    },
+  },
   VALIDATION_ERROR: {
     message_key: "errors.common.validation",
     http_status: 400,

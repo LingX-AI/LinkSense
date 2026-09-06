@@ -3593,6 +3593,9 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(transaction.conversationPlanReview.deleteMany).toHaveBeenCalledWith({
       where: { conversationId: CONVERSATION_ID },
     });
+    expect(transaction.botChannelOutboundDelivery.deleteMany).toHaveBeenCalledWith({ where: { conversationId: CONVERSATION_ID } });
+    expect(transaction.botChannelInboundMessage.deleteMany).toHaveBeenCalledWith({ where: { conversationId: CONVERSATION_ID } });
+    expect(transaction.botChannelPeerSession.deleteMany).toHaveBeenCalledWith({ where: { conversationId: CONVERSATION_ID } });
     expect(transaction.weixinOutboundDelivery.deleteMany).toHaveBeenCalledWith({
       where: { conversationId: CONVERSATION_ID },
     });
@@ -10945,6 +10948,9 @@ function transactionFixture() {
       updateMany: vi.fn(async () => ({ count: 0 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
+    botChannelOutboundDelivery: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    botChannelInboundMessage: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    botChannelPeerSession: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     weixinOutboundDelivery: {
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },

@@ -392,6 +392,7 @@ describe("WeixinRuntime", () => {
       markInboundAccepted,
       markInboundRetry: vi.fn(async () => undefined),
       markInboundFailed: vi.fn(async () => undefined),
+      getTurnOutcome: vi.fn(async () => ({ status: "running" as const })),
     };
     const coordinator = {
       acquireLease: vi.fn(async () => ({ key: "lease", token: "token" })),
@@ -480,6 +481,10 @@ describe("WeixinRuntime", () => {
       typingTicket: "typing-ticket",
       status: "typing",
     });
+    expect(sendTyping.mock.calls.map(([input]) => input.status)).toEqual([
+      "typing",
+      "cancel",
+    ]);
     expect(client.sendText).not.toHaveBeenCalled();
   });
 
@@ -627,6 +632,7 @@ describe("WeixinRuntime", () => {
     const client = {
       sendText: vi.fn(async () => undefined),
       sendTyping: vi.fn(async () => undefined),
+      getConfig: vi.fn(async () => ({ typingTicket: "typing-ticket" })),
     };
     const runtime = new WeixinRuntime(
       repository as unknown as PrismaWeixinRepository,
@@ -736,6 +742,7 @@ describe("WeixinRuntime", () => {
     const client = {
       sendText,
       sendTyping: vi.fn(async () => undefined),
+      getConfig: vi.fn(async () => ({ typingTicket: "typing-ticket" })),
     };
     const runtime = new WeixinRuntime(
       repository as unknown as PrismaWeixinRepository,
@@ -865,6 +872,11 @@ describe("WeixinRuntime", () => {
     expect(client.sendText).not.toHaveBeenCalled();
     runtime.wake();
     await vi.waitFor(() => expect(client.sendText).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(client.sendTyping).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "cancel" }),
+      ),
+    );
     await runtime.close();
 
     expect(client.getConfig).toHaveBeenCalledTimes(1);

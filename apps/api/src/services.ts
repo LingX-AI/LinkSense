@@ -1,6 +1,12 @@
 import { createHmac } from "node:crypto";
 import { join, relative, resolve, sep } from "node:path";
 
+import { PrismaBotChannelRepository } from "./modules/bot-channels/repository.js";
+import { RedisBotChannelCoordinator } from "./modules/bot-channels/coordinator.js";
+import { OfficialBotChannelClient } from "./modules/bot-channels/clients/index.js";
+import { BotChannelRuntime } from "./modules/bot-channels/runtime.js";
+import { BotChannelService } from "./modules/bot-channels/service.js";
+
 import {
   isBuiltInCapabilityId,
   type RuntimeMcpServer,
@@ -85,6 +91,7 @@ import {
   createKnowledgeProcessingRuntime,
   type KnowledgeProcessingRuntime,
 } from "./modules/knowledge-processing/composition.js";
+import type { OfficeConversionRuntime } from "./modules/knowledge-processing/office-converter.js";
 import {
   createKnowledgeGovernanceRuntime,
   type KnowledgeGovernanceRuntime,
@@ -213,6 +220,8 @@ export type AppServices = {
   billingStatements: BillingStatementService;
   billingStatementScheduler: BillingStatementScheduler;
   feedback: FeedbackService;
+  botChannels: BotChannelService;
+  botChannelRuntime: BotChannelRuntime;
   feishu: FeishuService;
   feishuRuntime: FeishuRuntime;
   weixin: WeixinService;
@@ -228,6 +237,7 @@ export function createServices(input: {
   mailer?: Mailer;
   authenticationSettings?: AuthenticationSettingsService;
   preflight?: ConversationPreflight;
+  officeRuntime?: OfficeConversionRuntime;
 }): AppServices {
   const audit = new AuditService(input.prisma);
   const authenticationSettings =
@@ -536,6 +546,7 @@ export function createServices(input: {
     };
     knowledgeRuntime = createKnowledgeProcessingRuntime({
       config: input.config,
+      ...(input.officeRuntime ? { officeRuntime: input.officeRuntime } : {}),
       prisma: input.prisma,
       eventPublisher: knowledgeEventPublisher,
       imageUnderstandingSettings,
@@ -749,6 +760,31 @@ export function createServices(input: {
       conversations.delete(ownerId, conversationId, context),
     (conversationId) => conversationTitles.schedule(conversationId),
   );
+  const botChannelRepository = new PrismaBotChannelRepository(input.prisma);
+  const botChannelCoordinator = new RedisBotChannelCoordinator(input.redis.client);
+  const botChannelEncryption = {
+    masterKey: input.config.credentialMasterKey,
+    keyId: input.config.credentialKeyId,
+  };
+  const botChannelClient = new OfficialBotChannelClient(
+    input.redis.client,
+    botChannelEncryption,
+  );
+  const botChannelRuntime = new BotChannelRuntime(
+    botChannelRepository,
+    botChannelCoordinator,
+    botChannelClient,
+    conversations,
+    botChannelEncryption,
+  );
+  const botChannels = new BotChannelService(
+    botChannelRepository,
+    botChannelCoordinator,
+    audit,
+    botChannelEncryption,
+    botChannelRuntime,
+    input.config.publicBaseUrl,
+  );
   const feishuRepository = new PrismaFeishuRepository(input.prisma);
   const feishuCoordinator = new RedisFeishuCoordinator(input.redis.client);
   const feishuClient = new FeishuOfficialClient();
@@ -884,6 +920,8 @@ export function createServices(input: {
     billingStatements,
     billingStatementScheduler,
     feedback,
+    botChannels,
+    botChannelRuntime,
     feishu,
     feishuRuntime,
     weixin,

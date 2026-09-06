@@ -43,6 +43,9 @@ const sidebars: SidebarsConfig = {
           items: [
             "user-guide/message-channels/weixin",
             "user-guide/message-channels/feishu",
+            "user-guide/message-channels/wecom",
+            "user-guide/message-channels/dingtalk",
+            "user-guide/message-channels/teams",
           ],
         },
         {

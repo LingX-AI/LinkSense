@@ -70,7 +70,7 @@ export const systemRoutes: FastifyPluginAsync<{
   )
 
   app.get("/health/ready", async (request, reply) => {
-    const health = await services.system.health()
+    const health = await services.system.readiness()
     return reply
       .code(health.readiness === "ready" ? 200 : 503)
       .send(ok(health, request.id))

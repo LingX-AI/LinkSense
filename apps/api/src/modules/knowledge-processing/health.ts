@@ -79,6 +79,10 @@ export class KnowledgeProcessingHealthProbe {
     })
   }
 
+  checkStorage(): Promise<KnowledgeHealthComponent> {
+    return this.probe(this.dependencies.minio, "MINIO_UNAVAILABLE")
+  }
+
   invalidate(): void {
     this.cached = undefined
   }

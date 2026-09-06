@@ -91,6 +91,40 @@ describe("Core MCP module registry", () => {
     })
   })
 
+  it.each(["default", "plan"] as const)(
+    "directs confirmation and feedback to forms without an explicit form request in %s mode",
+    (mode) => {
+      const registry = createCoreMcpRegistry({
+        mode,
+        environment: defaultEnvironment(),
+      })
+      const tool = registry.tools.find(
+        (candidate) => candidate.name === "request_user_form",
+      )
+
+      for (const instructions of [registry.instructions, tool?.description]) {
+        expect(instructions).toContain(
+          "user confirmation, clarification, a choice, missing information, or feedback",
+        )
+        expect(instructions).toContain(
+          "even for a single question or a yes/no decision",
+        )
+        expect(instructions).toContain(
+          "the user does not need to ask for a form",
+        )
+      }
+      expect(registry.instructions).toContain(
+        "Use single_select for mutually exclusive choices and textarea for open-ended feedback",
+      )
+      expect(registry.instructions).toContain(
+        "Write the message, labels, descriptions, and options in the user's language",
+      )
+      expect(registry.instructions).toContain(
+        "Do not substitute Markdown, numbered questions, plain-text questions, or html-preview",
+      )
+    },
+  )
+
   it("blocks on the LinkSense form broker and returns the response to the model", async () => {
     const request = formBrokerFetch({
       action: "accept",

@@ -2,6 +2,7 @@ import { defineConfig } from "vitest/config"
 
 // Module-mocking tests require a fresh module graph.
 const isolatedTests = [
+  "test/bot-channels-clients.test.ts",
   "test/user-home-capability-materializer.test.ts",
   "test/knowledge-source-runtime.test.ts",
   "test/managed-task-title.test.ts",

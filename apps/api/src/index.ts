@@ -1,19 +1,20 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { flushCompileCache } from "node:module";
 
 import type { FastifyInstance } from "fastify";
 
-import { parseConfig } from "./config.js";
+import { isFullAppConfig, parseConfig } from "./config.js";
 import { createPrismaClient } from "./db.js";
 import { LinkSenseRedis } from "./adapters/redis.js";
 import { RunnerClient } from "./adapters/runner.js";
 import { MinioObjectStorage } from "./adapters/object-storage.js";
-import { createServices, type AppServices } from "./services.js";
-import { buildApi } from "./app.js";
+import type { AppServices } from "./services.js";
+import { LocalUnoserverRuntime, type OfficeConversionRuntime } from "./modules/knowledge-processing/office-converter.js";
 
 type ApiStartupResources = {
-  app: Pick<FastifyInstance, "close" | "listen">;
+  app: Pick<FastifyInstance, "close" | "listen" | "log">;
   services: Pick<
     AppServices,
     | "events"
@@ -26,6 +27,7 @@ type ApiStartupResources = {
     | "billingStatementScheduler"
     | "clawHubScheduler"
     | "feishu"
+    | "botChannelRuntime"
     | "feishuRuntime"
     | "weixinRuntime"
   >;
@@ -46,6 +48,11 @@ export function createApiLifecycle(
   resources: ApiStartupResources,
 ): ApiLifecycle {
   let closePromise: Promise<void> | null = null;
+  const startStage = async (stage: string, operation: () => Promise<void> | undefined): Promise<void> => {
+    const started = performance.now();
+    await operation();
+    resources.app.log.info({ stage, duration_ms: Math.round(performance.now() - started) }, "API startup stage ready");
+  };
   const close = (): Promise<void> => {
     if (closePromise) return closePromise;
     closePromise = closeApiResources(resources);
@@ -55,15 +62,16 @@ export function createApiLifecycle(
     close,
     async start() {
       try {
-        await resources.services.knowledgeGovernance?.start();
-        await resources.services.knowledgeRuntime?.start();
-        await resources.services.knowledgeSourceRuntime?.start();
-        await resources.services.automationScheduler.start();
-        await resources.services.billingStatementScheduler.start();
-        await resources.services.clawHubScheduler.start();
-        await resources.services.feishuRuntime.start();
-        await resources.services.weixinRuntime.start();
-        await resources.services.events.recoverRunningTurns();
+        await startStage("knowledge-governance", () => resources.services.knowledgeGovernance?.start());
+        await startStage("knowledge-runtime", () => resources.services.knowledgeRuntime?.start());
+        await startStage("knowledge-sources", () => resources.services.knowledgeSourceRuntime?.start());
+        await startStage("automation", () => resources.services.automationScheduler.start());
+        await startStage("billing", () => resources.services.billingStatementScheduler.start());
+        await startStage("clawhub", () => resources.services.clawHubScheduler.start());
+        await startStage("bot-channels", () => resources.services.botChannelRuntime.start());
+        await startStage("feishu", () => resources.services.feishuRuntime.start());
+        await startStage("weixin", () => resources.services.weixinRuntime.start());
+        await startStage("task-recovery", () => resources.services.events.recoverRunningTurns());
         await resources.app.listen({
           host: resources.host,
           port: resources.port,
@@ -91,13 +99,34 @@ export function isMainModule(
   return fileURLToPath(moduleUrl) === path.resolve(executablePath);
 }
 
+export async function loadApiWithOfficeWarmup<T>(
+  load: () => Promise<T>,
+  office: Pick<OfficeConversionRuntime, "start"> | null,
+  processStarted?: Promise<void>,
+): Promise<T> {
+  // Unoserver includes a fixed startup wait. Overlap that wait with loading
+  // the application graph, while preserving the same readiness requirement.
+  const warmup = office?.start().catch(() => undefined);
+  // Let the child process start before module evaluation occupies Node's
+  // event loop; both initialization paths can then make progress together.
+  if (processStarted) await Promise.race([processStarted, warmup]);
+  const [implementation] = await Promise.all([load(), warmup]);
+  return implementation;
+}
+
 export async function main(): Promise<void> {
+  const bootstrapStarted = performance.now();
   configureApiFileCreationMask();
   const config = parseConfig();
   const prisma = createPrismaClient(config.databaseUrl);
   const redis = new LinkSenseRedis(config);
   const runner = new RunnerClient(config);
   const storage = new MinioObjectStorage(config);
+  let officeProcessStarted = () => {};
+  const officeSpawned = new Promise<void>((resolve) => { officeProcessStarted = resolve; });
+  const officeRuntime = isFullAppConfig(config)
+    ? new LocalUnoserverRuntime({ onProcessStarted: officeProcessStarted })
+    : null;
   let services: AppServices | null = null;
   let lifecycle: ApiLifecycle | null = null;
 
@@ -109,28 +138,38 @@ export async function main(): Promise<void> {
     ]);
     await storage.ensureBucket();
 
-    services = createServices({
-      config,
-      prisma,
-      redis,
-      runner,
-      storage,
-    });
-    const app = await buildApi(services);
+    const boot = await loadApiWithOfficeWarmup(async () => {
+      const [{ createServices }, { buildApi }] = await Promise.all([
+        import("./services.js"), import("./app.js"),
+      ]);
+      const preparedServices = createServices({
+        config, prisma, redis, runner, storage,
+        ...(officeRuntime ? { officeRuntime } : {}),
+      });
+      services = preparedServices;
+      return { app: await buildApi(preparedServices), services: preparedServices };
+    }, officeRuntime, officeRuntime ? officeSpawned : undefined);
+    const { app } = boot;
+    app.log.info({ stage: "bootstrap", duration_ms: Math.round(performance.now() - bootstrapStarted) }, "API startup stage ready");
     lifecycle = createApiLifecycle({
       app,
-      services,
+      services: boot.services,
       redis,
       prisma,
       host: config.host,
       port: config.port,
     });
     await lifecycle.start();
+    // Persist enabled Node compilation caches before a container can be stopped.
+    const cacheStarted = performance.now();
+    flushCompileCache();
+    app.log.info({ stage: "compile-cache", duration_ms: Math.round(performance.now() - cacheStarted) }, "API startup stage ready");
   } catch (error) {
     if (lifecycle) {
       await lifecycle.close().catch(() => undefined);
     } else {
       await closePartiallyStartedApi(services, redis, prisma);
+      if (!services) await officeRuntime?.close().catch(() => undefined);
     }
     throw error;
   }
@@ -183,6 +222,7 @@ async function closeApiResources(
     ),
     Promise.resolve().then(() => resources.services.clawHubScheduler.close()),
     Promise.resolve().then(() => resources.services.feishu.close()),
+    Promise.resolve().then(() => resources.services.botChannelRuntime.close()),
     Promise.resolve().then(() => resources.services.feishuRuntime.close()),
     Promise.resolve().then(() => resources.services.weixinRuntime.close()),
   ]);
@@ -220,6 +260,7 @@ async function closePartiallyStartedApi(
       Promise.resolve().then(() => services.billingStatementScheduler.close()),
       Promise.resolve().then(() => services.clawHubScheduler.close()),
       Promise.resolve().then(() => services.feishu.close()),
+      Promise.resolve().then(() => services.botChannelRuntime.close()),
       Promise.resolve().then(() => services.feishuRuntime.close()),
       Promise.resolve().then(() => services.weixinRuntime.close()),
     ]);

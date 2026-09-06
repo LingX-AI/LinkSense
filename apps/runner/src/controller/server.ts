@@ -55,8 +55,10 @@ export function buildControllerServer(
   })
 
   app.get("/health/live", async () => ({ status: "available" }))
-  app.get("/health/ready", async (_request, reply) => {
-    const result = await workers.health()
+  app.get("/health/ready", async (request, reply) => {
+    const query = z.object({ include_resource_usage: z.literal("true").optional() }).safeParse(request.query)
+    if (!query.success) return reply.code(400).send({ error_code: "INVALID_INPUT" })
+    const result = await workers.health({ includeResourceUsage: query.data.include_resource_usage === "true" })
     return reply.code(result.statusCode).send({
       ...result.body,
       ...(config.LINKSENSE_RUNNER_INSTANCE_ID

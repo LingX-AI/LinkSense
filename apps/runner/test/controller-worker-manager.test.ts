@@ -902,6 +902,9 @@ describe("controller worker lifecycle", () => {
       { assertUserDataRoot: async () => undefined },
     )
 
+    const readiness = await manager.health({ includeResourceUsage: false })
+    expect(readiness.body).not.toHaveProperty("docker_resource_usage")
+    expect(docker.inspectContainerResourceStats).not.toHaveBeenCalled()
     const health = await manager.health()
     const cachedHealth = await manager.health()
 

@@ -8,6 +8,18 @@ import {
 } from "../src/modules/knowledge-processing/health.js"
 
 describe("KnowledgeProcessingHealthProbe", () => {
+  it("checks required storage independently of optional model and parsing probes", async () => {
+    const optionalHealth = vi.fn(async () => {})
+    const probe = new KnowledgeProcessingHealthProbe({
+      minio: availableDependency(),
+      docling: { health: optionalHealth },
+      embedding: { health: optionalHealth },
+      elasticsearch: { health: optionalHealth },
+      rerank: null,
+    })
+    await expect(probe.checkStorage()).resolves.toMatchObject({ status: "available" })
+    expect(optionalHealth).not.toHaveBeenCalled()
+  })
   it("preserves a failed Hybrid runtime probe for deployment diagnostics", async () => {
     const probe = new KnowledgeProcessingHealthProbe({
       minio: availableDependency(),

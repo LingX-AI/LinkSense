@@ -87,6 +87,7 @@ export class LocalUnoserverRuntime implements OfficeConversionRuntime {
       startupTimeoutMs?: number
       stopAfter?: number
       temporaryRoot?: string
+      onProcessStarted?: () => void
     } = {},
   ) {}
 
@@ -188,6 +189,7 @@ export class LocalUnoserverRuntime implements OfficeConversionRuntime {
   private async startProcess(): Promise<void> {
     try {
       await this.ping(1_000)
+      this.options.onProcessStarted?.()
       return
     } catch {
       // No reusable listener exists in this container; start one below.
@@ -234,6 +236,7 @@ export class LocalUnoserverRuntime implements OfficeConversionRuntime {
       },
     )
     this.child = child
+    this.options.onProcessStarted?.()
     child.once("exit", () => {
       if (this.child === child) this.child = null
     })

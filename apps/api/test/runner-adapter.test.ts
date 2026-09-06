@@ -478,6 +478,26 @@ describe("RunnerClient model catalog", () => {
 })
 
 describe("RunnerClient health", () => {
+  it.each([true, false])("requests resource diagnostics only when enabled (%s)", async (includeResourceUsage) => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      status: "available",
+      checked_at: "2026-07-16T00:00:00.000Z",
+      workspace: componentHealth(),
+      codex_home: componentHealth(),
+      codex_app_server: { ...componentHealth(), cached: true },
+      running_turns: 0,
+      app_server_processes: 0,
+      concurrency_limit: 20,
+      app_server_process_limit: 20,
+      process_limit: 20,
+      turn_start_contract_version: RUNNER_TURN_START_CONTRACT_VERSION,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    await new RunnerClient(testConfig()).health({ includeResourceUsage });
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("include_resource_usage")).toBe(includeResourceUsage ? "true" : null);
+  });
+
   it("accepts the optional development runner instance identifier", async () => {
     const runnerInstanceId = "01900000-0000-7000-8000-000000000088";
     vi.stubGlobal(

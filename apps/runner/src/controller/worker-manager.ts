@@ -515,7 +515,7 @@ export class WorkerManager {
     return this.runtimeModelCatalog
   }
 
-  async health(): Promise<{
+  async health(options: { includeResourceUsage?: boolean } = {}): Promise<{
     statusCode: 200 | 503
     body: Record<string, unknown>
   }> {
@@ -550,7 +550,9 @@ export class WorkerManager {
         }
       }),
     )
-    const dockerResourceUsage = await this.cachedDockerResourceUsage(checkedAt)
+    const dockerResourceUsage = options.includeResourceUsage === false
+      ? undefined
+      : await this.cachedDockerResourceUsage(checkedAt)
     const runtimeProbeAvailable =
       dependenciesAvailable && this.runtimeProbeCheckedAt !== undefined
     const available =
@@ -591,7 +593,7 @@ export class WorkerManager {
       app_server_process_limit:
         this.config.LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT,
       process_limit: this.config.LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT,
-      docker_resource_usage: dockerResourceUsage,
+      ...(dockerResourceUsage ? { docker_resource_usage: dockerResourceUsage } : {}),
     }
     return { statusCode: available ? 200 : 503, body }
   }

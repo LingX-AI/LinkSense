@@ -1013,8 +1013,11 @@ export class RunnerClient {
     }).then((result) => runnerMcpStdioProbeResultSchema.parse(result));
   }
 
-  health() {
-    return this.request<unknown>("/health/ready", "GET", undefined, {
+  health(options: { includeResourceUsage?: boolean } = {}) {
+    const pathname = options.includeResourceUsage === false
+      ? "/health/ready"
+      : "/health/ready?include_resource_usage=true";
+    return this.request<unknown>(pathname, "GET", undefined, {
       acceptErrorResponse: true,
     }).then((result) => runnerHealthSchema.parse(result));
   }

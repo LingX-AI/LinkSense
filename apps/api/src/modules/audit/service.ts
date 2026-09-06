@@ -345,6 +345,8 @@ const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
     "monthly_token_limit_changed",
   ],
   users_imported: ["row_count"],
+  bot_channel_connected: ["provider"],
+  bot_channel_disconnected: ["provider"],
   feishu_connection_created: ["domain", "status"],
   feishu_connection_deleted: ["domain", "status"],
   weixin_connection_created: ["application_id", "status"],

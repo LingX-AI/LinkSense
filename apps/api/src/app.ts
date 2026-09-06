@@ -78,6 +78,7 @@ import { mcpServerRoutes } from "./modules/mcp/routes.js";
 import { automationRoutes } from "./modules/automations/routes.js";
 import { completionNotificationRoutes } from "./modules/completion-notifications/routes.js";
 import { clawHubRoutes } from "./modules/clawhub/routes.js";
+import { botChannelRoutes } from "./modules/bot-channels/routes.js";
 import { feishuRoutes } from "./modules/feishu/routes.js";
 import { weixinRoutes } from "./modules/weixin/routes.js";
 import {
@@ -467,6 +468,11 @@ export async function buildApi(
   await app.register(weixinRoutes, {
     prefix: "/api/v1/weixin",
     service: services.weixin,
+  });
+  await app.register(botChannelRoutes, {
+    prefix: "/api/v1/bot-channels",
+    service: services.botChannels,
+    runtime: services.botChannelRuntime,
   });
   await app.register(feishuRoutes, {
     prefix: "/api/v1/feishu",

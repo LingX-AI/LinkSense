@@ -129,6 +129,44 @@ describe("buildTurnInput", () => {
     );
   });
 
+  it.each(["default", "plan"] as const)(
+    "requires interactive forms for user decisions and feedback in %s mode",
+    (mode) => {
+      const output = buildTurnAdditionalContext(
+        {
+          userInput: "继续处理",
+          attachments: [],
+          priorityPlugins: [],
+          prioritySkills: [],
+        },
+        undefined,
+        mode,
+      );
+      const policy = output?.["linksense.interactive-forms"];
+
+      expect(policy?.kind).toBe("application");
+      expect(policy?.value).toContain("mcp__linksense_core__request_user_form");
+      expect(policy?.value).toContain(
+        "user confirmation, clarification, a choice, missing information, or feedback",
+      );
+      expect(policy?.value).toContain(
+        "even for a single question or a yes/no decision",
+      );
+      expect(policy?.value).toContain(
+        "Do not ask again for information or authorization already provided",
+      );
+      expect(policy?.value).toContain(
+        "Wait for the tool result before continuing work that depends on the answer",
+      );
+      expect(policy?.value).toContain(
+        "Form submission by itself, cancellation, rejection, or missing input is not approval",
+      );
+      expect(policy?.value).toContain(
+        "Do not replace native tool permission approvals or the Plan mode proposed_plan review",
+      );
+    },
+  );
+
   it("injects trusted grounding rules only when the turn selects a knowledge base", () => {
     const context = {
       userInput: "如何使用 OneDrive？",
@@ -394,6 +432,10 @@ describe("buildTurnInput", () => {
       "This turn has exactly two valid endings",
     );
     expect(policy?.value).toContain(
+      "call request_user_form for a decision that is genuinely required",
+    );
+    expect(policy?.value).not.toContain("call request_user_input");
+    expect(policy?.value).toContain(
       "the first non-whitespace line of the final response must be <proposed_plan>",
     );
     expect(policy?.value).toContain(
@@ -470,6 +512,12 @@ describe("buildTurnInput", () => {
       })?.["linksense.inline-html-preview"]?.value ?? "";
     expect(instructions).toContain(
       "info string is exactly html-preview",
+    );
+    expect(instructions).toContain(
+      "For user confirmation, clarification, choices, missing information, or feedback, call request_user_form",
+    );
+    expect(instructions).toContain(
+      "HTML preview forms are only standalone demos or deliverables",
     );
     expect(instructions).toContain(
       "LinkSense injects its bundled Tailwind Browser runtime",

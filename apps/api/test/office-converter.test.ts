@@ -142,12 +142,15 @@ describe("UnoOfficeDocumentConverter", () => {
 
 describe("LocalUnoserverRuntime", () => {
   it("reuses a healthy listener left behind by development hot reload", async () => {
+    const onProcessStarted = vi.fn()
     const runtime = new LocalUnoserverRuntime({
       pingCommand: "/usr/bin/true",
       serverCommand: "command-that-must-not-be-started",
+      onProcessStarted,
     })
 
     await expect(runtime.start()).resolves.toBeUndefined()
+    expect(onProcessStarted).toHaveBeenCalledOnce()
     await expect(runtime.health()).resolves.toBeUndefined()
     await expect(runtime.close()).resolves.toBeUndefined()
   })

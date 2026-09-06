@@ -44,6 +44,7 @@ describe("WeixinChannelPage", () => {
     vi.mocked(apiRequest).mockImplementation(async (path, options) => {
       if (path === "/weixin" && !options.method) return { items: [] }
       if (path === "/feishu" && !options.method) return { items: [] }
+      if (path === "/bot-channels" && !options.method) return { items: [] }
       if (path === "/weixin/login-sessions" && options.method === "POST") {
         return loginSession("waiting_scan")
       }
@@ -141,7 +142,10 @@ describe("WeixinChannelPage", () => {
     expect(screen.queryByText(/扫码自动创建或更新/u)).not.toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "企业微信" })).toBeVisible()
     expect(screen.getByRole("heading", { name: "钉钉" })).toBeVisible()
-    expect(screen.getAllByText("即将支持")).toHaveLength(3)
+    expect(screen.queryByText("即将支持")).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "连接企业微信" })
+    ).toBeInTheDocument()
     expect(screen.queryByText("已连接账号 ****1234")).not.toBeInTheDocument()
     expect(
       screen.queryByText("仅扫码账号本人 · 文本与语音转写")
@@ -468,6 +472,7 @@ describe("WeixinChannelPage", () => {
     vi.mocked(apiRequest).mockImplementation(async (path, options) => {
       if (path === "/weixin") return { items: [] }
       if (path === "/feishu" && !options.method) return { items: [] }
+      if (path === "/bot-channels" && !options.method) return { items: [] }
       if (
         path === "/feishu/registration-sessions" &&
         options.method === "POST"

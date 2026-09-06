@@ -409,6 +409,64 @@ export const enUS = {
     securityPageDescription:
       "Change your local sign-in password and revoke existing sign-in sessions.",
   },
+  botChannels: {
+    connectionError:
+      "Check the app credentials, messaging permissions, and network, then try again.",
+    connect: "Connect {{name}}",
+    disconnect: "Disconnect {{name}}",
+    settings: "View configuration",
+    setupTitle: "Connect {{name}}",
+    save: "Save configuration",
+    cancel: "Cancel",
+    confirmDisconnect: "Disconnect",
+    retry: "Retry",
+    account: "App or bot account",
+    botId: "Bot ID",
+    clientId: "App Client ID",
+    secret: "App secret",
+    tenantId: "Tenant ID",
+    sender: "Allowed member ID",
+    groups: "Allow this member to start tasks by mentioning the bot in groups",
+    callback: "Messaging endpoint",
+    callbackHelp:
+      "Set this URL as the Azure Bot messaging endpoint. It must be publicly reachable over HTTPS.",
+    replaceHelp:
+      "To replace the app or secret, disconnect and configure the channel again.",
+    disconnectHelp:
+      "Disconnecting stops receiving and replying through this channel and removes pending messages and replies. Existing LinkSense tasks are kept.",
+    invalid:
+      "Check all required fields. Teams app, tenant, and member IDs must be valid UUIDs.",
+    status: {
+      connecting: "Connecting",
+      online: "Online",
+      waiting_message: "Waiting for a message",
+      error: "Connection error",
+      disconnected: "Not connected",
+    },
+    description: {
+      wecom:
+        "Receive direct messages and group mentions through a WeCom intelligent bot.",
+      dingtalk:
+        "Receive direct messages and group mentions through a DingTalk app bot.",
+      teams: "Receive direct messages and group mentions through a Teams bot.",
+    },
+    setup: {
+      wecom:
+        "Create an intelligent bot in WeCom using API mode and a persistent connection, then enter its ID, secret, and allowed member.",
+      dingtalk:
+        "Create an internal app on the DingTalk developer platform, enable and publish its Stream bot, and grant direct and group messaging permissions.",
+      teams:
+        "Create a single-tenant Azure Bot and enable Microsoft Teams. After saving, configure its messaging endpoint in Azure and install the bot app in Teams.",
+    },
+    senderHelp: {
+      wecom:
+        "Enter the member userid from your WeCom directory. Only this member can use your LinkSense assistant.",
+      dingtalk:
+        "Enter the member UserId from your DingTalk organization. Only this member can use your LinkSense assistant.",
+      teams:
+        "Enter the user object ID from Microsoft Entra. Only this user can use your LinkSense assistant.",
+    },
+  },
   channelAccess: {
     title: "Message channels",
     description:

@@ -1,3 +1,4 @@
+import { BotChannelCards } from "@/features/bot-channels/bot-channel-cards"
 import {
   useEffect,
   useRef,
@@ -18,8 +19,6 @@ import {
 } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { useTranslation } from "react-i18next"
-import { AiFillDingtalkCircle, AiFillWechatWork } from "react-icons/ai"
-import { BiLogoMicrosoftTeams } from "react-icons/bi"
 import { SiWechat } from "react-icons/si"
 
 import { apiRequest } from "@/api/client"
@@ -67,27 +66,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-
-const UPCOMING_CHANNELS = [
-  {
-    id: "wecom",
-    icon: AiFillWechatWork,
-    nameKey: "channelAccess.wecom.name",
-    descriptionKey: "channelAccess.wecom.description",
-  },
-  {
-    id: "dingtalk",
-    icon: AiFillDingtalkCircle,
-    nameKey: "channelAccess.dingtalk.name",
-    descriptionKey: "channelAccess.dingtalk.description",
-  },
-  {
-    id: "teams",
-    icon: BiLogoMicrosoftTeams,
-    nameKey: "channelAccess.teams.name",
-    descriptionKey: "channelAccess.teams.description",
-  },
-] as const
 
 type ChannelAccessActionButtonProps = ComponentProps<typeof Button> & {
   label: string
@@ -565,37 +543,7 @@ export function WeixinChannelPage() {
             </div>
           </article>
 
-          {UPCOMING_CHANNELS.map((channel) => {
-            const Icon = channel.icon
-            return (
-              <article
-                key={channel.id}
-                className="channel-access-card channel-access-card-upcoming"
-                aria-disabled="true"
-              >
-                <div className="channel-access-card-header">
-                  <div className="channel-access-heading">
-                    <span
-                      className="channel-access-icon channel-access-icon-upcoming"
-                      data-channel={channel.id}
-                      aria-hidden="true"
-                    >
-                      <Icon />
-                    </span>
-                    <div>
-                      <div className="channel-access-title-row">
-                        <h2>{t(channel.nameKey)}</h2>
-                        <Badge variant="secondary">
-                          {t("channelAccess.status.comingSoon")}
-                        </Badge>
-                      </div>
-                      <p>{t(channel.descriptionKey)}</p>
-                    </div>
-                  </div>
-                </div>
-              </article>
-            )
-          })}
+          <BotChannelCards />
         </section>
       )}
 

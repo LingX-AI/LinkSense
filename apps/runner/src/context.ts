@@ -1,3 +1,5 @@
+import { interactiveFormInstructions } from "./interactive-form-instructions.js";
+
 export type TurnContextInput = {
   userInput: string;
   approvedPlanImplementation?: true;
@@ -74,7 +76,8 @@ const KNOWLEDGE_GROUNDING_INSTRUCTIONS = [
 const INLINE_HTML_PREVIEW_INSTRUCTIONS = [
   "<linksense_inline_html_preview>",
   "LinkSense can render an explicit interactive HTML preview directly inside an assistant message.",
-  "When the user asks for an interactive HTML page, widget, prototype, dashboard, form, or similar rendered experience, prefer one complete fenced code block whose info string is exactly html-preview.",
+  "When the user asks for an interactive HTML page, widget, prototype, dashboard, standalone form demo, or similar rendered deliverable, prefer one complete fenced code block whose info string is exactly html-preview.",
+  "For user confirmation, clarification, choices, missing information, or feedback, call request_user_form. HTML preview forms are only standalone demos or deliverables; they cannot collect the user's response for the current conversation.",
   "Use ordinary html fences for source examples that should remain code-only. Never use html-preview for an incomplete fragment or merely explanatory HTML.",
   "Inside html-preview, produce one complete UTF-8 HTML document and use literal Tailwind CSS v4 utility classes for styling. LinkSense injects its bundled Tailwind Browser runtime, so never add a Tailwind CDN script, an external stylesheet, or another CSS framework.",
   "Do not construct Tailwind class names dynamically. Keep every class name as a complete literal in the HTML or inline JavaScript so the bundled runtime can detect it.",
@@ -134,7 +137,7 @@ const PLAN_MODE_POLICY_INSTRUCTIONS = [
   "Do not edit files, create or register artifacts, publish deliverables, or otherwise execute the requested implementation while Plan mode is active.",
   "Do not present research findings, tables, charts, reports, code, or any other requested deliverable as if the task were already completed. Investigation results are inputs to the plan, not the final deliverable.",
   "In commentary, describe only investigation and planning progress. Never claim that production, generation, implementation, or delivery has started, will continue through another write path, or is waiting for write permission.",
-  "This turn has exactly two valid endings: call request_user_input for a decision that is genuinely required, or emit exactly one complete plan for approval. An ordinary assistant answer is invalid in Plan mode, including for research-only or reporting tasks.",
+  "This turn has exactly two valid endings: call request_user_form for a decision that is genuinely required, or emit exactly one complete plan for approval. An ordinary assistant answer is invalid in Plan mode, including for research-only or reporting tasks.",
   "The plan must be decision-complete, specific to the request, and written entirely as future work. Include a clear title and four explicit sections, localized to the user's language: goals and scope; ordered implementation steps; validation and acceptance criteria; defaults, boundaries, and non-goals. Incorporate the selected Skill's relevant requirements and deliverable checks without copying its execution workflow.",
   "Inside <proposed_plan>, use ordinary Markdown only. Start with one `#` title, followed by exactly four `##` section headings for those four required sections. Localize the heading text to the user's language; for Chinese, use `## 目标与范围`, `## 实施步骤`, `## 验收标准`, and `## 默认项、边界与非目标`.",
   "The outer <proposed_plan> tags are the only XML-like tags allowed. Never use nested tags such as <title>, <goals_and_scope>, or any other HTML/XML wrapper inside the plan because the client renders the plan as Markdown.",
@@ -190,6 +193,15 @@ export function buildTurnAdditionalContext(
     "linksense.runtime-identity": {
       kind: "application",
       value: buildRuntimeIdentityInstructions(),
+    },
+    "linksense.interactive-forms": {
+      kind: "application",
+      value: [
+        "<linksense_interactive_forms>",
+        `Use mcp__${coreMcpServerKey}__request_user_form (request_user_form) for interactive forms in this conversation.`,
+        interactiveFormInstructions,
+        "</linksense_interactive_forms>",
+      ].join("\n"),
     },
   };
   if (collaborationMode !== "plan") {

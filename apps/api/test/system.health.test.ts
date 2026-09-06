@@ -35,6 +35,30 @@ describe("system health", () => {
     await rm(directory, { recursive: true, force: true })
   })
 
+  it("checks readiness without waiting for optional email or knowledge diagnostics", async () => {
+    const fixture = createSystemService(directory)
+    const runnerHealth = vi.spyOn(fixture.runner, "health")
+    const mailerHealth = vi.spyOn(fixture.mailer, "health").mockImplementation(() => new Promise(() => {}))
+    await expect(fixture.service.readiness()).resolves.toMatchObject({ status: "available", readiness: "ready" })
+    expect(mailerHealth).not.toHaveBeenCalled()
+    expect(runnerHealth).toHaveBeenLastCalledWith({ includeResourceUsage: false })
+  })
+
+  it("retains Runner resource statistics in full health diagnostics", async () => {
+    const fixture = createSystemService(directory)
+    const runnerHealth = vi.spyOn(fixture.runner, "health")
+    await fixture.service.health()
+    expect(runnerHealth).toHaveBeenCalledWith({ includeResourceUsage: true })
+  })
+
+  it("keeps both health and readiness unavailable when a required dependency fails", async () => {
+    const { service } = createSystemService(directory, {
+      redisPing: async () => { throw new Error("private Redis failure") },
+    })
+    await expect(service.readiness()).resolves.toMatchObject({ readiness: "unready" })
+    await expect(service.health()).resolves.toMatchObject({ readiness: "unready" })
+  })
+
   it("keeps readiness ready when SMTP is not configured", async () => {
     const { service } = createSystemService(directory, {
       smtpHealth: { status: "not_configured", reasonCode: "SMTP_NOT_CONFIGURED" },
@@ -118,6 +142,7 @@ describe("system health", () => {
   it("reports knowledge capabilities without making optional services readiness gates", async () => {
     const { service } = createSystemService(directory, {
       knowledgeHealth: {
+        checkStorage: vi.fn().mockResolvedValue(healthCapability("available", null)),
         check: vi.fn().mockResolvedValue({
           checked_at: "2026-07-22T00:00:00.000Z",
           readiness: "ready",
@@ -155,6 +180,7 @@ describe("system health", () => {
   it("fails readiness when the private knowledge MinIO bucket is unavailable", async () => {
     const { service } = createSystemService(directory, {
       knowledgeHealth: {
+        checkStorage: vi.fn().mockResolvedValue(healthCapability("unavailable", "MINIO_UNAVAILABLE")),
         check: vi.fn().mockResolvedValue({
           checked_at: "2026-07-22T00:00:00.000Z",
           readiness: "unready",
@@ -169,6 +195,7 @@ describe("system health", () => {
     const health = await service.health()
 
     expect(health.readiness).toBe("unready")
+    await expect(service.readiness()).resolves.toMatchObject({ readiness: "unready" })
     expect(health.components.minio).toMatchObject({
       status: "unavailable",
       reason_code: "MINIO_UNAVAILABLE",
@@ -718,6 +745,8 @@ function createSystemService(
     ),
     audit,
     auditWrite,
+    mailer,
+    runner,
     jobs,
   }
 }

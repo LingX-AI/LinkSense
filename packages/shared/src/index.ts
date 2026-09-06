@@ -15,6 +15,7 @@ export * from "./errors.js";
 export * from "./events.js";
 export * from "./feedback.js";
 export * from "./feishu.js";
+export * from "./bot-channels.js";
 export * from "./image-generation.js";
 export * from "./image-understanding.js";
 export * from "./interactive-applications.js";

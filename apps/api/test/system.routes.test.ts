@@ -12,6 +12,24 @@ const ONE_PIXEL_PNG = Buffer.from(
 )
 
 describe("system routes", () => {
+  it.each(["ready", "unready"] as const)("returns the %s readiness result without full diagnostics", async (state) => {
+    const readiness = vi.fn().mockResolvedValue({
+      status: state === "ready" ? "available" : "unavailable",
+      readiness: state,
+      checked_at: "2026-09-06T00:00:00.000Z",
+    })
+    const health = vi.fn()
+    const app = Fastify()
+    await app.register(systemRoutes, {
+      prefix: "/api/v1/system",
+      services: { system: { readiness, health } } as unknown as AppServices,
+    })
+    const response = await app.inject({ method: "GET", url: "/api/v1/system/health/ready" })
+    expect(response.statusCode).toBe(state === "ready" ? 200 : 503)
+    expect(response.json().data.readiness).toBe(state)
+    expect(health).not.toHaveBeenCalled()
+    await app.close()
+  })
   it("serves the configured system logo through a same-origin endpoint", async () => {
     const readProductLogo = vi.fn().mockResolvedValue({
       data: ONE_PIXEL_PNG,

@@ -10948,6 +10948,9 @@ async function deleteConversationGraph(
     ...new Set(citations.map((citation) => citation.documentVersionId)),
   ];
   await tx.conversationShare.deleteMany({ where: { conversationId } });
+  await tx.botChannelOutboundDelivery.deleteMany({ where: { conversationId } });
+  await tx.botChannelInboundMessage.deleteMany({ where: { conversationId } });
+  await tx.botChannelPeerSession.deleteMany({ where: { conversationId } });
   await tx.weixinOutboundDelivery.deleteMany({ where: { conversationId } });
   await tx.weixinInboundMessage.deleteMany({ where: { conversationId } });
   await tx.weixinPeerSession.deleteMany({ where: { conversationId } });

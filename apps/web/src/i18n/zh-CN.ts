@@ -377,6 +377,61 @@ export const zhCN = {
     uiFontSizeUnit: "px",
     securityPageDescription: "修改本地登录密码并撤销现有登录会话。",
   },
+  botChannels: {
+    connectionError: "连接出现问题，请检查应用凭据、发送权限和网络后重试。",
+    connect: "连接{{name}}",
+    disconnect: "断开{{name}}",
+    settings: "查看配置",
+    setupTitle: "连接{{name}}",
+    save: "保存配置",
+    cancel: "取消",
+    confirmDisconnect: "确认断开",
+    retry: "重试",
+    account: "应用或机器人账号",
+    botId: "机器人 ID",
+    clientId: "应用 Client ID",
+    secret: "应用密钥",
+    tenantId: "租户 ID",
+    sender: "允许使用的成员 ID",
+    groups: "允许该成员在群内 @ 机器人发起任务",
+    callback: "消息接收地址",
+    callbackHelp:
+      "将此地址填入 Azure Bot 的消息传送终结点。地址必须能通过公网 HTTPS 访问。",
+    replaceHelp: "如需更换应用或密钥，请断开连接后重新配置。",
+    disconnectHelp:
+      "断开后将停止接收和回复该渠道的消息，尚未处理的消息和待发送回复会被移除。已创建的 LinkSense 任务会保留。",
+    invalid: "请检查所有必填项，并完整填写平台提供的应用、租户和成员 ID。",
+    status: {
+      connecting: "连接中",
+      online: "在线",
+      waiting_message: "等待消息验证",
+      error: "连接异常",
+      disconnected: "未连接",
+    },
+    description: {
+      wecom:
+        "通过企业微信智能机器人接收私聊和群内 @ 消息，由 LinkSense 助手处理。",
+      dingtalk:
+        "通过钉钉应用机器人接收私聊和群内 @ 消息，由 LinkSense 助手处理。",
+      teams: "通过 Teams 机器人接收私聊和群内 @ 消息，由 LinkSense 助手处理。",
+    },
+    setup: {
+      wecom:
+        "在企业微信创建 API 模式的智能机器人，选择长连接，然后填写机器人 ID、密钥和允许使用的成员。",
+      dingtalk:
+        "在钉钉开放平台创建企业内部应用，启用 Stream 模式机器人并发布，开通机器人单聊和群聊发送权限。",
+      teams:
+        "创建单租户 Azure Bot 并启用 Microsoft Teams 渠道。保存后将消息接收地址填入 Azure，并在 Teams 安装包含该机器人的应用。",
+    },
+    senderHelp: {
+      wecom:
+        "填写企业微信通讯录中该成员的账号（userid），仅此成员可以使用你的 LinkSense 助手。",
+      dingtalk:
+        "填写钉钉组织中该成员的 UserId，仅此成员可以使用你的 LinkSense 助手。",
+      teams:
+        "填写 Microsoft Entra 中该用户的对象 ID，仅此用户可以使用你的 LinkSense 助手。",
+    },
+  },
   channelAccess: {
     title: "消息渠道",
     description:
