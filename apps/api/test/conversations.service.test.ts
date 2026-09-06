@@ -112,7 +112,22 @@ describe("ConversationService ownership and draft lifecycle", () => {
       role: "assistant",
       contentText: "Done",
     });
+    const assetReferenceId = "40000000-0000-4000-8000-000000000091";
     const attachment = attachmentRow({ turnId: TURN_ID });
+    const imageSnapshot = attachmentRow({
+      id: "40000000-0000-4000-8000-000000000092",
+      turnId: TURN_ID,
+      knowledgeAssetReferenceId: assetReferenceId,
+      kind: "artifact",
+      source: "system_generated",
+      status: "registered",
+      filename: "image.png",
+      mimeType: "image/png",
+      storageBackend: "minio",
+      workspaceRelativePath: null,
+      minioObjectKey: "snapshot/image.png",
+      downloadable: false,
+    });
     const sourceAttachmentPath = join(
       fixture.root,
       OWNER_ID,
@@ -146,7 +161,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
         },
       }),
     ]);
-    fixture.prisma.conversationFile.findMany.mockResolvedValue([attachment]);
+    fixture.prisma.conversationFile.findMany.mockResolvedValue([attachment, imageSnapshot]);
     fixture.runner.forkThread.mockResolvedValue({
       codexThreadId: "codex-thread-forked",
       codexTurnIds: ["codex-turn-internal", "codex-turn-target"],
@@ -231,6 +246,18 @@ describe("ConversationService ownership and draft lifecycle", () => {
     if (!clonedTurn || !clonedAssistantMessage) {
       throw new Error("missing copied context rows");
     }
+    expect(fixture.defaultTransaction.conversationFile.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({ kind: "attachment", turnId: clonedTurn.id }),
+        expect.objectContaining({
+          conversationId: result.id,
+          turnId: clonedTurn.id,
+          knowledgeAssetReferenceId: assetReferenceId,
+          minioObjectKey: "snapshot/image.png",
+          downloadable: false,
+        }),
+      ],
+    });
     expect(
       fixture.defaultTransaction.conversationEvent.createMany,
     ).toHaveBeenCalledWith({
@@ -2623,6 +2650,8 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.prisma.conversationFile.findMany).toHaveBeenCalledWith({
       where: {
         conversationId: CONVERSATION_ID,
+        // Inline knowledge copies must not become file cards or task outputs.
+        knowledgeAssetReferenceId: null,
         OR: [{ turnId: null }, { turnId: { in: [activeTurn.id] } }],
       },
       orderBy: { createdAt: "asc" },

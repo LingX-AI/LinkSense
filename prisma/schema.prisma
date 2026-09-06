@@ -1191,6 +1191,7 @@ model ConversationFile {
   minioObjectKey        String?  @map("minio_object_key") @db.Text
   downloadable          Boolean
   downloadCardEventId   String?  @map("download_card_event_id") @db.Uuid
+  knowledgeAssetReferenceId String? @map("knowledge_asset_reference_id") @db.Uuid
   createdBy             String?  @map("created_by") @db.Uuid
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1200,6 +1201,7 @@ model ConversationFile {
   @@index([turnId], map: "conversation_files_turn_id_idx")
   @@index([minioObjectKey], map: "conversation_files_minio_object_key_idx")
   @@index([downloadCardEventId], map: "conversation_files_download_card_event_idx")
+  @@unique([conversationId, knowledgeAssetReferenceId], map: "conversation_files_knowledge_asset_key")
   @@index([createdBy], map: "conversation_files_created_by_idx")
   @@map("conversation_files")
 }

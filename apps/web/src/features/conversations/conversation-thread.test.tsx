@@ -29,6 +29,7 @@ import {
   assistantHtmlPreviewWheelMessageType,
 } from "@/features/conversations/assistant-html-preview-document"
 import i18n from "@/i18n"
+import { AssistantKnowledgeImage } from "@/features/conversations/assistant-knowledge-image"
 
 const knowledgeBaseApiMocks = vi.hoisted(() => ({
   getKnowledgeCitationPreview: vi.fn(),
@@ -1184,6 +1185,38 @@ describe("conversation turn responses", () => {
       expect.any(AbortSignal)
     )
   })
+
+  it.each([false, true])(
+    "uses only the conversation snapshot even with citations (missing=%s)",
+    async (missing) => {
+      const download = vi.mocked(downloadApiFile)
+      if (missing) download.mockRejectedValue(new Error("snapshot missing"))
+      else
+        download.mockResolvedValue(new Blob(["image"], { type: "image/png" }))
+      render(
+        <AssistantKnowledgeImage
+          assetReferenceId="asset"
+          citationIds={["citation"]}
+          conversationId="conversation"
+          turnId="turn"
+          alt="会话图片"
+        />
+      )
+      if (missing) {
+        expect(await screen.findByText("无法预览图片 会话图片")).toBeVisible()
+      } else {
+        expect(
+          await screen.findByRole("img", { name: "会话图片" })
+        ).toHaveAttribute("src", "blob:sent-image")
+      }
+      expect(download).toHaveBeenCalledTimes(1)
+      expect(download).toHaveBeenCalledWith(
+        "/conversations/conversation/turns/turn/knowledge-assets/asset",
+        undefined,
+        expect.any(AbortSignal)
+      )
+    }
+  )
 
   it("loads a knowledge image through turn authorization while streaming and hands off without hiding it", async () => {
     const conversationId = "20000000-0000-4000-8000-000000000001"

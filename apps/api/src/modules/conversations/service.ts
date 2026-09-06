@@ -2217,6 +2217,9 @@ export class ConversationService {
       this.prisma.conversationFile.findMany({
         where: {
           conversationId,
+          // Inline knowledge copies are served by the image endpoint, not
+          // projected as generated file cards or task outputs.
+          knowledgeAssetReferenceId: null,
           OR: [{ turnId: null }, { turnId: { in: activeTurnIds } }],
         },
         orderBy: { createdAt: "asc" },
@@ -6455,6 +6458,7 @@ export class ConversationService {
                 kind: file.kind,
                 source: file.source,
                 status: file.status,
+                knowledgeAssetReferenceId: file.knowledgeAssetReferenceId,
                 filename: file.filename,
                 mimeType: file.mimeType,
                 sizeBytes: file.sizeBytes,

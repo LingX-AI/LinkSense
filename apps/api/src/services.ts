@@ -80,6 +80,7 @@ import {
 } from "./modules/knowledge/internal-search.js";
 import { TurnKnowledgeDocumentReferenceStore } from "./modules/knowledge/knowledge-document-ref-store.js";
 import { KnowledgeTurnAssetReadService } from "./modules/knowledge/turn-asset-read.js";
+import { ConversationAssetSnapshots } from "./modules/knowledge/conversation-asset-snapshots.js";
 import {
   createKnowledgeProcessingRuntime,
   type KnowledgeProcessingRuntime,
@@ -516,7 +517,7 @@ export function createServices(input: {
   let knowledgeSourceService: KnowledgeSourceService | null = null;
   let knowledgeSourceRuntime: KnowledgeSourceRuntime | null = null;
   let knowledgeSearch: InternalKnowledgeSearchService | null = null;
-  let knowledgeTurnAssets: KnowledgeTurnAssetReadService | null = null;
+  const knowledgeTurnAssets = new KnowledgeTurnAssetReadService(input.prisma, input.storage);
   let knowledgeRuntime: KnowledgeProcessingRuntime | null = null;
   let knowledgeGovernance: KnowledgeGovernanceRuntime | null = null;
   let knowledgeDocumentAccess: PrismaMinioKnowledgeDocumentAccessAdapter | null =
@@ -681,14 +682,14 @@ export function createServices(input: {
       knowledgeRuntime.retrieval,
       knowledgeSources,
       knowledgeDocumentReferences,
+      new ConversationAssetSnapshots(
+        input.prisma,
+        input.storage,
+        knowledgeDocumentAccess,
+        turnKnowledgeScopes,
+        jobs,
+      ),
       knowledgeRuntime.maintenanceGate,
-    );
-    knowledgeTurnAssets = new KnowledgeTurnAssetReadService(
-      input.prisma,
-      knowledgeSources,
-      turnKnowledgeScopes,
-      knowledgeDocumentAccess,
-      knowledgeRuntime.elasticsearch,
     );
   }
   const conversationTitles = new ConversationTitleService(
