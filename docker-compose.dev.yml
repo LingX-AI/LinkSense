@@ -1,4 +1,12 @@
 services:
+  postgres:
+    healthcheck:
+      start_interval: 100ms
+
+  redis:
+    healthcheck:
+      start_interval: 100ms
+
   # Development keeps the production service topology and host-backed user
   # directory while running source-aware Linux images for hot reload.
   api:
@@ -18,9 +26,15 @@ services:
     user: "node"
     read_only: false
     restart: unless-stopped
+    # The dev launcher checks actual readiness after all processes start.
+    # Waiting for Docker's healthcheck interval here serializes the stack.
+    depends_on:
+      runner:
+        condition: service_started
     environment:
       NODE_ENV: development
       NODE_OPTIONS: --conditions=development
+      NODE_COMPILE_CACHE: /tmp/linksense-node-compile-cache
       # Docker Desktop may resolve public domains through its 198.18.0.0/15
       # DNS proxy. Only this explicit development setting trusts that mapping.
       LINKSENSE_SAFE_HTTP_ALLOW_BENCHMARK_PROXY: "true"
@@ -31,11 +45,16 @@ services:
         - action: sync
           path: ./apps/api/src
           target: /workspace/apps/api/src
-          initial_sync: true
+          ignore: [generated/]
+        - action: sync
+          path: ./apps/docs/docs
+          target: /workspace/apps/docs/docs
+        - action: sync
+          path: ./apps/docs/i18n/en-US/docusaurus-plugin-content-docs/current
+          target: /workspace/apps/docs/i18n/en-US/docusaurus-plugin-content-docs/current
         - action: sync
           path: ./packages/shared/src
           target: /workspace/packages/shared/src
-          initial_sync: true
         - action: sync+restart
           path: ./apps/api/tsconfig.json
           target: /workspace/apps/api/tsconfig.json
@@ -70,6 +89,7 @@ services:
     environment:
       NODE_ENV: development
       NODE_OPTIONS: --conditions=development
+      NODE_COMPILE_CACHE: /tmp/linksense-node-compile-cache
       LINKSENSE_ENABLE_DEVELOPMENT_ENDPOINTS: "true"
       # Hot reload must not delete task workers. Explicit dev stop/rebuild calls
       # the authenticated cleanup endpoint before Compose changes networks.
@@ -82,11 +102,9 @@ services:
         - action: sync
           path: ./apps/runner/src
           target: /workspace/apps/runner/src
-          initial_sync: true
         - action: sync
           path: ./packages/shared/src
           target: /workspace/packages/shared/src
-          initial_sync: true
         - action: sync+restart
           path: ./apps/runner/tsconfig.json
           target: /workspace/apps/runner/tsconfig.json
@@ -114,32 +132,25 @@ services:
         DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
         LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
         PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://binaries.prisma.sh}
-    command:
-      [
-        "pnpm",
-        "--parallel",
-        "--stream",
-        "--filter",
-        "@linksense/web",
-        "--filter",
-        "@linksense/docs",
-        "dev",
-      ]
+    command: ["pnpm", "--filter", "@linksense/web", "dev"]
     user: "node"
     read_only: false
     restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
     environment:
       NODE_ENV: development
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:4000}
       LINKSENSE_DEV_API_PROXY_TARGET: http://api:4000
-      LINKSENSE_DEV_DOCS_PROXY_TARGET: http://127.0.0.1:3001
+      LINKSENSE_DEV_DOCS_PROXY_TARGET: http://docs:80
     ports: !override
       - "${LINKSENSE_DEV_WEB_BIND_ADDRESS:-127.0.0.1}:${LINKSENSE_DEV_WEB_PORT:-5173}:5173"
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "curl -fsS http://127.0.0.1:5173/ >/dev/null && curl -fsS http://127.0.0.1:3001/help/ >/dev/null",
+          "curl -fsS http://127.0.0.1:5173/ >/dev/null",
         ]
       interval: 5s
       timeout: 5s
@@ -150,37 +161,9 @@ services:
         - action: sync
           path: ./apps/web/src
           target: /workspace/apps/web/src
-          initial_sync: true
         - action: sync
           path: ./apps/web/public
           target: /workspace/apps/web/public
-          initial_sync: true
-        - action: sync+restart
-          path: ./apps/docs/docs
-          target: /workspace/apps/docs/docs
-          initial_sync: true
-        - action: sync+restart
-          path: ./apps/docs/i18n
-          target: /workspace/apps/docs/i18n
-          initial_sync: true
-        - action: sync+restart
-          path: ./apps/docs/src
-          target: /workspace/apps/docs/src
-          initial_sync: true
-        # Docusaurus copies static assets into its generated help site. Keep
-        # these in the development container too, otherwise a newly added
-        # favicon or navbar logo is referenced by the rebuilt HTML but returns
-        # 404 through the /help proxy.
-        - action: sync+restart
-          path: ./apps/docs/static
-          target: /workspace/apps/docs/static
-          initial_sync: true
-        - action: sync+restart
-          path: ./apps/docs/docusaurus.config.ts
-          target: /workspace/apps/docs/docusaurus.config.ts
-        - action: sync+restart
-          path: ./apps/docs/sidebars.ts
-          target: /workspace/apps/docs/sidebars.ts
         # Shared contracts are imported through Vite's external workspace
         # module graph. Docker Compose file sync does not reliably emit the
         # filesystem event Vite needs to invalidate its transformed module
@@ -188,23 +171,54 @@ services:
         - action: sync+restart
           path: ./packages/shared/src
           target: /workspace/packages/shared/src
-          initial_sync: true
         - action: sync+restart
           path: ./apps/web/index.html
           target: /workspace/apps/web/index.html
         - action: sync+restart
           path: ./apps/web/vite.config.ts
           target: /workspace/apps/web/vite.config.ts
-          initial_sync: true
         - action: rebuild
           path: ./apps/web/package.json
-        - action: rebuild
-          path: ./apps/docs/package.json
         - action: rebuild
           path: ./packages/shared/package.json
         - action: rebuild
           path: ./package.json
         - action: rebuild
           path: ./pnpm-lock.yaml
+        - action: rebuild
+          path: ./patches
+
+  docs:
+    image: linksense-docs-dev:${LINKSENSE_DEV_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      target: docs-runtime
+      args:
+        DOCS_IMAGE_FINGERPRINT: ${LINKSENSE_DOCS_IMAGE_FINGERPRINT:-unversioned}
+        LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/help/ && wget -q -O /dev/null http://127.0.0.1/help/en-US/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+      start_interval: 500ms
+    develop:
+      watch:
+        - action: rebuild
+          path: ./apps/docs
+          ignore: [node_modules/, build/, .docusaurus/]
+        - action: rebuild
+          path: ./Dockerfile.web
+        - action: rebuild
+          path: ./deploy/nginx/help-location.conf
+        - action: rebuild
+          path: ./deploy/nginx/development-docs.conf
+        - action: rebuild
+          path: ./pnpm-lock.yaml
+        - action: rebuild
+          path: ./package.json
         - action: rebuild
           path: ./patches

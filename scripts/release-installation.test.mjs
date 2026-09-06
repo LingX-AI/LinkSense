@@ -955,7 +955,7 @@ test("every LinkSense release image contains the CPAL license", async () => {
   const licenseCopy =
     /COPY --chmod=0444 LICENSE \/usr\/share\/licenses\/linksense\/LICENSE/gu
   assert.equal((api.match(licenseCopy) ?? []).length, 2)
-  assert.equal((web.match(licenseCopy) ?? []).length, 1)
+  assert.equal((web.match(licenseCopy) ?? []).length, 2)
   assert.equal((runner.match(licenseCopy) ?? []).length, 2)
 })
 

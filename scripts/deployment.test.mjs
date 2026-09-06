@@ -1078,7 +1078,7 @@ test("Web image builds and serves the bilingual Help Center with the application
     "pnpm --filter @linksense/docs build",
   );
   const copyDocsBuildIndex = dockerfile.indexOf(
-    "COPY --from=build /workspace/apps/docs/build /usr/share/nginx/html/help",
+    "COPY --from=docs-build /workspace/apps/docs/build /usr/share/nginx/html/help",
   );
 
   for (const index of [
@@ -1101,10 +1101,10 @@ test("Web image normalizes static asset permissions for the unprivileged Nginx w
   const webCopyIndex = dockerfile.indexOf(
     "COPY --from=build /workspace/apps/web/dist /usr/share/nginx/html",
   );
-  const docsCopyIndex = dockerfile.indexOf(
-    "COPY --from=build /workspace/apps/docs/build /usr/share/nginx/html/help",
+  const docsCopyIndex = dockerfile.lastIndexOf(
+    "COPY --from=docs-build /workspace/apps/docs/build /usr/share/nginx/html/help",
   );
-  const permissionIndex = dockerfile.indexOf(
+  const permissionIndex = dockerfile.lastIndexOf(
     "RUN chmod -R u=rwX,go=rX /usr/share/nginx/html",
   );
 
@@ -1152,13 +1152,10 @@ test("Nginx serves Help Center files without falling back to the application SPA
     "server {",
     "location = /health/live",
   );
-  const helpLocation = section(
-    config,
-    "location ^~ /help/",
-    "location /assets/",
-  );
+  const helpLocation = await readFile(resolve("deploy/nginx/help-location.conf"), "utf8");
 
-  assert.match(config, /location = \/help\s*\{\s*return 308 \/help\/;/u);
+  assert.match(config, /include \/etc\/nginx\/linksense\/help-location\.conf;/u);
+  assert.match(helpLocation, /location = \/help\s*\{\s*return 308 \/help\/;/u);
   assert.match(helpLocation, /try_files \$uri \$uri\/ =404;/u);
   assert.doesNotMatch(helpLocation, /\/index\.html/u);
   assert.match(
@@ -1357,72 +1354,48 @@ test("development Web proxies browser OIDC callbacks to the API service", async 
   );
   assert.match(
     developmentCompose,
-    /path: \.\/apps\/web\/vite\.config\.ts\s+target: \/workspace\/apps\/web\/vite\.config\.ts\s+initial_sync: true/u,
+    /path: \.\/apps\/web\/vite\.config\.ts\s+target: \/workspace\/apps\/web\/vite\.config\.ts/u,
   );
   assert.match(viteConfig, /["']\/api["']:\s*\{/u);
   assert.match(viteConfig, /process\.env\.LINKSENSE_DEV_API_PROXY_TARGET/u);
 });
 
-test("development Web serves and proxies the complete Help Center build", async () => {
-  const [
-    developmentDockerfile,
-    developmentCompose,
-    developmentScript,
-    docsPackage,
-    viteConfig,
-  ] = await Promise.all([
-    readFile(developmentDockerfilePath, "utf8"),
-    readFile(developmentComposePath, "utf8"),
-    readFile(developmentScriptPath, "utf8"),
-    readFile(docsPackagePath, "utf8"),
-    readFile(webViteConfigPath, "utf8"),
-  ]);
+test("development applications start without serial Docker healthcheck delays", async () => {
+  const { stdout } = await execFileAsync("docker", [
+    "compose", "--env-file", environmentExamplePath,
+    "-f", composePath, "-f", developmentComposePath, "config", "--format", "json",
+  ], { maxBuffer: 4 * 1024 * 1024 });
+  const { services } = JSON.parse(stdout);
+  assert.equal(services.api.depends_on.runner.condition, "service_started");
+  assert.equal(services.web.depends_on.api.condition, "service_started");
+  assert.equal(services.api.depends_on.redis.condition, "service_healthy");
+  assert.equal(services.api.depends_on.migrate.condition, "service_completed_successfully");
+});
 
-  assert.match(
-    developmentDockerfile,
-    /COPY --chown=node:node apps\/docs\/package\.json apps\/docs\/package\.json/u,
-  );
-  assert.match(
-    developmentDockerfile,
-    /COPY --chown=node:node apps\/docs apps\/docs/u,
-  );
-  assert.match(
-    developmentCompose,
-    /"--filter",\s+"@linksense\/web",\s+"--filter",\s+"@linksense\/docs",\s+"dev"/u,
-  );
-  assert.match(
-    developmentCompose,
-    /LINKSENSE_DEV_DOCS_PROXY_TARGET: http:\/\/127\.0\.0\.1:3001/u,
-  );
-  assert.match(
-    developmentCompose,
-    /curl -fsS http:\/\/127\.0\.0\.1:5173\/ >\/dev\/null && curl -fsS http:\/\/127\.0\.0\.1:3001\/help\/ >\/dev\/null/u,
-  );
-  assert.match(
-    developmentCompose,
-    /action: sync\+restart\s+path: \.\/apps\/docs\/docs/u,
-  );
-  assert.match(
-    developmentCompose,
-    /action: sync\+restart\s+path: \.\/apps\/docs\/i18n/u,
-  );
-  assert.match(
-    developmentCompose,
-    /action: sync\+restart\s+path: \.\/apps\/docs\/static\s+target: \/workspace\/apps\/docs\/static\s+initial_sync: true/u,
-  );
-  assert.match(docsPackage, /"dev": "pnpm build && pnpm serve"/u);
-  assert.match(
-    developmentScript,
-    /developmentDependencyFingerprint[\s\S]*"apps\/docs\/package\.json"/u,
-  );
-  assert.match(
-    developmentScript,
-    /developmentContainerReadinessTargets[\s\S]*name: "Help Center"[\s\S]*curl -fsS http:\/\/127\.0\.0\.1:3001\/help\/ >\/dev\/null/u,
-  );
-  assert.doesNotMatch(developmentScript, /url: `\$\{webOrigin\}\/help\/`/u);
+test("development serves the production bilingual Help Center from an independent image", async () => {
+  const [compose, dockerfile, script, viteConfig, docsConfig] = await Promise.all([
+    readFile(developmentComposePath, "utf8"),
+    readFile(webDockerfilePath, "utf8"),
+    readFile(developmentScriptPath, "utf8"),
+    readFile(webViteConfigPath, "utf8"),
+    readFile(resolve("deploy/nginx/development-docs.conf"), "utf8"),
+  ]);
+  const web = section(compose, "  web:", "  docs:");
+  const docs = compose.slice(compose.indexOf("  docs:"));
+  assert.match(web, /command: \["pnpm", "--filter", "@linksense\/web", "dev"\]/u);
+  assert.doesNotMatch(web, /@linksense\/docs/u);
+  assert.match(web, /LINKSENSE_DEV_DOCS_PROXY_TARGET: http:\/\/docs:80/u);
+  assert.match(docs, /target: docs-runtime/u);
+  assert.match(docs, /action: rebuild\s+path: \.\/apps\/docs/u);
+  assert.match(docs, /\/help\/en-US\//u);
+  assert.match(dockerfile, /FROM dependencies AS docs-build/u);
+  assert.match(dockerfile, /RUN pnpm --filter @linksense\/docs build/u);
+  assert.equal(dockerfile.split("COPY --from=docs-build /workspace/apps/docs/build /usr/share/nginx/html/help").length - 1, 2);
+  assert.match(docsConfig, /include \/etc\/nginx\/linksense\/help-location\.conf;/u);
+  assert.match(script, /name: "Help Center \(zh-CN\)"/u);
+  assert.match(script, /name: "Help Center \(en-US\)"/u);
   assert.match(viteConfig, /["']\/help["']:\s*\{/u);
   assert.match(viteConfig, /process\.env\.LINKSENSE_DEV_DOCS_PROXY_TARGET/u);
-  assert.doesNotMatch(viteConfig, /LINKSENSE_DEV_DOCS_EN_US_PROXY_TARGET/u);
 });
 
 test("Docker dependency installs consistently use the official Node package registry by default", async () => {

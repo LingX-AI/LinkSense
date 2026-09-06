@@ -92,16 +92,17 @@ Increase CPU, memory, and storage for high task concurrency, large documents, or
 
 ## Local development
 
-You need Node.js 24+, pnpm 10.6.4, and a working Docker Engine/Compose installation.
+You need Node.js 24+, pnpm 10.6.4, Docker Engine/Compose, and rsync (included with macOS; install your distribution's rsync package on Linux). Applications and dependencies run in Linux containers; host rsync only synchronizes source files.
 
 ```bash
 corepack enable
 corepack prepare pnpm@10.6.4 --activate
 pnpm install --frozen-lockfile
+pnpm dev:prepare
 pnpm dev
 ```
 
-The first run creates development configuration and prepares PostgreSQL, Redis, migrations, Web, API, Runner, and task workers. Default addresses:
+Preparation builds application images, the production task worker, and the bilingual Help Center using the production build stage, checks infrastructure and database initialization, then starts services and warms runtime caches until ready. `pnpm dev` also prepares missing inputs automatically. Daily startup targets 10 seconds after preparation; see the [development startup guide](./deploy/development/README.md) for cache rules and automated timing. Default addresses:
 
 - Web: `http://localhost:5173`
 - API: `http://localhost:4000`

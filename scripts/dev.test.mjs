@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 
 import {
   assertApiPortAvailable,
@@ -17,10 +19,10 @@ import {
   developmentComposeArguments,
   developmentDependencyFingerprint,
   developmentImageNames,
+  fingerprintBuildConfiguration,
   developmentInfrastructureStartCommand,
   developmentMigrationDeployCommand,
   developmentPostgresCredentialSyncCommand,
-  developmentContainerReadinessTargets,
   developmentReadinessTargets,
   developmentStorageInitializationCommand,
   developmentWorkerRebuildCommands,
@@ -31,6 +33,7 @@ import {
   sourceFingerprint,
   stopDevelopmentWorkers,
   waitForDevelopmentApplicationReadiness,
+  waitForWatchEnabled,
   workerImageFingerprint,
   workerImageNeedsRebuild,
 } from "./dev.mjs";
@@ -273,6 +276,14 @@ test("worker images rebuild when their runtime source fingerprint is stale", () 
   );
 });
 
+test("image reuse includes effective build arguments and ignores the fingerprint label itself", () => {
+  const base = { dockerfile: "Dockerfile.runner", target: "worker", args: { CODEX_VERSION: "1", PNPM_VERSION: "10", WORKER_IMAGE_FINGERPRINT: "previous" } };
+  const fingerprint = fingerprintBuildConfiguration("source", base);
+  assert.equal(fingerprintBuildConfiguration("source", { ...base, args: { ...base.args, WORKER_IMAGE_FINGERPRINT: "next" } }), fingerprint);
+  assert.notEqual(fingerprintBuildConfiguration("source", { ...base, args: { ...base.args, CODEX_VERSION: "2" } }), fingerprint);
+  assert.notEqual(fingerprintBuildConfiguration("source", { ...base, target: "worker-cached-browser" }), fingerprint);
+});
+
 test("Compose argument builders keep development and production modes separate", () => {
   assert.deepEqual(
     developmentComposeArguments("/tmp/linksense.env", ["up", "-d", "api"]),
@@ -326,9 +337,7 @@ test("development startup attaches source watch before waiting for health", () =
   ]);
   assert.deepEqual(developmentApplicationStartCommands(), {
     initial: [
-      ["up", "-d", "--no-build", "--no-deps", "runner"],
-      ["up", "-d", "--no-build", "--no-deps", "api"],
-      ["up", "-d", "--no-build", "--no-deps", "web"],
+      ["up", "-d", "--no-build", "--no-deps", "runner", "api", "web", "docs"],
     ],
   });
 });
@@ -349,6 +358,12 @@ test("development startup synchronizes persisted Postgres credentials without em
   assert.doesNotMatch(command[5], /dev-postgres-password-change-me/u);
 });
 
+function readinessResponse(url, status = 200) {
+  if (url.includes(".tsx")) return new Response("export default {}", { status, headers: { "content-type": "text/javascript" } });
+  if (url.includes(".css")) return new Response(":root {}", { status, headers: { "content-type": "text/css" } });
+  return new Response(`<html lang="${url.includes("/en-US/") ? "en-US" : "zh-CN"}"></html>`, { status });
+}
+
 test("development reattach readiness tolerates transient unhealthy services", async () => {
   const environment = buildDevelopmentEnvironment({
     ...containerEnvironment,
@@ -357,38 +372,18 @@ test("development reattach readiness tolerates transient unhealthy services", as
     LINKSENSE_DEV_RUNNER_BIND_ADDRESS: "0.0.0.0",
   });
   const calls = [];
-  const commandCalls = [];
   const attempts = new Map();
-  const commandAttempts = new Map();
-  const commandTargets = developmentContainerReadinessTargets(
-    "/tmp/linksense.env",
-  );
 
   await waitForDevelopmentApplicationReadiness(environment, {
     timeoutMs: 1_000,
     intervalMs: 1,
     requestTimeoutMs: 10,
-    commandTargets,
     sleepImplementation: async () => undefined,
-    commandImplementation: (command, argumentsList, options) => {
-      commandCalls.push({ command, argumentsList, options });
-      const key = `${command} ${argumentsList.join(" ")}`;
-      const nextAttempt = (commandAttempts.get(key) ?? 0) + 1;
-      commandAttempts.set(key, nextAttempt);
-      return {
-        status: nextAttempt >= 2 ? 0 : 1,
-        stdout: "",
-        stderr: nextAttempt >= 2 ? "" : "not ready",
-      };
-    },
     fetchImplementation: async (url, options) => {
       calls.push({ url, headers: options.headers });
       const nextAttempt = (attempts.get(url) ?? 0) + 1;
       attempts.set(url, nextAttempt);
-      return {
-        ok: nextAttempt >= 2,
-        status: nextAttempt >= 2 ? 200 : 503,
-      };
+      return readinessResponse(url, nextAttempt >= 2 ? 200 : 503);
     },
   });
 
@@ -402,30 +397,9 @@ test("development reattach readiness tolerates transient unhealthy services", as
   );
   assert.equal(targets[0].url, "http://127.0.0.1:4010/health/ready");
   assert.equal(targets[2].url, "http://127.0.0.1:5173/");
-  assert.equal(targets.length, 3);
-  assert.deepEqual(commandTargets[0], {
-    name: "Help Center",
-    command: "docker",
-    argumentsList: [
-      "compose",
-      "--env-file",
-      "/tmp/linksense.env",
-      "-f",
-      "docker-compose.yml",
-      "-f",
-      "docker-compose.dev.yml",
-      "exec",
-      "-T",
-      "web",
-      "sh",
-      "-ec",
-      "curl -fsS http://127.0.0.1:3001/help/ >/dev/null",
-    ],
-  });
-  assert.deepEqual(
-    commandCalls.map((call) => call.argumentsList),
-    [commandTargets[0].argumentsList, commandTargets[0].argumentsList],
-  );
+  assert.equal(targets.length, 8);
+  assert.equal(targets[3].url, "http://127.0.0.1:5173/help/");
+  assert.equal(targets[4].url, "http://127.0.0.1:5173/help/en-US/");
   assert.deepEqual(calls[0].headers, {
     authorization: "Bearer runner-secret",
   });
@@ -439,6 +413,75 @@ test("development reattach applies pending migrations without reseeding", () => 
     "pnpm",
     "db:migrate:deploy",
   ]);
+});
+
+test("readiness rejects an application fallback page in place of the English Help Center", async () => {
+  await assert.rejects(waitForDevelopmentApplicationReadiness(buildDevelopmentEnvironment({ LINKSENSE_RUNNER_SHARED_SECRET: "test" }), {
+    timeoutMs: 25,
+    intervalMs: 1,
+    fetchImplementation: async () => new Response('<html lang="zh-CN"></html>'),
+  }), /Help Center \(en-US\).*Unexpected page content/u);
+});
+
+test("readiness rejects HTML fallbacks for uncompiled application modules", async () => {
+  await assert.rejects(waitForDevelopmentApplicationReadiness(buildDevelopmentEnvironment({ LINKSENSE_RUNNER_SHARED_SECRET: "test" }), {
+    timeoutMs: 25,
+    intervalMs: 1,
+    fetchImplementation: async (url) => url.includes(".tsx")
+      ? new Response("<html></html>", { headers: { "content-type": "text/html" } })
+      : readinessResponse(url),
+  }), /Web entry module.*Unexpected content type/u);
+});
+
+test("readiness rechecks previously healthy services until every service passes together", async () => {
+  const attempts = new Map();
+  await waitForDevelopmentApplicationReadiness(buildDevelopmentEnvironment({ LINKSENSE_RUNNER_SHARED_SECRET: "test" }), {
+    timeoutMs: 1_000,
+    intervalMs: 1,
+    fetchImplementation: async (url) => {
+      const attempt = (attempts.get(url) ?? 0) + 1;
+      attempts.set(url, attempt);
+      const unhealthy = url.includes(":4010/") ? attempt === 2 : attempt === 1;
+      return readinessResponse(url, unhealthy ? 503 : 200);
+    },
+  });
+  assert.deepEqual([...attempts.values()], Array(8).fill(3));
+});
+
+test("readiness cancellation aborts active probes without another retry", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const ready = waitForDevelopmentApplicationReadiness(buildDevelopmentEnvironment({ LINKSENSE_RUNNER_SHARED_SECRET: "test" }), {
+    signal: controller.signal,
+    fetchImplementation: async (_url, { signal }) => {
+      calls += 1;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    },
+  });
+  controller.abort(new Error("watch stopped"));
+  await assert.rejects(ready, /watch stopped/u);
+  assert.equal(calls, 8);
+});
+
+test("watch startup waits for initial synchronization and rejects early exit or timeout", async () => {
+  const makeChild = () => Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough() });
+  const child = makeChild();
+  let ready = false;
+  const pending = waitForWatchEnabled(child, 500).then(() => { ready = true; });
+  child.stdout.write("Syncing source files\nWat");
+  await Promise.resolve();
+  assert.equal(ready, false);
+  child.stdout.write("ch enabled\n");
+  await pending;
+  assert.equal(ready, true);
+  assert.equal(child.stdout.listenerCount("data"), 0);
+  const exited = makeChild();
+  const rejected = waitForWatchEnabled(exited, 500);
+  exited.emit("exit", 1);
+  await assert.rejects(rejected, /exited before/u);
+  await assert.rejects(waitForWatchEnabled(makeChild(), 5), /did not become ready/u);
 });
 
 test("development startup prepares the host-backed user data root", () => {
