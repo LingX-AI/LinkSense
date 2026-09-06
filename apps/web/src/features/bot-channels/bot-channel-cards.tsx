@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { AiFillDingtalkCircle, AiFillWechatWork } from "react-icons/ai"
 import { BiLogoMicrosoftTeams } from "react-icons/bi"
+import { LinkIcon } from "lucide-react"
 import {
   botChannelCreateSchema,
   type BotChannelConnection,
@@ -130,12 +131,13 @@ function BotChannelCard({
   }
   return (
     <>
-      <article className="channel-access-card">
+      <article className="channel-access-card channel-access-card-manageable">
         <div className="channel-access-card-header">
           <div className="channel-access-heading">
             <span
-              className="channel-access-icon"
+              className={`channel-access-icon channel-access-icon-${provider}`}
               data-channel={provider}
+              data-testid={`${provider}-channel-brand-icon`}
               aria-hidden="true"
             >
               {icon}
@@ -151,32 +153,35 @@ function BotChannelCard({
                   )}
                 </Badge>
               </div>
-              <p>{t(`botChannels.description.${provider}`)}</p>
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <Button
-              variant="outline"
-              disabled={busy || !controls.query.isSuccess}
-              onClick={openSettings}
-            >
-              {t(connection ? "botChannels.settings" : "botChannels.connect", {
-                name,
-              })}
-            </Button>
-            {connection && (
-              <Button
-                variant="ghost"
-                disabled={busy}
-                onClick={() => {
-                  controls.disconnect.reset()
-                  setConfirmDisconnect(true)
-                }}
-              >
-                {t("botChannels.disconnect", { name })}
-              </Button>
+          <p className="channel-access-description">
+            {t(`botChannels.description.${provider}`)}
+          </p>
+        </div>
+        <div className="channel-access-actions">
+          <Button
+            variant={connection ? "outline" : "default"}
+            disabled={busy || !controls.query.isSuccess}
+            onClick={openSettings}
+          >
+            {!connection && (
+              <LinkIcon data-icon="inline-start" aria-hidden="true" />
             )}
-          </div>
+            {t(connection ? "botChannels.settings" : "botChannels.connect")}
+          </Button>
+          {connection && (
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                controls.disconnect.reset()
+                setConfirmDisconnect(true)
+              }}
+            >
+              {t("botChannels.disconnect", { name })}
+            </Button>
+          )}
         </div>
       </article>
       <Dialog

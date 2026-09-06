@@ -9182,23 +9182,6 @@ button.annotation-hover-file:focus-visible {
   justify-self: end;
 }
 
-.channel-access-card-upcoming {
-  gap: 10px;
-  border-color: transparent;
-  padding-block: 14px;
-  background: transparent;
-  color: var(--app-muted);
-  opacity: 0.82;
-  transition:
-    background-color 160ms ease,
-    opacity 160ms ease;
-}
-
-.channel-access-card-upcoming:hover {
-  background: var(--app-hover-subtle);
-  opacity: 1;
-}
-
 .channel-access-card-header {
   display: grid;
   gap: 8px;
@@ -9249,33 +9232,19 @@ button.annotation-hover-file:focus-visible {
   height: 20px;
 }
 
-.channel-access-icon-upcoming {
-  background: color-mix(in srgb, var(--app-muted) 8%, transparent);
-  color: var(--app-muted);
-}
-
-.channel-access-icon-upcoming[data-channel="wecom"] {
+.channel-access-icon-wecom {
   background: color-mix(in srgb, #1aad19 12%, transparent);
   color: #1aad19;
 }
 
-.channel-access-icon-upcoming[data-channel="dingtalk"] {
+.channel-access-icon-dingtalk {
   background: color-mix(in srgb, #1677ff 12%, transparent);
   color: #1677ff;
 }
 
-.channel-access-icon-upcoming[data-channel="teams"] {
+.channel-access-icon-teams {
   background: color-mix(in srgb, #6264a7 12%, transparent);
   color: #6264a7;
-}
-
-.channel-access-icon-upcoming[data-channel="feishu"] {
-  background: color-mix(in srgb, #3370ff 10%, transparent);
-}
-
-.channel-access-icon-upcoming[data-channel="feishu"] svg {
-  width: 20px;
-  height: 20px;
 }
 
 .channel-access-title-row {

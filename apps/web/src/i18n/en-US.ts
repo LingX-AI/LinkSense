@@ -412,7 +412,7 @@ export const enUS = {
   botChannels: {
     connectionError:
       "Check the app credentials, messaging permissions, and network, then try again.",
-    connect: "Connect {{name}}",
+    connect: "Connect",
     disconnect: "Disconnect {{name}}",
     settings: "View configuration",
     setupTitle: "Connect {{name}}",
@@ -480,7 +480,7 @@ export const enUS = {
       accountConnected: "Connected account {{account}}",
       scopeValue: "Scanning account only · Text and transcribed voice",
       iconLabel: "Weixin icon",
-      connect: "Connect Weixin",
+      connect: "Connect",
       reconnect: "Reconnect",
       disconnect: "Disconnect",
       successDescription: "Weixin is connected to LinkSense.",
@@ -522,7 +522,7 @@ export const enUS = {
       notConnected: "No personal Feishu bot created",
       scopeValue: "Owner only · Direct text messages",
       iconLabel: "Feishu icon",
-      connect: "Connect Feishu",
+      connect: "Connect",
       reconnect: "Update access",
       disconnect: "Disconnect",
       successDescription:

@@ -71,9 +71,10 @@ for (const width of [1440, 320]) {
     await page.goto("/settings/weixin")
     for (const name of ["企业微信", "钉钉", "Microsoft Teams"]) {
       const teams = name === "Microsoft Teams"
-      await page
-        .getByRole("button", { name: `连接${name}`, exact: true })
-        .click()
+      const card = page.locator("article").filter({
+        has: page.getByRole("heading", { name, exact: true }),
+      })
+      await card.getByRole("button", { name: "连接", exact: true }).click()
       const dialog = page.getByRole("dialog")
       await dialog
         .getByLabel(name === "企业微信" ? "机器人 ID" : "应用 Client ID")
@@ -106,7 +107,7 @@ for (const width of [1440, 320]) {
       await dialog.getByRole("button", { name: "确认断开" }).click()
       await expect(dialog).not.toBeVisible()
       await expect(
-        page.getByRole("button", { name: `连接${name}`, exact: true })
+        card.getByRole("button", { name: "连接", exact: true })
       ).toBeEnabled()
     }
     expect(items).toHaveLength(0)

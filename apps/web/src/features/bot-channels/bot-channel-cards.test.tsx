@@ -15,6 +15,7 @@ import {
   type BotChannelProvider,
 } from "@linksense/shared"
 import i18n from "@/i18n"
+import appStyles from "@/index.css?raw"
 import { BotChannelCards } from "./bot-channel-cards"
 
 const ID = "10000000-0000-4000-8000-000000000001"
@@ -40,6 +41,12 @@ function renderCards() {
       </I18nextProvider>
     </QueryClientProvider>
   )
+}
+async function findChannelCard(name: string) {
+  const heading = await screen.findByRole("heading", { name })
+  const card = heading.closest("article")
+  if (!card) throw new Error(`Missing ${name} channel card`)
+  return card
 }
 function fixture() {
   let items: BotChannelConnection[] = []
@@ -86,7 +93,10 @@ describe.each<[BotChannelProvider, string]>([
     const request = fixture()
     const user = userEvent.setup()
     renderCards()
-    const connect = await screen.findByRole("button", { name: `连接${name}` })
+    const card = await findChannelCard(name)
+    const connect = within(card).getByRole("button", {
+      name: "连接",
+    })
     await waitFor(() => expect(connect).toBeEnabled())
     await user.click(connect)
     const dialog = within(await screen.findByRole("dialog"))
@@ -131,26 +141,66 @@ describe.each<[BotChannelProvider, string]>([
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     )
-    expect(screen.getByRole("button", { name: `连接${name}` })).toBeEnabled()
+    expect(within(card).getByRole("button", { name: "连接" })).toBeEnabled()
   })
+})
+it("uses brand-colored channel icons and the shared right-side connect action layout", async () => {
+  fixture()
+  renderCards()
+
+  for (const [provider, color] of [
+    ["wecom", "#1aad19"],
+    ["dingtalk", "#1677ff"],
+    ["teams", "#6264a7"],
+  ] as const) {
+    const icon = await screen.findByTestId(`${provider}-channel-brand-icon`)
+    const card = icon.closest("article")
+    expect(card).not.toBeNull()
+    if (!card) throw new Error(`Missing ${provider} channel card`)
+    const actions = card.querySelector(".channel-access-actions")
+    const connect = within(card).getByRole("button", {
+      name: "连接",
+    })
+
+    expect(icon).toHaveClass(`channel-access-icon-${provider}`)
+    expect(icon.querySelector("svg")).toBeInTheDocument()
+    expect(appStyles).toMatch(
+      new RegExp(
+        `\\.channel-access-icon-${provider}\\s*\\{[^}]*color:\\s*${color};`,
+        "u"
+      )
+    )
+    expect(card).toHaveClass("channel-access-card-manageable")
+    expect(actions).toContainElement(connect)
+    expect(connect).toHaveClass("bg-primary")
+    expect(connect.querySelector('[data-icon="inline-start"]')).toBeVisible()
+  }
 })
 it("shows a request failure and can retry loading the cards", async () => {
   const request = fixture()
   request.mockRejectedValueOnce(new TypeError("offline"))
   const user = userEvent.setup()
   renderCards()
+  const card = await findChannelCard("企业微信")
   await user.click(await screen.findByRole("button", { name: "重试" }))
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "连接企业微信" })).toBeEnabled()
+    expect(
+      within(card).getByRole("button", {
+        name: "连接",
+      })
+    ).toBeEnabled()
   )
 })
 it("rejects malformed Teams IDs without submitting credentials", async () => {
   const request = fixture()
   const user = userEvent.setup()
   renderCards()
-  const connect = await screen.findByRole("button", {
-    name: "连接Microsoft Teams",
-  })
+  const connect = within(await findChannelCard("Microsoft Teams")).getByRole(
+    "button",
+    {
+      name: "连接",
+    }
+  )
   await waitFor(() => expect(connect).toBeEnabled())
   await user.click(connect)
   for (const label of [
@@ -172,8 +222,12 @@ it.each(["zh-CN", "en-US", "fr"])(
     fixture()
     await i18n.changeLanguage(language)
     renderCards()
-    const name = language === "en-US" ? "Connect WeCom" : "连接企业微信"
-    const connect = await screen.findByRole("button", { name })
+    const channelName = language === "en-US" ? "WeCom" : "企业微信"
+    const name = language === "en-US" ? "Connect" : "连接"
+    const connect = within(await findChannelCard(channelName)).getByRole(
+      "button",
+      { name }
+    )
     await waitFor(() => expect(connect).toBeEnabled())
     await userEvent.click(connect)
     expect(
