@@ -21,6 +21,7 @@ import {
   readManagedBrowserPolicy,
   type ManagedBrowserPolicy,
 } from "./policy.js"
+import { readBrowserUserAgent } from "./user-agent.js"
 
 const conversationIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
@@ -638,8 +639,7 @@ async function writeBrowserConfig(
       isolated: true,
       launchOptions: {
         // Use the complete Chromium binary and its new headless mode instead
-        // of the reduced headless-shell runtime. The browser then supplies
-        // its own version-matched Chrome UA and client hints.
+        // of the reduced headless-shell runtime.
         channel: "chromium",
         headless: true,
         // Chromium's setuid/user-namespace sandbox is incompatible with the
@@ -649,6 +649,7 @@ async function writeBrowserConfig(
         ignoreDefaultArgs: ["--disable-dev-shm-usage"],
       },
       contextOptions: {
+        userAgent: await readBrowserUserAgent(input.runtimeRoot),
         acceptDownloads: !input.readOnly,
         // Request routing cannot intercept traffic initiated by service
         // workers. Disable them for the Plan-only read-only browser broker so

@@ -2037,6 +2037,12 @@ test("worker full Chromium capability is pinned, broad by default, Plan-read-onl
   assert.match(browserInitPage, /page\.routeWebSocket\("\*\*\/\*"/u);
   assert.match(browserInitPage, /route\.close\(\{/u);
   assert.match(browserCliWrapper, /acceptDownloads: !input\.readOnly/u);
+  assert.match(browserCliWrapper, /userAgent: await readBrowserUserAgent\(input\.runtimeRoot\)/u);
+  for (const stageName of ["worker", "worker-cached-browser"]) {
+    const stage = dockerfile.split(/(?=^FROM )/mu).find((value) => value.split("\n")[0].endsWith(` AS ${stageName}`));
+    assert.ok(stage, `missing ${stageName} stage`);
+    assert.match(stage, /COPY --chmod=0644 deploy\/runtime\/browser\/generate-user-agent\.mjs \/opt\/linksense\/runtime\/browser\/generate-user-agent\.mjs\nRUN node \/opt\/linksense\/runtime\/browser\/generate-user-agent\.mjs/u);
+  }
   assert.match(
     browserCliWrapper,
     /serviceWorkers: input\.readOnly \? "block" : "allow"/u,

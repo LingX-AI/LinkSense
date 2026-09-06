@@ -215,6 +215,8 @@ RUN test -r /etc/codex/requirements.toml \
 RUN install -d -o root -g root -m 0755 /opt/linksense/runtime/shell
 COPY --chown=root:root --chmod=0444 deploy/runtime/shell/linksense-bash-env.sh /opt/linksense/runtime/shell/linksense-bash-env.sh
 COPY --chmod=0644 deploy/runtime/browser/init-page.ts /opt/linksense/runtime/browser/init-page.ts
+COPY --chmod=0644 deploy/runtime/browser/generate-user-agent.mjs /opt/linksense/runtime/browser/generate-user-agent.mjs
+RUN node /opt/linksense/runtime/browser/generate-user-agent.mjs
 COPY --chmod=0755 deploy/runtime/browser/linksense-browser /opt/linksense/bin/linksense-browser
 COPY --chmod=0755 deploy/runtime/node/pnpm /opt/linksense/bin/pnpm
 COPY --chmod=0755 deploy/runtime/node/linksense-pnpm /opt/linksense/bin/linksense-pnpm
@@ -336,6 +338,8 @@ RUN test -r /etc/codex/requirements.toml \
 RUN install -d -o root -g root -m 0755 /opt/linksense/runtime/shell
 COPY --chown=root:root --chmod=0444 deploy/runtime/shell/linksense-bash-env.sh /opt/linksense/runtime/shell/linksense-bash-env.sh
 COPY --chmod=0644 deploy/runtime/browser/init-page.ts /opt/linksense/runtime/browser/init-page.ts
+COPY --chmod=0644 deploy/runtime/browser/generate-user-agent.mjs /opt/linksense/runtime/browser/generate-user-agent.mjs
+RUN node /opt/linksense/runtime/browser/generate-user-agent.mjs
 COPY --chmod=0755 deploy/runtime/browser/linksense-browser /opt/linksense/bin/linksense-browser
 COPY --chmod=0755 deploy/runtime/node/pnpm /opt/linksense/bin/pnpm
 COPY --chmod=0755 deploy/runtime/node/linksense-pnpm /opt/linksense/bin/linksense-pnpm

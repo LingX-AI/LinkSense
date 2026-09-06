@@ -259,7 +259,7 @@ describe("managed browser CLI", () => {
     const sessionRoot = path.join(root, "sessions")
     await Promise.all([
       mkdir(codexHome, { recursive: true }),
-      mkdir(runtimeRoot, { recursive: true }),
+      prepareBrowserRuntime(runtimeRoot),
       ...["artifacts", "attachments", "temp"].map((name) =>
         mkdir(path.join(workspace, name), { recursive: true }),
       ),
@@ -332,6 +332,7 @@ describe("managed browser CLI", () => {
           ignoreDefaultArgs: ["--disable-dev-shm-usage"],
         },
         contextOptions: {
+          userAgent: testBrowserUserAgent,
           acceptDownloads: true,
           serviceWorkers: "allow",
         },
@@ -461,7 +462,7 @@ describe("managed browser CLI", () => {
     const html = "<!doctype html><title>预览</title><main>LinkSense</main>"
     await Promise.all([
       mkdir(codexHome, { recursive: true }),
-      mkdir(runtimeRoot, { recursive: true }),
+      prepareBrowserRuntime(runtimeRoot),
       ...["artifacts", "attachments", "temp"].map((name) =>
         mkdir(path.join(workspace, name), { recursive: true }),
       ),
@@ -529,7 +530,7 @@ describe("managed browser CLI", () => {
     const oversizedHtml = path.join(workspace, "artifacts", "oversized.html")
     await Promise.all([
       mkdir(codexHome, { recursive: true }),
-      mkdir(runtimeRoot, { recursive: true }),
+      prepareBrowserRuntime(runtimeRoot),
       ...["artifacts", "attachments", "temp"].map((name) =>
         mkdir(path.join(workspace, name), { recursive: true }),
       ),
@@ -614,4 +615,11 @@ async function temporaryRoot(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "linksense-browser-"))
   roots.push(root)
   return root
+}
+
+const testBrowserUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+
+async function prepareBrowserRuntime(runtimeRoot: string): Promise<void> {
+  await mkdir(runtimeRoot, { recursive: true })
+  await writeFile(path.join(runtimeRoot, "user-agent.json"), JSON.stringify({ userAgent: testBrowserUserAgent }))
 }
