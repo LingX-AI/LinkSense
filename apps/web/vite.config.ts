@@ -9,7 +9,6 @@ import { sharedDomTests } from "./src/test/shared-dom-files"
 
 const embedStylesheetFileName = "assets/embed-app.css"
 const applicationTests = ["src/App.test.tsx", "src/test/application/*.test.tsx"]
-const ciDomTestTimeout = process.env.CI ? 30_000 : 10_000
 const nodeTests = globSync("src/**/*.test.ts", {
   cwd: import.meta.dirname,
 }).filter((file) =>
@@ -123,8 +122,7 @@ export default defineConfig({
           isolate: false,
           // These flows navigate through multiple real pages while E2E shares
           // the machine. Keep their deadline separate from small unit tests.
-          testTimeout: ciDomTestTimeout,
-          hookTimeout: ciDomTestTimeout,
+          testTimeout: process.env.CI ? 20_000 : 10_000,
           setupFiles: ["./src/test/setup.ts", "./src/test/application/mocks.tsx"],
           sequence: { setupFiles: "list" },
         },
@@ -144,8 +142,6 @@ export default defineConfig({
           name: "shared-components",
           include: sharedDomTests,
           isolate: false,
-          testTimeout: ciDomTestTimeout,
-          hookTimeout: ciDomTestTimeout,
           setupFiles: ["./src/test/setup.ts", "./src/test/shared-dom-setup.ts"],
           sequence: { setupFiles: "list" },
         },

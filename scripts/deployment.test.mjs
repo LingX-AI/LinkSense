@@ -177,7 +177,7 @@ test("workspace tests bound parallel services before running the complete web su
   );
   assert.equal(
     webPackage.scripts["test:unit"],
-    "vitest run --project application --maxWorkers=4 && vitest run --project components --project shared-components --project node --maxWorkers=4",
+    "vitest run --project application --maxWorkers=4 --testTimeout=30000 --hookTimeout=30000 && vitest run --project components --project shared-components --project node --maxWorkers=4 --testTimeout=30000 --hookTimeout=30000",
   );
   assert.equal(webPackage.scripts["test:e2e"], "playwright test");
   assert.equal(runnerPackage.scripts.test, "vitest run --pool=forks --maxWorkers=4");
