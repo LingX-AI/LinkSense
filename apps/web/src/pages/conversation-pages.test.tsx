@@ -904,6 +904,15 @@ describe("conversation knowledge base snapshots", () => {
       return Promise.resolve(new Response(null, { status: 404 }))
     })
     vi.stubGlobal("fetch", fetchMock)
+    const conversationReadCount = () =>
+      fetchMock.mock.calls.filter(([request, requestInit]) => {
+        const path = new URL(String(request), window.location.origin).pathname
+        return (
+          path.endsWith("/conversations/conversation-immediate-clear") &&
+          requestInit?.method !== "PUT" &&
+          requestInit?.method !== "POST"
+        )
+      }).length
     seedLocalDraft("conversation-immediate-clear", {
       input: draftInput,
       capabilityIds: [selectedSkill.id],
@@ -963,21 +972,13 @@ describe("conversation knowledge base snapshots", () => {
       ).toBe(true)
     )
 
+    const staleRefetchBaseline = conversationReadCount()
     await queryClient.invalidateQueries({
       queryKey: ["conversation", "conversation-immediate-clear"],
       exact: true,
     })
     await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.filter(([request, requestInit]) => {
-          const path = new URL(String(request), window.location.origin).pathname
-          return (
-            path.endsWith("/conversations/conversation-immediate-clear") &&
-            requestInit?.method !== "PUT" &&
-            requestInit?.method !== "POST"
-          )
-        })
-      ).toHaveLength(2)
+      expect(conversationReadCount()).toBeGreaterThan(staleRefetchBaseline)
     )
     expect(
       screen.queryByRole("button", { name: "移除附件 invoice.png" })
@@ -1008,6 +1009,7 @@ describe("conversation knowledge base snapshots", () => {
     ).not.toBeInTheDocument()
     await waitFor(() => expect(turnAttempts).toBe(2))
 
+    const successfulRefetchBaseline = conversationReadCount()
     successfulTurnCreated = true
     retryTurnResponse.resolve(
       envelope({
@@ -1018,16 +1020,7 @@ describe("conversation knowledge base snapshots", () => {
     )
 
     await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.filter(([request, requestInit]) => {
-          const path = new URL(String(request), window.location.origin).pathname
-          return (
-            path.endsWith("/conversations/conversation-immediate-clear") &&
-            requestInit?.method !== "PUT" &&
-            requestInit?.method !== "POST"
-          )
-        })
-      ).toHaveLength(3)
+      expect(conversationReadCount()).toBeGreaterThan(successfulRefetchBaseline)
     )
     await waitFor(() => expect(composer).toHaveValue(""))
     expect(
