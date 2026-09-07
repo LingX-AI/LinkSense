@@ -340,14 +340,15 @@ export class KnowledgeIndexActivationReconciler {
   }
 
   async start(): Promise<void> {
-    if (this.started) return
+    if (this.started || this.closed) return
     this.started = true
-    await this.runSafely()
-    if (this.closed) return
     this.interval = setInterval(() => {
       void this.runSafely()
     }, this.intervalMs)
     this.interval.unref()
+    // Historical index repair can wait on document locks and external search.
+    // Track it for shutdown and coalesce ticks, without delaying API readiness.
+    void this.runSafely()
   }
 
   async close(): Promise<void> {

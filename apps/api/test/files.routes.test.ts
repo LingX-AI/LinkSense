@@ -101,7 +101,7 @@ describe("task artifact list route", () => {
 
 describe("draft attachment mutation routes", () => {
   it("clears an exact attachment batch with one service operation", async () => {
-    const deleteDraftAttachments = vi.fn(async () => undefined);
+    const deleteStagedAttachments = vi.fn(async () => undefined);
     const app = Fastify();
     apps.push(app);
     app.decorate("authenticate", async (request: FastifyRequest) => {
@@ -119,7 +119,7 @@ describe("draft attachment mutation routes", () => {
     await app.register(fileRoutes, {
       prefix: "/conversations",
       services: {
-        files: { deleteDraftAttachments },
+        files: { deleteStagedAttachments },
       } as unknown as AppServices,
     });
 
@@ -131,7 +131,7 @@ describe("draft attachment mutation routes", () => {
     });
 
     expect(response.statusCode, response.body).toBe(204);
-    expect(deleteDraftAttachments).toHaveBeenCalledWith(
+    expect(deleteStagedAttachments).toHaveBeenCalledWith(
       OWNER_ID,
       CONVERSATION_ID,
       [FILE_ID, secondFileId],

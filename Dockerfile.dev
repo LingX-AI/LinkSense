@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_IMAGE=node:24-bookworm-slim
+ARG NODE_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 ARG UV_VERSION=0.9.13
 ARG PNPM_VERSION=10.6.4
 ARG DEBIAN_MIRROR_URL=http://deb.debian.org/debian
@@ -46,6 +46,7 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
     openssl \
     python3 \
     python3-uno \
+    rsync \
   && uv venv --python /usr/bin/python3 --system-site-packages /opt/linksense/unoserver \
   && UV_NO_CACHE=1 uv pip install --python /opt/linksense/unoserver/bin/python "unoserver==3.7" \
   && /opt/linksense/unoserver/bin/python -c 'import uno, unoserver' \

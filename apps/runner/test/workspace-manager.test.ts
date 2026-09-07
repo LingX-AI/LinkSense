@@ -1208,6 +1208,53 @@ describe("CapabilityRuntimeManager", () => {
     ).rejects.toBeInstanceOf(CapabilityRuntimeError)
   })
 
+  it("reuses a verified publication only when the caller explicitly confirms process reuse", async () => {
+    const fixture = await publishedRuntimeFixture()
+    const manager = localCapabilityRuntimeManager()
+    const capabilities = [
+      {
+        id: "019f45dd-a318-7d02-b03b-eaece8887881",
+        name: "documents",
+        type: "plugin" as const,
+        revision: "current",
+      },
+      {
+        id: "019f45dd-a318-7d02-b03b-eaece8887882",
+        name: "reports",
+        type: "skill" as const,
+        revision: "current",
+      },
+    ]
+    const verified = await manager.resolvePublished({
+      userHome: fixture.userHome,
+      controlRoot: fixture.controlRoot,
+      expectedGeneration: generation,
+      capabilities,
+    })
+    await writeFile(
+      path.join(fixture.skillsRoot, "reports", "SKILL.md"),
+      "tampered after the process loaded its verified runtime",
+    )
+
+    await expect(
+      manager.resolvePublished({
+        userHome: fixture.userHome,
+        controlRoot: fixture.controlRoot,
+        expectedGeneration: generation,
+        capabilities,
+        reuseVerified: true,
+      }),
+    ).resolves.toBe(verified)
+    await expect(
+      manager.resolvePublished({
+        userHome: fixture.userHome,
+        controlRoot: fixture.controlRoot,
+        expectedGeneration: generation,
+        capabilities,
+      }),
+    ).rejects.toBeInstanceOf(CapabilityRuntimeError)
+  })
+
   it("rejects hidden rogue entries in the API-owned plugin source domain", async () => {
     const fixture = await publishedRuntimeFixture()
     const manager = localCapabilityRuntimeManager()

@@ -211,7 +211,7 @@ function createHarness(
       pageNumbers: [2],
     },
   ]);
-  const registerAssetSources = vi.fn().mockResolvedValue(undefined);
+  const capture = vi.fn().mockResolvedValue(undefined);
   const registerDocument = vi
     .fn()
     .mockResolvedValue("document_ref_0000000000000000001");
@@ -273,7 +273,7 @@ function createHarness(
       getParsedContentChunk,
     },
     { search } as unknown as KnowledgeRetrievalOrchestrator,
-    { register, registerAssetSources } as unknown as TurnKnowledgeSourceStore,
+    { register } as unknown as TurnKnowledgeSourceStore,
     {
       registerDocument,
       registerListCursor,
@@ -283,13 +283,14 @@ function createHarness(
       readDocument,
       markContentVerified,
     } as never,
+    { capture },
     { assertAvailable },
   );
   return {
     service,
     search,
     register,
-    registerAssetSources,
+    capture,
     registerDocument,
     registerListCursor,
     readListCursor,
@@ -390,7 +391,6 @@ describe("InternalKnowledgeSearchService", () => {
         titlePath: ["第一章", "发布"],
         matchedChildIds: [`${VERSION_ID}:0:child`],
         pageNumbers: [2],
-        assetReferenceIds: [ASSET_ID],
       }),
     ]);
     expect(harness.registerDocument).toHaveBeenCalledWith(TURN_ID, {
@@ -731,14 +731,29 @@ describe("InternalKnowledgeSearchService", () => {
       documentRef: "document_ref_0000000000000000001",
     });
 
-    expect(harness.registerAssetSources).toHaveBeenCalledWith(TURN_ID, [
+    expect(harness.capture).toHaveBeenCalledWith({
+      actor: expect.objectContaining({ id: OWNER_ID }),
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      sources: [
       {
         knowledgeBaseId: BASE_ID,
         documentId: DOCUMENT_ID,
         documentVersionId: VERSION_ID,
         assetReferenceIds: [firstAssetId, secondAssetId],
       },
-    ]);
+      ],
+    });
+  });
+
+  it("does not return unresolved image references when snapshot publication fails", async () => {
+    const harness = createHarness();
+    harness.capture.mockRejectedValue(new Error("snapshot publication failed"));
+    await expect(harness.service.search({
+      ownerId: OWNER_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID,
+      query: "guide", finalTopK: 5, candidateMultiplier: 2, minScore: 0,
+    })).rejects.toThrow("snapshot publication failed");
+    expect(harness.register).not.toHaveBeenCalled();
   });
 
   it("rejects a Markdown cursor bound to another document before reading storage", async () => {

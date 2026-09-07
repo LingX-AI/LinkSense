@@ -29,6 +29,7 @@ import {
   assistantHtmlPreviewWheelMessageType,
 } from "@/features/conversations/assistant-html-preview-document"
 import i18n from "@/i18n"
+import { AssistantKnowledgeImage } from "@/features/conversations/assistant-knowledge-image"
 
 const knowledgeBaseApiMocks = vi.hoisted(() => ({
   getKnowledgeCitationPreview: vi.fn(),
@@ -94,8 +95,6 @@ const completedConversation: Conversation = {
   collaboration_mode: "default",
   user_input_requests: [],
   plan_reviews: [],
-  draft_input: "",
-  draft_capability_ids: [],
   updated_at: "2026-07-11T08:00:03.250Z",
   has_unread_completion: false,
   has_automation: false,
@@ -545,6 +544,59 @@ describe("conversation turn responses", () => {
       )
       expect(screen.getByText("**行内示例： **value")).toBeVisible()
       expect(screen.getByText("**代码块： **value")).toBeVisible()
+    }
+  )
+
+  it.each([false, true])(
+    "renders assistant emphasis whose opening markers contain leading whitespace when streaming=%s",
+    (streaming) => {
+      const { container } = render(
+        <AssistantMarkdown
+          streaming={streaming}
+          content={[
+            "- 9月1日：公司宣布** Neo He 提前转正**，表扬其项目表现。",
+            "- 8月31日：任命** Jegan Chen、Rhoda Chen、Liz Xukur**分别兼任产品线负责人。",
+            "- 8月28日：通知** 9月1日 16:00–18:00**举行 OKR 回顾会议。",
+            "- 8月27日：欢迎新同事** Mayme Diao**加入 Infocare。",
+            "- 8月16日：Rhoda 获奖励** 300元京东购物卡**。",
+            "- 8月10日：Kate Chen 获** 200元沃尔玛购物卡**奖励。",
+          ].join("\n")}
+        />
+      )
+
+      expect(
+        [...container.querySelectorAll("strong")].map(
+          (element) => element.textContent
+        )
+      ).toEqual([
+        "Neo He 提前转正",
+        "Jegan Chen、Rhoda Chen、Liz Xukur",
+        "9月1日 16:00–18:00",
+        "Mayme Diao",
+        "300元京东购物卡",
+        "200元沃尔玛购物卡",
+      ])
+      expect(
+        container.querySelector(".assistant-markdown")
+      ).not.toHaveTextContent("**")
+    }
+  )
+
+  it.each([false, true])(
+    "renders strong emphasis next to Chinese text when streaming=%s",
+    (streaming) => {
+      const emphasized = "安装、迁移、新增或变更（IMAC）"
+      const { container } = render(
+        <AssistantMarkdown
+          streaming={streaming}
+          content={`本政策为教职工申请**${emphasized}**技术设备提供指引。`}
+        />
+      )
+
+      expect(screen.getByText(emphasized, { selector: "strong" })).toBeVisible()
+      expect(
+        container.querySelector(".assistant-markdown")
+      ).not.toHaveTextContent(`**${emphasized}**`)
     }
   )
 
@@ -1133,6 +1185,38 @@ describe("conversation turn responses", () => {
       expect.any(AbortSignal)
     )
   })
+
+  it.each([false, true])(
+    "uses only the conversation snapshot even with citations (missing=%s)",
+    async (missing) => {
+      const download = vi.mocked(downloadApiFile)
+      if (missing) download.mockRejectedValue(new Error("snapshot missing"))
+      else
+        download.mockResolvedValue(new Blob(["image"], { type: "image/png" }))
+      render(
+        <AssistantKnowledgeImage
+          assetReferenceId="asset"
+          citationIds={["citation"]}
+          conversationId="conversation"
+          turnId="turn"
+          alt="会话图片"
+        />
+      )
+      if (missing) {
+        expect(await screen.findByText("无法预览图片 会话图片")).toBeVisible()
+      } else {
+        expect(
+          await screen.findByRole("img", { name: "会话图片" })
+        ).toHaveAttribute("src", "blob:sent-image")
+      }
+      expect(download).toHaveBeenCalledTimes(1)
+      expect(download).toHaveBeenCalledWith(
+        "/conversations/conversation/turns/turn/knowledge-assets/asset",
+        undefined,
+        expect.any(AbortSignal)
+      )
+    }
+  )
 
   it("loads a knowledge image through turn authorization while streaming and hands off without hiding it", async () => {
     const conversationId = "20000000-0000-4000-8000-000000000001"
@@ -1925,6 +2009,39 @@ describe("conversation turn responses", () => {
         "本轮执行已结束，但没有产出可展示的内容，请重新执行。"
       )
     ).toBeVisible()
+  })
+
+  it("waits for terminal detail reconciliation before reporting missing output", () => {
+    const emptyCompletedConversation = {
+      ...completedConversation,
+      messages: [completedConversation.messages![0]!],
+      activities: [],
+      events: [],
+      artifacts: [],
+    }
+    const { rerender } = render(
+      <ConversationThread
+        conversation={emptyCompletedConversation}
+        reconcilingCompletedTurnId="turn-1"
+        onDownload={vi.fn()}
+      />
+    )
+
+    const summary = screen.getByTestId("turn-summary-turn-1")
+    expect(
+      within(summary).queryByText("执行失败", { exact: true })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("本轮执行已结束，但没有产出可展示的内容，请重新执行。")
+    ).toBeNull()
+
+    rerender(
+      <ConversationThread
+        conversation={emptyCompletedConversation}
+        onDownload={vi.fn()}
+      />
+    )
+    expect(within(summary).getByText("执行失败", { exact: true })).toBeVisible()
   })
 
   it("shows elapsed time for a completed context compaction without an empty-output failure", async () => {

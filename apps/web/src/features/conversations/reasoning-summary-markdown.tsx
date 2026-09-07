@@ -7,7 +7,7 @@ import {
   assistantMarkdownUrlTransform,
   getSafeAssistantMarkdownLinkUrl,
 } from "@/features/conversations/assistant-markdown-image-utils"
-import { assistantMarkdownPlugins } from "@/features/conversations/assistant-markdown-math"
+import { assistantMarkdownPlugins } from "@/features/conversations/assistant-markdown-plugins"
 import { normalizeAssistantMarkdown } from "@/features/conversations/streaming-markdown"
 import { cn } from "@/lib/utils"
 

@@ -902,11 +902,17 @@ describe("controller worker lifecycle", () => {
       { assertUserDataRoot: async () => undefined },
     )
 
+    const readiness = await manager.health({ includeResourceUsage: false })
+    expect(readiness.body).not.toHaveProperty("docker_resource_usage")
+    expect(docker.inspectContainerResourceStats).not.toHaveBeenCalled()
     const health = await manager.health()
+    const cachedHealth = await manager.health()
 
     expect(docker.listContainersByLabels).toHaveBeenCalledWith([
       "com.docker.compose.project=linksense",
     ])
+    expect(docker.listContainersByLabels).toHaveBeenCalledTimes(1)
+    expect(docker.inspectContainerResourceStats).toHaveBeenCalledTimes(2)
     expect(health.body.docker_resource_usage).toMatchObject({
       status: "available",
       reason_code: null,
@@ -939,6 +945,9 @@ describe("controller worker lifecycle", () => {
         },
       ],
     })
+    expect(cachedHealth.body.docker_resource_usage).toEqual(
+      health.body.docker_resource_usage,
+    )
     const serialized = JSON.stringify(health.body.docker_resource_usage)
     expect(serialized).not.toContain("api-container-secret-id")
     expect(serialized).not.toContain("linksense-worker-secret-name")

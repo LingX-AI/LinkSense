@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from "uuid";
 
+import { DurableWorkDispatcher } from "../../lib/durable-work-dispatcher.js";
 import type { ConversationService } from "../conversations/service.js";
 import {
   RedisFeishuCoordinator,
@@ -32,7 +33,7 @@ const HEARTBEAT_WRITE_INTERVAL_MS = 30_000;
 
 type RuntimeConversations = Pick<
   ConversationService,
-  "acceptTurn" | "createOrUpdateDraft"
+  "acceptTurn" | "create"
 >;
 
 type ActiveSession = {
@@ -47,8 +48,8 @@ export class FeishuRuntime {
   private connectionTimer: ReturnType<typeof setInterval> | null = null;
   private workTimer: ReturnType<typeof setInterval> | null = null;
   private connectionSweepRunning = false;
-  private workSweepRunning = false;
-  private activeWorkSweep: Promise<void> | null = null;
+  private readonly inboundWork;
+  private readonly outboundWork;
   private readonly sessions = new Map<string, ActiveSession>();
   private readonly connectingIds = new Set<string>();
   private readonly connectionTasks = new Set<Promise<void>>();
@@ -61,11 +62,28 @@ export class FeishuRuntime {
     private readonly encryption: FeishuEncryption,
     private readonly now: () => Date = () => new Date(),
     private readonly createId: () => string = uuidv7,
-  ) {}
+  ) {
+    this.inboundWork = new DurableWorkDispatcher({
+      concurrency: 20,
+      listPending: (limit) =>
+        this.repository.listPendingInbound(this.now(), limit),
+      key: (item) => item.message.id,
+      process: (item) => this.#processInbound(item),
+    });
+    this.outboundWork = new DurableWorkDispatcher({
+      concurrency: 20,
+      listPending: (limit) =>
+        this.repository.listPendingDeliveries(this.now(), limit),
+      key: (item) => item.delivery.id,
+      process: (item) => this.#deliverOutbound(item),
+    });
+  }
 
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
+    this.inboundWork.start();
+    this.outboundWork.start();
     this.connectionTimer = setInterval(
       () => this.wake(),
       CONNECTION_SWEEP_INTERVAL_MS,
@@ -98,7 +116,8 @@ export class FeishuRuntime {
     await Promise.allSettled([
       ...sessions.map(([, session]) => this.#closeSession(session)),
       ...this.connectionTasks,
-      ...(this.activeWorkSweep ? [this.activeWorkSweep] : []),
+      this.inboundWork.close(),
+      this.outboundWork.close(),
     ]);
   }
 
@@ -264,33 +283,13 @@ export class FeishuRuntime {
       contentText: message.text,
       receivedAt: message.receivedAt,
     });
-    if (persisted) this.#scheduleWorkSweep();
+    if (persisted) this.inboundWork.wake();
   }
 
   #scheduleWorkSweep(): void {
-    if (!this.started || this.workSweepRunning) return;
-    this.workSweepRunning = true;
-    const task = this.#workSweep().finally(() => {
-      this.workSweepRunning = false;
-      if (this.activeWorkSweep === task) this.activeWorkSweep = null;
-    });
-    this.activeWorkSweep = task;
-  }
-
-  async #workSweep(): Promise<void> {
-    try {
-      const now = this.now();
-      const [messages, deliveries] = await Promise.all([
-        this.repository.listPendingInbound(now, 20),
-        this.repository.listPendingDeliveries(now, 20),
-      ]);
-      await Promise.allSettled([
-        ...messages.map((item) => this.#processInbound(item)),
-        ...deliveries.map((item) => this.#deliverOutbound(item)),
-      ]);
-    } catch {
-      // Durable rows remain pending for the next sweep.
-    }
+    if (!this.started) return;
+    this.inboundWork.wake();
+    this.outboundWork.wake();
   }
 
   async #processInbound(
@@ -430,13 +429,9 @@ export class FeishuRuntime {
       peer = null;
     }
     if (!peer) {
-      const conversation = (
-        await this.conversations.createOrUpdateDraft(ownerId, {
-          inputText: "",
-          priorityCapabilityIds: [],
-          knowledgeBaseIds: [],
-        })
-      ).conversation;
+      const conversation = await this.conversations.create(ownerId, {
+        collaborationMode: "default",
+      });
       peer = await this.repository.upsertPeerSession({
         id: this.createId(),
         connectionId: message.connectionId,
@@ -507,7 +502,7 @@ export class FeishuRuntime {
         knowledgeBaseIds: [],
         idempotencyKey,
         submitMode: "normal",
-        draftPolicy: "preserve",
+        preserveStagedAttachments: true,
       },
       { actorId: ownerId, userAgent: "LinkSense Feishu" },
     );

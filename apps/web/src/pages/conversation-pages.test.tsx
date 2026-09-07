@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom"
 
 import { setAccessToken } from "@/api/session"
+import { writeLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
 import i18n from "@/i18n"
 import {
   ArchivedConversationListPage,
@@ -101,6 +102,21 @@ function modelPreference() {
       },
     ],
   }
+}
+
+function seedLocalDraft(
+  conversationId: string,
+  draft: {
+    input?: string
+    capabilityIds?: readonly string[]
+    knowledgeBaseIds?: readonly string[]
+  }
+) {
+  writeLocalConversationDraft(window.localStorage, "user-1", conversationId, {
+    input: draft.input ?? "",
+    capabilityIds: draft.capabilityIds ?? [],
+    knowledgeBaseIds: draft.knowledgeBaseIds ?? [],
+  })
 }
 
 function createDeferred<T>() {
@@ -283,6 +299,7 @@ describe("archived conversation pagination", () => {
 describe("conversation knowledge base snapshots", () => {
   beforeEach(async () => {
     setAccessToken("conversation-knowledge-token")
+    window.localStorage.clear()
     await i18n.changeLanguage("zh-CN")
   })
 
@@ -303,9 +320,8 @@ describe("conversation knowledge base snapshots", () => {
       mime_type: "application/pdf",
       size: 2_048,
       kind: "attachment",
-      draft_id: "draft-native-goal",
       turn_id: null,
-      status: "draft",
+      status: "staged",
       download_available: false,
     }
     let goalCompleted = false
@@ -321,7 +337,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -541,7 +562,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -655,7 +681,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -801,9 +832,8 @@ describe("conversation knowledge base snapshots", () => {
       mime_type: "image/png",
       size: 1_024,
       kind: "attachment",
-      draft_id: "draft-immediate-clear",
       turn_id: null,
-      status: "draft",
+      status: "staged",
       download_available: false,
     }
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -818,7 +848,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -841,22 +876,6 @@ describe("conversation knowledge base snapshots", () => {
         return Promise.resolve(envelope({ items: [], next_cursor: null }))
       }
       if (
-        path.endsWith("/conversations/conversation-immediate-clear/draft") &&
-        init?.method === "PUT"
-      ) {
-        const body = JSON.parse(String(init.body)) as {
-          input_text: string
-          priority_capability_ids: string[]
-          knowledge_base_ids: string[]
-        }
-        return Promise.resolve(
-          envelope({
-            ...body,
-            updated_at: "2026-07-22T00:00:01.000Z",
-          })
-        )
-      }
-      if (
         path.endsWith("/conversations/conversation-immediate-clear/turns") &&
         init?.method === "POST"
       ) {
@@ -874,16 +893,6 @@ describe("conversation knowledge base snapshots", () => {
             updated_at: "2026-07-22T00:00:00.000Z",
             execution_status: "idle",
             selected_knowledge_base_ids: [],
-            draft: {
-              input_text: successfulTurnCreated ? "" : draftInput,
-              priority_capability_ids: successfulTurnCreated
-                ? []
-                : [selectedSkill.id],
-              knowledge_base_ids: [],
-              updated_at: successfulTurnCreated
-                ? "2026-07-22T00:00:02.000Z"
-                : "2026-07-22T00:00:00.000Z",
-            },
             messages: [],
             turns: [],
             pending_requests: [],
@@ -895,6 +904,19 @@ describe("conversation knowledge base snapshots", () => {
       return Promise.resolve(new Response(null, { status: 404 }))
     })
     vi.stubGlobal("fetch", fetchMock)
+    const conversationReadCount = () =>
+      fetchMock.mock.calls.filter(([request, requestInit]) => {
+        const path = new URL(String(request), window.location.origin).pathname
+        return (
+          path.endsWith("/conversations/conversation-immediate-clear") &&
+          requestInit?.method !== "PUT" &&
+          requestInit?.method !== "POST"
+        )
+      }).length
+    seedLocalDraft("conversation-immediate-clear", {
+      input: draftInput,
+      capabilityIds: [selectedSkill.id],
+    })
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -950,21 +972,13 @@ describe("conversation knowledge base snapshots", () => {
       ).toBe(true)
     )
 
+    const staleRefetchBaseline = conversationReadCount()
     await queryClient.invalidateQueries({
       queryKey: ["conversation", "conversation-immediate-clear"],
       exact: true,
     })
     await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.filter(([request, requestInit]) => {
-          const path = new URL(String(request), window.location.origin).pathname
-          return (
-            path.endsWith("/conversations/conversation-immediate-clear") &&
-            requestInit?.method !== "PUT" &&
-            requestInit?.method !== "POST"
-          )
-        })
-      ).toHaveLength(2)
+      expect(conversationReadCount()).toBeGreaterThan(staleRefetchBaseline)
     )
     expect(
       screen.queryByRole("button", { name: "移除附件 invoice.png" })
@@ -995,6 +1009,7 @@ describe("conversation knowledge base snapshots", () => {
     ).not.toBeInTheDocument()
     await waitFor(() => expect(turnAttempts).toBe(2))
 
+    const successfulRefetchBaseline = conversationReadCount()
     successfulTurnCreated = true
     retryTurnResponse.resolve(
       envelope({
@@ -1005,18 +1020,14 @@ describe("conversation knowledge base snapshots", () => {
     )
 
     await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.filter(([request, requestInit]) => {
-          const path = new URL(String(request), window.location.origin).pathname
-          return (
-            path.endsWith("/conversations/conversation-immediate-clear") &&
-            requestInit?.method !== "PUT" &&
-            requestInit?.method !== "POST"
-          )
-        })
-      ).toHaveLength(3)
+      expect(conversationReadCount()).toBeGreaterThan(successfulRefetchBaseline)
     )
     await waitFor(() => expect(composer).toHaveValue(""))
+    expect(
+      window.localStorage.getItem(
+        "linksense.conversation-draft.v1:user-1:conversation-immediate-clear"
+      )
+    ).toBeNull()
     await waitFor(() =>
       expect(
         screen.queryByRole("button", { name: "移除附件 invoice.png" })
@@ -1027,11 +1038,9 @@ describe("conversation knowledge base snapshots", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("ignores a stale draft version conflict after switching to a new task", async () => {
-    const conversationId = "conversation-stale-draft-conflict"
-    const draftResponse = createDeferred<Response>()
+  it("keeps local drafts isolated after switching to a new task", async () => {
+    const conversationId = "conversation-local-draft-isolation"
     const draftInput = "发送后立刻新建任务"
-    let draftSaveAttempts = 0
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       const path = new URL(url, window.location.origin).pathname
@@ -1044,7 +1053,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1063,26 +1077,6 @@ describe("conversation knowledge base snapshots", () => {
       }
       if (path.endsWith("/knowledge-bases")) {
         return Promise.resolve(envelope({ items: [], next_cursor: null }))
-      }
-      if (
-        path.endsWith(`/conversations/${conversationId}/draft`) &&
-        init?.method === "PUT"
-      ) {
-        draftSaveAttempts += 1
-        if (draftSaveAttempts === 1) {
-          return draftResponse.promise
-        }
-        const body = JSON.parse(String(init.body)) as {
-          input_text: string
-          priority_capability_ids: string[]
-          knowledge_base_ids: string[]
-        }
-        return Promise.resolve(
-          envelope({
-            ...body,
-            updated_at: "2026-08-13T00:00:01.000Z",
-          })
-        )
       }
       if (
         path.endsWith(`/conversations/${conversationId}/turns`) &&
@@ -1105,12 +1099,6 @@ describe("conversation knowledge base snapshots", () => {
             updated_at: "2026-08-13T00:00:00.000Z",
             execution_status: "idle",
             selected_knowledge_base_ids: [],
-            draft: {
-              input_text: "",
-              priority_capability_ids: [],
-              knowledge_base_ids: [],
-              updated_at: "2026-08-13T00:00:00.000Z",
-            },
             messages: [],
             turns: [],
             pending_requests: [],
@@ -1156,8 +1144,8 @@ describe("conversation knowledge base snapshots", () => {
         fetchMock.mock.calls.some(
           ([request, requestInit]) =>
             String(request).endsWith(
-              `/api/v1/conversations/${conversationId}/draft`
-            ) && requestInit?.method === "PUT"
+              `/api/v1/conversations/${conversationId}/turns`
+            ) && requestInit?.method === "POST"
         )
       ).toBe(true)
     )
@@ -1170,15 +1158,8 @@ describe("conversation knowledge base snapshots", () => {
     })
     await waitFor(() => expect(newComposer).toHaveValue(""))
 
-    await act(async () => {
-      draftResponse.resolve(errorEnvelope(409, "DRAFT_VERSION_CONFLICT"))
-      await draftResponse.promise
-    })
     await waitFor(() => expect(queryClient.isMutating()).toBe(0))
 
-    expect(
-      screen.queryByText("草稿已在其他位置更新，请刷新后重试。")
-    ).not.toBeInTheDocument()
     expect(newComposer).toHaveValue("")
     expect(screen.getByRole("button", { name: "发送" })).toHaveAttribute(
       "aria-disabled",
@@ -1191,7 +1172,7 @@ describe("conversation knowledge base snapshots", () => {
             `/api/v1/conversations/${conversationId}/turns`
           ) && requestInit?.method === "POST"
       )
-    ).toHaveLength(0)
+    ).toHaveLength(1)
   })
 
   it("queues a rapid follow-up while the accepted turn is still projecting", async () => {
@@ -1237,7 +1218,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1372,25 +1358,18 @@ describe("conversation knowledge base snapshots", () => {
     })
   })
 
-  it("saves the submitted snapshot when a queued follow-up meets a draft version conflict", async () => {
-    const conversationId = "conversation-running-follow-up-conflict"
+  it("submits a queued follow-up directly without a server draft write", async () => {
+    const conversationId = "conversation-running-follow-up"
     const runningTurnId = "40000000-0000-4000-8000-000000000099"
     const followUpInput = "第二条快速追问"
-    let draftSaveAttempts = 0
     let pendingRequestBody: unknown = null
-    const detail = (draftUpdatedAt = "2026-08-13T00:00:00.000Z") => ({
+    const detail = () => ({
       id: conversationId,
       title: "连续发送任务",
       archived: false,
-      updated_at: draftUpdatedAt,
+      updated_at: "2026-08-13T00:00:00.000Z",
       execution_status: "running",
       selected_knowledge_base_ids: [],
-      draft: {
-        input_text: "",
-        priority_capability_ids: [],
-        knowledge_base_ids: [],
-        updated_at: draftUpdatedAt,
-      },
       messages: [
         {
           id: "message-running-follow-up",
@@ -1430,7 +1409,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1451,26 +1435,6 @@ describe("conversation knowledge base snapshots", () => {
         return Promise.resolve(envelope({ items: [], next_cursor: null }))
       }
       if (
-        path.endsWith(`/conversations/${conversationId}/draft`) &&
-        init?.method === "PUT"
-      ) {
-        draftSaveAttempts += 1
-        if (draftSaveAttempts === 1) {
-          return Promise.resolve(errorEnvelope(409, "DRAFT_VERSION_CONFLICT"))
-        }
-        const body = JSON.parse(String(init.body)) as {
-          input_text: string
-          priority_capability_ids: string[]
-          knowledge_base_ids: string[]
-        }
-        return Promise.resolve(
-          envelope({
-            ...body,
-            updated_at: "2026-08-13T00:00:02.000Z",
-          })
-        )
-      }
-      if (
         path.endsWith(`/conversations/${conversationId}/pending-requests`) &&
         init?.method === "POST"
       ) {
@@ -1478,11 +1442,7 @@ describe("conversation knowledge base snapshots", () => {
         return Promise.resolve(envelope({}))
       }
       if (path.endsWith(`/conversations/${conversationId}`)) {
-        const timestamp =
-          draftSaveAttempts > 0
-            ? "2026-08-13T00:00:01.000Z"
-            : "2026-08-13T00:00:00.000Z"
-        return Promise.resolve(envelope(detail(timestamp)))
+        return Promise.resolve(envelope(detail()))
       }
       return Promise.resolve(new Response(null, { status: 404 }))
     })
@@ -1529,11 +1489,14 @@ describe("conversation knowledge base snapshots", () => {
         knowledge_base_ids: [],
       })
     )
-    expect(
-      screen.queryByText("草稿已在其他位置更新，请刷新后重试。")
-    ).not.toBeInTheDocument()
     await waitFor(() => expect(composer).toHaveValue(""))
-    expect(draftSaveAttempts).toBe(2)
+    expect(
+      fetchMock.mock.calls.some(
+        ([request, requestInit]) =>
+          String(request).endsWith(`/conversations/${conversationId}/draft`) &&
+          requestInit?.method === "PUT"
+      )
+    ).toBe(false)
   })
 
   it("shows a pending attachment chip while an uploaded file request is in flight", async () => {
@@ -1546,9 +1509,8 @@ describe("conversation knowledge base snapshots", () => {
       mime_type: "application/zip",
       size: 5_242_880,
       kind: "attachment",
-      draft_id: "draft-upload-pending",
       turn_id: null,
-      status: "draft",
+      status: "staged",
       download_available: false,
     }
     const detail = () => ({
@@ -1583,7 +1545,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1670,12 +1637,10 @@ describe("conversation knowledge base snapshots", () => {
     ).toBeVisible()
   })
 
-  it("clears all attachments with one atomic request and blocks other composer writes until it finishes", async () => {
+  it("clears all attachments atomically while persisting typed text locally", async () => {
     const conversationId = "conversation-clear-attachments"
     const clearResponse = createDeferred<Response>()
     let clearCompleted = false
-    let draftWriteWhileClearPending = false
-    const draftUpdates: Array<Record<string, unknown>> = []
     const attachments = ["一.pdf", "二.pdf", "三.pdf", "四.pdf"].map(
       (name, index) => ({
         id: `30000000-0000-4000-8000-00000000000${index + 1}`,
@@ -1683,9 +1648,8 @@ describe("conversation knowledge base snapshots", () => {
         mime_type: "application/pdf",
         size: 1_024 + index,
         kind: "attachment",
-        draft_id: "40000000-0000-4000-8000-000000000001",
         turn_id: null,
-        status: "draft",
+        status: "staged",
         download_available: false,
       })
     )
@@ -1721,7 +1685,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1746,22 +1715,6 @@ describe("conversation knowledge base snapshots", () => {
         init?.method === "DELETE"
       ) {
         return clearResponse.promise
-      }
-      if (
-        path.endsWith(`/conversations/${conversationId}/draft`) &&
-        init?.method === "PUT"
-      ) {
-        draftWriteWhileClearPending ||= !clearCompleted
-        const body = JSON.parse(String(init.body)) as Record<string, unknown>
-        draftUpdates.push(body)
-        return Promise.resolve(
-          envelope({
-            input_text: body.input_text,
-            priority_capability_ids: body.priority_capability_ids,
-            knowledge_base_ids: body.knowledge_base_ids,
-            updated_at: "2026-08-13T00:00:01.000Z",
-          })
-        )
       }
       if (path.endsWith(`/conversations/${conversationId}`)) {
         return Promise.resolve(envelope(detail()))
@@ -1821,8 +1774,13 @@ describe("conversation knowledge base snapshots", () => {
     )
     expect(screen.getByRole("button", { name: "发送" })).toBe(send)
     expect(send).toBeDisabled()
-    await new Promise((resolve) => window.setTimeout(resolve, 650))
-    expect(draftUpdates).toHaveLength(0)
+    await waitFor(() =>
+      expect(
+        window.localStorage.getItem(
+          `linksense.conversation-draft.v1:user-1:${conversationId}`
+        )
+      ).toContain("清理完成后继续")
+    )
 
     const clearCall = fetchMock.mock.calls.find(([request, requestInit]) => {
       const path = new URL(String(request), window.location.origin).pathname
@@ -1845,11 +1803,13 @@ describe("conversation knowledge base snapshots", () => {
         screen.queryByRole("button", { name: "查看全部 4 个附件" })
       ).not.toBeInTheDocument()
     )
-    await waitFor(() => expect(draftUpdates).toHaveLength(1))
-    expect(draftWriteWhileClearPending).toBe(false)
-    expect(draftUpdates[0]).toMatchObject({
-      input_text: "清理完成后继续",
-    })
+    expect(
+      fetchMock.mock.calls.some(
+        ([request, requestInit]) =>
+          String(request).endsWith(`/conversations/${conversationId}/draft`) &&
+          requestInit?.method === "PUT"
+      )
+    ).toBe(false)
     const attachmentDeleteCalls = fetchMock.mock.calls.filter(
       ([request, requestInit]) => {
         const path = new URL(String(request), window.location.origin).pathname
@@ -1878,7 +1838,12 @@ describe("conversation knowledge base snapshots", () => {
       const url = String(input)
       const path = new URL(url, window.location.origin).pathname
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -1985,6 +1950,10 @@ describe("conversation knowledge base snapshots", () => {
   it("waits for an off-page selected knowledge base before sending its ordered id snapshot", async () => {
     const knowledgeBaseId = "10000000-0000-4000-8000-000000000001"
     const pagedKnowledgeBaseId = "10000000-0000-4000-8000-000000000009"
+    seedLocalDraft("conversation-knowledge", {
+      input: "保修期多久？",
+      knowledgeBaseIds: [knowledgeBaseId],
+    })
     const knowledgeBase = (id: string, name: string) => ({
       id,
       name,
@@ -2032,7 +2001,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (url.endsWith("/api/v1/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -2158,6 +2132,10 @@ describe("conversation knowledge base snapshots", () => {
   it("keeps a successfully verified selection when the knowledge-base list fails", async () => {
     const knowledgeBaseId = "12000000-0000-4000-8000-000000000001"
     const knowledgeBase = activeKnowledgeBase(knowledgeBaseId, "售后知识库")
+    seedLocalDraft("conversation-list-failure", {
+      input: "保修期多久？",
+      knowledgeBaseIds: [knowledgeBaseId],
+    })
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       const path = new URL(url, window.location.origin).pathname
@@ -2170,7 +2148,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -2319,6 +2302,10 @@ describe("conversation knowledge base snapshots", () => {
       disabledId,
       revokedId,
     ]
+    seedLocalDraft("conversation-valid-intersection", {
+      input: "查询当前可用资料",
+      knowledgeBaseIds: selectedIds,
+    })
     const knowledgeBase = (
       id: string,
       name: string,
@@ -2379,7 +2366,12 @@ describe("conversation knowledge base snapshots", () => {
         )
       }
       if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(envelope({ accepted: true }))
+        return Promise.resolve(
+          envelope({
+            accepted: true,
+            conversation_id: "71000000-0000-4000-8000-000000000001",
+          })
+        )
       }
       if (path.endsWith("/model-preference")) {
         return Promise.resolve(envelope(modelPreference()))
@@ -2571,7 +2563,12 @@ describe("conversation knowledge base snapshots", () => {
           )
         }
         if (path.endsWith("/conversations/prewarm")) {
-          return Promise.resolve(envelope({ accepted: true }))
+          return Promise.resolve(
+            envelope({
+              accepted: true,
+              conversation_id: "71000000-0000-4000-8000-000000000001",
+            })
+          )
         }
         if (
           path.endsWith(`/conversations/${conversationId}/model-preference`)

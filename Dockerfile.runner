@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_IMAGE=node:24-bookworm-slim
+ARG NODE_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
 ARG UV_VERSION=0.9.13
 ARG CODEX_VERSION=0.150.1
@@ -81,10 +81,10 @@ COPY deploy/runtime/browser/package.json deploy/runtime/browser/pnpm-lock.yaml .
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/linksense/runtime/browser-browsers
 ENV PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
 RUN pnpm install --prod --frozen-lockfile --ignore-workspace \
-  && if ! pnpm exec playwright-cli install-browser chromium --only-shell; then \
+  && if ! pnpm exec playwright-cli install-browser chromium; then \
       if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then \
         echo "Playwright mirror download failed; retrying with the default upstream." >&2; \
-        PLAYWRIGHT_DOWNLOAD_HOST= pnpm exec playwright-cli install-browser chromium --only-shell; \
+        PLAYWRIGHT_DOWNLOAD_HOST= pnpm exec playwright-cli install-browser chromium; \
       else \
         exit 1; \
       fi; \
@@ -182,10 +182,10 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
     unzip \
     util-linux \
     zip \
-  && if ! node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --only-shell --with-deps; then \
+  && if ! node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --with-deps; then \
       if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then \
         echo "Playwright mirror dependency install failed; retrying with the default upstream." >&2; \
-        PLAYWRIGHT_DOWNLOAD_HOST= node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --only-shell --with-deps; \
+        PLAYWRIGHT_DOWNLOAD_HOST= node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --with-deps; \
       else \
         exit 1; \
       fi; \
@@ -215,6 +215,8 @@ RUN test -r /etc/codex/requirements.toml \
 RUN install -d -o root -g root -m 0755 /opt/linksense/runtime/shell
 COPY --chown=root:root --chmod=0444 deploy/runtime/shell/linksense-bash-env.sh /opt/linksense/runtime/shell/linksense-bash-env.sh
 COPY --chmod=0644 deploy/runtime/browser/init-page.ts /opt/linksense/runtime/browser/init-page.ts
+COPY --chmod=0644 deploy/runtime/browser/generate-user-agent.mjs /opt/linksense/runtime/browser/generate-user-agent.mjs
+RUN node /opt/linksense/runtime/browser/generate-user-agent.mjs
 COPY --chmod=0755 deploy/runtime/browser/linksense-browser /opt/linksense/bin/linksense-browser
 COPY --chmod=0755 deploy/runtime/node/pnpm /opt/linksense/bin/pnpm
 COPY --chmod=0755 deploy/runtime/node/linksense-pnpm /opt/linksense/bin/linksense-pnpm
@@ -303,10 +305,10 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
     unzip \
     util-linux \
     zip \
-  && if ! node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --only-shell --with-deps; then \
+  && if ! node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --with-deps; then \
       if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then \
         echo "Playwright mirror dependency install failed; retrying with the default upstream." >&2; \
-        PLAYWRIGHT_DOWNLOAD_HOST= node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --only-shell --with-deps; \
+        PLAYWRIGHT_DOWNLOAD_HOST= node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --with-deps; \
       else \
         exit 1; \
       fi; \
@@ -336,6 +338,8 @@ RUN test -r /etc/codex/requirements.toml \
 RUN install -d -o root -g root -m 0755 /opt/linksense/runtime/shell
 COPY --chown=root:root --chmod=0444 deploy/runtime/shell/linksense-bash-env.sh /opt/linksense/runtime/shell/linksense-bash-env.sh
 COPY --chmod=0644 deploy/runtime/browser/init-page.ts /opt/linksense/runtime/browser/init-page.ts
+COPY --chmod=0644 deploy/runtime/browser/generate-user-agent.mjs /opt/linksense/runtime/browser/generate-user-agent.mjs
+RUN node /opt/linksense/runtime/browser/generate-user-agent.mjs
 COPY --chmod=0755 deploy/runtime/browser/linksense-browser /opt/linksense/bin/linksense-browser
 COPY --chmod=0755 deploy/runtime/node/pnpm /opt/linksense/bin/pnpm
 COPY --chmod=0755 deploy/runtime/node/linksense-pnpm /opt/linksense/bin/linksense-pnpm

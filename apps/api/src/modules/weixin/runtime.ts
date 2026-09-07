@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from "uuid";
 
+import { DurableWorkDispatcher } from "../../lib/durable-work-dispatcher.js";
 import type { AppError } from "../../lib/errors.js";
 import type { ConversationService } from "../conversations/service.js";
 import {
@@ -40,7 +41,7 @@ const TYPING_CONFIG_MAX_RETRY_MS = 60 * 60 * 1_000;
 
 type RuntimeConversations = Pick<
   ConversationService,
-  "acceptTurn" | "createApplicationConversation" | "createOrUpdateDraft"
+  "acceptTurn" | "create" | "createApplicationConversation"
 >;
 
 type WeixinTypingTicketEntry = {
@@ -66,8 +67,8 @@ export class WeixinRuntime {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private deliveryTimer: ReturnType<typeof setInterval> | null = null;
   private pollSweepRunning = false;
-  private workSweepRunning = false;
-  private activeWorkSweep: Promise<void> | null = null;
+  private readonly inboundWork;
+  private readonly outboundWork;
   private readonly pollingConnectionIds = new Set<string>();
   private readonly notifiedConnectionIds = new Set<string>();
   private readonly activePolls = new Set<Promise<void>>();
@@ -83,11 +84,28 @@ export class WeixinRuntime {
     private readonly encryption: WeixinEncryption,
     private readonly now: () => Date = () => new Date(),
     private readonly createId: () => string = uuidv7,
-  ) {}
+  ) {
+    this.inboundWork = new DurableWorkDispatcher({
+      concurrency: 20,
+      listPending: (limit) =>
+        this.repository.listPendingInbound(this.now(), limit),
+      key: (item) => item.message.id,
+      process: (item) => this.#processInbound(item),
+    });
+    this.outboundWork = new DurableWorkDispatcher({
+      concurrency: 20,
+      listPending: (limit) =>
+        this.repository.listPendingDeliveries(this.now(), limit),
+      key: (item) => item.delivery.id,
+      process: (item) => this.#deliverOutbound(item),
+    });
+  }
 
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
+    this.inboundWork.start();
+    this.outboundWork.start();
     this.pollTimer = setInterval(() => this.wake(), POLL_SWEEP_INTERVAL_MS);
     this.deliveryTimer = setInterval(
       () => this.#scheduleWorkSweep(),
@@ -107,15 +125,6 @@ export class WeixinRuntime {
   }
 
   async close(): Promise<void> {
-    if (
-      !this.started &&
-      this.activePolls.size === 0 &&
-      !this.activeWorkSweep &&
-      this.activeTyping.size === 0 &&
-      this.notifiedConnectionIds.size === 0
-    ) {
-      return;
-    }
     this.started = false;
     if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.deliveryTimer) clearInterval(this.deliveryTimer);
@@ -124,7 +133,8 @@ export class WeixinRuntime {
     for (const controller of this.abortControllers) controller.abort();
     await Promise.allSettled([
       ...this.activePolls,
-      ...(this.activeWorkSweep ? [this.activeWorkSweep] : []),
+      this.inboundWork.close(),
+      this.outboundWork.close(),
     ]);
     const notifiedConnectionIds = [...this.notifiedConnectionIds];
     this.notifiedConnectionIds.clear();
@@ -229,7 +239,7 @@ export class WeixinRuntime {
         },
       );
       guard.assertActive();
-      return await this.repository.persistPoll({
+      const persisted = await this.repository.persistPoll({
         connectionId,
         expectedEncryptedState: connection.encryptedState,
         encryptedState: encryptWeixinConnectionState(
@@ -241,6 +251,8 @@ export class WeixinRuntime {
         messages,
         polledAt: this.now(),
       });
+      if (persisted && messages.length > 0) this.inboundWork.wake();
+      return persisted;
     } catch (error) {
       const occurredAt = this.now();
       if (
@@ -298,29 +310,9 @@ export class WeixinRuntime {
   }
 
   #scheduleWorkSweep(): void {
-    if (!this.started || this.workSweepRunning) return;
-    this.workSweepRunning = true;
-    const task = this.#workSweep().finally(() => {
-      this.workSweepRunning = false;
-      if (this.activeWorkSweep === task) this.activeWorkSweep = null;
-    });
-    this.activeWorkSweep = task;
-  }
-
-  async #workSweep(): Promise<void> {
-    try {
-      const now = this.now();
-      const [messages, deliveries] = await Promise.all([
-        this.repository.listPendingInbound(now, 20),
-        this.repository.listPendingDeliveries(now, 20),
-      ]);
-      await Promise.allSettled([
-        ...messages.map((item) => this.#processInbound(item)),
-        ...deliveries.map((item) => this.#deliverOutbound(item)),
-      ]);
-    } catch {
-      // Durable rows remain pending and are picked up by the next sweep.
-    }
+    if (!this.started) return;
+    this.inboundWork.wake();
+    this.outboundWork.wake();
   }
 
   async #processInbound(
@@ -454,13 +446,10 @@ export class WeixinRuntime {
       }
       const applicationChanged = peer && peer.applicationIdSnapshot !== null;
       if (!peer || applicationChanged) {
-        const conversation = (
-          await this.conversations.createOrUpdateDraft(connection.ownerId, {
-            inputText: "",
-            priorityCapabilityIds: [],
-            knowledgeBaseIds: [],
-          })
-        ).conversation;
+        const conversation = await this.conversations.create(
+          connection.ownerId,
+          { collaborationMode: "default" },
+        );
         const peerId = peer?.id ?? persistedPeerId ?? this.createId();
         peer = await this.repository.upsertPeerSession({
           id: peerId,
@@ -592,7 +581,7 @@ export class WeixinRuntime {
         knowledgeBaseIds: [],
         idempotencyKey,
         submitMode: "normal",
-        draftPolicy: "preserve",
+        preserveStagedAttachments: true,
       },
       {
         actorId: ownerId,
@@ -659,13 +648,24 @@ export class WeixinRuntime {
       return;
     }
     const state = decryptWeixinConnectionState(connection, this.encryption);
-    await this.#sendTyping({
-      connection,
-      token: state.token,
-      peerUserId: session.peerUserId,
-      typingTicket: session.typingTicket,
-      status: "typing",
-    }).catch(() => undefined);
+    await this.#withSendLocks(connection.ownerId, null, async () => {
+      // A keepalive may have been waiting for the same lock as the final reply.
+      if (!this.started || this.activeTyping.get(key) !== session) return;
+      const outcome = await this.repository.getTurnOutcome(session.turnId);
+      if (!this.started || this.activeTyping.get(key) !== session) return;
+      if (outcome.status !== "running") {
+        // Delivery owns cancellation. An old worker must not cancel a newer turn.
+        this.#clearTypingSession(session);
+        return;
+      }
+      await this.client.sendTyping({
+        baseUrl: connection.apiBaseUrl,
+        token: state.token,
+        ilinkUserId: session.peerUserId,
+        typingTicket: session.typingTicket,
+        status: "typing",
+      });
+    });
   }
 
   async #stopTypingForTurn(
@@ -711,13 +711,52 @@ export class WeixinRuntime {
     );
     if (!connection) return;
     const state = decryptWeixinConnectionState(connection, this.encryption);
+    await this.#withSendLocks(connection.ownerId, null, async () => {
+      const outcome = await this.repository.getTurnOutcome(session.turnId);
+      if (outcome.status !== "running") return;
+      await this.client.sendTyping({
+        baseUrl: connection.apiBaseUrl,
+        token: state.token,
+        ilinkUserId: session.peerUserId,
+        typingTicket: session.typingTicket,
+        status: "cancel",
+      });
+    });
+  }
+
+  async #cancelTypingForDelivery(
+    connection: WeixinTypingConnection,
+    inbound: {
+      id: string;
+      peerUserId: string;
+      encryptedContext: string;
+      encryptionKeyId: string;
+    },
+    session: WeixinTypingSession | null,
+  ): Promise<void> {
+    const state = decryptWeixinConnectionState(connection, this.encryption);
+    // Another worker may have started typing; the local session is only a cache.
+    let typingTicket =
+      session?.typingTicket ??
+      this.typingTickets.get(typingTicketKey(connection.id, inbound.peerUserId))
+        ?.typingTicket;
+    if (!typingTicket) {
+      const config = await this.client.getConfig({
+        baseUrl: connection.apiBaseUrl,
+        token: state.token,
+        ilinkUserId: inbound.peerUserId,
+        contextToken: this.#decryptInboundContext(inbound),
+      });
+      typingTicket = config.typingTicket;
+    }
+    if (!typingTicket) return;
     await this.#sendTyping({
       connection,
       token: state.token,
-      peerUserId: session.peerUserId,
-      typingTicket: session.typingTicket,
+      peerUserId: inbound.peerUserId,
+      typingTicket,
       status: "cancel",
-    }).catch(() => undefined);
+    });
   }
 
   async #getTypingTicket(
@@ -912,6 +951,12 @@ export class WeixinRuntime {
         item.inbound.peerUserId,
         activeClaim.turnId,
       );
+      const cancelTyping = () =>
+        this.#cancelTypingForDelivery(
+          connection,
+          item.inbound,
+          terminalTypingSession,
+        );
       try {
         const locale = await this.repository.getOwnerLocale(connection.ownerId);
         const text =
@@ -965,20 +1010,20 @@ export class WeixinRuntime {
             },
           );
         }
-        guard.assertActive();
-        connectionGuard.assertActive();
-        await this.repository.markDeliverySent(
-          activeClaim.id,
-          lease.token,
-          this.now(),
-        );
-      } finally {
-        if (terminalTypingSession) {
-          await this.#cancelTypingSession(terminalTypingSession).catch(
-            () => undefined,
-          );
-        }
+      } catch (error) {
+        await cancelTyping().catch(() => undefined);
+        throw error;
       }
+      // Persist completion after cancellation so failed cleanup retries using
+      // sentChunkCount without sending an already delivered reply again.
+      await cancelTyping();
+      guard.assertActive();
+      connectionGuard.assertActive();
+      await this.repository.markDeliverySent(
+        activeClaim.id,
+        lease.token,
+        this.now(),
+      );
     } catch (error) {
       if (error instanceof WeixinLeaseLostError || !claimed) return;
       if (!guard.isActive() || connectionGuard?.isActive() === false) return;

@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import sidebarStyles from "@/index.css?raw"
 import appShellSource from "@/components/shell/app-shell.tsx?raw"
 import { describe, expect, it } from "vitest"
@@ -262,15 +264,9 @@ describe("sidebar theme", () => {
     )
   })
 
-  it("softens the title color inside the wider task preview card", () => {
-    expect(cssRule(".sidebar-conversation-preview-title")).toContain(
-      "color: color-mix(in srgb, var(--app-text) 70%, var(--app-muted));"
-    )
-  })
-
   it("keeps a clear title gap before conversation actions across input modes", () => {
     expect(sidebarStyles).toMatch(
-      /\.sidebar-conversation-item:hover\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item:focus-within\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*60px;/u
+      /\.sidebar-conversation-item:hover\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item:has\(:focus-visible\)\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*60px;/u
     )
     expect(sidebarStyles).toMatch(
       /@media \(hover:\s*none\)\s*\{[^}]*\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item\[data-running="true"\]\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item\[data-warning="true"\]\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*60px;/u
@@ -286,6 +282,19 @@ describe("sidebar theme", () => {
     )
     expect(cssRule(".sidebar-link")).toMatch(
       /transition:\s*background-color 160ms ease,\s*color 160ms ease;/u
+    )
+    expect(sidebarStyles).not.toMatch(
+      /\.sidebar-conversation-item:focus-within\s+\.sidebar-conversation-link/u
+    )
+  })
+
+  it("handles task hover presentation in CSS without sidebar state updates", () => {
+    expect(appShellSource).not.toContain("hoveredConversationId")
+    expect(sidebarStyles).toMatch(
+      /\.sidebar-conversation-scroll:has\(\.sidebar-conversation-item:hover\)[\s\S]*?\.sidebar-conversation-item:not\(:hover\)[\s\S]*?\.sidebar-conversation-actions\s*\{[^}]*pointer-events:\s*none;[^}]*opacity:\s*0;/u
+    )
+    expect(sidebarStyles).toMatch(
+      /\.sidebar-conversation-scroll:has\(\.sidebar-conversation-item:hover\)[\s\S]*?\.sidebar-conversation-item:not\(:hover\)[\s\S]*?\.sidebar-conversation-running,[\s\S]*?\.sidebar-conversation-warning\s*\{[^}]*opacity:\s*1;/u
     )
   })
 })

@@ -585,6 +585,66 @@ describe("knowledge processing pipeline", () => {
 })
 
 describe("knowledge index reconciliation", () => {
+  it("starts without waiting for a sweep, coalesces ticks and drains work before closing", async () => {
+    vi.useFakeTimers()
+    let resolvePage: (value: { documentIds: string[]; exhausted: boolean }) => void = () => {}
+    const page = {
+      promise: new Promise<{ documentIds: string[]; exhausted: boolean }>((resolve) => { resolvePage = resolve }),
+      resolve: (value: { documentIds: string[]; exhausted: boolean }) => resolvePage(value),
+    }
+    const coordinator = memoryReconciliationCoordinator()
+    const close = vi.spyOn(coordinator, "close")
+    const listDocumentIds = vi.fn(() => page.promise)
+    const reconciler = new KnowledgeIndexActivationReconciler({
+      source: { listDocumentIds, resolveActiveVersion: vi.fn(async () => null) },
+      coordinator,
+      documentLock: immediateDocumentLock(),
+      elasticsearch: { reconcileActiveDocumentVersion: vi.fn(async () => undefined) },
+    }, { intervalMs: 100 })
+    try {
+      let started = false
+      void reconciler.start().then(() => { started = true })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(started).toBe(true)
+      await reconciler.start()
+      await vi.advanceTimersByTimeAsync(300)
+      expect(listDocumentIds).toHaveBeenCalledTimes(1)
+      const closing = reconciler.close()
+      expect(close).not.toHaveBeenCalled()
+      page.resolve({ documentIds: [], exhausted: true })
+      await closing
+      expect(close).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(300)
+      await reconciler.start()
+      expect(listDocumentIds).toHaveBeenCalledTimes(1)
+    } finally {
+      page.resolve({ documentIds: [], exhausted: true })
+      await reconciler.close()
+      vi.useRealTimers()
+    }
+  })
+
+  it("retries a failed background sweep on the next interval", async () => {
+    vi.useFakeTimers()
+    const listDocumentIds = vi.fn()
+      .mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValue({ documentIds: [], exhausted: true })
+    const reconciler = new KnowledgeIndexActivationReconciler({
+      source: { listDocumentIds, resolveActiveVersion: vi.fn(async () => null) },
+      coordinator: memoryReconciliationCoordinator(),
+      documentLock: immediateDocumentLock(),
+      elasticsearch: { reconcileActiveDocumentVersion: vi.fn(async () => undefined) },
+    }, { intervalMs: 100 })
+    try {
+      await reconciler.start()
+      await vi.advanceTimersByTimeAsync(100)
+      expect(listDocumentIds).toHaveBeenCalledTimes(2)
+    } finally {
+      await reconciler.close()
+      vi.useRealTimers()
+    }
+  })
+
   it("loads the complete persisted candidate integrity contract", async () => {
     const findVersion = vi
       .fn()

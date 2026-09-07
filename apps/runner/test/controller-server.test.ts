@@ -69,7 +69,7 @@ describe("controller authentication and routing", () => {
   })
 
   it("echoes the current controller instance in authenticated readiness", async () => {
-    const { server } = await createServer()
+    const { server, health } = await createServer()
 
     const response = await server.inject({
       method: "GET",
@@ -78,10 +78,23 @@ describe("controller authentication and routing", () => {
     })
 
     expect(response.statusCode).toBe(200)
+    expect(health).toHaveBeenCalledWith({ includeResourceUsage: false })
     expect(response.json()).toMatchObject({
       status: "available",
       runner_instance_id: runnerInstanceId,
     })
+    await server.close()
+  })
+
+  it("collects resource diagnostics only when explicitly requested and authenticated", async () => {
+    const { server, health } = await createServer()
+    const url = "/health/ready?include_resource_usage=true"
+    expect((await server.inject({ url })).statusCode).toBe(401)
+    expect(health).not.toHaveBeenCalled()
+    expect((await server.inject({ url, headers: { authorization: `Bearer ${secret}` } })).statusCode).toBe(200)
+    expect(health).toHaveBeenCalledWith({ includeResourceUsage: true })
+    expect((await server.inject({ url: "/health/ready?include_resource_usage=invalid", headers: { authorization: `Bearer ${secret}` } })).statusCode).toBe(400)
+    expect(health).toHaveBeenCalledTimes(1)
     await server.close()
   })
 
@@ -938,6 +951,7 @@ async function createServer(
   } as unknown as WorkerManager
   return {
     server: buildControllerServer(config, workers),
+    health: workers.health,
     request,
     prewarm: workers.prewarm,
     stopAllWorkers: workers.stopAllWorkers,

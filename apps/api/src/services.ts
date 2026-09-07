@@ -1,6 +1,12 @@
 import { createHmac } from "node:crypto";
 import { join, relative, resolve, sep } from "node:path";
 
+import { PrismaBotChannelRepository } from "./modules/bot-channels/repository.js";
+import { RedisBotChannelCoordinator } from "./modules/bot-channels/coordinator.js";
+import { OfficialBotChannelClient } from "./modules/bot-channels/clients/index.js";
+import { BotChannelRuntime } from "./modules/bot-channels/runtime.js";
+import { BotChannelService } from "./modules/bot-channels/service.js";
+
 import {
   isBuiltInCapabilityId,
   type RuntimeMcpServer,
@@ -52,11 +58,11 @@ import { PrismaUserRepository, UserService } from "./modules/users/index.js";
 import { AuthenticationSettingsService } from "./modules/system/authentication-settings.js";
 import { ModelProviderSettingsService } from "./modules/system/model-provider-settings.js";
 import { ImageGenerationSettingsService } from "./modules/system/image-generation-settings.js";
+import { VoiceTranscriptionSettingsService } from "./modules/system/voice-transcription-settings.js";
 import { ImageUnderstandingSettingsService } from "./modules/system/image-understanding-settings.js";
 import { KnowledgeModelSettingsService } from "./modules/system/knowledge-model-settings.js";
 import { VercelAiImageUnderstandingClient } from "./modules/knowledge-processing/image-understanding-client.js";
 import { LiveKnowledgeModelConfigurationProbe } from "./modules/knowledge-processing/knowledge-model-runtime.js";
-import { DashScopeAsrClient } from "./adapters/dashscope-asr.js";
 import {
   VoiceTranscriptionRateLimiter,
   VoiceTranscriptionService,
@@ -80,10 +86,12 @@ import {
 } from "./modules/knowledge/internal-search.js";
 import { TurnKnowledgeDocumentReferenceStore } from "./modules/knowledge/knowledge-document-ref-store.js";
 import { KnowledgeTurnAssetReadService } from "./modules/knowledge/turn-asset-read.js";
+import { ConversationAssetSnapshots } from "./modules/knowledge/conversation-asset-snapshots.js";
 import {
   createKnowledgeProcessingRuntime,
   type KnowledgeProcessingRuntime,
 } from "./modules/knowledge-processing/composition.js";
+import type { OfficeConversionRuntime } from "./modules/knowledge-processing/office-converter.js";
 import {
   createKnowledgeGovernanceRuntime,
   type KnowledgeGovernanceRuntime,
@@ -169,6 +177,7 @@ export type AppServices = {
   authenticationSettings: AuthenticationSettingsService;
   modelProviderSettings: ModelProviderSettingsService;
   imageGenerationSettings: ImageGenerationSettingsService;
+  voiceTranscriptionSettings: VoiceTranscriptionSettingsService;
   imageUnderstandingSettings: ImageUnderstandingSettingsService;
   knowledgeModelSettings: KnowledgeModelSettingsService | null;
   sharePointSettings: SharePointSettingsService | null;
@@ -211,6 +220,8 @@ export type AppServices = {
   billingStatements: BillingStatementService;
   billingStatementScheduler: BillingStatementScheduler;
   feedback: FeedbackService;
+  botChannels: BotChannelService;
+  botChannelRuntime: BotChannelRuntime;
   feishu: FeishuService;
   feishuRuntime: FeishuRuntime;
   weixin: WeixinService;
@@ -226,6 +237,7 @@ export function createServices(input: {
   mailer?: Mailer;
   authenticationSettings?: AuthenticationSettingsService;
   preflight?: ConversationPreflight;
+  officeRuntime?: OfficeConversionRuntime;
 }): AppServices {
   const audit = new AuditService(input.prisma);
   const authenticationSettings =
@@ -242,6 +254,10 @@ export function createServices(input: {
     input.prisma,
     input.config,
     usageAnalytics,
+  );
+  const voiceTranscriptionSettings = new VoiceTranscriptionSettingsService(
+    input.prisma,
+    input.config,
   );
   const tokenLimits = new TokenLimitService(input.prisma, {
     timeZone: input.config.billingTimeZone,
@@ -465,9 +481,7 @@ export function createServices(input: {
     materializeUserHomes: (userIds) => materializeUserHomes({ userIds }),
   });
   const voiceTranscription = new VoiceTranscriptionService(
-    new DashScopeAsrClient({
-      ...input.config.dashscopeAsr,
-    }),
+    voiceTranscriptionSettings,
   );
   const voiceTranscriptionRateLimits = new VoiceTranscriptionRateLimiter(
     input.redis,
@@ -513,7 +527,7 @@ export function createServices(input: {
   let knowledgeSourceService: KnowledgeSourceService | null = null;
   let knowledgeSourceRuntime: KnowledgeSourceRuntime | null = null;
   let knowledgeSearch: InternalKnowledgeSearchService | null = null;
-  let knowledgeTurnAssets: KnowledgeTurnAssetReadService | null = null;
+  const knowledgeTurnAssets = new KnowledgeTurnAssetReadService(input.prisma, input.storage);
   let knowledgeRuntime: KnowledgeProcessingRuntime | null = null;
   let knowledgeGovernance: KnowledgeGovernanceRuntime | null = null;
   let knowledgeDocumentAccess: PrismaMinioKnowledgeDocumentAccessAdapter | null =
@@ -532,6 +546,7 @@ export function createServices(input: {
     };
     knowledgeRuntime = createKnowledgeProcessingRuntime({
       config: input.config,
+      ...(input.officeRuntime ? { officeRuntime: input.officeRuntime } : {}),
       prisma: input.prisma,
       eventPublisher: knowledgeEventPublisher,
       imageUnderstandingSettings,
@@ -678,14 +693,14 @@ export function createServices(input: {
       knowledgeRuntime.retrieval,
       knowledgeSources,
       knowledgeDocumentReferences,
+      new ConversationAssetSnapshots(
+        input.prisma,
+        input.storage,
+        knowledgeDocumentAccess,
+        turnKnowledgeScopes,
+        jobs,
+      ),
       knowledgeRuntime.maintenanceGate,
-    );
-    knowledgeTurnAssets = new KnowledgeTurnAssetReadService(
-      input.prisma,
-      knowledgeSources,
-      turnKnowledgeScopes,
-      knowledgeDocumentAccess,
-      knowledgeRuntime.elasticsearch,
     );
   }
   const conversationTitles = new ConversationTitleService(
@@ -717,9 +732,11 @@ export function createServices(input: {
     knowledgeStore,
     modelProviderSettings,
     applications,
-    conversationTitles,
     tokenLimits,
     system,
+  );
+  jobs.registerConversationPrewarmProcessor((job) =>
+    conversations.executePrewarm(job),
   );
   const conversationShares = new ConversationShareService(
     input.prisma,
@@ -742,6 +759,31 @@ export function createServices(input: {
     (ownerId, conversationId, context = {}) =>
       conversations.delete(ownerId, conversationId, context),
     (conversationId) => conversationTitles.schedule(conversationId),
+  );
+  const botChannelRepository = new PrismaBotChannelRepository(input.prisma);
+  const botChannelCoordinator = new RedisBotChannelCoordinator(input.redis.client);
+  const botChannelEncryption = {
+    masterKey: input.config.credentialMasterKey,
+    keyId: input.config.credentialKeyId,
+  };
+  const botChannelClient = new OfficialBotChannelClient(
+    input.redis.client,
+    botChannelEncryption,
+  );
+  const botChannelRuntime = new BotChannelRuntime(
+    botChannelRepository,
+    botChannelCoordinator,
+    botChannelClient,
+    conversations,
+    botChannelEncryption,
+  );
+  const botChannels = new BotChannelService(
+    botChannelRepository,
+    botChannelCoordinator,
+    audit,
+    botChannelEncryption,
+    botChannelRuntime,
+    input.config.publicBaseUrl,
   );
   const feishuRepository = new PrismaFeishuRepository(input.prisma);
   const feishuCoordinator = new RedisFeishuCoordinator(input.redis.client);
@@ -835,6 +877,7 @@ export function createServices(input: {
     authenticationSettings,
     modelProviderSettings,
     imageGenerationSettings,
+    voiceTranscriptionSettings,
     imageUnderstandingSettings,
     knowledgeModelSettings,
     sharePointSettings,
@@ -877,6 +920,8 @@ export function createServices(input: {
     billingStatements,
     billingStatementScheduler,
     feedback,
+    botChannels,
+    botChannelRuntime,
     feishu,
     feishuRuntime,
     weixin,
@@ -894,7 +939,9 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       UserHomeCapabilityMaterializer,
       | "reconcile"
       | "reconcileWithinPublicationStartFence"
+      | "resolvePublishedRuntimeWithinPublicationStartFence"
       | "withPublicationStartFence"
+      | "withPublishedRuntime"
       | "withVerifiedRuntime"
     >,
     private readonly mcpServers: ConversationMcpRuntimeResolver = {
@@ -920,7 +967,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     capabilityScope?: CapabilityResolutionScope;
   }) {
     try {
-      return await this.#resolveAndPublish(input);
+      return await this.#resolveAndPublish(input, true);
     } catch (error) {
       if (
         error instanceof UserHomeCapabilityMaterializationError ||
@@ -954,7 +1001,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     userId: string;
     priorityCapabilityIds: string[];
     capabilityScope?: CapabilityResolutionScope;
-  }) {
+  }, preferPublishedRuntime = false) {
     return this.capabilityMaterializer.withPublicationStartFence(
       input.userId,
       async () => {
@@ -969,13 +1016,17 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
         ]);
         let materialized: ReconciledUserHomeCapabilities;
         try {
-          materialized =
-            await this.capabilityMaterializer.reconcileWithinPublicationStartFence(
-              {
-                ownerId: input.userId,
-                capabilities: catalog.materializationCapabilities,
-              },
-            );
+          const materializationInput = {
+            ownerId: input.userId,
+            capabilities: catalog.materializationCapabilities,
+          };
+          materialized = preferPublishedRuntime
+            ? await this.capabilityMaterializer.resolvePublishedRuntimeWithinPublicationStartFence(
+                materializationInput,
+              )
+            : await this.capabilityMaterializer.reconcileWithinPublicationStartFence(
+                materializationInput,
+              );
         } catch (error) {
           if (
             error instanceof UserHomeCapabilityMaterializationError ||
@@ -1222,7 +1273,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     action: () => Promise<T>,
   ): Promise<T> {
     try {
-      return await this.capabilityMaterializer.withVerifiedRuntime(
+      return await this.capabilityMaterializer.withPublishedRuntime(
         {
           ownerId: input.userId,
           verification: input.capabilityVerification,

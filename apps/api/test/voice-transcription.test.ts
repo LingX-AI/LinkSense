@@ -251,6 +251,39 @@ describe("voice transcription service", () => {
 })
 
 describe("voice transcription route", () => {
+  it("reports whether voice transcription is configured without exposing settings", async () => {
+    const { app, getAvailability } = await voiceRouteFixture({
+      getAvailability: async () => ({ available: false }),
+    })
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/voice/transcriptions/status",
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      success: true,
+      data: { available: false },
+    })
+    expect(response.body).not.toContain("api_key")
+    expect(getAvailability).toHaveBeenCalledOnce()
+  })
+
+  it("requires authentication before reading voice transcription status", async () => {
+    const { app, getAvailability } = await voiceRouteFixture({
+      authenticated: false,
+    })
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/voice/transcriptions/status",
+    })
+
+    expect(response.statusCode).toBe(401)
+    expect(getAvailability).not.toHaveBeenCalled()
+  })
+
   it("requires authentication before invoking the service", async () => {
     const {
       app,
@@ -531,6 +564,7 @@ type VoiceRouteFixtureOptions = {
   transcribe?: (input: VoiceTranscriptionInput) => Promise<string>
   assertCanStartTask?: (userId: string) => Promise<void>
   assertRateLimitAllowed?: (userId: string) => Promise<void>
+  getAvailability?: () => Promise<{ available: boolean }>
 }
 
 async function voiceRouteFixture(options: VoiceRouteFixtureOptions = {}) {
@@ -567,10 +601,14 @@ async function voiceRouteFixture(options: VoiceRouteFixtureOptions = {}) {
   const assertRateLimitAllowed = vi.fn(
     options.assertRateLimitAllowed ?? (async () => undefined),
   )
+  const getAvailability = vi.fn(
+    options.getAvailability ?? (async () => ({ available: true })),
+  )
   const service: VoiceTranscription = { stream, transcribe }
   await app.register(voiceTranscriptionRoutes, {
     prefix: "/voice",
     service,
+    availability: { getAvailability },
     rateLimits: { assertAllowed: assertRateLimitAllowed },
     tokenLimits: { assertCanStartTask },
     defaultLocale: options.defaultLocale ?? "zh-CN",
@@ -581,5 +619,6 @@ async function voiceRouteFixture(options: VoiceRouteFixtureOptions = {}) {
     transcribe,
     assertCanStartTask,
     assertRateLimitAllowed,
+    getAvailability,
   }
 }

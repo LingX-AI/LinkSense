@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest";
 import { TurnKnowledgeSourceStore } from "../src/modules/events/knowledge-source-store.js";
 
 const TURN_ID = "00000000-0000-4000-8000-000000000001";
-const ASSET_ID = "00000000-0000-5000-8000-000000000005";
-const DOCUMENT_ASSET_ID = "00000000-0000-5000-8000-000000000006";
 const SOURCE = {
   knowledgeBaseId: "00000000-0000-4000-8000-000000000002",
   documentId: "00000000-0000-4000-8000-000000000003",
@@ -74,62 +72,6 @@ describe("TurnKnowledgeSourceStore", () => {
     expect(stored.size).toBe(2);
     expect(stored.get(first[0]!.sourceRef)?.parentId).toBe("parent-1");
     expect(stored.get(second[0]!.sourceRef)?.parentId).toBe("parent-2");
-  });
-
-  it("keeps live asset references separate from citation projection", async () => {
-    const redis = new FakeRedis();
-    const store = new TurnKnowledgeSourceStore(redis);
-    const [registered] = await store.register(TURN_ID, [
-      { ...SOURCE, assetReferenceIds: [ASSET_ID] },
-    ]);
-
-    expect(await store.read(TURN_ID)).toEqual(
-      new Map([[registered!.sourceRef, SOURCE]]),
-    );
-    expect(await store.readAssetSources(TURN_ID)).toEqual([
-      { ...SOURCE, assetReferenceIds: [ASSET_ID] },
-    ]);
-  });
-
-  it("registers full-document assets without exposing synthetic citation handles", async () => {
-    const redis = new FakeRedis();
-    const store = new TurnKnowledgeSourceStore(redis);
-
-    await store.registerAssetSources(TURN_ID, [
-      {
-        knowledgeBaseId: SOURCE.knowledgeBaseId,
-        documentId: SOURCE.documentId,
-        documentVersionId: SOURCE.documentVersionId,
-        assetReferenceIds: [DOCUMENT_ASSET_ID],
-      },
-    ]);
-
-    expect(await store.read(TURN_ID)).toEqual(new Map());
-    expect(await store.readAssetSources(TURN_ID)).toEqual([
-      {
-        knowledgeBaseId: SOURCE.knowledgeBaseId,
-        documentId: SOURCE.documentId,
-        documentVersionId: SOURCE.documentVersionId,
-        assetReferenceIds: [DOCUMENT_ASSET_ID],
-      },
-    ]);
-  });
-
-  it("reads rolling-restart entries without live asset authorization", async () => {
-    const redis = new FakeRedis();
-    const store = new TurnKnowledgeSourceStore(redis);
-    const [registered] = await store.register(TURN_ID, [SOURCE]);
-    const [key] = redis.hashes.keys();
-    const raw = JSON.parse(redis.hashes.get(key!)![registered!.sourceRef]!);
-    delete raw.assetReferenceIds;
-    redis.hashes.get(key!)![registered!.sourceRef] = JSON.stringify(raw);
-
-    expect(await store.read(TURN_ID)).toEqual(
-      new Map([[registered!.sourceRef, SOURCE]]),
-    );
-    expect(await store.readAssetSources(TURN_ID)).toEqual([
-      { ...SOURCE, assetReferenceIds: [] },
-    ]);
   });
 
   it("ignores corrupt transient entries and clears the map explicitly", async () => {

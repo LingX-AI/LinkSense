@@ -46,7 +46,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "6f3f75cd928fb843d89f9b97ccc96975a61466c23018c6dcd1b39c476a880cd4"
+  "6296e066abf8cd85acb2274713d967c92741b2ea695afd246a516df200af4ad0"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"
@@ -293,6 +293,28 @@ export class UserHomeCapabilityMaterializer {
     }
   }
 
+  /**
+   * Resolve the publication used by the conversation hot path.
+   *
+   * Capability mutations always call the full reconcile path first. Once that
+   * publication is durable, the generation marker is the commit record shared
+   * by every API instance. Reading the small marker set here avoids hashing the
+   * complete source and published trees before every turn. Missing or stale
+   * markers still fall back to the full reconcile-and-repair path.
+   */
+  async resolvePublishedRuntimeWithinPublicationStartFence(
+    input: UserHomeCapabilityReconcileInput,
+  ): Promise<ReconciledUserHomeCapabilities> {
+    const paths = this.pathsFor(input.ownerId)
+    validateCapabilitySet(input.capabilities)
+    const verification = await readPublishedRuntimeVerification(
+      paths,
+      input.capabilities,
+    )
+    if (verification) return reconciledRuntime(paths, verification)
+    return this.reconcileWithinPublicationStartFence(input)
+  }
+
   async withVerifiedRuntime<T>(
     input: UserHomeCapabilityReconcileInput & {
       verification: CapabilityRuntimeVerification
@@ -311,6 +333,39 @@ export class UserHomeCapabilityMaterializer {
       await this.#assertManagedParents(paths)
       if (
         !(await runtimeMatchesVerification(
+          paths,
+          input.capabilities,
+          input.verification,
+        ))
+      ) {
+        throw new UserHomeCapabilityMaterializationError(
+          "published capabilities no longer match the resolved runtime",
+        )
+      }
+      return await action()
+    })
+  }
+
+  /**
+   * Admit a turn against the exact durable publication resolved by the hot
+   * path. The publication/start fence keeps the marker check and start intent
+   * atomic with capability publication. Full tree integrity verification is
+   * intentionally retained by reconcile/withVerifiedRuntime for mutation,
+   * repair and explicit verification flows.
+   */
+  async withPublishedRuntime<T>(
+    input: UserHomeCapabilityReconcileInput & {
+      verification: CapabilityRuntimeVerification
+    },
+    action: () => Promise<T>,
+  ): Promise<T> {
+    return this.withPublicationStartFence(input.ownerId, async () => {
+      const paths = this.pathsFor(input.ownerId)
+      validateCapabilitySet(input.capabilities)
+      assertRuntimeVerification(input.verification, input.capabilities)
+      await this.#assertManagedParents(paths)
+      if (
+        !(await publishedRuntimeMatchesVerification(
           paths,
           input.capabilities,
           input.verification,
@@ -1534,6 +1589,74 @@ async function runtimeMatches(
       actualContentDigest,
     )
     return publishedGeneration === expectedGeneration
+  } catch {
+    return false
+  }
+}
+
+async function readPublishedRuntimeVerification(
+  paths: UserHomeCapabilityPaths,
+  capabilities: UserHomeCapabilityInput[],
+): Promise<CapabilityRuntimeVerification | null> {
+  try {
+    const skillsRoot = await lstat(paths.skillsRoot)
+    const marketplace = await lstat(paths.marketplacePath)
+    if (
+      !skillsRoot.isDirectory() ||
+      skillsRoot.isSymbolicLink() ||
+      !marketplace.isFile() ||
+      marketplace.isSymbolicLink()
+    ) {
+      return null
+    }
+    const [generation, contentDigest, sourceDigest, publishedPluginNames, marketplaceNames] =
+      await Promise.all([
+        readGeneration(paths.generationPath),
+        readDigest(paths.contentDigestPath),
+        readDigest(paths.sourceDigestPath),
+        readPublishedPluginSourceNames(paths.pluginsRoot),
+        readManagedPluginNames(paths.marketplacePath),
+      ])
+    if (
+      generation === null ||
+      contentDigest === null ||
+      sourceDigest === null ||
+      calculateGeneration(capabilities, contentDigest) !== generation
+    ) {
+      return null
+    }
+    const pluginNames = pluginNamesForCapabilities(capabilities)
+    if (
+      JSON.stringify(publishedPluginNames) !== JSON.stringify(pluginNames) ||
+      JSON.stringify([...marketplaceNames].sort()) !== JSON.stringify(pluginNames)
+    ) {
+      return null
+    }
+    return { generation, contentDigest, sourceDigest, pluginNames }
+  } catch {
+    return null
+  }
+}
+
+async function publishedRuntimeMatchesVerification(
+  paths: UserHomeCapabilityPaths,
+  capabilities: UserHomeCapabilityInput[],
+  verification: CapabilityRuntimeVerification,
+): Promise<boolean> {
+  try {
+    assertRuntimeVerification(verification, capabilities)
+    const published = await readPublishedRuntimeVerification(
+      paths,
+      capabilities,
+    )
+    return (
+      published !== null &&
+      published.generation === verification.generation &&
+      published.contentDigest === verification.contentDigest &&
+      published.sourceDigest === verification.sourceDigest &&
+      JSON.stringify(published.pluginNames) ===
+        JSON.stringify(verification.pluginNames)
+    )
   } catch {
     return false
   }

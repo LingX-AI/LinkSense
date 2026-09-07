@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import appDocument from "../../index.html?raw"
 import appStyles from "@/index.css?raw"
 import { describe, expect, it } from "vitest"

@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { officeAnnotationInputSchema } from "@linksense/shared"
 import { describe, expect, it } from "vitest"
 

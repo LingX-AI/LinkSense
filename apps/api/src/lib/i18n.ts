@@ -1,5 +1,10 @@
 import { createInstance } from "i18next";
-import { errorCatalog, type ErrorCode, type Locale } from "@linksense/shared";
+import {
+  auditFlatTranslations,
+  errorCatalog,
+  type ErrorCode,
+  type Locale,
+} from "@linksense/shared";
 
 const translations = (locale: Locale) =>
   Object.fromEntries(
@@ -349,6 +354,11 @@ await backendI18n.init({
         ...usageExportTranslations["zh-CN"],
         ...userImportTranslations["zh-CN"],
         ...feishuTranslations["zh-CN"],
+"botChannels.processingFailed": "这条消息暂时无法处理，请在 LinkSense 中查看任务状态后重试。",
+"botChannels.taskFailed": "任务未能完成，请在 LinkSense 中查看详情。",
+"botChannels.emptyResponse": "任务已完成，但没有可发送的文本回复。",
+"botChannels.longResponse": "回复内容较长，请打开 LinkSense 查看完整回答。",
+        ...auditFlatTranslations("zh-CN"),
       },
     },
     "en-US": {
@@ -358,6 +368,11 @@ await backendI18n.init({
         ...usageExportTranslations["en-US"],
         ...userImportTranslations["en-US"],
         ...feishuTranslations["en-US"],
+"botChannels.processingFailed": "This message could not be processed. Check the task status in LinkSense before retrying.",
+"botChannels.taskFailed": "The task could not be completed. Open LinkSense for details.",
+"botChannels.emptyResponse": "The task finished without a text response.",
+"botChannels.longResponse": "The response is long. Open LinkSense to view the complete answer.",
+        ...auditFlatTranslations("en-US"),
       },
     },
   },

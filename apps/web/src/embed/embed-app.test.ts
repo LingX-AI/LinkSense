@@ -19,8 +19,6 @@ describe("external embed conversation projection", () => {
           package_id: null,
         },
         selected_knowledge_base_ids: ["application-kb"],
-        draft_knowledge_base_ids: ["draft-kb"],
-        draft_capability_ids: ["skill_policy_lookup"],
         messages: [
           {
             id: "message-user-1",
@@ -60,8 +58,6 @@ describe("external embed conversation projection", () => {
     )
 
     expect(projected.selected_knowledge_base_ids).toEqual([])
-    expect(projected.draft_knowledge_base_ids).toEqual([])
-    expect(projected.draft_capability_ids).toEqual([])
     expect(projected.messages?.[0]?.selected_capabilities).toEqual([])
     expect(projected.messages?.[0]?.selected_knowledge_base_ids).toEqual([])
     expect(projected.messages?.[1]?.knowledge_citations).toEqual([])
@@ -186,10 +182,7 @@ function conversation(overrides: Partial<Conversation> = {}): Conversation {
     has_unread_completion: false,
     has_automation: false,
     collaboration_mode: "default",
-    draft_input: "",
-    draft_capability_ids: [],
     selected_knowledge_base_ids: [],
-    draft_knowledge_base_ids: [],
     messages: [],
     attachments: [],
     artifacts: [],

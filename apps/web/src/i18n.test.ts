@@ -613,23 +613,6 @@ describe("i18n resources", () => {
     ).toBe("Describe what you want MOSS to do…")
   })
 
-  it("localizes draft-conflict recovery actions in both languages", () => {
-    expect(zhCN.conversation.draftConflict).toEqual({
-      title: "草稿内容发生冲突",
-      description:
-        "当前页面和服务器上的草稿都已修改。自动保存已暂停，当前内容不会丢失；请选择要保留的版本。",
-      keepCurrent: "保留当前内容",
-      useLatest: "使用最新草稿",
-    })
-    expect(enUS.conversation.draftConflict).toEqual({
-      title: "Draft changes conflict",
-      description:
-        "This page and the server draft were both changed. Autosave is paused and your current content is safe; choose which version to keep.",
-      keepCurrent: "Keep current content",
-      useLatest: "Use latest draft",
-    })
-  })
-
   it("localizes Markdown table controls in both languages", () => {
     expect(zhCN.conversation.copyCode).toBe("复制代码")
     expect(zhCN.conversation.copyTable).toBe("复制表格")

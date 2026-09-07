@@ -94,7 +94,6 @@ import {
   inspectOfficeAnnotationPrompt,
   OFFICE_ANNOTATION_PROMPT_MARKER,
 } from "./annotation-prompt.js";
-import type { ConversationTitleService } from "./title-service.js";
 import {
   forkBaseTitle,
   forkedConversationTitle,
@@ -256,6 +255,11 @@ function projectRunnerCapabilities(
 
 export interface RuntimeCleanupScheduler {
   enqueueRuntimeCleanup(ownerId: string, conversationId: string): Promise<void>;
+  enqueueConversationPrewarm(input: {
+    ownerId: string;
+    conversationId: string;
+    collaborationMode: ConversationCollaborationMode;
+  }): Promise<void>;
 }
 
 type TurnSubmissionBase = {
@@ -264,7 +268,7 @@ type TurnSubmissionBase = {
   knowledgeBaseIds?: string[];
   idempotencyKey?: string;
   submitMode: "normal" | "next_turn" | "manual_retry";
-  draftPolicy?: "consume" | "preserve";
+  preserveStagedAttachments?: boolean;
   modelPreference?: {
     modelId: string;
     reasoningEffort: ReasoningEffort;
@@ -320,7 +324,7 @@ type PendingTurnSubmissionBase = {
   priorityCapabilityIds: string[];
   knowledgeBaseIds?: string[];
   idempotencyKey?: string;
-  draftPolicy?: "consume" | "preserve";
+  preserveStagedAttachments?: boolean;
   modelPreference?: {
     modelId: string;
     reasoningEffort: ReasoningEffort;
@@ -348,12 +352,11 @@ type PendingTurnSubmission = PendingTurnSubmissionBase &
 
 type PreparedTurnSubmission = Omit<
   TurnSubmissionBase,
-  "draftPolicy" | "knowledgeBaseIds"
+  "knowledgeBaseIds"
 > & {
   inputText: string;
   collaborationMode: ConversationCollaborationMode;
   knowledgeBaseIds: string[];
-  draftPolicy?: "consume" | "preserve";
   messageDisplay: UserMessageDisplay | null;
 };
 
@@ -395,6 +398,9 @@ const CONVERSATION_DETAIL_EVENT_LIMIT = 200;
 const PLAN_OUTPUT_MISSING_ERROR_CODE = "PLAN_OUTPUT_MISSING";
 const ACCEPTED_START_RECOVERY_WINDOW_MILLISECONDS = 60_000;
 const ACCEPTED_START_RECOVERY_POLL_MILLISECONDS = 250;
+const START_INTENT_RECOVERY_LOCK_TTL_MILLISECONDS = 15_000;
+const RESERVED_RUNTIME_CLAIM_WINDOW_MILLISECONDS = 1_000;
+const RESERVED_RUNTIME_CLAIM_POLL_MILLISECONDS = 25;
 const CONVERSATION_DETAIL_TRANSIENT_EVENT_TYPES = [
   "conversation.message.delta",
   "item/agentMessage/delta",
@@ -557,7 +563,7 @@ const turnStartIntentSchema = z.strictObject({
   messageDisplayJson: userMessageDisplaySchema.nullable(),
   submitMode: z.enum(["normal", "next_turn", "manual_retry"]),
   idempotencyKey: z.string().min(1).max(120).nullable(),
-  preservesDraft: z.boolean(),
+  preservesStagedAttachments: z.boolean(),
   pendingRequestId: z.uuid().nullable(),
   planReviewId: z
     .uuid()
@@ -714,10 +720,6 @@ export class ConversationService {
       Partial<Pick<KnowledgeStore, "findKnowledgeBaseAccess">>,
     private readonly modelRuntimeSettings?: ModelRuntimeSettingsReader,
     private readonly applicationResolver?: ConversationApplicationResolver,
-    private readonly titleRefresh?: Pick<
-      ConversationTitleService,
-      "scheduleForUserMessage"
-    >,
     private readonly tokenLimits?: TokenLimitEnforcer,
     private readonly executionConcurrencySettings?: ExecutionConcurrencySettingsReader,
   ) {}
@@ -911,7 +913,7 @@ export class ConversationService {
     if (!this.knowledgeStore) {
       throw new AppError("KNOWLEDGE_PROCESSING_UNAVAILABLE");
     }
-    // Keep the user's ordered selection as the immutable draft/turn snapshot.
+    // Keep the user's ordered selection as the immutable turn snapshot.
     // Authorization and availability are intentionally intersected again at
     // retrieval time. A revoked, archived, disabled, or deleted selection must
     // not block an otherwise valid task submission, and preserving it here lets
@@ -923,11 +925,106 @@ export class ConversationService {
     return parsed.data;
   }
 
-  async prewarm(ownerId: string): Promise<{ accepted: true }> {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
-      await this.preflight.ensureUserHome(ownerId);
-      await this.runner.prewarmWorker(ownerId);
-      return { accepted: true as const };
+  async prewarm(
+    ownerId: string,
+    input: {
+      conversationId?: string;
+      collaborationMode: ConversationCollaborationMode;
+    },
+  ): Promise<{ accepted: true; conversation_id: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { status: true },
+    });
+    if (!user || user.status !== "active") throw new AppError("USER_DISABLED");
+    const conversationId = input.conversationId ?? crypto.randomUUID();
+    if (input.conversationId) {
+      const existing = await this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: { ownerId: true },
+      });
+      if (!existing || existing.ownerId !== ownerId) {
+        throw new AppError("CONVERSATION_NOT_FOUND");
+      }
+    }
+    await this.cleanup.enqueueConversationPrewarm({
+      ownerId,
+      conversationId,
+      collaborationMode: input.collaborationMode,
+    });
+    return { accepted: true as const, conversation_id: conversationId };
+  }
+
+  async executePrewarm(input: {
+    ownerId: string;
+    conversationId: string;
+    collaborationMode: ConversationCollaborationMode;
+  }): Promise<void> {
+    const existing = await this.prisma.conversation.findUnique({
+      where: { id: input.conversationId },
+      select: {
+        ownerId: true,
+        applicationId: true,
+        codexThreadId: true,
+        collaborationMode: true,
+      },
+    });
+    if (existing && existing.ownerId !== input.ownerId) return;
+    if (existing?.applicationId) {
+      await this.preflight.ensureUserHome(input.ownerId);
+      await this.runner.prewarmWorker(input.ownerId);
+      return;
+    }
+
+    const [resolved, modelRuntime, executionConcurrency] = await Promise.all([
+      this.preflight.resolve({
+        userId: input.ownerId,
+        priorityCapabilityIds: [],
+      }),
+      this.modelRuntimeForUser(
+        input.ownerId,
+        existing ? input.conversationId : undefined,
+      ),
+      this.executionConcurrencyForStart(),
+    ]);
+    const [runtime] = await Promise.all([
+      this.runner.prepareRuntime(input.conversationId, input.ownerId),
+      this.runner.prewarmWorker(input.ownerId),
+    ]);
+    const collaborationMode = existing
+      ? conversationCollaborationModeSchema.parse(existing.collaborationMode)
+      : input.collaborationMode;
+    const modelTransitionSource = existing
+      ? await this.modelTransitionSourceForConversation(
+          input.conversationId,
+          modelRuntime.model,
+          existing.codexThreadId,
+        )
+      : null;
+    await this.runner.prewarmConversation({
+      conversationId: input.conversationId,
+      projectionTurnId: crypto.randomUUID(),
+      appServerProcessLimit:
+        executionConcurrency.runner_app_server_process_limit,
+      ownerId: input.ownerId,
+      expectedRuntimeGeneration: runtime.runtimeGeneration,
+      capabilityGeneration: resolved.capabilityGeneration,
+      mcpGeneration: resolved.mcpGeneration ?? EMPTY_MCP_GENERATION,
+      mcpServers: resolved.mcpServers ?? [],
+      codexThreadId: existing?.codexThreadId ?? null,
+      ...(modelTransitionSource ? { modelTransitionSource } : {}),
+      collaborationMode,
+      context: {
+        userInput: "",
+        attachments: [],
+        priorityPlugins: [],
+        prioritySkills: [],
+      },
+      capabilities: projectRunnerCapabilities(resolved.capabilities),
+      environment: resolved.environment ?? {},
+      model: modelRuntime.model,
+      reasoningEffort: modelRuntime.reasoningEffort,
+      modelProvider: modelRuntime.provider,
     });
   }
 
@@ -1099,11 +1196,11 @@ export class ConversationService {
   }
 
   async recoverStartIntents(): Promise<void> {
-    let intents: Array<{ projectionTurnId: string }>;
+    let intents: Array<{ projectionTurnId: string; conversationId: string }>;
     try {
       intents = await this.prisma.conversationTurnStartIntent.findMany({
         orderBy: { createdAt: "asc" },
-        select: { projectionTurnId: true },
+        select: { projectionTurnId: true, conversationId: true },
       });
     } catch {
       throw turnProjectionUnavailableError();
@@ -1111,8 +1208,11 @@ export class ConversationService {
     let recoveryFailed = false;
     for (let index = 0; index < intents.length; index += 5) {
       await Promise.all(
-        intents.slice(index, index + 5).map(({ projectionTurnId }) =>
-          this.recoverStartIntent(projectionTurnId).catch(async () => {
+        intents.slice(index, index + 5).map(({ projectionTurnId, conversationId }) =>
+          this.recoverStartIntentUnderLease(
+            projectionTurnId,
+            conversationId,
+          ).catch(async () => {
             recoveryFailed = true;
             await this.audit
               .write({
@@ -1129,6 +1229,24 @@ export class ConversationService {
       );
     }
     if (recoveryFailed) throw turnProjectionUnavailableError();
+  }
+
+  private async recoverStartIntentUnderLease(
+    projectionTurnId: string,
+    conversationId: string,
+  ): Promise<void> {
+    const token = await this.redis.acquireRecoveryLock(
+      conversationId,
+      START_INTENT_RECOVERY_LOCK_TTL_MILLISECONDS,
+    );
+    if (!token) return;
+    try {
+      await this.recoverStartIntent(projectionTurnId);
+    } finally {
+      await this.redis
+        .releaseRecoveryLock(conversationId, token)
+        .catch(() => undefined);
+    }
   }
 
   async recoverContextWindowAttempts(): Promise<void> {
@@ -1653,23 +1771,48 @@ export class ConversationService {
   private async recoverAcceptedStartUntilSettled(
     projectionTurnId: string,
   ): Promise<void> {
-    const deadline = Date.now() + ACCEPTED_START_RECOVERY_WINDOW_MILLISECONDS;
-    while (Date.now() < deadline) {
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(
-          resolve,
-          ACCEPTED_START_RECOVERY_POLL_MILLISECONDS,
-        );
-        timer.unref();
-      });
-      // The accepted POST has already handed the operation to Runner. This
-      // bounded fast path only observes that durable operation; resubmission
-      // is reserved for the periodic crash-recovery coordinator so a healthy
-      // `starting` operation cannot be POSTed again on every poll.
-      const outcome = await this.recoverStartIntent(projectionTurnId, {
-        resubmitNonTerminal: false,
-      });
-      if (outcome !== "pending") return;
+    const intent = await this.prisma.conversationTurnStartIntent.findUnique({
+      where: { projectionTurnId },
+      select: { conversationId: true },
+    });
+    if (!intent) return;
+    const lockTtlMilliseconds =
+      START_INTENT_RECOVERY_LOCK_TTL_MILLISECONDS;
+    const token = await this.redis.acquireRecoveryLock(
+      intent.conversationId,
+      lockTtlMilliseconds,
+    );
+    if (!token) return;
+    try {
+      const deadline = Date.now() + ACCEPTED_START_RECOVERY_WINDOW_MILLISECONDS;
+      let delayMilliseconds = ACCEPTED_START_RECOVERY_POLL_MILLISECONDS;
+      let renewAt = Date.now() + Math.floor(lockTtlMilliseconds / 2);
+      while (Date.now() < deadline) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, delayMilliseconds);
+          timer.unref();
+        });
+        if (Date.now() >= renewAt) {
+          const renewed = await this.redis.renewRecoveryLock(
+            intent.conversationId,
+            token,
+            lockTtlMilliseconds,
+          );
+          if (!renewed) return;
+          renewAt = Date.now() + Math.floor(lockTtlMilliseconds / 2);
+        }
+        // Observe the durable Runner operation only. Native turn submission is
+        // never replayed by this fast projection path.
+        const outcome = await this.recoverStartIntent(projectionTurnId, {
+          resubmitNonTerminal: false,
+        });
+        if (outcome !== "pending") return;
+        delayMilliseconds = Math.min(delayMilliseconds * 2, 1_000);
+      }
+    } finally {
+      await this.redis
+        .releaseRecoveryLock(intent.conversationId, token)
+        .catch(() => undefined);
     }
   }
 
@@ -2043,7 +2186,6 @@ export class ConversationService {
           orderBy: { sequenceNo: "asc" },
         })
       : [];
-    const runningTurn = turns.find((turn) => turn.status === "running");
     const activeTurnIds = turns.map((turn) => turn.id);
     const visibleEventScope = {
       conversationId,
@@ -2051,12 +2193,10 @@ export class ConversationService {
       visibility: { in: ["user_visible", "user_collapsed"] },
     } satisfies Prisma.ConversationEventWhereInput;
     const [
-      draft,
       messages,
       pending,
       files,
       events,
-      latestVisibleEvent,
       latestPlanEvents,
       turnFileChangeCounts,
       userMessageDisplayEvents,
@@ -2066,7 +2206,6 @@ export class ConversationService {
       goal,
       latestModelContextUsage,
     ] = await Promise.all([
-      this.prisma.conversationDraft.findUnique({ where: { conversationId } }),
       this.prisma.conversationMessage.findMany({
         where: { conversationId, turnId: { in: activeTurnIds } },
         orderBy: { sequenceNo: "asc" },
@@ -2078,6 +2217,9 @@ export class ConversationService {
       this.prisma.conversationFile.findMany({
         where: {
           conversationId,
+          // Inline knowledge copies are served by the image endpoint, not
+          // projected as generated file cards or task outputs.
+          knowledgeAssetReferenceId: null,
           OR: [{ turnId: null }, { turnId: { in: activeTurnIds } }],
         },
         orderBy: { createdAt: "asc" },
@@ -2091,11 +2233,6 @@ export class ConversationService {
         },
         orderBy: { sequenceNo: "desc" },
         take: CONVERSATION_DETAIL_EVENT_LIMIT,
-      }),
-      this.prisma.conversationEvent.findFirst({
-        where: visibleEventScope,
-        orderBy: [{ sequenceNo: "desc" }, { id: "desc" }],
-        select: { sseEventId: true },
       }),
       this.findLatestPlanEvents(conversationId, activeTurnIds),
       this.countTurnFileChanges(conversationId, activeTurnIds),
@@ -2184,14 +2321,41 @@ export class ConversationService {
       ),
       latestPlanEvents,
     );
+    // Event ingestion commits the native terminal notification and the local
+    // turn transition atomically. Detail reads span several independent
+    // projections, so a request crossing that commit can otherwise combine a
+    // stale `running` turn row with a newer `turn/completed` cursor. Ground the
+    // lifecycle in the native event whenever it is present; this also prevents
+    // returning a cursor that permanently skips the completion on re-entry.
+    const terminalStatusByTurnId = indexNativeTerminalTurnStatuses(detailEvents);
+    const projectedTurns = turns.map((turn) => {
+      const terminal = terminalStatusByTurnId.get(turn.id);
+      return terminal
+        ? {
+            ...turn,
+            status: terminal.status,
+            completedAt:
+              terminal.status === "interrupted"
+                ? turn.completedAt
+                : (turn.completedAt ?? terminal.completedAt),
+            interruptedAt:
+              terminal.status === "interrupted"
+                ? (turn.interruptedAt ?? terminal.completedAt)
+                : turn.interruptedAt,
+          }
+        : turn;
+    });
+    const runningTurn = projectedTurns.find(
+      (turn) => turn.status === "running",
+    );
     const firstUserMessageIds = indexFirstUserMessageIds(visibleMessages);
     const knowledgeBaseIdsByTurn = new Map(
-      turns.map((turn) => [
+      projectedTurns.map((turn) => [
         turn.id,
         jsonStringArray(turn.knowledgeBaseIdsJson),
       ]),
     );
-    const latestTurn = turns.at(-1);
+    const latestTurn = projectedTurns.at(-1);
     const planOutputMissing =
       latestTurn && !planReviewTurnIds.has(latestTurn.id)
       ? await this.hasPlanOutputMissingEvent(conversationId, latestTurn.id)
@@ -2202,17 +2366,28 @@ export class ConversationService {
         ? "pending"
         : planOutputMissing
           ? "failed"
-          : (conversation.lastTurnStatus ?? "idle");
+          : latestTurn &&
+              (latestTurn.status === "completed" ||
+                latestTurn.status === "failed" ||
+                latestTurn.status === "interrupted")
+            ? latestTurn.status
+            : (conversation.lastTurnStatus ?? "idle");
     const runningResumeAnchor = runningTurn
       ? selectRunningResumeAnchor(detailEvents, runningTurn.id)
       : undefined;
+    const terminalResumeCursor = runningTurn
+      ? undefined
+      : selectTerminalResumeCursor(
+          conversationId,
+          detailEvents,
+          new Set(messages.map((message) => message.id)),
+        );
     return {
       conversation: {
         ...projectConversation(conversation, executionStatus),
         ...(forkSource ? { fork_source: forkSource } : {}),
       },
       goal: goal ? projectConversationGoal(goal) : null,
-      draft: draft ? projectDraft(draft) : null,
       messages: visibleMessages.map((message) =>
         projectMessage(
           message,
@@ -2230,7 +2405,7 @@ export class ConversationService {
           steeredMessageMetadata.get(message.id),
         ),
       ),
-      turns: turns.map(projectTurn),
+      turns: projectedTurns.map(projectTurn),
       pending_requests: pending.map(projectPending),
       user_input_requests: userInputRequests.map(projectUserInputRequest),
       plan_reviews: planReviews.map(projectPlanReview),
@@ -2246,8 +2421,8 @@ export class ConversationService {
             last_event_id:
               runningResumeAnchor?.sseEventId ?? `${conversationId}:0`,
           }
-        : latestVisibleEvent
-          ? { last_event_id: latestVisibleEvent.sseEventId }
+        : terminalResumeCursor
+          ? { last_event_id: terminalResumeCursor }
           : {}),
       turn_file_change_counts: turnFileChangeCounts,
       activities: detailEvents
@@ -2587,156 +2762,27 @@ export class ConversationService {
     return counts;
   }
 
-  async createOrUpdateDraft(
+  async create(
     ownerId: string,
     input: {
-      conversationId?: string;
-      inputText: string;
-      priorityCapabilityIds: string[];
-      knowledgeBaseIds?: string[];
-      collaborationMode?: ConversationCollaborationMode;
+      collaborationMode: ConversationCollaborationMode;
       fallbackLocale?: Locale;
-      expectedUpdatedAt?: Date | null;
+      prewarmedConversationId?: string;
     },
   ) {
-    const conversation = input.conversationId
-      ? await this.assertOwner(ownerId, input.conversationId)
-      : await this.createConversation(ownerId, input.fallbackLocale, undefined, {
-          collaborationMode: input.collaborationMode ?? "default",
-        });
-    const applicationRuntime = await this.applicationRuntimeForConversation(
-      ownerId,
-      conversation.applicationId,
-      conversation.interactiveApplicationPackageId,
-    );
-    const priorityCapabilityIds =
-      applicationRuntime?.kind === "standard"
-        ? applicationRuntime.capabilityIds
-        : input.priorityCapabilityIds;
-    const knowledgeBaseIds = applicationRuntime?.kind === "standard"
-      ? applicationRuntime.knowledgeBaseIds
-      : await this.validateKnowledgeBaseSelection(
-          ownerId,
-          input.knowledgeBaseIds,
-        );
-    const expectedUpdatedAt = input.expectedUpdatedAt;
-    if (expectedUpdatedAt !== undefined) {
-      const lock = await this.acquireConversationLock(conversation.id);
-      try {
-        await this.assertOwner(ownerId, conversation.id);
-        const saved = await this.prisma.$transaction(async (tx) => {
-          let draft;
-          if (expectedUpdatedAt === null) {
-            const existing = await tx.conversationDraft.findUnique({
-              where: { conversationId: conversation.id },
-            });
-            if (existing) {
-              if (
-                !draftContentMatches(existing, {
-                  ownerId,
-                  inputText: input.inputText,
-                  priorityCapabilityIds,
-                  knowledgeBaseIds,
-                })
-              ) {
-                throw new AppError("DRAFT_VERSION_CONFLICT");
-              }
-              draft = existing;
-            } else {
-              draft = await tx.conversationDraft.create({
-                data: {
-                  conversationId: conversation.id,
-                  ownerId,
-                  inputText: input.inputText,
-                  priorityCapabilityIdsJson: priorityCapabilityIds,
-                  knowledgeBaseIdsJson: knowledgeBaseIds,
-                },
-              });
-            }
-          } else {
-            const updated = await tx.conversationDraft.updateMany({
-              where: {
-                conversationId: conversation.id,
-                ownerId,
-                updatedAt: expectedUpdatedAt,
-              },
-              data: {
-                inputText: input.inputText,
-                priorityCapabilityIdsJson: priorityCapabilityIds,
-                knowledgeBaseIdsJson: knowledgeBaseIds,
-              },
-            });
-            if (updated.count !== 1) {
-              const existing = await tx.conversationDraft.findUnique({
-                where: { conversationId: conversation.id },
-              });
-              if (
-                !existing ||
-                !draftContentMatches(existing, {
-                  ownerId,
-                  inputText: input.inputText,
-                  priorityCapabilityIds,
-                  knowledgeBaseIds,
-                })
-              ) {
-                throw new AppError("DRAFT_VERSION_CONFLICT");
-              }
-              draft = existing;
-            } else {
-              draft = await tx.conversationDraft.findUnique({
-                where: { conversationId: conversation.id },
-              });
-              if (!draft) throw new AppError("DRAFT_VERSION_CONFLICT");
-            }
-          }
-          const updatedConversation = await tx.conversation.update({
-            where: { id: conversation.id },
-            data: { selectedKnowledgeBaseIdsJson: knowledgeBaseIds },
-          });
-          return { draft, updatedConversation };
-        });
-        return {
-          conversation: projectConversation(
-            saved.updatedConversation,
-            saved.updatedConversation.lastTurnStatus ?? "idle",
-          ),
-          draft: projectDraft(saved.draft),
-        };
-      } finally {
-        await this.redis
-          .releaseConversationLock(conversation.id, lock)
-          .catch(() => undefined);
-      }
-    }
-    const saved = await this.prisma.$transaction(async (tx) => {
-      const draft = await tx.conversationDraft.upsert({
-        where: { conversationId: conversation.id },
-        create: {
-          conversationId: conversation.id,
-          ownerId,
-          inputText: input.inputText,
-          priorityCapabilityIdsJson: priorityCapabilityIds,
-          knowledgeBaseIdsJson: knowledgeBaseIds,
-        },
-        update: {
-          inputText: input.inputText,
-          priorityCapabilityIdsJson: priorityCapabilityIds,
-          knowledgeBaseIdsJson: knowledgeBaseIds,
-        },
-      });
-      const updatedConversation = await tx.conversation.update({
-        where: { id: conversation.id },
-        data: { selectedKnowledgeBaseIdsJson: knowledgeBaseIds },
-      });
-      return { draft, updatedConversation };
+    return this.withActiveUserLifecycleLock(ownerId, async () => {
+      const conversation = await this.createConversation(
+        ownerId,
+        input.fallbackLocale,
+        undefined,
+        { collaborationMode: input.collaborationMode },
+        input.prewarmedConversationId,
+      );
+      return projectConversation(
+        conversation,
+        conversation.lastTurnStatus ?? "idle",
+      );
     });
-    return {
-      conversation: projectConversation(
-        saved.updatedConversation,
-        saved.updatedConversation.lastTurnStatus ?? "idle",
-      ),
-      draft: projectDraft(saved.draft),
-    };
   }
 
   async patch(
@@ -3122,8 +3168,8 @@ export class ConversationService {
       : "inputText" in input
         ? input.inputText
         : "";
-    const preservesDraft =
-      Boolean(officeAnnotation) || input.draftPolicy === "preserve";
+    const preservesStagedAttachments =
+      Boolean(officeAnnotation) || input.preserveStagedAttachments === true;
     const lock = await this.acquireConversationLock(conversationId);
     try {
       const result = await this.prisma.$transaction(async (tx) => {
@@ -3158,21 +3204,17 @@ export class ConversationService {
         });
         if (existing.length >= 5)
           throw new AppError("PENDING_REQUEST_LIMIT_REACHED");
-        const draft = await tx.conversationDraft.findUnique({
-          where: { conversationId },
-        });
         if (inputText.trim().length === 0) {
-          const attachment = draft
-            ? await tx.conversationFile.findFirst({
-                where: {
-                  conversationId,
-                  draftId: draft.id,
-                  kind: "attachment",
-                  status: "draft",
-                },
-                select: { id: true },
-              })
-            : null;
+          const attachment = await tx.conversationFile.findFirst({
+            where: {
+              conversationId,
+              pendingRequestId: null,
+              turnId: null,
+              kind: "attachment",
+              status: "staged",
+            },
+            select: { id: true },
+          });
           if (!attachment) throw new AppError("VALIDATION_ERROR");
         }
         const nextQueueNo = (existing.at(-1)?.queueNo ?? 0n) + 1n;
@@ -3189,31 +3231,17 @@ export class ConversationService {
             idempotencyKey: input.idempotencyKey ?? null,
           },
         });
-        if (!preservesDraft && draft) {
+        if (!preservesStagedAttachments) {
           await tx.conversationFile.updateMany({
-            where: { draftId: draft.id, status: "draft" },
+            where: {
+              conversationId,
+              pendingRequestId: null,
+              turnId: null,
+              status: "staged",
+            },
             data: {
-              draftId: null,
               pendingRequestId: pending.id,
               status: "pending",
-            },
-          });
-          await tx.conversationDraft.update({
-            where: { id: draft.id },
-            data: {
-              inputText: "",
-              priorityCapabilityIdsJson: [],
-              knowledgeBaseIdsJson: [],
-            },
-          });
-        } else if (!preservesDraft) {
-          await tx.conversationDraft.create({
-            data: {
-              conversationId,
-              ownerId,
-              inputText: "",
-              priorityCapabilityIdsJson: [],
-              knowledgeBaseIdsJson: [],
             },
           });
         }
@@ -3417,23 +3445,9 @@ export class ConversationService {
             select: { projectionTurnId: true },
           });
         if (protectedByStartIntent) throw new AppError("CONFLICT");
-        let draft = await tx.conversationDraft.findUnique({
-          where: { conversationId },
-        });
-        if (!draft) {
-          draft = await tx.conversationDraft.create({
-            data: {
-              conversationId,
-              ownerId,
-              inputText: "",
-              priorityCapabilityIdsJson: [],
-              knowledgeBaseIdsJson: [],
-            },
-          });
-        }
         await tx.conversationFile.updateMany({
           where: { pendingRequestId: pendingId, status: "pending" },
-          data: { pendingRequestId: null, draftId: draft.id, status: "draft" },
+          data: { pendingRequestId: null, status: "staged" },
         });
         await tx.pendingRequest.delete({ where: { id: pendingId } });
         const sequenceNo = await nextConversationEventSequence(
@@ -3497,7 +3511,7 @@ export class ConversationService {
     return { was_head: wasHead };
   }
 
-  async restorePendingToDraft(
+  async restorePendingToInput(
     ownerId: string,
     conversationId: string,
     pendingId: string,
@@ -3526,54 +3540,6 @@ export class ConversationService {
           });
         if (protectedByStartIntent) throw new AppError("CONFLICT");
 
-        let draft = await tx.conversationDraft.findUnique({
-          where: { conversationId },
-        });
-        if (draft) {
-          const existingDraftAttachment = await tx.conversationFile.findFirst({
-            where: {
-              conversationId,
-              draftId: draft.id,
-              status: "draft",
-            },
-            select: { id: true },
-          });
-          if (
-            draft.inputText.length > 0 ||
-            jsonStringArray(draft.priorityCapabilityIdsJson).length > 0 ||
-            jsonStringArray(draft.knowledgeBaseIdsJson).length > 0 ||
-            existingDraftAttachment
-          ) {
-            throw new AppError("PENDING_REQUEST_RESTORE_DRAFT_NOT_EMPTY");
-          }
-          draft = await tx.conversationDraft.update({
-            where: { id: draft.id },
-            data: {
-              inputText: pending.inputText,
-              priorityCapabilityIdsJson: jsonStringArray(
-                pending.priorityCapabilityIdsJson,
-              ),
-              knowledgeBaseIdsJson: jsonStringArray(
-                pending.knowledgeBaseIdsJson,
-              ),
-            },
-          });
-        } else {
-          draft = await tx.conversationDraft.create({
-            data: {
-              conversationId,
-              ownerId,
-              inputText: pending.inputText,
-              priorityCapabilityIdsJson: jsonStringArray(
-                pending.priorityCapabilityIdsJson,
-              ),
-              knowledgeBaseIdsJson: jsonStringArray(
-                pending.knowledgeBaseIdsJson,
-              ),
-            },
-          });
-        }
-
         await tx.conversation.update({
           where: { id: conversationId },
           data: {
@@ -3585,7 +3551,7 @@ export class ConversationService {
 
         await tx.conversationFile.updateMany({
           where: { pendingRequestId: pendingId, status: "pending" },
-          data: { pendingRequestId: null, draftId: draft.id, status: "draft" },
+          data: { pendingRequestId: null, status: "staged" },
         });
         await tx.pendingRequest.delete({ where: { id: pendingId } });
         const sequenceNo = await nextConversationEventSequence(
@@ -3605,12 +3571,12 @@ export class ConversationService {
             sseEventId: `${conversationId}:${sequenceNo}`,
           },
         });
-        return { draft, event };
+        return { pending, event };
       });
       await this.audit.write({
         ...context,
         actorId: ownerId,
-        action: "conversation_pending_request_restored_to_draft",
+        action: "conversation_pending_request_restored_to_input",
         targetType: "pending_request",
         targetId: pendingId,
         result: "success",
@@ -3624,7 +3590,13 @@ export class ConversationService {
         .catch(() => undefined);
       return {
         pending_request_id: pendingId,
-        draft: projectDraft(result.draft),
+        input_text: result.pending.inputText,
+        priority_capability_ids: jsonStringArray(
+          result.pending.priorityCapabilityIdsJson,
+        ),
+        knowledge_base_ids: jsonStringArray(
+          result.pending.knowledgeBaseIdsJson,
+        ),
       };
     } finally {
       await this.redis
@@ -3778,7 +3750,6 @@ export class ConversationService {
             ? { idempotencyKey: input.idempotencyKey }
             : {}),
           submitMode: "normal",
-          draftPolicy: "consume",
           goal: {
             objective,
             ...(input.tokenBudget !== undefined
@@ -4037,7 +4008,7 @@ export class ConversationService {
                 messageDisplayJson: Prisma.DbNull,
                 submitMode: "normal",
                 idempotencyKey: normalizedKey,
-                preservesDraft: true,
+                preservesStagedAttachments: true,
                 pendingRequestId: null,
                 planReviewId: null,
                 planReviewAction: null,
@@ -4196,6 +4167,7 @@ export class ConversationService {
       const lock = await this.acquireConversationLock(conversationId);
       let lockTransferred = false;
       try {
+        const conversation = await this.assertOwner(ownerId, conversationId);
         const goal = await this.requireConversationGoal(
           ownerId,
           conversationId,
@@ -4250,15 +4222,10 @@ export class ConversationService {
           });
           return startReceipt(runningGoalTurn.id, "running");
         }
-        const draft = await this.prisma.conversationDraft.findUnique({
-          where: { conversationId },
-        });
-        const priorityCapabilityIds = draft
-          ? jsonStringArray(draft.priorityCapabilityIdsJson)
-          : [];
-        const knowledgeBaseIds = draft
-          ? jsonStringArray(draft.knowledgeBaseIdsJson)
-          : [];
+        const priorityCapabilityIds: string[] = [];
+        const knowledgeBaseIds = jsonStringArray(
+          conversation.selectedKnowledgeBaseIdsJson,
+        );
         lockTransferred = true;
         return this.startTurnInternal(
           ownerId,
@@ -4277,7 +4244,7 @@ export class ConversationService {
               knowledgeBaseIds,
             }),
             submitMode: "normal",
-            draftPolicy: "preserve",
+            preserveStagedAttachments: true,
             goal: {
               objective: goal.objective,
               tokenBudget:
@@ -4400,7 +4367,7 @@ export class ConversationService {
               priorityCapabilityIds: [],
               knowledgeBaseIds: [],
               idempotencyKey,
-              draftPolicy: "preserve",
+              preserveStagedAttachments: true,
               ...(modelPreference ? { modelPreference } : {}),
             },
             context,
@@ -4416,7 +4383,7 @@ export class ConversationService {
             knowledgeBaseIds: [],
             idempotencyKey,
             submitMode: "normal",
-            draftPolicy: "preserve",
+            preserveStagedAttachments: true,
             ...(modelPreference ? { modelPreference } : {}),
           },
           context,
@@ -4463,7 +4430,7 @@ export class ConversationService {
         capabilityEvents.map((event) => event.payloadJson),
       ),
       knowledgeBaseIds: jsonStringArray(turn.knowledgeBaseIdsJson),
-      preservesDraft: false,
+      preservesStagedAttachments: false,
       pendingRequestId: null,
       regenerationMessageId,
       taskKind: "turn",
@@ -4698,10 +4665,6 @@ export class ConversationService {
           ) {
             throw new AppError("CONFLICT");
           }
-          await this.prisma.conversationDraft.updateMany({
-            where: { conversationId, ownerId, inputText: text },
-            data: { inputText: "", priorityCapabilityIdsJson: [] },
-          });
           return { turn_id: localTurnId, accepted: true };
         }
 
@@ -4771,10 +4734,6 @@ export class ConversationService {
               },
               sseEventId: `${conversationId}:${sequenceNo}`,
             },
-          });
-          await tx.conversationDraft.updateMany({
-            where: { conversationId, ownerId, inputText: text },
-            data: { inputText: "", priorityCapabilityIdsJson: [] },
           });
           await tx.auditLog.create({
             data: {
@@ -5791,7 +5750,7 @@ export class ConversationService {
                 capabilityEvents.map((event) => event.payloadJson),
               ),
               knowledgeBaseIds: jsonStringArray(turn.knowledgeBaseIdsJson),
-              preservesDraft: true,
+              preservesStagedAttachments: true,
               pendingRequestId: null,
               regenerationMessageId: null,
               taskKind: "turn",
@@ -5891,7 +5850,7 @@ export class ConversationService {
             knowledgeBaseIds,
             idempotencyKey: requestedIdempotencyKey,
             submitMode: "normal",
-            draftPolicy: "preserve",
+            preserveStagedAttachments: true,
           },
           context,
           undefined,
@@ -6494,12 +6453,12 @@ export class ConversationService {
               data: files.map((file) => ({
                 id: fileIdMap.get(file.id)!,
                 conversationId: forkConversationId,
-                draftId: null,
                 pendingRequestId: null,
                 turnId: file.turnId ? turnIdMap.get(file.turnId)! : null,
                 kind: file.kind,
                 source: file.source,
                 status: file.status,
+                knowledgeAssetReferenceId: file.knowledgeAssetReferenceId,
                 filename: file.filename,
                 mimeType: file.mimeType,
                 sizeBytes: file.sizeBytes,
@@ -6752,14 +6711,45 @@ export class ConversationService {
       collaborationMode?: ConversationCollaborationMode;
       autoGenerateTitle?: boolean;
     },
+    prewarmedConversationId?: string,
   ) {
-    const id = crypto.randomUUID();
+    let id = prewarmedConversationId ?? crypto.randomUUID();
     try {
-      // A Worker mounts the API-owned managed/agents projection read-only.
-      // Publish and validate that projection before Docker resolves its
-      // Subpath; otherwise a new or just-migrated user can race Worker start.
-      await this.preflight.ensureUserHome(ownerId);
-      const runtime = await this.runner.prepareRuntime(id, ownerId);
+      let prewarmedRuntime = null;
+      if (prewarmedConversationId) {
+        const collision = await this.prisma.conversation.findUnique({
+          where: { id: prewarmedConversationId },
+          select: { id: true },
+        });
+        if (collision) {
+          id = crypto.randomUUID();
+        } else {
+          prewarmedRuntime = await this.runner
+            .inspectPrewarmedConversation(id, ownerId)
+            .catch(() => null);
+        }
+      }
+      let runtime: Awaited<ReturnType<RunnerClient["prepareRuntime"]>>;
+      if (prewarmedRuntime) {
+        runtime = prewarmedRuntime;
+      } else {
+        const reservedRuntime = prewarmedConversationId
+          ? await this.waitForReservedRuntime(id, ownerId)
+          : null;
+        if (reservedRuntime) {
+          runtime = reservedRuntime;
+        } else {
+          // The hot resolve validates the durable capability publication and
+          // falls back to a full repair only when its markers are stale. This
+          // keeps an immediate first send from repeating the expensive full
+          // HOME scan already performed by capability mutations or prewarm.
+          await this.preflight.resolve({
+            userId: ownerId,
+            priorityCapabilityIds: [],
+          });
+          runtime = await this.runner.prepareRuntime(id, ownerId);
+        }
+      }
       const workspace = resolveConversationWorkspaceRoot(
         this.workspaceRoot,
         ownerId,
@@ -6800,6 +6790,7 @@ export class ConversationService {
             agentsTemplateVersion: runtime.agentsTemplateVersion,
             collaborationMode: options?.collaborationMode ?? "default",
             runtimeGeneration: runtime.runtimeGeneration,
+            codexThreadId: prewarmedRuntime?.codexThreadId ?? null,
             applicationId: application?.id ?? null,
             applicationNameSnapshot: application?.name ?? null,
             interactiveApplicationPackageId:
@@ -6827,6 +6818,28 @@ export class ConversationService {
         .catch(() => undefined);
       throw error;
     }
+  }
+
+  private async waitForReservedRuntime(
+    conversationId: string,
+    ownerId: string,
+  ): Promise<Awaited<ReturnType<RunnerClient["inspectRuntime"]>>> {
+    const deadline = Date.now() + RESERVED_RUNTIME_CLAIM_WINDOW_MILLISECONDS;
+    do {
+      const runtime = await this.runner
+        .inspectRuntime(conversationId, ownerId)
+        .catch(() => null);
+      if (runtime) return runtime;
+      if (Date.now() >= deadline) return null;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(
+          resolve,
+          RESERVED_RUNTIME_CLAIM_POLL_MILLISECONDS,
+        );
+        timer.unref();
+      });
+    } while (Date.now() < deadline);
+    return null;
   }
 
   private async prepareOfficeAnnotation(
@@ -6915,8 +6928,7 @@ export class ConversationService {
     applicationRuntime: ApplicationTurnConfiguration | null;
     expectedCodexThreadId: string | null;
     prepared: PreparedTurnSubmission;
-    preservesDraft: boolean;
-    sourceDraftId: string | null;
+    preservesStagedAttachments: boolean;
     pendingRequestId: string | null;
     regeneration: RegenerationSource | null;
     attachments: TurnStartIntentAttachment[];
@@ -7036,7 +7048,7 @@ export class ConversationService {
           input.prepared.goal ||
           input.prepared.collaborationMode !== expectedMode ||
           input.prepared.inputText.trim() !== expectedInput ||
-          !input.preservesDraft ||
+          !input.preservesStagedAttachments ||
           input.pendingRequestId ||
           input.regeneration ||
           pendingCount > 0
@@ -7165,7 +7177,7 @@ export class ConversationService {
             ownerId: input.ownerId,
             conversationId: input.conversationId,
             input: input.prepared,
-            preservesDraft: input.preservesDraft,
+            preservesStagedAttachments: input.preservesStagedAttachments,
             files: input.attachments,
             ...(input.pendingRequestId
               ? { pendingId: input.pendingRequestId }
@@ -7307,31 +7319,6 @@ export class ConversationService {
         ) {
           throw new AppError("CONFLICT");
         }
-      } else if (!input.preservesDraft) {
-        if (!input.sourceDraftId) throw new AppError("CONFLICT");
-        await tx.$queryRaw<Array<{ id: string }>>`
-          SELECT id
-          FROM conversation_drafts
-          WHERE id = ${input.sourceDraftId}::uuid
-          FOR UPDATE
-        `;
-        const draft = await tx.conversationDraft.findUnique({
-          where: { conversationId: input.conversationId },
-        });
-        if (
-          !draft ||
-          draft.id !== input.sourceDraftId ||
-          draft.ownerId !== input.ownerId ||
-          draft.inputText !== input.prepared.inputText ||
-          (!input.applicationRuntime &&
-            (JSON.stringify(
-              jsonStringArray(draft.priorityCapabilityIdsJson),
-            ) !== JSON.stringify(input.prepared.priorityCapabilityIds) ||
-              JSON.stringify(jsonStringArray(draft.knowledgeBaseIdsJson)) !==
-                JSON.stringify(input.prepared.knowledgeBaseIds)))
-        ) {
-          throw new AppError("CONFLICT");
-        }
       }
 
       const sourceWhere = input.regeneration
@@ -7344,20 +7331,18 @@ export class ConversationService {
         : input.pendingRequestId
           ? {
               conversationId: input.conversationId,
-              draftId: null,
               pendingRequestId: input.pendingRequestId,
               turnId: null,
               kind: "attachment",
               status: "pending",
             }
-          : !input.preservesDraft && input.sourceDraftId
+          : !input.preservesStagedAttachments
             ? {
                 conversationId: input.conversationId,
-                draftId: input.sourceDraftId,
                 pendingRequestId: null,
                 turnId: null,
                 kind: "attachment",
-                status: "draft",
+                status: "staged",
               }
             : null;
       let currentAttachments: Array<{
@@ -7384,8 +7369,8 @@ export class ConversationService {
               input.regeneration
                 ? Prisma.sql`turn_id = ${input.regeneration.turnId}::uuid AND status = 'bound'`
                 : input.pendingRequestId
-                  ? Prisma.sql`pending_request_id = ${input.pendingRequestId}::uuid AND draft_id IS NULL AND turn_id IS NULL AND status = 'pending'`
-                  : Prisma.sql`draft_id = ${input.sourceDraftId}::uuid AND pending_request_id IS NULL AND turn_id IS NULL AND status = 'draft'`
+                  ? Prisma.sql`pending_request_id = ${input.pendingRequestId}::uuid AND turn_id IS NULL AND status = 'pending'`
+                  : Prisma.sql`pending_request_id IS NULL AND turn_id IS NULL AND status = 'staged'`
             }
           ORDER BY id
           FOR UPDATE
@@ -7460,7 +7445,7 @@ export class ConversationService {
             messageDisplayJson: input.prepared.messageDisplay ?? Prisma.DbNull,
             submitMode: input.prepared.submitMode,
             idempotencyKey: input.prepared.idempotencyKey ?? null,
-            preservesDraft: input.preservesDraft,
+            preservesStagedAttachments: input.preservesStagedAttachments,
             pendingRequestId: input.pendingRequestId,
             planReviewId: input.planReviewAction?.reviewId ?? null,
             planReviewAction: input.planReviewAction?.action ?? null,
@@ -7574,7 +7559,6 @@ export class ConversationService {
   ) {
     const projection = await this.persistStartProjection(intent, startedTurn);
     await this.publishAttachedStartEvents(intent.conversationId, projection);
-    this.scheduleTitleForAcceptedMessage(intent);
     return projection;
   }
 
@@ -7873,7 +7857,6 @@ export class ConversationService {
                 `regenerated-attachment:${file.id}`,
               ),
               conversationId: intent.conversationId,
-              draftId: null,
               pendingRequestId: null,
               turnId: created.id,
               kind: file.kind,
@@ -7892,7 +7875,10 @@ export class ConversationService {
             },
           });
         }
-      } else if (!intent.preservesDraft && intent.attachmentsJson.length > 0) {
+      } else if (
+        !intent.preservesStagedAttachments &&
+        intent.attachmentsJson.length > 0
+      ) {
         const attachmentIds = intent.attachmentsJson.map((file) => file.id);
         const bound = await tx.conversationFile.updateMany({
           where: {
@@ -7902,18 +7888,15 @@ export class ConversationService {
             turnId: null,
             ...(intent.pendingRequestId
               ? {
-                  draftId: null,
                   pendingRequestId: intent.pendingRequestId,
                   status: "pending",
                 }
               : {
-                  draftId: { not: null },
                   pendingRequestId: null,
-                  status: "draft",
+                  status: "staged",
                 }),
           },
           data: {
-            draftId: null,
             pendingRequestId: null,
             turnId: created.id,
             status: "bound",
@@ -8009,41 +7992,6 @@ export class ConversationService {
           },
           data: { title: firstTurnTitle },
         });
-      }
-      if (!intent.preservesDraft) {
-        const draft = await tx.conversationDraft.findUnique({
-          where: { conversationId: intent.conversationId },
-        });
-        if (!intent.pendingRequestId && !regeneration) {
-          await tx.conversationDraft.updateMany({
-            where: {
-              conversationId: intent.conversationId,
-              ownerId: intent.ownerId,
-              inputText: intent.inputText,
-              priorityCapabilityIdsJson: {
-                equals: intent.priorityCapabilityIdsJson,
-              },
-              knowledgeBaseIdsJson: {
-                equals: intent.knowledgeBaseIdsJson,
-              },
-            },
-            data: {
-              inputText: "",
-              priorityCapabilityIdsJson: [],
-              knowledgeBaseIdsJson: [],
-            },
-          });
-        } else if (intent.pendingRequestId && !draft) {
-          await tx.conversationDraft.create({
-            data: {
-              conversationId: intent.conversationId,
-              ownerId: intent.ownerId,
-              inputText: "",
-              priorityCapabilityIdsJson: [],
-              knowledgeBaseIdsJson: [],
-            },
-          });
-        }
       }
       await tx.auditLog.create({
         data: {
@@ -8384,20 +8332,6 @@ export class ConversationService {
       select: { status: true },
     });
     if (owner?.status === "disabled") {
-      let draft = await tx.conversationDraft.findUnique({
-        where: { conversationId: intent.conversationId },
-      });
-      if (!draft) {
-        draft = await tx.conversationDraft.create({
-          data: {
-            conversationId: intent.conversationId,
-            ownerId: intent.ownerId,
-            inputText: "",
-            priorityCapabilityIdsJson: [],
-            knowledgeBaseIdsJson: [],
-          },
-        });
-      }
       await tx.conversationFile.updateMany({
         where: {
           conversationId: intent.conversationId,
@@ -8408,8 +8342,7 @@ export class ConversationService {
         },
         data: {
           pendingRequestId: null,
-          draftId: draft.id,
-          status: "draft",
+          status: "staged",
         },
       });
       const cancelled = await tx.pendingRequest.deleteMany({
@@ -8571,9 +8504,11 @@ export class ConversationService {
         conversation.interactiveApplicationPackageId,
       );
       const officeAnnotation = submissionOfficeAnnotation(submission);
-      const preservesDraft =
+      const preservesStagedAttachments =
         Boolean(officeAnnotation) ||
-        (submission.draftPolicy === "preserve" && !pendingId && !regeneration);
+        (submission.preserveStagedAttachments === true &&
+          !pendingId &&
+          !regeneration);
       const preparedAnnotation = officeAnnotation
         ? await this.prepareOfficeAnnotation(conversationId, officeAnnotation)
         : null;
@@ -8612,11 +8547,9 @@ export class ConversationService {
               },
             }
           : {}),
-        ...(preparedAnnotation
-          ? { draftPolicy: "preserve" as const }
-          : submission.draftPolicy
-            ? { draftPolicy: submission.draftPolicy }
-            : {}),
+        ...(preservesStagedAttachments
+          ? { preserveStagedAttachments: true }
+          : {}),
         messageDisplay: preparedAnnotation?.display ?? null,
       };
       const currentCollaborationMode =
@@ -8640,7 +8573,7 @@ export class ConversationService {
             submitMode: input.submitMode,
             priorityCapabilityIds: input.priorityCapabilityIds,
             knowledgeBaseIds: input.knowledgeBaseIds,
-            preservesDraft,
+            preservesStagedAttachments,
             pendingRequestId: pendingId ?? null,
             regenerationMessageId: regeneration?.messageId ?? null,
             taskKind: input.goal ? "goal" : "turn",
@@ -8680,24 +8613,6 @@ export class ConversationService {
               existingMessage.id,
               input.messageDisplay,
             );
-          }
-          if (!preservesDraft && !pendingId && !regeneration) {
-            await this.prisma.conversationDraft.updateMany({
-              where: {
-                conversationId,
-                ownerId,
-                inputText: input.inputText,
-                priorityCapabilityIdsJson: {
-                  equals: input.priorityCapabilityIds,
-                },
-                knowledgeBaseIdsJson: { equals: input.knowledgeBaseIds },
-              },
-              data: {
-                inputText: "",
-                priorityCapabilityIdsJson: [],
-                knowledgeBaseIdsJson: [],
-              },
-            });
           }
           return returnWhenAccepted
             ? startReceipt(existingTurn.id, "running")
@@ -8748,13 +8663,7 @@ export class ConversationService {
         }
       }
 
-      const sourceDraft =
-        !preservesDraft && !pendingId && !regeneration
-          ? await this.prisma.conversationDraft.findUnique({
-              where: { conversationId },
-            })
-          : null;
-      const files = preservesDraft
+      const files = preservesStagedAttachments
         ? []
         : await this.prisma.conversationFile.findMany({
             where: regeneration
@@ -8768,21 +8677,17 @@ export class ConversationService {
                 ? {
                     conversationId,
                     pendingRequestId: pendingId,
-                    draftId: null,
                     turnId: null,
                     kind: "attachment",
                     status: "pending",
                   }
-                : sourceDraft
-                  ? {
-                      conversationId,
-                      draftId: sourceDraft.id,
-                      pendingRequestId: null,
-                      turnId: null,
-                      kind: "attachment",
-                      status: "draft",
-                    }
-                  : { id: { in: [] } },
+                : {
+                    conversationId,
+                    pendingRequestId: null,
+                    turnId: null,
+                    kind: "attachment",
+                    status: "staged",
+                  },
           });
       if (input.inputText.trim().length === 0 && files.length === 0) {
         throw new AppError("VALIDATION_ERROR");
@@ -8815,7 +8720,7 @@ export class ConversationService {
             ownerId,
             conversationId,
             input,
-            preservesDraft,
+            preservesStagedAttachments,
             files,
             ...(pendingId ? { pendingId } : {}),
             ...(regeneration ? { regeneration } : {}),
@@ -8876,9 +8781,24 @@ export class ConversationService {
         // Dynamic Worker creation must happen after the API has atomically
         // published managed/agents. Keeping the dependency in this promise
         // preserves parallel attachment/model checks without racing Subpath.
-        const runtimePromise = authorizationPromise.then(() =>
-          this.runner.prepareRuntime(conversationId, ownerId),
+        const runtimeInspectionPromise = this.runner.inspectRuntime(
+          conversationId,
+          ownerId,
         );
+        const runtimePromise = Promise.all([
+          authorizationPromise,
+          runtimeInspectionPromise,
+        ]).then(async ([, inspected]) => {
+          if (
+            inspected &&
+            inspected.runtimeGeneration === conversation.runtimeGeneration &&
+            inspected.agentsTemplateVersion ===
+              conversation.agentsTemplateVersion
+          ) {
+            return inspected;
+          }
+          return this.runner.prepareRuntime(conversationId, ownerId);
+        });
         const [
           runtimeResult,
           authorizationResult,
@@ -8993,8 +8913,7 @@ export class ConversationService {
             applicationRuntime,
             expectedCodexThreadId: conversation.codexThreadId,
             prepared: input,
-            preservesDraft,
-            sourceDraftId: sourceDraft?.id ?? null,
+            preservesStagedAttachments,
             pendingRequestId: pendingId ?? null,
             regeneration: regeneration ?? null,
             attachments: files.map(snapshotTurnStartAttachment),
@@ -9075,17 +8994,11 @@ export class ConversationService {
               projectStoredEvent(update),
             )
             .catch(() => undefined);
-        } else if (!regeneration && !preservesDraft) {
-          await this.createOrUpdateDraft(ownerId, {
-            conversationId,
-            inputText: input.inputText,
-            priorityCapabilityIds: input.priorityCapabilityIds,
-            knowledgeBaseIds: input.knowledgeBaseIds,
-          });
+        } else if (!regeneration && !preservesStagedAttachments) {
           await this.audit.write({
             ...context,
             actorId: ownerId,
-            action: "conversation_run_rejected_overload_draft_saved",
+            action: "conversation_run_rejected_overload",
             targetType: "conversation",
             targetId: conversationId,
             result: "rejected",
@@ -9099,7 +9012,7 @@ export class ConversationService {
         } else {
           throw new AppError("CONVERSATION_OVERLOADED");
         }
-        throw new AppError("CONVERSATION_OVERLOADED_DRAFT_SAVED");
+        throw new AppError("CONVERSATION_OVERLOADED");
       }
 
       try {
@@ -9137,13 +9050,11 @@ export class ConversationService {
       try {
         if (returnWhenAccepted) {
           await this.runner.acceptStartTurn(runnerStartInput);
-          this.scheduleTitleForAcceptedMessage(startIntent);
           this.trackAcceptedStartRecovery(projectionTurnId);
           return startReceipt(projectionTurnId, "starting");
         }
 
         const startedTurn = await this.runner.startTurn(runnerStartInput);
-        this.scheduleTitleForAcceptedMessage(startIntent);
         runnerTurn = startedTurn;
         startIntent = await this.recordSucceededStartIntent(
           startIntent,
@@ -9241,20 +9152,6 @@ export class ConversationService {
         .releaseConversationLock(conversationId, lock)
         .catch(() => undefined);
     }
-  }
-
-  private scheduleTitleForAcceptedMessage(intent: TurnStartIntent): void {
-    if (
-      intent.taskKind === "compact" ||
-      intent.planReviewAction === "implement"
-    ) {
-      return;
-    }
-    const content = intent.messageDisplayJson
-      ? officeAnnotationRequestText(intent.messageDisplayJson).trim()
-      : intent.inputText.trim();
-    if (!content) return;
-    this.titleRefresh?.scheduleForUserMessage(intent.conversationId, content);
   }
 
   private async withActiveUserLifecycleLock<T>(
@@ -9372,6 +9269,67 @@ function isSupersededPlanOutputMissingEvent(
     asRecord(event.payloadJson).error_code ===
       PLAN_OUTPUT_MISSING_ERROR_CODE
   );
+}
+
+type NativeTerminalTurnStatus = {
+  status: (typeof TERMINAL_TURN_STATUSES)[number];
+  completedAt: Date;
+};
+
+function indexNativeTerminalTurnStatuses(
+  detailEvents: readonly ConversationDetailEventRow[],
+): ReadonlyMap<string, NativeTerminalTurnStatus> {
+  const statuses = new Map<string, NativeTerminalTurnStatus>();
+  for (const event of detailEvents) {
+    if (event.eventType !== "turn/completed" || !event.turnId) continue;
+    const payload = asRecord(event.payloadJson);
+    if (
+      payload.source !== "codex_app_server" ||
+      payload.method !== "turn/completed"
+    ) {
+      continue;
+    }
+    const status = asRecord(asRecord(payload.params).turn).status;
+    if (
+      status !== "completed" &&
+      status !== "failed" &&
+      status !== "interrupted"
+    ) {
+      continue;
+    }
+    statuses.set(event.turnId, { status, completedAt: event.createdAt });
+  }
+  return statuses;
+}
+
+function selectTerminalResumeCursor(
+  conversationId: string,
+  detailEvents: readonly ConversationDetailEventRow[],
+  projectedMessageIds: ReadonlySet<string>,
+): string | undefined {
+  for (const event of detailEvents) {
+    if (event.eventType !== "item/completed") continue;
+    const payload = asRecord(event.payloadJson);
+    if (
+      payload.source !== "codex_app_server" ||
+      payload.method !== "item/completed"
+    ) {
+      continue;
+    }
+    const item = asRecord(asRecord(payload.params).item);
+    if (item.type !== "agentMessage" && item.type !== "plan") continue;
+    const messageId = asRecord(payload.local).message_id;
+    if (
+      typeof messageId !== "string" ||
+      projectedMessageIds.has(messageId)
+    ) {
+      continue;
+    }
+    const beforeMissingProjection =
+      event.sequenceNo > 0n ? event.sequenceNo - 1n : 0n;
+    return `${conversationId}:${beforeMissingProjection}`;
+  }
+  return detailEvents.at(-1)?.sseEventId;
 }
 
 function selectRunningResumeAnchor(
@@ -9563,52 +9521,6 @@ export function projectTaskTitle(
       : "未命名任务";
   }
   return title;
-}
-
-function projectDraft(row: {
-  id: string;
-  conversationId: string;
-  ownerId: string;
-  inputText: string;
-  priorityCapabilityIdsJson: unknown;
-  knowledgeBaseIdsJson: unknown;
-  createdAt: Date;
-  updatedAt: Date;
-}) {
-  return {
-    id: row.id,
-    conversation_id: row.conversationId,
-    owner_id: row.ownerId,
-    input_text: row.inputText,
-    priority_capability_ids: jsonStringArray(row.priorityCapabilityIdsJson),
-    knowledge_base_ids: jsonStringArray(row.knowledgeBaseIdsJson),
-    created_at: row.createdAt.toISOString(),
-    updated_at: row.updatedAt.toISOString(),
-  };
-}
-
-function draftContentMatches(
-  draft: {
-    ownerId: string;
-    inputText: string;
-    priorityCapabilityIdsJson: unknown;
-    knowledgeBaseIdsJson: unknown;
-  },
-  expected: {
-    ownerId: string;
-    inputText: string;
-    priorityCapabilityIds: string[];
-    knowledgeBaseIds: string[];
-  },
-): boolean {
-  return (
-    draft.ownerId === expected.ownerId &&
-    draft.inputText === expected.inputText &&
-    JSON.stringify(jsonStringArray(draft.priorityCapabilityIdsJson)) ===
-      JSON.stringify(expected.priorityCapabilityIds) &&
-    JSON.stringify(jsonStringArray(draft.knowledgeBaseIdsJson)) ===
-      JSON.stringify(expected.knowledgeBaseIds)
-  );
 }
 
 function projectPending(row: {
@@ -10439,7 +10351,6 @@ function projectMessage(
 function projectFile(row: {
   id: string;
   conversationId: string;
-  draftId: string | null;
   pendingRequestId: string | null;
   turnId: string | null;
   kind: string;
@@ -10458,7 +10369,6 @@ function projectFile(row: {
   return {
     id: row.id,
     conversation_id: row.conversationId,
-    draft_id: row.draftId,
     pending_request_id: row.pendingRequestId,
     turn_id: row.turnId,
     kind: row.kind,
@@ -10825,7 +10735,7 @@ function turnIdempotencyRequestHash(input: {
   submitMode: PreparedTurnSubmission["submitMode"];
   priorityCapabilityIds: string[];
   knowledgeBaseIds: string[];
-  preservesDraft: boolean;
+  preservesStagedAttachments: boolean;
   pendingRequestId: string | null;
   regenerationMessageId: string | null;
   taskKind: "turn" | "goal" | "compact";
@@ -10838,7 +10748,7 @@ function turnIdempotencyRequestHash(input: {
   return createHash("sha256")
     .update(
       JSON.stringify({
-        schema_version: 2,
+        schema_version: 3,
         input_text: input.inputText,
         message_display: input.messageDisplay,
         submit_mode: input.submitMode,
@@ -10846,7 +10756,7 @@ function turnIdempotencyRequestHash(input: {
         ...(input.knowledgeBaseIds.length > 0
           ? { knowledge_base_ids: input.knowledgeBaseIds }
           : {}),
-        preserves_draft: input.preservesDraft,
+        preserves_staged_attachments: input.preservesStagedAttachments,
         pending_request_id: input.pendingRequestId,
         regeneration_message_id: input.regenerationMessageId,
         task_kind: input.taskKind,
@@ -10894,7 +10804,7 @@ function turnStartIntentIdempotencyRequestHash(
     | "submitMode"
     | "priorityCapabilityIdsJson"
     | "knowledgeBaseIdsJson"
-    | "preservesDraft"
+    | "preservesStagedAttachments"
     | "pendingRequestId"
     | "regenerationJson"
     | "taskKind"
@@ -10911,7 +10821,7 @@ function turnStartIntentIdempotencyRequestHash(
     submitMode: intent.submitMode,
     priorityCapabilityIds: intent.priorityCapabilityIdsJson,
     knowledgeBaseIds: intent.knowledgeBaseIdsJson,
-    preservesDraft: intent.preservesDraft,
+    preservesStagedAttachments: intent.preservesStagedAttachments,
     pendingRequestId: intent.pendingRequestId,
     regenerationMessageId: intent.regenerationJson?.messageId ?? null,
     taskKind: intent.taskKind,
@@ -10969,7 +10879,7 @@ function matchesStartIntentSubmission(
     ownerId: string;
     conversationId: string;
     input: PreparedTurnSubmission;
-    preservesDraft: boolean;
+    preservesStagedAttachments: boolean;
     pendingId?: string;
     regeneration?: RegenerationSource;
     planReviewAction?: PlanReviewTurnAction;
@@ -10989,7 +10899,7 @@ function matchesStartIntentSubmission(
       (input.input.goal?.tokenBudget ?? null) &&
     intent.submitMode === input.input.submitMode &&
     intent.idempotencyKey === (input.input.idempotencyKey ?? null) &&
-    intent.preservesDraft === input.preservesDraft &&
+    intent.preservesStagedAttachments === input.preservesStagedAttachments &&
     intent.pendingRequestId === (input.pendingId ?? null) &&
     intent.planReviewId === (input.planReviewAction?.reviewId ?? null) &&
     intent.planReviewAction === (input.planReviewAction?.action ?? null) &&
@@ -11038,6 +10948,9 @@ async function deleteConversationGraph(
     ...new Set(citations.map((citation) => citation.documentVersionId)),
   ];
   await tx.conversationShare.deleteMany({ where: { conversationId } });
+  await tx.botChannelOutboundDelivery.deleteMany({ where: { conversationId } });
+  await tx.botChannelInboundMessage.deleteMany({ where: { conversationId } });
+  await tx.botChannelPeerSession.deleteMany({ where: { conversationId } });
   await tx.weixinOutboundDelivery.deleteMany({ where: { conversationId } });
   await tx.weixinInboundMessage.deleteMany({ where: { conversationId } });
   await tx.weixinPeerSession.deleteMany({ where: { conversationId } });
@@ -11069,7 +10982,6 @@ async function deleteConversationGraph(
     where: { conversationId },
   });
   await tx.pendingRequest.deleteMany({ where: { conversationId } });
-  await tx.conversationDraft.deleteMany({ where: { conversationId } });
   await tx.conversation.delete({ where: { id: conversationId } });
 }
 

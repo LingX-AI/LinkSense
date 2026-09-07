@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import appStyles from "@/index.css?raw"
 import notoSansScStyles from "@fontsource-variable/noto-sans-sc/wght.css?raw"
 import { readFileSync } from "node:fs"

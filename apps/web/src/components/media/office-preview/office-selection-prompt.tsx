@@ -35,6 +35,15 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
+  useVoiceTranscriptionAvailability,
+  type VoiceTranscriptionAvailabilityState,
+} from "@/features/conversations/use-voice-transcription-availability"
+import {
   useVoiceTranscription,
   type VoiceInputFailure,
 } from "@/features/conversations/use-voice-transcription"
@@ -53,11 +62,13 @@ export function OfficeSelectionPrompt<TSelection>({
   selection,
   anchor,
   action,
+  voiceTranscriptionAvailability: voiceTranscriptionAvailabilityOverride,
 }: Readonly<{
   scopeRef: RefObject<HTMLElement | null>
   selection: TSelection
   anchor?: OfficeSelectionAnchor | null
   action: OfficeSelectionAction<TSelection>
+  voiceTranscriptionAvailability?: VoiceTranscriptionAvailabilityState
 }>) {
   const { t, i18n } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -98,7 +109,23 @@ export function OfficeSelectionPrompt<TSelection>({
     onTranscript: applyTranscript,
     onError: reportVoiceFailure,
   })
+  const checkedVoiceTranscriptionAvailability =
+    useVoiceTranscriptionAvailability({
+      enabled: voiceTranscriptionAvailabilityOverride === undefined,
+    })
+  const voiceTranscriptionAvailability =
+    voiceTranscriptionAvailabilityOverride ??
+    checkedVoiceTranscriptionAvailability
   const voiceBusy = voice.phase !== "idle"
+  const voiceAvailable = voiceTranscriptionAvailability === "available"
+  const voiceTooltipKey =
+    voiceTranscriptionAvailability === "not_configured"
+      ? "conversation.voiceNotConfigured"
+      : voiceTranscriptionAvailability === "checking"
+        ? "conversation.voiceChecking"
+        : voiceTranscriptionAvailability === "unavailable"
+          ? "conversation.voiceServiceUnavailable"
+          : "conversation.voice"
 
   const updateMultilineState = useCallback(() => {
     const textarea = textareaRef.current
@@ -324,17 +351,38 @@ export function OfficeSelectionPrompt<TSelection>({
               data-testid="office-selection-prompt-actions"
             >
               {voice.phase === "idle" && (
-                <InputGroupButton
-                  type="button"
-                  size="icon-sm"
-                  aria-label={t("conversation.voice")}
-                  disabled={submitting || action.disabled}
-                  className="rounded-full text-muted-foreground"
-                  data-testid="office-selection-voice-button"
-                  onClick={startVoiceRecognition}
-                >
-                  <MicIcon className="size-4" aria-hidden="true" />
-                </InputGroupButton>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <span
+                        className="inline-flex"
+                        role="group"
+                        tabIndex={voiceAvailable ? undefined : 0}
+                        aria-label={
+                          voiceAvailable ? undefined : t(voiceTooltipKey)
+                        }
+                      />
+                    }
+                  >
+                    <InputGroupButton
+                      type="button"
+                      size="icon-sm"
+                      aria-label={t("conversation.voice")}
+                      disabled={
+                        !voiceAvailable || submitting || action.disabled
+                      }
+                      className={cn(
+                        "rounded-full text-muted-foreground",
+                        !voiceAvailable && "opacity-50"
+                      )}
+                      data-testid="office-selection-voice-button"
+                      onClick={startVoiceRecognition}
+                    >
+                      <MicIcon className="size-4" aria-hidden="true" />
+                    </InputGroupButton>
+                  </TooltipTrigger>
+                  <TooltipContent>{t(voiceTooltipKey)}</TooltipContent>
+                </Tooltip>
               )}
               {voice.phase === "recording" && (
                 <InputGroupButton

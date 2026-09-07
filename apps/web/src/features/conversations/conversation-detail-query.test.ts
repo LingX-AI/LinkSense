@@ -15,6 +15,10 @@ import {
 describe("conversation detail event subscription", () => {
   afterEach(() => vi.unstubAllGlobals())
 
+  it("releases an inactive task detail immediately", () => {
+    expect(conversationDetailQueryOptions("conversation-b").gcTime).toBe(0)
+  })
+
   it("does not subscribe from cached task data while its fresh detail is loading", async () => {
     const conversationId = "conversation-b"
     const cachedCursor = `${conversationId}:95`
@@ -108,14 +112,14 @@ describe("conversation detail event subscription", () => {
     ).toBe("conversation-b")
   })
 
-  it("subscribes from the server-fresh draft snapshot after a new task is promoted", () => {
+  it("reconnects immediately when the page retains a reusable replay boundary", () => {
     expect(
       selectFreshConversationEventSubscriptionId({
         conversationId: "conversation-new",
         isNew: false,
         isSuccess: true,
         isFetchedAfterMount: false,
-        isPromotedNewTask: true,
+        hasReusableReplayBoundary: true,
       })
     ).toBe("conversation-new")
   })

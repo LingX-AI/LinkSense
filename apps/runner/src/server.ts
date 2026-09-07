@@ -53,6 +53,7 @@ import {
   UserInputRequestUnavailableError,
   ConversationRuntimeActiveError,
   type AppServerProcessPool,
+  type StartTurnInput,
   type SubAgentDetailReadInput,
   type SubAgentReadRuntimeInput,
 } from "./process-pool.js";
@@ -433,6 +434,109 @@ export const startTurnBodySchema = z
       }
     }
   });
+
+function prewarmInput(
+  conversationId: string,
+  body: z.infer<typeof startTurnBodySchema>,
+): StartTurnInput {
+  return {
+    conversationId,
+    projectionTurnId: body.projectionTurnId,
+    appServerProcessLimit: body.appServerProcessLimit,
+    operationKind: body.operationKind,
+    ...(body.eventProjectionTurnId !== undefined
+      ? { eventProjectionTurnId: body.eventProjectionTurnId }
+      : {}),
+    ownerId: body.ownerId,
+    collaborationMode: body.collaborationMode,
+    expectedRuntimeGeneration: body.expectedRuntimeGeneration,
+    capabilityGeneration: body.capabilityGeneration,
+    mcpGeneration: body.mcpGeneration,
+    mcpServers: body.mcpServers,
+    context: {
+      userInput: body.context.userInput,
+      attachments: body.context.attachments,
+      priorityPlugins: body.context.priorityPlugins.map((capability) => ({
+        id: capability.id,
+        name: capability.name,
+        ...(capability.description !== undefined
+          ? { description: capability.description }
+          : {}),
+      })),
+      prioritySkills: body.context.prioritySkills.map((capability) => ({
+        id: capability.id,
+        name: capability.name,
+        ...(capability.description !== undefined
+          ? { description: capability.description }
+          : {}),
+      })),
+    },
+    capabilities: body.capabilities.map((capability) => ({
+      id: capability.id,
+      name: capability.name,
+      type: capability.type,
+      revision: capability.revision,
+      ...(capability.credentialEnvironment
+        ? { credentialEnvironment: capability.credentialEnvironment }
+        : {}),
+    })),
+    environment: body.environment,
+    model: body.model,
+    reasoningEffort: body.reasoningEffort,
+    modelProvider: {
+      revision: body.modelProvider.revision,
+      baseUrl: body.modelProvider.baseUrl,
+      protocolMode: body.modelProvider.protocolMode,
+      apiKey: body.modelProvider.apiKey,
+      ...(body.modelProvider.pricing
+        ? { pricing: body.modelProvider.pricing }
+        : {}),
+      ...(body.modelProvider.modelContextWindow !== undefined
+        ? { modelContextWindow: body.modelProvider.modelContextWindow }
+        : {}),
+      ...(body.modelProvider.modelAutoCompactTokenLimit !== undefined
+        ? {
+            modelAutoCompactTokenLimit:
+              body.modelProvider.modelAutoCompactTokenLimit,
+          }
+        : {}),
+    },
+    ...(body.codexThreadId !== undefined
+      ? { codexThreadId: body.codexThreadId }
+      : {}),
+    ...(body.modelTransitionSource !== undefined
+      ? {
+          modelTransitionSource: {
+            model: body.modelTransitionSource.model,
+            provider: {
+              revision: body.modelTransitionSource.provider.revision,
+              baseUrl: body.modelTransitionSource.provider.baseUrl,
+              protocolMode: body.modelTransitionSource.provider.protocolMode,
+              apiKey: body.modelTransitionSource.provider.apiKey,
+              ...(body.modelTransitionSource.provider.pricing
+                ? { pricing: body.modelTransitionSource.provider.pricing }
+                : {}),
+              ...(body.modelTransitionSource.provider.modelContextWindow !==
+              undefined
+                ? {
+                    modelContextWindow:
+                      body.modelTransitionSource.provider.modelContextWindow,
+                  }
+                : {}),
+              ...(body.modelTransitionSource.provider
+                .modelAutoCompactTokenLimit !== undefined
+                ? {
+                    modelAutoCompactTokenLimit:
+                      body.modelTransitionSource.provider
+                        .modelAutoCompactTokenLimit,
+                  }
+                : {}),
+            },
+          },
+        }
+      : {}),
+  };
+}
 
 const userInputResponseBodySchema = z.strictObject({
   ownerId: uuid,
@@ -2159,6 +2263,59 @@ export function buildRunnerServer(
         agentsTemplateVersion: config.LINKSENSE_AGENTS_TEMPLATE_VERSION,
         runtimeGeneration: runtime.runtimeGeneration,
       };
+    },
+  );
+
+  app.post<{ Params: { conversationId: string } }>(
+    "/conversations/:conversationId/runtime/prewarm",
+    async (request, reply) => {
+      const conversationId = uuid.parse(request.params.conversationId);
+      const parsedBody = startTurnBodySchema.safeParse(request.body);
+      const ownerId = parseOwnerIdHeader(
+        request.headers["x-linksense-owner-id"],
+      );
+      if (
+        !parsedBody.success ||
+        !ownerId ||
+        parsedBody.data.ownerId !== ownerId ||
+        parsedBody.data.operationKind !== "turn" ||
+        parsedBody.data.goal !== undefined ||
+        parsedBody.data.forkFromCodexTurnId !== undefined ||
+        parsedBody.data.context.userInput !== "" ||
+        parsedBody.data.context.attachments.length > 0 ||
+        parsedBody.data.context.priorityPlugins.length > 0 ||
+        parsedBody.data.context.prioritySkills.length > 0 ||
+        parsedBody.data.context.approvedPlanImplementation !== undefined ||
+        parsedBody.data.context.requireFinalResponse !== undefined ||
+        parsedBody.data.context.applicationInstructions !== undefined ||
+        parsedBody.data.context.officeSelectionContext !== undefined ||
+        (parsedBody.data.context.selectedKnowledgeBaseCount ?? 0) !== 0
+      ) {
+        return reply.code(400).send({ error_code: "RUNNER_PREWARM_INVALID" });
+      }
+      await ensureUserRuntime?.(parsedBody.data.ownerId);
+      return pool.prewarmConversation(
+        prewarmInput(conversationId, parsedBody.data),
+      );
+    },
+  );
+
+  app.get<{ Params: { conversationId: string } }>(
+    "/conversations/:conversationId/runtime/prewarm",
+    async (request, reply) => {
+      const conversationId = uuid.parse(request.params.conversationId);
+      const ownerHeader = request.headers["x-linksense-owner-id"];
+      const ownerId = uuid.parse(
+        Array.isArray(ownerHeader) ? ownerHeader[0] : ownerHeader,
+      );
+      const runtime = await pool.inspectPrewarmedConversation(
+        conversationId,
+        ownerId,
+      );
+      return (
+        runtime ??
+        reply.code(404).send({ error_code: "RUNNER_PREWARM_NOT_FOUND" })
+      );
     },
   );
 

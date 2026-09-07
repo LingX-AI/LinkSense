@@ -4,6 +4,7 @@ import { z } from "zod"
 
 import {
   conversationFileSchema,
+  voiceTranscriptionAvailabilitySchema,
   type ConversationUserInputResponse,
 } from "@linksense/shared"
 
@@ -51,6 +52,10 @@ import {
   type PendingAttachmentUpload,
 } from "@/features/conversations/conversation-composer"
 import type { VoiceTranscriptionRequester } from "@/features/conversations/use-voice-transcription"
+import {
+  useVoiceTranscriptionAvailability,
+  type VoiceTranscriptionAvailabilityRequester,
+} from "@/features/conversations/use-voice-transcription-availability"
 import {
   appendConversationLiveEvent,
   isStreamOnlyNativeEvent,
@@ -335,6 +340,26 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
     },
     []
   )
+
+  const requestVoiceTranscriptionAvailability =
+    useCallback<VoiceTranscriptionAvailabilityRequester>(async (signal) => {
+      const client = clientRef.current
+      if (!client?.authenticated) {
+        throw new ApiError({
+          status: 401,
+          errorCode: "APPLICATION_EMBED_SESSION_EXPIRED",
+        })
+      }
+      return client.request(
+        "/api/v1/embed/session/voice/transcriptions/status",
+        voiceTranscriptionAvailabilitySchema,
+        { signal }
+      )
+    }, [])
+  const voiceTranscriptionAvailability = useVoiceTranscriptionAvailability({
+    enabled: status === "ready",
+    request: requestVoiceTranscriptionAvailability,
+  })
 
   const scheduleRefresh = useCallback(
     (scope: ConversationQueryRefreshScope) => {
@@ -1373,6 +1398,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
                 onClearAttachments={clearAttachments}
                 onError={setError}
                 requestVoiceTranscription={requestVoiceTranscription}
+                voiceTranscriptionAvailability={voiceTranscriptionAvailability}
               />
             )}
           </div>

@@ -157,12 +157,6 @@ describe("security boundaries", () => {
       errorDetails("PENDING_REQUEST_LIMIT_REACHED", "en-US").message,
     ).toContain("limit");
     expect(
-      errorDetails("PENDING_REQUEST_RESTORE_DRAFT_NOT_EMPTY", "zh-CN").message,
-    ).toContain("输入框");
-    expect(
-      errorDetails("PENDING_REQUEST_RESTORE_DRAFT_NOT_EMPTY", "en-US").message,
-    ).toContain("composer");
-    expect(
       errorDetails("AUTH_CROSS_ORIGIN_REQUEST_FORBIDDEN", "zh-CN").message,
     ).toContain("请求来源");
     expect(

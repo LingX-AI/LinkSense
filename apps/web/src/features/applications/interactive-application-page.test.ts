@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from "vitest"
 
 import { interactiveCustomEvent } from "@/features/applications/interactive-application-event"

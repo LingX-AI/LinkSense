@@ -663,6 +663,33 @@ export class LinkSenseRedis {
     }
   }
 
+  async renewRecoveryLock(
+    conversationId: string,
+    token: string,
+    ttlMilliseconds = 30_000,
+  ): Promise<boolean> {
+    const script = `
+      if redis.call('GET', KEYS[1]) == ARGV[1] then
+        redis.call('PEXPIRE', KEYS[1], ARGV[2])
+        return 1
+      end
+      return 0
+    `
+    try {
+      return Number(
+        await this.client.eval(
+          script,
+          1,
+          `linksense:recovery-lock:${conversationId}`,
+          token,
+          ttlMilliseconds,
+        ),
+      ) === 1
+    } catch {
+      throw new RedisUnavailableError("recovery_lock_renew")
+    }
+  }
+
   async runningTurnCount(): Promise<number> {
     try {
       return await this.client.hlen(RUNNING_TURN_SLOTS_KEY)

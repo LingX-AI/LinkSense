@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { execFileSync, spawnSync } from "node:child_process"
+import { execFileSync, spawn, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
   access,
@@ -725,69 +725,79 @@ esac
 test(
   "preflight failures never create LinkSense state or run Docker mutations",
   async () => {
-    for (const scenario of [
-      { name: "docker-missing", docker: null, message: /Docker CLI is not installed/u },
-      { name: "daemon-stopped", docker: "daemon-stopped", message: /Docker Desktop is stopped/u },
-      { name: "engine-old", docker: "engine-old", message: /API 1\.44 is too old/u },
-      { name: "compose-missing", docker: "compose-missing", message: /Compose V2 is not installed/u },
-      { name: "compose-old", docker: "compose-old", message: /Compose 2\.23\.0 is too old/u },
-    ]) {
-      const directory = await mkdtemp(path.join(tmpdir(), "linksense-preflight-"))
-      try {
-        const bin = path.join(directory, "bin")
-        const installDirectory = path.join(directory, "install")
-        const trace = path.join(directory, "trace")
-        await mkdir(bin)
-        await writeExecutable(
-          path.join(bin, "id"),
-          "#!/bin/sh\nprintf '%s\\n' 501\n",
-        )
-        await writeExecutable(
-          path.join(bin, "uname"),
-          "#!/bin/sh\ncase \"$1\" in -s) printf '%s\\n' Darwin ;; -m) printf '%s\\n' x86_64 ;; *) exit 1 ;; esac\n",
-        )
-        await writeExecutable(
-          path.join(bin, "curl"),
-          "#!/bin/sh\nprintf 'curl %s\\n' \"$*\" >> \"$LINKSENSE_TEST_TRACE\"\nexit 99\n",
-        )
-        for (const command of ["awk", "grep", "head", "tr"]) {
-          await linkSystemCommand(command, bin)
-        }
-        await linkSystemCommand("sed", bin)
-        if (scenario.docker !== null) {
-          await writeExecutable(
-            path.join(bin, "docker"),
-            dockerPreflightStub(scenario.docker),
+    const bundleDirectory = await mkdtemp(
+      path.join(tmpdir(), "linksense-preflight-bundle-"),
+    )
+    try {
+      execFileSync(
+        process.execPath,
+        [path.join(root, "scripts/bundle-release-installers.mjs"), bundleDirectory],
+        { env: { ...process.env, RELEASE_VERSION: "v0.1.0" } },
+      )
+      const bundled = path.join(bundleDirectory, "install-core.sh")
+      await Promise.all(
+        [
+          { name: "docker-missing", docker: null, message: /Docker CLI is not installed/u },
+          { name: "daemon-stopped", docker: "daemon-stopped", message: /Docker Desktop is stopped/u },
+          { name: "engine-old", docker: "engine-old", message: /API 1\.44 is too old/u },
+          { name: "compose-missing", docker: "compose-missing", message: /Compose V2 is not installed/u },
+          { name: "compose-old", docker: "compose-old", message: /Compose 2\.23\.0 is too old/u },
+        ].map(async (scenario) => {
+          const directory = await mkdtemp(
+            path.join(tmpdir(), "linksense-preflight-"),
           )
-        }
-
-        const bundled = path.join(directory, "install-core.sh")
-        execFileSync(
-          process.execPath,
-          [path.join(root, "scripts/bundle-release-installers.mjs"), directory],
-          { env: { ...process.env, RELEASE_VERSION: "v0.1.0" } },
-        )
-        const result = spawnSync("/bin/sh", [bundled], {
-          encoding: "utf8",
-          env: {
-            HOME: directory,
-            LINKSENSE_INSTALL_DIR: installDirectory,
-            LINKSENSE_TEST_TRACE: trace,
-            PATH: bin,
-          },
-        })
-        assert.notEqual(result.status, 0, scenario.name)
-        assert.match(`${result.stdout}${result.stderr}`, scenario.message)
-        await assert.rejects(access(installDirectory))
-        const recorded = await readFile(trace, "utf8").catch(() => "")
-        assert.doesNotMatch(
-          recorded,
-          /\b(?:pull|up|run|create|rm|prune|stop|restart)\b/iu,
-        )
-        assert.doesNotMatch(recorded, /^curl /mu)
-      } finally {
-        await rm(directory, { recursive: true, force: true })
-      }
+          try {
+            const bin = path.join(directory, "bin")
+            const installDirectory = path.join(directory, "install")
+            const trace = path.join(directory, "trace")
+            await mkdir(bin)
+            await writeExecutable(
+              path.join(bin, "id"),
+              "#!/bin/sh\nprintf '%s\\n' 501\n",
+            )
+            await writeExecutable(
+              path.join(bin, "uname"),
+              "#!/bin/sh\ncase \"$1\" in -s) printf '%s\\n' Darwin ;; -m) printf '%s\\n' x86_64 ;; *) exit 1 ;; esac\n",
+            )
+            await writeExecutable(
+              path.join(bin, "curl"),
+              "#!/bin/sh\nprintf 'curl %s\\n' \"$*\" >> \"$LINKSENSE_TEST_TRACE\"\nexit 99\n",
+            )
+            await Promise.all(
+              ["awk", "grep", "head", "tr", "sed"].map((command) =>
+                linkSystemCommand(command, bin),
+              ),
+            )
+            if (scenario.docker !== null) {
+              await writeExecutable(
+                path.join(bin, "docker"),
+                dockerPreflightStub(scenario.docker),
+              )
+            }
+            const result = await spawnResult("/bin/sh", [bundled], {
+              env: {
+                HOME: directory,
+                LINKSENSE_INSTALL_DIR: installDirectory,
+                LINKSENSE_TEST_TRACE: trace,
+                PATH: bin,
+              },
+            })
+            assert.notEqual(result.status, 0, scenario.name)
+            assert.match(`${result.stdout}${result.stderr}`, scenario.message)
+            await assert.rejects(access(installDirectory))
+            const recorded = await readFile(trace, "utf8").catch(() => "")
+            assert.doesNotMatch(
+              recorded,
+              /\b(?:pull|up|run|create|rm|prune|stop|restart)\b/iu,
+            )
+            assert.doesNotMatch(recorded, /^curl /mu)
+          } finally {
+            await rm(directory, { recursive: true, force: true })
+          }
+        }),
+      )
+    } finally {
+      await rm(bundleDirectory, { recursive: true, force: true })
     }
   },
 )
@@ -945,7 +955,7 @@ test("every LinkSense release image contains the CPAL license", async () => {
   const licenseCopy =
     /COPY --chmod=0444 LICENSE \/usr\/share\/licenses\/linksense\/LICENSE/gu
   assert.equal((api.match(licenseCopy) ?? []).length, 2)
-  assert.equal((web.match(licenseCopy) ?? []).length, 1)
+  assert.equal((web.match(licenseCopy) ?? []).length, 2)
   assert.equal((runner.match(licenseCopy) ?? []).length, 2)
 })
 
@@ -1451,6 +1461,26 @@ case "${scenario}:$1:$2:$3" in
   *) exit 1 ;;
 esac
 `
+}
+
+function spawnResult(command, arguments_, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, arguments_, { ...options, stdio: "pipe" })
+    let stdout = ""
+    let stderr = ""
+    child.stdout.setEncoding("utf8")
+    child.stderr.setEncoding("utf8")
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk
+    })
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk
+    })
+    child.once("error", reject)
+    child.once("close", (status, signal) => {
+      resolve({ status, signal, stdout, stderr })
+    })
+  })
 }
 
 function composeArguments(edition, extra = []) {

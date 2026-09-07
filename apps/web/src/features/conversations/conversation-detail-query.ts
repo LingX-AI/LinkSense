@@ -15,6 +15,7 @@ export function conversationDetailQueryOptions(
 ) {
   return queryOptions({
     queryKey: ["conversation", conversationId] as const,
+    gcTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: "always",
     retry: (failureCount, error) =>
@@ -37,19 +38,19 @@ export function selectFreshConversationEventSubscriptionId({
   isNew,
   isSuccess,
   isFetchedAfterMount,
-  isPromotedNewTask = false,
+  hasReusableReplayBoundary = false,
 }: {
   conversationId: string | undefined
   isNew: boolean
   isSuccess: boolean
   isFetchedAfterMount: boolean
-  isPromotedNewTask?: boolean
+  hasReusableReplayBoundary?: boolean
 }) {
   if (
     isNew ||
     !conversationId ||
     !isSuccess ||
-    (!isFetchedAfterMount && !isPromotedNewTask)
+    (!isFetchedAfterMount && !hasReusableReplayBoundary)
   ) {
     return undefined
   }

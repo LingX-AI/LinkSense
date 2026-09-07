@@ -1174,11 +1174,10 @@ describe("KnowledgeCleanupWorker", () => {
     expect(deleteSourceItems).toHaveBeenCalledOnce();
     expect(deleteSourceRuns).toHaveBeenCalledOnce();
     expect(deleteSources).toHaveBeenCalledOnce();
-    expect(selectionUpdates).toHaveLength(5);
+    expect(selectionUpdates).toHaveLength(4);
     for (const [index, expected] of [
       ["conversation_turn_start_intents", "knowledge_base_ids_json"],
       ["conversations", "selected_knowledge_base_ids_json"],
-      ["conversation_drafts", "knowledge_base_ids_json"],
       ["pending_requests", "knowledge_base_ids_json"],
       ["conversation_turns", "knowledge_base_ids_json"],
     ].entries()) {

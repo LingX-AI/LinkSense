@@ -68,6 +68,7 @@ export class MarketplaceService {
     } = {},
   ): Promise<MarketplaceCatalogItemView[]> {
     assertActiveActor(actor);
+    assertOrganizationMarketplaceAccess(actor);
     const listings = (
       await this.#store.listListings({ status: "published" })
     ).filter(
@@ -88,6 +89,7 @@ export class MarketplaceService {
     actor: RequestActor,
   ): Promise<MarketplaceCatalogItemView[]> {
     assertActiveActor(actor);
+    assertOrganizationMarketplaceAccess(actor);
     const installedListingIds = new Set(
       (await this.#store.listCapabilitiesByOwner(actor.id)).flatMap(
         (capability) =>
@@ -108,6 +110,7 @@ export class MarketplaceService {
     listingId: string,
   ): Promise<MarketplaceCatalogItemView> {
     assertActiveActor(actor);
+    assertOrganizationMarketplaceAccess(actor);
     const listing = await this.#requireListing(listingId);
     const installed = (
       await this.#store.listCapabilitiesByOwner(actor.id)
@@ -126,6 +129,7 @@ export class MarketplaceService {
     actor: RequestActor,
   ): Promise<MarketplacePublicationView[]> {
     assertActiveActor(actor);
+    assertOrganizationMarketplaceAccess(actor);
     const listings = await this.#store.listListings({ publisherId: actor.id });
     return this.#publicationsForListings(listings);
   }
@@ -207,6 +211,7 @@ export class MarketplaceService {
     },
   ): Promise<MarketplacePublicationView> {
     assertActiveActor(actor);
+    assertOrganizationMarketplaceAccess(actor);
     const source = await this.#requirePublishableCapability(
       actor,
       input.capabilityId,
@@ -354,6 +359,7 @@ export class MarketplaceService {
     releaseId: string,
   ): Promise<MarketplaceReviewDetailView> {
     assertActiveActor(actor);
+    assertOrganizationMarketplaceAccess(actor);
     const release = await this.#requireRelease(releaseId);
     const listing = await this.#requireListing(release.listingId);
     if (actor.role !== "admin" && listing.publisherId !== actor.id) {
@@ -467,6 +473,7 @@ export class MarketplaceService {
     releaseId: string,
   ): Promise<MarketplaceReleaseView> {
     assertActiveActor(actor);
+    assertOrganizationMarketplaceAccess(actor);
     const release = await this.#requireRelease(releaseId);
     const listing = await this.#requirePublisherListing(
       actor,
@@ -503,6 +510,7 @@ export class MarketplaceService {
     status: "published" | "unlisted",
   ): Promise<MarketplaceListingView> {
     assertActiveActor(actor);
+    assertOrganizationMarketplaceAccess(actor);
     return this.#store.transaction(async (store) => {
       await store.lockListing(listingId);
       const listing = await requireListingFromStore(store, listingId);
@@ -601,6 +609,7 @@ export class MarketplaceService {
     listingId: string,
   ): Promise<CapabilityView> {
     assertActiveActor(actor);
+    assertOrganizationMarketplaceAccess(actor);
     const listing = await this.#requireListing(listingId);
     if (listing.status !== "published" || listing.currentReleaseId === null) {
       throw new AppError(
@@ -641,6 +650,7 @@ export class MarketplaceService {
     listingId: string,
   ): Promise<CapabilityView> {
     assertActiveActor(actor);
+    assertOrganizationMarketplaceAccess(actor);
     const listing = await this.#requireListing(listingId);
     if (listing.status === "suspended") {
       throw new AppError("MARKETPLACE_LISTING_SUSPENDED");
@@ -1001,6 +1011,12 @@ function extensionForMime(contentType: string): string {
 
 function assertActiveActor(actor: RequestActor): void {
   if (actor.status !== "active") throw new AppError("USER_DISABLED");
+}
+
+function assertOrganizationMarketplaceAccess(actor: RequestActor): void {
+  if (actor.registrationSource === "self_registration") {
+    throw new AppError("FORBIDDEN");
+  }
 }
 
 function assertAdmin(actor: RequestActor): void {

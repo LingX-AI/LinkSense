@@ -17,6 +17,7 @@ import type { TurnKnowledgeDocumentReferenceStore } from "./knowledge-document-r
 import { collectKnowledgeAssetReferenceIds } from "./knowledge-asset-reference.js";
 import type { KnowledgeMaintenanceGate } from "./maintenance.js";
 import type { KnowledgeActor } from "./types.js";
+import type { ConversationAssetSnapshotWriter } from "./conversation-asset-snapshots.js";
 
 const MAX_MCP_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_DOCUMENTS_PER_TOOL_PAGE = 100;
@@ -113,6 +114,7 @@ export class InternalKnowledgeSearchService {
     private readonly retrieval: KnowledgeRetrievalOrchestrator,
     private readonly sourceStore: TurnKnowledgeSourceStore,
     private readonly documentReferences: TurnKnowledgeDocumentReferenceStore,
+    private readonly assetSnapshots: ConversationAssetSnapshotWriter,
     private readonly maintenanceGate?: Pick<
       KnowledgeMaintenanceGate,
       "assertAvailable"
@@ -200,6 +202,17 @@ export class InternalKnowledgeSearchService {
       unavailable_knowledge_base_count: finalScope.unavailable_ids.length,
     });
 
+    await this.assetSnapshots.capture({
+      actor,
+      conversationId: input.conversationId,
+      turnId: projectionTurnId,
+      sources: safeParents.map(({ parent }) => ({
+        knowledgeBaseId: parent.knowledgeBaseId,
+        documentId: parent.documentId,
+        documentVersionId: parent.documentVersionId,
+        assetReferenceIds: collectKnowledgeAssetReferenceIds(parent.parentText),
+      })),
+    });
     const registered = await this.sourceStore.register(
       projectionTurnId,
       safeParents.map(({ parent }) => ({
@@ -210,7 +223,6 @@ export class InternalKnowledgeSearchService {
         titlePath: citationTitlePath(parent),
         matchedChildIds: evidenceChildren(parent).map((child) => child.childId),
         pageNumbers: evidencePageNumbers(parent),
-        assetReferenceIds: collectKnowledgeAssetReferenceIds(parent.parentText),
       })),
     );
     const documentRefs = await Promise.all(
@@ -447,14 +459,17 @@ export class InternalKnowledgeSearchService {
     assertResponseSize(result, "KNOWLEDGE_PROCESSING_UNAVAILABLE");
     const assetReferenceIds = collectKnowledgeAssetReferenceIds(chunk.markdown);
     if (assetReferenceIds.length > 0) {
-      await this.sourceStore.registerAssetSources(projectionTurnId, [
-        {
+      await this.assetSnapshots.capture({
+        actor,
+        conversationId: input.conversationId,
+        turnId: projectionTurnId,
+        sources: [{
           knowledgeBaseId: reference.knowledgeBaseId,
           documentId: reference.documentId,
           documentVersionId: reference.documentVersionId,
           assetReferenceIds,
-        },
-      ]);
+        }],
+      });
     }
     return result;
   }

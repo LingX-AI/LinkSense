@@ -187,8 +187,6 @@ export function buildSubAgentConversation(
     has_automation: false,
     collaboration_mode: "default",
     user_input_requests: [],
-    draft_input: "",
-    draft_capability_ids: [],
     messages,
     turns: [turn],
     running_turn: status === "running" ? turn : null,

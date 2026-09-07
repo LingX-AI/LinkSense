@@ -377,6 +377,61 @@ export const zhCN = {
     uiFontSizeUnit: "px",
     securityPageDescription: "修改本地登录密码并撤销现有登录会话。",
   },
+  botChannels: {
+    connectionError: "连接出现问题，请检查应用凭据、发送权限和网络后重试。",
+    connect: "连接",
+    disconnect: "断开{{name}}",
+    settings: "查看配置",
+    setupTitle: "连接{{name}}",
+    save: "保存配置",
+    cancel: "取消",
+    confirmDisconnect: "确认断开",
+    retry: "重试",
+    account: "应用或机器人账号",
+    botId: "机器人 ID",
+    clientId: "应用 Client ID",
+    secret: "应用密钥",
+    tenantId: "租户 ID",
+    sender: "允许使用的成员 ID",
+    groups: "允许该成员在群内 @ 机器人发起任务",
+    callback: "消息接收地址",
+    callbackHelp:
+      "将此地址填入 Azure Bot 的消息传送终结点。地址必须能通过公网 HTTPS 访问。",
+    replaceHelp: "如需更换应用或密钥，请断开连接后重新配置。",
+    disconnectHelp:
+      "断开后将停止接收和回复该渠道的消息，尚未处理的消息和待发送回复会被移除。已创建的 LinkSense 任务会保留。",
+    invalid: "请检查所有必填项，并完整填写平台提供的应用、租户和成员 ID。",
+    status: {
+      connecting: "连接中",
+      online: "在线",
+      waiting_message: "等待消息验证",
+      error: "连接异常",
+      disconnected: "未连接",
+    },
+    description: {
+      wecom:
+        "通过企业微信智能机器人接收私聊和群内 @ 消息，由 LinkSense 助手处理。",
+      dingtalk:
+        "通过钉钉应用机器人接收私聊和群内 @ 消息，由 LinkSense 助手处理。",
+      teams: "通过 Teams 机器人接收私聊和群内 @ 消息，由 LinkSense 助手处理。",
+    },
+    setup: {
+      wecom:
+        "在企业微信创建 API 模式的智能机器人，选择长连接，然后填写机器人 ID、密钥和允许使用的成员。",
+      dingtalk:
+        "在钉钉开放平台创建企业内部应用，启用 Stream 模式机器人并发布，开通机器人单聊和群聊发送权限。",
+      teams:
+        "创建单租户 Azure Bot 并启用 Microsoft Teams 渠道。保存后将消息接收地址填入 Azure，并在 Teams 安装包含该机器人的应用。",
+    },
+    senderHelp: {
+      wecom:
+        "填写企业微信通讯录中该成员的账号（userid），仅此成员可以使用你的 LinkSense 助手。",
+      dingtalk:
+        "填写钉钉组织中该成员的 UserId，仅此成员可以使用你的 LinkSense 助手。",
+      teams:
+        "填写 Microsoft Entra 中该用户的对象 ID，仅此用户可以使用你的 LinkSense 助手。",
+    },
+  },
   channelAccess: {
     title: "消息渠道",
     description:
@@ -389,7 +444,7 @@ export const zhCN = {
       accountConnected: "已连接账号 {{account}}",
       scopeValue: "仅扫码账号本人 · 文本与语音转写",
       iconLabel: "微信图标",
-      connect: "连接微信",
+      connect: "连接",
       reconnect: "重新连接",
       disconnect: "断开连接",
       successDescription: "微信已接入 LinkSense。",
@@ -429,7 +484,7 @@ export const zhCN = {
       notConnected: "尚未创建飞书个人机器人",
       scopeValue: "创建者本人 · 私聊文本消息",
       iconLabel: "飞书图标",
-      connect: "连接飞书",
+      connect: "连接",
       reconnect: "更新授权",
       disconnect: "断开连接",
       successDescription: "机器人凭据已安全保存，正在建立消息连接。",
@@ -1559,6 +1614,9 @@ export const zhCN = {
     htmlAnnotationCount_one: "{{count}} 条注释",
     htmlAnnotationCount_other: "{{count}} 条注释",
     voice: "语音输入",
+    voiceChecking: "正在检查语音转文字服务…",
+    voiceNotConfigured: "语音转文字服务尚未配置",
+    voiceServiceUnavailable: "语音转文字服务暂时不可用，请稍后重试。",
     voiceStop: "停止语音输入",
     voiceRecording: "正在录音",
     voiceDuration: "录音时长",
@@ -1804,17 +1862,10 @@ export const zhCN = {
     pendingUnknownBlock: "启动前检查未通过，请联系管理员。",
     cancelPending: "取消后续请求",
     maxPending: "最多只能保留 5 条后续请求，请先处理已有请求。",
-    pendingCancelled: "后续请求已取消，待用附件已恢复为任务草稿附件。",
+    pendingCancelled: "后续请求已取消，待用附件已恢复到输入区。",
     pendingContinued: "已请求继续执行队首后续请求。",
     pendingGuided: "已将队首后续请求引导到当前执行。",
     reconnecting: "连接正在恢复",
-    draftConflict: {
-      title: "草稿内容发生冲突",
-      description:
-        "当前页面和服务器上的草稿都已修改。自动保存已暂停，当前内容不会丢失；请选择要保留的版本。",
-      keepCurrent: "保留当前内容",
-      useLatest: "使用最新草稿",
-    },
     planTitle: "执行计划",
     planProgress: "第 {{current}} / {{total}} 步",
     planChangedFiles_one: "{{count}} 个文件已更改",
@@ -2154,6 +2205,7 @@ export const zhCN = {
     dependencyUnavailableShort: "当前不可用，可取消选择",
     usesPluginCredentials: "使用插件凭据",
     share: "共享",
+    shareWithinOrganization: "组织内共享",
     usage: {
       action: "用量统计",
       title: "应用用量",
@@ -2336,6 +2388,8 @@ export const zhCN = {
     title: "插件中心",
     description:
       "浏览公开的插件与技能，并在同一处管理已安装内容、个人内容与 MCP 连接。",
+    personalAccountDescription:
+      "管理已安装内容、个人内容、技能仓库与 MCP 连接。",
     adminTitle: "插件中心",
     adminDescription:
       "审核不可变发布快照，管理插件中心可见性，并在发现风险时立即停用条目。",
@@ -3267,9 +3321,14 @@ export const zhCN = {
     auditDescription:
       "仅展示允许的跨用户元数据，不包含任务正文、附件内容或下载入口。",
     action: "动作",
+    actionCode: "动作代码",
+    actionSearchPlaceholder: "搜索或选择动作",
+    actionSearchEmpty: "没有匹配的动作。",
     actor: "操作人",
     target: "目标",
+    targetTypeCode: "目标类型代码",
     result: "结果",
+    resultCode: "结果代码",
     sourceIp: "来源 IP",
     exportCreatedAt: "创建时间",
     exportActorId: "操作人 ID",
@@ -3415,6 +3474,7 @@ export const zhCN = {
       channels: "模型渠道",
       conversation: "对话模型",
       knowledge: "知识检索模型",
+      voiceTranscription: "语音转文字模型",
       imageGeneration: "图片生成模型",
       initialQuota: "用户初始 Token 用量",
     },
@@ -3568,6 +3628,41 @@ export const zhCN = {
       savedDescription: "后续文档处理和语义检索将使用新配置。",
       savedAfterEmbeddingChangeDescription:
         "模型设置已保存。请前往“系统健康”重新生成全部知识库索引；完成前知识库检索暂时不可用。",
+    },
+    voiceTranscription: {
+      title: "语音转文字模型",
+      description:
+        "配置输入框语音转文字使用的模型服务。启用后，普通任务和嵌入应用都会使用这里的设置；密钥会安全保存且不会再次显示。",
+      enabled: "启用语音转文字",
+      provider: "模型服务商",
+      providerHint: "选择你已开通并准备使用的语音转文字服务。",
+      providerPlaceholder: "选择模型服务商",
+      providers: {
+        dashscope: "阿里云百炼",
+        openai: "OpenAI",
+        openai_compatible: "OpenAI 兼容服务",
+        azure_openai: "Azure OpenAI",
+        groq: "Groq",
+        deepgram: "Deepgram",
+        assemblyai: "AssemblyAI",
+        elevenlabs: "ElevenLabs",
+        revai: "Rev.ai",
+        gladia: "Gladia",
+        fal: "fal.ai",
+      },
+      baseUrl: "Base URL",
+      baseUrlHint: "填写服务商提供的语音转文字连接地址。",
+      apiVersion: "API 版本",
+      apiVersionHint: "填写 Azure OpenAI 部署使用的 API 版本。",
+      apiKey: "API Key",
+      apiKeyConfiguredHint: "密钥已配置；留空可保持现有密钥不变。",
+      apiKeyRequiredHint:
+        "首次启用或切换服务商后必须填写密钥；保存后不会回显。",
+      model: "语音转文字模型名称",
+      modelHint: "填写服务商提供的模型或部署名称。",
+      save: "保存语音转文字模型",
+      saving: "正在保存…",
+      saved: "语音转文字模型设置已更新。",
     },
     imageGeneration: {
       title: "图片生成模型",
@@ -4031,12 +4126,8 @@ export const zhCN = {
     },
     passwordResetInvalid: "密码设置链接无效或已过期，请重新申请。",
     concurrencyLimit: "当前系统使用人数过载，请稍后再试。",
-    overloadedDraftSaved: "当前系统使用人数过载，草稿已保存，请稍后重试。",
-    draftVersionConflict: "草稿已在其他位置更新，请刷新后重试。",
     pendingLimit: "后续请求已达上限，请先处理现有请求。",
     pendingNotHead: "只能继续执行队首请求。",
-    pendingRestoreDraftNotEmpty:
-      "输入框中已有未发送内容，请先处理后再编辑排队信息。",
     interruptFailed: "暂时无法中断当前执行，请稍后重试。",
     conversation: {
       collaborationModeUnavailable:

@@ -353,16 +353,6 @@ const rawConfigSchema = z
     LINKSENSE_SAFE_HTTP_ALLOW_BENCHMARK_PROXY: z
       .enum(["true", "false"])
       .default("false"),
-    DASHSCOPE_API_KEY: optionalString,
-    DASHSCOPE_BASE_URL: z
-      .url()
-      .default("https://dashscope.aliyuncs.com/compatible-mode/v1"),
-    DASHSCOPE_ASR_MODEL: z
-      .string()
-      .trim()
-      .min(1)
-      .max(120)
-      .default("qwen3-asr-flash"),
   })
   .superRefine((config, context) => {
     if (config.LINKSENSE_EDITION === "full") {
@@ -397,14 +387,6 @@ const rawConfigSchema = z
         path: ["LINKSENSE_KB_HYBRID_MAX_TOKENS"],
         message:
           "linksense_kb_hybrid_max_tokens_must_be_less_than_embedding_max_input_tokens",
-      });
-    }
-
-    if (new URL(config.DASHSCOPE_BASE_URL).protocol !== "https:") {
-      context.addIssue({
-        code: "custom",
-        path: ["DASHSCOPE_BASE_URL"],
-        message: "dashscope_base_url_must_use_https",
       });
     }
 
@@ -547,11 +529,6 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
     safeHttp: {
       allowBenchmarkProxyAddresses:
         raw.LINKSENSE_SAFE_HTTP_ALLOW_BENCHMARK_PROXY === "true",
-    },
-    dashscopeAsr: {
-      ...(raw.DASHSCOPE_API_KEY ? { apiKey: raw.DASHSCOPE_API_KEY } : {}),
-      baseUrl: raw.DASHSCOPE_BASE_URL,
-      model: raw.DASHSCOPE_ASR_MODEL,
     },
     smtp,
     oidc,

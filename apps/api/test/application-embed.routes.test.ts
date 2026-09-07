@@ -34,6 +34,12 @@ describe("application embed routes", () => {
     ).toBe(true);
     expect(
       app.hasRoute({
+        method: "GET",
+        url: "/api/v1/embed/session/voice/transcriptions/status",
+      }),
+    ).toBe(true);
+    expect(
+      app.hasRoute({
         method: "PUT",
         url: "/api/v1/embed/session/external-application-session",
       }),
@@ -279,7 +285,7 @@ describe("application embed routes", () => {
     ).toBe(false);
   });
 
-  it("starts iframe turns without consuming the main conversation draft", async () => {
+  it("starts iframe turns without consuming staged composer attachments", async () => {
     const { app, external, acceptTurn } = await routeFixture("public");
 
     const response = await app.inject({
@@ -310,7 +316,7 @@ describe("application embed routes", () => {
         priorityCapabilityIds: [],
         knowledgeBaseIds: [],
         submitMode: "normal",
-        draftPolicy: "preserve",
+        preserveStagedAttachments: true,
         idempotencyKey: "embed-turn-idempotency-key",
       }),
       expect.any(Object),
@@ -366,6 +372,32 @@ describe("application embed routes", () => {
       { type: "delta", text: "嵌入识别" },
       { type: "done", text: "嵌入识别" },
     ]);
+  });
+
+  it("reports voice transcription availability to an authenticated embedded session", async () => {
+    const { app, getVoiceTranscriptionAvailability } = await routeFixture(
+      "public",
+    );
+    getVoiceTranscriptionAvailability.mockResolvedValueOnce({
+      available: false,
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/embed/session/voice/transcriptions/status",
+      headers: {
+        "x-linksense-embed-app-id": APP_ID,
+        "x-linksense-embed-session-id": SESSION_ID,
+        "x-linksense-embed-origin": ORIGIN,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      success: true,
+      data: { available: false },
+    });
+    expect(getVoiceTranscriptionAvailability).toHaveBeenCalledOnce();
   });
 
   it("returns a localized 429 before public embedded voice transcription", async () => {
@@ -447,7 +479,7 @@ describe("application embed routes", () => {
   });
 
   it("clears an exact attachment batch with one authenticated file operation", async () => {
-    const { app, deleteDraftAttachments } = await routeFixture("public");
+    const { app, deleteStagedAttachments } = await routeFixture("public");
     const firstFileId = "60000000-0000-4000-8000-000000000011";
     const secondFileId = "60000000-0000-4000-8000-000000000012";
 
@@ -463,7 +495,7 @@ describe("application embed routes", () => {
     });
 
     expect(response.statusCode, response.body).toBe(204);
-    expect(deleteDraftAttachments).toHaveBeenCalledWith(
+    expect(deleteStagedAttachments).toHaveBeenCalledWith(
       OWNER_ID,
       CONVERSATION_ID,
       [firstFileId, secondFileId],
@@ -705,7 +737,7 @@ async function routeFixture(
       ...input,
     }),
   );
-  const deleteDraftAttachments = vi.fn(async () => undefined);
+  const deleteStagedAttachments = vi.fn(async () => undefined);
   const assertCanStartTask = vi.fn(async () => undefined);
   const assertVoiceUserAllowed = vi.fn(async () => undefined);
   const assertApplicationEmbedSessionAllowed = vi.fn(async () => undefined);
@@ -713,6 +745,9 @@ async function routeFixture(
     yield "嵌入识别";
   });
   const transcribeVoice = vi.fn(async () => "嵌入识别");
+  const getVoiceTranscriptionAvailability = vi.fn(async () => ({
+    available: true,
+  }));
   const services = {
     applicationExternalAccess: external,
     conversations: { acceptTurn, assertModelPreferenceMutable },
@@ -720,7 +755,7 @@ async function routeFixture(
       getPreference: getModelPreference,
       updatePreference: updateModelPreference,
     },
-    files: { deleteDraftAttachments },
+    files: { deleteStagedAttachments },
     tokenLimits: { assertCanStartTask },
     voiceTranscriptionRateLimits: {
       assertAllowed: assertVoiceUserAllowed,
@@ -729,6 +764,9 @@ async function routeFixture(
     voiceTranscription: {
       stream: streamVoiceTranscription,
       transcribe: transcribeVoice,
+    },
+    voiceTranscriptionSettings: {
+      getAvailability: getVoiceTranscriptionAvailability,
     },
     system: { defaultLocale: "zh-CN" },
     prisma: {},
@@ -751,11 +789,12 @@ async function routeFixture(
     assertModelPreferenceMutable,
     getModelPreference,
     updateModelPreference,
-    deleteDraftAttachments,
+    deleteStagedAttachments,
     assertCanStartTask,
     assertVoiceUserAllowed,
     assertApplicationEmbedSessionAllowed,
     streamVoiceTranscription,
+    getVoiceTranscriptionAvailability,
   };
 }
 

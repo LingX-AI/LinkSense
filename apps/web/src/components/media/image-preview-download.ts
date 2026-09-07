@@ -1,6 +1,6 @@
 import { buildApiUrl, downloadApiFile } from "@/api/client"
 import type { ImagePreviewItem } from "@/components/media/image-preview.types"
-import { downloadBlob } from "@/lib/download-blob"
+import { downloadBlob, downloadUrl } from "@/lib/download-blob"
 
 export async function downloadImagePreviewItem(
   item: ImagePreviewItem,
@@ -8,6 +8,11 @@ export async function downloadImagePreviewItem(
 ) {
   if (onDownload) {
     await onDownload(item)
+    return
+  }
+
+  if (isBlobUrl(item.src)) {
+    downloadUrl(item.src, item.name)
     return
   }
 
@@ -22,6 +27,14 @@ export async function downloadImagePreviewItem(
   const response = await fetch(item.src)
   if (!response.ok) throw new Error("image_download_failed")
   downloadBlob(await response.blob(), item.name)
+}
+
+function isBlobUrl(src: string): boolean {
+  try {
+    return new URL(src, window.location.href).protocol === "blob:"
+  } catch {
+    return false
+  }
 }
 
 function shouldProxyImageDownload(src: string): boolean {

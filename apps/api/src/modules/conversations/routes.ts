@@ -8,7 +8,6 @@ import {
   knowledgeBaseIdsSchema,
   officeAnnotationInputSchema,
   priorityCapabilityIdsSchema,
-  turnDraftPolicySchema,
   updateModelPreferenceSchema,
 } from "@linksense/shared";
 
@@ -78,12 +77,10 @@ const turnSubmissionFields = {
 const turnSubmissionBodySchema = z.union([
   z.strictObject({
     input_text: inputText,
-    draft_policy: turnDraftPolicySchema.default("consume"),
     ...turnSubmissionFields,
   }),
   z.strictObject({
     message_display: officeAnnotationInputSchema,
-    draft_policy: z.literal("preserve").default("preserve"),
     ...turnSubmissionFields,
   }),
 ]);
@@ -118,12 +115,10 @@ const goalUpdateBodySchema = z
 const pendingRequestBodySchema = z.union([
   z.strictObject({
     input_text: inputText,
-    draft_policy: turnDraftPolicySchema.default("consume"),
     ...pendingRequestFields,
   }),
   z.strictObject({
     message_display: officeAnnotationInputSchema,
-    draft_policy: z.literal("preserve").default("preserve"),
     ...pendingRequestFields,
   }),
 ]);
@@ -131,6 +126,10 @@ const archivedQuery = z
   .enum(["true", "false"])
   .default("false")
   .transform((value) => value === "true");
+const prewarmBodySchema = z.strictObject({
+  conversation_id: z.string().uuid().optional(),
+  collaboration_mode: conversationCollaborationModeSchema.default("default"),
+});
 
 export const conversationRoutes: FastifyPluginAsync<{
   services: AppServices;
@@ -139,7 +138,13 @@ export const conversationRoutes: FastifyPluginAsync<{
 
   app.post("/prewarm", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
-    const receipt = await services.conversations.prewarm(user.id);
+    const body = prewarmBodySchema.parse(request.body ?? {});
+    const receipt = await services.conversations.prewarm(user.id, {
+      ...(body.conversation_id
+        ? { conversationId: body.conversation_id }
+        : {}),
+      collaborationMode: body.collaboration_mode,
+    });
     return reply.code(202).send(ok(receipt, request.id));
   });
 
@@ -175,34 +180,28 @@ export const conversationRoutes: FastifyPluginAsync<{
     );
   });
 
-  app.post("/drafts", async (request, reply) => {
+  app.post("/", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
     const body = z
       .strictObject({
-        conversation_id: z.string().uuid().optional(),
-        input_text: inputText.default(""),
-        priority_capability_ids: priorityIds,
-        knowledge_base_ids: knowledgeBaseIdsSchema.default([]),
         collaboration_mode: conversationCollaborationModeSchema.default(
           "default",
         ),
+        prewarmed_conversation_id: z.string().uuid().optional(),
       })
       .parse(request.body);
-    const result = await services.conversations.createOrUpdateDraft(user.id, {
-      ...(body.conversation_id ? { conversationId: body.conversation_id } : {}),
-      inputText: body.input_text,
-      priorityCapabilityIds: body.priority_capability_ids,
-      knowledgeBaseIds: body.knowledge_base_ids,
+    const result = await services.conversations.create(user.id, {
       collaborationMode: body.collaboration_mode,
+      ...(body.prewarmed_conversation_id
+        ? { prewarmedConversationId: body.prewarmed_conversation_id }
+        : {}),
       fallbackLocale: resolveLocale(
         request,
         user.preferredLocale,
         services.system.defaultLocale,
       ),
     });
-    return reply
-      .code(body.conversation_id ? 200 : 201)
-      .send(ok(result, request.id));
+    return reply.code(201).send(ok(result, request.id));
   });
 
   app.delete("/archived", async (request, reply) => {
@@ -317,30 +316,6 @@ export const conversationRoutes: FastifyPluginAsync<{
     return reply.code(204).send();
   });
 
-  app.put("/:id/draft", async (request, reply) => {
-    const user = (request as AuthenticatedRequest).authUser;
-    const { id } = uuidParamsSchema.parse(request.params);
-    const body = z
-      .strictObject({
-        input_text: inputText,
-        priority_capability_ids: priorityIds,
-        knowledge_base_ids: knowledgeBaseIdsSchema.default([]),
-        expected_updated_at: z.iso.datetime().nullable(),
-      })
-      .parse(request.body);
-    const result = await services.conversations.createOrUpdateDraft(user.id, {
-      conversationId: id,
-      inputText: body.input_text,
-      priorityCapabilityIds: body.priority_capability_ids,
-      knowledgeBaseIds: body.knowledge_base_ids,
-      expectedUpdatedAt:
-        body.expected_updated_at === null
-          ? null
-          : new Date(body.expected_updated_at),
-    });
-    return reply.send(ok(result.draft, request.id));
-  });
-
   app.post("/:id/turns", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
     const { id } = uuidParamsSchema.parse(request.params);
@@ -361,7 +336,6 @@ export const conversationRoutes: FastifyPluginAsync<{
             : { officeAnnotation: body.message_display }
           : { inputText: body.input_text }),
         submitMode: body.submit_mode,
-        draftPolicy: body.draft_policy,
       },
       auditContext(request),
     );
@@ -641,7 +615,7 @@ export const conversationRoutes: FastifyPluginAsync<{
         ? body.message_display.kind === "presentation_annotation"
           ? {
               presentationAnnotation: body.message_display,
-              draftPolicy: body.draft_policy,
+              preserveStagedAttachments: true,
               priorityCapabilityIds: body.priority_capability_ids,
               collaborationMode: body.collaboration_mode,
               knowledgeBaseIds: body.knowledge_base_ids,
@@ -651,7 +625,7 @@ export const conversationRoutes: FastifyPluginAsync<{
             }
           : {
               officeAnnotation: body.message_display,
-              draftPolicy: body.draft_policy,
+              preserveStagedAttachments: true,
               priorityCapabilityIds: body.priority_capability_ids,
               collaborationMode: body.collaboration_mode,
               knowledgeBaseIds: body.knowledge_base_ids,
@@ -661,7 +635,6 @@ export const conversationRoutes: FastifyPluginAsync<{
             }
         : {
             inputText: body.input_text,
-            draftPolicy: body.draft_policy,
             priorityCapabilityIds: body.priority_capability_ids,
             collaborationMode: body.collaboration_mode,
             knowledgeBaseIds: body.knowledge_base_ids,
@@ -732,13 +705,13 @@ export const conversationRoutes: FastifyPluginAsync<{
   });
 
   app.post(
-    "/:id/pending-requests/:requestId/restore-draft",
+    "/:id/pending-requests/:requestId/restore-input",
     async (request, reply) => {
       const user = (request as AuthenticatedRequest).authUser;
       const { id, requestId } = pendingParamsSchema.parse(request.params);
       return reply.send(
         ok(
-          await services.conversations.restorePendingToDraft(
+          await services.conversations.restorePendingToInput(
             user.id,
             id,
             requestId,

@@ -525,28 +525,20 @@ describe("image preview", () => {
     const interaction = userEvent.setup()
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(new Blob(["image"]), { status: 200 }))
-    const createObjectURL = vi.fn(() => "blob:download")
-    const revokeObjectURL = vi.fn()
+      .mockRejectedValue(new TypeError("blocked by content security policy"))
     const click = vi
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => undefined)
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      value: createObjectURL,
-    })
-    Object.defineProperty(URL, "revokeObjectURL", {
-      configurable: true,
-      value: revokeObjectURL,
-    })
 
     render(<OpenPreviewHarness items={[images[0]!]} />)
 
     await interaction.click(screen.getByRole("button", { name: "下载" }))
 
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("blob:preview"))
+    expect(fetchSpy).not.toHaveBeenCalled()
     expect(click).toHaveBeenCalledOnce()
     const anchor = click.mock.instances[0] as HTMLAnchorElement
-    expect(anchor.download).toBe("preview.png")
+    expect(anchor.href).toBe(images[0]!.src)
+    expect(anchor.download).toBe(images[0]!.name)
+    expect(anchor.isConnected).toBe(false)
   })
 })

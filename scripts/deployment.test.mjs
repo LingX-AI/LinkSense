@@ -149,22 +149,38 @@ function extractProductionHeredoc(script, filename) {
   return script.slice(contentStart, endIndex);
 }
 
-test("workspace tests use bounded Vitest workers and serial package scheduling", async () => {
-  const [rootPackage, apiPackage, webPackage] = await Promise.all(
+test("workspace tests bound parallel services before running the complete web suite", async () => {
+  const [rootPackage, apiPackage, webPackage, runnerPackage] = await Promise.all(
     [
       resolve("package.json"),
       resolve("apps/api/package.json"),
       resolve("apps/web/package.json"),
+      resolve("apps/runner/package.json"),
     ].map(async (path) => JSON.parse(await readFile(path, "utf8"))),
   );
 
-  assert.match(rootPackage.scripts.test, /--workspace-concurrency=1/u);
-  assert.equal(apiPackage.scripts.test, "vitest run --maxWorkers=4");
+  assert.equal(
+    rootPackage.scripts.test,
+    "pnpm --filter @linksense/shared build && pnpm run '/^test:(deployment|packages)$/' && pnpm --filter @linksense/web test",
+  );
+  assert.equal(
+    rootPackage.scripts["test:packages"],
+    "pnpm -r --parallel --filter './apps/**' --filter './packages/**' --filter '!@linksense/web' --if-present test",
+  );
+  assert.equal(
+    apiPackage.scripts.test,
+    "vitest run --pool=threads --maxWorkers=4 --maxConcurrency=2",
+  );
   assert.equal(
     webPackage.scripts.test,
-    "vitest run --maxWorkers=2 && playwright test",
+    "pnpm run '/^test:(unit|e2e)$/'",
   );
-  assert.equal(webPackage.scripts["test:unit"], "vitest run --maxWorkers=2");
+  assert.equal(
+    webPackage.scripts["test:unit"],
+    "vitest run --project application --maxWorkers=4 && vitest run --project components --project shared-components --project node --maxWorkers=4",
+  );
+  assert.equal(webPackage.scripts["test:e2e"], "playwright test");
+  assert.equal(runnerPackage.scripts.test, "vitest run --pool=forks --maxWorkers=4");
 });
 
 function instrumentNormalizerForUnprivilegedFixture(source) {
@@ -290,6 +306,27 @@ test("Nginx revalidates stable embed assets and only caches fingerprinted assets
     /~\^\/assets\/ "public, max-age=31536000, immutable";/u,
   );
   assert.doesNotMatch(config, /\/assets\/app\.css "public,[^"]*immutable";/u);
+});
+
+test("Nginx never caches the application entry document or SPA fallbacks", async () => {
+  const config = await readFile(nginxConfigPath, "utf8");
+  const indexLocation = section(
+    config,
+    "location = /index.html",
+    "location = /health/live",
+  );
+  const spaLocation = section(config, "location / {", undefined);
+
+  assert.match(
+    config,
+    /\/index\.html "no-store, no-cache, must-revalidate, max-age=0";/u,
+  );
+  assert.match(config, /map \$uri \$linksense_pragma \{[^}]*\/index\.html "no-cache";/su);
+  assert.match(config, /map \$uri \$linksense_expires \{[^}]*\/index\.html "0";/su);
+  assert.match(config, /add_header Pragma \$linksense_pragma always;/u);
+  assert.match(config, /add_header Expires \$linksense_expires always;/u);
+  assert.match(indexLocation, /try_files \$uri =404;/u);
+  assert.match(spaLocation, /try_files \$uri \$uri\/ \/index\.html;/u);
 });
 
 test("Nginx serves JavaScript modules with an executable MIME type", async () => {
@@ -1044,7 +1081,7 @@ test("Web image builds and serves the bilingual Help Center with the application
     "pnpm --filter @linksense/docs build",
   );
   const copyDocsBuildIndex = dockerfile.indexOf(
-    "COPY --from=build /workspace/apps/docs/build /usr/share/nginx/html/help",
+    "COPY --from=docs-build /workspace/apps/docs/build /usr/share/nginx/html/help",
   );
 
   for (const index of [
@@ -1067,10 +1104,10 @@ test("Web image normalizes static asset permissions for the unprivileged Nginx w
   const webCopyIndex = dockerfile.indexOf(
     "COPY --from=build /workspace/apps/web/dist /usr/share/nginx/html",
   );
-  const docsCopyIndex = dockerfile.indexOf(
-    "COPY --from=build /workspace/apps/docs/build /usr/share/nginx/html/help",
+  const docsCopyIndex = dockerfile.lastIndexOf(
+    "COPY --from=docs-build /workspace/apps/docs/build /usr/share/nginx/html/help",
   );
-  const permissionIndex = dockerfile.indexOf(
+  const permissionIndex = dockerfile.lastIndexOf(
     "RUN chmod -R u=rwX,go=rX /usr/share/nginx/html",
   );
 
@@ -1118,13 +1155,10 @@ test("Nginx serves Help Center files without falling back to the application SPA
     "server {",
     "location = /health/live",
   );
-  const helpLocation = section(
-    config,
-    "location ^~ /help/",
-    "location /assets/",
-  );
+  const helpLocation = await readFile(resolve("deploy/nginx/help-location.conf"), "utf8");
 
-  assert.match(config, /location = \/help\s*\{\s*return 308 \/help\/;/u);
+  assert.match(config, /include \/etc\/nginx\/linksense\/help-location\.conf;/u);
+  assert.match(helpLocation, /location = \/help\s*\{\s*return 308 \/help\/;/u);
   assert.match(helpLocation, /try_files \$uri \$uri\/ =404;/u);
   assert.doesNotMatch(helpLocation, /\/index\.html/u);
   assert.match(
@@ -1323,72 +1357,48 @@ test("development Web proxies browser OIDC callbacks to the API service", async 
   );
   assert.match(
     developmentCompose,
-    /path: \.\/apps\/web\/vite\.config\.ts\s+target: \/workspace\/apps\/web\/vite\.config\.ts\s+initial_sync: true/u,
+    /path: \.\/apps\/web\/vite\.config\.ts\s+target: \/workspace\/apps\/web\/vite\.config\.ts/u,
   );
   assert.match(viteConfig, /["']\/api["']:\s*\{/u);
   assert.match(viteConfig, /process\.env\.LINKSENSE_DEV_API_PROXY_TARGET/u);
 });
 
-test("development Web serves and proxies the complete Help Center build", async () => {
-  const [
-    developmentDockerfile,
-    developmentCompose,
-    developmentScript,
-    docsPackage,
-    viteConfig,
-  ] = await Promise.all([
-    readFile(developmentDockerfilePath, "utf8"),
-    readFile(developmentComposePath, "utf8"),
-    readFile(developmentScriptPath, "utf8"),
-    readFile(docsPackagePath, "utf8"),
-    readFile(webViteConfigPath, "utf8"),
-  ]);
+test("development applications start without serial Docker healthcheck delays", async () => {
+  const { stdout } = await execFileAsync("docker", [
+    "compose", "--env-file", environmentExamplePath,
+    "-f", composePath, "-f", developmentComposePath, "config", "--format", "json",
+  ], { maxBuffer: 4 * 1024 * 1024 });
+  const { services } = JSON.parse(stdout);
+  assert.equal(services.api.depends_on.runner.condition, "service_started");
+  assert.equal(services.web.depends_on.api.condition, "service_started");
+  assert.equal(services.api.depends_on.redis.condition, "service_healthy");
+  assert.equal(services.api.depends_on.migrate.condition, "service_completed_successfully");
+});
 
-  assert.match(
-    developmentDockerfile,
-    /COPY --chown=node:node apps\/docs\/package\.json apps\/docs\/package\.json/u,
-  );
-  assert.match(
-    developmentDockerfile,
-    /COPY --chown=node:node apps\/docs apps\/docs/u,
-  );
-  assert.match(
-    developmentCompose,
-    /"--filter",\s+"@linksense\/web",\s+"--filter",\s+"@linksense\/docs",\s+"dev"/u,
-  );
-  assert.match(
-    developmentCompose,
-    /LINKSENSE_DEV_DOCS_PROXY_TARGET: http:\/\/127\.0\.0\.1:3001/u,
-  );
-  assert.match(
-    developmentCompose,
-    /curl -fsS http:\/\/127\.0\.0\.1:5173\/ >\/dev\/null && curl -fsS http:\/\/127\.0\.0\.1:3001\/help\/ >\/dev\/null/u,
-  );
-  assert.match(
-    developmentCompose,
-    /action: sync\+restart\s+path: \.\/apps\/docs\/docs/u,
-  );
-  assert.match(
-    developmentCompose,
-    /action: sync\+restart\s+path: \.\/apps\/docs\/i18n/u,
-  );
-  assert.match(
-    developmentCompose,
-    /action: sync\+restart\s+path: \.\/apps\/docs\/static\s+target: \/workspace\/apps\/docs\/static\s+initial_sync: true/u,
-  );
-  assert.match(docsPackage, /"dev": "pnpm build && pnpm serve"/u);
-  assert.match(
-    developmentScript,
-    /developmentDependencyFingerprint[\s\S]*"apps\/docs\/package\.json"/u,
-  );
-  assert.match(
-    developmentScript,
-    /developmentContainerReadinessTargets[\s\S]*name: "Help Center"[\s\S]*curl -fsS http:\/\/127\.0\.0\.1:3001\/help\/ >\/dev\/null/u,
-  );
-  assert.doesNotMatch(developmentScript, /url: `\$\{webOrigin\}\/help\/`/u);
+test("development serves the production bilingual Help Center from an independent image", async () => {
+  const [compose, dockerfile, script, viteConfig, docsConfig] = await Promise.all([
+    readFile(developmentComposePath, "utf8"),
+    readFile(webDockerfilePath, "utf8"),
+    readFile(developmentScriptPath, "utf8"),
+    readFile(webViteConfigPath, "utf8"),
+    readFile(resolve("deploy/nginx/development-docs.conf"), "utf8"),
+  ]);
+  const web = section(compose, "  web:", "  docs:");
+  const docs = compose.slice(compose.indexOf("  docs:"));
+  assert.match(web, /command: \["pnpm", "--filter", "@linksense\/web", "dev"\]/u);
+  assert.doesNotMatch(web, /@linksense\/docs/u);
+  assert.match(web, /LINKSENSE_DEV_DOCS_PROXY_TARGET: http:\/\/docs:80/u);
+  assert.match(docs, /target: docs-runtime/u);
+  assert.match(docs, /action: rebuild\s+path: \.\/apps\/docs/u);
+  assert.match(docs, /\/help\/en-US\//u);
+  assert.match(dockerfile, /FROM dependencies AS docs-build/u);
+  assert.match(dockerfile, /RUN pnpm --filter @linksense\/docs build/u);
+  assert.equal(dockerfile.split("COPY --from=docs-build /workspace/apps/docs/build /usr/share/nginx/html/help").length - 1, 2);
+  assert.match(docsConfig, /include \/etc\/nginx\/linksense\/help-location\.conf;/u);
+  assert.match(script, /name: "Help Center \(zh-CN\)"/u);
+  assert.match(script, /name: "Help Center \(en-US\)"/u);
   assert.match(viteConfig, /["']\/help["']:\s*\{/u);
   assert.match(viteConfig, /process\.env\.LINKSENSE_DEV_DOCS_PROXY_TARGET/u);
-  assert.doesNotMatch(viteConfig, /LINKSENSE_DEV_DOCS_EN_US_PROXY_TARGET/u);
 });
 
 test("Docker dependency installs consistently use the official Node package registry by default", async () => {
@@ -1936,7 +1946,7 @@ test("worker enables only the managed Plan output Stop hook", async () => {
   assert.match(hook, /MAX_TRANSCRIPT_TAIL_BYTES/u);
 });
 
-test("worker Chromium capability is pinned, broad by default, Plan-read-only, and smoke tested", async () => {
+test("worker full Chromium capability is pinned, broad by default, Plan-read-only, and smoke tested", async () => {
   const [
     dockerfile,
     browserProjectText,
@@ -1969,7 +1979,19 @@ test("worker Chromium capability is pinned, broad by default, Plan-read-only, an
   assert.match(browserStage, /pnpm install --prod --frozen-lockfile/u);
   assert.match(
     browserStage,
-    /playwright-cli install-browser chromium --only-shell/u,
+    /playwright-cli install-browser chromium;/u,
+  );
+  assert.equal(
+    dockerfile.match(/install-browser chromium/gu)?.length,
+    6,
+  );
+  assert.doesNotMatch(
+    dockerfile,
+    /install-browser chromium --only-shell/u,
+  );
+  assert.doesNotMatch(
+    dockerfile,
+    /install-browser chromium --no-shell/u,
   );
   assert.match(
     browserStage,
@@ -1991,6 +2013,12 @@ test("worker Chromium capability is pinned, broad by default, Plan-read-only, an
   assert.match(browserInitPage, /page\.routeWebSocket\("\*\*\/\*"/u);
   assert.match(browserInitPage, /route\.close\(\{/u);
   assert.match(browserCliWrapper, /acceptDownloads: !input\.readOnly/u);
+  assert.match(browserCliWrapper, /userAgent: await readBrowserUserAgent\(input\.runtimeRoot\)/u);
+  for (const stageName of ["worker", "worker-cached-browser"]) {
+    const stage = dockerfile.split(/(?=^FROM )/mu).find((value) => value.split("\n")[0].endsWith(` AS ${stageName}`));
+    assert.ok(stage, `missing ${stageName} stage`);
+    assert.match(stage, /COPY --chmod=0644 deploy\/runtime\/browser\/generate-user-agent\.mjs \/opt\/linksense\/runtime\/browser\/generate-user-agent\.mjs\nRUN node \/opt\/linksense\/runtime\/browser\/generate-user-agent\.mjs/u);
+  }
   assert.match(
     browserCliWrapper,
     /serviceWorkers: input\.readOnly \? "block" : "allow"/u,

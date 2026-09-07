@@ -92,16 +92,17 @@ Linux 会在需要时请求 `sudo`，macOS 需要把 `$HOME/.local/bin` 加入 `
 
 ## 本地开发
 
-需要 Node.js 24+、pnpm 10.6.4 和可用的 Docker Engine/Compose。
+需要 Node.js 24+、pnpm 10.6.4、可用的 Docker Engine/Compose 和 rsync（macOS 已自带；Linux 请安装发行版的 rsync 包）。应用和依赖始终在 Linux 容器中运行，宿主机的 rsync 仅负责源码同步。
 
 ```bash
 corepack enable
 corepack prepare pnpm@10.6.4 --activate
 pnpm install --frozen-lockfile
+pnpm dev:prepare
 pnpm dev
 ```
 
-首次运行会自动创建开发配置并准备 PostgreSQL、Redis、migration、Web、API、Runner 和任务 Worker。默认地址：
+首次准备会构建应用镜像、正式任务 Worker，以及与生产共用构建阶段的双语帮助中心，检查基础设施和数据库初始化，再启动服务并预热运行时缓存直至就绪。`pnpm dev` 也会自动补齐缺失的准备步骤。日常启动目标为准备完成后 10 秒内就绪，缓存规则和自动计时方法见[开发启动说明](./deploy/development/README.zh-CN.md)。默认地址：
 
 - Web：`http://localhost:5173`
 - API：`http://localhost:4000`
@@ -118,6 +119,10 @@ pnpm typecheck
 pnpm lint
 pnpm build
 ```
+
+`pnpm test` 先构建共享契约，再并行执行服务端、共享包、文档和部署测试，随后同时执行完整的前端单元测试与浏览器 E2E 测试，减少资源争用。E2E 每次都会构建当前前端，并通过 Vite preview 启动。可使用 `pnpm --filter @linksense/web test:unit --reporter=verbose` 查看单个用例耗时，使用 `/usr/bin/time -p pnpm test` 测量完整命令的实际总耗时。
+
+前端仅对明确选入的测试文件复用环境，新组件测试默认保持隔离，模拟模块的测试必须独立运行。共享测试夹具负责清理 DOM、计时器、全局变量、存储和会话状态。能力文件发布的规则测试模拟磁盘强制写入，独立的持久化测试仍保留真实文件系统强制写入。
 
 ### AI 开发指南
 

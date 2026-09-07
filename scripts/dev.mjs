@@ -11,6 +11,14 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { createServer } from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
+import { z } from "zod";
+import {
+  developmentDatabaseConnection,
+  inspectDevelopmentDatabase,
+  prepareDevelopmentDatabase,
+  readMigrationManifest,
+} from "./dev-database.mjs";
+import { preparationStatePath, recordStoragePreparation, storageNeedsInitialization } from "./dev-preparation.mjs";
 
 import {
   stopDevelopmentApplications,
@@ -22,6 +30,7 @@ const developmentComposeFile = "docker-compose.dev.yml";
 const developmentImageLabel = "com.linksense.development.fingerprint";
 const migrationImageLabel = "com.linksense.migration.fingerprint";
 const workerImageLabel = "com.linksense.worker.fingerprint";
+const docsImageLabel = "com.linksense.docs.fingerprint";
 
 function required(source, name) {
   const value = source[name]?.trim();
@@ -270,6 +279,48 @@ function run(command, args, environment = process.env) {
   }
 }
 
+function captureCommand(command, args, environment) {
+  return new Promise((resolveCommand, rejectCommand) => {
+    const child = spawn(command, args, { cwd: repositoryRoot, env: environment, stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    child.stdout.on("data", (chunk) => { output += chunk.toString(); });
+    // Consume stderr, but do not expose potentially sensitive external errors.
+    child.stderr.resume();
+    child.once("error", (error) => { clearTimeout(timer); rejectCommand(error); });
+    child.once("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolveCommand(output);
+      else rejectCommand(new Error(`Development ${command} command failed (exit ${code})`));
+    });
+  });
+}
+
+export function waitForWatchEnabled(child, timeoutMs = 30_000) {
+  return new Promise((resolveReady, rejectReady) => {
+    let output = "";
+    const finish = (error) => {
+      clearTimeout(timer);
+      child.stdout.off("data", inspect);
+      child.stderr.off("data", inspect);
+      child.off("exit", exited);
+      child.off("error", finish);
+      if (error) rejectReady(error);
+      else resolveReady();
+    };
+    const inspect = (chunk) => {
+      output = (output + chunk.toString()).slice(-4_096);
+      if (/\bWatch enabled\b/u.test(output)) finish();
+    };
+    const exited = () => finish(new Error("Compose Watch exited before source watching was ready"));
+    const timer = setTimeout(() => finish(new Error("Compose Watch did not become ready within 30 seconds")), timeoutMs);
+    child.stdout.on("data", inspect);
+    child.stderr.on("data", inspect);
+    child.once("exit", exited);
+    child.once("error", finish);
+  });
+}
+
 function fingerprintEntry(hash, rootDirectory, relativePath) {
   const absolutePath = resolve(rootDirectory, relativePath);
   const information = statSync(absolutePath);
@@ -303,6 +354,9 @@ export function developmentDependencyFingerprint(
     "apps/docs/package.json",
     "apps/runner/package.json",
     "apps/web/package.json",
+    "apps/web/tsconfig.json",
+    "apps/web/tsconfig.app.json",
+    "apps/web/tsconfig.node.json",
     "deploy/docker/configure-debian-apt.sh",
     "package.json",
     "packages/shared/package.json",
@@ -320,6 +374,9 @@ export function migrationImageFingerprint(rootDirectory = repositoryRoot) {
     ".dockerignore",
     "Dockerfile.api",
     "apps/api/package.json",
+    "apps/docs/package.json",
+    "apps/runner/package.json",
+    "apps/web/package.json",
     "deploy/docker/configure-debian-apt.sh",
     "package.json",
     "packages/shared/package.json",
@@ -332,15 +389,32 @@ export function migrationImageFingerprint(rootDirectory = repositoryRoot) {
   ]);
 }
 
+export function docsImageFingerprint(rootDirectory = repositoryRoot) {
+  return sourceFingerprint(rootDirectory, [
+    ".dockerignore", "Dockerfile.web", "LICENSE", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches", "tsconfig.base.json",
+    "apps/api/package.json", "apps/runner/package.json", "apps/web/package.json", "packages/shared/package.json",
+    "apps/docs/package.json", "apps/docs/docusaurus.config.ts", "apps/docs/sidebars.ts", "apps/docs/tsconfig.json",
+    "apps/docs/docs", "apps/docs/i18n", "apps/docs/src", "apps/docs/static",
+    "deploy/nginx/development-docs.conf", "deploy/nginx/help-location.conf",
+  ]);
+}
+
 export function workerImageFingerprint(rootDirectory = repositoryRoot) {
   return sourceFingerprint(rootDirectory, [
     ".dockerignore",
     "Dockerfile.runner",
+    "LICENSE",
+    "apps/api/package.json",
+    "apps/docs/package.json",
     "apps/runner/package.json",
     "apps/runner/src",
     "apps/runner/tsconfig.json",
+    "apps/runner/tsconfig.build.json",
+    "apps/web/package.json",
     "deploy/codex-home-template",
+    "deploy/codex-system",
     "deploy/docker/configure-debian-apt.sh",
+    "deploy/docker/runner-runtime-smoke.mjs",
     "deploy/runtime/browser",
     "deploy/runtime/node",
     "deploy/runtime/python",
@@ -430,9 +504,7 @@ export function developmentApplicationStartCommands() {
     // this command. Do not let Web's service_healthy dependencies block the
     // process that must attach Compose Watch and synchronize current source.
     initial: [
-      ["up", "-d", "--no-build", "--no-deps", "runner"],
-      ["up", "-d", "--no-build", "--no-deps", "api"],
-      ["up", "-d", "--no-build", "--no-deps", "web"],
+      ["up", "-d", "--no-build", "--no-deps", "runner", "api", "web", "docs"],
     ],
   };
 }
@@ -479,23 +551,11 @@ export function developmentReadinessTargets(environment) {
       url: `${webOrigin}/`,
       headers: {},
     },
-  ];
-}
-
-export function developmentContainerReadinessTargets(environmentFile) {
-  return [
-    {
-      name: "Help Center",
-      command: "docker",
-      argumentsList: developmentComposeArguments(environmentFile, [
-        "exec",
-        "-T",
-        "web",
-        "sh",
-        "-ec",
-        "curl -fsS http://127.0.0.1:3001/help/ >/dev/null",
-      ]),
-    },
+    { name: "Help Center (zh-CN)", url: `${webOrigin}/help/`, headers: {}, bodyIncludes: 'lang="zh-CN"' },
+    { name: "Help Center (en-US)", url: `${webOrigin}/help/en-US/`, headers: {}, bodyIncludes: 'lang="en-US"' },
+    { name: "Web entry module", url: `${webOrigin}/src/main.tsx`, headers: {}, contentTypeIncludes: "javascript" },
+    { name: "Web application module", url: `${webOrigin}/src/App.tsx`, headers: {}, contentTypeIncludes: "javascript" },
+    { name: "Web stylesheet", url: `${webOrigin}/src/index.css?direct`, headers: {}, contentTypeIncludes: "text/css" },
   ];
 }
 
@@ -505,98 +565,53 @@ function sleep(milliseconds) {
   });
 }
 
-function readinessTargetDescription(target) {
-  if ("url" in target) return target.url;
-  return `${target.command} ${target.argumentsList.join(" ")}`;
-}
-
-function runCommandReadinessCheck(
-  target,
-  environment,
-  commandImplementation,
-) {
-  const result = commandImplementation(target.command, target.argumentsList, {
-    cwd: repositoryRoot,
-    env: environment,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  if (result.error) {
-    return result.error instanceof Error
-      ? result.error.message
-      : "command failed";
-  }
-  if (result.status === 0) return null;
-  return (
-    result.stderr?.toString().trim() ||
-    result.stdout?.toString().trim() ||
-    `exit ${result.status ?? "unknown"}`
-  );
-}
-
 export async function waitForDevelopmentApplicationReadiness(
   environment,
   options = {},
 ) {
   const fetchImplementation = options.fetchImplementation ?? fetch;
-  const commandImplementation =
-    options.commandImplementation ?? spawnSync;
-  const commandEnvironment = options.commandEnvironment ?? environment;
   const sleepImplementation = options.sleepImplementation ?? sleep;
   const timeoutMs = options.timeoutMs ?? 300_000;
-  const intervalMs = options.intervalMs ?? 1_000;
-  const requestTimeoutMs = options.requestTimeoutMs ?? 10_000;
-  const pending = new Map(
-    [
-      ...developmentReadinessTargets(environment),
-      ...(options.commandTargets ?? []),
-    ].map((target) => [
-      target.name,
-      { ...target, lastError: "not checked yet" },
-    ]),
-  );
+  const intervalMs = options.intervalMs ?? 200;
+  // Docker's port proxy may accept connections before the application listens.
+  // Bound each local probe so those stale connections do not delay the next round.
+  const requestTimeoutMs = options.requestTimeoutMs ?? 500;
+  const targets = developmentReadinessTargets(environment).map((target) => ({ ...target, lastError: "not checked yet" }));
   const deadline = Date.now() + timeoutMs;
-  while (pending.size > 0 && Date.now() <= deadline) {
+  while (Date.now() < deadline) {
+    options.signal?.throwIfAborted();
     await Promise.all(
-      [...pending.entries()].map(async ([name, target]) => {
-        if ("command" in target) {
-          const error = runCommandReadinessCheck(
-            target,
-            commandEnvironment,
-            commandImplementation,
-          );
-          if (error === null) {
-            pending.delete(name);
-            return;
-          }
-          target.lastError = error;
-          return;
-        }
+      targets.map(async (target) => {
         try {
           const response = await fetchImplementation(target.url, {
             method: "GET",
             headers: target.headers,
-            signal: AbortSignal.timeout(requestTimeoutMs),
+            signal: AbortSignal.any([
+              AbortSignal.timeout(Math.max(1, Math.min(requestTimeoutMs, deadline - Date.now()))),
+              ...(options.signal ? [options.signal] : []),
+            ]),
           });
-          if (response.ok) {
-            pending.delete(name);
-            return;
-          }
-          target.lastError = `HTTP ${response.status}`;
+          const validBody = target.bodyIncludes ? (await response.text()).includes(target.bodyIncludes) : true;
+          const validType = !target.contentTypeIncludes || (response.headers.get("content-type") ?? "").includes(target.contentTypeIncludes);
+          if (!target.bodyIncludes) await response.body?.cancel();
+          target.lastError = !response.ok ? `HTTP ${response.status}` : !validType ? "Unexpected content type" : validBody ? null : "Unexpected page content";
         } catch (error) {
           target.lastError =
             error instanceof Error ? error.message : "request failed";
         }
       }),
     );
-    if (pending.size === 0) return;
+    options.signal?.throwIfAborted();
+    // A service that passed an earlier probe may have restarted after source
+    // synchronization. Require the entire stack to pass in the same round.
+    if (targets.every((target) => target.lastError === null)) return;
     if (Date.now() >= deadline) break;
     await sleepImplementation(Math.min(intervalMs, deadline - Date.now()));
   }
-  const detail = [...pending.values()]
+  const detail = targets.filter((target) => target.lastError !== null)
     .map(
       (target) =>
-        `${target.name} ${readinessTargetDescription(target)} (${target.lastError})`,
+        `${target.name} ${target.url} (${target.lastError})`,
     )
     .join("; ");
   throw new Error(
@@ -687,12 +702,16 @@ function ensureDevelopmentImages(
   environment,
   { force = false, includeApplications = true } = {},
 ) {
-  const developmentFingerprint = developmentDependencyFingerprint();
-  const migrationFingerprint = migrationImageFingerprint();
+  const fingerprints = configuredDevelopmentFingerprints(environmentFile, environment);
+  const developmentFingerprint = fingerprints.api;
+  const migrationFingerprint = fingerprints.migrate;
+  const docsFingerprint = fingerprints.docs;
   const buildEnvironment = {
     ...environment,
     LINKSENSE_DEV_IMAGE_FINGERPRINT: developmentFingerprint,
     LINKSENSE_MIGRATION_IMAGE_FINGERPRINT: migrationFingerprint,
+    LINKSENSE_DOCS_IMAGE_FINGERPRINT: docsFingerprint,
+    LINKSENSE_WORKER_IMAGE_FINGERPRINT: fingerprints["runner-worker-image"],
   };
   const composeArguments = (argumentsList) =>
     developmentComposeArguments(environmentFile, argumentsList);
@@ -711,6 +730,10 @@ function ensureDevelopmentImages(
       composeArguments(["build", "api", "runner", "web"]),
       buildEnvironment,
     );
+  }
+
+  if (force || dockerImageLabel(`linksense-docs-dev:${optional(environment, "LINKSENSE_DEV_IMAGE_TAG", "local")}`, docsImageLabel) !== docsFingerprint) {
+    run("docker", composeArguments(["build", "docs"]), buildEnvironment);
   }
 
   const migrationImage = `linksense-migrate:${optional(
@@ -733,6 +756,26 @@ function ensureDevelopmentImages(
   return buildEnvironment;
 }
 
+export function fingerprintBuildConfiguration(sourceHash, build) {
+  const args = Object.entries(build.args ?? {}).filter(([key]) => !key.endsWith("_IMAGE_FINGERPRINT")).sort(([left], [right]) => left.localeCompare(right));
+  return createHash("sha256").update(JSON.stringify([sourceHash, build.dockerfile, build.target, args])).digest("hex");
+}
+
+export function configuredDevelopmentFingerprints(environmentFile, environment) {
+  const result = spawnSync("docker", developmentComposeArguments(environmentFile, ["config", "--format", "json"]), {
+    cwd: repositoryRoot, env: environment, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15_000, maxBuffer: 4 * 1024 * 1024,
+  });
+  if (result.error || result.status !== 0) throw new Error("Unable to validate development Compose configuration");
+  const buildSchema = z.object({ dockerfile: z.string(), target: z.string().optional(), args: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional() });
+  const config = z.object({ services: z.record(z.string(), z.object({ build: buildSchema.optional() })) }).parse(JSON.parse(result.stdout));
+  const sources = { api: developmentDependencyFingerprint(), migrate: migrationImageFingerprint(), docs: docsImageFingerprint(), "runner-worker-image": workerImageFingerprint() };
+  return Object.fromEntries(Object.entries(sources).map(([service, hash]) => {
+    const build = config.services[service]?.build;
+    if (!build) throw new Error(`Missing development build configuration for ${service}`);
+    return [service, fingerprintBuildConfiguration(hash, build)];
+  }));
+}
+
 function ensureWorkerImage(
   environmentFile,
   environment,
@@ -743,7 +786,8 @@ function ensureWorkerImage(
     "LINKSENSE_WORKER_IMAGE",
     "linksense-runner-worker:local",
   );
-  const fingerprint = workerImageFingerprint();
+  const fingerprint = environment.LINKSENSE_WORKER_IMAGE_FINGERPRINT;
+  if (!fingerprint) throw new Error("Missing prepared worker image fingerprint");
   const buildEnvironment = {
     ...environment,
     LINKSENSE_WORKER_IMAGE_FINGERPRINT: fingerprint,
@@ -954,6 +998,10 @@ function startComposeDevelopmentSession(
       else resolveSession();
     };
   });
+  // Startup awaits watch readiness before awaiting the session's lifetime.
+  // Attach a rejection observer immediately so an early child failure is
+  // reported by that startup path without an unhandled rejection.
+  void completion.catch(() => undefined);
   const startChild = (label, commandArguments) => {
     const child = spawn(
       "docker",
@@ -961,7 +1009,7 @@ function startComposeDevelopmentSession(
       {
         cwd: repositoryRoot,
         env: environment,
-        stdio: "inherit",
+        stdio: label === "Compose Watch" ? ["ignore", "pipe", "pipe"] : "inherit",
         detached,
       },
     );
@@ -986,6 +1034,7 @@ function startComposeDevelopmentSession(
         ),
       );
     });
+    return child;
   };
 
   startChild("Compose logs", [
@@ -996,16 +1045,22 @@ function startComposeDevelopmentSession(
     "api",
     "runner",
     "web",
+    "docs",
   ]);
-  startChild("Compose Watch", [
+  const watch = startChild("Compose Watch", [
     "watch",
     "--no-up",
     "api",
     "runner",
     "web",
+    "docs",
   ]);
+  const ready = waitForWatchEnabled(watch);
+  watch.stdout.pipe(process.stdout, { end: false });
+  watch.stderr.pipe(process.stderr, { end: false });
   return {
     completion,
+    ready,
     stop() {
       beginShutdown("SIGTERM");
     },
@@ -1049,6 +1104,15 @@ export async function stopDevelopmentWorkers(
 }
 
 export async function main(argumentsList = process.argv.slice(2)) {
+  const startedAt = performance.now();
+  const stages = {};
+  const measure = async (name, operation) => {
+    const start = performance.now();
+    const result = await operation();
+    stages[name] = Math.round(performance.now() - start);
+    console.log(`[dev] ${name}: ${stages[name]}ms`);
+    return result;
+  };
   const environmentFile = ensureEnvironmentFile();
   const composeArguments = (commandArguments) =>
     developmentComposeArguments(environmentFile, commandArguments);
@@ -1142,9 +1206,9 @@ export async function main(argumentsList = process.argv.slice(2)) {
         `Forced unresponsive services to stop: ${result.forcedServices.join(", ")}.`,
       );
     }
-    run("docker", composeArguments(["down"]));
+    run("docker", composeArguments(["stop"]));
     console.log(
-      "All LinkSense development services stopped; persistent data was retained.",
+      "All LinkSense development services stopped; containers, caches and persistent data were retained. Run pnpm dev:down to remove containers.",
     );
     return;
   }
@@ -1173,9 +1237,11 @@ export async function main(argumentsList = process.argv.slice(2)) {
     }
     const rebuildCommands =
       developmentWorkerRebuildCommands(applicationsAreRunning);
+    const fingerprints = configuredDevelopmentFingerprints(environmentFile, composeEnvironment);
     const workerBuildEnvironment = {
       ...composeEnvironment,
-      LINKSENSE_WORKER_IMAGE_FINGERPRINT: workerImageFingerprint(),
+      LINKSENSE_DEV_IMAGE_FINGERPRINT: fingerprints.api,
+      LINKSENSE_WORKER_IMAGE_FINGERPRINT: fingerprints["runner-worker-image"],
     };
     run(
       "docker",
@@ -1207,124 +1273,113 @@ export async function main(argumentsList = process.argv.slice(2)) {
   const prepareOnly = argumentsList.includes("--prepare-only");
   const forceRebuild = argumentsList.includes("--rebuild");
   const applicationsAlreadyRunning =
-    !prepareOnly &&
     developmentApplicationsAreRunning(environmentFile, composeEnvironment);
-  if (!prepareOnly) {
-    verifyRunnerEnvironmentFile();
-    if (!applicationsAlreadyRunning) {
-      await assertApiPortAvailable(environment);
-      await assertRunnerPortAvailable(environment);
-      await assertWebPortAvailable(environment);
-    }
+  verifyRunnerEnvironmentFile();
+  const rsync = spawnSync("rsync", ["--version"], { stdio: "ignore", timeout: 5_000 });
+  if (rsync.error || rsync.status !== 0) throw new Error("Development source synchronization requires rsync on the host (included with macOS; install rsync on Linux)");
+  if (!applicationsAlreadyRunning) {
+    await assertApiPortAvailable(environment);
+    await assertRunnerPortAvailable(environment);
+    await assertWebPortAvailable(environment);
   }
 
-  composeEnvironment = ensureDevelopmentImages(
+  await measure("previous-session", async () => {
+    const staleProcesses = await stopDevelopmentApplications(repositoryRoot);
+    for (const warning of staleProcesses.warnings) console.warn(`Warning: ${warning}`);
+  });
+
+  composeEnvironment = await measure("images", () => ensureDevelopmentImages(
     environmentFile,
     composeEnvironment,
     {
       force: forceRebuild,
-      includeApplications: !prepareOnly,
+      includeApplications: true,
     },
-  );
+  ));
 
-  if (prepareOnly) {
-    run(
-      "docker",
-      composeArguments(developmentInfrastructureStartCommand()),
-      composeEnvironment,
-    );
-    run(
-      "docker",
-      composeArguments(developmentPostgresCredentialSyncCommand()),
-      composeEnvironment,
-    );
-    run(
-      "docker",
-      composeArguments(developmentStorageInitializationCommand()),
-      composeEnvironment,
-    );
-    run(
-      "docker",
-      composeArguments(["run", "--rm", "migrate"]),
-      composeEnvironment,
-    );
-    console.log(
-      "Development infrastructure, containerized migrations, and seed are ready.",
-    );
-    return;
-  }
-
-  run(
+  await measure("infrastructure", () => run(
     "docker",
     composeArguments(developmentInfrastructureStartCommand()),
     composeEnvironment,
-  );
+  ));
 
-  run(
-    "docker",
-    composeArguments(developmentPostgresCredentialSyncCommand()),
-    composeEnvironment,
-  );
+  await measure("storage", () => {
+    const statePath = preparationStatePath(repositoryRoot, environmentFile, composeEnvironment);
+    const directory = composeEnvironment.LINKSENSE_USER_DATA_ROOT;
+    const configuration = sourceFingerprint(repositoryRoot, ["docker-compose.yml", "docker-compose.dev.yml"]);
+    if (storageNeedsInitialization(statePath, directory, configuration)) {
+      run("docker", composeArguments(developmentStorageInitializationCommand()), composeEnvironment);
+      recordStoragePreparation(statePath, directory, configuration);
+    }
+  });
 
-  // Ensure the host-backed user data root exists even when application
-  // containers are reattached with --no-deps.
-  run(
-    "docker",
-    composeArguments(developmentStorageInitializationCommand()),
-    composeEnvironment,
-  );
+  await measure("database", async () => {
+    const manifest = readMigrationManifest(repositoryRoot);
+    await prepareDevelopmentDatabase({
+      inspect: () => inspectDevelopmentDatabase(composeEnvironment, manifest),
+      bundled: developmentDatabaseConnection(composeEnvironment).bundled,
+      validationPath: `${preparationStatePath(repositoryRoot, environmentFile, composeEnvironment)}.${composeEnvironment.LINKSENSE_MIGRATION_IMAGE_FINGERPRINT}.database`,
+      synchronizeCredentials: () => run("docker", composeArguments(developmentPostgresCredentialSyncCommand()), composeEnvironment),
+      deploy: () => run("docker", composeArguments(developmentMigrationDeployCommand()), composeEnvironment),
+      seed: () => run("docker", composeArguments(["run", "--rm", "--no-deps", "migrate", "pnpm", "db:seed"]), composeEnvironment),
+    });
+  });
 
-  // A reattached Compose Watch session starts API/runner/web with --no-deps,
-  // which otherwise skips the one-shot migrate service. Always apply pending
-  // migrations after rebuilding the migration image and before reusing those
-  // applications, so Prisma's schema cannot get ahead of PostgreSQL.
-  run(
-    "docker",
-    composeArguments(developmentMigrationDeployCommand()),
-    composeEnvironment,
-  );
-
-  const workerRevision = ensureWorkerImage(
+  const workerRevision = await measure("worker-image", () => ensureWorkerImage(
     environmentFile,
     composeEnvironment,
     { force: forceRebuild },
-  );
+  ));
   composeEnvironment = buildWorkerRuntimeEnvironment(
     composeEnvironment,
     workerRevision,
   );
 
-  const staleProcesses = await stopDevelopmentApplications(repositoryRoot);
-  for (const warning of staleProcesses.warnings) {
-    console.warn(`Warning: ${warning}`);
-  }
-  if (staleProcesses.stoppedServices.includes("Compose helpers")) {
-    console.log(
-      "Stopped the previous LinkSense Compose Watch/log session before attaching this terminal.",
-    );
-  }
-
-  // Start the containers first, then attach Compose Watch before waiting for
-  // health. This makes the host source the startup source of truth even when
-  // the cached development image predates a local fix.
   const startup = developmentApplicationStartCommands();
-  for (const command of startup.initial) {
-    run("docker", composeArguments(command), composeEnvironment);
-  }
+  await measure("applications", () => {
+    for (const command of startup.initial) run("docker", composeArguments(command), composeEnvironment);
+  });
+  await measure("source", async () => {
+    const output = await captureCommand("docker", composeArguments(["ps", "--status", "running", "--format", "{{.Service}} {{.ID}}", "api", "runner", "web"]), composeEnvironment);
+    const containers = output.trim().split(/\r?\n/u).map((line) => z.tuple([z.enum(["api", "runner", "web"]), z.string().regex(/^[a-f0-9]{12,64}$/u)]).parse(line.trim().split(/\s+/u)));
+    if (new Set(containers.map(([service]) => service)).size !== 3) throw new Error("Development application containers did not start");
+    const results = await Promise.all(containers.map(async ([service, container]) => {
+      const synchronized = await captureCommand(process.execPath, [resolve(repositoryRoot, "scripts/dev-source.mjs"), service, container], composeEnvironment);
+      return z.object({ changed: z.boolean() }).parse(JSON.parse(synchronized)).changed ? service : null;
+    }));
+    const changed = results.filter(Boolean);
+    // Initial sync in Compose is based on mtimes and cannot remove files
+    // deleted while watch was offline. Rsync mirrors exact source first; a
+    // restart ensures configs and previously imported modules are current.
+    if (changed.length > 0) run("docker", composeArguments(["restart", ...changed]), composeEnvironment);
+  });
   const session = startComposeDevelopmentSession(
     environmentFile,
     composeEnvironment,
   );
+  const readinessController = new AbortController();
   try {
-    await waitForDevelopmentApplicationReadiness(environment, {
-      commandEnvironment: composeEnvironment,
-      commandTargets: developmentContainerReadinessTargets(environmentFile),
-    });
+    await measure("watch", () => session.ready);
+    await measure("readiness", () => Promise.race([
+      waitForDevelopmentApplicationReadiness(environment, { signal: readinessController.signal }),
+      session.completion.then(() => { throw new Error("Development watch session stopped during startup"); }),
+    ]));
   } catch (error) {
     session.stop();
     await session.completion.catch(() => undefined);
     throw error;
+  } finally {
+    readinessController.abort();
   }
+
+  if (prepareOnly) {
+    session.stop();
+    await session.completion;
+    console.log("Development images, database, source and runtime caches are prepared; all services are ready. Run pnpm dev to attach source watch and logs.");
+    return;
+  }
+
+  console.log(`LINKSENSE_DEV_READY ${JSON.stringify({ duration_ms: Math.round(performance.now() - startedAt), stages })}`);
 
   console.log(
     `Containerized Vite Web, API, and runner controller are ready on :${environment.LINKSENSE_DEV_WEB_PORT}, :${environment.LINKSENSE_DEV_API_PORT}, and :${environment.LINKSENSE_DEV_RUNNER_PORT}.`,

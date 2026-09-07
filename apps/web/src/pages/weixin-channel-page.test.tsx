@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { I18nextProvider } from "react-i18next"
@@ -44,6 +50,7 @@ describe("WeixinChannelPage", () => {
     vi.mocked(apiRequest).mockImplementation(async (path, options) => {
       if (path === "/weixin" && !options.method) return { items: [] }
       if (path === "/feishu" && !options.method) return { items: [] }
+      if (path === "/bot-channels" && !options.method) return { items: [] }
       if (path === "/weixin/login-sessions" && options.method === "POST") {
         return loginSession("waiting_scan")
       }
@@ -67,7 +74,7 @@ describe("WeixinChannelPage", () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole("button", { name: "连接微信" }))
+    await user.click(await findChannelButton("微信", "连接"))
 
     expect(await screen.findByTestId("weixin-qr-svg")).toBeInTheDocument()
     const closeButtons = screen.getAllByRole("button", { name: "关闭" })
@@ -141,7 +148,8 @@ describe("WeixinChannelPage", () => {
     expect(screen.queryByText(/扫码自动创建或更新/u)).not.toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "企业微信" })).toBeVisible()
     expect(screen.getByRole("heading", { name: "钉钉" })).toBeVisible()
-    expect(screen.getAllByText("即将支持")).toHaveLength(3)
+    expect(screen.queryByText("即将支持")).not.toBeInTheDocument()
+    expect(await findChannelButton("企业微信", "连接")).toBeInTheDocument()
     expect(screen.queryByText("已连接账号 ****1234")).not.toBeInTheDocument()
     expect(
       screen.queryByText("仅扫码账号本人 · 文本与语音转写")
@@ -193,7 +201,7 @@ describe("WeixinChannelPage", () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole("button", { name: "连接微信" }))
+    await user.click(await findChannelButton("微信", "连接"))
     await user.click(await screen.findByRole("button", { name: "重新生成" }))
 
     expect(await screen.findByTestId("weixin-qr-svg")).toBeInTheDocument()
@@ -215,7 +223,7 @@ describe("WeixinChannelPage", () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole("button", { name: "连接微信" }))
+    await user.click(await findChannelButton("微信", "连接"))
 
     expect(
       await screen.findByRole("button", { name: "重新生成" })
@@ -250,7 +258,7 @@ describe("WeixinChannelPage", () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole("button", { name: "连接飞书" }))
+    await user.click(await findChannelButton("飞书", "连接"))
 
     expect(await screen.findByTestId("feishu-qr-svg")).toBeInTheDocument()
     const registrationStatus = screen
@@ -312,7 +320,7 @@ describe("WeixinChannelPage", () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole("button", { name: "连接飞书" }))
+    await user.click(await findChannelButton("飞书", "连接"))
 
     expect(
       await screen.findByText("应用已创建，等待管理员审核", undefined, {
@@ -358,7 +366,7 @@ describe("WeixinChannelPage", () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole("button", { name: "连接飞书" }))
+    await user.click(await findChannelButton("飞书", "连接"))
     await user.click(
       await screen.findByRole("button", { name: "连接已创建机器人" })
     )
@@ -398,7 +406,7 @@ describe("WeixinChannelPage", () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole("button", { name: "连接飞书" }))
+    await user.click(await findChannelButton("飞书", "连接"))
     await user.click(
       await screen.findByRole("button", {
         name: "应用已被删除？创建新应用",
@@ -444,7 +452,7 @@ describe("WeixinChannelPage", () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole("button", { name: "连接飞书" }))
+    await user.click(await findChannelButton("飞书", "连接"))
 
     expect(
       await screen.findByRole("heading", { name: "更新飞书机器人授权" })
@@ -468,6 +476,7 @@ describe("WeixinChannelPage", () => {
     vi.mocked(apiRequest).mockImplementation(async (path, options) => {
       if (path === "/weixin") return { items: [] }
       if (path === "/feishu" && !options.method) return { items: [] }
+      if (path === "/bot-channels" && !options.method) return { items: [] }
       if (
         path === "/feishu/registration-sessions" &&
         options.method === "POST"
@@ -485,7 +494,7 @@ describe("WeixinChannelPage", () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole("button", { name: "连接飞书" }))
+    await user.click(await findChannelButton("飞书", "连接"))
 
     const message =
       await screen.findByText("飞书应用更新未完成，请重新扫码再试")
@@ -511,6 +520,15 @@ function renderPage() {
       </QueryClientProvider>
     </I18nextProvider>
   )
+}
+
+async function findChannelButton(channelName: string, buttonName: string) {
+  const heading = await screen.findByRole("heading", { name: channelName })
+  const card = heading.closest("article")
+  if (!card) throw new Error(`Missing ${channelName} channel card`)
+  return within(card).getByRole("button", {
+    name: buttonName,
+  })
 }
 
 function loginSession(

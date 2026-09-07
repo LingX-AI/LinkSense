@@ -233,26 +233,13 @@ export class FileService {
           if (lockedConversation.length !== 1) {
             throw new AppError("CONVERSATION_NOT_FOUND");
           }
-          let draft = await tx.conversationDraft.findUnique({
-            where: { conversationId },
-          });
-          draft ??= await tx.conversationDraft.create({
-            data: {
-              conversationId,
-              ownerId,
-              inputText: "",
-              priorityCapabilityIdsJson: [],
-              knowledgeBaseIdsJson: [],
-            },
-          });
           const file = await tx.conversationFile.create({
             data: {
               id,
               conversationId,
-              draftId: draft.id,
               kind: "attachment",
               source: "user_upload",
-              status: "draft",
+              status: "staged",
               filename,
               mimeType,
               sizeBytes: BigInt(input.data.byteLength),
@@ -322,13 +309,13 @@ export class FileService {
     });
   }
 
-  async deleteDraftAttachment(
+  async deleteStagedAttachment(
     ownerId: string,
     conversationId: string,
     fileId: string,
     context: AuditContext,
   ): Promise<void> {
-    await this.deleteDraftAttachments(
+    await this.deleteStagedAttachments(
       ownerId,
       conversationId,
       [fileId],
@@ -336,7 +323,7 @@ export class FileService {
     );
   }
 
-  async deleteDraftAttachments(
+  async deleteStagedAttachments(
     ownerId: string,
     conversationId: string,
     fileIds: readonly string[],
@@ -353,7 +340,7 @@ export class FileService {
           FROM conversation_files
           WHERE conversation_id = ${conversationId}::uuid
             AND kind = 'attachment'
-            AND status = 'draft'
+            AND status = 'staged'
             AND id IN (${Prisma.join(
               requestedFileIds.map((id) => Prisma.sql`${id}::uuid`),
             )})
@@ -393,7 +380,7 @@ export class FileService {
             id: { in: deletableIds },
             conversationId,
             kind: "attachment",
-            status: "draft",
+            status: "staged",
           },
           orderBy: { id: "asc" },
         });
@@ -426,12 +413,12 @@ export class FileService {
         await tx.auditLog.createMany({
           data: files.map((file) => ({
             actorId: ownerId,
-            action: "conversation_draft_attachment_removed",
+            action: "conversation_staged_attachment_removed",
             targetType: "conversation_file",
             targetId: file.id,
             result: "success",
             metadataJson: sanitizeAuditMetadata(
-              "conversation_draft_attachment_removed",
+              "conversation_staged_attachment_removed",
               { conversation_id: conversationId },
             ),
             ipAddress: context.ipAddress ?? null,
@@ -493,7 +480,7 @@ export class FileService {
         id: fileId,
         conversationId,
         kind: "attachment",
-        status: { in: ["draft", "bound"] },
+        status: { in: ["staged", "bound"] },
         storageBackend: "workspace",
       },
       select: {
@@ -514,7 +501,7 @@ export class FileService {
       : 0;
     if (
       !file ||
-      (file.status !== "draft" && file.status !== "bound") ||
+      (file.status !== "staged" && file.status !== "bound") ||
       !previewMimeType ||
       !file.workspaceRelativePath ||
       !file.checksumSha256 ||
@@ -2143,7 +2130,6 @@ export const fileServiceTesting = {
 function projectFile(row: {
   id: string;
   conversationId: string;
-  draftId: string | null;
   pendingRequestId: string | null;
   turnId: string | null;
   kind: string;
@@ -2162,7 +2148,6 @@ function projectFile(row: {
   return {
     id: row.id,
     conversation_id: row.conversationId,
-    draft_id: row.draftId,
     pending_request_id: row.pendingRequestId,
     turn_id: row.turnId,
     kind: row.kind,

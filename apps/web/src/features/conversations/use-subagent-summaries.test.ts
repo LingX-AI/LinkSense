@@ -1,6 +1,6 @@
 import { createElement, type ReactNode } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, renderHook, waitFor } from "@testing-library/react"
+import { act, cleanup, renderHook } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { apiRequest } from "@/api/client"
@@ -59,6 +59,7 @@ function collabAgentEvent({
 describe("subagent summary polling", () => {
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.clearAllMocks()
   })
 
@@ -107,6 +108,7 @@ describe("subagent summary polling", () => {
   })
 
   it("projects a missing native parent turn as terminal not found", async () => {
+    vi.useFakeTimers()
     vi.mocked(apiRequest).mockRejectedValue(
       Object.assign(new Error("missing"), { status: 404 })
     )
@@ -126,16 +128,16 @@ describe("subagent summary polling", () => {
       { wrapper }
     )
 
-    await waitFor(() => {
-      expect(result.current.get(turnId)).toEqual([
-        { agentKey, status: "notFound" },
-      ])
-    })
-    await new Promise((resolve) => window.setTimeout(resolve, 1_700))
+    await advanceTimers(1)
+    expect(result.current.get(turnId)).toEqual([
+      { agentKey, status: "notFound" },
+    ])
+    await advanceTimers(1_700)
     expect(apiRequest).toHaveBeenCalledTimes(1)
   })
 
   it("starts a fresh summary query when a terminal child resumes in the same turn", async () => {
+    vi.useFakeTimers()
     vi.mocked(apiRequest)
       .mockResolvedValueOnce({
         agents: [{ agentKey, agentLabel: "纽约概览", status: "completed" }],
@@ -167,29 +169,24 @@ describe("subagent summary polling", () => {
       { initialProps: { events: [spawnEvent] }, wrapper }
     )
 
-    await waitFor(() => {
-      expect(result.current.get(turnId)?.[0]?.status).toBe("completed")
-    })
+    await advanceTimers(1)
+    expect(result.current.get(turnId)?.[0]?.status).toBe("completed")
     expect(apiRequest).toHaveBeenCalledTimes(1)
 
     rerender({ events: [spawnEvent, resumeEvent] })
 
-    await waitFor(() => {
-      expect(apiRequest).toHaveBeenCalledTimes(2)
-      expect(result.current.get(turnId)?.[0]?.status).toBe("running")
-    })
-    await waitFor(
-      () => {
-        expect(apiRequest).toHaveBeenCalledTimes(3)
-        expect(result.current.get(turnId)?.[0]?.status).toBe("completed")
-      },
-      { timeout: 2_500 }
-    )
-    await new Promise((resolve) => window.setTimeout(resolve, 1_700))
+    await advanceTimers(1)
+    expect(apiRequest).toHaveBeenCalledTimes(2)
+    expect(result.current.get(turnId)?.[0]?.status).toBe("running")
+    await advanceTimers(1_500)
+    expect(apiRequest).toHaveBeenCalledTimes(3)
+    expect(result.current.get(turnId)?.[0]?.status).toBe("completed")
+    await advanceTimers(1_700)
     expect(apiRequest).toHaveBeenCalledTimes(3)
   })
 
   it("starts a fresh summary query when another child is spawned later in the same turn", async () => {
+    vi.useFakeTimers()
     const laterAgentKey = `agent_${"b".repeat(24)}`
     vi.mocked(apiRequest)
       .mockResolvedValueOnce({
@@ -239,34 +236,34 @@ describe("subagent summary polling", () => {
       { initialProps: { events: [firstSpawnEvent] }, wrapper }
     )
 
-    await waitFor(() => {
-      expect(result.current.get(turnId)).toEqual([
-        { agentKey, agentLabel: "纽约概览", status: "completed" },
-      ])
-    })
+    await advanceTimers(1)
+    expect(result.current.get(turnId)).toEqual([
+      { agentKey, agentLabel: "纽约概览", status: "completed" },
+    ])
     expect(apiRequest).toHaveBeenCalledTimes(1)
 
     rerender({ events: [firstSpawnEvent, laterSpawnEvent] })
 
-    await waitFor(() => {
-      expect(apiRequest).toHaveBeenCalledTimes(2)
-      expect(result.current.get(turnId)).toEqual([
-        { agentKey, agentLabel: "纽约概览", status: "completed" },
-        {
-          agentKey: laterAgentKey,
-          agentLabel: "纽约交通",
-          status: "running",
-        },
-      ])
-    })
-    await waitFor(
-      () => {
-        expect(apiRequest).toHaveBeenCalledTimes(3)
-        expect(result.current.get(turnId)?.[1]?.status).toBe("completed")
+    await advanceTimers(1)
+    expect(apiRequest).toHaveBeenCalledTimes(2)
+    expect(result.current.get(turnId)).toEqual([
+      { agentKey, agentLabel: "纽约概览", status: "completed" },
+      {
+        agentKey: laterAgentKey,
+        agentLabel: "纽约交通",
+        status: "running",
       },
-      { timeout: 2_500 }
-    )
-    await new Promise((resolve) => window.setTimeout(resolve, 1_700))
+    ])
+    await advanceTimers(1_500)
+    expect(apiRequest).toHaveBeenCalledTimes(3)
+    expect(result.current.get(turnId)?.[1]?.status).toBe("completed")
+    await advanceTimers(1_700)
     expect(apiRequest).toHaveBeenCalledTimes(3)
   })
 })
+
+async function advanceTimers(milliseconds: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(milliseconds)
+  })
+}

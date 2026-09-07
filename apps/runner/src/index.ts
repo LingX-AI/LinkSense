@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { flushCompileCache } from "node:module"
 
 import pino from "pino"
 
@@ -10,27 +11,19 @@ import { prepareManagedBrowserPolicy } from "./browser/policy.js"
 import { cleanupManagedBrowserSession } from "./browser/session-cleanup.js"
 import { loadCodexTemplateFeatureOverrides } from "./codex/template-features.js"
 import { parseRunnerConfig, type RunnerConfig } from "./config.js"
-import { buildControllerServer } from "./controller/server.js"
 import { FetchWorkerTransport } from "./controller/worker-http-client.js"
 import { WorkerManager } from "./controller/worker-manager.js"
 import { DockerEngineClient } from "./docker/engine-client.js"
-import { HttpRunnerEventSink } from "./event-sink.js"
-import { ConversationOwnerRegistry } from "./owner-binding.js"
-import { ModelGateway } from "./model-gateway/model-gateway.js"
-import { AppServerProcessPool } from "./process-pool.js"
-import { buildRunnerServer } from "./server.js"
 import {
   createUserRuntimeEnsurer,
   MANAGED_BASH_ENVIRONMENT_FILE,
   prepareManagedPackageSourceConfig,
   userRuntimePaths,
 } from "./user-runtime.js"
-import { CapabilityRuntimeManager } from "./workspace/capability-runtime.js"
 import {
   verifyManagedProjectionAccess,
   verifySharedWorkspaceAccess,
 } from "./workspace/shared-access-probe.js"
-import { WorkspaceManager } from "./workspace/workspace-manager.js"
 
 const workerControlRoot = "/run/linksense-control"
 const managedRuntimeToolBin = "/opt/linksense/bin"
@@ -68,9 +61,11 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
   const config = parseRunnerConfig(env)
   if (config.LINKSENSE_RUNNER_MODE === "controller") {
     await startController(config)
+    flushCompileCache()
     return
   }
   await startExecutionRunner(config)
+  flushCompileCache()
 }
 
 async function startController(config: RunnerConfig): Promise<void> {
@@ -85,7 +80,12 @@ async function startController(config: RunnerConfig): Promise<void> {
     new FetchWorkerTransport(),
     logger,
   )
-  await workers.initialize()
+  // The controller's HTTP schemas load the execution module graph. Load it
+  // while the production worker performs its real startup/handshake probe.
+  const [{ buildControllerServer }] = await Promise.all([
+    import("./controller/server.js"),
+    workers.initialize(),
+  ])
   workers.startIdleReaper()
   const server = buildControllerServer(config, workers)
   installSignalHandlers(logger, async () => {
@@ -102,6 +102,23 @@ async function startController(config: RunnerConfig): Promise<void> {
 }
 
 async function startExecutionRunner(config: RunnerConfig): Promise<void> {
+  const [
+    { HttpRunnerEventSink },
+    { ConversationOwnerRegistry },
+    { ModelGateway },
+    { AppServerProcessPool },
+    { buildRunnerServer },
+    { CapabilityRuntimeManager },
+    { WorkspaceManager },
+  ] = await Promise.all([
+    import("./event-sink.js"),
+    import("./owner-binding.js"),
+    import("./model-gateway/model-gateway.js"),
+    import("./process-pool.js"),
+    import("./server.js"),
+    import("./workspace/capability-runtime.js"),
+    import("./workspace/workspace-manager.js"),
+  ])
   const logger = pino({ level: process.env.LOG_LEVEL ?? "info" })
   const workerOwnerId = config.LINKSENSE_WORKER_OWNER_ID
   const isWorker = config.LINKSENSE_RUNNER_MODE === "worker"

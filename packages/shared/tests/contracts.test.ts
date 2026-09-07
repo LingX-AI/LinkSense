@@ -86,6 +86,8 @@ import {
   MAX_VOICE_AUDIO_DATA_URL_BYTES,
   voiceTranscriptionRequestSchema,
   voiceTranscriptionStreamEventSchema,
+  voiceTranscriptionProviderDefinitions,
+  updateVoiceTranscriptionSettingsSchema,
   linksenseRuntimeIdentity,
   managedProjectionProbeContents,
   managedProjectionProbeFileName,
@@ -1398,6 +1400,55 @@ describe("shared boundary contracts", () => {
         message_key: "errors.composer.voiceTranscriptionFailed",
         message: "语音转文字失败，请重试或手动输入。",
         upstream_error: "secret provider response",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("validates managed voice transcription settings for every provider", () => {
+    expect(voiceTranscriptionProviderDefinitions.map(({ key }) => key)).toEqual([
+      "dashscope",
+      "openai",
+      "openai_compatible",
+      "azure_openai",
+      "groq",
+      "deepgram",
+      "assemblyai",
+      "elevenlabs",
+      "revai",
+      "gladia",
+      "fal",
+    ]);
+    expect(
+      updateVoiceTranscriptionSettingsSchema.safeParse({
+        expected_revision: 0,
+        enabled: true,
+        provider: "openai",
+        provider_options: { api_version: null },
+        base_url: "https://api.openai.com/v1/",
+        api_key: "secret",
+        model: "gpt-4o-mini-transcribe",
+      }).success,
+    ).toBe(true);
+    expect(
+      updateVoiceTranscriptionSettingsSchema.safeParse({
+        expected_revision: 0,
+        enabled: true,
+        provider: "azure_openai",
+        provider_options: { api_version: null },
+        base_url: "https://resource.openai.azure.com",
+        api_key: "secret",
+        model: "transcription-deployment",
+      }).success,
+    ).toBe(false);
+    expect(
+      updateVoiceTranscriptionSettingsSchema.safeParse({
+        expected_revision: 0,
+        enabled: true,
+        provider: "openai",
+        provider_options: { api_version: null },
+        base_url: "https://user:password@example.com/v1",
+        api_key: "secret",
+        model: "whisper-1",
       }).success,
     ).toBe(false);
   });

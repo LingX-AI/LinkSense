@@ -132,7 +132,7 @@ describe("administrator audit metadata", () => {
     )
     renderAudit()
 
-    expect(await screen.findByText("user_profile_updated")).toBeVisible()
+    expect(await screen.findByText("已更新个人资料")).toBeVisible()
     expect(
       screen.queryByRole("columnheader", { name: "User-Agent" })
     ).not.toBeInTheDocument()
@@ -175,6 +175,9 @@ describe("administrator audit metadata", () => {
     renderAudit()
 
     const detailsButton = await screen.findByRole("button", { name: "详情" })
+    expect(screen.getByText("任务轮次已完成")).toBeVisible()
+    expect(screen.getByText("任务轮次")).toBeVisible()
+    expect(screen.getByText("成功")).toBeVisible()
     expect(screen.getByRole("columnheader", { name: "操作" })).toHaveClass(
       "audit-details-actions-column"
     )
@@ -199,6 +202,10 @@ describe("administrator audit metadata", () => {
       dialog.querySelector('[data-slot="audit-detail-dialog-body"]')
     ).toHaveClass("min-h-0", "overflow-y-auto")
     expect(within(dialog).getByText("audit-detail-1")).toBeVisible()
+    expect(
+      within(dialog).getByText("conversation_turn_completed")
+    ).toBeVisible()
+    expect(within(dialog).getByText("conversation_turn")).toBeVisible()
     expect(within(dialog).getByText("One.Liu")).toBeVisible()
     expect(
       within(dialog).getByText("10000000-0000-4000-8000-000000000001")
@@ -243,12 +250,50 @@ describe("administrator audit metadata", () => {
     )
     renderAudit()
 
-    expect(
-      await screen.findByText("runtime_thread_recovery_failed")
-    ).toBeVisible()
-    expect(screen.getByText("runtime_turn")).toBeVisible()
+    expect(await screen.findByText("运行线程恢复失败")).toBeVisible()
+    expect(screen.getByText("运行轮次")).toBeVisible()
     expect(screen.getByText("RUNTIME_TURN_FAILED")).toBeVisible()
     expect(screen.queryByText(/codex/iu)).not.toBeInTheDocument()
+  })
+
+  it("renders audit values in English and preserves unknown codes as fallbacks", async () => {
+    await i18n.changeLanguage("en-US")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          envelope({
+            items: [
+              {
+                id: "localized-audit",
+                action: "credential_used",
+                target_type: "credential",
+                target_id: "credential-1",
+                result: "success",
+                created_at: "2026-07-13T02:07:00.000Z",
+              },
+              {
+                id: "future-audit",
+                action: "future_event",
+                target_type: "future_target",
+                result: "future_result",
+                created_at: "2026-07-13T02:08:00.000Z",
+              },
+            ],
+            next_cursor: null,
+          })
+        )
+      )
+    )
+
+    renderAudit()
+
+    expect(await screen.findByText("Credential used")).toBeVisible()
+    expect(screen.getByText("Credential")).toBeVisible()
+    expect(screen.getByText("Success")).toBeVisible()
+    expect(screen.getByText("future_event")).toBeVisible()
+    expect(screen.getByText("future_target")).toBeVisible()
+    expect(screen.getByText("future_result")).toBeVisible()
   })
 
   it("sends every filter to the server and issues only one filtered export request", async () => {
@@ -284,15 +329,19 @@ describe("administrator audit metadata", () => {
     renderAudit()
 
     expect(screen.queryByText(/此页只展示跨用户元数据/)).not.toBeInTheDocument()
-    expect(await screen.findByText("conversation_created")).toBeVisible()
+    expect(await screen.findByText("已创建任务")).toBeVisible()
     expect(
       screen.queryByText("服务返回了无法识别的数据，请联系管理员。")
     ).not.toBeInTheDocument()
     await interaction.type(screen.getByLabelText("搜索"), "user-1")
-    await interaction.type(
-      screen.getByLabelText("动作"),
-      "conversation_created"
-    )
+    const actionFilter = screen.getByRole("combobox", { name: "动作" })
+    await interaction.click(actionFilter)
+    await interaction.type(actionFilter, "已创建任务")
+    const actionOption = (
+      await screen.findByText("conversation_created")
+    ).closest('[role="option"]')
+    expect(actionOption).not.toBeNull()
+    await interaction.click(actionOption!)
     await interaction.click(screen.getByRole("combobox", { name: "结果" }))
     await interaction.click(await screen.findByRole("option", { name: "失败" }))
     await chooseDate(interaction, "开始日期", "2026-07-01")
@@ -432,7 +481,7 @@ describe("administrator audit metadata", () => {
     expect(
       await screen.findByRole("heading", { name: "审计日志" })
     ).toBeVisible()
-    expect(await screen.findByText("conversation_created")).toBeVisible()
+    expect(await screen.findByText("已创建任务")).toBeVisible()
     const auditTabs = screen.getByRole("tablist", { name: "审计数据范围" })
     expect(auditTabs).toHaveClass("rounded-none", "bg-transparent")
     for (const tab of within(auditTabs).getAllByRole("tab")) {

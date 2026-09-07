@@ -13,6 +13,7 @@ export type AuthUser = {
   status: "active"
   preferredLocale: "zh-CN" | "en-US" | null
   avatarObjectKey: string | null
+  registrationSource?: "self_registration" | "organization_invitation"
   authValidAfter: Date
 }
 
@@ -66,6 +67,9 @@ const authenticationPluginImplementation: FastifyPluginAsync<{
         status: "active",
         preferredLocale: locale,
         avatarObjectKey: user.avatarObjectKey,
+        registrationSource: user.selfRegisteredAt
+          ? "self_registration"
+          : "organization_invitation",
         authValidAfter: user.authValidAfter,
       }
     })

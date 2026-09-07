@@ -409,6 +409,64 @@ export const enUS = {
     securityPageDescription:
       "Change your local sign-in password and revoke existing sign-in sessions.",
   },
+  botChannels: {
+    connectionError:
+      "Check the app credentials, messaging permissions, and network, then try again.",
+    connect: "Connect",
+    disconnect: "Disconnect {{name}}",
+    settings: "View configuration",
+    setupTitle: "Connect {{name}}",
+    save: "Save configuration",
+    cancel: "Cancel",
+    confirmDisconnect: "Disconnect",
+    retry: "Retry",
+    account: "App or bot account",
+    botId: "Bot ID",
+    clientId: "App Client ID",
+    secret: "App secret",
+    tenantId: "Tenant ID",
+    sender: "Allowed member ID",
+    groups: "Allow this member to start tasks by mentioning the bot in groups",
+    callback: "Messaging endpoint",
+    callbackHelp:
+      "Set this URL as the Azure Bot messaging endpoint. It must be publicly reachable over HTTPS.",
+    replaceHelp:
+      "To replace the app or secret, disconnect and configure the channel again.",
+    disconnectHelp:
+      "Disconnecting stops receiving and replying through this channel and removes pending messages and replies. Existing LinkSense tasks are kept.",
+    invalid:
+      "Check all required fields. Teams app, tenant, and member IDs must be valid UUIDs.",
+    status: {
+      connecting: "Connecting",
+      online: "Online",
+      waiting_message: "Waiting for a message",
+      error: "Connection error",
+      disconnected: "Not connected",
+    },
+    description: {
+      wecom:
+        "Receive direct messages and group mentions through a WeCom intelligent bot.",
+      dingtalk:
+        "Receive direct messages and group mentions through a DingTalk app bot.",
+      teams: "Receive direct messages and group mentions through a Teams bot.",
+    },
+    setup: {
+      wecom:
+        "Create an intelligent bot in WeCom using API mode and a persistent connection, then enter its ID, secret, and allowed member.",
+      dingtalk:
+        "Create an internal app on the DingTalk developer platform, enable and publish its Stream bot, and grant direct and group messaging permissions.",
+      teams:
+        "Create a single-tenant Azure Bot and enable Microsoft Teams. After saving, configure its messaging endpoint in Azure and install the bot app in Teams.",
+    },
+    senderHelp: {
+      wecom:
+        "Enter the member userid from your WeCom directory. Only this member can use your LinkSense assistant.",
+      dingtalk:
+        "Enter the member UserId from your DingTalk organization. Only this member can use your LinkSense assistant.",
+      teams:
+        "Enter the user object ID from Microsoft Entra. Only this user can use your LinkSense assistant.",
+    },
+  },
   channelAccess: {
     title: "Message channels",
     description:
@@ -422,7 +480,7 @@ export const enUS = {
       accountConnected: "Connected account {{account}}",
       scopeValue: "Scanning account only · Text and transcribed voice",
       iconLabel: "Weixin icon",
-      connect: "Connect Weixin",
+      connect: "Connect",
       reconnect: "Reconnect",
       disconnect: "Disconnect",
       successDescription: "Weixin is connected to LinkSense.",
@@ -464,7 +522,7 @@ export const enUS = {
       notConnected: "No personal Feishu bot created",
       scopeValue: "Owner only · Direct text messages",
       iconLabel: "Feishu icon",
-      connect: "Connect Feishu",
+      connect: "Connect",
       reconnect: "Update access",
       disconnect: "Disconnect",
       successDescription:
@@ -1692,6 +1750,10 @@ export const enUS = {
     htmlAnnotationCount_one: "{{count}} annotation",
     htmlAnnotationCount_other: "{{count}} annotations",
     voice: "Voice input",
+    voiceChecking: "Checking the speech-to-text service…",
+    voiceNotConfigured: "Speech-to-text has not been configured",
+    voiceServiceUnavailable:
+      "Speech-to-text is temporarily unavailable. Try again later.",
     voiceStop: "Stop voice input",
     voiceRecording: "Recording",
     voiceDuration: "Recording duration",
@@ -1956,18 +2018,11 @@ export const enUS = {
     maxPending:
       "You can keep up to 5 pending requests. Process an existing request first.",
     pendingCancelled:
-      "The pending request was cancelled, and its attachments were restored to the task draft.",
+      "The pending request was cancelled, and its attachments were restored to the composer.",
     pendingContinued:
       "{{productName}} was asked to continue the first pending request.",
     pendingGuided: "The first pending request now guides the current run.",
     reconnecting: "Connection is recovering",
-    draftConflict: {
-      title: "Draft changes conflict",
-      description:
-        "This page and the server draft were both changed. Autosave is paused and your current content is safe; choose which version to keep.",
-      keepCurrent: "Keep current content",
-      useLatest: "Use latest draft",
-    },
     planTitle: "Execution plan",
     planProgress: "Step {{current}} of {{total}}",
     planChangedFiles_one: "{{count}} file changed",
@@ -2324,6 +2379,7 @@ export const enUS = {
     dependencyUnavailableShort: "Currently unavailable; it can be removed",
     usesPluginCredentials: "Uses plugin credentials",
     share: "Share",
+    shareWithinOrganization: "Share within organization",
     usage: {
       action: "Usage analytics",
       title: "Application usage",
@@ -2516,6 +2572,8 @@ export const enUS = {
     title: "Plugin Center",
     description:
       "Browse public plugins and Skills, and manage installed content, personal content, and MCP connections in one place.",
+    personalAccountDescription:
+      "Manage installed content, personal content, the Skill repository, and MCP connections.",
     adminTitle: "Plugin Center",
     adminDescription:
       "Review immutable release snapshots, manage Plugin Center visibility, and suspend listings immediately when risks are found.",
@@ -3512,9 +3570,14 @@ export const enUS = {
     auditDescription:
       "Only permitted cross-user metadata is shown. Task text, attachment content, and download links are excluded.",
     action: "Action",
+    actionCode: "Action code",
+    actionSearchPlaceholder: "Search or select an action",
+    actionSearchEmpty: "No matching actions.",
     actor: "Actor",
     target: "Target",
+    targetTypeCode: "Target type code",
     result: "Result",
+    resultCode: "Result code",
     sourceIp: "Source IP",
     exportCreatedAt: "Created at",
     exportActorId: "Actor ID",
@@ -3668,6 +3731,7 @@ export const enUS = {
       channels: "Model channels",
       conversation: "Conversation models",
       knowledge: "Knowledge retrieval models",
+      voiceTranscription: "Speech-to-text model",
       imageGeneration: "Image generation model",
       initialQuota: "Initial user token usage",
     },
@@ -3833,6 +3897,45 @@ export const enUS = {
         "New document processing and semantic retrieval will use this configuration.",
       savedAfterEmbeddingChangeDescription:
         "The model setting was saved. Go to System health and rebuild all knowledge-base indexes; retrieval is temporarily unavailable until it finishes.",
+    },
+    voiceTranscription: {
+      title: "Speech-to-text model",
+      description:
+        "Configure the model service used for voice input transcription. Once enabled, regular tasks and embedded apps use these settings. The key is stored securely and never displayed again.",
+      enabled: "Enable speech to text",
+      provider: "Model provider",
+      providerHint:
+        "Choose the speech-to-text service you have activated and want to use.",
+      providerPlaceholder: "Select a model provider",
+      providers: {
+        dashscope: "Alibaba Cloud Bailian",
+        openai: "OpenAI",
+        openai_compatible: "OpenAI-compatible service",
+        azure_openai: "Azure OpenAI",
+        groq: "Groq",
+        deepgram: "Deepgram",
+        assemblyai: "AssemblyAI",
+        elevenlabs: "ElevenLabs",
+        revai: "Rev.ai",
+        gladia: "Gladia",
+        fal: "fal.ai",
+      },
+      baseUrl: "Base URL",
+      baseUrlHint:
+        "Enter the speech-to-text connection address supplied by the provider.",
+      apiVersion: "API version",
+      apiVersionHint:
+        "Enter the API version used by your Azure OpenAI deployment.",
+      apiKey: "API key",
+      apiKeyConfiguredHint:
+        "A key is configured. Leave this blank to keep the existing key.",
+      apiKeyRequiredHint:
+        "A key is required when enabling this for the first time or after switching providers. It is never displayed again.",
+      model: "Speech-to-text model name",
+      modelHint: "Enter the model or deployment name supplied by the provider.",
+      save: "Save speech-to-text model",
+      saving: "Saving…",
+      saved: "Speech-to-text model settings updated.",
     },
     imageGeneration: {
       title: "Image generation model",
@@ -4351,15 +4454,9 @@ export const enUS = {
       "The password setup link is invalid or has expired. Request a new one.",
     concurrencyLimit:
       "The system is currently at capacity. Please try again later.",
-    overloadedDraftSaved:
-      "The system is currently at capacity. Your draft has been saved; try again later.",
-    draftVersionConflict:
-      "The draft was updated elsewhere. Refresh and try again.",
     pendingLimit:
       "The pending request limit has been reached. Handle an existing request first.",
     pendingNotHead: "Only the first pending request can be continued.",
-    pendingRestoreDraftNotEmpty:
-      "The composer has unsent content. Handle it before editing the queued request.",
     interruptFailed: "Unable to interrupt the current run. Please try again.",
     conversation: {
       collaborationModeUnavailable:

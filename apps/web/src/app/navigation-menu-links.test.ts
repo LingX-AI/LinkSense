@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import appShellSource from "@/components/shell/app-shell.tsx?raw"
 import applicationCatalogSource from "@/features/applications/application-catalog-panel.tsx?raw"
 import automationPagesSource from "@/pages/automation-pages.tsx?raw"

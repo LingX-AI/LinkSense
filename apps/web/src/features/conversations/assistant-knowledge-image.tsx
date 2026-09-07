@@ -278,13 +278,12 @@ async function loadFirstAuthorizedAsset(input: {
     scopedAssetLoader,
     signal,
   } = input
-  if (conversationId && turnId && scopedAssetLoader) {
-    return scopedAssetLoader({
-      conversationId,
-      turnId,
-      assetReferenceId,
-      signal,
-    })
+  if (conversationId && turnId) {
+    // Conversation images are durable attachments, even when the message also
+    // has citations. Never route them through live knowledge authorization.
+    return scopedAssetLoader
+      ? scopedAssetLoader({ conversationId, turnId, assetReferenceId, signal })
+      : loadKnowledgeTurnAsset(conversationId, turnId, assetReferenceId, signal)
   }
   for (const citationId of citationIds) {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError")
@@ -297,14 +296,6 @@ async function loadFirstAuthorizedAsset(input: {
     } catch (error) {
       if (signal.aborted) throw error
     }
-  }
-  if (conversationId && turnId) {
-    return loadKnowledgeTurnAsset(
-      conversationId,
-      turnId,
-      assetReferenceId,
-      signal
-    )
   }
   throw new Error("knowledge_asset_not_authorized")
 }

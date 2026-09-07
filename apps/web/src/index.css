@@ -1105,10 +1105,6 @@
   );
 }
 
-.sidebar-conversation-preview-title {
-  color: color-mix(in srgb, var(--app-text) 70%, var(--app-muted));
-}
-
 .sidebar-conversation-item[data-running="true"] .sidebar-conversation-link,
 .sidebar-conversation-item[data-warning="true"] .sidebar-conversation-link {
   padding-right: 30px;
@@ -1126,15 +1122,33 @@
   .sidebar-conversation-link,
 .sidebar-conversation-item:not([data-active="true"]):not(
     .sidebar-link-active
-  ):focus-within
+  ):has(:focus-visible)
   .sidebar-conversation-link {
   background: var(--app-sidebar-hover);
   color: var(--app-text);
 }
 
 .sidebar-conversation-item:hover .sidebar-conversation-link,
-.sidebar-conversation-item:focus-within .sidebar-conversation-link {
+.sidebar-conversation-item:has(:focus-visible) .sidebar-conversation-link {
   padding-right: 60px;
+}
+
+@media (hover: hover) {
+  .sidebar-conversation-scroll:has(.sidebar-conversation-item:hover)
+    .sidebar-conversation-item:not(:hover)
+    .sidebar-conversation-actions {
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  .sidebar-conversation-scroll:has(.sidebar-conversation-item:hover)
+    .sidebar-conversation-item:not(:hover)
+    .sidebar-conversation-running,
+  .sidebar-conversation-scroll:has(.sidebar-conversation-item:hover)
+    .sidebar-conversation-item:not(:hover)
+    .sidebar-conversation-warning {
+    opacity: 1;
+  }
 }
 
 @media (hover: none) {
@@ -6498,23 +6512,13 @@ button.annotation-hover-file:focus-visible {
   vertical-align: top;
 }
 
-.assistant-markdown .markdown-copy-block-table th:first-child,
-.assistant-markdown .markdown-copy-block-table td:first-child,
-.markdown-table-dialog th:first-child,
-.markdown-table-dialog td:first-child {
-  min-width: 160px;
-  max-width: 260px;
-  overflow-wrap: break-word;
-  white-space: normal;
-}
-
-.assistant-markdown .markdown-copy-block-table th:not(:first-child),
-.assistant-markdown .markdown-copy-block-table td:not(:first-child),
-.markdown-table-dialog th:not(:first-child),
-.markdown-table-dialog td:not(:first-child) {
-  min-width: 112px;
-  max-width: 240px;
-  overflow-wrap: break-word;
+.assistant-markdown .markdown-copy-block-table th,
+.assistant-markdown .markdown-copy-block-table td,
+.markdown-table-dialog th,
+.markdown-table-dialog td {
+  min-width: 0;
+  max-width: min(36rem, 70vw);
+  overflow-wrap: anywhere;
   white-space: normal;
 }
 
@@ -9178,23 +9182,6 @@ button.annotation-hover-file:focus-visible {
   justify-self: end;
 }
 
-.channel-access-card-upcoming {
-  gap: 10px;
-  border-color: transparent;
-  padding-block: 14px;
-  background: transparent;
-  color: var(--app-muted);
-  opacity: 0.82;
-  transition:
-    background-color 160ms ease,
-    opacity 160ms ease;
-}
-
-.channel-access-card-upcoming:hover {
-  background: var(--app-hover-subtle);
-  opacity: 1;
-}
-
 .channel-access-card-header {
   display: grid;
   gap: 8px;
@@ -9245,33 +9232,19 @@ button.annotation-hover-file:focus-visible {
   height: 20px;
 }
 
-.channel-access-icon-upcoming {
-  background: color-mix(in srgb, var(--app-muted) 8%, transparent);
-  color: var(--app-muted);
-}
-
-.channel-access-icon-upcoming[data-channel="wecom"] {
+.channel-access-icon-wecom {
   background: color-mix(in srgb, #1aad19 12%, transparent);
   color: #1aad19;
 }
 
-.channel-access-icon-upcoming[data-channel="dingtalk"] {
+.channel-access-icon-dingtalk {
   background: color-mix(in srgb, #1677ff 12%, transparent);
   color: #1677ff;
 }
 
-.channel-access-icon-upcoming[data-channel="teams"] {
+.channel-access-icon-teams {
   background: color-mix(in srgb, #6264a7 12%, transparent);
   color: #6264a7;
-}
-
-.channel-access-icon-upcoming[data-channel="feishu"] {
-  background: color-mix(in srgb, #3370ff 10%, transparent);
-}
-
-.channel-access-icon-upcoming[data-channel="feishu"] svg {
-  width: 20px;
-  height: 20px;
 }
 
 .channel-access-title-row {

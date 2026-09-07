@@ -90,7 +90,10 @@ export class ApplicationService {
     input: { scope: ApplicationListScope; search?: string; limit: number },
   ): Promise<Application[]> {
     assertActiveActor(actor);
-    const access = await this.#resolveAccessibleApplicationIds(actor.id);
+    const access = await this.#resolveAccessibleApplicationIds(
+      actor.id,
+      actor.registrationSource,
+    );
     const ids =
       input.scope === "owned"
         ? [...access.owned]
@@ -119,12 +122,20 @@ export class ApplicationService {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: input.limit,
     });
-    return this.#projectApplications(actor.id, rows, access);
+    return this.#projectApplications(
+      actor.id,
+      rows,
+      access,
+      actor.registrationSource !== "self_registration",
+    );
   }
 
   async get(actor: RequestActor, applicationId: string): Promise<Application> {
     assertActiveActor(actor);
-    const access = await this.#resolveAccessibleApplicationIds(actor.id);
+    const access = await this.#resolveAccessibleApplicationIds(
+      actor.id,
+      actor.registrationSource,
+    );
     if (!access.owned.has(applicationId) && !access.shared.has(applicationId)) {
       throw new AppError("APPLICATION_NOT_FOUND");
     }
@@ -139,6 +150,7 @@ export class ApplicationService {
       actor.id,
       [row],
       access,
+      actor.registrationSource !== "self_registration",
     );
     if (!projected) throw new AppError("APPLICATION_NOT_FOUND");
     return projected;
@@ -150,7 +162,17 @@ export class ApplicationService {
   ): Promise<ReadonlyMap<string, Application["icon"]>> {
     const requestedIds = [...new Set(applicationIds)];
     if (requestedIds.length === 0) return new Map();
-    const access = await this.#resolveAccessibleApplicationIds(actorId);
+    const actor = await this.prisma.user.findFirst({
+      where: { id: actorId, status: "active" },
+      select: { selfRegisteredAt: true },
+    });
+    if (!actor) return new Map();
+    const access = await this.#resolveAccessibleApplicationIds(
+      actorId,
+      actor.selfRegisteredAt
+        ? "self_registration"
+        : "organization_invitation",
+    );
     const accessibleIds = requestedIds.filter(
       (applicationId) =>
         access.owned.has(applicationId) || access.shared.has(applicationId),
@@ -886,6 +908,7 @@ export class ApplicationService {
 
   async listGrants(actor: RequestActor, applicationId: string) {
     assertActiveActor(actor);
+    assertOrganizationSharingAccess(actor);
     await this.#requireOwned(actor.id, applicationId);
     const grants = await this.prisma.applicationGrant.findMany({
       where: { applicationId, status: "active" },
@@ -936,6 +959,7 @@ export class ApplicationService {
     context: AuditContext,
   ) {
     assertActiveActor(actor);
+    assertOrganizationSharingAccess(actor);
     await this.#requireOwned(actor.id, applicationId);
     if (target.granteeType === "user" && target.userId === actor.id) {
       throw new AppError("APPLICATION_GRANT_TARGET_INVALID");
@@ -943,7 +967,11 @@ export class ApplicationService {
     const targetExists =
       target.granteeType === "user"
         ? await this.prisma.user.findFirst({
-            where: { id: target.userId, status: "active" },
+            where: {
+              id: target.userId,
+              status: "active",
+              selfRegisteredAt: null,
+            },
             select: { id: true },
           })
         : await this.prisma.userGroup.findUnique({
@@ -1014,6 +1042,7 @@ export class ApplicationService {
     context: AuditContext,
   ) {
     assertActiveActor(actor);
+    assertOrganizationSharingAccess(actor);
     await this.#requireOwned(actor.id, applicationId);
     const now = new Date();
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -1056,6 +1085,7 @@ export class ApplicationService {
     },
   ) {
     assertActiveActor(actor);
+    assertOrganizationSharingAccess(actor);
     const includeUsers = input.type !== "user_group";
     const includeGroups = input.type !== "user";
     const [users, groups] = await Promise.all([
@@ -1065,6 +1095,7 @@ export class ApplicationService {
               id: { not: actor.id },
               status: "active",
               accountType: "member",
+              selfRegisteredAt: null,
               ...(input.search
                 ? {
                     OR: [
@@ -1232,7 +1263,7 @@ export class ApplicationService {
   async #requireCurrentAccess(actorId: string, applicationId: string) {
     const actor = await this.prisma.user.findFirst({
       where: { id: actorId, status: "active" },
-      select: { id: true, accountType: true },
+      select: { id: true, accountType: true, selfRegisteredAt: true },
     });
     if (!actor) throw new AppError("USER_DISABLED");
     if (actor.accountType === "application_external") {
@@ -1256,7 +1287,12 @@ export class ApplicationService {
       });
       if (!external) throw new AppError("APPLICATION_NOT_FOUND");
     } else {
-      const access = await this.#resolveAccessibleApplicationIds(actorId);
+      const access = await this.#resolveAccessibleApplicationIds(
+        actorId,
+        actor.selfRegisteredAt
+          ? "self_registration"
+          : "organization_invitation",
+      );
       if (!access.owned.has(applicationId) && !access.shared.has(applicationId)) {
         throw new AppError("APPLICATION_NOT_FOUND");
       }
@@ -1317,7 +1353,7 @@ export class ApplicationService {
     const [actor, application] = await Promise.all([
       this.prisma.user.findFirst({
         where: { id: actorId, status: "active" },
-        select: { id: true, accountType: true },
+        select: { id: true, accountType: true, selfRegisteredAt: true },
       }),
       this.prisma.application.findFirst({
         where: {
@@ -1351,7 +1387,12 @@ export class ApplicationService {
         : null;
       if (!externalAccess) return [];
     } else {
-      const access = await this.#resolveAccessibleApplicationIds(actorId);
+      const access = await this.#resolveAccessibleApplicationIds(
+        actorId,
+        actor.selfRegisteredAt
+          ? "self_registration"
+          : "organization_invitation",
+      );
       if (
         !access.owned.has(conversation.applicationId) &&
         !access.shared.has(conversation.applicationId)
@@ -1440,7 +1481,10 @@ export class ApplicationService {
     return row;
   }
 
-  async #resolveAccessibleApplicationIds(actorId: string) {
+  async #resolveAccessibleApplicationIds(
+    actorId: string,
+    registrationSource?: RequestActor["registrationSource"],
+  ) {
     const [owned, memberships] = await Promise.all([
       this.prisma.application.findMany({
         where: {
@@ -1449,11 +1493,21 @@ export class ApplicationService {
         },
         select: { id: true },
       }),
-      this.prisma.userGroupMember.findMany({
-        where: { userId: actorId, status: "active" },
-        select: { userGroupId: true },
-      }),
+      registrationSource === "self_registration"
+        ? Promise.resolve([])
+        : this.prisma.userGroupMember.findMany({
+            where: { userId: actorId, status: "active" },
+            select: { userGroupId: true },
+          }),
     ]);
+    const ownedIds = new Set(owned.map((application) => application.id));
+    if (registrationSource === "self_registration") {
+      return {
+        owned: ownedIds,
+        shared: new Set<string>(),
+        accessSource: new Map<string, "direct" | "user_group">(),
+      };
+    }
     const groupIds = memberships.map((membership) => membership.userGroupId);
     const grants = await this.prisma.applicationGrant.findMany({
       where: {
@@ -1475,7 +1529,6 @@ export class ApplicationService {
         granteeType: true,
       },
     });
-    const ownedIds = new Set(owned.map((application) => application.id));
     const sharedIds = new Set(
       grants
         .map((grant) => grant.applicationId)
@@ -1511,11 +1564,12 @@ export class ApplicationService {
       updatedAt: Date;
     }>,
     access: AccessibleApplications,
+    includeOrganizationSharing: boolean,
   ): Promise<Application[]> {
     const applicationIds = rows.map((row) => row.id);
-    const ownedApplicationIds = rows
-      .filter((row) => row.ownerId === actorId)
-      .map((row) => row.id);
+    const ownedApplicationIds = includeOrganizationSharing
+      ? rows.filter((row) => row.ownerId === actorId).map((row) => row.id)
+      : [];
     const ownerIds = [...new Set(rows.map((row) => row.ownerId))];
     const [
       owners,
@@ -1893,6 +1947,12 @@ export class ApplicationService {
 
 function assertActiveActor(actor: RequestActor): void {
   if (actor.status !== "active") throw new AppError("USER_DISABLED");
+}
+
+function assertOrganizationSharingAccess(actor: RequestActor): void {
+  if (actor.registrationSource === "self_registration") {
+    throw new AppError("FORBIDDEN");
+  }
 }
 
 function declaredApplicationCredentialKeys(value: unknown): string[] {

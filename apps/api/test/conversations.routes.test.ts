@@ -54,6 +54,37 @@ describe("conversation list route", () => {
   });
 });
 
+describe("conversation create route", () => {
+  it("creates an empty task without accepting composer draft content", async () => {
+    const { app, create } = await conversationRouteFixture();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/conversations",
+      payload: { collaboration_mode: "plan" },
+    });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(create).toHaveBeenCalledWith(OWNER_ID, {
+      collaborationMode: "plan",
+      fallbackLocale: "zh-CN",
+    });
+  });
+
+  it("rejects removed server-draft fields", async () => {
+    const { app, create } = await conversationRouteFixture();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/conversations",
+      payload: { collaboration_mode: "default", input_text: "local only" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(create).not.toHaveBeenCalled();
+  });
+});
+
 describe("conversation archived clear route", () => {
   it("clears only the authenticated owner's archived tasks", async () => {
     const { app, clearArchived } = await conversationRouteFixture();
@@ -331,7 +362,9 @@ describe("conversation turn route", () => {
       success: true,
       data: { accepted: true },
     });
-    expect(prewarm).toHaveBeenCalledWith(OWNER_ID);
+    expect(prewarm).toHaveBeenCalledWith(OWNER_ID, {
+      collaborationMode: "default",
+    });
   });
 
   it("保留用户选择的知识库顺序", async () => {
@@ -431,10 +464,7 @@ describe("conversation turn route", () => {
     });
   });
 
-  it.each([
-    ["缺省消费草稿", undefined, "consume"],
-    ["显式保留草稿", "preserve", "preserve"],
-  ] as const)("%s", async (_label, draftPolicy, expectedDraftPolicy) => {
+  it("直接提交输入内容，不经过服务端草稿", async () => {
     const { app, startTurn } = await conversationRouteFixture();
 
     const response = await app.inject({
@@ -442,7 +472,6 @@ describe("conversation turn route", () => {
       url: `/conversations/${CONVERSATION_ID}/turns`,
       payload: {
         input_text: "ask about the selected element",
-        ...(draftPolicy ? { draft_policy: draftPolicy } : {}),
       },
     });
 
@@ -464,13 +493,12 @@ describe("conversation turn route", () => {
         knowledgeBaseIds: [],
         collaborationMode: "default",
         submitMode: "normal",
-        draftPolicy: expectedDraftPolicy,
       },
       expect.any(Object),
     );
   });
 
-  it("拒绝非法的草稿策略", async () => {
+  it("拒绝已经移除的草稿策略字段", async () => {
     const { app, startTurn } = await conversationRouteFixture();
 
     const response = await app.inject({
@@ -521,7 +549,6 @@ describe("conversation turn route", () => {
       OWNER_ID,
       CONVERSATION_ID,
       expect.objectContaining({
-        draftPolicy: "preserve",
         presentationAnnotation: {
           kind: "presentation_annotation",
           file_id: MESSAGE_ID,
@@ -546,7 +573,7 @@ describe("conversation turn route", () => {
     );
   });
 
-  it("将结构化 Word 文本注释作为 Office 注释提交并保留草稿", async () => {
+  it("将结构化 Word 文本注释作为 Office 注释提交", async () => {
     const { app, startTurn } = await conversationRouteFixture();
 
     const response = await app.inject({
@@ -583,7 +610,6 @@ describe("conversation turn route", () => {
       OWNER_ID,
       CONVERSATION_ID,
       expect.objectContaining({
-        draftPolicy: "preserve",
         officeAnnotation: expect.objectContaining({
           kind: "word_annotation",
           annotations: [
@@ -1042,7 +1068,7 @@ describe("conversation message fork route", () => {
 });
 
 describe("conversation pending request route", () => {
-  it("将结构化演示文稿注释排队并保留当前草稿", async () => {
+  it("将结构化演示文稿注释排队并保留暂存附件", async () => {
     const { app, createPending } = await conversationRouteFixture();
 
     const response = await app.inject({
@@ -1077,8 +1103,8 @@ describe("conversation pending request route", () => {
       OWNER_ID,
       CONVERSATION_ID,
       expect.objectContaining({
-        draftPolicy: "preserve",
         idempotencyKey: IDEMPOTENCY_KEY,
+        preserveStagedAttachments: true,
         priorityCapabilityIds: [],
         presentationAnnotation: {
           kind: "presentation_annotation",
@@ -1172,16 +1198,16 @@ describe("conversation pending request route", () => {
     expect(steerPending).not.toHaveBeenCalled();
   });
 
-  it("restores a pending request to the task draft", async () => {
-    const { app, restorePendingToDraft } = await conversationRouteFixture();
+  it("restores a pending request to the local input payload", async () => {
+    const { app, restorePendingToInput } = await conversationRouteFixture();
 
     const response = await app.inject({
       method: "POST",
-      url: `/conversations/${CONVERSATION_ID}/pending-requests/${PENDING_REQUEST_ID}/restore-draft`,
+      url: `/conversations/${CONVERSATION_ID}/pending-requests/${PENDING_REQUEST_ID}/restore-input`,
     });
 
     expect(response.statusCode, response.body).toBe(200);
-    expect(restorePendingToDraft).toHaveBeenCalledWith(
+    expect(restorePendingToInput).toHaveBeenCalledWith(
       OWNER_ID,
       CONVERSATION_ID,
       PENDING_REQUEST_ID,
@@ -1191,22 +1217,24 @@ describe("conversation pending request route", () => {
       success: true,
       data: {
         pending_request_id: PENDING_REQUEST_ID,
-        draft: { input_text: "restored pending request" },
+        input_text: "restored pending request",
+        priority_capability_ids: [],
+        knowledge_base_ids: [],
       },
     });
   });
 
   it("rejects an invalid pending request id before restoring", async () => {
-    const { app, restorePendingToDraft } = await conversationRouteFixture();
+    const { app, restorePendingToInput } = await conversationRouteFixture();
 
     const response = await app.inject({
       method: "POST",
-      url: `/conversations/${CONVERSATION_ID}/pending-requests/not-a-uuid/restore-draft`,
+      url: `/conversations/${CONVERSATION_ID}/pending-requests/not-a-uuid/restore-input`,
     });
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({ error_code: "VALIDATION_ERROR" });
-    expect(restorePendingToDraft).not.toHaveBeenCalled();
+    expect(restorePendingToInput).not.toHaveBeenCalled();
   });
 });
 
@@ -1215,6 +1243,7 @@ async function conversationRouteFixture(
   applicationAllowsUserModelSelection = false,
 ) {
   const list = vi.fn(async () => ({ items: [], next_cursor: null }));
+  const create = vi.fn(async () => ({ id: CONVERSATION_ID }));
   const clearArchived = vi.fn(async () => ({ deleted_count: 2 }));
   const reorder = vi.fn(async (_ownerId: string, input: {
     group: "pinned" | "recent";
@@ -1256,7 +1285,10 @@ async function conversationRouteFixture(
       selected_reasoning_effort: input.selected_reasoning_effort,
     }),
   );
-  const prewarm = vi.fn(async () => ({ accepted: true as const }));
+  const prewarm = vi.fn(async () => ({
+    accepted: true as const,
+    conversation_id: CONVERSATION_ID,
+  }));
   const regenerate = vi.fn(async () => ({
     turn_id: "50000000-0000-4000-8000-000000000001",
     accepted: true as const,
@@ -1307,9 +1339,11 @@ async function conversationRouteFixture(
     priority_capability_ids: [],
     status: "waiting_previous_turn",
   }));
-  const restorePendingToDraft = vi.fn(async () => ({
+  const restorePendingToInput = vi.fn(async () => ({
     pending_request_id: PENDING_REQUEST_ID,
-    draft: { input_text: "restored pending request" },
+    input_text: "restored pending request",
+    priority_capability_ids: [],
+    knowledge_base_ids: [],
   }));
   const steerPending = vi.fn(async () => ({
     turn_id: TURN_ID,
@@ -1427,6 +1461,7 @@ async function conversationRouteFixture(
     services: {
       conversations: {
         list,
+        create,
         clearArchived,
         reorder,
         patch,
@@ -1444,7 +1479,7 @@ async function conversationRouteFixture(
         clearGoal,
         createPending,
         reorderPending,
-        restorePendingToDraft,
+        restorePendingToInput,
         steerPending,
         respondToUserInputRequest,
         actOnPlanReview,
@@ -1452,6 +1487,7 @@ async function conversationRouteFixture(
         getSubAgentSummaries,
       },
       conversationShares: { create: createShare },
+      system: { defaultLocale: "zh-CN" },
       modelProviderSettings: {
         getPreference: getModelPreference,
         updatePreference: updateModelPreference,
@@ -1461,6 +1497,7 @@ async function conversationRouteFixture(
   return {
     app,
     list,
+    create,
     clearArchived,
     reorder,
     patch,
@@ -1478,7 +1515,7 @@ async function conversationRouteFixture(
     clearGoal,
     createPending,
     reorderPending,
-    restorePendingToDraft,
+    restorePendingToInput,
     steerPending,
     respondToUserInputRequest,
     actOnPlanReview,

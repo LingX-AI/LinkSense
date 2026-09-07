@@ -39,6 +39,7 @@ import {
   healthSchema,
   imageGenerationSettingsSchema,
   imageUnderstandingSettingsSchema,
+  voiceTranscriptionSettingsSchema,
   knowledgeModelSettingsSchema,
   importResultSchema,
   modelProviderSettingsSchema,
@@ -72,6 +73,11 @@ import {
   AuditLogDetailDialog,
   RetainedArtifactDetailDialog,
 } from "@/features/admin/audit-log-detail-dialog"
+import {
+  auditActionOptions,
+  translateAuditValue,
+  type AuditActionOption,
+} from "@/features/admin/audit-i18n"
 import { productFilenamePrefix, useProductName } from "@/app/product-branding"
 import { downloadBlob } from "@/lib/download-blob"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
@@ -99,6 +105,7 @@ import {
   ComboboxChipsInput,
   ComboboxContent,
   ComboboxEmpty,
+  ComboboxInput,
   ComboboxItem,
   ComboboxList,
   ComboboxValue,
@@ -195,6 +202,7 @@ import {
 } from "@/features/admin/model-provider-settings-form"
 import { ImageGenerationSettingsForm } from "@/features/admin/image-generation-settings-form"
 import { ImageUnderstandingSettingsForm } from "@/features/admin/image-understanding-settings-form"
+import { VoiceTranscriptionSettingsForm } from "@/features/admin/voice-transcription-settings-form"
 import { KnowledgeModelSettingsForm } from "@/features/admin/knowledge-model-settings-form"
 import { MaintenanceSettingsForm } from "@/features/admin/maintenance-settings-form"
 import { SystemUpdateSettings } from "@/features/admin/system-update"
@@ -2789,12 +2797,11 @@ function AuditPage() {
                 />
               </FieldShell>
               <FieldShell id="audit-action" label={t("admin.action")}>
-                <Input
+                <AuditActionFilter
                   id="audit-action"
-                  className="h-9"
                   value={action}
-                  onChange={(event) => {
-                    setAction(event.target.value)
+                  onValueChange={(nextAction) => {
+                    setAction(nextAction)
                     resetEventPagination()
                   }}
                 />
@@ -3268,7 +3275,7 @@ function AuditTable({
               <TableRow key={record.id}>
                 <TableCell>
                   <span className="table-primary">
-                    {formatPublicTechnicalIdentifier(record.action)}
+                    {translateAuditValue(t, "actions", record.action)}
                   </span>
                   {record.error_code && (
                     <span className="table-secondary table-metadata">
@@ -3280,14 +3287,22 @@ function AuditTable({
                 <TableCell>
                   <span className="table-primary">
                     {record.target_type
-                      ? formatPublicTechnicalIdentifier(record.target_type)
+                      ? translateAuditValue(
+                          t,
+                          "targetTypes",
+                          record.target_type
+                        )
                       : "—"}
                   </span>
                   <span className="table-secondary table-metadata">
                     {record.target_id ?? "—"}
                   </span>
                 </TableCell>
-                <TableCell>{record.result ?? "—"}</TableCell>
+                <TableCell>
+                  {record.result
+                    ? translateAuditValue(t, "results", record.result)
+                    : "—"}
+                </TableCell>
                 <TableCell className="table-metadata">
                   {record.source_ip ?? t("common.system")}
                 </TableCell>
@@ -3317,6 +3332,56 @@ function AuditTable({
         }}
       />
     </>
+  )
+}
+
+function AuditActionFilter({
+  id,
+  value,
+  onValueChange,
+}: {
+  id: string
+  value: string
+  onValueChange: (value: string) => void
+}) {
+  const { t } = useTranslation()
+  const options = auditActionOptions(t)
+  const selected = options.find((option) => option.code === value) ?? null
+
+  return (
+    <Combobox
+      items={options}
+      value={selected}
+      itemToStringLabel={(option) => option.label}
+      itemToStringValue={(option) => option.code}
+      isItemEqualToValue={(option, current) => option.code === current.code}
+      onValueChange={(option) => onValueChange(option?.code ?? "")}
+    >
+      <ComboboxInput
+        id={id}
+        aria-label={t("admin.action")}
+        className="h-9"
+        placeholder={t("admin.actionSearchPlaceholder")}
+        showClear={Boolean(value)}
+      />
+      <ComboboxContent>
+        <ComboboxEmpty>{t("admin.actionSearchEmpty")}</ComboboxEmpty>
+        <ComboboxList>
+          {(option: AuditActionOption) => (
+            <ComboboxItem key={option.code} value={option}>
+              <span className="min-w-0">
+                <span className="block truncate font-medium">
+                  {option.label}
+                </span>
+                <span className="block truncate text-muted-foreground">
+                  {formatPublicTechnicalIdentifier(option.code)}
+                </span>
+              </span>
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   )
 }
 
@@ -4091,7 +4156,13 @@ function ModelSettingsPage() {
   const [activeTab, setActiveTab] = useState<ModelSettingsTab>("channels")
   const [tabRenderVersions, setTabRenderVersions] = useState<
     Record<ModelSettingsTab, number>
-  >({ channels: 0, knowledge: 0, imageGeneration: 0, initialQuota: 0 })
+  >({
+    channels: 0,
+    knowledge: 0,
+    voiceTranscription: 0,
+    imageGeneration: 0,
+    initialQuota: 0,
+  })
   const modelProviderQuery = useQuery({
     queryKey: ["admin", "model-provider-settings"],
     queryFn: ({ signal }) =>
@@ -4116,6 +4187,14 @@ function ModelSettingsPage() {
         signal,
       }),
   })
+  const voiceTranscriptionQuery = useQuery({
+    queryKey: ["admin", "voice-transcription-settings"],
+    queryFn: ({ signal }) =>
+      apiRequest("/admin/voice-transcription-settings", {
+        schema: voiceTranscriptionSettingsSchema,
+        signal,
+      }),
+  })
   const knowledgeModelQuery = useQuery({
     queryKey: ["admin", "knowledge-model-settings"],
     queryFn: ({ signal }) =>
@@ -4129,9 +4208,11 @@ function ModelSettingsPage() {
     const queries =
       nextTab === "knowledge"
         ? [modelProviderQuery, knowledgeModelQuery, imageUnderstandingQuery]
-        : nextTab === "imageGeneration"
-          ? [modelProviderQuery, imageGenerationQuery]
-          : [modelProviderQuery]
+        : nextTab === "voiceTranscription"
+          ? [modelProviderQuery, voiceTranscriptionQuery]
+          : nextTab === "imageGeneration"
+            ? [modelProviderQuery, imageGenerationQuery]
+            : [modelProviderQuery]
     const markRefreshed = () => {
       setTabRenderVersions((current) => ({
         ...current,
@@ -4159,6 +4240,11 @@ function ModelSettingsPage() {
     modelProviderQuery.isLoading ||
     (activeTab === "imageGeneration" &&
       (imageGenerationQuery.isFetching || modelProviderQuery.isFetching))
+  const voiceTranscriptionLoading =
+    voiceTranscriptionQuery.isLoading ||
+    modelProviderQuery.isLoading ||
+    (activeTab === "voiceTranscription" &&
+      (voiceTranscriptionQuery.isFetching || modelProviderQuery.isFetching))
   const initialQuotaLoading =
     modelProviderQuery.isLoading ||
     (activeTab === "initialQuota" && modelProviderQuery.isFetching)
@@ -4182,6 +4268,9 @@ function ModelSettingsPage() {
           </TabsTrigger>
           <TabsTrigger value="knowledge">
             {t("admin.modelTabs.knowledge")}
+          </TabsTrigger>
+          <TabsTrigger value="voiceTranscription">
+            {t("admin.modelTabs.voiceTranscription")}
           </TabsTrigger>
           <TabsTrigger value="imageGeneration">
             {t("admin.modelTabs.imageGeneration")}
@@ -4258,6 +4347,36 @@ function ModelSettingsPage() {
               />
             )}
         </TabsContent>
+        <TabsContent value="voiceTranscription" className="min-w-0" keepMounted>
+          {voiceTranscriptionLoading && <LoadingState />}
+          {!voiceTranscriptionLoading && modelProviderQuery.error && (
+            <ErrorState
+              message={getErrorMessage(modelProviderQuery.error, t)}
+              onRetry={() => {
+                void modelProviderQuery.refetch()
+              }}
+            />
+          )}
+          {!voiceTranscriptionLoading && voiceTranscriptionQuery.error && (
+            <ErrorState
+              message={getErrorMessage(voiceTranscriptionQuery.error, t)}
+              onRetry={() => {
+                void voiceTranscriptionQuery.refetch()
+              }}
+            />
+          )}
+          {!voiceTranscriptionLoading &&
+            !modelProviderQuery.error &&
+            !voiceTranscriptionQuery.error &&
+            voiceTranscriptionQuery.data &&
+            modelProviderQuery.data && (
+              <VoiceTranscriptionSettingsForm
+                key={`voice-transcription-${voiceTranscriptionQuery.data.revision}-${modelProviderQuery.data.revision}-${tabRenderVersions.voiceTranscription}`}
+                settings={voiceTranscriptionQuery.data}
+                modelSettings={modelProviderQuery.data}
+              />
+            )}
+        </TabsContent>
         <TabsContent value="imageGeneration" className="min-w-0" keepMounted>
           {imageGenerationLoading && <LoadingState />}
           {!imageGenerationLoading && modelProviderQuery.error && (
@@ -4313,7 +4432,11 @@ function ModelSettingsPage() {
 }
 
 type ModelSettingsTab =
-  "channels" | "knowledge" | "imageGeneration" | "initialQuota"
+  | "channels"
+  | "knowledge"
+  | "voiceTranscription"
+  | "imageGeneration"
+  | "initialQuota"
 
 type AuthenticationProvider = "smtp" | "oidc" | "teams"
 type AuthenticationMode = AuthenticationSettings["smtp"]["mode"]

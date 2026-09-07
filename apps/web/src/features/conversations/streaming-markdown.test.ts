@@ -25,13 +25,42 @@ describe("normalizeAssistantMarkdown", () => {
     expect(normalized).toHaveLength(markdown.length)
   })
 
+  it("moves leading whitespace outside malformed strong emphasis", () => {
+    const markdown = [
+      "公司宣布** Neo He 提前转正**，表扬其项目表现。",
+      "任命** Jegan Chen、Rhoda Chen、Liz Xukur**分别兼任产品线负责人。",
+      "Rhoda 获奖励** 300元京东购物卡**。",
+    ].join("\n")
+
+    const normalized = normalizeAssistantMarkdown(markdown)
+
+    expect(normalized).toBe(
+      [
+        "公司宣布 **Neo He 提前转正**，表扬其项目表现。",
+        "任命 **Jegan Chen、Rhoda Chen、Liz Xukur**分别兼任产品线负责人。",
+        "Rhoda 获奖励 **300元京东购物卡**。",
+      ].join("\n")
+    )
+    expect(normalized).toHaveLength(markdown.length)
+  })
+
+  it("repairs whitespace on both sides of malformed strong emphasis", () => {
+    const markdown = "** 重点内容 **随后继续说明。"
+    const normalized = normalizeAssistantMarkdown(markdown)
+
+    expect(normalized).toBe(" **重点内容** 随后继续说明。")
+    expect(normalized).toHaveLength(markdown.length)
+  })
+
   it("leaves valid emphasis, escaped text, inline code, and code fences unchanged", () => {
     const markdown = [
       "**有效标签：** value",
       "\\**转义标签： **value",
+      "`公司宣布** Neo He 提前转正**`",
       "`**行内示例： **value`",
       "```md",
       "**代码块： **value",
+      "公司宣布** Neo He 提前转正**",
       "```",
       "~~~md",
       "**波浪代码块： **value",

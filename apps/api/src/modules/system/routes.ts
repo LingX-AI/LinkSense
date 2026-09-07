@@ -6,6 +6,7 @@ import {
   updateExecutionConcurrencySettingsSchema,
   updateKnowledgeModelSettingsSchema,
   updateImageGenerationSettingsSchema,
+  updateVoiceTranscriptionSettingsSchema,
   updateImageUnderstandingSelectionSchema,
   updateMaintenanceSettingsSchema,
   updateRegistrationSettingsSchema,
@@ -69,7 +70,7 @@ export const systemRoutes: FastifyPluginAsync<{
   )
 
   app.get("/health/ready", async (request, reply) => {
-    const health = await services.system.health()
+    const health = await services.system.readiness()
     return reply
       .code(health.readiness === "ready" ? 200 : 503)
       .send(ok(health, request.id))
@@ -373,6 +374,31 @@ export const adminSystemRoutes: FastifyPluginAsync<{
       ok(await services.imageGenerationSettings.getAdminSettings(), request.id)
     )
   )
+
+  app.get("/voice-transcription-settings", async (request, reply) =>
+    reply.send(
+      ok(
+        await services.voiceTranscriptionSettings.getAdminSettings(),
+        request.id,
+      ),
+    ),
+  )
+
+  app.put("/voice-transcription-settings", async (request, reply) => {
+    requireAdminModelManagement(services)
+    const actor = (request as AuthenticatedRequest).authUser
+    const settings = await services.voiceTranscriptionSettings.update(
+      actor.id,
+      updateVoiceTranscriptionSettingsSchema.parse(request.body),
+      {
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"] ?? null,
+      },
+    )
+    return reply.send(
+      ok({ code: "SYSTEM_SETTINGS_UPDATED", settings }, request.id),
+    )
+  })
 
   app.put("/image-generation-settings", async (request, reply) => {
     requireAdminModelManagement(services)

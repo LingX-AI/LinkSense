@@ -69,6 +69,10 @@ const workspaceRuntimeStates = new WeakMap<
   { value: string }
 >();
 
+function waitForFast<T>(callback: () => T) {
+  return vi.waitFor(callback, { interval: 5 });
+}
+
 afterEach(async () => {
   vi.restoreAllMocks();
   await Promise.all(
@@ -363,7 +367,7 @@ describe("AppServerProcessPool", () => {
       },
     });
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(controlled.requests).toContainEqual(
         expect.objectContaining({
           method: "turn/interrupt",
@@ -398,7 +402,7 @@ describe("AppServerProcessPool", () => {
         },
       },
     });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(
         eventSink.publish.mock.calls.some((call) =>
           JSON.stringify(call).includes("unexpected-goal-turn"),
@@ -1066,7 +1070,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(eventSink.publish).toHaveBeenCalledWith(
         input.conversationId,
         expect.objectContaining({
@@ -1217,7 +1221,7 @@ trust_level = "trusted"
       "blocked",
     );
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       const hookCompletions = eventSink.publish.mock.calls
         .map((call) => (call as unknown[])[1])
         .filter(
@@ -1443,7 +1447,7 @@ trust_level = "trusted"
         turn: { id: "turn-native-1", status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await expect(
       pool.searchKnowledge(input.conversationId, token, {
         query: "报销标准",
@@ -1597,7 +1601,7 @@ trust_level = "trusted"
         turn: { id: "turn-native-1", status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     expect(gatewayLease.setTurnCorrelation).toHaveBeenLastCalledWith(null);
     await pool.closeAll();
     expect(modelGateway.issueLease).toHaveBeenCalledWith({
@@ -1637,7 +1641,7 @@ trust_level = "trusted"
       },
     });
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledWith(
         startOperationInput().conversationId,
         {
@@ -1779,7 +1783,7 @@ trust_level = "trusted"
         autoResolutionMs: null,
       },
     });
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(eventSink.publish).toHaveBeenCalledWith(
         input.conversationId,
         expect.objectContaining({ method: "item/tool/requestUserInput" }),
@@ -1800,7 +1804,7 @@ trust_level = "trusted"
         },
       }),
     ).resolves.toEqual({ accepted: true });
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(
         controlled.requests.find(
           (request) =>
@@ -1875,7 +1879,7 @@ trust_level = "trusted"
         formResolved = true;
         return result;
       });
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(eventSink.publish).toHaveBeenCalledWith(
         input.conversationId,
         expect.objectContaining({
@@ -2180,7 +2184,7 @@ trust_level = "trusted"
       },
     });
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledTimes(1);
     });
     expect(pool.runningCount).toBe(1);
@@ -2205,7 +2209,7 @@ trust_level = "trusted"
         turn: { id: "turn-native-1", status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     expect(eventSink.publish).toHaveBeenCalledTimes(2);
     await pool.closeAll();
   });
@@ -2260,7 +2264,7 @@ trust_level = "trusted"
       },
     });
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledWith(
         input.conversationId,
         expect.objectContaining({
@@ -2290,7 +2294,7 @@ trust_level = "trusted"
         turn: { id: "turn-native-1", status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await pool.closeAll();
   });
 
@@ -2331,7 +2335,7 @@ trust_level = "trusted"
       },
     });
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledWith(
         input.conversationId,
         expect.objectContaining({
@@ -2364,7 +2368,7 @@ trust_level = "trusted"
         turn: { id: "turn-native-1", status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await pool.closeAll();
   });
 
@@ -2433,14 +2437,14 @@ trust_level = "trusted"
         turn: { id: started.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await pool.confirmRecoveryProjection({
       conversationId: input.conversationId,
       projectionTurnId: logicalTurnId,
       ownerId: input.ownerId,
       capabilityGeneration: input.capabilityGeneration,
     });
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce(),
     );
     await pool.closeAll();
@@ -2467,16 +2471,16 @@ trust_level = "trusted"
     };
 
     controlled.notify(terminalNotification);
-    await vi.waitFor(() => expect(eventSink.publish).toHaveBeenCalledOnce());
+    await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledOnce());
     expect(pool.runningCount).toBe(1);
     expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
 
     controlled.notify(terminalNotification);
-    await vi.waitFor(() => expect(eventSink.publish).toHaveBeenCalledTimes(2));
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledTimes(2));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
     await confirmRecoveryProjection(pool, input);
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce(),
     );
     await pool.closeAll();
@@ -2509,7 +2513,7 @@ trust_level = "trusted"
         turn: { id: "turn-native-1", status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
 
     await expect(
       pool.interrupt(input.conversationId, "turn-native-1"),
@@ -2558,7 +2562,7 @@ trust_level = "trusted"
     };
     controlled.notify(completedMessageNotification);
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledWith(
         input.conversationId,
         expect.objectContaining({
@@ -2583,7 +2587,7 @@ trust_level = "trusted"
     });
     expect(JSON.stringify(eventSink.publish.mock.calls)).not.toContain(source);
     controlled.notify(completedMessageNotification);
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledTimes(2);
     });
     expect(eventSink.registerArtifact).toHaveBeenCalledTimes(2);
@@ -2622,7 +2626,7 @@ trust_level = "trusted"
     };
     controlled.notify(completedImageNotification);
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledWith(
         input.conversationId,
         expect.objectContaining({
@@ -2651,7 +2655,7 @@ trust_level = "trusted"
     expect(JSON.stringify(eventSink.publish.mock.calls)).not.toContain(source);
 
     controlled.notify(completedImageNotification);
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledTimes(2);
     });
     expect(eventSink.registerArtifact).toHaveBeenCalledOnce();
@@ -2719,7 +2723,7 @@ trust_level = "trusted"
       },
     });
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledWith(
         input.conversationId,
         expect.objectContaining({
@@ -3138,7 +3142,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
 
     await pool.startTurn({
@@ -3297,7 +3301,7 @@ trust_level = "trusted"
       codexThreadId: "thread-native-1",
     });
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(controlled.methods).toEqual(
         expect.arrayContaining(["skills/list", "mcpServerStatus/list"]),
       );
@@ -3418,7 +3422,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
 
     const second = await pool.startTurn({
@@ -3478,6 +3482,12 @@ trust_level = "trusted"
       controlled.methods.filter((method) => method === "initialize"),
     ).toHaveLength(1);
     expect(capabilityRuntimeManager.resolvePublished).toHaveBeenCalledTimes(2);
+    expect(capabilityRuntimeManager.resolvePublished.mock.calls[0]?.[0]).not.toMatchObject({
+      reuseVerified: true,
+    });
+    expect(capabilityRuntimeManager.resolvePublished.mock.calls[1]?.[0]).toMatchObject({
+      reuseVerified: true,
+    });
     expect(controlled.kill).not.toHaveBeenCalled();
     await pool.closeAll();
   });
@@ -3619,7 +3629,7 @@ trust_level = "trusted"
           },
         },
       });
-      await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+      await waitForFast(() => expect(pool.runningCount).toBe(0));
       await confirmRecoveryProjection(pool, firstInput);
 
       await pool.startTurn({
@@ -3687,7 +3697,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
     const onPrepared = vi.fn(async () => undefined);
 
@@ -3757,7 +3767,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
 
     const second = await pool.startTurn({
@@ -3881,7 +3891,7 @@ trust_level = "trusted"
         item: { type: "contextCompaction", id: "compaction-after-switch" },
       },
     });
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(secondGatewayLease.setModelTransition).toHaveBeenLastCalledWith(
         null,
         null,
@@ -4285,13 +4295,13 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(eventSink.publish).toHaveBeenCalledWith(
         start.conversationId,
         expect.objectContaining({ method: "turn/completed" }),
       ),
     );
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(gatewayLease.setTurnCorrelation).toHaveBeenLastCalledWith(null),
     );
     expect(gatewayLease.setModelTransition).toHaveBeenLastCalledWith(
@@ -4410,7 +4420,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     const ensureCallsBeforePreparation = vi.mocked(
       workspaceManager.ensureConversation,
     ).mock.calls.length;
@@ -4426,6 +4436,76 @@ trust_level = "trusted"
     expect(controlled.kill).not.toHaveBeenCalled();
     expect(pool.size).toBe(1);
 
+    await pool.closeAll();
+  });
+
+  it("prewarms a native thread without starting a turn and reuses it on submit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-native-prewarm-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ threadReadTurns: [] });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+
+    const warmed = await pool.prewarmConversation({
+      ...input,
+      codexThreadId: null,
+      context: {
+        userInput: "",
+        attachments: [],
+        priorityPlugins: [],
+        prioritySkills: [],
+      },
+    });
+
+    expect(warmed.codexThreadId).toBe("thread-native-1");
+    expect(controlled.methods).toContain("thread/start");
+    expect(controlled.methods).toContain("thread/read");
+    expect(controlled.methods).not.toContain("turn/start");
+    await expect(
+      pool.inspectPrewarmedConversation(input.conversationId, input.ownerId),
+    ).resolves.toEqual(warmed);
+
+    await pool.startTurn({ ...input, codexThreadId: null });
+    expect(
+      controlled.methods.filter((method) => method === "initialize"),
+    ).toHaveLength(1);
+    expect(
+      controlled.methods.filter((method) => method === "thread/start"),
+    ).toHaveLength(1);
+    expect(controlled.methods).toContain("turn/start");
+    expect(controlled.kill).not.toHaveBeenCalled();
+    await pool.closeAll();
+  });
+
+  it("does not make task creation wait for an in-flight app-server prewarm", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-native-prewarm-inspect-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({
+      initialize: "manual",
+      threadReadTurns: [],
+    });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    const prewarm = pool.prewarmConversation({
+      ...input,
+      codexThreadId: null,
+      context: {
+        userInput: "",
+        attachments: [],
+        priorityPlugins: [],
+        prioritySkills: [],
+      },
+    });
+    await waitForFast(() => expect(controlled.methods).toContain("initialize"));
+
+    await expect(
+      pool.inspectPrewarmedConversation(input.conversationId, input.ownerId),
+    ).resolves.toBeNull();
+
+    controlled.completeInitialize();
+    await expect(prewarm).resolves.toMatchObject({
+      codexThreadId: "thread-native-1",
+    });
     await pool.closeAll();
   });
 
@@ -4452,7 +4532,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, input);
     const nextRuntimeGeneration = "01900000-0000-7000-8000-000000000011";
     setRuntimeGeneration(nextRuntimeGeneration);
@@ -4659,7 +4739,7 @@ trust_level = "trusted"
         turn: { id: plan.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, planInput);
 
     const defaultInput: StartTurnInput = {
@@ -4890,7 +4970,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
 
     await pool.startTurn({
@@ -4953,7 +5033,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
 
     await pool.startTurn({
@@ -5009,7 +5089,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
 
     await pool.startTurn({
@@ -5067,7 +5147,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
 
     const nextRuntimeGeneration = "01900000-0000-7000-8000-000000000011";
@@ -5139,7 +5219,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
 
     await expect(secondStart).resolves.toMatchObject({
@@ -5187,7 +5267,7 @@ trust_level = "trusted"
         turn: { id: first.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
 
     const continuationInput = {
@@ -5209,7 +5289,7 @@ trust_level = "trusted"
         turn: { id: continuation.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, continuationInput);
 
     await pool.startTurn({
@@ -5246,7 +5326,7 @@ trust_level = "trusted"
         turn: { id: first.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
 
     const secondInput = {
       ...firstInput,
@@ -5262,7 +5342,7 @@ trust_level = "trusted"
         turn: { id: second.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
 
     await confirmRecoveryProjection(pool, firstInput);
     expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
@@ -5318,7 +5398,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
     expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce();
     capabilityRuntimeManager.releaseLease.mockClear();
@@ -5357,13 +5437,13 @@ trust_level = "trusted"
         turn: { id: second.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
     await confirmRecoveryProjection(pool, {
       ...firstInput,
       projectionTurnId: "01900000-0000-7000-8000-000000000110",
     });
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce(),
     );
 
@@ -5403,7 +5483,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
 
     await pool.startTurn({
@@ -5449,7 +5529,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
 
     await expect(
       pool.startTurn({
@@ -5503,9 +5583,9 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     controlled.exit();
-    await vi.waitFor(() => expect(pool.size).toBe(0));
+    await waitForFast(() => expect(pool.size).toBe(0));
 
     await pool.startTurn({
       ...firstInput,
@@ -5556,7 +5636,7 @@ trust_level = "trusted"
         turn: { id: first.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
 
     let confirmOldExit: () => void = () => undefined;
@@ -5565,10 +5645,10 @@ trust_level = "trusted"
     });
     eventSink.reportProcessExit.mockImplementationOnce(() => oldExitConfirmed);
     controlled.exit();
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(eventSink.reportProcessExit).toHaveBeenCalledOnce(),
     );
-    await vi.waitFor(() => expect(pool.size).toBe(0));
+    await waitForFast(() => expect(pool.size).toBe(0));
 
     const second = await pool.startTurn({
       ...firstInput,
@@ -5592,12 +5672,12 @@ trust_level = "trusted"
         turn: { id: second.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, {
       ...firstInput,
       projectionTurnId: "01900000-0000-7000-8000-000000000120",
     });
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce(),
     );
     await pool.closeAll();
@@ -5680,7 +5760,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
 
     const second = await pool.startTurn({
@@ -5810,7 +5890,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
 
     await pool.startTurn({
@@ -5878,13 +5958,13 @@ trust_level = "trusted"
         turn: { id: started.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
     await expect(pool.closeConversation(input.conversationId)).rejects.toThrow(
       "conversation app-server has an active or uncertain turn",
     );
     await confirmRecoveryProjection(pool, input);
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce(),
     );
     await pool.closeConversation(input.conversationId);
@@ -5911,7 +5991,7 @@ trust_level = "trusted"
         turn: { id: first.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
     capabilityRuntimeManager.releaseLease.mockClear();
 
@@ -5937,7 +6017,7 @@ trust_level = "trusted"
         turn: { id: second.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, secondInput);
     expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce();
 
@@ -5975,7 +6055,7 @@ trust_level = "trusted"
         turn: { id: first.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
     await pool.closeConversation(firstInput.conversationId);
 
@@ -6240,7 +6320,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(eventSink.publish).not.toHaveBeenCalled());
+    await waitForFast(() => expect(eventSink.publish).not.toHaveBeenCalled());
     await pool.closeAll();
   });
 
@@ -6356,7 +6436,7 @@ trust_level = "trusted"
       },
     });
 
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledTimes(1);
       expect(controlled.kill).not.toHaveBeenCalled();
       expect(capabilityRuntimeManager.resolvePublished).toHaveBeenCalledOnce();
@@ -6477,7 +6557,7 @@ trust_level = "trusted"
     });
     const { pool } = createStartOperationPool(root, controlled.factory);
     const start = pool.startTurn(startOperationInput());
-    await vi.waitFor(() => expect(controlled.methods).toContain("initialize"));
+    await waitForFast(() => expect(controlled.methods).toContain("initialize"));
 
     const close = pool.closeAll();
     controlled.completeInitialize();
@@ -6566,9 +6646,9 @@ trust_level = "trusted"
         turn: { id: first.codexTurnId, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, firstInput);
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce(),
     );
     capabilityRuntimeManager.releaseLease.mockClear();
@@ -6588,9 +6668,9 @@ trust_level = "trusted"
       const rejected = expect(restarting).rejects.toThrow(
         "codex app-server did not exit after SIGKILL",
       );
-      await vi.waitFor(() => expect(controlled.kill).toHaveBeenCalledOnce());
+      await waitForFast(() => expect(controlled.kill).toHaveBeenCalledOnce());
       await vi.advanceTimersByTimeAsync(2_000);
-      await vi.waitFor(() => expect(controlled.kill).toHaveBeenCalledTimes(2));
+      await waitForFast(() => expect(controlled.kill).toHaveBeenCalledTimes(2));
       await vi.advanceTimersByTimeAsync(2_000);
       await rejected;
       expect(pool.size).toBe(1);
@@ -6600,7 +6680,7 @@ trust_level = "trusted"
     }
 
     controlled.exit(0);
-    await vi.waitFor(() => expect(pool.size).toBe(0));
+    await waitForFast(() => expect(pool.size).toBe(0));
     expect(eventSink.reportProcessExit).not.toHaveBeenCalled();
     expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce();
     controlled.exit(0);
@@ -6653,7 +6733,7 @@ trust_level = "trusted"
       (value) => ({ status: "fulfilled" as const, value }),
       (error: unknown) => ({ status: "rejected" as const, error }),
     );
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(initializing.methods).toContain("initialize");
     });
 
@@ -6769,7 +6849,7 @@ trust_level = "trusted"
       conversationId,
       "outbox",
     );
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       expect(
         (await readdir(outboxDirectory)).filter((file) =>
           file.endsWith(".json"),
@@ -6784,7 +6864,7 @@ trust_level = "trusted"
         { status: 200, headers: { "content-type": "application/json" } },
       ),
     );
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       expect(
         (await readdir(outboxDirectory)).filter((file) =>
           file.endsWith(".json"),
@@ -6853,7 +6933,7 @@ trust_level = "trusted"
           replacementStarted = true;
           setTimeout(() => {
             replacementPromise = (async () => {
-              await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+              await waitForFast(() => expect(pool.runningCount).toBe(0));
               await pool.confirmRecoveryProjection({
                 conversationId: "01900000-0000-7000-8000-000000000001",
                 projectionTurnId: "01900000-0000-7000-8000-000000000099",
@@ -6926,7 +7006,7 @@ trust_level = "trusted"
         },
       });
 
-      await vi.waitFor(() => {
+      await waitForFast(() => {
         expect(replacementPromise).toBeDefined();
         expect(eventSink.publish).toHaveBeenCalledTimes(1);
       });
@@ -7291,14 +7371,14 @@ trust_level = "trusted"
       taskKind: "turn",
     });
     expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(eventSink.reportProcessExit).toHaveBeenCalledWith({
         conversationId: input.conversationId,
         projectionTurnId: input.projectionTurnId,
         capabilityGeneration: input.capabilityGeneration,
       }),
     );
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce(),
     );
     expect(pool.size).toBe(0);
@@ -7895,7 +7975,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(pool.readSubAgentSummaries(readInput)).resolves.toEqual({
         agents: [expect.objectContaining({ status: "completed" })],
       });
@@ -7926,7 +8006,7 @@ trust_level = "trusted"
         turn: { ...parentTurn, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await pool.closeAll();
   });
 
@@ -8028,7 +8108,7 @@ trust_level = "trusted"
         turn: { ...parentTurn, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await pool.closeAll();
   });
 
@@ -8135,7 +8215,7 @@ trust_level = "trusted"
         turn: { ...parentTurn, status: "completed" },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await pool.closeAll();
   });
 
@@ -8833,7 +8913,7 @@ trust_level = "trusted"
         context: { ...input.context, userInput: "different start input" },
       }),
     ).rejects.toBeInstanceOf(StartOperationIdempotencyConflictError);
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(
         controlled.methods.filter((method) => method === "turn/start"),
       ).toHaveLength(1);
@@ -8849,7 +8929,7 @@ trust_level = "trusted"
     expect(persisted).not.toContain(input.context.userInput);
 
     controlled.completeTurnStart();
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         pool.getStartOperation(input.conversationId, input.projectionTurnId),
       ).resolves.toMatchObject({
@@ -8900,7 +8980,7 @@ trust_level = "trusted"
     await expect(pool.beginStartOperation(input)).resolves.toMatchObject({
       status: "starting",
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         pool.getStartOperation(input.conversationId, input.projectionTurnId),
       ).resolves.toMatchObject({
@@ -8908,7 +8988,7 @@ trust_level = "trusted"
         errorCode: "RUNNER_TURN_START_FAILED",
       });
     });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(logLines).toContainEqual(
         expect.objectContaining({
           msg: "runner start operation failed",
@@ -8942,7 +9022,7 @@ trust_level = "trusted"
     await expect(pool.beginStartOperation(input)).resolves.toMatchObject({
       status: "starting",
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         pool.getStartOperation(input.conversationId, input.projectionTurnId),
       ).resolves.toMatchObject({
@@ -8950,7 +9030,7 @@ trust_level = "trusted"
         errorCode: "RUNNER_TURN_START_FAILED",
       });
     });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(capabilityRuntimeManager.resolvePublished).toHaveBeenCalledTimes(
         1,
       );
@@ -8965,7 +9045,7 @@ trust_level = "trusted"
     await expect(pool.beginStartOperation(input)).resolves.toMatchObject({
       status: "starting",
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         pool.getStartOperation(input.conversationId, input.projectionTurnId),
       ).resolves.toMatchObject({
@@ -9029,7 +9109,7 @@ trust_level = "trusted"
     await expect(pool.beginStartOperation(input)).resolves.toMatchObject({
       status: "starting",
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         pool.getStartOperation(input.conversationId, input.projectionTurnId),
       ).resolves.toMatchObject({
@@ -9056,7 +9136,7 @@ trust_level = "trusted"
     await expect(pool.beginStartOperation(retryInput)).resolves.toMatchObject({
       status: "starting",
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         pool.getStartOperation(input.conversationId, input.projectionTurnId),
       ).resolves.toMatchObject({
@@ -9104,7 +9184,7 @@ trust_level = "trusted"
         },
       },
     });
-    await vi.waitFor(() => expect(pool.runningCount).toBe(0));
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
     await confirmRecoveryProjection(pool, input);
     nativePluginManager.reconcileBeforeStart.mockRejectedValueOnce(
       new Error("native plugin refresh failed"),
@@ -9245,14 +9325,14 @@ trust_level = "trusted"
         expectedRuntimeGeneration: runtimeGeneration,
       }),
     ).resolves.toMatchObject({ status: "starting" });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(
         controlled.methods.filter((method) => method === "turn/start"),
       ).toHaveLength(1);
     });
 
     controlled.completeTurnStart();
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         pool.getStartOperation(input.conversationId, input.projectionTurnId),
       ).resolves.toMatchObject({ status: "succeeded" });
@@ -9298,13 +9378,13 @@ trust_level = "trusted"
     } else {
       expect(started.status).toBe("starting");
       expect(sealed.status).toBe("starting");
-      await vi.waitFor(() => {
+      await waitForFast(() => {
         expect(
           controlled.methods.filter((method) => method === "turn/start"),
         ).toHaveLength(1);
       });
       controlled.completeTurnStart();
-      await vi.waitFor(async () => {
+      await waitForFast(async () => {
         await expect(
           startPool.getStartOperation(
             input.conversationId,
@@ -9379,7 +9459,7 @@ trust_level = "trusted"
     ]);
     expect(first.status).toBe("starting");
     expect(duplicate.status).toBe("starting");
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       for (const method of ["thread/fork", "thread/rollback", "turn/start"]) {
         expect(
           controlled.methods.filter((value) => value === method),
@@ -9388,7 +9468,7 @@ trust_level = "trusted"
     });
 
     controlled.completeTurnStart();
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         pool.getStartOperation(input.conversationId, input.projectionTurnId),
       ).resolves.toMatchObject({
@@ -9532,7 +9612,7 @@ trust_level = "trusted"
     await expect(pool.beginStartOperation(input)).resolves.toMatchObject({
       status: "starting",
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         pool.getStartOperation(input.conversationId, input.projectionTurnId),
       ).resolves.toMatchObject({
@@ -9540,12 +9620,12 @@ trust_level = "trusted"
         errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
       });
     });
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(eventSink.reportProcessExit).toHaveBeenCalledTimes(2),
     );
     expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
     confirmRecovery();
-    await vi.waitFor(() =>
+    await waitForFast(() =>
       expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce(),
     );
     await expect(pool.beginStartOperation(input)).resolves.toMatchObject({
@@ -9571,7 +9651,7 @@ trust_level = "trusted"
     await expect(pool.beginStartOperation(input)).resolves.toMatchObject({
       status: "starting",
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         pool.getStartOperation(input.conversationId, input.projectionTurnId),
       ).resolves.toMatchObject({
@@ -9591,13 +9671,13 @@ trust_level = "trusted"
         turn: { id: "turn-native-after-timeout", status: "inProgress" },
       },
     });
-    await vi.waitFor(() => {
+    await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledWith(
         input.conversationId,
         expect.objectContaining({ method: "turn/started" }),
       );
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         pool.searchKnowledge(input.conversationId, knowledgeToken, {
           query: "uncertain recovery query",
@@ -9636,7 +9716,7 @@ trust_level = "trusted"
     await expect(first.beginStartOperation(input)).resolves.toMatchObject({
       status: "starting",
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         new StartOperationStore(workspaceManager).read(
           input.conversationId,
@@ -9777,7 +9857,7 @@ trust_level = "trusted"
     await expect(first.beginStartOperation(input)).resolves.toMatchObject({
       status: "starting",
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         new StartOperationStore(workspaceManager).read(
           input.conversationId,
@@ -9866,7 +9946,7 @@ trust_level = "trusted"
     await expect(first.beginStartOperation(input)).resolves.toMatchObject({
       status: "starting",
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         new StartOperationStore(workspaceManager).read(
           input.conversationId,
@@ -9976,7 +10056,7 @@ trust_level = "trusted"
     await expect(
       pool.beginSteerOperation({ ...steer, text: "different steer input" }),
     ).rejects.toBeInstanceOf(SteerOperationIdempotencyConflictError);
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         pool.getSteerOperation(steer.conversationId, steer.operationId),
       ).resolves.toMatchObject({
@@ -10025,7 +10105,7 @@ trust_level = "trusted"
     await expect(first.beginSteerOperation(steer)).resolves.toMatchObject({
       status: "starting",
     });
-    await vi.waitFor(async () => {
+    await waitForFast(async () => {
       await expect(
         new SteerOperationStore(workspaceManager).read(
           steer.conversationId,
@@ -10231,6 +10311,7 @@ function createCapabilityRuntimeManagerMock() {
         userHome: string;
         controlRoot: string;
         expectedGeneration: string;
+        reuseVerified?: boolean;
       }) => ({
         skillsRoot: join(userHome, ".agents", "skills"),
         pluginSourceRoot: join(

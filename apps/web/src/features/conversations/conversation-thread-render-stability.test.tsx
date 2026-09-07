@@ -58,8 +58,6 @@ function createConversation(
     archived: false,
     collaboration_mode: "default",
     user_input_requests: [],
-    draft_input: "",
-    draft_capability_ids: [],
     updated_at: "2026-08-02T08:00:02.000Z",
     has_unread_completion: false,
     has_automation: false,

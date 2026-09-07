@@ -961,25 +961,12 @@ async function cancelPendingRequests(
     requestsByConversation.set(pending.conversationId, items);
   }
   for (const [conversationId, pending] of requestsByConversation) {
-    const draft = await transaction.conversationDraft.upsert({
-      where: { conversationId },
-      create: {
-        conversationId,
-        ownerId: userId,
-        inputText: "",
-        priorityCapabilityIdsJson: [],
-        createdAt: input.now,
-        updatedAt: input.now,
-      },
-      update: { updatedAt: input.now },
-    });
     const pendingIds = pending.map((item) => item.id);
     await transaction.conversationFile.updateMany({
       where: { pendingRequestId: { in: pendingIds }, turnId: null },
       data: {
         pendingRequestId: null,
-        draftId: draft.id,
-        status: "draft",
+        status: "staged",
         updatedAt: input.now,
       },
     });

@@ -4,7 +4,49 @@ import {
   configureApiFileCreationMask,
   createApiLifecycle,
   formatApiStartupFailure,
+  loadApiWithOfficeWarmup,
 } from "../src/index.js";
+
+describe("API implementation loading", () => {
+  it("waits for the converter process to spawn before evaluating application modules", async () => {
+    let spawned = () => {};
+    let ready = () => {};
+    const processStarted = new Promise<void>((resolve) => { spawned = resolve; });
+    const warmup = new Promise<void>((resolve) => { ready = resolve; });
+    const load = vi.fn(async () => "loaded");
+    const result = loadApiWithOfficeWarmup(load, { start: () => warmup }, processStarted);
+    await Promise.resolve();
+    expect(load).not.toHaveBeenCalled();
+    spawned();
+    await vi.waitFor(() => expect(load).toHaveBeenCalledOnce());
+    ready();
+    await expect(result).resolves.toBe("loaded");
+  });
+  it("loads application modules while Office initializes and waits for both", async () => {
+    let finishWarmup = () => {};
+    const pendingWarmup = new Promise<void>((resolve) => { finishWarmup = resolve; });
+    const stages: string[] = [];
+    const result = loadApiWithOfficeWarmup(
+      async () => { stages.push("modules"); return "loaded"; },
+      { start: async () => { stages.push("office"); await pendingWarmup; } },
+    );
+    let completed = false;
+    void result.then(() => { completed = true; });
+    await Promise.resolve();
+    expect(stages).toEqual(["office", "modules"]);
+    expect(completed).toBe(false);
+    finishWarmup();
+    await expect(result).resolves.toBe("loaded");
+  });
+
+  it("retains optional Office failure handling and propagates module loading failures", async () => {
+    await expect(loadApiWithOfficeWarmup(async () => "loaded", {
+      start: async () => { throw new Error("converter unavailable"); },
+    })).resolves.toBe("loaded");
+    const failure = new Error("invalid application module");
+    await expect(loadApiWithOfficeWarmup(async () => { throw failure; }, null)).rejects.toBe(failure);
+  });
+});
 
 describe("API startup lifecycle", () => {
   it("uses a group-sharing umask before creating runtime files", () => {
@@ -105,6 +147,10 @@ describe("API startup lifecycle", () => {
 
     await fixture.lifecycle.start();
 
+    expect(fixture.startupLog).toHaveBeenCalledWith(
+      { stage: "task-recovery", duration_ms: expect.any(Number) },
+      "API startup stage ready",
+    );
     expect(fixture.startKnowledgeGovernance).toHaveBeenCalledOnce();
     expect(fixture.startKnowledgeRuntime).toHaveBeenCalledOnce();
     expect(fixture.startKnowledgeSourceRuntime).toHaveBeenCalledOnce();
@@ -234,13 +280,14 @@ function apiLifecycleFixture() {
   const stopRecoveryMonitor = vi.fn();
   const listen = vi.fn().mockResolvedValue("http://127.0.0.1:4000");
   const closeApp = vi.fn().mockResolvedValue(undefined);
+  const startupLog = vi.fn();
   const closeJobs = vi.fn().mockResolvedValue(undefined);
   const closePasswordResetMail = vi.fn().mockResolvedValue(undefined);
   const closeRedis = vi.fn().mockResolvedValue(undefined);
   const disconnectPrisma = vi.fn().mockResolvedValue(undefined);
   return {
     lifecycle: createApiLifecycle({
-      app: { listen, close: closeApp },
+      app: { listen, close: closeApp, log: { info: startupLog } },
       services: {
         events: {
           recoverRunningTurns,
@@ -262,6 +309,7 @@ function apiLifecycleFixture() {
           close: closeClawHubScheduler,
         },
         feishu: { close: closeFeishuService },
+        botChannelRuntime: { start: vi.fn(async () => undefined), close: vi.fn(async () => undefined) },
         feishuRuntime: {
           start: startFeishuRuntime,
           close: closeFeishuRuntime,
@@ -289,6 +337,7 @@ function apiLifecycleFixture() {
       port: 4000,
     } as never),
     recoverRunningTurns,
+    startupLog,
     startKnowledgeGovernance,
     closeKnowledgeGovernance,
     startKnowledgeRuntime,

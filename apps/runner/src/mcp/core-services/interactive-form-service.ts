@@ -11,6 +11,10 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
 
 import {
+  interactiveFormInstructions,
+  requestUserFormUsageInstructions,
+} from "../../interactive-form-instructions.js"
+import {
   failureToolResult,
   successToolResult,
   withRequestTimeout,
@@ -237,8 +241,10 @@ export const interactiveFormCoreMcpModule = {
     return {
       key: "interactive_form",
       tools: [requestUserFormTool, emitApplicationEventTool],
-      instructions:
-        "Call request_user_form whenever the user explicitly asks for an interactive form, form card, interactive card, confirmation card, or a fillable or selectable UI inside the current conversation. The explicit request alone is sufficient, including for a one-field form and even when the same information could be collected in plain text. Also use request_user_form when the user must provide typed or multiple values before you can continue. Do not substitute Markdown, numbered questions, plain-text questions, or a description of the intended form for an explicitly requested interactive form. Never claim that an interactive form was displayed unless request_user_form was actually called successfully. Set purpose=input for ordinary data collection. Set purpose=approval only when the form explicitly approves or rejects a clearly described external side effect, and declare the required two-option decision field and its exact approve and reject values. Never request passwords, API keys, tokens, credentials, or other secrets. Form submission by itself, cancellation, rejection, or missing input is not approval. The form records user intent only, so every subsequent side-effecting tool must still enforce its own authorization, freshness, validation, and audit requirements. Use emit_application_event only when the current LinkSense application instructions declare the exact custom event name and payload schema. Never use it for message deltas, reasoning, or tool progress.",
+      instructions: [
+        interactiveFormInstructions,
+        "Use emit_application_event only when the current LinkSense application instructions declare the exact custom event name and payload schema. Never use it for message deltas, reasoning, or tool progress.",
+      ].join("\n"),
       async callTool(input) {
         if (input.toolName === "emit_application_event") {
           try {
@@ -518,8 +524,11 @@ const mcpToolInputSchemaSchema = z.looseObject({
 
 const requestUserFormTool = {
   name: "request_user_form",
-  description:
-    "Show a blocking interactive form card inside the current conversation and wait for the user's response. Call this tool when the user explicitly asks for an interactive form, form card, interactive card, confirmation card, or a fillable or selectable UI; that explicit request is sufficient even for one field. Do not replace an explicitly requested form with Markdown or plain-text questions, and never claim that a form was displayed unless this tool call succeeded. Supports text, textarea, single/multi select, date, date-time, number, and boolean fields. Declare purpose=input for ordinary forms or purpose=approval with an exact required two-option decision mapping for approve and reject flows. It only records user intent and never performs the side effect itself. Never use it for secrets.",
+  description: [
+    "Show a blocking interactive form card inside the current conversation and wait for the user's response.",
+    requestUserFormUsageInstructions,
+    "Also call this tool when the user explicitly asks for an interactive form, form card, interactive card, confirmation card, or a fillable or selectable UI; that explicit request is sufficient even for one field. Do not replace these interactions with Markdown, plain-text questions, or html-preview, and never claim that a form was displayed unless this tool call succeeded. Supports text, textarea, single/multi select, date, date-time, number, and boolean fields. Declare purpose=input for ordinary forms or purpose=approval with an exact required two-option decision mapping for approve and reject flows. It only records user intent and never performs the side effect itself. Never use it for secrets.",
+  ].join(" "),
   inputSchema: mcpToolInputSchemaSchema.parse(
     z.toJSONSchema(interactiveFormArgumentsSchema),
   ),

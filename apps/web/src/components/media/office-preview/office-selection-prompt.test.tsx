@@ -45,6 +45,7 @@ function PromptFixture({
   fullScreen = false,
   mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   onSubmit = vi.fn().mockResolvedValue(undefined),
+  voiceTranscriptionAvailability = "available",
 }: Readonly<{
   anchor?: Readonly<{ left: number; top: number }>
   disabled?: boolean
@@ -52,6 +53,8 @@ function PromptFixture({
   fullScreen?: boolean
   mimeType?: string
   onSubmit?: (selection: { id: string }, description: string) => Promise<void>
+  voiceTranscriptionAvailability?:
+    "checking" | "available" | "not_configured" | "unavailable"
 }>) {
   const scopeRef = useRef<HTMLElement>(null)
   const prompt = (
@@ -59,6 +62,7 @@ function PromptFixture({
       scopeRef={scopeRef}
       selection={{ id: "selection-1" }}
       anchor={anchor}
+      voiceTranscriptionAvailability={voiceTranscriptionAvailability}
       action={{
         label: "Ask LinkSense",
         shortcutLabel: "⌘I",
@@ -195,6 +199,24 @@ describe("OfficeSelectionPrompt", () => {
 
     act(() => voiceInput.onTranscriptPreview?.("  将标题改为中文  "))
     expect(input).toHaveValue("将标题改为中文")
+  })
+
+  it("disables the inline microphone and explains when speech to text is not configured", async () => {
+    const user = userEvent.setup()
+    render(<PromptFixture voiceTranscriptionAvailability="not_configured" />)
+
+    await user.click(screen.getByRole("button", { name: /Ask LinkSense/u }))
+    const voiceButton = screen.getByRole("button", { name: "语音输入" })
+    expect(voiceButton).toBeDisabled()
+    expect(voiceButton).toHaveClass("opacity-50")
+
+    await user.hover(voiceButton.parentElement!)
+    expect(
+      await screen.findByRole("tooltip", {
+        name: "语音转文字服务尚未配置",
+      })
+    ).toBeVisible()
+    expect(voiceInput.startRecording).not.toHaveBeenCalled()
   })
 
   it("expands to a maximum of three text lines and moves actions to the lower-right", async () => {

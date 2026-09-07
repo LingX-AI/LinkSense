@@ -50,7 +50,7 @@ describe("FeishuRuntime", () => {
       client as never as FeishuOfficialClient,
       {
         acceptTurn: vi.fn(),
-        createOrUpdateDraft: vi.fn(),
+        create: vi.fn(),
       } as never as ConversationService,
       encryption,
       () => NOW,
@@ -99,7 +99,7 @@ describe("FeishuRuntime", () => {
       client as never as FeishuOfficialClient,
       {
         acceptTurn: vi.fn(),
-        createOrUpdateDraft: vi.fn(),
+        create: vi.fn(),
       } as never as ConversationService,
       encryption,
       () => NOW,
@@ -188,9 +188,7 @@ describe("FeishuRuntime", () => {
       releaseLease: vi.fn(async () => undefined),
     };
     const conversations = {
-      createOrUpdateDraft: vi.fn(async () => ({
-        conversation: { id: CONVERSATION_ID },
-      })),
+      create: vi.fn(async () => ({ id: CONVERSATION_ID })),
       acceptTurn: vi.fn(async () => ({
         accepted: true,
         status: "starting" as const,
@@ -330,7 +328,7 @@ describe("FeishuRuntime", () => {
     };
     const conversations = {
       acceptTurn: vi.fn(),
-      createOrUpdateDraft: vi.fn(),
+      create: vi.fn(),
     };
     const runtime = new FeishuRuntime(
       repository as never as PrismaFeishuRepository,

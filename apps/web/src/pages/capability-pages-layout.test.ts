@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import capabilityPageStyles from "@/index.css?raw"
 import { describe, expect, it } from "vitest"
 

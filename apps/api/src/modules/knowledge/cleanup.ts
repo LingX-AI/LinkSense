@@ -1770,14 +1770,6 @@ export class PrismaKnowledgeCleanupRepository implements KnowledgeCleanupReposit
       WHERE "selected_knowledge_base_ids_json" ? CAST(${knowledgeBaseId} AS text)
     `;
     await transaction.$executeRaw`
-      UPDATE "conversation_drafts"
-      SET
-        "knowledge_base_ids_json" =
-          "knowledge_base_ids_json" - CAST(${knowledgeBaseId} AS text),
-        "updated_at" = ${now}
-      WHERE "knowledge_base_ids_json" ? CAST(${knowledgeBaseId} AS text)
-    `;
-    await transaction.$executeRaw`
       UPDATE "pending_requests"
       SET
         "knowledge_base_ids_json" =

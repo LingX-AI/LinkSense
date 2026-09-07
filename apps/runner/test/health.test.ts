@@ -91,6 +91,29 @@ describe("runner health", () => {
     });
   });
 
+  it("reuses the default deep health probe across the ten-second container health interval", async () => {
+    const spawnedArguments: string[][] = [];
+    const workspaceManager = new WorkspaceManager(join(directory, "users"));
+    const now = Date.now();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    const pool = createPool(workspaceManager, {
+      childProcessFactory: fakeAppServer([], spawnedArguments),
+    });
+
+    const initial = await pool.probeCodexAppServer(
+      join(directory, "health-home"),
+    );
+    nowSpy.mockReturnValue(now + 10_000);
+    const cached = await pool.probeCodexAppServer(
+      join(directory, "health-home"),
+    );
+
+    expect(initial.cached).toBe(false);
+    expect(cached.cached).toBe(true);
+    expect(spawnedArguments).toHaveLength(1);
+    nowSpy.mockRestore();
+  });
+
   it("derives health probes from the per-user HOME and supervisor control model", () => {
     const common = {
       LINKSENSE_RUNNER_SHARED_SECRET: "runner-555555555555555555555555555555",

@@ -92,16 +92,17 @@ Increase CPU, memory, and storage for high task concurrency, large documents, or
 
 ## Local development
 
-You need Node.js 24+, pnpm 10.6.4, and a working Docker Engine/Compose installation.
+You need Node.js 24+, pnpm 10.6.4, Docker Engine/Compose, and rsync (included with macOS; install your distribution's rsync package on Linux). Applications and dependencies run in Linux containers; host rsync only synchronizes source files.
 
 ```bash
 corepack enable
 corepack prepare pnpm@10.6.4 --activate
 pnpm install --frozen-lockfile
+pnpm dev:prepare
 pnpm dev
 ```
 
-The first run creates development configuration and prepares PostgreSQL, Redis, migrations, Web, API, Runner, and task workers. Default addresses:
+Preparation builds application images, the production task worker, and the bilingual Help Center using the production build stage, checks infrastructure and database initialization, then starts services and warms runtime caches until ready. `pnpm dev` also prepares missing inputs automatically. Daily startup targets 10 seconds after preparation; see the [development startup guide](./deploy/development/README.md) for cache rules and automated timing. Default addresses:
 
 - Web: `http://localhost:5173`
 - API: `http://localhost:4000`
@@ -118,6 +119,10 @@ pnpm typecheck
 pnpm lint
 pnpm build
 ```
+
+`pnpm test` builds shared contracts, then runs service, shared, documentation, and deployment tests in parallel. The complete frontend unit and browser E2E suites run together afterwards to bound resource contention. E2E always builds the current frontend and serves the build with Vite preview. To inspect individual durations, use `pnpm --filter @linksense/web test:unit --reporter=verbose`; measure the entire command with `/usr/bin/time -p pnpm test`.
+
+Frontend tests reuse environments only for explicitly approved files. New component tests remain isolated; tests that mock modules must stay isolated. Shared fixtures reset DOM, timers, globals, storage, and session state. Materializer rule tests simulate disk flushes, while a separate durability test retains real filesystem flushes.
 
 ### AI development guide
 

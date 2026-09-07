@@ -36,6 +36,15 @@ import {
 
 const roots: string[] = []
 const execFileAsync = promisify(execFile)
+// Wrapper tests need only the active Node/pnpm executables and system tools.
+// Nested pnpm PATH entries otherwise multiply command lookup filesystem work.
+const runtimeTestPath = [
+  ...new Set([
+    path.dirname(process.execPath),
+    process.env.PNPM_HOME ?? path.dirname(process.execPath),
+    "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin",
+  ]),
+].join(path.delimiter)
 const pythonWrapper = fileURLToPath(
   new URL("../../../deploy/runtime/python/linksense-uv", import.meta.url),
 )
@@ -309,7 +318,9 @@ describe("persistent user runtime", () => {
       managedSourceRoot,
     )
     const environment = {
-      ...process.env,
+      PATH: runtimeTestPath,
+      HOME: root,
+      LANG: "C.UTF-8",
       LINKSENSE_USER_PYTHON_ROOT: pythonRoot,
       LINKSENSE_USER_PYTHON_VENV: venv,
       LINKSENSE_PYTHON_BASE_SITE_PACKAGES: publicSite,
@@ -341,31 +352,33 @@ describe("persistent user runtime", () => {
     expect(
       await readFile(path.join(userSite, "linksense-public-runtime.pth"), "utf8"),
     ).toBe(`${publicSite}\n`)
-    for (const override of [
-      ["--system"],
-      ["-i", "https://blocked.example.test/simple/"],
-      ["--index-url=https://blocked.example.test/simple/"],
-      ["--default-index", "https://blocked.example.test/simple/"],
-      ["--extra-index-url=https://blocked.example.test/simple/"],
-      ["--index", "https://blocked.example.test/simple/"],
-      ["--index-strategy", "unsafe-best-match"],
-      ["--find-links", "https://blocked.example.test/wheels/"],
-      ["--no-index"],
-      ["--torch-backend", "cu128"],
-      ["--torch-backend=cu128"],
-      ["-r", path.join(root, "requirements.txt")],
-      ["--requirements", path.join(root, "requirements.txt")],
-      ["-c", path.join(root, "constraints.txt")],
-      ["--overrides", path.join(root, "overrides.txt")],
-    ]) {
-      await expect(
-        execFileAsync(
-          "/bin/sh",
-          [pythonWrapper, "pip", "install", ...override, "blocked-package"],
-          { env: environment },
-        ),
-      ).rejects.toMatchObject({ code: 2 })
-    }
+    await Promise.all(
+      [
+        ["--system"],
+        ["-i", "https://blocked.example.test/simple/"],
+        ["--index-url=https://blocked.example.test/simple/"],
+        ["--default-index", "https://blocked.example.test/simple/"],
+        ["--extra-index-url=https://blocked.example.test/simple/"],
+        ["--index", "https://blocked.example.test/simple/"],
+        ["--index-strategy", "unsafe-best-match"],
+        ["--find-links", "https://blocked.example.test/wheels/"],
+        ["--no-index"],
+        ["--torch-backend", "cu128"],
+        ["--torch-backend=cu128"],
+        ["-r", path.join(root, "requirements.txt")],
+        ["--requirements", path.join(root, "requirements.txt")],
+        ["-c", path.join(root, "constraints.txt")],
+        ["--overrides", path.join(root, "overrides.txt")],
+      ].map(async (override) => {
+        await expect(
+          execFileAsync(
+            "/bin/sh",
+            [pythonWrapper, "pip", "install", ...override, "blocked-package"],
+            { env: environment },
+          ),
+        ).rejects.toMatchObject({ code: 2 })
+      }),
+    )
     expect(await readFile(uvLog, "utf8")).not.toContain("blocked-package")
 
     await chmod(managedSourceRoot, 0o755)
@@ -404,7 +417,7 @@ describe("persistent user runtime", () => {
       ),
     ).rejects.toMatchObject({ code: 78 })
     expect(await readFile(uvLog, "utf8")).not.toContain("missing-index-package")
-  })
+  }, 15_000)
 
   it("forces the platform Node.js registry for downloads and leaves offline commands registry-free", async () => {
     const root = await temporaryRoot()
@@ -432,7 +445,9 @@ describe("persistent user runtime", () => {
       managedSourceRoot,
     )
     const environment = {
-      ...process.env,
+      PATH: runtimeTestPath,
+      HOME: root,
+      LANG: "C.UTF-8",
       LINKSENSE_USER_NODE_PROJECT: project,
       LINKSENSE_NODE_USER_PACKAGE_TEMPLATE: template,
       LINKSENSE_PNPM_COMMAND: fakePnpm,
@@ -507,22 +522,24 @@ describe("persistent user runtime", () => {
     ).rejects.toMatchObject({ code: 2 })
     expect(await readFile(pnpmLog, "utf8")).not.toContain("blocked-package")
 
-    for (const override of [
-      ["--registry", "https://blocked.example.test/"],
-      ["--registry=https://blocked.example.test/"],
-      ["--config.registry=https://blocked.example.test/"],
-      ["--config.@demo:registry=https://blocked.example.test/"],
-      ["--config.userconfig", path.join(root, "blocked-user.npmrc")],
-      ["--config.globalconfig=blocked-global.npmrc"],
-    ]) {
-      await expect(
-        execFileAsync(
-          "/bin/sh",
-          [nodeWrapper, "add", ...override, "blocked-registry-package"],
-          { env: environment },
-        ),
-      ).rejects.toMatchObject({ code: 2 })
-    }
+    await Promise.all(
+      [
+        ["--registry", "https://blocked.example.test/"],
+        ["--registry=https://blocked.example.test/"],
+        ["--config.registry=https://blocked.example.test/"],
+        ["--config.@demo:registry=https://blocked.example.test/"],
+        ["--config.userconfig", path.join(root, "blocked-user.npmrc")],
+        ["--config.globalconfig=blocked-global.npmrc"],
+      ].map(async (override) => {
+        await expect(
+          execFileAsync(
+            "/bin/sh",
+            [nodeWrapper, "add", ...override, "blocked-registry-package"],
+            { env: environment },
+          ),
+        ).rejects.toMatchObject({ code: 2 })
+      }),
+    )
     expect(await readFile(pnpmLog, "utf8")).not.toContain(
       "blocked-registry-package",
     )
@@ -617,8 +634,9 @@ describe("persistent user runtime", () => {
       [nodeWrapper, "dlx", environmentReportingPackage],
       {
         env: {
-          ...process.env,
+          PATH: runtimeTestPath,
           HOME: root,
+          LANG: "C.UTF-8",
           XDG_CACHE_HOME: cache,
           LINKSENSE_USER_NODE_PROJECT: project,
           LINKSENSE_NODE_USER_PACKAGE_TEMPLATE: nodeUserPackageTemplate,
@@ -639,7 +657,7 @@ describe("persistent user runtime", () => {
       unrelatedSupervisorSecret: null,
       forwardingMetadata: null,
     })
-  })
+  }, 15_000)
 
   it("does not hold the user runtime lock for the lifetime of a dlx process", async () => {
     const root = await temporaryRoot()
@@ -658,7 +676,7 @@ describe("persistent user runtime", () => {
     await writeFile(template, '{"name":"linksense-user-runtime","private":true}\n')
     await writeExecutable(
       fakePnpm,
-      '#!/bin/sh\ncase "$*" in\n  *long-running-mcp*)\n    printf \'first\\n\' >> "$LINKSENSE_TEST_PNPM_LOG"\n    while [ ! -f "$LINKSENSE_TEST_PNPM_ENVIRONMENT_LOG" ]; do sleep 0.05; done\n    ;;\n  *connection-probe*)\n    printf \'second\\n\' >> "$LINKSENSE_TEST_PNPM_LOG"\n    ;;\nesac\n',
+      '#!/bin/sh\ncase "$*" in\n  *long-running-mcp*)\n    printf \'first\\n\' >> "$LINKSENSE_TEST_PNPM_LOG"\n    printf \'ready\\n\'\n    while [ ! -f "$LINKSENSE_TEST_PNPM_ENVIRONMENT_LOG" ]; do sleep 0.05; done\n    ;;\n  *connection-probe*)\n    printf \'second\\n\' >> "$LINKSENSE_TEST_PNPM_LOG"\n    ;;\nesac\n',
     )
     await prepareManagedPackageSourceConfig(
       "https://python-packages.example.test/simple/",
@@ -666,7 +684,9 @@ describe("persistent user runtime", () => {
       managedSourceRoot,
     )
     const environment = {
-      ...process.env,
+      PATH: runtimeTestPath,
+      HOME: root,
+      LANG: "C.UTF-8",
       LINKSENSE_USER_NODE_PROJECT: project,
       LINKSENSE_NODE_USER_PACKAGE_TEMPLATE: template,
       LINKSENSE_PNPM_COMMAND: fakePnpm,
@@ -681,19 +701,26 @@ describe("persistent user runtime", () => {
       [nodeWrapper, "dlx", "long-running-mcp"],
       { env: environment },
     )
+    if (!first.stdout) throw new Error("Expected piped child output")
     try {
-      await waitForFile(eventLog)
+      await Promise.race([
+        once(first.stdout, "data"),
+        once(first, "exit").then(() => {
+          throw new Error("The first dlx process exited before becoming ready")
+        }),
+      ])
       await execFileAsync(
         "/bin/sh",
         [nodeWrapper, "dlx", "connection-probe"],
         { env: environment, timeout: 2_000 },
       )
       expect(await readFile(eventLog, "utf8")).toBe("first\nsecond\n")
+      expect(first.exitCode).toBeNull()
     } finally {
       await writeFile(releaseFirst, "release\n")
       if (first.exitCode === null) await once(first, "exit")
     }
-  })
+  }, 15_000)
 
   it("runs bootstrap subprocesses with no supervisor token or provider credentials", () => {
     expect(
@@ -955,19 +982,6 @@ async function temporaryRoot(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "linksense-user-runtime-"))
   roots.push(root)
   return root
-}
-
-async function waitForFile(file: string, timeoutMs = 2_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    try {
-      await access(file)
-      return
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 20))
-    }
-  }
-  throw new Error(`timed out waiting for ${path.basename(file)}`)
 }
 
 async function createRuntimeToolBin(directory: string): Promise<void> {

@@ -45,9 +45,6 @@ import {
   applicationConversationSchema,
   applicationSchema,
   capabilitySummarySchema,
-  conversationDetailSchema,
-  conversationDraftSchema,
-  conversationDraftResultSchema,
   conversationFileSchema,
   conversationPlanReviewActionResultSchema,
   conversationSchema,
@@ -59,9 +56,6 @@ import {
   threadGoalSchema,
   turnStartReceiptSchema,
   type Conversation,
-  type ConversationActivity,
-  type ConversationDraft,
-  type ConversationEvent,
   type ConversationFile,
   type ConversationMessage,
   type ConversationTurn,
@@ -72,12 +66,12 @@ import {
   type PendingRequest,
   type Application,
   type ThreadGoal,
-  type TurnStartReceipt,
   type User,
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
+import { useVoiceTranscriptionAvailability } from "@/features/conversations/use-voice-transcription-availability"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import {
   EmptyState,
@@ -131,16 +125,32 @@ import {
   selectFreshConversationEventSubscriptionId,
 } from "@/features/conversations/conversation-detail-query"
 import {
-  conversationDraftSnapshotFromConversation,
-  conversationDraftSnapshotKey,
-  conversationDraftSnapshotsEqual,
-  createConversationDraftSnapshot,
-  effectiveDraftCapabilityIds,
-  effectiveDraftKnowledgeBaseIds,
-  mergeConversationDraftSnapshots,
-  type ConversationDraftField,
-  type ConversationDraftSnapshot,
-} from "@/features/conversations/conversation-draft-sync"
+  applyConversationExecutionTransition,
+  getConversationExecutionTransition,
+  isTerminalConversationExecutionStatus,
+} from "@/features/conversations/conversation-execution-lifecycle"
+import {
+  bindPendingConversationTurn,
+  clearPendingConversationExecution,
+  getPendingConversationExecution,
+  markConversationExecutionPending,
+  movePendingConversationExecution,
+  usePendingConversationExecution,
+} from "@/features/conversations/conversation-pending-execution"
+import {
+  clearPendingConversationTurnSubmission,
+  getPendingConversationTurnSubmission,
+  movePendingConversationTurnSubmission,
+  setPendingConversationTurnSubmission,
+  updatePendingConversationTurnSubmission,
+  usePendingConversationTurnSubmission,
+  type PendingConversationTurnSubmission,
+} from "@/features/conversations/conversation-pending-turn-submission"
+import {
+  clearLocalConversationDraft,
+  readLocalConversationDraft,
+  writeLocalConversationDraft,
+} from "@/features/conversations/conversation-local-draft"
 import { ConversationLineSidebar } from "@/features/conversations/conversation-line-sidebar"
 import { buildOfficeAnnotationInput } from "@/features/conversations/conversation-office-annotation"
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
@@ -212,17 +222,16 @@ import {
   projectVisibleConversationMessages,
   removeStreamingMessageItems,
   removePersistedStreamingMessages,
-  type StreamingAssistantMessages,
 } from "@/features/conversations/streaming-messages"
 import {
   appendStreamingReasoningSummaryDelta,
   removeStreamingReasoningSummariesForTurn,
   removeStreamingReasoningSummaryItem,
-  type StreamingReasoningSummaries,
 } from "@/features/conversations/streaming-reasoning-summaries"
 import { useConversationScroll } from "@/features/conversations/use-conversation-scroll"
 import { useConversationBottomStackHeight } from "@/features/conversations/use-conversation-bottom-stack-height"
 import { useConversationEvents } from "@/features/conversations/use-conversation-events"
+import { useConversationLiveState } from "@/features/conversations/use-conversation-live-state"
 import {
   appendConversationLiveEvent,
   isStreamOnlyNativeEvent,
@@ -238,12 +247,17 @@ import { formatLongDateTime } from "@/i18n/date"
 import { downloadBlob } from "@/lib/download-blob"
 
 const emptyResponseSchema = z.unknown()
+const conversationPrewarmReceiptSchema = z.strictObject({
+  accepted: z.literal(true),
+  conversation_id: z.string().uuid(),
+})
 const artifactPreviewLinkSchema = z.object({
   url: z.url(),
   expires_at: z.string().datetime({ offset: true }),
 })
 const reconnectingConversationRefetchIntervalMs = 1_500
 const newConversationPlaceholderId = "new"
+const conversationForkNotificationId = "conversation-fork-loading"
 const goalClearResultSchema = z.strictObject({ cleared: z.boolean() })
 const emptyPersistedMessageRenderKeys: ReadonlyMap<string, string> = new Map()
 const nativeMessageDeltaPhaseFallbackDelayMs = 120
@@ -253,16 +267,7 @@ type OfficePreviewUpdate = Readonly<{
   knownFileIds: readonly string[]
 }>
 
-type PendingTurnSubmission = Readonly<{
-  conversationId: string
-  idempotencyKey: string
-  message: ConversationMessage
-  optimisticId?: string
-  turnId?: string
-  status?: TurnStartReceipt["status"]
-  replacesTurnId?: string
-  interruptRequested?: boolean
-}>
+type PendingTurnSubmission = PendingConversationTurnSubmission
 
 type PendingOfficeQuestion = Readonly<{
   conversationId: string
@@ -303,10 +308,6 @@ type ComposerSubmission = Readonly<{
   optimisticId?: string
 }>
 
-type DraftSaveOptions = Readonly<{
-  useLatestComposerSnapshot?: boolean
-}>
-
 type PlanReviewActionSubmission =
   | Readonly<{ reviewId: string; action: "implement" }>
   | Readonly<{ reviewId: string; action: "revise"; feedback: string }>
@@ -338,6 +339,7 @@ type OptimisticSidebarExecutionStatus =
 type OptimisticTurnStart = Readonly<{
   attachmentConsumption: OptimisticAttachmentConsumption | undefined
   sidebarExecutionStatus: OptimisticSidebarExecutionStatus | undefined
+  pendingExecutionConversationId: string | undefined
 }>
 
 type UserTokenQuotaUsage = NonNullable<
@@ -449,37 +451,6 @@ function threadGoalRevision(
   })
 }
 
-type DraftConflictState = Readonly<{
-  conversationId: string
-  local: ConversationDraftSnapshot
-  remote: ConversationDraftSnapshot
-  remoteUpdatedAt: string | null
-  conflictingFields: readonly ConversationDraftField[]
-}>
-
-class DraftConflictPendingError extends Error {
-  constructor() {
-    super("Draft conflict requires a user decision")
-    this.name = "DraftConflictPendingError"
-  }
-}
-
-function isDraftConflictPendingError(error: unknown) {
-  return error instanceof DraftConflictPendingError
-}
-
-function isNewerDraftVersion(
-  candidate: string | null,
-  current: string | null
-): boolean {
-  if (!candidate || candidate === current) return false
-  if (!current) return true
-  const candidateTime = Date.parse(candidate)
-  const currentTime = Date.parse(current)
-  if (Number.isNaN(candidateTime) || Number.isNaN(currentTime)) return true
-  return candidateTime > currentTime
-}
-
 function isAttachmentConversationFile(file: ConversationFile) {
   return (
     file.kind === "attachment" ||
@@ -559,11 +530,23 @@ export function ConversationPage({
     },
     [refreshUser, t]
   )
-  const [draftConflict, setDraftConflict] = useState<DraftConflictState | null>(
-    null
-  )
-  const [resolvingDraftConflict, setResolvingDraftConflict] = useState(false)
-  const [interrupting, setInterrupting] = useState(false)
+  const [interruptingConversationId, setInterruptingConversationId] = useState<
+    string | null
+  >(null)
+  const [terminalDetailReconciliations, setTerminalDetailReconciliations] =
+    useState<
+      Record<
+        string,
+        {
+          turnId: string
+          status: "completed" | "failed" | "interrupted"
+          detailUpdateCount: number
+        }
+      >
+    >({})
+  const terminalDetailReconciliation = conversationId
+    ? terminalDetailReconciliations[conversationId]
+    : undefined
   const [goalModeState, setGoalModeState] = useState<{
     conversationId: string | undefined
     enabled: boolean
@@ -602,8 +585,22 @@ export function ConversationPage({
   const [pendingAttachmentUploads, setPendingAttachmentUploads] = useState<
     PendingAttachmentUpload[]
   >([])
-  const [streamedMessages, setStreamedMessages] =
-    useState<StreamingAssistantMessages>({})
+  const {
+    conversationId: liveConversationId,
+    conversationIdRef: liveConversationIdRef,
+    streamedMessages,
+    setStreamedMessages,
+    reasoningSummaries: liveReasoningSummaries,
+    setReasoningSummaries: setLiveReasoningSummaries,
+    activities: liveActivities,
+    setActivities: setLiveActivities,
+    events: liveEvents,
+    setEvents: setLiveEvents,
+    switchConversation: switchLiveConversation,
+    promoteConversation: promoteLiveConversation,
+    hasConversationLiveState,
+    clearConversationLiveState,
+  } = useConversationLiveState(conversationId ?? newConversationPlaceholderId)
   const legacyStreamItemIdByTurnRef = useRef(new Map<string, string>())
   const nativeMessagePhaseByItemIdRef = useRef(
     new Map<string, NativeMessagePhase | null>()
@@ -625,17 +622,6 @@ export function ConversationPage({
     persistedMessageRenderKeyState.conversationId === conversationId
       ? persistedMessageRenderKeyState.keys
       : emptyPersistedMessageRenderKeys
-  const [liveReasoningSummaries, setLiveReasoningSummaries] =
-    useState<StreamingReasoningSummaries>({})
-  const [liveActivities, setLiveActivities] = useState<ConversationActivity[]>(
-    []
-  )
-  const [liveEvents, setLiveEvents] = useState<ConversationEvent[]>([])
-  const [liveConversationId, setLiveConversationId] = useState<
-    string | undefined
-  >(
-    conversationId ?? newConversationPlaceholderId
-  )
   const [downloadingFileId, setDownloadingFileId] = useState<string>()
   const [officePreview, setOfficePreview] = useState<{
     conversationId: string | undefined
@@ -672,16 +658,7 @@ export function ConversationPage({
       : null
   const downloadInFlightRef = useRef(false)
   const composerRef = useRef<ConversationComposerHandle>(null)
-  const hydratedIdRef = useRef<string | null>(null)
-  const lastDraftRef = useRef("")
-  const lastDraftSnapshotRef = useRef<ConversationDraftSnapshot>(
-    createConversationDraftSnapshot("", [], [])
-  )
-  const lastQueuedDraftRef = useRef("")
-  const composerDraftSnapshotRef = useRef<ConversationDraftSnapshot>(
-    createConversationDraftSnapshot("", [], [])
-  )
-  const draftConflictRef = useRef<DraftConflictState | null>(null)
+  const hydratedDraftScopeRef = useRef<string | null>(null)
   const turnSubmitOperationRef =
     useRef<Parameters<typeof stableOperationId>[0]["current"]>(null)
   const goalStartOperationRef =
@@ -697,7 +674,6 @@ export function ConversationPage({
     useRef<Parameters<typeof stableOperationId>[0]["current"]>(null)
   const planReviewOperationRef =
     useRef<Parameters<typeof stableOperationId>[0]["current"]>(null)
-  const submittedDraftSnapshotRef = useRef<string | null>(null)
   const composerSubmissionInFlightRef = useRef(false)
   const composerAttachmentOperationInFlightRef = useRef(false)
   const composerModelPreferenceOperationInFlightRef = useRef(false)
@@ -716,14 +692,23 @@ export function ConversationPage({
   const steerSubmissionConversationIdRef = useRef<string | null>(null)
   const pendingSubmissionConversationIdRef = useRef<string | null>(null)
   const runnerPrewarmAtRef = useRef(0)
+  const runnerPrewarmKeyRef = useRef("")
+  const prewarmedConversationIdRef = useRef<string | null>(null)
   const dispatchedInterruptTurnIdsRef = useRef(new Set<string>())
 
   useLayoutEffect(() => {
     const previousRouteConversationId = routeConversationIdRef.current
+    if (previousRouteConversationId !== currentRouteConversationId) {
+      setError(null)
+      setTokenQuotaNotice(null)
+    }
     if (
       previousRouteConversationId !== currentRouteConversationId &&
       currentRouteConversationId === null
     ) {
+      prewarmedConversationIdRef.current = null
+      runnerPrewarmAtRef.current = 0
+      runnerPrewarmKeyRef.current = ""
       setNewTaskResetVersion((current) => current + 1)
     }
     routeEpochRef.current += 1
@@ -733,25 +718,29 @@ export function ConversationPage({
   const regenerateOperationRef =
     useRef<Parameters<typeof stableOperationId>[0]["current"]>(null)
   const forkOperationRef = useRef<string | null>(null)
-  const draftUpdatedAtRef = useRef<string | null>(null)
-  const draftQueueRef = useRef<Promise<void>>(Promise.resolve())
-  const queuedDraftSaveRef = useRef<{
-    snapshot: string
-    promise: Promise<ConversationDraftSnapshot>
-  } | null>(null)
   const invalidateTimerRef = useRef<number | null>(null)
   const pendingDetailRefreshRef = useRef(false)
   const pendingListRefreshRef = useRef(false)
-  const terminalSidebarSyncRef = useRef<string | null>(null)
   const seenEventIdsRef = useRef(new Set<string>())
-  const liveConversationIdRef = useRef<string | undefined>(
-    conversationId ?? newConversationPlaceholderId
-  )
   const autoInterruptedTurnIdRef = useRef<string | null>(null)
   const observedNewTaskPromotionIdRef = useRef<string | null>(null)
   const isNewTaskPromotion =
     newTaskPromotionConversationId !== null &&
     newTaskPromotionConversationId === conversationId
+  const interrupting =
+    interruptingConversationId ===
+      (isNew ? newConversationPlaceholderId : conversationId) ||
+    (isNewTaskPromotion &&
+      interruptingConversationId === newConversationPlaceholderId)
+  const clearInterruptingConversation = useCallback(
+    (targetConversationId: string | null | undefined) => {
+      if (!targetConversationId) return
+      setInterruptingConversationId((current) =>
+        current === targetConversationId ? null : current
+      )
+    },
+    []
+  )
   useLayoutEffect(() => {
     const promotedConversationId = newTaskPromotionConversationId
     if (!promotedConversationId) {
@@ -800,6 +789,7 @@ export function ConversationPage({
     ...conversationDetailQueryOptions(conversationId),
     enabled: !isNew,
   })
+  const voiceTranscriptionAvailability = useVoiceTranscriptionAvailability()
   const isApplicationConversation = Boolean(conversationQuery.data?.application)
   const isManagedApplicationConversation =
     conversationQuery.data?.application?.kind === "standard"
@@ -858,6 +848,7 @@ export function ConversationPage({
   ] as const
   const modelPreferenceQuery = useQuery({
     queryKey: modelPreferenceQueryKey,
+    gcTime: 0,
     queryFn: ({ signal }) =>
       apiRequest(
         isNew
@@ -884,7 +875,6 @@ export function ConversationPage({
       reasoningEffort: string
       targetConversationId: string | null
     }) => {
-      await draftQueueRef.current
       return apiRequest(
         targetConversationId
           ? `/conversations/${targetConversationId}/model-preference`
@@ -1040,6 +1030,12 @@ export function ConversationPage({
     (knowledgeBasesLoading || knowledgeBaseSelectionVerificationFailed)
 
   const conversation = conversationQuery.data
+  const pendingConversationExecution = usePendingConversationExecution(
+    conversationId ?? newConversationPlaceholderId
+  )
+  const cachedPendingTurnSubmission = usePendingConversationTurnSubmission(
+    conversationId ?? newConversationPlaceholderId
+  )
   const pendingSubmissionBelongsToConversation = Boolean(
     pendingTurnSubmission &&
     (pendingTurnSubmission.conversationId === conversationId ||
@@ -1051,22 +1047,25 @@ export function ConversationPage({
       (isNewTaskPromotion &&
         pendingTurnSubmission.conversationId === newConversationPlaceholderId))
   )
-  const reconciledPendingUserMessage = pendingSubmissionBelongsToConversation
+  const currentPendingTurnSubmission = pendingSubmissionBelongsToConversation
+    ? pendingTurnSubmission
+    : cachedPendingTurnSubmission
+  const reconciledPendingUserMessage = currentPendingTurnSubmission
     ? conversation?.messages?.find(
         (message) =>
           message.role === "user" &&
-          (pendingTurnSubmission?.turnId
-            ? message.turn_id === pendingTurnSubmission.turnId
+          (currentPendingTurnSubmission.turnId
+            ? message.turn_id === currentPendingTurnSubmission.turnId
             : isNewTaskPromotion &&
               pendingFirstMessageConversationId === conversationId &&
-              message.content === pendingTurnSubmission?.message.content)
+              message.content === currentPendingTurnSubmission.message.content)
       )
     : undefined
   const reconciledPendingUserMessageId = reconciledPendingUserMessage?.id
   const reconciledPendingUserMessageRenderKey =
-    reconciledPendingUserMessageId && pendingTurnSubmission
-      ? (pendingTurnSubmission.message.client_render_key ??
-        `message-${pendingTurnSubmission.message.id}`)
+    reconciledPendingUserMessageId && currentPendingTurnSubmission
+      ? (currentPendingTurnSubmission.message.client_render_key ??
+        `message-${currentPendingTurnSubmission.message.id}`)
       : undefined
 
   useLayoutEffect(() => {
@@ -1170,7 +1169,8 @@ export function ConversationPage({
   })
   const reconnectExhausted = nativeReconnectState?.phase === "failed"
   const visuallyRunning = Boolean(
-    (running || pendingTurnExecutionActive) && !reconnectExhausted
+    (running || pendingTurnExecutionActive || pendingConversationExecution) &&
+    !reconnectExhausted
   )
   const runningMessageAction = user?.running_message_action ?? "queue"
   const previewUpdateCandidate =
@@ -1186,16 +1186,43 @@ export function ConversationPage({
 
   const prewarmRunner = useCallback(() => {
     const now = Date.now()
-    if (now - runnerPrewarmAtRef.current < 60_000) return
+    const targetConversationId = isNew
+      ? prewarmedConversationIdRef.current
+      : (conversationId ?? null)
+    const prewarmKey = [targetConversationId ?? "new", collaborationMode].join(
+      ":"
+    )
+    if (
+      prewarmKey === runnerPrewarmKeyRef.current &&
+      now - runnerPrewarmAtRef.current < 60_000
+    )
+      return
     runnerPrewarmAtRef.current = now
+    runnerPrewarmKeyRef.current = prewarmKey
     void apiRequest("/conversations/prewarm", {
       method: "POST",
-      body: {},
-      schema: emptyResponseSchema,
-    }).catch(() => {
-      runnerPrewarmAtRef.current = 0
+      body: {
+        ...(targetConversationId
+          ? { conversation_id: targetConversationId }
+          : {}),
+        collaboration_mode: collaborationMode,
+      },
+      schema: conversationPrewarmReceiptSchema,
     })
-  }, [])
+      .then((receipt) => {
+        if (isNew && routeConversationIdRef.current === null) {
+          prewarmedConversationIdRef.current = receipt.conversation_id
+          runnerPrewarmKeyRef.current = [
+            receipt.conversation_id,
+            collaborationMode,
+          ].join(":")
+        }
+      })
+      .catch(() => {
+        runnerPrewarmAtRef.current = 0
+        runnerPrewarmKeyRef.current = ""
+      })
+  }, [collaborationMode, conversationId, isNew])
 
   const startNewTaskFromComposer = useCallback(() => {
     if (
@@ -1210,8 +1237,13 @@ export function ConversationPage({
       return
     }
     setPendingFirstMessageConversationId(null)
+    prewarmedConversationIdRef.current = null
+    runnerPrewarmAtRef.current = 0
+    runnerPrewarmKeyRef.current = ""
     setTaskOverviewSuppressedConversationId(null)
     setNewTaskPromotionConversationId(null)
+    if (user) clearLocalConversationDraft(window.localStorage, user.id, "new")
+    hydratedDraftScopeRef.current = null
     setValue("")
     setGoalMode(false)
     setNewTaskCollaborationMode("default")
@@ -1224,7 +1256,7 @@ export function ConversationPage({
     setOptimisticGoal(null)
     setNewTaskResetVersion((current) => current + 1)
     window.setTimeout(() => composerRef.current?.focus(), 0)
-  }, [isNew, navigate, setGoalMode])
+  }, [isNew, navigate, setGoalMode, user])
 
   useEffect(() => {
     legacyStreamItemIdByTurnRef.current.clear()
@@ -1232,16 +1264,6 @@ export function ConversationPage({
 
   useEffect(() => {
     prewarmRunner()
-    const handleFocus = () => prewarmRunner()
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") prewarmRunner()
-    }
-    window.addEventListener("focus", handleFocus)
-    document.addEventListener("visibilitychange", handleVisibilityChange)
-    return () => {
-      window.removeEventListener("focus", handleFocus)
-      document.removeEventListener("visibilitychange", handleVisibilityChange)
-    }
   }, [prewarmRunner])
 
   const applyOfficePreviewUpdate = useCallback(() => {
@@ -1254,487 +1276,37 @@ export function ConversationPage({
     setOfficePreviewUpdate(null)
   }, [officePreviewUpdate, previewUpdateCandidate])
 
-  useEffect(() => {
-    composerDraftSnapshotRef.current = createConversationDraftSnapshot(
-      value,
-      selectedCapabilityIds,
-      selectedKnowledgeBaseIds
+  const localDraftScope = isNew ? "new" : (conversationId ?? "new")
+
+  useLayoutEffect(() => {
+    if (!user) return
+    if (hydratedDraftScopeRef.current === localDraftScope) return
+    const draft = readLocalConversationDraft(
+      window.localStorage,
+      user.id,
+      localDraftScope
     )
-  }, [selectedCapabilityIds, selectedKnowledgeBaseIds, value])
-
-  const applyComposerDraftSnapshot = useCallback(
-    (snapshot: ConversationDraftSnapshot) => {
-      setValue(snapshot.input)
-      setSelectedCapabilityIds([...snapshot.capabilityIds])
-      setSelectedKnowledgeBaseIds([...snapshot.knowledgeBaseIds])
-    },
-    []
-  )
-
-  const recordAcknowledgedDraft = useCallback(
-    (
-      id: string,
-      snapshot: ConversationDraftSnapshot,
-      updatedAt: string | null
-    ) => {
-      if (hydratedIdRef.current !== id && routeConversationIdRef.current !== id)
-        return
-      hydratedIdRef.current = id
-      lastDraftSnapshotRef.current = snapshot
-      lastDraftRef.current = conversationDraftSnapshotKey(snapshot)
-      draftUpdatedAtRef.current = updatedAt
-    },
-    []
-  )
-
-  const updateConversationDraftCache = useCallback(
-    (
-      id: string,
-      snapshot: ConversationDraftSnapshot,
-      draft: ConversationDraft
-    ) => {
-      queryClient.setQueryData<Conversation>(
-        ["conversation", id],
-        (currentConversation) =>
-          currentConversation
-            ? {
-                ...currentConversation,
-                draft: {
-                  ...(currentConversation.draft ?? {}),
-                  ...draft,
-                  input_text: snapshot.input,
-                  priority_capability_ids: [...snapshot.capabilityIds],
-                  knowledge_base_ids: [...snapshot.knowledgeBaseIds],
-                },
-                draft_input: snapshot.input,
-                draft_capability_ids: [...snapshot.capabilityIds],
-                draft_knowledge_base_ids: [...snapshot.knowledgeBaseIds],
-                selected_knowledge_base_ids: [...snapshot.knowledgeBaseIds],
-              }
-            : currentConversation
-      )
-    },
-    [queryClient]
-  )
-
-  const publishDraftConflict = useCallback(
-    (nextConflict: DraftConflictState) => {
-      draftConflictRef.current = nextConflict
-      setDraftConflict(nextConflict)
-      setError(null)
-    },
-    []
-  )
-
-  const clearDraftConflict = useCallback(() => {
-    draftConflictRef.current = null
-    setDraftConflict(null)
-  }, [])
+    hydratedDraftScopeRef.current = localDraftScope
+    setValue(draft.input)
+    setSelectedCapabilityIds([...draft.capabilityIds])
+    setSelectedKnowledgeBaseIds([...draft.knowledgeBaseIds])
+  }, [localDraftScope, newTaskResetVersion, user])
 
   useEffect(() => {
-    if (
-      !isNew &&
-      conversation &&
-      hydratedIdRef.current !== conversation.id &&
-      conversationQuery.isFetching &&
-      !conversationQuery.isFetchedAfterMount
-    ) {
-      return
-    }
-    const timer = window.setTimeout(() => {
-      if (isNew) {
-        hydratedIdRef.current = null
-        lastDraftRef.current = ""
-        lastDraftSnapshotRef.current = createConversationDraftSnapshot(
-          "",
-          [],
-          []
-        )
-        lastQueuedDraftRef.current = ""
-        draftUpdatedAtRef.current = null
-        draftQueueRef.current = Promise.resolve()
-        queuedDraftSaveRef.current = null
-        draftConflictRef.current = null
-        setDraftConflict(null)
-        setValue("")
-        setSelectedCapabilityIds([])
-        setSelectedKnowledgeBaseIds([])
-        return
-      }
-      if (!conversation) return
-      const serverSnapshot =
-        conversationDraftSnapshotFromConversation(conversation)
-      const serverSnapshotKey = conversationDraftSnapshotKey(serverSnapshot)
-      const serverUpdatedAt = conversation.draft?.updated_at ?? null
-      if (hydratedIdRef.current !== conversation.id) {
-        hydratedIdRef.current = conversation.id
-        applyComposerDraftSnapshot(serverSnapshot)
-        setRenameValue(conversation.title)
-        lastDraftSnapshotRef.current = serverSnapshot
-        lastDraftRef.current = serverSnapshotKey
-        lastQueuedDraftRef.current = serverSnapshotKey
-        draftUpdatedAtRef.current = serverUpdatedAt
-        draftQueueRef.current = Promise.resolve()
-        queuedDraftSaveRef.current = null
-        draftConflictRef.current = null
-        setDraftConflict(null)
-        return
-      }
-
-      if (!isNewerDraftVersion(serverUpdatedAt, draftUpdatedAtRef.current)) {
-        return
-      }
-      const baseSnapshot = lastDraftSnapshotRef.current
-      const localSnapshot = composerDraftSnapshotRef.current
-      if (conversationDraftSnapshotsEqual(serverSnapshot, baseSnapshot)) {
-        draftUpdatedAtRef.current = serverUpdatedAt
-        return
-      }
-      if (conversationDraftSnapshotsEqual(localSnapshot, baseSnapshot)) {
-        applyComposerDraftSnapshot(serverSnapshot)
-        lastDraftSnapshotRef.current = serverSnapshot
-        lastDraftRef.current = serverSnapshotKey
-        lastQueuedDraftRef.current = serverSnapshotKey
-        draftUpdatedAtRef.current = serverUpdatedAt
-        queuedDraftSaveRef.current = null
-        draftConflictRef.current = null
-        setDraftConflict(null)
-        return
-      }
-
-      const merged = mergeConversationDraftSnapshots(
-        baseSnapshot,
-        localSnapshot,
-        serverSnapshot
-      )
-      lastDraftSnapshotRef.current = serverSnapshot
-      lastDraftRef.current = serverSnapshotKey
-      lastQueuedDraftRef.current = serverSnapshotKey
-      draftUpdatedAtRef.current = serverUpdatedAt
-      queuedDraftSaveRef.current = null
-      if (merged.conflictingFields.length > 0) {
-        const nextConflict = {
-          conversationId: conversation.id,
-          local: localSnapshot,
-          remote: serverSnapshot,
-          remoteUpdatedAt: serverUpdatedAt,
-          conflictingFields: merged.conflictingFields,
-        } satisfies DraftConflictState
-        draftConflictRef.current = nextConflict
-        setDraftConflict(nextConflict)
-        setError(null)
-        return
-      }
-      applyComposerDraftSnapshot(merged.snapshot)
-    }, 0)
-    return () => window.clearTimeout(timer)
+    if (!user) return
+    if (hydratedDraftScopeRef.current !== localDraftScope) return
+    if (composerSubmissionInFlightRef.current) return
+    writeLocalConversationDraft(window.localStorage, user.id, localDraftScope, {
+      input: value,
+      capabilityIds: selectedCapabilityIds,
+      knowledgeBaseIds: selectedKnowledgeBaseIds,
+    })
   }, [
-    applyComposerDraftSnapshot,
-    conversation,
-    conversationQuery.isFetchedAfterMount,
-    conversationQuery.isFetching,
-    isNew,
-  ])
-
-  const enqueueDraftOperation = useCallback(
-    <T,>(operation: () => Promise<T>): Promise<T> => {
-      const result = draftQueueRef.current.then(operation)
-      draftQueueRef.current = result.then(
-        () => undefined,
-        () => undefined
-      )
-      return result
-    },
-    []
-  )
-
-  const queueDraftSave = useCallback(
-    (
-      id: string,
-      nextInput: string,
-      nextCapabilityIds: string[],
-      nextKnowledgeBaseIds: string[],
-      options: DraftSaveOptions = {}
-    ): Promise<ConversationDraftSnapshot> => {
-      const requestedSnapshot = createConversationDraftSnapshot(
-        nextInput,
-        nextCapabilityIds,
-        nextKnowledgeBaseIds
-      )
-      const snapshot = conversationDraftSnapshotKey(requestedSnapshot)
-      const activeConflict = draftConflictRef.current
-      if (activeConflict?.conversationId === id) {
-        publishDraftConflict({
-          ...activeConflict,
-          local: requestedSnapshot,
-        })
-        return Promise.reject(new DraftConflictPendingError())
-      }
-      if (
-        snapshot === lastDraftRef.current &&
-        snapshot === lastQueuedDraftRef.current
-      ) {
-        return draftQueueRef.current.then(() => requestedSnapshot)
-      }
-      if (
-        snapshot === lastQueuedDraftRef.current &&
-        queuedDraftSaveRef.current?.snapshot === snapshot
-      ) {
-        return queuedDraftSaveRef.current.promise
-      }
-      lastQueuedDraftRef.current = snapshot
-      const operationSnapshots = new Set([snapshot])
-      const save = enqueueDraftOperation(async () => {
-        let localSnapshot = requestedSnapshot
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          if (draftConflictRef.current?.conversationId === id) {
-            throw new DraftConflictPendingError()
-          }
-          await queryClient.cancelQueries(
-            { queryKey: ["conversation", id], exact: true },
-            { silent: true }
-          )
-          try {
-            const draft = await apiRequest(`/conversations/${id}/draft`, {
-              method: "PUT",
-              body: {
-                input_text: localSnapshot.input,
-                priority_capability_ids: localSnapshot.capabilityIds,
-                knowledge_base_ids: localSnapshot.knowledgeBaseIds,
-                expected_updated_at: draftUpdatedAtRef.current,
-              },
-              schema: conversationDraftSchema,
-            })
-            const savedSnapshot = createConversationDraftSnapshot(
-              draft.input_text ?? localSnapshot.input,
-              draft.priority_capability_ids ?? localSnapshot.capabilityIds,
-              draft.knowledge_base_ids ?? localSnapshot.knowledgeBaseIds
-            )
-            recordAcknowledgedDraft(id, savedSnapshot, draft.updated_at ?? null)
-            if (options.useLatestComposerSnapshot !== false) {
-              updateConversationDraftCache(id, savedSnapshot, draft)
-            }
-            return savedSnapshot
-          } catch (nextError) {
-            if (
-              !(nextError instanceof ApiError) ||
-              nextError.errorCode !== "DRAFT_VERSION_CONFLICT" ||
-              hydratedIdRef.current !== id ||
-              routeConversationIdRef.current !== id
-            ) {
-              throw nextError
-            }
-          }
-
-          const detail = await apiRequest(`/conversations/${id}`, {
-            schema: conversationDetailSchema,
-          })
-          if (options.useLatestComposerSnapshot !== false) {
-            queryClient.setQueryData(["conversation", id], detail)
-          }
-          if (routeConversationIdRef.current !== id) {
-            throw new DraftConflictPendingError()
-          }
-          const remoteSnapshot =
-            conversationDraftSnapshotFromConversation(detail)
-          const remoteUpdatedAt = detail.draft?.updated_at ?? null
-          const baseSnapshot = lastDraftSnapshotRef.current
-          if (conversationDraftSnapshotsEqual(remoteSnapshot, localSnapshot)) {
-            recordAcknowledgedDraft(id, remoteSnapshot, remoteUpdatedAt)
-            return remoteSnapshot
-          }
-
-          const latestLocalSnapshot =
-            options.useLatestComposerSnapshot !== false &&
-            hydratedIdRef.current === id
-              ? composerDraftSnapshotRef.current
-              : localSnapshot
-          const merged = mergeConversationDraftSnapshots(
-            baseSnapshot,
-            latestLocalSnapshot,
-            remoteSnapshot
-          )
-          recordAcknowledgedDraft(id, remoteSnapshot, remoteUpdatedAt)
-          if (merged.conflictingFields.length > 0 || attempt === 2) {
-            lastQueuedDraftRef.current =
-              conversationDraftSnapshotKey(remoteSnapshot)
-            publishDraftConflict({
-              conversationId: id,
-              local: latestLocalSnapshot,
-              remote: remoteSnapshot,
-              remoteUpdatedAt,
-              conflictingFields: merged.conflictingFields,
-            })
-            throw new DraftConflictPendingError()
-          }
-
-          if (
-            options.useLatestComposerSnapshot !== false &&
-            !conversationDraftSnapshotsEqual(
-              composerDraftSnapshotRef.current,
-              merged.snapshot
-            )
-          ) {
-            applyComposerDraftSnapshot(merged.snapshot)
-          }
-          if (
-            conversationDraftSnapshotsEqual(merged.snapshot, remoteSnapshot)
-          ) {
-            return remoteSnapshot
-          }
-          const previousSnapshotKey =
-            conversationDraftSnapshotKey(localSnapshot)
-          localSnapshot = merged.snapshot
-          const mergedSnapshotKey = conversationDraftSnapshotKey(localSnapshot)
-          operationSnapshots.add(mergedSnapshotKey)
-          if (lastQueuedDraftRef.current === previousSnapshotKey) {
-            lastQueuedDraftRef.current = mergedSnapshotKey
-          }
-        }
-        throw new DraftConflictPendingError()
-      })
-      const tracked: Promise<ConversationDraftSnapshot> = save.then(
-        (savedSnapshot) => {
-          if (queuedDraftSaveRef.current?.promise === tracked) {
-            queuedDraftSaveRef.current = null
-          }
-          if (operationSnapshots.has(lastQueuedDraftRef.current)) {
-            lastQueuedDraftRef.current =
-              conversationDraftSnapshotKey(savedSnapshot)
-          }
-          return savedSnapshot
-        },
-        (nextError: unknown) => {
-          if (queuedDraftSaveRef.current?.promise === tracked) {
-            queuedDraftSaveRef.current = null
-          }
-          if (
-            !isDraftConflictPendingError(nextError) &&
-            hydratedIdRef.current === id &&
-            operationSnapshots.has(lastQueuedDraftRef.current)
-          ) {
-            lastQueuedDraftRef.current = lastDraftRef.current
-          }
-          throw nextError
-        }
-      )
-      queuedDraftSaveRef.current = { snapshot, promise: tracked }
-      return tracked
-    },
-    [
-      applyComposerDraftSnapshot,
-      enqueueDraftOperation,
-      publishDraftConflict,
-      queryClient,
-      recordAcknowledgedDraft,
-      updateConversationDraftCache,
-    ]
-  )
-
-  useEffect(() => {
-    if (!conversationId || isNew || hydratedIdRef.current !== conversationId)
-      return
-    const snapshot = conversationDraftSnapshotKey(
-      createConversationDraftSnapshot(
-        value,
-        selectedCapabilityIds,
-        selectedKnowledgeBaseIds
-      )
-    )
-    if (snapshot === lastDraftRef.current) return
-    const timer = window.setTimeout(() => {
-      if (
-        composerSubmissionInFlightRef.current ||
-        composerAttachmentOperationInFlightRef.current ||
-        composerModelPreferenceOperationInFlightRef.current
-      )
-        return
-      if (submittedDraftSnapshotRef.current === snapshot) return
-      void queueDraftSave(
-        conversationId,
-        value,
-        selectedCapabilityIds,
-        selectedKnowledgeBaseIds
-      ).catch((nextError: unknown) => {
-        if (
-          routeConversationIdRef.current === conversationId &&
-          !isDraftConflictPendingError(nextError)
-        ) {
-          setError(getErrorMessage(nextError, t))
-        }
-      })
-    }, 600)
-    return () => window.clearTimeout(timer)
-  }, [
-    composerAttachmentOperationPending,
-    modelPreferenceMutation.isPending,
-    conversationId,
-    isNew,
-    queueDraftSave,
+    localDraftScope,
     selectedCapabilityIds,
     selectedKnowledgeBaseIds,
-    t,
+    user,
     value,
-  ])
-
-  const keepCurrentDraft = useCallback(async () => {
-    const activeConflict = draftConflictRef.current
-    if (!activeConflict || resolvingDraftConflict) return
-    const localSnapshot = composerDraftSnapshotRef.current
-    setResolvingDraftConflict(true)
-    setError(null)
-    clearDraftConflict()
-    recordAcknowledgedDraft(
-      activeConflict.conversationId,
-      activeConflict.remote,
-      activeConflict.remoteUpdatedAt
-    )
-    lastQueuedDraftRef.current = conversationDraftSnapshotKey(
-      activeConflict.remote
-    )
-    queuedDraftSaveRef.current = null
-    try {
-      await queueDraftSave(
-        activeConflict.conversationId,
-        localSnapshot.input,
-        [...localSnapshot.capabilityIds],
-        [...localSnapshot.knowledgeBaseIds]
-      )
-    } catch (nextError) {
-      if (!isDraftConflictPendingError(nextError)) {
-        setError(getErrorMessage(nextError, t))
-      }
-    } finally {
-      setResolvingDraftConflict(false)
-    }
-  }, [
-    clearDraftConflict,
-    queueDraftSave,
-    recordAcknowledgedDraft,
-    resolvingDraftConflict,
-    t,
-  ])
-
-  const useLatestDraft = useCallback(() => {
-    const activeConflict = draftConflictRef.current
-    if (!activeConflict || resolvingDraftConflict) return
-    applyComposerDraftSnapshot(activeConflict.remote)
-    recordAcknowledgedDraft(
-      activeConflict.conversationId,
-      activeConflict.remote,
-      activeConflict.remoteUpdatedAt
-    )
-    lastQueuedDraftRef.current = conversationDraftSnapshotKey(
-      activeConflict.remote
-    )
-    queuedDraftSaveRef.current = null
-    clearDraftConflict()
-    setError(null)
-  }, [
-    applyComposerDraftSnapshot,
-    clearDraftConflict,
-    recordAcknowledgedDraft,
-    resolvingDraftConflict,
   ])
 
   const scheduleConversationRefresh = useCallback(
@@ -1765,14 +1337,14 @@ export function ConversationPage({
   )
 
   const pendingSubmittedTurnNotProjected = Boolean(
-    pendingTurnSubmission &&
-    pendingTurnSubmission.conversationId === conversationId &&
-    (!pendingTurnSubmission.turnId ||
+    currentPendingTurnSubmission &&
+    currentPendingTurnSubmission.conversationId === conversationId &&
+    (!currentPendingTurnSubmission.turnId ||
       !conversation?.turns?.some(
-        (turn) => turn.id === pendingTurnSubmission.turnId
+        (turn) => turn.id === currentPendingTurnSubmission.turnId
       ) ||
       !conversation.messages?.some(
-        (message) => message.turn_id === pendingTurnSubmission.turnId
+        (message) => message.turn_id === currentPendingTurnSubmission.turnId
       ))
   )
 
@@ -1782,6 +1354,8 @@ export function ConversationPage({
       isNew ||
       !conversationId ||
       !conversationQuery.isSuccess ||
+      (!conversationQuery.isFetchedAfterMount && !isNewTaskPromotion) ||
+      terminalDetailReconciliation !== undefined ||
       pendingSubmittedTurnNotProjected ||
       (executionStatus !== "completed" &&
         executionStatus !== "failed" &&
@@ -1789,22 +1363,46 @@ export function ConversationPage({
     ) {
       return
     }
-    const revision = [
-      conversationId,
-      executionStatus,
-      conversation?.last_event_id ?? "",
-    ].join(":")
-    if (terminalSidebarSyncRef.current === revision) return
-    terminalSidebarSyncRef.current = revision
-    void queryClient.invalidateQueries({ queryKey: ["conversations"] })
+    const pendingExecution = getPendingConversationExecution(
+      queryClient,
+      conversationId
+    )
+    if (pendingExecution) {
+      const pendingTurn = pendingExecution.turnId
+        ? conversation?.turns?.find(
+            (turn) => turn.id === pendingExecution.turnId
+          )
+        : undefined
+      const pendingTurnCompleted = Boolean(
+        pendingTurn && pendingTurn.status !== "running"
+      )
+      // The first detail response after a submission may still describe the
+      // preceding turn. Keep the optimistic running state until this exact
+      // submitted turn reaches a terminal state.
+      if (!pendingTurnCompleted) return
+      clearPendingConversationExecution(queryClient, conversationId)
+    }
+    queryClient.setQueryData<
+      InfiniteData<Paginated<Conversation>, string | undefined>
+    >(["conversations", "sidebar"], (current) =>
+      patchSidebarConversationExecutionStatus(
+        current,
+        conversationId,
+        executionStatus
+      )
+    )
   }, [
     conversation?.execution_status,
-    conversation?.last_event_id,
+    conversation?.turns,
     conversationId,
+    conversationQuery.isFetchedAfterMount,
     conversationQuery.isSuccess,
+    isNewTaskPromotion,
     isNew,
+    pendingConversationExecution?.turnId,
     pendingSubmittedTurnNotProjected,
     queryClient,
+    terminalDetailReconciliation,
   ])
 
   useEffect(() => {
@@ -1829,10 +1427,8 @@ export function ConversationPage({
   const synchronizeLiveConversationScope = useCallback(
     (nextConversationId: string | undefined) => {
       if (liveConversationIdRef.current === nextConversationId) return
-      liveConversationIdRef.current = nextConversationId
-      setLiveConversationId(nextConversationId)
+      switchLiveConversation(nextConversationId)
       seenEventIdsRef.current.clear()
-      setStreamedMessages({})
       legacyStreamItemIdByTurnRef.current.clear()
       nativeMessagePhaseByItemIdRef.current.clear()
       stopHookSupersededItemIdsByTurnRef.current.clear()
@@ -1842,19 +1438,22 @@ export function ConversationPage({
         conversationId: nextConversationId,
         keys: emptyPersistedMessageRenderKeys,
       })
-      setLiveReasoningSummaries({})
-      setLiveActivities([])
-      setLiveEvents([])
     },
-    [clearPendingNativeMessageDeltas]
+    [
+      clearPendingNativeMessageDeltas,
+      liveConversationIdRef,
+      switchLiveConversation,
+    ]
   )
 
   useLayoutEffect(() => {
     const nextConversationId = conversationId ?? newConversationPlaceholderId
     if (
       isNewTaskPromotion &&
-      liveConversationIdRef.current === newConversationPlaceholderId
+      liveConversationIdRef.current === newConversationPlaceholderId &&
+      conversationId
     ) {
+      promoteLiveConversation(newConversationPlaceholderId, conversationId)
       return
     }
     synchronizeLiveConversationScope(nextConversationId)
@@ -1862,6 +1461,8 @@ export function ConversationPage({
     conversationId,
     isNewTaskPromotion,
     location.key,
+    liveConversationIdRef,
+    promoteLiveConversation,
     synchronizeLiveConversationScope,
   ])
 
@@ -1883,7 +1484,7 @@ export function ConversationPage({
         })
       )
     },
-    []
+    [setStreamedMessages]
   )
 
   const flushPendingNativeMessageDeltas = useCallback(
@@ -1914,7 +1515,7 @@ export function ConversationPage({
         )
       )
     },
-    []
+    [setStreamedMessages]
   )
 
   const enqueueNativeMessageDelta = useCallback(
@@ -1953,7 +1554,8 @@ export function ConversationPage({
       isNew,
       isSuccess: conversationQuery.isSuccess,
       isFetchedAfterMount: conversationQuery.isFetchedAfterMount,
-      isPromotedNewTask: isNewTaskPromotion,
+      hasReusableReplayBoundary:
+        isNewTaskPromotion || hasConversationLiveState(conversationId),
     })
   const { connectionState, reconnectingWarningVisible } = useConversationEvents(
     eventSubscriptionConversationId,
@@ -1970,6 +1572,124 @@ export function ConversationPage({
         }
         if (event.id && seenEventIdsRef.current.has(event.id)) return
         if (event.id) seenEventIdsRef.current.add(event.id)
+
+        const executionTransition = getConversationExecutionTransition(event)
+        if (executionTransition && conversationId) {
+          const terminal = isTerminalConversationExecutionStatus(
+            executionTransition.status
+          )
+          if (
+            executionTransition.status === "running" &&
+            executionTransition.turnId &&
+            getPendingConversationExecution(queryClient, conversationId)
+          ) {
+            bindPendingConversationTurn(
+              queryClient,
+              conversationId,
+              executionTransition.turnId
+            )
+          }
+          const pendingExecution = getPendingConversationExecution(
+            queryClient,
+            conversationId
+          )
+          const pendingSubmission = getPendingConversationTurnSubmission(
+            queryClient,
+            conversationId
+          )
+          const pendingTurnId =
+            pendingSubmission?.turnId ?? pendingExecution?.turnId
+          if (
+            terminal &&
+            (pendingExecution || pendingSubmission) &&
+            !pendingTurnId
+          ) {
+            void queryClient.invalidateQueries({
+              queryKey: ["conversation", conversationId],
+              exact: true,
+            })
+          }
+          const matchesPendingExecution =
+            !terminal ||
+            (!pendingExecution && !pendingSubmission) ||
+            pendingTurnId === executionTransition.turnId
+          const currentConversation = queryClient.getQueryData<Conversation>([
+            "conversation",
+            conversationId,
+          ])
+          const transitionedConversation = currentConversation
+            ? applyConversationExecutionTransition(
+                currentConversation,
+                executionTransition
+              )
+            : undefined
+          const matchesCurrentTurn =
+            matchesPendingExecution &&
+            (!terminal ||
+              transitionedConversation !== currentConversation ||
+              pendingTurnId === executionTransition.turnId)
+          if (matchesCurrentTurn) {
+            if (transitionedConversation) {
+              queryClient.setQueryData<Conversation>(
+                ["conversation", conversationId],
+                transitionedConversation
+              )
+            }
+            if (!terminal) {
+              queryClient.setQueryData<
+                InfiniteData<Paginated<Conversation>, string | undefined>
+              >(["conversations", "sidebar"], (current) =>
+                patchSidebarConversationExecutionStatus(
+                  current,
+                  conversationId,
+                  executionTransition.status
+                )
+              )
+            }
+          }
+          if (terminal && matchesCurrentTurn) {
+            const terminalTurnId = executionTransition.turnId
+            const terminalStatus = executionTransition.status
+            if (
+              terminalTurnId &&
+              isTerminalConversationExecutionStatus(terminalStatus)
+            ) {
+              const projectedDetailUpdateCount =
+                queryClient.getQueryState<Conversation>([
+                  "conversation",
+                  conversationId,
+                ])?.dataUpdateCount ?? 0
+              setTerminalDetailReconciliations((current) => ({
+                ...current,
+                [conversationId]: {
+                  turnId: terminalTurnId,
+                  status: terminalStatus,
+                  detailUpdateCount: projectedDetailUpdateCount,
+                },
+              }))
+            }
+            void queryClient.invalidateQueries({
+              queryKey: ["conversation", conversationId],
+              exact: true,
+            })
+            clearPendingConversationExecution(queryClient, conversationId)
+            clearPendingConversationTurnSubmission(queryClient, conversationId)
+            setPendingTurnSubmission((current) =>
+              current?.conversationId === conversationId &&
+              (!event.turn_id ||
+                !current.turnId ||
+                current.turnId === event.turn_id)
+                ? null
+                : current
+            )
+            setPendingCompaction((current) =>
+              current?.conversationId === conversationId &&
+              (!event.turn_id || current.turnId === event.turn_id)
+                ? null
+                : current
+            )
+          }
+        }
 
         const native = getNativeCodexPayload(event)
         if (native) {
@@ -2036,9 +1756,13 @@ export function ConversationPage({
           const refreshScope = getConversationEventQueryRefreshScope(event, {
             projectedTurnId,
           })
+          const reconciliationScope =
+            executionTransition && refreshScope === "detail-and-list"
+              ? "detail"
+              : refreshScope
           if (
             native.method === "thread/name/updated" ||
-            (native.method === "turn/started" && refreshScope === "none")
+            (native.method === "turn/started" && reconciliationScope === "none")
           ) {
             return
           }
@@ -2159,12 +1883,17 @@ export function ConversationPage({
             if (event.turn_id) {
               stopHookSupersededItemIdsByTurnRef.current.delete(event.turn_id)
             }
-            setInterrupting(false)
+            clearInterruptingConversation(conversationId)
             setLiveReasoningSummaries((current) =>
               removeStreamingReasoningSummariesForTurn(current, event.turn_id)
             )
           }
-          scheduleConversationRefresh(refreshScope)
+          if (
+            !executionTransition ||
+            !isTerminalConversationExecutionStatus(executionTransition.status)
+          ) {
+            scheduleConversationRefresh(reconciliationScope)
+          }
           return
         }
 
@@ -2312,18 +2041,27 @@ export function ConversationPage({
           event.type === "conversation.status.changed"
         ) {
           clearNativeReconnect()
-          setInterrupting(false)
+          clearInterruptingConversation(conversationId)
           setLiveReasoningSummaries((current) =>
             removeStreamingReasoningSummariesForTurn(current, event.turn_id)
           )
           if (event.type !== "conversation.status.changed")
             setLiveActivities([])
         }
-        scheduleConversationRefresh(
-          getConversationQueryRefreshScope(event.type)
-        )
+        if (
+          !executionTransition ||
+          !isTerminalConversationExecutionStatus(executionTransition.status)
+        ) {
+          const refreshScope = getConversationQueryRefreshScope(event.type)
+          scheduleConversationRefresh(
+            executionTransition && refreshScope === "detail-and-list"
+              ? "detail"
+              : refreshScope
+          )
+        }
       },
       [
+        clearInterruptingConversation,
         clearNativeReconnect,
         conversation?.title_source,
         conversation?.running_turn?.id,
@@ -2332,10 +2070,15 @@ export function ConversationPage({
         enqueueNativeMessageDelta,
         flushPendingNativeMessageDeltas,
         isNewTaskPromotion,
+        liveConversationIdRef,
         pendingTurnSubmission,
         pendingSubmissionBelongsToConversation,
         queryClient,
         scheduleConversationRefresh,
+        setLiveActivities,
+        setLiveEvents,
+        setLiveReasoningSummaries,
+        setStreamedMessages,
         startNativeReconnect,
         synchronizeLiveConversationScope,
         t,
@@ -2343,6 +2086,41 @@ export function ConversationPage({
     ),
     conversation?.last_event_id
   )
+
+  useEffect(() => {
+    const reconciliation = terminalDetailReconciliation
+    if (!reconciliation) return
+    const detailUpdateCount = conversationId
+      ? (queryClient.getQueryState<Conversation>([
+          "conversation",
+          conversationId,
+        ])?.dataUpdateCount ?? 0)
+      : 0
+    if (
+      conversationQuery.isFetching ||
+      detailUpdateCount <= reconciliation.detailUpdateCount
+    ) {
+      return
+    }
+    const timer = window.setTimeout(
+      () =>
+        setTerminalDetailReconciliations((current) => {
+          if (!conversationId || current[conversationId] !== reconciliation) {
+            return current
+          }
+          const next = { ...current }
+          delete next[conversationId]
+          return next
+        }),
+      0
+    )
+    return () => window.clearTimeout(timer)
+  }, [
+    conversationId,
+    conversationQuery.isFetching,
+    queryClient,
+    terminalDetailReconciliation,
+  ])
 
   useEffect(() => {
     if (
@@ -2373,15 +2151,19 @@ export function ConversationPage({
   useEffect(() => {
     if (!hasConversation || turnExecutionActive) return
     const timer = window.setTimeout(() => {
-      setInterrupting(false)
+      clearInterruptingConversation(conversationId)
       clearNativeReconnect()
-      setStreamedMessages({})
-      setLiveReasoningSummaries({})
-      setLiveActivities([])
-      setLiveEvents([])
+      clearConversationLiveState(conversationId)
     }, 2_000)
     return () => window.clearTimeout(timer)
-  }, [clearNativeReconnect, hasConversation, turnExecutionActive])
+  }, [
+    clearConversationLiveState,
+    clearInterruptingConversation,
+    clearNativeReconnect,
+    conversationId,
+    hasConversation,
+    turnExecutionActive,
+  ])
 
   useEffect(() => {
     const persistedMessageIds = new Set(
@@ -2402,7 +2184,7 @@ export function ConversationPage({
       )
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [conversation?.messages])
+  }, [conversation?.messages, setStreamedMessages])
 
   useEffect(() => {
     if (!conversation?.id) return
@@ -2419,7 +2201,7 @@ export function ConversationPage({
   }, [conversation?.id, persistedGoalRevision])
 
   useEffect(() => {
-    const pending = pendingTurnSubmission
+    const pending = currentPendingTurnSubmission
     const projectedTurn = conversation?.turns?.find(
       (turn) => turn.id === pending?.turnId
     )
@@ -2440,6 +2222,10 @@ export function ConversationPage({
       return
     }
     const timer = window.setTimeout(() => {
+      clearPendingConversationTurnSubmission(
+        queryClient,
+        pending.conversationId
+      )
       setPendingTurnSubmission((current) =>
         current?.conversationId === pending.conversationId &&
         current.turnId === pending.turnId
@@ -2453,7 +2239,8 @@ export function ConversationPage({
     conversation?.messages,
     conversation?.running_turn?.id,
     conversation?.turns,
-    pendingTurnSubmission,
+    currentPendingTurnSubmission,
+    queryClient,
   ])
 
   useEffect(() => {
@@ -2498,22 +2285,6 @@ export function ConversationPage({
     return () => window.clearTimeout(timer)
   }, [conversation?.id, conversation?.pending_requests, pendingOfficeQuestion])
 
-  const synchronizeDraftMetadata = useCallback(
-    (nextConversation: Conversation) => {
-      hydratedIdRef.current = nextConversation.id
-      draftUpdatedAtRef.current = nextConversation.draft?.updated_at ?? null
-      const snapshot =
-        conversationDraftSnapshotFromConversation(nextConversation)
-      const snapshotKey = conversationDraftSnapshotKey(snapshot)
-      lastDraftSnapshotRef.current = snapshot
-      lastDraftRef.current = snapshotKey
-      lastQueuedDraftRef.current = snapshotKey
-      queuedDraftSaveRef.current = null
-      clearDraftConflict()
-    },
-    [clearDraftConflict]
-  )
-
   const ensureConversation = async ({
     suppressEmptyStateUntilFirstMessage = false,
     initialInput = "",
@@ -2536,29 +2307,57 @@ export function ConversationPage({
       if (suppressEmptyStateUntilFirstMessage) {
         setPendingFirstMessageConversationId(newConversationPlaceholderId)
       }
-      const draft = await apiRequest("/conversations/drafts", {
+      const createdConversation = await apiRequest("/conversations", {
         method: "POST",
         body: {
-          input_text: initialInput,
-          priority_capability_ids: initialCapabilityIds,
-          knowledge_base_ids: initialKnowledgeBaseIds,
           collaboration_mode: initialCollaborationMode,
+          ...(prewarmedConversationIdRef.current
+            ? {
+                prewarmed_conversation_id: prewarmedConversationIdRef.current,
+              }
+            : {}),
         },
-        schema: conversationDraftResultSchema,
+        schema: conversationSchema,
       })
-      queryClient.setQueryData(["conversation", draft.id], draft)
+      if (user) {
+        writeLocalConversationDraft(
+          window.localStorage,
+          user.id,
+          createdConversation.id,
+          {
+            input: initialInput,
+            capabilityIds: initialCapabilityIds,
+            knowledgeBaseIds: initialKnowledgeBaseIds,
+          }
+        )
+        clearLocalConversationDraft(window.localStorage, user.id, "new")
+      }
+      queryClient.setQueryData(
+        ["conversation", createdConversation.id],
+        createdConversation
+      )
       if (suppressEmptyStateUntilFirstMessage) {
-        const runningDraft: Conversation = {
-          ...draft,
+        const runningConversation: Conversation = {
+          ...createdConversation,
           execution_status: "running",
         }
+        movePendingConversationExecution(
+          queryClient,
+          newConversationPlaceholderId,
+          createdConversation.id
+        )
+        movePendingConversationTurnSubmission(
+          queryClient,
+          newConversationPlaceholderId,
+          createdConversation.id
+        )
         queryClient.setQueryData<
           InfiniteData<Paginated<Conversation>, string | undefined>
         >(["conversations", "sidebar"], (cached) =>
           replaceSidebarConversation(
             cached,
             newConversationPlaceholderId,
-            runningDraft
+            runningConversation
           )
         )
       }
@@ -2566,16 +2365,17 @@ export function ConversationPage({
         routeEpochRef.current === routeEpoch &&
         routeConversationIdRef.current === null
       ) {
-        setNewTaskPromotionConversationId(draft.id)
-        setTaskOverviewSuppressedConversationId(draft.id)
-        synchronizeDraftMetadata(draft)
-        routeConversationIdRef.current = draft.id
+        prewarmedConversationIdRef.current = null
+        setNewTaskPromotionConversationId(createdConversation.id)
+        setTaskOverviewSuppressedConversationId(createdConversation.id)
+        hydratedDraftScopeRef.current = createdConversation.id
+        routeConversationIdRef.current = createdConversation.id
         if (suppressEmptyStateUntilFirstMessage) {
-          setPendingFirstMessageConversationId(draft.id)
+          setPendingFirstMessageConversationId(createdConversation.id)
         }
-        navigate(`/conversations/${draft.id}`, { replace: true })
+        navigate(`/conversations/${createdConversation.id}`, { replace: true })
       }
-      return draft.id
+      return createdConversation.id
     })()
     const pendingCreation = { epoch: routeEpoch, promise: creation }
     ensureConversationPromiseRef.current = pendingCreation
@@ -2595,9 +2395,6 @@ export function ConversationPage({
       ...conversationDetailQueryOptions(id),
       staleTime: 0,
     })
-    if (routeConversationIdRef.current === id) {
-      synchronizeDraftMetadata(detail)
-    }
     return detail
   }
 
@@ -2807,13 +2604,44 @@ export function ConversationPage({
 
   const sendMutation = useMutation({
     onMutate: async (submission): Promise<OptimisticTurnStart> => {
+      // A sidebar refetch may have started before this submission. Cancel it
+      // before applying the optimistic status so its older snapshot cannot
+      // replace this task -- or the other running task rows -- when it settles.
+      const sidebarCancellation = queryClient.cancelQueries(
+        { queryKey: ["conversations", "sidebar"], exact: true },
+        { silent: true, revert: false }
+      )
       const sidebarExecutionStatus =
         optimisticallyMarkSidebarConversationRunning()
+      const pendingExecutionConversationId =
+        sidebarExecutionStatus?.conversationId ??
+        (isNew ? newConversationPlaceholderId : conversationId)
+      if (pendingExecutionConversationId) {
+        markConversationExecutionPending(
+          queryClient,
+          pendingExecutionConversationId
+        )
+      }
+      await sidebarCancellation
       try {
         const attachmentConsumption =
           await optimisticallyConsumeSubmissionAttachments(submission)
-        return { attachmentConsumption, sidebarExecutionStatus }
+        return {
+          attachmentConsumption,
+          sidebarExecutionStatus,
+          pendingExecutionConversationId,
+        }
       } catch (error) {
+        if (pendingExecutionConversationId) {
+          clearPendingConversationExecution(
+            queryClient,
+            pendingExecutionConversationId
+          )
+          clearPendingConversationTurnSubmission(
+            queryClient,
+            pendingExecutionConversationId
+          )
+        }
         restoreOptimisticSidebarExecutionStatus(sidebarExecutionStatus)
         throw error
       }
@@ -2842,36 +2670,16 @@ export function ConversationPage({
           return { ...current, conversationId: id }
         })
       }
-      const requestedSnapshot = createConversationDraftSnapshot(
-        requestedInput,
-        requestedCapabilityIds,
-        requestedKnowledgeBaseIds
-      )
-      submittedDraftSnapshotRef.current =
-        conversationDraftSnapshotKey(requestedSnapshot)
-      // Turn admission consumes the exact persisted draft. Persist first so a
-      // stale version can converge before creating an optimistic turn.
-      const persistedSnapshot = await queueDraftSave(
-        id,
-        requestedInput,
-        requestedCapabilityIds,
-        requestedKnowledgeBaseIds,
-        { useLatestComposerSnapshot: false }
-      )
-      const nextInput = persistedSnapshot.input
-      const nextCapabilityIds = [...persistedSnapshot.capabilityIds]
-      const nextKnowledgeBaseIds = [...persistedSnapshot.knowledgeBaseIds]
       const idempotencyKey = await stableOperationId(turnSubmitOperationRef, {
         operation: "turn_start",
         conversation_id: id,
-        draft_updated_at: draftUpdatedAtRef.current,
         preceding_turn_id:
           conversation?.running_turn?.id ??
           conversation?.turns?.at(-1)?.id ??
           null,
-        input_text: nextInput,
-        priority_capability_ids: nextCapabilityIds,
-        knowledge_base_ids: nextKnowledgeBaseIds,
+        input_text: requestedInput,
+        priority_capability_ids: requestedCapabilityIds,
+        knowledge_base_ids: requestedKnowledgeBaseIds,
         attachment_ids: nextAttachments.map((attachment) => attachment.id),
         collaboration_mode: submission.collaborationMode,
       })
@@ -2882,8 +2690,6 @@ export function ConversationPage({
           []
         ).map((capability) => [capability.id, capability])
       )
-      submittedDraftSnapshotRef.current =
-        conversationDraftSnapshotKey(persistedSnapshot)
       setPendingTurnSubmission((current) => {
         const optimisticSubmission =
           submission.optimisticId &&
@@ -2900,97 +2706,109 @@ export function ConversationPage({
               optimisticSubmission?.message.id ??
               `optimistic-${idempotencyKey}`,
             role: "user",
-            content: nextInput,
+            content: requestedInput,
             turn_id: null,
             created_at:
               optimisticSubmission?.message.created_at ??
               new Date().toISOString(),
             attachments: nextAttachments,
-            selected_capabilities: nextCapabilityIds.flatMap((capabilityId) => {
-              const capability = selectedCapabilities.get(capabilityId)
-              return capability
-                ? [
-                    {
-                      id: capability.id,
-                      name: capability.name,
-                      type: capability.type,
-                    },
-                  ]
-                : []
-            }),
-            selected_knowledge_base_ids: nextKnowledgeBaseIds,
+            selected_capabilities: requestedCapabilityIds.flatMap(
+              (capabilityId) => {
+                const capability = selectedCapabilities.get(capabilityId)
+                return capability
+                  ? [
+                      {
+                        id: capability.id,
+                        name: capability.name,
+                        type: capability.type,
+                      },
+                    ]
+                  : []
+              }
+            ),
+            selected_knowledge_base_ids: requestedKnowledgeBaseIds,
           },
         }
       })
-      await enqueueDraftOperation(async () => {
-        const receipt = await apiRequest(`/conversations/${id}/turns`, {
-          method: "POST",
-          body: {
-            input_text: nextInput,
-            priority_capability_ids: nextCapabilityIds,
-            knowledge_base_ids: nextKnowledgeBaseIds,
-            idempotency_key: idempotencyKey,
-            collaboration_mode: submission.collaborationMode,
-          },
-          schema: turnStartReceiptSchema,
-        })
-        setPendingTurnSubmission((current) =>
-          current?.conversationId === id &&
-          (current.idempotencyKey === idempotencyKey ||
-            current.optimisticId === submission.optimisticId)
-            ? {
-                ...current,
-                turnId: receipt.turn_id,
-                status: receipt.status,
-                message: { ...current.message, turn_id: receipt.turn_id },
-              }
-            : current
-        )
+      updatePendingConversationTurnSubmission(queryClient, id, (current) => ({
+        ...current,
+        conversationId: id,
+        optimisticId: submission.optimisticId,
+        idempotencyKey,
+      }))
+      const receipt = await apiRequest(`/conversations/${id}/turns`, {
+        method: "POST",
+        body: {
+          input_text: requestedInput,
+          priority_capability_ids: requestedCapabilityIds,
+          knowledge_base_ids: requestedKnowledgeBaseIds,
+          idempotency_key: idempotencyKey,
+          collaboration_mode: submission.collaborationMode,
+        },
+        schema: turnStartReceiptSchema,
       })
-      return { id, idempotencyKey, persistedSnapshot }
+      setPendingTurnSubmission((current) =>
+        current?.conversationId === id &&
+        (current.idempotencyKey === idempotencyKey ||
+          current.optimisticId === submission.optimisticId)
+          ? {
+              ...current,
+              turnId: receipt.turn_id,
+              status: receipt.status,
+              message: { ...current.message, turn_id: receipt.turn_id },
+            }
+          : current
+      )
+      updatePendingConversationTurnSubmission(queryClient, id, (current) => ({
+        ...current,
+        turnId: receipt.turn_id,
+        status: receipt.status,
+        message: { ...current.message, turn_id: receipt.turn_id },
+      }))
+      bindPendingConversationTurn(queryClient, id, receipt.turn_id)
+      return { id, idempotencyKey }
     },
     onSuccess: (result, _submission, optimisticTurnStart) => {
-      commitOptimisticallyConsumedAttachments(
-        optimisticTurnStart?.attachmentConsumption
-      )
+      const attachmentConsumption = optimisticTurnStart?.attachmentConsumption
       composerSubmissionInFlightRef.current = false
       setPendingFirstMessageConversationId(null)
       if (routeConversationIdRef.current !== result.id) {
+        commitOptimisticallyConsumedAttachments(attachmentConsumption)
         setPendingTurnSubmission((current) =>
           current?.conversationId === result.id ? null : current
         )
         if (turnSubmitOperationRef.current?.id === result.idempotencyKey) {
           turnSubmitOperationRef.current = null
         }
-        submittedDraftSnapshotRef.current = null
         sendSubmissionConversationIdRef.current = null
+        if (user)
+          clearLocalConversationDraft(window.localStorage, user.id, result.id)
         return
       }
       turnSubmitOperationRef.current = null
-      const consumedSnapshot = createConversationDraftSnapshot(
-        "",
-        [],
-        result.persistedSnapshot.knowledgeBaseIds
-      )
-      lastDraftSnapshotRef.current = consumedSnapshot
-      lastDraftRef.current = conversationDraftSnapshotKey(consumedSnapshot)
-      lastQueuedDraftRef.current = lastDraftRef.current
-      queuedDraftSaveRef.current = null
-      submittedDraftSnapshotRef.current = null
       sendSubmissionConversationIdRef.current = null
+      if (user)
+        clearLocalConversationDraft(window.localStorage, user.id, result.id)
       // Keep the optimistic running state until the submitted turn is
       // projected. An immediate list refresh can still return the preceding
       // terminal state and make the sidebar indicator flicker.
-      void refreshSubmittedConversation(result.id).catch(() => {
-        void queryClient.invalidateQueries({
-          queryKey: ["conversation", result.id],
+      // Keep submitted attachments filtered until the admission refresh has
+      // settled too. That refresh can briefly return pre-consumption staged
+      // attachments and must not put them back into the composer.
+      void refreshSubmittedConversation(result.id)
+        .catch(() =>
+          queryClient.invalidateQueries({
+            queryKey: ["conversation", result.id],
+          })
+        )
+        .finally(() => {
+          commitOptimisticallyConsumedAttachments(attachmentConsumption)
         })
-      })
     },
     onError: (nextError, submission, optimisticTurnStart) => {
       const targetConversationId = sendSubmissionConversationIdRef.current
       composerSubmissionInFlightRef.current = false
-      setInterrupting(false)
+      clearInterruptingConversation(targetConversationId)
       restoreOptimisticallyConsumedAttachments(
         optimisticTurnStart?.attachmentConsumption
       )
@@ -2998,8 +2816,27 @@ export function ConversationPage({
         optimisticTurnStart?.sidebarExecutionStatus,
         targetConversationId
       )
-      const failedSnapshot = submittedDraftSnapshotRef.current
-      submittedDraftSnapshotRef.current = null
+      if (targetConversationId) {
+        clearPendingConversationExecution(queryClient, targetConversationId)
+        clearPendingConversationTurnSubmission(
+          queryClient,
+          targetConversationId
+        )
+      }
+      if (
+        optimisticTurnStart?.pendingExecutionConversationId &&
+        optimisticTurnStart.pendingExecutionConversationId !==
+          targetConversationId
+      ) {
+        clearPendingConversationExecution(
+          queryClient,
+          optimisticTurnStart.pendingExecutionConversationId
+        )
+        clearPendingConversationTurnSubmission(
+          queryClient,
+          optimisticTurnStart.pendingExecutionConversationId
+        )
+      }
       if (routeConversationIdRef.current !== targetConversationId) {
         setPendingFirstMessageConversationId((current) =>
           current === targetConversationId ? null : current
@@ -3019,22 +2856,10 @@ export function ConversationPage({
       setSelectedCapabilityIds((current) =>
         current.length > 0 ? current : [...submission.capabilityIds]
       )
-      if (
-        conversationId &&
-        !isNew &&
-        failedSnapshot &&
-        failedSnapshot !== lastDraftRef.current
-      ) {
-        void queueDraftSave(
-          conversationId,
-          submission.input,
-          submission.capabilityIds,
-          submission.knowledgeBaseIds
-        ).catch(() => undefined)
-      }
-      if (!isDraftConflictPendingError(nextError)) {
-        setTurnAdmissionError(nextError)
-      }
+      setSelectedKnowledgeBaseIds((current) =>
+        current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
+      setTurnAdmissionError(nextError)
       sendSubmissionConversationIdRef.current = null
     },
   })
@@ -3051,7 +2876,6 @@ export function ConversationPage({
       routeEpoch: number
       precedingTurnId: string | null
     }) => {
-      await draftQueueRef.current
       if (
         routeEpochRef.current !== routeEpoch ||
         routeConversationIdRef.current !== targetConversationId
@@ -3122,6 +2946,13 @@ export function ConversationPage({
       if (contextCompactionOperationRef.current?.id === result.idempotencyKey) {
         contextCompactionOperationRef.current = null
       }
+      if (user) {
+        clearLocalConversationDraft(
+          window.localStorage,
+          user.id,
+          result.conversationId
+        )
+      }
       if (routeConversationIdRef.current === result.conversationId) {
         setValue((current) => (current === result.commandValue ? "" : current))
       }
@@ -3175,27 +3006,12 @@ export function ConversationPage({
           previousGoalRevision: threadGoalRevision(conversation?.goal),
         }
       })
-      const requestedSnapshot = createConversationDraftSnapshot(
-        requestedObjective,
-        requestedCapabilityIds,
-        requestedKnowledgeBaseIds
-      )
-      submittedDraftSnapshotRef.current =
-        conversationDraftSnapshotKey(requestedSnapshot)
-      const persistedSnapshot = await queueDraftSave(
-        id,
-        requestedObjective,
-        requestedCapabilityIds,
-        requestedKnowledgeBaseIds,
-        { useLatestComposerSnapshot: false }
-      )
-      const objective = persistedSnapshot.input.trim()
-      const capabilityIds = [...persistedSnapshot.capabilityIds]
-      const knowledgeBaseIds = [...persistedSnapshot.knowledgeBaseIds]
+      const objective = requestedObjective
+      const capabilityIds = requestedCapabilityIds
+      const knowledgeBaseIds = requestedKnowledgeBaseIds
       const idempotencyKey = await stableOperationId(goalStartOperationRef, {
         operation: "goal_start",
         conversation_id: id,
-        draft_updated_at: draftUpdatedAtRef.current,
         preceding_turn_id:
           conversation?.running_turn?.id ??
           conversation?.turns?.at(-1)?.id ??
@@ -3237,29 +3053,27 @@ export function ConversationPage({
           selected_knowledge_base_ids: knowledgeBaseIds,
         },
       })
-      await enqueueDraftOperation(async () => {
-        const receipt = await apiRequest(`/conversations/${id}/goal`, {
-          method: "POST",
-          body: {
-            objective,
-            priority_capability_ids: capabilityIds,
-            knowledge_base_ids: knowledgeBaseIds,
-            idempotency_key: idempotencyKey,
-          },
-          schema: turnStartReceiptSchema,
-        })
-        setPendingTurnSubmission((current) =>
-          current?.conversationId === id &&
-          current.idempotencyKey === idempotencyKey
-            ? {
-                ...current,
-                turnId: receipt.turn_id,
-                status: receipt.status,
-                message: { ...current.message, turn_id: receipt.turn_id },
-              }
-            : current
-        )
+      const receipt = await apiRequest(`/conversations/${id}/goal`, {
+        method: "POST",
+        body: {
+          objective,
+          priority_capability_ids: capabilityIds,
+          knowledge_base_ids: knowledgeBaseIds,
+          idempotency_key: idempotencyKey,
+        },
+        schema: turnStartReceiptSchema,
       })
+      setPendingTurnSubmission((current) =>
+        current?.conversationId === id &&
+        current.idempotencyKey === idempotencyKey
+          ? {
+              ...current,
+              turnId: receipt.turn_id,
+              status: receipt.status,
+              message: { ...current.message, turn_id: receipt.turn_id },
+            }
+          : current
+      )
       let refreshedConversation: Conversation | null = null
       try {
         refreshedConversation = await refreshSubmittedConversation(id)
@@ -3268,7 +3082,7 @@ export function ConversationPage({
           queryKey: ["conversation", id],
         })
       }
-      return { id, idempotencyKey, persistedSnapshot, refreshedConversation }
+      return { id, idempotencyKey, refreshedConversation }
     },
     onSuccess: (result, _submission, optimisticAttachmentConsumption) => {
       commitOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
@@ -3289,25 +3103,16 @@ export function ConversationPage({
         if (goalStartOperationRef.current?.id === result.idempotencyKey) {
           goalStartOperationRef.current = null
         }
-        submittedDraftSnapshotRef.current = null
         goalStartSubmissionConversationIdRef.current = null
+        if (user)
+          clearLocalConversationDraft(window.localStorage, user.id, result.id)
         void refreshConversationList()
         return
       }
       setGoalMode(false)
       goalStartOperationRef.current = null
-      if (!result.refreshedConversation) {
-        const consumedSnapshot = createConversationDraftSnapshot(
-          "",
-          [],
-          result.persistedSnapshot.knowledgeBaseIds
-        )
-        lastDraftSnapshotRef.current = consumedSnapshot
-        lastDraftRef.current = conversationDraftSnapshotKey(consumedSnapshot)
-        lastQueuedDraftRef.current = lastDraftRef.current
-        queuedDraftSaveRef.current = null
-      }
-      submittedDraftSnapshotRef.current = null
+      if (user)
+        clearLocalConversationDraft(window.localStorage, user.id, result.id)
       goalStartSubmissionConversationIdRef.current = null
       void refreshConversationList()
     },
@@ -3315,7 +3120,6 @@ export function ConversationPage({
       const targetConversationId = goalStartSubmissionConversationIdRef.current
       composerSubmissionInFlightRef.current = false
       restoreOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
-      submittedDraftSnapshotRef.current = null
       if (routeConversationIdRef.current !== targetConversationId) {
         setPendingFirstMessageConversationId((current) =>
           current === targetConversationId ? null : current
@@ -3341,21 +3145,14 @@ export function ConversationPage({
       setSelectedCapabilityIds((current) =>
         current.length > 0 ? current : [...submission.capabilityIds]
       )
+      setSelectedKnowledgeBaseIds((current) =>
+        current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
       setOptimisticGoal((current) =>
         current?.goal.objective === submission.input.trim() ? null : current
       )
       setGoalMode(true)
-      if (conversationId && !isNew) {
-        void queueDraftSave(
-          conversationId,
-          submission.input,
-          submission.capabilityIds,
-          submission.knowledgeBaseIds
-        ).catch(() => undefined)
-      }
-      if (!isDraftConflictPendingError(nextError)) {
-        setTurnAdmissionError(nextError)
-      }
+      setTurnAdmissionError(nextError)
       goalStartSubmissionConversationIdRef.current = null
     },
   })
@@ -3499,7 +3296,6 @@ export function ConversationPage({
               knowledge_base_ids: validSelectedKnowledgeBaseIds,
               collaboration_mode: collaborationMode,
               idempotency_key: idempotencyKey,
-              draft_policy: "preserve",
               message_display: messageDisplay,
             },
             schema: pendingRequestSchema,
@@ -3541,7 +3337,6 @@ export function ConversationPage({
           knowledge_base_ids: validSelectedKnowledgeBaseIds,
           collaboration_mode: collaborationMode,
           idempotency_key: idempotencyKey,
-          draft_policy: "preserve",
           message_display: messageDisplay,
         },
         schema: turnStartReceiptSchema,
@@ -3637,11 +3432,8 @@ export function ConversationPage({
     },
     onSuccess: ({ id }) => {
       regenerateOperationRef.current = null
-      setStreamedMessages({})
-      setLiveReasoningSummaries({})
-      setLiveActivities([])
-      setLiveEvents([])
-      clearNativeReconnect()
+      clearConversationLiveState(id)
+      if (liveConversationIdRef.current === id) clearNativeReconnect()
       void refreshSubmittedConversation(id).catch(() =>
         queryClient
           .invalidateQueries({ queryKey: ["conversation", id] })
@@ -3677,6 +3469,11 @@ export function ConversationPage({
         }
       )
     },
+    onMutate: () => {
+      notify.loading(t("conversation.forkingMessage"), {
+        id: conversationForkNotificationId,
+      })
+    },
     onSuccess: (forkedConversation) => {
       forkOperationRef.current = null
       queryClient.setQueryData(
@@ -3689,6 +3486,9 @@ export function ConversationPage({
     },
     onError: () => {
       setError(t("conversation.forkMessageFailed"))
+    },
+    onSettled: () => {
+      notify.dismiss(conversationForkNotificationId)
     },
   })
 
@@ -3784,32 +3584,6 @@ export function ConversationPage({
     removeAttachmentMutation.isPending ||
     clearAttachmentsMutation.isPending
 
-  const flushDraftAfterAttachmentOperation = async (
-    targetConversationId: string
-  ) => {
-    if (
-      routeConversationIdRef.current !== targetConversationId ||
-      hydratedIdRef.current !== targetConversationId
-    )
-      return
-    const snapshot = composerDraftSnapshotRef.current
-    try {
-      await queueDraftSave(
-        targetConversationId,
-        snapshot.input,
-        [...snapshot.capabilityIds],
-        [...snapshot.knowledgeBaseIds]
-      )
-    } catch (nextError: unknown) {
-      if (
-        routeConversationIdRef.current === targetConversationId &&
-        !isDraftConflictPendingError(nextError)
-      ) {
-        setError(getErrorMessage(nextError, t))
-      }
-    }
-  }
-
   const attachComposerFiles = (files: File[]) => {
     if (
       composerSubmissionInFlightRef.current ||
@@ -3823,8 +3597,8 @@ export function ConversationPage({
     setComposerAttachmentOperationPending(true)
     attachmentMutationTargetConversationIdRef.current = null
     let targetConversationId: string | null = null
-    return draftQueueRef.current
-      .then(() => attachMutation.mutateAsync(files))
+    return attachMutation
+      .mutateAsync(files)
       .then(async (id) => {
         targetConversationId = id
         return true
@@ -3841,12 +3615,9 @@ export function ConversationPage({
         }
         throw nextError
       })
-      .finally(async () => {
+      .finally(() => {
         targetConversationId ??=
           attachmentMutationTargetConversationIdRef.current
-        if (targetConversationId) {
-          await flushDraftAfterAttachmentOperation(targetConversationId)
-        }
         attachmentMutationTargetConversationIdRef.current = null
         composerAttachmentOperationInFlightRef.current = false
         setComposerAttachmentOperationPending(false)
@@ -3867,7 +3638,6 @@ export function ConversationPage({
     composerAttachmentOperationInFlightRef.current = true
     setComposerAttachmentOperationPending(true)
     try {
-      await draftQueueRef.current
       await removeAttachmentMutation.mutateAsync({
         targetConversationId,
         file,
@@ -3880,7 +3650,6 @@ export function ConversationPage({
         setError(getErrorMessage(nextError, t))
       }
     } finally {
-      await flushDraftAfterAttachmentOperation(targetConversationId)
       composerAttachmentOperationInFlightRef.current = false
       setComposerAttachmentOperationPending(false)
     }
@@ -3903,7 +3672,6 @@ export function ConversationPage({
     composerAttachmentOperationInFlightRef.current = true
     setComposerAttachmentOperationPending(true)
     try {
-      await draftQueueRef.current
       await clearAttachmentsMutation.mutateAsync({
         targetConversationId,
         files,
@@ -3916,7 +3684,6 @@ export function ConversationPage({
         setError(getErrorMessage(nextError, t))
       }
     } finally {
-      await flushDraftAfterAttachmentOperation(targetConversationId)
       composerAttachmentOperationInFlightRef.current = false
       setComposerAttachmentOperationPending(false)
     }
@@ -3937,12 +3704,14 @@ export function ConversationPage({
           schema: emptyResponseSchema,
         }
       ),
-    onMutate: () => setInterrupting(true),
+    onMutate: ({ targetConversationId }) =>
+      setInterruptingConversationId(targetConversationId),
     onSuccess: async (_result, { targetConversationId, turnId }) => {
       try {
         await refreshAfterMutation(targetConversationId)
       } finally {
         dispatchedInterruptTurnIdsRef.current.delete(turnId)
+        clearPendingConversationExecution(queryClient, targetConversationId)
         setPendingTurnSubmission((current) =>
           current?.turnId === turnId && current.interruptRequested
             ? null
@@ -3950,10 +3719,13 @@ export function ConversationPage({
         )
       }
     },
-    onError: (nextError, { turnId }) => {
+    onError: (nextError, { targetConversationId, turnId }) => {
       dispatchedInterruptTurnIdsRef.current.delete(turnId)
-      setInterrupting(false)
-      setError(getErrorMessage(nextError, t))
+      clearPendingConversationExecution(queryClient, targetConversationId)
+      clearInterruptingConversation(targetConversationId)
+      if (routeConversationIdRef.current === targetConversationId) {
+        setError(getErrorMessage(nextError, t))
+      }
     },
   })
   const requestTurnInterrupt = interruptMutation.mutate
@@ -4001,40 +3773,29 @@ export function ConversationPage({
       if (!conversationId) throw new Error("conversation id is required")
       steerSubmissionConversationIdRef.current = conversationId
       const targetConversationId = conversationId
-      const nextInput = submission.input
-      const nextCapabilityIds = [...submission.capabilityIds]
-      const nextKnowledgeBaseIds = [...submission.knowledgeBaseIds]
-      const persistedSnapshot = await queueDraftSave(
-        targetConversationId,
-        nextInput,
-        nextCapabilityIds,
-        nextKnowledgeBaseIds,
-        { useLatestComposerSnapshot: false }
-      )
       const idempotencyKey = await stableOperationId(steerOperationRef, {
         operation: "turn_steer",
         conversation_id: targetConversationId,
         turn_id: conversation?.running_turn?.id,
-        draft_updated_at: draftUpdatedAtRef.current,
       })
-      await enqueueDraftOperation(async () => {
-        await apiRequest(
-          `/conversations/${targetConversationId}/turns/${conversation?.running_turn?.id}/steer`,
-          {
-            method: "POST",
-            body: {
-              text: persistedSnapshot.input,
-              idempotency_key: idempotencyKey,
-            },
-            schema: emptyResponseSchema,
-          }
-        )
-        await refreshSubmittedConversation(targetConversationId)
-      })
+      await apiRequest(
+        `/conversations/${targetConversationId}/turns/${conversation?.running_turn?.id}/steer`,
+        {
+          method: "POST",
+          body: {
+            text: submission.input,
+            idempotency_key: idempotencyKey,
+          },
+          schema: emptyResponseSchema,
+        }
+      )
+      await refreshSubmittedConversation(targetConversationId)
       return { id: targetConversationId }
     },
     onSuccess: async (result) => {
       composerSubmissionInFlightRef.current = false
+      if (user)
+        clearLocalConversationDraft(window.localStorage, user.id, result.id)
       if (routeConversationIdRef.current !== result.id) {
         steerOperationRef.current = null
         steerSubmissionConversationIdRef.current = null
@@ -4053,9 +3814,13 @@ export function ConversationPage({
         return
       }
       setValue((current) => current || submission.input)
-      if (!isDraftConflictPendingError(nextError)) {
-        setError(getErrorMessage(nextError, t))
-      }
+      setSelectedCapabilityIds((current) =>
+        current.length > 0 ? current : [...submission.capabilityIds]
+      )
+      setSelectedKnowledgeBaseIds((current) =>
+        current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
+      setError(getErrorMessage(nextError, t))
       steerSubmissionConversationIdRef.current = null
     },
   })
@@ -4066,44 +3831,33 @@ export function ConversationPage({
       if (!conversationId) throw new Error("conversation id is required")
       pendingSubmissionConversationIdRef.current = conversationId
       const targetConversationId = conversationId
-      const nextInput = submission.input
-      const nextCapabilityIds = [...submission.capabilityIds]
-      const nextKnowledgeBaseIds = [...submission.knowledgeBaseIds]
-      const persistedSnapshot = await queueDraftSave(
-        targetConversationId,
-        nextInput,
-        nextCapabilityIds,
-        nextKnowledgeBaseIds,
-        { useLatestComposerSnapshot: false }
-      )
       const idempotencyKey = await stableOperationId(pendingOperationRef, {
         operation: "pending_create",
         conversation_id: targetConversationId,
-        draft_updated_at: draftUpdatedAtRef.current,
         collaboration_mode: submission.collaborationMode,
       })
-      await enqueueDraftOperation(async () => {
-        await apiRequest(
-          `/conversations/${targetConversationId}/pending-requests`,
-          {
-            method: "POST",
-            body: {
-              input_text: persistedSnapshot.input,
-              priority_capability_ids: persistedSnapshot.capabilityIds,
-              knowledge_base_ids: persistedSnapshot.knowledgeBaseIds,
-              collaboration_mode: submission.collaborationMode,
-              idempotency_key: idempotencyKey,
-            },
-            schema: emptyResponseSchema,
-          }
-        )
-        await refreshSubmittedConversation(targetConversationId)
-      })
+      await apiRequest(
+        `/conversations/${targetConversationId}/pending-requests`,
+        {
+          method: "POST",
+          body: {
+            input_text: submission.input,
+            priority_capability_ids: submission.capabilityIds,
+            knowledge_base_ids: submission.knowledgeBaseIds,
+            collaboration_mode: submission.collaborationMode,
+            idempotency_key: idempotencyKey,
+          },
+          schema: emptyResponseSchema,
+        }
+      )
+      await refreshSubmittedConversation(targetConversationId)
       return { id: targetConversationId }
     },
     onSuccess: async (result, _submission, optimisticAttachmentConsumption) => {
       commitOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
       composerSubmissionInFlightRef.current = false
+      if (user)
+        clearLocalConversationDraft(window.localStorage, user.id, result.id)
       if (routeConversationIdRef.current !== result.id) {
         pendingOperationRef.current = null
         pendingSubmissionConversationIdRef.current = null
@@ -4126,9 +3880,10 @@ export function ConversationPage({
       setSelectedCapabilityIds((current) =>
         current.length > 0 ? current : [...submission.capabilityIds]
       )
-      if (!isDraftConflictPendingError(nextError)) {
-        setError(getErrorMessage(nextError, t))
-      }
+      setSelectedKnowledgeBaseIds((current) =>
+        current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
+      setError(getErrorMessage(nextError, t))
       pendingSubmissionConversationIdRef.current = null
     },
   })
@@ -4221,34 +3976,25 @@ export function ConversationPage({
       if (!conversationId) throw new Error("conversation id is required")
       setError(null)
       setPendingActionId(request.id)
-      await queueDraftSave(
-        conversationId,
-        value,
-        [...selectedCapabilityIds],
-        [...selectedKnowledgeBaseIds]
-      )
-      await apiRequest(
-        `/conversations/${conversationId}/pending-requests/${request.id}/restore-draft`,
+      const restored = await apiRequest(
+        `/conversations/${conversationId}/pending-requests/${request.id}/restore-input`,
         {
           method: "POST",
           schema: pendingRequestRestoreResultSchema,
         }
       )
-      return refreshSubmittedConversation(conversationId)
+      await refreshSubmittedConversation(conversationId)
+      return restored
     },
     onSettled: () => setPendingActionId(undefined),
-    onSuccess: async (detail) => {
-      setValue(detail.draft_input ?? "")
-      setSelectedCapabilityIds(effectiveDraftCapabilityIds(detail))
-      setSelectedKnowledgeBaseIds(effectiveDraftKnowledgeBaseIds(detail))
+    onSuccess: async (restored) => {
+      setValue(restored.input_text)
+      setSelectedCapabilityIds(restored.priority_capability_ids)
+      setSelectedKnowledgeBaseIds(restored.knowledge_base_ids)
       await refreshConversationList()
       window.setTimeout(() => composerRef.current?.focus(), 0)
     },
-    onError: (nextError) => {
-      if (!isDraftConflictPendingError(nextError)) {
-        setError(getErrorMessage(nextError, t))
-      }
-    },
+    onError: (nextError) => setError(getErrorMessage(nextError, t)),
   })
 
   const patchConversationMutation = useMutation({
@@ -4499,6 +4245,8 @@ export function ConversationPage({
     }
     if (!turnExecutionActive) {
       const optimisticId = crypto.randomUUID()
+      const optimisticConversationId =
+        conversationId ?? newConversationPlaceholderId
       const selectedCapabilities = new Map(
         (
           capabilityQuery.data?.items ??
@@ -4506,8 +4254,8 @@ export function ConversationPage({
           []
         ).map((capability) => [capability.id, capability])
       )
-      setPendingTurnSubmission({
-        conversationId: conversationId ?? newConversationPlaceholderId,
+      const optimisticSubmission: PendingTurnSubmission = {
+        conversationId: optimisticConversationId,
         optimisticId,
         idempotencyKey: optimisticId,
         message: {
@@ -4533,7 +4281,13 @@ export function ConversationPage({
           ),
           selected_knowledge_base_ids: submission.knowledgeBaseIds,
         },
-      })
+      }
+      setPendingTurnSubmission(optimisticSubmission)
+      setPendingConversationTurnSubmission(
+        queryClient,
+        optimisticConversationId,
+        optimisticSubmission
+      )
       scrollToBottom("auto")
       composerSubmissionInFlightRef.current = true
       setValue("")
@@ -4905,8 +4659,6 @@ export function ConversationPage({
     attachments: [],
     pending_requests: [],
     user_input_requests: [],
-    draft_input: "",
-    draft_capability_ids: [],
   }
   const currentOptimisticGoal =
     optimisticGoal?.conversationId === displayConversation.id
@@ -4946,9 +4698,7 @@ export function ConversationPage({
     setRenameValue(displayConversation.title || t("conversation.untitled"))
     setRenameOpen(true)
   }
-  const activePendingTurnSubmission = pendingSubmissionBelongsToConversation
-    ? pendingTurnSubmission
-    : null
+  const activePendingTurnSubmission = currentPendingTurnSubmission
   const hasCurrentLiveState = liveStateBelongsToConversation
   const optimisticallyReplacedTurnId =
     activePendingTurnSubmission?.replacesTurnId
@@ -5448,38 +5198,9 @@ export function ConversationPage({
         />
       )}
 
-      {(error || draftConflict || showConnectionWarning) && (
+      {(error || showConnectionWarning) && (
         <div className="conversation-top-overlay-stack">
           <div className="conversation-banner-stack">
-            {draftConflict && (
-              <StatusBanner
-                variant="warning"
-                title={t("conversation.draftConflict.title")}
-                actions={
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={resolvingDraftConflict}
-                      onClick={useLatestDraft}
-                    >
-                      {t("conversation.draftConflict.useLatest")}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={resolvingDraftConflict}
-                      onClick={() => void keepCurrentDraft()}
-                    >
-                      {t("conversation.draftConflict.keepCurrent")}
-                    </Button>
-                  </div>
-                }
-              >
-                {t("conversation.draftConflict.description")}
-              </StatusBanner>
-            )}
             {error && <StatusBanner variant="error">{error}</StatusBanner>}
             {showConnectionWarning && (
               <StatusBanner variant="warning">
@@ -5529,6 +5250,11 @@ export function ConversationPage({
         }
         nativeReconnectState={
           hasCurrentLiveState ? nativeReconnectState : undefined
+        }
+        reconcilingCompletedTurnId={
+          terminalDetailReconciliation?.status === "completed"
+            ? terminalDetailReconciliation.turnId
+            : undefined
         }
         loadAttachmentPreview={loadAttachmentPreview}
         loadArtifactPreview={loadArtifactPreview}
@@ -5673,6 +5399,7 @@ export function ConversationPage({
         {!blockingPanelActive && (
           <ConversationComposer
             ref={composerRef}
+            voiceTranscriptionAvailability={voiceTranscriptionAvailability}
             key={`${composerInstanceId}:${newTaskResetVersion}`}
             value={value}
             onValueChange={setValue}
@@ -5792,7 +5519,7 @@ export function ConversationPage({
             onInterrupt={() => {
               const pending = activePendingTurnSubmission
               if (pending) {
-                setInterrupting(true)
+                setInterruptingConversationId(pending.conversationId)
                 setPendingTurnSubmission((current) =>
                   current === pending
                     ? { ...current, interruptRequested: true }

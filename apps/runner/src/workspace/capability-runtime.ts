@@ -76,6 +76,13 @@ export class CapabilityRuntimeError extends Error {
 export class CapabilityRuntimeManager {
   readonly #apiIdentity: RuntimeIdentity
   readonly #taskIdentity: RuntimeIdentity
+  readonly #verifiedPublications = new Map<
+    string,
+    {
+      capabilityFingerprint: string
+      runtime: PreparedCapabilityRuntime
+    }
+  >()
 
   constructor(options?: {
     apiIdentity?: RuntimeIdentity
@@ -215,6 +222,7 @@ export class CapabilityRuntimeManager {
     expectedGeneration: string
     capabilities: CapabilityRuntimeInput[]
     lockHeld?: boolean
+    reuseVerified?: boolean
   }): Promise<PreparedCapabilityRuntime> {
     if (!capabilityGenerationPattern.test(input.expectedGeneration)) {
       throw new CapabilityRuntimeError()
@@ -227,7 +235,25 @@ export class CapabilityRuntimeManager {
           expectedGeneration: input.expectedGeneration,
         })
       }
-      return await this.resolveLocked(input)
+      const cacheKey = verifiedPublicationKey(input)
+      const capabilityFingerprint = capabilityRuntimeFingerprint(
+        input.capabilities,
+      )
+      const verified = input.reuseVerified
+        ? this.#verifiedPublications.get(cacheKey)
+        : undefined
+      if (
+        verified?.capabilityFingerprint === capabilityFingerprint &&
+        verified.runtime.generation === input.expectedGeneration
+      ) {
+        return verified.runtime
+      }
+      const runtime = await this.resolveLocked(input)
+      this.#verifiedPublications.set(cacheKey, {
+        capabilityFingerprint,
+        runtime,
+      })
+      return runtime
     } catch (error) {
       if (error instanceof CapabilityRuntimeError) throw error
       throw new CapabilityRuntimeError()
@@ -462,6 +488,38 @@ export class CapabilityRuntimeManager {
     }
     return value
   }
+}
+
+function verifiedPublicationKey(input: {
+  userHome: string
+  controlRoot: string
+}): string {
+  return [input.userHome, input.controlRoot].join("\u0000")
+}
+
+function capabilityRuntimeFingerprint(
+  capabilities: CapabilityRuntimeInput[],
+): string {
+  return JSON.stringify(
+    capabilities
+      .map((capability) => ({
+        id: capability.id,
+        name: capability.name,
+        type: capability.type,
+        revision: capability.revision,
+        credentialEnvironment: Object.fromEntries(
+          Object.entries(capability.credentialEnvironment ?? {}).sort(
+            ([left], [right]) => left.localeCompare(right, "en-US"),
+          ),
+        ),
+      }))
+      .sort(
+        (left, right) =>
+          left.type.localeCompare(right.type, "en-US") ||
+          left.id.localeCompare(right.id, "en-US") ||
+          left.name.localeCompare(right.name, "en-US"),
+      ),
+  )
 }
 
 async function calculateContentDigests(input: {

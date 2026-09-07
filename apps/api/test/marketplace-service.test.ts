@@ -58,6 +58,34 @@ afterEach(async () => {
 });
 
 describe("MarketplaceService", () => {
+  it("blocks organization marketplace access for self-registered users", async () => {
+    const root = await createCapabilityRoot();
+    const source = sourceCapability(root);
+    const store = new MemoryMarketplaceStore([source]);
+    const service = createService(
+      store,
+      new MemoryMarketplaceInstaller(store),
+      root,
+    );
+    const actor: RequestActor = {
+      ...publisherActor(),
+      registrationSource: "self_registration",
+    };
+
+    await expect(service.listCatalog(actor)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(service.listOwnPublications(actor)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(
+      service.submit(actor, { capabilityId: source.id }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      service.install(actor, "90000000-0000-4000-8000-000000000001"),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
   it("publishes immutable reviewed releases and requires explicit install and update", async () => {
     const root = await createCapabilityRoot();
     const source = sourceCapability(root);

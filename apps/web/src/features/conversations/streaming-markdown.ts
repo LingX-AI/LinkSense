@@ -136,14 +136,9 @@ export function normalizeAssistantMarkdown(content: string): string {
       content[index + 2] !== "*" &&
       !isEscaped(content, index)
     ) {
-      const repair = findSpacedStrongCloser(content, index)
+      const repair = findSpacedStrongDelimiters(content, index)
       if (repair) {
-        replacements.push({
-          start: repair.whitespaceStart,
-          end: repair.closingStart + 2,
-          value:
-            "**" + content.slice(repair.whitespaceStart, repair.closingStart),
-        })
+        replacements.push(...repair.replacements)
         index = repair.closingStart + 2
         continue
       }
@@ -165,12 +160,20 @@ export function normalizeAssistantMarkdown(content: string): string {
   return output + content.slice(copiedUntil)
 }
 
-function findSpacedStrongCloser(
+function findSpacedStrongDelimiters(
   content: string,
   openerStart: number
-): { whitespaceStart: number; closingStart: number } | null {
+): {
+  closingStart: number
+  replacements: readonly MarkdownReplacement[]
+} | null {
   const innerStart = openerStart + 2
-  const firstInnerCharacter = content[innerStart]
+  let contentStart = innerStart
+  while (content[contentStart] === " " || content[contentStart] === "\t") {
+    contentStart += 1
+  }
+
+  const firstInnerCharacter = content[contentStart]
   if (
     !firstInnerCharacter ||
     firstInnerCharacter === "*" ||
@@ -179,7 +182,7 @@ function findSpacedStrongCloser(
     return null
   }
 
-  for (let cursor = innerStart + 1; cursor < content.length; cursor += 1) {
+  for (let cursor = contentStart + 1; cursor < content.length; cursor += 1) {
     const character = content[cursor]
     if (character === "\n" || character === "\r" || character === "`") {
       return null
@@ -194,16 +197,33 @@ function findSpacedStrongCloser(
       continue
     }
 
-    let whitespaceStart = cursor
+    let closingWhitespaceStart = cursor
     while (
-      whitespaceStart > innerStart &&
-      (content[whitespaceStart - 1] === " " ||
-        content[whitespaceStart - 1] === "\t")
+      closingWhitespaceStart > contentStart &&
+      (content[closingWhitespaceStart - 1] === " " ||
+        content[closingWhitespaceStart - 1] === "\t")
     ) {
-      whitespaceStart -= 1
+      closingWhitespaceStart -= 1
     }
-    return whitespaceStart < cursor
-      ? { whitespaceStart, closingStart: cursor }
+
+    const replacements: MarkdownReplacement[] = []
+    if (contentStart > innerStart) {
+      replacements.push({
+        start: openerStart,
+        end: contentStart,
+        value: content.slice(innerStart, contentStart) + "**",
+      })
+    }
+    if (closingWhitespaceStart < cursor) {
+      replacements.push({
+        start: closingWhitespaceStart,
+        end: cursor + 2,
+        value: "**" + content.slice(closingWhitespaceStart, cursor),
+      })
+    }
+
+    return replacements.length > 0
+      ? { closingStart: cursor, replacements }
       : null
   }
 

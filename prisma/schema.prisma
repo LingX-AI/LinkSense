@@ -747,21 +747,6 @@ model ConversationGoal {
   @@map("conversation_goals")
 }
 
-model ConversationDraft {
-  id                        String   @id @default(uuid()) @db.Uuid
-  conversationId            String   @unique(map: "conversation_drafts_conversation_id_key") @map("conversation_id") @db.Uuid
-  ownerId                   String   @map("owner_id") @db.Uuid
-  inputText                 String   @map("input_text") @db.Text
-  priorityCapabilityIdsJson Json     @default("[]") @map("priority_capability_ids_json") @db.JsonB
-  knowledgeBaseIdsJson      Json     @default("[]") @map("knowledge_base_ids_json") @db.JsonB
-  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                 DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  @@index([ownerId], map: "conversation_drafts_owner_id_idx")
-  @@index([updatedAt], map: "conversation_drafts_updated_at_idx")
-  @@map("conversation_drafts")
-}
-
 model PendingRequest {
   id                        String    @id @default(uuid()) @db.Uuid
   conversationId            String    @map("conversation_id") @db.Uuid
@@ -876,7 +861,7 @@ model ConversationTurnStartIntent {
   messageDisplayJson             Json?     @map("message_display_json") @db.JsonB
   submitMode                     String    @map("submit_mode") @db.VarChar(32)
   idempotencyKey                 String?   @map("idempotency_key") @db.VarChar(120)
-  preservesDraft                 Boolean   @default(false) @map("preserves_draft")
+  preservesStagedAttachments     Boolean   @default(false) @map("preserves_staged_attachments")
   pendingRequestId               String?   @map("pending_request_id") @db.Uuid
   planReviewId                   String?   @unique(map: "conversation_turn_start_intents_plan_review_key") @map("plan_review_id") @db.Uuid
   planReviewAction               String?   @map("plan_review_action") @db.VarChar(24)
@@ -1192,7 +1177,6 @@ model BillingStatementLine {
 model ConversationFile {
   id                    String   @id @default(uuid()) @db.Uuid
   conversationId        String   @map("conversation_id") @db.Uuid
-  draftId               String?  @map("draft_id") @db.Uuid
   pendingRequestId      String?  @map("pending_request_id") @db.Uuid
   turnId                String?  @map("turn_id") @db.Uuid
   kind                  String   @db.VarChar(32)
@@ -1207,16 +1191,17 @@ model ConversationFile {
   minioObjectKey        String?  @map("minio_object_key") @db.Text
   downloadable          Boolean
   downloadCardEventId   String?  @map("download_card_event_id") @db.Uuid
+  knowledgeAssetReferenceId String? @map("knowledge_asset_reference_id") @db.Uuid
   createdBy             String?  @map("created_by") @db.Uuid
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([conversationId, kind, createdAt], map: "conversation_files_conversation_kind_created_idx")
-  @@index([draftId], map: "conversation_files_draft_id_idx")
   @@index([pendingRequestId], map: "conversation_files_pending_request_id_idx")
   @@index([turnId], map: "conversation_files_turn_id_idx")
   @@index([minioObjectKey], map: "conversation_files_minio_object_key_idx")
   @@index([downloadCardEventId], map: "conversation_files_download_card_event_idx")
+  @@unique([conversationId, knowledgeAssetReferenceId], map: "conversation_files_knowledge_asset_key")
   @@index([createdBy], map: "conversation_files_created_by_idx")
   @@map("conversation_files")
 }
@@ -2047,4 +2032,97 @@ model SystemSetting {
 
   @@index([updatedBy], map: "system_settings_updated_by_idx")
   @@map("system_settings")
+}
+
+model BotChannelConnection {
+  id                   String    @id @default(uuid()) @db.Uuid
+  ownerId              String    @map("owner_id") @db.Uuid
+  provider             String    @db.VarChar(16)
+  externalId           String    @map("external_id") @db.VarChar(128)
+  allowedSenderId      String    @map("allowed_sender_id") @db.VarChar(256)
+  allowGroupMessages   Boolean   @default(true) @map("allow_group_messages")
+  encryptedCredentials String    @map("encrypted_credentials") @db.Text
+  encryptionKeyId      String    @map("encryption_key_id") @db.VarChar(80)
+  status               String    @default("active") @db.VarChar(32)
+  lastConnectedAt      DateTime? @map("last_connected_at") @db.Timestamptz(6)
+  lastInboundAt        DateTime? @map("last_inbound_at") @db.Timestamptz(6)
+  lastErrorCode        String?   @map("last_error_code") @db.VarChar(120)
+  lastErrorAt          DateTime? @map("last_error_at") @db.Timestamptz(6)
+  nextIngestOrder      BigInt    @default(0) @map("next_ingest_order")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([ownerId, provider], map: "bot_channel_connections_owner_provider_key")
+  @@unique([provider, externalId], map: "bot_channel_connections_provider_external_key")
+  @@index([status, updatedAt], map: "bot_channel_connections_status_updated_idx")
+  @@map("bot_channel_connections")
+}
+
+model BotChannelPeerSession {
+  id             String   @id @default(uuid()) @db.Uuid
+  connectionId   String   @map("connection_id") @db.Uuid
+  chatId         String   @map("chat_id") @db.VarChar(1024)
+  senderId       String   @map("sender_id") @db.VarChar(1024)
+  conversationId String   @map("conversation_id") @db.Uuid
+  lastInboundAt  DateTime @map("last_inbound_at") @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([connectionId, chatId], map: "bot_channel_peer_sessions_connection_chat_key")
+  @@index([conversationId], map: "bot_channel_peer_sessions_conversation_idx")
+  @@index([connectionId, lastInboundAt(sort: Desc)], map: "bot_channel_peer_sessions_connection_inbound_idx")
+  @@map("bot_channel_peer_sessions")
+}
+
+model BotChannelInboundMessage {
+  encryptedContext String    @map("encrypted_context") @db.Text
+  encryptionKeyId  String    @map("encryption_key_id") @db.VarChar(80)
+  id               String    @id @default(uuid()) @db.Uuid
+  connectionId     String    @map("connection_id") @db.Uuid
+  messageKey       String    @map("message_key") @db.VarChar(240)
+  chatId           String    @map("chat_id") @db.VarChar(1024)
+  senderId         String    @map("sender_id") @db.VarChar(1024)
+  contentText      String    @map("content_text") @db.Text
+  status           String    @db.VarChar(24)
+  peerSessionId    String?   @map("peer_session_id") @db.Uuid
+  conversationId   String?   @map("conversation_id") @db.Uuid
+  turnId           String?   @map("turn_id") @db.Uuid
+  ingestOrder      BigInt    @map("ingest_order")
+  processingToken  String?   @map("processing_token") @db.Uuid
+  errorCode        String?   @map("error_code") @db.VarChar(120)
+  attempts         Int       @default(0)
+  nextAttemptAt    DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  processedAt      DateTime? @map("processed_at") @db.Timestamptz(6)
+  receivedAt       DateTime  @map("received_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([connectionId, messageKey], map: "bot_channel_inbound_messages_connection_message_key")
+  @@index([status, nextAttemptAt, ingestOrder], map: "bot_channel_inbound_messages_status_next_ingest_idx")
+  @@index([connectionId, chatId, status, ingestOrder], map: "bot_channel_inbound_messages_chat_queue_idx")
+  @@index([conversationId, turnId], map: "bot_channel_inbound_messages_turn_idx")
+  @@map("bot_channel_inbound_messages")
+}
+
+model BotChannelOutboundDelivery {
+  id               String    @id @default(uuid()) @db.Uuid
+  connectionId     String    @map("connection_id") @db.Uuid
+  peerSessionId    String    @map("peer_session_id") @db.Uuid
+  inboundMessageId String    @unique(map: "bot_channel_outbound_deliveries_inbound_key") @map("inbound_message_id") @db.Uuid
+  conversationId   String    @map("conversation_id") @db.Uuid
+  turnId           String    @unique(map: "bot_channel_outbound_deliveries_turn_key") @map("turn_id") @db.Uuid
+  status           String    @db.VarChar(24)
+  processingToken  String?   @map("processing_token") @db.Uuid
+  sentChunkCount   Int       @default(0) @map("sent_chunk_count")
+  attempts         Int       @default(0)
+  nextAttemptAt    DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  lastErrorCode    String?   @map("last_error_code") @db.VarChar(120)
+  sentAt           DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, nextAttemptAt], map: "bot_channel_outbound_deliveries_status_next_idx")
+  @@index([connectionId, createdAt], map: "bot_channel_outbound_deliveries_connection_created_idx")
+  @@index([conversationId], map: "bot_channel_outbound_deliveries_conversation_idx")
+  @@map("bot_channel_outbound_deliveries")
 }

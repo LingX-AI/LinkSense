@@ -35,6 +35,7 @@ import {
 } from "../../lib/safe-raster-image.js"
 import type { AuditContext, AuditService } from "../audit/service.js"
 import type {
+  KnowledgeHealthComponent,
   KnowledgeProcessingHealthSnapshot,
 } from "../knowledge-processing/health.js"
 import {
@@ -95,6 +96,7 @@ export class SystemService {
     private readonly authenticationSettings?: AuthenticationSettingsReader,
     private readonly knowledgeHealth?: {
       check(): Promise<KnowledgeProcessingHealthSnapshot>
+      checkStorage(): Promise<KnowledgeHealthComponent>
     },
   ) {}
 
@@ -570,18 +572,41 @@ export class SystemService {
     return { objectKey, contentType: detectedType, updatedAt }
   }
 
+  private async probeReadinessDependencies(includeResourceUsage = false) {
+    const checkedAt = new Date().toISOString()
+    const [database, redis, runningTurnCapacity, runningTurnRecovery, minio, runnerProbe, workspace, capabilityRoot, knowledgeStorage] = await Promise.all([
+      probe(async () => { await this.prisma.$queryRaw`SELECT 1` }, "DATABASE_UNAVAILABLE"),
+      probe(() => this.redis.ping(), "REDIS_UNAVAILABLE"),
+      probeValue(() => this.redis.runningTurnCount(), "RUNNING_TURN_CAPACITY_UNAVAILABLE"),
+      probeValue(() => this.redis.runningTurnRecoveryStatus(), "RUNNING_TURN_RECOVERY_STATUS_UNAVAILABLE"),
+      probe(() => this.storage.health(), "MINIO_UNAVAILABLE"),
+      probeValue(() => this.runner.health({ includeResourceUsage }), "RUNNER_UNAVAILABLE"),
+      probe(() => probeWritableDirectory(this.config.workspaceRoot), "WORKSPACE_ROOT_UNAVAILABLE"),
+      probe(() => probeWritableDirectory(this.config.capabilityRoot), "CAPABILITY_ROOT_UNAVAILABLE"),
+      this.knowledgeHealth
+        ? this.knowledgeHealth.checkStorage().catch(() => unavailableComponent("MINIO_UNAVAILABLE"))
+        : Promise.resolve(availableComponent()),
+    ])
+    const runnerHealth = runnerProbe.value
+    const recovery = recoveryComponent(runningTurnRecovery, checkedAt)
+    const ready = (recovery.status === "available" || recovery.status === "warning") && [
+      database, redis, runningTurnCapacity, minio, knowledgeStorage,
+      workspace, capabilityRoot, runnerHealth, runnerHealth?.workspace,
+      runnerHealth?.codex_home, runnerHealth?.codex_app_server,
+    ].every((component) => component?.status === "available")
+    return { checkedAt, database, redis, runningTurnCapacity, runningTurnRecovery, minio, runnerProbe, workspace, capabilityRoot, knowledgeStorage, ready }
+  }
+
+  async readiness(): Promise<{ status: "available" | "unavailable"; readiness: "ready" | "unready"; checked_at: string }> {
+    const { ready, checkedAt } = await this.probeReadinessDependencies()
+    return { status: ready ? "available" : "unavailable", readiness: ready ? "ready" : "unready", checked_at: checkedAt }
+  }
+
   async health(options: { includeCleanupFailures?: boolean } = {}) {
     const checkedAt = new Date().toISOString()
     const knowledgeHealth = this.knowledgeHealth
     const [
-      database,
-      redis,
-      runningTurnCapacity,
-      runningTurnRecovery,
-      minio,
-      runnerProbe,
-      workspace,
-      capabilityRoot,
+      requiredHealth,
       smtp,
       authenticationProbe,
       cleanup,
@@ -589,28 +614,7 @@ export class SystemService {
       knowledgeProbe,
       executionConcurrencyProbe,
     ] = await Promise.all([
-        probe(async () => {
-          await this.prisma.$queryRaw`SELECT 1`
-        }, "DATABASE_UNAVAILABLE"),
-        probe(() => this.redis.ping(), "REDIS_UNAVAILABLE"),
-        probeValue(
-          () => this.redis.runningTurnCount(),
-          "RUNNING_TURN_CAPACITY_UNAVAILABLE",
-        ),
-        probeValue(
-          () => this.redis.runningTurnRecoveryStatus(),
-          "RUNNING_TURN_RECOVERY_STATUS_UNAVAILABLE",
-        ),
-        probe(() => this.storage.health(), "MINIO_UNAVAILABLE"),
-        probeValue(() => this.runner.health(), "RUNNER_UNAVAILABLE"),
-        probe(
-          () => probeWritableDirectory(this.config.workspaceRoot),
-          "WORKSPACE_ROOT_UNAVAILABLE",
-        ),
-        probe(
-          () => probeWritableDirectory(this.config.capabilityRoot),
-          "CAPABILITY_ROOT_UNAVAILABLE",
-        ),
+        this.probeReadinessDependencies(true),
         this.mailer.health(),
         probeValue(
           () => this.resolveAuthenticationSettings(),
@@ -645,6 +649,7 @@ export class SystemService {
           "EXECUTION_CONCURRENCY_SETTINGS_UNAVAILABLE",
         ),
       ])
+    const { database, redis, runningTurnCapacity, runningTurnRecovery, minio, runnerProbe, workspace, capabilityRoot, knowledgeStorage, ready } = requiredHealth
     const executionConcurrency =
       executionConcurrencyProbe.value ??
       this.executionConcurrencyEnvironmentDefaults()
@@ -681,10 +686,10 @@ export class SystemService {
     const knowledge = knowledgeProbe.value
     const effectiveMinio =
       minio.status === "unavailable" ||
-      knowledge?.minio.status === "unavailable"
+      knowledgeStorage.status === "unavailable"
         ? unavailableComponent(
             minio.reason_code ??
-              knowledge?.minio.reason_code ??
+              knowledgeStorage.reason_code ??
               "MINIO_UNAVAILABLE",
           )
         : minio
@@ -692,22 +697,6 @@ export class SystemService {
       runningTurnRecovery,
       checkedAt,
     )
-    const required = [
-      database,
-      redis,
-      runningTurnCapacity,
-      effectiveMinio,
-      runner,
-      effectiveWorkspace,
-      capabilityRoot,
-      codexHome,
-      codexAppServer,
-    ]
-    const recoveryReady =
-      runningTurnRecoveryComponent.status === "available" ||
-      runningTurnRecoveryComponent.status === "warning"
-    const ready = recoveryReady &&
-      required.every((component) => component.status === "available")
     const smtpStatus = {
       status: smtp.status,
       checked_at: checkedAt,

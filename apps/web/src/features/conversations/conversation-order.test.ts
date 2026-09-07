@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from "vitest"
 
 import {
@@ -229,5 +231,38 @@ describe("sidebar conversation ordering", () => {
     expect(
       patchSidebarConversationExecutionStatus(result, "second", "running")
     ).toBe(result)
+  })
+
+  it("updates unread completion only on the matching terminal task", () => {
+    const first = {
+      ...conversation("first", "2026-08-12T10:00:00.000Z"),
+      execution_status: "running" as const,
+      has_unread_completion: false,
+    }
+    const second = {
+      ...conversation("second", "2026-08-12T09:00:00.000Z"),
+      execution_status: "running" as const,
+      has_unread_completion: false,
+    }
+    const data = {
+      pages: [{ items: [first, second], next_cursor: null }],
+      pageParams: [undefined],
+    }
+
+    const result = patchSidebarConversationExecutionStatus(
+      data,
+      "second",
+      "completed",
+      { hasUnreadCompletion: true }
+    )
+
+    expect(result?.pages[0]?.items).toEqual([
+      first,
+      {
+        ...second,
+        execution_status: "completed",
+        has_unread_completion: true,
+      },
+    ])
   })
 })

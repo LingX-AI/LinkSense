@@ -136,17 +136,6 @@ export const archivedConversationClearResultSchema = z.strictObject({
   deleted_count: z.number().int().nonnegative(),
 });
 
-export const conversationDraftSchema = z.strictObject({
-  id: uuidSchema,
-  conversation_id: uuidSchema,
-  owner_id: uuidSchema,
-  input_text: z.string(),
-  priority_capability_ids: priorityCapabilityIdsSchema,
-  knowledge_base_ids: knowledgeBaseIdsSchema,
-  created_at: timestampSchema,
-  updated_at: timestampSchema,
-});
-
 export const pendingRequestStatusSchema = z.enum([
   "waiting_previous_turn",
   "blocked_overload",
@@ -203,8 +192,6 @@ export const turnSubmitModeSchema = z.enum([
   "next_turn",
   "manual_retry",
 ]);
-export const turnDraftPolicySchema = z.enum(["consume", "preserve"]);
-
 export const conversationTurnSchema = z.strictObject({
   id: uuidSchema,
   conversation_id: uuidSchema,
@@ -690,7 +677,7 @@ export const conversationFileSourceSchema = z.enum([
   "system_generated",
 ]);
 export const conversationFileStatusSchema = z.enum([
-  "draft",
+  "staged",
   "pending",
   "bound",
   "registered",
@@ -700,7 +687,6 @@ export const fileStorageBackendSchema = z.enum(["workspace", "minio"]);
 export const conversationFileSchema = z.strictObject({
   id: uuidSchema,
   conversation_id: uuidSchema,
-  draft_id: uuidSchema.nullable(),
   pending_request_id: uuidSchema.nullable(),
   turn_id: uuidSchema.nullable(),
   kind: conversationFileKindSchema,
@@ -733,7 +719,6 @@ export type CompletionNotificationFeed = z.infer<
 export type ArchivedConversationClearResult = z.infer<
   typeof archivedConversationClearResultSchema
 >;
-export type ConversationDraft = z.infer<typeof conversationDraftSchema>;
 export type PendingRequest = z.infer<typeof pendingRequestSchema>;
 export type ConversationTurn = z.infer<typeof conversationTurnSchema>;
 export type ConversationTaskKind = z.infer<typeof conversationTaskKindSchema>;

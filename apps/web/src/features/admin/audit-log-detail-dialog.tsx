@@ -15,6 +15,7 @@ import type {
 } from "@/api/contracts"
 import { formatDateTime, formatFileSize } from "@/i18n/date"
 import { formatPublicTechnicalIdentifier } from "@/lib/public-copy"
+import { translateAuditValue } from "@/features/admin/audit-i18n"
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 
@@ -46,9 +47,22 @@ export function AuditLogDetailDialog({
     { label: t("admin.auditId"), value: record.id, technical: true },
     {
       label: t("admin.action"),
+      value: translateAuditValue(t, "actions", record.action),
+    },
+    {
+      label: t("admin.actionCode"),
       value: formatPublicTechnicalIdentifier(record.action),
       technical: true,
     },
+    ...(record.result
+      ? [
+          {
+            label: t("admin.resultCode"),
+            value: record.result,
+            technical: true,
+          },
+        ]
+      : []),
     {
       label: t("admin.errorCode"),
       value: record.error_code
@@ -73,6 +87,12 @@ export function AuditLogDetailDialog({
     },
     {
       label: t("admin.exportTargetType"),
+      value: record.target_type
+        ? translateAuditValue(t, "targetTypes", record.target_type)
+        : emptyValue,
+    },
+    {
+      label: t("admin.targetTypeCode"),
       value: record.target_type
         ? formatPublicTechnicalIdentifier(record.target_type)
         : emptyValue,
@@ -101,9 +121,11 @@ export function AuditLogDetailDialog({
     <DetailDialogShell
       description={t("admin.auditDetailsDescription")}
       onOpenChange={onOpenChange}
-      status={t(`statuses.${record.result}`, {
-        defaultValue: record.result ?? emptyValue,
-      })}
+      status={
+        record.result
+          ? translateAuditValue(t, "results", record.result)
+          : emptyValue
+      }
       title={t("admin.auditDetailsTitle")}
     >
       <AuditDetailSection

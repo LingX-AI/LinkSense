@@ -53,6 +53,7 @@ import type { ModelUsageRecorder } from "../usage/model-usage.js"
 import {
   LocalUnoserverRuntime,
   UnoOfficeDocumentConverter,
+  type OfficeConversionRuntime,
 } from "./office-converter.js"
 
 /** Creates the complete processing graph without mutating app/services startup. */
@@ -66,6 +67,7 @@ export function createKnowledgeProcessingRuntime(input: {
   modelProviderSettings?: ManagedModelRuntimeSettingsReader
   usageRecorder?: ModelUsageRecorder
   onDocumentRebuildActivated?: () => void
+  officeRuntime?: OfficeConversionRuntime
 }) {
   const config = projectKnowledgeProcessingConfig(input.config)
   const eventPublisher = input.eventPublisher
@@ -98,7 +100,7 @@ export function createKnowledgeProcessingRuntime(input: {
     BigInt(input.config.knowledge.upload.storageQuotaBytes)
   )
   const officeConverter = new UnoOfficeDocumentConverter(
-    new LocalUnoserverRuntime(),
+    input.officeRuntime ?? new LocalUnoserverRuntime(),
     {
       maximumOutputBytes: input.config.knowledge.upload.maxFileSizeBytes,
     }

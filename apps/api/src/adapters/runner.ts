@@ -81,6 +81,9 @@ const runnerRuntimeSchema = z.strictObject({
   agentsTemplateVersion: z.string().min(1).max(80),
   runtimeGeneration: z.uuid(),
 });
+const runnerPrewarmedRuntimeSchema = runnerRuntimeSchema.extend({
+  codexThreadId: z.string().min(1),
+});
 const runnerRecoveryConfirmationSchema = z.strictObject({
   confirmed: z.literal(true),
 });
@@ -561,6 +564,41 @@ export class RunnerClient {
     }
   }
 
+  prewarmConversation(input: RunnerStartInput) {
+    const { conversationId, ...body } = input;
+    return this.request<unknown>(
+      `/conversations/${conversationId}/runtime/prewarm`,
+      "POST",
+      body,
+      { ownerId: input.ownerId, timeoutMs: RUNNER_RECONCILE_TIMEOUT_MS },
+    ).then((result) => runnerPrewarmedRuntimeSchema.parse(result));
+  }
+
+  async inspectPrewarmedConversation(conversationId: string, ownerId: string) {
+    try {
+      const response = await fetch(
+        new URL(
+          `/conversations/${conversationId}/runtime/prewarm`,
+          this.config.runnerUrl,
+        ),
+        {
+          method: "GET",
+          headers: {
+            authorization: `Bearer ${this.config.runnerSharedSecret}`,
+            [OWNER_ID_HEADER]: ownerId,
+          },
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+      if (response.status === 404) return null;
+      if (!response.ok) throw new RunnerTransportError();
+      return runnerPrewarmedRuntimeSchema.parse(await response.json());
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new AppError("RUNNER_UNAVAILABLE");
+    }
+  }
+
   async inspectRuntime(conversationId: string, ownerId: string) {
     try {
       const response = await fetch(
@@ -975,8 +1013,11 @@ export class RunnerClient {
     }).then((result) => runnerMcpStdioProbeResultSchema.parse(result));
   }
 
-  health() {
-    return this.request<unknown>("/health/ready", "GET", undefined, {
+  health(options: { includeResourceUsage?: boolean } = {}) {
+    const pathname = options.includeResourceUsage === false
+      ? "/health/ready"
+      : "/health/ready?include_resource_usage=true";
+    return this.request<unknown>(pathname, "GET", undefined, {
       acceptErrorResponse: true,
     }).then((result) => runnerHealthSchema.parse(result));
   }

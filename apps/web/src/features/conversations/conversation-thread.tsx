@@ -178,7 +178,7 @@ import {
   normalizeAssistantMessageContent,
   parseAssistantProposedPlanSourceSegments,
 } from "@/features/conversations/assistant-message-content"
-import { assistantMarkdownPlugins } from "@/features/conversations/assistant-markdown-math"
+import { assistantMarkdownPlugins } from "@/features/conversations/assistant-markdown-plugins"
 import { ConversationPlanCard } from "@/features/conversations/conversation-plan-card"
 import { ConversationProposedPlanCard } from "@/features/conversations/conversation-proposed-plan-card"
 import {
@@ -4088,6 +4088,7 @@ export function ConversationThread({
   modelCatalog = emptyModelCatalog,
   liveReasoningSummaries = emptyLiveReasoningSummaries,
   nativeReconnectState,
+  reconcilingCompletedTurnId,
   loadAttachmentPreview,
   loadArtifactPreview,
   onPreviewOfficeDocument,
@@ -4124,6 +4125,7 @@ export function ConversationThread({
   modelCatalog?: ModelPreference["models"]
   liveReasoningSummaries?: StreamingReasoningSummaries
   nativeReconnectState?: NativeReconnectDisplayState | null
+  reconcilingCompletedTurnId?: string
   loadAttachmentPreview?: LoadAttachmentPreview
   loadArtifactPreview?: LoadArtifactPreview
   onPreviewOfficeDocument?: (file: ConversationFile) => void
@@ -4633,6 +4635,7 @@ export function ConversationThread({
       )
     const completedWithoutOutput =
       turn.status === "completed" &&
+      turn.id !== reconcilingCompletedTurnId &&
       turn.task_kind !== "compact" &&
       processedAssistantMessages.length === 0 &&
       !hasTurnArtifactOutput
