@@ -4168,6 +4168,21 @@ export class AppServerProcessPool {
       return state;
     }
     if (this.activeStartOperations.has(key)) return state;
+    // The operation can finish after the caller reads its state but before the
+    // in-memory task is removed. Refresh once before attempting restart
+    // recovery so a stale `starting` snapshot cannot overwrite a terminal
+    // result with `uncertain`.
+    const refreshed = await this.readStartOperation(
+      state.conversationId,
+      state.projectionTurnId,
+    );
+    if (
+      refreshed &&
+      (refreshed.status !== state.status ||
+        refreshed.updatedAt !== state.updatedAt)
+    ) {
+      return this.resolveExistingStartOperation(key, refreshed, recoveryInput);
+    }
     if (!state.correlation || !state.ownerId) {
       if (state.status === "uncertain") {
         if (state.ownerId && state.requestFingerprint && !state.correlation) {
