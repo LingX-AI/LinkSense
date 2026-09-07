@@ -48,6 +48,28 @@ describe("Vitest execution limits", () => {
     expect(viteConfig.test?.testTimeout).toBe(process.env.CI ? 20_000 : 5_000)
   })
 
+  it("applies CI timeouts directly to every DOM test project", () => {
+    const expectedProjects = [
+      ["application", process.env.CI ? 30_000 : 10_000],
+      ["components", process.env.CI ? 30_000 : 5_000],
+      ["shared-components", process.env.CI ? 30_000 : 5_000],
+    ] as const
+
+    for (const [name, testTimeout] of expectedProjects) {
+      expect(viteConfig.test?.projects).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            test: expect.objectContaining({
+              name,
+              hookTimeout: process.env.CI ? 30_000 : 10_000,
+              testTimeout,
+            }),
+          }),
+        ]),
+      )
+    }
+  })
+
   it("reuses worker threads to reduce per-file process startup", () => {
     expect(viteConfig.test?.pool).toBe("threads")
   })
