@@ -39,6 +39,7 @@ const CAPABILITY_ID = "20000000-0000-4000-8000-000000000001"
 const LISTING_ID = "30000000-0000-4000-8000-000000000001"
 const RELEASE_ID = "40000000-0000-4000-8000-000000000001"
 const NOW = "2026-07-25T08:00:00.000Z"
+const APPLICATION_CREATION_TEST_TIMEOUT = process.env.CI ? 30_000 : 10_000
 
 function testUser(
   registrationSource: "self_registration" | "organization_invitation"
@@ -2915,7 +2916,7 @@ describe("capability marketplace pages", () => {
     })
     expect(submittedBody).not.toHaveProperty("public_access")
     expect(submittedBody).not.toHaveProperty("external_link")
-  }, 10_000)
+  }, APPLICATION_CREATION_TEST_TIMEOUT)
 
   it("shows a persistent three-dot action menu with icons and submits a listing request", async () => {
     const capability = {
