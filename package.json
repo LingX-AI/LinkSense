@@ -44,16 +44,16 @@
     "test:packages": "pnpm -r --parallel --filter './apps/**' --filter './packages/**' --filter '!@linksense/web' --if-present test"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "7.8.0",
-    "@prisma/client": "7.8.0",
-    "pg": "8.16.3"
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "pg": "8.23.0"
   },
   "devDependencies": {
     "@types/ws": "8.18.1",
-    "prisma": "7.8.0",
-    "tsx": "^4.20.6",
-    "ws": "8.21.2",
-    "zod": "4.4.3"
+    "prisma": "7.10.0",
+    "tsx": "^4.23.13",
+    "ws": "8.21.3",
+    "zod": "4.5.4"
   },
   "pnpm": {
     "overrides": {
