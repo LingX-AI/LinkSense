@@ -125,6 +125,12 @@ function renderAuthProvider(
   )
 }
 
+async function expectAuthStatus(status: string) {
+  await waitFor(() =>
+    expect(screen.getByTestId("auth-status")).toHaveTextContent(status)
+  )
+}
+
 describe("AuthProvider session restoration", () => {
   beforeEach(() => {
     sessionState.token = null
@@ -150,9 +156,7 @@ describe("AuthProvider session restoration", () => {
 
     renderAuthProvider()
 
-    expect(await screen.findByTestId("auth-status")).toHaveTextContent(
-      "authenticated"
-    )
+    await expectAuthStatus("authenticated")
     expect(screen.getByTestId("auth-user")).toHaveTextContent(user.email)
     expect(apiRequest).toHaveBeenCalledWith("/me", expect.any(Object))
     expect(refreshSession).not.toHaveBeenCalled()
@@ -179,9 +183,7 @@ describe("AuthProvider session restoration", () => {
       finishLanguageChange?.()
     })
 
-    expect(await screen.findByTestId("auth-status")).toHaveTextContent(
-      "authenticated"
-    )
+    await expectAuthStatus("authenticated")
   })
 
   it("keeps the browser-detected language when the account has no preference", async () => {
@@ -190,9 +192,7 @@ describe("AuthProvider session restoration", () => {
 
     renderAuthProvider()
 
-    expect(await screen.findByTestId("auth-status")).toHaveTextContent(
-      "authenticated"
-    )
+    await expectAuthStatus("authenticated")
     expect(setAppLanguage).not.toHaveBeenCalled()
   })
 
@@ -211,9 +211,7 @@ describe("AuthProvider session restoration", () => {
         <AuthRefreshProbe onRender={onRender} />
       </>
     )
-    expect(await screen.findByTestId("auth-status")).toHaveTextContent(
-      "authenticated"
-    )
+    await expectAuthStatus("authenticated")
     const renderCountAfterRestore = onRender.mock.calls.length
 
     fireEvent.click(screen.getByRole("button", { name: "refresh user" }))
@@ -240,9 +238,7 @@ describe("AuthProvider session restoration", () => {
     })
 
     renderAuthProvider(queryClient)
-    expect(await screen.findByTestId("auth-status")).toHaveTextContent(
-      "authenticated"
-    )
+    await expectAuthStatus("authenticated")
 
     fireEvent.click(screen.getByRole("button", { name: "sign out" }))
 
@@ -357,9 +353,7 @@ describe("AuthProvider session restoration", () => {
 
     renderAuthProvider()
 
-    expect(await screen.findByTestId("auth-status")).toHaveTextContent(
-      "authenticated"
-    )
+    await expectAuthStatus("authenticated")
     expect(setAccessToken).toHaveBeenCalledWith(
       session.access_token,
       session.access_token_expires_at
