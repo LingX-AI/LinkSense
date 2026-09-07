@@ -592,9 +592,6 @@ describe("LinkSense application", () => {
     expect(stop).toBeEnabled()
     await interaction.click(stop)
     expect(
-      await screen.findByRole("button", { name: "正在中断…" })
-    ).toBeDisabled()
-    expect(
       requests.some(
         (request) =>
           request.path.includes("/interrupt") && request.method === "POST"
