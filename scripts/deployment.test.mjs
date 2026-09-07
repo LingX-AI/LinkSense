@@ -175,7 +175,10 @@ test("workspace tests bound parallel services before running the complete web su
     webPackage.scripts.test,
     "pnpm run '/^test:(unit|e2e)$/'",
   );
-  assert.equal(webPackage.scripts["test:unit"], "vitest run --maxWorkers=4");
+  assert.equal(
+    webPackage.scripts["test:unit"],
+    "vitest run --project application --maxWorkers=4 && vitest run --project components --project shared-components --project node --maxWorkers=4",
+  );
   assert.equal(webPackage.scripts["test:e2e"], "playwright test");
   assert.equal(runnerPackage.scripts.test, "vitest run --pool=forks --maxWorkers=4");
 });
