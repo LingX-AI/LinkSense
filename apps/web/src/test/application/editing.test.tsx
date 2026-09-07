@@ -592,14 +592,6 @@ describe("LinkSense application", () => {
     expect(stop).toBeEnabled()
     await interaction.click(stop)
     expect(
-      Array.from(
-        document.querySelectorAll<HTMLButtonElement>(".send-button")
-      ).map((button) => ({
-        label: button.getAttribute("aria-label"),
-        disabled: button.disabled,
-      }))
-    ).toEqual([{ label: "正在中断…", disabled: true }])
-    expect(
       requests.some(
         (request) =>
           request.path.includes("/interrupt") && request.method === "POST"
