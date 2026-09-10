@@ -104,7 +104,7 @@ pnpm dev
 
 Preparation builds application images, the production task worker, and the bilingual Help Center using the production build stage, checks infrastructure and database initialization, then starts services and warms runtime caches until ready. `pnpm dev` also prepares missing inputs automatically. Daily startup targets 10 seconds after preparation; see the [development startup guide](./deploy/development/README.md) for cache rules and automated timing. Default addresses:
 
-- Web: `http://localhost:5173`
+- Web: `http://localhost:18173`
 - API: `http://localhost:4000`
 - Runner: `http://localhost:4010`
 

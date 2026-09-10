@@ -191,8 +191,10 @@ describe("virtual conversation messages", () => {
       container.scrollTop = container.scrollHeight - container.clientHeight
       fireEvent.scroll(container)
       await resizeReply()
-      expect(container.scrollTop).toBe(
-        container.scrollHeight - container.clientHeight
+      await waitFor(() =>
+        expect(container.scrollTop).toBe(
+          container.scrollHeight - container.clientHeight
+        )
       )
 
       fireEvent.wheel(container, { deltaY: -120 })
@@ -209,8 +211,10 @@ describe("virtual conversation messages", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Latest" }))
       await resizeReply()
-      expect(container.scrollTop).toBe(
-        container.scrollHeight - container.clientHeight
+      await waitFor(() =>
+        expect(container.scrollTop).toBe(
+          container.scrollHeight - container.clientHeight
+        )
       )
     } finally {
       cleanup()

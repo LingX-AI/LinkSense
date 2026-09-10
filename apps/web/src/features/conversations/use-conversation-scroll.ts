@@ -132,10 +132,6 @@ export function useConversationScroll(
   const followLatestSmoothly = useCallback(() => {
     const element = containerRef.current
     if (!element || scrollAnimationFrameRef.current !== null) return
-    if (navigationRef?.current?.scrollToLatest("auto")) {
-      setShowScrollToBottom(false)
-      return
-    }
 
     const reducedMotion =
       typeof window.matchMedia === "function" &&
@@ -146,6 +142,11 @@ export function useConversationScroll(
       return
     }
     if (resizeFollowFrameRef.current !== null) return
+
+    // A pending virtual-list index target would snap to the growing bottom
+    // during measurement reconciliation. Release it before the follow loop
+    // takes ownership of the scroll position, including for virtual lists.
+    navigationRef?.current?.cancelScroll()
 
     const animate = (timestamp: number) => {
       resizeFollowFrameRef.current = null

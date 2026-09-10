@@ -104,7 +104,7 @@ pnpm dev
 
 首次准备会构建应用镜像、正式任务 Worker，以及与生产共用构建阶段的双语帮助中心，检查基础设施和数据库初始化，再启动服务并预热运行时缓存直至就绪。`pnpm dev` 也会自动补齐缺失的准备步骤。日常启动目标为准备完成后 10 秒内就绪，缓存规则和自动计时方法见[开发启动说明](./deploy/development/README.zh-CN.md)。默认地址：
 
-- Web：`http://localhost:5173`
+- Web：`http://localhost:18173`
 - API：`http://localhost:4000`
 - Runner：`http://localhost:4010`
 
