@@ -11,7 +11,7 @@ Usage: deploy-production.sh [--allow-migrations]
          [--migrate-backups-from ABSOLUTE_PATH]
 
 Fast-forward the production checkout from origin/main, build the fixed
-production image tag, drain active turns, create a validated PostgreSQL backup,
+production image tag, stop active execution, create a validated PostgreSQL backup,
 and restart LinkSense with health verification.
 
 Options:
@@ -1478,7 +1478,7 @@ remove_deployment_workers() {
   worker_grace="$(shutdown_remaining)"
   stop_pids=""
   for worker_id in $worker_ids; do
-    bounded_docker stop --time "$worker_grace" "$worker_id" &
+    bounded_docker stop --timeout "$worker_grace" "$worker_id" &
     stop_pids="$stop_pids $!"
   done
   stop_failed=0
@@ -1529,13 +1529,24 @@ run_deployment_task_command() {
   fi
   # The new image contains the offline command; never start another API server
   # or any dependencies here. It uses the same validated production settings.
+  # -T only disables the TTY; Compose still attaches stdin by default. Under
+  # timeout's background process group, reading the SSH terminal causes SIGTTIN.
+  # Disable that attachment and close stdin without weakening process timeouts.
   timeout --kill-after=2s "${task_timeout}s" \
     docker compose -f "$compose_file" --env-file "$environment_file" \
-    run --rm --no-deps -T --pull never --name "$deployment_helper" \
+    run --rm --no-deps --interactive=false -T --pull never --name "$deployment_helper" \
     --label "com.linksense.deployment.helper=${deployment_helper}" \
-    --entrypoint node api dist/commands/deployment-task-stop.js "$@" || task_status=$?
+    --entrypoint node api dist/commands/deployment-task-stop.js "$@" </dev/null || task_status=$?
+  case "$task_status" in
+    0) ;;
+    124) echo "Deployment task '$task_command' timed out after ${task_timeout}s (exit 124)." >&2 ;;
+    *) echo "Deployment task '$task_command' failed with exit code $task_status." >&2 ;;
+  esac
   # A killed Compose client does not kill its one-off container.
-  cleanup_deployment_helper || return 1
+  if ! cleanup_deployment_helper; then
+    echo "Deployment task '$task_command' helper cleanup failed (command exit $task_status)." >&2
+    return 1
+  fi
   return "$task_status"
 }
 

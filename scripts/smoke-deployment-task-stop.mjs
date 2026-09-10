@@ -1,5 +1,5 @@
-// Run after shared/API build. Creates only an isolated disposable PostgreSQL;
-// never reads DATABASE_URL or connects to an existing business database.
+// Run after shared/API build. Creates isolated disposable PostgreSQL and Redis;
+// never reads business connection settings or connects to existing instances.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -13,13 +13,16 @@ import { isStoppedDeploymentEvent } from "../apps/api/dist/modules/events/deploy
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL("..", import.meta.url));
 const name = `linksense-deployment-test-${randomUUID()}`;
+const redisName = `${name}-redis`;
 const password = randomUUID();
 const docker = async (...args) =>
   (await execute("docker", args, { timeout: 30_000 })).stdout.trim();
 let owned = false;
+let redisOwned = false;
 let prisma;
 try {
   await docker("image", "inspect", "postgres:16-alpine");
+  await docker("image", "inspect", "redis:7.4-alpine");
   await docker(
     "run",
     "--detach",
@@ -66,6 +69,77 @@ try {
     maxBuffer: 4_000_000,
   });
   prisma = createPrismaClient(databaseUrl);
+  await docker(
+    "run",
+    "--detach",
+    "--rm",
+    "--pull",
+    "never",
+    "--name",
+    redisName,
+    "--label",
+    `com.linksense.deployment.test=${redisName}`,
+    "--memory",
+    "64m",
+    "--cpus",
+    "1",
+    "-p",
+    "127.0.0.1::6379",
+    "redis:7.4-alpine",
+    "redis-server",
+    "--save",
+    "",
+    "--appendonly",
+    "no",
+  );
+  redisOwned = true;
+  const redisPort = (await docker("port", redisName, "6379/tcp")).match(
+    /^127\.0\.0\.1:(\d+)$/,
+  )?.[1];
+  assert.ok(redisPort);
+  const commandEnvironment = {
+    PATH: process.env.PATH,
+    NODE_ENV: "test",
+    LINKSENSE_EDITION: "core",
+    DATABASE_URL: databaseUrl,
+    REDIS_URL: `redis://127.0.0.1:${redisPort}`,
+    LINKSENSE_PUBLIC_BASE_URL: "https://linksense.example.test",
+    LINKSENSE_JWT_SECRET: randomUUID(),
+    LINKSENSE_LOGIN_RATE_LIMIT_HMAC_SECRET: randomUUID(),
+    LINKSENSE_PASSWORD_RESET_RATE_LIMIT_HMAC_SECRET: randomUUID(),
+    LINKSENSE_CREDENTIAL_MASTER_KEY: randomUUID(),
+    LINKSENSE_RUNNER_SHARED_SECRET: randomUUID(),
+    LINKSENSE_RUNNER_URL: "http://127.0.0.1:1",
+    LINKSENSE_USER_DATA_ROOT: "/tmp/linksense-deployment-test-unused",
+    MINIO_ENDPOINT: "127.0.0.1",
+    MINIO_PUBLIC_URL: "http://127.0.0.1:1",
+    MINIO_ACCESS_KEY: "unused-test-access",
+    MINIO_SECRET_KEY: "unused-test-secret",
+  };
+  for (const args of [["interrupt"], ["settle", "--runtime-stopped"]]) {
+    const started = Date.now();
+    try {
+      const result = await execute(
+        process.execPath,
+        ["apps/api/dist/commands/deployment-task-stop.js", ...args],
+        { cwd: root, env: commandEnvironment, timeout: 10_000 },
+      );
+      process.stdout.write(
+        `CLI ${args[0]} exited successfully in ${Date.now() - started}ms: ${result.stdout}`,
+      );
+      assert.deepEqual(
+        JSON.parse(result.stdout),
+        args[0] === "interrupt"
+          ? { requested: 0, unavailable: 0 }
+          : { turns: 0, starts: 0, pending: 0 },
+      );
+    } catch (error) {
+      process.stderr.write(
+        `CLI ${args[0]} failed to exit successfully in ${Date.now() - started}ms.\n`,
+      );
+      throw error;
+    }
+  }
   const ownerId = randomUUID();
   const runtimeGeneration = randomUUID();
   const conversationId = randomUUID();
@@ -336,6 +410,18 @@ try {
   );
 } finally {
   await prisma?.$disconnect();
+  if (redisOwned) {
+    assert.equal(
+      await docker(
+        "inspect",
+        "--format",
+        '{{ index .Config.Labels "com.linksense.deployment.test" }}',
+        redisName,
+      ),
+      redisName,
+    );
+    await docker("rm", "--force", "--volumes", redisName);
+  }
   if (owned) {
     assert.equal(
       await docker(
@@ -348,7 +434,7 @@ try {
     );
     await docker("rm", "--force", "--volumes", name);
     process.stdout.write(
-      "Removed the isolated test container and its disposable database volume.\n",
+      "Removed the isolated PostgreSQL/Redis test containers and their disposable volumes.\n",
     );
   }
 }

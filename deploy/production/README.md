@@ -56,7 +56,9 @@ sudo ./deploy/production/deploy-production.sh --allow-migrations
 
 部署锁、迁移审批、数据库备份和上线健康检查仍然生效。若无法确认容器停止或无法保存任务状态，脚本明确失败并保留维护，不自动恢复可能重发任务的旧服务；排除报错后重新运行相同部署命令。主机需要 GNU `timeout`（Linux coreutils），以免 Docker 或独立命令失联后无限等待。此行为适用于 Git 生产部署脚本，不改变发行包的 `upgrade.sh` 流程。
 
-开发验证：先运行 `pnpm --filter @linksense/shared build` 和 `pnpm --filter @linksense/api build`，再执行 `pnpm exec node scripts/smoke-deployment-task-stop.mjs`。该检查只使用新建的临时 PostgreSQL 容器，验证事务回滚、历史保留、延迟事件隔离与重复执行；要求 Docker 中已存在 `postgres:16-alpine` 镜像，不访问业务数据库，结束后移除测试容器及其临时数据卷。
+部署辅助容器必须使用 `--interactive=false -T` 并将标准输入重定向到 `/dev/null`。`-T` 只关闭伪终端，不会关闭 Compose 默认启用的标准输入连接；在 SSH 终端中被 GNU `timeout` 放入后台进程组后，读取终端可能触发 `SIGTTIN`，导致命令已经输出结果却仍超时。辅助命令保持非交互执行，超时、非零退出和容器清理失败分别记录，不根据输出的 JSON 推断成功。
+
+开发验证：先运行 `pnpm --filter @linksense/shared build` 和 `pnpm --filter @linksense/api build`，再执行 `pnpm exec node scripts/smoke-deployment-task-stop.mjs`。该检查只使用新建的临时 PostgreSQL 和 Redis 容器，验证完整命令入口的退出、事务回滚、历史保留、延迟事件隔离与重复执行；要求 Docker 中已存在 `postgres:16-alpine` 和 `redis:7.4-alpine` 镜像，不访问业务数据库或 Redis，结束后移除测试容器及其临时数据卷。`pnpm exec node --test scripts/deployment-force-stop.test.mjs` 另行验证非交互参数、输入隔离、退出码传递、超时清理和停止顺序。
 
 如果服务器必须通过 HTTP token 拉取，可在 root shell 中交互保存凭据，避免令牌进入 shell 历史：
 
