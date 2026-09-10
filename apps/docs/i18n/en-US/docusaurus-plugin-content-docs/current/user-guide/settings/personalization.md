@@ -17,6 +17,15 @@ Use custom instructions for stable preferences:
 
 Saved instructions apply from future turns. Platform rules, safety boundaries, and administrator governance remain higher priority. Never store passwords or tokens here.
 
+## Automatic task naming
+
+Choose when task names update. Changes are saved automatically:
+
+- **First message** (default): name a task when you first send a message, then keep its name.
+- **Every message**: update the name with each new message, using the latest request and recent context.
+
+Manually edited task names stay unchanged. This preference applies to future messages in both new and existing tasks; changing it does not rename historical tasks in bulk. Naming runs independently of task execution and keeps the current name if generation fails.
+
 ## Memory
 
 When memory is enabled, LinkSense may derive personal memory from eligible tasks and use it in future work. Tasks involving external tools or web context do not create memory.

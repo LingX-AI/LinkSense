@@ -41,6 +41,7 @@ import { z } from "zod"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
 import { useConversationPrewarm } from "@/features/conversations/use-conversation-prewarm"
+import { useConversationArchiveNotification } from "@/features/conversations/use-conversation-archive-notification"
 import {
   archivedConversationClearResultSchema,
   applicationConversationSchema,
@@ -4092,6 +4093,7 @@ export function ConversationPage({
     onError: (nextError) => setError(getErrorMessage(nextError, t)),
   })
 
+  const showArchiveNotification = useConversationArchiveNotification()
   const patchConversationMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       apiRequest(`/conversations/${conversationId}`, {
@@ -4099,7 +4101,13 @@ export function ConversationPage({
         body,
         schema: conversationSchema,
       }),
-    onSuccess: async (nextConversation, variables) => {
+    onMutate: () => ({
+      previousConversation: queryClient.getQueryData<Conversation>([
+        "conversation",
+        conversationId,
+      ]),
+    }),
+    onSuccess: async (nextConversation, variables, context) => {
       if (typeof variables.title === "string") {
         await Promise.all([
           queryClient.cancelQueries({
@@ -4131,6 +4139,10 @@ export function ConversationPage({
       )
       setRenameOpen(false)
       if (variables.archive_status === "archived") {
+        showArchiveNotification({
+          id: nextConversation.id,
+          pinned_at: context.previousConversation?.pinned_at,
+        })
         leaveCurrentConversation()
         return
       }

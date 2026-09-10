@@ -11007,10 +11007,6 @@ button.annotation-hover-file:focus-visible {
   padding: 12px;
 }
 
-.admin-knowledge-name-column {
-  width: 190px;
-}
-
 .admin-knowledge-owner-column {
   width: 100px;
 }
@@ -11029,10 +11025,6 @@ button.annotation-hover-file:focus-visible {
 
 .admin-knowledge-status-column {
   width: 180px;
-}
-
-.admin-knowledge-diagnostics-column {
-  width: 258px;
 }
 
 .admin-knowledge-actions-column {

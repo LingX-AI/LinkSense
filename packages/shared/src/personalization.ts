@@ -6,10 +6,14 @@ import { modelTokenPricingSchema } from "./model-pricing.js";
 import { usageMeasurementMethodSchema } from "./usage.js";
 
 export const MAX_CUSTOM_INSTRUCTIONS_LENGTH = 20_000;
+export const DEFAULT_TASK_AUTO_NAMING = "first_message";
+export const taskAutoNamingSchema = z.enum(["first_message", "every_message"]);
+export type TaskAutoNaming = z.infer<typeof taskAutoNamingSchema>;
 
 export const personalizationSettingsSchema = z.strictObject({
   custom_instructions: z.string().max(MAX_CUSTOM_INSTRUCTIONS_LENGTH),
   memories_enabled: z.boolean(),
+  task_auto_naming: taskAutoNamingSchema,
 });
 
 export const updatePersonalizationSettingsSchema = personalizationSettingsSchema
@@ -17,7 +21,8 @@ export const updatePersonalizationSettingsSchema = personalizationSettingsSchema
   .refine(
     (input) =>
       input.custom_instructions !== undefined ||
-      input.memories_enabled !== undefined,
+      input.memories_enabled !== undefined ||
+      input.task_auto_naming !== undefined,
     "personalization_update_must_not_be_empty",
   );
 

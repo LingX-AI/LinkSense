@@ -6,6 +6,7 @@ export const enUS = {
     notifications: "Notifications",
     cancel: "Cancel",
     save: "Save",
+    saving: "Saving…",
     create: "Create",
     update: "Update",
     delete: "Delete",
@@ -373,8 +374,15 @@ export const enUS = {
     runningMessageActionQueueDescription:
       "Keep the current run uninterrupted and process the new message after it finishes.",
     profilePageDescription: "Update your display name and avatar.",
+    taskAutoNaming: "Automatic task naming",
+    taskAutoNamingDescription:
+      "Name tasks on the first message or update them with every new message. Manually edited names stay unchanged.",
+    taskAutoNamingFrequency: "Naming frequency",
+    taskAutoNamingFirstMessage: "First message",
+    taskAutoNamingEveryMessage: "Every message",
+    taskAutoNamingSaved: "Task naming preference saved.",
     personalizationPageDescription:
-      "Configure custom instructions and memory for all your tasks.",
+      "Configure task naming, custom instructions, and memory preferences.",
     customInstructions: "Custom instructions",
     customInstructionsDescription:
       "Provide extra guidance and context for all future tasks. Task-level platform rules and safety boundaries always take precedence.",
@@ -1678,6 +1686,10 @@ export const enUS = {
     },
     rename: "Rename",
     archive: "Archive task",
+    archivedNotification: "Task archived",
+    undoArchive: "Undo",
+    undoingArchive: "Undoing archive…",
+    archiveUndone: "Archive undone",
     archiveNamed: "Archive task “{{title}}”",
     pin: "Pin task",
     pinNamed: "Pin task “{{title}}”",
@@ -2226,6 +2238,8 @@ export const enUS = {
         "The task workspace is unavailable. Contact an administrator.",
       runner_unavailable:
         "The execution service is unavailable. Contact an administrator.",
+      deployment_stopped:
+        "A system update paused this request. Review its progress before continuing manually.",
       execution_environment_invalid:
         "The execution environment is not ready. Contact an administrator.",
       token_limit_exceeded:
@@ -4782,6 +4796,8 @@ export const enUS = {
     artifactNotFound: "The artifact was not found.",
     downloadForbidden: "You do not have permission to download this artifact.",
     runnerUnavailable: "The execution service is unavailable. Try again later.",
+    deploymentStopped:
+      "This task was stopped for a system update. Existing content was kept. Review its progress before continuing manually.",
     tokenLimitExceeded:
       "Your available token quota is exhausted and you cannot start a new task right now.",
     lastAdminRequired:

@@ -6065,6 +6065,13 @@ describe("ConversationService pending and turn materialization", () => {
         fixture.redis as never,
         generator as never,
         { recordModelUsage: vi.fn() } as never,
+        {
+          getPersonalization: vi.fn(async () => ({
+            custom_instructions: "",
+            memories_enabled: true,
+            task_auto_naming: "first_message" as const,
+          })),
+        },
       );
       const refresh = vi.spyOn(titles, "refresh");
       fixture.titleRefresh.scheduleForUserMessage.mockImplementation(
@@ -10552,6 +10559,9 @@ describe("ConversationService pending and turn materialization", () => {
       where: { id: PENDING_ID },
     });
     expect(projection.conversationEvent.create).toHaveBeenCalledTimes(2);
+    expect(
+      fixture.titleRefresh.scheduleForUserMessage,
+    ).toHaveBeenCalledExactlyOnceWith(CONVERSATION_ID, pending.inputText);
     expect(projection.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         action: "conversation_pending_request_steered",
@@ -10772,6 +10782,9 @@ describe("ConversationService pending and turn materialization", () => {
     expect(transaction.conversationMessage.create).toHaveBeenCalledOnce();
     expect(transaction.conversationEvent.create).toHaveBeenCalledOnce();
     expect(transaction.auditLog.create).toHaveBeenCalledOnce();
+    expect(
+      fixture.titleRefresh.scheduleForUserMessage,
+    ).toHaveBeenCalledExactlyOnceWith(CONVERSATION_ID, text);
   });
 });
 

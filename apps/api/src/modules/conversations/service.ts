@@ -4975,6 +4975,7 @@ export class ConversationService {
           return { event, created: true };
         });
         if (result.created) {
+          this.titleRefresh?.scheduleForUserMessage(conversationId, text);
           await this.redis
             .publishConversationEvent(
               conversationId,
@@ -5071,6 +5072,10 @@ export class ConversationService {
           context,
         });
         if (projection.created) {
+          this.titleRefresh?.scheduleForUserMessage(
+            conversationId,
+            reservation.text,
+          );
           for (const event of projection.events) {
             await this.redis
               .publishConversationEvent(
@@ -8299,7 +8304,7 @@ export class ConversationService {
       return { created, attachedEvents };
     });
     // Both direct and recovered starts reach this committed projection. Naming
-    // runs independently of the turn, using the accepted user request only.
+    // runs independently of the turn, using the owner's naming preference.
     if (!isCompact && intent.planReviewAction !== "implement") {
       this.titleRefresh?.scheduleForUserMessage(
         intent.conversationId,

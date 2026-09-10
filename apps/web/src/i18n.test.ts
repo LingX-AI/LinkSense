@@ -289,8 +289,11 @@ describe("i18n resources", () => {
     ).toContain("System health")
   })
 
-  it("uses conversation terminology only for model availability and selection", () => {
+  it("uses conversation terminology only for models and naming frequency", () => {
     const allowedChineseConversationTerms = new Set([
+      "首次对话时",
+      "每次对话时",
+      "首次对话时命名，或随每次新消息更新。手动修改的名称不会被覆盖。",
       "对话模型",
       "对话可选",
       "对话默认模型",

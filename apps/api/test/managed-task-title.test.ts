@@ -128,6 +128,7 @@ describe("ManagedTaskTitleGenerator", () => {
 
     const systemPrompt = String(callModel.mock.calls[0]?.[0].system)
     expect(systemPrompt).toContain("标题用于狭窄的侧边栏")
+    expect(systemPrompt).toContain("以最新用户请求体现的任务意图为重点")
     expect(systemPrompt).toContain("只保留一个核心动作和一个核心对象")
     expect(systemPrompt).toContain(
       "纯中文标题优先 6-12 个汉字，最多 16 个汉字",

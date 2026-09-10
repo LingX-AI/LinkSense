@@ -8,15 +8,36 @@ import {
 } from "../src/index.js";
 
 describe("personalization contracts", () => {
+  it.each(["first_message", "every_message"])(
+    "accepts a naming-only update for %s without resetting other preferences",
+    (task_auto_naming) => {
+      expect(
+        updatePersonalizationSettingsSchema.parse({ task_auto_naming }),
+      ).toEqual({ task_auto_naming });
+    },
+  );
+
+  it.each(["off", "always", null, 1])(
+    "rejects invalid naming mode %s",
+    (task_auto_naming) => {
+      expect(
+        updatePersonalizationSettingsSchema.safeParse({ task_auto_naming })
+          .success,
+      ).toBe(false);
+    },
+  );
+
   it("accepts the supported settings and partial updates", () => {
     expect(
       personalizationSettingsSchema.parse({
         custom_instructions: "请优先使用中文回答。",
         memories_enabled: true,
+        task_auto_naming: "first_message",
       }),
     ).toEqual({
       custom_instructions: "请优先使用中文回答。",
       memories_enabled: true,
+      task_auto_naming: "first_message",
     });
     expect(
       updatePersonalizationSettingsSchema.parse({
@@ -33,6 +54,7 @@ describe("personalization contracts", () => {
       personalizationSettingsSchema.safeParse({
         custom_instructions: "x".repeat(MAX_CUSTOM_INSTRUCTIONS_LENGTH + 1),
         memories_enabled: true,
+        task_auto_naming: "first_message",
       }).success,
     ).toBe(false);
   });

@@ -52,7 +52,7 @@ export function TaskCategoryComposerPicker({
             role="combobox"
             aria-label={t("taskCategories.choose")}
             disabled={disabled || query.isPending}
-            className="max-w-full min-w-0 gap-2 bg-transparent px-1.5 text-[length:var(--app-font-13)] font-normal hover:bg-hover focus-visible:bg-hover data-popup-open:bg-hover"
+            className="max-w-full min-w-0 gap-2 bg-transparent px-1.5 text-[length:var(--app-font-13)] font-medium hover:bg-hover focus-visible:bg-hover data-popup-open:bg-hover"
           >
             <FolderClosedIcon
               aria-hidden="true"
@@ -83,10 +83,10 @@ export function TaskCategoryComposerPicker({
                 ref={searchRef}
                 aria-label={t("taskCategories.search")}
                 placeholder={t("taskCategories.search")}
-                className="text-[length:var(--app-font-13)] font-normal"
+                className="text-[length:var(--app-font-13)] font-medium"
               />
               <CommandList className="max-h-[min(15rem,calc(var(--available-height)-8rem))]">
-                <CommandEmpty className="py-4 text-[length:var(--app-font-13)] font-normal text-muted-foreground">
+                <CommandEmpty className="py-4 text-[length:var(--app-font-13)] font-medium text-muted-foreground">
                   {t("taskCategories.noResults")}
                 </CommandEmpty>
                 <CommandGroup className="p-0">
@@ -97,7 +97,7 @@ export function TaskCategoryComposerPicker({
                       data-checked={category.id === value}
                       disabled={disabled}
                       onSelect={() => choose(category.id)}
-                      className="min-h-7 gap-2 rounded-xl px-2 py-1 text-[length:var(--app-font-13)] font-normal data-[checked=true]:bg-hover [&_svg]:size-3.5"
+                      className="min-h-7 gap-2 rounded-xl px-2 py-1 text-[length:var(--app-font-13)] font-medium data-[checked=true]:bg-hover [&_svg]:size-3.5"
                     >
                       <FolderClosedIcon
                         aria-hidden="true"
@@ -119,7 +119,7 @@ export function TaskCategoryComposerPicker({
               <Button
                 variant="ghost"
                 disabled={disabled}
-                className="h-7 justify-start gap-2 rounded-xl border-0 px-2 text-[length:var(--app-font-13)] font-normal text-muted-foreground"
+                className="h-7 justify-start gap-2 rounded-xl border-0 px-2 text-[length:var(--app-font-13)] font-medium text-muted-foreground"
                 onClick={() => {
                   setOpen(false)
                   setCreating(true)
@@ -132,7 +132,7 @@ export function TaskCategoryComposerPicker({
                 variant="ghost"
                 disabled={disabled}
                 aria-pressed={value === null}
-                className="h-7 justify-start gap-2 rounded-xl border-0 px-2 text-[length:var(--app-font-13)] font-normal text-muted-foreground"
+                className="h-7 justify-start gap-2 rounded-xl border-0 px-2 text-[length:var(--app-font-13)] font-medium text-muted-foreground"
                 onClick={() => choose(null)}
               >
                 <XIcon aria-hidden="true" className="size-3.5" />

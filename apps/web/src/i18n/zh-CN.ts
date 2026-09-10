@@ -6,6 +6,7 @@ export const zhCN = {
     notifications: "通知",
     cancel: "取消",
     save: "保存",
+    saving: "正在保存…",
     create: "创建",
     update: "更新",
     delete: "删除",
@@ -345,7 +346,14 @@ export const zhCN = {
     runningMessageActionQueueDescription:
       "保留当前执行，待它结束后再自动处理新消息。",
     profilePageDescription: "更新你的显示姓名和头像。",
-    personalizationPageDescription: "配置适用于你所有任务的自定义指令和记忆。",
+    taskAutoNaming: "自动命名任务名称",
+    taskAutoNamingDescription:
+      "首次对话时命名，或随每次新消息更新。手动修改的名称不会被覆盖。",
+    taskAutoNamingFrequency: "命名时机",
+    taskAutoNamingFirstMessage: "首次对话时",
+    taskAutoNamingEveryMessage: "每次对话时",
+    taskAutoNamingSaved: "任务自动命名设置已保存。",
+    personalizationPageDescription: "配置任务命名、自定义指令和记忆偏好。",
     customInstructions: "自定义指令",
     customInstructionsDescription:
       "提供适用于你所有未来任务的额外说明和上下文。任务中的平台规则与安全边界始终优先。",
@@ -1544,6 +1552,10 @@ export const zhCN = {
     },
     rename: "重命名",
     archive: "归档任务",
+    archivedNotification: "已归档任务",
+    undoArchive: "撤销",
+    undoingArchive: "正在撤销归档…",
+    archiveUndone: "已撤销归档",
     archiveNamed: "归档任务“{{title}}”",
     pin: "置顶任务",
     pinNamed: "置顶任务“{{title}}”",
@@ -2058,6 +2070,7 @@ export const zhCN = {
       agents_template_unavailable: "执行规则暂不可用，请联系管理员。",
       workspace_invalid: "任务工作区暂不可用，请联系管理员。",
       runner_unavailable: "执行服务暂不可用，请联系管理员。",
+      deployment_stopped: "系统更新已暂停此请求，请确认进度后手动继续。",
       execution_environment_invalid: "执行环境未就绪，请联系管理员。",
       token_limit_exceeded:
         "该用户的可用 Token 额度已用尽，暂时不能发起新任务。",
@@ -4387,6 +4400,8 @@ export const zhCN = {
     artifactNotFound: "未找到该产物。",
     downloadForbidden: "你无权下载该产物。",
     runnerUnavailable: "执行服务暂不可用，请稍后重试。",
+    deploymentStopped:
+      "本次任务因系统更新而中止，已有内容已保留。请确认进度后手动继续。",
     tokenLimitExceeded: "你的可用 Token 额度已用尽，暂时不能发起新任务。",
     lastAdminRequired: "系统必须至少保留一个启用状态的管理员，无法执行此操作。",
     lastModelRequired: "至少需要保留一个“对话可选”的对话模型。",
