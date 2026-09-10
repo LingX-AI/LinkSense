@@ -43,12 +43,12 @@ describe("LinkSense Core MCP current user module", () => {
                 },
               ],
             },
-            token_quota: {
+            credit_quota: {
               total: null,
               weekly: {
-                limit_tokens: "1000",
-                used_tokens: "250",
-                remaining_tokens: "750",
+                limit_credits: "0.001",
+                used_credits: "0.00025",
+                remaining_credits: "0.00075",
                 remaining_percentage: 75,
                 reset_at: "2026-08-24T00:00:00.000Z",
               },
@@ -107,12 +107,12 @@ describe("LinkSense Core MCP current user module", () => {
                 },
               ],
             },
-            token_quota: {
+            credit_quota: {
               total: null,
               weekly: {
-                limit_tokens: "1000",
-                used_tokens: "250",
-                remaining_tokens: "750",
+                limit_credits: "0.001",
+                used_credits: "0.00025",
+                remaining_credits: "0.00075",
                 remaining_percentage: 75,
                 reset_at: "2026-08-24T00:00:00.000Z",
               },

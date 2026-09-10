@@ -43,6 +43,7 @@ describe("SettingsShell administrator navigation", () => {
     "/admin/knowledge-bases",
     "/admin/knowledge-sources",
     "/admin/models",
+    "/admin/quotas",
     "/admin/settings",
     "/admin/health",
     "/admin/feedback",
@@ -89,6 +90,33 @@ describe("SettingsShell administrator navigation", () => {
     )
   })
 
+  it.each([
+    ["zh-CN", "管理", "额度管理"],
+    ["en-US", "Administration", "Quota management"],
+  ])(
+    "places quota management immediately below model settings in %s",
+    async (language, navigationLabel, quotaLabel) => {
+      await i18n.changeLanguage(language)
+      render(
+        <MemoryRouter initialEntries={["/admin/quotas"]}>
+          <SettingsShell />
+        </MemoryRouter>
+      )
+      const links = within(
+        screen.getByRole("navigation", { name: navigationLabel })
+      ).getAllByRole("link")
+      const modelIndex = links.findIndex(
+        (link) => link.getAttribute("href") === "/admin/models"
+      )
+      expect(modelIndex).toBeGreaterThan(-1)
+      expect(links[modelIndex + 1]).toHaveAttribute("href", "/admin/quotas")
+      expect(links[modelIndex + 1]).toHaveTextContent(quotaLabel)
+      expect(links[modelIndex + 1]).toHaveClass(
+        "settings-navigation-link-active"
+      )
+    }
+  )
+
   it("places system update at the end of the management group", () => {
     render(
       <MemoryRouter initialEntries={["/admin/users"]}>
@@ -99,6 +127,9 @@ describe("SettingsShell administrator navigation", () => {
     const navigation = screen.getByRole("navigation", { name: "管理" })
     const links = within(navigation).getAllByRole("link")
 
+    expect(
+      within(navigation).getByRole("link", { name: "额度管理" })
+    ).toHaveAttribute("href", "/admin/quotas")
     expect(links.at(-1)).toHaveAttribute("href", "/admin/system-update")
     expect(links.at(-1)).toHaveTextContent("系统更新")
     expect(

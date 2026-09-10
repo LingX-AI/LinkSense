@@ -22,6 +22,37 @@ function leafStrings(value: unknown): string[] {
 }
 
 describe("i18n resources", () => {
+  it("uses Chinese quota wording outside quota management while preserving English and fallback", () => {
+    const values = { total: "12", weekly: "0", monthly: "-" }
+    const key = "nav.creditQuotaRemaining"
+    expect(i18n.t(key, { lng: "zh-CN", ...values })).toBe("总 12 · 周 0 · 月 -")
+    expect(i18n.t(key, { lng: "en-US", ...values })).toBe(
+      "Total 12 · W 0 · M -"
+    )
+    const { quotaManagement, ...chineseInterface } = zhCN
+    expect(
+      leafStrings(chineseInterface).filter((value) =>
+        /\bcredits?\b/iu.test(value)
+      )
+    ).toEqual([])
+    expect(quotaManagement.conversionTitle).toBe("Credits 换算")
+    expect(quotaManagement.weekly_credit_limit).toBe("周额度（credits）")
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(instance.t(key, { lng: "en-US", ...values })).toBe(
+      "总 12 · 周 0 · 月 -"
+    )
+    expect(i18n.t("nav.creditQuotaRemainingTitle", { lng: "zh-CN" })).toBe(
+      "剩余额度"
+    )
+    expect(i18n.t("nav.creditQuotaRemainingTitle", { lng: "en-US" })).toBe(
+      "Credits remaining"
+    )
+    expect(instance.t("nav.creditQuotaRemainingTitle", { lng: "en-US" })).toBe(
+      "剩余额度"
+    )
+  })
+
   it("provides matching feedback reply translations and falls back for missing English keys", () => {
     expect(leafKeys(zhCN.myFeedback)).toEqual(leafKeys(enUS.myFeedback))
     for (const key of leafKeys(zhCN.myFeedback)) {
@@ -192,13 +223,11 @@ describe("i18n resources", () => {
     await i18n.changeLanguage("zh-CN")
   })
 
-  it("uses a specific label for saving initial user token configuration", () => {
-    expect(
-      i18n.t("admin.modelProvider.saveUserTokenLimits", { lng: "zh-CN" })
-    ).toBe("保存配置")
-    expect(
-      i18n.t("admin.modelProvider.saveUserTokenLimits", { lng: "en-US" })
-    ).toBe("Save configuration")
+  it("localizes the independent quota management menu", () => {
+    expect(i18n.t("quotaManagement.title", { lng: "zh-CN" })).toBe("额度管理")
+    expect(i18n.t("quotaManagement.title", { lng: "en-US" })).toBe(
+      "Quota management"
+    )
   })
 
   it("localizes administrator update guidance and keeps zh-CN fallback", async () => {

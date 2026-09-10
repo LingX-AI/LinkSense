@@ -359,74 +359,69 @@ type OptimisticTurnStart = Readonly<{
   pendingExecutionConversationId: string | undefined
 }>
 
-type UserTokenQuotaUsage = NonNullable<
-  NonNullable<User["token_quota"]>["total"]
+type UserCreditQuotaUsage = NonNullable<
+  NonNullable<User["credit_quota"]>["total"]
 >
 
-function isTokenQuotaPeriodExhausted(
-  period: UserTokenQuotaUsage | null | undefined
+function isCreditQuotaPeriodExhausted(
+  period: UserCreditQuotaUsage | null | undefined
 ) {
   if (!period) return false
-  const remainingTokens = period.remaining_tokens.trim()
-  if (/^-/u.test(remainingTokens)) return true
-  if (/^\+?\d+$/u.test(remainingTokens)) {
-    return remainingTokens.replace(/^\+?0*/u, "") === ""
-  }
-  return period.remaining_percentage <= 0
+  return /^0(?:\.0+)?$/u.test(period.remaining_credits.trim())
 }
 
-function getExhaustedTokenQuotaKey(tokenQuota: User["token_quota"]) {
-  if (!tokenQuota) return null
+function getExhaustedCreditQuotaKey(creditQuota: User["credit_quota"]) {
+  if (!creditQuota) return null
   const exhaustedPeriods = [
-    ["total", tokenQuota.total] as const,
-    ["weekly", tokenQuota.weekly] as const,
-    ["monthly", tokenQuota.monthly] as const,
-  ].filter(([, period]) => isTokenQuotaPeriodExhausted(period))
+    ["total", creditQuota.total] as const,
+    ["weekly", creditQuota.weekly] as const,
+    ["monthly", creditQuota.monthly] as const,
+  ].filter(([, period]) => isCreditQuotaPeriodExhausted(period))
   if (exhaustedPeriods.length === 0) return null
   return exhaustedPeriods
     .map(
       ([periodName, period]) =>
-        `${periodName}:${period?.remaining_tokens ?? ""}`
+        `${periodName}:${period?.remaining_credits ?? ""}`
     )
     .join("|")
 }
 
-function TokenQuotaBlockedCard({
+function CreditQuotaBlockedCard({
   onDismiss,
 }: Readonly<{
   onDismiss: () => void
 }>) {
   const { t } = useTranslation()
   return (
-    <div className="conversation-token-quota-card-dock">
+    <div className="conversation-credit-quota-card-dock">
       <Card
         size="sm"
-        className="conversation-token-quota-card"
+        className="conversation-credit-quota-card"
         role="status"
         aria-live="polite"
       >
-        <CardHeader className="conversation-token-quota-card-header">
+        <CardHeader className="conversation-credit-quota-card-header">
           <span
-            className="conversation-token-quota-card-icon"
+            className="conversation-credit-quota-card-icon"
             aria-hidden="true"
           >
             <CircleAlertIcon aria-hidden="true" />
           </span>
-          <div className="conversation-token-quota-card-copy">
-            <CardTitle className="conversation-token-quota-card-title">
-              {t("conversation.tokenQuotaBlocked.title")}
+          <div className="conversation-credit-quota-card-copy">
+            <CardTitle className="conversation-credit-quota-card-title">
+              {t("conversation.creditQuotaBlocked.title")}
             </CardTitle>
-            <CardDescription className="conversation-token-quota-card-description">
-              {t("conversation.tokenQuotaBlocked.description")}
+            <CardDescription className="conversation-credit-quota-card-description">
+              {t("conversation.creditQuotaBlocked.description")}
             </CardDescription>
           </div>
-          <CardAction className="conversation-token-quota-card-action">
+          <CardAction className="conversation-credit-quota-card-action">
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="conversation-token-quota-card-dismiss"
-              aria-label={t("conversation.tokenQuotaBlocked.dismiss")}
+              className="conversation-credit-quota-card-dismiss"
+              aria-label={t("conversation.creditQuotaBlocked.dismiss")}
               onClick={onDismiss}
             >
               <XIcon aria-hidden="true" />
@@ -536,22 +531,24 @@ export function ConversationPage({
   const dismissError = useCallback((message: string) => {
     setError((current) => (current === message ? null : current))
   }, [])
-  const [tokenQuotaNotice, setTokenQuotaNotice] = useState<string | null>(null)
-  const [dismissedTokenQuotaBlockKey, setDismissedTokenQuotaBlockKey] =
+  const [creditQuotaNotice, setCreditQuotaNotice] = useState<string | null>(
+    null
+  )
+  const [dismissedCreditQuotaBlockKey, setDismissedCreditQuotaBlockKey] =
     useState<string | null>(null)
   const setTurnAdmissionError = useCallback(
     (nextError: unknown) => {
       const message = getErrorMessage(nextError, t)
       if (
         nextError instanceof ApiError &&
-        nextError.errorCode === "TOKEN_LIMIT_EXCEEDED"
+        nextError.errorCode === "CREDIT_LIMIT_EXCEEDED"
       ) {
         setError(null)
-        setTokenQuotaNotice(message)
+        setCreditQuotaNotice(message)
         void refreshUser().catch(() => undefined)
         return
       }
-      setTokenQuotaNotice(null)
+      setCreditQuotaNotice(null)
       setError(message)
     },
     [refreshUser, t]
@@ -723,7 +720,7 @@ export function ConversationPage({
     const previousRouteConversationId = routeConversationIdRef.current
     if (previousRouteConversationId !== currentRouteConversationId) {
       setError(null)
-      setTokenQuotaNotice(null)
+      setCreditQuotaNotice(null)
     }
     if (
       previousRouteConversationId !== currentRouteConversationId &&
@@ -811,7 +808,7 @@ export function ConversationPage({
 
   const handleStarterQuestionSelect = useCallback((prompt: string) => {
     setError(null)
-    setTokenQuotaNotice(null)
+    setCreditQuotaNotice(null)
     setValue(prompt)
     window.setTimeout(() => composerRef.current?.focus(), 0)
   }, [])
@@ -1172,16 +1169,16 @@ export function ConversationPage({
     pendingFirstMessageConversationId !== null &&
     (isNew || pendingFirstMessageConversationId === conversationId) &&
     !conversation?.messages?.length
-  const exhaustedTokenQuotaKey = getExhaustedTokenQuotaKey(
-    user?.token_quota ?? null
+  const exhaustedCreditQuotaKey = getExhaustedCreditQuotaKey(
+    user?.credit_quota ?? null
   )
-  const taskStartDisabledByTokenQuota = exhaustedTokenQuotaKey !== null
-  const showTokenQuotaBlockedCard =
-    exhaustedTokenQuotaKey !== null &&
-    dismissedTokenQuotaBlockKey !== exhaustedTokenQuotaKey
-  const emptyTokenQuotaNotice = taskStartDisabledByTokenQuota
+  const taskStartDisabledByCreditQuota = exhaustedCreditQuotaKey !== null
+  const showCreditQuotaBlockedCard =
+    exhaustedCreditQuotaKey !== null &&
+    dismissedCreditQuotaBlockKey !== exhaustedCreditQuotaKey
+  const emptyCreditQuotaNotice = taskStartDisabledByCreditQuota
     ? null
-    : tokenQuotaNotice
+    : creditQuotaNotice
   const optimisticallyConsumedAttachmentIds =
     optimisticAttachmentConsumption &&
     optimisticAttachmentConsumption.conversationId === conversation?.id
@@ -4319,7 +4316,7 @@ export function ConversationPage({
     const targetConversationId = routeConversationIdRef.current
     if (!targetConversationId) return
     setError(null)
-    setTokenQuotaNotice(null)
+    setCreditQuotaNotice(null)
     scrollToBottom("auto")
     composerSubmissionInFlightRef.current = true
     contextCompactionMutation.mutate({
@@ -4352,7 +4349,7 @@ export function ConversationPage({
       collaborationMode,
     }
     setError(null)
-    setTokenQuotaNotice(null)
+    setCreditQuotaNotice(null)
     setValue(input)
     if (goalMode) {
       const existingGoalBlocksStart =
@@ -5451,7 +5448,7 @@ export function ConversationPage({
         showNewTaskWelcome={isNew}
         onStarterQuestionSelect={handleStarterQuestionSelect}
         suppressEmptyState={suppressEmptyState}
-        emptyNotice={emptyTokenQuotaNotice}
+        emptyNotice={emptyCreditQuotaNotice}
         blockingPanel={blockingPanel}
         blockingPanelKey={blockingPanelKey}
         onBlockingPanelReveal={handleScrollToBottom}
@@ -5507,7 +5504,7 @@ export function ConversationPage({
                 ? pendingOfficeQuestion.request.id
                 : undefined)
             }
-            taskStartDisabled={taskStartDisabledByTokenQuota}
+            taskStartDisabled={taskStartDisabledByCreditQuota}
             reorderDisabled={
               reorderPendingMutation.isPending ||
               Boolean(
@@ -5555,11 +5552,11 @@ export function ConversationPage({
           />
         )}
         {!blockingPanelActive &&
-          showTokenQuotaBlockedCard &&
-          exhaustedTokenQuotaKey && (
-            <TokenQuotaBlockedCard
+          showCreditQuotaBlockedCard &&
+          exhaustedCreditQuotaKey && (
+            <CreditQuotaBlockedCard
               onDismiss={() =>
-                setDismissedTokenQuotaBlockKey(exhaustedTokenQuotaKey)
+                setDismissedCreditQuotaBlockKey(exhaustedCreditQuotaKey)
               }
             />
           )}
@@ -5691,7 +5688,7 @@ export function ConversationPage({
             compactAvailable={compactionAvailable}
             compacting={contextCompactionMutation.isPending}
             taskStartDisabled={
-              taskStartDisabledByTokenQuota || newTaskCategoryResolving
+              taskStartDisabledByCreditQuota || newTaskCategoryResolving
             }
             onStartNewTask={startNewTaskFromComposer}
             onStartApplication={(application) => {

@@ -3,6 +3,13 @@ import { describe, expect, it } from "vitest"
 import { backendI18n, translateError } from "../src/lib/i18n.js"
 
 describe("backend error translations", () => {
+  it("uses Chinese quota wording for exhausted credits and preserves English and fallback", () => {
+    const chinese = "你的可用额度已用尽，暂时不能发起新任务。"
+    expect(translateError("CREDIT_LIMIT_EXCEEDED", "zh-CN")).toBe(chinese)
+    expect(translateError("CREDIT_LIMIT_EXCEEDED", "en-US")).toBe("Your available credit quota is exhausted and you cannot start a new task right now.")
+    expect(backendI18n.t("errors.conversation.creditLimitExceeded", { lng: "fr-FR" })).toBe(chinese)
+  })
+
   it("describes unavailable access without requiring an input-box selection in both locales and fallback", () => {
     expect(translateError("KNOWLEDGE_NO_AVAILABLE_BASES", "zh-CN")).toBe("当前没有可访问且可用的知识库。")
     expect(translateError("KNOWLEDGE_NO_AVAILABLE_BASES", "en-US")).toBe("No knowledge bases are currently accessible and available.")

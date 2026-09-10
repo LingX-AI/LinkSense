@@ -21,7 +21,7 @@ type VoiceTranscriptionRoutesOptions = {
   rateLimits: {
     assertAllowed(userId: string): Promise<void>
   }
-  tokenLimits: {
+  creditLimits: {
     assertCanStartTask(userId: string): Promise<void>
   }
   defaultLocale: Locale
@@ -31,7 +31,7 @@ export const voiceTranscriptionRoutes: FastifyPluginAsync<
   VoiceTranscriptionRoutesOptions
 > = async (
   app,
-  { service, availability, rateLimits, tokenLimits, defaultLocale },
+  { service, availability, rateLimits, creditLimits, defaultLocale },
 ) => {
   app.setErrorHandler((error, request, reply) => {
     if (
@@ -106,7 +106,7 @@ export const voiceTranscriptionRoutes: FastifyPluginAsync<
     async (request, reply) => {
       const userId = request.authUser?.id
       if (!userId) throw new AppError("AUTH_REQUIRED")
-      await tokenLimits.assertCanStartTask(userId)
+      await creditLimits.assertCanStartTask(userId)
 
       const body = voiceTranscriptionRequestSchema.parse(request.body)
       await rateLimits.assertAllowed(userId)

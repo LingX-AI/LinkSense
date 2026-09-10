@@ -28,7 +28,6 @@ const settings: ModelProviderSettings = {
   providers: [channel],
   default_model: "alpha",
   title_model: "alpha",
-  token_limits: { weekly_token_limit: "100", monthly_token_limit: "200" },
 }
 
 describe("model settings drafts", () => {
@@ -42,7 +41,6 @@ describe("model settings drafts", () => {
     expect(result).toMatchObject({
       default_model: "renamed",
       title_model: "renamed",
-      token_limits: settings.token_limits,
       providers: [{ models: [{ id: "renamed" }, second] }],
     })
     expect(settings.providers[0]?.models[0]?.id).toBe("alpha")

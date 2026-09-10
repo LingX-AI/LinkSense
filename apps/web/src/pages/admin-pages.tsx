@@ -142,7 +142,6 @@ import {
   Field,
   FieldContent,
   FieldDescription,
-  FieldError,
   FieldGroup,
   FieldLabel,
   FieldLegend,
@@ -150,12 +149,6 @@ import {
   FieldTitle,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-  InputGroupText,
-} from "@/components/ui/input-group"
 import {
   Popover,
   PopoverContent,
@@ -192,14 +185,12 @@ import { formatDateTime, formatFileSize } from "@/i18n/date"
 import { formatPublicTechnicalIdentifier } from "@/lib/public-copy"
 import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
 import {
-  MILLION_TOKEN_QUOTA_INPUT_PATTERN,
-  millionTokenQuotaInputToTokenLimit,
-  tokenLimitToMillionTokenQuotaInput,
-} from "@/lib/token-quota"
-import {
-  InitialUserTokenQuotaSettingsForm,
-  ModelProviderSettingsForm,
-} from "@/features/admin/model-provider-settings-form"
+  CREDIT_QUOTA_INPUT_PATTERN,
+  formatRemainingCredits,
+  creditQuotaInputToCreditLimit,
+  creditLimitToCreditQuotaInput,
+} from "@/lib/credit-quota"
+import { ModelProviderSettingsForm } from "@/features/admin/model-provider-settings-form"
 import { ImageGenerationSettingsForm } from "@/features/admin/image-generation-settings-form"
 import { ImageUnderstandingSettingsForm } from "@/features/admin/image-understanding-settings-form"
 import { VoiceTranscriptionSettingsForm } from "@/features/admin/voice-transcription-settings-form"
@@ -257,21 +248,22 @@ const dockerResourceServiceTranslationKeys: Record<string, string> = {
   "runner-worker-image": "health.resources.services.runnerWorkerImage",
 }
 
-function formatTokenLimit(value: string | null | undefined): string {
-  const formatted = tokenLimitToMillionTokenQuotaInput(value)
+function formatCreditLimit(value: string | null | undefined): string {
+  const formatted = creditLimitToCreditQuotaInput(value)
   return formatted ? formatted : "-"
 }
 
-type TokenQuotaRemainingFilter = "" | "total" | "weekly" | "monthly"
+type CreditQuotaRemainingFilter = "" | "total" | "weekly" | "monthly"
 type UserRegistrationSourceFilter =
   "" | "self_registration" | "organization_invitation"
-type UserTokenQuotaRemaining = {
+type UserCreditQuotaRemaining = {
+  remaining_credits: string
   remaining_percentage: number
 }
 
-function isTokenQuotaRemainingFilter(
+function isCreditQuotaRemainingFilter(
   value: string
-): value is TokenQuotaRemainingFilter {
+): value is CreditQuotaRemainingFilter {
   return (
     value === "" ||
     value === "total" ||
@@ -290,28 +282,32 @@ function isUserRegistrationSourceFilter(
   )
 }
 
-function UserTokenLimitCell({
+function UserCreditLimitCell({
   limit,
   period,
 }: {
   limit: string | null | undefined
-  period: UserTokenQuotaRemaining | null | undefined
+  period: UserCreditQuotaRemaining | null | undefined
 }) {
-  const { t } = useTranslation()
-  const formatted = formatTokenLimit(limit)
+  const { t, i18n } = useTranslation()
+  const formatted = formatCreditLimit(limit)
   if (formatted === "-") return "-"
 
   return (
     <span>
       <span className="table-primary">
-        {t("admin.tokenLimitDisplay", { value: formatted })}
+        {t("admin.creditLimitDisplay", { value: formatted })}
       </span>
       <span className="table-secondary">
         {typeof period?.remaining_percentage === "number"
-          ? t("admin.tokenQuotaRemainingPercentage", {
+          ? t("admin.creditQuotaRemainingAmount", {
+              value: formatRemainingCredits(
+                period.remaining_credits,
+                normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
+              ),
               percentage: period.remaining_percentage,
             })
-          : t("admin.tokenQuotaRemainingUnavailable")}
+          : t("admin.creditQuotaRemainingUnavailable")}
       </span>
     </span>
   )
@@ -679,8 +675,8 @@ function UserManagementPage() {
   const [statusFilter, setStatusFilter] = useState("")
   const [registrationSourceFilter, setRegistrationSourceFilter] =
     useState<UserRegistrationSourceFilter>("")
-  const [tokenQuotaRemainingFilter, setTokenQuotaRemainingFilter] =
-    useState<TokenQuotaRemainingFilter>("")
+  const [creditQuotaRemainingFilter, setCreditQuotaRemainingFilter] =
+    useState<CreditQuotaRemainingFilter>("")
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<User | null>(null)
   const [name, setName] = useState("")
@@ -688,21 +684,21 @@ function UserManagementPage() {
   const [role, setRole] = useState<"user" | "admin">("user")
   const [status, setStatus] = useState<"active" | "disabled">("active")
   const [groupIds, setGroupIds] = useState<string[]>([])
-  const [totalTokenLimit, setTotalTokenLimit] = useState("")
-  const [weeklyTokenLimit, setWeeklyTokenLimit] = useState("")
-  const [monthlyTokenLimit, setMonthlyTokenLimit] = useState("")
+  const [totalCreditLimit, setTotalCreditLimit] = useState("")
+  const [weeklyCreditLimit, setWeeklyCreditLimit] = useState("")
+  const [monthlyCreditLimit, setMonthlyCreditLimit] = useState("")
   const [quotaEditing, setQuotaEditing] = useState<User | null>(null)
-  const [quotaTotalTokenLimit, setQuotaTotalTokenLimit] = useState("")
-  const [quotaWeeklyTokenLimit, setQuotaWeeklyTokenLimit] = useState("")
-  const [quotaMonthlyTokenLimit, setQuotaMonthlyTokenLimit] = useState("")
+  const [quotaTotalCreditLimit, setQuotaTotalCreditLimit] = useState("")
+  const [quotaWeeklyCreditLimit, setQuotaWeeklyCreditLimit] = useState("")
+  const [quotaMonthlyCreditLimit, setQuotaMonthlyCreditLimit] = useState("")
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
-  const [tokenLimitOpen, setTokenLimitOpen] = useState(false)
+  const [creditLimitOpen, setCreditLimitOpen] = useState(false)
   const [batchTotalEnabled, setBatchTotalEnabled] = useState(false)
   const [batchWeeklyEnabled, setBatchWeeklyEnabled] = useState(true)
   const [batchMonthlyEnabled, setBatchMonthlyEnabled] = useState(true)
-  const [batchTotalTokenLimit, setBatchTotalTokenLimit] = useState("")
-  const [batchWeeklyTokenLimit, setBatchWeeklyTokenLimit] = useState("")
-  const [batchMonthlyTokenLimit, setBatchMonthlyTokenLimit] = useState("")
+  const [batchTotalCreditLimit, setBatchTotalCreditLimit] = useState("")
+  const [batchWeeklyCreditLimit, setBatchWeeklyCreditLimit] = useState("")
+  const [batchMonthlyCreditLimit, setBatchMonthlyCreditLimit] = useState("")
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
@@ -718,7 +714,7 @@ function UserManagementPage() {
       roleFilter,
       statusFilter,
       registrationSourceFilter,
-      tokenQuotaRemainingFilter,
+      creditQuotaRemainingFilter,
     ],
     queryFn: ({ signal }) =>
       apiRequest("/admin/users", {
@@ -728,7 +724,7 @@ function UserManagementPage() {
           role: roleFilter,
           status: statusFilter,
           registration_source: registrationSourceFilter,
-          token_quota_remaining_zero: tokenQuotaRemainingFilter,
+          credit_quota_remaining_zero: creditQuotaRemainingFilter,
           limit: 100,
         },
         signal,
@@ -796,9 +792,9 @@ function UserManagementPage() {
     setRole("user")
     setStatus("active")
     setGroupIds([])
-    setTotalTokenLimit("")
-    setWeeklyTokenLimit("")
-    setMonthlyTokenLimit("")
+    setTotalCreditLimit("")
+    setWeeklyCreditLimit("")
+    setMonthlyCreditLimit("")
   }
 
   const openCreate = () => {
@@ -813,35 +809,33 @@ function UserManagementPage() {
     setRole(user.role)
     setStatus(user.status)
     setGroupIds(user.user_group_ids ?? [])
-    setTotalTokenLimit(
-      tokenLimitToMillionTokenQuotaInput(user.total_token_limit)
+    setTotalCreditLimit(creditLimitToCreditQuotaInput(user.total_credit_limit))
+    setWeeklyCreditLimit(
+      creditLimitToCreditQuotaInput(user.weekly_credit_limit)
     )
-    setWeeklyTokenLimit(
-      tokenLimitToMillionTokenQuotaInput(user.weekly_token_limit)
-    )
-    setMonthlyTokenLimit(
-      tokenLimitToMillionTokenQuotaInput(user.monthly_token_limit)
+    setMonthlyCreditLimit(
+      creditLimitToCreditQuotaInput(user.monthly_credit_limit)
     )
     setEditorOpen(true)
   }
 
   const resetQuotaEditor = () => {
     setQuotaEditing(null)
-    setQuotaTotalTokenLimit("")
-    setQuotaWeeklyTokenLimit("")
-    setQuotaMonthlyTokenLimit("")
+    setQuotaTotalCreditLimit("")
+    setQuotaWeeklyCreditLimit("")
+    setQuotaMonthlyCreditLimit("")
   }
 
   const openQuotaEdit = (user: User) => {
     setQuotaEditing(user)
-    setQuotaTotalTokenLimit(
-      tokenLimitToMillionTokenQuotaInput(user.total_token_limit)
+    setQuotaTotalCreditLimit(
+      creditLimitToCreditQuotaInput(user.total_credit_limit)
     )
-    setQuotaWeeklyTokenLimit(
-      tokenLimitToMillionTokenQuotaInput(user.weekly_token_limit)
+    setQuotaWeeklyCreditLimit(
+      creditLimitToCreditQuotaInput(user.weekly_credit_limit)
     )
-    setQuotaMonthlyTokenLimit(
-      tokenLimitToMillionTokenQuotaInput(user.monthly_token_limit)
+    setQuotaMonthlyCreditLimit(
+      creditLimitToCreditQuotaInput(user.monthly_credit_limit)
     )
   }
 
@@ -866,10 +860,10 @@ function UserManagementPage() {
   }
 
   const saveMutation = useMutation({
-    mutationFn: (tokenLimits?: {
-      total_token_limit: string | null
-      weekly_token_limit: string | null
-      monthly_token_limit: string | null
+    mutationFn: (creditLimits?: {
+      total_credit_limit: string | null
+      weekly_credit_limit: string | null
+      monthly_credit_limit: string | null
     }) =>
       apiRequest(editing ? `/admin/users/${editing.id}` : "/admin/users", {
         method: editing ? "PATCH" : "POST",
@@ -877,7 +871,7 @@ function UserManagementPage() {
           name: name.trim(),
           email: email.trim(),
           role,
-          ...(editing ? { status, ...tokenLimits } : {}),
+          ...(editing ? { status, ...creditLimits } : {}),
           user_group_ids: groupIds,
         },
         schema: userSchema,
@@ -901,17 +895,17 @@ function UserManagementPage() {
     onError: (nextError) => setError(getErrorMessage(nextError, t)),
   })
 
-  const tokenLimitMutation = useMutation({
-    mutationFn: (tokenLimits: {
-      total_token_limit?: string | null
-      weekly_token_limit?: string | null
-      monthly_token_limit?: string | null
+  const creditLimitMutation = useMutation({
+    mutationFn: (creditLimits: {
+      total_credit_limit?: string | null
+      weekly_credit_limit?: string | null
+      monthly_credit_limit?: string | null
     }) =>
-      apiRequest("/admin/users/token-limits", {
+      apiRequest("/admin/users/credit-limits", {
         method: "PATCH",
         body: {
           user_ids: selectedUserIds,
-          ...tokenLimits,
+          ...creditLimits,
         },
         schema: paginatedSchema(userSchema),
       }),
@@ -920,29 +914,31 @@ function UserManagementPage() {
       setError(null)
     },
     onSuccess: async () => {
-      setTokenLimitOpen(false)
+      setCreditLimitOpen(false)
       setSelectedUserIds([])
-      setMessage(t("admin.tokenLimitsSaved", { count: selectedUserIds.length }))
+      setMessage(
+        t("admin.creditLimitsSaved", { count: selectedUserIds.length })
+      )
       await refreshUserManagementData()
     },
     onError: (nextError) => setError(getErrorMessage(nextError, t)),
   })
 
-  const singleTokenLimitMutation = useMutation({
+  const singleCreditLimitMutation = useMutation({
     mutationFn: ({
       targetUser,
-      tokenLimits,
+      creditLimits,
     }: {
       targetUser: User
-      tokenLimits: {
-        total_token_limit: string | null
-        weekly_token_limit: string | null
-        monthly_token_limit: string | null
+      creditLimits: {
+        total_credit_limit: string | null
+        weekly_credit_limit: string | null
+        monthly_credit_limit: string | null
       }
     }) =>
       apiRequest(`/admin/users/${targetUser.id}`, {
         method: "PATCH",
-        body: tokenLimits,
+        body: creditLimits,
         schema: userSchema,
       }),
     onMutate: () => {
@@ -952,7 +948,7 @@ function UserManagementPage() {
     onSuccess: async (_, variables) => {
       resetQuotaEditor()
       setMessage(
-        t("admin.singleTokenLimitsSaved", { name: variables.targetUser.name })
+        t("admin.singleCreditLimitsSaved", { name: variables.targetUser.name })
       )
       await refreshUserManagementData()
     },
@@ -1099,10 +1095,10 @@ function UserManagementPage() {
             type="button"
             variant="secondary"
             disabled={selectedUserIds.length === 0}
-            onClick={() => setTokenLimitOpen(true)}
+            onClick={() => setCreditLimitOpen(true)}
           >
             <SlidersHorizontalIcon aria-hidden="true" />
-            {t("admin.batchTokenLimits", { count: selectedUserIds.length })}
+            {t("admin.batchCreditLimits", { count: selectedUserIds.length })}
           </Button>
           <Button type="button" onClick={openCreate}>
             {t("admin.createUser")}
@@ -1175,30 +1171,30 @@ function UserManagementPage() {
           />
         </FieldShell>
         <FieldShell
-          id="user-token-quota-remaining-filter"
-          label={t("admin.tokenQuotaRemainingFilter")}
+          id="user-credit-quota-remaining-filter"
+          label={t("admin.creditQuotaRemainingFilter")}
         >
           <AdminSelect
-            id="user-token-quota-remaining-filter"
-            value={tokenQuotaRemainingFilter}
+            id="user-credit-quota-remaining-filter"
+            value={creditQuotaRemainingFilter}
             onValueChange={(value) =>
-              setTokenQuotaRemainingFilter(
-                isTokenQuotaRemainingFilter(value) ? value : ""
+              setCreditQuotaRemainingFilter(
+                isCreditQuotaRemainingFilter(value) ? value : ""
               )
             }
             options={[
               { value: "", label: t("common.all") },
               {
                 value: "total",
-                label: t("admin.totalTokenQuotaRemainingZero"),
+                label: t("admin.totalCreditQuotaRemainingZero"),
               },
               {
                 value: "weekly",
-                label: t("admin.weeklyTokenQuotaRemainingZero"),
+                label: t("admin.weeklyCreditQuotaRemainingZero"),
               },
               {
                 value: "monthly",
-                label: t("admin.monthlyTokenQuotaRemainingZero"),
+                label: t("admin.monthlyCreditQuotaRemainingZero"),
               },
             ]}
           />
@@ -1236,9 +1232,9 @@ function UserManagementPage() {
                 <TableHead>{t("admin.registrationSource")}</TableHead>
                 <TableHead>{t("admin.loginMethod")}</TableHead>
                 <TableHead>{t("admin.groups")}</TableHead>
-                <TableHead>{t("admin.totalTokenLimit")}</TableHead>
-                <TableHead>{t("admin.weeklyTokenLimit")}</TableHead>
-                <TableHead>{t("admin.monthlyTokenLimit")}</TableHead>
+                <TableHead>{t("admin.totalCreditLimit")}</TableHead>
+                <TableHead>{t("admin.weeklyCreditLimit")}</TableHead>
+                <TableHead>{t("admin.monthlyCreditLimit")}</TableHead>
                 <TableHead className="user-management-last-login-column">
                   {t("admin.lastLogin")}
                 </TableHead>
@@ -1330,21 +1326,21 @@ function UserManagementPage() {
                       <UserGroupsCell groups={user.user_groups} />
                     </TableCell>
                     <TableCell className="table-metadata">
-                      <UserTokenLimitCell
-                        limit={user.total_token_limit}
-                        period={user.token_quota?.total}
+                      <UserCreditLimitCell
+                        limit={user.total_credit_limit}
+                        period={user.credit_quota?.total}
                       />
                     </TableCell>
                     <TableCell className="table-metadata">
-                      <UserTokenLimitCell
-                        limit={user.weekly_token_limit}
-                        period={user.token_quota?.weekly}
+                      <UserCreditLimitCell
+                        limit={user.weekly_credit_limit}
+                        period={user.credit_quota?.weekly}
                       />
                     </TableCell>
                     <TableCell className="table-metadata">
-                      <UserTokenLimitCell
-                        limit={user.monthly_token_limit}
-                        period={user.token_quota?.monthly}
+                      <UserCreditLimitCell
+                        limit={user.monthly_credit_limit}
+                        period={user.credit_quota?.monthly}
                       />
                     </TableCell>
                     <TableCell className="table-metadata user-management-last-login-column">
@@ -1363,7 +1359,7 @@ function UserManagementPage() {
                                 size="icon-xs"
                                 variant="ghost"
                                 className="text-muted-foreground"
-                                aria-label={t("admin.adjustUserTokenLimits", {
+                                aria-label={t("admin.adjustUserCreditLimits", {
                                   name: user.name,
                                 })}
                                 onClick={() => openQuotaEdit(user)}
@@ -1373,7 +1369,7 @@ function UserManagementPage() {
                             <SlidersHorizontalIcon aria-hidden="true" />
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p>{t("admin.adjustTokenLimits")}</p>
+                            <p>{t("admin.adjustCreditLimits")}</p>
                           </TooltipContent>
                         </Tooltip>
                         <Tooltip>
@@ -1458,25 +1454,25 @@ function UserManagementPage() {
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
               if (editing) {
-                let tokenLimits: {
-                  total_token_limit: string | null
-                  weekly_token_limit: string | null
-                  monthly_token_limit: string | null
+                let creditLimits: {
+                  total_credit_limit: string | null
+                  weekly_credit_limit: string | null
+                  monthly_credit_limit: string | null
                 }
                 try {
-                  tokenLimits = {
-                    total_token_limit:
-                      millionTokenQuotaInputToTokenLimit(totalTokenLimit),
-                    weekly_token_limit:
-                      millionTokenQuotaInputToTokenLimit(weeklyTokenLimit),
-                    monthly_token_limit:
-                      millionTokenQuotaInputToTokenLimit(monthlyTokenLimit),
+                  creditLimits = {
+                    total_credit_limit:
+                      creditQuotaInputToCreditLimit(totalCreditLimit),
+                    weekly_credit_limit:
+                      creditQuotaInputToCreditLimit(weeklyCreditLimit),
+                    monthly_credit_limit:
+                      creditQuotaInputToCreditLimit(monthlyCreditLimit),
                   }
                 } catch {
-                  setError(t("admin.tokenLimitInputInvalid"))
+                  setError(t("admin.creditLimitInputInvalid"))
                   return
                 }
-                saveMutation.mutate(tokenLimits)
+                saveMutation.mutate(creditLimits)
                 return
               }
               saveMutation.mutate(undefined)
@@ -1550,66 +1546,66 @@ function UserManagementPage() {
             {editing && (
               <section
                 className="grid gap-3"
-                aria-labelledby="user-token-quota-title"
+                aria-labelledby="user-credit-quota-title"
               >
                 <div className="grid gap-1">
-                  <h3 id="user-token-quota-title" className="form-label">
-                    {t("admin.userTokenLimits")}
+                  <h3 id="user-credit-quota-title" className="form-label">
+                    {t("admin.userCreditLimits")}
                   </h3>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    {t("admin.userTokenLimitsDescription")}
+                    {t("admin.userCreditLimitsDescription")}
                   </p>
                 </div>
                 <div className="form-grid">
                   <FieldShell
-                    id="user-total-token-limit"
-                    label={t("admin.totalTokenLimit")}
-                    hint={t("admin.tokenLimitHint")}
+                    id="user-total-credit-limit"
+                    label={t("admin.totalCreditLimit")}
+                    hint={t("admin.creditLimitHint")}
                   >
                     <Input
-                      id="user-total-token-limit"
+                      id="user-total-credit-limit"
                       className="h-9"
                       inputMode="decimal"
-                      pattern={MILLION_TOKEN_QUOTA_INPUT_PATTERN}
-                      value={totalTokenLimit}
+                      pattern={CREDIT_QUOTA_INPUT_PATTERN}
+                      value={totalCreditLimit}
                       onChange={(event) =>
-                        setTotalTokenLimit(event.target.value)
+                        setTotalCreditLimit(event.target.value)
                       }
-                      placeholder={t("admin.inheritTokenLimit")}
+                      placeholder={t("admin.inheritCreditLimit")}
                     />
                   </FieldShell>
                   <FieldShell
-                    id="user-weekly-token-limit"
-                    label={t("admin.weeklyTokenLimit")}
-                    hint={t("admin.tokenLimitHint")}
+                    id="user-weekly-credit-limit"
+                    label={t("admin.weeklyCreditLimit")}
+                    hint={t("admin.creditLimitHint")}
                   >
                     <Input
-                      id="user-weekly-token-limit"
+                      id="user-weekly-credit-limit"
                       className="h-9"
                       inputMode="decimal"
-                      pattern={MILLION_TOKEN_QUOTA_INPUT_PATTERN}
-                      value={weeklyTokenLimit}
+                      pattern={CREDIT_QUOTA_INPUT_PATTERN}
+                      value={weeklyCreditLimit}
                       onChange={(event) =>
-                        setWeeklyTokenLimit(event.target.value)
+                        setWeeklyCreditLimit(event.target.value)
                       }
-                      placeholder={t("admin.inheritTokenLimit")}
+                      placeholder={t("admin.inheritCreditLimit")}
                     />
                   </FieldShell>
                   <FieldShell
-                    id="user-monthly-token-limit"
-                    label={t("admin.monthlyTokenLimit")}
-                    hint={t("admin.tokenLimitHint")}
+                    id="user-monthly-credit-limit"
+                    label={t("admin.monthlyCreditLimit")}
+                    hint={t("admin.creditLimitHint")}
                   >
                     <Input
-                      id="user-monthly-token-limit"
+                      id="user-monthly-credit-limit"
                       className="h-9"
                       inputMode="decimal"
-                      pattern={MILLION_TOKEN_QUOTA_INPUT_PATTERN}
-                      value={monthlyTokenLimit}
+                      pattern={CREDIT_QUOTA_INPUT_PATTERN}
+                      value={monthlyCreditLimit}
                       onChange={(event) =>
-                        setMonthlyTokenLimit(event.target.value)
+                        setMonthlyCreditLimit(event.target.value)
                       }
-                      placeholder={t("admin.inheritTokenLimit")}
+                      placeholder={t("admin.inheritCreditLimit")}
                     />
                   </FieldShell>
                 </div>
@@ -1691,9 +1687,9 @@ function UserManagementPage() {
       >
         <DialogContent closeLabel={t("common.close")} className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{t("admin.singleTokenLimitsTitle")}</DialogTitle>
+            <DialogTitle>{t("admin.singleCreditLimitsTitle")}</DialogTitle>
             <DialogDescription>
-              {t("admin.singleTokenLimitsDescription", {
+              {t("admin.singleCreditLimitsDescription", {
                 name: quotaEditing?.name ?? "",
               })}
             </DialogDescription>
@@ -1703,85 +1699,86 @@ function UserManagementPage() {
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
               if (!quotaEditing) return
-              let tokenLimits: {
-                total_token_limit: string | null
-                weekly_token_limit: string | null
-                monthly_token_limit: string | null
+              let creditLimits: {
+                total_credit_limit: string | null
+                weekly_credit_limit: string | null
+                monthly_credit_limit: string | null
               }
               try {
-                tokenLimits = {
-                  total_token_limit:
-                    millionTokenQuotaInputToTokenLimit(quotaTotalTokenLimit),
-                  weekly_token_limit: millionTokenQuotaInputToTokenLimit(
-                    quotaWeeklyTokenLimit
+                creditLimits = {
+                  total_credit_limit: creditQuotaInputToCreditLimit(
+                    quotaTotalCreditLimit
                   ),
-                  monthly_token_limit: millionTokenQuotaInputToTokenLimit(
-                    quotaMonthlyTokenLimit
+                  weekly_credit_limit: creditQuotaInputToCreditLimit(
+                    quotaWeeklyCreditLimit
+                  ),
+                  monthly_credit_limit: creditQuotaInputToCreditLimit(
+                    quotaMonthlyCreditLimit
                   ),
                 }
               } catch {
-                setError(t("admin.tokenLimitInputInvalid"))
+                setError(t("admin.creditLimitInputInvalid"))
                 return
               }
-              singleTokenLimitMutation.mutate({
+              singleCreditLimitMutation.mutate({
                 targetUser: quotaEditing,
-                tokenLimits,
+                creditLimits,
               })
             }}
           >
             <div className="form-grid">
               <FieldShell
-                id="single-total-token-limit"
-                label={t("admin.totalTokenLimit")}
-                hint={t("admin.tokenLimitHint")}
+                id="single-total-credit-limit"
+                label={t("admin.totalCreditLimit")}
+                hint={t("admin.creditLimitHint")}
               >
                 <Input
-                  id="single-total-token-limit"
+                  id="single-total-credit-limit"
                   className="h-9"
                   inputMode="decimal"
-                  pattern={MILLION_TOKEN_QUOTA_INPUT_PATTERN}
-                  value={quotaTotalTokenLimit}
-                  disabled={singleTokenLimitMutation.isPending}
+                  pattern={CREDIT_QUOTA_INPUT_PATTERN}
+                  value={quotaTotalCreditLimit}
+                  disabled={singleCreditLimitMutation.isPending}
                   onChange={(event) =>
-                    setQuotaTotalTokenLimit(event.target.value)
+                    setQuotaTotalCreditLimit(event.target.value)
                   }
-                  placeholder={t("admin.inheritTokenLimit")}
+                  placeholder={t("admin.inheritCreditLimit")}
                 />
               </FieldShell>
               <FieldShell
-                id="single-weekly-token-limit"
-                label={t("admin.weeklyTokenLimit")}
-                hint={t("admin.tokenLimitHint")}
+                id="single-weekly-credit-limit"
+                label={t("admin.weeklyCreditLimit")}
+                hint={t("admin.creditLimitHint")}
               >
                 <Input
-                  id="single-weekly-token-limit"
+                  id="single-weekly-credit-limit"
                   className="h-9"
                   inputMode="decimal"
-                  pattern={MILLION_TOKEN_QUOTA_INPUT_PATTERN}
-                  value={quotaWeeklyTokenLimit}
-                  disabled={singleTokenLimitMutation.isPending}
+                  pattern={CREDIT_QUOTA_INPUT_PATTERN}
+                  value={quotaWeeklyCreditLimit}
+                  disabled={singleCreditLimitMutation.isPending}
                   onChange={(event) =>
-                    setQuotaWeeklyTokenLimit(event.target.value)
+                    setQuotaWeeklyCreditLimit(event.target.value)
                   }
-                  placeholder={t("admin.inheritTokenLimit")}
+                  placeholder={t("admin.inheritCreditLimit")}
                 />
               </FieldShell>
               <FieldShell
-                id="single-monthly-token-limit"
-                label={t("admin.monthlyTokenLimit")}
-                hint={t("admin.tokenLimitHint")}
+                id="single-monthly-credit-limit"
+                label={t("admin.monthlyCreditLimit")}
+                hint={t("admin.creditLimitHint")}
               >
                 <Input
-                  id="single-monthly-token-limit"
+                  id="single-monthly-credit-limit"
                   className="h-9"
                   inputMode="decimal"
-                  pattern={MILLION_TOKEN_QUOTA_INPUT_PATTERN}
-                  value={quotaMonthlyTokenLimit}
-                  disabled={singleTokenLimitMutation.isPending}
+                  pattern={CREDIT_QUOTA_INPUT_PATTERN}
+                  value={quotaMonthlyCreditLimit}
+                  disabled={singleCreditLimitMutation.isPending}
                   onChange={(event) =>
-                    setQuotaMonthlyTokenLimit(event.target.value)
+                    setQuotaMonthlyCreditLimit(event.target.value)
                   }
-                  placeholder={t("admin.inheritTokenLimit")}
+                  placeholder={t("admin.inheritCreditLimit")}
                 />
               </FieldShell>
             </div>
@@ -1796,10 +1793,10 @@ function UserManagementPage() {
               </DialogClose>
               <Button
                 type="submit"
-                disabled={singleTokenLimitMutation.isPending}
-                aria-busy={singleTokenLimitMutation.isPending || undefined}
+                disabled={singleCreditLimitMutation.isPending}
+                aria-busy={singleCreditLimitMutation.isPending || undefined}
               >
-                {singleTokenLimitMutation.isPending && (
+                {singleCreditLimitMutation.isPending && (
                   <Spinner data-icon="inline-start" />
                 )}
                 {t("common.save")}
@@ -1810,24 +1807,24 @@ function UserManagementPage() {
       </Dialog>
 
       <Dialog
-        open={tokenLimitOpen}
+        open={creditLimitOpen}
         onOpenChange={(open) => {
-          setTokenLimitOpen(open)
+          setCreditLimitOpen(open)
           if (!open) {
             setBatchTotalEnabled(false)
             setBatchWeeklyEnabled(true)
             setBatchMonthlyEnabled(true)
-            setBatchTotalTokenLimit("")
-            setBatchWeeklyTokenLimit("")
-            setBatchMonthlyTokenLimit("")
+            setBatchTotalCreditLimit("")
+            setBatchWeeklyCreditLimit("")
+            setBatchMonthlyCreditLimit("")
           }
         }}
       >
         <DialogContent closeLabel={t("common.close")} className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>{t("admin.batchTokenLimitsTitle")}</DialogTitle>
+            <DialogTitle>{t("admin.batchCreditLimitsTitle")}</DialogTitle>
             <DialogDescription>
-              {t("admin.batchTokenLimitsDescription", {
+              {t("admin.batchCreditLimitsDescription", {
                 count: selectedUserIds.length,
               })}
             </DialogDescription>
@@ -1836,33 +1833,33 @@ function UserManagementPage() {
             className="form-stack"
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
-              const tokenLimits: {
-                total_token_limit?: string | null
-                weekly_token_limit?: string | null
-                monthly_token_limit?: string | null
+              const creditLimits: {
+                total_credit_limit?: string | null
+                weekly_credit_limit?: string | null
+                monthly_credit_limit?: string | null
               } = {}
               try {
                 if (batchTotalEnabled) {
-                  tokenLimits.total_token_limit =
-                    millionTokenQuotaInputToTokenLimit(batchTotalTokenLimit)
+                  creditLimits.total_credit_limit =
+                    creditQuotaInputToCreditLimit(batchTotalCreditLimit)
                 }
                 if (batchWeeklyEnabled) {
-                  tokenLimits.weekly_token_limit =
-                    millionTokenQuotaInputToTokenLimit(batchWeeklyTokenLimit)
+                  creditLimits.weekly_credit_limit =
+                    creditQuotaInputToCreditLimit(batchWeeklyCreditLimit)
                 }
                 if (batchMonthlyEnabled) {
-                  tokenLimits.monthly_token_limit =
-                    millionTokenQuotaInputToTokenLimit(batchMonthlyTokenLimit)
+                  creditLimits.monthly_credit_limit =
+                    creditQuotaInputToCreditLimit(batchMonthlyCreditLimit)
                 }
               } catch {
-                setError(t("admin.tokenLimitInputInvalid"))
+                setError(t("admin.creditLimitInputInvalid"))
                 return
               }
-              tokenLimitMutation.mutate(tokenLimits)
+              creditLimitMutation.mutate(creditLimits)
             }}
           >
             <FieldSet className="grid gap-3">
-              <FieldLegend>{t("admin.tokenLimitFields")}</FieldLegend>
+              <FieldLegend>{t("admin.creditLimitFields")}</FieldLegend>
               <FieldLabel className="flex items-start gap-2 text-sm">
                 <Checkbox
                   checked={batchTotalEnabled}
@@ -1870,24 +1867,24 @@ function UserManagementPage() {
                     setBatchTotalEnabled(checked === true)
                   }
                 />
-                <span>{t("admin.updateTotalTokenLimit")}</span>
+                <span>{t("admin.updateTotalCreditLimit")}</span>
               </FieldLabel>
               <FieldShell
-                id="batch-total-token-limit"
-                label={t("admin.totalTokenLimit")}
-                hint={t("admin.tokenLimitHint")}
+                id="batch-total-credit-limit"
+                label={t("admin.totalCreditLimit")}
+                hint={t("admin.creditLimitHint")}
               >
                 <Input
-                  id="batch-total-token-limit"
+                  id="batch-total-credit-limit"
                   className="h-9"
                   inputMode="decimal"
-                  pattern={MILLION_TOKEN_QUOTA_INPUT_PATTERN}
-                  value={batchTotalTokenLimit}
+                  pattern={CREDIT_QUOTA_INPUT_PATTERN}
+                  value={batchTotalCreditLimit}
                   disabled={!batchTotalEnabled}
                   onChange={(event) =>
-                    setBatchTotalTokenLimit(event.target.value)
+                    setBatchTotalCreditLimit(event.target.value)
                   }
-                  placeholder={t("admin.clearTokenLimit")}
+                  placeholder={t("admin.clearCreditLimit")}
                 />
               </FieldShell>
               <FieldLabel className="flex items-start gap-2 text-sm">
@@ -1897,24 +1894,24 @@ function UserManagementPage() {
                     setBatchWeeklyEnabled(checked === true)
                   }
                 />
-                <span>{t("admin.updateWeeklyTokenLimit")}</span>
+                <span>{t("admin.updateWeeklyCreditLimit")}</span>
               </FieldLabel>
               <FieldShell
-                id="batch-weekly-token-limit"
-                label={t("admin.weeklyTokenLimit")}
-                hint={t("admin.tokenLimitHint")}
+                id="batch-weekly-credit-limit"
+                label={t("admin.weeklyCreditLimit")}
+                hint={t("admin.creditLimitHint")}
               >
                 <Input
-                  id="batch-weekly-token-limit"
+                  id="batch-weekly-credit-limit"
                   className="h-9"
                   inputMode="decimal"
-                  pattern={MILLION_TOKEN_QUOTA_INPUT_PATTERN}
-                  value={batchWeeklyTokenLimit}
+                  pattern={CREDIT_QUOTA_INPUT_PATTERN}
+                  value={batchWeeklyCreditLimit}
                   disabled={!batchWeeklyEnabled}
                   onChange={(event) =>
-                    setBatchWeeklyTokenLimit(event.target.value)
+                    setBatchWeeklyCreditLimit(event.target.value)
                   }
-                  placeholder={t("admin.clearTokenLimit")}
+                  placeholder={t("admin.clearCreditLimit")}
                 />
               </FieldShell>
               <FieldLabel className="flex items-start gap-2 text-sm">
@@ -1924,24 +1921,24 @@ function UserManagementPage() {
                     setBatchMonthlyEnabled(checked === true)
                   }
                 />
-                <span>{t("admin.updateMonthlyTokenLimit")}</span>
+                <span>{t("admin.updateMonthlyCreditLimit")}</span>
               </FieldLabel>
               <FieldShell
-                id="batch-monthly-token-limit"
-                label={t("admin.monthlyTokenLimit")}
-                hint={t("admin.tokenLimitHint")}
+                id="batch-monthly-credit-limit"
+                label={t("admin.monthlyCreditLimit")}
+                hint={t("admin.creditLimitHint")}
               >
                 <Input
-                  id="batch-monthly-token-limit"
+                  id="batch-monthly-credit-limit"
                   className="h-9"
                   inputMode="decimal"
-                  pattern={MILLION_TOKEN_QUOTA_INPUT_PATTERN}
-                  value={batchMonthlyTokenLimit}
+                  pattern={CREDIT_QUOTA_INPUT_PATTERN}
+                  value={batchMonthlyCreditLimit}
                   disabled={!batchMonthlyEnabled}
                   onChange={(event) =>
-                    setBatchMonthlyTokenLimit(event.target.value)
+                    setBatchMonthlyCreditLimit(event.target.value)
                   }
-                  placeholder={t("admin.clearTokenLimit")}
+                  placeholder={t("admin.clearCreditLimit")}
                 />
               </FieldShell>
             </FieldSet>
@@ -1956,11 +1953,11 @@ function UserManagementPage() {
                   (!batchTotalEnabled &&
                     !batchWeeklyEnabled &&
                     !batchMonthlyEnabled) ||
-                  tokenLimitMutation.isPending
+                  creditLimitMutation.isPending
                 }
-                aria-busy={tokenLimitMutation.isPending || undefined}
+                aria-busy={creditLimitMutation.isPending || undefined}
               >
-                {tokenLimitMutation.isPending && (
+                {creditLimitMutation.isPending && (
                   <Spinner data-icon="inline-start" />
                 )}
                 {t("common.save")}
@@ -3994,14 +3991,7 @@ function RegistrationSettingsForm({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const totalTokenLimitRef = useRef<HTMLInputElement>(null)
   const [enabled, setEnabled] = useState(settings.enabled)
-  const [totalTokenLimit, setTotalTokenLimit] = useState(() =>
-    tokenLimitToMillionTokenQuotaInput(settings.total_token_limit)
-  )
-  const [totalTokenLimitError, setTotalTokenLimitError] = useState<
-    string | null
-  >(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const mutation = useMutation({
@@ -4040,30 +4030,8 @@ function RegistrationSettingsForm({
     event.preventDefault()
     setMessage(null)
     setError(null)
-    setTotalTokenLimitError(null)
-    let totalTokenLimitValue: string | null
-    try {
-      totalTokenLimitValue = millionTokenQuotaInputToTokenLimit(totalTokenLimit)
-    } catch {
-      setTotalTokenLimitError(t("admin.registration.totalTokenLimitInvalid"))
-      totalTokenLimitRef.current?.focus()
-      return
-    }
-    if (enabled && totalTokenLimitValue === null) {
-      setTotalTokenLimitError(t("admin.registration.totalTokenLimitRequired"))
-      totalTokenLimitRef.current?.focus()
-      return
-    }
-    const nextSettings = registrationSettingsSchema.safeParse({
-      enabled,
-      total_token_limit: totalTokenLimitValue,
-    })
-    if (!nextSettings.success) {
-      setTotalTokenLimitError(t("admin.registration.totalTokenLimitInvalid"))
-      totalTokenLimitRef.current?.focus()
-      return
-    }
-    mutation.mutate(nextSettings.data)
+    const nextSettings = registrationSettingsSchema.parse({ enabled })
+    mutation.mutate(nextSettings)
   }
 
   return (
@@ -4100,44 +4068,6 @@ function RegistrationSettingsForm({
               }}
             />
           </Field>
-          <Field data-invalid={totalTokenLimitError ? true : undefined}>
-            <FieldLabel htmlFor="open-registration-total-token-limit">
-              {t("admin.registration.totalTokenLimit")}
-            </FieldLabel>
-            <InputGroup
-              className="max-w-sm"
-              data-disabled={mutation.isPending || undefined}
-            >
-              <InputGroupInput
-                ref={totalTokenLimitRef}
-                id="open-registration-total-token-limit"
-                name="total_token_limit"
-                inputMode="decimal"
-                pattern={MILLION_TOKEN_QUOTA_INPUT_PATTERN}
-                value={totalTokenLimit}
-                disabled={mutation.isPending}
-                aria-invalid={totalTokenLimitError ? true : undefined}
-                aria-describedby="open-registration-total-token-limit-description open-registration-total-token-limit-error"
-                placeholder={t("admin.registration.totalTokenLimitPlaceholder")}
-                onChange={(event) => {
-                  setMessage(null)
-                  setTotalTokenLimitError(null)
-                  setTotalTokenLimit(event.target.value)
-                }}
-              />
-              <InputGroupAddon align="inline-end">
-                <InputGroupText className="whitespace-nowrap">
-                  {t("admin.registration.totalTokenLimitUnit")}
-                </InputGroupText>
-              </InputGroupAddon>
-            </InputGroup>
-            <FieldDescription id="open-registration-total-token-limit-description">
-              {t("admin.registration.totalTokenLimitDescription")}
-            </FieldDescription>
-            <FieldError id="open-registration-total-token-limit-error">
-              {totalTokenLimitError}
-            </FieldError>
-          </Field>
           <Field orientation="horizontal">
             <Button type="submit" disabled={mutation.isPending}>
               {mutation.isPending && <Spinner data-icon="inline-start" />}
@@ -4160,7 +4090,6 @@ function ModelSettingsPage() {
     knowledge: 0,
     voiceTranscription: 0,
     imageGeneration: 0,
-    initialQuota: 0,
   })
   const modelProviderQuery = useQuery({
     queryKey: ["admin", "model-provider-settings"],
@@ -4244,10 +4173,6 @@ function ModelSettingsPage() {
     modelProviderQuery.isLoading ||
     (activeTab === "voiceTranscription" &&
       (voiceTranscriptionQuery.isFetching || modelProviderQuery.isFetching))
-  const initialQuotaLoading =
-    modelProviderQuery.isLoading ||
-    (activeTab === "initialQuota" && modelProviderQuery.isFetching)
-
   return (
     <PageLayout
       title={t("settings.modelSettings")}
@@ -4273,9 +4198,6 @@ function ModelSettingsPage() {
           </TabsTrigger>
           <TabsTrigger value="imageGeneration">
             {t("admin.modelTabs.imageGeneration")}
-          </TabsTrigger>
-          <TabsTrigger value="initialQuota">
-            {t("admin.modelTabs.initialQuota")}
           </TabsTrigger>
         </TabsList>
         <TabsContent value="channels" className="min-w-0" keepMounted>
@@ -4406,36 +4328,13 @@ function ModelSettingsPage() {
               />
             )}
         </TabsContent>
-        <TabsContent value="initialQuota" className="min-w-0" keepMounted>
-          {initialQuotaLoading && <LoadingState />}
-          {!initialQuotaLoading && modelProviderQuery.error && (
-            <ErrorState
-              message={getErrorMessage(modelProviderQuery.error, t)}
-              onRetry={() => {
-                void modelProviderQuery.refetch()
-              }}
-            />
-          )}
-          {!initialQuotaLoading &&
-            !modelProviderQuery.error &&
-            modelProviderQuery.data && (
-              <InitialUserTokenQuotaSettingsForm
-                key={`initial-token-quota-${modelProviderQuery.data.revision}-${tabRenderVersions.initialQuota}`}
-                settings={modelProviderQuery.data}
-              />
-            )}
-        </TabsContent>
       </Tabs>
     </PageLayout>
   )
 }
 
 type ModelSettingsTab =
-  | "channels"
-  | "knowledge"
-  | "voiceTranscription"
-  | "imageGeneration"
-  | "initialQuota"
+  "channels" | "knowledge" | "voiceTranscription" | "imageGeneration"
 
 type AuthenticationProvider = "smtp" | "oidc" | "teams"
 type AuthenticationMode = AuthenticationSettings["smtp"]["mode"]

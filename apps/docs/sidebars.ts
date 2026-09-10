@@ -117,6 +117,7 @@ const sidebars: SidebarsConfig = {
           ],
         },
         "admin-guide/model-settings",
+        "admin-guide/quota-settings",
         "admin-guide/system-settings",
         "admin-guide/authentication-settings",
         "admin-guide/health",

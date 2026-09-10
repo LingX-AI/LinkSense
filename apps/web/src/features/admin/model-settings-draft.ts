@@ -38,7 +38,6 @@ export function settingsDraft(
     providers: settings.providers.map(toSettingsProviderUpdate),
     default_model: settings.default_model,
     title_model: settings.title_model,
-    token_limits: settings.token_limits,
   }
 }
 

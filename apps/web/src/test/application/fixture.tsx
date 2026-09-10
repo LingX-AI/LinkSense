@@ -41,27 +41,27 @@ const user = {
     "self_registration" | "organization_invitation",
   user_group_ids: [] as string[],
   user_groups: [] as Array<{ id: string; name: string }>,
-  total_token_limit: null as string | null,
-  weekly_token_limit: null as string | null,
-  monthly_token_limit: null as string | null,
-  token_quota: null as null | {
+  total_credit_limit: null as string | null,
+  weekly_credit_limit: null as string | null,
+  monthly_credit_limit: null as string | null,
+  credit_quota: null as null | {
     total: {
-      limit_tokens: string
-      used_tokens: string
-      remaining_tokens: string
+      limit_credits: string
+      used_credits: string
+      remaining_credits: string
       remaining_percentage: number
     } | null
     weekly: {
-      limit_tokens: string
-      used_tokens: string
-      remaining_tokens: string
+      limit_credits: string
+      used_credits: string
+      remaining_credits: string
       remaining_percentage: number
       reset_at: string
     } | null
     monthly: {
-      limit_tokens: string
-      used_tokens: string
-      remaining_tokens: string
+      limit_credits: string
+      used_credits: string
+      remaining_credits: string
       remaining_percentage: number
       reset_at: string
     } | null
@@ -740,7 +740,7 @@ function installApiMock(options?: {
       if (path === "/api/v1/completion-notifications" && method === "GET") {
         return json({
           success: true,
-          data: { items: [], next_cursor: "token-quota-refresh-cursor" },
+          data: { items: [], next_cursor: "credit-quota-refresh-cursor" },
         })
       }
       if (
@@ -1495,17 +1495,17 @@ function installApiMock(options?: {
         }
         return json({ success: true, data: { items: [], next_cursor: null } })
       }
-      if (path === "/api/v1/admin/users/token-limits" && method === "PATCH") {
+      if (path === "/api/v1/admin/users/credit-limits" && method === "PATCH") {
         const body = requestBody as {
           user_ids: string[]
-          total_token_limit?: string | null
-          weekly_token_limit?: string | null
-          monthly_token_limit?: string | null
+          total_credit_limit?: string | null
+          weekly_credit_limit?: string | null
+          monthly_credit_limit?: string | null
         }
-        const { user_ids: targetUserIds, ...tokenLimits } = body
+        const { user_ids: targetUserIds, ...creditLimits } = body
         managedUsers = managedUsers.map((candidate) =>
           targetUserIds.includes(candidate.id)
-            ? { ...candidate, ...tokenLimits }
+            ? { ...candidate, ...creditLimits }
             : candidate
         )
         return json({
@@ -1561,8 +1561,8 @@ function installApiMock(options?: {
       if (path === "/api/v1/admin/users") {
         const userGroupId = url.searchParams.get("user_group_id")
         const registrationSource = url.searchParams.get("registration_source")
-        const tokenQuotaRemainingZero = url.searchParams.get(
-          "token_quota_remaining_zero"
+        const creditQuotaRemainingZero = url.searchParams.get(
+          "credit_quota_remaining_zero"
         )
         const usersForGroup = userGroupId
           ? managedUsers.filter((managedUser) =>
@@ -1576,12 +1576,12 @@ function installApiMock(options?: {
             )
           : usersForGroup
         const filteredUsers =
-          tokenQuotaRemainingZero === "total" ||
-          tokenQuotaRemainingZero === "weekly" ||
-          tokenQuotaRemainingZero === "monthly"
+          creditQuotaRemainingZero === "total" ||
+          creditQuotaRemainingZero === "weekly" ||
+          creditQuotaRemainingZero === "monthly"
             ? usersForRegistrationSource.filter(
                 (managedUser) =>
-                  managedUser.token_quota?.[tokenQuotaRemainingZero]
+                  managedUser.credit_quota?.[creditQuotaRemainingZero]
                     ?.remaining_percentage === 0
               )
             : usersForRegistrationSource

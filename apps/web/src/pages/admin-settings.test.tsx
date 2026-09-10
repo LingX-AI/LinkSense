@@ -228,7 +228,7 @@ function settingsPayload(path: string) {
     return executionConcurrencySettings
   }
   if (path.endsWith("/registration-settings")) {
-    return { enabled: false, total_token_limit: null }
+    return { enabled: false }
   }
   if (path.endsWith("/maintenance-settings")) {
     return {
@@ -346,7 +346,7 @@ describe("administrator authentication settings", () => {
         if (path.endsWith("/registration-settings") && init?.method === "PUT") {
           return envelope({
             code: "SYSTEM_SETTINGS_UPDATED",
-            settings: { enabled: true, total_token_limit: "12500000" },
+            settings: { enabled: true },
           })
         }
         return envelope(settingsPayload(path))
@@ -364,35 +364,11 @@ describe("administrator authentication settings", () => {
     expect(
       screen.queryByText("允许访客通过邮箱激活链接自行创建普通用户账号。")
     ).not.toBeInTheDocument()
-    expect(screen.getByText("百万 Token")).toBeVisible()
     expect(
-      screen.getByText(
-        "额度会统一应用于所有通过开放注册创建的用户，包括已有用户；调整额度不会清零已使用量，也不会按周或按月重置。开启开放注册时必须填写正数。"
-      )
-    ).toBeVisible()
-    expect(
-      screen
-        .getByLabelText("每位注册用户的总 Token 额度")
-        .closest('[data-slot="input-group"]')
-    ).toHaveClass("max-w-sm")
+      screen.queryByLabelText("每位注册用户的总 Token 额度")
+    ).not.toBeInTheDocument()
     expect(toggle).not.toBeChecked()
     await interaction.click(toggle)
-    await interaction.click(screen.getByRole("button", { name: "保存" }))
-    expect(
-      screen.getByText("开启开放注册前，请填写正数总 Token 额度。")
-    ).toBeVisible()
-    expect(
-      requests.some(
-        (request) =>
-          request.path.endsWith("/registration-settings") &&
-          request.init?.method === "PUT"
-      )
-    ).toBe(false)
-
-    await interaction.type(
-      screen.getByLabelText("每位注册用户的总 Token 额度"),
-      "12.5"
-    )
     await interaction.click(screen.getByRole("button", { name: "保存" }))
 
     await waitFor(() =>
@@ -406,7 +382,6 @@ describe("administrator authentication settings", () => {
         init: {
           body: JSON.stringify({
             enabled: true,
-            total_token_limit: "12500000",
           }),
         },
       })
@@ -837,16 +812,11 @@ describe("administrator authentication settings", () => {
     const imageGenerationTab = screen.getByRole("tab", {
       name: "图片生成模型",
     })
-    const initialQuotaTab = screen.getByRole("tab", {
-      name: "用户初始 Token 用量",
-    })
-    expect(initialQuotaTab).toBeVisible()
+    expect(
+      screen.queryByRole("tab", { name: "用户初始 Token 用量" })
+    ).not.toBeInTheDocument()
     expect(
       knowledgeTab.compareDocumentPosition(imageGenerationTab) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-    expect(
-      imageGenerationTab.compareDocumentPosition(initialQuotaTab) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     await interaction.click(knowledgeTab)
@@ -966,20 +936,6 @@ describe("administrator authentication settings", () => {
     }
 
     expect(screen.queryByText("速度")).not.toBeInTheDocument()
-    await interaction.click(initialQuotaTab)
-    expect(
-      screen.getByRole("heading", {
-        level: 2,
-        name: "用户初始 Token 用量",
-      })
-    ).toHaveClass("text-sm", "leading-5", "font-semibold")
-    expect(
-      screen.getByText(
-        /新建或导入用户时，系统会为其应用这里的每周和每月初始额度/u
-      )
-    ).toHaveClass("form-hint")
-    expect(screen.getByLabelText("周用量（百万 Token）")).toBeVisible()
-    expect(screen.getByLabelText("月用量（百万 Token）")).toBeVisible()
     expect(requests).toEqual(
       expect.arrayContaining([
         "/api/v1/admin/model-provider-settings",
@@ -991,7 +947,7 @@ describe("administrator authentication settings", () => {
     )
     expect(
       requests.filter((path) => path.endsWith("/model-provider-settings"))
-    ).toHaveLength(9)
+    ).toHaveLength(8)
     expect(
       requests.filter((path) => path.endsWith("/knowledge-model-settings"))
     ).toHaveLength(5)
@@ -1103,17 +1059,10 @@ describe("administrator authentication settings", () => {
     expect(await screen.findByDisplayValue("image-model-2")).toBeVisible()
     expect(requestCounts.get("/api/v1/admin/model-provider-settings")).toBe(4)
 
-    await interaction.click(
-      screen.getByRole("tab", { name: "用户初始 Token 用量" })
-    )
-    await waitFor(() =>
-      expect(requestCounts.get("/api/v1/admin/model-provider-settings")).toBe(5)
-    )
-
     await interaction.click(screen.getByRole("tab", { name: "模型渠道" }))
     await openChannelEditor(interaction)
     expect(
-      await screen.findByDisplayValue("https://models.example.test/v6")
+      await screen.findByDisplayValue("https://models.example.test/v5")
     ).toBeVisible()
   })
 

@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { modelTokenPricePerMillionSchema } from "./model-pricing.js"
-import { tokenLimitSettingsSchema } from "./token-limits.js"
 
 export const reasoningEffortValues = [
   "minimal",
@@ -329,10 +328,6 @@ export const updateModelProviderSettingsSchema = z
     providers: modelProviderCollectionSchema,
     default_model: modelIdentifierSchema.nullable(),
     title_model: modelIdentifierSchema.nullable().optional(),
-    token_limits: tokenLimitSettingsSchema.default({
-      weekly_token_limit: null,
-      monthly_token_limit: null,
-    }),
   })
   .superRefine((value, context) =>
     validateModelProviderCollection(
@@ -368,10 +363,6 @@ export const modelProviderSettingsSchema = z.strictObject({
   providers: z.array(managedModelProviderSettingsSchema),
   default_model: modelIdentifierSchema.nullable(),
   title_model: modelIdentifierSchema.nullable().default(null),
-  token_limits: tokenLimitSettingsSchema.default({
-    weekly_token_limit: null,
-    monthly_token_limit: null,
-  }),
 })
 
 export const codexModelReasoningCatalogEntrySchema = z
