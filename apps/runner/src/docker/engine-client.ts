@@ -1,4 +1,4 @@
-import { request as httpRequest } from "node:http"
+import { request as httpRequest, type IncomingMessage } from "node:http"
 
 import { z } from "zod"
 
@@ -295,43 +295,55 @@ export class DockerEngineClient implements DockerEngine {
             : undefined,
         },
         (response) => {
-          const chunks: Buffer[] = []
-          let length = 0
-          response.on("data", (chunk: Buffer) => {
-            length += chunk.byteLength
-            if (length > 4 * 1024 * 1024) {
-              request.destroy(new DockerEngineError("Docker response is too large"))
-              return
-            }
-            chunks.push(chunk)
-          })
-          response.on("end", () => {
+          response.once("error", () => fail(new DockerEngineError("Docker Engine response failed")))
+          void readDockerResponse(response).then((result) => {
             clearTimeout(timeout)
-            const responseBody = Buffer.concat(chunks).toString("utf8")
-            const statusCode = response.statusCode ?? 500
-            if (statusCode < 200 || statusCode >= 300) {
-              reject(
-                new DockerEngineError(
-                  `Docker Engine returned ${statusCode}: ${responseBody.slice(0, 500)}`,
-                ),
-              )
-              return
-            }
-            resolve({ statusCode, body: responseBody })
-          })
+            resolve(result)
+          }, fail)
         },
       )
       const timeout = setTimeout(() => {
         request.destroy(new DockerEngineError("Docker Engine request timed out"))
       }, this.requestTimeoutMs)
       timeout.unref()
-      request.once("error", (error) => {
+      const fail = (error: unknown) => {
         clearTimeout(timeout)
         reject(error)
-      })
+      }
+      request.once("error", fail)
       if (serialized) request.write(serialized)
       request.end()
     })
+  }
+}
+
+async function readDockerResponse(
+  response: IncomingMessage,
+): Promise<{ statusCode: number; body: string }> {
+  try {
+    const chunks: Buffer[] = []
+    let length = 0
+    for await (const chunk of response) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
+      length += bytes.byteLength
+      if (length > 4 * 1024 * 1024) {
+        throw new DockerEngineError("Docker response is too large")
+      }
+      chunks.push(bytes)
+    }
+    const body = Buffer.concat(chunks, length).toString("utf8")
+    const statusCode = response.statusCode ?? 500
+    if (statusCode < 200 || statusCode >= 300) {
+      throw new DockerEngineError(
+        `Docker Engine returned ${statusCode}: ${body.slice(0, 500)}`,
+      )
+    }
+    return { statusCode, body }
+  } catch (error) {
+    if (error instanceof DockerEngineError) throw error
+    throw new DockerEngineError("Docker Engine response failed")
+  } finally {
+    response.destroy()
   }
 }
 

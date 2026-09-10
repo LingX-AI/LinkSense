@@ -770,65 +770,74 @@ export async function extractDoclingArchive(
     if (archiveBytes === 0) throw unsafeArchiveError()
 
     await mkdir(extractionDirectory, { recursive: true })
-    const archive = createReadStream(archivePath).pipe(
-      unzipper.Parse({ forceStream: true }),
-    )
-    for await (const entry of archive) {
-      entryCount += 1
-      if (entryCount > limits.maximumEntries) {
-        entry.autodrain()
-        throw unsafeArchiveError()
-      }
-      const normalized = normalizeArchivePath(entry.path)
-      if (seen.has(normalized)) {
-        entry.autodrain()
-        throw unsafeArchiveError()
-      }
-      seen.add(normalized)
-      if (entry.type === "Directory") {
-        entry.autodrain()
-        continue
-      }
-      if (entry.type !== "File") {
-        entry.autodrain()
-        throw unsafeArchiveError()
-      }
+    const archiveSource = createReadStream(archivePath)
+    const archive = unzipper.Parse({ forceStream: true })
+    // unzipper.Parse emits close manually, so it cannot be an intermediate
+    // pipeline stream. Bridge source errors explicitly and always close both.
+    archiveSource.once("error", (error) => archive.destroy(error))
+    archive.once("error", () => archiveSource.destroy())
+    archiveSource.pipe(archive)
+    try {
+      for await (const entry of archive) {
+        entryCount += 1
+        if (entryCount > limits.maximumEntries) {
+          entry.autodrain()
+          throw unsafeArchiveError()
+        }
+        const normalized = normalizeArchivePath(entry.path)
+        if (seen.has(normalized)) {
+          entry.autodrain()
+          throw unsafeArchiveError()
+        }
+        seen.add(normalized)
+        if (entry.type === "Directory") {
+          entry.autodrain()
+          continue
+        }
+        if (entry.type !== "File") {
+          entry.autodrain()
+          throw unsafeArchiveError()
+        }
 
-      const declaredSize = Number(entry.vars.uncompressedSize ?? 0)
-      const compressedSize = Number(entry.vars.compressedSize ?? 0)
-      if (
-        !Number.isSafeInteger(declaredSize) ||
-        !Number.isSafeInteger(compressedSize) ||
-        declaredSize < 0 ||
-        compressedSize < 0 ||
-        declaredSize > limits.maximumEntryBytes ||
-        (declaredSize > 0 && compressedSize === 0) ||
-        (compressedSize > 0 &&
-          declaredSize / compressedSize > limits.maximumCompressionRatio)
-      ) {
-        entry.autodrain()
-        throw unsafeArchiveError()
-      }
+        const declaredSize = Number(entry.vars.uncompressedSize ?? 0)
+        const compressedSize = Number(entry.vars.compressedSize ?? 0)
+        if (
+          !Number.isSafeInteger(declaredSize) ||
+          !Number.isSafeInteger(compressedSize) ||
+          declaredSize < 0 ||
+          compressedSize < 0 ||
+          declaredSize > limits.maximumEntryBytes ||
+          (declaredSize > 0 && compressedSize === 0) ||
+          (compressedSize > 0 &&
+            declaredSize / compressedSize > limits.maximumCompressionRatio)
+        ) {
+          entry.autodrain()
+          throw unsafeArchiveError()
+        }
 
-      const target = join(extractionDirectory, ...normalized.split("/"))
-      await mkdir(dirname(target), { recursive: true })
-      let entryBytes = 0
-      const limiter = new Transform({
-        transform(chunk: Buffer, _encoding, callback) {
-          entryBytes += chunk.byteLength
-          totalBytes += chunk.byteLength
-          if (
-            entryBytes > limits.maximumEntryBytes ||
-            totalBytes > limits.maximumTotalBytes
-          ) {
-            callback(unsafeArchiveError())
-            return
-          }
-          callback(null, chunk)
-        },
-      })
-      await pipeline(entry, limiter, createWriteStream(target, { flags: "wx" }))
-      files.push(target)
+        const target = join(extractionDirectory, ...normalized.split("/"))
+        await mkdir(dirname(target), { recursive: true })
+        let entryBytes = 0
+        const limiter = new Transform({
+          transform(chunk: Buffer, _encoding, callback) {
+            entryBytes += chunk.byteLength
+            totalBytes += chunk.byteLength
+            if (
+              entryBytes > limits.maximumEntryBytes ||
+              totalBytes > limits.maximumTotalBytes
+            ) {
+              callback(unsafeArchiveError())
+              return
+            }
+            callback(null, chunk)
+          },
+        })
+        await pipeline(entry, limiter, createWriteStream(target, { flags: "wx" }))
+        files.push(target)
+      }
+    } finally {
+      archiveSource.destroy()
+      archive.destroy()
     }
 
     const markdownFiles = files.filter((file) => file.toLowerCase().endsWith(".md"))

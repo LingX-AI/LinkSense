@@ -1,5 +1,6 @@
-import { request as httpRequest } from "node:http"
+import { request as httpRequest, type IncomingMessage } from "node:http"
 import { request as httpsRequest } from "node:https"
+import { pipeline } from "node:stream/promises"
 
 import type { FastifyReply, FastifyRequest } from "fastify"
 
@@ -101,6 +102,28 @@ export async function proxyUserMcpHttpRequest(
     : target.toolTimeoutMs
   const transport = url.protocol === "https:" ? httpsRequest : httpRequest
   await new Promise<void>((resolve, reject) => {
+    let incomingResponse: IncomingMessage | undefined
+    let settled = false
+    let hijacked = false
+    const finish = (error?: UserMcpProxyRequestError) => {
+      if (settled) return
+      settled = true
+      request.raw.off("aborted", fail)
+      reply.raw.off("close", onDownstreamClose)
+      reply.raw.off("error", fail)
+      if (error) {
+        incomingResponse?.destroy()
+        outgoing.destroy()
+        if (hijacked) reply.raw.destroy()
+        reject(error)
+      } else {
+        resolve()
+      }
+    }
+    const fail = () => finish(new UserMcpProxyRequestError("UPSTREAM_UNAVAILABLE"))
+    const onDownstreamClose = () => {
+      if (!reply.raw.writableFinished) fail()
+    }
     const outgoing = transport(
       url,
       {
@@ -109,43 +132,47 @@ export async function proxyUserMcpHttpRequest(
         agent: false,
       },
       (incoming) => {
-        const statusCode = incoming.statusCode ?? 502
-        if (statusCode >= 300 && statusCode < 400) {
+        incomingResponse = incoming
+        // Error handlers must exist before header validation or early teardown.
+        incoming.once("error", fail)
+        incoming.once("aborted", fail)
+        if (settled) {
           incoming.destroy()
-          reject(new UserMcpProxyRequestError("DESTINATION_FORBIDDEN"))
           return
         }
-        const responseHeaders: Record<string, string> = {}
-        for (const name of RESPONSE_HEADER_ALLOWLIST) {
-          const value = incoming.headers[name]
-          if (typeof value === "string") responseHeaders[name] = value
-          else if (Array.isArray(value)) responseHeaders[name] = value.join(", ")
+        try {
+          const statusCode = incoming.statusCode ?? 502
+          if (statusCode >= 300 && statusCode < 400) {
+            finish(new UserMcpProxyRequestError("DESTINATION_FORBIDDEN"))
+            return
+          }
+          const responseHeaders: Record<string, string> = {}
+          for (const name of RESPONSE_HEADER_ALLOWLIST) {
+            const value = incoming.headers[name]
+            if (typeof value === "string") responseHeaders[name] = value
+            else if (Array.isArray(value)) responseHeaders[name] = value.join(", ")
+          }
+          reply.hijack()
+          hijacked = true
+          reply.raw.writeHead(statusCode, responseHeaders)
+          // pipeline propagates both upstream and downstream stream failures;
+          // plain pipe only handles backpressure, not error containment.
+          void pipeline(incoming, reply.raw).then(() => finish(), fail)
+        } catch {
+          fail()
         }
-        reply.hijack()
-        reply.raw.writeHead(statusCode, responseHeaders)
-        incoming.pipe(reply.raw)
-        incoming.once("end", resolve)
-        incoming.once("aborted", () =>
-          reject(new UserMcpProxyRequestError("UPSTREAM_UNAVAILABLE"))
-        )
-        incoming.once("error", () =>
-          reject(new UserMcpProxyRequestError("UPSTREAM_UNAVAILABLE"))
-        )
       }
     )
-    outgoing.once("error", () =>
-      reject(new UserMcpProxyRequestError("UPSTREAM_UNAVAILABLE"))
-    )
-    outgoing.setTimeout(requestTimeoutMs, () => {
-      outgoing.destroy(new UserMcpProxyRequestError("UPSTREAM_UNAVAILABLE"))
-    })
-    const abort = () => outgoing.destroy()
-    request.raw.once("aborted", abort)
-    reply.raw.once("close", () => {
-      if (!reply.raw.writableEnded) abort()
-    })
+    outgoing.once("error", fail)
+    outgoing.setTimeout(requestTimeoutMs, fail)
+    request.raw.once("aborted", fail)
+    reply.raw.once("error", fail)
+    reply.raw.once("close", onDownstreamClose)
     if (body) outgoing.write(body)
     outgoing.end()
+  }).catch((error: unknown) => {
+    if (error instanceof UserMcpProxyRequestError) throw error
+    throw new UserMcpProxyRequestError("UPSTREAM_UNAVAILABLE")
   })
 }
 
