@@ -685,12 +685,35 @@ describe("ConversationService ownership and draft lifecycle", () => {
       ownerId: OWNER_ID,
       conversationId: result.conversation_id,
       collaborationMode: "default",
+      reservationRevision: expect.any(String),
     });
     expect(fixture.preflight.resolve).not.toHaveBeenCalled();
     expect(fixture.runner.prewarmWorker).not.toHaveBeenCalled();
     expect(fixture.runner.prewarmConversation).not.toHaveBeenCalled();
     expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
     expect(fixture.redis.acquireUserLifecycleLock).not.toHaveBeenCalled();
+  });
+
+  it("changes the mode of an owned prewarm reservation before a task exists", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValue(null);
+    const receipt = await fixture.service.prewarm(OWNER_ID, {
+      collaborationMode: "default",
+    });
+
+    await expect(fixture.service.prewarm(OWNER_ID, {
+      conversationId: receipt.conversation_id,
+      collaborationMode: "plan",
+    })).resolves.toEqual(receipt);
+    expect(fixture.cleanup.enqueueConversationPrewarm).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        ownerId: OWNER_ID,
+        conversationId: receipt.conversation_id,
+        collaborationMode: "plan",
+      }),
+    );
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
   });
 
   it("executes queued native prewarm without acquiring the active-user lifecycle lock", async () => {
@@ -702,6 +725,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       ownerId: OWNER_ID,
       conversationId,
       collaborationMode: "default",
+      reservationRevision: "71000000-0000-4000-8000-000000000099",
     });
 
     expect(fixture.preflight.resolve).toHaveBeenCalledWith({
@@ -720,6 +744,63 @@ describe("ConversationService ownership and draft lifecycle", () => {
     );
     expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
     expect(fixture.redis.acquireUserLifecycleLock).not.toHaveBeenCalled();
+  });
+
+  it("rejects absent, expired or foreign reservations before preparing or queuing a runtime", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValue(null);
+    fixture.redis.reserveConversationPrewarm.mockResolvedValue(false);
+    await expect(fixture.service.prewarm(OWNER_ID, {
+      conversationId: CONVERSATION_ID, collaborationMode: "plan",
+    })).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.cleanup.enqueueConversationPrewarm).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+
+    fixture.prisma.conversation.findUnique.mockResolvedValue(conversationRow({ ownerId: APPLICATION_OWNER_ID }));
+    fixture.redis.reserveConversationPrewarm.mockClear();
+    await expect(fixture.service.prewarm(OWNER_ID, {
+      conversationId: CONVERSATION_ID, collaborationMode: "default",
+    })).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.redis.reserveConversationPrewarm).not.toHaveBeenCalled();
+  });
+
+  it("rejects disabled users before allocating a prewarm reservation", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.user.findUnique.mockResolvedValue({ preferredLocale: "zh-CN", status: "disabled" });
+    await expect(fixture.service.prewarm(OWNER_ID, {
+      collaborationMode: "default",
+    })).rejects.toMatchObject({ code: "USER_DISABLED" });
+    expect(fixture.redis.reserveConversationPrewarm).not.toHaveBeenCalled();
+    expect(fixture.cleanup.enqueueConversationPrewarm).not.toHaveBeenCalled();
+  });
+
+  it("discards a superseded reservation both before preparation and before native prewarm", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValue(null);
+    const input = {
+      ownerId: OWNER_ID, conversationId: CONVERSATION_ID,
+      collaborationMode: "default" as const,
+      reservationRevision: "71000000-0000-4000-8000-000000000099",
+    };
+    fixture.redis.isConversationPrewarmCurrent.mockResolvedValueOnce(false);
+    await fixture.service.executePrewarm(input);
+    expect(fixture.preflight.resolve).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+
+    fixture.redis.isConversationPrewarmCurrent.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    await fixture.service.executePrewarm(input);
+    expect(fixture.runner.prepareRuntime).toHaveBeenCalledOnce();
+    expect(fixture.runner.prewarmConversation).not.toHaveBeenCalled();
+  });
+
+  it("does not run unreserved jobs for missing tasks or reservation jobs for claimed tasks", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+    const input = { ownerId: OWNER_ID, conversationId: CONVERSATION_ID, collaborationMode: "default" as const };
+    await fixture.service.executePrewarm(input);
+    await fixture.service.executePrewarm({ ...input, reservationRevision: "71000000-0000-4000-8000-000000000099" });
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.preflight.resolve).not.toHaveBeenCalled();
   });
 
   it("prewarms an application with its creator's authorized scope instead of the user's personal catalog", async () => {
@@ -765,6 +846,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       ownerId: OWNER_ID,
       conversationId: "71000000-0000-4000-8000-000000000003",
       collaborationMode: "default",
+      reservationRevision: "71000000-0000-4000-8000-000000000099",
     });
     try {
       await vi.waitFor(() => expect(fixture.runner.prepareRuntime).toHaveBeenCalledOnce());
@@ -1118,6 +1200,36 @@ describe("ConversationService ownership and draft lifecycle", () => {
         codexThreadId: null,
       }),
     });
+  });
+
+  it("creates a fresh task without inspecting an expired or foreign prewarm directory", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+    fixture.redis.claimConversationPrewarm.mockResolvedValueOnce(false);
+    const reservedId = "71000000-0000-4000-8000-000000000001";
+    await fixture.service.create(OWNER_ID, { collaborationMode: "plan", prewarmedConversationId: reservedId });
+    expect(fixture.runner.inspectPrewarmedConversation).not.toHaveBeenCalled();
+    expect(fixture.runner.inspectRuntime).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      id: expect.not.stringMatching(reservedId), ownerId: OWNER_ID, collaborationMode: "plan", codexThreadId: null,
+    }) });
+  });
+
+  it("does not clean up an unclaimed reservation when its ownership check fails", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+    const failure = new Error("reservation storage unavailable");
+    fixture.redis.claimConversationPrewarm.mockRejectedValueOnce(failure);
+
+    await expect(fixture.service.create(OWNER_ID, {
+      collaborationMode: "default",
+      prewarmedConversationId: "71000000-0000-4000-8000-000000000001",
+    })).rejects.toBe(failure);
+
+    expect(fixture.runner.inspectPrewarmedConversation).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.cleanup.enqueueRuntimeCleanup).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
   });
 
   it("prevents unpinning a task while a live automation uses it", async () => {
@@ -10773,6 +10885,9 @@ async function conversationFixture() {
   };
   const redis = {
     maxConcurrentTurns: 5,
+    reserveConversationPrewarm: vi.fn(async () => true),
+    isConversationPrewarmCurrent: vi.fn(async () => true),
+    claimConversationPrewarm: vi.fn(async () => true),
     acquireUserLifecycleLock: vi.fn(async () => "user-lifecycle-lock"),
     releaseUserLifecycleLock: vi.fn(async () => undefined),
     acquireConversationLock: vi.fn(async () => "conversation-lock"),

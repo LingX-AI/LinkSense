@@ -179,6 +179,49 @@ describe("archived conversation pagination", () => {
     vi.unstubAllGlobals()
   })
 
+  it("prewarms again when the empty composer starts another new task", async () => {
+    const fixture = renderPrewarmPage()
+    await waitFor(() => expect(fixture.prewarms).toHaveLength(1))
+    await fixture.resolvePrewarm(0, "71000000-0000-4000-8000-000000000001")
+    const interaction = userEvent.setup()
+    await interaction.type(
+      await screen.findByRole("textbox", { name: "任务输入框" }),
+      "/"
+    )
+    await interaction.click(screen.getByRole("option", { name: /新建任务/ }))
+
+    await waitFor(() => expect(fixture.prewarms).toHaveLength(2))
+    expect(fixture.prewarms[1]?.body).toEqual({ collaboration_mode: "default" })
+  })
+
+  it("keeps the current new-task reservation when an earlier page replies late", async () => {
+    const fixture = renderPrewarmPage()
+    const interaction = userEvent.setup()
+    await waitFor(() => expect(fixture.prewarms).toHaveLength(1))
+    await interaction.click(
+      screen.getByRole("button", { name: "测试切换已有任务" })
+    )
+    await waitFor(() => expect(fixture.prewarms).toHaveLength(2))
+    await interaction.click(
+      screen.getByRole("button", { name: "测试切换新任务" })
+    )
+    await waitFor(() => expect(fixture.prewarms).toHaveLength(3))
+    const current = "71000000-0000-4000-8000-000000000002"
+    await fixture.resolvePrewarm(2, current)
+    await fixture.resolvePrewarm(0, "71000000-0000-4000-8000-000000000001")
+    await interaction.type(
+      await screen.findByRole("textbox", { name: "任务输入框" }),
+      "只回复 OK"
+    )
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() =>
+      expect(fixture.createdBodies).toEqual([
+        { collaboration_mode: "default", prewarmed_conversation_id: current },
+      ])
+    )
+  })
+
   it.each([
     {
       name: "没有数据",
@@ -2799,3 +2842,105 @@ describe("conversation knowledge base snapshots", () => {
     }
   )
 })
+
+function PrewarmProbePage() {
+  const navigate = useNavigate()
+  return (
+    <>
+      <button onClick={() => navigate("/conversations/existing-prewarm-task")}>
+        测试切换已有任务
+      </button>
+      <button onClick={() => navigate("/conversations/new")}>
+        测试切换新任务
+      </button>
+      <ConversationPage />
+    </>
+  )
+}
+
+function renderPrewarmPage() {
+  const prewarms: Array<{
+    body: unknown
+    response: ReturnType<typeof createDeferred<Response>>
+  }> = []
+  const createdBodies: unknown[] = []
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), window.location.origin).pathname
+      if (path.endsWith("/conversations/prewarm")) {
+        const response = createDeferred<Response>()
+        prewarms.push({
+          body: JSON.parse(String(init?.body)) as unknown,
+          response,
+        })
+        return response.promise
+      }
+      if (path.endsWith("/model-preference"))
+        return Promise.resolve(envelope(modelPreference()))
+      if (path.endsWith("/capabilities") || path.endsWith("/knowledge-bases"))
+        return Promise.resolve(envelope({ items: [], next_cursor: null }))
+      if (path.endsWith("/knowledge-bases/search-capability"))
+        return Promise.resolve(
+          envelope({
+            status: "available",
+            reason_code: null,
+            checked_at: "2026-09-08T00:00:00.000Z",
+          })
+        )
+      if (path.endsWith("/conversations") && init?.method === "POST") {
+        createdBodies.push(JSON.parse(String(init.body)) as unknown)
+        return Promise.resolve(errorEnvelope(503, "RUNNER_UNAVAILABLE"))
+      }
+      if (path.endsWith("/events"))
+        return Promise.resolve(
+          new Response("", { headers: { "content-type": "text/event-stream" } })
+        )
+      if (path.endsWith("/conversations/existing-prewarm-task"))
+        return Promise.resolve(
+          envelope({
+            id: "existing-prewarm-task",
+            title: "已有任务",
+            archived: false,
+            updated_at: "2026-09-08T00:00:00.000Z",
+            execution_status: "idle",
+            messages: [],
+            turns: [],
+            pending_requests: [],
+            attachments: [],
+            artifacts: [],
+          })
+        )
+      return Promise.resolve(new Response(null, { status: 404 }))
+    })
+  )
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  render(
+    <MemoryRouter initialEntries={["/conversations/new"]}>
+      <QueryClientProvider client={queryClient}>
+        <Routes>
+          <Route
+            path="/conversations/:conversationId"
+            element={<PrewarmProbePage />}
+          />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>
+  )
+  return {
+    prewarms,
+    createdBodies,
+    async resolvePrewarm(index: number, id: string) {
+      const request = prewarms[index]
+      if (!request) throw new Error("prewarm request missing")
+      await act(async () => {
+        request.response.resolve(
+          envelope({ accepted: true, conversation_id: id })
+        )
+        await request.response.promise
+      })
+    },
+  }
+}

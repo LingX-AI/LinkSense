@@ -146,8 +146,10 @@ await server.connect(new StdioServerTransport());
   }));
   await put(path.join(pluginSource, "skills/documents/SKILL.md"), skill("documents", "ONE"));
   await put(path.join(pluginSource, "skills/documents/references/usage.md"), "CONTEXT_REFERENCE_ONE");
+  await put(path.join(pluginSource, "scripts/probe.mjs"), 'process.stdout.write("WORKSPACE_PLUGIN_SCRIPT_OK\\n");');
   const standaloneSource = path.join(root, "standalone-source");
   await put(path.join(standaloneSource, "SKILL.md"), skill("context-standalone", "ONE"));
+  await put(path.join(standaloneSource, "scripts/probe.mjs"), 'process.stdout.write("WORKSPACE_SKILL_SCRIPT_OK\\n");');
   const capabilities = [
     { id: randomUUID(), name: "context-office", type: "plugin", revision: "one", sourcePath: pluginSource },
     { id: randomUUID(), name: "context-standalone", type: "skill", revision: "one", sourcePath: standaloneSource },
@@ -165,6 +167,7 @@ await server.connect(new StdioServerTransport());
   const pluginInput = await turn(session, id, pluginSelection);
   check("selected plugin exposes its skill description and locator to the model", pluginInput.includes("CONTEXT_DESCRIPTION_documents_ONE") && pluginInput.includes("/skills/documents/SKILL.md"));
   check("unselected authorized standalone skill is discoverable", pluginInput.includes("CONTEXT_DESCRIPTION_context-standalone_ONE"));
+  check("native model receives workspace-first resource rules with this task's actual authorized paths", pluginInput.includes("First locate bundled Plugin and Skill resources") && pluginInput.includes(path.join(task.paths.workspace, ".agents/plugin-sources")) && pluginInput.includes("the SKILL.md actually loaded for this turn") && pluginInput.includes("Never relocate credentials"));
   const status = await session.client.request("mcpServerStatus/list", { threadId: id, detail: "toolsAndAuthOnly", limit: 100 });
   const pluginServer = status.data.find(s => s.tools.read_fixture);
   assert(pluginServer);
@@ -185,6 +188,16 @@ await server.connect(new StdioServerTransport());
   await turn(session, id, pluginSelection);
   const toolOutputs = JSON.stringify(captures.at(-1).input.filter(item => item.type === "function_call_output"));
   check("native model tool execution can read the plugin workflow and its relative reference", toolOutputs.includes("CONTEXT_BODY_documents_ONE") && toolOutputs.includes("CONTEXT_REFERENCE_ONE"));
+  const workspacePluginScript = path.join(task.paths.workspace, ".agents/plugin-sources/context-office/scripts/probe.mjs");
+  const workspaceSkillScript = path.join(task.paths.workspace, ".agents/skills/context-standalone/scripts/probe.mjs");
+  const oldPluginScript = path.join(task.paths.home, ".agents/plugin-sources/context-office/scripts/probe.mjs");
+  const oldSkillScript = path.join(task.paths.home, ".agents/skills/context-standalone/scripts/probe.mjs");
+  await mkdir(path.join(task.paths.workspace, "temp"), { recursive: true });
+  nextToolCall = { name: "exec_command", arguments: JSON.stringify({ cmd: `test ! -e '${oldPluginScript}' && test ! -e '${oldSkillScript}' && node '${workspacePluginScript}' && node '${workspaceSkillScript}'`, workdir: path.join(task.paths.workspace, "temp"), max_output_tokens: 1000 }) };
+  await turn(session, id, pluginSelection);
+  const workspaceScriptOutput = JSON.stringify(captures.at(-1).input.filter(item => item.type === "function_call_output"));
+  check("native Shell runs the task's plugin script when the obsolete HOME path is absent and cwd is a subdirectory", workspaceScriptOutput.includes("WORKSPACE_PLUGIN_SCRIPT_OK"));
+  check("native Shell runs the task's standalone Skill script when the obsolete HOME path is absent and cwd is a subdirectory", workspaceScriptOutput.includes("WORKSPACE_SKILL_SCRIPT_OK"));
   nextToolCall = { name: "exec_command", arguments: JSON.stringify({ cmd: 'umask 077; mkdir -p "$HOME/.shared-home-fixture"; printf synthetic-login > "$HOME/.shared-home-fixture/auth"; test "$HOME" != "$(dirname "$CODEX_HOME")" && printf SHARED_SHELL_HOME_OK', max_output_tokens: 1000 }) };
   await turn(session, id);
   check("native Shell receives shared HOME and distinct CODEX_HOME", JSON.stringify(captures.at(-1).input.filter(item => item.type === "function_call_output")).includes("SHARED_SHELL_HOME_OK"));

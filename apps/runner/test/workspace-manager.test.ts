@@ -12,6 +12,7 @@ import {
   readdir,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises"
 import os from "node:os"
@@ -113,11 +114,59 @@ describe("shared user HOME with task capabilities", () => {
     const manager = new WorkspaceManager(root)
     manager.bindOwner(taskA, ownerA)
     const paths = await manager.ensureConversation(taskA, "current")
-    await writeFile(path.join(paths.workspace, "AGENTS.md"), "<!-- linksense-template:current -->\nold task HOME instructions")
+    await writeFile(path.join(paths.workspace, "AGENTS.md"), "<!-- linksense-template:current rules:shared-home-v1 -->\nold task HOME instructions")
     await writeFile(path.join(paths.codexHome, "history-fixture"), "same-history", { mode: 0o600 })
     await manager.ensureConversation(taskA, "current")
-    expect(await readFile(path.join(paths.workspace, "AGENTS.md"), "utf8")).toContain("shared user HOME")
+    const instructions = await readFile(path.join(paths.workspace, "AGENTS.md"), "utf8")
+    expect(instructions).toContain("shared user HOME")
+    expect(instructions).toContain("First locate bundled Plugin and Skill resources")
     expect(await readFile(path.join(paths.codexHome, "history-fixture"), "utf8")).toBe("same-history")
+  })
+
+  it("gives each task its own workspace-first capability lookup rules without redirecting user state", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    manager.bindOwner(taskB, ownerA)
+    const tasks = await Promise.all([
+      manager.ensureConversation(taskA, "current"),
+      manager.ensureConversation(taskB, "current"),
+    ])
+    for (const task of tasks) {
+      const other = task === tasks[0] ? tasks[1] : tasks[0]
+      const instructions = await readFile(path.join(task.workspace, "AGENTS.md"), "utf8")
+      const first = instructions.indexOf("First locate bundled Plugin and Skill resources")
+      const second = instructions.indexOf("Only when the matching workspace resource is absent")
+      expect(first).toBeGreaterThan(-1)
+      expect(second).toBeGreaterThan(first)
+      expect(instructions.slice(first, second)).toContain(path.join(task.workspace, ".agents", "skills"))
+      expect(instructions.slice(first, second)).toContain(path.join(task.workspace, ".agents", "plugin-sources"))
+      expect(instructions).toContain("even if a command changes its working directory")
+      expect(instructions).toContain("preserving the exact package name and package-relative path")
+      expect(instructions).toContain("the SKILL.md actually loaded for this turn")
+      expect(instructions).toContain("never search other tasks, users, or historical package versions")
+      expect(instructions).toContain("Do not reinterpret permission or authentication failures as missing files")
+      expect(instructions).toContain("Never relocate credentials, user configuration, caches, or tool data")
+      expect(instructions).toContain(`shared user HOME ${task.home}`)
+      expect(instructions).not.toContain(other.workspace)
+    }
+  })
+
+  it("keeps current task instructions unchanged on repeated preparation", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    const task = await manager.ensureConversation(taskA, "current")
+    const instructionsPath = path.join(task.workspace, "AGENTS.md")
+    const original = await readFile(instructionsPath, "utf8")
+    await utimes(instructionsPath, 1_000, 1_000)
+    const before = await lstat(instructionsPath)
+    await manager.ensureConversation(taskA, "current")
+    const after = await lstat(instructionsPath)
+    expect(after.ino).toBe(before.ino)
+    expect(after.mtimeMs).toBe(before.mtimeMs)
+    expect(after.mode & 0o777).toBe(0o640)
+    expect(await readFile(instructionsPath, "utf8")).toBe(original)
   })
 })
 

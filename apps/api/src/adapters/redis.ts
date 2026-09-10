@@ -8,6 +8,11 @@ import { z } from "zod"
 
 import type { AppConfig } from "../config.js"
 import { hmacSha256 } from "../lib/crypto.js"
+import {
+  conversationPrewarmReservationSchema,
+  conversationPrewarmReservationTtlMs,
+  type ConversationPrewarmReservation,
+} from "../modules/conversations/prewarm.js"
 
 const LOGIN_PRECHECK_SCRIPT = `
 local ip_ttl = redis.call('TTL', KEYS[1])
@@ -630,6 +635,85 @@ export class LinkSenseRedis {
       return result === "OK" ? token : null
     } catch {
       throw new RedisUnavailableError("conversation_lock")
+    }
+  }
+
+  async reserveConversationPrewarm(
+    input: ConversationPrewarmReservation,
+    create: boolean,
+  ): Promise<boolean> {
+    const reservation = conversationPrewarmReservationSchema.parse(input)
+    const key = `linksense:conversation-prewarm:${reservation.conversationId}`
+    const value = `${reservation.ownerId}:${reservation.reservationRevision}`
+    try {
+      if (create) {
+        const result = await this.client.set(
+          key,
+          value,
+          "PX",
+          conversationPrewarmReservationTtlMs,
+          "NX",
+        )
+        return result === "OK"
+      }
+      const script = `
+        local value = redis.call('GET', KEYS[1])
+        local ownerPrefix = ARGV[1] .. ':'
+        if not value or string.sub(value, 1, string.len(ownerPrefix)) ~= ownerPrefix then return 0 end
+        redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
+        return 1
+      `
+      const result = await this.client.eval(
+        script,
+        1,
+        key,
+        reservation.ownerId,
+        value,
+        conversationPrewarmReservationTtlMs,
+      )
+      return Number(result) === 1
+    } catch {
+      throw new RedisUnavailableError("conversation_prewarm_reserve")
+    }
+  }
+
+  async isConversationPrewarmCurrent(
+    input: ConversationPrewarmReservation,
+  ): Promise<boolean> {
+    const reservation = conversationPrewarmReservationSchema.parse(input)
+    try {
+      const value = await this.client.get(
+        `linksense:conversation-prewarm:${reservation.conversationId}`,
+      )
+      return value === `${reservation.ownerId}:${reservation.reservationRevision}`
+    } catch {
+      throw new RedisUnavailableError("conversation_prewarm_read")
+    }
+  }
+
+  async claimConversationPrewarm(
+    ownerId: string,
+    conversationId: string,
+  ): Promise<boolean> {
+    conversationPrewarmReservationSchema
+      .pick({ ownerId: true, conversationId: true })
+      .parse({ ownerId, conversationId })
+    try {
+      const script = `
+        local value = redis.call('GET', KEYS[1])
+        local ownerPrefix = ARGV[1] .. ':'
+        if not value or string.sub(value, 1, string.len(ownerPrefix)) ~= ownerPrefix then return 0 end
+        return redis.call('DEL', KEYS[1])
+      `
+      const result = await this.client.eval(
+        script,
+        1,
+        `linksense:conversation-prewarm:${conversationId}`,
+        ownerId,
+      )
+      return Number(result) === 1
+    } catch {
+      throw new RedisUnavailableError("conversation_prewarm_claim")
     }
   }
 

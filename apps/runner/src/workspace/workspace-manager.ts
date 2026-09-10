@@ -76,7 +76,7 @@ const managedModelTopLevelKeys = [
 const runtimeGenerationFileName = "runtime-generation"
 const personalizationFileName = "personalization.json"
 const globalAgentsFileName = "AGENTS.md"
-const taskRulesVersion = "shared-home-v1"
+const taskRulesVersion = "workspace-capabilities-v2"
 const managedCodexFileNames = ["config.toml", "auth.json", globalAgentsFileName]
 const coreMcpInteractiveFormToolTimeoutSeconds =
   Math.ceil(conversationFormAutoResolutionMs / 1_000) + 30
@@ -899,6 +899,10 @@ function renderAgentsFile(
 - Tools may persist their own user configuration and login state in the shared user HOME ${userHomePath}. Use the tool's authentication commands; never inspect or display stored credentials. This does not authorize reading other tasks or changing managed capabilities.
 - You may read current capability instructions from ${path.join(workspacePath, ".agents", "skills")} and ${codexHomePath}.
 - The workspace \`skills/\` entry is a read-only convenience link to current Skill resources for third-party Skill scripts and data.
+- First locate bundled Plugin and Skill resources (scripts, references, templates, and assets) in this task workspace's authorized directories: ${path.join(workspacePath, ".agents", "skills")} and ${path.join(workspacePath, ".agents", "plugin-sources")}. Use the task workspace ${workspacePath} as the root even if a command changes its working directory.
+- When capability instructions assume \`$HOME/.agents/skills/...\` or \`$HOME/.agents/plugin-sources/...\` (including \`~\` or \`\${HOME}\` spellings), use the corresponding task workspace directory first, preserving the exact package name and package-relative path. Check that the file exists before invoking it; do not run the obsolete HOME path first.
+- Only when the matching workspace resource is absent, resolve it relative to the SKILL.md actually loaded for this turn, staying inside that same authorized capability package. Use the confirmed absolute path; never search other tasks, users, or historical package versions. If neither location contains the resource, report it as unavailable instead of guessing another package or reinstalling it.
+- This lookup rule applies only to bundled capability resources. Never relocate credentials, user configuration, caches, or tool data; their shared HOME locations remain unchanged. Do not reinterpret permission or authentication failures as missing files, or edit managed scripts to replace paths.
 - Never write to, update, remove, or edit LinkSense-managed Skill and Plugin directories from a task. The only permitted Skill installation path is the built-in \`linksense-skill-creator\` workflow, which creates a ZIP in this task, previews it through the protected Skill Creator service, and installs the exact preview only after explicit user confirmation.
 - Never inspect another task's workspace, Codex session or rollout history, LinkSense deployment configuration, backend source, credentials, tokens, environment variables, or internal logs.
 - Put downloadable deliverables in \`artifacts/\`. Put temporary and intermediate files in \`temp/\`.

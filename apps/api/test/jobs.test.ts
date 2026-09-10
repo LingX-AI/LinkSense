@@ -207,6 +207,28 @@ describe("maintenance cleanup failures", () => {
     )
   })
 
+  it("keeps a distinct job for each reservation revision when switching back within a minute", async () => {
+    const queue = queueControl({ failedJobs: [] })
+    const jobs = createBackgroundJobs(queue)
+    const processor = vi.fn(async () => undefined)
+    jobs.registerConversationPrewarmProcessor(processor)
+    for (const [index, collaborationMode] of (["default", "plan", "default"] as const).entries()) {
+      const input = {
+        ownerId: OWNER_ID, conversationId: "01900000-0000-7000-8000-000000000001",
+        collaborationMode, reservationRevision: `71000000-0000-4000-8000-00000000000${index + 1}`,
+      }
+      await jobs.enqueueConversationPrewarm(input)
+      await jobs["process"]({ data: { type: "conversation-prewarm", ...input }, timestamp: Date.now() } as Job<MaintenanceJob>, { cleanupExpiredTokens: vi.fn() } as never)
+      expect(processor).toHaveBeenLastCalledWith(input)
+    }
+    const ids = vi.mocked(queue.add).mock.calls.map(call => call[2]?.jobId)
+    expect(new Set(ids).size).toBe(3)
+    expect(validateMaintenanceJob({
+      type: "conversation-prewarm", ownerId: OWNER_ID,
+      conversationId: "01900000-0000-7000-8000-000000000001", collaborationMode: "plan", reservationRevision: "invalid",
+    })).toBeNull()
+  })
+
   it("keeps a database-discoverable runtime cleanup when BullMQ enqueue fails", async () => {
     const queue = queueControl({ failedJobs: [] })
     vi.mocked(queue.add).mockRejectedValueOnce(new Error("redis unavailable"))

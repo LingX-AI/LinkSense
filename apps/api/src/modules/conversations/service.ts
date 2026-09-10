@@ -32,6 +32,7 @@ import type { KnowledgeStore } from "../knowledge/types.js";
 import { resolveRunnerKnowledgeSelection } from "./knowledge-selection.js";
 import { extractReferencedSources, mergeReferencedSources } from "./referenced-sources.js";
 import type { ConversationTitleService } from "./title-service.js";
+import type { ConversationPrewarmInput } from "./prewarm.js";
 import {
   builtInCapabilityDefinitionForId,
   capabilitySelectionIdSchema,
@@ -267,11 +268,7 @@ function projectRunnerCapabilities(
 
 export interface RuntimeCleanupScheduler {
   enqueueRuntimeCleanup(ownerId: string, conversationId: string): Promise<void>;
-  enqueueConversationPrewarm(input: {
-    ownerId: string;
-    conversationId: string;
-    collaborationMode: ConversationCollaborationMode;
-  }): Promise<void>;
+  enqueueConversationPrewarm(input: ConversationPrewarmInput): Promise<void>;
 }
 
 type TurnSubmissionBase = {
@@ -953,28 +950,53 @@ export class ConversationService {
     });
     if (!user || user.status !== "active") throw new AppError("USER_DISABLED");
     const conversationId = input.conversationId ?? crypto.randomUUID();
+    let reservationRevision: string | undefined;
     if (input.conversationId) {
       const existing = await this.prisma.conversation.findUnique({
         where: { id: conversationId },
         select: { ownerId: true },
       });
-      if (!existing || existing.ownerId !== ownerId) {
+      if (existing && existing.ownerId !== ownerId) {
         throw new AppError("CONVERSATION_NOT_FOUND");
+      }
+      if (!existing) {
+        reservationRevision = crypto.randomUUID();
+        const reserved = await this.redis.reserveConversationPrewarm(
+          { ownerId, conversationId, reservationRevision },
+          false,
+        );
+        if (!reserved) {
+          throw new AppError("CONVERSATION_NOT_FOUND");
+        }
+      }
+    } else {
+      reservationRevision = crypto.randomUUID();
+      const reserved = await this.redis.reserveConversationPrewarm(
+        { ownerId, conversationId, reservationRevision },
+        true,
+      );
+      if (!reserved) {
+        throw new AppError("RUNNER_UNAVAILABLE");
       }
     }
     await this.cleanup.enqueueConversationPrewarm({
       ownerId,
       conversationId,
       collaborationMode: input.collaborationMode,
+      ...(reservationRevision ? { reservationRevision } : {}),
     });
     return { accepted: true as const, conversation_id: conversationId };
   }
 
-  async executePrewarm(input: {
-    ownerId: string;
-    conversationId: string;
-    collaborationMode: ConversationCollaborationMode;
-  }): Promise<void> {
+  async executePrewarm(input: ConversationPrewarmInput): Promise<void> {
+    const reservation = input.reservationRevision
+      ? {
+          ownerId: input.ownerId,
+          conversationId: input.conversationId,
+          reservationRevision: input.reservationRevision,
+        }
+      : null;
+    if (reservation && !(await this.redis.isConversationPrewarmCurrent(reservation))) return;
     const existing = await this.prisma.conversation.findUnique({
       where: { id: input.conversationId },
       select: {
@@ -986,6 +1008,9 @@ export class ConversationService {
       },
     });
     if (existing && existing.ownerId !== input.ownerId) return;
+    // A reservation only prepares an unclaimed task. Once claimed, the normal
+    // task path resolves the current application, mode, and authorization.
+    if (reservation ? existing !== null : existing === null) return;
     const applicationRuntime = await this.applicationRuntimeForConversation(
       input.ownerId,
       existing?.applicationId,
@@ -1019,6 +1044,7 @@ export class ConversationService {
       this.runner.prepareRuntime(input.conversationId, input.ownerId),
       this.runner.prewarmWorker(input.ownerId),
     ]);
+    if (reservation && !(await this.redis.isConversationPrewarmCurrent(reservation))) return;
     const collaborationMode = existing
       ? conversationCollaborationModeSchema.parse(existing.collaborationMode)
       : input.collaborationMode;
@@ -6895,26 +6921,29 @@ export class ConversationService {
     prewarmedConversationId?: string,
   ) {
     let id = prewarmedConversationId ?? crypto.randomUUID();
+    let claimedPrewarm = false;
+    if (prewarmedConversationId) {
+      const collision = await this.prisma.conversation.findUnique({
+        where: { id: prewarmedConversationId },
+        select: { id: true },
+      });
+      claimedPrewarm = !collision && await this.redis.claimConversationPrewarm(
+        ownerId,
+        prewarmedConversationId,
+      );
+      if (!claimedPrewarm) id = crypto.randomUUID();
+    }
+    // Only a newly allocated or successfully claimed runtime belongs to this
+    // creation attempt. Ownership-check failures must never enqueue its cleanup.
     try {
-      let prewarmedRuntime = null;
-      if (prewarmedConversationId) {
-        const collision = await this.prisma.conversation.findUnique({
-          where: { id: prewarmedConversationId },
-          select: { id: true },
-        });
-        if (collision) {
-          id = crypto.randomUUID();
-        } else {
-          prewarmedRuntime = await this.runner
-            .inspectPrewarmedConversation(id, ownerId)
-            .catch(() => null);
-        }
-      }
+      const prewarmedRuntime = claimedPrewarm
+        ? await this.runner.inspectPrewarmedConversation(id, ownerId).catch(() => null)
+        : null;
       let runtime: Awaited<ReturnType<RunnerClient["prepareRuntime"]>>;
       if (prewarmedRuntime) {
         runtime = prewarmedRuntime;
       } else {
-        const reservedRuntime = prewarmedConversationId
+        const reservedRuntime = claimedPrewarm
           ? await this.runner.inspectRuntime(id, ownerId)
           : null;
         if (reservedRuntime) {

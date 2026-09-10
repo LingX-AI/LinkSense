@@ -40,6 +40,7 @@ import {
 import { z } from "zod"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
+import { useConversationPrewarm } from "@/features/conversations/use-conversation-prewarm"
 import {
   archivedConversationClearResultSchema,
   applicationConversationSchema,
@@ -254,10 +255,6 @@ import { formatLongDateTime } from "@/i18n/date"
 import { downloadBlob } from "@/lib/download-blob"
 
 const emptyResponseSchema = z.unknown()
-const conversationPrewarmReceiptSchema = z.strictObject({
-  accepted: z.literal(true),
-  conversation_id: z.string().uuid(),
-})
 const artifactPreviewLinkSchema = z.object({
   url: z.url(),
   expires_at: z.string().datetime({ offset: true }),
@@ -701,9 +698,6 @@ export function ConversationPage({
   const goalStartSubmissionConversationIdRef = useRef<string | null>(null)
   const steerSubmissionConversationIdRef = useRef<string | null>(null)
   const pendingSubmissionConversationIdRef = useRef<string | null>(null)
-  const runnerPrewarmAtRef = useRef(0)
-  const runnerPrewarmKeyRef = useRef("")
-  const prewarmedConversationIdRef = useRef<string | null>(null)
   const dispatchedInterruptTurnIdsRef = useRef(new Set<string>())
 
   useLayoutEffect(() => {
@@ -716,9 +710,6 @@ export function ConversationPage({
       previousRouteConversationId !== currentRouteConversationId &&
       currentRouteConversationId === null
     ) {
-      prewarmedConversationIdRef.current = null
-      runnerPrewarmAtRef.current = 0
-      runnerPrewarmKeyRef.current = ""
       setNewTaskResetVersion((current) => current + 1)
     }
     routeEpochRef.current += 1
@@ -1229,45 +1220,12 @@ export function ConversationPage({
         })
       : null
 
-  const prewarmRunner = useCallback(() => {
-    const now = Date.now()
-    const targetConversationId = isNew
-      ? prewarmedConversationIdRef.current
-      : (conversationId ?? null)
-    const prewarmKey = [targetConversationId ?? "new", collaborationMode].join(
-      ":"
-    )
-    if (
-      prewarmKey === runnerPrewarmKeyRef.current &&
-      now - runnerPrewarmAtRef.current < 60_000
-    )
-      return
-    runnerPrewarmAtRef.current = now
-    runnerPrewarmKeyRef.current = prewarmKey
-    void apiRequest("/conversations/prewarm", {
-      method: "POST",
-      body: {
-        ...(targetConversationId
-          ? { conversation_id: targetConversationId }
-          : {}),
-        collaboration_mode: collaborationMode,
-      },
-      schema: conversationPrewarmReceiptSchema,
-    })
-      .then((receipt) => {
-        if (isNew && routeConversationIdRef.current === null) {
-          prewarmedConversationIdRef.current = receipt.conversation_id
-          runnerPrewarmKeyRef.current = [
-            receipt.conversation_id,
-            collaborationMode,
-          ].join(":")
-        }
-      })
-      .catch(() => {
-        runnerPrewarmAtRef.current = 0
-        runnerPrewarmKeyRef.current = ""
-      })
-  }, [collaborationMode, conversationId, isNew])
+  const { claim: claimPrewarm, reset: resetPrewarm } = useConversationPrewarm({
+    ownerId: user?.id,
+    conversationId: isNew ? undefined : conversationId,
+    scopeKey: isNew ? location.key : (conversationId ?? ""),
+    collaborationMode,
+  })
 
   const startNewTaskFromComposer = useCallback(() => {
     if (
@@ -1282,9 +1240,7 @@ export function ConversationPage({
       return
     }
     setPendingFirstMessageConversationId(null)
-    prewarmedConversationIdRef.current = null
-    runnerPrewarmAtRef.current = 0
-    runnerPrewarmKeyRef.current = ""
+    resetPrewarm()
     setTaskOverviewSuppressedConversationId(null)
     setNewTaskPromotionConversationId(null)
     if (user) clearLocalConversationDraft(window.localStorage, user.id, "new")
@@ -1301,15 +1257,11 @@ export function ConversationPage({
     setOptimisticGoal(null)
     setNewTaskResetVersion((current) => current + 1)
     window.setTimeout(() => composerRef.current?.focus(), 0)
-  }, [isNew, navigate, setGoalMode, user])
+  }, [isNew, navigate, resetPrewarm, setGoalMode, user])
 
   useEffect(() => {
     legacyStreamItemIdByTurnRef.current.clear()
   }, [conversationId])
-
-  useEffect(() => {
-    prewarmRunner()
-  }, [prewarmRunner])
 
   const applyOfficePreviewUpdate = useCallback(() => {
     if (!previewUpdateCandidate || !officePreviewUpdate) return
@@ -2370,13 +2322,14 @@ export function ConversationPage({
       if (suppressEmptyStateUntilFirstMessage) {
         setPendingFirstMessageConversationId(newConversationPlaceholderId)
       }
+      const prewarmedConversationId = claimPrewarm()
       const createdConversation = await apiRequest("/conversations", {
         method: "POST",
         body: {
           collaboration_mode: initialCollaborationMode,
-          ...(prewarmedConversationIdRef.current
+          ...(prewarmedConversationId
             ? {
-                prewarmed_conversation_id: prewarmedConversationIdRef.current,
+                prewarmed_conversation_id: prewarmedConversationId,
               }
             : {}),
         },
@@ -2428,7 +2381,6 @@ export function ConversationPage({
         routeEpochRef.current === routeEpoch &&
         routeConversationIdRef.current === null
       ) {
-        prewarmedConversationIdRef.current = null
         setNewTaskPromotionConversationId(createdConversation.id)
         setTaskOverviewSuppressedConversationId(createdConversation.id)
         hydratedDraftScopeRef.current = createdConversation.id

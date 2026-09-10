@@ -8,7 +8,6 @@ import { z } from "zod"
 import type { AppConfig } from "../config.js"
 import type { PrismaClient } from "../generated/prisma/client.js"
 import type { ObjectStorage } from "./object-storage.js"
-import type { ConversationCollaborationMode } from "@linksense/shared"
 import {
   RunnerRuntimeCleanupError,
   type RunnerClient,
@@ -19,6 +18,10 @@ import type { AuditService } from "../modules/audit/service.js"
 import { pruneExpiredCapabilityPreviews } from "../modules/capabilities/preview.js"
 import { UserHomeCapabilityMaterializer } from "../modules/capabilities/user-home-materializer.js"
 import { assertConversationWorkspacePath } from "../lib/user-runtime-paths.js"
+import {
+  conversationPrewarmInputSchema,
+  type ConversationPrewarmInput,
+} from "../modules/conversations/prewarm.js"
 
 export interface AuthTokenCleanup {
   cleanupInvalidTokens(limit?: number): Promise<{
@@ -41,11 +44,8 @@ const maintenanceJobSchema = z.discriminatedUnion("type", [
     outboxId: z.uuid().optional(),
   }),
   z.strictObject({ type: z.literal("runtime-cleanup-outbox-dispatch") }),
-  z.strictObject({
+  conversationPrewarmInputSchema.extend({
     type: z.literal("conversation-prewarm"),
-    ownerId: z.uuid(),
-    conversationId: z.uuid(),
-    collaborationMode: z.enum(["default", "plan"]),
   }),
   z.strictObject({
     type: z.literal("capability-preview-prune"),
@@ -121,11 +121,7 @@ export class BackgroundJobs {
     MaintenanceJob["type"]
   > | null = null
   private conversationPrewarmProcessor:
-    | ((input: {
-        ownerId: string
-        conversationId: string
-        collaborationMode: ConversationCollaborationMode
-      }) => Promise<void>)
+    | ((input: ConversationPrewarmInput) => Promise<void>)
     | null = null
 
   constructor(
@@ -309,27 +305,19 @@ export class BackgroundJobs {
   }
 
   registerConversationPrewarmProcessor(
-    processor: (input: {
-      ownerId: string
-      conversationId: string
-      collaborationMode: ConversationCollaborationMode
-    }) => Promise<void>,
+    processor: (input: ConversationPrewarmInput) => Promise<void>,
   ): void {
     this.conversationPrewarmProcessor = processor
   }
 
-  async enqueueConversationPrewarm(input: {
-    ownerId: string
-    conversationId: string
-    collaborationMode: ConversationCollaborationMode
-  }): Promise<void> {
+  async enqueueConversationPrewarm(input: ConversationPrewarmInput): Promise<void> {
     const minuteBucket = Math.floor(Date.now() / 60_000)
     await this.queue.add(
       "conversation-prewarm",
       { type: "conversation-prewarm", ...input },
       {
         jobId: `conversation-prewarm-${digest(
-          `${input.ownerId}:${input.conversationId}:${input.collaborationMode}:${minuteBucket}`,
+          `${input.ownerId}:${input.conversationId}:${input.collaborationMode}:${input.reservationRevision ?? minuteBucket}`,
         )}`,
         attempts: 1,
         priority: 100,
@@ -419,6 +407,9 @@ export class BackgroundJobs {
         ownerId: data.ownerId,
         conversationId: data.conversationId,
         collaborationMode: data.collaborationMode,
+        ...(data.reservationRevision
+          ? { reservationRevision: data.reservationRevision }
+          : {}),
       })
       return { prewarmed: true }
     }

@@ -70,6 +70,46 @@ describe("Redis atomic protection", () => {
     await setSuccessfulRecoveryBaseline(client)
   })
 
+  it("keeps prewarm reservations owner-bound and replaces only a live owned revision", async () => {
+    const reservation = {
+      ownerId: "71000000-0000-4000-8000-000000000001",
+      conversationId: "71000000-0000-4000-8000-000000000002",
+      reservationRevision: "71000000-0000-4000-8000-000000000003",
+    }
+    const next = { ...reservation, reservationRevision: "71000000-0000-4000-8000-000000000004" }
+    const otherOwner = { ...next, ownerId: "71000000-0000-4000-8000-000000000005" }
+    expect(await protection.reserveConversationPrewarm(reservation, true)).toBe(true)
+    expect(await protection.reserveConversationPrewarm(next, true)).toBe(false)
+    expect(await protection.reserveConversationPrewarm(otherOwner, false)).toBe(false)
+    expect(await protection.claimConversationPrewarm(otherOwner.ownerId, reservation.conversationId)).toBe(false)
+    expect(await protection.isConversationPrewarmCurrent(reservation)).toBe(true)
+    expect(await protection.reserveConversationPrewarm(next, false)).toBe(true)
+    expect(await protection.isConversationPrewarmCurrent(reservation)).toBe(false)
+    expect(await protection.isConversationPrewarmCurrent(next)).toBe(true)
+    const ttl = await client.pttl(`linksense:conversation-prewarm:${reservation.conversationId}`)
+    expect(ttl).toBeGreaterThan(0)
+    expect(ttl).toBeLessThanOrEqual(15 * 60_000)
+  })
+
+  it("claims prewarm once across API instances and never renews an expired or claimed reservation", async () => {
+    const reservation = {
+      ownerId: "71000000-0000-4000-8000-000000000011",
+      conversationId: "71000000-0000-4000-8000-000000000012",
+      reservationRevision: "71000000-0000-4000-8000-000000000013",
+    }
+    const secondInstance = new LinkSenseRedis(testConfig(), client)
+    expect(await protection.reserveConversationPrewarm(reservation, true)).toBe(true)
+    const claims = await Promise.all([protection, secondInstance].map(instance =>
+      instance.claimConversationPrewarm(reservation.ownerId, reservation.conversationId)))
+    expect(claims.sort()).toEqual([false, true])
+    expect(await protection.reserveConversationPrewarm(reservation, false)).toBe(false)
+    expect(await protection.isConversationPrewarmCurrent(reservation)).toBe(false)
+    expect(await protection.reserveConversationPrewarm(reservation, true)).toBe(true)
+    await client.pexpire(`linksense:conversation-prewarm:${reservation.conversationId}`, 0)
+    expect(await protection.reserveConversationPrewarm(reservation, false)).toBe(false)
+    expect(await protection.claimConversationPrewarm(reservation.ownerId, reservation.conversationId)).toBe(false)
+  })
+
   it("registers a worker atomically with capacity and checks only the exact slot", async () => {
     const owner = "10000000-0000-4000-8000-000000000001"
     const slot = await protection.acquireTurnSlot("conversation", "turn", owner)
