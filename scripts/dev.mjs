@@ -145,25 +145,35 @@ export function buildDevelopmentEnvironment(source) {
   const webOrigin = optional(
     source,
     "LINKSENSE_DEV_WEB_ORIGIN",
-    "http://localhost:5173",
+    "http://localhost:18173",
   );
+  const portSchema = z.coerce.number().int().min(1).max(65_535).transform(String);
+  const apiPort = portSchema.parse(optional(
+    source,
+    "LINKSENSE_DEV_API_PORT",
+    developmentOriginPort("LINKSENSE_DEV_API_ORIGIN", apiOrigin, "4000"),
+  ));
+  const webPort = portSchema.parse(optional(
+    source,
+    "LINKSENSE_DEV_WEB_PORT",
+    developmentOriginPort("LINKSENSE_DEV_WEB_ORIGIN", webOrigin, "18173"),
+  ));
+  const webUrl = new URL(webOrigin);
+  webUrl.port = webPort;
   const existingNoProxy = source.NO_PROXY?.trim();
 
   return {
     ...source,
     NODE_ENV: "development",
-    LINKSENSE_PUBLIC_BASE_URL: webOrigin,
-    VITE_API_BASE_URL: apiOrigin,
+    LINKSENSE_PUBLIC_BASE_URL: webUrl.origin,
+    // Cookie authentication requires same-origin requests through Vite's /api proxy.
+    VITE_API_BASE_URL: "",
     LINKSENSE_DEV_API_BIND_ADDRESS: optional(
       source,
       "LINKSENSE_DEV_API_BIND_ADDRESS",
       "127.0.0.1",
     ),
-    LINKSENSE_DEV_API_PORT: optional(
-      source,
-      "LINKSENSE_DEV_API_PORT",
-      developmentOriginPort("LINKSENSE_DEV_API_ORIGIN", apiOrigin, "4000"),
-    ),
+    LINKSENSE_DEV_API_PORT: apiPort,
     LINKSENSE_DEV_RUNNER_BIND_ADDRESS: optional(
       source,
       "LINKSENSE_DEV_RUNNER_BIND_ADDRESS",
@@ -179,15 +189,18 @@ export function buildDevelopmentEnvironment(source) {
       "LINKSENSE_DEV_WEB_BIND_ADDRESS",
       "127.0.0.1",
     ),
-    LINKSENSE_DEV_WEB_PORT: optional(
-      source,
-      "LINKSENSE_DEV_WEB_PORT",
-      developmentOriginPort("LINKSENSE_DEV_WEB_ORIGIN", webOrigin, "5173"),
-    ),
+    LINKSENSE_DEV_WEB_PORT: webPort,
     NO_PROXY: [existingNoProxy, "127.0.0.1", "localhost"]
       .filter(Boolean)
       .join(","),
   };
+}
+
+export function developmentReadyMessage(environment) {
+  const webPort = required(environment, "LINKSENSE_DEV_WEB_PORT");
+  const webUrl = new URL(required(environment, "LINKSENSE_PUBLIC_BASE_URL"));
+  webUrl.port = webPort;
+  return `Web: ${webUrl.origin} (port ${webPort})\nAPI port: ${required(environment, "LINKSENSE_DEV_API_PORT")}; runner controller port: ${required(environment, "LINKSENSE_DEV_RUNNER_PORT")}.`;
 }
 
 export function buildDevelopmentComposeEnvironment(source, environment) {
@@ -557,6 +570,17 @@ export function developmentReadinessTargets(environment) {
     { name: "Web entry module", url: `${webOrigin}/src/main.tsx`, headers: {}, contentTypeIncludes: "javascript" },
     { name: "Web application module", url: `${webOrigin}/src/App.tsx`, headers: {}, contentTypeIncludes: "javascript" },
     { name: "Web stylesheet", url: `${webOrigin}/src/index.css?direct`, headers: {}, contentTypeIncludes: "text/css" },
+    { name: "Web bootstrap", url: `${webOrigin}/api/v1/system/bootstrap`, headers: {}, contentTypeIncludes: "application/json", bodyIncludes: '"success":true' },
+    {
+      name: "Web session restore",
+      url: `${webOrigin}/api/v1/auth/refresh`,
+      method: "POST",
+      headers: { origin: webOrigin, "sec-fetch-site": "same-origin" },
+      // No cookie is sent: an expired session is expected; a CSRF rejection is not.
+      expectedStatus: 401,
+      contentTypeIncludes: "application/json",
+      bodyIncludes: '"AUTH_SESSION_EXPIRED"',
+    },
   ];
 }
 
@@ -585,7 +609,7 @@ export async function waitForDevelopmentApplicationReadiness(
       targets.map(async (target) => {
         try {
           const response = await fetchImplementation(target.url, {
-            method: "GET",
+            method: target.method ?? "GET",
             headers: target.headers,
             signal: AbortSignal.any([
               AbortSignal.timeout(Math.max(1, Math.min(requestTimeoutMs, deadline - Date.now()))),
@@ -595,7 +619,8 @@ export async function waitForDevelopmentApplicationReadiness(
           const validBody = target.bodyIncludes ? (await response.text()).includes(target.bodyIncludes) : true;
           const validType = !target.contentTypeIncludes || (response.headers.get("content-type") ?? "").includes(target.contentTypeIncludes);
           if (!target.bodyIncludes) await response.body?.cancel();
-          target.lastError = !response.ok ? `HTTP ${response.status}` : !validType ? "Unexpected content type" : validBody ? null : "Unexpected page content";
+          const validStatus = target.expectedStatus === undefined ? response.ok : response.status === target.expectedStatus;
+          target.lastError = !validStatus ? `HTTP ${response.status}` : !validType ? "Unexpected content type" : validBody ? null : "Unexpected page content";
         } catch (error) {
           target.lastError =
             error instanceof Error ? error.message : "request failed";
@@ -1373,6 +1398,8 @@ export async function main(argumentsList = process.argv.slice(2)) {
     readinessController.abort();
   }
 
+  console.log(developmentReadyMessage(environment));
+
   if (prepareOnly) {
     session.stop();
     await session.completion;
@@ -1382,9 +1409,6 @@ export async function main(argumentsList = process.argv.slice(2)) {
 
   console.log(`LINKSENSE_DEV_READY ${JSON.stringify({ duration_ms: Math.round(performance.now() - startedAt), stages })}`);
 
-  console.log(
-    `Containerized Vite Web, API, and runner controller are ready on :${environment.LINKSENSE_DEV_WEB_PORT}, :${environment.LINKSENSE_DEV_API_PORT}, and :${environment.LINKSENSE_DEV_RUNNER_PORT}.`,
-  );
   console.log(
     "Compose Watch is active. Source changes sync into Linux containers; dependency changes rebuild only the affected development service.",
   );

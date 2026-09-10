@@ -37,7 +37,7 @@ const serviceTemplates = [
     label: "Web",
     workspace: "@linksense/web",
     relativeDirectory: "apps/web",
-    port: 5173,
+    port: 18173,
   },
 ];
 

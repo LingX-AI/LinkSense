@@ -5,7 +5,7 @@
   "license": "CPAL-1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 5173 --strictPort",
+    "dev": "vite --host 0.0.0.0 --port 18173 --strictPort",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "node ../../scripts/format-web.mjs",

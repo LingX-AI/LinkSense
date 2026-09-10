@@ -24,6 +24,7 @@ import {
   developmentMigrationDeployCommand,
   developmentPostgresCredentialSyncCommand,
   developmentReadinessTargets,
+  developmentReadyMessage,
   developmentStorageInitializationCommand,
   developmentWorkerRebuildCommands,
   hasRunningDevelopmentApplications,
@@ -46,6 +47,34 @@ const containerEnvironment = {
   REDIS_URL: "redis://:password@redis:6379/0",
   MINIO_ENDPOINT: "minio.localhost",
 };
+
+test("development ready message shows the browser URL and actual published Web port", () => {
+  assert.equal(
+    developmentReadyMessage(buildDevelopmentEnvironment(containerEnvironment)),
+    "Web: http://localhost:18173 (port 18173)\nAPI port: 4000; runner controller port: 4010.",
+  );
+  assert.equal(
+    developmentReadyMessage(buildDevelopmentEnvironment({
+      ...containerEnvironment,
+      LINKSENSE_DEV_WEB_ORIGIN: "http://127.0.0.1:15173",
+      LINKSENSE_DEV_WEB_PORT: "19173",
+    })),
+    "Web: http://127.0.0.1:19173 (port 19173)\nAPI port: 4000; runner controller port: 4010.",
+  );
+});
+
+test("development Web command, Compose mapping and healthcheck agree on port 18173", async () => {
+  const manifest = JSON.parse(await readFile(resolve("apps/web/package.json"), "utf8"));
+  const compose = await readFile(resolve("docker-compose.dev.yml"), "utf8");
+  const example = await readFile(resolve(".env.example"), "utf8");
+
+  assert.match(manifest.scripts.dev, /--port 18173 --strictPort/u);
+  assert.ok(compose.includes("${LINKSENSE_DEV_WEB_PORT:-18173}:18173"));
+  assert.ok(compose.includes("curl -fsS http://127.0.0.1:18173/"));
+  assert.match(compose, /VITE_API_BASE_URL: ""/u);
+  assert.match(example, /^LINKSENSE_DEV_WEB_ORIGIN=http:\/\/localhost:18173$/mu);
+  assert.match(example, /^LINKSENSE_DEV_WEB_PORT=18173$/mu);
+});
 
 test("resolveComposeDatabaseUrl synchronizes only the bundled Postgres service", () => {
   assert.equal(
@@ -125,14 +154,14 @@ test("buildDevelopmentEnvironment keeps service DNS and derives all published po
   assert.equal(result.DATABASE_URL, containerEnvironment.DATABASE_URL);
   assert.equal(result.REDIS_URL, containerEnvironment.REDIS_URL);
   assert.equal(result.MINIO_ENDPOINT, "minio.localhost");
-  assert.equal(result.LINKSENSE_PUBLIC_BASE_URL, "http://localhost:5173");
-  assert.equal(result.VITE_API_BASE_URL, "http://localhost:4000");
+  assert.equal(result.LINKSENSE_PUBLIC_BASE_URL, "http://localhost:18173");
+  assert.equal(result.VITE_API_BASE_URL, "");
   assert.equal(result.LINKSENSE_DEV_API_BIND_ADDRESS, "127.0.0.1");
   assert.equal(result.LINKSENSE_DEV_API_PORT, "4000");
   assert.equal(result.LINKSENSE_DEV_RUNNER_BIND_ADDRESS, "127.0.0.1");
   assert.equal(result.LINKSENSE_DEV_RUNNER_PORT, "4010");
   assert.equal(result.LINKSENSE_DEV_WEB_BIND_ADDRESS, "127.0.0.1");
-  assert.equal(result.LINKSENSE_DEV_WEB_PORT, "5173");
+  assert.equal(result.LINKSENSE_DEV_WEB_PORT, "18173");
   assert.equal(result.NO_PROXY, "127.0.0.1,localhost");
   assert.equal(result.LINKSENSE_RUNNER_MODE, undefined);
 });
@@ -147,13 +176,46 @@ test("buildDevelopmentEnvironment derives custom API and Web ports from local or
     NO_PROXY: "internal.example",
   });
 
-  assert.equal(result.VITE_API_BASE_URL, "http://127.0.0.1:14000");
+  assert.equal(result.VITE_API_BASE_URL, "");
   assert.equal(result.LINKSENSE_PUBLIC_BASE_URL, "http://127.0.0.1:15173");
   assert.equal(result.LINKSENSE_DEV_API_PORT, "14000");
   assert.equal(result.LINKSENSE_DEV_RUNNER_BIND_ADDRESS, "0.0.0.0");
   assert.equal(result.LINKSENSE_DEV_RUNNER_PORT, "14010");
   assert.equal(result.LINKSENSE_DEV_WEB_PORT, "15173");
   assert.equal(result.NO_PROXY, "internal.example,127.0.0.1,localhost");
+});
+
+test("development uses same-origin API requests and actual Web ports without changing production configuration", () => {
+  const source = {
+    ...containerEnvironment,
+    LINKSENSE_PUBLIC_BASE_URL: "https://production.example.test",
+    VITE_API_BASE_URL: "http://localhost:5174",
+    LINKSENSE_DEV_API_ORIGIN: "http://localhost:5174",
+    LINKSENSE_DEV_API_PORT: "4001",
+    LINKSENSE_DEV_WEB_ORIGIN: "http://localhost:5174",
+    LINKSENSE_DEV_WEB_PORT: "18173",
+    LINKSENSE_USER_DATA_ROOT: "/srv/linksense/users",
+  };
+  const environment = buildDevelopmentEnvironment(source);
+  const compose = buildDevelopmentComposeEnvironment(source, environment);
+
+  assert.equal(environment.VITE_API_BASE_URL, "");
+  assert.equal(environment.LINKSENSE_PUBLIC_BASE_URL, "http://localhost:18173");
+  assert.equal(compose.VITE_API_BASE_URL, "");
+  assert.equal(compose.LINKSENSE_PUBLIC_BASE_URL, "http://localhost:18173");
+  assert.equal(source.VITE_API_BASE_URL, "http://localhost:5174");
+  assert.equal(source.LINKSENSE_PUBLIC_BASE_URL, "https://production.example.test");
+});
+
+test("development rejects invalid explicit Web and API ports before creating browser URLs", () => {
+  for (const name of ["LINKSENSE_DEV_WEB_PORT", "LINKSENSE_DEV_API_PORT"]) {
+    for (const port of ["0", "65536", "-1", "4001.5", "invalid"]) {
+      assert.throws(() => buildDevelopmentEnvironment({
+        ...containerEnvironment,
+        [name]: port,
+      }));
+    }
+  }
 });
 
 test("buildDevelopmentEnvironment rejects unsafe API origin values", () => {
@@ -206,7 +268,7 @@ test("buildDevelopmentComposeEnvironment applies only container development over
   assert.equal(result.LINKSENSE_DEV_API_PORT, "14000");
   assert.equal(result.LINKSENSE_DEV_RUNNER_PORT, "4010");
   assert.equal(result.LINKSENSE_DEV_WEB_PORT, "15173");
-  assert.equal(result.VITE_API_BASE_URL, "http://localhost:14000");
+  assert.equal(result.VITE_API_BASE_URL, "");
   assert.equal(
     result.LINKSENSE_USER_DATA_ROOT,
     "/srv/linksense-home/.linksense/users",
@@ -359,6 +421,8 @@ test("development startup synchronizes persisted Postgres credentials without em
 });
 
 function readinessResponse(url, status = 200) {
+  if (url.endsWith("/auth/refresh")) return Response.json({ error_code: "AUTH_SESSION_EXPIRED" }, { status: status === 200 ? 401 : status });
+  if (url.endsWith("/system/bootstrap")) return Response.json({ success: true }, { status });
   if (url.includes(".tsx")) return new Response("export default {}", { status, headers: { "content-type": "text/javascript" } });
   if (url.includes(".css")) return new Response(":root {}", { status, headers: { "content-type": "text/css" } });
   return new Response(`<html lang="${url.includes("/en-US/") ? "en-US" : "zh-CN"}"></html>`, { status });
@@ -396,12 +460,33 @@ test("development reattach readiness tolerates transient unhealthy services", as
     ],
   );
   assert.equal(targets[0].url, "http://127.0.0.1:4010/health/ready");
-  assert.equal(targets[2].url, "http://127.0.0.1:5173/");
-  assert.equal(targets.length, 8);
-  assert.equal(targets[3].url, "http://127.0.0.1:5173/help/");
-  assert.equal(targets[4].url, "http://127.0.0.1:5173/help/en-US/");
+  assert.equal(targets[2].url, "http://127.0.0.1:18173/");
+  assert.equal(targets.length, 10);
+  assert.equal(targets[3].url, "http://127.0.0.1:18173/help/");
+  assert.equal(targets[4].url, "http://127.0.0.1:18173/help/en-US/");
   assert.deepEqual(calls[0].headers, {
     authorization: "Bearer runner-secret",
+  });
+});
+
+test("readiness rejects a Web proxy that forbids same-origin session restoration", async () => {
+  const requests = [];
+  await assert.rejects(waitForDevelopmentApplicationReadiness(buildDevelopmentEnvironment({ LINKSENSE_RUNNER_SHARED_SECRET: "test" }), {
+    timeoutMs: 25,
+    intervalMs: 1,
+    fetchImplementation: async (url, options) => {
+      if (url.endsWith("/auth/refresh")) {
+        requests.push({ url, method: options.method, headers: options.headers });
+        return Response.json({ error_code: "AUTH_CROSS_ORIGIN_REQUEST_FORBIDDEN" }, { status: 403 });
+      }
+      return readinessResponse(url);
+    },
+  }), /Web session restore.*HTTP 403/u);
+  assert.ok(requests.length > 0);
+  assert.deepEqual(requests[0], {
+    url: "http://127.0.0.1:18173/api/v1/auth/refresh",
+    method: "POST",
+    headers: { origin: "http://127.0.0.1:18173", "sec-fetch-site": "same-origin" },
   });
 });
 
@@ -445,7 +530,7 @@ test("readiness rechecks previously healthy services until every service passes 
       return readinessResponse(url, unhealthy ? 503 : 200);
     },
   });
-  assert.deepEqual([...attempts.values()], Array(8).fill(3));
+  assert.deepEqual([...attempts.values()], Array(10).fill(3));
 });
 
 test("readiness cancellation aborts active probes without another retry", async () => {
@@ -462,7 +547,7 @@ test("readiness cancellation aborts active probes without another retry", async 
   });
   controller.abort(new Error("watch stopped"));
   await assert.rejects(ready, /watch stopped/u);
-  assert.equal(calls, 8);
+  assert.equal(calls, 10);
 });
 
 test("watch startup waits for initial synchronization and rejects early exit or timeout", async () => {
@@ -537,7 +622,7 @@ test("development Compose runs Web, API, and runner from source-aware images", a
   );
   assert.match(
     compose,
-    /LINKSENSE_DEV_WEB_BIND_ADDRESS:-127\.0\.0\.1.*LINKSENSE_DEV_WEB_PORT:-5173/u,
+    /LINKSENSE_DEV_WEB_BIND_ADDRESS:-127\.0\.0\.1.*LINKSENSE_DEV_WEB_PORT:-18173/u,
   );
   assert.match(compose, /LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN: "false"/u);
   assert.match(compose, /LINKSENSE_ENABLE_DEVELOPMENT_ENDPOINTS: "true"/u);
@@ -681,7 +766,7 @@ test("published port checks identify the conflicting container service", async (
     LINKSENSE_DEV_RUNNER_BIND_ADDRESS: "127.0.0.1",
     LINKSENSE_DEV_RUNNER_PORT: "4010",
     LINKSENSE_DEV_WEB_BIND_ADDRESS: "127.0.0.1",
-    LINKSENSE_DEV_WEB_PORT: "5173",
+    LINKSENSE_DEV_WEB_PORT: "18173",
   };
   const occupied = async () => {
     throw Object.assign(new Error("occupied"), { code: "EADDRINUSE" });
@@ -697,7 +782,7 @@ test("published port checks identify the conflicting container service", async (
   );
   await assert.rejects(
     assertWebPortAvailable(environment, occupied),
-    /Web port 127\.0\.0\.1:5173 is already in use/u,
+    /Web port 127\.0\.0\.1:18173 is already in use/u,
   );
 
   const calls = [];
@@ -713,6 +798,6 @@ test("published port checks identify the conflicting container service", async (
   assert.deepEqual(calls, [
     { host: "127.0.0.1", port: 4000 },
     { host: "127.0.0.1", port: 4010 },
-    { host: "127.0.0.1", port: 5173 },
+    { host: "127.0.0.1", port: 18173 },
   ]);
 });

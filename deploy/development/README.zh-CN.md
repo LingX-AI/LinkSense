@@ -10,6 +10,8 @@
 
 API 模块加载与 Office 转换器预热并行进行；历史知识索引巡检在受控后台任务中执行，不阻塞启动，并保留分布式锁、周期巡检和关闭等待。开发和生产共用这些行为。就绪接口验证实际必需依赖及 Runner 执行能力；SMTP、模型诊断和 Docker 资源采样仍由完整健康诊断提供，资源采样失败不会阻塞就绪。就绪检查不替代真实模型调用等业务验收。
 
+开发 Web 默认地址为 `http://localhost:18173`。浏览器通过 Vite 的 `/api` 代理发送同源 API 请求，开发环境将 `VITE_API_BASE_URL` 设为空字符串，因为 Cookie 认证会拒绝跨域刷新会话。就绪检查还会通过该代理读取初始化状态、发送不带 Cookie 的会话刷新请求，确认返回 `AUTH_SESSION_EXPIRED`，而非跨域拒绝。Web/API 显式配置的映射端口优先于开发 Origin 中的端口，生产部署配置不受影响。
+
 `pnpm dev:stop` 停止开发服务与动态 Worker，保留容器、缓存和持久数据，适合日常使用；`pnpm dev:down` 删除开发容器与网络，仍保留持久数据。Ctrl+C 仅结束当前终端的 Watch/日志会话，服务继续运行。
 
 可以自动测量当前机器：`pnpm dev:benchmark --runs=5 --mode=restart`。该命令先准备环境，再执行 5 次停止后启动；`--mode=reattach` 测量重新连接，`--mode=recreate` 测量删除容器后的重建启动。计时从调用 `pnpm dev` 开始，包含命令开销；任意一次超过默认 10000 毫秒都会返回失败。报告保存在 `.data/dev/startup-benchmark-<mode>.json`。基准测试会操作开发服务，请在没有运行中任务时执行。
