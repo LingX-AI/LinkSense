@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "LinkSense",
+  "short_name": "LinkSense",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "icons": [
+    {
+      "src": "/linksense-appicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

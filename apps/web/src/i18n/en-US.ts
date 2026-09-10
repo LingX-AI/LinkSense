@@ -1663,6 +1663,7 @@ export const enUS = {
     noResults: "No matching categories",
     choose: "Task category",
     unclassified: "Unclassified",
+    unclassifiedTask: "Unclassified task",
     clearSelection: "Clear category selection",
     unavailable: "Category unavailable",
     loadError: "Unable to load task categories",

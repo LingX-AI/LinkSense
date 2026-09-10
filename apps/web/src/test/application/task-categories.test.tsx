@@ -435,7 +435,7 @@ describe("task categories", () => {
 
   it.each([
     { categoryId: workId, label: "工作" },
-    { categoryId: null, label: "未分类" },
+    { categoryId: null, label: "未分类任务" },
   ])(
     "inherits $label from the task detail instead of the last manual choice",
     async ({ categoryId, label }) => {
@@ -744,7 +744,7 @@ describe("task categories", () => {
       } else {
         await interaction.click(clear)
       }
-      await waitFor(() => expect(trigger).toHaveTextContent("未分类"))
+      await waitFor(() => expect(trigger).toHaveTextContent("未分类任务"))
       expect(
         screen.queryByRole("dialog", { name: "任务分类" })
       ).not.toBeInTheDocument()

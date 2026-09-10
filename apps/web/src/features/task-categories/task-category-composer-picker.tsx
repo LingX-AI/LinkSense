@@ -69,7 +69,7 @@ export function TaskCategoryComposerPicker({
                 {query.isPending
                   ? t("common.loading")
                   : value === null
-                    ? t("taskCategories.unclassified")
+                    ? t("taskCategories.unclassifiedTask")
                     : (selected?.name ?? t("taskCategories.unavailable"))}
               </span>
             </PopoverTrigger>

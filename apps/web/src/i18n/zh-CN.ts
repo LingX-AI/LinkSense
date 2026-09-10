@@ -1530,6 +1530,7 @@ export const zhCN = {
     noResults: "未找到匹配的分类",
     choose: "任务分类",
     unclassified: "未分类",
+    unclassifiedTask: "未分类任务",
     clearSelection: "取消分类选择",
     unavailable: "分类暂不可用",
     loadError: "暂时无法加载任务分类",
