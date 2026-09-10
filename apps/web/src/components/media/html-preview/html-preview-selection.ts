@@ -1,18 +1,25 @@
 import { z } from "zod"
+import type { SelectoEvents, SelectoOptions } from "selecto"
+import type {
+  getHtmlPreviewBoundingRect,
+  HtmlPreviewRect,
+} from "./html-preview-geometry"
 
 import type { HtmlSelection } from "@/components/media/html-preview/html-preview.types"
 import type { OfficeSelectionAnchor } from "@/components/media/office-preview/office-preview.types"
+import type { installOfficeAnnotationHover } from "@/components/media/office-preview/office-annotation-hover-controller"
 
 export const htmlSelectableAttribute = "data-linksense-selectable"
 export const htmlSelectedAttribute = "data-linksense-selected"
+export const htmlAnnotatedAttribute = "data-linksense-annotated"
 export const htmlSelectionOverlayAttribute = "data-linksense-overlay-root"
 export const maximumHtmlSelectionCount = 20
 export const htmlPreviewAnnotationModeMessageType =
   "linksense:html-preview:annotation-mode"
-export const htmlPreviewAnnotationFocusMessageType =
-  "linksense:html-preview:annotation-focus"
 export const htmlPreviewSelectionMessageType =
   "linksense:html-preview:selection-change"
+export const htmlPreviewSelectionClearMessageType =
+  "linksense:html-preview:selection-clear"
 
 const finiteNumberSchema = z.number().finite()
 const htmlElementBoundsSchema = z
@@ -74,9 +81,9 @@ export type HtmlPreviewSelectionViewportAnchor = NonNullable<
 >
 
 type SelectoInstance = Readonly<{
-  on: (
-    event: "selectEnd",
-    listener: (event: Readonly<{ selected: readonly Element[] }>) => void
+  on: <Name extends "drag" | "dragEnd" | "selectEnd">(
+    event: Name,
+    listener: (event: SelectoEvents[Name]) => void
   ) => SelectoInstance
   setSelectedTargets: (elements: readonly Element[]) => unknown
   findSelectableTargets?: () => unknown
@@ -84,7 +91,7 @@ type SelectoInstance = Readonly<{
 }>
 
 type SelectoConstructor = new (
-  options: Readonly<Record<string, unknown>>
+  options: Partial<SelectoOptions>
 ) => SelectoInstance
 
 export type HtmlPreviewAnnotationController = Readonly<{
@@ -97,39 +104,26 @@ export function postHtmlPreviewAnnotationMode(
   enabled: boolean
 ) {
   frame.contentWindow?.postMessage(
-    { type: htmlPreviewAnnotationModeMessageType, enabled },
+    {
+      type: htmlPreviewAnnotationModeMessageType,
+      enabled,
+      selectionColor: window
+        .getComputedStyle(frame.ownerDocument.documentElement)
+        .getPropertyValue("--app-selection")
+        .trim(),
+    },
     "*"
   )
 }
 
-export function postHtmlPreviewAnnotationFocus(
+export function postHtmlPreviewSelectionClear(
   frame: HTMLIFrameElement,
   selection: HtmlSelection
-) {
-  const bounds = selection.elements
-    .map((element) => element.bounds)
-    .filter(
-      (candidate) =>
-        Number.isFinite(candidate.x) &&
-        Number.isFinite(candidate.y) &&
-        Number.isFinite(candidate.width) &&
-        Number.isFinite(candidate.height) &&
-        candidate.width > 0 &&
-        candidate.height > 0
-    )
-  if (bounds.length === 0) return
-  const left = Math.min(...bounds.map((candidate) => candidate.x))
-  const top = Math.min(...bounds.map((candidate) => candidate.y))
-  const right = Math.max(
-    ...bounds.map((candidate) => candidate.x + candidate.width)
-  )
-  const bottom = Math.max(
-    ...bounds.map((candidate) => candidate.y + candidate.height)
-  )
+): void {
   frame.contentWindow?.postMessage(
     {
-      type: htmlPreviewAnnotationFocusMessageType,
-      bounds: { left, top, width: right - left, height: bottom - top },
+      type: htmlPreviewSelectionClearMessageType,
+      selectors: selection.elements.map((element) => element.selector),
     },
     "*"
   )
@@ -141,28 +135,14 @@ export function parseHtmlPreviewSelectionMessage(value: unknown) {
 }
 
 export function htmlSelectionAnchor(
-  pane: HTMLElement,
   frame: HTMLIFrameElement,
   anchor: HtmlPreviewSelectionViewportAnchor | null
 ): OfficeSelectionAnchor | null {
   if (anchor === null) return null
   const frameRect = frame.getBoundingClientRect()
-  const paneRect = pane.getBoundingClientRect()
   return {
-    left: Math.min(
-      pane.clientWidth - 8,
-      Math.max(8, frameRect.left - paneRect.left + anchor.right)
-    ),
-    top: Math.min(
-      pane.clientHeight - 48,
-      Math.max(
-        8,
-        frameRect.top -
-          paneRect.top +
-          anchor.top +
-          (anchor.bottom - anchor.top) / 2
-      )
-    ),
+    left: frameRect.left + anchor.right,
+    top: frameRect.top + anchor.bottom,
   }
 }
 
@@ -176,13 +156,17 @@ export function htmlSelectionAnchor(
 export function installHtmlPreviewAnnotationController(
   targetWindow: Window,
   config: Readonly<{
-    focusMessageType: string
     modeMessageType: string
     selectionMessageType: string
+    clearMessageType: string
     selectableAttribute: string
     selectedAttribute: string
+    annotatedAttribute: string
     overlayAttribute: string
     maximumSelectionCount: number
+    annotationCursor: string
+    installHover: typeof installOfficeAnnotationHover
+    getBoundingRect: typeof getHtmlPreviewBoundingRect
   }>
 ): HtmlPreviewAnnotationController {
   const selectableElementSelector = [
@@ -258,9 +242,15 @@ export function installHtmlPreviewAnnotationController(
   const selectableTargetSelector = attributeSelector(config.selectableAttribute)
   const markedElements = new Set<Element>()
   let selectedElements: Element[] = []
+  let dragSelection: HtmlPreviewRect | null = null
   let selecto: SelectoInstance | null = null
   let overlayRoot: HTMLElement | null = null
+  let overlayShadow: ShadowRoot | null = null
+  let overlayStyles: HTMLStyleElement | null = null
+  let selectionFillOverlay: SVGSVGElement | null = null
+  let selectionFillAnimationFrame: number | null = null
   let annotationStyles: HTMLStyleElement | null = null
+  let selectionColor = ""
   let mutationObserver: MutationObserver | null = null
   let retryAnimationFrame: number | null = null
   let annotationRequested = false
@@ -428,6 +418,7 @@ export function installHtmlPreviewAnnotationController(
     for (const candidate of [clone, ...clone.querySelectorAll("*")]) {
       candidate.removeAttribute(config.selectableAttribute)
       candidate.removeAttribute(config.selectedAttribute)
+      candidate.removeAttribute(config.annotatedAttribute)
       candidate.removeAttribute("value")
     }
     return boundedText(clone.outerHTML, 8_000)
@@ -468,18 +459,75 @@ export function installHtmlPreviewAnnotationController(
   }
 
   const selectionAnchor = () => {
-    const rects = selectedElements
-      .map((element) => element.getBoundingClientRect())
-      .filter((rect) => rect.width > 0 && rect.height > 0)
-    if (rects.length === 0) return null
+    const bounds = config.getBoundingRect(
+      selectedElements.map((element) => element.getBoundingClientRect())
+    )
+    if (!bounds) return null
     return {
-      right: Math.max(...rects.map((rect) => rect.right)),
-      top: Math.min(...rects.map((rect) => rect.top)),
-      bottom: Math.max(...rects.map((rect) => rect.bottom)),
+      right: bounds.left + bounds.width,
+      top: bounds.top,
+      bottom: bounds.top + bounds.height,
     }
   }
 
+  // Paint the frame and tint above the content. An outline on the selected
+  // element itself can be clipped by a surrounding image or SVG container.
+  const paintSelectionFill = () => {
+    if (selectionFillAnimationFrame !== null)
+      targetWindow.cancelAnimationFrame(selectionFillAnimationFrame)
+    selectionFillAnimationFrame = null
+    const overlay = selectionFillOverlay
+    const path = overlay?.querySelector("path")
+    if (!overlay || !path) return
+    const origin = overlay.getBoundingClientRect()
+    const viewBox = `0 0 ${Math.max(1, origin.width)} ${Math.max(1, origin.height)}`
+    if (overlay.getAttribute("viewBox") !== viewBox)
+      overlay.setAttribute("viewBox", viewBox)
+    const rects = dragSelection
+      ? [dragSelection]
+      : selectedElements.flatMap((element) => {
+          if (
+            !element.isConnected ||
+            element.getAttribute(config.annotatedAttribute) === "true"
+          )
+            return []
+          const bounds = element.getBoundingClientRect()
+          let left = Math.max(bounds.left, origin.left)
+          let top = Math.max(bounds.top, origin.top)
+          let right = Math.min(bounds.right, origin.right)
+          let bottom = Math.min(bounds.bottom, origin.bottom)
+          for (
+            let parent = element.parentElement;
+            parent;
+            parent = parent.parentElement
+          ) {
+            const style = targetWindow.getComputedStyle(parent)
+            const clip = parent.getBoundingClientRect()
+            if (/auto|scroll|hidden|clip/u.test(style.overflowX)) {
+              left = Math.max(left, clip.left)
+              right = Math.min(right, clip.right)
+            }
+            if (/auto|scroll|hidden|clip/u.test(style.overflowY)) {
+              top = Math.max(top, clip.top)
+              bottom = Math.min(bottom, clip.bottom)
+            }
+          }
+          return right > left && bottom > top
+            ? [{ left, top, width: right - left, height: bottom - top }]
+            : []
+        })
+    const bounds = config.getBoundingRect(rects)
+    const shape = bounds
+      ? `M${bounds.left - origin.left},${bounds.top - origin.top}H${bounds.left + bounds.width - origin.left}V${bounds.top + bounds.height - origin.top}H${bounds.left - origin.left}Z`
+      : ""
+    if (path.getAttribute("d") !== shape) path.setAttribute("d", shape)
+    if (selectedElements.length > 0 || dragSelection !== null)
+      selectionFillAnimationFrame =
+        targetWindow.requestAnimationFrame(paintSelectionFill)
+  }
+
   const postSelection = () => {
+    paintSelectionFill()
     const anchor = selectionAnchor()
     targetWindow.parent.postMessage(
       {
@@ -521,8 +569,14 @@ export function installHtmlPreviewAnnotationController(
   }
 
   const handleScrollOrResize = () => refresh()
+  let stopHover: (() => void) | null = null
 
   const disable = () => {
+    if (selectionFillAnimationFrame !== null)
+      targetWindow.cancelAnimationFrame(selectionFillAnimationFrame)
+    selectionFillAnimationFrame = null
+    stopHover?.()
+    stopHover = null
     annotationRequested = false
     if (retryAnimationFrame !== null) {
       targetWindow.cancelAnimationFrame(retryAnimationFrame)
@@ -548,6 +602,7 @@ export function installHtmlPreviewAnnotationController(
     )
     selecto?.destroy()
     selecto = null
+    dragSelection = null
     updateSelectionMarkers([])
     for (const element of markedElements) {
       if (element.getAttribute(config.selectableAttribute) === markerValue) {
@@ -557,9 +612,66 @@ export function installHtmlPreviewAnnotationController(
     markedElements.clear()
     overlayRoot?.remove()
     overlayRoot = null
+    overlayShadow = null
+    overlayStyles = null
+    selectionFillOverlay = null
     annotationStyles?.remove()
     annotationStyles = null
     postSelection()
+  }
+
+  const updateSelectionStyles = () => {
+    if (!annotationStyles) return
+    annotationStyles.textContent = `
+      [data-office-annotation-scope="true"], [data-office-annotation-scope="true"] * {
+        cursor: var(--office-annotation-cursor) !important;
+      }
+    `
+    if (!overlayStyles || !overlayShadow) return
+    // Artifact SVG selectors must not style the annotation SVGs. The shadow
+    // host also resets layout, clipping and transforms from generic page rules.
+    overlayStyles.textContent = `
+      :host {
+        all: initial !important;
+        display: block !important;
+        position: fixed !important;
+        z-index: 2147483647 !important;
+        inset: 0 !important;
+        pointer-events: none !important;
+      }
+      svg {
+        all: initial;
+        display: block;
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        pointer-events: none;
+      }
+    `
+    const hoverPath = overlayShadow.querySelector(
+      ".office-annotation-hover-frame"
+    )
+    hoverPath?.setAttribute(
+      "fill",
+      `color-mix(in srgb, ${selectionColor} 8%, transparent)`
+    )
+    hoverPath?.setAttribute(
+      "stroke",
+      `color-mix(in srgb, ${selectionColor} 42%, white)`
+    )
+    hoverPath?.setAttribute("stroke-width", "1.5")
+    hoverPath?.setAttribute("vector-effect", "non-scaling-stroke")
+    const selectionPath = selectionFillOverlay?.querySelector("path")
+    selectionPath?.setAttribute(
+      "fill",
+      `color-mix(in srgb, ${selectionColor} 12%, transparent)`
+    )
+    selectionPath?.setAttribute("stroke", selectionColor)
+    selectionPath?.setAttribute("stroke-width", "2")
+    selectionPath?.setAttribute("stroke-dasharray", "6 4")
+    selectionPath?.setAttribute("vector-effect", "non-scaling-stroke")
   }
 
   let selectoLoadAttempts = 0
@@ -567,6 +679,7 @@ export function installHtmlPreviewAnnotationController(
     if (destroyed) return
     annotationRequested = true
     if (selecto !== null) {
+      updateSelectionStyles()
       refresh()
       return
     }
@@ -586,30 +699,61 @@ export function installHtmlPreviewAnnotationController(
 
     annotationStyles = document.createElement("style")
     annotationStyles.setAttribute("data-linksense-preview-styles", markerValue)
-    annotationStyles.textContent = `
-      ${selectableTargetSelector} { cursor: crosshair !important; }
-      ${attributeSelector(config.selectedAttribute)} {
-        outline: 2px dashed Highlight !important;
-        outline-offset: 2px !important;
-      }
-      ${attributeSelector(config.overlayAttribute)} {
-        position: fixed !important;
-        z-index: 2147483647 !important;
-        inset: 0 !important;
-        pointer-events: none !important;
-      }
-      ${attributeSelector(config.overlayAttribute)} .selecto-selection {
-        border: 1px solid Highlight !important;
-        background: color-mix(in srgb, Highlight 12%, transparent) !important;
-      }
-    `
     document.head.append(annotationStyles)
 
     overlayRoot = document.createElement("div")
     overlayRoot.setAttribute(config.overlayAttribute, markerValue)
     overlayRoot.setAttribute("aria-hidden", "true")
+    overlayShadow = overlayRoot.attachShadow({ mode: "open" })
+    overlayStyles = document.createElement("style")
+    overlayShadow.append(overlayStyles)
+    // Do not project Selecto's light-DOM rectangle into this shadow tree: its
+    // transform-based positioning does not account for CSS zoom. Paint its
+    // public drag rect in the SVG's viewport-sized viewBox instead.
     body.append(overlayRoot)
     refreshSelectableElements()
+
+    selectionFillOverlay = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "svg"
+    )
+    selectionFillOverlay.classList.add("html-preview-selection-fill-overlay")
+    const selectionFillPath = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "path"
+    )
+    selectionFillPath.classList.add("html-preview-selection-fill")
+    selectionFillOverlay.append(selectionFillPath)
+    overlayShadow.append(selectionFillOverlay)
+
+    const hoverOverlay = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "svg"
+    )
+    hoverOverlay.classList.add("office-annotation-hover-overlay")
+    const hoverPath = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "path"
+    )
+    hoverPath.classList.add("office-annotation-hover-frame")
+    hoverOverlay.append(hoverPath)
+    overlayShadow.append(hoverOverlay)
+    updateSelectionStyles()
+    stopHover = config.installHover(
+      body,
+      hoverOverlay,
+      (_point, target) => {
+        const candidate = target.closest(selectableTargetSelector)
+        if (
+          !candidate ||
+          selectedElements.includes(candidate) ||
+          candidate.getAttribute(config.annotatedAttribute) === "true"
+        )
+          return []
+        return [candidate.getBoundingClientRect()]
+      },
+      config.annotationCursor
+    )
 
     selecto = new Selecto({
       container: overlayRoot,
@@ -626,7 +770,16 @@ export function installHtmlPreviewAnnotationController(
       preventClickEventOnDrag: true,
       preventClickEventOnDragStart: false,
     })
+    selecto.on("drag", (event) => {
+      dragSelection = event.isSelect ? event.rect : null
+      paintSelectionFill()
+    })
+    selecto.on("dragEnd", () => {
+      dragSelection = null
+      paintSelectionFill()
+    })
     selecto.on("selectEnd", (event) => {
+      dragSelection = null
       const normalized = normalizeSelectionTargets(event.selected)
       selecto?.setSelectedTargets(normalized)
       updateSelectionMarkers(normalized)
@@ -667,36 +820,34 @@ export function installHtmlPreviewAnnotationController(
     const message = event.data as {
       type?: unknown
       enabled?: unknown
-      bounds?: unknown
+      selectionColor?: unknown
+      selectors?: unknown
     }
-    if (message.type === config.focusMessageType) {
-      if (typeof message.bounds !== "object" || message.bounds === null) {
-        return
-      }
-      const bounds = message.bounds as Record<string, unknown>
-      const left = bounds.left
-      const top = bounds.top
-      const width = bounds.width
-      const height = bounds.height
+    if (message.type === config.clearMessageType) {
+      const selectors = message.selectors
       if (
-        typeof left !== "number" ||
-        !Number.isFinite(left) ||
-        typeof top !== "number" ||
-        !Number.isFinite(top) ||
-        typeof width !== "number" ||
-        !Number.isFinite(width) ||
-        width <= 0 ||
-        typeof height !== "number" ||
-        !Number.isFinite(height) ||
-        height <= 0
-      ) {
+        !Array.isArray(selectors) ||
+        selectors.length === 0 ||
+        selectors.length > config.maximumSelectionCount ||
+        !selectors.every(
+          (selector) =>
+            typeof selector === "string" &&
+            selector.length > 0 &&
+            selector.length <= 1000
+        )
+      )
         return
-      }
-      targetWindow.scrollTo({
-        left: Math.max(0, left + width / 2 - targetWindow.innerWidth / 2),
-        top: Math.max(0, top + height / 2 - targetWindow.innerHeight / 2),
-        behavior: "smooth",
-      })
+      // A completed request must not erase a different selection made while it was pending.
+      if (
+        selectors.length !== selectedElements.length ||
+        !selectedElements.every((element) =>
+          selectors.includes(uniqueSelector(element))
+        )
+      )
+        return
+      updateSelectionMarkers([])
+      selecto?.setSelectedTargets([])
+      postSelection()
       return
     }
     if (
@@ -705,8 +856,15 @@ export function installHtmlPreviewAnnotationController(
     ) {
       return
     }
-    if (message.enabled) enable()
-    else disable()
+    if (message.enabled) {
+      if (typeof message.selectionColor !== "string") return
+      // Parse the parent theme color before interpolating it into the iframe CSS.
+      const colorStyle = targetWindow.document.createElement("span").style
+      colorStyle.color = message.selectionColor
+      if (!colorStyle.color) return
+      selectionColor = colorStyle.color
+      enable()
+    } else disable()
   }
 
   targetWindow.addEventListener("message", handleMessage)

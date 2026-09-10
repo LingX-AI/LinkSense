@@ -117,6 +117,7 @@ export function buildControllerServer(
   })
 
   for (const route of [
+    "/internal/runner/heartbeat",
     "/internal/runner/events",
     "/internal/runner/memory-usage",
     "/internal/runner/process-exit",

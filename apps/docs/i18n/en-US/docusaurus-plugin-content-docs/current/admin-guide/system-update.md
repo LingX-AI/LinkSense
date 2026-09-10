@@ -40,9 +40,14 @@ curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh 
 
 The script detects Core or Full, waits for running tasks, and creates and verifies a PostgreSQL backup before database migration. Save the backup location printed by the script. A failure after migration begins does not automatically roll back the database.
 
+## Instances deployed from main
+
+Instances using `deploy/production/deploy-production.sh` switch versions without waiting for tasks to finish. Images build first; maintenance and task shutdown begin afterwards. Existing conversations and files are retained. Unfinished and queued requests are not replayed automatically: users should review actual progress before continuing manually. Messages already sent or other external changes are not undone.
+
+Task shutdown uses a short shared grace period rather than a separate wait for every task. Backups, migration approval and health checks remain required. If shutdown or task-state persistence fails, deployment reports an error and keeps maintenance enabled. Resolve the error and rerun deployment instead of restarting the previous services directly.
+
 ## Verify after upgrading
 
 Open **System health** and verify API, database, Redis, storage, Runner, knowledge parsing, and search. Run one minimal task to check the execution path. Then end maintenance early or let the window expire.
 
 If upgrading fails, retain the terminal output and backup location for a deployment operator. Do not repeatedly rerun the script before confirming database state.
-

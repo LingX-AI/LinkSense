@@ -17,6 +17,7 @@ import { AdminFeedbackPage } from "@/pages/admin-feedback-page"
 const feedback = {
   id: "10000000-0000-4000-8000-000000000010",
   content: "上传图片后预览区域偶尔会显示空白。",
+  reply_count: 0,
   created_at: "2026-08-03T05:06:07.000Z",
   submitter: {
     id: "10000000-0000-4000-8000-000000000001",
@@ -62,6 +63,16 @@ describe("administrator feedback page", () => {
             headers: { "content-type": "image/png" },
           })
         }
+        if (url.pathname.endsWith(`/${feedback.id}`)) {
+          const personalFeedback = {
+            id: feedback.id,
+            content: feedback.content,
+            created_at: feedback.created_at,
+            images: feedback.images,
+            reply_count: feedback.reply_count,
+          }
+          return envelope({ ...personalFeedback, replies: [] })
+        }
         return envelope({ items: [feedback], next_cursor: null })
       })
     )
@@ -78,11 +89,16 @@ describe("administrator feedback page", () => {
     await interaction.click(screen.getByRole("button", { name: "查看" }))
     const dialog = await screen.findByRole("dialog", { name: "反馈详情" })
     expect(
-      within(dialog).getByText("上传图片后预览区域偶尔会显示空白。")
+      await within(dialog).findByText("上传图片后预览区域偶尔会显示空白。")
     ).toBeVisible()
     expect(
       await within(dialog).findByAltText("反馈图片 问题截图.png")
     ).toBeVisible()
+    const imageButton = within(dialog).getByRole("button", {
+      name: "放大查看图片 问题截图.png",
+    })
+    expect(imageButton.parentElement).toHaveClass("h-32")
+    expect(imageButton.parentElement).not.toHaveClass("aspect-square")
     expect(requestedPaths).toContain(
       `/api/v1/admin/feedback/${feedback.id}/images/${feedback.images[0]?.id}`
     )
@@ -153,7 +169,7 @@ describe("administrator feedback page", () => {
     })
     expect(
       within(dialog).getByText(
-        "将删除 林晓 提交的反馈内容及全部图片。此操作无法撤销。"
+        "将删除 林晓 提交的反馈、所有回复及全部图片。此操作无法撤销。"
       )
     ).toBeVisible()
     expect(fetchMock).not.toHaveBeenCalledWith(

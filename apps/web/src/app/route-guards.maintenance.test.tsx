@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { MemoryRouter, Route, Routes } from "react-router-dom"
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
 
 import { bootstrapSchema, userSchema } from "@/api/contracts"
 import { AuthContext } from "@/app/auth-state"
@@ -44,11 +44,25 @@ const user = userSchema.parse({
   user_groups: [],
 })
 
-function renderProtected(role: "user" | "admin") {
-  return render(
+function MaintenanceConfigurationDestination() {
+  const location = useLocation()
+  return (
+    <h1>
+      {location.pathname}
+      {location.search}
+    </h1>
+  )
+}
+
+function renderProtected(
+  role: "user" | "admin",
+  maintenance: typeof bootstrap.maintenance = bootstrap.maintenance,
+  initialPath = "/conversations/new"
+) {
+  const tree = (currentMaintenance: typeof bootstrap.maintenance) => (
     <BootstrapContext.Provider
       value={{
-        bootstrap,
+        bootstrap: { ...bootstrap, maintenance: currentMaintenance },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
@@ -63,12 +77,13 @@ function renderProtected(role: "user" | "admin") {
           signOut: vi.fn(),
         }}
       >
-        <MemoryRouter initialEntries={["/conversations/new"]}>
+        <MemoryRouter initialEntries={[initialPath]}>
           <Routes>
             <Route element={<ProtectedRoute />}>
+              <Route path="*" element={<h1>Conversation workspace</h1>} />
               <Route
-                path="/conversations/new"
-                element={<h1>Conversation workspace</h1>}
+                path="/admin/settings"
+                element={<MaintenanceConfigurationDestination />}
               />
             </Route>
           </Routes>
@@ -76,6 +91,12 @@ function renderProtected(role: "user" | "admin") {
       </AuthContext.Provider>
     </BootstrapContext.Provider>
   )
+  const view = render(tree(maintenance))
+  return {
+    ...view,
+    updateMaintenance: (next: typeof bootstrap.maintenance) =>
+      view.rerender(tree(next)),
+  }
 }
 
 function renderBootstrapGate({
@@ -223,6 +244,9 @@ describe("maintenance route guard", () => {
     expect(screen.getByRole("heading", { name: "系统维护中" })).toBeVisible()
     expect(screen.getByRole("button", { name: "管理员入口" })).toBeVisible()
     expect(
+      screen.queryByRole("link", { name: "已开启系统维护" })
+    ).not.toBeInTheDocument()
+    expect(
       screen.queryByRole("heading", { name: "Login page" })
     ).not.toBeInTheDocument()
   })
@@ -235,6 +259,9 @@ describe("maintenance route guard", () => {
     expect(screen.getByRole("heading", { name: "Login page" })).toBeVisible()
     expect(
       screen.queryByRole("heading", { name: "系统维护中" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "已开启系统维护" })
     ).not.toBeInTheDocument()
   })
 
@@ -265,9 +292,92 @@ describe("maintenance route guard", () => {
       "leading-[var(--app-line-24)]"
     )
     expect(screen.getByText("数据库升级")).toBeVisible()
+    expect(
+      screen.queryByRole("link", { name: "已开启系统维护" })
+    ).not.toBeInTheDocument()
     expect(document.querySelector(".lucide-wrench")).toBeNull()
     expect(
       screen.queryByRole("heading", { name: "Conversation workspace" })
+    ).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ["zh-CN", "已开启系统维护", "打开系统维护配置"],
+    ["en-US", "System maintenance enabled", "Open system maintenance settings"],
+    ["fr-FR", "已开启系统维护", "打开系统维护配置"],
+  ])(
+    "shows a localized maintenance link and opens configuration in %s",
+    async (language, label, hint) => {
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      renderProtected("admin")
+      const indicator = screen.getByRole("link", { name: label })
+      expect(indicator).toHaveAttribute("title", hint)
+      expect(indicator).toHaveAttribute(
+        "href",
+        "/admin/settings?section=maintenance"
+      )
+      expect(indicator).toHaveClass(
+        "fixed",
+        "z-40",
+        "right-[max(1rem,var(--app-safe-area-right))]",
+        "bottom-[max(1rem,var(--app-safe-area-bottom))]"
+      )
+      expect(indicator).toHaveClass(
+        "text-sm",
+        "text-foreground/40",
+        "font-normal"
+      )
+      expect(indicator).not.toHaveClass(
+        "bg-background",
+        "hover:bg-hover",
+        "shadow-sm",
+        "rounded-full",
+        "border",
+        "border-border"
+      )
+      expect(indicator.querySelector("svg")).toBeNull()
+      await interaction.tab()
+      expect(indicator).toHaveFocus()
+      await interaction.keyboard("{Enter}")
+      expect(
+        screen.getByRole("heading", {
+          name: "/admin/settings?section=maintenance",
+        })
+      ).toBeVisible()
+      expect(screen.getAllByRole("link", { name: label })).toHaveLength(1)
+    }
+  )
+
+  it.each([
+    "/conversations/new",
+    "/settings/general",
+    "/archived",
+    "/admin/users",
+  ])("keeps the indicator on authenticated page %s", (path) => {
+    renderProtected("admin", bootstrap.maintenance, path)
+    expect(screen.getByRole("link", { name: "已开启系统维护" })).toBeVisible()
+  })
+
+  it("tracks maintenance activation, completion, disabling, and unavailable status", () => {
+    const scheduled = { ...bootstrap.maintenance!, active: false }
+    const view = renderProtected("admin", scheduled)
+    expect(
+      screen.queryByRole("link", { name: "已开启系统维护" })
+    ).not.toBeInTheDocument()
+    view.updateMaintenance(bootstrap.maintenance)
+    expect(screen.getByRole("link", { name: "已开启系统维护" })).toBeVisible()
+    view.updateMaintenance(scheduled)
+    expect(
+      screen.queryByRole("link", { name: "已开启系统维护" })
+    ).not.toBeInTheDocument()
+    view.updateMaintenance({ ...scheduled, enabled: false })
+    expect(
+      screen.queryByRole("link", { name: "已开启系统维护" })
+    ).not.toBeInTheDocument()
+    view.updateMaintenance(undefined)
+    expect(
+      screen.queryByRole("link", { name: "已开启系统维护" })
     ).not.toBeInTheDocument()
   })
 

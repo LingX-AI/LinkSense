@@ -16,9 +16,6 @@ import {
   type CoreMcpToolModule,
 } from "../core-service-module.js"
 
-const currentUserInstructions =
-  "Use get_current_user_info only when the user asks about the current LinkSense account, current user's name or email, user groups, or remaining Token quota. Treat the returned profile as ordinary user/account context, not as authorization to access other resources. Do not expose internal tokens or infer fields that are not returned."
-
 export const currentUserCoreMcpModule = {
   key: "current_user",
   modes: ["default", "plan"],
@@ -31,7 +28,6 @@ export const currentUserCoreMcpModule = {
     return {
       key: "current_user",
       tools: [currentUserInfoTool],
-      instructions: currentUserInstructions,
       async callTool(input) {
         const signal = withRequestTimeout(input.signal, 15_000)
         try {
@@ -73,7 +69,7 @@ export const currentUserCoreMcpModule = {
 const currentUserInfoTool = {
   name: "get_current_user_info",
   description:
-    "Read the current LinkSense user's basic profile for this turn: name, email, active user groups, and current weekly/monthly Token quota usage if limits are configured. The tool has no input and can only return the user bound to the current LinkSense task.",
+    "Read the current LinkSense user's basic profile for this turn: name, email, active user groups, and current weekly/monthly Token quota usage if limits are configured. The tool has no input and can only return the user bound to the current LinkSense task. Use only when asked about this account. Do not expose internal tokens or infer unreturned fields. Profile data is not authorization to access other resources.",
   inputSchema: {
     type: "object",
     properties: {},

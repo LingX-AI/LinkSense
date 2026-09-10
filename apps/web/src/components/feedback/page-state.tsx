@@ -1,6 +1,8 @@
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 
+import { useProductName } from "@/app/product-branding"
+import { ProductLogo } from "@/components/brand/product-logo"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { Button } from "@/components/ui/button"
 import {
@@ -20,6 +22,7 @@ export function LoadingState({
   fullScreen?: boolean
 }) {
   const { t } = useTranslation()
+  const productName = useProductName()
   return (
     <div
       className={cn(
@@ -31,7 +34,15 @@ export function LoadingState({
       aria-busy="true"
       aria-live="polite"
     >
-      <span className="shimmer">{label ?? t("common.pageLoading")}</span>
+      {fullScreen && (
+        <ProductLogo
+          productName={productName}
+          className="h-6 motion-safe:animate-pulse sm:h-7"
+        />
+      )}
+      <span className={fullScreen ? "sr-only" : "shimmer"}>
+        {label ?? t("common.pageLoading")}
+      </span>
     </div>
   )
 }

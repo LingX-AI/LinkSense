@@ -17,11 +17,47 @@ import i18n from "@/i18n"
 describe("ConversationModelSelector", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
+    const getBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        // Base UI measures the track and thumb to keep the end stops inside the pill.
+        if (this.dataset.slot === "slider-control")
+          return new DOMRect(0, 0, 200, 24)
+        if (this.dataset.slot === "slider-thumb")
+          return new DOMRect(0, 0, 20, 20)
+        return getBoundingClientRect.call(this)
+      }
+    )
   })
 
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
-  it("renders model and reasoning effort as separate side submenus", async () => {
+  it("shows models in the preference order supplied by model settings", async () => {
+    const interaction = userEvent.setup()
+    const ordered = [...modelPreference.models].reverse()
+    render(
+      <ConversationModelSelector
+        pending={false}
+        onChange={vi.fn()}
+        preference={{ ...modelPreference, models: ordered }}
+      />
+    )
+    await interaction.click(
+      screen.getByRole("button", { name: "选择模型与推理强度" })
+    )
+    await interaction.click(screen.getByRole("button", { name: "模型" }))
+    const menu = await screen.findByRole("group", { name: "模型" })
+    expect(
+      within(menu)
+        .getAllByRole("menuitemradio")
+        .map((item) => item.textContent)
+    ).toEqual(ordered.map((model) => model.display_name))
+  })
+
+  it("opens an effort slider with the current model, effort, and reset control", async () => {
     const interaction = userEvent.setup()
     render(
       <ConversationModelSelector
@@ -52,69 +88,42 @@ describe("ConversationModelSelector", () => {
     ).toBeInTheDocument()
 
     await interaction.click(selector)
-    const menu = await screen.findByRole("menu")
-    const modelTrigger = within(menu).getByRole("menuitem", {
-      name: /^模型\s*GPT-5\.6-Sol$/,
+    const popup = await screen.findByRole("dialog", {
+      name: "选择模型与推理强度",
     })
-    const effortTrigger = within(menu).getByRole("menuitem", {
-      name: /^推理强度\s*轻量$/,
-    })
+    expect(popup).toHaveClass(
+      "w-[min(14rem,calc(100vw-2rem))]",
+      "rounded-2xl",
+      "gap-2",
+      "px-3",
+      "py-2.5"
+    )
+    const modelTrigger = within(popup).getByRole("button", { name: "模型" })
+    expect(modelTrigger).toHaveTextContent("GPT-5.6-Sol")
+    expect(modelTrigger).toHaveTextContent("轻量")
     expect(modelTrigger).toHaveAttribute("aria-haspopup", "menu")
-    expect(effortTrigger).toHaveAttribute("aria-haspopup", "menu")
-    expect(modelTrigger).toHaveClass(
-      "focus:bg-hover",
-      "data-popup-open:bg-accent",
-      "data-open:bg-accent"
+    expect(within(modelTrigger).getByText("轻量")).toHaveClass("text-xs")
+    expect(within(modelTrigger).getByText("GPT-5.6-Sol")).toHaveClass("text-xs")
+    const slider = within(popup).getByRole("slider", { name: "推理强度" })
+    expect(slider.closest('[data-slot="slider-control"]')).toHaveClass("h-6")
+    expect(slider.closest('[data-slot="slider-thumb"]')).toHaveClass("size-5")
+    expect(popup.querySelector('[data-slot="slider-track"]')).toHaveClass(
+      "data-horizontal:h-4"
     )
-    expect(effortTrigger).toHaveClass(
-      "focus:bg-hover",
-      "data-popup-open:bg-accent",
-      "data-open:bg-accent"
-    )
-    expect(menu).toHaveClass("w-max", "min-w-52", "max-w-[calc(100vw-1rem)]")
-    expect(menu).not.toHaveClass("w-64")
-    expect(within(menu).queryByRole("menuitemradio")).not.toBeInTheDocument()
-    expect(screen.queryByText("速度")).not.toBeInTheDocument()
-
-    await interaction.hover(effortTrigger)
-    const effortSection = await screen.findByRole("group", {
-      name: "推理强度",
-    })
+    expect(popup.querySelector(".lucide-zap")).not.toBeInTheDocument()
+    expect(slider).toHaveValue("0")
+    expect(slider).toHaveAttribute("max", "5")
+    expect(slider).toHaveAttribute("aria-valuetext", "轻量")
     expect(
-      within(effortSection).queryByRole("menuitemradio", { name: "最小" })
-    ).not.toBeInTheDocument()
-    for (const label of ["轻量", "中", "高", "超高", "最高", "极致"]) {
-      expect(
-        within(effortSection).getByRole("menuitemradio", { name: label })
-      ).toBeVisible()
-    }
-    for (const item of within(effortSection).getAllByRole("menuitemradio")) {
-      expect(item).toHaveClass("min-h-9", "text-sm")
-    }
-    expect(effortSection.closest('[role="menu"]')).toHaveClass(
-      "w-max",
-      "min-w-36",
-      "max-w-[calc(100vw-1rem)]"
-    )
-    expect(effortSection.closest('[role="menu"]')).not.toHaveClass("w-56")
+      within(popup).getByRole("button", { name: "恢复默认推理强度" })
+    ).toBeDisabled()
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
 
-    await interaction.hover(modelTrigger)
-    const modelSection = await screen.findByRole("group", { name: "模型" })
-    for (const modelName of ["GPT-5.6-Sol", "Model B"]) {
-      expect(
-        within(modelSection).getByRole("menuitemradio", { name: modelName })
-      ).toHaveClass("min-h-9", "text-sm")
-    }
-    expect(modelSection.closest('[role="menu"]')).toHaveClass(
-      "w-max",
-      "min-w-48",
-      "max-w-[calc(100vw-1rem)]"
-    )
-    expect(modelSection.closest('[role="menu"]')).not.toHaveClass("w-64")
-    await interaction.keyboard("{Escape}{Escape}")
+    await interaction.keyboard("{Escape}")
     await waitFor(() =>
-      expect(screen.queryByRole("menu")).not.toBeInTheDocument()
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     )
+    expect(selector).toHaveFocus()
   })
 
   it("shows model context window details on hover", async () => {
@@ -135,8 +144,119 @@ describe("ConversationModelSelector", () => {
     })
     expect(within(popup).getByText("背景信息窗口：")).toBeVisible()
     expect(within(popup).getByText("60% 已用")).toBeVisible()
-    expect(within(popup).getByText("已用 155k 标记，共 258k")).toBeVisible()
+    expect(within(popup).getByText("已用 151.4k tokens，共 252k")).toBeVisible()
   })
+
+  it.each([
+    {
+      language: "zh-CN",
+      badge: "背景信息窗口：50% 已用",
+      detail: "已用 128k tokens，共 256k",
+    },
+    {
+      language: "en-US",
+      badge: "Background context window: 50% used",
+      detail: "128k tokens used, 256k total",
+    },
+    {
+      language: "fr-FR",
+      badge: "背景信息窗口：50% 已用",
+      detail: "已用 128k tokens，共 256k",
+    },
+  ])(
+    "shows runtime context counts in units of 1024 with $language translations or fallback",
+    async ({ language, badge, detail }) => {
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      render(
+        <ConversationModelSelector
+          pending={false}
+          onChange={vi.fn()}
+          preference={modelPreference}
+          contextUsage={{
+            turnId: "turn-binary-context",
+            usedTokens: 131_072,
+            modelContextWindow: 262_144,
+          }}
+        />
+      )
+
+      const trigger = screen.getByLabelText(badge)
+      expect(
+        trigger.querySelector('circle[stroke-dasharray="50 50"]')
+      ).toBeInTheDocument()
+      await interaction.hover(trigger)
+      expect(await screen.findByText(detail)).toBeVisible()
+    }
+  )
+
+  it.each(["zh-CN", "en-US", "fr-FR"])(
+    "uses lowercase token for one and tokens for zero, many, and compact counts in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      const renderSelector = (usedTokens: number) => (
+        <ConversationModelSelector
+          pending={false}
+          onChange={vi.fn()}
+          preference={modelPreference}
+          contextUsage={{
+            turnId: "turn-token-unit",
+            usedTokens,
+            modelContextWindow: 1_024,
+          }}
+        />
+      )
+      const { rerender } = render(renderSelector(0))
+      await interaction.hover(
+        screen.getByRole("button", {
+          name:
+            language === "en-US"
+              ? "Background context window: 0% used"
+              : "背景信息窗口：0% 已用",
+        })
+      )
+      for (const [usedTokens, used] of [
+        [0, "0 tokens"],
+        [1, "1 token"],
+        [2, "2 tokens"],
+        [1_024, "1k tokens"],
+      ] as const) {
+        rerender(renderSelector(usedTokens))
+        expect(
+          await screen.findByText(
+            language === "en-US"
+              ? `${used} used, 1k total`
+              : `已用 ${used}，共 1k`
+          )
+        ).toBeVisible()
+      }
+    }
+  )
+
+  it.each([0, 84, 85, 100, 141])(
+    "keeps the context ring in the foreground color at %i percent usage",
+    (percentage) => {
+      render(
+        <ConversationModelSelector
+          pending={false}
+          onChange={vi.fn()}
+          preference={modelPreference}
+          contextUsage={{
+            turnId: "turn-ring-color",
+            usedTokens: percentage * 1_000,
+            modelContextWindow: 100_000,
+          }}
+        />
+      )
+
+      const ring = screen
+        .getByLabelText(`背景信息窗口：${percentage}% 已用`)
+        .querySelector("svg")
+      expect(ring).toHaveClass("text-foreground")
+      expect(ring).not.toHaveClass("text-destructive")
+    }
+  )
 
   it("shows the real percentage while capping an over-limit ring", () => {
     render(
@@ -187,7 +307,9 @@ describe("ConversationModelSelector", () => {
       />
     )
 
-    await interaction.hover(screen.getByLabelText("背景信息窗口：暂无用量"))
+    const contextTrigger = screen.getByLabelText("背景信息窗口：暂无用量")
+    expect(contextTrigger.querySelector("svg")).toHaveClass("text-foreground")
+    await interaction.hover(contextTrigger)
 
     expect(await screen.findByText("背景信息窗口：")).toBeVisible()
     expect(screen.getByText("暂无用量")).toBeVisible()
@@ -202,44 +324,241 @@ describe("ConversationModelSelector", () => {
     await interaction.click(
       screen.getByRole("button", { name: "选择模型与推理强度" })
     )
-    await interaction.hover(
-      await screen.findByRole("menuitem", { name: /^推理强度\s*轻量$/ })
-    )
-    fireEvent.click(await screen.findByRole("menuitemradio", { name: "极致" }))
+    const slider = screen.getByRole("slider", { name: "推理强度" })
+    slider.focus()
+    await interaction.keyboard("{End}")
     expect(onChange).toHaveBeenLastCalledWith("gpt-5.6-sol", "ultra")
 
-    await interaction.hover(
-      screen.getByRole("menuitem", { name: /^模型\s*GPT-5\.6-Sol$/ })
-    )
-    fireEvent.click(
+    await interaction.click(screen.getByRole("button", { name: "模型" }))
+    await interaction.click(
       await screen.findByRole("menuitemradio", { name: "Model B" })
     )
     expect(onChange).toHaveBeenCalledWith("model-b", "low")
-    await interaction.hover(
-      screen.getByRole("menuitem", { name: /^推理强度\s*轻量$/ })
+    expect(screen.getByRole("slider", { name: "推理强度" })).toBeDisabled()
+    expect(screen.getByRole("slider", { name: "推理强度" })).toHaveAttribute(
+      "aria-valuetext",
+      "轻量"
     )
-    const effortSection = await screen.findByRole("group", {
-      name: "推理强度",
-    })
-    expect(
-      within(effortSection).getByRole("menuitemradio", { name: "轻量" })
-    ).toBeVisible()
-    expect(
-      within(effortSection).queryByRole("menuitemradio", { name: "中" })
-    ).not.toBeInTheDocument()
 
-    await interaction.hover(
-      screen.getByRole("menuitem", { name: /^模型\s*Model B$/ })
-    )
-    fireEvent.click(
+    await interaction.click(screen.getByRole("button", { name: "模型" }))
+    await interaction.click(
       await screen.findByRole("menuitemradio", { name: "GPT-5.6-Sol" })
     )
     expect(onChange).toHaveBeenLastCalledWith("gpt-5.6-sol", "low")
-    await waitFor(() =>
-      expect(
-        screen.getByRole("menuitem", { name: /^模型\s*GPT-5\.6-Sol$/ })
-      ).toBeVisible()
+    expect(screen.getByRole("slider", { name: "推理强度" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "模型" })).toHaveTextContent(
+      "GPT-5.6-Sol"
     )
+  })
+
+  it("previews pointer movement and saves only the final supported effort on release", async () => {
+    const interaction = userEvent.setup()
+    const onChange = vi.fn()
+    render(<ControlledModelSelector onChange={onChange} />)
+    await interaction.click(
+      screen.getByRole("button", { name: "选择模型与推理强度" })
+    )
+    const slider = screen.getByRole("slider", { name: "推理强度" })
+    const control = slider.closest('[data-slot="slider-control"]')
+    if (!(control instanceof HTMLElement))
+      throw new Error("Missing slider control")
+    control.setPointerCapture = vi.fn()
+    control.hasPointerCapture = vi.fn(() => false)
+
+    fireEvent.pointerDown(control, {
+      button: 0,
+      buttons: 1,
+      pointerId: 1,
+      clientX: 82,
+    })
+    expect(slider).toHaveAttribute("aria-valuetext", "高")
+    expect(screen.getByRole("button", { name: "模型" })).toHaveTextContent("高")
+    expect(onChange).not.toHaveBeenCalled()
+
+    fireEvent.pointerMove(document, { buttons: 1, pointerId: 1, clientX: 154 })
+    expect(slider).toHaveAttribute("aria-valuetext", "最高")
+    expect(onChange).not.toHaveBeenCalled()
+
+    fireEvent.pointerUp(document, { button: 0, pointerId: 1, clientX: 154 })
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("gpt-5.6-sol", "max")
+    expect(
+      screen.getByRole("button", { name: "选择模型与推理强度" })
+    ).toHaveTextContent("最高")
+  })
+
+  it("orders a sparse set of supported efforts from low to high and supports keyboard selection", async () => {
+    const onChange = vi.fn()
+    const interaction = userEvent.setup()
+    render(
+      <ConversationModelSelector
+        pending={false}
+        onChange={onChange}
+        preference={{
+          ...modelPreference,
+          selected_reasoning_effort: "minimal",
+          models: modelPreference.models.map((model) => ({
+            ...model,
+            supported_reasoning_efforts: ["ultra", "minimal", "high"],
+            default_reasoning_effort: "high",
+          })),
+        }}
+      />
+    )
+    await interaction.click(
+      screen.getByRole("button", { name: "选择模型与推理强度" })
+    )
+    const slider = screen.getByRole("slider", { name: "推理强度" })
+    expect(slider).toHaveAttribute("max", "2")
+    slider.focus()
+    await interaction.keyboard("{ArrowRight}")
+    expect(onChange).toHaveBeenLastCalledWith("gpt-5.6-sol", "high")
+    expect(slider).toHaveAttribute("aria-valuetext", "高")
+    await interaction.keyboard("{End}")
+    expect(onChange).toHaveBeenLastCalledWith("gpt-5.6-sol", "ultra")
+    expect(slider).toHaveAttribute("aria-valuetext", "极致")
+    await interaction.keyboard("{ArrowRight}")
+    expect(onChange).toHaveBeenCalledTimes(2)
+  })
+
+  it("restores the current model's default effort without changing the model", async () => {
+    const onChange = vi.fn()
+    const interaction = userEvent.setup()
+    render(
+      <ConversationModelSelector
+        pending={false}
+        onChange={onChange}
+        preference={{
+          ...modelPreference,
+          selected_reasoning_effort: "ultra",
+          models: modelPreference.models.map((model) => ({
+            ...model,
+            default_reasoning_effort:
+              model.id === "gpt-5.6-sol" ? "high" : "low",
+          })),
+        }}
+      />
+    )
+    await interaction.click(
+      screen.getByRole("button", { name: "选择模型与推理强度" })
+    )
+    const reset = screen.getByRole("button", { name: "恢复默认推理强度" })
+    await interaction.click(reset)
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("gpt-5.6-sol", "high")
+    expect(screen.getByRole("slider", { name: "推理强度" })).toHaveAttribute(
+      "aria-valuetext",
+      "高"
+    )
+    expect(reset).toBeDisabled()
+  })
+
+  it.each([
+    { result: "success", savedEffort: "ultra", label: "极致" },
+    { result: "failure", savedEffort: "low", label: "轻量" },
+  ] as const)(
+    "keeps the preview while saving and reflects the saved value after $result",
+    async ({ savedEffort, label }) => {
+      const onChange = vi.fn()
+      const interaction = userEvent.setup()
+      const { rerender } = render(
+        <ConversationModelSelector
+          pending={false}
+          onChange={onChange}
+          preference={modelPreference}
+        />
+      )
+      await interaction.click(
+        screen.getByRole("button", { name: "选择模型与推理强度" })
+      )
+      const slider = screen.getByRole("slider", { name: "推理强度" })
+      slider.focus()
+      await interaction.keyboard("{End}")
+      expect(onChange).toHaveBeenCalledExactlyOnceWith("gpt-5.6-sol", "ultra")
+
+      rerender(
+        <ConversationModelSelector
+          pending
+          onChange={onChange}
+          preference={modelPreference}
+        />
+      )
+      expect(slider).toHaveAttribute("aria-valuetext", "极致")
+      expect(slider).toBeDisabled()
+      expect(screen.getByRole("button", { name: "模型" })).toBeDisabled()
+      expect(
+        screen.getByRole("button", { name: "恢复默认推理强度" })
+      ).toBeDisabled()
+
+      rerender(
+        <ConversationModelSelector
+          pending={false}
+          onChange={onChange}
+          preference={{
+            ...modelPreference,
+            selected_reasoning_effort: savedEffort,
+          }}
+        />
+      )
+      expect(slider).toHaveAttribute("aria-valuetext", label)
+      expect(slider).toBeEnabled()
+      expect(onChange).toHaveBeenCalledTimes(1)
+    }
+  )
+
+  it.each([
+    {
+      language: "zh-CN",
+      selector: "选择模型与推理强度",
+      slider: "推理强度",
+      value: "轻量",
+      reset: "恢复默认推理强度",
+    },
+    {
+      language: "en-US",
+      selector: "Choose model and reasoning effort",
+      slider: "Reasoning effort",
+      value: "Light",
+      reset: "Reset reasoning effort to default",
+    },
+    {
+      language: "fr-FR",
+      selector: "选择模型与推理强度",
+      slider: "推理强度",
+      value: "轻量",
+      reset: "恢复默认推理强度",
+    },
+  ])(
+    "localizes the slider and reset control in $language or uses the fallback",
+    async ({ language, selector, slider, value, reset }) => {
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      render(
+        <ConversationModelSelector
+          pending={false}
+          onChange={vi.fn()}
+          preference={modelPreference}
+        />
+      )
+      await interaction.click(screen.getByRole("button", { name: selector }))
+      expect(screen.getByRole("slider", { name: slider })).toHaveAttribute(
+        "aria-valuetext",
+        value
+      )
+      expect(screen.getByRole("button", { name: reset })).toBeVisible()
+    }
+  )
+
+  it("disables selection when the model service is unconfigured", () => {
+    render(
+      <ConversationModelSelector
+        pending={false}
+        onChange={vi.fn()}
+        preference={{ ...modelPreference, configured: false }}
+      />
+    )
+    expect(
+      screen.getByRole("button", { name: "模型服务未配置" })
+    ).toBeDisabled()
+    expect(screen.queryByRole("slider")).not.toBeInTheDocument()
   })
 })
 

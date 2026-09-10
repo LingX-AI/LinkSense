@@ -890,7 +890,7 @@ describe("capability marketplace pages", () => {
     })
     resolveInstall?.(envelope(installedCapability))
     const installNotification =
-      await screen.findByText("已从插件中心安装到你的个人技能。")
+      await screen.findByText("已从插件中心安装到你的个人技能")
     expect(installNotification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(installNotification.closest('[data-slot="alert"]')).toBeNull()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
@@ -962,7 +962,7 @@ describe("capability marketplace pages", () => {
       ).toBe(true)
     })
     resolveUninstall?.(envelope({ deleted: true }))
-    expect(await screen.findByText("插件中心技能已卸载。")).toBeVisible()
+    expect(await screen.findByText("插件中心技能已卸载")).toBeVisible()
     const reinstalledActionTrigger = await within(item).findByRole("button", {
       name: "操作",
     })
@@ -1059,7 +1059,7 @@ describe("capability marketplace pages", () => {
     expect(deleteLoading.closest("[data-sonner-toast]")).not.toBeNull()
 
     resolveDelete?.(envelope({ deleted: true }))
-    expect(await screen.findByText("个人技能已永久删除。")).toBeVisible()
+    expect(await screen.findByText("个人技能已永久删除")).toBeVisible()
     expect(await screen.findByText("没有符合条件的个人技能")).toBeVisible()
   })
 
@@ -1329,7 +1329,7 @@ describe("capability marketplace pages", () => {
       })
     )
     const updateNotification =
-      await screen.findByText("插件中心技能已更新到当前获批发布。")
+      await screen.findByText("插件中心技能已更新到当前获批发布")
     expect(updateNotification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(updateNotification.closest('[data-slot="alert"]')).toBeNull()
     await waitFor(() => {
@@ -2444,7 +2444,7 @@ describe("capability marketplace pages", () => {
         user_group_id: groupTargetId,
       })
     )
-    const shareNotification = await screen.findByText("共享成功。")
+    const shareNotification = await screen.findByText("共享成功")
     expect(shareNotification.closest("[data-sonner-toast]")).not.toBeNull()
     await waitFor(() => {
       const sharedGroupRow = within(dialog)
@@ -2918,6 +2918,87 @@ describe("capability marketplace pages", () => {
     expect(submittedBody).not.toHaveProperty("external_link")
   }, APPLICATION_CREATION_TEST_TIMEOUT)
 
+  it.each(["zh-CN", "en-US"])("allows manual skill fields to grow within limits and shows name rules in %s", async (language) => {
+    await i18n.changeLanguage(language)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(envelope({ items: [], next_cursor: null }))
+      )
+    )
+    const interaction = userEvent.setup()
+    renderUserPageWithRouter("/capabilities?section=skill&scope=personal")
+
+    await interaction.click(
+      await screen.findByRole("button", { name: i18n.t("capability.addSkill") })
+    )
+    const dialog = await screen.findByRole("dialog")
+    expect(dialog).toHaveClass("max-h-[calc(100dvh-2rem)]", "overflow-y-auto")
+    await interaction.click(
+      within(dialog).getByLabelText(i18n.t("capability.source"))
+    )
+    await interaction.click(
+      await screen.findByRole("option", {
+        name: i18n.t("marketplace.importSources.manualSkill"),
+      })
+    )
+
+    const nameInput = within(dialog).getByRole("textbox", {
+      name: i18n.t("common.name"),
+    })
+    const hint = within(dialog).getByText(i18n.t("marketplace.skillNameHint"))
+    expect(hint).toBeVisible()
+    expect(nameInput).toHaveAccessibleDescription(hint.textContent ?? "")
+    expect(
+      nameInput.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(nameInput).toHaveAttribute("maxlength", "64")
+    await interaction.click(nameInput)
+    await interaction.paste("a".repeat(65))
+    expect(nameInput).toHaveValue("a".repeat(64))
+
+    const fields = [
+      {
+        label: i18n.t("common.description"),
+        minHeight: "min-h-16",
+        maxHeight: "max-h-40",
+        content: "Skill description\n".repeat(100),
+      },
+      {
+        label: i18n.t("marketplace.skillMarkdown"),
+        minHeight: "min-h-56",
+        maxHeight: "max-h-96",
+        content: "# Skill instructions\n".repeat(300),
+      },
+    ]
+    for (const { label, minHeight, maxHeight, content } of fields) {
+      const field = within(dialog).getByRole("textbox", { name: label })
+      await interaction.click(field)
+      await interaction.paste(content)
+
+      expect(field).toHaveValue(content)
+      expect(field).toHaveClass(
+        minHeight,
+        maxHeight,
+        "field-sizing-content",
+        "overflow-y-auto",
+        "resize-none"
+      )
+      expect(field).not.toHaveClass("field-sizing-fixed", "h-16", "h-56")
+      await interaction.clear(field)
+      expect(field).toHaveValue("")
+      expect(field).toHaveClass(minHeight, maxHeight, "field-sizing-content")
+    }
+  })
+
+  it("falls back to Chinese name rules when the English resource is missing", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    expect(fallback.t("marketplace.skillNameHint", { lng: "en-US" })).toBe(
+      "名称为 1–64 个字符，仅支持小写英文字母、数字和连字符（-）；连字符不能位于开头或结尾，也不能连续使用。请勿使用系统内置技能名称。例如：my-skill。"
+    )
+  })
+
   it("shows a persistent three-dot action menu with icons and submits a listing request", async () => {
     const capability = {
       id: CAPABILITY_ID,
@@ -3111,7 +3192,7 @@ describe("capability marketplace pages", () => {
     expect(importLoading.closest("[data-sonner-toast]")).not.toBeNull()
 
     resolveConfirm(envelope(capability))
-    expect(await screen.findByText("技能已安装。")).toBeVisible()
+    expect(await screen.findByText("技能已安装")).toBeVisible()
 
     const actionTrigger = screen.getByRole("button", { name: "操作" })
     expect(actionTrigger.querySelector("svg")).not.toBeNull()
@@ -3178,7 +3259,7 @@ describe("capability marketplace pages", () => {
       })
     })
     const publishNotification =
-      await screen.findByText("发布快照已提交管理员审核。")
+      await screen.findByText("发布快照已提交管理员审核")
     expect(publishNotification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(publishNotification.closest('[data-slot="alert"]')).toBeNull()
 
@@ -3433,7 +3514,7 @@ describe("capability marketplace pages", () => {
       })
     })
     const reviewNotification = await screen.findByText(
-      "发布已审核通过并成为当前插件中心版本。"
+      "发布已审核通过并成为当前插件中心版本"
     )
     expect(reviewNotification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(reviewNotification.closest('[data-slot="alert"]')).toBeNull()

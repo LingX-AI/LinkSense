@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { applicationIconSchema } from "./applications.js";
+import {
+  applicationIconSchema,
+  applicationUnavailableReasonSchema,
+} from "./applications.js";
 import {
   capabilitySelectionIdSchema,
   capabilityTypeSchema,
@@ -26,6 +29,7 @@ export const conversationArchiveStatusSchema = z.enum(["active", "archived"]);
 export const conversationOrderGroupSchema = z.enum(["pinned", "recent"]);
 export const conversationOrderUpdateSchema = z.strictObject({
   group: conversationOrderGroupSchema,
+  category_id: uuidSchema.nullable().optional(),
   conversation_ids: uniqueArraySchema(uuidSchema).min(2).max(10_000),
 });
 export const conversationOrderResultSchema = conversationOrderUpdateSchema;
@@ -85,6 +89,7 @@ export const conversationSchema = z.strictObject({
   archive_status: conversationArchiveStatusSchema,
   archived_at: timestampSchema.nullable(),
   pinned_at: timestampSchema.nullable(),
+  category_id: uuidSchema.nullable(),
   sort_order: z.number().int().nonnegative().nullable(),
   codex_thread_id: z.string().min(1).nullable(),
   agents_template_version: z.string().min(1).max(80).nullable(),
@@ -102,6 +107,10 @@ export const conversationSchema = z.strictObject({
       kind: z.enum(["standard", "interactive"]).default("standard"),
       package_id: uuidSchema.nullable().default(null),
       icon: applicationIconSchema.optional(),
+      available: z.boolean().optional(),
+      unavailable_reason: applicationUnavailableReasonSchema
+        .nullable()
+        .optional(),
     })
     .nullable(),
   created_at: timestampSchema,
@@ -151,6 +160,7 @@ export const pendingRequestBlockCodeSchema = z.enum([
   "agents_template_unavailable",
   "workspace_invalid",
   "runner_unavailable",
+  "deployment_stopped",
   "execution_environment_invalid",
   "token_limit_exceeded",
 ]);
@@ -169,7 +179,7 @@ export const pendingRequestSchema = z
     block_code: pendingRequestBlockCodeSchema.nullable(),
     idempotency_key: z.string().min(1).max(120).nullable(),
     display: z
-      .lazy(() => userMessageDisplaySchema)
+      .lazy(() => officeAnnotationDisplaySchema)
       .nullable()
       .optional(),
     last_start_checked_at: timestampSchema.nullable(),
@@ -632,11 +642,24 @@ export const officeAnnotationInputSchema = z.discriminatedUnion("kind", [
   htmlAnnotationInputSchema,
 ]);
 
-export const userMessageDisplaySchema = z.discriminatedUnion("kind", [
+export const officeAnnotationDisplaySchema = z.discriminatedUnion("kind", [
   presentationAnnotationDisplaySchema,
   wordAnnotationDisplaySchema,
   spreadsheetAnnotationDisplaySchema,
   htmlAnnotationDisplaySchema,
+]);
+
+export const interactiveApplicationMessageSourceSchema = z.literal(
+  "interactive_application",
+);
+export const interactiveApplicationMessageDisplaySchema = z.strictObject({
+  kind: interactiveApplicationMessageSourceSchema,
+  application_id: uuidSchema,
+});
+
+export const userMessageDisplaySchema = z.discriminatedUnion("kind", [
+  ...officeAnnotationDisplaySchema.options,
+  interactiveApplicationMessageDisplaySchema,
 ]);
 
 export const userMessageCapabilitySchema = z.strictObject({
@@ -796,6 +819,12 @@ export type HtmlAnnotationDisplayItem = z.infer<
   typeof htmlAnnotationDisplayItemSchema
 >;
 export type OfficeAnnotationInput = z.infer<typeof officeAnnotationInputSchema>;
+export type OfficeAnnotationDisplay = z.infer<
+  typeof officeAnnotationDisplaySchema
+>;
+export type InteractiveApplicationMessageSource = z.infer<
+  typeof interactiveApplicationMessageSourceSchema
+>;
 export type UserMessageDisplay = z.infer<typeof userMessageDisplaySchema>;
 export type UserMessageCapability = z.infer<typeof userMessageCapabilitySchema>;
 
@@ -820,7 +849,7 @@ function spreadsheetAnnotationSelectionLabel(
 export function buildOfficeAnnotationDisplay(
   annotation: OfficeAnnotationInput,
   fileName: string,
-): UserMessageDisplay {
+): OfficeAnnotationDisplay {
   if (annotation.kind === "presentation_annotation") {
     return {
       kind: "presentation_annotation",
@@ -878,7 +907,7 @@ export function buildOfficeAnnotationDisplay(
 }
 
 export function officeAnnotationRequestText(
-  annotation: OfficeAnnotationInput | UserMessageDisplay,
+  annotation: OfficeAnnotationInput | OfficeAnnotationDisplay,
 ): string {
   if (annotation.annotations.length === 1) {
     return annotation.annotations[0]?.request ?? "";

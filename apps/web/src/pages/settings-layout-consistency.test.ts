@@ -7,7 +7,7 @@ function cssRules(selector: string) {
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")
   return Array.from(
     appStyles.matchAll(
-      new RegExp(`(?:^|\\n)${escapedSelector}\\s*\\{([^}]*)\\}`, "gu")
+      new RegExp(`(?:^|\\n)\\s*${escapedSelector}\\s*\\{([^}]*)\\}`, "gu")
     )
   ).map((match) => match[1])
 }
@@ -21,14 +21,39 @@ function firstCssRule(selector: string) {
 }
 
 describe("settings center layout consistency", () => {
-  it("uses one desktop page inset for personal and administration pages", () => {
-    expect(firstCssRule(".settings-page")).toContain("padding: 44px 52px 72px;")
-    expect(
-      firstCssRule(".settings-content > .management-scroll .management-page")
-    ).toContain("padding: 44px 52px 72px;")
-    expect(
-      firstCssRule(".settings-content-administration .management-page")
-    ).toContain("padding: 44px 52px 72px;")
+  it("uses one global width and centers every settings page", () => {
+    expect(firstCssRule(":root")).toContain(
+      "--app-settings-page-width: 920px;"
+    )
+    for (const selector of [".settings-content", ".management-page"]) {
+      expect(firstCssRule(selector)).toContain(
+        "width: min(100%, var(--app-settings-page-width));"
+      )
+      expect(firstCssRule(selector)).toContain("margin-inline: auto;")
+    }
+    expect(cssRules(".settings-content-administration")).toEqual([])
+  })
+
+  it("lets settings sections fill their shared page instead of imposing local widths", () => {
+    for (const selector of [
+      ".settings-section",
+      ".settings-panel",
+      ".settings-form",
+      ".personalization-section",
+      ".personalization-loading",
+      ".appearance-theme-fieldset",
+      ".channel-access-list",
+      ".role-overview-grid",
+      ".role-permission-section",
+    ]) {
+      expect(firstCssRule(selector), selector).not.toMatch(/max-width:/u)
+    }
+  })
+
+  it("uses one desktop and mobile inset for personal and administration pages", () => {
+    const selector = ".settings-content :is(.settings-page, .management-page)"
+    expect(firstCssRule(selector)).toContain("padding: 44px 52px 72px;")
+    expect(lastCssRule(selector)).toContain("padding: 24px 16px 52px;")
   })
 
   it("keeps personal and administration page headers on the same rhythm", () => {

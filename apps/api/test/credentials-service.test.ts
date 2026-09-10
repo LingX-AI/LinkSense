@@ -121,9 +121,7 @@ describe("CredentialService encryption and boundaries", () => {
       service.syncBindings(userActor(), {
         credentialId: PERSONAL_CREDENTIAL_ID,
         capabilityId: CAPABILITY_ID,
-        mappings: [
-          { envKey: "UNDECLARED_KEY", credentialKey: "API_KEY" },
-        ],
+        mappings: [{ envKey: "UNDECLARED_KEY", credentialKey: "API_KEY" }],
       }),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     expect(store.bindings).toEqual([]);
@@ -144,10 +142,7 @@ describe("CredentialService encryption and boundaries", () => {
     await personalService.patch(userActor(), PERSONAL_CREDENTIAL_ID, {
       secretPayload: { API_KEY: "rotated-secret" },
     });
-    await personalService.revokeBinding(
-      userActor(),
-      personalBindings[0]!.id,
-    );
+    await personalService.revokeBinding(userActor(), personalBindings[0]!.id);
 
     expect(materializePersonal.mock.calls.map(([targets]) => targets)).toEqual([
       { userIds: [USER_ID] },
@@ -392,39 +387,10 @@ describe("CredentialService strict runtime resolution", () => {
     expect(JSON.stringify(store.audits)).not.toContain("personal-secret");
   });
 
-  it("projects only the effective credential source for each declared key", async () => {
-    const personalStore = resolvedStore();
-    personalStore.bindings.push(
-      binding({ credentialId: PERSONAL_CREDENTIAL_ID }),
-    );
-    await expect(
-      createService(personalStore).listEffectiveBindings(
-        userActor(),
-        CAPABILITY_ID,
-      ),
-    ).resolves.toEqual([
-      {
-        capability_id: CAPABILITY_ID,
-        env_key: "API_KEY",
-        effective_source: "personal",
-      },
-    ]);
-
-    const revokedPersonalStore = resolvedStore();
-    revokedPersonalStore.bindings.push(
-      binding({ credentialId: PERSONAL_CREDENTIAL_ID, status: "revoked" }),
-    );
-    await expect(
-      createService(revokedPersonalStore).listEffectiveBindings(
-        userActor(),
-        CAPABILITY_ID,
-      ),
-    ).resolves.toEqual([
-      expect.objectContaining({ effective_source: "missing" }),
-    ]);
-
-    const ambiguousStore = resolvedStore();
-    ambiguousStore.bindings.push(
+  it("removes all fields for one plugin atomically, including disabled credentials, without touching other users", async () => {
+    const store = resolvedStore();
+    store.credentials[0]!.status = "disabled";
+    store.bindings.push(
       binding({
         id: "40000000-0000-4000-8000-000000000001",
         credentialId: PERSONAL_CREDENTIAL_ID,
@@ -432,18 +398,128 @@ describe("CredentialService strict runtime resolution", () => {
       binding({
         id: "40000000-0000-4000-8000-000000000002",
         credentialId: PERSONAL_CREDENTIAL_ID,
+        envKey: "API_SECRET",
+      }),
+      binding({
+        id: "40000000-0000-4000-8000-000000000003",
+        credentialId: PERSONAL_CREDENTIAL_ID,
+        userId: OTHER_ID,
+      }),
+      binding({
+        id: "40000000-0000-4000-8000-000000000004",
+        credentialId: PERSONAL_CREDENTIAL_ID,
+        capabilityId: "20000000-0000-4000-8000-000000000002",
       }),
     );
-    const ambiguous = await createService(ambiguousStore).listEffectiveBindings(
+    const service = createService(store);
+    await expect(
+      service.revokePluginBindings(
+        { ...userActor(), id: OTHER_ID },
+        PERSONAL_CREDENTIAL_ID,
+        CAPABILITY_ID,
+      ),
+    ).rejects.toMatchObject({ code: "CREDENTIAL_NOT_FOUND" });
+    expect(store.bindings.every((item) => item.status === "active")).toBe(true);
+    const transaction = vi.spyOn(store, "transaction");
+    await service.revokePluginBindings(
       userActor(),
+      PERSONAL_CREDENTIAL_ID,
       CAPABILITY_ID,
     );
-    expect(ambiguous).toEqual([
-      expect.objectContaining({ effective_source: "conflict" }),
+    expect(transaction).toHaveBeenCalledOnce();
+    expect(store.bindings.map((item) => item.status)).toEqual([
+      "revoked",
+      "revoked",
+      "active",
+      "active",
     ]);
-    expect(JSON.stringify({ personalStore, ambiguous })).not.toContain(
-      "personal-secret",
+    expect(store.credentials).toHaveLength(1);
+    expect(
+      store.audits.filter((item) => item.action === "credential_unbound"),
+    ).toHaveLength(2);
+  });
+
+  it("includes unconfigured and outdated fields without returning saved values", async () => {
+    const store = resolvedStore();
+    store.capabilities[0]!.riskSummaryJson = {
+      declared_environment_keys: ["API_KEY", "API_SECRET"],
+    };
+    store.bindings.push(binding({ credentialId: PERSONAL_CREDENTIAL_ID }));
+    const service = createService(store);
+    expect(
+      (await service.listPluginConfigurations(userActor()))[0]?.fields,
+    ).toEqual([
+      { env_key: "API_KEY", status: "configured" },
+      { env_key: "API_SECRET", status: "missing" },
+    ]);
+    store.capabilities[0]!.riskSummaryJson = {
+      declared_environment_keys: ["API_SECRET"],
+    };
+    const result = await service.listPluginConfigurations(userActor());
+    expect(result[0]?.fields).toEqual([
+      { env_key: "API_SECRET", status: "missing" },
+      { env_key: "API_KEY", status: "invalid" },
+    ]);
+    expect(JSON.stringify(result)).not.toMatch(
+      /personal-secret|encrypted|credential_id|Personal/,
     );
+  });
+
+  it("summarizes each linked plugin once and explains missing, disabled and conflicting information", async () => {
+    const store = resolvedStore();
+    store.bindings.push(binding({ credentialId: PERSONAL_CREDENTIAL_ID }));
+    const service = createService(store);
+    expect(await service.listPluginConfigurations(userActor())).toEqual([
+      {
+        capability_id: CAPABILITY_ID,
+        available: true,
+        fields: [{ env_key: "API_KEY", status: "configured" }],
+      },
+    ]);
+    store.credentials[0]!.status = "disabled";
+    expect(
+      (await service.listPluginConfigurations(userActor()))[0]?.fields[0]
+        ?.status,
+    ).toBe("disabled");
+    store.credentials[0]!.status = "active";
+    store.bindings.push(
+      binding({
+        id: "40000000-0000-4000-8000-000000000002",
+        credentialId: PERSONAL_CREDENTIAL_ID,
+      }),
+    );
+    expect(
+      (await service.listPluginConfigurations(userActor()))[0]?.fields[0]
+        ?.status,
+    ).toBe("conflict");
+    store.bindings.pop();
+    store.bindings[0]!.credentialKey = "MISSING_FIELD";
+    expect(
+      (await service.listPluginConfigurations(userActor()))[0]?.fields[0]
+        ?.status,
+    ).toBe("invalid");
+    store.bindings[0]!.status = "revoked";
+    expect(await service.listPluginConfigurations(userActor())).toEqual([]);
+  });
+
+  it("does not expose other users or inaccessible plugin details in configuration summaries", async () => {
+    const store = resolvedStore();
+    store.bindings.push(
+      binding({ credentialId: PERSONAL_CREDENTIAL_ID, userId: OTHER_ID }),
+    );
+    const service = createService(store);
+    expect(await service.listPluginConfigurations(userActor())).toEqual([]);
+    store.bindings[0]!.userId = USER_ID;
+    store.usableCapabilityIds.clear();
+    expect(await service.listPluginConfigurations(userActor())).toEqual([
+      { capability_id: CAPABILITY_ID, available: false, fields: [] },
+    ]);
+    await expect(
+      service.listPluginConfigurations({
+        ...userActor(),
+        status: "disabled",
+      }),
+    ).rejects.toBeDefined();
   });
 });
 
@@ -596,8 +672,7 @@ describe("credential Fastify routes", () => {
     store.bindings.push(binding({ credentialId: PERSONAL_CREDENTIAL_ID }));
     const effectiveResponse = await app.inject({
       method: "GET",
-      url:
-        "/api/v1/credentials/effective-bindings?capability_id=" + CAPABILITY_ID,
+      url: "/api/v1/credentials/plugin-configurations",
     });
     expect(effectiveResponse.statusCode).toBe(200);
     expect(effectiveResponse.json()).toMatchObject({
@@ -606,8 +681,8 @@ describe("credential Fastify routes", () => {
         items: [
           {
             capability_id: CAPABILITY_ID,
-            env_key: "API_KEY",
-            effective_source: "personal",
+            available: true,
+            fields: [{ env_key: "API_KEY", status: "configured" }],
           },
         ],
       },
@@ -615,6 +690,12 @@ describe("credential Fastify routes", () => {
     expect(effectiveResponse.body).not.toContain(PERSONAL_CREDENTIAL_ID);
     expect(effectiveResponse.body).not.toContain("personal-secret");
     expect(effectiveResponse.body).not.toContain("Personal");
+    const unlinkResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/credentials/bindings?credential_id=${store.bindings[0]!.credentialId}&capability_id=${CAPABILITY_ID}`,
+    });
+    expect(unlinkResponse.statusCode).toBe(204);
+    expect(store.bindings[0]?.status).toBe("revoked");
 
     await app.close();
   });
@@ -649,7 +730,11 @@ describe("credential Fastify routes", () => {
         provider_type: "custom_api_key",
         secret_fields: [
           { key: "RENAMED_API_KEY", previous_key: "API_KEY" },
-          { key: "API_SECRET", previous_key: "API_SECRET", value: "rotated" },
+          {
+            key: "API_SECRET",
+            previous_key: "API_SECRET",
+            value: "rotated",
+          },
         ],
       },
     });

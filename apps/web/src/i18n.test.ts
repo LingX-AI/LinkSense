@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
-import { applicationIconPresets } from "@linksense/shared"
+import {
+  applicationIconPresets,
+  taskArtifactFileTypeSchema,
+} from "@linksense/shared"
 
 import i18n, { resolveBrowserLanguage, setAppLanguage } from "@/i18n"
 import { enUS } from "@/i18n/en-US"
@@ -19,6 +22,72 @@ function leafStrings(value: unknown): string[] {
 }
 
 describe("i18n resources", () => {
+  it("provides matching feedback reply translations and falls back for missing English keys", () => {
+    expect(leafKeys(zhCN.myFeedback)).toEqual(leafKeys(enUS.myFeedback))
+    for (const key of leafKeys(zhCN.myFeedback)) {
+      expect(i18n.t(`myFeedback.${key}`, { lng: "zh-CN" })).not.toBe(
+        `myFeedback.${key}`
+      )
+      expect(i18n.t(`myFeedback.${key}`, { lng: "en-US" })).not.toBe(
+        `myFeedback.${key}`
+      )
+    }
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(instance.t("myFeedback.replied", { lng: "en-US" })).toBe("已回复")
+  })
+
+  it("localizes unavailable application task guidance with a Chinese fallback", () => {
+    const key = "applications.taskUnavailable"
+    expect(i18n.t(key, { lng: "zh-CN" })).toBe("应用不可用，暂时无法发送消息")
+    expect(i18n.t(key, { lng: "en-US" })).toBe(
+      "This app is unavailable. You cannot send messages right now."
+    )
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(instance.t(key, { lng: "en-US" })).toBe(
+      "应用不可用，暂时无法发送消息"
+    )
+  })
+
+  it("localizes embedded system status and falls back to Chinese when an English key is missing", () => {
+    const key = "embed.errors.systemUnavailable"
+    expect(i18n.t(key, { lng: "zh-CN" })).toBe(
+      zhCN.embed.errors.systemUnavailable
+    )
+    expect(i18n.t(key, { lng: "en-US" })).toBe(
+      enUS.embed.errors.systemUnavailable
+    )
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(instance.t(key, { lng: "en-US" })).toBe(
+      zhCN.embed.errors.systemUnavailable
+    )
+    expect(i18n.t("maintenance.title", { lng: "en-US" })).toBe(
+      "System maintenance"
+    )
+  })
+
+  it("localizes the maintenance configuration shortcut with a Chinese fallback", () => {
+    expect(i18n.t("maintenance.indicatorLabel", { lng: "zh-CN" })).toBe(
+      "已开启系统维护"
+    )
+    expect(i18n.t("maintenance.indicatorLabel", { lng: "en-US" })).toBe(
+      "System maintenance enabled"
+    )
+    const key = "maintenance.openSettings"
+    expect(i18n.t(key, { lng: "zh-CN" })).toBe("打开系统维护配置")
+    expect(i18n.t(key, { lng: "en-US" })).toBe(
+      "Open system maintenance settings"
+    )
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(instance.t(key, { lng: "en-US" })).toBe("打开系统维护配置")
+    expect(instance.t("maintenance.indicatorLabel", { lng: "en-US" })).toBe(
+      "已开启系统维护"
+    )
+  })
+
   it("detects supported languages across browser language APIs", () => {
     expect(resolveBrowserLanguage(["en-GB", "zh-CN"], "zh-CN")).toBe("en-US")
     expect(resolveBrowserLanguage(["fr-FR", "zh-HK"], "en-US")).toBe("zh-CN")
@@ -86,6 +155,50 @@ describe("i18n resources", () => {
 
   it("keeps zh-CN and en-US key sets aligned", () => {
     expect(leafKeys(enUS).sort()).toEqual(leafKeys(zhCN).sort())
+  })
+
+  it("localizes every artifact filter and falls back to Chinese for an unsupported language", () => {
+    const fileTypes = ["all", ...taskArtifactFileTypeSchema.options]
+    expect(Object.keys(zhCN.library.artifacts.fileTypes)).toEqual(fileTypes)
+    expect(Object.keys(enUS.library.artifacts.fileTypes)).toEqual(fileTypes)
+    for (const key of [
+      "library.artifacts.fileTypeLabel",
+      ...fileTypes.map((value) => `library.artifacts.fileTypes.${value}`),
+    ]) {
+      for (const lng of ["zh-CN", "en-US"]) {
+        expect(i18n.t(key, { lng })).not.toBe(key)
+        expect(i18n.t(key, { lng })).not.toBe("")
+      }
+      expect(i18n.t(key, { lng: "fr-FR" })).toBe(i18n.t(key, { lng: "zh-CN" }))
+    }
+    expect(i18n.t("library.artifacts.fileTypeLabel", { lng: "en-US" })).toBe(
+      "Filter by file type"
+    )
+    expect(
+      i18n.t("library.artifacts.fileTypes.archive", { lng: "zh-CN" })
+    ).toBe("压缩包")
+  })
+
+  it("labels the reranking switch by when it takes effect", async () => {
+    expect(i18n.t("admin.knowledgeModels.enabled", { lng: "zh-CN" })).toBe(
+      "检索时启用"
+    )
+    expect(i18n.t("admin.knowledgeModels.enabled", { lng: "en-US" })).toBe(
+      "Enable during search"
+    )
+
+    await i18n.changeLanguage("fr-FR")
+    expect(i18n.t("admin.knowledgeModels.enabled")).toBe("检索时启用")
+    await i18n.changeLanguage("zh-CN")
+  })
+
+  it("uses a specific label for saving initial user token configuration", () => {
+    expect(
+      i18n.t("admin.modelProvider.saveUserTokenLimits", { lng: "zh-CN" })
+    ).toBe("保存配置")
+    expect(
+      i18n.t("admin.modelProvider.saveUserTokenLimits", { lng: "en-US" })
+    ).toBe("Save configuration")
   })
 
   it("localizes administrator update guidance and keeps zh-CN fallback", async () => {
@@ -211,12 +324,18 @@ describe("i18n resources", () => {
     ).toContain("System health")
   })
 
-  it("uses conversation terminology only for model availability and selection", () => {
+  it("uses conversation terminology only for models and naming frequency", () => {
     const allowedChineseConversationTerms = new Set([
+      "首次对话时",
+      "每次对话时",
+      "首次对话时命名，或随每次新消息更新。手动修改的名称不会被覆盖。",
       "对话模型",
       "对话可选",
       "对话默认模型",
       "对话与系统模型选择",
+      "对话可选：{{name}}",
+      "拖动左侧手柄或在操作菜单中上下移动。输入框按渠道顺序、渠道内模型顺序展示已开启“对话可选”的模型。",
+      "对话默认模型用于用户尚未选择模型时；任务自动命名模型用于生成任务名称。",
       "集中管理对话、知识检索等模型及其服务渠道。用户选择模型后，系统会自动使用对应服务；管理员可为每个对话模型设置可选的推理强度。",
       "适合原生支持 Responses 的服务，可使用完整的对话和工具能力。",
       "这里的模型共用当前渠道的连接地址和密钥。对话模型可设置是否出现在用户的模型选项中；知识检索等模型会由系统按需使用。",
@@ -471,6 +590,7 @@ describe("i18n resources", () => {
     expect(zhCN.conversation.clearArchivedDescription).toContain(
       "未归档任务不受影响"
     )
+    expect(zhCN.conversation.clearingArchived).toBe("正在清除已归档任务…")
     expect(enUS.settings.credentials).toBe("Plugin credentials")
     expect(enUS.credential.title).toBe("Plugin credentials")
     expect(enUS.nav.archived).toBe("Archived tasks")
@@ -483,15 +603,21 @@ describe("i18n resources", () => {
     expect(enUS.conversation.clearArchivedDescription).toContain(
       "Active tasks are not affected"
     )
+    expect(enUS.conversation.clearingArchived).toBe("Clearing archived tasks…")
   })
 
   it("localizes desktop sidebar and automation notification controls", () => {
     expect(zhCN.nav.automations).toBe("自动化")
     expect(enUS.nav.automations).toBe("Automations")
-    expect(zhCN.nav.knowledgeBases).toBe("文件库")
-    expect(enUS.nav.knowledgeBases).toBe("File library")
-    expect(zhCN.library.title).toBe("文件库")
-    expect(enUS.library.title).toBe("File library")
+    expect(zhCN.nav.knowledgeBases).toBe("资料库")
+    expect(enUS.nav.knowledgeBases).toBe("Resource library")
+    expect(zhCN.library.title).toBe("资料库")
+    expect(enUS.library.title).toBe("Resource library")
+    expect(zhCN.library.tabsLabel).toBe("资料库内容")
+    expect(enUS.library.tabsLabel).toBe("Resource library content")
+    expect(i18n.getFixedT("fr-FR")("nav.knowledgeBases")).toBe("资料库")
+    expect(i18n.getFixedT("fr-FR")("library.title")).toBe("资料库")
+    expect(i18n.getFixedT("fr-FR")("library.tabsLabel")).toBe("资料库内容")
     expect(zhCN.library.tabs.artifacts).toBe("任务产物")
     expect(enUS.library.tabs.artifacts).toBe("Task artifacts")
     expect(zhCN.library.artifacts.loadingMore).toBe("正在加载更多…")

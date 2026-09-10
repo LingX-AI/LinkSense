@@ -1,16 +1,16 @@
-import { useEffect, useState } from "react"
+import { RefreshButton } from "@/components/feedback/refresh-button"
+import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   adminFeedbackPageSchema,
   type AdminFeedback,
   type AdminFeedbackPage,
-  type FeedbackImage,
 } from "@linksense/shared"
-import { FileImageIcon, RefreshCwIcon, Trash2Icon } from "lucide-react"
+import { Trash2Icon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
 
-import { apiRequest, downloadApiFile } from "@/api/client"
+import { apiRequest } from "@/api/client"
 import { getErrorMessage } from "@/api/error-message"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import { notify } from "@/components/feedback/notification"
@@ -22,18 +22,10 @@ import {
 import { PageLayout } from "@/components/shell/page-layout"
 import { Button } from "@/components/ui/button"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
   Pagination,
   PaginationContent,
   PaginationItem,
 } from "@/components/ui/pagination"
-import { Spinner } from "@/components/ui/spinner"
 import {
   Table,
   TableBody,
@@ -43,7 +35,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { normalizeLanguage } from "@/i18n"
-import { formatDateTime, formatFileSize } from "@/i18n/date"
+import { formatDateTime } from "@/i18n/date"
+
+import { FeedbackDetailsDialog } from "@/features/feedback/feedback-details-dialog"
+import { FeedbackReplyStatus } from "@/features/feedback/feedback-reply-status"
+import { feedbackKeys } from "@/features/feedback/queries"
 
 const PAGE_SIZE = 20
 
@@ -56,7 +52,7 @@ export function AdminFeedbackPage() {
   const [selected, setSelected] = useState<AdminFeedback | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminFeedback | null>(null)
   const query = useQuery({
-    queryKey: ["admin", "feedback", cursor],
+    queryKey: feedbackKeys.list("admin", cursor),
     queryFn: ({ signal }) =>
       apiRequest("/admin/feedback", {
         schema: adminFeedbackPageSchema,
@@ -73,7 +69,7 @@ export function AdminFeedbackPage() {
       }),
     onSuccess: async (_, deletedFeedback) => {
       queryClient.setQueriesData<AdminFeedbackPage>(
-        { queryKey: ["admin", "feedback"] },
+        { queryKey: feedbackKeys.lists("admin") },
         (current) =>
           current
             ? {
@@ -89,9 +85,7 @@ export function AdminFeedbackPage() {
       notify.success(t("adminFeedback.deleteSuccess"), {
         id: "admin-feedback-delete-success",
       })
-      await queryClient.invalidateQueries({
-        queryKey: ["admin", "feedback"],
-      })
+      await queryClient.invalidateQueries({ queryKey: feedbackKeys.all })
     },
     onError: (error) => {
       notify.error(getErrorMessage(error, t), {
@@ -105,20 +99,10 @@ export function AdminFeedbackPage() {
       title={t("adminFeedback.title")}
       description={t("adminFeedback.description")}
       actions={
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={query.isFetching}
-          aria-busy={query.isFetching || undefined}
-          onClick={() => void query.refetch()}
-        >
-          {query.isFetching ? (
-            <Spinner data-icon="inline-start" />
-          ) : (
-            <RefreshCwIcon data-icon="inline-start" />
-          )}
-          {t("common.refresh")}
-        </Button>
+        <RefreshButton
+          refreshing={query.isFetching}
+          onRefresh={() => void query.refetch()}
+        />
       }
     >
       {query.isPending ? (
@@ -138,8 +122,9 @@ export function AdminFeedbackPage() {
                 <TableHead>{t("adminFeedback.submitter")}</TableHead>
                 <TableHead>{t("adminFeedback.content")}</TableHead>
                 <TableHead>{t("adminFeedback.images")}</TableHead>
+                <TableHead>{t("myFeedback.replyStatus")}</TableHead>
                 <TableHead>{t("adminFeedback.submittedAt")}</TableHead>
-                <TableHead className="text-right">
+                <TableHead className="text-center">
                   {t("common.actions")}
                 </TableHead>
               </TableRow>
@@ -166,14 +151,19 @@ export function AdminFeedbackPage() {
                     })}
                   </TableCell>
                   <TableCell>
+                    <FeedbackReplyStatus count={feedback.reply_count} />
+                  </TableCell>
+                  <TableCell>
                     {formatDateTime(feedback.created_at, language)}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
+                  <TableCell className="text-center">
+                    {/* Equal side tracks keep View centered beneath the heading. */}
+                    <div className="inline-grid grid-cols-[1.75rem_auto_1.75rem] items-center gap-1">
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
+                        className="col-start-2"
                         onClick={() => setSelected(feedback)}
                       >
                         {t("common.view")}
@@ -242,8 +232,16 @@ export function AdminFeedbackPage() {
       )}
 
       <FeedbackDetailsDialog
-        feedback={selected}
-        language={language}
+        feedbackId={selected?.id ?? null}
+        scope="admin"
+        description={
+          selected
+            ? t("adminFeedback.detailsDescription", {
+                name: selected.submitter.name,
+                time: formatDateTime(selected.created_at, language),
+              })
+            : ""
+        }
         onOpenChange={(open) => {
           if (!open) setSelected(null)
         }}
@@ -266,156 +264,5 @@ export function AdminFeedbackPage() {
         }}
       />
     </PageLayout>
-  )
-}
-
-function FeedbackDetailsDialog({
-  feedback,
-  language,
-  onOpenChange,
-}: {
-  feedback: AdminFeedback | null
-  language: "zh-CN" | "en-US"
-  onOpenChange: (open: boolean) => void
-}) {
-  const { t } = useTranslation()
-  return (
-    <Dialog open={Boolean(feedback)} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>{t("adminFeedback.detailsTitle")}</DialogTitle>
-          {feedback && (
-            <DialogDescription>
-              {t("adminFeedback.detailsDescription", {
-                name: feedback.submitter.name,
-                time: formatDateTime(feedback.created_at, language),
-              })}
-            </DialogDescription>
-          )}
-        </DialogHeader>
-        {feedback && (
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-col gap-1.5">
-              <h3 className="font-medium">{t("adminFeedback.content")}</h3>
-              <p className="whitespace-pre-wrap">{feedback.content}</p>
-            </div>
-            {feedback.images.length > 0 && (
-              <div className="flex flex-col gap-3">
-                <h3 className="font-medium">{t("adminFeedback.imageList")}</h3>
-                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {feedback.images.map((image) => (
-                    <AdminFeedbackImage
-                      key={`${feedback.id}:${image.id}`}
-                      feedbackId={feedback.id}
-                      image={image}
-                      language={language}
-                    />
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function AdminFeedbackImage({
-  feedbackId,
-  image,
-  language,
-}: {
-  feedbackId: string
-  image: FeedbackImage
-  language: "zh-CN" | "en-US"
-}) {
-  const { t } = useTranslation()
-  const [source, setSource] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
-  const [previewOpen, setPreviewOpen] = useState(false)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    let objectUrl: string | null = null
-    void downloadApiFile(
-      `/admin/feedback/${feedbackId}/images/${image.id}`,
-      undefined,
-      controller.signal
-    )
-      .then((blob) => {
-        if (controller.signal.aborted) return
-        objectUrl = URL.createObjectURL(blob)
-        setSource(objectUrl)
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return
-        setFailed(true)
-      })
-    return () => {
-      controller.abort()
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [feedbackId, image.id])
-
-  return (
-    <li className="flex min-w-0 flex-col gap-1.5">
-      <div className="aspect-square">
-        <Button
-          type="button"
-          variant="outline"
-          className="size-full overflow-hidden p-0"
-          disabled={!source}
-          aria-label={t("adminFeedback.openImage", { name: image.filename })}
-          onClick={() => setPreviewOpen(true)}
-        >
-          {source ? (
-            <img
-              src={source}
-              alt={t("adminFeedback.imageAlt", { name: image.filename })}
-              width="320"
-              height="320"
-              className="size-full object-contain"
-            />
-          ) : failed ? (
-            <span className="flex flex-col items-center gap-2 px-3 text-muted-foreground">
-              <FileImageIcon aria-hidden="true" />
-              <span>{t("adminFeedback.imageUnavailable")}</span>
-            </span>
-          ) : (
-            <span role="status" className="flex items-center gap-2">
-              <Spinner />
-              <span className="sr-only">{t("adminFeedback.imageLoading")}</span>
-            </span>
-          )}
-        </Button>
-      </div>
-      <span className="truncate" title={image.filename}>
-        {image.filename}
-      </span>
-      <span className="text-muted-foreground">
-        {formatFileSize(image.size_bytes, language)}
-      </span>
-
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="sm:max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>{t("adminFeedback.imagePreviewTitle")}</DialogTitle>
-            <DialogDescription>
-              {image.filename} · {formatFileSize(image.size_bytes, language)}
-            </DialogDescription>
-          </DialogHeader>
-          {source && (
-            <img
-              src={source}
-              alt={t("adminFeedback.imageAlt", { name: image.filename })}
-              width="1280"
-              height="720"
-              className="max-h-[70dvh] w-full object-contain"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-    </li>
   )
 }

@@ -21,8 +21,8 @@ import {
 import {
   htmlSelectionAnchor,
   parseHtmlPreviewSelectionMessage,
-  postHtmlPreviewAnnotationFocus,
   postHtmlPreviewAnnotationMode,
+  postHtmlPreviewSelectionClear,
 } from "@/components/media/html-preview/html-preview-selection"
 import {
   buildUnrestrictedHtmlPreviewDocument,
@@ -41,6 +41,12 @@ import {
   type HtmlSelection,
   type HtmlSelectionAction,
 } from "@/components/media/html-preview/html-preview.types"
+import {
+  postHtmlPreviewAnnotations,
+  postHtmlPreviewAnnotationFocus,
+  parseHtmlPreviewAnnotationFrames,
+  type HtmlAnnotationFrame,
+} from "./html-preview-annotations"
 import { OfficePreviewLoadingState } from "@/components/media/office-preview/office-preview-loading-state"
 import { OfficeAnnotationNumberBubble } from "@/components/media/office-preview/office-annotation-number-bubble"
 import { OfficePreviewShell } from "@/components/media/office-preview/office-preview-shell"
@@ -66,36 +72,6 @@ type InteractionFrameState = Readonly<{
   attempt: number
   status: InteractionFrameStatus
 }>
-
-type HtmlAnnotationFrame = Readonly<{
-  id: string
-  index: number
-  left: number
-  top: number
-  width: number
-  height: number
-}>
-
-function htmlAnnotationFramesEqual(
-  current: readonly HtmlAnnotationFrame[],
-  next: readonly HtmlAnnotationFrame[]
-) {
-  return (
-    current.length === next.length &&
-    current.every((frame, index) => {
-      const nextFrame = next[index]
-      return (
-        nextFrame !== undefined &&
-        frame.id === nextFrame.id &&
-        frame.index === nextFrame.index &&
-        frame.left === nextFrame.left &&
-        frame.top === nextFrame.top &&
-        frame.width === nextFrame.width &&
-        frame.height === nextFrame.height
-      )
-    })
-  )
-}
 
 export type HtmlPreviewProps = Readonly<{
   document: HtmlDocumentState
@@ -131,7 +107,6 @@ export function HtmlPreview({
   const interactionFrameRef = useRef<HTMLIFrameElement>(null)
   const interactionMountAnimationFrameRef = useRef<number | null>(null)
   const interactionFitAnimationFrameRef = useRef<number | null>(null)
-  const annotationFrameAnimationFrameRef = useRef<number | null>(null)
   const handledAnnotationNavigationSequenceRef = useRef<number | null>(null)
   const [zoom, setZoom] = useState(1)
   const [annotationState, setAnnotationState] = useState<
@@ -149,9 +124,13 @@ export function HtmlPreview({
   const [selection, setSelection] = useState<HtmlSelection | null>(null)
   const [selectionAnchor, setSelectionAnchor] =
     useState<OfficeSelectionAnchor | null>(null)
-  const [annotationFrames, setAnnotationFrames] = useState<
-    readonly HtmlAnnotationFrame[]
-  >([])
+  const [annotationGeometry, setAnnotationGeometry] = useState<
+    Readonly<{
+      source: string | null
+      attempt: number
+      frames: readonly HtmlAnnotationFrame[]
+    }>
+  >({ source: null, attempt: 0, frames: [] })
 
   const decodedHtml = useMemo(() => {
     if (document.status !== "ready") return null
@@ -187,70 +166,24 @@ export function HtmlPreview({
       : 0
   const interactionFrameMounted =
     interactionHtml !== null && mountedInteractionSource === interactionHtml
+  const annotationFrames =
+    interactionFrameMounted &&
+    interactionFrameStatus === "ready" &&
+    annotationGeometry.source === interactionHtml &&
+    annotationGeometry.attempt === interactionFrameAttempt
+      ? annotationGeometry.frames.filter((candidate) =>
+          annotationMarkers.some(
+            (marker) =>
+              marker.id === candidate.id && marker.index === candidate.index
+          )
+        )
+      : []
   const annotationMode =
     annotationState.source === interactionHtml && annotationState.enabled
   const interactionShellSource =
     interactionHtml === null
       ? null
       : buildHtmlPreviewShellSource(previewId, interactionFrameAttempt)
-
-  const updateAnnotationFrames = useCallback(() => {
-    const frame = interactionFrameRef.current
-    const pane = paneRef.current
-    if (!frame || !pane || annotationMarkers.length === 0) {
-      setAnnotationFrames((current) => (current.length === 0 ? current : []))
-      return
-    }
-
-    const frameBounds = frame.getBoundingClientRect()
-    const paneBounds = pane.getBoundingClientRect()
-    const nextFrames = annotationMarkers.flatMap((marker) => {
-      const elementBounds = marker.selection.elements
-        .map((element) => element.bounds)
-        .filter(
-          (bounds) =>
-            Number.isFinite(bounds.x) &&
-            Number.isFinite(bounds.y) &&
-            Number.isFinite(bounds.width) &&
-            Number.isFinite(bounds.height) &&
-            bounds.width > 0 &&
-            bounds.height > 0
-        )
-      if (elementBounds.length === 0) return []
-      const left = Math.min(...elementBounds.map((bounds) => bounds.x))
-      const top = Math.min(...elementBounds.map((bounds) => bounds.y))
-      const right = Math.max(
-        ...elementBounds.map((bounds) => bounds.x + bounds.width)
-      )
-      const bottom = Math.max(
-        ...elementBounds.map((bounds) => bounds.y + bounds.height)
-      )
-      return [
-        {
-          id: marker.id,
-          index: marker.index,
-          left: frameBounds.left - paneBounds.left + left,
-          top: frameBounds.top - paneBounds.top + top,
-          width: right - left,
-          height: bottom - top,
-        },
-      ]
-    })
-
-    setAnnotationFrames((current) =>
-      htmlAnnotationFramesEqual(current, nextFrames) ? current : nextFrames
-    )
-  }, [annotationMarkers])
-
-  const scheduleAnnotationFrameUpdate = useCallback(() => {
-    if (annotationFrameAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(annotationFrameAnimationFrameRef.current)
-    }
-    annotationFrameAnimationFrameRef.current = requestAnimationFrame(() => {
-      annotationFrameAnimationFrameRef.current = null
-      updateAnnotationFrames()
-    })
-  }, [updateAnnotationFrames])
 
   const clearSelection = useCallback(() => {
     setSelection(null)
@@ -268,13 +201,6 @@ export function HtmlPreview({
     if (interactionFitAnimationFrameRef.current !== null) {
       cancelAnimationFrame(interactionFitAnimationFrameRef.current)
       interactionFitAnimationFrameRef.current = null
-    }
-  }, [])
-
-  const cancelScheduledAnnotationFrameUpdate = useCallback(() => {
-    if (annotationFrameAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(annotationFrameAnimationFrameRef.current)
-      annotationFrameAnimationFrameRef.current = null
     }
   }, [])
 
@@ -364,25 +290,18 @@ export function HtmlPreview({
 
     const handleResize = () => {
       scheduleInteractionFit()
-      scheduleAnnotationFrameUpdate()
     }
     const resizeObserver = new ResizeObserver(handleResize)
     resizeObserver.observe(pane)
     resizeObserver.observe(frame)
     window.addEventListener("resize", handleResize)
     scheduleInteractionFit()
-    scheduleAnnotationFrameUpdate()
 
     return () => {
       resizeObserver.disconnect()
       window.removeEventListener("resize", handleResize)
     }
-  }, [
-    interactionFrameAttempt,
-    interactionFrameMounted,
-    scheduleAnnotationFrameUpdate,
-    scheduleInteractionFit,
-  ])
+  }, [interactionFrameAttempt, interactionFrameMounted, scheduleInteractionFit])
 
   useEffect(() => {
     if (!interactionFrameMounted || interactionFrameStatus !== "loading") {
@@ -403,22 +322,38 @@ export function HtmlPreview({
     () => () => {
       cancelScheduledInteractionMount()
       cancelScheduledInteractionFit()
-      cancelScheduledAnnotationFrameUpdate()
     },
-    [
-      cancelScheduledAnnotationFrameUpdate,
-      cancelScheduledInteractionFit,
-      cancelScheduledInteractionMount,
-    ]
+    [cancelScheduledInteractionFit, cancelScheduledInteractionMount]
   )
 
   useEffect(() => {
     if (!interactionFrameMounted || interactionFrameStatus !== "ready") return
     const frame = interactionFrameRef.current
     if (!frame) return
-    postHtmlPreviewAnnotationMode(frame, annotationMode)
+    const syncAnnotationMode = () =>
+      postHtmlPreviewAnnotationMode(frame, annotationMode)
+    syncAnnotationMode()
+    if (!annotationMode) return
+
+    const observer = new MutationObserver(syncAnnotationMode)
+    observer.observe(frame.ownerDocument.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme"],
+    })
+    return () => observer.disconnect()
   }, [
     annotationMode,
+    interactionFrameAttempt,
+    interactionFrameMounted,
+    interactionFrameStatus,
+  ])
+
+  useEffect(() => {
+    const frame = interactionFrameRef.current
+    if (frame && interactionFrameMounted && interactionFrameStatus === "ready")
+      postHtmlPreviewAnnotations(frame, annotationMarkers)
+  }, [
+    annotationMarkers,
     interactionFrameAttempt,
     interactionFrameMounted,
     interactionFrameStatus,
@@ -457,13 +392,20 @@ export function HtmlPreview({
         }
         return
       }
+      const frames = parseHtmlPreviewAnnotationFrames(event.data)
+      if (frames !== null) {
+        setAnnotationGeometry({
+          source: interactionHtml,
+          attempt: interactionFrameAttempt,
+          frames,
+        })
+        return
+      }
       if (!annotationMode) return
       const message = parseHtmlPreviewSelectionMessage(event.data)
       if (message === null) return
-      const pane = paneRef.current
-      if (!pane) return
       setSelection(message.selection)
-      setSelectionAnchor(htmlSelectionAnchor(pane, frame, message.anchor))
+      setSelectionAnchor(htmlSelectionAnchor(frame, message.anchor))
     }
 
     window.addEventListener("message", handleInteractionFrameMessage)
@@ -471,6 +413,8 @@ export function HtmlPreview({
       window.removeEventListener("message", handleInteractionFrameMessage)
   }, [
     annotationMode,
+    interactionHtml,
+    interactionFrameAttempt,
     initializeInteractionFrame,
     markInteractionFrameReady,
     previewId,
@@ -479,8 +423,7 @@ export function HtmlPreview({
 
   useEffect(() => {
     scheduleInteractionFit()
-    scheduleAnnotationFrameUpdate()
-  }, [scheduleAnnotationFrameUpdate, scheduleInteractionFit, zoom])
+  }, [scheduleInteractionFit, zoom])
 
   useEffect(() => {
     if (
@@ -531,7 +474,7 @@ export function HtmlPreview({
           {selectionAction && (
             <Button
               type="button"
-              variant={annotationMode ? "secondary" : "ghost"}
+              variant="annotation"
               size="xs"
               className="html-preview-annotation-toggle"
               aria-label={t(
@@ -640,7 +583,15 @@ export function HtmlPreview({
           scopeRef={paneRef}
           selection={selection}
           anchor={selectionAnchor}
-          action={selectionAction}
+          action={{
+            ...selectionAction,
+            onSubmit: async (submittedSelection, description) => {
+              const frame = interactionFrameRef.current
+              await selectionAction.onSubmit(submittedSelection, description)
+              if (frame && frame === interactionFrameRef.current)
+                postHtmlPreviewSelectionClear(frame, submittedSelection)
+            },
+          }}
         />
       )}
       <span className="sr-only" aria-live="polite">

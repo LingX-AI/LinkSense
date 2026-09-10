@@ -39,7 +39,7 @@ vi.mock("@/features/conversations/use-voice-transcription", () => ({
 }))
 
 function PromptFixture({
-  anchor,
+  anchor = { left: 200, top: 100 },
   disabled = false,
   fileName = "selection.docx",
   fullScreen = false,
@@ -91,7 +91,11 @@ function PromptFixture({
     )
   }
 
-  return <section ref={scopeRef}>{prompt}</section>
+  return (
+    <section ref={scopeRef} style={{ position: "relative" }}>
+      {prompt}
+    </section>
+  )
 }
 
 describe("OfficeSelectionPrompt", () => {
@@ -106,7 +110,10 @@ describe("OfficeSelectionPrompt", () => {
     voiceInput.onError = null
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
   it("submits the reusable selection payload and trimmed request", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined)
@@ -277,13 +284,59 @@ describe("OfficeSelectionPrompt", () => {
     )
   })
 
-  it("keeps the action inside the preview when its anchor is near the left edge", () => {
-    render(<PromptFixture anchor={{ left: 4, top: 32 }} />)
+  it.each([
+    [
+      "below the selection's right edge",
+      { left: 720, top: 360 },
+      "translate(326px, 318px)",
+    ],
+    [
+      "inside the preview's left edge",
+      { left: 254, top: 160 },
+      "translate(8px, 118px)",
+    ],
+    [
+      "inside the preview's bottom-right edge",
+      { left: 1050, top: 650 },
+      "translate(648px, 564px)",
+    ],
+  ])(
+    "positions the action %s using viewport coordinates",
+    async (_name, anchor, transform) => {
+      vi.spyOn(
+        HTMLElement.prototype,
+        "getBoundingClientRect"
+      ).mockImplementation(function (this: HTMLElement) {
+        if (this.tagName === "SECTION") return new DOMRect(250, 50, 800, 600)
+        if (this.classList.contains("office-selection-action"))
+          return new DOMRect(0, 0, 144, 28)
+        return new DOMRect(0, 0, 1280, 960)
+      })
+      for (const [property, dimension] of [
+        ["offsetWidth", "width"],
+        ["clientWidth", "width"],
+        ["offsetHeight", "height"],
+        ["clientHeight", "height"],
+      ] as const) {
+        vi.spyOn(HTMLElement.prototype, property, "get").mockImplementation(
+          function (this: HTMLElement) {
+            return this.getBoundingClientRect()[dimension]
+          }
+        )
+      }
+      vi.spyOn(HTMLElement.prototype, "offsetParent", "get").mockImplementation(
+        function (this: HTMLElement) {
+          return this.classList.contains("office-selection-action")
+            ? this.closest("section")
+            : null
+        }
+      )
+      render(<PromptFixture anchor={anchor} />)
 
-    const action = screen.getByRole("button", { name: /Ask LinkSense/u })
-    expect(action).toHaveStyle({ left: "4px", top: "32px" })
-    expect(action.style.transform).toBe("translate(max(-100%, 4px), 8px)")
-  })
+      const action = screen.getByRole("button", { name: /Ask LinkSense/u })
+      await waitFor(() => expect(action.style.transform).toBe(transform))
+    }
+  )
 
   it.each([
     [

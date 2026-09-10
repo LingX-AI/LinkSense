@@ -23,6 +23,9 @@ import {
   type ReasoningEffort,
 } from "@/api/contracts"
 import { ApiError } from "@/api/client"
+import { useBootstrap } from "@/app/bootstrap-state"
+import { MaintenanceScreen } from "@/components/feedback/maintenance-screen"
+import { ErrorState, LoadingState } from "@/components/feedback/page-state"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -140,6 +143,20 @@ const mutationResultSchema = z.unknown()
 
 export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
   const { t } = useTranslation()
+  const {
+    bootstrap,
+    error: bootstrapError,
+    refetch: refreshBootstrap,
+  } = useBootstrap()
+  const available = Boolean(
+    bootstrap && !bootstrapError && !bootstrap.maintenance?.active
+  )
+  const availableRef = useRef(available)
+  const refreshBootstrapRef = useRef(refreshBootstrap)
+  useEffect(() => {
+    availableRef.current = available
+    refreshBootstrapRef.current = refreshBootstrap
+  }, [available, refreshBootstrap])
   const translateRef = useRef(t)
   const [status, setStatus] = useState<EmbedStatus>(() =>
     config.auth_mode === "public" ? "authenticating" : "waiting_for_ticket"
@@ -218,6 +235,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
   )
 
   const requestHostTicket = useCallback(() => {
+    if (!availableRef.current) return
     postToParent({
       type: "linksense:ready",
       appId: config.app_id,
@@ -228,7 +246,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
   const refresh = useCallback(
     async (options?: { modelPreference?: boolean }) => {
       const client = clientRef.current
-      if (!client?.authenticated) return
+      if (!availableRef.current || !client?.authenticated) return
       const generation = ++refreshGenerationRef.current
       if (
         config.application.allows_user_model_selection &&
@@ -357,7 +375,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
       )
     }, [])
   const voiceTranscriptionAvailability = useVoiceTranscriptionAvailability({
-    enabled: status === "ready",
+    enabled: available && status === "ready",
     request: requestVoiceTranscriptionAvailability,
   })
 
@@ -573,7 +591,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
   const acceptTicket = useCallback(
     async (ticket: string) => {
       const client = clientRef.current
-      if (!client) return
+      if (!availableRef.current || !client) return
       setStatus("authenticating")
       setError(null)
       try {
@@ -598,7 +616,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
   const syncExternalApplicationSession = useCallback(
     async (externalApplicationSession: ExternalApplicationSessionMessage) => {
       const client = clientRef.current
-      if (!client?.authenticated) return
+      if (!availableRef.current || !client?.authenticated) return
       setStatus("authenticating")
       setError(null)
       try {
@@ -621,7 +639,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
 
   const startPublicSession = useCallback(async () => {
     const client = clientRef.current
-    if (!client) return
+    if (!availableRef.current || !client) return
     setStatus("authenticating")
     setError(null)
     try {
@@ -640,6 +658,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
 
   useEffect(() => {
     const client = new EmbedSessionClient(config.parent_origin, {
+      onMaintenance: () => refreshBootstrapRef.current(),
       onAuthenticationRequired: () => {
         if (config.auth_mode === "public") {
           void startPublicSession()
@@ -697,20 +716,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
     }
     window.addEventListener("message", messageListener)
 
-    const initialTicket =
-      config.auth_mode === "required" ? readAndClearFragmentTicket() : null
-    requestHostTicket()
-    const authenticationTimer =
-      config.auth_mode === "public"
-        ? window.setTimeout(() => void startPublicSession(), 0)
-        : initialTicket
-          ? window.setTimeout(() => void acceptTicket(initialTicket), 0)
-          : null
-
     return () => {
-      if (authenticationTimer !== null) {
-        window.clearTimeout(authenticationTimer)
-      }
       window.removeEventListener("message", messageListener)
       client.destroy()
       clientRef.current = null
@@ -721,6 +727,48 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
     config.parent_origin,
     config.app_id,
     postToParent,
+    refresh,
+    requestHostTicket,
+    startPublicSession,
+    syncExternalApplicationSession,
+  ])
+
+  useEffect(() => {
+    if (!available) {
+      // Invalidate reads started before maintenance without discarding the session.
+      refreshGenerationRef.current += 1
+      modelPreferenceRefreshGenerationRef.current += 1
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current)
+        refreshTimerRef.current = null
+      }
+      return
+    }
+    const timer = window.setTimeout(() => {
+      const client = clientRef.current
+      if (!client) return
+      if (client.authenticated) {
+        setStatus("authenticating")
+        setError(null)
+        const externalSession = pendingExternalApplicationSessionRef.current
+        if (config.auth_mode === "required" && externalSession !== undefined) {
+          void syncExternalApplicationSession(externalSession)
+        } else {
+          void refresh({ modelPreference: true })
+        }
+        return
+      }
+      const initialTicket =
+        config.auth_mode === "required" ? readAndClearFragmentTicket() : null
+      requestHostTicket()
+      if (config.auth_mode === "public") void startPublicSession()
+      else if (initialTicket) void acceptTicket(initialTicket)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [
+    available,
+    acceptTicket,
+    config.auth_mode,
     refresh,
     requestHostTicket,
     startPublicSession,
@@ -921,7 +969,12 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
 
   useEffect(() => {
     const client = clientRef.current
-    if (status !== "ready" || !conversation?.id || !client?.authenticated) {
+    if (
+      !available ||
+      status !== "ready" ||
+      !conversation?.id ||
+      !client?.authenticated
+    ) {
       return
     }
     return client.connectEvents(
@@ -932,14 +985,20 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
       },
       { initialEventId: conversation.last_event_id }
     )
-  }, [conversation?.id, conversation?.last_event_id, handleLiveEvent, status])
+  }, [
+    available,
+    conversation?.id,
+    conversation?.last_event_id,
+    handleLiveEvent,
+    status,
+  ])
 
   useEffect(() => {
-    if (status !== "ready") return
+    if (!available || status !== "ready") return
     const delay = running ? 5_000 : 30_000
     const timer = window.setInterval(() => void refresh(), delay)
     return () => window.clearInterval(timer)
-  }, [refresh, running, status])
+  }, [available, refresh, running, status])
 
   useEffect(() => {
     const element = scrollRef.current
@@ -1259,6 +1318,21 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
       }}
     />
   ) : null
+
+  if (bootstrap?.maintenance?.active) {
+    return <MaintenanceScreen maintenance={bootstrap.maintenance} />
+  }
+  if (bootstrapError) {
+    return (
+      <main className="flex min-h-svh items-center justify-center p-5">
+        <ErrorState
+          message={t("embed.errors.systemUnavailable")}
+          onRetry={refreshBootstrap}
+        />
+      </main>
+    )
+  }
+  if (!bootstrap) return <LoadingState fullScreen />
 
   return (
     <main className="embed-app">

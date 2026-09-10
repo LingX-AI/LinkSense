@@ -1,6 +1,7 @@
 import Fastify, { type FastifyRequest } from "fastify";
 import { Readable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { taskArtifactFileTypeSchema } from "@linksense/shared";
 
 import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
@@ -63,7 +64,51 @@ describe("task artifact list route", () => {
     });
   });
 
-  it("rejects an invalid artifact cursor before calling the service", async () => {
+  it.each(taskArtifactFileTypeSchema.options)(
+    "combines the %s filter with search and pagination for the authenticated owner",
+    async (fileType) => {
+      const listTaskArtifacts = vi.fn(async () => ({
+        items: [], next_cursor: null,
+      }));
+      const app = await artifactListApp(listTaskArtifacts);
+      const cursor = `2026-08-10T08:30:00.000Z|${FILE_ID}`;
+      const query = new URLSearchParams({
+        file_type: fileType,
+        search: " 总结 ",
+        limit: "2",
+        cursor,
+      });
+
+      const response = await app.inject(`/conversations/artifacts?${query}`);
+
+      expect(response.statusCode, response.body).toBe(200);
+      expect(listTaskArtifacts).toHaveBeenCalledWith(OWNER_ID, {
+        fileType,
+        search: "总结",
+        limit: 2,
+        cursor,
+      });
+    },
+  );
+
+  it("requires authentication before listing filtered artifacts", async () => {
+    const listTaskArtifacts = vi.fn();
+    const app = await artifactListApp(listTaskArtifacts, false);
+
+    const response = await app.inject("/conversations/artifacts?file_type=image");
+
+    expect(response.statusCode).toBe(401);
+    expect(listTaskArtifacts).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "cursor=invalid",
+    "file_type=unsupported",
+    "file_type=IMAGE",
+    "file_type=all",
+    "file_type=",
+    "file_type=image&file_type=word",
+  ])("rejects invalid artifact query %s before calling the service", async (query) => {
     const listTaskArtifacts = vi.fn();
     const app = Fastify();
     apps.push(app);
@@ -91,13 +136,42 @@ describe("task artifact list route", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/conversations/artifacts?cursor=invalid",
+      url: `/conversations/artifacts?${query}`,
     });
 
     expect(response.statusCode).toBe(400);
     expect(listTaskArtifacts).not.toHaveBeenCalled();
   });
 });
+
+async function artifactListApp(
+  listTaskArtifacts: ReturnType<typeof vi.fn>,
+  authenticated = true,
+) {
+  const app = Fastify();
+  apps.push(app);
+  app.decorate("authenticate", async (request: FastifyRequest) => {
+    if (!authenticated) throw new AppError("AUTH_REQUIRED");
+    request.authUser = {
+      id: OWNER_ID,
+      email: "owner@example.test",
+      name: "Owner",
+      role: "user",
+      status: "active",
+      preferredLocale: "zh-CN",
+      avatarObjectKey: null,
+      authValidAfter: new Date(0),
+    };
+  });
+  app.setErrorHandler((error, request, reply) =>
+    sendAppError(reply, request, error),
+  );
+  await app.register(fileRoutes, {
+    prefix: "/conversations",
+    services: { files: { listTaskArtifacts } } as unknown as AppServices,
+  });
+  return app;
+}
 
 describe("draft attachment mutation routes", () => {
   it("clears an exact attachment batch with one service operation", async () => {

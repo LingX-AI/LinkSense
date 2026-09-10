@@ -277,6 +277,7 @@ function isMissing(error: unknown): boolean {
 }
 
 function runnerEventThreadId(event: LinkSenseRunnerEvent): string | null {
+  if ("preparation" in event && event.preparation) return null;
   if ("method" in event) {
     const threadId = event.params.threadId;
     return typeof threadId === "string" && threadId.length > 0

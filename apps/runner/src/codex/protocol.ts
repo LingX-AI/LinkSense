@@ -167,6 +167,8 @@ export type ThreadReadParams = {
 
 export type ThreadForkParams = {
   threadId: string;
+  path?: string | null;
+  lastTurnId?: string | null;
   model?: string | null;
   modelProvider?: string | null;
   cwd?: string | null;
@@ -345,6 +347,7 @@ export type TurnStartParams = {
   threadId: string;
   model: string;
   effort: ReasoningEffort;
+  summary: "auto" | "concise" | "detailed" | "none";
   clientUserMessageId: string;
   input: CodexUserInput[];
   /**

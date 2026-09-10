@@ -49,16 +49,21 @@ export function sortSidebarConversations<T extends SidebarConversationOrder>(
   })
 }
 
+export type ConversationInsertionEdge = "before" | "after"
+
 export function reorderConversationIds(
   conversationIds: readonly string[],
   activeId: string,
-  overId: string
+  overId: string,
+  edge: ConversationInsertionEdge
 ) {
   const previousIndex = conversationIds.indexOf(activeId)
-  const nextIndex = conversationIds.indexOf(overId)
-  if (previousIndex < 0 || nextIndex < 0 || previousIndex === nextIndex) {
+  const anchorIndex = conversationIds.indexOf(overId)
+  if (previousIndex < 0 || anchorIndex < 0 || previousIndex === anchorIndex) {
     return [...conversationIds]
   }
+  const boundary = anchorIndex + (edge === "after" ? 1 : 0)
+  const nextIndex = boundary - (previousIndex < boundary ? 1 : 0)
   return arrayMove([...conversationIds], previousIndex, nextIndex)
 }
 
@@ -160,7 +165,12 @@ export function removeSidebarConversation<
 export function patchSidebarConversationTitle<
   T extends { id: string; title: string; title_source?: string },
   TData extends SidebarConversationData<T>,
->(data: TData | undefined, conversationId: string, title: string) {
+>(
+  data: TData | undefined,
+  conversationId: string,
+  title: string,
+  source: "generated" | "manual" = "generated"
+) {
   if (!data) return data
   let changed = false
   const pages = data.pages.map((page) => {
@@ -169,7 +179,7 @@ export function patchSidebarConversationTitle<
       if (conversation.id !== conversationId) {
         return conversation
       }
-      const patched = patchConversationTitle(conversation, title)
+      const patched = patchConversationTitle(conversation, title, source)
       if (patched === conversation) return conversation
       pageChanged = true
       return patched
@@ -225,7 +235,17 @@ export function patchSidebarConversationExecutionStatus<
 
 export function patchConversationTitle<
   T extends { title: string; title_source?: string },
->(conversation: T, title: string): T {
+>(
+  conversation: T,
+  title: string,
+  source: "generated" | "manual" = "generated"
+): T {
+  if (source === "manual") {
+    return conversation.title === title &&
+      conversation.title_source === "manual"
+      ? conversation
+      : { ...conversation, title, title_source: "manual" }
+  }
   if (conversation.title_source === "manual" || conversation.title === title) {
     return conversation
   }

@@ -17,6 +17,7 @@ import { Readable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppError } from "../src/lib/errors.js";
+import type { Prisma } from "../src/generated/prisma/client.js";
 import {
   FileService,
   fileServiceTesting,
@@ -121,6 +122,42 @@ describe("FileService workspace and MIME boundaries", () => {
       }),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     expect(fixture.prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("applies file type, keyword, ownership and cursor filters before limiting the artifact page", async () => {
+    const fixture = await fileFixture();
+    const createdAt = new Date("2026-08-10T08:30:00.000Z");
+    fixture.prisma.$queryRaw.mockResolvedValueOnce([
+      taskArtifactRow({ filename: "report.DOCX", createdAt }),
+      taskArtifactRow({
+        filename: "next.doc",
+        id: "30000000-0000-4000-8000-000000000002",
+      }),
+    ]);
+
+    const page = await fixture.service.listTaskArtifacts(OWNER_ID, {
+      fileType: "word",
+      search: "report",
+      cursor: `2026-08-11T00:00:00.000Z|${FILE_ID}`,
+      limit: 1,
+    });
+
+    expect(page.items.map((item) => item.filename)).toEqual(["report.DOCX"]);
+    expect(page.next_cursor).toBe(`${createdAt.toISOString()}|${FILE_ID}`);
+    const query = fixture.prisma.$queryRaw.mock.calls[0]?.[0];
+    expect(query).toBeDefined();
+    expect(query?.text).toContain("c.owner_id = CAST(");
+    expect(query?.text).toContain("f.status = 'registered'");
+    expect(query?.text).toContain("f.downloadable = TRUE");
+    expect(query?.text).toContain("f.created_at < ");
+    expect(query?.text).toContain("strpos(lower(f.filename)");
+    expect(query?.text).toContain("strpos(lower(c.title)");
+    expect(query?.text).toMatch(
+      /AND COALESCE\([\s\S]+ORDER BY f.created_at DESC, f.id DESC\s+LIMIT/u,
+    );
+    expect(query?.values).toContain(OWNER_ID);
+    expect(query?.values).toContain("report");
+    expect(query?.values.slice(-2)).toEqual(["word", 2]);
   });
 
   it("registers a valid workspace artifact and emits its capability and download-card events", async () => {
@@ -2476,7 +2513,9 @@ async function fileFixture(
         submittedBy: OWNER_ID,
       })),
     },
-    $queryRaw: vi.fn(async () => [] as Record<string, unknown>[]),
+    $queryRaw: vi.fn<
+      (query: Prisma.Sql) => Promise<Record<string, unknown>[]>
+    >(async () => []),
     $transaction: vi.fn(),
   };
   const conversations = {

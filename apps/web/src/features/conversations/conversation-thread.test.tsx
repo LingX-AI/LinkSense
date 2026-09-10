@@ -92,6 +92,7 @@ const completedConversation: Conversation = {
   id: "conversation-1",
   title: "回归测试",
   archived: false,
+  category_id: null,
   collaboration_mode: "default",
   user_input_requests: [],
   plan_reviews: [],
@@ -380,7 +381,8 @@ describe("conversation turn responses", () => {
     ).toBeVisible()
   })
 
-  it("keeps a terminal LinkSense form visible in its completed turn", () => {
+  it("hides a submitted form with collapsed activity and preserves its result when reopened", async () => {
+    const interaction = userEvent.setup()
     render(
       <ConversationThread
         conversation={{
@@ -417,16 +419,35 @@ describe("conversation turn responses", () => {
       />
     )
 
-    const card = screen.getByTestId("conversation-user-input-request")
-    expect(card).toHaveAttribute("data-request-status", "submitted")
-    expect(within(card).getByText("已提交")).toBeVisible()
-    expect(within(card).getByRole("textbox", { name: /标题/ })).toHaveValue(
-      "季度复盘"
-    )
-    expect(within(card).getByRole("textbox", { name: /标题/ })).toBeDisabled()
-    expect(
-      screen.getAllByTestId("conversation-user-input-request")
-    ).toHaveLength(1)
+    const summary = screen.getByTestId("turn-summary-turn-1")
+    const finalReply = screen.getByRole("article", { name: "助手回复" })
+    expect(screen.queryByTestId("conversation-user-input-request")).toBeNull()
+    expect(within(finalReply).getByText("处理完成")).toBeVisible()
+
+    for (let cycle = 0; cycle < 2; cycle++) {
+      await interaction.click(
+        within(summary).getByRole("button", { name: "展开中间过程" })
+      )
+      const card = within(summary).getByTestId(
+        "conversation-user-input-request"
+      )
+      expect(card).toBeVisible()
+      expect(card).toHaveAttribute("data-request-status", "submitted")
+      expect(within(card).getByText("已提交")).toBeVisible()
+      expect(within(card).getByRole("textbox", { name: /标题/ })).toHaveValue(
+        "季度复盘"
+      )
+      expect(within(card).getByRole("textbox", { name: /标题/ })).toBeDisabled()
+      expect(
+        screen.getAllByTestId("conversation-user-input-request")
+      ).toHaveLength(1)
+
+      await interaction.click(
+        within(summary).getByRole("button", { name: "收起中间过程" })
+      )
+      expect(screen.queryByTestId("conversation-user-input-request")).toBeNull()
+      expect(within(finalReply).getByText("处理完成")).toBeVisible()
+    }
   })
 
   it("keeps streamed assistant markdown stable while work is still running", () => {
@@ -576,6 +597,27 @@ describe("conversation turn responses", () => {
         "300元京东购物卡",
         "200元沃尔玛购物卡",
       ])
+      expect(
+        container.querySelector(".assistant-markdown")
+      ).not.toHaveTextContent("**")
+    }
+  )
+
+  it.each([false, true])(
+    "renders assistant emphasis containing Unicode horizontal whitespace when streaming=%s",
+    (streaming) => {
+      const { container } = render(
+        <AssistantMarkdown
+          streaming={streaming}
+          content={
+            "这是当前会话选中的知识库，共包含**\u00a010 个文档**，内容比较杂。"
+          }
+        />
+      )
+
+      expect(
+        screen.getByText("10 个文档", { selector: "strong" })
+      ).toBeVisible()
       expect(
         container.querySelector(".assistant-markdown")
       ).not.toHaveTextContent("**")
@@ -2044,6 +2086,181 @@ describe("conversation turn responses", () => {
     expect(within(summary).getByText("执行失败", { exact: true })).toBeVisible()
   })
 
+  it.each([
+    ["zh-CN", "正在压缩上下文"],
+    ["en-US", "Compacting context"],
+    ["fr-FR", "正在压缩上下文"],
+  ])(
+    "preserves the compaction row and shows thinking only once after completion in %s",
+    async (language, label) => {
+      await i18n.changeLanguage(language)
+      const started = nativeItemLifecycleEvent({
+        id: "compact-start",
+        sequence: 1,
+        method: "item/started",
+        item: { id: "compact", type: "contextCompaction" },
+      })
+      const conversation: Conversation = {
+        ...completedConversation,
+        execution_status: "running",
+        running_turn: {
+          ...completedConversation.turns![0]!,
+          status: "running",
+        },
+        turns: [
+          {
+            ...completedConversation.turns![0]!,
+            status: "running",
+            completed_at: null,
+          },
+        ],
+        messages: [],
+        activities: [],
+        artifacts: [],
+        events: [started],
+      }
+      const { rerender } = render(
+        <ConversationThread conversation={conversation} onDownload={vi.fn()} />
+      )
+      expect(
+        screen.getByTestId("turn-summary-turn-1").querySelector(".turn-status")
+      ).toHaveTextContent(i18n.t("conversation.processing"))
+      expect(screen.getAllByText(label, { exact: true })).toHaveLength(1)
+      expect(
+        screen.getByText(label).closest(".native-activity-item")
+      ).toBeVisible()
+      const completed = nativeItemLifecycleEvent({
+        id: "compact-end",
+        sequence: 2,
+        item: { id: "compact", type: "contextCompaction" },
+      })
+      rerender(
+        <ConversationThread
+          conversation={{ ...conversation, events: [started, completed] }}
+          onDownload={vi.fn()}
+        />
+      )
+      expect(
+        screen.getByTestId("turn-summary-turn-1").querySelector(".turn-status")
+      ).not.toHaveTextContent(label)
+      expect(
+        screen.getByTestId("turn-summary-turn-1").querySelector(".turn-status")
+      ).toHaveTextContent(i18n.t("conversation.thinking"))
+      expect(
+        screen.getAllByText(i18n.t("conversation.thinking"), { exact: true })
+      ).toHaveLength(1)
+      expect(
+        screen.getByText(
+          i18n.t("conversation.nativeActivities.contextCompactionCompleted")
+        )
+      ).toBeVisible()
+      rerender(
+        <ConversationThread
+          conversation={{
+            ...conversation,
+            events: [started, completed],
+            messages: [
+              {
+                id: "after-compaction-commentary",
+                role: "assistant",
+                phase: "commentary",
+                turn_id: "turn-1",
+                content: "继续处理",
+                created_at: "2026-07-11T08:00:03.000Z",
+              },
+            ],
+          }}
+          onDownload={vi.fn()}
+        />
+      )
+      expect(
+        screen.getAllByText(i18n.t("conversation.thinking"), { exact: true })
+      ).toHaveLength(1)
+      expect(
+        screen.getByText(
+          i18n.t("conversation.nativeActivities.contextCompactionCompleted")
+        )
+      ).toBeVisible()
+    }
+  )
+
+  it.each(["failed", "interrupted", "completed"] as const)(
+    "clears running compaction when the turn becomes %s without item completion",
+    (status) => {
+      const conversation: Conversation = {
+        ...completedConversation,
+        execution_status: status,
+        running_turn: null,
+        turns: [{ ...completedConversation.turns![0]!, status }],
+        events: [
+          nativeItemLifecycleEvent({
+            id: "compact-start",
+            sequence: 1,
+            method: "item/started",
+            item: { id: "compact", type: "contextCompaction" },
+          }),
+        ],
+      }
+      render(
+        <ConversationThread conversation={conversation} onDownload={vi.fn()} />
+      )
+      expect(
+        screen.getByTestId("turn-summary-turn-1").querySelector(".turn-status")
+      ).not.toHaveTextContent("正在压缩上下文")
+      expect(screen.queryByText("正在压缩上下文")).not.toBeInTheDocument()
+    }
+  )
+
+  it.each(["failed", "interrupted", "completed"] as const)(
+    "stops compaction immediately on native %s before the turn snapshot refreshes",
+    (status) => {
+      const conversation: Conversation = {
+        ...completedConversation,
+        execution_status: "running",
+        running_turn: {
+          ...completedConversation.turns![0]!,
+          status: "running",
+        },
+        turns: [
+          {
+            ...completedConversation.turns![0]!,
+            status: "running",
+            completed_at: null,
+          },
+        ],
+        messages: [],
+        activities: [],
+        artifacts: [],
+        events: [
+          nativeItemLifecycleEvent({
+            id: "compact-start",
+            sequence: 1,
+            method: "item/started",
+            item: { id: "compact", type: "contextCompaction" },
+          }),
+          {
+            id: "native-turn-end",
+            type: "turn/completed",
+            turn_id: "turn-1",
+            sequence_no: 2,
+            created_at: "2026-07-11T08:00:02.000Z",
+            payload: {
+              schema_version: 2,
+              source: "codex_app_server",
+              method: "turn/completed",
+              params: { threadId: "thread-1", turn: { id: "turn-1", status } },
+            },
+          },
+        ],
+      }
+      render(
+        <ConversationThread conversation={conversation} onDownload={vi.fn()} />
+      )
+      expect(screen.queryByText("正在压缩上下文")).not.toBeInTheDocument()
+      expect(screen.getByText("上下文压缩未完成")).toBeVisible()
+    }
+  )
+
   it("shows elapsed time for a completed context compaction without an empty-output failure", async () => {
     const interaction = userEvent.setup()
     render(
@@ -2234,6 +2451,12 @@ describe("conversation turn responses", () => {
     expect(skillLabel).toBeVisible()
     expect(skillLabel).toHaveClass("user-message-capability-label")
     expect(knowledgeBaseLabel).toHaveClass("user-message-capability-label")
+    expect(skillLabel.closest(".user-message-capability")).toHaveClass(
+      "user-message-resource-chip"
+    )
+    expect(knowledgeBaseLabel.closest(".user-message-capability")).toHaveClass(
+      "user-message-resource-chip"
+    )
     expect(within(userMessage).queryByText("linksense-browser")).toBeNull()
   })
 
@@ -2863,7 +3086,10 @@ describe("conversation turn responses", () => {
     expect(attachmentGroup).not.toBeNull()
     expect(textCard).not.toBeNull()
     expect(filePill).toHaveTextContent("EdTech出差费用明细表.xlsx")
-    expect(filePill).toHaveClass("user-message-file-attachment-previewable")
+    expect(filePill).toHaveClass(
+      "user-message-resource-chip",
+      "user-message-file-attachment-previewable"
+    )
     expect(textCard).not.toContainElement(filePill)
     expect(
       attachmentGroup!.compareDocumentPosition(textCard!) &
@@ -3909,7 +4135,7 @@ describe("conversation turn responses", () => {
     expect(summary.querySelector(".turn-image-generation-loading")).toBeNull()
   })
 
-  it("shows text-only thinking while waiting even when a plan is running", () => {
+  it("shows thinking without a tool disclosure while a plan is running", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T08:00:23.000Z"))
     const runningTurn = {
@@ -3956,15 +4182,28 @@ describe("conversation turn responses", () => {
     const summary = screen.getByTestId("turn-summary-turn-1")
     expect(within(summary).getByText("正在处理", { exact: true })).toBeVisible()
     expect(within(summary).getByText("20s", { exact: true })).toBeVisible()
-    expect(within(summary).getByText("运行了一个命令")).toBeVisible()
+    expect(within(summary).queryByText("运行了一个命令")).toBeNull()
     const thinking = within(summary).getByText("正在思考", { exact: true })
     expect(thinking).toBeVisible()
-    expect(thinking).toHaveClass("shimmer")
-    expect(thinking).toHaveAttribute("data-slot", "marker-content")
-    const thinkingRow = thinking.closest(".turn-thinking-activity")
+    expect(thinking.closest(".native-activity-summary")).toHaveClass("shimmer")
+    expect(thinking.closest('[data-slot="marker-content"]')).not.toBeNull()
+    const thinkingRow = thinking.closest('[data-slot="marker"]')
     expect(thinkingRow).toHaveAttribute("role", "status")
     expect(thinkingRow).toHaveAttribute("aria-busy", "true")
-    expect(thinkingRow?.querySelector("svg")).toBeNull()
+    expect(summary.querySelectorAll(".native-activity-item")).toHaveLength(1)
+    expect(
+      within(summary).queryByRole("button", {
+        name: i18n.t("conversation.nativeActivityDetails.expand", {
+          activity: "正在思考",
+        }),
+      })
+    ).toBeNull()
+    expect(summary.querySelector(".native-activity-chevron")).toBeNull()
+    fireEvent.click(thinking)
+    expect(within(summary).queryByText("pnpm test")).toBeNull()
+    expect(within(summary).getByText("正在思考", { exact: true })).toBe(
+      thinking
+    )
   })
 
   it("keeps thinking visible while named subagents work in the background", () => {
@@ -5219,15 +5458,17 @@ describe("conversation turn responses", () => {
     )
     expect(toolCall).toBeVisible()
     expect(fileServiceMarker).not.toBeNull()
-    expect(fileServiceMarker).toHaveClass("legacy-activity-item")
+    expect(fileServiceMarker?.closest(".legacy-activity-item")).not.toBeNull()
     expect(
       within(fileServiceMarker as HTMLElement).getByText(
         "LinkSense File Service"
       )
     ).toBeVisible()
-    expect(fileServiceActivity.nextElementSibling).toHaveTextContent(
-      "LinkSense File Service"
-    )
+    expect(
+      fileServiceActivity
+        .closest('[data-slot="marker-content"]')
+        ?.querySelector(".trace-chip")
+    ).toHaveTextContent("LinkSense File Service")
     expect(
       toolCall.closest(".activity-item-main")?.querySelector("svg")
     ).toHaveClass("size-3.5")
@@ -6479,14 +6720,16 @@ describe("conversation turn responses", () => {
     ).toHaveAttribute("aria-expanded", "true")
     const completedActivity = screen
       .getByText("运行了一个命令", {
-        selector: ".native-activity-summary",
+        selector: ".native-activity-summary > span",
       })
       .closest(".native-activity-item")
     expect(completedActivity).not.toHaveAttribute("data-running")
     expect(
-      screen.getByText("运行了一个命令", {
-        selector: ".native-activity-summary",
-      })
+      screen
+        .getByText("运行了一个命令", {
+          selector: ".native-activity-summary > span",
+        })
+        .closest(".native-activity-summary")
     ).not.toHaveClass("shimmer")
     expect(
       screen.getByText("正在执行测试").closest(".process-commentary")
@@ -6519,6 +6762,95 @@ describe("conversation turn responses", () => {
     expect(screen.getByText("Took", { exact: true })).toBeVisible()
     expect(screen.queryByText(/NaN|-/u)).toBeNull()
     expect(screen.queryByText("LinkSense", { exact: true })).toBeNull()
+  })
+
+  it("folds long manual and application messages and copies the complete content while collapsed", async () => {
+    const interaction = userEvent.setup()
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue()
+    const getComputedStyle = window.getComputedStyle.bind(window)
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
+      const style = getComputedStyle(element)
+      Object.defineProperty(style, "lineHeight", {
+        configurable: true,
+        value: "24px",
+      })
+      return style
+    })
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      DOMRect.fromRect({ width: 300, height: 384 })
+    )
+    const applicationContent = "完整应用研究要求\n".repeat(20).trimEnd()
+    const manualContent = "完整手动输入要求\n".repeat(20).trimEnd()
+    const completedUserMessage = completedConversation.messages?.find(
+      (message) => message.role === "user"
+    )
+    const completedAssistantMessage = completedConversation.messages?.find(
+      (message) => message.role === "assistant"
+    )
+    if (!completedUserMessage || !completedAssistantMessage) {
+      throw new Error("Expected the completed conversation fixture messages")
+    }
+    const applicationMessage = {
+      id: "application-message",
+      role: "user" as const,
+      turn_id: "turn-1",
+      content: applicationContent,
+      display: {
+        kind: "interactive_application" as const,
+        application_id: "20000000-0000-4000-8000-000000000001",
+      },
+    }
+    const view = render(
+      <ConversationThread
+        conversation={{
+          ...completedConversation,
+          messages: [
+            applicationMessage,
+            {
+              ...completedUserMessage,
+              content: manualContent,
+            },
+            completedAssistantMessage,
+          ],
+        }}
+        onDownload={vi.fn()}
+      />
+    )
+    expect(screen.getAllByRole("button", { name: "显示更多" })).toHaveLength(2)
+    const [appMessage, manualMessage] = screen.getAllByRole("article", {
+      name: "用户消息",
+    })
+    expect(
+      within(manualMessage!).getByRole("button", { name: "显示更多" })
+    ).toBeVisible()
+    await interaction.click(
+      within(appMessage!).getByRole("button", { name: "复制消息" })
+    )
+    expect(writeText).toHaveBeenLastCalledWith(applicationContent)
+    await interaction.click(
+      within(appMessage!).getByRole("button", { name: "显示更多" })
+    )
+    view.rerender(
+      <ConversationThread
+        conversation={{
+          ...completedConversation,
+          messages: [
+            { ...applicationMessage },
+            {
+              ...completedUserMessage,
+              content: manualContent,
+            },
+            completedAssistantMessage,
+          ],
+        }}
+        onDownload={vi.fn()}
+      />
+    )
+    expect(
+      within(appMessage!).getByRole("button", { name: "收起" })
+    ).toHaveAttribute("aria-expanded", "true")
   })
 
   it("exposes role-specific message actions and copies either message", async () => {

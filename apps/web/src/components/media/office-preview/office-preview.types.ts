@@ -3,6 +3,7 @@ export type OfficeDocumentState =
   | Readonly<{ status: "error" }>
   | Readonly<{ status: "ready"; content: Uint8Array }>
 
+/** The selected area's bottom-right corner in browser viewport coordinates. */
 export type OfficeSelectionAnchor = Readonly<{
   left: number
   top: number

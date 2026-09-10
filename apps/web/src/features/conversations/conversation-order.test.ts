@@ -52,9 +52,31 @@ describe("sidebar conversation ordering", () => {
   it("moves a task to the dropped position without mutating the source", () => {
     const source = ["a", "b", "c"]
 
-    expect(reorderConversationIds(source, "c", "a")).toEqual(["c", "a", "b"])
+    expect(reorderConversationIds(source, "c", "a", "before")).toEqual([
+      "c",
+      "a",
+      "b",
+    ])
     expect(source).toEqual(["a", "b", "c"])
   })
+
+  it.each([
+    ["a", "c", "after", ["b", "c", "a"]],
+    ["a", "c", "before", ["b", "a", "c"]],
+    ["c", "a", "after", ["a", "c", "b"]],
+    ["c", "a", "before", ["c", "a", "b"]],
+    ["a", "b", "before", ["a", "b", "c"]],
+    ["b", "a", "after", ["a", "b", "c"]],
+    ["b", "b", "after", ["a", "b", "c"]],
+    ["missing", "b", "after", ["a", "b", "c"]],
+  ] as const)(
+    "places %s %s %s at the indicated boundary",
+    (active, anchor, edge, expected) => {
+      expect(
+        reorderConversationIds(["a", "b", "c"], active, anchor, edge)
+      ).toEqual(expected)
+    }
+  )
 
   it("applies a persisted sidebar order to cached list data without touching other groups", () => {
     const pinned = conversation(
@@ -197,6 +219,43 @@ describe("sidebar conversation ordering", () => {
       patchSidebarConversationTitle(data, manual.id, "延迟的自动标题")
     ).toBe(data)
     expect(patchConversationTitle(manual, "延迟的自动标题")).toBe(manual)
+  })
+
+  it("applies repeated manual renames immediately while retaining category and ordering metadata", () => {
+    const task = {
+      ...conversation("task", "2026-08-12T10:00:00.000Z"),
+      category_id: "work",
+      sort_order: 2,
+      title_source: "manual",
+    }
+    const data = {
+      pages: [{ items: [task], next_cursor: null }],
+      pageParams: [undefined],
+    }
+    const renamed = patchSidebarConversationTitle(
+      data,
+      task.id,
+      "新名称",
+      "manual"
+    )
+    expect(renamed?.pages[0]?.items[0]).toEqual({ ...task, title: "新名称" })
+    expect(data.pages[0]?.items[0]?.title).toBe("task")
+    expect(
+      patchSidebarConversationTitle(renamed, task.id, "延迟自动名称")
+    ).toBe(renamed)
+    expect(
+      patchSidebarConversationTitle(renamed, task.id, "新名称", "manual")
+    ).toBe(renamed)
+  })
+
+  it("marks a confirmed manual title even when its text has not changed", () => {
+    expect(
+      patchConversationTitle(
+        { title: "任务", title_source: "generated" },
+        "任务",
+        "manual"
+      )
+    ).toEqual({ title: "任务", title_source: "manual" })
   })
 
   it("patches only the matching cached task execution status", () => {

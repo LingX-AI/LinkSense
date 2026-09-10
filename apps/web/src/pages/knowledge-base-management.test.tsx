@@ -1719,7 +1719,7 @@ describe("knowledge-base document and access management", () => {
       )
     })
     const notification = await screen.findByText(
-      "已提交 3 个文档处理，0 个文档未能提交。"
+      "已提交 3 个文档处理，0 个文档未能提交"
     )
     expect(notification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(notification.closest('[data-slot="alert"]')).toBeNull()
@@ -1862,7 +1862,7 @@ describe("knowledge-base document and access management", () => {
     )
 
     const notification = await screen.findByText(
-      "个人直接分享已移除；你仍可通过其他有效来源访问此知识库。"
+      "个人直接分享已移除；你仍可通过其他有效来源访问此知识库"
     )
     expect(notification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(notification.closest('[data-slot="alert"]')).toBeNull()

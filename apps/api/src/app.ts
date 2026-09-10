@@ -18,6 +18,7 @@ import { errorEnvelope, ok } from "./lib/http.js";
 import { AppError, errorDetails, normalizeError } from "./lib/errors.js";
 import { authenticationPlugin } from "./plugins/authentication.js";
 import { systemRoutes, adminSystemRoutes } from "./modules/system/routes.js";
+import { taskCategoryRoutes } from "./modules/task-categories/routes.js";
 import { conversationRoutes } from "./modules/conversations/routes.js";
 import { publicConversationShareRoutes } from "./modules/conversations/share-routes.js";
 import { fileRoutes } from "./modules/files/routes.js";
@@ -201,17 +202,7 @@ export async function buildApi(
       );
   });
 
-  app.addHook("preHandler", async (request) => {
-    if (request.method === "OPTIONS" || isMaintenanceExemptPath(request.url)) {
-      return;
-    }
-    const maintenance = await services.system.getMaintenanceStatus();
-    if (!maintenance.active) return;
-    await app.authenticate(request);
-    if (shouldBlockForMaintenance(maintenance, request.authUser?.role)) {
-      throw new AppError("SYSTEM_MAINTENANCE_ACTIVE");
-    }
-  });
+  registerMaintenanceGuard(app, services.system);
 
   await app.register(systemRoutes, { prefix: "/api/v1/system", services });
   app.post("/api/v1/system/initialize", async (request, reply) => {
@@ -449,6 +440,10 @@ export async function buildApi(
       { prefix: "/api/v1/knowledge-bases" },
     );
   }
+  await app.register(taskCategoryRoutes, {
+    prefix: "/api/v1/task-categories",
+    service: services.taskCategories,
+  });
   await app.register(conversationRoutes, {
     prefix: "/api/v1/conversations",
     services,
@@ -546,13 +541,34 @@ export async function buildApi(
   return app;
 }
 
+export function registerMaintenanceGuard(
+  app: FastifyInstance,
+  system: { getMaintenanceStatus(): Promise<MaintenanceStatus> },
+): void {
+  app.addHook("preHandler", async (request) => {
+    if (request.method === "OPTIONS" || isMaintenanceExemptPath(request.url)) return;
+    const maintenance = await system.getMaintenanceStatus();
+    if (!maintenance.active) return;
+    // Embedded visitors never inherit the application owner's admin exemption.
+    if (requestPathname(request.url).startsWith("/api/v1/embed/")) {
+      throw new AppError("SYSTEM_MAINTENANCE_ACTIVE");
+    }
+    await app.authenticate(request);
+    if (shouldBlockForMaintenance(maintenance, request.authUser?.role)) {
+      throw new AppError("SYSTEM_MAINTENANCE_ACTIVE");
+    }
+  });
+}
+
 export function isMaintenanceExemptPath(url: string): boolean {
   const path = requestPathname(url);
   return (
     !path.startsWith("/api/v1/") ||
     path.startsWith("/api/v1/system/") ||
     path.startsWith("/api/v1/auth/") ||
-    path.startsWith("/api/v1/embed/") ||
+    path.startsWith("/api/v1/embed/frame/") ||
+    // Renewal preserves an existing session; it grants no business access.
+    path === "/api/v1/embed/sessions/renew" ||
     path.startsWith("/api/v1/admin/") ||
     path === "/api/v1/me"
   );

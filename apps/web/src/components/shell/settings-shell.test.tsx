@@ -1,7 +1,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { MemoryRouter } from "react-router-dom"
+import { MemoryRouter, Route, Routes } from "react-router-dom"
 
 import { SettingsShell } from "@/components/shell/settings-shell"
 import i18n from "@/i18n"
@@ -23,6 +23,70 @@ describe("SettingsShell administrator navigation", () => {
 
   afterEach(() => {
     cleanup()
+  })
+
+  it.each([
+    "/settings/general",
+    "/settings/profile",
+    "/settings/personalization",
+    "/settings/appearance",
+    "/settings/security",
+    "/settings/credentials",
+    "/settings/mcp",
+    "/settings/weixin",
+    "/archived",
+    "/settings/feedback",
+    "/admin/users",
+    "/admin/groups",
+    "/admin/roles",
+    "/admin/capabilities",
+    "/admin/knowledge-bases",
+    "/admin/knowledge-sources",
+    "/admin/models",
+    "/admin/settings",
+    "/admin/health",
+    "/admin/feedback",
+    "/admin/audit",
+    "/admin/usage",
+    "/admin/system-update",
+  ])("uses the same content container at %s", (path) => {
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route element={<SettingsShell />}>
+            <Route
+              path="*"
+              element={<div data-testid="settings-page-content" />}
+            />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    )
+    expect(
+      screen.getByTestId("settings-page-content").closest(".settings-content")
+    ).toHaveAttribute("class", "settings-content")
+  })
+
+  it("places personal feedback immediately after archived tasks", () => {
+    render(
+      <MemoryRouter initialEntries={["/settings/feedback"]}>
+        <SettingsShell />
+      </MemoryRouter>
+    )
+    const links = within(
+      screen.getByRole("navigation", { name: "个人" })
+    ).getAllByRole("link")
+    const archivedIndex = links.findIndex(
+      (link) => link.getAttribute("href") === "/archived"
+    )
+    expect(links[archivedIndex + 1]).toHaveAttribute(
+      "href",
+      "/settings/feedback"
+    )
+    expect(links[archivedIndex + 1]).toHaveTextContent("我的反馈")
+    expect(links[archivedIndex + 1]).toHaveClass(
+      "settings-navigation-link-active"
+    )
   })
 
   it("places system update at the end of the management group", () => {

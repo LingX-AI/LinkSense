@@ -1,9 +1,8 @@
 import { createInterface } from "node:readline"
-import path from "node:path"
 
 import { z } from "zod"
 
-import { BrowserSessionLimitError } from "../browser/cli-wrapper.js"
+import { BrowserSessionLimitError, browserWorkspaceForCodexHome } from "../browser/cli-wrapper.js"
 import {
   ManagedBrowserCommandCancelledError,
   ManagedBrowserCommandQueue,
@@ -15,7 +14,7 @@ import {
 const conversationId = z.uuid().parse(process.env.LINKSENSE_CONVERSATION_ID)
 const userHome = z.string().min(1).parse(process.env.HOME)
 const codexHome = z.string().min(1).parse(process.env.CODEX_HOME)
-const workspace = path.join(userHome, "workspaces", conversationId)
+const workspace = browserWorkspaceForCodexHome(userHome, codexHome, conversationId)
 const environment: NodeJS.ProcessEnv = {
   ...process.env,
   HOME: userHome,

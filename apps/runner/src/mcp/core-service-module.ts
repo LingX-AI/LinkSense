@@ -17,7 +17,6 @@ export type CoreMcpToolCall = {
 export type CoreMcpToolModule = {
   key: string
   tools: readonly Tool[]
-  instructions?: string
   callTool: (input: CoreMcpToolCall) => Promise<CallToolResult>
 }
 

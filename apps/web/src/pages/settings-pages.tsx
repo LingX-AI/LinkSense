@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState, type FormEvent } from "react"
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
 import { useBeforeUnload, useBlocker, useNavigate } from "react-router-dom"
 import { z } from "zod"
@@ -13,7 +13,10 @@ import {
   type RunningMessageAction,
   type SupportedLanguage,
 } from "@/api/contracts"
-import { MAX_CUSTOM_INSTRUCTIONS_LENGTH } from "@linksense/shared"
+import {
+  MAX_CUSTOM_INSTRUCTIONS_LENGTH,
+  type TaskAutoNaming,
+} from "@linksense/shared"
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
@@ -30,6 +33,7 @@ import { StatusBanner } from "@/components/feedback/status-banner"
 import { FieldShell } from "@/components/forms/form-field"
 import { PasswordInput } from "@/components/forms/password-input"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
+import { TaskAutoNamingSettings } from "@/components/settings/task-auto-naming-settings"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -57,6 +61,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -70,6 +75,8 @@ import { normalizeLanguage, setAppLanguage } from "@/i18n"
 import { passwordSchema } from "@/lib/password"
 import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
 import { cn } from "@/lib/utils"
+
+const personalizationQueryKey = ["me", "personalization"] as const
 
 export function SettingsGeneralPage() {
   const { t, i18n } = useTranslation()
@@ -152,28 +159,35 @@ export function SettingsGeneralPage() {
           id="interface-language-heading"
           title={t("settings.interfaceLanguage")}
           description={t("settings.interfaceLanguageDescription")}
+          descriptionId="interface-language-description"
+          actionAlignment="center"
+          action={
+            <Select
+              value={language}
+              onValueChange={changeLanguage}
+              disabled={mutation.isPending}
+            >
+              <SelectTrigger
+                id="settings-language"
+                aria-labelledby="interface-language-heading"
+                aria-describedby="interface-language-description"
+                className="w-32"
+              >
+                <SelectValue>
+                  {t(
+                    language === "zh-CN" ? "common.chinese" : "common.english"
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="zh-CN">{t("common.chinese")}</SelectItem>
+                  <SelectItem value="en-US">{t("common.english")}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          }
         />
-        <FieldShell
-          id="settings-language"
-          label={t("common.language")}
-          className="settings-language-field"
-        >
-          <Select
-            value={language}
-            onValueChange={changeLanguage}
-            disabled={mutation.isPending}
-          >
-            <SelectTrigger id="settings-language" className="h-9! w-full">
-              <SelectValue>
-                {t(language === "zh-CN" ? "common.chinese" : "common.english")}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="zh-CN">{t("common.chinese")}</SelectItem>
-              <SelectItem value="en-US">{t("common.english")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </FieldShell>
       </section>
       <section
         className="settings-panel mt-4"
@@ -437,7 +451,7 @@ export function SettingsPersonalizationPage() {
   const [error, setError] = useState<string | null>(null)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
   const personalizationQuery = useQuery({
-    queryKey: ["me", "personalization"],
+    queryKey: personalizationQueryKey,
     queryFn: () =>
       apiRequest("/me/personalization", {
         schema: personalizationSettingsSchema,
@@ -511,6 +525,21 @@ export function SettingsPersonalizationPage() {
   })
 
   const hasUnsavedInstructions = customInstructions !== savedCustomInstructions
+  const queryClient = useQueryClient()
+  const taskAutoNamingMutation = useMutation({
+    mutationFn: (task_auto_naming: TaskAutoNaming) =>
+      apiRequest("/me/personalization", {
+        method: "PATCH",
+        body: { task_auto_naming },
+        schema: personalizationSettingsSchema,
+      }),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(personalizationQueryKey, settings)
+      setError(null)
+      notify.success(t("settings.taskAutoNamingSaved"))
+    },
+    onError: (nextError) => setError(getErrorMessage(nextError, t)),
+  })
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
       hasUnsavedInstructions &&
@@ -653,6 +682,20 @@ export function SettingsPersonalizationPage() {
               </div>
             </div>
           </section>
+
+          {personalizationQuery.data && (
+            <TaskAutoNamingSettings
+              value={personalizationQuery.data.task_auto_naming}
+              pending={
+                taskAutoNamingMutation.isPending ||
+                personalizationQuery.isFetching
+              }
+              onChange={(value) => {
+                setError(null)
+                taskAutoNamingMutation.mutate(value)
+              }}
+            />
+          )}
         </>
       )}
 
@@ -790,7 +833,7 @@ export function SettingsAppearancePage() {
         </RadioGroup>
       </FieldSet>
       <section
-        className="appearance-font-size-setting"
+        className="settings-panel appearance-font-size-setting"
         aria-labelledby="appearance-font-size-heading"
         aria-describedby="appearance-font-size-description"
       >

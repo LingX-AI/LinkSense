@@ -52,6 +52,37 @@ function installMatchMedia(matches: boolean) {
 }
 
 describe("ConversationLineSidebar", () => {
+  it("highlights every visible exchange and clears them when the viewport changes", () => {
+    const view = render(
+      <ConversationLineSidebar
+        ariaLabel="任务消息导航"
+        items={items}
+        activeItemIds={["turn-1", "turn-2"]}
+      />
+    )
+    expect(
+      screen.getByRole("button", { name: "分析登录失败的原因" })
+    ).toHaveAttribute("aria-current", "true")
+    expect(
+      screen.getByRole("button", { name: "补充单元测试" })
+    ).toHaveAttribute("aria-current", "true")
+    expect(
+      screen.getByRole("button", { name: "检查构建结果" })
+    ).not.toHaveAttribute("aria-current")
+    view.rerender(
+      <ConversationLineSidebar
+        ariaLabel="任务消息导航"
+        items={items}
+        activeItemIds={["turn-3"]}
+      />
+    )
+    expect(
+      screen.getByRole("button", { name: "分析登录失败的原因" })
+    ).not.toHaveAttribute("aria-current")
+    expect(
+      screen.getByRole("button", { name: "检查构建结果" })
+    ).toHaveAttribute("aria-current", "true")
+  })
   beforeEach(() => installMatchMedia(false))
 
   afterEach(() => {
@@ -129,9 +160,7 @@ describe("ConversationLineSidebar", () => {
       "text-[length:var(--app-font-13)]",
       "font-medium"
     )
-    expect(assistantPreview).not.toHaveClass(
-      "text-[length:var(--app-font-12)]"
-    )
+    expect(assistantPreview).not.toHaveClass("text-[length:var(--app-font-12)]")
     expect(previewTime.tagName).toBe("TIME")
     expect(previewTime).toHaveAttribute("datetime", "2026-07-11T08:05:00")
     expect(previewTime).toHaveAttribute("title", "2026-07-11 08:05")
@@ -180,7 +209,7 @@ describe("ConversationLineSidebar", () => {
       <ConversationLineSidebar
         ariaLabel="任务消息导航"
         items={items}
-        defaultActiveItemId="turn-1"
+        defaultActiveItemIds={["turn-1"]}
         onItemSelect={onItemSelect}
       />
     )

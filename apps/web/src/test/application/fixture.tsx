@@ -173,6 +173,7 @@ const conversations = [
     id: "c1",
     title: "活动风险评估",
     archived: false,
+    category_id: null as string | null,
     pinned_at: null as string | null,
     sort_order: null as number | null,
     updated_at: new Date().toISOString(),
@@ -184,6 +185,7 @@ const conversations = [
     id: "c2",
     title: "整理项目会议纪要",
     archived: false,
+    category_id: null as string | null,
     pinned_at: null as string | null,
     sort_order: null as number | null,
     updated_at: new Date(Date.now() - 86_400_000).toISOString(),
@@ -195,6 +197,7 @@ const conversations = [
     id: "c3",
     title: "比较三份项目方案",
     archived: false,
+    category_id: null as string | null,
     pinned_at: null as string | null,
     sort_order: null as number | null,
     updated_at: new Date(Date.now() - 4 * 86_400_000).toISOString(),
@@ -314,6 +317,7 @@ function planReviewConversationFixture(
     id: "c1",
     title: "计划确认测试",
     archived: false,
+    category_id: null as string | null,
     has_unread_completion: false,
     collaboration_mode:
       decision === "implement" || decision === "exit" ? "default" : "plan",
@@ -442,6 +446,7 @@ function capabilityPreviewResponse() {
 }
 
 function installApiMock(options?: {
+  conversationSourcesResponse?: () => Response | Promise<Response>
   initialized?: boolean
   initializationCredentialRequired?: boolean
   systemName?: string
@@ -479,6 +484,7 @@ function installApiMock(options?: {
   interruptResponse?: () => Response | Promise<Response>
   regenerateResponse?: () => Response | Promise<Response>
   forkStart?: Promise<void>
+  forkResponse?: () => Response | undefined
   planReviewActionResponse?: (
     reviewId: string,
     body: unknown
@@ -504,6 +510,7 @@ function installApiMock(options?: {
     conversationId: string,
     body: Record<string, unknown>
   ) => Response | Promise<Response>
+  clearArchivedResponse?: () => Response | Promise<Response>
   clearArchivedDeletedCount?: number
   forgotPasswordResponse?: () => Response | Promise<Response>
   personalUsageOverride?: Record<string, unknown>
@@ -550,6 +557,7 @@ function installApiMock(options?: {
     id: newTaskId,
     title: "未命名任务",
     archived: false,
+    category_id: null as string | null,
     updated_at: "2026-07-18T08:00:00.000Z",
     draft_input: "",
     draft_capability_ids: [],
@@ -570,6 +578,15 @@ function installApiMock(options?: {
           ? (JSON.parse(init.body) as unknown)
           : undefined
       requests.push({ path, method, query: url.search, body: requestBody })
+
+      if (
+        /^\/api\/v1\/conversations\/[^/]+\/sources$/.test(path) &&
+        method === "GET"
+      ) {
+        if (options?.conversationSourcesResponse)
+          return options.conversationSourcesResponse()
+        return json({ success: true, data: { items: [] } })
+      }
 
       if (path === "/api/v1/system/bootstrap") {
         return json({
@@ -788,6 +805,8 @@ function installApiMock(options?: {
           },
         })
       }
+      if (path === "/api/v1/task-categories" && method === "GET")
+        return json({ success: true, data: [] })
       if (path === "/api/v1/conversations/prewarm" && method === "POST") {
         return json(
           {
@@ -873,6 +892,8 @@ function installApiMock(options?: {
         method === "POST"
       ) {
         if (options?.forkStart) await options.forkStart
+        const forkResponse = options?.forkResponse?.()
+        if (forkResponse) return forkResponse
         forkCalls += 1
         const forkedConversation = {
           ...conversations[0],
@@ -1142,6 +1163,9 @@ function installApiMock(options?: {
         return new Response(null, { status: 204 })
       }
       if (path === "/api/v1/conversations/archived" && method === "DELETE") {
+        if (options?.clearArchivedResponse) {
+          return options.clearArchivedResponse()
+        }
         const deletedCount =
           options?.clearArchivedDeletedCount ??
           currentConversations.filter((item) => item.archived).length
@@ -1444,20 +1468,8 @@ function installApiMock(options?: {
       if (path === "/api/v1/credentials/bindings") {
         return json({ success: true, data: { items: [], next_cursor: null } })
       }
-      if (path === "/api/v1/credentials/effective-bindings") {
-        return json({
-          success: true,
-          data: {
-            items: [
-              {
-                capability_id: "p1",
-                env_key: "SERVICE_API_KEY",
-                effective_source: "personal",
-              },
-            ],
-            next_cursor: null,
-          },
-        })
+      if (path === "/api/v1/credentials/plugin-configurations") {
+        return json({ success: true, data: { items: [] } })
       }
       if (path === "/api/v1/credentials") {
         if (method === "POST") {

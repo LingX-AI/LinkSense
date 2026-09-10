@@ -3,6 +3,9 @@
 import imageGenerationSource from "@/features/admin/image-generation-settings-form.tsx?raw"
 import imageUnderstandingSource from "@/features/admin/image-understanding-settings-form.tsx?raw"
 import knowledgeModelsSource from "@/features/admin/knowledge-model-settings-form.tsx?raw"
+import modelFieldsSource from "@/features/admin/model-settings-fields.tsx?raw"
+import modelChannelEditorsSource from "@/features/admin/model-channel-editors.tsx?raw"
+import modelSettingsEditorSource from "@/features/admin/model-settings-editor.tsx?raw"
 import modelProviderSource from "@/features/admin/model-provider-settings-form.tsx?raw"
 import voiceTranscriptionSource from "@/features/admin/voice-transcription-settings-form.tsx?raw"
 import credentialPagesSource from "@/pages/credential-pages.tsx?raw"
@@ -16,9 +19,8 @@ describe("settings form accessibility", () => {
       'name="image-understanding-model"'
     )
     expect(knowledgeModelsSource).toContain('name="knowledge-embedding-model"')
-    expect(modelProviderSource).toContain(
-      "name={`${model.formKey}-context-window`}"
-    )
+    expect(modelFieldsSource).toContain("name={`${id}-context`}")
+    expect(modelChannelEditorsSource).toContain("name={`${id}-key`}")
     expect(voiceTranscriptionSource).toContain(
       'name="voice-transcription-api-key"'
     )
@@ -39,6 +41,7 @@ describe("settings form accessibility", () => {
       imageUnderstandingSource,
       knowledgeModelsSource,
       modelProviderSource,
+      modelSettingsEditorSource,
       voiceTranscriptionSource,
       credentialPagesSource,
       mcpPagesSource,

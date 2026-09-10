@@ -153,7 +153,7 @@ describe("RunnerClient start operation", () => {
       codexThreadId: "thread-native-1",
       context: {
         userInput: "",
-        selectedKnowledgeBaseCount: 0,
+        selectedKnowledgeBases: [],
         attachments: [],
         priorityPlugins: [],
         prioritySkills: [],
@@ -597,7 +597,8 @@ describe("RunnerClient thread fork", () => {
         conversationId,
         ownerId,
         expectedRuntimeGeneration: runtimeGeneration,
-        sourceCodexThreadId: "thread-source-1",
+        sourceConversationId: "01900000-0000-7000-8000-000000000003",
+      sourceCodexThreadId: "thread-source-1",
         throughCodexTurnId: "turn-native-2",
         projectionTurnId,
         ...modelRuntime,
@@ -612,6 +613,7 @@ describe("RunnerClient thread fork", () => {
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
       ownerId,
       expectedRuntimeGeneration: runtimeGeneration,
+      sourceConversationId: "01900000-0000-7000-8000-000000000003",
       sourceCodexThreadId: "thread-source-1",
       throughCodexTurnId: "turn-native-2",
       projectionTurnId,
@@ -722,12 +724,14 @@ describe("RunnerClient owner routing", () => {
         jsonResponse({
           custom_instructions: "Prefer concise answers.",
           memories_enabled: true,
+          task_auto_naming: "first_message",
         }),
       )
       .mockResolvedValueOnce(
         jsonResponse({
           custom_instructions: "Prefer Chinese answers.",
           memories_enabled: false,
+          task_auto_naming: "every_message",
         }),
       )
       .mockResolvedValueOnce(jsonResponse({ reset: true }));
@@ -737,15 +741,18 @@ describe("RunnerClient owner routing", () => {
     await expect(client.getPersonalization(ownerId)).resolves.toEqual({
       custom_instructions: "Prefer concise answers.",
       memories_enabled: true,
+      task_auto_naming: "first_message",
     });
     await expect(
       client.updatePersonalization(ownerId, {
         custom_instructions: "Prefer Chinese answers.",
         memories_enabled: false,
+        task_auto_naming: "every_message",
       }),
     ).resolves.toEqual({
       custom_instructions: "Prefer Chinese answers.",
       memories_enabled: false,
+      task_auto_naming: "every_message",
     });
     await expect(client.resetMemories(ownerId)).resolves.toEqual({
       reset: true,
@@ -772,6 +779,7 @@ describe("RunnerClient owner routing", () => {
         body: {
           custom_instructions: "Prefer Chinese answers.",
           memories_enabled: false,
+          task_auto_naming: "every_message",
         },
       },
       {

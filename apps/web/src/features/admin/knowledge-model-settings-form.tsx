@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -136,7 +137,7 @@ export function KnowledgeModelSettingsForm({
       )}
 
       <form
-        className="grid max-w-none gap-4"
+        className="grid w-full gap-4"
         onSubmit={(event: FormEvent) => {
           event.preventDefault()
           if (readOnly) return
@@ -148,7 +149,10 @@ export function KnowledgeModelSettingsForm({
           save(false)
         }}
       >
-        <div className="grid items-stretch gap-4 xl:grid-cols-2">
+        <div
+          data-slot="model-settings-card"
+          className="grid min-w-0 grid-cols-1 gap-4 rounded-2xl border border-[color:var(--app-border)] bg-card p-4"
+        >
           <fieldset className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
             <legend className="p-0 text-sm leading-5 font-semibold">
               {t("admin.knowledgeModels.embeddingTitle")}
@@ -200,27 +204,15 @@ export function KnowledgeModelSettingsForm({
             </p>
           </fieldset>
 
+          <Separator data-slot="knowledge-model-settings-separator" />
+
           <fieldset className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
             <legend className="p-0 text-sm leading-5 font-semibold">
               {t("admin.knowledgeModels.rerankTitle")}
             </legend>
-            <div className="flex items-start justify-between gap-4 xl:min-h-10">
-              <p className="form-hint">
-                {t("admin.knowledgeModels.rerankSelectionDescription")}
-              </p>
-              <div className="flex shrink-0 items-center gap-2">
-                <Switch
-                  id={`${idPrefix}-rerank-enabled`}
-                  name="knowledge-rerank-enabled"
-                  checked={rerankEnabled}
-                  disabled={readOnly || rerankerModels.length === 0}
-                  onCheckedChange={setRerankEnabled}
-                />
-                <Label htmlFor={`${idPrefix}-rerank-enabled`}>
-                  {t("admin.knowledgeModels.enabled")}
-                </Label>
-              </div>
-            </div>
+            <p className="form-hint xl:min-h-10">
+              {t("admin.knowledgeModels.rerankSelectionDescription")}
+            </p>
             <FieldShell
               id={`${idPrefix}-rerank-model`}
               label={t("admin.knowledgeModels.selectRerankerModel")}
@@ -263,6 +255,21 @@ export function KnowledgeModelSettingsForm({
                 timeout: settings.rerank.timeout_ms,
               })}
             </p>
+            <div
+              data-slot="model-settings-toggle"
+              className="flex items-center gap-2 pt-1"
+            >
+              <Switch
+                id={`${idPrefix}-rerank-enabled`}
+                name="knowledge-rerank-enabled"
+                checked={rerankEnabled}
+                disabled={readOnly || rerankerModels.length === 0}
+                onCheckedChange={setRerankEnabled}
+              />
+              <Label htmlFor={`${idPrefix}-rerank-enabled`}>
+                {t("admin.knowledgeModels.enabled")}
+              </Label>
+            </div>
           </fieldset>
         </div>
 

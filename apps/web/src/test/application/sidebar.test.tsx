@@ -13,6 +13,65 @@ import {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each([
+    ["APPLICATION_NOT_FOUND", "应用不存在或你无权访问。"],
+    ["APPLICATION_DISABLED", "应用已停用，暂时不能开始新任务。"],
+    [
+      "APPLICATION_DEPENDENCY_UNAVAILABLE",
+      "应用依赖的模型、插件/Skill 或知识库当前不可用。",
+    ],
+  ] as const)(
+    "marks only unavailable application tasks and shows their reason (%s)",
+    async (reason, message) => {
+      installApiMock({
+        conversationListResponse: () =>
+          json({
+            success: true,
+            data: {
+              items: conversations.map((item, index) => ({
+                ...item,
+                application:
+                  index === 2
+                    ? null
+                    : {
+                        id: "50000000-0000-4000-8000-000000000001",
+                        name: "应用",
+                        available: index === 1,
+                        unavailable_reason: index === 1 ? null : reason,
+                      },
+              })),
+              next_cursor: null,
+            },
+          }),
+      })
+      renderApp()
+      const sidebar = await screen.findByRole("complementary", {
+        name: "LinkSense 导航",
+      })
+      const warning = await within(sidebar).findByRole("status", {
+        name: "应用不可用，暂时无法发送消息",
+      })
+      expect(warning.closest("a")).toHaveTextContent(conversations[0]!.title)
+      await userEvent.setup().hover(warning)
+      const tooltip = await screen.findByRole("tooltip")
+      expect(tooltip).toHaveTextContent(message)
+      expect(tooltip).toHaveClass(
+        "rounded-md",
+        "border",
+        "border-[var(--app-border)]",
+        "bg-[var(--app-popover)]",
+        "text-[var(--app-text)]",
+        "font-medium"
+      )
+      expect(tooltip.children).toHaveLength(0)
+      expect(
+        within(sidebar).getAllByRole("status", {
+          name: "应用不可用，暂时无法发送消息",
+        })
+      ).toHaveLength(1)
+    }
+  )
+
   it("does not expose rename actions or shortcuts for application-managed tasks", async () => {
     const applicationName = "AISG学校政策问答助手"
     const application = {
@@ -87,7 +146,8 @@ describe("LinkSense application", () => {
     ).toBe(false)
   })
 
-  it("uses native title details and a running indicator in compact task rows", async () => {
+  it("shows the styled task preview on hover and a running indicator in compact task rows", async () => {
+    const interaction = userEvent.setup()
     const longTitle =
       "请创建 artifacts/mcp-e2e-verification 中的完整任务并验证导入结果"
     const updatedAt = "2026-07-13T08:00:00.000Z"
@@ -122,17 +182,16 @@ describe("LinkSense application", () => {
 
     expect(item).not.toBeNull()
     expect(link).not.toBeNull()
+    expect(within(sidebar).getByRole("link", { name: longTitle })).toBe(link)
     expect(link).toHaveClass("sidebar-conversation-link")
-    expect(link).toHaveClass("min-h-9", "py-2")
+    expect(link).toHaveClass("h-8")
+    expect(link).not.toHaveClass("min-h-9", "py-2")
     expect(link).toHaveAttribute("aria-busy", "true")
     expect(title).toHaveClass("sidebar-conversation-title-fade", "font-medium")
     expect(title).not.toHaveClass("truncate")
     expect(title).not.toHaveClass("font-semibold")
     expect(title).not.toHaveAttribute("title")
-    expect(link).toHaveAttribute(
-      "title",
-      `${longTitle}\n${formatRelativeDate(updatedAt, "zh-CN")}`
-    )
+    expect(link).not.toHaveAttribute("title")
     expect(item!.querySelector("time")).toBeNull()
 
     const runningStatus = within(item as HTMLElement).getByRole("status", {
@@ -159,8 +218,8 @@ describe("LinkSense application", () => {
       within(completedItem as HTMLElement).queryByRole("status")
     ).not.toBeInTheDocument()
 
-    const pinButton = within(item as HTMLElement).getByRole("button", {
-      name: /^置顶任务/u,
+    const moreButton = within(item as HTMLElement).getByRole("button", {
+      name: /的更多操作$/u,
     })
     const archiveButton = within(item as HTMLElement).getByRole("button", {
       name: /^归档任务/u,
@@ -170,7 +229,7 @@ describe("LinkSense application", () => {
         name: /^删除任务/u,
       })
     ).not.toBeInTheDocument()
-    for (const button of [pinButton, archiveButton]) {
+    for (const button of [moreButton, archiveButton]) {
       expect(button).toHaveClass(
         "w-5",
         "transition-none",
@@ -180,16 +239,14 @@ describe("LinkSense application", () => {
       )
       expect(button).not.toHaveClass("hover:bg-[var(--app-sidebar-active)]")
     }
-    const pinIcon = pinButton.querySelector("svg")
+    const moreIcon = moreButton.querySelector("svg")
     const archiveIcon = archiveButton.querySelector("svg")
-    expect(pinIcon).toHaveClass("size-4")
-    expect(pinIcon).not.toHaveClass("size-3.5")
-    expect(pinIcon).toHaveAttribute("data-icon", "sidebar-pin")
+    expect(moreIcon).toHaveClass("size-3.5")
     expect(archiveIcon).toHaveClass("size-3.5")
-    expect(pinIcon).toHaveAttribute("stroke-width", "2")
+    expect(moreIcon).toHaveAttribute("stroke-width", "2")
     expect(archiveIcon).toHaveAttribute("stroke-width", "2")
     const actions = archiveButton.parentElement
-    expect(actions).toContainElement(pinButton)
+    expect(actions).toContainElement(moreButton)
     expect(actions).toContainElement(archiveButton)
     expect(actions).toHaveClass(
       "gap-1",
@@ -203,9 +260,19 @@ describe("LinkSense application", () => {
     expect(actions).not.toHaveClass("transition-opacity")
 
     expect(screen.queryByRole("dialog", { name: longTitle })).toBeNull()
+    await interaction.hover(link as HTMLElement)
+    const preview = await screen.findByRole("dialog", { name: longTitle })
+    expect(preview).toHaveClass("sidebar-conversation-preview", "rounded-xl")
+    expect(within(preview).getByText(longTitle)).toBeVisible()
+    expect(preview.querySelector("time")).toHaveAttribute("datetime", updatedAt)
+    expect(preview.querySelector("time")).toHaveTextContent(
+      formatRelativeDate(updatedAt, "zh-CN")
+    )
+    await interaction.unhover(link as HTMLElement)
+    await waitFor(() => expect(preview).not.toBeInTheDocument())
   })
 
-  it("does not mount task preview portals while hovering and switching tasks", async () => {
+  it("keeps task navigation and focus working after hovering the task preview", async () => {
     const interaction = userEvent.setup()
     installApiMock()
     renderApp()
@@ -218,15 +285,19 @@ describe("LinkSense application", () => {
 
     await interaction.hover(link as HTMLElement)
     expect(
-      screen.queryByRole("dialog", { name: conversations[1]!.title })
-    ).toBeNull()
+      await screen.findByRole("dialog", { name: conversations[1]!.title })
+    ).toBeVisible()
 
     await interaction.click(link as HTMLElement)
     expect(link).toHaveFocus()
     await interaction.unhover(link as HTMLElement)
-    expect(
-      screen.queryByRole("dialog", { name: conversations[1]!.title })
-    ).toBeNull()
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: conversations[1]!.title })
+      ).toBeNull()
+    })
+    expect(link).toHaveAttribute("aria-current", "page")
+    expect(link).toHaveFocus()
   })
 
   it("keeps task focus styling stable while another task is hovered", async () => {
@@ -459,7 +530,7 @@ describe("LinkSense application", () => {
     expect(remainingItem).not.toBeNull()
     expect(
       within(remainingItem as HTMLElement).getByRole("button", {
-        name: /^置顶任务/u,
+        name: /的更多操作$/u,
       })
     ).toBeInTheDocument()
     expect(
@@ -497,9 +568,12 @@ describe("LinkSense application", () => {
       ".sidebar-conversation-item"
     )
     expect(taskItem).not.toBeNull()
-    const pinButton = within(taskItem as HTMLElement).getByRole("button", {
-      name: `置顶任务“${taskTitle}”`,
-    })
+    await interaction.click(
+      within(taskItem as HTMLElement).getByRole("button", {
+        name: `${taskTitle}的更多操作`,
+      })
+    )
+    const pinButton = await screen.findByRole("menuitem", { name: "置顶任务" })
     expect(pinButton.querySelector("svg")).toHaveAttribute(
       "data-icon",
       "sidebar-pin"
@@ -529,8 +603,13 @@ describe("LinkSense application", () => {
       .getByText(taskTitle)
       .closest(".sidebar-conversation-item")
     expect(pinnedItem).not.toBeNull()
-    const unpinButton = within(pinnedItem as HTMLElement).getByRole("button", {
-      name: `取消置顶任务“${taskTitle}”`,
+    await interaction.click(
+      within(pinnedItem as HTMLElement).getByRole("button", {
+        name: `${taskTitle}的更多操作`,
+      })
+    )
+    const unpinButton = await screen.findByRole("menuitem", {
+      name: "取消置顶",
     })
     expect(unpinButton.querySelector("svg")).toHaveAttribute(
       "data-icon",
@@ -610,10 +689,10 @@ describe("LinkSense application", () => {
     expect(keyboardActivator.querySelector("svg")).toBeNull()
     expect(firstTask).toHaveClass("cursor-grab")
 
-    const pinButton = within(firstTask).getByRole("button", {
-      name: `置顶任务“${conversations[1]!.title}”`,
+    const moreButton = within(firstTask).getByRole("button", {
+      name: `${conversations[1]!.title}的更多操作`,
     })
-    fireEvent.pointerDown(pinButton, {
+    fireEvent.pointerDown(moreButton, {
       button: 0,
       clientX: 10,
       clientY: 10,
@@ -660,10 +739,13 @@ describe("LinkSense application", () => {
 
     await interaction.click(
       within(taskItem as HTMLElement).getByRole("button", {
-        name: `取消置顶任务“${task.title}”`,
+        name: `${task.title}的更多操作`,
       })
     )
 
+    await interaction.click(
+      await screen.findByRole("menuitem", { name: "取消置顶" })
+    )
     const dialog = await screen.findByRole("dialog", {
       name: "无法取消置顶",
     })
@@ -816,6 +898,47 @@ describe("LinkSense application", () => {
     await interaction.click(searchButton)
     expect(await screen.findByRole("dialog", { name: "搜索" })).toBeVisible()
   })
+
+  it.each(["mobile", "desktop"] as const)(
+    "restricts the %s task list to vertical scrolling with long titles",
+    async (layout) => {
+      const longTitle = "移动端侧边栏长任务标题".repeat(20)
+      installApiMock({
+        conversationListResponse: () =>
+          json({
+            success: true,
+            data: {
+              items: [{ ...conversations[0], title: longTitle }],
+              next_cursor: null,
+            },
+          }),
+      })
+      renderApp()
+      if (layout === "mobile") {
+        await userEvent
+          .setup()
+          .click(await screen.findByRole("button", { name: "打开导航" }))
+      }
+      const sidebar = await screen.findByRole(
+        layout === "mobile" ? "dialog" : "complementary",
+        { name: layout === "mobile" ? "LinkSense" : "LinkSense 导航" }
+      )
+      const title = await within(sidebar).findByText(longTitle)
+      const scroller = title.closest(".sidebar-conversation-scroll")
+
+      // JSDOM has no layout engine; assert the scroll and shrink constraints.
+      expect(scroller).toHaveClass(
+        "overflow-x-hidden",
+        "overflow-y-auto",
+        "min-w-0"
+      )
+      expect(scroller?.parentElement).toHaveClass("min-w-0", "overflow-hidden")
+      expect(title).toHaveClass("min-w-0", "sidebar-conversation-title-fade")
+      expect(
+        within(sidebar).getByRole("link", { name: longTitle })
+      ).toHaveAttribute("href", `/conversations/${conversations[0]!.id}`)
+    }
+  )
 
   it("aligns the mobile navigation close control with the sidebar controls", async () => {
     installApiMock()
@@ -1098,8 +1221,11 @@ describe("LinkSense application", () => {
       name: "插件中心",
     })
     const knowledgeBasesLink = within(sidebar).getByRole("link", {
-      name: "文件库",
+      name: "资料库",
     })
+    expect(knowledgeBasesLink.querySelector("svg")).toHaveClass(
+      "lucide-library-big"
+    )
 
     expect(taskScroller).not.toBeNull()
     expect(taskScroller?.contains(newTaskLink)).toBe(false)
@@ -1165,7 +1291,7 @@ describe("LinkSense application", () => {
       name: "插件中心",
     })
     const knowledgeBaseLink = within(sidebar).getByRole("link", {
-      name: "文件库",
+      name: "资料库",
     })
     expect(automationLink).toHaveAttribute("href", "/automations")
     expect(pluginLink).toHaveAttribute("href", "/capabilities")

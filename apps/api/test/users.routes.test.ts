@@ -674,10 +674,12 @@ describe("own profile route", () => {
     const getPersonalization = vi.fn(async () => ({
       custom_instructions: "请优先使用中文。",
       memories_enabled: true,
+      task_auto_naming: "first_message",
     }));
     const updatePersonalization = vi.fn(async () => ({
       custom_instructions: "请保持简洁。",
       memories_enabled: false,
+      task_auto_naming: "every_message",
     }));
     const resetMemories = vi.fn(async () => ({ reset: true as const }));
     const app = Fastify();
@@ -711,6 +713,7 @@ describe("own profile route", () => {
       payload: {
         custom_instructions: "请保持简洁。",
         memories_enabled: false,
+        task_auto_naming: "every_message",
       },
     });
     const reset = await app.inject({
@@ -723,11 +726,13 @@ describe("own profile route", () => {
     expect(read.json().data).toEqual({
       custom_instructions: "请优先使用中文。",
       memories_enabled: true,
+      task_auto_naming: "first_message",
     });
     expect(update.statusCode).toBe(200);
     expect(update.json().data).toEqual({
       custom_instructions: "请保持简洁。",
       memories_enabled: false,
+      task_auto_naming: "every_message",
     });
     expect(reset.statusCode).toBe(200);
     expect(reset.json().data).toEqual({ reset: true });
@@ -735,6 +740,7 @@ describe("own profile route", () => {
     expect(updatePersonalization).toHaveBeenCalledWith("user-1", {
       custom_instructions: "请保持简洁。",
       memories_enabled: false,
+      task_auto_naming: "every_message",
     });
     expect(resetMemories).toHaveBeenCalledWith("user-1");
   });

@@ -16,6 +16,89 @@ afterEach(() => {
 })
 
 describe("EmbedSessionClient", () => {
+  it.each(["public", "required"] as const)(
+    "reports maintenance without reauthenticating or replaying a %s session request",
+    async (mode) => {
+      vi.useFakeTimers()
+      vi.setSystemTime(BASE_TIME)
+      let maintenance = false
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path.endsWith("/sessions/exchange"))
+          return successEnvelope(tokenPair("initial", BASE_TIME))
+        if (path.endsWith("/public-sessions"))
+          return successEnvelope({
+            session_id: SESSION_ID,
+            session_expires_at: "2026-08-14T00:00:00.000Z",
+          })
+        if (maintenance)
+          return Response.json(
+            { success: false, error_code: "SYSTEM_MAINTENANCE_ACTIVE" },
+            { status: 503 }
+          )
+        return successEnvelope({ accepted: true })
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      const onMaintenance = vi.fn()
+      const onAuthenticationRequired = vi.fn()
+      const client = new EmbedSessionClient(ORIGIN, {
+        onMaintenance,
+        onAuthenticationRequired,
+        onConnectionStateChange: vi.fn(),
+      })
+      if (mode === "public")
+        await client.startPublicSession("lsa_application_identifier_1234")
+      else await client.acceptTicket(`lst_${"t".repeat(64)}`)
+      maintenance = true
+      const count = fetchMock.mock.calls.length
+      await expect(
+        client.request("/api/v1/embed/session/turns", z.unknown(), {
+          method: "POST",
+        })
+      ).rejects.toMatchObject({
+        status: 503,
+        code: "SYSTEM_MAINTENANCE_ACTIVE",
+      })
+      expect(onMaintenance).toHaveBeenCalledTimes(1)
+      expect(onAuthenticationRequired).not.toHaveBeenCalled()
+      expect(fetchMock).toHaveBeenCalledTimes(count + 1)
+      expect(client.authenticated).toBe(true)
+      maintenance = false
+      await expect(
+        client.request("/api/v1/embed/session", z.unknown())
+      ).resolves.toEqual({ accepted: true })
+      client.destroy()
+    }
+  )
+
+  it("reports maintenance during initial authentication without asking the host to authenticate again", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { success: false, error_code: "SYSTEM_MAINTENANCE_ACTIVE" },
+          { status: 503 }
+        )
+      )
+    )
+    const onMaintenance = vi.fn()
+    const onAuthenticationRequired = vi.fn()
+    const client = new EmbedSessionClient(ORIGIN, {
+      onMaintenance,
+      onAuthenticationRequired,
+      onConnectionStateChange: vi.fn(),
+    })
+    await expect(
+      client.acceptTicket(`lst_${"t".repeat(64)}`)
+    ).rejects.toMatchObject({ code: "SYSTEM_MAINTENANCE_ACTIVE" })
+    await expect(
+      client.startPublicSession("lsa_application_identifier_1234")
+    ).rejects.toMatchObject({ code: "SYSTEM_MAINTENANCE_ACTIVE" })
+    expect(onMaintenance).toHaveBeenCalledTimes(2)
+    expect(onAuthenticationRequired).not.toHaveBeenCalled()
+    client.destroy()
+  })
+
   it("binds the business session id through the authenticated embed session without persisting it", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(BASE_TIME)

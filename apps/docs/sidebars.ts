@@ -28,6 +28,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/tasks/create-and-run",
             "user-guide/tasks/plan-mode",
             "user-guide/tasks/goal-tasks",
+            "user-guide/tasks/task-categories",
             "user-guide/tasks/files-and-results",
             "user-guide/tasks/file-annotations",
             "user-guide/tasks/voice-input",
@@ -91,14 +92,6 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
-      label: "开发者指南",
-      items: [
-        "developer-guide/interactive-application",
-        "developer-guide/embed-application",
-      ],
-    },
-    {
-      type: "category",
       label: "管理员指南",
       link: {
         type: "doc",
@@ -131,6 +124,14 @@ const sidebars: SidebarsConfig = {
         "admin-guide/audit",
         "admin-guide/usage",
         "admin-guide/system-update",
+      ],
+    },
+    {
+      type: "category",
+      label: "开发者指南",
+      items: [
+        "developer-guide/interactive-application",
+        "developer-guide/embed-application",
       ],
     },
   ],

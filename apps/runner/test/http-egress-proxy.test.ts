@@ -167,6 +167,53 @@ describe("personal MCP HTTP egress proxy", () => {
       })
     )
   })
+
+  it("contains exceptions while forwarding response headers and closes the failed stream", async () => {
+    configureResponse(200, { "content-type": "application/json" })
+    const reply = fakeReply()
+    reply.raw.writeHead.mockImplementation(() => {
+      throw new TypeError("invalid upstream header")
+    })
+
+    await expect(proxyUserMcpHttpRequest(target(), fakeRequest({}), reply))
+      .rejects.toMatchObject({ code: "UPSTREAM_UNAVAILABLE" })
+    expect(reply.raw.destroyed).toBe(true)
+  })
+
+  it("closes both sides and releases request listeners when the upstream aborts", async () => {
+    configureAbortedResponse()
+    const request = fakeRequest({})
+    const reply = fakeReply()
+    await expect(proxyUserMcpHttpRequest(target(), request, reply))
+      .rejects.toMatchObject({ code: "UPSTREAM_UNAVAILABLE" })
+    expect(request.raw.listenerCount("aborted")).toBe(0)
+    expect(reply.raw.destroyed).toBe(true)
+  })
+
+  it("contains a downstream write failure without breaking the next proxy request", async () => {
+    configureResponse(200, {})
+    const request = fakeRequest({})
+    const reply = fakeReply()
+    reply.raw.writeHead.mockImplementation(() => {
+      queueMicrotask(() => reply.raw.destroy(new Error("client disconnected")))
+    })
+    await expect(proxyUserMcpHttpRequest(target(), request, reply))
+      .rejects.toMatchObject({ code: "UPSTREAM_UNAVAILABLE" })
+    expect(request.raw.listenerCount("aborted")).toBe(0)
+
+    await expect(proxyUserMcpHttpRequest(target(), fakeRequest({}), fakeReply())).resolves.toBeUndefined()
+  })
+
+  it("forwards a bodyless 204 response without failing subsequent requests", async () => {
+    configureResponse(204, {})
+    const reply = fakeReply()
+    const request = fakeRequest({})
+    await expect(proxyUserMcpHttpRequest(target(), request, reply)).resolves.toBeUndefined()
+    expect(reply.raw.writeHead).toHaveBeenCalledWith(204, {})
+    expect(request.raw.listenerCount("aborted")).toBe(0)
+    configureResponse(200, {})
+    await expect(proxyUserMcpHttpRequest(target(), fakeRequest({}), fakeReply())).resolves.toBeUndefined()
+  })
 })
 
 function target() {
@@ -243,7 +290,7 @@ function configureResponse(
           incoming.statusCode = statusCode
           incoming.headers = headers
           callback(incoming)
-          incoming.end(JSON.stringify({ jsonrpc: "2.0", result: {} }))
+          incoming.end(statusCode === 204 ? undefined : JSON.stringify({ jsonrpc: "2.0", result: {} }))
         })
       }
       return outgoing

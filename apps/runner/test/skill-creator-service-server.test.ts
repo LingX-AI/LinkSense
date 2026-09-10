@@ -62,12 +62,15 @@ describe("LinkSense Core MCP Skill creator module", () => {
       }),
     ).resolves.toMatchObject({
       serverInfo: { name: "linksense_core" },
-      instructions: expect.stringContaining("explicitly confirms"),
+      instructions: expect.stringContaining("Follow each tool's description and parameter schema"),
     })
     await expect(rpc.call(2, "tools/list", {})).resolves.toMatchObject({
       tools: expect.arrayContaining([
         expect.objectContaining({ name: "preview_skill_zip" }),
-        expect.objectContaining({ name: "install_skill" }),
+        expect.objectContaining({
+          name: "install_skill",
+          description: expect.stringContaining("Call only after the user explicitly confirms that preview"),
+        }),
       ]),
     })
     await expect(

@@ -5,6 +5,24 @@ import { getErrorMessage } from "@/api/error-message"
 import i18n from "@/i18n"
 
 describe("getErrorMessage", () => {
+  it.each([
+    ["APPLICATION_NOT_FOUND", "notFound"],
+    ["APPLICATION_DISABLED", "disabled"],
+    ["APPLICATION_DEPENDENCY_UNAVAILABLE", "dependencyUnavailable"],
+  ] as const)("localizes %s without a server message key", (errorCode, key) => {
+    const error = new ApiError({ status: 409, errorCode })
+    for (const language of ["zh-CN", "en-US"]) {
+      const t = i18n.getFixedT(language)
+      expect(getErrorMessage(error, t)).toBe(t(`errors.application.${key}`))
+      expect(getErrorMessage(error, t)).not.toContain("errors.application.")
+    }
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(getErrorMessage(error, instance.getFixedT("en-US"))).toBe(
+      i18n.t(`errors.application.${key}`, { lng: "zh-CN" })
+    )
+  })
+
   it("translates ClawHub preview admission errors without exposing raw details", () => {
     const message = getErrorMessage(
       new ApiError({

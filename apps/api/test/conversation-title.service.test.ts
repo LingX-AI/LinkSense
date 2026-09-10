@@ -145,7 +145,7 @@ describe("ConversationTitleService", () => {
     expect(fixture.tx.conversation.updateMany).not.toHaveBeenCalled()
   })
 
-  it("upgrades an existing external application title into an automatic task title", async () => {
+  it("preserves a manual name even when it matches an external application name", async () => {
     const fixture = titleFixture("manual", undefined, {
       title: "ManageBac助手",
       applicationId: "30000000-0000-4000-8000-000000000001",
@@ -155,19 +155,116 @@ describe("ConversationTitleService", () => {
 
     await fixture.service.refresh(CONVERSATION_ID)
 
-    expect(fixture.tx.conversation.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: CONVERSATION_ID,
-        titleSource: "manual",
-        title: "ManageBac助手",
-      },
-      data: { title: "任务自动命名", titleSource: "generated" },
-    })
+    expect(fixture.tx.conversation.updateMany).not.toHaveBeenCalled()
+    expect(fixture.generator.generate).not.toHaveBeenCalled()
   })
 
   it("never calls the provider for an already generated task title", async () => {
     const fixture = titleFixture("generated")
     await fixture.service.refresh(CONVERSATION_ID)
+    expect(fixture.generator.generate).not.toHaveBeenCalled()
+    expect(fixture.tx.conversation.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("renames generated titles with context only for new messages in every-message mode", async () => {
+    const fixture = titleFixture(
+      "generated",
+      [
+        { role: "user", contentText: "实现任务自动命名" },
+        { role: "assistant", contentText: "已完成实现" },
+        { role: "user", contentText: "继续实现" },
+      ],
+      {},
+      "every_message",
+    )
+    const request = [{ role: "user" as const, content: "继续实现" }]
+    await fixture.service.refresh(CONVERSATION_ID, undefined, request)
+    expect(fixture.personalization.getPersonalization).toHaveBeenCalledWith(
+      OWNER_ID,
+    )
+    expect(fixture.generator.generate).toHaveBeenCalledWith([
+      { role: "user", content: "实现任务自动命名" },
+      { role: "assistant", content: "已完成实现" },
+      { role: "user", content: "继续实现" },
+    ])
+    expect(fixture.tx.conversation.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: CONVERSATION_ID,
+        titleSource: "generated",
+        title: "未命名任务",
+      },
+      data: { title: "任务自动命名", titleSource: "generated" },
+    })
+    await fixture.service.refresh(CONVERSATION_ID)
+    expect(fixture.generator.generate).toHaveBeenCalledOnce()
+    fixture.personalization.getPersonalization.mockResolvedValue({
+      custom_instructions: "",
+      memories_enabled: true,
+      task_auto_naming: "first_message",
+    })
+    await fixture.service.refresh(CONVERSATION_ID, undefined, request)
+    expect(fixture.generator.generate).toHaveBeenCalledOnce()
+  })
+
+  it("preserves manual titles in every-message mode and concurrent manual edits", async () => {
+    const fixture = titleFixture("manual", undefined, {}, "every_message")
+    const request = [{ role: "user" as const, content: "新请求" }]
+    await fixture.service.refresh(CONVERSATION_ID, undefined, request)
+    expect(fixture.generator.generate).not.toHaveBeenCalled()
+    const concurrent = titleFixture(
+      "generated",
+      undefined,
+      {},
+      "every_message",
+    )
+    concurrent.tx.conversation.updateMany.mockResolvedValue({ count: 0 })
+    await concurrent.service.refresh(CONVERSATION_ID, undefined, request)
+    expect(concurrent.tx.conversation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: CONVERSATION_ID,
+          titleSource: "generated",
+          title: "未命名任务",
+        },
+      }),
+    )
+    expect(concurrent.redis.publishConversationEvent).not.toHaveBeenCalled()
+  })
+
+  it("processes a queued new message after successful naming even when completion arrives", async () => {
+    const fixture = titleFixture("generated", undefined, {}, "every_message")
+    let finish!: (result: ReturnType<typeof generatedTitle>) => void
+    fixture.generator.generate.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
+    fixture.service.scheduleForUserMessage(CONVERSATION_ID, "第一次请求")
+    await vi.waitFor(() =>
+      expect(fixture.generator.generate).toHaveBeenCalledOnce(),
+    )
+    fixture.service.scheduleForUserMessage(CONVERSATION_ID, "第二次请求")
+    fixture.service.schedule(CONVERSATION_ID)
+    finish(generatedTitle("第一次命名"))
+    await vi.waitFor(() =>
+      expect(fixture.generator.generate).toHaveBeenCalledTimes(2),
+    )
+    await vi.waitFor(() =>
+      expect(fixture.redis.publishConversationEvent).toHaveBeenCalledTimes(2),
+    )
+  })
+
+  it("keeps naming best-effort when personalization cannot be read", async () => {
+    const fixture = titleFixture("generated", undefined, {}, "every_message")
+    fixture.personalization.getPersonalization.mockRejectedValue(
+      new Error("unavailable"),
+    )
+    fixture.service.scheduleForUserMessage(CONVERSATION_ID, "新请求")
+    await vi.waitFor(() =>
+      expect(
+        fixture.personalization.getPersonalization,
+      ).toHaveBeenCalledOnce(),
+    )
     expect(fixture.generator.generate).not.toHaveBeenCalled()
     expect(fixture.tx.conversation.updateMany).not.toHaveBeenCalled()
   })
@@ -283,6 +380,7 @@ function titleFixture(
     applicationNameSnapshot?: string | null
     accountType?: string
   } = {},
+  taskAutoNaming: "first_message" | "every_message" = "first_message",
 ) {
   const createdAt = new Date("2026-07-15T00:00:00.000Z")
   const tx = {
@@ -322,7 +420,7 @@ function titleFixture(
       })),
     },
     conversationMessage: {
-      findMany: vi.fn(async () => messages),
+      findMany: vi.fn(async () => [...messages].reverse()),
     },
     user,
     $transaction: vi.fn(
@@ -340,7 +438,15 @@ function titleFixture(
   const usageRecorder = {
     recordModelUsage: vi.fn(async () => ({ recorded: true })),
   }
+  const personalization = {
+    getPersonalization: vi.fn(async () => ({
+      custom_instructions: "",
+      memories_enabled: true,
+      task_auto_naming: taskAutoNaming,
+    })),
+  }
   return {
+    personalization,
     prisma,
     tx,
     redis,
@@ -352,6 +458,7 @@ function titleFixture(
       redis as never,
       generator as never,
       usageRecorder as never,
+      personalization,
     ),
   }
 }

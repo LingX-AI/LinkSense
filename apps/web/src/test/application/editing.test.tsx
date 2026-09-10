@@ -13,6 +13,63 @@ import {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each(["zh-CN", "en-US"] as const)(
+    "shows the service failure and allows an explicit fork retry with the same operation in %s",
+    async (language) => {
+      let unavailable = true
+      const { requests } = installApiMock({
+        initialLanguage: language,
+        forkResponse: () =>
+          unavailable
+            ? json({ success: false, error_code: "RUNNER_UNAVAILABLE" }, 503)
+            : undefined,
+        conversationOverride: {
+          execution_status: "completed",
+          messages: [
+            {
+              id: "m2",
+              role: "assistant",
+              turn_id: "turn-1",
+              phase: "final_answer",
+              content: "原始风险评估。",
+            },
+          ],
+          turns: [{ id: "turn-1", status: "completed" }],
+          running_turn: null,
+          pending_requests: [],
+        },
+      })
+      const interaction = userEvent.setup()
+      renderApp()
+      const buttonName =
+        language === "zh-CN" ? "分支到新聊天" : "Branch to new chat"
+      const button = await screen.findByRole("button", { name: buttonName })
+      await interaction.click(button)
+      const errorMessage =
+        language === "zh-CN"
+          ? "执行服务暂不可用，请稍后重试。"
+          : "The execution service is unavailable. Try again later."
+      expect(
+        await screen.findByText(errorMessage.replace(/[。.]+$/u, ""))
+      ).toBeVisible()
+      const forkRequests = () =>
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/c1/messages/m2/fork" &&
+            request.method === "POST"
+        )
+      expect(forkRequests()).toHaveLength(1)
+      unavailable = false
+      await interaction.click(button)
+      expect(await screen.findByText("活动风险评估(2)已加载。")).toBeVisible()
+      expect(forkRequests()).toHaveLength(2)
+      expect(forkRequests()[1]?.body).toEqual(forkRequests()[0]?.body)
+      expect(forkRequests()[0]?.body).toEqual({
+        idempotency_key: expect.any(String),
+      })
+    }
+  )
+
   it("regenerates from the edited latest user message without changing the composer draft", async () => {
     seedLocalDraft("c1", { input: "输入框里保留的草稿" })
     const { requests } = installApiMock({
@@ -778,8 +835,12 @@ describe("LinkSense application", () => {
     )
     await interaction.keyboard("{Enter}")
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "最多只能保留 5 条后续请求，请先处理已有请求。"
+    const error = await screen.findByText(
+      "最多只能保留 5 条后续请求，请先处理已有请求"
+    )
+    expect(error.closest("[data-sonner-toast]")).toHaveAttribute(
+      "data-type",
+      "error"
     )
     expect(screen.getByRole("textbox", { name: "任务输入框" })).toHaveValue(
       "只补充一条文字说明"
@@ -825,7 +886,7 @@ describe("LinkSense application", () => {
     )
     expect(
       await screen.findByText(
-        "当前补充包含附件或指定插件/Skill，已自动排队为下一条请求。"
+        "当前补充包含附件或指定插件/Skill，已自动排队为下一条请求"
       )
     ).toBeVisible()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()

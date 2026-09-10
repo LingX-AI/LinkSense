@@ -725,9 +725,10 @@ export interface KnowledgeStore {
     reason: string;
     now: Date;
   }): Promise<DeleteKnowledgeDocumentResult>;
+  /** Omit requestedIds to resolve all current access; an explicit array filters it. */
   resolveUsableKnowledgeBaseIds(
     actorId: string,
-    requestedIds: string[],
+    requestedIds?: string[],
   ): Promise<string[]>;
   persistTurnKnowledgeBaseSnapshot(input: {
     turnId: string;

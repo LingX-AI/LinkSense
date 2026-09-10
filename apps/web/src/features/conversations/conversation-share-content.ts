@@ -1,82 +1,71 @@
-import type { Conversation, ConversationMessage } from "@/api/contracts"
+import {
+  conversationShareSnapshotSchema,
+  uuidSchema,
+  type ConversationShareSnapshot,
+} from "@linksense/shared"
+
+import { conversationDetailSchema, type Conversation } from "@/api/contracts"
+import { getConversationMessageDisplayText } from "@/features/conversations/conversation-message-display"
+
+export function captureConversationShareSnapshot(
+  conversation: Conversation
+): ConversationShareSnapshot {
+  const messages = (conversation.messages ?? []).filter(
+    (message) => uuidSchema.safeParse(message.id).success
+  )
+  // Use only files already attached to the visible messages. Staged uploads and
+  // results belonging to unloaded history are outside this sharing session.
+  const files = new Map(
+    messages.flatMap((message) =>
+      [...(message.attachments ?? []), ...(message.artifacts ?? [])].map(
+        (file) => [file.id, file] as const
+      )
+    )
+  )
+  const messageTurnIds = new Set(messages.map((message) => message.turn_id))
+  return conversationShareSnapshotSchema.parse({
+    conversation,
+    messages: messages.map((message) => ({
+      ...message,
+      content_text: getConversationMessageDisplayText(message),
+    })),
+    turns: (conversation.turns ?? []).filter((turn) =>
+      messageTurnIds.has(turn.id)
+    ),
+    files: [...files.values()].map((file) => ({
+      ...file,
+      filename: file.name,
+      size_bytes: file.size,
+    })),
+    activities: [],
+    events: [],
+    turn_file_change_counts: conversation.turn_file_change_counts ?? {},
+  })
+}
 
 export function projectConversationForSharing(
   conversation: Conversation
 ): Conversation {
-  const sourceMessages = conversation.messages ?? []
-  const sourceTurns = conversation.turns ?? []
-  const finalMessageIdByTurn = new Map<string | null, string>()
-  const excludedAssistantMessageIds = new Set<string>()
-  const assistantMessagesByTurn = new Map<
-    string | null,
-    ConversationMessage[]
-  >()
-
-  for (const message of sourceMessages) {
-    if (message.role !== "assistant") continue
-    const turnId = message.turn_id ?? null
-    const messages = assistantMessagesByTurn.get(turnId) ?? []
-    messages.push(message)
-    assistantMessagesByTurn.set(turnId, messages)
-    if (message.phase === "final_answer") {
-      finalMessageIdByTurn.set(turnId, message.id)
-    } else if (
-      message.phase === "commentary" ||
-      message.output_kind === "plan"
-    ) {
-      excludedAssistantMessageIds.add(message.id)
-    }
-  }
-
-  const turnStatusById = new Map(
-    sourceTurns.map((turn) => [turn.id, turn.status])
+  return projectConversationShareSnapshot(
+    captureConversationShareSnapshot(conversation)
   )
-  for (const [turnId, messages] of assistantMessagesByTurn) {
-    if (finalMessageIdByTurn.has(turnId)) continue
-    if (turnId && turnStatusById.get(turnId) === "running") continue
-    const fallback = [...messages]
-      .reverse()
-      .find((message) => !excludedAssistantMessageIds.has(message.id))
-    if (fallback) finalMessageIdByTurn.set(turnId, fallback.id)
-  }
+}
 
-  const finalMessageIds = new Set(finalMessageIdByTurn.values())
-  const sharedTurnIds = new Set<string>()
-  const messages: ConversationMessage[] = []
-  for (const message of sourceMessages) {
-    if (message.role === "system") continue
-    if (message.role !== "assistant") {
-      messages.push({ ...message, created_at: undefined })
-      continue
-    }
-    if (!finalMessageIds.has(message.id)) continue
-    if (message.turn_id) sharedTurnIds.add(message.turn_id)
-    messages.push({
+export function projectConversationShareSnapshot(
+  snapshot: ConversationShareSnapshot
+): Conversation {
+  const projected = conversationDetailSchema.parse({
+    ...snapshot,
+    conversation: { ...snapshot.conversation, category_id: null },
+  })
+  return {
+    ...projected,
+    messages: projected.messages?.map((message) => ({
       ...message,
       created_at: undefined,
-      phase: "final_answer",
-      output_kind: "agent_message",
-    })
-  }
-
-  return {
-    ...conversation,
-    messages,
-    turns: sourceTurns
-      .filter((turn) => sharedTurnIds.has(turn.id))
-      .map((turn) => ({
-        ...turn,
-        model: null,
-        reasoning_effort: null,
-      })),
+    })),
+    // A snapshot has no live execution to follow. Keep completed timing only.
+    turns: projected.turns?.filter((turn) => turn.status !== "running"),
     running_turn: null,
-    activities: [],
-    events: [],
-    pending_requests: [],
-    user_input_requests: [],
-    plan_reviews: [],
-    loaded_capabilities: [],
-    priority_capabilities: [],
-    used_capabilities: [],
   }
 }

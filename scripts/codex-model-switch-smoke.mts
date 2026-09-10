@@ -60,6 +60,9 @@ const requests: Array<{
 }> = [];
 let sourceGeneratedRequestCount = 0;
 let targetGeneratedRequestCount = 0;
+const compactionNotifications: Partial<Record<"item/started" | "item/completed", JsonObject>> = {};
+let compactionResponseReleased = false;
+let compactionCompletedBeforeResponse = false;
 
 const upstream = createServer((request, response) => {
   void handleUpstream(request, response).catch((error: unknown) => {
@@ -194,6 +197,15 @@ try {
     transitionNonce,
   );
   const targetClient = createClient(targetLease.token);
+  targetClient.on("notification", (notification: JsonRpcNotification) => {
+    if (notification.method !== "item/started" && notification.method !== "item/completed") return;
+    const params = notification.params;
+    if (!isRecord(params) || !isRecord(params.item) || params.item.type !== "contextCompaction") return;
+    compactionNotifications[notification.method] = params;
+    if (notification.method === "item/completed" && !compactionResponseReleased) {
+      compactionCompletedBeforeResponse = true;
+    }
+  });
   let compactTurnId: string;
   let targetThreadId: string;
   let targetTurnId: string;
@@ -249,6 +261,14 @@ try {
         baselineTurnIds,
       );
       compactTurnId = compactTurn.id;
+      for (const method of ["item/started", "item/completed"] as const) {
+        if (compactionNotifications[method]?.turnId !== compactTurnId) {
+          throw new Error(`native compaction did not stream ${method}`);
+        }
+      }
+      if (compactionCompletedBeforeResponse) {
+        throw new Error("native compaction completed before the upstream response");
+      }
     } finally {
       targetLease.setManualModelTransitionCompaction(false);
     }
@@ -343,6 +363,7 @@ try {
       targetRequestCount: targetRequests.length,
       encryptedReasoningSeenBySourceCompaction: true,
       encryptedReasoningSeenByTarget: false,
+      compactionStartReceivedBeforeUpstreamResponse: true,
     }),
   );
 } finally {
@@ -434,6 +455,17 @@ async function handleUpstream(
       ) {
         throw new Error("source compaction metadata was not native manual mode");
       }
+      // Keep the actual upstream response pending until app-server emits the
+      // start notification. Checking only thread/read after completion cannot
+      // establish that clients can show progress while compaction is running.
+      const startDeadline = Date.now() + 5_000;
+      while (!compactionNotifications["item/started"]) {
+        if (Date.now() >= startDeadline) {
+          throw new Error("native compaction start was not streamed while the upstream response was pending");
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      }
+      compactionResponseReleased = true;
       writeEvents(
         response,
         buildResponsesTextEvents(

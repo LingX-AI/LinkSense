@@ -21,5 +21,14 @@ Include the time, reproducible steps, visible error code, and impact when possib
 
 ## What happens next
 
-A successful submission means the feedback was stored; it does not mean the issue was automatically fixed or that a response is guaranteed within a set time. Active administrators can read the text and images and can permanently delete the feedback. For urgent support, also use your organization's approved support channel.
+A successful submission means the feedback was stored; it does not mean the issue was automatically fixed or that a response is guaranteed within a set time. Active administrators can read and reply to feedback and permanently delete it along with its replies. For urgent support, also use your organization's approved support channel.
 
+
+## View your feedback
+
+Open **Settings → My feedback**, immediately below **Archived tasks**, to view your own submissions, newest first. Each row shows its reply status:
+
+- **Awaiting reply**: No administrator has replied yet.
+- **Replied**: An administrator has sent at least one reply.
+
+Select **View** to read the original feedback, images, and chronological replies. Select an image to enlarge it. **Replied** does not mean the issue is resolved or indicate whether you have read the reply. Select **Refresh** to load the latest updates.

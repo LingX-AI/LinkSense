@@ -18,6 +18,7 @@ import {
   type RunnerSubAgentReadRuntimeInput,
 } from "../../adapters/runner.js";
 import type { LinkSenseRedis } from "../../adapters/redis.js";
+import { lockOwnedTaskCategory } from "../task-categories/repository.js";
 import { AppError } from "../../lib/errors.js";
 import { truncateConversationTitle } from "../../lib/conversation-title.js";
 import { ensureSharedWorkspaceDirectory } from "../../lib/shared-workspace-directory.js";
@@ -29,6 +30,10 @@ import {
 import type { AuditContext, AuditService } from "../audit/service.js";
 import { restoreUnreferencedVersionCleanupEligibility } from "../knowledge/retention.js";
 import type { KnowledgeStore } from "../knowledge/types.js";
+import { resolveRunnerKnowledgeSelection } from "./knowledge-selection.js";
+import { extractReferencedSources, mergeReferencedSources } from "./referenced-sources.js";
+import type { ConversationTitleService } from "./title-service.js";
+import type { ConversationPrewarmInput } from "./prewarm.js";
 import {
   builtInCapabilityDefinitionForId,
   capabilitySelectionIdSchema,
@@ -43,6 +48,11 @@ import {
   conversationFormUiHintsSchema,
   officeAnnotationRequestText,
   conversationCollaborationModeSchema,
+  CONVERSATION_HISTORY_PAGE_TURN_LIMIT,
+  type ConversationHistoryQuery,
+  type ConversationHistoryPage,
+  type ConversationSource,
+  type ConversationSources,
   conversationEventSchema,
   conversationPlanReviewActionSchema,
   conversationPlanReviewStatusSchema,
@@ -59,7 +69,6 @@ import {
   RUNNER_TURN_INTERRUPT_REQUESTED,
   userMessageDisplaySchema,
   type HtmlAnnotation,
-  type ApplicationIcon,
   type ConversationCollaborationMode,
   type ConversationOrderGroup,
   type ConversationPlanReviewAction,
@@ -68,6 +77,8 @@ import {
   type PublicKnowledgeCitation,
   type ReasoningEffort,
   type OfficeAnnotationInput,
+  type OfficeAnnotationDisplay,
+  type InteractiveApplicationMessageSource,
   type PresentationAnnotation,
   type PresentationAnnotationInput,
   type SpreadsheetAnnotation,
@@ -82,6 +93,7 @@ import {
   workspacePermissionPolicy,
 } from "@linksense/shared";
 import { capabilityPackageNameSchema } from "../capabilities/package-name.js";
+import type { ApplicationTaskMetadata } from "../applications/service.js";
 import type { CapabilityRuntimeVerification } from "../capabilities/user-home-materializer.js";
 import { nextConversationEventSequence } from "../events/sequence.js";
 import type {
@@ -151,10 +163,10 @@ export interface ConversationApplicationResolver {
     actorId: string,
     applicationId: string,
   ): Promise<boolean>;
-  resolveDisplayIcons?(
+  resolveTaskMetadata?(
     actorId: string,
     applicationIds: readonly string[],
-  ): Promise<ReadonlyMap<string, ApplicationIcon>>;
+  ): Promise<ReadonlyMap<string, ApplicationTaskMetadata>>;
 }
 
 export type CapabilityResolutionScope = {
@@ -168,6 +180,7 @@ export interface ConversationPreflight {
   ensureUserHome(userId: string): Promise<void>;
   resolve(input: {
     userId: string;
+    conversationId: string;
     priorityCapabilityIds: string[];
     capabilityScope?: CapabilityResolutionScope;
   }): Promise<{
@@ -210,6 +223,7 @@ export interface ConversationPreflight {
   withCapabilityStartBarrier<T>(
     input: {
       userId: string;
+      conversationId: string;
       priorityCapabilityIds: string[];
       capabilities: ExecutionCapability[];
       capabilityGeneration: string;
@@ -255,11 +269,7 @@ function projectRunnerCapabilities(
 
 export interface RuntimeCleanupScheduler {
   enqueueRuntimeCleanup(ownerId: string, conversationId: string): Promise<void>;
-  enqueueConversationPrewarm(input: {
-    ownerId: string;
-    conversationId: string;
-    collaborationMode: ConversationCollaborationMode;
-  }): Promise<void>;
+  enqueueConversationPrewarm(input: ConversationPrewarmInput): Promise<void>;
 }
 
 type TurnSubmissionBase = {
@@ -284,6 +294,7 @@ export type TurnSubmission = TurnSubmissionBase &
   (
     | {
         inputText: string;
+        messageSource?: InteractiveApplicationMessageSource;
         officeAnnotation?: never;
         presentationAnnotation?: never;
       }
@@ -399,8 +410,6 @@ const PLAN_OUTPUT_MISSING_ERROR_CODE = "PLAN_OUTPUT_MISSING";
 const ACCEPTED_START_RECOVERY_WINDOW_MILLISECONDS = 60_000;
 const ACCEPTED_START_RECOVERY_POLL_MILLISECONDS = 250;
 const START_INTENT_RECOVERY_LOCK_TTL_MILLISECONDS = 15_000;
-const RESERVED_RUNTIME_CLAIM_WINDOW_MILLISECONDS = 1_000;
-const RESERVED_RUNTIME_CLAIM_POLL_MILLISECONDS = 25;
 const CONVERSATION_DETAIL_TRANSIENT_EVENT_TYPES = [
   "conversation.message.delta",
   "item/agentMessage/delta",
@@ -722,6 +731,10 @@ export class ConversationService {
     private readonly applicationResolver?: ConversationApplicationResolver,
     private readonly tokenLimits?: TokenLimitEnforcer,
     private readonly executionConcurrencySettings?: ExecutionConcurrencySettingsReader,
+    private readonly titleRefresh?: Pick<
+      ConversationTitleService,
+      "scheduleForUserMessage"
+    >,
   ) {}
 
   private async executionConcurrencyForStart(): Promise<ResolvedExecutionConcurrencySettings> {
@@ -938,28 +951,53 @@ export class ConversationService {
     });
     if (!user || user.status !== "active") throw new AppError("USER_DISABLED");
     const conversationId = input.conversationId ?? crypto.randomUUID();
+    let reservationRevision: string | undefined;
     if (input.conversationId) {
       const existing = await this.prisma.conversation.findUnique({
         where: { id: conversationId },
         select: { ownerId: true },
       });
-      if (!existing || existing.ownerId !== ownerId) {
+      if (existing && existing.ownerId !== ownerId) {
         throw new AppError("CONVERSATION_NOT_FOUND");
+      }
+      if (!existing) {
+        reservationRevision = crypto.randomUUID();
+        const reserved = await this.redis.reserveConversationPrewarm(
+          { ownerId, conversationId, reservationRevision },
+          false,
+        );
+        if (!reserved) {
+          throw new AppError("CONVERSATION_NOT_FOUND");
+        }
+      }
+    } else {
+      reservationRevision = crypto.randomUUID();
+      const reserved = await this.redis.reserveConversationPrewarm(
+        { ownerId, conversationId, reservationRevision },
+        true,
+      );
+      if (!reserved) {
+        throw new AppError("RUNNER_UNAVAILABLE");
       }
     }
     await this.cleanup.enqueueConversationPrewarm({
       ownerId,
       conversationId,
       collaborationMode: input.collaborationMode,
+      ...(reservationRevision ? { reservationRevision } : {}),
     });
     return { accepted: true as const, conversation_id: conversationId };
   }
 
-  async executePrewarm(input: {
-    ownerId: string;
-    conversationId: string;
-    collaborationMode: ConversationCollaborationMode;
-  }): Promise<void> {
+  async executePrewarm(input: ConversationPrewarmInput): Promise<void> {
+    const reservation = input.reservationRevision
+      ? {
+          ownerId: input.ownerId,
+          conversationId: input.conversationId,
+          reservationRevision: input.reservationRevision,
+        }
+      : null;
+    if (reservation && !(await this.redis.isConversationPrewarmCurrent(reservation))) return;
     const existing = await this.prisma.conversation.findUnique({
       where: { id: input.conversationId },
       select: {
@@ -967,30 +1005,47 @@ export class ConversationService {
         applicationId: true,
         codexThreadId: true,
         collaborationMode: true,
+        interactiveApplicationPackageId: true,
       },
     });
     if (existing && existing.ownerId !== input.ownerId) return;
-    if (existing?.applicationId) {
-      await this.preflight.ensureUserHome(input.ownerId);
-      await this.runner.prewarmWorker(input.ownerId);
-      return;
-    }
-
-    const [resolved, modelRuntime, executionConcurrency] = await Promise.all([
+    // A reservation only prepares an unclaimed task. Once claimed, the normal
+    // task path resolves the current application, mode, and authorization.
+    if (reservation ? existing !== null : existing === null) return;
+    const applicationRuntime = await this.applicationRuntimeForConversation(
+      input.ownerId,
+      existing?.applicationId,
+      existing?.interactiveApplicationPackageId,
+    );
+    // Publish the mount boundary first, then overlap the cheap claimable
+    // directory with capability preparation and Worker startup.
+    await this.preflight.ensureUserHome(input.ownerId);
+    const [resolved, modelRuntime, executionConcurrency, runtime] = await Promise.all([
       this.preflight.resolve({
         userId: input.ownerId,
+        conversationId: input.conversationId,
         priorityCapabilityIds: [],
+        ...(applicationRuntime?.kind === "standard" ? {
+          capabilityScope: {
+            applicationId: applicationRuntime.applicationId,
+            sourceOwnerId: applicationRuntime.applicationOwnerId,
+            capabilityIds: applicationRuntime.capabilityIds,
+            mcpServerIds: applicationRuntime.mcpServerIds,
+          },
+        } : {}),
       }),
-      this.modelRuntimeForUser(
+      applicationRuntime?.model && applicationRuntime.reasoningEffort
+        ? this.modelRuntimeForSelection(input.ownerId, input.conversationId,
+            applicationRuntime.model, applicationRuntime.reasoningEffort)
+        : this.modelRuntimeForUser(
         input.ownerId,
         existing ? input.conversationId : undefined,
       ),
       this.executionConcurrencyForStart(),
-    ]);
-    const [runtime] = await Promise.all([
       this.runner.prepareRuntime(input.conversationId, input.ownerId),
       this.runner.prewarmWorker(input.ownerId),
     ]);
+    if (reservation && !(await this.redis.isConversationPrewarmCurrent(reservation))) return;
     const collaborationMode = existing
       ? conversationCollaborationModeSchema.parse(existing.collaborationMode)
       : input.collaborationMode;
@@ -1408,8 +1463,12 @@ export class ConversationService {
                   continuationContext.application_instructions,
               }
             : {}),
-          selectedKnowledgeBaseCount:
-            continuationContext.selected_knowledge_base_count,
+          selectedKnowledgeBases: await resolveRunnerKnowledgeSelection(
+            this.prisma,
+            this.knowledgeStore,
+            conversation.ownerId,
+            jsonStringArray(turn.knowledgeBaseIdsJson),
+          ),
           attachments: [],
           priorityPlugins: runnerPriorityCapabilities(
             continuationContext.priority_capability_ids,
@@ -1526,12 +1585,10 @@ export class ConversationService {
         return "released";
       }
       if (intent.runnerStatus === "slot_pending") {
-        const slots = await this.redis.runningTurnSlots();
-        const hasExactSlot = slots.some(
-          (slot) =>
-            slot.conversationId === intent.conversationId &&
-            slot.turnId === intent.projectionTurnId &&
-            slot.ownerId === intent.ownerId,
+        const hasExactSlot = await this.redis.hasTurnSlot(
+          intent.conversationId,
+          intent.projectionTurnId,
+          intent.ownerId,
         );
         if (hasExactSlot) {
           intent = await this.markStartIntentSlotAcquired(intent);
@@ -1737,6 +1794,12 @@ export class ConversationService {
         modelRuntime,
         modelTransitionSource,
         executionConcurrency,
+        await resolveRunnerKnowledgeSelection(
+          this.prisma,
+          this.knowledgeStore,
+          intent.ownerId,
+          intent.knowledgeBaseIdsJson,
+        ),
       ),
     );
   }
@@ -1763,8 +1826,8 @@ export class ConversationService {
         }
       });
     // Retaining the promise makes the background continuation observable and
-    // deduplicated. The periodic recovery coordinator remains the durable
-    // fallback if this API process exits or this bounded fast path times out.
+    // deduplicated. The durable pending-intent dispatcher handles this exact
+    // operation if the API exits or this bounded fast path times out.
     this.acceptedStartRecoveries.set(projectionTurnId, tracked);
   }
 
@@ -1869,7 +1932,7 @@ export class ConversationService {
       running,
       pending,
       automationTargets,
-      applicationIcons,
+      applicationMetadata,
       planOutputMissingConversationIds,
     ] = await Promise.all([
       this.prisma.conversationTurn.findMany({
@@ -1892,7 +1955,7 @@ export class ConversationService {
             distinct: ["conversationId"],
           })
         : Promise.resolve([]),
-      this.resolveApplicationDisplayIcons(ownerId, selected),
+      this.resolveApplicationTaskMetadata(ownerId, selected),
       this.findLatestPlanOutputMissingConversationIds(selected),
     ]);
     const runningIds = new Set(
@@ -1919,7 +1982,10 @@ export class ConversationService {
                 ? "failed"
                 : (row.lastTurnStatus ?? "idle"),
           row.applicationId
-            ? applicationIcons.get(row.applicationId)
+            ? applicationMetadata.get(row.applicationId) ?? {
+                available: false,
+                unavailable_reason: "APPLICATION_NOT_FOUND",
+              }
             : undefined,
           automationTargetIds.has(row.id),
         ),
@@ -1934,10 +2000,10 @@ export class ConversationService {
     };
   }
 
-  private async resolveApplicationDisplayIcons(
+  private async resolveApplicationTaskMetadata(
     ownerId: string,
     conversations: readonly ConversationProjection[],
-  ): Promise<ReadonlyMap<string, ApplicationIcon>> {
+  ): Promise<ReadonlyMap<string, ApplicationTaskMetadata>> {
     const applicationIds = [
       ...new Set(
         conversations.flatMap((conversation) =>
@@ -1947,20 +2013,11 @@ export class ConversationService {
     ];
     if (
       applicationIds.length === 0 ||
-      this.applicationResolver?.resolveDisplayIcons === undefined
+      this.applicationResolver?.resolveTaskMetadata === undefined
     ) {
       return new Map();
     }
-    try {
-      return await this.applicationResolver.resolveDisplayIcons(
-        ownerId,
-        applicationIds,
-      );
-    } catch {
-      // Icons are optional presentation metadata and must never make the task
-      // list unavailable when storage or application metadata is degraded.
-      return new Map();
-    }
+    return this.applicationResolver.resolveTaskMetadata(ownerId, applicationIds);
   }
 
   private async findLatestPlanOutputMissingConversationIds(
@@ -2175,7 +2232,68 @@ export class ConversationService {
     });
   }
 
-  async get(ownerId: string, conversationId: string) {
+  async getReferencedSources(
+    ownerId: string,
+    conversationId: string,
+  ): Promise<ConversationSources> {
+    const conversation = await this.assertOwner(ownerId, conversationId);
+    if (!conversation.codexThreadId) return { items: [] };
+    const turns = await this.prisma.conversationTurn.findMany({
+      where: { conversationId, codexThreadId: conversation.codexThreadId },
+      select: { id: true },
+    });
+    const turnIds = turns.map((turn) => turn.id);
+    if (!turnIds.length) return { items: [] };
+    const reviews = await this.prisma.conversationPlanReview.findMany({
+      where: { conversationId, sourceTurnId: { in: turnIds } },
+      select: { sourceTurnId: true },
+    });
+    const reviewTurns = new Set(reviews.map((review) => review.sourceTurnId));
+    const hookEvents = reviewTurns.size
+      ? await this.prisma.conversationEvent.findMany({
+          where: {
+            conversationId,
+            turnId: { in: [...reviewTurns] },
+            eventType: "hook/completed",
+          },
+          select: { turnId: true, payloadJson: true },
+        })
+      : [];
+    const supersededIds = indexStopHookSupersededAssistantMessageIds(hookEvents, reviewTurns);
+    const sources = new Map<string, ConversationSource>();
+    let afterSequence = 0;
+    // Bound body reads and parser memory independently of the task reader's page.
+    // This endpoint only returns the deduplicated link summary to the browser.
+    const batchSize = 50;
+    while (true) {
+      const messages = await this.prisma.conversationMessage.findMany({
+        where: {
+          conversationId,
+          turnId: { in: turnIds },
+          role: "assistant",
+          sequenceNo: { gt: afterSequence },
+        },
+        select: { id: true, sequenceNo: true, contentText: true },
+        orderBy: { sequenceNo: "asc" },
+        take: batchSize,
+      });
+      for (const message of messages) {
+        if (!supersededIds.has(message.id)) {
+          mergeReferencedSources(sources, extractReferencedSources(message.contentText));
+        }
+      }
+      const lastMessage = messages.at(-1);
+      if (!lastMessage || messages.length < batchSize) break;
+      afterSequence = lastMessage.sequenceNo;
+    }
+    return { items: [...sources.values()] };
+  }
+
+  async get(
+    ownerId: string,
+    conversationId: string,
+    historyQuery?: ConversationHistoryQuery,
+  ) {
     const conversation = await this.assertOwner(ownerId, conversationId);
     const turns = conversation.codexThreadId
       ? await this.prisma.conversationTurn.findMany({
@@ -2187,9 +2305,28 @@ export class ConversationService {
         })
       : [];
     const activeTurnIds = turns.map((turn) => turn.id);
+    // Full snapshots (sharing and embedded sessions) use the same projection;
+    // the task reader requests a bounded window of complete turns.
+    const aroundTurn = historyQuery?.around_turn;
+    const targetIndex =
+      aroundTurn === undefined
+        ? -1
+        : turns.findIndex((turn) => turn.sequenceNo === aroundTurn);
+    if (aroundTurn !== undefined && targetIndex < 0) {
+      throw new AppError("VALIDATION_ERROR");
+    }
+    const pageStart =
+      Math.floor(targetIndex / CONVERSATION_HISTORY_PAGE_TURN_LIMIT) *
+      CONVERSATION_HISTORY_PAGE_TURN_LIMIT;
+    const messageTurns = historyQuery
+      ? targetIndex < 0
+        ? turns.slice(-CONVERSATION_HISTORY_PAGE_TURN_LIMIT)
+        : turns.slice(pageStart, pageStart + CONVERSATION_HISTORY_PAGE_TURN_LIMIT)
+      : turns;
+    const messageTurnIds = messageTurns.map((turn) => turn.id);
     const visibleEventScope = {
       conversationId,
-      OR: [{ turnId: null }, { turnId: { in: activeTurnIds } }],
+      OR: [{ turnId: null }, { turnId: { in: messageTurnIds } }],
       visibility: { in: ["user_visible", "user_collapsed"] },
     } satisfies Prisma.ConversationEventWhereInput;
     const [
@@ -2205,9 +2342,10 @@ export class ConversationService {
       planReviews,
       goal,
       latestModelContextUsage,
+      indexMessages,
     ] = await Promise.all([
       this.prisma.conversationMessage.findMany({
-        where: { conversationId, turnId: { in: activeTurnIds } },
+        where: { conversationId, turnId: { in: messageTurnIds } },
         orderBy: { sequenceNo: "asc" },
       }),
       this.prisma.pendingRequest.findMany({
@@ -2234,10 +2372,10 @@ export class ConversationService {
         orderBy: { sequenceNo: "desc" },
         take: CONVERSATION_DETAIL_EVENT_LIMIT,
       }),
-      this.findLatestPlanEvents(conversationId, activeTurnIds),
+      this.findLatestPlanEvents(conversationId, messageTurnIds),
       this.countTurnFileChanges(conversationId, activeTurnIds),
-      this.findUserMessageDisplayEvents(conversationId, activeTurnIds),
-      this.findPriorityCapabilityEvents(conversationId, activeTurnIds),
+      this.findUserMessageDisplayEvents(conversationId, messageTurnIds),
+      this.findPriorityCapabilityEvents(conversationId, messageTurnIds),
       this.prisma.conversationUserInputRequest.findMany({
         where: { conversationId, turnId: { in: activeTurnIds } },
         orderBy: { createdAt: "asc" },
@@ -2258,7 +2396,52 @@ export class ConversationService {
           lastObservedAt: true,
         },
       }),
+      historyQuery && activeTurnIds.length > 0
+        ? this.prisma.conversationMessage.findMany({
+            where: { conversationId, turnId: { in: activeTurnIds } },
+            // Only metadata crosses this boundary; never load historical bodies
+            // to draw the navigation. The first user item anchors each turn.
+            distinct: ["turnId", "role"],
+            select: { id: true, turnId: true, role: true, createdAt: true },
+            orderBy: { sequenceNo: "asc" },
+          })
+        : [],
     ]);
+    const firstUserByTurn = new Map<string, (typeof indexMessages)[number]>();
+    const turnsWithContent = new Set<string>();
+    for (const message of indexMessages) {
+      if (!message.turnId) continue;
+      turnsWithContent.add(message.turnId);
+      if (message.role === "user" && !firstUserByTurn.has(message.turnId)) {
+        firstUserByTurn.set(message.turnId, message);
+      }
+    }
+    const hiddenImplementationTurns = new Set(
+      planReviews.flatMap((review) =>
+        review.status === "resolved" &&
+        review.decision === "implement" &&
+        review.followUpTurnId
+          ? [review.followUpTurnId]
+          : [],
+      ),
+    );
+    const history: ConversationHistoryPage | undefined = historyQuery
+      ? {
+          scope_id: turns[0]?.id ?? null,
+          turn_ids: messageTurnIds,
+          index: turns.map((turn) => ({
+            turn_id: turn.id,
+            sequence_no: turn.sequenceNo,
+            message_id: hiddenImplementationTurns.has(turn.id)
+              ? null
+              : firstUserByTurn.get(turn.id)?.id ?? null,
+            created_at: (
+              firstUserByTurn.get(turn.id)?.createdAt ?? turn.createdAt
+            ).toISOString(),
+            has_content: turnsWithContent.has(turn.id),
+          })),
+        }
+      : undefined;
     const planReviewTurnIds = new Set(
       planReviews.map((review) => review.sourceTurnId),
     );
@@ -2281,18 +2464,34 @@ export class ConversationService {
     const visibleMessages = messages.filter(
       (message) => !supersededAssistantMessageIds.has(message.id),
     );
+    const forkBoundary =
+      history && conversation.forkSourceMessageId
+        ? await this.prisma.conversationMessage.findFirst({
+            where: {
+              conversationId,
+              turnId: { in: activeTurnIds },
+              createdAt: { lte: conversation.createdAt },
+            },
+            orderBy: { sequenceNo: "desc" },
+            select: { sequenceNo: true, createdAt: true },
+          })
+        : null;
     const forkSource = await this.resolveForkSourceProjection(
       ownerId,
       conversation,
-      visibleMessages,
+      history && conversation.forkSourceMessageId
+        ? forkBoundary
+          ? [forkBoundary]
+          : []
+        : visibleMessages,
     );
     const publicKnowledgeCitations = await this.loadPublicKnowledgeCitations(
       conversationId,
-      activeTurnIds,
+      messageTurnIds,
     );
     const steeredMessageEvents = await this.findSteeredMessageEvents(
       conversationId,
-      activeTurnIds,
+      messageTurnIds,
     );
     const steeredMessageMetadata = new Map<
       string,
@@ -2388,6 +2587,7 @@ export class ConversationService {
         ...(forkSource ? { fork_source: forkSource } : {}),
       },
       goal: goal ? projectConversationGoal(goal) : null,
+      ...(history ? { history } : {}),
       messages: visibleMessages.map((message) =>
         projectMessage(
           message,
@@ -2768,6 +2968,7 @@ export class ConversationService {
       collaborationMode: ConversationCollaborationMode;
       fallbackLocale?: Locale;
       prewarmedConversationId?: string;
+      categoryId?: string | null;
     },
   ) {
     return this.withActiveUserLifecycleLock(ownerId, async () => {
@@ -2775,7 +2976,10 @@ export class ConversationService {
         ownerId,
         input.fallbackLocale,
         undefined,
-        { collaborationMode: input.collaborationMode },
+        {
+          collaborationMode: input.collaborationMode,
+          categoryId: input.categoryId ?? null,
+        },
         input.prewarmedConversationId,
       );
       return projectConversation(
@@ -2793,6 +2997,7 @@ export class ConversationService {
       archiveStatus?: "active" | "archived";
       pinned?: boolean;
       completionRead?: true;
+      categoryId?: string | null;
       collaborationMode?: ConversationCollaborationMode;
     },
   ) {
@@ -2802,6 +3007,9 @@ export class ConversationService {
     }
     const now = new Date();
     const conversation = await this.prisma.$transaction(async (tx) => {
+      if (input.categoryId) {
+        await lockOwnedTaskCategory(tx, ownerId, input.categoryId);
+      }
       await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id
         FROM conversations
@@ -2878,6 +3086,15 @@ export class ConversationService {
         where: { id: conversationId },
         data: {
           ...(input.title ? { title: input.title, titleSource: "manual" } : {}),
+          ...(input.categoryId !== undefined
+            ? {
+                categoryId: input.categoryId,
+                ...(!lockedConversation.pinnedAt &&
+                  input.categoryId !== lockedConversation.categoryId
+                  ? { sortOrder: null }
+                  : {}),
+              }
+            : {}),
           ...(input.archiveStatus
             ? {
                 archiveStatus: input.archiveStatus,
@@ -2908,6 +3125,7 @@ export class ConversationService {
     ownerId: string,
     input: {
       group: ConversationOrderGroup;
+      categoryId?: string | null;
       conversationIds: readonly string[];
     },
   ) {
@@ -2920,7 +3138,9 @@ export class ConversationService {
           AND ${
             input.group === "pinned"
               ? Prisma.sql`pinned_at IS NOT NULL`
-              : Prisma.sql`pinned_at IS NULL`
+              : input.categoryId
+                ? Prisma.sql`pinned_at IS NULL AND category_id = ${input.categoryId}::uuid`
+                : Prisma.sql`pinned_at IS NULL AND category_id IS NULL`
           }
         FOR UPDATE
       `);
@@ -2943,6 +3163,9 @@ export class ConversationService {
       `);
       return {
         group: input.group,
+        ...(input.categoryId !== undefined
+          ? { category_id: input.categoryId }
+          : {}),
         conversation_ids: [...input.conversationIds],
       };
     });
@@ -4059,6 +4282,7 @@ export class ConversationService {
               modelRuntime,
               null,
               executionConcurrency,
+              [],
             ),
           );
           this.trackAcceptedStartRecovery(projectionTurnId);
@@ -4751,6 +4975,7 @@ export class ConversationService {
           return { event, created: true };
         });
         if (result.created) {
+          this.titleRefresh?.scheduleForUserMessage(conversationId, text);
           await this.redis
             .publishConversationEvent(
               conversationId,
@@ -4847,6 +5072,10 @@ export class ConversationService {
           context,
         });
         if (projection.created) {
+          this.titleRefresh?.scheduleForUserMessage(
+            conversationId,
+            reservation.text,
+          );
           for (const event of projection.events) {
             await this.redis
               .publishConversationEvent(
@@ -6268,6 +6497,7 @@ export class ConversationService {
           conversationId: forkConversationId,
           ownerId,
           expectedRuntimeGeneration: runtime.runtimeGeneration,
+          sourceConversationId: conversationId,
           sourceCodexThreadId: source.codexThreadId,
           throughCodexTurnId: sourceTurn.codexTurnId,
           projectionTurnId: crypto.randomUUID(),
@@ -6332,6 +6562,9 @@ export class ConversationService {
             return existing;
           }
 
+          if (source.categoryId) {
+            await lockOwnedTaskCategory(tx, ownerId, source.categoryId);
+          }
           const rootConversationId = source.forkRootId ?? source.id;
           const baseTitle = forkBaseTitle(source.title, source.forkSequence);
           const counter = await tx.conversationForkCounter.upsert({
@@ -6353,6 +6586,7 @@ export class ConversationService {
               titleSource: "manual",
               archiveStatus: "active",
               pinnedAt: null,
+              categoryId: source.categoryId,
               sortOrder: null,
               workspaceRelPath: conversationWorkspaceRelativePath(
                 ownerId,
@@ -6710,43 +6944,43 @@ export class ConversationService {
       pinned?: boolean;
       collaborationMode?: ConversationCollaborationMode;
       autoGenerateTitle?: boolean;
+      categoryId?: string | null;
     },
     prewarmedConversationId?: string,
   ) {
     let id = prewarmedConversationId ?? crypto.randomUUID();
+    let claimedPrewarm = false;
+    if (prewarmedConversationId) {
+      const collision = await this.prisma.conversation.findUnique({
+        where: { id: prewarmedConversationId },
+        select: { id: true },
+      });
+      claimedPrewarm = !collision && await this.redis.claimConversationPrewarm(
+        ownerId,
+        prewarmedConversationId,
+      );
+      if (!claimedPrewarm) id = crypto.randomUUID();
+    }
+    // Only a newly allocated or successfully claimed runtime belongs to this
+    // creation attempt. Ownership-check failures must never enqueue its cleanup.
     try {
-      let prewarmedRuntime = null;
-      if (prewarmedConversationId) {
-        const collision = await this.prisma.conversation.findUnique({
-          where: { id: prewarmedConversationId },
-          select: { id: true },
-        });
-        if (collision) {
-          id = crypto.randomUUID();
-        } else {
-          prewarmedRuntime = await this.runner
-            .inspectPrewarmedConversation(id, ownerId)
-            .catch(() => null);
-        }
-      }
+      const prewarmedRuntime = claimedPrewarm
+        ? await this.runner.inspectPrewarmedConversation(id, ownerId).catch(() => null)
+        : null;
       let runtime: Awaited<ReturnType<RunnerClient["prepareRuntime"]>>;
       if (prewarmedRuntime) {
         runtime = prewarmedRuntime;
       } else {
-        const reservedRuntime = prewarmedConversationId
-          ? await this.waitForReservedRuntime(id, ownerId)
+        const reservedRuntime = claimedPrewarm
+          ? await this.runner.inspectRuntime(id, ownerId)
           : null;
         if (reservedRuntime) {
           runtime = reservedRuntime;
         } else {
-          // The hot resolve validates the durable capability publication and
-          // falls back to a full repair only when its markers are stale. This
-          // keeps an immediate first send from repeating the expensive full
-          // HOME scan already performed by capability mutations or prewarm.
-          await this.preflight.resolve({
-            userId: ownerId,
-            priorityCapabilityIds: [],
-          });
+          // Creation needs storage, not a native process or capability set.
+          // Prewarm/first submit resolve the final authorized scope (including
+          // the application creator's capabilities and credentials).
+          await this.preflight.ensureUserHome(ownerId);
           runtime = await this.runner.prepareRuntime(id, ownerId);
         }
       }
@@ -6768,6 +7002,9 @@ export class ConversationService {
         select: { preferredLocale: true },
       });
       return await this.prisma.$transaction(async (tx) => {
+        if (options?.categoryId) {
+          await lockOwnedTaskCategory(tx, ownerId, options.categoryId);
+        }
         const created = await tx.conversation.create({
           data: {
             id,
@@ -6786,6 +7023,7 @@ export class ConversationService {
                 : "fallback",
             archiveStatus: "active",
             pinnedAt: options?.pinned ? new Date() : null,
+            categoryId: options?.categoryId ?? null,
             workspaceRelPath: conversationWorkspaceRelativePath(ownerId, id),
             agentsTemplateVersion: runtime.agentsTemplateVersion,
             collaborationMode: options?.collaborationMode ?? "default",
@@ -6820,34 +7058,12 @@ export class ConversationService {
     }
   }
 
-  private async waitForReservedRuntime(
-    conversationId: string,
-    ownerId: string,
-  ): Promise<Awaited<ReturnType<RunnerClient["inspectRuntime"]>>> {
-    const deadline = Date.now() + RESERVED_RUNTIME_CLAIM_WINDOW_MILLISECONDS;
-    do {
-      const runtime = await this.runner
-        .inspectRuntime(conversationId, ownerId)
-        .catch(() => null);
-      if (runtime) return runtime;
-      if (Date.now() >= deadline) return null;
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(
-          resolve,
-          RESERVED_RUNTIME_CLAIM_POLL_MILLISECONDS,
-        );
-        timer.unref();
-      });
-    } while (Date.now() < deadline);
-    return null;
-  }
-
   private async prepareOfficeAnnotation(
     conversationId: string,
     annotation: OfficeAnnotationInput,
   ): Promise<{
     inputText: string;
-    display: UserMessageDisplay;
+    display: OfficeAnnotationDisplay;
   }> {
     const file = await this.prisma.conversationFile.findFirst({
       where: { id: annotation.file_id, conversationId },
@@ -7384,7 +7600,10 @@ export class ConversationService {
         throw new AppError("ATTACHMENT_UPLOAD_INVALID");
       }
 
-      if (input.prepared.messageDisplay) {
+      if (
+        input.prepared.messageDisplay &&
+        input.prepared.messageDisplay.kind !== "interactive_application"
+      ) {
         await tx.$queryRaw<Array<{ id: string }>>`
           SELECT id
           FROM conversation_files
@@ -7579,7 +7798,7 @@ export class ConversationService {
   ): Promise<TurnStartProjectionResult> {
     const startedGoal = goalSnapshotForStart(intent, startedTurn);
     const isCompact = intent.taskKind === "compact";
-    return this.prisma.$transaction(async (tx) => {
+    const projection = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.conversationTurnStartIntent.updateMany({
         where: {
           projectionTurnId: intent.projectionTurnId,
@@ -7920,7 +8139,8 @@ export class ConversationService {
         regeneration ? regeneratesLogicalFirstTurn : created.sequenceNo === 1
       )
         ? fallbackTitle(
-            intent.messageDisplayJson
+            intent.messageDisplayJson &&
+            intent.messageDisplayJson.kind !== "interactive_application"
               ? officeAnnotationRequestText(intent.messageDisplayJson)
               : intent.inputText,
           )
@@ -8083,6 +8303,15 @@ export class ConversationService {
       if (deleted.count !== 1) throw new AppError("CONFLICT");
       return { created, attachedEvents };
     });
+    // Both direct and recovered starts reach this committed projection. Naming
+    // runs independently of the turn, using the owner's naming preference.
+    if (!isCompact && intent.planReviewAction !== "implement") {
+      this.titleRefresh?.scheduleForUserMessage(
+        intent.conversationId,
+        intent.inputText,
+      );
+    }
+    return projection;
   }
 
   private async markStartIntentForRelease(
@@ -8306,6 +8535,19 @@ export class ConversationService {
     tx: Prisma.TransactionClient,
     intent: TurnStartIntent,
   ): Promise<Parameters<typeof projectStoredEvent>[0] | null> {
+    // Preparation items can precede the local turn. If admission fails, keep
+    // their sequence numbers for SSE cursors but remove the uncreated turn link
+    // and exclude these unfinished items from public conversation history.
+    await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM conversations WHERE id = ${intent.conversationId}::uuid FOR UPDATE
+    `;
+    await tx.conversationEvent.updateMany({
+      where: {
+        conversationId: intent.conversationId,
+        turnId: intent.projectionTurnId,
+      },
+      data: { turnId: null, visibility: "internal_sanitized" },
+    });
     if (!intent.pendingRequestId) {
       const sequenceNo = await nextConversationEventSequence(
         tx,
@@ -8503,6 +8745,14 @@ export class ConversationService {
         conversation.applicationId,
         conversation.interactiveApplicationPackageId,
       );
+      const fromInteractiveApplication =
+        "messageSource" in submission &&
+        submission.messageSource === "interactive_application";
+      if (
+        fromInteractiveApplication && applicationRuntime?.kind !== "interactive"
+      ) {
+        throw new AppError("VALIDATION_ERROR");
+      }
       const officeAnnotation = submissionOfficeAnnotation(submission);
       const preservesStagedAttachments =
         Boolean(officeAnnotation) ||
@@ -8550,7 +8800,14 @@ export class ConversationService {
         ...(preservesStagedAttachments
           ? { preserveStagedAttachments: true }
           : {}),
-        messageDisplay: preparedAnnotation?.display ?? null,
+        messageDisplay:
+          preparedAnnotation?.display ??
+          (fromInteractiveApplication && applicationRuntime
+            ? {
+                kind: "interactive_application",
+                application_id: applicationRuntime.applicationId,
+              }
+            : null),
       };
       const currentCollaborationMode =
         conversationCollaborationModeSchema.parse(
@@ -8766,6 +9023,7 @@ export class ConversationService {
       try {
         const authorizationPromise = this.preflight.resolve({
           userId: ownerId,
+          conversationId,
           priorityCapabilityIds: input.priorityCapabilityIds,
           ...(applicationRuntime?.kind === "standard"
             ? {
@@ -8881,6 +9139,7 @@ export class ConversationService {
       let startIntent = await this.preflight.withCapabilityStartBarrier(
         {
           userId: ownerId,
+          conversationId,
           priorityCapabilityIds: input.priorityCapabilityIds,
           capabilities: resolved.capabilities,
           capabilityGeneration: resolved.capabilityGeneration,
@@ -9038,16 +9297,22 @@ export class ConversationService {
         modelRuntime.model,
         conversation.codexThreadId,
       );
-      const runnerStartInput = buildRunnerStartInputFromIntent(
-        startIntent,
-        conversation.codexThreadId,
-        resolved.capabilities,
-        resolved.environment ?? {},
-        modelRuntime,
-        modelTransitionSource,
-        executionConcurrency,
-      );
       try {
+        const runnerStartInput = buildRunnerStartInputFromIntent(
+          startIntent,
+          conversation.codexThreadId,
+          resolved.capabilities,
+          resolved.environment ?? {},
+          modelRuntime,
+          modelTransitionSource,
+          executionConcurrency,
+          await resolveRunnerKnowledgeSelection(
+            this.prisma,
+            this.knowledgeStore,
+            startIntent.ownerId,
+            startIntent.knowledgeBaseIdsJson,
+          ),
+        );
         if (returnWhenAccepted) {
           await this.runner.acceptStartTurn(runnerStartInput);
           this.trackAcceptedStartRecovery(projectionTurnId);
@@ -9396,6 +9661,7 @@ type ConversationProjection = {
   archiveStatus: string;
   archivedAt: Date | null;
   pinnedAt: Date | null;
+  categoryId: string | null;
   sortOrder: number | null;
   codexThreadId: string | null;
   agentsTemplateVersion: string | null;
@@ -9465,7 +9731,9 @@ function safeTokenCount(value: bigint): number {
 export function projectConversation(
   row: ConversationProjection,
   executionStatus: string,
-  applicationIcon?: ApplicationIcon,
+  applicationMetadata?: Omit<ApplicationTaskMetadata, "icon"> & {
+    icon?: ApplicationTaskMetadata["icon"];
+  },
   hasAutomation = false,
 ) {
   return {
@@ -9476,6 +9744,7 @@ export function projectConversation(
     archive_status: row.archiveStatus,
     archived_at: row.archivedAt?.toISOString() ?? null,
     pinned_at: row.pinnedAt?.toISOString() ?? null,
+    category_id: row.categoryId,
     sort_order: row.sortOrder,
     codex_thread_id: row.codexThreadId,
     agents_template_version: row.agentsTemplateVersion,
@@ -9499,7 +9768,7 @@ export function projectConversation(
               ? ("interactive" as const)
               : ("standard" as const),
             package_id: row.interactiveApplicationPackageId ?? null,
-            ...(applicationIcon ? { icon: applicationIcon } : {}),
+            ...(applicationMetadata ?? {}),
           }
         : null,
     created_at: row.createdAt.toISOString(),
@@ -9817,7 +10086,7 @@ const MAXIMUM_OFFICE_CONTEXT_LENGTH = 1_000;
 const MAXIMUM_OFFICE_FORMULA_LENGTH = 2_000;
 
 function matchesAnnotationFile(
-  kind: OfficeAnnotationInput["kind"] | UserMessageDisplay["kind"],
+  kind: OfficeAnnotationInput["kind"] | OfficeAnnotationDisplay["kind"],
   file: { filename: string; mimeType: string | null },
 ): boolean {
   const lowerName = file.filename.toLocaleLowerCase("en-US");
@@ -10055,7 +10324,7 @@ function buildHtmlAnnotationSection(
 
 function buildOfficeAnnotationPrompt(
   annotation: OfficeAnnotationInput,
-  display: UserMessageDisplay,
+  display: OfficeAnnotationDisplay,
 ): string {
   if (annotation.kind !== display.kind) throw new AppError("VALIDATION_ERROR");
 
@@ -10256,6 +10525,13 @@ function resolveUserMessageProjection(
     };
   }
   const storedDisplay = index.displays.get(row.id) ?? null;
+  if (storedDisplay?.kind === "interactive_application") {
+    return {
+      contentText: row.contentText,
+      display: storedDisplay,
+      selectedCapabilities,
+    };
+  }
   const inspected = inspectOfficeAnnotationPrompt(row.contentText);
   if (storedDisplay && !inspected.suspected) {
     return { contentText: "", display: null, selectedCapabilities };
@@ -10522,6 +10798,9 @@ function buildRunnerStartInputFromIntent(
   modelRuntime: ResolvedModelRuntime,
   modelTransitionSource: ResolvedModelTransitionRuntime | null,
   executionConcurrency: ResolvedExecutionConcurrencySettings,
+  selectedKnowledgeBases: NonNullable<
+    RunnerStartInput["context"]["selectedKnowledgeBases"]
+  >,
 ): RunnerStartInput {
   const runnerContext = buildOfficeAnnotationRunnerContext(intent.inputText);
   const isCompact = intent.taskKind === "compact";
@@ -10566,9 +10845,7 @@ function buildRunnerStartInputFromIntent(
       ...(!isCompact && intent.applicationInstructions
         ? { applicationInstructions: intent.applicationInstructions }
         : {}),
-      selectedKnowledgeBaseCount: isCompact
-        ? 0
-        : intent.knowledgeBaseIdsJson.length,
+      selectedKnowledgeBases: isCompact ? [] : selectedKnowledgeBases,
       ...(!isCompact && runnerContext.officeSelectionContext
         ? {
             officeSelectionContext: runnerContext.officeSelectionContext,

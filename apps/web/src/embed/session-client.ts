@@ -59,6 +59,7 @@ export class EmbedRequestError extends Error {
 
 export type EmbedSessionClientEvents = Readonly<{
   onAuthenticationRequired: () => void
+  onMaintenance?: () => void
   onConnectionStateChange: (state: "connected" | "retrying") => void
 }>
 
@@ -100,7 +101,7 @@ export class EmbedSessionClient {
   }
 
   async acceptTicket(ticket: string): Promise<void> {
-    const tokens = await publicRequest(
+    const tokens = await this.#publicRequest(
       "/api/v1/embed/sessions/exchange",
       tokenPairSchema,
       {
@@ -342,23 +343,51 @@ export class EmbedSessionClient {
     if (language === "zh-CN" || language === "en-US") {
       headers.set("accept-language", language)
     }
-    return fetch(path, {
+    const response = await fetch(path, {
       ...init,
       headers,
       credentials: "omit",
       cache: "no-store",
     })
+    if (response.status === 503) {
+      const error = await responseError(response.clone())
+      if (error.code === "SYSTEM_MAINTENANCE_ACTIVE")
+        this.#events.onMaintenance?.()
+    }
+    return response
+  }
+
+  async #publicRequest<TSchema extends z.ZodType>(
+    path: string,
+    schema: TSchema,
+    init: RequestInit
+  ): Promise<z.infer<TSchema>> {
+    try {
+      return await embedPublicRequest(path, schema, init)
+    } catch (error) {
+      if (
+        error instanceof EmbedRequestError &&
+        error.code === "SYSTEM_MAINTENANCE_ACTIVE"
+      ) {
+        this.#events.onMaintenance?.()
+      }
+      throw error
+    }
   }
 
   #requestPublicSession(appId: string) {
-    return publicRequest("/api/v1/embed/public-sessions", publicSessionSchema, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        app_id: appId,
-        origin: this.#origin,
-      }),
-    })
+    return this.#publicRequest(
+      "/api/v1/embed/public-sessions",
+      publicSessionSchema,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          app_id: appId,
+          origin: this.#origin,
+        }),
+      }
+    )
   }
 
   #renew() {
@@ -401,7 +430,7 @@ export class EmbedSessionClient {
         await wait(delay)
       }
       try {
-        const tokens = await publicRequest(
+        const tokens = await this.#publicRequest(
           "/api/v1/embed/sessions/renew",
           tokenPairSchema,
           {
@@ -514,7 +543,7 @@ export class EmbedSessionClient {
   }
 }
 
-async function publicRequest<TSchema extends z.ZodType>(
+export async function embedPublicRequest<TSchema extends z.ZodType>(
   path: string,
   schema: TSchema,
   init: RequestInit

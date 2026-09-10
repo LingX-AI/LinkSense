@@ -959,7 +959,7 @@ test("every LinkSense release image contains the CPAL license", async () => {
   assert.equal((runner.match(licenseCopy) ?? []).length, 2)
 })
 
-test("the private-source release workflow validates candidates before promotion", async () => {
+test("the private-source release workflow reuses verified main checks before promotion", async () => {
   const workflow = await readFile(
     path.join(root, ".github/workflows/release.yml"),
     "utf8",
@@ -973,6 +973,17 @@ test("the private-source release workflow validates candidates before promotion"
   assert.doesNotMatch(workflow, /push:\n\s+tags:/u)
   assert.match(workflow, /LINKSENSE_RELEASE_ACTOR/u)
   assert.match(workflow, /test "\$visibility" = private/u)
+  assert.match(workflow, /actions: read/u)
+  assert.match(workflow, /require_successful_workflow ci\.yml CI/u)
+  assert.match(workflow, /require_successful_workflow security\.yml Security/u)
+  assert.match(workflow, /\.head_sha == env\.TARGET_SHA/u)
+  assert.match(workflow, /\.conclusion == "success"/u)
+  assert.match(workflow, /-f event=push/u)
+  assert.match(workflow, /-f head_sha="\$GITHUB_SHA"/u)
+  assert.match(workflow, /-f status=completed/u)
+  assert.doesNotMatch(workflow, /^  verify:/mu)
+  assert.doesNotMatch(workflow, /pnpm (?:install|test|typecheck|lint|build)/u)
+  assert.doesNotMatch(workflow, /scripts\/run-gitleaks\.sh/u)
   assert.match(workflow, /candidate-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}/u)
   assert.match(workflow, /worker-image:/u)
   assert.match(
@@ -981,15 +992,6 @@ test("the private-source release workflow validates candidates before promotion"
   )
   assert.match(workflow, /packages: write/u)
   assert.match(workflow, /GITHUB_TOKEN/u)
-  assert.match(workflow, /pnpm db:generate/u)
-  assert.match(
-    workflow,
-    /sudo apt-get install --yes --no-install-recommends redis-server/u,
-  )
-  assert.match(
-    workflow,
-    /DATABASE_URL: postgresql:\/\/build:build@127\.0\.0\.1:5432\/build/u,
-  )
   assert.match(workflow, /sbom: true/u)
   assert.match(workflow, /provenance: mode=min/u)
   assert.match(workflow, /org\.opencontainers\.image\.source/u)
@@ -1006,19 +1008,22 @@ test("the private-source release workflow validates candidates before promotion"
     )?.length,
     4,
   )
-  assert.match(
-    workflow,
-    /resolve-release-image\.sh[\s\S]*linux\/amd64 linux\/arm64/u,
-  )
+  assert.match(workflow, /sh scripts\/prepare-release-inputs\.sh release-inputs/u)
+  assert.match(workflow, /cd release-inputs && sha256sum -c SHA256SUMS/u)
+  assert.match(workflow, /release-inputs\/identity\.env/u)
+  assert.match(workflow, /release-inputs\/tokenizer release-assets/u)
+  assert.match(workflow, /fail-fast: false/u)
+  assert.doesNotMatch(workflow, /fail-fast: true/u)
+  assert.match(workflow, /type=gha,scope=migrate-\{0\}/u)
+  assert.equal((workflow.match(/timeout=2m,ignore-error=true/gu) ?? []).length, 2)
+  assert.equal((workflow.match(/overwrite: true/gu) ?? []).length, 5)
   assert.doesNotMatch(workflow, /full-installation-smoke:/u)
   assert.doesNotMatch(workflow, /self-hosted|linksense-full-release/u)
   assert.match(workflow, /docker buildx imagetools create/u)
-  assert.match(workflow, /gh release create "\$RELEASE_VERSION" release-assets\/\*/u)
-  assert.match(workflow, /gh release upload "\$RELEASE_VERSION" "\$asset"/u)
-  assert.match(workflow, /gh release download "\$RELEASE_VERSION" --dir verified-release-assets/u)
-  assert.match(workflow, /sha256sum -c "\$GITHUB_WORKSPACE\/release-assets\/SHA256SUMS"/u)
-  assert.match(workflow, /install -m 0644 \\\n\s+LICENSE/u)
-  assert.match(workflow, /deploy\/release\/linksense-cli\.sh/u)
+  assert.match(workflow, /node scripts\/publish-release\.mjs release-assets/u)
+  assert.doesNotMatch(workflow, /gh release (?:create|upload|edit)/u)
+  const assetsJob = workflow.split("\n  assets:")[1].split("\n  release:")[0]
+  assert.doesNotMatch(assetsJob, /curl |resolve-release-image\.sh/u)
   assert.doesNotMatch(workflow, /environment: public-release/u)
   assert.doesNotMatch(workflow, /attestations: write/u)
   assert.doesNotMatch(workflow, /actions\/attest-build-provenance/u)
@@ -1308,10 +1313,10 @@ test("the public snapshot applies exclusions before the tar file list", async ()
   }
 })
 
-test("all workflows use the resolvable pinned pnpm setup action", async () => {
+test("workflows that install dependencies use the resolvable pinned pnpm setup action", async () => {
   const expectedReference =
     "pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1"
-  for (const workflow of ["ci.yml", "release.yml", "security.yml"]) {
+  for (const workflow of ["ci.yml", "security.yml"]) {
     const source = await readFile(
       path.join(root, ".github/workflows", workflow),
       "utf8",
@@ -1322,34 +1327,70 @@ test("all workflows use the resolvable pinned pnpm setup action", async () => {
       /pnpm\/action-setup@a7487c7e89a18df4991f222e4898a00d66ddda/u,
     )
   }
+  const releaseWorkflow = await readFile(
+    path.join(root, ".github/workflows/release.yml"),
+    "utf8",
+  )
+  assert.doesNotMatch(releaseWorkflow, /pnpm\/action-setup/u)
 })
 
 test("hosted workflows install the Redis runtime required by API tests", async () => {
-  for (const workflow of ["ci.yml", "release.yml"]) {
-    const source = await readFile(
-      path.join(root, ".github/workflows", workflow),
-      "utf8",
-    )
-    const installPosition = source.indexOf(
-      "sudo apt-get install --yes --no-install-recommends redis-server",
-    )
-    const testPosition = source.indexOf("pnpm --filter @linksense/api test")
-    assert.ok(installPosition >= 0)
-    assert.ok(testPosition > installPosition)
-  }
+  const source = await readFile(
+    path.join(root, ".github/workflows/ci.yml"),
+    "utf8",
+  )
+  const installPosition = source.indexOf(
+    "sudo apt-get install --yes --no-install-recommends redis-server",
+  )
+  const testPosition = source.indexOf("pnpm --filter @linksense/api test")
+  assert.ok(installPosition >= 0)
+  assert.ok(testPosition > installPosition)
 })
 
 test("hosted workflows execute the privileged runner filesystem test as root", async () => {
-  for (const workflow of ["ci.yml", "release.yml"]) {
+  const source = await readFile(
+    path.join(root, ".github/workflows/ci.yml"),
+    "utf8",
+  )
+  assert.match(
+    source,
+    /sudo env "PATH=\$PATH" pnpm --filter @linksense\/runner exec vitest run test\/workspace-manager\.test\.ts/u,
+  )
+})
+
+test("branch workflows cancel obsolete runs before consuming more hosted minutes", async () => {
+  for (const workflow of ["ci.yml", "security.yml"]) {
     const source = await readFile(
       path.join(root, ".github/workflows", workflow),
       "utf8",
     )
-    assert.match(
-      source,
-      /sudo env "PATH=\$PATH" pnpm --filter @linksense\/runner exec vitest run test\/workspace-manager\.test\.ts/u,
-    )
+    assert.match(source, /concurrency:/u)
+    assert.match(source, /group: [^\n]+\$\{\{ github\.ref \}\}/u)
+    assert.match(source, /cancel-in-progress: true/u)
   }
+})
+
+test("dependency auditing is not duplicated across CI and branch security runs", async () => {
+  const ciWorkflow = await readFile(
+    path.join(root, ".github/workflows/ci.yml"),
+    "utf8",
+  )
+  const securityWorkflow = await readFile(
+    path.join(root, ".github/workflows/security.yml"),
+    "utf8",
+  )
+  const auditCommand =
+    "pnpm audit --registry=https://registry.npmjs.org --prod --audit-level high"
+
+  assert.match(ciWorkflow, new RegExp(auditCommand.replaceAll(".", "\\."), "u"))
+  assert.match(
+    securityWorkflow,
+    /production-audit:\n(?:\s+#.*\n)*\s+if: github\.event_name == 'schedule'/u,
+  )
+  assert.match(
+    securityWorkflow,
+    new RegExp(auditCommand.replaceAll(".", "\\."), "u"),
+  )
 })
 
 function composeEnvironment(edition) {

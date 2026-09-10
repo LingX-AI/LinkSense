@@ -56,7 +56,7 @@ export function BrowserNotificationSettings({
         title={t("browserNotifications.settingsTitle")}
         description={t("browserNotifications.settingsDescription")}
         descriptionId="browser-notifications-description"
-        status={
+        titleAction={
           <Switch
             id="browser-notifications-enabled"
             checked={preference.enabled}

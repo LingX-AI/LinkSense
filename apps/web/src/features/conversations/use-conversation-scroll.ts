@@ -5,13 +5,15 @@ import {
   useRef,
   useState,
   type RefCallback,
+  type RefObject,
 } from "react"
+import type { ConversationThreadNavigation } from "@/features/conversations/conversation-message-list"
 
 export const CONVERSATION_SCROLL_BUTTON_THRESHOLD_PX = 500
 export const CONVERSATION_SCROLL_TO_BOTTOM_DURATION_MS = 180
 export const CONVERSATION_STREAM_FOLLOW_HALF_LIFE_MS = 28
 
-const CONVERSATION_BOTTOM_RESUME_TOLERANCE_PX = 24
+const CONVERSATION_BOTTOM_RESUME_TOLERANCE_PX = 1
 const CONVERSATION_STREAM_FOLLOW_SETTLE_PX = 0.5
 const CONVERSATION_STREAM_FOLLOW_MAX_FRAME_MS = 64
 
@@ -41,10 +43,20 @@ export function getConversationDistanceFromBottom(
 
 export function useConversationScroll(
   conversationId: string,
-  options: { preservePositionOnConversationChange?: boolean } = {}
+  {
+    preservePositionOnConversationChange = false,
+    navigationRef,
+  }: {
+    preservePositionOnConversationChange?: boolean
+    navigationRef?: RefObject<Pick<
+      ConversationThreadNavigation,
+      "scrollToLatest" | "cancelScroll"
+    > | null>
+  } = {}
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const followingLatestRef = useRef(true)
+  const resumeOnUserScrollRef = useRef(false)
   const lastScrollTopRef = useRef(0)
   const pointerActiveRef = useRef(false)
   const touchYRef = useRef<number | null>(null)
@@ -99,8 +111,14 @@ export function useConversationScroll(
     cancelResizeFollow()
     cancelScrollAnimation()
     followingLatestRef.current = true
+    resumeOnUserScrollRef.current = false
     const element = containerRef.current
     if (!element) return
+
+    if (navigationRef?.current?.scrollToLatest("auto")) {
+      lastScrollTopRef.current = element.scrollTop
+      return
+    }
 
     const top = element.scrollHeight
     if (typeof element.scrollTo === "function") {
@@ -109,11 +127,15 @@ export function useConversationScroll(
       element.scrollTop = top
     }
     lastScrollTopRef.current = element.scrollTop
-  }, [cancelResizeFollow, cancelScrollAnimation])
+  }, [cancelResizeFollow, cancelScrollAnimation, navigationRef])
 
   const followLatestSmoothly = useCallback(() => {
     const element = containerRef.current
     if (!element || scrollAnimationFrameRef.current !== null) return
+    if (navigationRef?.current?.scrollToLatest("auto")) {
+      setShowScrollToBottom(false)
+      return
+    }
 
     const reducedMotion =
       typeof window.matchMedia === "function" &&
@@ -160,10 +182,18 @@ export function useConversationScroll(
     }
 
     resizeFollowFrameRef.current = window.requestAnimationFrame(animate)
-  }, [scrollToBottomImmediately])
+  }, [navigationRef, scrollToBottomImmediately])
 
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "auto") => {
+      resumeOnUserScrollRef.current = false
+      if (navigationRef?.current?.scrollToLatest(behavior)) {
+        cancelScrollAnimation()
+        cancelResizeFollow()
+        followingLatestRef.current = true
+        setShowScrollToBottom(false)
+        return
+      }
       if (
         behavior !== "smooth" ||
         typeof window.requestAnimationFrame !== "function"
@@ -225,7 +255,12 @@ export function useConversationScroll(
       scrollAnimationFrameRef.current = window.requestAnimationFrame(animate)
       setShowScrollToBottom(false)
     },
-    [cancelResizeFollow, cancelScrollAnimation, scrollToBottomImmediately]
+    [
+      cancelResizeFollow,
+      cancelScrollAnimation,
+      navigationRef,
+      scrollToBottomImmediately,
+    ]
   )
 
   const scrollToElement = useCallback(
@@ -233,6 +268,7 @@ export function useConversationScroll(
       cancelScrollAnimation()
       cancelResizeFollow()
       followingLatestRef.current = false
+      resumeOnUserScrollRef.current = false
       const element = containerRef.current
       if (!element) return
 
@@ -309,16 +345,21 @@ export function useConversationScroll(
   )
 
   const pauseAutoFollow = useCallback(() => {
-    cancelResizeFollow()
-    cancelScrollAnimation()
-    followingLatestRef.current = false
-  }, [cancelResizeFollow, cancelScrollAnimation])
-
-  const preserveScrollPositionForInteraction = useCallback(() => {
     cancelInteractionRestore()
     cancelResizeFollow()
     cancelScrollAnimation()
     followingLatestRef.current = false
+    resumeOnUserScrollRef.current = false
+    navigationRef?.current?.cancelScroll()
+  }, [
+    cancelInteractionRestore,
+    cancelResizeFollow,
+    cancelScrollAnimation,
+    navigationRef,
+  ])
+
+  const preserveScrollPositionForInteraction = useCallback(() => {
+    pauseAutoFollow()
 
     const element = containerRef.current
     if (!element) return
@@ -332,12 +373,7 @@ export function useConversationScroll(
       lastScrollTopRef.current = element.scrollTop
       updateButtonVisibility()
     })
-  }, [
-    cancelInteractionRestore,
-    cancelResizeFollow,
-    cancelScrollAnimation,
-    updateButtonVisibility,
-  ])
+  }, [pauseAutoFollow, updateButtonVisibility])
 
   const scrollContainerRef: RefCallback<HTMLDivElement> = useCallback(
     (element) => {
@@ -364,7 +400,7 @@ export function useConversationScroll(
     if (
       !containerChanged &&
       conversationChanged &&
-      options.preservePositionOnConversationChange
+      preservePositionOnConversationChange
     ) {
       lastScrollTopRef.current = container.scrollTop
       updateButtonVisibility()
@@ -375,7 +411,7 @@ export function useConversationScroll(
   }, [
     container,
     conversationId,
-    options.preservePositionOnConversationChange,
+    preservePositionOnConversationChange,
     scrollToBottomImmediately,
     updateButtonVisibility,
   ])
@@ -389,21 +425,40 @@ export function useConversationScroll(
       const nextScrollTop = container.scrollTop
       const distance = getConversationDistanceFromBottom(container)
 
-      if (distance <= CONVERSATION_BOTTOM_RESUME_TOLERANCE_PX) {
-        followingLatestRef.current = true
-      } else if (
-        pointerActiveRef.current &&
-        nextScrollTop < lastScrollTopRef.current
+      if (pointerActiveRef.current) {
+        if (nextScrollTop < lastScrollTopRef.current) pauseAutoFollow()
+        else if (nextScrollTop > lastScrollTopRef.current)
+          resumeOnUserScrollRef.current = true
+      }
+      // Layout changes and queued programmatic scroll events can also land at
+      // the bottom. Only a user's downward movement may release the pause.
+      if (
+        resumeOnUserScrollRef.current &&
+        nextScrollTop > lastScrollTopRef.current &&
+        distance <= CONVERSATION_BOTTOM_RESUME_TOLERANCE_PX
       ) {
-        followingLatestRef.current = false
+        followingLatestRef.current = true
+        resumeOnUserScrollRef.current = false
       }
 
       lastScrollTopRef.current = nextScrollTop
       updateButtonVisibility()
     }
 
+    const prepareUserScrollToBottom = () => {
+      resumeOnUserScrollRef.current = true
+      // A downward gesture at the bottom may not emit any scroll event.
+      if (
+        getConversationDistanceFromBottom(container) <=
+        CONVERSATION_BOTTOM_RESUME_TOLERANCE_PX
+      ) {
+        followingLatestRef.current = true
+        resumeOnUserScrollRef.current = false
+      }
+    }
     const handleWheel = (event: WheelEvent) => {
       if (event.deltaY < 0) pauseAutoFollow()
+      else if (event.deltaY > 0) prepareUserScrollToBottom()
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -414,6 +469,13 @@ export function useConversationScroll(
         (event.key === " " && event.shiftKey)
       ) {
         pauseAutoFollow()
+      } else if (
+        event.key === "ArrowDown" ||
+        event.key === "PageDown" ||
+        event.key === "End" ||
+        (event.key === " " && !event.shiftKey)
+      ) {
+        prepareUserScrollToBottom()
       }
     }
 
@@ -421,6 +483,7 @@ export function useConversationScroll(
       if (event.isPrimary) {
         cancelResizeFollow()
         cancelScrollAnimation()
+        navigationRef?.current?.cancelScroll()
         pointerActiveRef.current = true
         updateButtonVisibility()
       }
@@ -437,14 +500,20 @@ export function useConversationScroll(
       if (nextY === undefined) return
       if (touchYRef.current !== null && nextY > touchYRef.current) {
         pauseAutoFollow()
+      } else if (touchYRef.current !== null && nextY < touchYRef.current) {
+        prepareUserScrollToBottom()
       }
       touchYRef.current = nextY
     }
     const handleTouchEnd = () => {
       touchYRef.current = null
     }
+    const handleScrollEnd = () => {
+      resumeOnUserScrollRef.current = false
+    }
 
     container.addEventListener("scroll", handleScroll, { passive: true })
+    container.addEventListener("scrollend", handleScrollEnd)
     container.addEventListener("wheel", handleWheel, { passive: true })
     container.addEventListener("keydown", handleKeyDown)
     container.addEventListener("pointerdown", handlePointerDown)
@@ -464,6 +533,7 @@ export function useConversationScroll(
     updateButtonVisibility()
     return () => {
       container.removeEventListener("scroll", handleScroll)
+      container.removeEventListener("scrollend", handleScrollEnd)
       container.removeEventListener("wheel", handleWheel)
       container.removeEventListener("keydown", handleKeyDown)
       container.removeEventListener("pointerdown", handlePointerDown)
@@ -473,11 +543,15 @@ export function useConversationScroll(
       container.removeEventListener("touchcancel", handleTouchEnd)
       window.removeEventListener("pointerup", handlePointerEnd)
       window.removeEventListener("pointercancel", handlePointerEnd)
+      pointerActiveRef.current = false
+      touchYRef.current = null
+      resumeOnUserScrollRef.current = false
     }
   }, [
     cancelScrollAnimation,
     cancelResizeFollow,
     container,
+    navigationRef,
     pauseAutoFollow,
     updateButtonVisibility,
   ])

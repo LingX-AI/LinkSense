@@ -12,6 +12,44 @@ function cssRule(selector: string) {
 }
 
 describe("sidebar theme", () => {
+  it("indents category task content inside full-width rows", () => {
+    expect(sidebarStyles).toMatch(
+      /(?:^|\n)\.sidebar-conversation-link\s*\{[^}]*padding-left:\s*calc\(8px \+ var\(--sidebar-conversation-indent, 0px\)\);/u
+    )
+    expect(cssRule(".sidebar-conversation-item")).not.toMatch(
+      /margin-left|padding-left/u
+    )
+  })
+
+  it("softens active task backgrounds without changing other sidebar selections", () => {
+    expect(cssRule('.sidebar-conversation-item[data-active="true"]')).toMatch(
+      /background:\s*color-mix\(\s*in srgb,\s*var\(--app-sidebar-active\) 65%,\s*transparent\s*\);/u
+    )
+    expect(sidebarStyles).toContain(
+      ".sidebar-conversation-item.sidebar-link-active,"
+    )
+    expect(cssRule('.sidebar-nav-item[data-active="true"]')).toContain(
+      "background: var(--app-sidebar-active);"
+    )
+    expect(cssRule(".sidebar-link-active")).toContain(
+      "background: var(--app-sidebar-active);"
+    )
+  })
+
+  it("paints hover and keyboard focus backgrounds once on the entire task row", () => {
+    expect(sidebarStyles).toMatch(
+      /\.sidebar-conversation-item:not\(\[data-active="true"\]\):not\(\s*\.sidebar-link-active\s*\):has\(:focus-visible\),[^}]*background:\s*var\(--app-sidebar-hover\);/u
+    )
+    expect(sidebarStyles).not.toMatch(
+      /\.sidebar-conversation-link\s*\{[^}]*background:\s*var\(--app-sidebar-hover\);/u
+    )
+  })
+
+  it("reserves room for the task menu and archive button", () => {
+    expect(cssRule(".sidebar-conversation-item")).toContain(
+      "--sidebar-conversation-actions-width: 56px;"
+    )
+  })
   it("uses the documented 248px default for task and settings sidebars", () => {
     expect(cssRule(":root")).toContain("--app-sidebar-width: 248px;")
     expect(cssRule(".prototype-shell")).toContain(
@@ -166,6 +204,19 @@ describe("sidebar theme", () => {
     )
   })
 
+  it("centers the mobile navigation button against the conversation title bar", () => {
+    const titleBarRule = sidebarStyles.match(
+      /(?:^|\n)\.conversation-top-bar\s*\{([^}]*)\}/u
+    )?.[1]
+    expect(titleBarRule).toContain(
+      "height: var(--conversation-top-bar-height);"
+    )
+    expect(titleBarRule).toContain("align-items: center;")
+    expect(cssRule(".mobile-shell-trigger")).toContain(
+      "top: calc((var(--conversation-top-bar-height) - 28px) / 2);"
+    )
+  })
+
   it("collapses the desktop sidebar and makes room for its restore control", () => {
     expect(cssRule('.app-shell[data-sidebar-collapsed="true"]')).toContain(
       "grid-template-columns: 0 minmax(0, 1fr);"
@@ -258,18 +309,30 @@ describe("sidebar theme", () => {
     }
   })
 
-  it("keeps recent tasks vertically comfortable at the configured UI size", () => {
+  it("matches the 32px category rows without vertical padding inflating task height", () => {
     expect(sidebarStyles).toMatch(
-      /(?:^|\n)\.sidebar-conversation-link\s*\{[^}]*min-height:\s*36px;[^}]*padding:\s*8px;/u
+      /\.sidebar-link,\s*\.sidebar-conversation-link\s*\{[^}]*min-height:\s*32px;/u
+    )
+    expect(sidebarStyles).toMatch(
+      /(?:^|\n)\.sidebar-conversation-link\s*\{[^}]*padding:\s*0 8px;/u
+    )
+    expect(sidebarStyles).not.toMatch(
+      /(?:^|\n)\.sidebar-conversation-link\s*\{[^}]*min-height:\s*36px;/u
+    )
+    expect(appShellSource).toContain(
+      'className="sidebar-conversation-link h-8"'
+    )
+    expect(cssRule(".sidebar-conversation-item")).toContain(
+      "contain-intrinsic-size: auto 32px;"
     )
   })
 
   it("keeps a clear title gap before conversation actions across input modes", () => {
     expect(sidebarStyles).toMatch(
-      /\.sidebar-conversation-item:hover\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item:has\(:focus-visible\)\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*60px;/u
+      /\.sidebar-conversation-item:hover\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item:has\(:focus-visible\)\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item:has\(\[data-popup-open\]\)\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*var\(--sidebar-conversation-actions-width\);/u
     )
     expect(sidebarStyles).toMatch(
-      /@media \(hover:\s*none\)\s*\{[^}]*\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item\[data-running="true"\]\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item\[data-warning="true"\]\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*60px;/u
+      /@media \(hover:\s*none\)\s*\{[^}]*\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item\[data-running="true"\]\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item\[data-warning="true"\]\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*var\(--sidebar-conversation-actions-width\);/u
     )
   })
 

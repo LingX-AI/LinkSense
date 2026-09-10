@@ -1,4 +1,9 @@
-import { act, cleanup, render, waitFor } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  render as renderView,
+  waitFor,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import {
   afterAll,
@@ -11,6 +16,11 @@ import {
 } from "vitest"
 
 import type { ReactNode, Ref } from "react"
+import { bootstrapSchema } from "@/api/contracts"
+import {
+  BootstrapContext,
+  type BootstrapContextValue,
+} from "@/app/bootstrap-state"
 
 import type {
   ConversationFile,
@@ -55,6 +65,11 @@ const threadState = vi.hoisted(() => ({
   props: null as MockThreadProps | null,
 }))
 const clientState = vi.hoisted(() => ({
+  startPublicSession: vi.fn(),
+  acceptTicket: vi.fn(),
+  disconnect: vi.fn(),
+  destroy: vi.fn(),
+  connect: vi.fn(),
   modelPreferenceUpdates: [] as Array<Record<string, unknown>>,
   conversationChanges: [] as Array<{
     path: string
@@ -113,9 +128,19 @@ vi.mock("./session-client", () => {
   }
 
   class EmbedSessionClient {
-    authenticated = true
+    authenticated = false
 
-    async startPublicSession() {}
+    async startPublicSession() {
+      clientState.startPublicSession()
+      this.authenticated = true
+    }
+
+    async acceptTicket() {
+      clientState.acceptTicket()
+      this.authenticated = true
+    }
+
+    async updateExternalApplicationSession() {}
 
     async changeConversation(path: string, init?: RequestInit) {
       clientState.conversationChanges.push({ path, method: init?.method })
@@ -204,16 +229,49 @@ vi.mock("./session-client", () => {
     }
 
     connectEvents() {
-      return () => undefined
+      clientState.connect()
+      return clientState.disconnect
     }
 
-    destroy() {}
+    destroy() {
+      clientState.destroy()
+    }
   }
 
   return { EmbedRequestError, EmbedSessionClient }
 })
 
 import { EmbedApp } from "./embed-app"
+
+const maintenance = {
+  enabled: true,
+  active: true,
+  reason: "数据库升级",
+  start_at: "2026-09-09T12:00:00.000Z",
+  end_at: "2026-09-09T13:00:00.000Z",
+}
+
+function systemState(active = false): BootstrapContextValue {
+  return {
+    bootstrap: bootstrapSchema.parse({
+      initialized: true,
+      system_name: "LinkSense",
+      default_language: "zh-CN",
+      maintenance: { ...maintenance, active },
+    }),
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }
+}
+
+function render(ui: ReactNode) {
+  return renderView(
+    <BootstrapContext.Provider value={systemState()}>
+      {ui}
+    </BootstrapContext.Provider>
+  )
+}
 
 beforeAll(() => {
   Object.defineProperty(HTMLElement.prototype, "scrollTo", {
@@ -238,6 +296,116 @@ afterEach(() => {
   clientState.attachmentDeleteGate = null
   clientState.uploadError = null
   clientState.turnStarts = 0
+  clientState.startPublicSession.mockClear()
+  clientState.acceptTicket.mockClear()
+  clientState.disconnect.mockClear()
+  clientState.destroy.mockClear()
+  clientState.connect.mockClear()
+})
+
+describe("embedded system maintenance", () => {
+  it("waits for system status and offers retry without starting a session when status cannot be loaded", async () => {
+    const config = frameConfig()
+    const refetch = vi.fn()
+    const content = (error: unknown) => (
+      <BootstrapContext.Provider value={{ isLoading: !error, error, refetch }}>
+        <EmbedApp config={config} />
+      </BootstrapContext.Provider>
+    )
+    const view = renderView(content(null))
+    expect(view.getByRole("status")).toHaveAttribute("aria-busy", "true")
+    expect(clientState.startPublicSession).not.toHaveBeenCalled()
+    view.rerender(content(new Error("offline")))
+    expect(view.getByRole("alert")).toHaveTextContent(
+      "暂时无法获取系统状态，请检查网络后重试。"
+    )
+    await userEvent.setup().click(view.getByRole("button", { name: "重试" }))
+    expect(refetch).toHaveBeenCalledTimes(1)
+    expect(clientState.startPublicSession).not.toHaveBeenCalled()
+  })
+
+  it("keeps the maintenance message visible on a refresh failure and follows host language changes", async () => {
+    const value = systemState(true)
+    const view = renderView(
+      <BootstrapContext.Provider
+        value={{ ...value, error: new Error("offline") }}
+      >
+        <EmbedApp config={frameConfig({ locale: "en-US" })} />
+      </BootstrapContext.Provider>
+    )
+    expect(
+      await view.findByRole("heading", { name: "System maintenance" })
+    ).toBeVisible()
+    expect(view.getByText("Expected maintenance window")).toBeVisible()
+    sendLocale("zh-CN")
+    expect(
+      await view.findByRole("heading", { name: "系统维护中" })
+    ).toBeVisible()
+    expect(view.queryByRole("alert")).toBeNull()
+  })
+
+  it.each(["public", "required"] as const)(
+    "shows maintenance before authenticating a %s frame",
+    async (authMode) => {
+      const view = renderView(
+        <BootstrapContext.Provider value={systemState(true)}>
+          <EmbedApp config={frameConfig({ auth_mode: authMode })} />
+        </BootstrapContext.Provider>
+      )
+      expect(
+        await view.findByRole("heading", { name: "系统维护中" })
+      ).toBeVisible()
+      expect(view.getByText("数据库升级")).toBeVisible()
+      expect(view.queryByRole("button", { name: "管理员入口" })).toBeNull()
+      expect(view.queryByTestId("conversation-composer")).toBeNull()
+      expect(clientState.startPublicSession).not.toHaveBeenCalled()
+      expect(clientState.acceptTicket).not.toHaveBeenCalled()
+      expect(clientState.connect).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(["public", "required"] as const)(
+    "pauses an open frame and restores the same %s session when maintenance ends",
+    async (authMode) => {
+      const config = frameConfig({ auth_mode: authMode })
+      const content = (active: boolean) => (
+        <BootstrapContext.Provider value={systemState(active)}>
+          <EmbedApp config={config} />
+        </BootstrapContext.Provider>
+      )
+      const view = renderView(content(false))
+      if (authMode === "required") {
+        act(() =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              origin: config.parent_origin,
+              source: window.parent,
+              data: {
+                type: "linksense:ticket",
+                appId: config.app_id,
+                ticket: "test-ticket",
+                sessionId: null,
+              },
+            })
+          )
+        )
+      }
+      await waitFor(() => expect(clientState.connect).toHaveBeenCalled())
+      const sessionCount = clientState.startPublicSession.mock.calls.length
+      view.rerender(content(true))
+      expect(view.getByRole("heading", { name: "系统维护中" })).toBeVisible()
+      expect(clientState.disconnect).toHaveBeenCalled()
+      expect(clientState.destroy).not.toHaveBeenCalled()
+      view.rerender(content(false))
+      await waitFor(() =>
+        expect(view.getByTestId("conversation-composer")).toBeVisible()
+      )
+      expect(clientState.startPublicSession).toHaveBeenCalledTimes(sessionCount)
+      expect(clientState.acceptTicket).toHaveBeenCalledTimes(
+        authMode === "required" ? 1 : 0
+      )
+    }
+  )
 })
 
 describe("embedded application chat", () => {

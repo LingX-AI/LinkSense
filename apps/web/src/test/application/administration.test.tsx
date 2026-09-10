@@ -21,7 +21,8 @@ describe("LinkSense application", () => {
       screen
         .getByRole("heading", { name: "角色与权限" })
         .closest(".management-page")
-    ).toHaveClass("role-permission-page")
+        ?.closest(".settings-content")
+    ).toHaveClass("settings-content")
     expect(
       screen.getByRole("complementary", { name: "LinkSense 设置导航" })
     ).toBeVisible()
@@ -381,7 +382,7 @@ describe("LinkSense application", () => {
     const notificationToast = notification.closest("[data-sonner-toast]")
     expect(notificationToast).not.toBeNull()
     expect(notification.closest('[role="dialog"]')).toBeNull()
-    expect(notificationToast).toHaveTextContent("成功 2 条，跳过 0 条。")
+    expect(notificationToast).toHaveTextContent("成功 2 条，跳过 0 条")
   })
 
   it("uses an edit icon and toggles another user's account status", async () => {
@@ -427,7 +428,7 @@ describe("LinkSense application", () => {
       name: "启用用户 张宁",
     })
     expect(enableSwitch).not.toBeChecked()
-    expect(await screen.findByText("已禁用用户 张宁。")).toBeVisible()
+    expect(await screen.findByText("已禁用用户 张宁")).toBeVisible()
 
     await interaction.click(enableSwitch)
     await waitFor(() =>
@@ -444,7 +445,7 @@ describe("LinkSense application", () => {
     expect(
       await within(userRow).findByRole("switch", { name: "禁用用户 张宁" })
     ).toBeChecked()
-    expect(await screen.findByText("已启用用户 张宁。")).toBeVisible()
+    expect(await screen.findByText("已启用用户 张宁")).toBeVisible()
   })
 
   it("keeps the last enabled administrator status switch disabled", async () => {

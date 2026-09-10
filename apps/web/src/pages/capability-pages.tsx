@@ -990,7 +990,10 @@ function CapabilityImportDialog({
         onOpenChange(nextOpen)
       }}
     >
-      <DialogContent closeLabel={t("common.close")} className="sm:max-w-2xl">
+      <DialogContent
+        closeLabel={t("common.close")}
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl"
+      >
         <DialogHeader>
           <DialogTitle>
             {t(
@@ -1122,11 +1125,20 @@ function CapabilityImportDialog({
             )}
             {source === "manual_skill" && (
               <>
-                <FieldShell id="capability-name" label={t("common.name")}>
+                <FieldShell
+                  id="capability-name"
+                  label={t("common.name")}
+                  hint={
+                    <span id="capability-name-hint">
+                      {t("marketplace.skillNameHint")}
+                    </span>
+                  }
+                >
                   <Input
                     id="capability-name"
+                    aria-describedby="capability-name-hint"
                     value={name}
-                    maxLength={160}
+                    maxLength={64}
                     onChange={(event) => setName(event.target.value)}
                   />
                 </FieldShell>
@@ -1137,6 +1149,7 @@ function CapabilityImportDialog({
                   <Textarea
                     id="capability-description"
                     value={description}
+                    className="max-h-40 overflow-y-auto"
                     maxLength={4_000}
                     onChange={(event) => setDescription(event.target.value)}
                   />
@@ -1148,7 +1161,7 @@ function CapabilityImportDialog({
                   <Textarea
                     id="capability-skill-markdown"
                     value={skillMarkdown}
-                    className="min-h-56 font-mono"
+                    className="max-h-96 min-h-56 overflow-y-auto font-mono"
                     onChange={(event) => setSkillMarkdown(event.target.value)}
                   />
                 </FieldShell>

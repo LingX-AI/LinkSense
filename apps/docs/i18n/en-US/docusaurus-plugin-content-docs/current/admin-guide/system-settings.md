@@ -38,6 +38,8 @@ Leaving either field blank keeps the corresponding deployment default. New task 
 
 Open the **System maintenance** tab, enter a reason and the start and end times, then enable scheduled maintenance. Maintenance becomes active only when the current time enters the configured window and ends automatically at the specified end time.
 
+During active maintenance, signed-in administrators see a **System maintenance enabled** indicator in the bottom-right corner. Select it to open the maintenance settings. The indicator disappears when maintenance ends or is disabled and does not appear on sign-in or other public pages.
+
 During maintenance:
 
 - Regular users see the reason and expected maintenance window on a dedicated page and cannot call business APIs.

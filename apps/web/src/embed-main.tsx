@@ -9,6 +9,7 @@ import { setAppLanguage } from "./i18n"
 import { ThemeProvider } from "@/app/theme-context"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { EmbedApp } from "@/embed/embed-app"
+import { EmbedBootstrapProvider } from "@/embed/embed-bootstrap-provider"
 import { embedFrameConfigSchema } from "@/embed/config"
 
 const rootElement = document.getElementById("embed-root")
@@ -31,7 +32,9 @@ void setAppLanguage(config.locale, { persist: false }).then(() => {
         <QueryClientProvider client={queryClient}>
           <MemoryRouter>
             <TooltipProvider>
-              <EmbedApp config={config} />
+              <EmbedBootstrapProvider>
+                <EmbedApp config={config} />
+              </EmbedBootstrapProvider>
             </TooltipProvider>
           </MemoryRouter>
         </QueryClientProvider>

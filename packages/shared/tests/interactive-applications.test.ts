@@ -5,9 +5,53 @@ import {
   interactiveApplicationManifestSchema,
   interactiveApplicationEventNameSchema,
   interactiveApplicationRuntimeTokenResultSchema,
+  interactiveApplicationTaskInputSchema,
+  userMessageDisplaySchema,
+  officeAnnotationDisplaySchema,
 } from "../src/index.js";
 
 describe("interactive application contracts", () => {
+  it("validates application prompts without truncating long content and rejects empty or oversized input", () => {
+    const prompt = "研究要求\n".repeat(100);
+    expect(interactiveApplicationTaskInputSchema.parse({ prompt })).toEqual({
+      prompt: prompt.trim(),
+      capability_ids: [],
+      knowledge_base_ids: [],
+    });
+    for (const invalid of ["", "  ", "x".repeat(200_001)]) {
+      expect(
+        interactiveApplicationTaskInputSchema.safeParse({ prompt: invalid })
+          .success,
+      ).toBe(false);
+    }
+    expect(
+      interactiveApplicationTaskInputSchema.safeParse({
+        prompt: "研究",
+        knowledge_base_ids: ["invalid"],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("distinguishes persisted application message metadata from Office annotations", () => {
+    const display = {
+      kind: "interactive_application",
+      application_id: "70000000-0000-4000-8000-000000000088",
+    };
+    expect(userMessageDisplaySchema.parse(display)).toEqual(display);
+    expect(officeAnnotationDisplaySchema.safeParse(display).success).toBe(false);
+    expect(
+      userMessageDisplaySchema.safeParse({
+        ...display,
+        application_id: "invalid",
+      }).success,
+    ).toBe(false);
+    expect(
+      userMessageDisplaySchema.safeParse({
+        ...display,
+        prompt: "not display metadata",
+      }).success,
+    ).toBe(false);
+  });
   it("accepts a versioned package with a strict custom event contract", () => {
     const manifest = interactiveApplicationManifestSchema.parse({
       schema_version: 1,

@@ -34,6 +34,7 @@ describe("personalization settings", () => {
     let settings = {
       custom_instructions: "请优先使用中文。",
       memories_enabled: true,
+      task_auto_naming: "first_message",
     }
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -156,6 +157,7 @@ describe("personalization settings", () => {
           return envelope({
             custom_instructions: "",
             memories_enabled: true,
+            task_auto_naming: "first_message",
           })
         }
         return errorEnvelope("RUNNER_UNAVAILABLE", 503)
@@ -191,7 +193,11 @@ describe("personalization settings", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        envelope({ custom_instructions: "", memories_enabled: true })
+        envelope({
+          custom_instructions: "",
+          memories_enabled: true,
+          task_auto_naming: "first_message",
+        })
       )
     )
     const user = userEvent.setup()
@@ -225,6 +231,100 @@ describe("personalization settings", () => {
     expect(
       await screen.findByRole("heading", { name: "目标页面" })
     ).toBeVisible()
+  })
+
+  it.each([
+    ["zh-CN", "首次对话时", "每次对话时"],
+    ["en-US", "First message", "Every message"],
+    ["fr-FR", "首次对话时", "每次对话时"],
+  ])(
+    "saves and reloads the naming preference in %s without duplicate submissions",
+    async (language, first, every) => {
+      await i18n.changeLanguage(language)
+      let settings = {
+        custom_instructions: "",
+        memories_enabled: true,
+        task_auto_naming: "first_message",
+      }
+      let finish!: () => void
+      const pending = new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      const fetchMock = vi.fn(
+        async (_input: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.method === "PATCH") {
+            await pending
+            settings = { ...settings, task_auto_naming: "every_message" }
+          }
+          return envelope(settings)
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const user = userEvent.setup()
+      const { unmount } = renderPage()
+      const select = await screen.findByRole("combobox")
+      expect(select).toHaveAccessibleName(
+        language === "en-US" ? "Naming frequency" : "命名时机"
+      )
+      expect(select).toHaveTextContent(first)
+      const namingSection = select.closest("section")
+      const memorySection = screen.getByRole("switch").closest("section")
+      if (!namingSection || !memorySection) {
+        throw new Error("Expected naming and memory settings sections")
+      }
+      expect(memorySection.compareDocumentPosition(namingSection)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING
+      )
+      expect(select.closest(".personalization-memory-card")).toBeInTheDocument()
+      expect(select.closest(".personalization-memory-row")).toBeInTheDocument()
+      await user.click(select)
+      await user.click(await screen.findByRole("option", { name: first }))
+      expect(fetchMock).toHaveBeenCalledOnce()
+      await user.click(select)
+      await user.click(await screen.findByRole("option", { name: every }))
+      expect(select).toBeDisabled()
+      expect(screen.getByRole("status")).toHaveTextContent(
+        language === "en-US" ? "Saving…" : "正在保存…"
+      )
+      await user.click(select)
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")
+      ).toHaveLength(1)
+      expect(
+        findRequest(fetchMock, "/api/v1/me/personalization", "PATCH", {
+          task_auto_naming: "every_message",
+        })
+      ).toBe(true)
+      finish()
+      await waitFor(() => expect(select).toHaveTextContent(every))
+      expect(select).toBeEnabled()
+      unmount()
+      renderPage()
+      expect(await screen.findByRole("combobox")).toHaveTextContent(every)
+    }
+  )
+
+  it("preserves the saved naming preference and permits retry when saving fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === "PATCH"
+          ? errorEnvelope("RUNNER_UNAVAILABLE", 503)
+          : envelope({
+              custom_instructions: "",
+              memories_enabled: true,
+              task_auto_naming: "first_message",
+            })
+      )
+    )
+    const user = userEvent.setup()
+    renderPage()
+    const select = await screen.findByRole("combobox", { name: "命名时机" })
+    await user.click(select)
+    await user.click(await screen.findByRole("option", { name: "每次对话时" }))
+    expect(await screen.findByRole("alert")).toBeVisible()
+    expect(select).toHaveTextContent("首次对话时")
+    expect(select).toBeEnabled()
   })
 })
 

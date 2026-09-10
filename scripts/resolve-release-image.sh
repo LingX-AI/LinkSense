@@ -16,7 +16,13 @@ esac
 
 raw=$(mktemp)
 trap 'rm -f "$raw"' EXIT HUP INT TERM
-docker buildx imagetools inspect --raw "$reference" > "$raw"
+attempt=1
+until docker buildx imagetools inspect --raw "$reference" > "$raw"; do
+  [ "$attempt" -lt 3 ] || exit 1
+  printf 'Image registry lookup failed; retrying (%s/3).\n' "$((attempt + 1))" >&2
+  sleep "$((attempt * 2))"
+  attempt=$((attempt + 1))
+done
 
 for platform in "$@"; do
   case "$platform" in

@@ -381,7 +381,7 @@ function ConversationOfficePreviewContent({
   const annotationModeControl = annotationModeSupported ? (
     <Button
       type="button"
-      variant={annotationMode ? "secondary" : "ghost"}
+      variant="annotation"
       size="xs"
       className="office-preview-annotation-toggle"
       aria-label={t(

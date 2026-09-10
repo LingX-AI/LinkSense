@@ -2,7 +2,7 @@ import {
   managedProjectionProbeContents,
   managedProjectionProbeFileName,
 } from "@linksense/shared"
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises"
+import { chmod, lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
@@ -20,6 +20,7 @@ import {
   skillCapability,
   useCapabilityFilesystem,
 } from "./user-home-capability-fixture.js"
+const TASK_ID = "01900000-0000-7000-8000-000000000011"
 const { temporaryDirectory } = useCapabilityFilesystem()
 
 describe("UserHomeCapabilityMaterializer durability", () => {
@@ -38,7 +39,7 @@ describe("UserHomeCapabilityMaterializer durability", () => {
       "Write a concise report.",
     )
     const materializer = new UserHomeCapabilityMaterializer({ userDataRoot })
-    const paths = materializer.pathsFor(OWNER_ID)
+    const paths = materializer.pathsFor(OWNER_ID, TASK_ID)
     const homeRoot = join(paths.ownerRoot, "home")
     const codexHome = join(homeRoot, ".codex")
 
@@ -47,7 +48,7 @@ describe("UserHomeCapabilityMaterializer durability", () => {
     await Promise.all([chmod(homeRoot, 0o710), chmod(codexHome, 0o700)])
 
     const result = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [
         pluginCapability(pluginSource, {
           API_KEY: CREDENTIAL_SOURCE,
@@ -64,7 +65,8 @@ describe("UserHomeCapabilityMaterializer durability", () => {
       /^[a-f0-9]{64}\n$/u,
     )
     await expect(pathMode(result.managedRoot)).resolves.toBe(0o750)
-    await expect(pathMode(result.managedAgentsRoot)).resolves.toBe(0o750)
+    expect((await lstat(result.managedAgentsRoot)).isSymbolicLink()).toBe(true)
+    await expect(pathMode(await realpath(result.managedAgentsRoot))).resolves.toBe(0o750)
     await expect(
       readFile(
         join(result.managedAgentsRoot, managedProjectionProbeFileName),
@@ -142,6 +144,9 @@ describe("UserHomeCapabilityMaterializer durability", () => {
     expect(knowledgeSkill).toContain("search_knowledge_base")
     expect(knowledgeSkill).toContain("list_knowledge_documents")
     expect(knowledgeSkill).toContain("get_knowledge_document_markdown")
+    expect(knowledgeSkill).toContain("even if no\nknowledge base is selected in the input box")
+    expect(knowledgeSkill).toContain("Selection expresses focus, not\npermission")
+    expect(knowledgeSkill).toContain("on every tool call; unselected authorized knowledge bases remain available")
     expect(knowledgeSkill).toContain("complete` is true")
     expect(knowledgeSkill).toContain(
       "Do not fetch an entire document for a simple focused question.",
@@ -256,7 +261,7 @@ describe("UserHomeCapabilityMaterializer durability", () => {
     ).resolves.toBe('model = "test"\n')
 
     const cleared = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [],
     })
     expect(cleared.generation).not.toBe(result.generation)

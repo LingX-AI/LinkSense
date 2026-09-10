@@ -672,6 +672,19 @@ model ApplicationGrant {
   @@map("application_grants")
 }
 
+model TaskCategory {
+  id        String   @id @default(uuid()) @db.Uuid
+  ownerId   String   @map("owner_id") @db.Uuid
+  name      String   @db.VarChar(80)
+  sortOrder Int?     @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([ownerId, name], map: "task_categories_owner_name_key")
+  @@index([ownerId, sortOrder, createdAt, id], map: "task_categories_owner_order_idx")
+  @@map("task_categories")
+}
+
 model Conversation {
   id                              String    @id @default(uuid()) @db.Uuid
   ownerId                         String    @map("owner_id") @db.Uuid
@@ -680,6 +693,7 @@ model Conversation {
   archiveStatus                   String    @map("archive_status") @db.VarChar(32)
   archivedAt                      DateTime? @map("archived_at") @db.Timestamptz(6)
   pinnedAt                        DateTime? @map("pinned_at") @db.Timestamptz(6)
+  categoryId                      String?   @map("category_id") @db.Uuid
   sortOrder                       Int?      @map("sort_order")
   workspaceRelPath                String    @unique(map: "conversations_workspace_rel_path_key") @map("workspace_rel_path") @db.Text
   codexThreadId                   String?   @unique(map: "conversations_codex_thread_id_key") @map("codex_thread_id") @db.Text
@@ -707,6 +721,7 @@ model Conversation {
   @@index([ownerId, archiveStatus, updatedAt(sort: Desc)], map: "conversations_owner_archive_updated_idx")
   @@index([ownerId, archiveStatus, pinnedAt(sort: Desc)], map: "conversations_owner_archive_pinned_idx")
   @@index([ownerId, archiveStatus, pinnedAt, sortOrder], map: "conversations_owner_archive_pin_order_idx")
+  @@index([ownerId, categoryId, archiveStatus, pinnedAt, sortOrder], map: "conversations_owner_category_archive_pin_order_idx")
   @@index([createdAt(sort: Desc)], map: "conversations_created_at_idx")
   @@index([lastRunAt], map: "conversations_last_run_at_idx")
   @@index([applicationId, ownerId, updatedAt(sort: Desc)], map: "conversations_application_owner_updated_idx")
@@ -960,13 +975,14 @@ model ConversationMessage {
 
 model ConversationShare {
   id             String   @id @default(uuid()) @db.Uuid
-  conversationId String   @unique(map: "conversation_shares_conversation_id_key") @map("conversation_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
   ownerId        String   @map("owner_id") @db.Uuid
   titleSnapshot  String   @map("title_snapshot") @db.VarChar(240)
   snapshotJson   Json     @map("snapshot_json") @db.JsonB
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  @@index([conversationId], map: "conversation_shares_conversation_id_idx")
   @@index([ownerId, updatedAt(sort: Desc)], map: "conversation_shares_owner_updated_idx")
   @@map("conversation_shares")
 }
@@ -2021,6 +2037,33 @@ model FeedbackImage {
   @@unique([feedbackId, sortOrder], map: "feedback_images_feedback_order_key")
   @@index([feedbackId, createdAt], map: "feedback_images_feedback_created_idx")
   @@map("feedback_images")
+}
+
+model FeedbackReply {
+  id         String   @id @default(uuid()) @db.Uuid
+  feedbackId String   @map("feedback_id") @db.Uuid
+  authorId   String   @map("author_id") @db.Uuid
+  content    String   @db.Text
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([feedbackId, createdAt, id], map: "feedback_replies_feedback_created_id_idx")
+  @@map("feedback_replies")
+}
+
+model FeedbackReplyImage {
+  id             String   @id @default(uuid()) @db.Uuid
+  replyId        String   @map("reply_id") @db.Uuid
+  objectKey      String   @unique(map: "feedback_reply_images_object_key_key") @map("object_key") @db.Text
+  filename       String   @db.VarChar(260)
+  mimeType       String   @map("mime_type") @db.VarChar(160)
+  sizeBytes      BigInt   @map("size_bytes") @db.BigInt
+  checksumSha256 String   @map("checksum_sha256") @db.VarChar(64)
+  sortOrder      Int      @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([replyId, sortOrder], map: "feedback_reply_images_reply_order_key")
+  @@index([replyId, createdAt], map: "feedback_reply_images_reply_created_idx")
+  @@map("feedback_reply_images")
 }
 
 model SystemSetting {

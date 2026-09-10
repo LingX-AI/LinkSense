@@ -29,6 +29,36 @@ afterEach(async () => {
 });
 
 describe("NativePluginManager", () => {
+  it("registers the task marketplace natively once while plugin commands keep the shared HOME", async () => {
+    const fixture = await createFixture();
+    await rm(path.join(fixture.codexHome, "config.toml"));
+    const runCommand = vi.fn<NativePluginCommand>(async input => {
+      if (input.args[1] === "marketplace") {
+        await writeFile(path.join(fixture.codexHome, "config.toml"), marketplaceConfig(fixture.codexHome));
+        return { stdout: "{}" };
+      }
+      return { stdout: JSON.stringify(pluginList([])) };
+    });
+    const manager = new NativePluginManager(runCommand);
+    const input = { command: "codex", ...fixture, expectedGeneration: generation, pluginContentDigest, pluginNames: [] };
+    await manager.reconcileBeforeStart(input);
+    await manager.reconcileBeforeStart(input);
+    expect(runCommand.mock.calls.filter(([call]) => call.args[1] === "marketplace").map(([call]) => call.args)).toEqual([
+      ["plugin", "marketplace", "add", fixture.taskHome, "--json"],
+    ]);
+    expect(runCommand.mock.calls.every(([call]) => call.environment.HOME === fixture.userHome && call.environment.CODEX_HOME === fixture.codexHome)).toBe(true);
+    expect(fixture.userHome).not.toBe(fixture.taskHome);
+  });
+
+  it("rejects a task marketplace registered to another source without changing it", async () => {
+    const fixture = await createFixture();
+    await writeFile(path.join(fixture.codexHome, "config.toml"), marketplaceConfig(path.join(fixture.workspace, ".codex")));
+    const runCommand = vi.fn<NativePluginCommand>();
+    await expect(new NativePluginManager(runCommand).reconcileBeforeStart({ command: "codex", ...fixture, expectedGeneration: generation, pluginContentDigest, pluginNames: [] }))
+      .rejects.toMatchObject({ stage: "register-marketplace" });
+    expect(runCommand).not.toHaveBeenCalled();
+  });
+
   it("removes only stale managed plugins and refreshes every desired plugin", async () => {
     const fixture = await createFixture();
     const responses = [
@@ -127,7 +157,7 @@ describe("NativePluginManager", () => {
       if (input.args[1] === "add") {
         await writeFile(
           path.join(fixture.codexHome, "config.toml"),
-          `[plugins."documents@${NATIVE_PLUGIN_MARKETPLACE_NAME}"]\nenabled = true\n`,
+          marketplaceConfig(fixture.codexHome) + `[plugins."documents@${NATIVE_PLUGIN_MARKETPLACE_NAME}"]\nenabled = true\n`,
         );
       }
       return { stdout: JSON.stringify(responses.shift()) };
@@ -352,7 +382,7 @@ describe("NativePluginManager", () => {
     const configPath = path.join(fixture.codexHome, "config.toml");
     await writeFile(
       configPath,
-      `[plugins."obsolete@${NATIVE_PLUGIN_MARKETPLACE_NAME}"]\nenabled = true\n`,
+      marketplaceConfig(fixture.codexHome) + `[plugins."obsolete@${NATIVE_PLUGIN_MARKETPLACE_NAME}"]\nenabled = true\n`,
     );
     const responses = [pluginList([]), {}, pluginList([])];
     const runCommand = vi.fn<NativePluginCommand>(async (input) => {
@@ -405,7 +435,7 @@ describe("NativePluginManager", () => {
     const fixture = await createFixture();
     await writeFile(
       path.join(fixture.codexHome, "config.toml"),
-      `[plugins."obsolete@${NATIVE_PLUGIN_MARKETPLACE_NAME}"]\nenabled = true\n`,
+      marketplaceConfig(fixture.codexHome) + `[plugins."obsolete@${NATIVE_PLUGIN_MARKETPLACE_NAME}"]\nenabled = true\n`,
     );
     const responses = [pluginList([]), {}, pluginList([])];
     const runCommand = vi.fn<NativePluginCommand>(async () => ({
@@ -472,7 +502,7 @@ describe("NativePluginManager", () => {
   it("verifies the newly started app-server and uses Codex-reported skill paths", async () => {
     const fixture = await createFixture();
     const sourcePath = path.join(
-      fixture.userHome,
+      fixture.taskHome,
       ".agents",
       "plugin-sources",
       "documents",
@@ -620,7 +650,7 @@ describe("NativePluginManager", () => {
   it("rejects Codex-reported skill paths outside the verified plugin source", async () => {
     const fixture = await createFixture();
     const sourcePath = path.join(
-      fixture.userHome,
+      fixture.taskHome,
       ".agents",
       "plugin-sources",
       "documents",
@@ -752,11 +782,12 @@ async function createFixture(publishedGeneration = generation) {
   const root = await mkdtemp(path.join(tmpdir(), "linksense-native-plugin-"));
   roots.push(root);
   const userHome = path.join(root, "home");
-  const codexHome = path.join(userHome, ".codex");
+  const taskHome = path.join(userHome, "task-homes", "01900000-0000-7000-8000-000000000221");
+  const codexHome = path.join(taskHome, ".codex");
   const workspace = path.join(userHome, "workspaces", "task");
   const capabilityControl = path.join(root, "control", "capabilities");
   const marketplacePath = path.join(
-    userHome,
+    taskHome,
     ".agents",
     "plugins",
     "marketplace.json",
@@ -765,7 +796,7 @@ async function createFixture(publishedGeneration = generation) {
     mkdir(workspace, { recursive: true }),
     mkdir(capabilityControl, { recursive: true }),
     mkdir(path.dirname(marketplacePath), { recursive: true }),
-    mkdir(path.join(userHome, ".agents", "plugin-sources"), {
+    mkdir(path.join(taskHome, ".agents", "plugin-sources"), {
       recursive: true,
     }),
     mkdir(path.join(codexHome, "plugins"), { recursive: true }),
@@ -776,10 +807,12 @@ async function createFixture(publishedGeneration = generation) {
       `${publishedGeneration}\n`,
     ),
     writeFile(marketplacePath, "{}\n"),
+    writeFile(path.join(codexHome, "config.toml"), marketplaceConfig(codexHome)),
   ]);
   return {
     root,
     userHome,
+    taskHome,
     codexHome,
     workspace,
     capabilityControl,
@@ -811,7 +844,7 @@ async function writeConfiguredPlugins(
 ): Promise<void> {
   await writeFile(
     path.join(codexHome, "config.toml"),
-    pluginNames
+    marketplaceConfig(codexHome) + pluginNames
       .map(
         (pluginName) =>
           `[plugins."${pluginName}@${NATIVE_PLUGIN_MARKETPLACE_NAME}"]\nenabled = true`,
@@ -832,4 +865,8 @@ function pluginSummary(
     source: { type: "remote" },
     ...state,
   };
+}
+
+function marketplaceConfig(codexHome: string): string {
+  return `[marketplaces.linksense-personal]\nsource_type = "local"\nsource = ${JSON.stringify(path.dirname(codexHome))}\n\n`;
 }

@@ -208,6 +208,49 @@ describe("KnowledgeObjectStore", () => {
     expect(client.removeObject).toHaveBeenCalledOnce()
   })
 
+  it("contains source stream errors during an immutable upload", async () => {
+    const client = createClient()
+    client.statObject.mockRejectedValueOnce({ code: "NoSuchKey" })
+    client.putObject.mockImplementation(async (_bucket, _key, stream) => {
+      await readStream(stream)
+    })
+    const stream = new Readable({
+      read() { this.destroy(new Error("source disconnected")) },
+    })
+    await expect(createStore(client).putImmutable({
+      identity: { knowledgeBaseId, documentId, versionId, objectType: "original", objectId },
+      stream, size: 5, contentType: "text/plain",
+    })).rejects.toMatchObject({ code: "KNOWLEDGE_OBJECT_STORAGE_UNAVAILABLE" })
+    expect(stream.destroyed).toBe(true)
+    expect(client.removeObject).toHaveBeenCalledOnce()
+  })
+
+  it("stops the source when storage rejects before consuming an upload", async () => {
+    const client = createClient()
+    client.statObject.mockRejectedValueOnce({ code: "NoSuchKey" })
+    client.putObject.mockRejectedValueOnce(new Error("storage unavailable"))
+    const stream = new Readable({ read() {} })
+    await expect(createStore(client).putImmutable({
+      identity: { knowledgeBaseId, documentId, versionId, objectType: "original", objectId },
+      stream, size: 5, contentType: "text/plain",
+    })).rejects.toMatchObject({ code: "KNOWLEDGE_OBJECT_STORAGE_UNAVAILABLE" })
+    expect(stream.destroyed).toBe(true)
+  })
+
+  it.each(["hello", ""])("hashes a complete immutable upload including empty data: %j", async (value) => {
+    const client = createClient()
+    client.statObject.mockRejectedValueOnce({ code: "NoSuchKey" }).mockResolvedValueOnce({ size: value.length })
+    client.putObject.mockImplementation(async (_bucket, _key, stream) => {
+      // MinIO does not consume the source for a declared zero-byte upload.
+      if (value.length) expect(await readStream(stream)).toEqual(Buffer.from(value))
+    })
+    await expect(createStore(client).putImmutable({
+      identity: { knowledgeBaseId, documentId, versionId, objectType: "original", objectId },
+      stream: Readable.from(value), size: value.length, contentType: "text/plain",
+    })).resolves.toMatchObject({ size: value.length, sha256: createHash("sha256").update(value).digest("hex") })
+    expect(client.removeObject).not.toHaveBeenCalled()
+  })
+
   it("verifies that an immutable artifact exists with its exact size and SHA", async () => {
     const client = createClient()
     const bytes = Buffer.from("valid artifact")

@@ -8,6 +8,7 @@ const isolatedTests = [
   "test/managed-task-title.test.ts",
   "test/object-storage.test.ts",
   "test/safe-http-fetch.test.ts",
+  "test/docling-extraction.test.ts",
 ]
 
 export default defineConfig({

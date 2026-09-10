@@ -6,6 +6,52 @@ import type { ConversationMessage } from "@/api/contracts"
 import { buildConversationLineSidebarItems } from "@/features/conversations/conversation-line-sidebar-items"
 
 describe("buildConversationLineSidebarItems", () => {
+  it("keeps the complete task index even when only the latest messages are loaded", () => {
+    const index = Array.from({ length: 50 }, (_, i) => ({
+      turn_id: `turn-${i}`,
+      message_id: `user-${i}`,
+      sequence_no: i + 1,
+      created_at: "2026-09-07T00:00:00Z",
+      has_content: true,
+    }))
+    const messages = [
+      { id: "user-49", role: "user" as const, content: "Latest question" },
+    ]
+    const items = buildConversationLineSidebarItems(messages, "Waiting", {
+      index,
+      unloadedLabel: (n) => `Exchange ${n}`,
+      unloadedPreview: "Click to view",
+    })
+    expect(items).toHaveLength(50)
+    expect(items[0]).toMatchObject({
+      id: "user-0",
+      userMessage: "Exchange 1",
+      assistantMessage: "Click to view",
+    })
+    expect(items.at(-1)).toMatchObject({
+      id: "user-49",
+      userMessage: "Latest question",
+    })
+  })
+
+  it("bounds preview text and excludes guidance that has no message anchor", () => {
+    const items = buildConversationLineSidebarItems(
+      [
+        { id: "user", role: "user", content: "x".repeat(10000) },
+        {
+          id: "guidance",
+          role: "user",
+          usage_type: "steer_current_turn",
+          content: "continue",
+        },
+        { id: "assistant", role: "assistant", content: "y".repeat(10000) },
+      ],
+      "Waiting"
+    )
+    expect(items).toHaveLength(1)
+    expect(items[0].userMessage.length).toBeLessThanOrEqual(400)
+    expect(items[0].assistantMessage?.length).toBeLessThanOrEqual(400)
+  })
   it("pairs every user message with the following assistant messages", () => {
     const messages: ConversationMessage[] = [
       { id: "system-1", role: "system", content: "internal" },
@@ -38,7 +84,7 @@ describe("buildConversationLineSidebarItems", () => {
     )
   })
 
-  it("ignores empty messages and keeps the latest twenty exchanges", () => {
+  it("ignores empty messages without truncating the task index", () => {
     const messages: ConversationMessage[] = [
       { id: "empty-user", role: "user", content: "   " },
       ...Array.from({ length: 21 }, (_, index) => ({
@@ -50,8 +96,8 @@ describe("buildConversationLineSidebarItems", () => {
 
     const result = buildConversationLineSidebarItems(messages, "等待回复")
 
-    expect(result).toHaveLength(20)
-    expect(result[0]?.id).toBe("user-2")
+    expect(result).toHaveLength(21)
+    expect(result[0]?.id).toBe("user-1")
     expect(result.at(-1)?.id).toBe("user-21")
   })
 

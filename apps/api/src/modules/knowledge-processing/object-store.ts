@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import { Readable, Transform } from "node:stream"
+import { pipeline } from "node:stream/promises"
 
 import { Client } from "minio"
 import { z } from "zod"
@@ -193,28 +194,35 @@ export class KnowledgeObjectStore {
     const key = buildKnowledgeObjectKey(input.identity)
     await this.assertMissing(key)
     const hash = createHash("sha256")
-    const hashingStream = input.stream.pipe(
-      new Transform({
-        transform(chunk: Buffer, _encoding, callback) {
-          hash.update(chunk)
-          callback(null, chunk)
-        },
-      }),
-    )
+    const hashingStream = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        hash.update(chunk)
+        callback(null, chunk)
+      },
+    })
+    const controller = new AbortController()
+    const transfer = pipeline(input.stream, hashingStream, { signal: controller.signal })
     try {
-      await this.client.putObject(
-        this.config.bucket,
-        key,
-        hashingStream,
-        input.size,
-        { "content-type": input.contentType },
-      )
+      await Promise.all([
+        transfer,
+        this.client.putObject(
+          this.config.bucket,
+          key,
+          hashingStream,
+          input.size,
+          { "content-type": input.contentType },
+        ),
+      ])
       const stored = await this.client.statObject(this.config.bucket, key)
       if (stored.size !== input.size) {
         throw new Error("stored size does not match")
       }
       return { key, sha256: hash.digest("hex"), size: stored.size }
     } catch (error) {
+      // A rejected upload must stop its source; source errors must reject the
+      // operation instead of escaping from an unobserved pipe EventEmitter.
+      controller.abort()
+      await transfer.catch(() => undefined)
       // The key is immutable and fully known before upload. A failed multipart
       // completion or post-write verification must not leave an unregistered
       // object consuming quota outside the durable object manifest.
@@ -225,6 +233,8 @@ export class KnowledgeObjectStore {
         "KNOWLEDGE_OBJECT_STORAGE_UNAVAILABLE",
         { cause: error, retryable: true },
       )
+    } finally {
+      hashingStream.destroy()
     }
   }
 

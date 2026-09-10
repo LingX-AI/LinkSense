@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   secret-scan:
     runs-on: ubuntu-24.04
@@ -22,6 +26,9 @@ jobs:
         run: scripts/run-gitleaks.sh
 
   production-audit:
+    # CI audits every pull request and main push. Keep this scheduled run so new
+    # advisories are still detected when the repository has not changed.
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803

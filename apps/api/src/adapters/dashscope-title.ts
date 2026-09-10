@@ -13,7 +13,7 @@ import { createProviderLanguageModel } from "./provider-language-model.js"
 
 const DEFAULT_TIMEOUT_MS = 20_000
 const MAX_SOURCE_CHARACTERS = 6_000
-const MAX_SOURCE_MESSAGES = 12
+export const TASK_TITLE_SOURCE_MESSAGE_LIMIT = 12
 const TRAILING_TITLE_PUNCTUATION_PATTERN = /[。！？.!?；;：:，,]+$/gu
 const ACKNOWLEDGEMENT_PREFIX_PATTERN =
   /^(?:好的|收到|明白|当然|没问题|可以|行|了解|已收到)(?:[，,：:！!\s]+|$)/u
@@ -23,6 +23,7 @@ const COMPLETED_ACTION_PREFIX_PATTERN =
 const TITLE_PROMPT = [
   "你是 LinkSense 的任务标题生成器。标题用于狭窄的侧边栏，必须短、清楚，并且能够单行快速识别。",
   "标题必须使用用户请求的主要语言；请求混合多种语言时，使用表达任务意图的语言。只以用户消息作为标题内容来源；助手回复只能帮助理解上下文，不能提供标题内容。",
+  "以最新用户请求体现的任务意图为重点，结合近期上下文理解简短的补充要求；任务主题变化时，标题应反映当前主题。",
   [
     "压缩规则：",
     "- 只保留一个核心动作和一个核心对象，不要堆叠“分析、整理、生成、输出”等多个动作。对象本身已能表达任务时，可以直接使用名词短语。",
@@ -205,7 +206,7 @@ function validTokenCount(value: number | undefined): number | null {
 function buildTitleSource(messages: TaskTitleMessage[]): string {
   const recentMessages = messages
     .filter((message) => message.content.trim())
-    .slice(-MAX_SOURCE_MESSAGES)
+    .slice(-TASK_TITLE_SOURCE_MESSAGE_LIMIT)
   const userLines = recentMessages
     .filter((message) => message.role === "user")
     .map((message) => `User: ${compactSourceContent(message.content)}`)

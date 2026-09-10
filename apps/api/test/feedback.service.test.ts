@@ -2,6 +2,7 @@ import { Readable } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { AppError } from "../src/lib/errors.js";
 import { FeedbackService } from "../src/modules/feedback/service.js";
 import type {
   FeedbackActor,
@@ -237,6 +238,195 @@ describe("FeedbackService", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(fixture.storage.removeObject).not.toHaveBeenCalled();
   });
+  it.each([
+    { content: "  已处理  ", images: [] },
+    {
+      content: "",
+      images: [
+        { filename: "reply.png", declaredMimeType: "image/png", bytes: PNG },
+      ],
+    },
+    {
+      content: "请参考截图",
+      images: [
+        { filename: "reply.png", declaredMimeType: "image/png", bytes: PNG },
+      ],
+    },
+  ])(
+    "persists an administrator reply with text and/or images: %j",
+    async (input) => {
+      const fixture = feedbackFixture();
+      await expect(
+        fixture.service.replyForAdmin(
+          { ...ACTOR, role: "admin" },
+          "parent",
+          input,
+        ),
+      ).resolves.toMatchObject({ image_count: input.images.length });
+      expect(fixture.store.createReply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          feedbackId: "parent",
+          authorId: ACTOR.id,
+          content: input.content.trim(),
+        }),
+      );
+      expect(fixture.store.create).not.toHaveBeenCalled();
+      expect(fixture.audit.write).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "feedback_replied",
+          targetId: "parent",
+        }),
+      );
+    },
+  );
+
+  it("rejects empty replies and spoofed attachments without writing anything", async () => {
+    const fixture = feedbackFixture();
+    for (const input of [
+      { content: "  ", images: [] },
+      { content: "a".repeat(2001), images: [] },
+      {
+        content: "test",
+        images: [
+          {
+            filename: "fake.png",
+            declaredMimeType: "image/png",
+            bytes: Buffer.from("fake"),
+          },
+        ],
+      },
+      {
+        content: "test",
+        images: Array.from({ length: 10 }, () => ({
+          filename: "a.png",
+          declaredMimeType: "image/png",
+          bytes: PNG,
+        })),
+      },
+    ]) {
+      await expect(
+        fixture.service.replyForAdmin(
+          { ...ACTOR, role: "admin" },
+          "parent",
+          input,
+        ),
+      ).rejects.toMatchObject({ code: "FEEDBACK_SUBMISSION_INVALID" });
+    }
+    expect(fixture.storage.putObject).not.toHaveBeenCalled();
+    expect(fixture.store.createReply).not.toHaveBeenCalled();
+  });
+
+  it("rejects user replies and missing parents before uploading", async () => {
+    const fixture = feedbackFixture();
+    await expect(
+      fixture.service.replyForAdmin(ACTOR, "parent", {
+        content: "hello",
+        images: [],
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    vi.mocked(fixture.store.exists).mockResolvedValue(false);
+    await expect(
+      fixture.service.replyForAdmin({ ...ACTOR, role: "admin" }, "parent", {
+        content: "hello",
+        images: [],
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(fixture.storage.putObject).not.toHaveBeenCalled();
+    expect(fixture.store.createReply).not.toHaveBeenCalled();
+  });
+
+  it("cleans reply images if the parent is deleted while the upload is in progress", async () => {
+    const fixture = feedbackFixture();
+    vi.mocked(fixture.store.createReply).mockRejectedValue(
+      new AppError("NOT_FOUND"),
+    );
+    await expect(
+      fixture.service.replyForAdmin({ ...ACTOR, role: "admin" }, "parent", {
+        content: "",
+        images: [
+          { filename: "a.png", declaredMimeType: "image/png", bytes: PNG },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(fixture.storage.removeObject).toHaveBeenCalledOnce();
+    expect(fixture.audit.write).not.toHaveBeenCalled();
+  });
+
+  it("restricts personal lists to the actor and removes submitter identity from the response", async () => {
+    const fixture = feedbackFixture();
+    vi.mocked(fixture.store.list).mockResolvedValue({
+      items: [
+        {
+          id: ACTOR.id,
+          content: "内容",
+          created_at: NOW.toISOString(),
+          images: [],
+          reply_count: 2,
+          submitter: { id: ACTOR.id, name: ACTOR.name, email: ACTOR.email },
+        },
+      ],
+      next_cursor: null,
+    });
+    const result = await fixture.service.listForUser(ACTOR, { limit: 10 });
+    expect(fixture.store.list).toHaveBeenCalledWith({
+      limit: 10,
+      submitterId: ACTOR.id,
+    });
+    expect(result.items[0]).toMatchObject({ reply_count: 2 });
+    expect(result.items[0]).not.toHaveProperty("submitter");
+    await expect(
+      fixture.service.listForUser(ACTOR, { submitterId: "other" }),
+    ).rejects.toThrow();
+  });
+
+  it("enforces ownership for details and both original and reply image reads", async () => {
+    const fixture = feedbackFixture();
+    vi.mocked(fixture.store.exists).mockResolvedValue(false);
+    await expect(fixture.service.details(ACTOR, "other")).rejects.toMatchObject(
+      { code: "NOT_FOUND" },
+    );
+    expect(fixture.store.findDetails).toHaveBeenCalledWith({
+      feedbackId: "other",
+      submitterId: ACTOR.id,
+    });
+    for (const replyId of [undefined, "reply"]) {
+      await expect(
+        fixture.service.readImageForUser(ACTOR, "other", "image", replyId),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    }
+    expect(fixture.store.findImage).not.toHaveBeenCalled();
+    expect(fixture.storage.getObjectStream).not.toHaveBeenCalled();
+    await expect(
+      fixture.service.details(ACTOR, "other", true),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("allows owners to read reply images but rejects missing objects", async () => {
+    const fixture = feedbackFixture();
+    vi.mocked(fixture.store.findImage).mockResolvedValue({
+      id: ACTOR.id,
+      feedbackId: "parent",
+      objectKey: "reply/image",
+      filename: "reply.png",
+      mimeType: "image/png",
+      sizeBytes: PNG.length,
+      checksumSha256: "a".repeat(64),
+      sortOrder: 0,
+      createdAt: NOW,
+    });
+    vi.mocked(fixture.storage.getObjectSize).mockResolvedValueOnce(PNG.length);
+    await expect(
+      fixture.service.readImageForUser(ACTOR, "parent", "image", "reply"),
+    ).resolves.toMatchObject({ filename: "reply.png" });
+    expect(fixture.store.findImage).toHaveBeenCalledWith({
+      feedbackId: "parent",
+      imageId: "image",
+      replyId: "reply",
+    });
+    await expect(
+      fixture.service.readImageForUser(ACTOR, "parent", "image", "reply"),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
 });
 
 function feedbackFixture() {
@@ -246,6 +436,13 @@ function feedbackFixture() {
     "10000000-0000-4000-8000-000000000012",
   ];
   const store: FeedbackStore = {
+    createReply: vi.fn(async (input) => ({
+      id: input.id,
+      created_at: input.createdAt.toISOString(),
+      image_count: input.images.length,
+    })),
+    exists: vi.fn(async () => true),
+    findDetails: vi.fn(async () => null),
     create: vi.fn(async (input) => ({
       id: input.id,
       created_at: input.createdAt.toISOString(),

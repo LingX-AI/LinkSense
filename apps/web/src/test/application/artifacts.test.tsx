@@ -137,7 +137,7 @@ describe("LinkSense application", () => {
       })
     )
 
-    const notification = await screen.findByText("未找到该产物。")
+    const notification = await screen.findByText("未找到该产物")
     expect(notification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(notification.closest(".conversation-top-overlay-stack")).toBeNull()
     expect(click).not.toHaveBeenCalled()
@@ -380,7 +380,9 @@ describe("LinkSense application", () => {
       screen.getByRole("button", { name: "查看 1 条待发送标注" })
     )
     await interaction.click(
-      await screen.findByRole("button", { name: "全部处理" })
+      within(
+        await screen.findByRole("dialog", { name: "待发送标注列表" })
+      ).getByRole("button", { name: "发送" })
     )
     const optimisticQuestion = (
       await screen.findAllByRole("article", { name: "用户消息" })
@@ -552,7 +554,9 @@ describe("LinkSense application", () => {
       screen.getByRole("button", { name: "查看 1 条待发送标注" })
     )
     await interaction.click(
-      await screen.findByRole("button", { name: "全部处理" })
+      within(
+        await screen.findByRole("dialog", { name: "待发送标注列表" })
+      ).getByRole("button", { name: "发送" })
     )
     expect(await screen.findByText("1 条注释")).toBeVisible()
     expect(screen.queryByText("改为英文")).not.toBeInTheDocument()

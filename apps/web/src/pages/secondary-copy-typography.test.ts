@@ -104,17 +104,7 @@ describe("readable secondary copy typography", () => {
     )
   })
 
-  it("uses compact bordered rows for credential bindings", () => {
-    const credentialRowRule = cssRule("\\.credential-row")
-
-    expect(credentialRowRule).toContain(
-      "grid-template-columns: auto minmax(0, 1fr) auto;"
-    )
-    expect(credentialRowRule).toContain("padding-inline: 0;")
-    expect(appStyles).toMatch(
-      /\.credential-binding-list\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/u
-    )
-
+  it("uses compact bordered rows for binding lists", () => {
     expect(cssRule("\\.binding-list")).toContain("display: flex;")
     expect(cssRule("\\.binding-list")).toContain("gap: 6px;")
 
@@ -127,26 +117,15 @@ describe("readable secondary copy typography", () => {
     expect(rule).toContain("line-height: var(--app-line-18);")
   })
 
-  it("keeps credential and MCP server rows transparent on hover", () => {
-    expect(
-      cssRule(
-        "\\.credential-row:hover,\\s*\\.mcp-server-list \\.entity-row:hover"
-      )
-    ).toContain("background: transparent;")
+  it("keeps MCP server rows transparent on hover", () => {
+    expect(cssRule("\\.mcp-server-list \\.entity-row:hover")).toContain(
+      "background: transparent;"
+    )
   })
 
-  it("right-aligns effective credential sources without a row hover fill", () => {
-    const listRule = cssRule(
-      "\\.definition-list\\.credential-effective-source-list"
-    )
-
-    expect(listRule).toContain("width: 100%;")
-    expect(listRule).toContain("max-width: none;")
-    expect(
-      cssRule(
-        "\\.definition-list\\.credential-effective-source-list > div:hover"
-      )
-    ).toContain("background: transparent;")
+  it("removes the retired effective-source inspector styles", () => {
+    expect(appStyles).not.toContain("credential-effective-plugin-field")
+    expect(appStyles).not.toContain("credential-effective-source-list")
   })
 
   it("vertically aligns capability source and compact risk metadata", () => {

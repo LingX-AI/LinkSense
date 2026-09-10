@@ -15,8 +15,10 @@ import {
   interactiveApplicationManifestSchema,
   conversationEventSchema,
   runnerCodexGoalSchema,
+  runnerCodexEventSchema,
   runnerCodexErrorMessageSchema,
   threadGoalStatusSchema,
+  type RunnerHeartbeat,
 } from "@linksense/shared";
 import {
   Prisma,
@@ -36,8 +38,10 @@ import { projectKnowledgeCitations } from "./knowledge-citations.js";
 import { createProjectedAssistantMessage } from "./knowledge-message-projection.js";
 import type { TurnKnowledgeSourceStore } from "./knowledge-source-store.js";
 import { nextConversationEventSequence } from "./sequence.js";
+import { isStoppedDeploymentEvent } from "./deployment-fence.js";
 import type { UsageAnalyticsService } from "../usage/service.js";
 import { upsertConversationGoal } from "../conversations/goals.js";
+import type { TaskRecoveryScheduler } from "./recovery-scheduler.js";
 
 export type RunnerEventInput = {
   eventType: string;
@@ -51,6 +55,7 @@ export type MethodRunnerEventInput = {
   method: string;
   visibility: "user_visible" | "user_collapsed" | "internal_sanitized";
   params: Record<string, unknown>;
+  preparation?: { turnId: string } | undefined;
 };
 
 export type IngestedRunnerEvent = RunnerEventInput | MethodRunnerEventInput;
@@ -148,7 +153,7 @@ class RunningTurnRecoveryCycleError extends Error {
 }
 
 export class ConversationEventService {
-  private recoveryTimer: NodeJS.Timeout | null = null;
+  private recoveryScheduler: TaskRecoveryScheduler | null = null;
   private recoveryInFlight: Promise<void> | null = null;
 
   constructor(
@@ -668,6 +673,9 @@ export class ConversationEventService {
     input: MethodRunnerEventInput,
     deliveryId: string,
   ) {
+    if (input.preparation) {
+      return this.ingestPreparationCompaction(conversationId, input, deliveryId);
+    }
     if (input.method === "thread/tokenUsage/updated") {
       const usageResult = this.usageAnalytics
         ? await this.usageAnalytics.captureTokenUsage(
@@ -676,6 +684,21 @@ export class ConversationEventService {
           )
         : { accepted: true };
       if (!usageResult.accepted || usageResult.reason_code) {
+        const threadId = nativeThreadId(input.params);
+        // A killed, unprojected turn can leave a usage snapshot at the head of
+        // the durable outbox. Acknowledge only deployment-fenced orphans; keep
+        // normal start/projection races retryable and retain known-turn usage.
+        if (
+          usageResult.reason_code === "TURN_PROJECTION_PENDING" &&
+          threadId &&
+          await isStoppedDeploymentEvent(this.prisma, conversationId, threadId)
+        ) {
+          return {
+            accepted: true,
+            ignored: true,
+            reason_code: "DEPLOYMENT_STOPPED",
+          };
+        }
         return usageResult;
       }
       return this.ingestNativeTokenUsageUpdate(
@@ -1255,6 +1278,89 @@ export class ConversationEventService {
         };
   }
 
+  private async ingestPreparationCompaction(
+    conversationId: string,
+    input: MethodRunnerEventInput,
+    deliveryId: string,
+  ) {
+    const parsed = runnerCodexEventSchema.parse(input);
+    if (
+      (parsed.method !== "item/started" && parsed.method !== "item/completed") ||
+      !parsed.preparation ||
+      parsed.params.item.type !== "contextCompaction"
+    ) {
+      throw new AppError("VALIDATION_ERROR");
+    }
+    const turnId = parsed.preparation.turnId;
+    const event = await this.prisma.$transaction(async (tx) => {
+      // Admission and projection also lock the conversation. Preparation can
+      // arrive before the local turn exists or after it has been projected.
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM conversations WHERE id = ${conversationId}::uuid FOR UPDATE
+      `;
+      if (locked.length === 0) return null;
+      const intent = await tx.conversationTurnStartIntent.findFirst({
+        where: {
+          conversationId,
+          projectionTurnId: turnId,
+          runnerStatus: { in: ACTIVE_START_INTENT_STATUSES },
+        },
+        select: { projectionTurnId: true },
+      });
+      if (!intent) {
+        const turn = await tx.conversationTurn.findFirst({
+          where: { id: turnId, conversationId },
+          select: { codexThreadId: true },
+        });
+        const conversation = await tx.conversation.findUnique({
+          where: { id: conversationId },
+          select: { codexThreadId: true },
+        });
+        if (!turn || turn.codexThreadId !== conversation?.codexThreadId) {
+          return null;
+        }
+      }
+      const existing = await tx.conversationEvent.findUnique({
+        where: { id: deliveryId },
+      });
+      if (existing) {
+        if (
+          existing.conversationId !== conversationId ||
+          existing.turnId !== turnId ||
+          existing.eventType !== parsed.method
+        ) {
+          throw new Error("runner event delivery id collision");
+        }
+        return existing;
+      }
+      const sequenceNo = await nextConversationEventSequence(tx, conversationId);
+      return tx.conversationEvent.create({
+        data: {
+          id: deliveryId,
+          conversationId,
+          turnId,
+          sequenceNo,
+          eventType: parsed.method,
+          visibility: parsed.visibility,
+          payloadJson: {
+            schema_version: 2,
+            source: "codex_app_server",
+            method: parsed.method,
+            params: parsed.params,
+          },
+          sseEventId: `${conversationId}:${sequenceNo}`,
+        },
+      });
+    });
+    if (!event) {
+      return { accepted: true, ignored: true, reason_code: "STALE_PREPARATION" };
+    }
+    if (event.visibility === "internal_sanitized") return { accepted: true };
+    const projectedEvent = projectEvent(event, asObject(event.payloadJson));
+    await this.redis.publishConversationEvent(conversationId, projectedEvent);
+    return { accepted: true, event: projectedEvent };
+  }
+
   private async ingestNativeTokenUsageUpdate(
     conversationId: string,
     input: MethodRunnerEventInput,
@@ -1522,6 +1628,17 @@ export class ConversationEventService {
       parsedGoal.data.threadId !== threadId
     ) {
       return { accepted: false, reason_code: "THREAD_PROJECTION_PENDING" };
+    }
+    if (
+      await isStoppedDeploymentEvent(this.prisma, conversationId, threadId, {
+        nativeUpdatedAt: parsedGoal.data.updatedAt,
+      })
+    ) {
+      return {
+        accepted: true,
+        ignored: true,
+        reason_code: "DEPLOYMENT_STOPPED",
+      };
     }
     const projection = await this.resolveThreadProjection(
       conversationId,
@@ -2920,20 +3037,27 @@ export class ConversationEventService {
     return firstFailureReason;
   }
 
-  startRecoveryMonitor(intervalMilliseconds = 15_000): void {
-    if (this.recoveryTimer) return;
-    this.recoveryTimer = setInterval(() => {
-      void this.recoverRunningTurns({ requireObserved: false }).catch(
-        () => undefined,
-      );
-    }, intervalMilliseconds);
-    this.recoveryTimer.unref();
+  configureRecoveryScheduler(scheduler: TaskRecoveryScheduler): void {
+    this.recoveryScheduler = scheduler;
   }
 
-  stopRecoveryMonitor(): void {
-    if (!this.recoveryTimer) return;
-    clearInterval(this.recoveryTimer);
-    this.recoveryTimer = null;
+  async recordRunnerHeartbeat(ownerId: string, input: RunnerHeartbeat): Promise<void> {
+    if (!this.recoveryScheduler) throw new AppError("RUNNER_UNAVAILABLE");
+    await this.recoveryScheduler.heartbeat(ownerId, input);
+  }
+
+  async scheduleProcessExitRecovery(input: Parameters<TaskRecoveryScheduler["enqueueTurn"]>[0]): Promise<void> {
+    if (!this.recoveryScheduler) throw new AppError("RUNNER_UNAVAILABLE");
+    await this.recoveryScheduler.enqueueTurn(input);
+  }
+
+  async startRecoveryMonitor(): Promise<void> {
+    if (!this.recoveryScheduler) throw new AppError("RUNNER_UNAVAILABLE");
+    await this.recoveryScheduler.start();
+  }
+
+  async stopRecoveryMonitor(): Promise<void> {
+    await this.recoveryScheduler?.close();
   }
 
   async historyPage(
@@ -2957,6 +3081,21 @@ export class ConversationEventService {
               })
             ).map((turn) => turn.id)
           : [];
+        // Model-switch compaction runs before the requested local turn exists.
+        // SSE replays persisted rows rather than forwarding Pub/Sub payloads,
+        // so its visibility scope must also include admitted preparation items.
+        // Read intents in the same snapshot as turns to avoid a gap when the
+        // projection atomically replaces an intent with its native branch.
+        const preparingTurnIds = (
+          await tx.conversationTurnStartIntent.findMany({
+            where: {
+              conversationId,
+              ownerId,
+              runnerStatus: { in: ACTIVE_START_INTENT_STATUSES },
+            },
+            select: { projectionTurnId: true },
+          })
+        ).map((intent) => intent.projectionTurnId);
         const rows = await tx.conversationEvent.findMany({
           where: {
             conversationId,
@@ -2965,6 +3104,16 @@ export class ConversationEventService {
             OR: [
               ...(activeTurnIds.length > 0
                 ? [{ turnId: { in: activeTurnIds } }]
+                : []),
+              ...(preparingTurnIds.length > 0
+                ? [{
+                    turnId: { in: preparingTurnIds },
+                    eventType: { in: ["item/started", "item/completed"] },
+                    payloadJson: {
+                      path: ["params", "item", "type"],
+                      equals: "contextCompaction",
+                    },
+                  }]
                 : []),
               {
                 turnId: null,
@@ -3111,6 +3260,19 @@ export class ConversationEventService {
         },
       });
       if (!goal) return false;
+      if (
+        goal.status === "paused" &&
+        await isStoppedDeploymentEvent(
+          this.prisma,
+          conversationId,
+          threadId,
+          nativeStartedAt
+            ? { nativeUpdatedAt: nativeStartedAt.getTime() / 1_000 }
+            : {},
+        )
+      ) {
+        return false;
+      }
 
       const activeGoalTurnId =
         goal.status === "active" ? goal.activeTurnId : null;
@@ -3162,7 +3324,7 @@ export class ConversationEventService {
           return false;
         }
       }
-      if (!turn) return false;
+      if (!turn || turn.errorCode === "DEPLOYMENT_STOPPED") return false;
       if (turn.codexTurnId === codexTurnId) return true;
       const existingAttempt = await tx.conversationTurnAttempt.findUnique({
         where: { codexTurnId },
@@ -3254,6 +3416,11 @@ export class ConversationEventService {
         });
     if (!turn) {
       if (
+        await isStoppedDeploymentEvent(this.prisma, conversationId, threadId)
+      ) {
+        return { status: "stale" } as const;
+      }
+      if (
         conversation.codexThreadId === threadId &&
         (await this.isStaleUnprojectedGoalTurn(
           conversationId,
@@ -3264,6 +3431,9 @@ export class ConversationEventService {
         return { status: "stale" } as const;
       }
       return { status: "pending" } as const;
+    }
+    if (turn.errorCode === "DEPLOYMENT_STOPPED") {
+      return { status: "stale" } as const;
     }
     const attempt =
       persistedAttempt ??
@@ -3358,6 +3528,10 @@ export class ConversationEventService {
       where: { conversationId, codexThreadId: threadId },
       select: { id: true },
     });
+    if (
+      !projectedTurn &&
+      await isStoppedDeploymentEvent(this.prisma, conversationId, threadId)
+    ) return "stale";
     return projectedTurn ? "stale" : "pending";
   }
 

@@ -1,3 +1,7 @@
+import type {
+  CredentialConfigurationStatus,
+  CredentialPluginConfiguration,
+} from "@linksense/shared";
 import { AppError } from "../../lib/errors.js";
 import { decryptJson, encryptJson } from "../../lib/crypto.js";
 import type { CapabilityRecord } from "../capabilities/types.js";
@@ -52,11 +56,13 @@ export interface SyncCredentialBindingsInput {
   mappings: Array<{ envKey: string; credentialKey: string }>;
 }
 
-export interface EffectiveCredentialBindingView {
-  capability_id: string;
-  env_key: string;
-  effective_source: "personal" | "missing" | "conflict";
-}
+type CredentialFieldResolution =
+  | { ok: true; value: string; credentialId: string; source: "personal" }
+  | {
+      ok: false;
+      blockCode: Extract<CredentialResolution, { ok: false }>["blockCode"];
+      reason: Exclude<CredentialConfigurationStatus, "configured">;
+    };
 
 export class CredentialService {
   readonly #store: CredentialStore;
@@ -288,47 +294,61 @@ export class CredentialService {
       .map(bindingView);
   }
 
-  async listEffectiveBindings(
+  async listPluginConfigurations(
     actor: RequestActor,
-    capabilityId: string,
-  ): Promise<EffectiveCredentialBindingView[]> {
+  ): Promise<CredentialPluginConfiguration[]> {
     assertActiveActor(actor);
-    const capability = await this.#store.findCapability(capabilityId);
-    if (
-      capability === null ||
-      capability.type !== "plugin" ||
-      capability.status !== "active" ||
-      !(await this.#store.canUserUseCapability(actor.id, capabilityId))
-    ) {
-      throw new AppError("CAPABILITY_NOT_FOUND");
-    }
-    const keys = declaredEnvironmentKeys(capability);
-    if (
-      keys.length !== new Set(keys).size ||
-      keys.some((key) => !isEnvironmentKey(key))
-    ) {
-      return [...new Set(keys.filter(isEnvironmentKey))].map((envKey) => ({
-        capability_id: capabilityId,
-        env_key: envKey,
-        effective_source: "conflict",
-      }));
-    }
-    const result: EffectiveCredentialBindingView[] = [];
-    for (const envKey of keys) {
-      const resolution = await this.#resolveEnvironmentKey(
-        actor.id,
-        capabilityId,
-        envKey,
+    const bindings = await this.#store.listBindings({
+      userId: actor.id,
+      status: "active",
+    });
+    const result: CredentialPluginConfiguration[] = [];
+    for (const capabilityId of new Set(
+      bindings.map((binding) => binding.capabilityId),
+    )) {
+      const capability = await this.#store.findCapability(capabilityId);
+      if (
+        capability === null ||
+        capability.type !== "plugin" ||
+        capability.status !== "active" ||
+        !(await this.#store.canUserUseCapability(actor.id, capabilityId))
+      ) {
+        result.push({
+          capability_id: capabilityId,
+          available: false,
+          fields: [],
+        });
+        continue;
+      }
+      const declared = declaredEnvironmentKeys(capability);
+      const pluginBindings = bindings.filter(
+        (binding) => binding.capabilityId === capabilityId,
       );
-      result.push({
-        capability_id: capabilityId,
-        env_key: envKey,
-        effective_source: resolution.ok
-          ? resolution.source
-          : resolution.blockCode === "credential_binding_ambiguous"
-            ? "conflict"
-            : "missing",
-      });
+      const keys = [
+        ...new Set([
+          ...declared,
+          ...pluginBindings.map((binding) => binding.envKey),
+        ]),
+      ];
+      const fields: CredentialPluginConfiguration["fields"] = [];
+      for (const envKey of keys.filter(isEnvironmentKey)) {
+        if (
+          !declared.includes(envKey) ||
+          declared.filter((key) => key === envKey).length > 1
+        ) {
+          fields.push({ env_key: envKey, status: "invalid" });
+          continue;
+        }
+        const resolution = await this.#resolvePersonalBindings(
+          actor.id,
+          pluginBindings.filter((binding) => binding.envKey === envKey),
+        );
+        fields.push({
+          env_key: envKey,
+          status: resolution.ok ? "configured" : resolution.reason,
+        });
+      }
+      result.push({ capability_id: capabilityId, available: true, fields });
     }
     return result;
   }
@@ -484,6 +504,43 @@ export class CredentialService {
     );
   }
 
+  async revokePluginBindings(
+    actor: RequestActor,
+    credentialId: string,
+    capabilityId: string,
+  ): Promise<void> {
+    assertActiveActor(actor);
+    assertCanManageCredential(
+      actor,
+      await this.requireCredential(credentialId),
+    );
+    const revoked = await this.#store.transaction(async (store) => {
+      await store.lockCapability(capabilityId);
+      await store.lockCredential(credentialId);
+      const current = await store.findCredential(credentialId);
+      if (!current) throw new AppError("CREDENTIAL_NOT_FOUND");
+      assertCanManageCredential(actor, current);
+      const bindings = await store.listBindings({
+        userId: actor.id,
+        credentialId,
+        capabilityId,
+        status: "active",
+      });
+      for (const binding of bindings) {
+        await store.revokeBinding(binding.id, actor.id, this.#now());
+        await store.writeAudit(
+          audit(actor, "credential_unbound", "credential_binding", binding.id, {
+            capability_id: capabilityId,
+          }),
+        );
+      }
+      return bindings;
+    });
+    await this.#materializeAffectedUserHomes(
+      targetsFromCredentialBindings(revoked),
+    );
+  }
+
   async resolveForCapability(
     userId: string,
     capabilityId: string,
@@ -525,7 +582,7 @@ export class CredentialService {
         capabilityId,
         envKey,
       );
-      if (!resolution.ok) return resolution;
+      if (!resolution.ok) return { ok: false, blockCode: resolution.blockCode };
       environment[envKey] = resolution.value;
       usedCredentialIds.add(resolution.credentialId);
     }
@@ -585,57 +642,69 @@ export class CredentialService {
     userId: string,
     capabilityId: string,
     envKey: string,
-  ): Promise<
-    | {
-        ok: true;
-        value: string;
-        credentialId: string;
-        source: "personal";
-      }
-    | Extract<CredentialResolution, { ok: false }>
-  > {
+  ): Promise<CredentialFieldResolution> {
     const activePersonal = await this.#store.listBindings({
       capabilityId,
       userId,
       envKey,
       status: "active",
     });
+    return this.#resolvePersonalBindings(userId, activePersonal);
+  }
+
+  async #resolvePersonalBindings(
+    userId: string,
+    activePersonal: CredentialBindingRecord[],
+  ): Promise<CredentialFieldResolution> {
     if (activePersonal.length > 1) {
-      return { ok: false, blockCode: "credential_binding_ambiguous" };
+      return {
+        ok: false,
+        blockCode: "credential_binding_ambiguous",
+        reason: "conflict",
+      };
     }
     if (activePersonal.length > 0) {
       const binding = activePersonal[0];
       if (!binding) {
-        return { ok: false, blockCode: "credential_binding_ambiguous" };
+        return {
+          ok: false,
+          blockCode: "credential_binding_ambiguous",
+          reason: "conflict",
+        };
       }
       const credential = await this.#store.findCredential(binding.credentialId);
       return this.#resolveBoundCredential(credential, binding, userId);
     }
 
-    return { ok: false, blockCode: "required_credential_unavailable" };
+    return {
+      ok: false,
+      blockCode: "required_credential_unavailable",
+      reason: "missing",
+    };
   }
 
   #resolveBoundCredential(
     credential: CredentialRecord | null,
     binding: CredentialBindingRecord,
     userId: string,
-  ):
-    | {
-        ok: true;
-        value: string;
-        credentialId: string;
-        source: "personal";
-      }
-    | Extract<CredentialResolution, { ok: false }> {
+  ): CredentialFieldResolution {
     if (
       credential === null ||
       credential.ownerId !== userId ||
       binding.userId !== userId
     ) {
-      return { ok: false, blockCode: "credential_binding_ambiguous" };
+      return {
+        ok: false,
+        blockCode: "credential_binding_ambiguous",
+        reason: "invalid",
+      };
     }
     if (credential.status !== "active") {
-      return { ok: false, blockCode: "required_credential_unavailable" };
+      return {
+        ok: false,
+        blockCode: "required_credential_unavailable",
+        reason: "disabled",
+      };
     }
     let payload: CredentialSecretPayload;
     try {
@@ -647,11 +716,19 @@ export class CredentialService {
         ),
       );
     } catch {
-      return { ok: false, blockCode: "credential_binding_ambiguous" };
+      return {
+        ok: false,
+        blockCode: "credential_binding_ambiguous",
+        reason: "invalid",
+      };
     }
     const value = payload[binding.credentialKey];
     if (typeof value !== "string") {
-      return { ok: false, blockCode: "credential_binding_ambiguous" };
+      return {
+        ok: false,
+        blockCode: "credential_binding_ambiguous",
+        reason: "invalid",
+      };
     }
     return {
       ok: true,

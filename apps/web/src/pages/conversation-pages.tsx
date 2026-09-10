@@ -40,6 +40,8 @@ import {
 import { z } from "zod"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
+import { useConversationPrewarm } from "@/features/conversations/use-conversation-prewarm"
+import { useConversationArchiveNotification } from "@/features/conversations/use-conversation-archive-notification"
 import {
   archivedConversationClearResultSchema,
   applicationConversationSchema,
@@ -79,6 +81,7 @@ import {
   LoadingState,
 } from "@/components/feedback/page-state"
 import { notify } from "@/components/feedback/notification"
+import { NotificationToast } from "@/components/feedback/notification-toast"
 import type { ImagePreviewItem } from "@/components/media/image-preview"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { ConversationSearchDialog } from "@/components/shell/conversation-search-dialog"
@@ -167,6 +170,8 @@ import {
 } from "@/features/conversations/conversation-office-preview-update"
 import { buildConversationLineSidebarItems } from "@/features/conversations/conversation-line-sidebar-items"
 import { getConversationMessageAnchorId } from "@/features/conversations/conversation-message-anchor"
+import type { ConversationThreadNavigation } from "@/features/conversations/conversation-message-list"
+import { useConversationHistory } from "@/features/conversations/use-conversation-history"
 import {
   patchConversationTitle,
   patchSidebarConversationExecutionStatus,
@@ -175,8 +180,15 @@ import {
   replaceSidebarConversation,
   upsertSidebarConversation,
 } from "@/features/conversations/conversation-order"
+import { TaskCategoryComposerPicker } from "@/features/task-categories/task-category-composer-picker"
+import { useNewTaskCategory } from "@/features/task-categories/use-new-task-category"
+import { newTaskCategoryNavigationState } from "@/features/task-categories/new-task-category-preference"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import { ConversationTaskOverviewPanel } from "@/features/conversations/conversation-task-overview-panel"
+import {
+  conversationSourcesQueryKey,
+  conversationSourcesQueryOptions,
+} from "@/features/conversations/conversation-sources-query"
 import { ConversationShareDialog } from "@/features/conversations/conversation-share"
 import { buildConversationTaskOverview } from "@/features/conversations/conversation-task-overview"
 import { readTaskOverviewOpenPreference } from "@/features/conversations/conversation-task-overview-preference"
@@ -187,7 +199,15 @@ import {
 import { ConversationThread } from "@/features/conversations/conversation-thread"
 import type { NativeSubAgentViewModel } from "@/features/conversations/native-subagent-activity"
 import { useSubAgentSummaries } from "@/features/conversations/use-subagent-summaries"
-import { createConversationAttachmentPreviewSource } from "@/features/conversations/conversation-attachment-preview-utils"
+import {
+  createConversationAttachmentPreviewSource,
+  isPreviewableImageMimeType,
+} from "@/features/conversations/conversation-attachment-preview-utils"
+import {
+  releaseConversationAttachmentPreviewResource,
+  retainConversationAttachmentPreviewResource,
+  type ConversationAttachmentPreviewResource,
+} from "@/features/conversations/conversation-attachment-preview-cache"
 import { ConversationPlanCard } from "@/features/conversations/conversation-plan-card"
 import {
   ConversationPlanDecisionCard,
@@ -247,10 +267,6 @@ import { formatLongDateTime } from "@/i18n/date"
 import { downloadBlob } from "@/lib/download-blob"
 
 const emptyResponseSchema = z.unknown()
-const conversationPrewarmReceiptSchema = z.strictObject({
-  accepted: z.literal(true),
-  conversation_id: z.string().uuid(),
-})
 const artifactPreviewLinkSchema = z.object({
   url: z.url(),
   expires_at: z.string().datetime({ offset: true }),
@@ -296,6 +312,7 @@ function createPendingAttachmentUpload(
     name: file.name,
     size: file.size,
     mimeType: file.type || undefined,
+    previewFile: isPreviewableImageMimeType(file.type) ? file : undefined,
   }
 }
 
@@ -485,6 +502,12 @@ export function ConversationPage({
   const location = useLocation()
   const queryClient = useQueryClient()
   const [value, setValue] = useState("")
+  const {
+    categoryId: newTaskCategoryId,
+    isResolving: newTaskCategoryResolving,
+    chooseCategory: chooseNewTaskCategory,
+    resetCategory: resetNewTaskCategory,
+  } = useNewTaskCategory({ userId: user?.id, isNew })
   const [taskOverviewOpen, setTaskOverviewOpen] = useState(
     readTaskOverviewOpenPreference
   )
@@ -510,6 +533,9 @@ export function ConversationPage({
     setComposerAttachmentOperationPending,
   ] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const dismissError = useCallback((message: string) => {
+    setError((current) => (current === message ? null : current))
+  }, [])
   const [tokenQuotaNotice, setTokenQuotaNotice] = useState<string | null>(null)
   const [dismissedTokenQuotaBlockKey, setDismissedTokenQuotaBlockKey] =
     useState<string | null>(null)
@@ -691,9 +717,6 @@ export function ConversationPage({
   const goalStartSubmissionConversationIdRef = useRef<string | null>(null)
   const steerSubmissionConversationIdRef = useRef<string | null>(null)
   const pendingSubmissionConversationIdRef = useRef<string | null>(null)
-  const runnerPrewarmAtRef = useRef(0)
-  const runnerPrewarmKeyRef = useRef("")
-  const prewarmedConversationIdRef = useRef<string | null>(null)
   const dispatchedInterruptTurnIdsRef = useRef(new Set<string>())
 
   useLayoutEffect(() => {
@@ -706,9 +729,6 @@ export function ConversationPage({
       previousRouteConversationId !== currentRouteConversationId &&
       currentRouteConversationId === null
     ) {
-      prewarmedConversationIdRef.current = null
-      runnerPrewarmAtRef.current = 0
-      runnerPrewarmKeyRef.current = ""
       setNewTaskResetVersion((current) => current + 1)
     }
     routeEpochRef.current += 1
@@ -758,6 +778,16 @@ export function ConversationPage({
       )
     }
   }, [conversationId, newTaskPromotionConversationId])
+  const threadNavigationRef = useRef<ConversationThreadNavigation>(null)
+  const [visibleMessageIds, setVisibleMessageIds] = useState<string[]>([])
+  const handleVisibleMessageChange = useCallback((ids: string[]) => {
+    setVisibleMessageIds((previous) =>
+      previous.length === ids.length &&
+      previous.every((id, index) => id === ids[index])
+        ? previous
+        : ids
+    )
+  }, [])
   const {
     scrollContainerRef,
     contentRef,
@@ -768,6 +798,7 @@ export function ConversationPage({
     preserveScrollPositionForInteraction,
   } = useConversationScroll(conversationId ?? newConversationPlaceholderId, {
     preservePositionOnConversationChange: isNewTaskPromotion,
+    navigationRef: threadNavigationRef,
   })
   const bottomStackRef = useConversationBottomStackHeight()
 
@@ -809,6 +840,16 @@ export function ConversationPage({
       }),
     enabled: applicationDetailActorId.length > 0 && applicationId.length > 0,
   })
+  const applicationUnavailableMessage = applicationDetailQuery.isError
+    ? getErrorMessage(applicationDetailQuery.error, t)
+    : applicationDetailQuery.data?.status === "disabled"
+      ? t("errors.application.disabled")
+      : applicationDetailQuery.data?.dependencies_available === false
+        ? t("errors.application.dependencyUnavailable")
+        : undefined
+  const applicationInteractionBlocked =
+    isApplicationConversation &&
+    (!applicationDetailQuery.data || Boolean(applicationUnavailableMessage))
   const startApplicationFromComposerMutation = useMutation({
     mutationFn: (application: Application) =>
       apiRequest(`/applications/${application.id}/conversations`, {
@@ -1030,6 +1071,19 @@ export function ConversationPage({
     (knowledgeBasesLoading || knowledgeBaseSelectionVerificationFailed)
 
   const conversation = conversationQuery.data
+  const sourcesQuery = useQuery({
+    ...conversationSourcesQueryOptions(
+      conversationId,
+      conversation?.history?.scope_id,
+      conversation?.last_event_id ?? conversation?.updated_at
+    ),
+    enabled:
+      !isNew &&
+      Boolean(conversation) &&
+      taskOverviewOpen &&
+      taskOverviewSuppressedConversationId !== conversationId,
+  })
+  const conversationHistory = useConversationHistory(conversation)
   const pendingConversationExecution = usePendingConversationExecution(
     conversationId ?? newConversationPlaceholderId
   )
@@ -1050,6 +1104,14 @@ export function ConversationPage({
   const currentPendingTurnSubmission = pendingSubmissionBelongsToConversation
     ? pendingTurnSubmission
     : cachedPendingTurnSubmission
+  const applicationSubmissionScrollId =
+    currentPendingTurnSubmission?.message.display?.kind ===
+    "interactive_application"
+      ? currentPendingTurnSubmission.optimisticId
+      : undefined
+  useLayoutEffect(() => {
+    if (applicationSubmissionScrollId) scrollToBottom("auto")
+  }, [applicationSubmissionScrollId, scrollToBottom])
   const reconciledPendingUserMessage = currentPendingTurnSubmission
     ? conversation?.messages?.find(
         (message) =>
@@ -1129,12 +1191,14 @@ export function ConversationPage({
     (attachment) => !optimisticallyConsumedAttachmentIds?.has(attachment.id)
   )
   const running = conversation?.running_turn?.status === "running"
-  const pendingTurnExecutionActive = pendingSubmissionBelongsToConversation
+  const pendingTurnExecutionActive = Boolean(currentPendingTurnSubmission)
+  const applicationSubmissionSending =
+    currentPendingTurnSubmission?.message.delivery_status === "sending"
   const acceptedTurnAwaitingProjection = Boolean(
     pendingTurnExecutionActive &&
-    pendingTurnSubmission?.status !== undefined &&
+    currentPendingTurnSubmission?.status !== undefined &&
     !conversation?.turns?.some(
-      (turn) => turn.id === pendingTurnSubmission.turnId
+      (turn) => turn.id === currentPendingTurnSubmission.turnId
     )
   )
   const acceptedCompactionAwaitingProjection = Boolean(
@@ -1144,6 +1208,7 @@ export function ConversationPage({
   )
   const turnExecutionActive =
     running ||
+    applicationSubmissionSending ||
     acceptedTurnAwaitingProjection ||
     acceptedCompactionAwaitingProjection
   const latestConversationTurn = conversation?.turns?.at(-1)
@@ -1184,45 +1249,12 @@ export function ConversationPage({
         })
       : null
 
-  const prewarmRunner = useCallback(() => {
-    const now = Date.now()
-    const targetConversationId = isNew
-      ? prewarmedConversationIdRef.current
-      : (conversationId ?? null)
-    const prewarmKey = [targetConversationId ?? "new", collaborationMode].join(
-      ":"
-    )
-    if (
-      prewarmKey === runnerPrewarmKeyRef.current &&
-      now - runnerPrewarmAtRef.current < 60_000
-    )
-      return
-    runnerPrewarmAtRef.current = now
-    runnerPrewarmKeyRef.current = prewarmKey
-    void apiRequest("/conversations/prewarm", {
-      method: "POST",
-      body: {
-        ...(targetConversationId
-          ? { conversation_id: targetConversationId }
-          : {}),
-        collaboration_mode: collaborationMode,
-      },
-      schema: conversationPrewarmReceiptSchema,
-    })
-      .then((receipt) => {
-        if (isNew && routeConversationIdRef.current === null) {
-          prewarmedConversationIdRef.current = receipt.conversation_id
-          runnerPrewarmKeyRef.current = [
-            receipt.conversation_id,
-            collaborationMode,
-          ].join(":")
-        }
-      })
-      .catch(() => {
-        runnerPrewarmAtRef.current = 0
-        runnerPrewarmKeyRef.current = ""
-      })
-  }, [collaborationMode, conversationId, isNew])
+  const { claim: claimPrewarm, reset: resetPrewarm } = useConversationPrewarm({
+    ownerId: user?.id,
+    conversationId: isNew ? undefined : conversationId,
+    scopeKey: isNew ? location.key : (conversationId ?? ""),
+    collaborationMode,
+  })
 
   const startNewTaskFromComposer = useCallback(() => {
     if (
@@ -1233,18 +1265,19 @@ export function ConversationPage({
       return
     setError(null)
     if (!isNew) {
-      navigate("/conversations/new")
+      navigate("/conversations/new", {
+        state: newTaskCategoryNavigationState(user?.id, conversationId),
+      })
       return
     }
     setPendingFirstMessageConversationId(null)
-    prewarmedConversationIdRef.current = null
-    runnerPrewarmAtRef.current = 0
-    runnerPrewarmKeyRef.current = ""
+    resetPrewarm()
     setTaskOverviewSuppressedConversationId(null)
     setNewTaskPromotionConversationId(null)
     if (user) clearLocalConversationDraft(window.localStorage, user.id, "new")
     hydratedDraftScopeRef.current = null
     setValue("")
+    resetNewTaskCategory()
     setGoalMode(false)
     setNewTaskCollaborationMode("default")
     setSelectedCapabilityIds([])
@@ -1256,15 +1289,19 @@ export function ConversationPage({
     setOptimisticGoal(null)
     setNewTaskResetVersion((current) => current + 1)
     window.setTimeout(() => composerRef.current?.focus(), 0)
-  }, [isNew, navigate, setGoalMode, user])
+  }, [
+    isNew,
+    navigate,
+    resetPrewarm,
+    resetNewTaskCategory,
+    setGoalMode,
+    user,
+    conversationId,
+  ])
 
   useEffect(() => {
     legacyStreamItemIdByTurnRef.current.clear()
   }, [conversationId])
-
-  useEffect(() => {
-    prewarmRunner()
-  }, [prewarmRunner])
 
   const applyOfficePreviewUpdate = useCallback(() => {
     if (!previewUpdateCandidate || !officePreviewUpdate) return
@@ -1608,6 +1645,10 @@ export function ConversationPage({
               queryKey: ["conversation", conversationId],
               exact: true,
             })
+            void queryClient.invalidateQueries(
+              { queryKey: conversationSourcesQueryKey(conversationId) },
+              { cancelRefetch: false }
+            )
           }
           const matchesPendingExecution =
             !terminal ||
@@ -1673,6 +1714,10 @@ export function ConversationPage({
               exact: true,
             })
             clearPendingConversationExecution(queryClient, conversationId)
+            void queryClient.invalidateQueries(
+              { queryKey: conversationSourcesQueryKey(conversationId) },
+              { cancelRefetch: false }
+            )
             clearPendingConversationTurnSubmission(queryClient, conversationId)
             setPendingTurnSubmission((current) =>
               current?.conversationId === conversationId &&
@@ -1805,6 +1850,12 @@ export function ConversationPage({
               )
             }
             if (item.type === "agentMessage" || item.type === "plan") {
+              if (native.method === "item/completed") {
+                void queryClient.invalidateQueries(
+                  { queryKey: conversationSourcesQueryKey(conversationId) },
+                  { cancelRefetch: false }
+                )
+              }
               if (
                 native.method === "item/completed" &&
                 item.type === "plan" &&
@@ -1958,6 +2009,10 @@ export function ConversationPage({
           return
         }
         if (event.type === "conversation.message.completed") {
+          void queryClient.invalidateQueries(
+            { queryKey: conversationSourcesQueryKey(conversationId) },
+            { cancelRefetch: false }
+          )
           clearNativeReconnect()
           if (payload.role === "assistant") {
             const messageId =
@@ -2307,13 +2362,15 @@ export function ConversationPage({
       if (suppressEmptyStateUntilFirstMessage) {
         setPendingFirstMessageConversationId(newConversationPlaceholderId)
       }
+      const prewarmedConversationId = claimPrewarm()
       const createdConversation = await apiRequest("/conversations", {
         method: "POST",
         body: {
           collaboration_mode: initialCollaborationMode,
-          ...(prewarmedConversationIdRef.current
+          category_id: newTaskCategoryId,
+          ...(prewarmedConversationId
             ? {
-                prewarmed_conversation_id: prewarmedConversationIdRef.current,
+                prewarmed_conversation_id: prewarmedConversationId,
               }
             : {}),
         },
@@ -2365,7 +2422,6 @@ export function ConversationPage({
         routeEpochRef.current === routeEpoch &&
         routeConversationIdRef.current === null
       ) {
-        prewarmedConversationIdRef.current = null
         setNewTaskPromotionConversationId(createdConversation.id)
         setTaskOverviewSuppressedConversationId(createdConversation.id)
         hydratedDraftScopeRef.current = createdConversation.id
@@ -2530,6 +2586,7 @@ export function ConversationPage({
         title: t("conversation.untitled"),
         archived: false,
         pinned_at: null,
+        category_id: newTaskCategoryId,
         sort_order: null,
         updated_at: new Date().toISOString(),
         execution_status: "running",
@@ -2568,7 +2625,14 @@ export function ConversationPage({
       patchSidebarConversationExecutionStatus(cached, conversationId, "running")
     )
     return optimisticStatus
-  }, [collaborationMode, conversationId, isNew, queryClient, t])
+  }, [
+    collaborationMode,
+    conversationId,
+    isNew,
+    newTaskCategoryId,
+    queryClient,
+    t,
+  ])
 
   const restoreOptimisticSidebarExecutionStatus = useCallback(
     (
@@ -3484,8 +3548,8 @@ export function ConversationPage({
       navigate(`/conversations/${forkedConversation.id}`)
       void refreshConversationList().catch(() => undefined)
     },
-    onError: () => {
-      setError(t("conversation.forkMessageFailed"))
+    onError: (nextError) => {
+      setError(getErrorMessage(nextError, t))
     },
     onSettled: () => {
       notify.dismiss(conversationForkNotificationId)
@@ -3503,21 +3567,37 @@ export function ConversationPage({
       }
       const id = await ensureConversation()
       attachmentMutationTargetConversationIdRef.current = id
+      const previewResources: ConversationAttachmentPreviewResource[] = []
       try {
         for (const file of uploadableFiles) {
           const formData = new FormData()
           formData.append("file", file)
-          await apiRequest(`/conversations/${id}/attachments`, {
-            method: "POST",
-            body: formData,
-            schema: conversationFileSchema,
-          })
+          const attachment = await apiRequest(
+            `/conversations/${id}/attachments`,
+            {
+              method: "POST",
+              body: formData,
+              schema: conversationFileSchema,
+            }
+          )
+          if (
+            isPreviewableImageMimeType(attachment.mime_type) &&
+            isPreviewableImageMimeType(file.type)
+          ) {
+            previewResources.push(
+              retainConversationAttachmentPreviewResource(
+                attachment,
+                async () => file
+              )
+            )
+          }
         }
       } catch (nextError) {
         await refreshAfterMutation(id).catch(() => undefined)
+        previewResources.forEach(releaseConversationAttachmentPreviewResource)
         throw nextError
       }
-      return id
+      return { id, previewResources }
     },
     onMutate: (files) => {
       const pendingUploads = files
@@ -3531,7 +3611,13 @@ export function ConversationPage({
       }
       return { pendingUploadIds: pendingUploads.map((file) => file.id) }
     },
-    onSuccess: refreshAfterMutation,
+    onSuccess: async ({ id, previewResources }) => {
+      try {
+        await refreshAfterMutation(id)
+      } finally {
+        previewResources.forEach(releaseConversationAttachmentPreviewResource)
+      }
+    },
     onSettled: (_data, _error, _files, context) => {
       const pendingUploadIds = context?.pendingUploadIds
       if (!pendingUploadIds || pendingUploadIds.length === 0) return
@@ -3599,7 +3685,7 @@ export function ConversationPage({
     let targetConversationId: string | null = null
     return attachMutation
       .mutateAsync(files)
-      .then(async (id) => {
+      .then(async ({ id }) => {
         targetConversationId = id
         return true
       })
@@ -3712,6 +3798,16 @@ export function ConversationPage({
       } finally {
         dispatchedInterruptTurnIdsRef.current.delete(turnId)
         clearPendingConversationExecution(queryClient, targetConversationId)
+        const pending = getPendingConversationTurnSubmission(
+          queryClient,
+          targetConversationId
+        )
+        if (pending?.turnId === turnId && pending.interruptRequested) {
+          clearPendingConversationTurnSubmission(
+            queryClient,
+            targetConversationId
+          )
+        }
         setPendingTurnSubmission((current) =>
           current?.turnId === turnId && current.interruptRequested
             ? null
@@ -3731,7 +3827,7 @@ export function ConversationPage({
   const requestTurnInterrupt = interruptMutation.mutate
 
   useEffect(() => {
-    const pending = pendingTurnSubmission
+    const pending = currentPendingTurnSubmission
     if (
       !pending?.interruptRequested ||
       !pending.turnId ||
@@ -3745,7 +3841,7 @@ export function ConversationPage({
       targetConversationId: pending.conversationId,
       turnId: pending.turnId,
     })
-  }, [pendingTurnSubmission, requestTurnInterrupt])
+  }, [currentPendingTurnSubmission, requestTurnInterrupt])
 
   useEffect(() => {
     const turnId = conversation?.running_turn?.id
@@ -3997,6 +4093,7 @@ export function ConversationPage({
     onError: (nextError) => setError(getErrorMessage(nextError, t)),
   })
 
+  const showArchiveNotification = useConversationArchiveNotification()
   const patchConversationMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       apiRequest(`/conversations/${conversationId}`, {
@@ -4004,16 +4101,48 @@ export function ConversationPage({
         body,
         schema: conversationSchema,
       }),
-    onSuccess: async (nextConversation, variables) => {
+    onMutate: () => ({
+      previousConversation: queryClient.getQueryData<Conversation>([
+        "conversation",
+        conversationId,
+      ]),
+    }),
+    onSuccess: async (nextConversation, variables, context) => {
+      if (typeof variables.title === "string") {
+        await Promise.all([
+          queryClient.cancelQueries({
+            queryKey: ["conversations", "sidebar"],
+            exact: true,
+          }),
+          queryClient.cancelQueries({
+            queryKey: ["conversation", nextConversation.id],
+            exact: true,
+          }),
+        ])
+        queryClient.setQueryData(
+          ["conversations", "sidebar"],
+          (current: { pages: Array<{ items: Conversation[] }> } | undefined) =>
+            patchSidebarConversationTitle(
+              current,
+              nextConversation.id,
+              nextConversation.title,
+              "manual"
+            )
+        )
+      }
       queryClient.setQueryData<Conversation>(
-        ["conversation", conversationId],
+        ["conversation", nextConversation.id],
         (currentConversation) =>
           currentConversation
             ? { ...currentConversation, ...nextConversation }
-            : nextConversation
+            : undefined
       )
       setRenameOpen(false)
       if (variables.archive_status === "archived") {
+        showArchiveNotification({
+          id: nextConversation.id,
+          pinned_at: context.previousConversation?.pinned_at,
+        })
         leaveCurrentConversation()
         return
       }
@@ -4202,6 +4331,7 @@ export function ConversationPage({
   }
 
   const submitComposer = (input: string) => {
+    if (applicationSubmissionSending || applicationInteractionBlocked) return
     if (isConversationContextCompactionCommand(input)) {
       startContextCompaction()
       return
@@ -4651,6 +4781,7 @@ export function ConversationPage({
     id: newConversationPlaceholderId,
     title: t("conversation.untitled"),
     archived: false,
+    category_id: newTaskCategoryId,
     updated_at: new Date(0).toISOString(),
     has_unread_completion: false,
     has_automation: false,
@@ -4782,9 +4913,31 @@ export function ConversationPage({
     ...displayConversation,
     messages: visibleMessages,
   })
+  const hiddenImplementationTurnIds = new Set(
+    (displayConversation.plan_reviews ?? []).flatMap((review) =>
+      review.status === "resolved" &&
+      review.decision === "implement" &&
+      review.follow_up_turn_id
+        ? [review.follow_up_turn_id]
+        : []
+    )
+  )
   const lineSidebarItems = buildConversationLineSidebarItems(
-    visibleMessages,
-    t("conversation.awaitingAssistant")
+    visibleMessages.filter(
+      (message) =>
+        message.role !== "user" ||
+        !message.turn_id ||
+        !hiddenImplementationTurnIds.has(message.turn_id)
+    ),
+    t("conversation.awaitingAssistant"),
+    displayConversation.history
+      ? {
+          index: displayConversation.history.index,
+          unloadedLabel: (ordinal) =>
+            t("conversation.historyExchange", { count: ordinal }),
+          unloadedPreview: t("conversation.historyViewExchange"),
+        }
+      : undefined
   )
   const showConnectionWarning = visuallyRunning && reconnectingWarningVisible
   const reconciledPendingTurnId = activePendingTurnSubmission
@@ -5176,6 +5329,14 @@ export function ConversationPage({
               key={conversationId}
               events={visibleEvents}
               files={overviewFiles}
+              sourcesState={{
+                sources: sourcesQuery.data?.items ?? [],
+                loading: sourcesQuery.isLoading,
+                failed: sourcesQuery.isError,
+                onRetry: () => {
+                  void sourcesQuery.refetch()
+                },
+              }}
               defaultOpen={!taskOverviewSuppressed && taskOverviewOpen}
               subAgentSummariesByTurnId={subAgentSummariesByTurnId}
               downloadingFileId={downloadingFileId}
@@ -5198,15 +5359,17 @@ export function ConversationPage({
         />
       )}
 
-      {(error || showConnectionWarning) && (
+      <NotificationToast
+        message={error}
+        variant="error"
+        onDismiss={dismissError}
+      />
+      {showConnectionWarning && (
         <div className="conversation-top-overlay-stack">
           <div className="conversation-banner-stack">
-            {error && <StatusBanner variant="error">{error}</StatusBanner>}
-            {showConnectionWarning && (
-              <StatusBanner variant="warning">
-                {t("conversation.reconnecting")}
-              </StatusBanner>
-            )}
+            <StatusBanner variant="warning">
+              {t("conversation.reconnecting")}
+            </StatusBanner>
           </div>
         </div>
       )}
@@ -5215,10 +5378,11 @@ export function ConversationPage({
         <ConversationLineSidebar
           ariaLabel={t("conversation.messageNavigation")}
           items={lineSidebarItems}
-          activeItemId={lineSidebarItems.at(-1)?.id}
+          activeItemIds={visibleMessageIds}
           className="conversation-message-line-sidebar hidden md:block"
           onItemSelect={(item) => {
             pauseAutoFollow()
+            if (threadNavigationRef.current?.scrollToMessage(item.id)) return
             const prefersReducedMotion = window.matchMedia(
               "(prefers-reduced-motion: reduce)"
             ).matches
@@ -5233,6 +5397,9 @@ export function ConversationPage({
       )}
 
       <ConversationThread
+        navigationRef={threadNavigationRef}
+        onVisibleMessageChange={handleVisibleMessageChange}
+        history={conversation?.history ? conversationHistory : undefined}
         conversation={{
           ...displayConversation,
           available_capabilities: availableCapabilities,
@@ -5396,12 +5563,34 @@ export function ConversationPage({
               }
             />
           )}
+        {!blockingPanelActive &&
+          (isNew || !isApplicationConversation) &&
+          visibleMessages.length === 0 && (
+            <TaskCategoryComposerPicker
+              value={
+                isNew ? newTaskCategoryId : displayConversation.category_id
+              }
+              onChange={(categoryId) => {
+                chooseNewTaskCategory(categoryId)
+                if (!isNew)
+                  patchConversationMutation.mutate({ category_id: categoryId })
+              }}
+              disabled={
+                sendMutation.isPending ||
+                goalStartMutation.isPending ||
+                attachmentOperationPending ||
+                patchConversationMutation.isPending
+              }
+            />
+          )}
         {!blockingPanelActive && (
           <ConversationComposer
             ref={composerRef}
             voiceTranscriptionAvailability={voiceTranscriptionAvailability}
             key={`${composerInstanceId}:${newTaskResetVersion}`}
             value={value}
+            interactionBlocked={applicationInteractionBlocked}
+            unavailableMessage={applicationUnavailableMessage}
             onValueChange={setValue}
             capabilities={availableCapabilities}
             capabilitiesLoading={capabilityQuery.isLoading}
@@ -5449,6 +5638,7 @@ export function ConversationPage({
             }
             onPlanModeChange={handlePlanModeChange}
             submitting={
+              applicationSubmissionSending ||
               sendMutation.isPending ||
               goalStartMutation.isPending ||
               contextCompactionMutation.isPending ||
@@ -5500,7 +5690,9 @@ export function ConversationPage({
             onCompact={startContextCompaction}
             compactAvailable={compactionAvailable}
             compacting={contextCompactionMutation.isPending}
-            taskStartDisabled={taskStartDisabledByTokenQuota}
+            taskStartDisabled={
+              taskStartDisabledByTokenQuota || newTaskCategoryResolving
+            }
             onStartNewTask={startNewTaskFromComposer}
             onStartApplication={(application) => {
               if (
@@ -5520,6 +5712,14 @@ export function ConversationPage({
               const pending = activePendingTurnSubmission
               if (pending) {
                 setInterruptingConversationId(pending.conversationId)
+                updatePendingConversationTurnSubmission(
+                  queryClient,
+                  pending.conversationId,
+                  (current) =>
+                    current.idempotencyKey === pending.idempotencyKey
+                      ? { ...current, interruptRequested: true }
+                      : current
+                )
                 setPendingTurnSubmission((current) =>
                   current === pending
                     ? { ...current, interruptRequested: true }
@@ -5578,6 +5778,9 @@ export function ArchivedConversationListPage() {
     title: string
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const dismissError = useCallback((message: string) => {
+    setError((current) => (current === message ? null : current))
+  }, [])
   const [searchOpen, setSearchOpen] = useState(false)
   const [clearAllOpen, setClearAllOpen] = useState(false)
   const [cursor, setCursor] = useState<string | undefined>()
@@ -5623,8 +5826,10 @@ export function ArchivedConversationListPage() {
         method: "DELETE",
         schema: archivedConversationClearResultSchema,
       }),
-    onSuccess: async (result) => {
-      setClearAllOpen(false)
+    onMutate: () => ({
+      toastId: notify.loading(t("conversation.clearingArchived")),
+    }),
+    onSuccess: async (result, _variables, context) => {
       setCursor(undefined)
       setCursorStack([])
       await queryClient.invalidateQueries({ queryKey: ["conversations"] })
@@ -5632,10 +5837,12 @@ export function ArchivedConversationListPage() {
         t("conversation.clearArchivedSuccess", {
           count: result.deleted_count,
         }),
-        { id: "conversation-clear-archived-success" }
+        { id: context.toastId }
       )
     },
-    onError: (nextError) => setError(getErrorMessage(nextError, t)),
+    onError: (nextError, _variables, context) => {
+      notify.error(getErrorMessage(nextError, t), { id: context?.toastId })
+    },
   })
 
   const goNext = () => {
@@ -5685,7 +5892,11 @@ export function ArchivedConversationListPage() {
         ) : undefined
       }
     >
-      {error && <StatusBanner variant="error">{error}</StatusBanner>}
+      <NotificationToast
+        message={error}
+        variant="error"
+        onDismiss={dismissError}
+      />
       {query.isLoading && <LoadingState />}
       {query.isError && (
         <ErrorState
@@ -5810,8 +6021,10 @@ export function ArchivedConversationListPage() {
         description={t("conversation.clearArchivedDescription")}
         confirmLabel={t("conversation.clearArchived")}
         destructive
-        pending={clearArchivedMutation.isPending}
-        onConfirm={() => clearArchivedMutation.mutate()}
+        onConfirm={() => {
+          setClearAllOpen(false)
+          clearArchivedMutation.mutate()
+        }}
       />
       <ConversationSearchDialog
         open={searchOpen}

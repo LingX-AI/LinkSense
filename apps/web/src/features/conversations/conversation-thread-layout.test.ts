@@ -652,12 +652,15 @@ describe("conversation activity typography", () => {
     )
   })
 
-  it("matches thinking and processed status labels to the configured UI font size", () => {
+  it("uses the same UI typography for processing, thinking and tool summary rows", () => {
     expect(conversationStyles).toMatch(
       /\.turn-status\s*\{[^}]*font-size:\s*var\(--app-ui-font-size\);[^}]*font-weight:\s*500;[^}]*line-height:\s*var\(--app-ui-compact-line-height\);/u
     )
     expect(conversationStyles).toMatch(
-      /\.turn-thinking-activity\s*\{[^}]*font-size:\s*var\(--app-ui-font-size\);[^}]*font-weight:\s*500;[^}]*line-height:\s*var\(--app-ui-compact-line-height\);/u
+      /\.native-activity-trigger\s*\{[^}]*font-size:\s*var\(--app-ui-font-size\);[^}]*font-weight:\s*500;[^}]*line-height:\s*var\(--app-ui-compact-line-height\);/u
+    )
+    expect(conversationStyles).not.toMatch(
+      /\.turn-thinking-activity\s*\{[^}]*font-size:/u
     )
   })
 
@@ -962,7 +965,7 @@ describe("conversation activity typography", () => {
 
   it("uses medium weight for the text-only thinking activity", () => {
     expect(conversationStyles).toMatch(
-      /\.turn-thinking-activity\s*\{[^}]*font-weight:\s*500;/u
+      /\.native-activity-trigger\s*\{[^}]*font-weight:\s*500;/u
     )
   })
 
@@ -1105,7 +1108,7 @@ describe("office preview annotation batch tray layout", () => {
 
   it("draws compact chat-bubble numbered markers on saved annotations", () => {
     const annotationFrameRule = conversationStyles.match(
-      /\.office-annotation-frame,\s*\.office-annotation-highlight\s*\{([^}]*)\}/u
+      /\.office-annotation-frame\s*\{([^}]*)\}/u
     )?.[1]
     const annotationIndexRule = conversationStyles.match(
       /\.office-annotation-number-bubble\s*\{([^}]*)\}/u
@@ -1244,10 +1247,8 @@ describe("conversation execution plan layout", () => {
       /\.pending-request-context-input\s*\{([^}]*)\}/u
     )?.[1]
 
-    expect(pendingRule).toMatch(/background:\s*var\(--app-composer\);/u)
     expect(pendingRule).toMatch(/width:\s*min\([\s\S]*?calc\(100% - 28px\)/u)
     expect(pendingRule).toMatch(/margin-bottom:\s*-1px;/u)
-    expect(pendingRule).toMatch(/border-bottom:\s*0;/u)
     expect(pendingRule).toMatch(/border-radius:\s*20px 20px 0 0;/u)
     expect(contextRule).toMatch(/min-height:\s*40px;/u)
     expect(contextRule).toMatch(/padding:\s*6px 14px;/u)
@@ -1291,14 +1292,12 @@ describe("conversation execution plan layout", () => {
       /width:\s*min\(calc\(100% - 56px\), calc\(var\(--app-composer-width\) - 56px\)\);/u
     )
     expect(combinedPendingRule).toMatch(/margin-bottom:\s*0;/u)
-    expect(combinedPendingRule).toMatch(
-      /border-bottom:\s*1px solid var\(--app-border\);/u
-    )
+    expect(combinedPendingRule).not.toMatch(/border(?:-bottom)?:/u)
     expect(combinedPendingRule).toMatch(/border-radius:\s*24px 24px 0 0;/u)
-    expect(combinedPendingRule).toMatch(/box-shadow:\s*none;/u)
+    expect(combinedPendingRule).not.toMatch(/box-shadow:/u)
     expect(combinedContextRule).toMatch(/gap:\s*4px;/u)
     expect(combinedContextRule).toMatch(/padding:\s*6px 18px 6px 14px;/u)
-    expect(combinedGoalRule).toMatch(/border-top:\s*0;/u)
+    expect(combinedGoalRule).not.toMatch(/border(?:-top)?:/u)
     expect(combinedGoalRule).toMatch(/border-radius:\s*0;/u)
     expect(combinedHandleRule).toMatch(/width:\s*22px;/u)
     expect(combinedHandleRule).toMatch(/height:\s*22px;/u)
@@ -1354,9 +1353,9 @@ describe("conversation execution plan layout", () => {
     expect(goalRule).toMatch(/min-height:\s*48px;/u)
     expect(goalRule).toMatch(/margin:\s*0 auto -10px;/u)
     expect(goalRule).toMatch(/padding:\s*6px 18px 8px;/u)
-    expect(goalRule).toMatch(/border:\s*1px solid var\(--app-border\);/u)
+    expect(goalRule).not.toMatch(/border:/u)
     expect(goalRule).toMatch(/border-radius:\s*24px 24px 0 0;/u)
-    expect(goalRule).toMatch(/box-shadow:\s*none;/u)
+    expect(goalRule).not.toMatch(/box-shadow:/u)
     expect(goalCopyRule).toMatch(/display:\s*flex;/u)
     expect(goalCopyRule).toMatch(/min-width:\s*0;/u)
     expect(elapsedRule).toMatch(/display:\s*inline-flex;/u)
@@ -1609,7 +1608,7 @@ describe("user message attachments", () => {
     expect(imageListRule).toMatch(/justify-content:\s*flex-end;/u)
   })
 
-  it("uses filled bordered image thumbnails and a transparent file pill", () => {
+  it("uses filled bordered image thumbnails and the shared resource pill", () => {
     const thumbnailRule = conversationStyles.match(
       /\.user-message-attachment-images \.image-preview-thumbnail\s*\{([^}]*)\}/u
     )?.[1]
@@ -1617,10 +1616,13 @@ describe("user message attachments", () => {
       /\.user-message-attachment-images \.image-preview-thumbnail-trigger\s*\{([^}]*)\}/u
     )?.[1]
     const imageRule = conversationStyles.match(
-      /\.user-message-attachment-images \.image-preview-thumbnail-trigger img\s*\{([^}]*)\}/u
+      /\.image-preview-thumbnail-trigger img\s*\{([^}]*)\}/u
     )?.[1]
     const fileRule = conversationStyles.match(
       /\.user-message-file-attachment\s*\{([^}]*)\}/u
+    )?.[1]
+    const resourceRule = conversationStyles.match(
+      /\.user-message-resource-chip\s*\{([^}]*)\}/u
     )?.[1]
     const previewableFileRule = conversationStyles.match(
       /\.user-message-file-attachment-previewable:hover,\s*\.user-message-file-attachment-previewable:focus-visible\s*\{([^}]*)\}/u
@@ -1630,12 +1632,21 @@ describe("user message attachments", () => {
     expect(thumbnailRule).toMatch(/height:\s*80px;/u)
     expect(triggerRule).toMatch(/border:\s*1px solid var\(--app-border\);/u)
     expect(triggerRule).toMatch(/background:\s*transparent;/u)
-    expect(imageRule).toMatch(/object-fit:\s*contain;/u)
+    expect(imageRule).toMatch(/object-fit:\s*cover;/u)
+    expect(conversationStyles).not.toMatch(
+      /\.user-message-attachment-images \.image-preview-thumbnail-trigger img\s*\{/u
+    )
     expect(imageRule).not.toMatch(/object-position:/u)
-    expect(fileRule).toMatch(/min-height:\s*38px;/u)
-    expect(fileRule).toMatch(/border:\s*1px solid var\(--app-border\);/u)
-    expect(fileRule).toMatch(/border-radius:\s*999px;/u)
-    expect(fileRule).toMatch(/background:\s*transparent;/u)
+    expect(resourceRule).toMatch(
+      /min-height:\s*calc\(var\(--app-ui-compact-line-height\) \+ 8px\);/u
+    )
+    expect(resourceRule).toMatch(/gap:\s*4px;/u)
+    expect(resourceRule).toMatch(/border:\s*1px solid var\(--app-border\);/u)
+    expect(resourceRule).toMatch(/border-radius:\s*999px;/u)
+    expect(resourceRule).toMatch(/padding:\s*2px 8px;/u)
+    expect(resourceRule).toMatch(/background:\s*var\(--app-canvas\);/u)
+    expect(resourceRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
+    expect(fileRule).toMatch(/max-width:\s*min\(100%, 420px\);/u)
     expect(previewableFileRule).toMatch(
       /border-color:\s*color-mix\(in srgb, var\(--app-text\) 16%, transparent\);/u
     )
@@ -1672,9 +1683,9 @@ describe("user message attachments", () => {
 })
 
 describe("user message capability badges", () => {
-  it("uses a white bordered pill for selected Skills and knowledge bases", () => {
-    const badgeRule = conversationStyles.match(
-      /\.user-message-capability\s*\{([^}]*)\}/u
+  it("uses the shared plugin pill for Skills and knowledge bases", () => {
+    const resourceRule = conversationStyles.match(
+      /\.user-message-resource-chip\s*\{([^}]*)\}/u
     )?.[1]
     const iconRule = conversationStyles.match(
       /\.user-message-capability-icon\s*\{([^}]*)\}/u
@@ -1683,27 +1694,25 @@ describe("user message capability badges", () => {
       /\.user-message-capability-label\s*\{([^}]*)\}/u
     )?.[1]
 
-    expect(badgeRule).toMatch(/height:\s*auto;/u)
-    expect(badgeRule).toMatch(
+    expect(resourceRule).toMatch(/height:\s*auto;/u)
+    expect(resourceRule).toMatch(
       /min-height:\s*calc\(var\(--app-ui-compact-line-height\) \+ 8px\);/u
     )
-    expect(badgeRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
-    expect(badgeRule).toMatch(
+    expect(resourceRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
+    expect(resourceRule).toMatch(
       /line-height:\s*var\(--app-ui-compact-line-height\);/u
     )
-    expect(badgeRule).toMatch(/border:\s*1px solid var\(--app-border\);/u)
-    expect(badgeRule).toMatch(/border-radius:\s*999px;/u)
-    expect(badgeRule).toMatch(/background:\s*var\(--app-canvas\);/u)
-    expect(badgeRule).toMatch(/color:\s*var\(--app-text\);/u)
-    expect(labelRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
-    expect(labelRule).toMatch(
-      /line-height:\s*var\(--app-ui-compact-line-height\);/u
+    expect(resourceRule).toMatch(/border:\s*1px solid var\(--app-border\);/u)
+    expect(resourceRule).toMatch(/border-radius:\s*999px;/u)
+    expect(resourceRule).toMatch(/background:\s*var\(--app-canvas\);/u)
+    expect(resourceRule).toMatch(/color:\s*var\(--app-text\);/u)
+    expect(labelRule).toMatch(/font-size:\s*inherit;/u)
+    expect(labelRule).toMatch(/line-height:\s*inherit;/u)
+    expect(iconRule).toMatch(
+      /width:\s*calc\(var\(--app-ui-font-size\) \+ 2px\) !important;/u
     )
     expect(iconRule).toMatch(
-      /width:\s*calc\(var\(--app-ui-font-size\) \+ 2px\);/u
-    )
-    expect(iconRule).toMatch(
-      /height:\s*calc\(var\(--app-ui-font-size\) \+ 2px\);/u
+      /height:\s*calc\(var\(--app-ui-font-size\) \+ 2px\) !important;/u
     )
   })
 })

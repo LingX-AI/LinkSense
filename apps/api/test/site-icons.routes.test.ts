@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { AppError } from "../src/lib/errors.js"
 import { siteIconRoutes } from "../src/modules/site-icons/routes.js"
+import { SiteIconService } from "../src/modules/site-icons/service.js"
 import type { AppServices } from "../src/services.js"
 
 const PNG = Buffer.from(
@@ -54,6 +55,26 @@ async function createApp(
 }
 
 describe("site icon route", () => {
+  it("keeps other API requests available when favicon discovery only receives no-content responses", async () => {
+    const service = new SiteIconService({
+      getSiteIconCache: async () => null,
+      setSiteIconCache: async () => undefined,
+    }, {
+      fetcher: async () => new Response(null, { status: 204 }),
+      lookup: vi.fn(async () => [{ address: "93.184.216.34", family: 4 }]) as unknown as typeof import("node:dns").promises.lookup,
+    })
+    const app = await createApp(service.get.bind(service))
+    app.get("/health", async () => ({ status: "ok" }))
+
+    const [icon, health] = await Promise.all([
+      app.inject({ method: "GET", url: "/api/v1/site-icons?origin=https%3A%2F%2Fexample.com", headers: { authorization: "Bearer test-token" } }),
+      app.inject({ method: "GET", url: "/health" }),
+    ])
+    expect(icon.statusCode).toBe(204)
+    expect(health.statusCode).toBe(200)
+    expect((await app.inject("/health")).json()).toEqual({ status: "ok" })
+  })
+
   it("returns authenticated, verified icon bytes with restrictive response headers", async () => {
     const get = vi.fn(async () => ({
       data: PNG,

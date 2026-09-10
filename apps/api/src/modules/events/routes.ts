@@ -4,6 +4,7 @@ import {
   conversationEventSchema,
   runnerMemoryUsageCaptureSchema,
   runnerConversationEventSchema,
+  runnerHeartbeatSchema,
   type ConversationEvent,
 } from "@linksense/shared"
 import type { FastifyPluginAsync, FastifyRequest } from "fastify"
@@ -53,6 +54,13 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
       }
     })
 
+    app.post("/runner/heartbeat", async (request, reply) => {
+      const ownerId = parseRunnerOwnerId(request)
+      const body = runnerHeartbeatSchema.parse(request.body)
+      await services.events.recordRunnerHeartbeat(ownerId, body)
+      return reply.send(ok({ confirmed: true }, request.id))
+    })
+
     app.post("/runner/events", async (request, reply) => {
       const body = runnerEventSchema.parse(request.body)
       const ownerId = parseRunnerOwnerId(request)
@@ -91,10 +99,16 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
       await services.conversations.assertOwner(ownerId, body.conversationId)
       const recovery = await services.events
         .reconcileAfterProcessExit(body)
-        .catch(() => {
+        .catch(async () => {
+          await services.events.scheduleProcessExitRecovery(body).catch(() => {
+            request.log.warn({ conversationId: body.conversationId }, "Process-exit recovery dispatch failed")
+          })
           throw new AppError("RUNNER_UNAVAILABLE")
         })
       if (recovery.outcome === "failed") {
+        await services.events.scheduleProcessExitRecovery(body).catch(() => {
+          request.log.warn({ conversationId: body.conversationId }, "Process-exit recovery dispatch failed")
+        })
         throw new AppError("RUNNER_UNAVAILABLE")
       }
       return reply.send(

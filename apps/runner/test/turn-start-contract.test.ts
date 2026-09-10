@@ -14,6 +14,7 @@ describe("turn-start contract diagnostics", () => {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000004",
       expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
+      sourceConversationId: "01900000-0000-7000-8000-000000000003",
       sourceCodexThreadId: "thread-source-1",
       throughCodexTurnId: "turn-native-2",
       model: "test-model",
@@ -27,6 +28,7 @@ describe("turn-start contract diagnostics", () => {
     };
 
     expect(forkThreadBodySchema.safeParse(body).success).toBe(true);
+    expect(forkThreadBodySchema.safeParse({ ...body, sourceConversationId: undefined }).success).toBe(false);
     expect(
       forkThreadBodySchema.safeParse({
         ...body,
@@ -49,7 +51,7 @@ describe("turn-start contract diagnostics", () => {
       codexThreadId: "thread-native-1",
       context: {
         userInput: "",
-        selectedKnowledgeBaseCount: 0,
+        selectedKnowledgeBases: [],
         attachments: [],
         priorityPlugins: [],
         prioritySkills: [],

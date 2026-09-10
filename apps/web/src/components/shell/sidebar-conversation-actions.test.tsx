@@ -1,107 +1,158 @@
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { SidebarConversationActions } from "@/components/shell/sidebar-conversation-actions"
 import i18n from "@/i18n"
 
-function renderActions(pinned: boolean) {
+function renderActions(pinned = false, disabled = false, movable = true) {
   const callbacks = {
     onTogglePinned: vi.fn(),
     onArchive: vi.fn(),
+    onMoveToCategory: movable ? vi.fn() : undefined,
   }
-
   return {
     ...callbacks,
     ...render(
       <SidebarConversationActions
         title="整理项目会议纪要"
         pinned={pinned}
-        pinDisabled={false}
-        archiveDisabled={false}
+        pinDisabled={disabled}
+        archiveDisabled={disabled}
         {...callbacks}
       />
     ),
   }
 }
 
+const moreLabel = "整理项目会议纪要的更多操作"
+
 describe("SidebarConversationActions", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
   })
-
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
   })
 
-  it("uses native action titles without mounting tooltip portals", () => {
-    renderActions(false)
-    const pinButton = screen.getByRole("button", {
-      name: "置顶任务“整理项目会议纪要”",
-    })
-    const archiveButton = screen.getByRole("button", {
-      name: "归档任务“整理项目会议纪要”",
-    })
-
-    expect(pinButton).toHaveAttribute("title", "置顶任务")
-    expect(archiveButton).toHaveAttribute("title", "归档任务")
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
-  })
-
-  it("keeps pin and archive actions clickable", async () => {
+  it("moves category and pin actions into a menu while keeping archive inline", async () => {
     const interaction = userEvent.setup()
-    const callbacks = renderActions(false)
-    const pinButton = screen.getByRole("button", {
-      name: "置顶任务“整理项目会议纪要”",
-    })
-    const archiveButton = screen.getByRole("button", {
+    const callbacks = renderActions()
+    const more = screen.getByRole("button", { name: moreLabel })
+    const archive = screen.getByRole("button", {
       name: "归档任务“整理项目会议纪要”",
     })
-    const actions = pinButton.parentElement
-
-    expect(actions).toHaveClass(
-      "group-has-[:focus-visible]:pointer-events-auto",
-      "group-has-[:focus-visible]:opacity-100"
+    expect(screen.getAllByRole("button")).toEqual([archive, more])
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument()
+    for (const button of [more, archive]) {
+      expect(button).toHaveClass(
+        "hover:bg-transparent",
+        "aria-expanded:bg-transparent"
+      )
+    }
+    await interaction.click(more)
+    await screen.findByRole("menu")
+    expect(more).toHaveAttribute("aria-expanded", "true")
+    expect(more).toHaveAttribute("data-popup-open")
+    expect(more.closest(".sidebar-conversation-actions")).toHaveClass(
+      "has-data-[popup-open]:pointer-events-auto",
+      "has-data-[popup-open]:opacity-100"
     )
-    expect(actions).not.toHaveClass(
-      "group-focus-within:pointer-events-auto",
-      "group-focus-within:opacity-100"
+    expect(screen.getAllByRole("menuitem")).toHaveLength(2)
+    expect(
+      screen.queryByRole("menuitem", { name: "归档任务" })
+    ).not.toBeInTheDocument()
+    await interaction.click(
+      await screen.findByRole("menuitem", { name: "移动到分类" })
     )
-
-    await interaction.click(pinButton)
-    await interaction.click(archiveButton)
+    expect(callbacks.onMoveToCategory).toHaveBeenCalledOnce()
+    await waitFor(() =>
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument()
+    )
+    await interaction.click(more)
+    await interaction.click(
+      await screen.findByRole("menuitem", { name: "置顶任务" })
+    )
     expect(callbacks.onTogglePinned).toHaveBeenCalledOnce()
+    await waitFor(() =>
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument()
+    )
+    await interaction.click(archive)
     expect(callbacks.onArchive).toHaveBeenCalledOnce()
   })
 
-  it("shows the unpin name for a pinned task in both supported languages", async () => {
-    const fixture = renderActions(true)
-    const unpinButton = screen.getByRole("button", {
-      name: "取消置顶任务“整理项目会议纪要”",
-    })
-
-    expect(unpinButton).toHaveAttribute("title", "取消置顶")
-
-    await i18n.changeLanguage("en-US")
-    fixture.rerender(
-      <SidebarConversationActions
-        title="Project meeting notes"
-        pinned
-        pinDisabled={false}
-        archiveDisabled={false}
-        onTogglePinned={fixture.onTogglePinned}
-        onArchive={fixture.onArchive}
-      />
+  it("opens with the keyboard and restores focus when Escape closes the menu", async () => {
+    const interaction = userEvent.setup()
+    renderActions()
+    const more = screen.getByRole("button", { name: moreLabel })
+    await interaction.tab()
+    expect(
+      screen.getByRole("button", { name: "归档任务“整理项目会议纪要”" })
+    ).toHaveFocus()
+    await interaction.tab()
+    expect(more).toHaveFocus()
+    await interaction.keyboard("{Enter}")
+    expect(await screen.findByRole("menu")).toBeVisible()
+    await interaction.keyboard("{Escape}")
+    await waitFor(() =>
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument()
     )
+    expect(more).toHaveFocus()
+  })
 
-    const englishUnpinButton = screen.getByRole("button", {
-      name: "Unpin task “Project meeting notes”",
+  it("keeps pending pin and archive actions disabled and omits unavailable category actions", async () => {
+    const interaction = userEvent.setup()
+    const callbacks = renderActions(false, true, false)
+    const archive = screen.getByRole("button", {
+      name: "归档任务“整理项目会议纪要”",
     })
-    const englishArchiveButton = screen.getByRole("button", {
-      name: "Archive task “Project meeting notes”",
-    })
-    expect(englishUnpinButton).toHaveAttribute("title", "Unpin")
-    expect(englishArchiveButton).toHaveAttribute("title", "Archive task")
+    expect(archive).toBeDisabled()
+    await interaction.click(archive)
+    await interaction.click(screen.getByRole("button", { name: moreLabel }))
+    const pin = await screen.findByRole("menuitem", { name: "置顶任务" })
+    expect(pin).toHaveAttribute("aria-disabled", "true")
+    expect(
+      screen.queryByRole("menuitem", { name: "移动到分类" })
+    ).not.toBeInTheDocument()
+    await interaction.keyboard("{Enter}")
+    expect(callbacks.onTogglePinned).not.toHaveBeenCalled()
+    expect(callbacks.onArchive).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["zh-CN", moreLabel, "取消置顶"],
+    ["en-US", "More Actions for 整理项目会议纪要", "Unpin"],
+    ["fr-FR", moreLabel, "取消置顶"],
+  ])(
+    "translates the menu and pinned state in %s",
+    async (language, more, unpin) => {
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      const callbacks = renderActions(true)
+      await interaction.click(screen.getByRole("button", { name: more }))
+      const item = await screen.findByRole("menuitem", { name: unpin })
+      expect(item.querySelector("svg")).toHaveAttribute(
+        "data-icon",
+        "sidebar-pin-filled"
+      )
+      await interaction.click(item)
+      expect(callbacks.onTogglePinned).toHaveBeenCalledOnce()
+    }
+  )
+
+  it("preserves the shared archive tooltip", async () => {
+    const interaction = userEvent.setup()
+    renderActions()
+    await interaction.hover(
+      screen.getByRole("button", { name: "归档任务“整理项目会议纪要”" })
+    )
+    const tooltip = await screen.findByRole("tooltip")
+    expect(tooltip).toHaveTextContent("归档任务")
+    expect(tooltip).toHaveClass(
+      "rounded-md",
+      "border-[var(--app-border)]",
+      "bg-[var(--app-popover)]"
+    )
   })
 })

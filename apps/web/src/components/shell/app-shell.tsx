@@ -13,13 +13,13 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query"
-import type { ConversationOrderGroup } from "@linksense/shared"
+import { errorCatalog, type ConversationOrderGroup } from "@linksense/shared"
 import {
   BellIcon,
   BlocksIcon,
-  BookOpenIcon,
   CalendarClockIcon,
   CircleAlertIcon,
+  LibraryBigIcon,
   LoaderCircleIcon,
   LogOutIcon,
   MenuIcon,
@@ -29,7 +29,13 @@ import {
   Settings2Icon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
+import {
+  NavLink,
+  Outlet,
+  useLocation,
+  useMatch,
+  useNavigate,
+} from "react-router-dom"
 
 import { ApiError, apiRequest } from "@/api/client"
 import {
@@ -67,6 +73,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -83,12 +94,33 @@ import {
   readStoredSidebarWidth,
 } from "@/components/shell/sidebar-width"
 import { SupportMenu } from "@/components/shell/support-menu"
+import {
+  Tooltip,
+  TooltipTrigger,
+  ActionTooltipContent,
+} from "@/components/ui/tooltip"
 import { ApplicationIconDisplay } from "@/features/applications/application-icon"
 import { defaultApplicationIcon } from "@/features/applications/application-icon-default"
 import { SystemUpdateNotice } from "@/features/admin/system-update"
+import {
+  useTaskCategories,
+  moveTaskToCategory,
+  refreshTaskCategories,
+  reorderTaskCategories,
+  taskCategoryKeys,
+} from "@/features/task-categories/task-category-api"
+import { SidebarConversationDnd } from "@/features/conversations/sidebar-conversation-dnd"
+import { useConversationArchiveNotification } from "@/features/conversations/use-conversation-archive-notification"
+import {
+  TaskCategoryDialog,
+  type TaskCategoryAction,
+} from "@/features/task-categories/task-category-dialog"
+import { SidebarTaskGroups } from "@/features/task-categories/sidebar-task-groups"
+import { newTaskCategoryNavigationState } from "@/features/task-categories/new-task-category-preference"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import {
   applySidebarConversationOrder,
+  patchSidebarConversationTitle,
   patchSidebarConversationExecutionStatus,
   sortSidebarConversations,
 } from "@/features/conversations/conversation-order"
@@ -159,7 +191,7 @@ const userItems: NavItem[] = [
   {
     to: "/knowledge-bases",
     labelKey: "nav.knowledgeBases",
-    icon: BookOpenIcon,
+    icon: LibraryBigIcon,
     activeClassName: "sidebar-link-active",
   },
 ]
@@ -358,6 +390,15 @@ function AppSidebarContent({
   const location = useLocation()
   const queryClient = useQueryClient()
   const { user, signOut } = useAuth()
+  const taskRoute = useMatch("/conversations/:conversationId")
+  const applicationTaskRoute = useMatch(
+    "/applications/:applicationId/run/:conversationId"
+  )
+  const newTaskNavigationState = newTaskCategoryNavigationState(
+    user?.id,
+    taskRoute?.params.conversationId ??
+      applicationTaskRoute?.params.conversationId
+  )
   const [searchOpen, setSearchOpen] = useState(false)
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false)
   const [signOutPending, setSignOutPending] = useState(false)
@@ -367,6 +408,9 @@ function AppSidebarContent({
     () => new Set<string>()
   )
   const completionReadInFlightIdsRef = useRef(new Set<string>())
+  const categoriesQuery = useTaskCategories()
+  const [categoryAction, setCategoryAction] =
+    useState<TaskCategoryAction | null>(null)
   const [renameTarget, setRenameTarget] = useState<Conversation>()
   const [renameValue, setRenameValue] = useState("")
   const [actionError, setActionError] = useState<string>()
@@ -460,12 +504,32 @@ function AppSidebarContent({
       }),
     onMutate: () => setActionError(undefined),
     onSuccess: async (nextConversation) => {
+      await Promise.all([
+        queryClient.cancelQueries({
+          queryKey: ["conversations", "sidebar"],
+          exact: true,
+        }),
+        queryClient.cancelQueries({
+          queryKey: ["conversation", nextConversation.id],
+          exact: true,
+        }),
+      ])
+      queryClient.setQueryData(
+        ["conversations", "sidebar"],
+        (current: InfiniteData<Paginated<Conversation>> | undefined) =>
+          patchSidebarConversationTitle(
+            current,
+            nextConversation.id,
+            nextConversation.title,
+            "manual"
+          )
+      )
       queryClient.setQueryData<Conversation>(
         ["conversation", nextConversation.id],
         (currentConversation) =>
           currentConversation
             ? { ...currentConversation, ...nextConversation }
-            : nextConversation
+            : undefined
       )
       setRenameTarget(undefined)
       setRenameValue("")
@@ -490,6 +554,7 @@ function AppSidebarContent({
     onError: (error) => setActionError(getErrorMessage(error, t)),
   })
 
+  const showArchiveNotification = useConversationArchiveNotification()
   const archiveMutation = useMutation({
     mutationFn: (conversation: Conversation) =>
       apiRequest(`/conversations/${conversation.id}`, {
@@ -499,6 +564,7 @@ function AppSidebarContent({
       }),
     onMutate: () => setActionError(undefined),
     onSuccess: (_nextConversation, archivedConversation) => {
+      showArchiveNotification(archivedConversation)
       if (isConversationPathActive(location.pathname, archivedConversation)) {
         navigate("/conversations/new", { replace: true })
         onNavigate?.()
@@ -529,7 +595,7 @@ function AppSidebarContent({
         (currentConversation) =>
           currentConversation
             ? { ...currentConversation, ...nextConversation }
-            : nextConversation
+            : undefined
       )
       await queryClient.invalidateQueries({ queryKey: ["conversations"] })
     },
@@ -550,14 +616,20 @@ function AppSidebarContent({
   const reorderMutation = useMutation({
     mutationFn: async ({
       group,
+      categoryId,
       conversationIds,
     }: {
       group: ConversationOrderGroup
+      categoryId?: string | null
       conversationIds: string[]
     }) => {
       const result = await apiRequest("/conversations/order", {
         method: "PUT",
-        body: { group, conversation_ids: conversationIds },
+        body: {
+          group,
+          category_id: categoryId,
+          conversation_ids: conversationIds,
+        },
         schema: conversationOrderResultSchema,
       })
       return result
@@ -577,6 +649,27 @@ function AppSidebarContent({
     onError: (error) => setActionError(getErrorMessage(error, t)),
   })
 
+  const moveCategoryMutation = useMutation({
+    mutationFn: ({
+      conversationId,
+      categoryId,
+    }: {
+      conversationId: string
+      categoryId: string
+    }) => moveTaskToCategory(conversationId, categoryId),
+    onMutate: () => setActionError(undefined),
+    onSuccess: () => refreshTaskCategories(queryClient),
+  })
+
+  const reorderCategoryMutation = useMutation({
+    mutationFn: reorderTaskCategories,
+    onMutate: () => setActionError(undefined),
+    onSuccess: (categories) =>
+      queryClient.setQueryData(taskCategoryKeys.all, categories),
+    onError: () =>
+      queryClient.invalidateQueries({ queryKey: taskCategoryKeys.all }),
+  })
+
   const { mutate: persistCompletionRead } = useMutation({
     mutationFn: (conversation: Conversation) =>
       apiRequest(`/conversations/${conversation.id}`, {
@@ -594,12 +687,14 @@ function AppSidebarContent({
     },
     onSuccess: async (nextConversation) => {
       completionReadInFlightIdsRef.current.delete(nextConversation.id)
+      // PATCH returns task metadata, not a detail snapshot with an SSE cursor.
+      // Seeding the detail cache here would start replay before GET completes.
       queryClient.setQueryData<Conversation>(
         ["conversation", nextConversation.id],
         (currentConversation) =>
           currentConversation
             ? { ...currentConversation, ...nextConversation }
-            : nextConversation
+            : undefined
       )
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["conversations"] }),
@@ -802,6 +897,7 @@ function AppSidebarContent({
               <NavLink
                 key={to}
                 to={to}
+                state={newTaskNavigationState}
                 onClick={onNavigate}
                 className={({ isActive }) =>
                   cn("sidebar-link font-medium", isActive && activeClassName)
@@ -815,10 +911,10 @@ function AppSidebarContent({
 
         <div
           data-scrolled={conversationListScrolled ? "true" : undefined}
-          className="sidebar-conversation-region -mr-3 flex min-h-[72px] flex-1 flex-col overflow-hidden"
+          className="sidebar-conversation-region -mr-3 flex min-h-[72px] min-w-0 flex-1 flex-col overflow-hidden"
         >
           <div
-            className="sidebar-conversation-scroll min-h-0 flex-1 space-y-3 overflow-y-auto pr-3.5"
+            className="sidebar-conversation-scroll min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto pr-3.5"
             onScroll={(event) => {
               setConversationListScrolled(event.currentTarget.scrollTop > 0)
             }}
@@ -864,213 +960,297 @@ function AppSidebarContent({
                 {actionError}
               </p>
             )}
-            {[
-              ...(pinnedConversations.length > 0
-                ? [
-                    {
-                      key: "pinned",
-                      label: t("nav.pinned"),
-                      conversations: pinnedConversations,
-                    },
-                  ]
-                : []),
-              {
-                key: "recent",
-                label: t("nav.recent"),
-                conversations: recentConversations,
-              },
-            ].map((group) => (
-              <section
-                key={group.key}
-                aria-labelledby={`${group.key}-conversations-title`}
-                className="space-y-0.5"
+            <SidebarConversationDnd
+              conversations={conversations}
+              categories={categoriesQuery.data ?? []}
+              categorySortingDisabled={
+                categoriesQuery.isPending || categoriesQuery.isError
+              }
+              disabled={
+                Boolean(hasNextPage) ||
+                isFetchingNextPage ||
+                conversationsQuery.isLoading ||
+                reorderMutation.isPending ||
+                moveCategoryMutation.isPending
+              }
+              onReorder={(request) => reorderMutation.mutateAsync(request)}
+              onReorderCategories={(ids) =>
+                reorderCategoryMutation.mutateAsync(ids)
+              }
+              onMove={(conversationId, categoryId) =>
+                moveCategoryMutation.mutateAsync({ conversationId, categoryId })
+              }
+              onError={(error) => setActionError(getErrorMessage(error, t))}
+            >
+              <SidebarTaskGroups
+                pinned={pinnedConversations}
+                recent={recentConversations}
+                categories={categoriesQuery.data ?? []}
+                loadingMore={
+                  Boolean(hasNextPage) ||
+                  isFetchingNextPage ||
+                  conversationsQuery.isLoading
+                }
+                onAction={setCategoryAction}
               >
-                <h2
-                  id={`${group.key}-conversations-title`}
-                  className="px-2.5 pb-2 text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-semibold text-[var(--app-muted)]"
-                >
-                  {group.label}
-                </h2>
-                <SortableConversationGroup
-                  conversations={group.conversations}
-                  disabled={
-                    Boolean(hasNextPage) ||
-                    isFetchingNextPage ||
-                    reorderMutation.isPending
-                  }
-                  onReorder={async (conversationIds) => {
-                    await reorderMutation.mutateAsync({
-                      group: group.key as ConversationOrderGroup,
-                      conversationIds,
-                    })
-                  }}
-                >
-                  {(conversation, sortable) => {
-                    const to = conversationPath(conversation)
-                    const active = isConversationPathActive(
-                      location.pathname,
-                      conversation
-                    )
-                    const isConversationRunning =
-                      conversation.execution_status === "running"
-                    const hasUnreadResult =
-                      conversation.has_unread_completion &&
-                      !isConversationRunning &&
-                      !active &&
-                      !locallyReadConversationIds.has(conversation.id)
-                    const hasUnreadFailure =
-                      hasUnreadResult &&
-                      conversation.execution_status === "failed"
-                    const title =
-                      conversation.title || t("conversation.untitled")
-                    const pinned = Boolean(conversation.pinned_at)
-                    const renameAllowed = !conversation.application
-                    const reconnectFailed = reconnectFailedConversationIds.has(
-                      conversation.id
-                    )
-                    const running = isConversationRunning && !reconnectFailed
-                    const relativeUpdatedAt = formatRelativeDate(
-                      conversation.updated_at,
-                      language
-                    )
-                    return (
-                      <div
-                        ref={sortable.setNodeRef}
-                        style={sortable.style}
-                        data-dragging={sortable.isDragging || undefined}
-                        data-running={running ? "true" : undefined}
-                        data-warning={reconnectFailed ? "true" : undefined}
-                        data-unread={hasUnreadResult ? "true" : undefined}
-                        className={cn(
-                          "sidebar-conversation-item group relative min-w-0 rounded-[10px]",
-                          !sortable.sortingDisabled &&
-                            "cursor-grab active:cursor-grabbing",
-                          active && "sidebar-link-active",
-                          sortable.isDragging && "opacity-60 shadow-sm"
-                        )}
-                        onPointerDown={sortable.onPointerDown}
-                      >
-                        {sortable.keyboardActivator}
-                        <NavLink
-                          to={to}
-                          title={`${title}\n${relativeUpdatedAt}`}
-                          onClick={() => {
-                            markCompletionRead(conversation)
-                            onNavigate?.()
-                          }}
-                          onKeyDown={
-                            renameAllowed
-                              ? (event) => {
-                                  if (event.key !== "F2") return
-                                  event.preventDefault()
-                                  openRenameDialog(conversation)
-                                }
-                              : undefined
-                          }
-                          aria-busy={running || undefined}
-                          aria-current={active ? "page" : undefined}
-                          aria-keyshortcuts={renameAllowed ? "F2" : undefined}
-                          className="sidebar-conversation-link min-h-9 py-2"
-                        >
-                          <ConversationAutomationIcon
-                            hasAutomation={conversation.has_automation}
-                          />
-                          {conversation.application && (
-                            <ApplicationIconDisplay
-                              icon={
-                                conversation.application.icon ??
-                                defaultApplicationIcon
-                              }
-                              compact
-                              className="sidebar-conversation-application-icon size-5 shrink-0"
-                            />
+                {(group) => (
+                  <SortableConversationGroup
+                    conversations={group.conversations}
+                  >
+                    {(conversation, sortable) => {
+                      const to = conversationPath(conversation)
+                      const active = isConversationPathActive(
+                        location.pathname,
+                        conversation
+                      )
+                      const isConversationRunning =
+                        conversation.execution_status === "running"
+                      const hasUnreadResult =
+                        conversation.has_unread_completion &&
+                        !isConversationRunning &&
+                        !active &&
+                        !locallyReadConversationIds.has(conversation.id)
+                      const hasUnreadFailure =
+                        hasUnreadResult &&
+                        conversation.execution_status === "failed"
+                      const title =
+                        conversation.title || t("conversation.untitled")
+                      const unavailableReason =
+                        conversation.application?.unavailable_reason
+                      const unavailableMessage = unavailableReason
+                        ? t(errorCatalog[unavailableReason].message_key)
+                        : undefined
+                      const pinned = Boolean(conversation.pinned_at)
+                      const renameAllowed = !conversation.application
+                      const reconnectFailed =
+                        reconnectFailedConversationIds.has(conversation.id)
+                      const running = isConversationRunning && !reconnectFailed
+                      const relativeUpdatedAt = formatRelativeDate(
+                        conversation.updated_at,
+                        language
+                      )
+                      return (
+                        <div
+                          ref={sortable.setNodeRef}
+                          data-dragging={sortable.isDragging || undefined}
+                          data-running={running ? "true" : undefined}
+                          data-warning={reconnectFailed ? "true" : undefined}
+                          data-unread={hasUnreadResult ? "true" : undefined}
+                          className={cn(
+                            "sidebar-conversation-item group relative min-w-0 rounded-[10px] select-none",
+                            !sortable.sortingDisabled &&
+                              "cursor-grab active:cursor-grabbing",
+                            active && "sidebar-link-active"
                           )}
-                          <span className="flex min-w-0 flex-1 items-center gap-2">
-                            <span
-                              className="sidebar-conversation-title-fade min-w-0 flex-1 text-[length:var(--app-ui-font-size)] font-medium"
-                              onDoubleClick={
-                                renameAllowed
-                                  ? (event) => {
-                                      event.preventDefault()
-                                      event.stopPropagation()
-                                      openRenameDialog(conversation)
-                                    }
-                                  : undefined
+                          onPointerDown={sortable.onPointerDown}
+                        >
+                          {sortable.keyboardActivator}
+                          {sortable.dropIndicator}
+                          <HoverCard
+                            onOpenChange={(_open, details) => {
+                              if (
+                                details.reason === "trigger-press" &&
+                                details.event.detail !== 0
+                              ) {
+                                details.cancel()
+                              }
+                            }}
+                          >
+                            <HoverCardTrigger
+                              nativeButton={false}
+                              role="link"
+                              render={
+                                <NavLink
+                                  to={to}
+                                  onClick={() => {
+                                    markCompletionRead(conversation)
+                                    onNavigate?.()
+                                  }}
+                                  onKeyDown={
+                                    renameAllowed
+                                      ? (event) => {
+                                          if (event.key !== "F2") return
+                                          event.preventDefault()
+                                          openRenameDialog(conversation)
+                                        }
+                                      : undefined
+                                  }
+                                  aria-busy={running || undefined}
+                                  aria-current={active ? "page" : undefined}
+                                  aria-keyshortcuts={
+                                    renameAllowed ? "F2" : undefined
+                                  }
+                                  draggable={false}
+                                  className="sidebar-conversation-link h-8"
+                                />
                               }
                             >
-                              {title}
-                            </span>
-                            {hasUnreadResult &&
-                              (hasUnreadFailure ? (
-                                <span
-                                  role="status"
-                                  aria-label={t("nav.unreadFailure")}
-                                  className="shrink-0 text-destructive"
-                                >
-                                  <CircleAlertIcon
-                                    aria-hidden="true"
-                                    className="size-3.5"
-                                  />
-                                </span>
-                              ) : (
-                                <span
-                                  role="status"
-                                  aria-label={t("nav.unreadCompletion")}
-                                  className="size-2 shrink-0 rounded-full bg-[var(--app-selection)]"
+                              <ConversationAutomationIcon
+                                hasAutomation={conversation.has_automation}
+                              />
+                              {conversation.application && (
+                                <ApplicationIconDisplay
+                                  icon={
+                                    conversation.application.icon ??
+                                    defaultApplicationIcon
+                                  }
+                                  compact
+                                  className="sidebar-conversation-application-icon size-5 shrink-0"
                                 />
-                              ))}
-                          </span>
-                        </NavLink>
-                        {running && (
-                          <span
-                            role="status"
-                            aria-label={t("statuses.running")}
-                            className={cn(
-                              "sidebar-conversation-running pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--app-muted)] opacity-100 group-hover:opacity-0",
-                              "group-has-[:focus-visible]:opacity-0"
-                            )}
-                          >
-                            <LoaderCircleIcon
-                              className="size-3.5 animate-spin motion-reduce:animate-none"
-                              strokeWidth={2}
-                              aria-hidden="true"
-                            />
-                          </span>
-                        )}
-                        {reconnectFailed && (
-                          <span
-                            role="img"
-                            aria-label={t(
-                              "conversation.streamDisconnectedWarning"
-                            )}
-                            className={cn(
-                              "sidebar-conversation-warning pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--destructive)] opacity-100 group-hover:opacity-0",
-                              "group-has-[:focus-visible]:opacity-0"
-                            )}
-                          >
-                            <CircleAlertIcon
-                              className="size-3.5"
-                              strokeWidth={2.2}
-                              aria-hidden="true"
-                            />
-                          </span>
-                        )}
-                        <SidebarConversationActions
-                          title={title}
-                          pinned={pinned}
-                          pinDisabled={pinMutation.isPending}
-                          archiveDisabled={archiveMutation.isPending}
-                          onTogglePinned={() =>
-                            pinMutation.mutate(conversation)
-                          }
-                          onArchive={() => archiveMutation.mutate(conversation)}
-                        />
-                      </div>
-                    )
-                  }}
-                </SortableConversationGroup>
-              </section>
-            ))}
+                              )}
+                              <span className="flex min-w-0 flex-1 items-center gap-2">
+                                <span
+                                  className="sidebar-conversation-title-fade min-w-0 flex-1 text-[length:var(--app-ui-font-size)] font-medium"
+                                  onDoubleClick={
+                                    renameAllowed
+                                      ? (event) => {
+                                          event.preventDefault()
+                                          event.stopPropagation()
+                                          openRenameDialog(conversation)
+                                        }
+                                      : undefined
+                                  }
+                                >
+                                  {title}
+                                </span>
+                                {unavailableMessage && (
+                                  <Tooltip>
+                                    <TooltipTrigger
+                                      render={<span />}
+                                      role="status"
+                                      tabIndex={0}
+                                      aria-label={t(
+                                        "applications.taskUnavailable"
+                                      )}
+                                      className="shrink-0 text-destructive"
+                                    >
+                                      <CircleAlertIcon
+                                        aria-hidden="true"
+                                        className="size-3.5"
+                                      />
+                                    </TooltipTrigger>
+                                    <ActionTooltipContent side="top">
+                                      {unavailableMessage}
+                                    </ActionTooltipContent>
+                                  </Tooltip>
+                                )}
+                                {hasUnreadResult &&
+                                  (hasUnreadFailure ? (
+                                    <span
+                                      role="status"
+                                      aria-label={t("nav.unreadFailure")}
+                                      className="shrink-0 text-destructive"
+                                    >
+                                      <CircleAlertIcon
+                                        aria-hidden="true"
+                                        className="size-3.5"
+                                      />
+                                    </span>
+                                  ) : (
+                                    <span
+                                      role="status"
+                                      aria-label={t("nav.unreadCompletion")}
+                                      className="size-2 shrink-0 rounded-full bg-[var(--app-selection)]"
+                                    />
+                                  ))}
+                              </span>
+                            </HoverCardTrigger>
+                            <HoverCardContent
+                              side="right"
+                              sideOffset={2}
+                              align="start"
+                              aria-label={title}
+                              initialFocus={false}
+                              finalFocus={false}
+                              className="sidebar-conversation-preview flex w-72 max-w-[calc(100vw-1rem)] flex-col items-stretch gap-2 shadow-md!"
+                            >
+                              <span className="sidebar-conversation-preview-title line-clamp-3 w-full min-w-0 text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-medium break-words whitespace-normal">
+                                {title}
+                              </span>
+                              <time
+                                dateTime={conversation.updated_at}
+                                className="sidebar-conversation-preview-time block w-full text-left text-[length:var(--app-font-10-5)] leading-5 font-medium whitespace-nowrap text-[var(--app-muted)]"
+                              >
+                                {relativeUpdatedAt}
+                              </time>
+                            </HoverCardContent>
+                          </HoverCard>
+                          {running && (
+                            <span
+                              role="status"
+                              aria-label={t("statuses.running")}
+                              className={cn(
+                                "sidebar-conversation-running pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--app-muted)] opacity-100 group-hover:opacity-0",
+                                "group-has-data-[popup-open]:opacity-0 group-has-[:focus-visible]:opacity-0"
+                              )}
+                            >
+                              <LoaderCircleIcon
+                                className="size-3.5 animate-spin motion-reduce:animate-none"
+                                strokeWidth={2}
+                                aria-hidden="true"
+                              />
+                            </span>
+                          )}
+                          {reconnectFailed && (
+                            <span
+                              role="img"
+                              aria-label={t(
+                                "conversation.streamDisconnectedWarning"
+                              )}
+                              className={cn(
+                                "sidebar-conversation-warning pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--destructive)] opacity-100 group-hover:opacity-0",
+                                "group-has-data-[popup-open]:opacity-0 group-has-[:focus-visible]:opacity-0"
+                              )}
+                            >
+                              <CircleAlertIcon
+                                className="size-3.5"
+                                strokeWidth={2.2}
+                                aria-hidden="true"
+                              />
+                            </span>
+                          )}
+                          <SidebarConversationActions
+                            title={title}
+                            onMoveToCategory={() =>
+                              setCategoryAction({ mode: "move", conversation })
+                            }
+                            pinned={pinned}
+                            pinDisabled={pinMutation.isPending}
+                            archiveDisabled={archiveMutation.isPending}
+                            onTogglePinned={() =>
+                              pinMutation.mutate(conversation)
+                            }
+                            onArchive={() =>
+                              archiveMutation.mutate(conversation)
+                            }
+                          />
+                        </div>
+                      )
+                    }}
+                  </SortableConversationGroup>
+                )}
+              </SidebarTaskGroups>
+            </SidebarConversationDnd>
+            {categoriesQuery.isError && (
+              <div role="alert" className="px-2.5 text-sm text-destructive">
+                {t("taskCategories.loadError")}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={categoriesQuery.isFetching}
+                  onClick={() => void categoriesQuery.refetch()}
+                >
+                  {t("common.retry")}
+                </Button>
+              </div>
+            )}
+            {categoryAction && (
+              <TaskCategoryDialog
+                action={categoryAction}
+                onClose={() => setCategoryAction(null)}
+              />
+            )}
             {isFetchingNextPage && (
               <p className="px-2.5 py-2 text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-medium text-[var(--app-muted)]">
                 {t("common.loading")}

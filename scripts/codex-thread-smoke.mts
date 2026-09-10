@@ -15,6 +15,7 @@ import { modelProviderProtocolModeSchema } from "@linksense/shared"
 
 import { UserHomeCapabilityMaterializer } from "../apps/api/src/modules/capabilities/user-home-materializer.ts"
 import { CodexJsonRpcClient } from "../apps/runner/src/codex/json-rpc-client.ts"
+import { serializePromptLink } from "../apps/runner/src/codex/prompt.ts"
 import type {
   CodexThread,
   CodexTurn,
@@ -76,7 +77,7 @@ await writeFile(
   path.join(capabilitySource, "SKILL.md"),
   `---
 name: structured-smoke
-description: Proves that a structured Codex skill input was injected.
+description: Proves that a Markdown-linked Codex Skill was injected.
 ---
 
 Reply with exactly this marker and nothing else: ${structuredMarker}
@@ -184,13 +185,8 @@ try {
     input: [
       {
         type: "text",
-        text: `Use the structured skill supplied with this turn. Do not read files or run commands. Remember ${contextMarker} for the next turn.`,
+        text: `${serializePromptLink(`$${selectedSkill.name}`, selectedSkill.path)} Remember ${contextMarker} for the next turn.`,
         text_elements: [],
-      },
-      {
-        type: "skill",
-        name: selectedSkill.name,
-        path: selectedSkill.path,
       },
     ],
     cwd: paths.workspace,
@@ -207,7 +203,7 @@ try {
   const firstAnswer = agentText(firstTurn)
   if (!firstAnswer.includes(structuredMarker)) {
     throw new Error(
-      `Codex did not inject the selected structured skill: answer=${JSON.stringify(firstAnswer)}, status=${firstTurn.status}, error=${JSON.stringify(firstTurn.error?.message ?? null)}`
+      `Codex did not inject the selected Markdown-linked Skill: answer=${JSON.stringify(firstAnswer)}, status=${firstTurn.status}, error=${JSON.stringify(firstTurn.error?.message ?? null)}`
     )
   }
   await firstClient.close()
@@ -247,13 +243,6 @@ try {
         text_elements: [],
       },
     ],
-    additionalContext: {
-      "linksense.current-skill-catalog": {
-        kind: "application",
-        value:
-          "<linksense_current_skill_catalog>\n- none\nEarlier skill locators are expired.\n</linksense_current_skill_catalog>",
-      },
-    },
     cwd: paths.workspace,
     runtimeWorkspaceRoots: [paths.workspace],
     approvalPolicy: "never",
@@ -278,7 +267,7 @@ try {
       status: "ok",
       nativeThreadId: started.thread.id,
       nativeTurnIds: [first.turn.id, second.turn.id],
-      structuredSkillInjected: true,
+      markdownSkillInjected: true,
       priorContextRetained: true,
     })
   )

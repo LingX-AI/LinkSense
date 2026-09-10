@@ -38,6 +38,24 @@ describe("usage number formatting", () => {
     expect(formatTokenCount("999950000", "en-US")).toBe("1B")
   })
 
+  it.each(["zh-CN", "en-US"] as const)(
+    "formats context tokens using powers of 1024 in %s",
+    (language) => {
+      expect(formatTokenCount(0, language, 1_024)).toBe("0")
+      expect(formatTokenCount(1_000, language, 1_024)).toBe("1,000")
+      expect(formatTokenCount(1_023, language, 1_024)).toBe("1,023")
+      expect(formatTokenCount(1_024, language, 1_024)).toBe("1K")
+      expect(formatTokenCount(1_536, language, 1_024)).toBe("1.5K")
+      expect(formatTokenCount(262_144, language, 1_024)).toBe("256K")
+      expect(formatTokenCount(1_048_524, language, 1_024)).toBe("1,023.9K")
+      expect(formatTokenCount(1_048_525, language, 1_024)).toBe("1M")
+      expect(formatTokenCount(1_048_576, language, 1_024)).toBe("1M")
+      expect(formatTokenCount("1073741824", language, 1_024)).toBe("1B")
+      expect(formatTokenCount(-1, language, 1_024)).toBe("—")
+      expect(formatTokenCount("invalid", language, 1_024)).toBe("—")
+    }
+  )
+
   it("formats very large token strings without losing integer precision", () => {
     expect(formatTokenCount("9007199254740993", "en-US")).toBe("9,007,199.3B")
   })

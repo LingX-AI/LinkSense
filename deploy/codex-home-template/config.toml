@@ -15,9 +15,9 @@ allow_login_shell = false
 enabled = false
 
 [skills]
-# Codex 的自动技能目录只在初始上下文完整注入，恢复同一 thread 后不会逐 turn
-# 替换旧 locator。LinkSense 在下一轮开始前刷新用户 HOME，并在能力代次变化后启动新 app-server。
-include_instructions = false
+# 原生目录向模型提供已授权技能的说明和读取路径，插件引用依赖此目录。
+# Runner 同时以启动参数覆盖已有任务的旧配置；Plan 仅注入选中技能的只读参考。
+include_instructions = true
 
 [skills.bundled]
 # LinkSense 只允许用户 HOME 中当前已授权的独立 Skill 和原生 Plugin Skill。

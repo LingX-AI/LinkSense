@@ -262,6 +262,57 @@ describe("Docker Engine client", () => {
       "Docker Engine API 1.45 or newer is required",
     )
   })
+
+  it("rejects a truncated response immediately and still accepts the next request", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-docker-socket-"))
+    roots.push(root)
+    const socket = path.join(root, "docker.sock")
+    let count = 0
+    const server = createServer((_request, response) => {
+      count += 1
+      if (count === 1) {
+        response.writeHead(200, { "content-length": "1000" })
+        response.write('{"State":')
+        response.socket?.end()
+        return
+      }
+      response.end(JSON.stringify({ State: { Running: true } }))
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(socket, resolve)
+    })
+    try {
+      const client = new DockerEngineClient(socket, "v1.45", 200)
+      await expect(client.inspectContainerRunning("test-container"))
+        .rejects.toThrow("Docker Engine response failed")
+      await expect(client.inspectContainerRunning("test-container")).resolves.toBe(true)
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+
+  it("rejects an oversized response while keeping the client usable", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-docker-socket-"))
+    roots.push(root)
+    const socket = path.join(root, "docker.sock")
+    const server = createServer((_request, response) => {
+      response.end(Buffer.alloc(4 * 1024 * 1024 + 1))
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(socket, resolve)
+    })
+    try {
+      const client = new DockerEngineClient(socket, "v1.45", 1_000)
+      await expect(client.inspectContainerRunning("test-container"))
+        .rejects.toThrow("Docker response is too large")
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
 })
 
 function managedUserDataVolumeLabels(

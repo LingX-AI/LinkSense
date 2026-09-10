@@ -52,6 +52,23 @@ describe("normalizeAssistantMarkdown", () => {
     expect(normalized).toHaveLength(markdown.length)
   })
 
+  it("moves Unicode horizontal whitespace outside malformed strong emphasis", () => {
+    const markdown = [
+      "这是当前会话选中的知识库，共包含**\u00a010 个文档**，内容比较杂。",
+      "摘要：**\u3000重点内容\u3000**随后继续说明。",
+    ].join("\n")
+
+    const normalized = normalizeAssistantMarkdown(markdown)
+
+    expect(normalized).toBe(
+      [
+        "这是当前会话选中的知识库，共包含\u00a0**10 个文档**，内容比较杂。",
+        "摘要：\u3000**重点内容**\u3000随后继续说明。",
+      ].join("\n")
+    )
+    expect(normalized).toHaveLength(markdown.length)
+  })
+
   it("leaves valid emphasis, escaped text, inline code, and code fences unchanged", () => {
     const markdown = [
       "**有效标签：** value",

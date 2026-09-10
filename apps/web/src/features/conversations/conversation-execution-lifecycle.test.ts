@@ -137,6 +137,7 @@ function runningConversation(turnId = activeTurnId): Conversation {
     id: "conversation-1",
     title: "测试任务",
     archived: false,
+    category_id: null,
     updated_at: "2026-08-13T08:00:00.000Z",
     execution_status: "running",
     has_unread_completion: false,

@@ -441,6 +441,54 @@ describe("conversation voice input", () => {
     expect(screen.getByRole("option", { name: /MCP 状态/ })).toBeVisible()
   })
 
+  it("opens the Add menu when @ is entered after a text boundary", async () => {
+    const interaction = userEvent.setup()
+    const onRetryCapabilities = vi.fn()
+    const { props } = renderStatefulComposer({ onRetryCapabilities })
+    const input = screen.getByRole("textbox", { name: "任务输入框" })
+
+    await interaction.type(input, "请添加 @")
+
+    expect(input).toHaveValue("请添加 ")
+    expect(props.onValueChange).toHaveBeenLastCalledWith("请添加 ")
+    expect(screen.getByRole("option", { name: "文件" })).toBeVisible()
+    expect(screen.getByRole("option", { name: "文件夹" })).toBeVisible()
+    expect(onRetryCapabilities).toHaveBeenCalledTimes(1)
+  })
+
+  it("uses compact hover corners across Add actions, plugins, and Skills", async () => {
+    const interaction = userEvent.setup()
+    renderStatefulComposer({
+      capabilities: [
+        capabilityFixture({ id: "plugin-1", name: "Office", type: "plugin" }),
+        capabilityFixture({ name: "Code Review" }),
+      ],
+    })
+
+    await interaction.click(screen.getByRole("button", { name: "添加" }))
+
+    const options = screen.getAllByRole("option")
+    expect(options).toHaveLength(6)
+    for (const option of options) {
+      expect(option.closest('[data-slot="command-list"]')).toHaveClass(
+        "[&_[data-slot=command-item]]:rounded-md"
+      )
+      await interaction.hover(option)
+      expect(option).toHaveAttribute("data-selected", "true")
+    }
+  })
+
+  it("keeps @ as ordinary text when it is entered inside a word", async () => {
+    const interaction = userEvent.setup()
+    renderStatefulComposer()
+    const input = screen.getByRole("textbox", { name: "任务输入框" })
+
+    await interaction.type(input, "user@example.com")
+
+    expect(input).toHaveValue("user@example.com")
+    expect(screen.queryByRole("option", { name: "文件" })).toBeNull()
+  })
+
   it("enables native Goal mode from the add menu and exposes the mode chip", async () => {
     const interaction = userEvent.setup()
     const onGoalModeChange = vi.fn()
@@ -2864,6 +2912,79 @@ describe("conversation voice input", () => {
     expect(
       screen.queryByRole("button", { name: "移除附件 ui-ux-pro-max.zip" })
     ).not.toBeInTheDocument()
+  })
+
+  it("shows uploading images in the same thumbnail layout as completed images", () => {
+    const previewFile = new File(["image"], "upload-preview.png", {
+      type: "image/png",
+    })
+    vi.stubGlobal(
+      "URL",
+      class extends URL {
+        static createObjectURL = vi.fn(() => "blob:pending-image")
+        static revokeObjectURL = vi.fn()
+      }
+    )
+    const pendingAttachmentUploads = [
+      {
+        id: "pending-image",
+        name: previewFile.name,
+        size: previewFile.size,
+        mimeType: previewFile.type,
+        previewFile,
+      },
+    ]
+    const { props, rerender } = renderComposer({ pendingAttachmentUploads })
+    const loading = screen.getByRole("status", {
+      name: "正在上传附件 upload-preview.png",
+    })
+    expect(loading.closest(".image-preview-thumbnail")).not.toBeNull()
+    expect(loading.querySelector("img")).toHaveAttribute(
+      "src",
+      "blob:pending-image"
+    )
+    expect(loading.querySelector('[data-slot="spinner"]')).not.toBeNull()
+    expect(loading.closest(".composer-context-row")).not.toHaveClass(
+      "composer-context-row-with-files"
+    )
+    expect(document.querySelector(".attachment-chip-pending")).toBeNull()
+
+    rerender(
+      <ConversationComposer
+        {...props}
+        pendingAttachmentUploads={pendingAttachmentUploads}
+        attachments={[
+          {
+            id: "mixed-file",
+            name: "brief.pdf",
+            size: 1_024,
+            kind: "attachment",
+            download_available: false,
+          },
+        ]}
+      />
+    )
+    expect(
+      screen
+        .getByRole("status", { name: "正在上传附件 upload-preview.png" })
+        .closest(".composer-context-row")
+    ).toHaveClass("composer-context-row-with-files")
+
+    rerender(
+      <ConversationComposer
+        {...props}
+        pendingAttachmentUploads={pendingAttachmentUploads}
+        attachmentPreviewEnabled={false}
+      />
+    )
+    const pendingChip = screen.getByRole("status", {
+      name: "正在上传附件 upload-preview.png",
+    })
+    expect(pendingChip).toHaveClass("attachment-chip-pending")
+    expect(document.querySelector(".image-preview-thumbnail")).toBeNull()
+    expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith(
+      "blob:pending-image"
+    )
   })
 
   it("collapses uploaded attachments after the first two and reveals the complete list on hover", async () => {

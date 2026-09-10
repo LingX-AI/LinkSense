@@ -90,6 +90,11 @@ const AdminKnowledgeSourcePage = lazy(() =>
     default: module.AdminKnowledgeSourcePage,
   }))
 )
+const MyFeedbackPage = lazy(() =>
+  import("@/pages/my-feedback-page").then((module) => ({
+    default: module.MyFeedbackPage,
+  }))
+)
 const AdminFeedbackPage = lazy(() =>
   import("@/pages/admin-feedback-page").then((module) => ({
     default: module.AdminFeedbackPage,
@@ -243,6 +248,7 @@ export function App() {
                 path="/settings/credentials"
                 element={<CredentialManagementPage />}
               />
+              <Route path="/settings/feedback" element={<MyFeedbackPage />} />
               <Route path="/settings/mcp" element={<McpManagementPage />} />
               <Route path="/settings/weixin" element={<WeixinChannelPage />} />
               <Route

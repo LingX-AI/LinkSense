@@ -4,7 +4,10 @@ import { MessageCircleIcon, PanelRightCloseIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Navigate, useParams } from "react-router-dom"
 import { z } from "zod"
-import { interactiveApplicationRuntimeTokenResultSchema } from "@linksense/shared"
+import {
+  interactiveApplicationRuntimeTokenResultSchema,
+  interactiveApplicationTaskInputSchema,
+} from "@linksense/shared"
 
 import {
   applicationSchema,
@@ -12,11 +15,12 @@ import {
   conversationDetailSchema,
   mcpServerSchema,
   paginatedSchema,
-  turnStartReceiptSchema,
 } from "@/api/contracts"
 import { apiRequest } from "@/api/client"
+import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
 import { interactiveCustomEvent } from "@/features/applications/interactive-application-event"
+import { createInteractiveApplicationSubmitter } from "@/features/applications/interactive-application-submission"
 import { InteractiveApplicationSplitLayout } from "@/features/applications/interactive-application-split-layout"
 import { conversationPath } from "@/features/conversations/conversation-navigation"
 import { useConversationEvents } from "@/features/conversations/use-conversation-events"
@@ -76,6 +80,15 @@ function InteractiveApplicationRuntime({
   )
   const [frameReady, setFrameReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const submitApplicationTurn = useMemo(
+    () =>
+      createInteractiveApplicationSubmitter({
+        queryClient,
+        applicationId,
+        conversationId,
+      }),
+    [queryClient, applicationId, conversationId]
+  )
 
   const application = useQuery({
     queryKey: ["applications", "detail", user?.id, applicationId],
@@ -154,7 +167,7 @@ function InteractiveApplicationRuntime({
         return
       }
       const request = sdkRequestSchema.safeParse(event.data)
-      if (!request.success) return
+      if (!request.success || request.data.instanceId !== instanceId) return
       void handleSdkRequest(request.data)
         .then((result) =>
           postToFrame({
@@ -234,37 +247,17 @@ function InteractiveApplicationRuntime({
           )
         case "tasks.run": {
           requirePermission("tasks:write")
-          const input = z
-            .strictObject({
-              prompt: z.string().trim().min(1).max(200_000),
-              capability_ids: z.array(z.string()).max(50).default([]),
-              knowledge_base_ids: z
-                .array(z.string().uuid())
-                .max(20)
-                .default([]),
-              idempotency_key: z.string().min(1).max(120).optional(),
-            })
-            .parse(request.params)
-          const receipt = await apiRequest(
-            `/conversations/${conversationId}/turns`,
-            {
-              method: "POST",
-              body: {
-                input_text: input.prompt,
-                priority_capability_ids: input.capability_ids,
-                knowledge_base_ids: input.knowledge_base_ids,
-                idempotency_key:
-                  input.idempotency_key ?? `interactive:${crypto.randomUUID()}`,
-                collaboration_mode: "default",
-              },
-              schema: turnStartReceiptSchema,
-            }
+          const input = interactiveApplicationTaskInputSchema.parse(
+            request.params
           )
-          await queryClient.invalidateQueries({
-            queryKey: ["conversation", conversationId],
-          })
+          setError(null)
           setChatOpen(true)
-          return receipt
+          try {
+            return await submitApplicationTurn(input)
+          } catch (nextError) {
+            setError(getErrorMessage(nextError, t))
+            throw nextError
+          }
         }
         case "tasks.interrupt": {
           requirePermission("tasks:write")
@@ -310,6 +303,8 @@ function InteractiveApplicationRuntime({
     permissions,
     postToFrame,
     queryClient,
+    submitApplicationTurn,
+    t,
     user,
   ])
 

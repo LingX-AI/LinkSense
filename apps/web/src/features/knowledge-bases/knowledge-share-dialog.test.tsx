@@ -365,7 +365,7 @@ describe("knowledge share dialog", () => {
     )
 
     const notification = await screen.findByText(
-      "已撤销对 测试用户 的共享；该用户仍可通过其他个人直接分享和其他用户组分享访问此知识库。"
+      "已撤销对 测试用户 的共享；该用户仍可通过其他个人直接分享和其他用户组分享访问此知识库"
     )
     expect(notification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(notification.closest('[role="dialog"]')).toBeNull()
@@ -396,7 +396,7 @@ describe("knowledge share dialog", () => {
     )
 
     const notification = await screen.findByText(
-      "已撤销对用户组 售后组 的共享；部分启用组成员仍可通过知识库所有者身份和其他用户组分享访问。未展示成员明细。"
+      "已撤销对用户组 售后组 的共享；部分启用组成员仍可通过知识库所有者身份和其他用户组分享访问。未展示成员明细"
     )
     expect(notification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(notification.closest('[role="dialog"]')).toBeNull()

@@ -184,7 +184,7 @@ describe("LinkSense application", () => {
     expect(notificationToast).not.toBeNull()
     expect(notification.closest('[data-slot="alert"]')).toBeNull()
     expect(notificationToast).toHaveTextContent(
-      "如果该邮箱对应可用账号，系统将发送密码设置或重置邮件。"
+      "如果该邮箱对应可用账号，系统将发送密码设置或重置邮件"
     )
     expect(
       requests.find(

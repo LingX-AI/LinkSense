@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { taskArtifactFileTypeSchema } from "@linksense/shared";
 
 import {
   attachmentContentDisposition,
@@ -37,6 +38,7 @@ export const fileRoutes: FastifyPluginAsync<{ services: AppServices }> = async (
       const query = z
         .strictObject({
           search: z.string().trim().max(240).optional(),
+          file_type: taskArtifactFileTypeSchema.optional(),
           cursor: z
             .string()
             .trim()
@@ -54,6 +56,7 @@ export const fileRoutes: FastifyPluginAsync<{ services: AppServices }> = async (
         ok(
           await services.files.listTaskArtifacts(user.id, {
             ...(query.search ? { search: query.search } : {}),
+            ...(query.file_type ? { fileType: query.file_type } : {}),
             ...(query.cursor ? { cursor: query.cursor } : {}),
             limit: query.limit,
           }),

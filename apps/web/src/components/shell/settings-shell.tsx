@@ -100,6 +100,12 @@ const personalSettingsItems: SettingsNavigationItem[] = [
     descriptionKey: "settings.archivedDescription",
     icon: ArchiveIcon,
   },
+  {
+    to: "/settings/feedback",
+    labelKey: "myFeedback.title",
+    descriptionKey: "myFeedback.description",
+    icon: MessageSquareTextIcon,
+  },
 ]
 
 const administratorItems: SettingsNavigationItem[] = [
@@ -182,7 +188,6 @@ export function SettingsShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const normalizedSearch = search.trim().toLocaleLowerCase()
   const isActiveAdmin = user?.role === "admin" && user.status === "active"
-  const isAdministrationPage = location.pathname.startsWith("/admin/")
   const settingsReturnTo = resolveSettingsReturn(location.state)
   const appReturnTo = settingsReturnTo ?? "/conversations/new"
   const settingsNavigationState: SettingsReturnState | undefined =
@@ -295,12 +300,7 @@ export function SettingsShell() {
         </div>
       </aside>
       <main className="settings-main" id="main-content">
-        <div
-          className={cn(
-            "settings-content",
-            isAdministrationPage && "settings-content-administration"
-          )}
-        >
+        <div className="settings-content">
           {location.pathname !== "/admin/system-update" && (
             <SystemUpdateNotice placement="settings" />
           )}

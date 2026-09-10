@@ -14,7 +14,7 @@ const ID = "10000000-0000-4000-8000-000000000001";
 const OWNER_ID = "10000000-0000-4000-8000-000000000002";
 
 describe("internal application contracts", () => {
-  it("allows conversation summaries to carry current application icon metadata", () => {
+  it.each([true, false])("carries application icons and available=%s in conversation summaries", (available) => {
     const parsed = conversationSchema.parse({
       id: ID,
       owner_id: OWNER_ID,
@@ -23,6 +23,7 @@ describe("internal application contracts", () => {
       archive_status: "active",
       archived_at: null,
       pinned_at: null,
+      category_id: null,
       sort_order: null,
       codex_thread_id: null,
       agents_template_version: null,
@@ -36,6 +37,8 @@ describe("internal application contracts", () => {
         name: "AISG学校政策问答助手",
         kind: "standard",
         icon: { type: "preset", preset: "graduation-cap" },
+        available,
+        unavailable_reason: available ? null : "APPLICATION_NOT_FOUND",
       },
       created_at: "2026-07-28T00:00:00.000Z",
       updated_at: "2026-07-28T00:00:00.000Z",
@@ -46,6 +49,8 @@ describe("internal application contracts", () => {
       preset: "graduation-cap",
     });
     expect(parsed.has_automation).toBe(false);
+    expect(parsed.application?.available).toBe(available);
+    expect(parsed.application?.unavailable_reason).toBe(available ? null : "APPLICATION_NOT_FOUND");
   });
 
   it("accepts a fixed model, capabilities, and knowledge bases without a public-access mode", () => {

@@ -204,12 +204,192 @@ export function ImageGenerationSettingsForm({
       className="grid min-w-0 gap-4"
       aria-labelledby={`${idPrefix}-title`}
     >
-      <SettingsSectionHeader
-        id={`${idPrefix}-title`}
-        title={t("admin.imageGeneration.title")}
-        description={t("admin.imageGeneration.description")}
-        status={
-          <div className="flex items-center gap-2">
+      <form
+        className="grid w-full gap-4"
+        onSubmit={(event: FormEvent) => {
+          event.preventDefault()
+          if (readOnly || !formValid) return
+          setError(null)
+          mutation.mutate()
+        }}
+      >
+        <div
+          data-slot="model-settings-card"
+          className="grid min-w-0 gap-4 rounded-2xl border border-[color:var(--app-border)] bg-card p-4"
+        >
+          <SettingsSectionHeader
+            id={`${idPrefix}-title`}
+            title={t("admin.imageGeneration.title")}
+            description={t("admin.imageGeneration.description")}
+          />
+
+          {error && <StatusBanner variant="error">{error}</StatusBanner>}
+
+          <FieldGroup className="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-2">
+            <FieldShell
+              id={`${idPrefix}-provider`}
+              label={t("admin.imageGeneration.provider")}
+              hint={t("admin.imageGeneration.providerHint")}
+            >
+              <Select
+                name="image-generation-provider"
+                items={providerItems}
+                value={provider}
+                disabled={readOnly}
+                onValueChange={(value) => {
+                  const nextProvider = (value ?? "") as ProviderOptionKey
+                  const definition = settings.providers.find(
+                    (candidate) => candidate.key === nextProvider
+                  )
+                  setProvider(nextProvider)
+                  setModel(definition?.default_model ?? "")
+                  setRegion(definition?.default_region ?? "")
+                  if (nextProvider !== "alibaba_bailian") setWorkspaceId("")
+                  setApiKey("")
+                }}
+              >
+                <SelectTrigger id={`${idPrefix}-provider`} className="w-full">
+                  {provider && selectedProviderItem ? (
+                    <SelectValue
+                      placeholder={t(
+                        "admin.imageGeneration.providerPlaceholder"
+                      )}
+                    >
+                      <ImageGenerationProviderLogo provider={provider} />
+                      {selectedProviderItem.label}
+                    </SelectValue>
+                  ) : (
+                    <SelectValue
+                      placeholder={t(
+                        "admin.imageGeneration.providerPlaceholder"
+                      )}
+                    />
+                  )}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {providerItems.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        <ImageGenerationProviderLogo provider={item.value} />
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </FieldShell>
+
+            <FieldShell
+              id={`${idPrefix}-base-url`}
+              label={t("admin.imageGeneration.baseUrl")}
+              hint={t("admin.imageGeneration.baseUrlHint")}
+            >
+              <Input
+                id={`${idPrefix}-base-url`}
+                name="image-generation-base-url"
+                value={baseUrlPreview}
+                readOnly
+                disabled
+              />
+            </FieldShell>
+          </FieldGroup>
+
+          {providerDefinition?.requires_workspace_id && (
+            <FieldGroup className="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-2">
+              <FieldShell
+                id={`${idPrefix}-workspace-id`}
+                label={t("admin.imageGeneration.workspaceId")}
+                hint={t("admin.imageGeneration.workspaceIdHint")}
+              >
+                <Input
+                  id={`${idPrefix}-workspace-id`}
+                  name="image-generation-workspace-id"
+                  value={workspaceId}
+                  disabled={readOnly}
+                  onChange={(event) => setWorkspaceId(event.target.value)}
+                  required={enabled}
+                />
+              </FieldShell>
+              <FieldShell
+                id={`${idPrefix}-region`}
+                label={t("admin.imageGeneration.region")}
+                hint={t("admin.imageGeneration.regionHint")}
+              >
+                <Input
+                  id={`${idPrefix}-region`}
+                  name="image-generation-region"
+                  value={region}
+                  disabled={readOnly}
+                  onChange={(event) => setRegion(event.target.value)}
+                  placeholder={providerDefinition.default_region ?? undefined}
+                  required={enabled}
+                />
+              </FieldShell>
+            </FieldGroup>
+          )}
+
+          <FieldGroup className="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-3">
+            <FieldShell
+              id={`${idPrefix}-api-key`}
+              label={t("admin.imageGeneration.apiKey")}
+              hint={
+                apiKeyConfiguredForProvider
+                  ? t("admin.imageGeneration.apiKeyConfiguredHint")
+                  : t("admin.imageGeneration.apiKeyRequiredHint")
+              }
+            >
+              <Input
+                id={`${idPrefix}-api-key`}
+                name="image-generation-api-key"
+                className="placeholder:text-foreground placeholder:opacity-100"
+                type="password"
+                value={apiKey}
+                disabled={readOnly}
+                placeholder={apiKeyConfiguredForProvider ? MASKED_API_KEY : ""}
+                onChange={(event) => setApiKey(event.target.value)}
+                autoComplete="new-password"
+                required={enabled && !apiKeyConfiguredForProvider}
+              />
+            </FieldShell>
+            <FieldShell
+              id={`${idPrefix}-model`}
+              label={t("admin.imageGeneration.model")}
+              hint={t("admin.imageGeneration.modelHint")}
+            >
+              <Input
+                id={`${idPrefix}-model`}
+                name="image-generation-model"
+                value={model}
+                disabled={readOnly}
+                onChange={(event) => setModel(event.target.value)}
+                required={enabled}
+              />
+            </FieldShell>
+            <FieldShell
+              id={`${idPrefix}-price-per-image`}
+              label={t("admin.imageGeneration.pricePerImage")}
+              hint={t("admin.imageGeneration.pricePerImageHint")}
+            >
+              <Input
+                id={`${idPrefix}-price-per-image`}
+                name="image-generation-price-per-image"
+                type="number"
+                min="0"
+                max="9999.999999"
+                step="0.000001"
+                inputMode="decimal"
+                value={pricePerImage}
+                disabled={readOnly}
+                onChange={(event) => setPricePerImage(event.target.value)}
+                required
+              />
+            </FieldShell>
+          </FieldGroup>
+
+          <div
+            data-slot="model-settings-toggle"
+            className="flex items-center gap-2 pt-1"
+          >
             <Switch
               id={`${idPrefix}-enabled`}
               name="image-generation-enabled"
@@ -221,176 +401,7 @@ export function ImageGenerationSettingsForm({
               {t("admin.imageGeneration.enabled")}
             </Label>
           </div>
-        }
-      />
-
-      {error && <StatusBanner variant="error">{error}</StatusBanner>}
-
-      <form
-        className="grid max-w-none gap-4"
-        onSubmit={(event: FormEvent) => {
-          event.preventDefault()
-          if (readOnly || !formValid) return
-          setError(null)
-          mutation.mutate()
-        }}
-      >
-        <FieldGroup className="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-2">
-          <FieldShell
-            id={`${idPrefix}-provider`}
-            label={t("admin.imageGeneration.provider")}
-            hint={t("admin.imageGeneration.providerHint")}
-          >
-            <Select
-              name="image-generation-provider"
-              items={providerItems}
-              value={provider}
-              disabled={readOnly}
-              onValueChange={(value) => {
-                const nextProvider = (value ?? "") as ProviderOptionKey
-                const definition = settings.providers.find(
-                  (candidate) => candidate.key === nextProvider
-                )
-                setProvider(nextProvider)
-                setModel(definition?.default_model ?? "")
-                setRegion(definition?.default_region ?? "")
-                if (nextProvider !== "alibaba_bailian") setWorkspaceId("")
-                setApiKey("")
-              }}
-            >
-              <SelectTrigger id={`${idPrefix}-provider`} className="w-full">
-                {provider && selectedProviderItem ? (
-                  <SelectValue
-                    placeholder={t("admin.imageGeneration.providerPlaceholder")}
-                  >
-                    <ImageGenerationProviderLogo provider={provider} />
-                    {selectedProviderItem.label}
-                  </SelectValue>
-                ) : (
-                  <SelectValue
-                    placeholder={t("admin.imageGeneration.providerPlaceholder")}
-                  />
-                )}
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {providerItems.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      <ImageGenerationProviderLogo provider={item.value} />
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </FieldShell>
-
-          <FieldShell
-            id={`${idPrefix}-base-url`}
-            label={t("admin.imageGeneration.baseUrl")}
-            hint={t("admin.imageGeneration.baseUrlHint")}
-          >
-            <Input
-              id={`${idPrefix}-base-url`}
-              name="image-generation-base-url"
-              value={baseUrlPreview}
-              readOnly
-              disabled
-            />
-          </FieldShell>
-        </FieldGroup>
-
-        {providerDefinition?.requires_workspace_id && (
-          <FieldGroup className="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-2">
-            <FieldShell
-              id={`${idPrefix}-workspace-id`}
-              label={t("admin.imageGeneration.workspaceId")}
-              hint={t("admin.imageGeneration.workspaceIdHint")}
-            >
-              <Input
-                id={`${idPrefix}-workspace-id`}
-                name="image-generation-workspace-id"
-                value={workspaceId}
-                disabled={readOnly}
-                onChange={(event) => setWorkspaceId(event.target.value)}
-                required={enabled}
-              />
-            </FieldShell>
-            <FieldShell
-              id={`${idPrefix}-region`}
-              label={t("admin.imageGeneration.region")}
-              hint={t("admin.imageGeneration.regionHint")}
-            >
-              <Input
-                id={`${idPrefix}-region`}
-                name="image-generation-region"
-                value={region}
-                disabled={readOnly}
-                onChange={(event) => setRegion(event.target.value)}
-                placeholder={providerDefinition.default_region ?? undefined}
-                required={enabled}
-              />
-            </FieldShell>
-          </FieldGroup>
-        )}
-
-        <FieldGroup className="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-3">
-          <FieldShell
-            id={`${idPrefix}-api-key`}
-            label={t("admin.imageGeneration.apiKey")}
-            hint={
-              apiKeyConfiguredForProvider
-                ? t("admin.imageGeneration.apiKeyConfiguredHint")
-                : t("admin.imageGeneration.apiKeyRequiredHint")
-            }
-          >
-            <Input
-              id={`${idPrefix}-api-key`}
-              name="image-generation-api-key"
-              className="placeholder:text-foreground placeholder:opacity-100"
-              type="password"
-              value={apiKey}
-              disabled={readOnly}
-              placeholder={apiKeyConfiguredForProvider ? MASKED_API_KEY : ""}
-              onChange={(event) => setApiKey(event.target.value)}
-              autoComplete="new-password"
-              required={enabled && !apiKeyConfiguredForProvider}
-            />
-          </FieldShell>
-          <FieldShell
-            id={`${idPrefix}-model`}
-            label={t("admin.imageGeneration.model")}
-            hint={t("admin.imageGeneration.modelHint")}
-          >
-            <Input
-              id={`${idPrefix}-model`}
-              name="image-generation-model"
-              value={model}
-              disabled={readOnly}
-              onChange={(event) => setModel(event.target.value)}
-              required={enabled}
-            />
-          </FieldShell>
-          <FieldShell
-            id={`${idPrefix}-price-per-image`}
-            label={t("admin.imageGeneration.pricePerImage")}
-            hint={t("admin.imageGeneration.pricePerImageHint")}
-          >
-            <Input
-              id={`${idPrefix}-price-per-image`}
-              name="image-generation-price-per-image"
-              type="number"
-              min="0"
-              max="9999.999999"
-              step="0.000001"
-              inputMode="decimal"
-              value={pricePerImage}
-              disabled={readOnly}
-              onChange={(event) => setPricePerImage(event.target.value)}
-              required
-            />
-          </FieldShell>
-        </FieldGroup>
+        </div>
 
         <div>
           <Button

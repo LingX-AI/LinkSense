@@ -47,9 +47,9 @@ describe("Word preview layout", () => {
     )
   })
 
-  it("draws the active text selection with the shared dashed selection outline", () => {
+  it("draws the active text selection with a dashed outline and translucent blue fill", () => {
     expect(previewStyles).toMatch(
-      /\.word-preview-selection-frame\s*\{[\s\S]*?fill:\s*transparent;[\s\S]*?stroke:\s*var\(--app-selection\);[\s\S]*?stroke-width:\s*2px;[\s\S]*?stroke-dasharray:\s*6 4;/u
+      /\.word-preview-selection-frame\s*\{[\s\S]*?fill:\s*color-mix\(in srgb, var\(--app-selection\) 12%, transparent\);[\s\S]*?stroke:\s*var\(--app-selection\);[\s\S]*?stroke-width:\s*2px;[\s\S]*?stroke-dasharray:\s*6 4;/u
     )
   })
 })

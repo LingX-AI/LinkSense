@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@theme {
+  --font-sans: "Inter", "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --color-ink: #252925;
+  --color-muted: #777c75;
+  --color-paper: #f5f5f0;
+  --color-line: #e3e5dd;
+  --color-accent: #3062e8;
+  --animate-wheel: wheel var(--ride-duration, 2s) linear infinite;
+  @keyframes wheel { to { transform: rotate(360deg); } }
+}
+@layer base {
+  button:not(:disabled), summary { cursor: pointer; }
+  button, input, textarea, select { outline-offset: 4px; }
+  :focus-visible { outline: 2px solid var(--color-accent); }
+  body { -webkit-font-smoothing: antialiased; }
+}

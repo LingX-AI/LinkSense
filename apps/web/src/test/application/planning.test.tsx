@@ -23,6 +23,7 @@ describe("LinkSense application", () => {
         json({
           success: true,
           data: {
+            category_id: null,
             id: "new-task-1",
             title: "未命名任务",
             archived: false,
@@ -72,6 +73,7 @@ describe("LinkSense application", () => {
       ).toEqual({
         collaboration_mode: "plan",
         prewarmed_conversation_id: "71000000-0000-4000-8000-000000000001",
+        category_id: null,
       })
       expect(
         requests.find(
@@ -671,12 +673,14 @@ describe("LinkSense application", () => {
     expect(
       quotaCard?.closest(".conversation-token-quota-card-dock")?.parentElement
     ).toHaveClass("conversation-bottom-stack")
-    expect(
-      quotaCard?.closest(".conversation-token-quota-card-dock")
-        ?.nextElementSibling
-    ).toHaveClass("composer-shell")
-
     const composer = await screen.findByRole("textbox", { name: "任务输入框" })
+    const composerShell = composer.closest(".composer-shell")
+    expect(composerShell?.parentElement).toBe(
+      quotaCard?.closest(".conversation-token-quota-card-dock")?.parentElement
+    )
+    expect(quotaCard?.compareDocumentPosition(composer)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    )
     await interaction.type(composer, "尝试发起任务")
     const sendButton = screen.getByRole("button", { name: "发送" })
     expect(sendButton).toBeDisabled()
@@ -774,7 +778,7 @@ describe("LinkSense application", () => {
     expect(await screen.findByText("实现输入框上方清单")).toBeVisible()
   })
 
-  it("filters the Codex reasoning summary streamed for the running turn", async () => {
+  it("shows the readable Codex reasoning summary streamed for the running turn", async () => {
     const conversationId = "20000000-0000-4000-8000-000000000001"
     const turnId = "30000000-0000-4000-8000-000000000001"
     const summaryText = "Evaluating test timing reliability"
@@ -821,7 +825,7 @@ describe("LinkSense application", () => {
     renderApp()
 
     expect(await screen.findByText("正在处理", { exact: true })).toBeVisible()
-    expect(screen.queryByText(summaryText, { exact: true })).toBeNull()
+    expect(await screen.findByText(summaryText, { exact: true })).toBeVisible()
     expect(screen.queryByText("思考内容", { exact: true })).toBeNull()
   })
 
@@ -874,7 +878,7 @@ describe("LinkSense application", () => {
       await eventStreamStart
     })
     expect(
-      await screen.findByText("计划模式未生成可确认的计划，请重新发起请求。", {
+      await screen.findByText("计划模式未生成可确认的计划，请重新发起请求", {
         exact: true,
       })
     ).toBeVisible()
@@ -1254,9 +1258,7 @@ describe("LinkSense application", () => {
     await interaction.click(
       screen.getByRole("button", { name: "选择模型与推理强度" })
     )
-    await interaction.hover(
-      await screen.findByRole("menuitem", { name: /^模型/ })
-    )
+    await interaction.click(screen.getByRole("button", { name: "模型" }))
     fireEvent.click(
       await screen.findByRole("menuitemradio", { name: "Test Model" })
     )

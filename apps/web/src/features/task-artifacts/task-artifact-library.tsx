@@ -7,6 +7,7 @@ import {
   useState,
 } from "react"
 import { useInfiniteQuery } from "@tanstack/react-query"
+import { taskArtifactFileTypeSchema } from "@linksense/shared"
 import {
   ArrowUpRightIcon,
   DownloadIcon,
@@ -33,6 +34,14 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import {
   getConversationFilePreviewKind,
@@ -41,8 +50,11 @@ import {
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime, formatFileSize } from "@/i18n/date"
 import { downloadBlob } from "@/lib/download-blob"
+import { readUrlEnum, updateUrlSearchParams } from "@/lib/url-search-params"
 
 import { getTaskArtifacts, type TaskArtifact } from "./task-artifact-api"
+
+const fileTypes = ["all", ...taskArtifactFileTypeSchema.options] as const
 
 type TaskArtifactGroup = {
   task: TaskArtifact["task"]
@@ -60,25 +72,42 @@ export function TaskArtifactLibrary({
   const [searchParams, setSearchParams] = useSearchParams()
   const search = searchParams.get("search") ?? ""
   const deferredSearch = useDeferredValue(search.trim())
+  const fileType = readUrlEnum(searchParams, "file_type", fileTypes, "all")
+  const fileTypeItems = fileTypes.map((value) => ({
+    value,
+    label: t(`library.artifacts.fileTypes.${value}`),
+  }))
+  const hasFilters = Boolean(deferredSearch) || fileType !== "all"
   const [downloadingFileId, setDownloadingFileId] = useState<string>()
   const downloadInFlightRef = useRef(false)
   const loadMoreRef = useRef<HTMLDivElement>(null)
   const loadMoreInFlightRef = useRef(false)
 
   const updateSearch = (value: string) => {
-    const next = new URLSearchParams(searchParams)
-    const trimmed = value.trim()
-    if (trimmed) next.set("search", trimmed)
-    else next.delete("search")
-    setSearchParams(next, { replace: true })
+    setSearchParams(
+      (current) => updateUrlSearchParams(current, { search: value.trim() }),
+      { replace: true }
+    )
+  }
+
+  const updateFileType = (value: (typeof fileTypes)[number] | null) => {
+    if (value === null) return
+    setSearchParams(
+      (current) =>
+        updateUrlSearchParams(current, {
+          file_type: value === "all" ? null : value,
+        }),
+      { replace: true }
+    )
   }
 
   const query = useInfiniteQuery({
-    queryKey: ["task-artifacts", deferredSearch],
+    queryKey: ["task-artifacts", deferredSearch, fileType],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }) =>
       getTaskArtifacts({
         search: deferredSearch || undefined,
+        fileType: fileType === "all" ? undefined : fileType,
         cursor: pageParam,
         signal,
       }),
@@ -154,17 +183,40 @@ export function TaskArtifactLibrary({
         </div>
       </div>
 
-      <InputGroup className="mt-5 w-full max-w-[520px]">
-        <InputGroupAddon>
-          <SearchIcon aria-hidden="true" />
-        </InputGroupAddon>
-        <InputGroupInput
-          value={search}
-          onChange={(event) => updateSearch(event.currentTarget.value)}
-          placeholder={t("library.artifacts.searchPlaceholder")}
-          aria-label={t("library.artifacts.searchPlaceholder")}
-        />
-      </InputGroup>
+      <div className="mt-5 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+        <InputGroup className="w-full max-w-[520px]">
+          <InputGroupAddon>
+            <SearchIcon aria-hidden="true" />
+          </InputGroupAddon>
+          <InputGroupInput
+            value={search}
+            onChange={(event) => updateSearch(event.currentTarget.value)}
+            placeholder={t("library.artifacts.searchPlaceholder")}
+            aria-label={t("library.artifacts.searchPlaceholder")}
+          />
+        </InputGroup>
+        <Select
+          items={fileTypeItems}
+          value={fileType}
+          onValueChange={updateFileType}
+        >
+          <SelectTrigger
+            className="w-36 shrink-0"
+            aria-label={t("library.artifacts.fileTypeLabel")}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="start" alignItemWithTrigger={false}>
+            <SelectGroup>
+              {fileTypeItems.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
 
       {query.isLoading ? (
         <LoadingState />
@@ -176,12 +228,12 @@ export function TaskArtifactLibrary({
       ) : groups.length === 0 ? (
         <EmptyState
           title={t(
-            deferredSearch
+            hasFilters
               ? "library.artifacts.searchEmpty"
               : "library.artifacts.empty"
           )}
           description={
-            deferredSearch ? undefined : t("library.artifacts.emptyDescription")
+            hasFilters ? undefined : t("library.artifacts.emptyDescription")
           }
         />
       ) : (

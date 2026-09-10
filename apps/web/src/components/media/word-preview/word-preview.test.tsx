@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { WordPreview } from "@/components/media/word-preview/word-preview"
 import type { WordSelectionAction } from "@/components/media/word-preview/word-preview.types"
 import { calculateWordPreviewFitZoom } from "@/components/media/word-preview/word-preview-zoom"
+import { mockOfficeSelectionLayout } from "@/test/office-selection-layout"
 import i18n from "@/i18n"
 
 type MockSelection = {
@@ -376,7 +377,10 @@ describe("word preview", () => {
     await i18n.changeLanguage("zh-CN")
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
   function selectNativeText(testId = "docx-editor-text") {
     const textNode = screen.getByTestId(testId).firstChild
@@ -470,6 +474,7 @@ describe("word preview", () => {
   })
 
   it("shows the selection action after dragging text in a table cell without native selection or a selection callback", async () => {
+    mockOfficeSelectionLayout()
     render(
       <WordPreview
         document={{ status: "ready", content: new Uint8Array([1, 2, 3]) }}
@@ -480,6 +485,11 @@ describe("word preview", () => {
     )
 
     const wordText = screen.getByTestId("docx-editor-text")
+    const surface = wordText.closest(".word-preview-editor-surface")
+    if (!surface) throw new Error("Missing Word surface")
+    vi.spyOn(surface, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(300, 100, 800, 1200)
+    )
     fireEvent.pointerDown(wordText, {
       button: 0,
       clientX: 80,
@@ -504,7 +514,9 @@ describe("word preview", () => {
     const action = await screen.findByRole("button", {
       name: /问 LinkSense/u,
     })
-    expect(action).not.toHaveClass("office-selection-action-docked")
+    await waitFor(() =>
+      expect(action.style.transform).toBe("translate(360px, 162px)")
+    )
     expect(wordSelectionBridge.textSelectionBetween).toHaveBeenCalledWith(
       expect.objectContaining({ pos: 42 }),
       expect.objectContaining({ pos: 50 })
@@ -512,6 +524,7 @@ describe("word preview", () => {
   })
 
   it("keeps the selection frame visible while native text remains selected and after EigenPal repaints", async () => {
+    mockOfficeSelectionLayout()
     wordSelectionBridge.getSelectionRectsFromDom.mockReturnValue([
       { x: 24, y: 32, width: 80, height: 22, pageIndex: 0 },
       { x: 104, y: 32, width: 100, height: 22, pageIndex: 0 },
@@ -561,6 +574,11 @@ describe("word preview", () => {
     expect(secondPageFrame).toHaveAttribute("y", "900")
     expect(secondPageFrame).toHaveAttribute("width", "150")
     expect(secondPageFrame).toHaveAttribute("height", "22")
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /问 LinkSense/u }).style.transform
+      ).toBe("translate(60px, 930px)")
+    )
 
     window.getSelection()?.removeAllRanges()
     const pages = document.querySelector<HTMLElement>(".paged-editor__pages")
@@ -575,6 +593,15 @@ describe("word preview", () => {
       expect.anything()
     )
     expect(screen.getByRole("button", { name: /问 LinkSense/u })).toBeVisible()
+    wordSelectionBridge.getSelectionRectsFromDom.mockReturnValue([
+      { x: 24, y: 200, width: 180, height: 80, pageIndex: 1 },
+    ])
+    fireEvent.scroll(pages)
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /问 LinkSense/u }).style.transform
+      ).toBe("translate(60px, 288px)")
+    )
 
     const editorScaleWrapper = pages.parentElement
     if (!editorScaleWrapper) throw new Error("Missing mock Word scale wrapper")
@@ -592,7 +619,75 @@ describe("word preview", () => {
     expect(await screen.findByTestId("word-selection-overlay")).toBeVisible()
   })
 
+  it("previews the hovered Word paragraph before click and removes hover when selected", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    render(
+      <WordPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="hover.docx"
+        selectionAction={createSelectionAction(onSubmit)}
+      />
+    )
+    const overlay = await screen.findByTestId("office-annotation-hover-overlay")
+    const viewport = document.querySelector<HTMLElement>(
+      ".docx-editor__scroll-container"
+    )
+    if (!viewport) throw new Error("Missing Word viewport")
+    vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(100, 100, 600, 700)
+    )
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(100, 100, 600, 700)
+    )
+    const target = screen.getByTestId("docx-editor-text")
+    vi.spyOn(document, "elementFromPoint").mockReturnValue(target)
+    wordSelectionBridge.getSelectionRectsFromDom.mockReturnValue([
+      { x: 140, y: 180, width: 200, height: 50, pageIndex: 0 },
+    ])
+    fireEvent.pointerMove(target, {
+      pointerType: "mouse",
+      buttons: 0,
+      clientX: 150,
+      clientY: 190,
+    })
+    await waitFor(() =>
+      expect(overlay.querySelector("path")).toHaveAttribute(
+        "d",
+        "M40,80H240V130H40Z"
+      )
+    )
+    expect(screen.queryByRole("button", { name: /问 LinkSense/u })).toBeNull()
+    expect(onSubmit).not.toHaveBeenCalled()
+    wordSelectionBridge.getSelectionRectsFromDom.mockReturnValue([
+      { x: 120, y: 160, width: 300, height: 75, pageIndex: 0 },
+    ])
+    fireEvent.scroll(viewport)
+    await waitFor(() =>
+      expect(overlay.querySelector("path")).toHaveAttribute(
+        "d",
+        "M20,60H320V135H20Z"
+      )
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: "Select Word text" })
+    )
+    fireEvent.pointerMove(target, {
+      pointerType: "mouse",
+      buttons: 0,
+      clientX: 150,
+      clientY: 190,
+    })
+    await waitFor(() =>
+      expect(overlay.querySelector("path")?.getAttribute("d") || "").toBe("")
+    )
+  })
+
   it("draws numbered markers for saved annotation selections", async () => {
+    wordSelectionBridge.getSelectionRectsFromDom.mockReturnValue([
+      { x: 24, y: 32, width: 180, height: 22, pageIndex: 0 },
+      { x: 24, y: 54, width: 120, height: 22, pageIndex: 0 },
+      { x: 40, y: 900, width: 220, height: 22, pageIndex: 1 },
+    ])
     render(
       <WordPreview
         document={{ status: "ready", content: new Uint8Array([1, 2, 3]) }}
@@ -623,20 +718,70 @@ describe("word preview", () => {
     const frame = overlay.querySelector(
       '[data-word-annotation-frame="draft-1"]'
     )
-    const marker = overlay.querySelector(
+    const marker = overlay.querySelector<HTMLElement>(
       '[data-word-annotation-marker="draft-1"]'
     )
     expect(frame).toHaveStyle({
       left: "24px",
       top: "32px",
       width: "180px",
-      height: "22px",
+      height: "44px",
     })
+    expect(
+      overlay.querySelectorAll('[data-word-annotation-frame="draft-1"]')
+    ).toHaveLength(2)
+    expect(
+      overlay.querySelectorAll('[data-word-annotation-marker="draft-1"]')
+    ).toHaveLength(2)
     expect(marker).toHaveTextContent("1")
     expect(
       marker?.querySelector(".office-annotation-number-bubble-shape")
     ).not.toBeNull()
     expect(screen.queryByRole("button", { name: /问 LinkSense/u })).toBeNull()
+
+    const pages = document.querySelector<HTMLElement>(".paged-editor__pages")
+    if (!pages) throw new Error("Missing mock Word pages")
+    const overlayBounds = new DOMRect(360, 80, 700, 900)
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue(overlayBounds)
+    wordSelectionBridge.getSelectionRectsFromDom.mockReturnValue([
+      { x: 14, y: 12, width: 180, height: 44, pageIndex: 0 },
+    ])
+    fireEvent.scroll(pages)
+    await waitFor(() =>
+      expect(frame).toHaveStyle({ left: "14px", top: "12px" })
+    )
+    expect(
+      wordSelectionBridge.getSelectionRectsFromDom
+    ).toHaveBeenLastCalledWith(pages, 42, 50, overlayBounds)
+    expect(frame).toContainElement(marker)
+
+    const scaleWrapper = pages.parentElement
+    if (!scaleWrapper) throw new Error("Missing mock Word scale wrapper")
+    fireEvent(scaleWrapper, createTransitionEvent("transitionrun", "transform"))
+    expect(screen.queryByTestId("word-annotation-overlay")).toBeNull()
+    wordSelectionBridge.getSelectionRectsFromDom.mockReturnValue([
+      { x: 21, y: 18, width: 270, height: 66, pageIndex: 0 },
+    ])
+    fireEvent(scaleWrapper, createTransitionEvent("transitionend", "transform"))
+    const zoomedOverlay = await screen.findByTestId("word-annotation-overlay")
+    const zoomedFrame = zoomedOverlay.querySelector(
+      '[data-word-annotation-frame="draft-1"]'
+    )
+    expect(zoomedFrame).toHaveStyle({
+      left: "21px",
+      top: "18px",
+      width: "270px",
+      height: "66px",
+    })
+    expect(zoomedFrame).toHaveTextContent("1")
+
+    wordSelectionBridge.getSelectionRectsFromDom.mockReturnValue([
+      { x: 21, y: 35, width: 270, height: 88, pageIndex: 0 },
+    ])
+    pages.style.paddingTop = "17px"
+    await waitFor(() =>
+      expect(zoomedFrame).toHaveStyle({ top: "35px", height: "88px" })
+    )
   })
 
   it("scrolls the saved Word annotation into view when it is requested", async () => {
@@ -745,9 +890,11 @@ describe("word preview", () => {
       clientY: 700,
     })
 
-    expect(
-      await screen.findByRole("button", { name: /问 LinkSense/u })
-    ).not.toHaveClass("office-selection-action-docked")
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /问 LinkSense/u })
+      ).not.toHaveClass("invisible")
+    )
   })
 
   it("does not map header text into the body document selection", async () => {

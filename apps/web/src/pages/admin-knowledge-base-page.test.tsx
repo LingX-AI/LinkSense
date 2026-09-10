@@ -114,6 +114,105 @@ describe("administrator knowledge-base governance", () => {
     vi.unstubAllGlobals()
   })
 
+  it("gives knowledge-base names more width and allows two lines", async () => {
+    vi.stubGlobal("fetch", createFetchMock())
+    renderPage()
+    const name = await screen.findByText(activeKnowledgeBase.name)
+    expect(screen.getByRole("columnheader", { name: "知识库" })).toHaveClass(
+      "w-[300px]"
+    )
+    expect(name).toHaveClass(
+      "line-clamp-2",
+      "whitespace-normal",
+      "wrap-anywhere"
+    )
+    expect(name).not.toHaveAttribute("title")
+  })
+
+  it.each(["hover", "focus"] as const)(
+    "shows the full clipped name in the global tooltip on %s",
+    async (interactionType) => {
+      const longName =
+        "Acme Company Knowledge Base — Employee Policies and Procedures"
+      const fetchMock = createFetchMock()
+      fetchMock.mockImplementationOnce(() =>
+        Promise.resolve(
+          envelope({
+            items: [{ ...activeKnowledgeBase, name: longName }],
+            next_cursor: null,
+          })
+        )
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const interaction = userEvent.setup()
+      renderPage()
+      const name = await screen.findByText(longName)
+      Object.defineProperties(name, {
+        clientHeight: { configurable: true, value: 44 },
+        scrollHeight: { configurable: true, value: 66 },
+        clientWidth: { configurable: true, value: 276 },
+        scrollWidth: { configurable: true, value: 276 },
+      })
+      if (interactionType === "hover") await interaction.hover(name)
+      else {
+        for (
+          let count = 0;
+          count < 10 && document.activeElement !== name;
+          count++
+        )
+          await interaction.tab()
+        expect(name).toHaveFocus()
+      }
+      const tooltip = await screen.findByRole("tooltip")
+      expect(tooltip).toHaveTextContent(longName)
+      expect(tooltip).toHaveClass(
+        "rounded-md",
+        "bg-[var(--app-popover)]",
+        "text-[var(--app-text)]",
+        "whitespace-normal",
+        "wrap-anywhere"
+      )
+      expect(tooltip.children).toHaveLength(0)
+      await interaction.keyboard("{Escape}")
+      await waitFor(() =>
+        expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+      )
+    }
+  )
+
+  it("does not show a tooltip for an unclipped name and checks the current size on each hover", async () => {
+    vi.stubGlobal("fetch", createFetchMock())
+    const interaction = userEvent.setup()
+    renderPage()
+    const name = await screen.findByText(activeKnowledgeBase.name)
+    let scrollHeight = 44
+    const measureScrollHeight = vi.fn(() => scrollHeight)
+    Object.defineProperties(name, {
+      clientHeight: { configurable: true, value: 44 },
+      scrollHeight: { configurable: true, get: measureScrollHeight },
+      clientWidth: { configurable: true, value: 276 },
+      scrollWidth: { configurable: true, value: 276 },
+    })
+    await interaction.hover(name)
+    await waitFor(() => expect(measureScrollHeight).toHaveBeenCalled())
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+    await interaction.unhover(name)
+    scrollHeight = 66
+    await interaction.hover(name)
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      activeKnowledgeBase.name
+    )
+    await interaction.unhover(name)
+    await waitFor(() =>
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+    )
+    scrollHeight = 44
+    measureScrollHeight.mockClear()
+    await interaction.hover(name)
+    await waitFor(() => expect(measureScrollHeight).toHaveBeenCalled())
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+  })
+
   it("shows only governance metadata and allows deletion only for archived knowledge bases", async () => {
     vi.stubGlobal("fetch", createFetchMock())
     const interaction = userEvent.setup()
@@ -187,7 +286,7 @@ describe("administrator knowledge-base governance", () => {
         reason: "内容需要复核",
       })
     })
-    const notification = await screen.findByText("知识库已停用。")
+    const notification = await screen.findByText("知识库已停用")
     expect(notification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(notification.closest('[data-slot="alert"]')).toBeNull()
   })

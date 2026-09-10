@@ -257,13 +257,16 @@ function settingsPayload(path: string) {
   return authenticationSettings
 }
 
-function renderSettings(page: "settings" | "models" = "settings") {
+function renderSettings(
+  page: "settings" | "models" = "settings",
+  initialPath = "/"
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   const view = render(
     <ThemeProvider>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialPath]}>
         <QueryClientProvider client={queryClient}>
           <AdminPages page={page} />
         </QueryClientProvider>
@@ -313,6 +316,24 @@ describe("administrator authentication settings", () => {
     cleanup()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it("opens maintenance configuration directly from the indicator destination", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        return envelope(settingsPayload(path))
+      })
+    )
+    renderSettings("settings", "/admin/settings?section=maintenance")
+    expect(
+      await screen.findByRole("tab", { name: "系统维护" })
+    ).toHaveAttribute("aria-selected", "true")
+    expect(
+      await screen.findByRole("heading", { name: "系统维护" })
+    ).toBeVisible()
+    expect(screen.getByRole("switch", { name: "开启计划维护" })).toBeVisible()
   })
 
   it("enables open registration from its dedicated settings tab", async () => {
@@ -390,7 +411,7 @@ describe("administrator authentication settings", () => {
         },
       })
     )
-    expect(await screen.findByText("开放注册设置已更新。")).toBeVisible()
+    expect(await screen.findByText("开放注册设置已更新")).toBeVisible()
   })
 
   it("saves task concurrency overrides and leaves blank fields on deployment defaults", async () => {
@@ -454,7 +475,7 @@ describe("administrator authentication settings", () => {
         },
       })
     )
-    expect(await screen.findByText("任务并发设置已更新。")).toBeVisible()
+    expect(await screen.findByText("任务并发设置已更新")).toBeVisible()
   })
 
   it("switches between setting categories without ever filling stored secrets", async () => {
@@ -653,7 +674,7 @@ describe("administrator authentication settings", () => {
     await interaction.type(nameInput, "MOSS 工作台")
     await interaction.click(screen.getByRole("button", { name: "保存" }))
 
-    await screen.findByText("系统设置已更新。")
+    await screen.findByText("系统设置已更新")
     await waitFor(() =>
       expect(
         queryClient.getQueryData<{ system_name: string }>([
@@ -707,7 +728,7 @@ describe("administrator authentication settings", () => {
       new File(["logo"], "logo.png", { type: "image/png" })
     )
 
-    await screen.findByText("系统 Logo 已更新。")
+    await screen.findByText("系统 Logo 已更新")
     expect(uploadBodyWasFormData).toBe(true)
     expect(
       queryClient.getQueryData<{ logo_url: string | null }>([
@@ -764,133 +785,46 @@ describe("administrator authentication settings", () => {
       "leading-5",
       "font-semibold"
     )
-    const apiKeyInput = screen.getByLabelText("API_KEY")
+    const catalog = screen.getByRole("table", { name: "模型列表" })
+    expect(within(catalog).getByRole("row", { name: "Model A" })).toBeVisible()
+    expect(within(catalog).queryByRole("textbox")).not.toBeInTheDocument()
+    const connection = await openChannelEditor(interaction)
+    const apiKeyInput = within(connection).getByLabelText("API_KEY")
     expect(apiKeyInput).toHaveValue("")
     expect(apiKeyInput).toHaveAttribute("placeholder", "••••••••••••")
     expect(apiKeyInput).toHaveAttribute("type", "password")
-    expect(apiKeyInput).not.toHaveAttribute("readonly")
+    expect(within(connection).getByLabelText("Base URL")).toHaveValue(
+      "https://models.example.test/v1"
+    )
     expect(
-      within(apiKeyInput.closest('[data-slot="field"]')!).queryByRole("button")
-    ).not.toBeInTheDocument()
-    await interaction.click(apiKeyInput)
-    expect(apiKeyInput).toHaveValue("")
-    expect(apiKeyInput).toHaveAttribute("type", "password")
-    expect(apiKeyInput).not.toHaveAttribute("readonly")
-    await interaction.tab()
-    expect(apiKeyInput).toHaveValue("")
-    expect(apiKeyInput).toHaveAttribute("placeholder", "••••••••••••")
-    expect(
-      screen.getByDisplayValue("https://models.example.test/v1")
-    ).toBeVisible()
-    expect(
-      screen.getByRole("combobox", { name: "协议兼容模式" })
+      within(connection).getByRole("combobox", { name: "协议兼容模式" })
     ).toHaveTextContent("原生 Responses")
-    const provider = screen.getByRole("group", { name: "模型渠道 1" })
-    expect(screen.getByText(/在这里集中管理模型及其连接方式/u)).toHaveClass(
-      "form-hint"
-    )
-    expect(within(provider).getByText("已添加 1 个模型。")).toHaveClass(
-      "form-hint"
-    )
     expect(
-      within(provider).getByText(/这里的模型共用当前渠道的连接地址和密钥/u)
-    ).toHaveClass("form-hint")
-    const serviceProviderSelect = within(provider).getByRole("combobox", {
-      name: "模型服务商",
-    })
-    expect(serviceProviderSelect).toHaveTextContent("OpenAI")
-    const selectedProviderLogo = serviceProviderSelect.querySelector(
-      '[data-service-provider-logo="openai"]'
-    )
-    expect(selectedProviderLogo).toBeInTheDocument()
-    expect(selectedProviderLogo).toHaveClass("text-provider-openai")
-    expect(serviceProviderSelect).toHaveClass("h-9")
-    expect(screen.getByRole("combobox", { name: "协议兼容模式" })).toHaveClass(
-      "h-9"
-    )
-    const apiKeyField = apiKeyInput.closest('[data-slot="field"]')
-    const serviceProviderField = serviceProviderSelect.closest(
-      '[data-slot="field"]'
-    )
-    expect(apiKeyField?.parentElement).toHaveClass("items-start")
-    expect(serviceProviderField?.parentElement).toBe(apiKeyField?.parentElement)
-    const providerDelete = within(provider).getByRole("button", {
-      name: "删除模型渠道 模型渠道 1",
-    })
-    const providerRename = within(provider).getByRole("button", {
-      name: "重命名模型渠道 模型渠道 1",
-    })
-    expect(providerRename).toHaveClass("size-6")
-    expect(providerRename.querySelector("svg")).toHaveClass(
-      "text-muted-foreground/70"
-    )
-    expect(
-      within(provider).getByRole("button", {
-        name: "保存模型渠道 模型渠道 1",
-      })
-    ).toBeVisible()
-    expect(providerDelete).toBeVisible()
-    const model = screen.getByRole("group", { name: "Model A" })
-    expect(
-      within(model).getByRole("button", { name: "保存模型 Model A" })
-    ).toBeVisible()
-    expect(
-      model.querySelector('[data-model-title-icon=""]')
-    ).toBeInTheDocument()
-    expect(
-      within(model).queryByRole("combobox", { name: "模型服务商" })
-    ).not.toBeInTheDocument()
-    expect(model.parentElement).toHaveAttribute("data-slot", "model-card-list")
-    expect(model.parentElement).toHaveClass(
-      "flex",
-      "min-w-0",
-      "flex-col",
-      "gap-3"
-    )
-    expect(model.parentElement).not.toHaveClass("xl:grid-cols-2")
-    expect(model).toHaveClass("border-border/60")
+      within(connection)
+        .getByRole("combobox", { name: "模型服务商" })
+        .querySelector('[data-service-provider-logo="openai"]')
+    ).toHaveClass("text-provider-openai")
+    await closeModelEditor(interaction)
+    const model = await openModelEditor(interaction, "Model A")
+    expect(model).toHaveAttribute("data-slot", "dialog-content")
+    expect(model).toHaveClass("top-1/2", "left-1/2", "sm:max-w-2xl")
     const modelIdField = within(model)
       .getByLabelText("模型 ID")
       .closest('[data-slot="field"]')
-    const displayNameField = within(model)
-      .getByLabelText("显示名称")
-      .closest('[data-slot="field"]')
-    const supportedEffortsTrigger = within(model).getByRole("button", {
-      name: "支持的推理强度",
-    })
-    expect(supportedEffortsTrigger).toHaveClass("bg-input/50")
-    const supportedEffortsField = supportedEffortsTrigger.closest(
-      '[data-slot="field"]'
-    )
-    const defaultEffortField = within(model)
-      .getByRole("combobox", { name: "默认推理强度" })
-      .closest('[data-slot="field"]')
-    const imageInputSetting = within(model)
-      .getByRole("switch", { name: "支持图片理解" })
-      .closest('[data-model-image-input-setting=""]')
+    expect(modelIdField?.parentElement).toHaveClass("grid", "sm:grid-cols-2")
+    expect(
+      within(model).getByLabelText("显示名称").closest('[data-slot="field"]')
+        ?.parentElement
+    ).toBe(modelIdField?.parentElement)
+    expect(
+      within(model).getByRole("switch", { name: "支持图片理解" })
+    ).toBeVisible()
+    await closeModelEditor(interaction)
     expect(
       within(
-        screen.getByRole("group", { name: "对话与系统模型选择" })
+        screen.getByRole("form", { name: "对话与系统模型选择" })
       ).getByRole("button", { name: "保存任务与系统模型选择" })
     ).toBeVisible()
-    expect(model).toHaveClass("@container/model-card")
-    expect(modelIdField?.parentElement).toHaveClass(
-      "grid",
-      "grid-cols-1",
-      "@xl/model-card:grid-cols-2",
-      "@2xl/model-card:grid-cols-3",
-      "@4xl/model-card:grid-cols-4"
-    )
-    expect(displayNameField?.parentElement).toBe(modelIdField?.parentElement)
-    expect(supportedEffortsField?.parentElement).toBe(
-      modelIdField?.parentElement
-    )
-    expect(defaultEffortField?.parentElement).toBe(modelIdField?.parentElement)
-    expect(imageInputSetting?.parentElement).toBe(modelIdField?.parentElement)
-    expect(defaultEffortField?.nextElementSibling).toBe(imageInputSetting)
-    expect(modelIdField?.parentElement?.lastElementChild).toBe(
-      imageInputSetting
-    )
     expect(screen.getByRole("tab", { name: "模型渠道" })).toHaveAttribute(
       "data-active"
     )
@@ -933,8 +867,35 @@ describe("administrator authentication settings", () => {
       name: "嵌入模型",
     })
     const rankModelGroup = screen.getByRole("group", { name: "Rank 模型" })
-    expect(embeddingModelGroup.parentElement).toBe(rankModelGroup.parentElement)
-    expect(embeddingModelGroup.parentElement).toHaveClass("items-stretch")
+    const embeddingModelCard = embeddingModelGroup.closest(
+      '[data-slot="model-settings-card"]'
+    )
+    const rankModelCard = rankModelGroup.closest(
+      '[data-slot="model-settings-card"]'
+    )
+    expect(embeddingModelCard).not.toBeNull()
+    expect(rankModelCard).not.toBeNull()
+    expect(embeddingModelCard).toBe(rankModelCard)
+    expect(embeddingModelGroup.closest("form")).toHaveClass("w-full")
+    expect(embeddingModelGroup.closest("form")).not.toHaveClass("max-w-[720px]")
+    expect(embeddingModelGroup.closest("form")).not.toHaveClass("max-w-none")
+    expect(embeddingModelCard).toHaveClass(
+      "grid",
+      "grid-cols-1",
+      "gap-4",
+      "rounded-2xl",
+      "border",
+      "border-[color:var(--app-border)]",
+      "bg-card",
+      "p-4"
+    )
+    expect(embeddingModelCard).not.toHaveClass("xl:grid-cols-2")
+    const modelSeparator = embeddingModelCard?.querySelector(
+      '[data-slot="knowledge-model-settings-separator"]'
+    )
+    expect(modelSeparator).not.toBeNull()
+    expect(embeddingModelGroup.nextElementSibling).toBe(modelSeparator)
+    expect(modelSeparator?.nextElementSibling).toBe(rankModelGroup)
     expect(embeddingModelGroup).toHaveClass(
       "m-0",
       "flex",
@@ -1098,6 +1059,7 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
+    await openChannelEditor(interaction)
     expect(
       await screen.findByDisplayValue("https://models.example.test/v1")
     ).toBeVisible()
@@ -1116,6 +1078,7 @@ describe("administrator authentication settings", () => {
       ).toBe(1)
     })
 
+    await closeModelEditor(interaction)
     await interaction.click(screen.getByRole("tab", { name: "知识检索模型" }))
     await waitFor(() => {
       expect(requestCounts.get("/api/v1/admin/model-provider-settings")).toBe(2)
@@ -1148,6 +1111,7 @@ describe("administrator authentication settings", () => {
     )
 
     await interaction.click(screen.getByRole("tab", { name: "模型渠道" }))
+    await openChannelEditor(interaction)
     expect(
       await screen.findByDisplayValue("https://models.example.test/v6")
     ).toBeVisible()
@@ -1187,47 +1151,26 @@ describe("administrator authentication settings", () => {
       )
     ).toBeVisible()
     expect(screen.getByRole("button", { name: "添加模型渠道" })).toBeDisabled()
-    const baseUrlInput = screen.getByDisplayValue(
-      "https://models.example.test/v1"
-    )
-    expect(baseUrlInput.closest("form")).toHaveAttribute("inert")
-    expect(baseUrlInput.closest("form")).toHaveAttribute(
-      "aria-disabled",
-      "true"
-    )
-    const provider = screen.getByRole("group", { name: "模型渠道 1" })
-    expect(
-      within(provider).getByRole("button", {
-        name: "重命名模型渠道 模型渠道 1",
-      })
-    ).toBeDisabled()
-    expect(
-      within(provider).getByRole("button", {
-        name: "删除模型渠道 模型渠道 1",
-      })
-    ).toBeDisabled()
-    expect(
-      within(provider).getByRole("button", {
-        name: "保存模型渠道 模型渠道 1",
-      })
-    ).toBeDisabled()
-    expect(
-      within(screen.getByRole("group", { name: "Model A" })).getByRole(
-        "switch",
-        { name: "对话可选" }
-      )
-    ).toHaveAttribute("aria-disabled", "true")
+    for (const name of ["添加模型", "编辑模型 Model A", "渠道操作"]) {
+      expect(screen.getByRole("button", { name })).toBeDisabled()
+    }
     expect(
       within(
-        screen.getByRole("group", { name: "对话与系统模型选择" })
-      ).getByRole("button", { name: "保存任务与系统模型选择" })
+        screen.getByRole("group", { name: "模型渠道 1" })
+      ).queryByLabelText("Base URL")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("switch", { name: "对话可选：Model A" })
+    ).toHaveAttribute("aria-disabled", "true")
+    expect(
+      screen.getByRole("button", { name: "保存任务与系统模型选择" })
     ).toBeDisabled()
 
     await interaction.click(screen.getByRole("tab", { name: "知识检索模型" }))
     expect(
       screen.getByRole("combobox", { name: "选择 Embedding 模型" })
     ).toBeDisabled()
-    expect(screen.getByRole("switch", { name: "启用" })).toHaveAttribute(
+    expect(screen.getByRole("switch", { name: "检索时启用" })).toHaveAttribute(
       "aria-disabled",
       "true"
     )
@@ -1293,20 +1236,20 @@ describe("administrator authentication settings", () => {
       await screen.findByRole("combobox", { name: "任务自动命名模型" })
     ).toHaveTextContent("Model B")
     expect(
-      within(screen.getByRole("group", { name: "Model B" })).getByRole(
-        "switch",
-        { name: "对话可选" }
-      )
+      within(screen.getByRole("row", { name: "Model B" })).getByRole("switch", {
+        name: /对话可选/u,
+      })
     ).not.toBeChecked()
     expect(
-      within(
-        screen.getByRole("group", { name: "Embedding Model" })
-      ).queryByRole("switch", { name: "对话可选" })
+      within(screen.getByRole("row", { name: "Embedding Model" })).queryByRole(
+        "switch",
+        { name: /对话可选/u }
+      )
     ).not.toBeInTheDocument()
     expect(
-      within(screen.getByRole("group", { name: "Ranker Model" })).queryByRole(
+      within(screen.getByRole("row", { name: "Ranker Model" })).queryByRole(
         "switch",
-        { name: "对话可选" }
+        { name: /对话可选/u }
       )
     ).not.toBeInTheDocument()
 
@@ -1348,6 +1291,7 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
+    await openChannelEditor(interaction)
     const provider = await screen.findByRole("combobox", {
       name: "模型服务商",
     })
@@ -1401,7 +1345,7 @@ describe("administrator authentication settings", () => {
     await waitFor(() => expect(provider).toHaveTextContent("Alibaba / Qwen"))
   })
 
-  it("stacks every model card in one ordered column", async () => {
+  it("shows models in a compact table in their saved order", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
@@ -1418,34 +1362,30 @@ describe("administrator authentication settings", () => {
 
     renderSettings("models")
 
-    const chatModelCard = await screen.findByRole("group", { name: "Model A" })
-    const embeddingModelCard = screen.getByRole("group", {
-      name: "Embedding Model",
-    })
-    const rerankerModelCard = screen.getByRole("group", {
-      name: "Ranker Model",
-    })
-    const modelList = chatModelCard.parentElement
-
-    expect(modelList).toHaveAttribute("data-slot", "model-card-list")
-    expect(modelList).toHaveClass("flex", "min-w-0", "flex-col", "gap-3")
-    expect(embeddingModelCard.parentElement).toBe(modelList)
-    expect(rerankerModelCard.parentElement).toBe(modelList)
-    const modelDividers = document.querySelectorAll(
-      '[data-model-card-divider=""]'
-    )
-    expect(modelDividers).toHaveLength(2)
-    expect(modelDividers[0]?.parentElement).toBe(modelList)
-    expect(chatModelCard.nextElementSibling).toBe(modelDividers[0])
-    expect(modelDividers[0]?.nextElementSibling).toBe(embeddingModelCard)
-    expect(embeddingModelCard.nextElementSibling).toBe(modelDividers[1])
-    expect(modelDividers[1]?.nextElementSibling).toBe(rerankerModelCard)
-    const addModelCard = screen.getByRole("button", { name: "添加模型" })
-    expect(addModelCard.parentElement).toBe(modelList)
-    expect(rerankerModelCard.nextElementSibling).toBe(addModelCard)
+    const catalog = await screen.findByRole("table", { name: "模型列表" })
+    const rows = within(catalog).getAllByRole("row").slice(1)
+    expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+      "Model A",
+      "Embedding Model",
+      "Ranker Model",
+    ])
+    expect(
+      rows.every((row) => row.parentElement === rows[0]?.parentElement)
+    ).toBe(true)
+    expect(within(catalog).getAllByRole("columnheader")).toHaveLength(6)
+    for (const [model, price] of [
+      ["Embedding Model", "0.14 / - / -"],
+      ["Ranker Model", "0.28 / - / -"],
+    ]) {
+      const row = within(catalog).getByRole("row", { name: model })
+      expect(within(row).getByRole("cell", { name: price })).toBeVisible()
+      expect(within(row).getByRole("cell", { name: "-" })).toBeVisible()
+    }
+    expect(within(catalog).queryByRole("textbox")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "添加模型" })).toBeVisible()
   })
 
-  it("adds a model from the trailing action in the one-column list", async () => {
+  it("opens the shared centered dialog to add a model without changing the catalog", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
@@ -1457,40 +1397,18 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
-    const provider = await screen.findByRole("group", {
-      name: "模型渠道 1",
-    })
-    const firstModel = within(provider).getByRole("group", {
-      name: "Model A",
-    })
-    const addModelCard = within(provider).getByRole("button", {
-      name: "添加模型",
-    })
-
-    expect(addModelCard).toHaveAttribute("data-model-add-card", "")
-    expect(addModelCard.closest('[data-slot="card-action"]')).toBeNull()
-    expect(addModelCard.parentElement).toBe(firstModel.parentElement)
-    expect(firstModel.nextElementSibling).toBe(addModelCard)
-    expect(within(provider).getAllByLabelText("模型 ID")).toHaveLength(1)
-
-    await interaction.click(addModelCard)
-
-    await waitFor(() =>
-      expect(within(provider).getAllByLabelText("模型 ID")).toHaveLength(2)
+    await interaction.click(
+      await screen.findByRole("button", { name: "添加模型" })
     )
-    const movedAddModelCard = within(provider).getByRole("button", {
-      name: "添加模型",
-    })
-    const modelIdInputs = within(provider).getAllByLabelText("模型 ID")
-    const addedModel = modelIdInputs[1]?.closest('[data-slot="field-set"]')
-    const divider = firstModel.nextElementSibling
-
-    expect(addedModel).not.toBeNull()
-    expect(addedModel?.parentElement).toBe(firstModel.parentElement)
-    expect(movedAddModelCard.parentElement).toBe(firstModel.parentElement)
-    expect(divider).toHaveAttribute("data-model-card-divider", "")
-    expect(divider?.nextElementSibling).toBe(addedModel)
-    expect(addedModel?.nextElementSibling).toBe(movedAddModelCard)
+    const dialog = await screen.findByRole("dialog", { name: "添加模型" })
+    expect(dialog).toHaveAttribute("data-slot", "dialog-content")
+    expect(within(dialog).getByLabelText("模型 ID")).toHaveValue("")
+    expect(within(dialog).getByLabelText("显示名称")).toHaveValue("")
+    expect(
+      within(dialog).getByRole("button", { name: /保存模型/u })
+    ).toBeDisabled()
+    await closeModelEditor(interaction)
+    expect(screen.getAllByRole("row")).toHaveLength(2)
   })
 
   it("saves knowledge retrieval selections without duplicating channel connection fields", async () => {
@@ -1581,7 +1499,7 @@ describe("administrator authentication settings", () => {
         model: "reranker-model",
       },
     })
-    expect(await screen.findByText("知识库检索模型设置已更新。")).toBeVisible()
+    expect(await screen.findByText("知识库检索模型设置已更新")).toBeVisible()
   })
 
   it("requires explicit confirmation before switching embedding models and points to index rebuild", async () => {
@@ -1742,7 +1660,7 @@ describe("administrator authentication settings", () => {
 
     const rankSection = await screen.findByRole("group", { name: "Rank 模型" })
     await interaction.click(
-      within(rankSection).getByRole("switch", { name: "启用" })
+      within(rankSection).getByRole("switch", { name: "检索时启用" })
     )
     await interaction.click(
       screen.getByRole("button", { name: "保存知识库检索模型" })
@@ -1862,6 +1780,7 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
+    await openChannelEditor(interaction)
     await interaction.click(
       await screen.findByRole("combobox", { name: "协议兼容模式" })
     )
@@ -1871,7 +1790,7 @@ describe("administrator authentication settings", () => {
       })
     )
     await interaction.click(
-      within(screen.getByRole("group", { name: "模型渠道 1" })).getByRole(
+      within(screen.getByRole("dialog", { name: "编辑渠道" })).getByRole(
         "button",
         { name: "保存模型渠道 模型渠道 1" }
       )
@@ -1890,7 +1809,7 @@ describe("administrator authentication settings", () => {
       default_model: "model-a",
     })
     expect(updateBody.providers[0]).not.toHaveProperty("api_key")
-    expect(await screen.findByText("模型渠道设置已更新。")).toBeVisible()
+    expect(await screen.findByText("模型渠道设置已更新")).toBeVisible()
   })
 
   it("saves the system default and task auto-naming models together", async () => {
@@ -1945,7 +1864,7 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
-    const modelSelections = await screen.findByRole("group", {
+    const modelSelections = await screen.findByRole("form", {
       name: "对话与系统模型选择",
     })
     const defaultModelSelect = within(modelSelections).getByRole("combobox", {
@@ -2288,9 +2207,9 @@ describe("administrator authentication settings", () => {
 
     renderSettings("models")
 
-    const titleProvider = await screen.findByRole("group", {
-      name: "任务命名渠道",
-    })
+    const interaction = userEvent.setup()
+    await selectChannel(interaction, "任务命名渠道")
+    const titleProvider = await openChannelEditor(interaction)
     expect(within(titleProvider).getByLabelText("API_KEY")).toBeRequired()
     expect(
       within(titleProvider).getByRole("button", {
@@ -2330,14 +2249,15 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
+    await openChannelEditor(interaction)
     await interaction.type(
       within(
-        await screen.findByRole("group", { name: "模型渠道 1" })
+        await screen.findByRole("dialog", { name: "编辑渠道" })
       ).getByLabelText("API_KEY"),
       "replacement-secret"
     )
     await interaction.click(
-      within(screen.getByRole("group", { name: "模型渠道 1" })).getByRole(
+      within(screen.getByRole("dialog", { name: "编辑渠道" })).getByRole(
         "button",
         { name: "保存模型渠道 模型渠道 1" }
       )
@@ -2382,42 +2302,23 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
-    const channel = await screen.findByRole("group", {
-      name: "模型渠道 1",
-    })
-    const channelName = within(channel).getByText("模型渠道 1")
-    const renameButton = within(channel).getByRole("button", {
-      name: "重命名模型渠道 模型渠道 1",
-    })
-    expect(channelName.nextElementSibling).toBe(renameButton)
-
-    await interaction.click(renameButton)
-    const dialog = await screen.findByRole("dialog", {
-      name: "重命名模型渠道",
-    })
+    const dialog = await openChannelEditor(interaction)
     const nameInput = within(dialog).getByLabelText("渠道名称")
     await interaction.clear(nameInput)
     await interaction.type(nameInput, "  生产模型渠道  ")
     await interaction.click(
-      within(dialog).getByRole("button", { name: "重命名" })
+      within(dialog).getByRole("button", { name: /保存模型渠道/u })
     )
-
     expect(
       await screen.findByRole("group", { name: "生产模型渠道" })
     ).toBeVisible()
-    await interaction.click(
-      within(screen.getByRole("group", { name: "生产模型渠道" })).getByRole(
-        "button",
-        { name: "保存模型渠道 生产模型渠道" }
-      )
-    )
     const update = await waitForModelProviderSettingsPut(requests)
     expect(JSON.parse(String(update?.init?.body))).toMatchObject({
       providers: [{ id: "provider-a", name: "生产模型渠道" }],
     })
   })
 
-  it("adds a second model channel with its own Base URL, key, protocol mode, and models", async () => {
+  it("adds a second model channel with its own Base URL, key, protocol mode, without requiring a model", async () => {
     const requests: Array<{ path: string; init?: RequestInit }> = []
     vi.stubGlobal(
       "fetch",
@@ -2463,21 +2364,20 @@ describe("administrator authentication settings", () => {
     )
     const interaction = userEvent.setup()
     renderSettings("models")
-    const scrollIntoView = vi.mocked(HTMLElement.prototype.scrollIntoView)
-    scrollIntoView.mockClear()
-
     await interaction.click(
       await screen.findByRole("button", { name: "添加模型渠道" })
     )
-    const secondProvider = screen.getByRole("group", { name: "模型渠道 2" })
-    await waitFor(() => {
-      expect(scrollIntoView).toHaveBeenCalledWith({
-        behavior: "smooth",
-        block: "start",
-      })
-    })
-    expect(scrollIntoView).toHaveBeenCalledTimes(1)
-    expect(scrollIntoView.mock.contexts[0]).toBe(secondProvider)
+    const secondProvider = screen.getByRole("dialog", { name: "添加模型渠道" })
+    await interaction.type(
+      within(secondProvider).getByLabelText("渠道名称"),
+      "模型渠道 2"
+    )
+    expect(
+      within(secondProvider).queryByLabelText("模型 ID")
+    ).not.toBeInTheDocument()
+    expect(
+      within(secondProvider).queryByText("添加第一个模型")
+    ).not.toBeInTheDocument()
     await interaction.type(
       within(secondProvider).getByLabelText("Base URL"),
       "https://models-2.example.test/v1"
@@ -2496,16 +2396,6 @@ describe("administrator authentication settings", () => {
         name: "Chat Completions 转换",
       })
     )
-    const secondProviderDelete = within(secondProvider).getByRole("button", {
-      name: "删除模型渠道 模型渠道 2",
-    })
-    expect(
-      within(secondProvider).getByRole("button", {
-        name: "保存模型渠道 模型渠道 2",
-      })
-    ).toBeVisible()
-    expect(secondProviderDelete).toBeVisible()
-
     await interaction.click(
       within(secondProvider).getByRole("button", {
         name: "保存模型渠道 模型渠道 2",
@@ -2517,18 +2407,17 @@ describe("administrator authentication settings", () => {
       providers: [
         {
           id: "provider-a",
-          name: "模型渠道 1",
           base_url: "https://models.example.test/v1",
           protocol_mode: "native_responses",
           models: [{ id: "model-a" }],
         },
         {
-          id: "provider-2",
+          id: expect.stringMatching(/^provider-/u),
           name: "模型渠道 2",
           base_url: "https://models-2.example.test/v1",
           protocol_mode: "chat_completions_bridge",
           api_key: "provider-2-secret",
-          models: [{ id: "model-2" }],
+          models: [],
         },
       ],
       default_model: "model-a",
@@ -2591,13 +2480,8 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
-    const secondProvider = await screen.findByRole("group", {
-      name: "备用模型渠道",
-    })
-    const deleteButton = within(secondProvider).getByRole("button", {
-      name: "删除模型渠道 备用模型渠道",
-    })
-    await interaction.click(deleteButton)
+    await selectChannel(interaction, "备用模型渠道")
+    await deleteChannel(interaction, "备用模型渠道")
     let dialog = await screen.findByRole("dialog", {
       name: "删除模型渠道“备用模型渠道”？",
     })
@@ -2611,7 +2495,7 @@ describe("administrator authentication settings", () => {
       await screen.findByRole("group", { name: "备用模型渠道" })
     ).toBeVisible()
 
-    await interaction.click(deleteButton)
+    await deleteChannel(interaction, "备用模型渠道")
     dialog = await screen.findByRole("dialog", {
       name: "删除模型渠道“备用模型渠道”？",
     })
@@ -2642,7 +2526,7 @@ describe("administrator authentication settings", () => {
     expect(requests.some((request) => request.init?.method === "PUT")).toBe(
       false
     )
-    expect(await screen.findByText("模型渠道已删除。")).toBeVisible()
+    expect(await screen.findByText("模型渠道已删除")).toBeVisible()
   })
 
   it("keeps a selected model channel and explains how to release it", async () => {
@@ -2698,14 +2582,9 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
-    const provider = await screen.findByRole("group", {
-      name: "备用模型渠道",
-    })
-    await interaction.click(
-      within(provider).getByRole("button", {
-        name: "删除模型渠道 备用模型渠道",
-      })
-    )
+    await selectChannel(interaction, "备用模型渠道")
+    const provider = screen.getByRole("group", { name: "备用模型渠道" })
+    await deleteChannel(interaction, "备用模型渠道")
     const dialog = await screen.findByRole("dialog", {
       name: "删除模型渠道“备用模型渠道”？",
     })
@@ -2782,9 +2661,7 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
-    const model = await screen.findByRole("group", {
-      name: "GPT-5.6-Sol",
-    })
+    const model = await openModelEditor(interaction, "GPT-5.6-Sol")
     expect(within(model).queryByText(/可选档位由/u)).not.toBeInTheDocument()
     const supportedEfforts = within(model).getByRole("button", {
       name: "支持的推理强度",
@@ -2800,9 +2677,7 @@ describe("administrator authentication settings", () => {
     await interaction.click(ultra)
     expect(supportedEfforts).toHaveTextContent("已选择 5 项")
     await interaction.keyboard("{Escape}")
-    expect(
-      within(model).getByRole("button", { name: "删除模型 GPT-5.6-Sol" })
-    ).toBeVisible()
+    expect(within(model).getByLabelText("模型 ID")).toHaveValue("gpt-5.6-sol")
     const defaultEffort = within(model).getByRole("combobox", {
       name: "默认推理强度",
     })
@@ -2875,7 +2750,7 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
-    const model = await screen.findByRole("group", { name: "Model A" })
+    const model = await openModelEditor(interaction, "Model A")
     const supportedEfforts = within(model).getByRole("button", {
       name: "支持的推理强度",
     })
@@ -2922,7 +2797,7 @@ describe("administrator authentication settings", () => {
     })
   })
 
-  it("keeps unrelated save buttons available and serializes a subsequent save", async () => {
+  it("prevents duplicate saves and uses the returned revision in the next editor", async () => {
     const settings = {
       ...modelProviderSettings,
       providers: [
@@ -2970,50 +2845,35 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
-    const provider = await screen.findByRole("group", { name: "模型渠道 1" })
-    const modelA = screen.getByRole("group", { name: "Model A" })
-    const modelB = screen.getByRole("group", { name: "Model B" })
-    const modelASave = within(modelA).getByRole("button", {
+    const modelA = await openModelEditor(interaction, "Model A")
+    const save = within(modelA).getByRole("button", {
       name: "保存模型 Model A",
     })
-    const modelBSave = within(modelB).getByRole("button", {
-      name: "保存模型 Model B",
-    })
-    const providerSave = within(provider).getByRole("button", {
-      name: "保存模型渠道 模型渠道 1",
-    })
-    const selectionSave = screen.getByRole("button", {
-      name: "保存任务与系统模型选择",
-    })
-
-    await interaction.click(modelASave)
-
-    await waitFor(() => expect(modelASave).toHaveAttribute("aria-busy", "true"))
-    expect(modelASave.querySelector('[data-slot="spinner"]')).not.toBeNull()
-    for (const otherSave of [modelBSave, providerSave, selectionSave]) {
-      expect(otherSave).toBeEnabled()
-      expect(otherSave).not.toHaveAttribute("aria-busy")
-      expect(otherSave.querySelector('[data-slot="spinner"]')).toBeNull()
-    }
-
-    await interaction.click(modelBSave)
-    await waitFor(() => expect(modelBSave).toHaveAttribute("aria-busy", "true"))
-    expect(modelBSave).toBeDisabled()
-    expect(modelBSave.querySelector('[data-slot="spinner"]')).not.toBeNull()
+    await interaction.click(save)
+    await waitFor(() => expect(save).toHaveAttribute("aria-busy", "true"))
+    expect(save).toBeDisabled()
+    expect(within(modelA).getByRole("button", { name: "取消" })).toBeDisabled()
+    expect(within(modelA).getByLabelText("显示名称")).toBeDisabled()
+    await interaction.click(save)
     expect(saveRequests).toHaveLength(1)
-
     resolveSave(
       envelope({
         code: "SYSTEM_SETTINGS_UPDATED",
         settings: { ...settings, revision: 3 },
       })
     )
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+    const modelB = await openModelEditor(interaction, "Model B")
+    await interaction.click(
+      within(modelB).getByRole("button", { name: "保存模型 Model B" })
+    )
     await waitFor(() => expect(saveRequests).toHaveLength(2))
     expect(saveRequests[1]).toMatchObject({ expected_revision: 3 })
-    await waitFor(() => {
-      expect(modelASave).not.toHaveAttribute("aria-busy")
-      expect(modelBSave).not.toHaveAttribute("aria-busy")
-    })
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
   })
 
   it("updates model availability and deletes a persisted model immediately", async () => {
@@ -3096,13 +2956,13 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
-    const model = await screen.findByRole("group", { name: "Model A" })
+    const model = await screen.findByRole("row", { name: "Model A" })
     const availability = within(model).getByRole("switch", {
-      name: "对话可选",
+      name: "对话可选：Model A",
     })
     expect(availability).toBeChecked()
     expect(
-      within(model).queryByRole("checkbox", { name: "对话可选" })
+      within(model).queryByRole("checkbox", { name: "对话可选：Model A" })
     ).not.toBeInTheDocument()
 
     await interaction.click(availability)
@@ -3122,15 +2982,14 @@ describe("administrator authentication settings", () => {
       false
     )
 
-    const modelB = screen.getByRole("group", { name: "Model B" })
-    const modelBDisplayName = within(modelB).getByLabelText("显示名称")
-    await interaction.clear(modelBDisplayName)
-    await interaction.type(modelBDisplayName, "未保存的 Model B")
-
-    const deleteButton = within(model).getByRole("button", {
-      name: "删除模型 Model A",
-    })
-    await interaction.click(deleteButton)
+    await openModelEditor(interaction, "Model B")
+    await interaction.type(screen.getByLabelText("显示名称"), "未保存")
+    await interaction.click(screen.getByRole("button", { name: "取消" }))
+    await interaction.click(screen.getByRole("button", { name: "放弃修改" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+    await deleteModel(interaction, "Model A")
 
     let dialog = await screen.findByRole("dialog", {
       name: "删除模型“Model A”？",
@@ -3145,9 +3004,9 @@ describe("administrator authentication settings", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     )
-    expect(screen.getByRole("group", { name: "Model A" })).toBeInTheDocument()
+    expect(screen.getByRole("row", { name: "Model A" })).toBeInTheDocument()
 
-    await interaction.click(deleteButton)
+    await deleteModel(interaction, "Model A")
     dialog = await screen.findByRole("dialog", {
       name: "删除模型“Model A”？",
     })
@@ -3157,12 +3016,10 @@ describe("administrator authentication settings", () => {
 
     await waitFor(() =>
       expect(
-        screen.queryByRole("group", { name: "Model A" })
+        screen.queryByRole("row", { name: "Model A" })
       ).not.toBeInTheDocument()
     )
-    expect(
-      screen.getByRole("group", { name: "未保存的 Model B" })
-    ).toBeInTheDocument()
+    expect(screen.getByRole("row", { name: "Model B" })).toBeInTheDocument()
     const deletion = requests.find(
       (request) => request.init?.method === "DELETE"
     )
@@ -3174,7 +3031,7 @@ describe("administrator authentication settings", () => {
     expect(requests.some((request) => request.init?.method === "PUT")).toBe(
       false
     )
-    expect(await screen.findByText("模型已删除。")).toBeVisible()
+    expect(await screen.findByText("模型已删除")).toBeVisible()
   })
 
   it("keeps a persisted model when its immediate deletion fails", async () => {
@@ -3222,10 +3079,8 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
-    const model = await screen.findByRole("group", { name: "Model A" })
-    await interaction.click(
-      within(model).getByRole("button", { name: "删除模型 Model A" })
-    )
+    const model = await screen.findByRole("row", { name: "Model A" })
+    await deleteModel(interaction, "Model A")
     const dialog = await screen.findByRole("dialog", {
       name: "删除模型“Model A”？",
     })
@@ -3272,7 +3127,7 @@ describe("administrator authentication settings", () => {
     renderSettings("models")
 
     const availability = await screen.findByRole("switch", {
-      name: "对话可选",
+      name: "对话可选：Model A",
     })
     expect(availability).toBeChecked()
     await interaction.click(availability)
@@ -3355,26 +3210,19 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
-    const model = await screen.findByRole("group", { name: "Model A" })
+    const model = await screen.findByRole("row", { name: "Model A" })
     await interaction.click(
-      within(model).getByRole("switch", { name: "对话可选" })
+      within(model).getByRole("switch", { name: "对话可选：Model A" })
     )
     await waitFor(() =>
       expect(requests.some((request) => request.init?.method === "PATCH")).toBe(
         true
       )
     )
-    await interaction.type(
-      within(screen.getByRole("group", { name: "Model B" })).getByLabelText(
-        "显示名称"
-      ),
-      " Stable"
-    )
+    const editor = await openModelEditor(interaction, "Model B")
+    await interaction.type(within(editor).getByLabelText("显示名称"), " Stable")
     await interaction.click(
-      within(screen.getByRole("group", { name: "Model B Stable" })).getByRole(
-        "button",
-        { name: "保存模型 Model B Stable" }
-      )
+      within(editor).getByRole("button", { name: "保存模型 Model B Stable" })
     )
     await waitForModelProviderSettingsPut(requests)
 
@@ -3497,7 +3345,7 @@ describe("administrator authentication settings", () => {
     })
     expect(secretInput).toHaveValue("")
     expect(secretInput).toHaveAttribute("placeholder", "••••••••••••")
-    expect(await screen.findByText("认证配置已更新并立即生效。")).toBeVisible()
+    expect(await screen.findByText("认证配置已更新并立即生效")).toBeVisible()
   })
 
   it("saves only the SMTP namespace and applies the returned revision", async () => {
@@ -3593,6 +3441,72 @@ describe("administrator authentication settings", () => {
     })
     expect(passwordInput).toHaveValue("")
     expect(passwordInput).toHaveAttribute("placeholder", "••••••••••••")
-    expect(await screen.findByText("认证配置已更新并立即生效。")).toBeVisible()
+    expect(await screen.findByText("认证配置已更新并立即生效")).toBeVisible()
   })
 })
+
+async function openChannelEditor(
+  interaction: ReturnType<typeof userEvent.setup>
+) {
+  await interaction.click(
+    await screen.findByRole("button", { name: "渠道操作" })
+  )
+  await interaction.click(
+    await screen.findByRole("menuitem", { name: "编辑渠道" })
+  )
+  return screen.findByRole("dialog", { name: "编辑渠道" })
+}
+
+async function openModelEditor(
+  interaction: ReturnType<typeof userEvent.setup>,
+  name: string
+) {
+  await interaction.click(
+    await screen.findByRole("button", { name: `编辑模型 ${name}` })
+  )
+  return screen.findByRole("dialog", { name: `编辑模型 ${name}` })
+}
+
+async function closeModelEditor(
+  interaction: ReturnType<typeof userEvent.setup>
+) {
+  await interaction.click(screen.getByRole("button", { name: "取消" }))
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  )
+}
+
+async function selectChannel(
+  interaction: ReturnType<typeof userEvent.setup>,
+  name: string
+) {
+  await interaction.click(
+    await screen.findByRole("combobox", { name: "当前渠道" })
+  )
+  await interaction.click(await screen.findByRole("option", { name }))
+}
+
+async function deleteChannel(
+  interaction: ReturnType<typeof userEvent.setup>,
+  name: string
+) {
+  await interaction.click(
+    await screen.findByRole("button", { name: "渠道操作" })
+  )
+  await interaction.click(
+    await screen.findByRole("menuitem", { name: "删除渠道" })
+  )
+  await screen.findByRole("dialog", { name: `删除模型渠道“${name}”？` })
+}
+
+async function deleteModel(
+  interaction: ReturnType<typeof userEvent.setup>,
+  name: string
+) {
+  await interaction.click(
+    await screen.findByRole("button", { name: `模型 ${name} 的操作` })
+  )
+  await interaction.click(
+    await screen.findByRole("menuitem", { name: "删除模型" })
+  )
+}

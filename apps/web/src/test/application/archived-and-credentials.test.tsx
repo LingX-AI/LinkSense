@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event"
 import { describe, expect, it } from "vitest"
 import {
   setupApplicationTests,
-  chooseSelectOption,
   conversations,
   installApiMock,
   json,
@@ -170,6 +169,10 @@ describe("LinkSense application", () => {
 
   it("confirms and clears all archived tasks without targeting active tasks", async () => {
     let archivedListRequestCount = 0
+    let finishClearArchived!: () => void
+    const clearArchivedStart = new Promise<void>((resolve) => {
+      finishClearArchived = resolve
+    })
     const archivedTask = {
       ...conversations[1],
       id: "archived-task-1",
@@ -178,7 +181,10 @@ describe("LinkSense application", () => {
     }
     const { requests } = installApiMock({
       userOverride: { role: "user" },
-      clearArchivedDeletedCount: 1,
+      clearArchivedResponse: async () => {
+        await clearArchivedStart
+        return json({ success: true, data: { deleted_count: 1 } })
+      },
       conversationListResponse: (query) => {
         if (query.get("archived") !== "true") {
           return json({
@@ -219,6 +225,23 @@ describe("LinkSense application", () => {
     )
     await interaction.click(confirmButton)
 
+    expect(
+      screen.queryByRole("dialog", {
+        name: "清除全部已归档任务？",
+      })
+    ).not.toBeInTheDocument()
+    const clearingLabel = await screen.findByText("正在清除已归档任务…")
+    const clearingToast = clearingLabel.closest("[data-sonner-toast]")
+    expect(clearingToast).toHaveAttribute("data-type", "loading")
+    expect(clearingToast?.closest("[data-sonner-toaster]")).toHaveAttribute(
+      "data-y-position",
+      "top"
+    )
+    expect(clearingToast?.closest("[data-sonner-toaster]")).toHaveAttribute(
+      "data-x-position",
+      "center"
+    )
+    expect(clearButton).toBeDisabled()
     await waitFor(() =>
       expect(requests).toContainEqual(
         expect.objectContaining({
@@ -227,21 +250,82 @@ describe("LinkSense application", () => {
         })
       )
     )
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("dialog", {
-          name: "清除全部已归档任务？",
-        })
-      ).not.toBeInTheDocument()
-    )
+    finishClearArchived()
     expect(await screen.findByText("没有已归档任务")).toBeVisible()
-    expect(await screen.findByText("已清除 1 个已归档任务。")).toBeVisible()
+    expect(screen.queryByText("正在清除已归档任务…")).not.toBeInTheDocument()
+    const successLabel = await screen.findByText("已清除 1 个已归档任务")
+    expect(successLabel).toBeVisible()
+    expect(successLabel.closest("[data-sonner-toast]")).toBe(clearingToast)
+    expect(clearingToast).toHaveAttribute("data-type", "success")
     expect(
       screen.queryByRole("button", { name: "搜索" })
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "清除全部" })
     ).not.toBeInTheDocument()
+  })
+
+  it("keeps the clear confirmation closed and restores the archived list when clearing fails", async () => {
+    let finishClearArchived!: () => void
+    const clearArchivedStart = new Promise<void>((resolve) => {
+      finishClearArchived = resolve
+    })
+    const archivedTask = {
+      ...conversations[1],
+      id: "archived-task-1",
+      archived: true,
+      archive_status: "archived",
+    }
+    installApiMock({
+      userOverride: { role: "user" },
+      conversationListResponse: (query) =>
+        json({
+          success: true,
+          data: {
+            items: query.get("archived") === "true" ? [archivedTask] : [],
+            next_cursor: null,
+            total_count: query.get("archived") === "true" ? 1 : 0,
+          },
+        }),
+      clearArchivedResponse: async () => {
+        await clearArchivedStart
+        return json({ success: false, error_code: "INTERNAL_ERROR" }, 500)
+      },
+    })
+    const interaction = userEvent.setup()
+    renderApp("/archived")
+
+    await interaction.click(
+      await screen.findByRole("button", { name: "清除全部" })
+    )
+    const dialog = await screen.findByRole("dialog", {
+      name: "清除全部已归档任务？",
+    })
+    await interaction.click(
+      within(dialog).getByRole("button", { name: "清除全部" })
+    )
+
+    expect(dialog).not.toBeInTheDocument()
+    const clearingLabel = await screen.findByText("正在清除已归档任务…")
+    expect(clearingLabel).toBeVisible()
+    const clearingToast = clearingLabel.closest("[data-sonner-toast]")
+    expect(clearingToast).toHaveAttribute("data-type", "loading")
+    finishClearArchived()
+
+    await waitFor(() =>
+      expect(screen.queryByText("正在清除已归档任务…")).not.toBeInTheDocument()
+    )
+    expect(clearingToast).toHaveAttribute("data-type", "error")
+    expect(clearingToast).toBeVisible()
+    expect(
+      screen.queryByRole("dialog", {
+        name: "清除全部已归档任务？",
+      })
+    ).not.toBeInTheDocument()
+    expect(screen.getByText("1 个任务")).toBeVisible()
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "清除全部" })).toBeEnabled()
+    )
   })
 
   it("creates a personal credential with multiple environment variables", async () => {
@@ -262,8 +346,8 @@ describe("LinkSense application", () => {
       screen.queryByRole("complementary", { name: "LinkSense 导航" })
     ).not.toBeInTheDocument()
     expect(
-      await screen.findByRole("heading", { name: "插件凭据生效来源" })
-    ).toBeVisible()
+      screen.queryByRole("heading", { name: "插件凭据生效来源" })
+    ).not.toBeInTheDocument()
     expect(
       screen.getByRole("complementary", { name: "LinkSense 设置导航" })
     ).toBeVisible()
@@ -274,13 +358,11 @@ describe("LinkSense application", () => {
       await screen.findByRole("button", { name: "新增凭据" })
     )
     await interaction.type(screen.getByLabelText("名称"), "业务系统")
-    await interaction.type(screen.getByLabelText("提供方类型"), "service_api")
-    await interaction.clear(screen.getByLabelText("环境变量名"))
-    await interaction.type(screen.getByLabelText("环境变量名"), "API_KEY")
-    await interaction.type(screen.getByLabelText("环境变量值"), "secret-one")
-    await interaction.click(
-      screen.getByRole("button", { name: "添加环境变量" })
-    )
+    await interaction.type(screen.getByLabelText("服务标识"), "service_api")
+    await interaction.clear(screen.getByLabelText("配置项名称"))
+    await interaction.type(screen.getByLabelText("配置项名称"), "API_KEY")
+    await interaction.type(screen.getByLabelText("授权信息"), "secret-one")
+    await interaction.click(screen.getByRole("button", { name: "添加配置项" }))
     const credentialDialog = screen.getByRole("dialog", { name: "新增凭据" })
     expect(credentialDialog).toHaveClass(
       "max-h-[90vh]",
@@ -292,11 +374,11 @@ describe("LinkSense application", () => {
     ).toHaveLength(2)
     expect(
       within(credentialDialog).getAllByRole("button", {
-        name: "移除此环境变量",
+        name: "移除此配置项",
       })
     ).toHaveLength(2)
-    const keyInputs = screen.getAllByLabelText("环境变量名")
-    const valueInputs = screen.getAllByLabelText("环境变量值")
+    const keyInputs = screen.getAllByLabelText("配置项名称")
+    const valueInputs = screen.getAllByLabelText("授权信息")
     expect(valueInputs[0]).toHaveAttribute("autocomplete", "new-password")
     await interaction.clear(keyInputs[1]!)
     await interaction.type(keyInputs[1]!, "API_SECRET")
@@ -327,30 +409,18 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("shows the redacted effective credential source for each plugin key", async () => {
+  it("explains credentials and does not show a separate technical source inspector", async () => {
     installApiMock()
-    const interaction = userEvent.setup()
     renderApp("/credentials")
-
-    await screen.findByRole("heading", { name: "插件凭据生效来源" })
     expect(
-      screen.getByRole("complementary", { name: "LinkSense 设置导航" })
+      await screen.findByRole("heading", { name: "插件凭据" })
     ).toBeVisible()
     expect(
-      screen.queryByRole("complementary", { name: "LinkSense 导航" })
+      screen.getByText(/插件凭据是插件访问外部服务时使用的密钥等授权信息/)
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("combobox", { name: "插件" })
     ).not.toBeInTheDocument()
-    expect(
-      screen
-        .getByRole("combobox", { name: "插件" })
-        .closest('[data-slot="field"]')
-    ).toHaveClass("credential-effective-plugin-field")
-    await chooseSelectOption(interaction, "插件", "业务数据")
-    expect(await screen.findByText("SERVICE_API_KEY")).toBeVisible()
-    expect(
-      screen
-        .getAllByText("个人凭据")
-        .some((element) => element.dataset.slot === "badge")
-    ).toBe(true)
     expect(
       screen.queryByText(/secret-one|credential-1/)
     ).not.toBeInTheDocument()

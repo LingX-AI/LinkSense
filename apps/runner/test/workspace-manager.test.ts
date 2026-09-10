@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto"
 import {
   chmod,
+  cp,
+  rename,
   chown,
   lstat,
   mkdir,
@@ -10,6 +12,7 @@ import {
   readdir,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises"
 import os from "node:os"
@@ -55,6 +58,117 @@ async function tempRoot(): Promise<string> {
   roots.push(root)
   return root
 }
+
+describe("shared user HOME with task capabilities", () => {
+  it("shares private tool state across tasks, isolates native state, and preserves the login when deleting a task", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    manager.bindOwner(taskB, ownerA)
+    const [first, second] = await Promise.all([
+      manager.ensureConversation(taskA, "current"),
+      manager.ensureConversation(taskB, "current"),
+    ])
+    expect(first.home).toBe(path.join(root, ownerA, "home"))
+    expect(second.home).toBe(first.home)
+    expect(first.codexHome).not.toBe(second.codexHome)
+    const configDirectory = path.join(first.home, ".example-cli")
+    await mkdir(configDirectory, { mode: 0o700 })
+    await writeFile(path.join(configDirectory, "login.json"), "synthetic-login", { mode: 0o600 })
+    expect(await readFile(path.join(second.home, ".example-cli", "login.json"), "utf8")).toBe("synthetic-login")
+    await manager.removeConversation(taskA)
+    expect(await readFile(path.join(second.home, ".example-cli", "login.json"), "utf8")).toBe("synthetic-login")
+    expect((await lstat(configDirectory)).mode & 0o777).toBe(0o700)
+    expect((await lstat(path.join(configDirectory, "login.json"))).mode & 0o777).toBe(0o600)
+    expect((await lstat(second.codexHome)).isDirectory()).toBe(true)
+    await expect(lstat(first.codexHome)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("discovers skills from the task workspace without publishing a shared HOME skills directory", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    const paths = await manager.ensureConversation(taskA, "current")
+    expect(await readlink(path.join(paths.workspace, ".agents"))).toBe(
+      path.join(root, ownerA, "home", ".agents", "tasks", taskA),
+    )
+    await expect(lstat(path.join(root, ownerA, "home", ".agents", "skills")))
+      .rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it.each(["directory", "foreign-link"])("rejects a workspace capability %s substitution without modifying it", async (kind) => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    const paths = manager.pathsFor(taskA)
+    const entry = path.join(paths.workspace, ".agents")
+    await mkdir(paths.workspace, { recursive: true })
+    if (kind === "directory") await mkdir(entry)
+    else await symlink(path.join(root, "another-task"), entry)
+    await expect(manager.ensureConversation(taskA, "current")).rejects.toBeInstanceOf(WorkspaceBoundaryError)
+    expect((await lstat(entry)).isSymbolicLink()).toBe(kind === "foreign-link")
+  })
+
+  it("updates task instructions on an existing template without changing native history", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    const paths = await manager.ensureConversation(taskA, "current")
+    await writeFile(path.join(paths.workspace, "AGENTS.md"), "<!-- linksense-template:current rules:shared-home-v1 -->\nold task HOME instructions")
+    await writeFile(path.join(paths.codexHome, "history-fixture"), "same-history", { mode: 0o600 })
+    await manager.ensureConversation(taskA, "current")
+    const instructions = await readFile(path.join(paths.workspace, "AGENTS.md"), "utf8")
+    expect(instructions).toContain("shared user HOME")
+    expect(instructions).toContain("First locate bundled Plugin and Skill resources")
+    expect(await readFile(path.join(paths.codexHome, "history-fixture"), "utf8")).toBe("same-history")
+  })
+
+  it("gives each task its own workspace-first capability lookup rules without redirecting user state", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    manager.bindOwner(taskB, ownerA)
+    const tasks = await Promise.all([
+      manager.ensureConversation(taskA, "current"),
+      manager.ensureConversation(taskB, "current"),
+    ])
+    for (const task of tasks) {
+      const other = task === tasks[0] ? tasks[1] : tasks[0]
+      const instructions = await readFile(path.join(task.workspace, "AGENTS.md"), "utf8")
+      const first = instructions.indexOf("First locate bundled Plugin and Skill resources")
+      const second = instructions.indexOf("Only when the matching workspace resource is absent")
+      expect(first).toBeGreaterThan(-1)
+      expect(second).toBeGreaterThan(first)
+      expect(instructions.slice(first, second)).toContain(path.join(task.workspace, ".agents", "skills"))
+      expect(instructions.slice(first, second)).toContain(path.join(task.workspace, ".agents", "plugin-sources"))
+      expect(instructions).toContain("even if a command changes its working directory")
+      expect(instructions).toContain("preserving the exact package name and package-relative path")
+      expect(instructions).toContain("the SKILL.md actually loaded for this turn")
+      expect(instructions).toContain("never search other tasks, users, or historical package versions")
+      expect(instructions).toContain("Do not reinterpret permission or authentication failures as missing files")
+      expect(instructions).toContain("Never relocate credentials, user configuration, caches, or tool data")
+      expect(instructions).toContain(`shared user HOME ${task.home}`)
+      expect(instructions).not.toContain(other.workspace)
+    }
+  })
+
+  it("keeps current task instructions unchanged on repeated preparation", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    const task = await manager.ensureConversation(taskA, "current")
+    const instructionsPath = path.join(task.workspace, "AGENTS.md")
+    const original = await readFile(instructionsPath, "utf8")
+    await utimes(instructionsPath, 1_000, 1_000)
+    const before = await lstat(instructionsPath)
+    await manager.ensureConversation(taskA, "current")
+    const after = await lstat(instructionsPath)
+    expect(after.ino).toBe(before.ino)
+    expect(after.mtimeMs).toBe(before.mtimeMs)
+    expect(after.mode & 0o777).toBe(0o640)
+    expect(await readFile(instructionsPath, "utf8")).toBe(original)
+  })
+})
 
 describe("workspace filesystem helpers", () => {
   it("only tolerates chmod denial for a shared-group writable directory", () => {
@@ -241,7 +355,35 @@ describe("workspace filesystem helpers", () => {
 })
 
 describe("WorkspaceManager", () => {
-  it("shares one user HOME and CODEX_HOME while keeping task workspaces isolated", async () => {
+  it("rejects a substituted task-home parent during preparation and cleanup", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    const owner = await manager.ensureOwner(ownerA)
+    const external = path.join(root, "outside")
+    await mkdir(external)
+    await writeFile(path.join(external, "keep"), "untouched")
+    await rm(path.join(owner.home, "task-homes"), { recursive: true })
+    await symlink(external, path.join(owner.home, "task-homes"))
+    await expect(manager.ensureConversation(taskA, "current")).rejects.toBeInstanceOf(WorkspaceBoundaryError)
+    await expect(manager.removeConversation(taskA)).rejects.toBeInstanceOf(WorkspaceBoundaryError)
+    expect(await readdir(external)).toEqual(["keep"])
+    expect(await readFile(path.join(external, "keep"), "utf8")).toBe("untouched")
+  })
+
+  it("never reads or repairs a legacy shared Codex directory when preparing a task", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    const owner = await manager.ensureOwner(ownerA)
+    const legacy = path.join(owner.home, ".codex")
+    await writeFile(legacy, "deliberately invalid legacy runtime")
+    const task = await manager.ensureConversation(taskA, "current")
+    expect((await lstat(task.codexHome)).isDirectory()).toBe(true)
+    expect(await readFile(legacy, "utf8")).toBe("deliberately invalid legacy runtime")
+  })
+
+  it("isolates HOME, CODEX_HOME and capability publication for every task of the same user", async () => {
     const root = await tempRoot()
     const manager = new WorkspaceManager(root)
     manager.bindOwner(taskA, ownerA)
@@ -255,23 +397,23 @@ describe("WorkspaceManager", () => {
       manager.ensureConversation(otherTask, "current"),
     ])
 
-    expect(first.home).toBe(path.join(root, ownerA, "home"))
-    expect(first.codexHome).toBe(path.join(first.home, ".codex"))
-    expect(second.home).toBe(first.home)
-    expect(second.codexHome).toBe(first.codexHome)
+    expect(first.taskHome).toBe(path.join(root, ownerA, "home", "task-homes", taskA))
+    expect(first.codexHome).toBe(path.join(first.taskHome, ".codex"))
+    expect(second.taskHome).not.toBe(first.taskHome)
+    expect(second.codexHome).not.toBe(first.codexHome)
     expect(second.workspace).not.toBe(first.workspace)
     expect(second.taskControl).not.toBe(first.taskControl)
-    expect(first.workspace).toBe(path.join(first.home, "workspaces", taskA))
+    expect(first.workspace).toBe(path.join(root, ownerA, "home", "workspaces", taskA))
     expect(first.taskControl).toBe(
       path.join(root, ownerA, "control", "workspaces", taskA),
     )
-    expect(other.home).not.toBe(first.home)
+    expect(other.taskHome).not.toBe(first.taskHome)
     const taskAgentsFile = await readFile(
       path.join(first.workspace, "AGENTS.md"),
       "utf8",
     )
     expect(taskAgentsFile).toContain(
-      "Only operate inside the current task workspace",
+      "Create and edit task files only inside the current task workspace",
     )
     expect(taskAgentsFile).toContain(
       "built-in `linksense-skill-creator` workflow",
@@ -302,9 +444,10 @@ describe("WorkspaceManager", () => {
     const manager = new WorkspaceManager(root)
     manager.bindOwner(taskA, ownerA)
 
+    await mkdir(path.join(root, ownerA, "home", ".agents", "tasks", taskA), { recursive: true })
     const paths = await manager.ensureConversation(taskA, "current")
     const skillsLink = path.join(paths.workspace, "skills")
-    const skillsRoot = path.join(paths.home, ".agents", "skills")
+    const skillsRoot = path.join(paths.taskHome, ".agents", "skills")
     const skillsTarget = path.relative(paths.workspace, skillsRoot)
 
     expect((await lstat(skillsLink)).isSymbolicLink()).toBe(true)
@@ -340,10 +483,12 @@ describe("WorkspaceManager", () => {
     manager.bindOwner(taskA, ownerA)
     const paths = manager.pathsFor(taskA)
     const skillsLink = path.join(paths.workspace, "skills")
-    const skillsRoot = path.join(paths.home, ".agents", "skills")
+    const skillsRoot = path.join(paths.taskHome, ".agents", "skills")
     const skillsTarget = path.relative(paths.workspace, skillsRoot)
     await mkdir(paths.workspace, { recursive: true })
-    await mkdir(skillsRoot, { recursive: true })
+    await mkdir(path.join(root, ownerA, "home", ".agents", "tasks", taskA, "skills"), { recursive: true })
+    await mkdir(paths.taskHome, { recursive: true })
+    await symlink(path.join(root, ownerA, "home", ".agents", "tasks", taskA), path.join(paths.taskHome, ".agents"))
     await symlink(skillsRoot, skillsLink, "dir")
 
     await manager.ensureConversation(taskA, "current")
@@ -379,20 +524,25 @@ describe("WorkspaceManager", () => {
     expect(initial).toMatchObject({
       custom_instructions: "",
       memories_enabled: true,
+      task_auto_naming: "first_message",
     })
 
     const updated = await manager.updatePersonalization(ownerA, {
       custom_instructions: "请优先使用中文，并运行相关测试。",
       memories_enabled: false,
+      task_auto_naming: "every_message",
     })
     expect(updated.revision).not.toBe(initial.revision)
     expect(updated).toMatchObject({
       custom_instructions: "请优先使用中文，并运行相关测试。",
       memories_enabled: false,
+      task_auto_naming: "every_message",
     })
     const ownerAPaths = manager.ownerPathsFor(ownerA)
+    manager.bindOwner(taskA, ownerA)
+    const taskAPaths = await manager.ensureConversation(taskA, "current")
     const globalInstructions = await readFile(
-      path.join(ownerAPaths.codexHome, "AGENTS.md"),
+      path.join(taskAPaths.codexHome, "AGENTS.md"),
       "utf8",
     )
     expect(globalInstructions).toContain("请优先使用中文，并运行相关测试。")
@@ -409,10 +559,13 @@ describe("WorkspaceManager", () => {
     expect(other).toMatchObject({
       custom_instructions: "",
       memories_enabled: true,
+      task_auto_naming: "first_message",
     })
+    manager.bindOwner(taskB, ownerB)
+    const taskBPaths = await manager.ensureConversation(taskB, "current")
     expect(
       await readFile(
-        path.join(manager.ownerPathsFor(ownerB).codexHome, "AGENTS.md"),
+        path.join(taskBPaths.codexHome, "AGENTS.md"),
         "utf8",
       ),
     ).not.toContain("请优先使用中文")
@@ -500,7 +653,7 @@ describe("WorkspaceManager", () => {
       manager.ensureConversation(taskB, "current"),
     ])
     const persistentPlugin = path.join(
-      first.codexHome,
+      second.codexHome,
       "plugins",
       "documents",
       "marker",
@@ -516,8 +669,8 @@ describe("WorkspaceManager", () => {
     })
     expect((await lstat(second.workspace)).isDirectory()).toBe(true)
     expect(await readFile(persistentPlugin, "utf8")).toBe("keep")
-    expect((await lstat(first.home)).isDirectory()).toBe(true)
-    expect((await lstat(first.codexHome)).isDirectory()).toBe(true)
+    await expect(lstat(first.taskHome)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(lstat(first.codexHome)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("initializes the Codex template once and preserves Codex-owned user state", async () => {
@@ -867,7 +1020,7 @@ describe("WorkspaceManager", () => {
     expect(config).toContain("supports_websockets = false")
   })
 
-  it("normalizes private Codex config files when a worker prepares the next conversation", async () => {
+  it("normalizes only the current task Codex config files before its next turn", async () => {
     const root = await tempRoot()
     const template = path.join(root, "template")
     await mkdir(template)
@@ -888,7 +1041,7 @@ describe("WorkspaceManager", () => {
     const authPath = path.join(first.codexHome, "auth.json")
     await Promise.all([chmod(configPath, 0o000), chmod(authPath, 0o600)])
 
-    await manager.ensureConversation(taskB, "replacement")
+    await manager.ensureConversation(taskA, "replacement")
 
     expect((await lstat(configPath)).mode & 0o777).toBe(0o660)
     expect((await lstat(authPath)).mode & 0o777).toBe(0o660)
@@ -919,7 +1072,7 @@ describe("WorkspaceManager", () => {
     await symlink(externalConfig, configPath)
 
     await expect(
-      manager.ensureConversation(taskB, "replacement"),
+      manager.ensureConversation(taskA, "replacement"),
     ).rejects.toThrow(WorkspaceBoundaryError)
     expect(await readFile(externalConfig, "utf8")).toBe(
       'model = "external"\n',
@@ -939,9 +1092,10 @@ describe("WorkspaceManager", () => {
 
     expect(await manager.ensureConversation(taskA, "current")).toMatchObject({
       home: fixedHome,
-      control: fixedControl,
+      taskHome: path.join(fixedHome, "task-homes", taskA),
+      control: path.join(fixedControl, "workspaces", taskA),
       workspace: path.join(fixedHome, "workspaces", taskA),
-      codexHome: path.join(fixedHome, ".codex"),
+      codexHome: path.join(fixedHome, "task-homes", taskA, ".codex"),
       taskControl: path.join(fixedControl, "workspaces", taskA),
     })
     expect(() => manager.bindOwner(taskB, ownerB)).toThrow(
@@ -984,13 +1138,67 @@ describe("WorkspaceManager", () => {
 })
 
 describe("CapabilityRuntimeManager", () => {
+  it("reuses verified immutable bytes across tasks while checking each task binding", async () => {
+    const fixture = await publishedRuntimeFixture()
+    const onFullVerification = vi.fn()
+    const identity = { uid: process.getuid?.() ?? 1000, gid: process.getgid?.() ?? 1000 }
+    const manager = new CapabilityRuntimeManager({ apiIdentity: identity, taskIdentity: identity, onFullVerification })
+    const seed = path.join(path.dirname(fixture.taskHome), "seed")
+    await rename(path.join(fixture.taskHome, ".agents"), seed)
+    const id = `${generation}-11111111-1111-4111-8111-111111111111`
+    const snapshots = path.join(fixture.taskHome, ".agents", "snapshots")
+    const tasks = path.join(fixture.taskHome, ".agents", "tasks")
+    await mkdir(snapshots, { recursive: true, mode: 0o750 })
+    await mkdir(tasks, { mode: 0o750 })
+    const snapshot = path.join(snapshots, id)
+    await rename(seed, snapshot)
+    await writeFile(path.join(snapshot, "capability-snapshot.json"), JSON.stringify({
+      version: 1, id, generation, contentDigest: fixture.contentDigest, sourceDigest: generation, pluginNames: ["documents"],
+    }), { mode: 0o640 })
+    const capabilities = [
+      { id: "019f45dd-a318-7d02-b03b-eaece8887881", name: "documents", type: "plugin" as const, revision: "current" },
+      { id: "019f45dd-a318-7d02-b03b-eaece8887882", name: "reports", type: "skill" as const, revision: "current" },
+    ]
+    const inputs = []
+    for (const task of ["019f45dd-a318-7d02-b03b-eaece8887883", "019f45dd-a318-7d02-b03b-eaece8887884"]) {
+      const taskHome = path.join(fixture.taskHome, "task-homes", task)
+      await mkdir(path.join(taskHome, ".codex"), { recursive: true })
+      await chmod(taskHome, 0o770)
+      await chmod(path.join(taskHome, ".codex"), 0o770)
+      await symlink(`../snapshots/${id}`, path.join(tasks, task))
+      await symlink(path.join(tasks, task), path.join(taskHome, ".agents"))
+      const controlRoot = path.join(path.dirname(fixture.controlRoot), task)
+      await cp(fixture.controlRoot, controlRoot, { recursive: true })
+      await writeFile(path.join(controlRoot, "capabilities", "capability-source-sha256"), `${generation}\n`, { mode: 0o600 })
+      inputs.push({ taskHome, controlRoot, expectedGeneration: generation, capabilities, reuseImmutableSnapshot: true })
+    }
+    const first = inputs[0]
+    const second = inputs[1]
+    if (!first || !second) throw new Error("missing task fixtures")
+    const before = await manager.resolvePublished(first)
+    const after = await manager.resolvePublished(second)
+    expect(onFullVerification).toHaveBeenCalledTimes(1)
+    expect(after.contentDigest).toBe(before.contentDigest)
+    expect(after.skillsRoot).not.toBe(before.skillsRoot)
+    await expect(manager.resolvePublished({ ...second, capabilities: capabilities.slice(0, 1) })).rejects.toBeInstanceOf(CapabilityRuntimeError)
+    await writeFile(path.join(second.controlRoot, "capabilities", "capability-content-sha256"), `${"f".repeat(64)}\n`)
+    await expect(manager.resolvePublished(second)).rejects.toBeInstanceOf(CapabilityRuntimeError)
+    await writeFile(path.join(second.controlRoot, "capabilities", "capability-content-sha256"), `${fixture.contentDigest}\n`)
+    await chmod(snapshot, 0o770)
+    await expect(manager.resolvePublished(second)).rejects.toBeInstanceOf(CapabilityRuntimeError)
+    await chmod(snapshot, 0o750)
+    await rm(path.join(tasks, path.basename(second.taskHome)))
+    await symlink(snapshot, path.join(tasks, path.basename(second.taskHome)))
+    await expect(manager.resolvePublished(second)).rejects.toBeInstanceOf(CapabilityRuntimeError)
+  })
+
   it("validates the API-published user HOME without copying source or cache", async () => {
     const fixture = await publishedRuntimeFixture()
     const manager = localCapabilityRuntimeManager()
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [
@@ -1009,9 +1217,9 @@ describe("CapabilityRuntimeManager", () => {
         ],
       }),
     ).resolves.toMatchObject({
-      skillsRoot: path.join(fixture.userHome, ".agents", "skills"),
+      skillsRoot: path.join(fixture.taskHome, ".agents", "skills"),
       pluginSourceRoot: path.join(
-        fixture.userHome,
+        fixture.taskHome,
         ".agents",
         "plugin-sources",
       ),
@@ -1035,7 +1243,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [
@@ -1069,7 +1277,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [
@@ -1108,7 +1316,7 @@ describe("CapabilityRuntimeManager", () => {
       },
     ]
     const before = await manager.resolvePublished({
-      userHome: fixture.userHome,
+      taskHome: fixture.taskHome,
       controlRoot: fixture.controlRoot,
       expectedGeneration: generation,
       capabilities,
@@ -1131,7 +1339,7 @@ describe("CapabilityRuntimeManager", () => {
       `${contentDigest}\n`,
     )
     const after = await manager.resolvePublished({
-      userHome: fixture.userHome,
+      taskHome: fixture.taskHome,
       controlRoot: fixture.controlRoot,
       expectedGeneration: generation,
       capabilities,
@@ -1153,7 +1361,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: "b".repeat(64),
         capabilities: [capability],
@@ -1169,7 +1377,7 @@ describe("CapabilityRuntimeManager", () => {
     )
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [capability],
@@ -1187,7 +1395,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [
@@ -1226,7 +1434,7 @@ describe("CapabilityRuntimeManager", () => {
       },
     ]
     const verified = await manager.resolvePublished({
-      userHome: fixture.userHome,
+      taskHome: fixture.taskHome,
       controlRoot: fixture.controlRoot,
       expectedGeneration: generation,
       capabilities,
@@ -1238,7 +1446,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities,
@@ -1247,7 +1455,7 @@ describe("CapabilityRuntimeManager", () => {
     ).resolves.toBe(verified)
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities,
@@ -1262,7 +1470,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [
@@ -1290,7 +1498,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [
@@ -1324,13 +1532,13 @@ describe("CapabilityRuntimeManager", () => {
 
 async function publishedRuntimeFixture() {
   const root = await tempRoot()
-  const userHome = path.join(root, "home")
+  const taskHome = path.join(root, "home")
   const controlRoot = path.join(root, "control")
-  const skillsRoot = path.join(userHome, ".agents", "skills")
-  const pluginsRoot = path.join(userHome, ".agents", "plugin-sources")
+  const skillsRoot = path.join(taskHome, ".agents", "skills")
+  const pluginsRoot = path.join(taskHome, ".agents", "plugin-sources")
   const pluginRoot = path.join(pluginsRoot, "documents")
   const marketplacePath = path.join(
-    userHome,
+    taskHome,
     ".agents",
     "plugins",
     "marketplace.json",
@@ -1356,7 +1564,7 @@ async function publishedRuntimeFixture() {
       recursive: true,
     }),
     mkdir(pluginRoot, { recursive: true }),
-    mkdir(path.join(userHome, ".codex", "plugins"), { recursive: true }),
+    mkdir(path.join(taskHome, ".codex", "plugins"), { recursive: true }),
     mkdir(path.dirname(marketplacePath), { recursive: true }),
     mkdir(capabilityControl, { recursive: true }),
   ])
@@ -1406,8 +1614,8 @@ async function publishedRuntimeFixture() {
     writeFile(marketplacePath, marketplace),
   ])
   const directoryModes = [
-    [userHome, 0o770],
-    [path.join(userHome, ".agents"), 0o750],
+    [taskHome, 0o770],
+    [path.join(taskHome, ".agents"), 0o750],
     [skillsRoot, 0o750],
     [path.join(skillsRoot, "reports"), 0o750],
     [path.join(skillsRoot, "linksense-browser"), 0o750],
@@ -1417,8 +1625,8 @@ async function publishedRuntimeFixture() {
     [path.join(skillsRoot, "linksense-image-generation"), 0o750],
     [path.join(skillsRoot, "linksense-knowledge-base"), 0o750],
     [path.join(skillsRoot, "linksense-skill-creator"), 0o750],
-    [path.join(userHome, ".agents", "plugins"), 0o750],
-    [path.join(userHome, ".codex"), 0o770],
+    [path.join(taskHome, ".agents", "plugins"), 0o750],
+    [path.join(taskHome, ".codex"), 0o770],
     [pluginsRoot, 0o750],
     [pluginRoot, 0o750],
     [capabilityControl, 0o700],
@@ -1462,7 +1670,7 @@ async function publishedRuntimeFixture() {
     chmod(path.join(capabilityControl, "capability-content-sha256"), 0o600),
   ])
   return {
-    userHome,
+    taskHome,
     controlRoot,
     marketplacePath,
     skillsRoot,

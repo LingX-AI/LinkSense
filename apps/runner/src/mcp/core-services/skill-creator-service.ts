@@ -63,8 +63,6 @@ export const skillCreatorCoreMcpModule = {
     return {
       key: "skill_creator",
       tools: [previewTool, installTool],
-      instructions:
-        "Preview a validated Skill ZIP first. Install only after the user explicitly confirms the unchanged preview.",
       async callTool(input) {
         try {
           if (input.toolName === "preview_skill_zip") {

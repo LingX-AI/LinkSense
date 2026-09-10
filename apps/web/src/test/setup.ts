@@ -31,6 +31,11 @@ class DOMMatrixMock {}
 if (typeof window !== "undefined" && typeof HTMLElement !== "undefined") {
   // Async navigation still uses real modules while the browser suite shares CPU.
   configure({ asyncUtilTimeout: 3_000 })
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    writable: true,
+    value: vi.fn(() => null),
+  })
   Object.defineProperty(window, "localStorage", {
     configurable: true,
     value: createStorage(),

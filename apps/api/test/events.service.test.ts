@@ -34,12 +34,110 @@ const TEST_MODEL_RUNTIME = {
 const NOW = new Date("2026-07-11T08:00:00.000Z");
 const apps: Array<ReturnType<typeof Fastify>> = [];
 
+function preparationEvent() {
+  return {
+    method: "item/started", visibility: "user_visible" as const,
+    preparation: { turnId: TURN_ID },
+    params: {
+      threadId: "native-source-thread", turnId: "native-compact-turn",
+      item: { id: "compact-item", type: "contextCompaction" },
+    },
+  };
+}
+
 afterEach(async () => {
   vi.useRealTimers();
   await Promise.all(apps.splice(0).map((app) => app.close()));
 });
 
 describe("ConversationEventService sanitization and terminal semantics", () => {
+  it.each(["item/started", "item/completed"])("publishes preparation %s before the user turn exists without changing execution state", async (method) => {
+    const fixture = eventFixture();
+    fixture.tx.conversationTurnStartIntent.findFirst.mockResolvedValue({ projectionTurnId: TURN_ID });
+    const input = {
+      method, visibility: "user_visible" as const,
+      preparation: { turnId: TURN_ID },
+      params: {
+        threadId: "native-source-thread", turnId: "native-compact-turn",
+        item: { id: "compact-item", type: "contextCompaction" },
+      },
+    };
+    const deliveryId = "90000000-0000-4000-8000-000000000001";
+    const result = await fixture.service.ingest(CONVERSATION_ID, input, deliveryId);
+    expect(result).toMatchObject({ accepted: true, event: {
+      turn_id: TURN_ID, event_type: method,
+      payload: { source: "codex_app_server", params: input.params },
+    } });
+    expect(fixture.redis.publishConversationEvent).toHaveBeenCalledOnce();
+    expect(fixture.tx.conversationTurnStartIntent.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { conversationId: CONVERSATION_ID, projectionTurnId: TURN_ID, runnerStatus: { in: ["prepared", "runner_succeeded"] } },
+    }));
+    expect(fixture.tx.conversationTurn.updateMany).not.toHaveBeenCalled();
+    expect(fixture.tx.conversationTurnAttempt.updateMany).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+    expect(fixture.conversations.startPending).not.toHaveBeenCalled();
+    const stored = fixture.tx.conversationEvent.create.mock.results[0];
+    fixture.tx.conversationEvent.findUnique.mockResolvedValue(await stored!.value);
+    await fixture.service.ingest(CONVERSATION_ID, input, deliveryId);
+    expect(fixture.tx.conversationEvent.create).toHaveBeenCalledOnce();
+    expect(fixture.redis.publishConversationEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts delayed preparation after the intent is replaced by its projected turn", async () => {
+    const fixture = eventFixture();
+    fixture.tx.conversationTurn.findFirst.mockResolvedValueOnce(turnRow());
+    await expect(fixture.service.ingest(CONVERSATION_ID, preparationEvent())).resolves.toMatchObject({ accepted: true, event: { turn_id: TURN_ID } });
+  });
+
+  it("ignores preparation with no matching admitted request or turn", async () => {
+    const fixture = eventFixture();
+    await expect(fixture.service.ingest(CONVERSATION_ID, preparationEvent())).resolves.toMatchObject({ accepted: true, ignored: true });
+    expect(fixture.tx.conversationTurn.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: TURN_ID, conversationId: CONVERSATION_ID } }));
+    expect(fixture.tx.conversationEvent.create).not.toHaveBeenCalled();
+    expect(fixture.redis.publishConversationEvent).not.toHaveBeenCalled();
+  });
+
+  it("ignores preparation from a superseded conversation branch", async () => {
+    const fixture = eventFixture();
+    fixture.tx.conversationTurn.findFirst.mockResolvedValueOnce({ ...turnRow(), codexThreadId: "old-branch" });
+    await expect(fixture.service.ingest(CONVERSATION_ID, preparationEvent())).resolves.toMatchObject({ accepted: true, ignored: true });
+    expect(fixture.tx.conversationEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects preparation metadata on non-compaction items", async () => {
+    const fixture = eventFixture();
+    const input = preparationEvent();
+    await expect(fixture.service.ingest(CONVERSATION_ID, {
+      ...input, params: { ...input.params, item: { id: "message", type: "agentMessage", text: "unsafe" } },
+    })).rejects.toThrow();
+    expect(fixture.tx.conversationEvent.create).not.toHaveBeenCalled();
+  });
+  it("acknowledges late native events without reviving deployment-stopped turns", async () => {
+    const fixture = eventFixture();
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValueOnce(
+      { ...turnRow({ status: "failed", completedAt: NOW }), errorCode: "DEPLOYMENT_STOPPED" },
+    );
+    await expect(fixture.service.ingest(CONVERSATION_ID, {
+      method: "turn/started", visibility: "user_visible",
+      params: { threadId: "codex-thread-1", turn: { id: "codex-turn-1", status: "inProgress" } },
+    })).resolves.toMatchObject({ accepted: true, ignored: true });
+    expect(fixture.tx.conversationEvent.create).not.toHaveBeenCalled();
+    expect(fixture.tx.conversationTurn.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not apply a delayed active Goal notification from before deployment", async () => {
+    const fixture = eventFixture();
+    fixture.prisma.auditLog.findFirst.mockResolvedValueOnce({ createdAt: new Date("2026-09-09T00:00:00Z") });
+    await expect(fixture.service.ingest(CONVERSATION_ID, {
+      method: "thread/goal/updated", visibility: "user_visible", params: {
+        threadId: "codex-thread-1", turnId: "codex-turn-1", goal: {
+          threadId: "codex-thread-1", objective: "finish the task", status: "active", tokenBudget: null,
+          tokensUsed: 0, timeUsedSeconds: 0, createdAt: 1_785_996_100, updatedAt: 1_785_996_100,
+        },
+      },
+    })).resolves.toMatchObject({ accepted: true, ignored: true });
+    expect(fixture.tx.conversationGoal.upsert).not.toHaveBeenCalled();
+  });
   it("validates and publishes an interactive application custom event", async () => {
     const fixture = eventFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValueOnce({
@@ -171,6 +269,29 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
         visibility: "user_collapsed",
       }),
     );
+  });
+
+  it.each([true, false])("acknowledges orphan usage only with a deployment stop fence (%s)", async (stopped) => {
+    const fixture = eventFixture();
+    fixture.prisma.auditLog.findFirst.mockResolvedValue(stopped ? { createdAt: NOW } : null);
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValue(null);
+    const captureTokenUsage = vi.fn(async () => ({ accepted: false, reason_code: "TURN_PROJECTION_PENDING" }));
+    const service = new ConversationEventService(
+      { ...fixture.prisma, conversationTurnStartIntent: { findUnique: vi.fn(async () => null) } } as never,
+      fixture.redis as never,
+      fixture.conversations as never,
+      undefined,
+      undefined,
+      { captureTokenUsage },
+    );
+    const tokens = { totalTokens: 30, inputTokens: 20, cachedInputTokens: 5, outputTokens: 10, reasoningOutputTokens: 3 };
+    await expect(service.ingest(CONVERSATION_ID, {
+      method: "thread/tokenUsage/updated", visibility: "internal_sanitized",
+      params: { threadId: "codex-thread-1", turnId: "codex-turn-orphan", tokenUsage: { total: tokens, last: tokens, modelContextWindow: null } },
+    })).resolves.toMatchObject(stopped
+      ? { accepted: true, ignored: true, reason_code: "DEPLOYMENT_STOPPED" }
+      : { accepted: false, reason_code: "TURN_PROJECTION_PENDING" });
+    expect(fixture.tx.conversationEvent.create).not.toHaveBeenCalled();
   });
 
   it("persists one native Codex item event without inventing a LinkSense step or tool event", async () => {
@@ -3149,6 +3270,69 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
 });
 
 describe("ConversationEventService SSE replay privacy", () => {
+  it("reads only compaction lifecycle events for admitted turns before their projection exists", async () => {
+    const fixture = eventFixture();
+    fixture.tx.conversationTurn.findMany.mockResolvedValue([]);
+    fixture.tx.conversationTurnStartIntent.findMany.mockResolvedValue([
+      { projectionTurnId: TURN_ID },
+    ]);
+
+    await fixture.service.historyPage(OWNER_ID, CONVERSATION_ID, {
+      afterSequence: 0n,
+      limit: 200,
+    });
+
+    expect(fixture.tx.conversationTurnStartIntent.findMany).toHaveBeenCalledWith({
+      where: {
+        conversationId: CONVERSATION_ID,
+        ownerId: OWNER_ID,
+        runnerStatus: { in: ["prepared", "runner_succeeded"] },
+      },
+      select: { projectionTurnId: true },
+    });
+    expect(fixture.tx.conversationEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          conversationId: CONVERSATION_ID,
+          visibility: { in: ["user_visible", "user_collapsed"] },
+          OR: expect.arrayContaining([
+            {
+              turnId: { in: [TURN_ID] },
+              eventType: { in: ["item/started", "item/completed"] },
+              payloadJson: {
+                path: ["params", "item", "type"],
+                equals: "contextCompaction",
+              },
+            },
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it("does not admit unprojected events when no active start intent remains", async () => {
+    const fixture = eventFixture();
+    fixture.tx.conversationTurn.findMany.mockResolvedValue([]);
+
+    await fixture.service.historyPage(OWNER_ID, CONVERSATION_ID, {
+      afterSequence: 0n,
+      limit: 200,
+    });
+
+    expect(fixture.tx.conversationTurnStartIntent.findMany).toHaveBeenCalledOnce();
+    expect(fixture.tx.conversationEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.not.arrayContaining([
+            expect.objectContaining({
+              eventType: { in: ["item/started", "item/completed"] },
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
   it("accepts only non-negative cursors scoped to the requested conversation", () => {
     expect(
       eventRouteTesting.parseSequence(CONVERSATION_ID, `${CONVERSATION_ID}:12`),
@@ -3563,7 +3747,7 @@ describe("ConversationEventService SSE replay privacy", () => {
       services: {
         config: { runnerSharedSecret: "runner-secret" },
         conversations: { assertOwner },
-        events: { reconcileAfterProcessExit },
+        events: { reconcileAfterProcessExit, scheduleProcessExitRecovery: vi.fn(async () => undefined) },
       } as unknown as AppServices,
     });
 
@@ -3594,6 +3778,33 @@ describe("ConversationEventService SSE replay privacy", () => {
       success: true,
       data: { confirmed: true, outcome: "succeeded" },
     });
+  });
+
+  it("accepts an authenticated worker heartbeat without reading any conversation", async () => {
+    const recordRunnerHeartbeat = vi.fn(async () => undefined);
+    const assertOwner = vi.fn(async () => undefined);
+    const app = Fastify();
+    apps.push(app);
+    app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
+    await app.register(internalRunnerRoutes, {
+      services: {
+        config: { runnerSharedSecret: "runner-secret" },
+        conversations: { assertOwner },
+        events: { recordRunnerHeartbeat },
+      } as unknown as AppServices,
+    });
+    const payload = { bootId: "60000000-0000-4000-8000-000000000001", startup: true };
+    const unauthorized = await app.inject({ method: "POST", url: "/runner/heartbeat", payload });
+    expect(unauthorized.statusCode).toBe(401);
+    const headers = { authorization: "Bearer runner-secret", "x-linksense-owner-id": OWNER_ID };
+    const invalid = await app.inject({ method: "POST", url: "/runner/heartbeat", headers, payload: { ...payload, ownerId: OTHER_ID } });
+    expect(invalid.statusCode).toBe(400);
+    const missingOwner = await app.inject({ method: "POST", url: "/runner/heartbeat", headers: { authorization: "Bearer runner-secret" }, payload });
+    expect(missingOwner.statusCode).toBe(400);
+    const response = await app.inject({ method: "POST", url: "/runner/heartbeat", headers, payload });
+    expect(response.statusCode).toBe(200);
+    expect(recordRunnerHeartbeat).toHaveBeenCalledExactlyOnceWith(OWNER_ID, payload);
+    expect(assertOwner).not.toHaveBeenCalled();
   });
 
   it("records owner-scoped native memory usage without requiring the conversation to still exist", async () => {
@@ -3677,7 +3888,7 @@ describe("ConversationEventService SSE replay privacy", () => {
         services: {
           config: { runnerSharedSecret: "runner-secret" },
           conversations: { assertOwner },
-          events: { reconcileAfterProcessExit },
+          events: { reconcileAfterProcessExit, scheduleProcessExitRecovery: vi.fn(async () => undefined) },
         } as unknown as AppServices,
       });
 
@@ -3714,7 +3925,7 @@ describe("ConversationEventService SSE replay privacy", () => {
       services: {
         config: { runnerSharedSecret: "runner-secret" },
         conversations: { assertOwner: vi.fn(async () => undefined) },
-        events: { reconcileAfterProcessExit },
+        events: { reconcileAfterProcessExit, scheduleProcessExitRecovery: vi.fn(async () => undefined) },
         audit: { write: auditWrite },
       } as unknown as AppServices,
     });
@@ -3750,7 +3961,7 @@ describe("ConversationEventService SSE replay privacy", () => {
       services: {
         config: { runnerSharedSecret: "runner-secret" },
         conversations: { assertOwner: vi.fn(async () => undefined) },
-        events: { reconcileAfterProcessExit },
+        events: { reconcileAfterProcessExit, scheduleProcessExitRecovery: vi.fn(async () => undefined) },
       } as unknown as AppServices,
     });
 
@@ -5807,6 +6018,7 @@ function eventFixture(
 ) {
   const tx = transactionFixture(options);
   const prisma = {
+    auditLog: { findFirst: vi.fn<() => Promise<{ createdAt: Date } | null>>().mockResolvedValue(null) },
     conversation: {
       findFirst: vi.fn(async () => ({ id: CONVERSATION_ID })),
       findUnique: vi.fn(async () => ({
@@ -6018,6 +6230,8 @@ function transactionFixture(options?: {
     },
     conversationTurnStartIntent: {
       findUnique: vi.fn(async () => null as { projectionTurnId: string } | null),
+      findFirst: vi.fn(async () => null as { projectionTurnId: string } | null),
+      findMany: vi.fn(async () => [] as Array<{ projectionTurnId: string }>),
     },
     conversationTurnAttempt: {
       findUnique: vi.fn(
@@ -6082,6 +6296,7 @@ function turnRow(
     status: "running" | "completed" | "failed" | "interrupted";
     completedAt: Date | null;
     interruptedAt: Date | null;
+    errorCode: string | null;
   }> = {},
 ) {
   return {
@@ -6096,6 +6311,7 @@ function turnRow(
     sequenceNo: 1,
     completedAt: null,
     interruptedAt: null,
+    errorCode: null,
     updatedAt: NOW,
     idempotencyKey: "automation:test",
     interruptRequestedAt: null,

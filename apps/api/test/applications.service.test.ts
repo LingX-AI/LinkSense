@@ -597,71 +597,50 @@ describe("ApplicationService owner lifecycle", () => {
   });
 });
 
-describe("ApplicationService display icons", () => {
-  it("returns current icons only for applications the task owner can still access", async () => {
-    const inaccessibleApplicationId = "20000000-0000-4000-8000-000000000099";
-    const objectKey = `applications/${OWNER_ID}/icons/current.png`;
-    const applicationFindMany = vi
-      .fn()
-      .mockResolvedValueOnce([{ id: APPLICATION_ID }])
-      .mockResolvedValueOnce([
-        {
-          id: APPLICATION_ID,
-          iconPreset: "book-open",
-          iconObjectKey: objectKey,
-        },
-      ]);
+describe("ApplicationService task metadata", () => {
+  it.each([
+    { status: "active", dependencyMissing: false, available: true },
+    { status: "disabled", dependencyMissing: false, available: false },
+    { status: "active", dependencyMissing: true, available: false },
+  ])("resolves access and availability for $status applications with missing dependency=$dependencyMissing", async ({ status, dependencyMissing, available }) => {
+    const inaccessibleId = "20000000-0000-4000-8000-000000000099";
+    const deletedId = "20000000-0000-4000-8000-000000000098";
+    const row = {
+      ...application({ model: "model-a", reasoningEffort: "medium", instructions: "", updatedAt: new Date("2026-07-27") }),
+      kind: "standard", interactivePackageId: null, status,
+      iconPreset: "book-open", iconObjectKey: `applications/${OWNER_ID}/icons/current.png`,
+    };
     const prisma = {
       user: {
         findFirst: vi.fn(async () => ({ selfRegisteredAt: null })),
+        findMany: vi.fn(async () => [{ id: OWNER_ID, name: "Owner" }]),
       },
-      application: { findMany: applicationFindMany },
+      application: { findMany: vi.fn().mockResolvedValueOnce([{ id: APPLICATION_ID }]).mockResolvedValueOnce([row]) },
       userGroupMember: { findMany: vi.fn(async () => []) },
-      applicationGrant: { findMany: vi.fn(async () => []) },
+      applicationGrant: { findMany: vi.fn(async () => [
+        { applicationId: deletedId, granteeType: "user" },
+      ]) },
+      applicationCapability: { findMany: vi.fn(async () => dependencyMissing ? [{
+        applicationId: APPLICATION_ID, capabilityId: CAPABILITY_ID,
+        capabilityNameSnapshot: "Skill", capabilityTypeSnapshot: "skill", createdAt: row.createdAt,
+      }] : []) },
+      applicationKnowledgeBase: { findMany: vi.fn(async () => []) },
+      applicationMcpServer: { findMany: vi.fn(async () => []) },
+      capability: { findMany: vi.fn(async () => []) },
+      knowledgeBase: { findMany: vi.fn(async () => []) },
+      mcpServer: { findMany: vi.fn(async () => []) },
     };
     const iconStore = {
-      put: vi.fn(),
-      remove: vi.fn(),
-      presignGet: vi.fn(
-        async (key: string) => `https://objects.example.test/${key}`,
-      ),
+      put: vi.fn(), remove: vi.fn(),
+      presignGet: vi.fn(async (key: string) => `https://objects.example.test/${key}`),
     };
-    const service = new ApplicationService(
-      prisma as never,
-      modelSettings(),
-      { write: vi.fn() } as never,
-      credentialResolver(),
-      iconStore,
-    );
-
-    const icons = await service.resolveDisplayIcons(OWNER_ID, [
-      APPLICATION_ID,
-      inaccessibleApplicationId,
-      APPLICATION_ID,
-    ]);
-
-    expect([...icons]).toEqual([
-      [
-        APPLICATION_ID,
-        {
-          type: "custom",
-          url: `https://objects.example.test/${objectKey}`,
-          fallback_preset: "book-open",
-        },
-      ],
-    ]);
-    expect(applicationFindMany).toHaveBeenNthCalledWith(2, {
-      where: {
-        id: { in: [APPLICATION_ID] },
-        status: { in: ["active", "disabled"] },
-      },
-      select: {
-        id: true,
-        iconPreset: true,
-        iconObjectKey: true,
-      },
+    const service = new ApplicationService(prisma as never, modelSettings(), { write: vi.fn() } as never, credentialResolver(), iconStore);
+    const metadata = await service.resolveTaskMetadata(OWNER_ID, [APPLICATION_ID, inaccessibleId, deletedId, APPLICATION_ID]);
+    expect([...metadata]).toEqual([[APPLICATION_ID, { icon: { type: "custom", url: `https://objects.example.test/${row.iconObjectKey}`, fallback_preset: "book-open" }, available, unavailable_reason: status === "disabled" ? "APPLICATION_DISABLED" : dependencyMissing ? "APPLICATION_DEPENDENCY_UNAVAILABLE" : null }]]);
+    expect(iconStore.presignGet).toHaveBeenCalledWith(row.iconObjectKey, 5 * 60);
+    expect(prisma.application.findMany).toHaveBeenNthCalledWith(2, {
+      where: { id: { in: [APPLICATION_ID, deletedId] }, status: { in: ["active", "disabled"] } },
     });
-    expect(iconStore.presignGet).toHaveBeenCalledWith(objectKey, 5 * 60);
   });
 });
 

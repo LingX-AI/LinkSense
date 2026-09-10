@@ -23,8 +23,8 @@ describe("managed browser MCP server", () => {
     const root = await mkdtemp(path.join(tmpdir(), "linksense-browser-mcp-"))
     roots.push(root)
     const home = path.join(root, "home")
-    const codexHome = path.join(home, ".codex")
-    const workspace = path.join(home, "workspaces", conversationId)
+    const codexHome = path.join(home, "task-homes", conversationId, ".codex")
+    const workspace = path.join(root, "home", "workspaces", conversationId)
     await Promise.all([
       mkdir(codexHome, { recursive: true }),
       ...["artifacts", "attachments", "temp"].map((directory) =>

@@ -7,6 +7,12 @@ description: Securely embed a LinkSense application in an external business syst
 
 An embedded LinkSense application shows only that application's chat interface. Users do not see the LinkSense main navigation, Plugin Center, or administration pages.
 
+## System maintenance
+
+During a scheduled maintenance window, both access modes show the maintenance reason and expected time window, with chat and other business operations unavailable. Open frames check system status every 30 seconds and recover automatically when the window ends or an administrator disables maintenance. Users do not need to refresh the host application.
+
+Embedded business endpoints return HTTP `503` with error code `SYSTEM_MAINTENANCE_ACTIVE` during maintenance. Frame loading, system status checks, and existing session renewal remain available. Unexpired sessions are retained so users can continue the current conversation. If reauthentication is necessary, the frame uses the `linksense:ready` flow below. Displaying maintenance does not forcibly stop tasks that are already running.
+
 ## Choose an access mode
 
 | Mode | Use case | Ticket | User history |

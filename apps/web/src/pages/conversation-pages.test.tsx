@@ -13,6 +13,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom"
 
 import { setAccessToken } from "@/api/session"
 import { writeLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
+import { clearConversationAttachmentPreviewCacheForTests } from "@/features/conversations/conversation-attachment-preview-cache"
 import i18n from "@/i18n"
 import {
   ArchivedConversationListPage,
@@ -131,6 +132,7 @@ function createDeferred<T>() {
 
 function conversation(id: string, title: string) {
   return {
+    category_id: null,
     id,
     title,
     archived: true,
@@ -177,6 +179,53 @@ describe("archived conversation pagination", () => {
     cleanup()
     setAccessToken(null)
     vi.unstubAllGlobals()
+  })
+
+  it("prewarms again when the empty composer starts another new task", async () => {
+    const fixture = renderPrewarmPage()
+    await waitFor(() => expect(fixture.prewarms).toHaveLength(1))
+    await fixture.resolvePrewarm(0, "71000000-0000-4000-8000-000000000001")
+    const interaction = userEvent.setup()
+    await interaction.type(
+      await screen.findByRole("textbox", { name: "任务输入框" }),
+      "/"
+    )
+    await interaction.click(screen.getByRole("option", { name: /新建任务/ }))
+
+    await waitFor(() => expect(fixture.prewarms).toHaveLength(2))
+    expect(fixture.prewarms[1]?.body).toEqual({ collaboration_mode: "default" })
+  })
+
+  it("keeps the current new-task reservation when an earlier page replies late", async () => {
+    const fixture = renderPrewarmPage()
+    const interaction = userEvent.setup()
+    await waitFor(() => expect(fixture.prewarms).toHaveLength(1))
+    await interaction.click(
+      screen.getByRole("button", { name: "测试切换已有任务" })
+    )
+    await waitFor(() => expect(fixture.prewarms).toHaveLength(2))
+    await interaction.click(
+      screen.getByRole("button", { name: "测试切换新任务" })
+    )
+    await waitFor(() => expect(fixture.prewarms).toHaveLength(3))
+    const current = "71000000-0000-4000-8000-000000000002"
+    await fixture.resolvePrewarm(2, current)
+    await fixture.resolvePrewarm(0, "71000000-0000-4000-8000-000000000001")
+    await interaction.type(
+      await screen.findByRole("textbox", { name: "任务输入框" }),
+      "只回复 OK"
+    )
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() =>
+      expect(fixture.createdBodies).toEqual([
+        {
+          collaboration_mode: "default",
+          prewarmed_conversation_id: current,
+          category_id: null,
+        },
+      ])
+    )
   })
 
   it.each([
@@ -383,6 +432,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith(`/conversations/${conversationId}`)) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: conversationId,
             title: "原生目标",
             archived: false,
@@ -530,6 +580,7 @@ describe("conversation knowledge base snapshots", () => {
       updated_at: now,
     })
     const detail = (status: "active" | "paused") => ({
+      category_id: null,
       id: conversationId,
       title: "重复暂停目标",
       archived: false,
@@ -709,6 +760,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith(`/conversations/${conversationId}`)) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: conversationId,
             title: "原生目标完成态",
             archived: false,
@@ -840,8 +892,17 @@ describe("conversation knowledge base snapshots", () => {
       const url = String(input)
       const path = new URL(url, window.location.origin).pathname
       if (url.includes("/events")) {
+        // A healthy subscription stays open. An empty, closed response starts
+        // reconnect polling and makes the exact refresh count depend on timing.
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            init?.signal?.addEventListener("abort", () => controller.close(), {
+              once: true,
+            })
+          },
+        })
         return Promise.resolve(
-          new Response("", {
+          new Response(stream, {
             status: 200,
             headers: { "content-type": "text/event-stream" },
           })
@@ -887,6 +948,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith("/conversations/conversation-immediate-clear")) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: "conversation-immediate-clear",
             title: "立即清空输入框",
             archived: false,
@@ -1093,6 +1155,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith(`/conversations/${conversationId}`)) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: conversationId,
             title: "快速切换任务",
             archived: false,
@@ -1175,18 +1238,20 @@ describe("conversation knowledge base snapshots", () => {
     ).toHaveLength(1)
   })
 
-  it("queues a rapid follow-up while the accepted turn is still projecting", async () => {
+  it("shows streamed preparation compaction and queues a follow-up before the accepted turn is projected", async () => {
     authMock.runningMessageAction = "steer"
-    const conversationId = "conversation-starting-follow-up"
+    const conversationId = "71000000-0000-4000-8000-000000000088"
     const firstTurnId = "40000000-0000-4000-8000-000000000088"
     const firstInput = "第一条消息"
     const followUpInput = "紧接着发送的第二条消息"
     const projectionRefresh = createDeferred<Response>()
+    let eventController: ReadableStreamDefaultController<Uint8Array> | undefined
     let draftSaveAttempts = 0
     let detailAttempts = 0
     let turnStartAttempts = 0
     let pendingRequestBody: unknown = null
     const detail = () => ({
+      category_id: null,
       id: conversationId,
       title: "启动阶段连续发送",
       archived: false,
@@ -1210,8 +1275,16 @@ describe("conversation knowledge base snapshots", () => {
       const url = String(input)
       const path = new URL(url, window.location.origin).pathname
       if (url.includes("/events")) {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            eventController = controller
+            init?.signal?.addEventListener("abort", () => controller.close(), {
+              once: true,
+            })
+          },
+        })
         return Promise.resolve(
-          new Response("", {
+          new Response(stream, {
             status: 200,
             headers: { "content-type": "text/event-stream" },
           })
@@ -1320,6 +1393,62 @@ describe("conversation knowledge base snapshots", () => {
 
     await waitFor(() => expect(turnStartAttempts).toBe(1))
     expect(await screen.findByText("正在思考", { exact: true })).toBeVisible()
+    await waitFor(() => expect(eventController).toBeDefined())
+    const emitCompaction = (
+      method: "item/started" | "item/completed",
+      sequence: number
+    ) => {
+      const event = {
+        id: `72000000-0000-4000-8000-00000000000${sequence}`,
+        conversation_id: conversationId,
+        sse_event_id: `${conversationId}:${sequence}`,
+        event_type: method,
+        visibility: "user_collapsed",
+        turn_id: firstTurnId,
+        sequence_no: sequence,
+        created_at: "2026-08-14T00:00:01.000Z",
+        payload: {
+          schema_version: 2,
+          source: "codex_app_server",
+          method,
+          params: {
+            threadId: "source-thread",
+            turnId: "internal-compact-turn",
+            item: { id: "compact-item", type: "contextCompaction" },
+          },
+        },
+      }
+      eventController!.enqueue(
+        new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`)
+      )
+    }
+    await act(async () => emitCompaction("item/started", 1))
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId(`turn-summary-${firstTurnId}`)
+          .querySelector(".turn-status")
+      ).toHaveTextContent("正在处理")
+    )
+    expect(screen.getAllByText("正在压缩上下文", { exact: true })).toHaveLength(
+      1
+    )
+    expect(
+      screen.getByText("正在压缩上下文").closest(".native-activity-item")
+    ).toBeVisible()
+    expect(
+      screen.queryByText("正在思考", { exact: true })
+    ).not.toBeInTheDocument()
+    await act(async () => emitCompaction("item/completed", 2))
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId(`turn-summary-${firstTurnId}`)
+          .querySelector(".turn-status")
+      ).toHaveTextContent("正在思考")
+    )
+    expect(screen.getAllByText("正在思考", { exact: true })).toHaveLength(1)
+    expect(screen.getByText("上下文已压缩")).toBeVisible()
     await waitFor(() => expect(queryClient.isMutating()).toBe(0))
     await waitFor(() => expect(detailAttempts).toBeGreaterThan(1))
     expect(composer).toHaveValue("")
@@ -1364,6 +1493,7 @@ describe("conversation knowledge base snapshots", () => {
     const followUpInput = "第二条快速追问"
     let pendingRequestBody: unknown = null
     const detail = () => ({
+      category_id: null,
       id: conversationId,
       title: "连续发送任务",
       archived: false,
@@ -1499,143 +1629,206 @@ describe("conversation knowledge base snapshots", () => {
     ).toBe(false)
   })
 
-  it("shows a pending attachment chip while an uploaded file request is in flight", async () => {
-    const conversationId = "conversation-upload-pending"
-    const uploadResponse = createDeferred<Response>()
-    let uploadCompleted = false
-    const uploadedAttachment = {
-      id: "attachment-upload-pending",
-      name: "ui-ux-pro-max.zip",
-      mime_type: "application/zip",
-      size: 5_242_880,
-      kind: "attachment",
-      turn_id: null,
-      status: "staged",
-      download_available: false,
-    }
-    const detail = () => ({
-      id: conversationId,
-      title: "上传附件可见",
-      archived: false,
-      updated_at: "2026-08-13T00:00:00.000Z",
-      execution_status: "idle",
-      selected_knowledge_base_ids: [],
-      draft: {
-        input_text: "",
-        priority_capability_ids: [],
-        knowledge_base_ids: [],
+  it.each([
+    ["ui-ux-pro-max.zip", "application/zip", true],
+    ["photo.png", "image/png", true],
+    ["photo.png", "image/png", false],
+  ])(
+    "keeps the correct preview while uploading %s (%s, success=%s)",
+    async (name, mimeType, succeeds) => {
+      const localFile = new File(["content"], name, { type: mimeType })
+      let objectUrlSequence = 0
+      const revokeObjectURL = vi.fn()
+      vi.stubGlobal(
+        "URL",
+        class extends URL {
+          static createObjectURL = vi.fn(
+            () => `blob:local-upload-${++objectUrlSequence}`
+          )
+          static revokeObjectURL = revokeObjectURL
+        }
+      )
+      const conversationId = "conversation-upload-pending"
+      const uploadResponse = createDeferred<Response>()
+      let uploadCompleted = false
+      const uploadedAttachment = {
+        id: "attachment-upload-pending",
+        name,
+        mime_type: mimeType,
+        size: localFile.size,
+        kind: "attachment",
+        turn_id: null,
+        status: "staged",
+        download_available: false,
+      }
+      const detail = () => ({
+        category_id: null,
+        id: conversationId,
+        title: "上传附件可见",
+        archived: false,
         updated_at: "2026-08-13T00:00:00.000Z",
-      },
-      messages: [],
-      turns: [],
-      running_turn: null,
-      pending_requests: [],
-      attachments: uploadCompleted ? [uploadedAttachment] : [],
-      artifacts: [],
-    })
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      const path = new URL(url, window.location.origin).pathname
-      if (url.includes("/events")) {
-        return Promise.resolve(
-          new Response("", {
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
-          })
+        execution_status: "idle",
+        selected_knowledge_base_ids: [],
+        draft: {
+          input_text: "",
+          priority_capability_ids: [],
+          knowledge_base_ids: [],
+          updated_at: "2026-08-13T00:00:00.000Z",
+        },
+        messages: [],
+        turns: [],
+        running_turn: null,
+        pending_requests: [],
+        attachments: uploadCompleted ? [uploadedAttachment] : [],
+        artifacts: [],
+      })
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input)
+          const path = new URL(url, window.location.origin).pathname
+          if (url.includes("/events")) {
+            return Promise.resolve(
+              new Response("", {
+                status: 200,
+                headers: { "content-type": "text/event-stream" },
+              })
+            )
+          }
+          if (path.endsWith("/conversations/prewarm")) {
+            return Promise.resolve(
+              envelope({
+                accepted: true,
+                conversation_id: "71000000-0000-4000-8000-000000000001",
+              })
+            )
+          }
+          if (path.endsWith("/model-preference")) {
+            return Promise.resolve(envelope(modelPreference()))
+          }
+          if (path.endsWith("/capabilities")) {
+            return Promise.resolve(envelope({ items: [], next_cursor: null }))
+          }
+          if (path.endsWith("/knowledge-bases/search-capability")) {
+            return Promise.resolve(
+              envelope({
+                status: "available",
+                reason_code: null,
+                checked_at: "2026-08-13T00:00:00.000Z",
+              })
+            )
+          }
+          if (path.endsWith("/knowledge-bases")) {
+            return Promise.resolve(envelope({ items: [], next_cursor: null }))
+          }
+          if (
+            path.endsWith(`/conversations/${conversationId}/attachments`) &&
+            init?.method === "POST"
+          ) {
+            return uploadResponse.promise
+          }
+          if (path.endsWith(`/conversations/${conversationId}`)) {
+            return Promise.resolve(envelope(detail()))
+          }
+          return Promise.resolve(new Response(null, { status: 404 }))
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const queryClient = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      })
+      const interaction = userEvent.setup()
+
+      const { unmount } = render(
+        <MemoryRouter initialEntries={[`/conversations/${conversationId}`]}>
+          <QueryClientProvider client={queryClient}>
+            <Routes>
+              <Route
+                path="/conversations/:conversationId"
+                element={<ConversationPage />}
+              />
+            </Routes>
+          </QueryClientProvider>
+        </MemoryRouter>
+      )
+
+      expect(await screen.findByText("上传附件可见")).toBeVisible()
+
+      await interaction.upload(screen.getByLabelText("添加附件"), localFile)
+
+      const pendingChip = await screen.findByRole("status", {
+        name: `正在上传附件 ${name}`,
+      })
+      if (mimeType === "image/png") {
+        expect(pendingChip.closest(".image-preview-thumbnail")).not.toBeNull()
+        expect(pendingChip.querySelector("img")).toHaveAttribute(
+          "src",
+          "blob:local-upload-1"
         )
+        expect(pendingChip.querySelector('[data-slot="spinner"]')).toBeVisible()
+      } else {
+        expect(within(pendingChip).getByText(name)).toBeVisible()
+        expect(
+          pendingChip.querySelector(".attachment-chip-spinner")
+        ).not.toBeNull()
       }
-      if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(
-          envelope({
-            accepted: true,
-            conversation_id: "71000000-0000-4000-8000-000000000001",
-          })
-        )
-      }
-      if (path.endsWith("/model-preference")) {
-        return Promise.resolve(envelope(modelPreference()))
-      }
-      if (path.endsWith("/capabilities")) {
-        return Promise.resolve(envelope({ items: [], next_cursor: null }))
-      }
-      if (path.endsWith("/knowledge-bases/search-capability")) {
-        return Promise.resolve(
-          envelope({
-            status: "available",
-            reason_code: null,
-            checked_at: "2026-08-13T00:00:00.000Z",
-          })
-        )
-      }
-      if (path.endsWith("/knowledge-bases")) {
-        return Promise.resolve(envelope({ items: [], next_cursor: null }))
-      }
-      if (
-        path.endsWith(`/conversations/${conversationId}/attachments`) &&
-        init?.method === "POST"
-      ) {
-        return uploadResponse.promise
-      }
-      if (path.endsWith(`/conversations/${conversationId}`)) {
-        return Promise.resolve(envelope(detail()))
-      }
-      return Promise.resolve(new Response(null, { status: 404 }))
-    })
-    vi.stubGlobal("fetch", fetchMock)
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    })
-    const interaction = userEvent.setup()
-
-    render(
-      <MemoryRouter initialEntries={[`/conversations/${conversationId}`]}>
-        <QueryClientProvider client={queryClient}>
-          <Routes>
-            <Route
-              path="/conversations/:conversationId"
-              element={<ConversationPage />}
-            />
-          </Routes>
-        </QueryClientProvider>
-      </MemoryRouter>
-    )
-
-    expect(await screen.findByText("上传附件可见")).toBeVisible()
-
-    await interaction.upload(
-      screen.getByLabelText("添加附件"),
-      new File(["zip"], "ui-ux-pro-max.zip", { type: "application/zip" })
-    )
-
-    const pendingChip = await screen.findByRole("status", {
-      name: "正在上传附件 ui-ux-pro-max.zip",
-    })
-    expect(within(pendingChip).getByText("ui-ux-pro-max.zip")).toBeVisible()
-    expect(pendingChip.querySelector(".attachment-chip-spinner")).not.toBeNull()
-    expect(
-      screen.queryByRole("button", { name: "移除附件 ui-ux-pro-max.zip" })
-    ).not.toBeInTheDocument()
-
-    uploadCompleted = true
-    await act(async () => {
-      uploadResponse.resolve(envelope(uploadedAttachment))
-      await uploadResponse.promise
-    })
-
-    await waitFor(() =>
       expect(
-        screen.queryByRole("status", {
-          name: "正在上传附件 ui-ux-pro-max.zip",
-        })
+        screen.queryByRole("button", { name: `移除附件 ${name}` })
       ).not.toBeInTheDocument()
-    )
-    expect(
-      screen.getByRole("button", { name: "移除附件 ui-ux-pro-max.zip" })
-    ).toBeVisible()
-  })
+
+      uploadCompleted = succeeds
+      await act(async () => {
+        uploadResponse.resolve(
+          succeeds
+            ? envelope(uploadedAttachment)
+            : errorEnvelope(400, "FILE_TYPE_NOT_ALLOWED")
+        )
+        await uploadResponse.promise
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("status", {
+            name: `正在上传附件 ${name}`,
+          })
+        ).not.toBeInTheDocument()
+      )
+      if (succeeds) {
+        expect(
+          screen.getByRole("button", { name: `移除附件 ${name}` })
+        ).toBeVisible()
+        if (mimeType === "image/png") {
+          expect(
+            screen
+              .getByRole("button", { name: `预览图片 ${name}` })
+              .querySelector("img")
+          ).toHaveAttribute("src", "blob:local-upload-2")
+          expect(
+            screen.queryByRole("status", { name: `正在加载图片 ${name}` })
+          ).not.toBeInTheDocument()
+          expect(
+            fetchMock.mock.calls.some(([request]) =>
+              String(request).includes(
+                `/attachments/${uploadedAttachment.id}/content`
+              )
+            )
+          ).toBe(false)
+        }
+      } else {
+        expect(document.querySelector(".image-preview-thumbnail")).toBeNull()
+      }
+      if (mimeType === "image/png") {
+        expect(revokeObjectURL).toHaveBeenCalledWith("blob:local-upload-1")
+      }
+      unmount()
+      clearConversationAttachmentPreviewCacheForTests()
+      if (mimeType === "image/png" && succeeds) {
+        expect(revokeObjectURL).toHaveBeenCalledWith("blob:local-upload-2")
+      }
+    }
+  )
 
   it("clears all attachments atomically while persisting typed text locally", async () => {
     const conversationId = "conversation-clear-attachments"
@@ -1654,6 +1847,7 @@ describe("conversation knowledge base snapshots", () => {
       })
     )
     const detail = () => ({
+      category_id: null,
       id: conversationId,
       title: "批量清理附件",
       archived: false,
@@ -1830,6 +2024,148 @@ describe("conversation knowledge base snapshots", () => {
     ).toBe(true)
     expect(screen.queryByText(/当前状态与此操作冲突/)).not.toBeInTheDocument()
   })
+
+  it.each(["missing", "disabled", "dependency", "loading", "active"] as const)(
+    "blocks application messages until usable and preserves drafts (%s)",
+    async (state) => {
+      let currentState = state
+      const applicationId = "50000000-0000-4000-8000-000000000001"
+      const conversationId = "application-availability"
+      seedLocalDraft(conversationId, { input: "保留的消息草稿" })
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          if (path.endsWith(`/applications/${applicationId}`)) {
+            if (currentState === "loading")
+              return new Promise<Response>(() => {})
+            if (currentState === "missing")
+              return Promise.resolve(
+                errorEnvelope(404, "APPLICATION_NOT_FOUND")
+              )
+            return Promise.resolve(
+              envelope({
+                id: applicationId,
+                owner: {
+                  id: "50000000-0000-4000-8000-000000000002",
+                  name: "Owner",
+                },
+                name: "测试应用",
+                icon: { type: "preset", preset: "bot" },
+                description: null,
+                instructions: null,
+                model: "model-a",
+                reasoning_effort: "medium",
+                status: currentState === "disabled" ? "disabled" : "active",
+                is_owner: false,
+                can_manage: false,
+                access_source: "direct",
+                capability_count: 0,
+                knowledge_base_count: 0,
+                mcp_server_count: 0,
+                dependencies_available: currentState !== "dependency",
+                capabilities: [],
+                knowledge_bases: [],
+                mcp_servers: [],
+                created_at: "2026-07-28T00:00:00.000Z",
+                updated_at: "2026-07-28T00:00:00.000Z",
+              })
+            )
+          }
+          if (path.endsWith("/model-preference"))
+            return Promise.resolve(envelope(modelPreference()))
+          if (path.endsWith(`/conversations/${conversationId}`))
+            return Promise.resolve(
+              envelope({
+                id: conversationId,
+                title: "应用任务",
+                category_id: null,
+                updated_at: "2026-07-28T00:00:00.000Z",
+                application: { id: applicationId, name: "测试应用" },
+                messages: [],
+                turns: [],
+                attachments: [],
+                artifacts: [],
+                pending_requests: [],
+              })
+            )
+          if (path.endsWith("/events"))
+            return Promise.resolve(
+              new Response("", {
+                headers: { "content-type": "text/event-stream" },
+              })
+            )
+          if (init?.method === "POST")
+            return Promise.resolve(errorEnvelope(400, "BAD_REQUEST"))
+          return Promise.resolve(envelope([]))
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const queryClient = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      })
+      render(
+        <MemoryRouter initialEntries={[`/conversations/${conversationId}`]}>
+          <QueryClientProvider client={queryClient}>
+            <Routes>
+              <Route
+                path="/conversations/:conversationId"
+                element={<ConversationPage />}
+              />
+            </Routes>
+          </QueryClientProvider>
+        </MemoryRouter>
+      )
+      const input = await screen.findByRole("textbox", { name: "任务输入框" })
+      await waitFor(() => expect(input).toHaveValue("保留的消息草稿"))
+      const send = screen.getByRole("button", { name: "发送" })
+      if (state === "active") {
+        await waitFor(() => expect(send).toBeEnabled())
+        expect(input).toBeEnabled()
+      } else {
+        if (state !== "loading") {
+          const reason =
+            state === "missing"
+              ? "应用不存在或你无权访问。"
+              : state === "disabled"
+                ? "应用已停用，暂时不能开始新任务。"
+                : "应用依赖的模型、插件/Skill 或知识库当前不可用。"
+          const notice = await screen.findByText(reason)
+          expect(notice).toBeVisible()
+          expect(
+            notice.querySelector("svg.lucide-circle-alert")
+          ).toBeInTheDocument()
+        }
+        expect(send).toBeDisabled()
+        expect(input).toBeDisabled()
+        const interaction = userEvent.setup()
+        await interaction.click(send)
+        await interaction.click(input)
+        await interaction.keyboard("{Enter}")
+        expect(input).toHaveValue("保留的消息草稿")
+        expect(
+          fetchMock.mock.calls.some(
+            ([url, init]) =>
+              init?.method === "POST" && String(url).endsWith("/turns")
+          )
+        ).toBe(false)
+        if (state !== "loading") {
+          currentState = "active"
+          await act(async () => {
+            await queryClient.invalidateQueries({
+              queryKey: ["applications", "detail", "user-1", applicationId],
+            })
+          })
+          await waitFor(() => expect(send).toBeEnabled())
+          expect(input).toBeEnabled()
+          expect(input).toHaveValue("保留的消息草稿")
+        }
+      }
+      queryClient.clear()
+    }
+  )
 
   it("starts an application task from the Composer slash menu", async () => {
     const applicationId = "30000000-0000-4000-8000-000000000001"
@@ -2040,6 +2376,7 @@ describe("conversation knowledge base snapshots", () => {
       if (url.includes("/api/v1/conversations/conversation-knowledge")) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: "conversation-knowledge",
             title: "知识库问答",
             archived: false,
@@ -2209,6 +2546,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith("/conversations/conversation-list-failure")) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: "conversation-list-failure",
             title: "知识库列表故障",
             archived: false,
@@ -2445,6 +2783,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith("/conversations/conversation-valid-intersection")) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: "conversation-valid-intersection",
             title: "权限变化测试",
             archived: false,
@@ -2619,6 +2958,7 @@ describe("conversation knowledge base snapshots", () => {
         if (path.endsWith(`/conversations/${conversationId}`)) {
           return Promise.resolve(
             envelope({
+              category_id: null,
               id: conversationId,
               title: "应用知识库问答",
               archived: false,
@@ -2790,3 +3130,106 @@ describe("conversation knowledge base snapshots", () => {
     }
   )
 })
+
+function PrewarmProbePage() {
+  const navigate = useNavigate()
+  return (
+    <>
+      <button onClick={() => navigate("/conversations/existing-prewarm-task")}>
+        测试切换已有任务
+      </button>
+      <button onClick={() => navigate("/conversations/new")}>
+        测试切换新任务
+      </button>
+      <ConversationPage />
+    </>
+  )
+}
+
+function renderPrewarmPage() {
+  const prewarms: Array<{
+    body: unknown
+    response: ReturnType<typeof createDeferred<Response>>
+  }> = []
+  const createdBodies: unknown[] = []
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), window.location.origin).pathname
+      if (path.endsWith("/conversations/prewarm")) {
+        const response = createDeferred<Response>()
+        prewarms.push({
+          body: JSON.parse(String(init?.body)) as unknown,
+          response,
+        })
+        return response.promise
+      }
+      if (path.endsWith("/model-preference"))
+        return Promise.resolve(envelope(modelPreference()))
+      if (path.endsWith("/capabilities") || path.endsWith("/knowledge-bases"))
+        return Promise.resolve(envelope({ items: [], next_cursor: null }))
+      if (path.endsWith("/knowledge-bases/search-capability"))
+        return Promise.resolve(
+          envelope({
+            status: "available",
+            reason_code: null,
+            checked_at: "2026-09-08T00:00:00.000Z",
+          })
+        )
+      if (path.endsWith("/conversations") && init?.method === "POST") {
+        createdBodies.push(JSON.parse(String(init.body)) as unknown)
+        return Promise.resolve(errorEnvelope(503, "RUNNER_UNAVAILABLE"))
+      }
+      if (path.endsWith("/events"))
+        return Promise.resolve(
+          new Response("", { headers: { "content-type": "text/event-stream" } })
+        )
+      if (path.endsWith("/conversations/existing-prewarm-task"))
+        return Promise.resolve(
+          envelope({
+            category_id: null,
+            id: "existing-prewarm-task",
+            title: "已有任务",
+            archived: false,
+            updated_at: "2026-09-08T00:00:00.000Z",
+            execution_status: "idle",
+            messages: [],
+            turns: [],
+            pending_requests: [],
+            attachments: [],
+            artifacts: [],
+          })
+        )
+      return Promise.resolve(new Response(null, { status: 404 }))
+    })
+  )
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  render(
+    <MemoryRouter initialEntries={["/conversations/new"]}>
+      <QueryClientProvider client={queryClient}>
+        <Routes>
+          <Route
+            path="/conversations/:conversationId"
+            element={<PrewarmProbePage />}
+          />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>
+  )
+  return {
+    prewarms,
+    createdBodies,
+    async resolvePrewarm(index: number, id: string) {
+      const request = prewarms[index]
+      if (!request) throw new Error("prewarm request missing")
+      await act(async () => {
+        request.response.resolve(
+          envelope({ accepted: true, conversation_id: id })
+        )
+        await request.response.promise
+      })
+    },
+  }
+}

@@ -289,9 +289,7 @@ async function sendPendingAnnotations() {
   await interaction.click(
     screen.getByRole("button", { name: /查看 \d+ 条待发送标注/u })
   )
-  await interaction.click(
-    await screen.findByRole("button", { name: "全部处理" })
-  )
+  await interaction.click(await screen.findByRole("button", { name: "发送" }))
 }
 
 async function enableOfficeAnnotationMode() {
@@ -300,10 +298,12 @@ async function enableOfficeAnnotationMode() {
     name: "进入文件标注模式",
   })
   expect(toggle).toHaveTextContent("添加标注")
+  expect(toggle).toHaveClass("bg-[var(--app-selection)]", "text-white")
   expect(toggle).toHaveAttribute("aria-pressed", "false")
   await interaction.click(toggle)
   expect(toggle).toHaveAttribute("aria-pressed", "true")
   expect(toggle).toHaveTextContent("标注中")
+  expect(toggle).toHaveClass("bg-[var(--app-selection)]", "text-white")
 }
 
 describe("conversation Office preview", () => {
@@ -449,17 +449,19 @@ describe("conversation Office preview", () => {
     })
     expect(within(batchDialog).getByRole("list")).toBeVisible()
     const processAllButton = within(batchDialog).getByRole("button", {
-      name: "全部处理",
+      name: "发送",
     })
-    expect(processAllButton.querySelector(".lucide-arrow-up")).not.toBeNull()
+    expect(processAllButton.querySelector(".lucide-arrow-up")).toBeNull()
     expect(processAllButton).toHaveClass(
       "office-annotation-batch-send",
-      "size-8",
-      "rounded-full",
+      "h-6",
+      "px-2.5",
+      "text-xs",
+      "rounded-lg",
       "bg-primary",
       "text-primary-foreground"
     )
-    expect(processAllButton).toHaveTextContent("")
+    expect(processAllButton).toHaveTextContent("发送")
     expect(screen.getAllByText("改成年目标")).toHaveLength(2)
     expect(screen.getAllByText("改成年目标")[0]).toHaveClass(
       "office-annotation-batch-request"
@@ -488,7 +490,7 @@ describe("conversation Office preview", () => {
     })
     expect(removeButton).toHaveClass("size-7", "text-muted-foreground/60")
     await userEvent.click(removeButton)
-    await userEvent.click(screen.getByRole("button", { name: "全部处理" }))
+    await userEvent.click(screen.getByRole("button", { name: "发送" }))
 
     await waitFor(() => expect(onAskSelection).toHaveBeenCalledOnce())
     expect(onAskSelection).toHaveBeenCalledWith(file, [

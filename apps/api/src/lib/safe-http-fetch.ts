@@ -1,6 +1,6 @@
 import { promises as dns } from "node:dns"
 import type { LookupAddress } from "node:dns"
-import { request as httpRequest } from "node:http"
+import { request as httpRequest, type IncomingMessage } from "node:http"
 import { request as httpsRequest } from "node:https"
 import { isIP, type LookupFunction } from "node:net"
 
@@ -58,9 +58,10 @@ export async function fetchPublicHttpResource(
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), options.requestTimeoutMs)
     timeout.unref()
+    let response: Response | undefined
 
     try {
-      const response =
+      response =
         options.fetcher === undefined
           ? await pinnedHttpFetch({
               url: current,
@@ -115,6 +116,11 @@ export async function fetchPublicHttpResource(
       throw new AppError(options.errorCode)
     } finally {
       clearTimeout(timeout)
+      // Redirects and rejected responses are not consumed. Release their body
+      // as well, including when an injected fetch transport is used.
+      if (response?.body && !response.body.locked) {
+        await response.body.cancel().catch(() => undefined)
+      }
     }
   }
 
@@ -268,18 +274,7 @@ function pinnedHttpFetch({
   }
 
   const request = url.protocol === "https:" ? httpsRequest : httpRequest
-  return new Promise<Response>((resolvePromise, rejectPromise) => {
-    let settled = false
-    const resolve = (response: Response) => {
-      if (settled) return
-      settled = true
-      resolvePromise(response)
-    }
-    const reject = (error: unknown) => {
-      if (settled) return
-      settled = true
-      rejectPromise(error)
-    }
+  return new Promise<Response>((resolve, reject) => {
     const outgoing = request(
       url,
       {
@@ -297,50 +292,53 @@ function pinnedHttpFetch({
         },
       },
       (incoming) => {
-        const status = incoming.statusCode ?? 500
-        const headers = new Headers()
-        for (const [name, value] of Object.entries(incoming.headers)) {
-          if (typeof value === "string") headers.set(name, value)
-          else if (Array.isArray(value)) headers.set(name, value.join(", "))
-        }
-        if (isRedirectStatus(status)) {
-          incoming.destroy()
-          resolve(new Response(null, { status, headers }))
-          return
-        }
-
-        const declaredLength = Number(headers.get("content-length"))
-        if (Number.isFinite(declaredLength) && declaredLength > byteLimit) {
-          const error = new AppError(errorCode)
-          incoming.destroy(error)
-          outgoing.destroy(error)
-          reject(error)
-          return
-        }
-
-        const chunks: Buffer[] = []
-        let size = 0
-        incoming.on("data", (chunk: Buffer | string) => {
-          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-          size += bytes.length
-          if (size > byteLimit) {
-            const error = new AppError(errorCode)
-            incoming.destroy(error)
-            outgoing.destroy(error)
-            reject(error)
-            return
-          }
-          chunks.push(bytes)
-        })
+        // Attach before validation or early destruction. A stream error is not
+        // caught by the Promise executor or the caller's surrounding try/catch.
         incoming.once("error", reject)
-        incoming.once("end", () => {
-          resolve(new Response(Buffer.concat(chunks, size), { status, headers }))
-        })
+        void readPinnedHttpResponse(incoming, byteLimit, errorCode).then(resolve, reject)
       },
     )
     outgoing.once("error", reject)
     outgoing.end()
   })
+}
+
+async function readPinnedHttpResponse(
+  incoming: IncomingMessage,
+  byteLimit: number,
+  errorCode: ErrorCode,
+): Promise<Response> {
+  try {
+    const status = incoming.statusCode ?? 500
+    const headers = new Headers()
+    for (const [name, value] of Object.entries(incoming.headers)) {
+      if (typeof value === "string") headers.set(name, value)
+      else if (Array.isArray(value)) headers.set(name, value.join(", "))
+    }
+    // Fetch forbids a body (even an empty Buffer) for these final statuses.
+    if (isRedirectStatus(status) || status === 204 || status === 205 || status === 304) {
+      return new Response(null, { status, headers })
+    }
+
+    const declaredLength = Number(headers.get("content-length"))
+    if (Number.isFinite(declaredLength) && declaredLength > byteLimit) {
+      throw new AppError(errorCode)
+    }
+
+    const chunks: Buffer[] = []
+    let size = 0
+    // Node's async iterator propagates stream errors and premature closure as
+    // rejections. Parsing and Response construction stay in this async scope.
+    for await (const chunk of incoming) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
+      size += bytes.length
+      if (size > byteLimit) throw new AppError(errorCode)
+      chunks.push(bytes)
+    }
+    return new Response(Buffer.concat(chunks, size), { status, headers })
+  } finally {
+    incoming.destroy()
+  }
 }
 
 function isRedirectStatus(status: number): boolean {

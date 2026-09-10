@@ -3,9 +3,20 @@ import { describe, expect, it } from "vitest";
 import {
   builtInMcpConfigOverrides,
   linkSenseModelProviderConfigOverrides,
+  linkSenseSkillConfigOverrides,
 } from "../src/codex/runtime-config-overrides.js";
 
 describe("Codex process-level runtime config", () => {
+  it("exposes authorized native Skill instructions for execution and keeps Plan reference-only", () => {
+    expect(linkSenseSkillConfigOverrides("default")).toEqual([
+      "skills.include_instructions=true",
+      "skills.bundled.enabled=false",
+    ]);
+    expect(linkSenseSkillConfigOverrides("plan")).toEqual([
+      "skills.include_instructions=false",
+      "skills.bundled.enabled=false",
+    ]);
+  });
   it("projects the complete LinkSense model provider without persisting it", () => {
     expect(
       linkSenseModelProviderConfigOverrides({

@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { PresentationPreview } from "@/components/media/presentation-preview/presentation-preview"
+import { mockOfficeSelectionLayout } from "@/test/office-selection-layout"
 import type {
   PresentationAnnotationMarker,
   PresentationSelectionAction,
@@ -23,8 +24,8 @@ const viewer = vi.hoisted(() => ({
   loading: false,
   reportSlideCountWhileLoading: false,
   slideCount: 4,
-  viewportWidth: 0,
-  viewportHeight: 0,
+  viewportWidth: 1_000,
+  viewportHeight: 800,
   slideWrapperWidth: 0,
   slideWrapperHeight: 0,
   zoom: 1,
@@ -494,6 +495,29 @@ function setBoundingRect(
     }) as DOMRect
 }
 
+function controlAnimationFrames() {
+  let sequence = 0
+  const callbacks = new Map<number, FrameRequestCallback>()
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    const id = ++sequence
+    callbacks.set(id, callback)
+    return id
+  })
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+    callbacks.delete(id)
+  })
+
+  return async () => {
+    await act(async () => {
+      const frame = [...callbacks.entries()]
+      for (const [id, callback] of frame) {
+        if (!callbacks.delete(id)) continue
+        callback(performance.now())
+      }
+    })
+  }
+}
+
 describe("presentation preview", () => {
   beforeEach(async () => {
     viewer.activeSlideIndex = 0
@@ -501,8 +525,8 @@ describe("presentation preview", () => {
     viewer.loading = false
     viewer.reportSlideCountWhileLoading = false
     viewer.slideCount = 4
-    viewer.viewportWidth = 0
-    viewer.viewportHeight = 0
+    viewer.viewportWidth = 1_000
+    viewer.viewportHeight = 800
     viewer.slideWrapperWidth = 0
     viewer.slideWrapperHeight = 0
     viewer.zoom = 1
@@ -515,7 +539,10 @@ describe("presentation preview", () => {
     await i18n.changeLanguage("zh-CN")
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
   it("renders loading and retryable error states without mounting the viewer", async () => {
     const { rerender } = render(
@@ -647,6 +674,131 @@ describe("presentation preview", () => {
     )
     expect(viewerSurface).not.toHaveAttribute("aria-hidden")
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
+  })
+
+  it("keeps fitting slides covered while their dimensions are still shrinking", async () => {
+    const nextFrame = controlAnimationFrames()
+    viewer.viewportWidth = 800
+    viewer.viewportHeight = 600
+    viewer.slideWrapperWidth = 780
+    viewer.slideWrapperHeight = 440
+    render(
+      <PresentationPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="settling-slide.pptx"
+      />
+    )
+
+    const adapter = screen.getByTestId("pptx-viewer-adapter")
+    const surface = document.querySelector(".presentation-preview-pptx-surface")
+    await nextFrame()
+    for (const width of [760, 740, 720]) {
+      viewer.slideWrapperWidth = width
+      viewer.slideWrapperHeight = (width * 9) / 16
+      await nextFrame()
+      expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+      expect(surface).toHaveAttribute("aria-hidden", "true")
+    }
+
+    await nextFrame()
+    expect(adapter).toHaveAttribute("aria-busy", "true")
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "true")
+    expect(surface).not.toHaveAttribute("aria-hidden")
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+
+    // Normal user resizing and zooming must not bring the loading mask back.
+    viewer.viewportWidth = 640
+    fireEvent.resize(window)
+    fireEvent.click(screen.getByRole("button", { name: "放大演示文稿" }))
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "true")
+    expect(viewer.zoomIn).toHaveBeenCalledOnce()
+    expect(viewer.mountCount).toBe(1)
+  })
+
+  it("waits for the viewport dimensions and compact navigation layout to settle", async () => {
+    const nextFrame = controlAnimationFrames()
+    viewer.compactLayout = false
+    render(
+      <PresentationPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="settling-pane.pptx"
+      />
+    )
+
+    const adapter = screen.getByTestId("pptx-viewer-adapter")
+    await nextFrame()
+    viewer.viewportWidth = 720
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+    viewer.viewportHeight = 560
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+    await act(async () => viewer.setCompactLayout?.(true))
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "true")
+  })
+
+  it("keeps an unmeasured viewport covered until it has a usable size", async () => {
+    const nextFrame = controlAnimationFrames()
+    viewer.viewportWidth = 0
+    viewer.viewportHeight = 0
+    render(
+      <PresentationPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="unmeasured-pane.pptx"
+      />
+    )
+
+    const adapter = screen.getByTestId("pptx-viewer-adapter")
+    await nextFrame()
+    await nextFrame()
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+    expect(screen.getByRole("status")).toBeInTheDocument()
+
+    viewer.viewportWidth = 800
+    viewer.viewportHeight = 600
+    await nextFrame()
+    await nextFrame()
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "true")
+  })
+
+  it("includes the viewport padding when deciding whether the initial slide fits", async () => {
+    const nextFrame = controlAnimationFrames()
+    viewer.viewportWidth = 800
+    viewer.viewportHeight = 600
+    viewer.slideWrapperWidth = 798
+    viewer.slideWrapperHeight = 570
+    render(
+      <PresentationPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="canvas-gutters.pptx"
+      />
+    )
+
+    const adapter = screen.getByTestId("pptx-viewer-adapter")
+    const viewport = document.querySelector<HTMLElement>(
+      "[data-pptx-viewport]"
+    )!
+    viewport.style.padding = "16px 4px"
+    await nextFrame()
+    await nextFrame()
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+
+    viewer.slideWrapperWidth = 792
+    viewer.slideWrapperHeight = 568
+    await nextFrame()
+    await nextFrame()
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "true")
   })
 
   it("exposes a compact download action without a dropdown affordance", async () => {
@@ -1240,6 +1392,10 @@ describe("presentation preview", () => {
       } as DOMRect
     }
 
+    await waitFor(() =>
+      expect(adapter).toHaveAttribute("data-pptx-ready", "true")
+    )
+
     fireEvent.pointerDown(element, {
       buttons: 1,
       clientX: 100,
@@ -1395,7 +1551,78 @@ describe("presentation preview", () => {
     expect(viewer.setZoom).toHaveBeenLastCalledWith(2)
   })
 
+  it("previews slide elements on hover without duplicating retained annotation frames", async () => {
+    const documentState = {
+      status: "ready" as const,
+      content: new Uint8Array([1]),
+    }
+    const action = createSelectionAction(vi.fn().mockResolvedValue(undefined))
+    const marker: PresentationAnnotationMarker = {
+      id: "hover-mark",
+      index: 1,
+      selection: {
+        slideIndex: 0,
+        slideNumber: 1,
+        elementIds: ["title-1"],
+        elements: [],
+      },
+    }
+    const { rerender } = render(
+      <PresentationPreview
+        document={documentState}
+        fileName="hover.pptx"
+        selectionAction={action}
+      />
+    )
+    const overlay = await screen.findByTestId("office-annotation-hover-overlay")
+    const viewport = document.querySelector<HTMLElement>("[data-pptx-viewport]")
+    const target = screen.getByText("认识人工智能").parentElement
+    if (!viewport || !target) throw new Error("Missing slide viewport")
+    await waitFor(() =>
+      expect(viewport).toHaveAttribute("data-office-annotation-scope", "true")
+    )
+    setBoundingRect(viewport, { left: 100, top: 100, width: 900, height: 700 })
+    setBoundingRect(overlay, { left: 100, top: 100, width: 900, height: 700 })
+    setBoundingRect(target, { left: 200, top: 160, width: 400, height: 80 })
+    vi.spyOn(document, "elementFromPoint").mockReturnValue(target)
+    fireEvent.pointerMove(target, {
+      pointerType: "mouse",
+      buttons: 0,
+      clientX: 220,
+      clientY: 200,
+    })
+    await waitFor(() =>
+      expect(overlay.querySelector("path")).toHaveAttribute(
+        "d",
+        "M100,60H500V140H100Z"
+      )
+    )
+    expect(target).toHaveAttribute("aria-selected", "false")
+    expect(screen.queryByRole("button", { name: /问 LinkSense/u })).toBeNull()
+    rerender(
+      <PresentationPreview
+        document={documentState}
+        fileName="hover.pptx"
+        selectionAction={action}
+        annotationMarkers={[marker]}
+      />
+    )
+    await waitFor(() =>
+      expect(overlay.querySelector("path")?.getAttribute("d") || "").toBe("")
+    )
+    rerender(
+      <PresentationPreview
+        document={documentState}
+        fileName="hover.pptx"
+        annotationMarkers={[marker]}
+      />
+    )
+    expect(screen.queryByTestId("office-annotation-hover-overlay")).toBeNull()
+    expect(viewport).not.toHaveAttribute("data-office-annotation-scope")
+  })
+
   it("supports additive selection while leaving template elements inert", async () => {
+    mockOfficeSelectionLayout()
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     render(
       <PresentationPreview
@@ -1442,6 +1669,11 @@ describe("presentation preview", () => {
     fireEvent.click(image, { shiftKey: true })
     await waitFor(() => expect(image).toHaveAttribute("aria-selected", "true"))
     expect(title).toHaveAttribute("aria-selected", "true")
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /问 LinkSense/u }).style.transform
+      ).toBe("translate(686px, 408px)")
+    )
     await waitFor(() => {
       expect(
         document.querySelector("[data-pptx-selection-frame='image-1']")

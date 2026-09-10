@@ -1,9 +1,9 @@
 import {
   officeAnnotationRequestText,
   presentationAnnotationDisplaySchema,
-  userMessageDisplaySchema,
+  officeAnnotationDisplaySchema,
   type PresentationAnnotationDisplay,
-  type UserMessageDisplay,
+  type OfficeAnnotationDisplay,
 } from "@linksense/shared";
 
 export const PRESENTATION_ANNOTATION_PROMPT_MARKER =
@@ -14,7 +14,7 @@ export const OFFICE_ANNOTATION_PROMPT_MARKER =
 export type OfficeAnnotationPromptInspection = {
   suspected: boolean;
   request: string | null;
-  display: UserMessageDisplay | null;
+  display: OfficeAnnotationDisplay | null;
   fingerprint: string | null;
 };
 
@@ -54,7 +54,7 @@ export function inspectOfficeAnnotationPrompt(
   const metadataEnd = content.indexOf("\n\n", metadataPrefix.length);
   if (content.startsWith(metadataPrefix) && metadataEnd >= 0) {
     try {
-      const parsed = userMessageDisplaySchema.safeParse(
+      const parsed = officeAnnotationDisplaySchema.safeParse(
         JSON.parse(content.slice(metadataPrefix.length, metadataEnd)),
       );
       if (parsed.success) {

@@ -51,6 +51,7 @@ type RuntimeCleanupDependencies = {
 
 export async function removeConversationRuntimeDirectories(
   input: {
+    taskHome: string
     workspace: string
     taskControl: string
     directoryCleanupIdentity?: DirectoryCleanupIdentity
@@ -62,6 +63,14 @@ export async function removeConversationRuntimeDirectories(
   const remove = dependencies.remove ?? rm
   const inspect = dependencies.inspect ?? lstat
 
+  await removeDirectory(
+    input.taskHome,
+    "delete_workspace",
+    input.directoryCleanupIdentity,
+    makeRemovable,
+    remove,
+    inspect,
+  )
   const workspace = await removeDirectory(
     input.workspace,
     "delete_workspace",

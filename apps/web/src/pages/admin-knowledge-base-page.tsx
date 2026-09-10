@@ -78,6 +78,7 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { AdminKnowledgeTabs } from "@/features/admin/admin-knowledge-tabs"
+import { AdminKnowledgeBaseName } from "@/features/admin/admin-knowledge-base-name"
 import { formatKnowledgeBytes } from "@/features/knowledge-bases/knowledge-base-utils"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
@@ -392,7 +393,7 @@ export function AdminKnowledgeBasePage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="admin-knowledge-name-column">
+                  <TableHead className="w-[300px]">
                     {t("adminKnowledge.columns.knowledgeBase")}
                   </TableHead>
                   <TableHead className="admin-knowledge-owner-column">
@@ -410,7 +411,7 @@ export function AdminKnowledgeBasePage() {
                   <TableHead className="admin-knowledge-status-column">
                     {t("common.status")}
                   </TableHead>
-                  <TableHead className="admin-knowledge-diagnostics-column">
+                  <TableHead className="w-[148px]">
                     {t("adminKnowledge.columns.diagnostics")}
                   </TableHead>
                   <TableHead className="admin-knowledge-actions-column text-right">
@@ -577,16 +578,11 @@ function AdminKnowledgeBaseRow({
   return (
     <TableRow>
       <TableCell
-        className="admin-knowledge-name-column"
+        className="w-[300px]"
         data-label={t("adminKnowledge.columns.knowledgeBase")}
       >
         <div className="admin-knowledge-cell-stack">
-          <strong
-            className="admin-knowledge-primary-text"
-            title={knowledgeBase.name}
-          >
-            {knowledgeBase.name}
-          </strong>
+          <AdminKnowledgeBaseName name={knowledgeBase.name} />
           <time
             className="admin-knowledge-secondary-text"
             dateTime={knowledgeBase.updated_at}
@@ -703,7 +699,7 @@ function AdminKnowledgeBaseRow({
         </div>
       </TableCell>
       <TableCell
-        className="admin-knowledge-diagnostics-column"
+        className="w-[148px]"
         data-label={t("adminKnowledge.columns.diagnostics")}
       >
         <div className="admin-knowledge-cell-stack">

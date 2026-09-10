@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react"
+import { act, cleanup, render, screen, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -56,6 +56,7 @@ function createConversation(
     id: "conversation-render-stability",
     title: "消息流渲染稳定性",
     archived: false,
+    category_id: null,
     collaboration_mode: "default",
     user_input_requests: [],
     updated_at: "2026-08-02T08:00:02.000Z",
@@ -189,7 +190,291 @@ describe("conversation stream render stability", () => {
     await i18n.changeLanguage("zh-CN")
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  it("keeps one status row through thinking and rapid tool lifecycle changes", () => {
+    vi.useFakeTimers()
+    const messages = [userMessage, firstCommentary]
+    const started = nativeCommandLifecycleEvent({
+      id: "first-started",
+      itemId: "first",
+      sequence: 2,
+      method: "item/started",
+      status: "inProgress",
+      command: "pnpm test",
+    })
+    const completed = nativeCommandLifecycleEvent({
+      id: "first-completed",
+      itemId: "first",
+      sequence: 3,
+      method: "item/completed",
+      status: "completed",
+      command: "pnpm test",
+    })
+    const nextStarted = nativeCommandLifecycleEvent({
+      id: "next-started",
+      itemId: "next",
+      sequence: 4,
+      method: "item/started",
+      status: "inProgress",
+      command: "pnpm build",
+    })
+    const { rerender } = render(
+      <ConversationThread
+        conversation={createConversation(messages)}
+        onDownload={vi.fn()}
+      />
+    )
+    const label = screen.getByText("正在思考", { exact: true })
+    const row = label.closest('[data-slot="marker"]')
+    act(() => vi.advanceTimersByTime(100))
+    rerender(
+      <ConversationThread
+        conversation={createConversation(messages, [started])}
+        onDownload={vi.fn()}
+      />
+    )
+    expect(screen.getByText("正在思考", { exact: true })).toBe(label)
+    act(() => vi.advanceTimersByTime(900))
+    expect(screen.getByText("正在运行一个命令")).toBe(label)
+    expect(label.closest('[data-slot="marker"]')).toBe(row)
+    act(() => vi.advanceTimersByTime(100))
+    rerender(
+      <ConversationThread
+        conversation={createConversation(messages, [started, completed])}
+        onDownload={vi.fn()}
+      />
+    )
+    expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+    expect(label).toHaveTextContent("正在运行一个命令")
+    act(() => vi.advanceTimersByTime(100))
+    rerender(
+      <ConversationThread
+        conversation={createConversation(messages, [
+          started,
+          completed,
+          nextStarted,
+        ])}
+        onDownload={vi.fn()}
+      />
+    )
+    act(() => vi.advanceTimersByTime(800))
+    expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+    expect(screen.getByText("正在运行一个命令")).toBe(label)
+    expect(label.closest('[data-slot="marker"]')).toBe(row)
+    expect(row?.parentElement?.querySelectorAll(".shimmer")).toHaveLength(1)
+  })
+
+  it.each(["completed", "failed", "interrupted"] as const)(
+    "immediately settles the activity row when a turn becomes %s during a pending status switch",
+    (status) => {
+      vi.useFakeTimers()
+      const messages = [userMessage, firstCommentary]
+      const started = nativeCommandLifecycleEvent({
+        id: "started-before-stop",
+        itemId: "tool-before-stop",
+        sequence: 2,
+        method: "item/started",
+        status: "inProgress",
+        command: "pnpm test",
+      })
+      const { container, rerender } = render(
+        <ConversationThread
+          conversation={createConversation(messages)}
+          defaultActivityOpen
+          onDownload={vi.fn()}
+        />
+      )
+      act(() => vi.advanceTimersByTime(100))
+      rerender(
+        <ConversationThread
+          conversation={createConversation(messages, [started])}
+          defaultActivityOpen
+          onDownload={vi.fn()}
+        />
+      )
+      expect(screen.getByText("正在思考", { exact: true })).toBeVisible()
+      rerender(
+        <ConversationThread
+          conversation={{
+            ...createConversation(messages, [started]),
+            turns: [
+              {
+                ...runningTurn,
+                status,
+                completed_at: "2026-08-02T08:00:05.000Z",
+              },
+            ],
+            running_turn: null,
+          }}
+          defaultActivityOpen
+          onDownload={vi.fn()}
+        />
+      )
+      expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+      expect(screen.getByText("运行了一个命令")).toBeVisible()
+      expect(container.querySelector('[aria-busy="true"]')).toBeNull()
+      act(() => vi.advanceTimersByTime(2_000))
+      expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+      expect(screen.queryByText("正在运行一个命令")).toBeNull()
+    }
+  )
+
+  it("immediately removes a held thinking label when input is requested", () => {
+    vi.useFakeTimers()
+    const messages = [userMessage, firstCommentary]
+    const started = nativeCommandLifecycleEvent({
+      id: "started-before-input",
+      itemId: "tool-before-input",
+      sequence: 2,
+      method: "item/started",
+      status: "inProgress",
+      command: "pnpm test",
+    })
+    const { rerender } = render(
+      <ConversationThread
+        conversation={createConversation(messages)}
+        onDownload={vi.fn()}
+      />
+    )
+    act(() => vi.advanceTimersByTime(100))
+    rerender(
+      <ConversationThread
+        conversation={createConversation(messages, [started])}
+        onDownload={vi.fn()}
+      />
+    )
+    expect(screen.getByText("正在思考", { exact: true })).toBeVisible()
+    rerender(
+      <ConversationThread
+        conversation={{
+          ...createConversation(messages, [started]),
+          user_input_requests: [
+            {
+              id: "30000000-0000-4000-8000-000000000007",
+              conversation_id: "conversation-render-stability",
+              turn_id: runningTurn.id,
+              item_id: "form-request",
+              kind: "form",
+              server_name: "linksense_core",
+              message: "请选择处理方式",
+              requested_schema: { type: "object", properties: {} },
+              ui_hints: {},
+              response_semantics: { kind: "input" },
+              response_content: null,
+              status: "pending",
+              auto_resolve_at: null,
+              resolved_at: null,
+              resolved_action: null,
+              created_at: "2026-08-02T08:00:03.000Z",
+              updated_at: "2026-08-02T08:00:03.000Z",
+            },
+          ],
+        }}
+        onDownload={vi.fn()}
+      />
+    )
+    expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+    act(() => vi.advanceTimersByTime(2_000))
+    expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+  })
+
+  it("updates the same status row with readable reasoning between tool calls", () => {
+    const conversation = createConversation([userMessage, firstCommentary])
+    const { rerender } = render(
+      <ConversationThread conversation={conversation} onDownload={vi.fn()} />
+    )
+    const label = screen.getByText("正在思考", { exact: true })
+    rerender(
+      <ConversationThread
+        conversation={conversation}
+        onDownload={vi.fn()}
+        liveReasoningSummaries={{
+          reasoning: {
+            itemId: "reasoning",
+            turnId: runningTurn.id,
+            summaryIndex: 0,
+            text: "**Comparing URL parsing options**",
+            createdAt: "2026-08-02T08:00:02.000Z",
+            sequence: 2,
+          },
+        }}
+      />
+    )
+    expect(screen.getByText("Comparing URL parsing options")).toBe(label)
+    expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+  })
+
+  it("keeps the summary through native completion and removes it when the turn ends", () => {
+    const messages = [userMessage, firstCommentary]
+    const liveReasoningSummaries = {
+      current: {
+        itemId: "reasoning",
+        turnId: runningTurn.id,
+        summaryIndex: 0,
+        text: "**Checking results**",
+        sequence: 2,
+        createdAt: "2026-08-02T08:00:02.000Z",
+      },
+    }
+    const { container, rerender } = render(
+      <ConversationThread
+        conversation={createConversation(messages)}
+        liveReasoningSummaries={liveReasoningSummaries}
+        onDownload={vi.fn()}
+      />
+    )
+    const label = screen.getByText("Checking results")
+    const event: ConversationEvent = {
+      id: "reasoning-completed",
+      type: "item/completed",
+      turn_id: runningTurn.id,
+      sequence_no: 3,
+      created_at: "2026-08-02T08:00:03.000Z",
+      payload: {
+        schema_version: 2,
+        source: "codex_app_server",
+        method: "item/completed",
+        params: {
+          threadId: "native-thread",
+          turnId: "native-turn",
+          item: {
+            id: "reasoning",
+            type: "reasoning",
+            summary: ["**Checking results**"],
+          },
+        },
+      },
+    }
+    const conversation = createConversation(messages, [event])
+    rerender(
+      <ConversationThread conversation={conversation} onDownload={vi.fn()} />
+    )
+    expect(screen.getByText("Checking results")).toBe(label)
+    expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+    rerender(
+      <ConversationThread
+        conversation={{
+          ...conversation,
+          turns: [
+            {
+              ...runningTurn,
+              status: "completed",
+              completed_at: "2026-08-02T08:00:04.000Z",
+            },
+          ],
+          running_turn: null,
+        }}
+        liveReasoningSummaries={liveReasoningSummaries}
+        onDownload={vi.fn()}
+      />
+    )
+    expect(screen.queryByText("Checking results")).toBeNull()
+    expect(container.querySelector(".turn-thinking-activity")).toBeNull()
+  })
 
   it("does not re-render completed commentary when new tail content arrives", () => {
     const { rerender } = render(
@@ -528,6 +813,7 @@ describe("conversation stream render stability", () => {
   })
 
   it("keeps a legacy tool row mounted when its lifecycle event id changes", () => {
+    vi.useFakeTimers()
     const { rerender } = render(
       <ConversationThread
         conversation={createConversation(
@@ -567,8 +853,12 @@ describe("conversation stream render stability", () => {
     )
 
     expect(
-      screen.getByText("工具调用已完成").closest(".legacy-activity-item")
+      screen.getByText("正在调用工具").closest(".legacy-activity-item")
     ).toBe(initialActivity)
+    act(() => vi.advanceTimersByTime(1_000))
+    expect(screen.getByText("正在思考").closest(".legacy-activity-item")).toBe(
+      initialActivity
+    )
   })
 
   it("keeps one empty activity shell from initial thinking through final completion", () => {

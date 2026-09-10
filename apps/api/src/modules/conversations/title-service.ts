@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto"
 import { conversationEventSchema } from "@linksense/shared"
 import type { Prisma, PrismaClient } from "../../generated/prisma/client.js"
 import type { LinkSenseRedis } from "../../adapters/redis.js"
-import type {
-  ManagedTaskTitleGenerator,
-  TaskTitleMessage,
+import type { RunnerClient } from "../../adapters/runner.js"
+import {
+  TASK_TITLE_SOURCE_MESSAGE_LIMIT,
+  type ManagedTaskTitleGenerator,
+  type TaskTitleMessage,
 } from "../../adapters/dashscope-title.js"
 import { truncateConversationTitle } from "../../lib/conversation-title.js"
 import { nextConversationEventSequence } from "../events/sequence.js"
@@ -27,6 +29,7 @@ export class ConversationTitleService {
     private readonly redis: LinkSenseRedis,
     private readonly generator: ManagedTaskTitleGenerator,
     private readonly usageRecorder: ModelUsageRecorder,
+    private readonly personalization: Pick<RunnerClient, "getPersonalization">,
   ) {}
 
   schedule(conversationId: string): void {
@@ -43,7 +46,7 @@ export class ConversationTitleService {
     const scheduled = this.#scheduledRefreshes.get(conversationId)
     if (scheduled) {
       scheduled.rerunRequested = true
-      scheduled.nextMessages = messages
+      if (messages) scheduled.nextMessages = messages
       return
     }
 
@@ -58,7 +61,7 @@ export class ConversationTitleService {
       } catch {
         // Title generation remains best-effort and never affects the turn.
       }
-      if (updated) {
+      if (updated && !state.nextMessages) {
         this.#scheduledRefreshes.delete(conversationId)
         return
       }
@@ -88,42 +91,38 @@ export class ConversationTitleService {
         codexThreadId: true,
         title: true,
         titleSource: true,
-        applicationId: true,
-        applicationNameSnapshot: true,
       },
     })
-    if (!conversation) return false
+    if (!conversation || conversation.titleSource === "manual") return false
+    const renameEveryMessage =
+      sourceMessages !== undefined &&
+      (await this.personalization.getPersonalization(conversation.ownerId))
+        .task_auto_naming === "every_message"
     let eligibleTitleWhere:
       | { titleSource: "fallback" }
-      | { titleSource: "manual"; title: string }
+      | { titleSource: "generated"; title: string }
     if (conversation.titleSource === "fallback") {
       eligibleTitleWhere = { titleSource: "fallback" }
-    } else if (
-      conversation.titleSource === "manual" &&
-      conversation.applicationId !== null &&
-      conversation.applicationNameSnapshot !== null &&
-      conversation.title === conversation.applicationNameSnapshot
-    ) {
-      const owner = await this.prisma.user.findUnique({
-        where: { id: conversation.ownerId },
-        select: { accountType: true },
-      })
-      if (owner?.accountType !== "application_external") return false
+    } else if (conversation.titleSource === "generated" && renameEveryMessage) {
       eligibleTitleWhere = {
-        titleSource: "manual",
+        titleSource: "generated",
         title: conversation.title,
       }
     } else {
       return false
     }
 
-    const messages = sourceMessages
-      ? sourceMessages
-      : await this.prisma.conversationMessage.findMany({
-          where: { conversationId, role: { in: ["user", "assistant"] } },
-          orderBy: { sequenceNo: "asc" },
-          select: { role: true, contentText: true },
-        })
+    const messages =
+      sourceMessages && !renameEveryMessage
+        ? sourceMessages
+        : (
+            await this.prisma.conversationMessage.findMany({
+              where: { conversationId, role: { in: ["user", "assistant"] } },
+              orderBy: { sequenceNo: "desc" },
+              take: TASK_TITLE_SOURCE_MESSAGE_LIMIT,
+              select: { role: true, contentText: true },
+            })
+          ).reverse()
     const generation = await this.generator.generate(
       messages.flatMap((message) =>
         message.role === "user" || message.role === "assistant"

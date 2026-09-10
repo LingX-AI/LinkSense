@@ -47,6 +47,34 @@ export const adminFeedbackSchema = z.strictObject({
     email: z.email(),
   }),
   images: z.array(feedbackImageSchema).max(FEEDBACK_MAX_IMAGES),
+  reply_count: z.number().int().nonnegative(),
+});
+
+export const myFeedbackSchema = adminFeedbackSchema.omit({ submitter: true });
+export const myFeedbackPageSchema = z.strictObject({
+  items: z.array(myFeedbackSchema),
+  next_cursor: z.string().uuid().nullable(),
+});
+
+export const feedbackReplyContentSchema = z
+  .string()
+  .trim()
+  .max(FEEDBACK_MAX_CONTENT_LENGTH);
+export const feedbackReplyInputSchema = z
+  .strictObject({
+    content: feedbackReplyContentSchema,
+    image_count: z.number().int().min(0).max(FEEDBACK_MAX_IMAGES),
+  })
+  .refine((input) => input.content.length > 0 || input.image_count > 0);
+
+export const feedbackReplySchema = z.strictObject({
+  id: z.string().uuid(),
+  content: feedbackReplyContentSchema,
+  created_at: z.iso.datetime({ offset: true }),
+  images: z.array(feedbackImageSchema).max(FEEDBACK_MAX_IMAGES),
+});
+export const feedbackDetailsSchema = myFeedbackSchema.extend({
+  replies: z.array(feedbackReplySchema),
 });
 
 export const adminFeedbackPageSchema = z.strictObject({
@@ -61,3 +89,7 @@ export type FeedbackSubmissionResult = z.infer<
 export type FeedbackImage = z.infer<typeof feedbackImageSchema>;
 export type AdminFeedback = z.infer<typeof adminFeedbackSchema>;
 export type AdminFeedbackPage = z.infer<typeof adminFeedbackPageSchema>;
+export type MyFeedback = z.infer<typeof myFeedbackSchema>;
+export type MyFeedbackPage = z.infer<typeof myFeedbackPageSchema>;
+export type FeedbackReply = z.infer<typeof feedbackReplySchema>;
+export type FeedbackDetails = z.infer<typeof feedbackDetailsSchema>;

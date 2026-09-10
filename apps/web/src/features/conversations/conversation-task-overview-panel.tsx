@@ -21,6 +21,10 @@ import {
   writeTaskOverviewOpenPreference,
 } from "@/features/conversations/conversation-task-overview-preference"
 import { SubAgentIcon } from "@/features/conversations/subagent-icon"
+import {
+  ConversationSourcesList,
+  type ConversationSourcesListProps,
+} from "@/features/conversations/conversation-sources-list"
 
 const maxVisibleSubAgentIcons = 10
 
@@ -54,6 +58,7 @@ type ConversationTaskOverviewPanelProps = {
   downloadingFileId?: string
   onDownload: (file: ConversationFile) => void
   onOpenChange?: (open: boolean) => void
+  sourcesState?: ConversationSourcesListProps
 }
 
 export function ConversationTaskOverviewPanel({
@@ -64,6 +69,7 @@ export function ConversationTaskOverviewPanel({
   downloadingFileId,
   onDownload,
   onOpenChange: onPanelOpenChange,
+  sourcesState,
 }: ConversationTaskOverviewPanelProps) {
   const { t } = useTranslation()
   const triggerId = useId()
@@ -116,7 +122,7 @@ export function ConversationTaskOverviewPanel({
         align="end"
         side="bottom"
         sideOffset={28}
-        className="task-overview-card-border task-overview-card-shadow w-[min(18.5rem,calc(100vw-1rem))] gap-0 overflow-hidden rounded-[1.35rem] p-0 shadow-none ring-0"
+        className="task-overview-card-border task-overview-card-shadow max-h-[calc(100dvh-6rem)] w-[min(18.5rem,calc(100vw-1rem))] gap-0 overflow-y-auto rounded-[1.35rem] p-0 shadow-none ring-0"
       >
         <div className="px-4 pt-4 pb-2">
           <PopoverTitle className="text-sm font-semibold text-foreground">
@@ -172,7 +178,7 @@ export function ConversationTaskOverviewPanel({
               {t("conversation.taskOverview.outputFiles")}
             </p>
             {overview.outputFiles.length > 0 ? (
-              <div className="mt-2 max-h-52 overflow-y-auto pr-1">
+              <div className="mt-2 flex max-h-52 flex-col gap-0 overflow-y-auto">
                 {overview.outputFiles.map((file) => {
                   const downloading = downloadingFileId === file.id
                   return (
@@ -180,7 +186,7 @@ export function ConversationTaskOverviewPanel({
                       key={file.id}
                       type="button"
                       variant="ghost"
-                      className="h-9 w-full justify-start gap-2 rounded-lg px-1.5 text-left text-sm hover:bg-hover"
+                      className="h-8 w-full justify-start gap-2 rounded-lg px-1.5 text-left text-sm hover:bg-hover"
                       aria-label={t("conversation.downloadArtifact", {
                         name: file.name,
                       })}
@@ -218,6 +224,12 @@ export function ConversationTaskOverviewPanel({
               </p>
             )}
           </section>
+          <ConversationSourcesList
+            sources={sourcesState?.sources ?? []}
+            loading={sourcesState?.loading}
+            failed={sourcesState?.failed}
+            onRetry={sourcesState?.onRetry}
+          />
         </div>
       </PopoverContent>
     </Popover>

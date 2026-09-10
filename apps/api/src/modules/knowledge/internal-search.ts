@@ -103,9 +103,9 @@ export interface TurnKnowledgeScopeResolver {
 }
 
 /**
- * Resolves the immutable local-turn snapshot and intersects it with current
- * authorization on every call. Resource ids and Elasticsearch metadata never
- * cross the MCP boundary; only an opaque turn-scoped source handle does.
+ * Resolves current user access plus explicit application grants on every call.
+ * Turn selections express focus, not permission. Resource ids and Elasticsearch
+ * metadata never cross the MCP boundary; only an opaque turn-scoped source handle does.
  */
 export class InternalKnowledgeSearchService {
   constructor(

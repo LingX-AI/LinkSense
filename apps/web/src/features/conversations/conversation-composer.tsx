@@ -15,6 +15,7 @@ import {
 } from "react"
 import {
   ArrowUpIcon,
+  CircleAlertIcon,
   BookOpenIcon,
   FileIcon,
   FolderOpenIcon,
@@ -48,6 +49,7 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Input } from "@/components/ui/input"
+import { FieldDescription } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import {
   Popover,
@@ -68,6 +70,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ConversationAttachmentPreviews } from "@/features/conversations/conversation-attachment-previews"
+import { ConversationAttachmentUploadPreview } from "@/features/conversations/conversation-attachment-upload-preview"
 import { ConversationAttachmentOverflow } from "@/features/conversations/conversation-attachment-overflow"
 import { capabilityPresentation } from "@/features/capabilities/built-in-presentation"
 import {
@@ -90,7 +93,10 @@ import {
 } from "@/features/conversations/conversation-slash-command"
 import { ConversationComposerUrlHighlightLayer } from "@/features/conversations/conversation-composer-url-highlight-layer"
 import { getConversationComposerInputSegments } from "@/features/conversations/conversation-composer-url-highlighting"
-import { isPreviewableConversationImage } from "@/features/conversations/conversation-attachment-preview-utils"
+import {
+  isPreviewableConversationImage,
+  isPreviewableImageMimeType,
+} from "@/features/conversations/conversation-attachment-preview-utils"
 import type {
   KnowledgeBase,
   KnowledgeSearchCapability,
@@ -157,6 +163,29 @@ function hasTransferredFiles(dataTransfer: DataTransfer): boolean {
   return Array.from(dataTransfer.types).includes("Files")
 }
 
+function isCapabilityMenuShortcutInsertion(
+  previousValue: string,
+  nextValue: string,
+  selectionStart: number | null
+): boolean {
+  if (selectionStart === null || nextValue.length !== previousValue.length + 1)
+    return false
+
+  const insertionIndex = selectionStart - 1
+  if (
+    insertionIndex < 0 ||
+    nextValue[insertionIndex] !== "@" ||
+    `${nextValue.slice(0, insertionIndex)}${nextValue.slice(insertionIndex + 1)}` !==
+      previousValue
+  ) {
+    return false
+  }
+
+  return (
+    insertionIndex === 0 || /\s/u.test(previousValue[insertionIndex - 1] ?? "")
+  )
+}
+
 type PendingPastedTextAttachment = Readonly<{
   name: string
   characterCount: number
@@ -169,6 +198,7 @@ export type PendingAttachmentUpload = Readonly<{
   name: string
   size: number
   mimeType?: string
+  previewFile?: File
 }>
 
 type ComposerAttachmentDisplayItem =
@@ -187,6 +217,7 @@ type ComposerAttachmentDisplayItem =
       size: number
       mimeType?: string | null
       pastedText?: PendingPastedTextAttachment
+      previewFile?: File
     }>
 
 const maxVisibleComposerAttachments = 2
@@ -390,6 +421,7 @@ type ConversationComposerProps = Readonly<{
   planMode?: boolean
   planModeAvailable?: boolean
   planModeDisabled?: boolean
+  unavailableMessage?: string
   interactionBlocked?: boolean
   modelPreference?: ModelPreference
   modelPreferencePending?: boolean
@@ -462,6 +494,7 @@ export const ConversationComposer = forwardRef<
     planModeAvailable = true,
     planModeDisabled = false,
     interactionBlocked = false,
+    unavailableMessage,
     modelPreference,
     modelPreferencePending = false,
     modelContextUsage,
@@ -704,7 +737,11 @@ export const ConversationComposer = forwardRef<
   )
   const hasNonImageAttachments =
     fileAttachments.length > 0 ||
-    visiblePendingAttachmentUploads.length > 0 ||
+    visiblePendingAttachmentUploads.some(
+      (upload) =>
+        !attachmentPreviewEnabled ||
+        !isPreviewableImageMimeType(upload.mimeType)
+    ) ||
     visiblePendingPastedTextAttachment !== null
   const isPastedTextAttachmentPending = pendingPastedTextAttachment !== null
   const composerAttachmentItems: ComposerAttachmentDisplayItem[] = [
@@ -722,6 +759,7 @@ export const ConversationComposer = forwardRef<
       name: file.name,
       size: file.size,
       mimeType: file.mimeType,
+      previewFile: file.previewFile,
     })),
     ...(visiblePendingPastedTextAttachment
       ? [
@@ -1394,6 +1432,19 @@ export const ConversationComposer = forwardRef<
           })}
           {visibleComposerAttachmentItems.map((item, index) => {
             if (
+              item.status === "uploading" &&
+              attachmentPreviewEnabled &&
+              isPreviewableImageMimeType(item.mimeType)
+            ) {
+              return (
+                <ConversationAttachmentUploadPreview
+                  key={item.key}
+                  name={item.name}
+                  file={item.previewFile}
+                />
+              )
+            }
+            if (
               item.status === "uploaded" &&
               attachmentPreviewEnabled &&
               isPreviewableConversationImage(item.file)
@@ -1526,6 +1577,15 @@ export const ConversationComposer = forwardRef<
         </div>
       )}
 
+      {unavailableMessage && (
+        <FieldDescription role="status" className="flex items-start gap-2">
+          <CircleAlertIcon
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0 text-destructive"
+          />
+          {unavailableMessage}
+        </FieldDescription>
+      )}
       <div className="composer-input-layer">
         {hasComposerInputUrl && (
           <ConversationComposerUrlHighlightLayer
@@ -1541,6 +1601,18 @@ export const ConversationComposer = forwardRef<
             setSlashPanel(null)
             setDismissedSlashValue(null)
             setDismissedSkillValue(null)
+            if (
+              !attachmentActionDisabled &&
+              isCapabilityMenuShortcutInsertion(
+                latestValueRef.current,
+                nextValue,
+                event.target.selectionStart
+              )
+            ) {
+              setKnowledgeMenuOpen(false)
+              handleCapabilityMenuOpenChange(true)
+              return
+            }
             latestValueRef.current = nextValue
             onValueChange(nextValue)
           }}
@@ -1558,18 +1630,21 @@ export const ConversationComposer = forwardRef<
                 ? "conversation-slash-command-menu"
                 : undefined
           }
-          placeholder={t(
-            !value.trim() && hasPastedTextAttachment
-              ? "conversation.pastedTextAttachmentPlaceholder"
-              : goalMode
-                ? "conversation.goal.placeholder"
-                : planMode
-                  ? "conversation.plan.placeholder"
-                  : isRunning
-                    ? "conversation.followUpPlaceholder"
-                    : "conversation.placeholder",
-            { productName }
-          )}
+          placeholder={
+            unavailableMessage ??
+            t(
+              !value.trim() && hasPastedTextAttachment
+                ? "conversation.pastedTextAttachmentPlaceholder"
+                : goalMode
+                  ? "conversation.goal.placeholder"
+                  : planMode
+                    ? "conversation.plan.placeholder"
+                    : isRunning
+                      ? "conversation.followUpPlaceholder"
+                      : "conversation.placeholder",
+              { productName }
+            )
+          }
           disabled={submitting || interactionBlocked}
           className={cn(
             "composer-input composer-input-textarea min-h-14 border-0 bg-transparent px-1 py-2 text-sm leading-6 shadow-none focus-visible:bg-transparent focus-visible:ring-0",
@@ -1618,7 +1693,7 @@ export const ConversationComposer = forwardRef<
                     autoFocus={shouldAutoFocusOnDesktop()}
                   />
                 )}
-                <CommandList>
+                <CommandList className="[&_[data-slot=command-item]]:rounded-md">
                   <CommandGroup heading={t("conversation.addGroup")}>
                     <CommandItem
                       value={t("conversation.attachFileMenuSearchValue")}

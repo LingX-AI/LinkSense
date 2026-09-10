@@ -5,15 +5,13 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react"
 import {
   setWasmSource,
   type XlsxCellStyleContext,
-  type XlsxImageAnchor,
+  type XlsxImageRect,
   type XlsxScrollerRenderProps,
-  type XlsxSheetData,
   type XlsxViewerController,
   useXlsxViewerController,
   XlsxViewer,
@@ -22,6 +20,7 @@ import wasmUrl from "@extend-ai/react-xlsx/duke_sheets_wasm_bg.wasm?url"
 import { useTranslation } from "react-i18next"
 
 import { OfficeAnnotationNumberBubble } from "@/components/media/office-preview/office-annotation-number-bubble"
+import { OfficeAnnotationHover } from "@/components/media/office-preview/office-annotation-hover"
 import { officeDocumentSessionKey } from "@/components/media/office-preview/office-document-session"
 import { OfficePreviewLoadingState } from "@/components/media/office-preview/office-preview-loading-state"
 import { OfficePreviewShell } from "@/components/media/office-preview/office-preview-shell"
@@ -51,9 +50,8 @@ const selectionTextLimit = 4_000
 const selectionFormulaLimit = 2_000
 const allowSpreadsheetResizeInReadOnly = true
 const spreadsheetWorkerLoadTimeoutMs = 15_000
-const spreadsheetHeaderHeightPx = 24
-const spreadsheetRowHeaderWidthPx = 40
-const spreadsheetEmuPerPixel = 9_525
+// Canvas fillStyle cannot resolve CSS variables in the library's header color.
+const spreadsheetSelectionHeaderColor = "rgba(11, 115, 224, 0.08)"
 const emptySpreadsheetAnnotationMarkers: readonly SpreadsheetAnnotationMarker[] =
   []
 const preparedWorkbookBufferCache = new WeakMap<
@@ -136,251 +134,30 @@ function spreadsheetSelectionKey(selection: SpreadsheetSelection) {
   }
 }
 
-type SpreadsheetViewport = Readonly<{
-  left: number
-  top: number
-  width: number
-  height: number
-}>
-
 type SpreadsheetAnnotationFrame = Readonly<{
   id: string
   index: number
+  partIndex: number
   left: number
   top: number
   width: number
   height: number
 }>
 
-const emptySpreadsheetViewport: SpreadsheetViewport = {
-  left: 0,
-  top: 0,
-  width: 0,
-  height: 0,
-}
-
-function emuToPixels(value: number) {
-  return value / spreadsheetEmuPerPixel
-}
-
-function spreadsheetAxisSize(
-  sheet: XlsxSheetData,
-  axis: "row" | "column",
-  index: number
-) {
-  if (axis === "row") {
-    return (
-      sheet.rowHeightOverridesPx[index] ??
-      sheet.rowHeights[sheet.visibleRows.indexOf(index)] ??
-      sheet.defaultRowHeightPx
-    )
-  }
-  return (
-    sheet.colWidthOverridesPx[index] ??
-    sheet.colWidths[sheet.visibleCols.indexOf(index)] ??
-    sheet.defaultColWidthPx
-  )
-}
-
-function spreadsheetAxisOffset(
-  sheet: XlsxSheetData,
-  axis: "row" | "column",
-  index: number,
-  zoomFactor: number
-) {
-  const hidden = new Set(axis === "row" ? sheet.hiddenRows : sheet.hiddenCols)
-  let offset = 0
-  for (let current = 0; current < index; current += 1) {
-    if (!hidden.has(current)) {
-      offset += spreadsheetAxisSize(sheet, axis, current) * zoomFactor
-    }
-  }
-  return offset
-}
-
-function spreadsheetAxisSpan(
-  sheet: XlsxSheetData,
-  axis: "row" | "column",
-  start: number,
-  end: number,
-  zoomFactor: number
-) {
-  const hidden = new Set(axis === "row" ? sheet.hiddenRows : sheet.hiddenCols)
-  let span = 0
-  for (let current = start; current <= end; current += 1) {
-    if (!hidden.has(current)) {
-      span += spreadsheetAxisSize(sheet, axis, current) * zoomFactor
-    }
-  }
-  return span
-}
-
-function resolveSpreadsheetAnchorFrame(
-  sheet: XlsxSheetData,
-  anchor: XlsxImageAnchor,
-  viewport: SpreadsheetViewport,
-  zoomFactor: number
-) {
-  const headerHeight = spreadsheetHeaderHeightPx * zoomFactor
-  const rowHeaderWidth = spreadsheetRowHeaderWidthPx * zoomFactor
-  const markerLeft = (col: number, colOffsetEmu: number) =>
-    rowHeaderWidth +
-    spreadsheetAxisOffset(sheet, "column", col, zoomFactor) +
-    emuToPixels(colOffsetEmu) * zoomFactor
-  const markerTop = (row: number, rowOffsetEmu: number) =>
-    headerHeight +
-    spreadsheetAxisOffset(sheet, "row", row, zoomFactor) +
-    emuToPixels(rowOffsetEmu) * zoomFactor
-
-  const rect =
-    anchor.kind === "absolute"
-      ? {
-          left: rowHeaderWidth + emuToPixels(anchor.positionEmu.x) * zoomFactor,
-          top: headerHeight + emuToPixels(anchor.positionEmu.y) * zoomFactor,
-          width: Math.max(1, emuToPixels(anchor.sizeEmu.cx) * zoomFactor),
-          height: Math.max(1, emuToPixels(anchor.sizeEmu.cy) * zoomFactor),
-        }
-      : anchor.kind === "one-cell"
-        ? {
-            left: markerLeft(anchor.from.col, anchor.from.colOffsetEmu),
-            top: markerTop(anchor.from.row, anchor.from.rowOffsetEmu),
-            width: Math.max(1, emuToPixels(anchor.sizeEmu.cx) * zoomFactor),
-            height: Math.max(1, emuToPixels(anchor.sizeEmu.cy) * zoomFactor),
-          }
-        : (() => {
-            const left = markerLeft(anchor.from.col, anchor.from.colOffsetEmu)
-            const top = markerTop(anchor.from.row, anchor.from.rowOffsetEmu)
-            const right = markerLeft(anchor.to.col, anchor.to.colOffsetEmu)
-            const bottom = markerTop(anchor.to.row, anchor.to.rowOffsetEmu)
-            return {
-              left,
-              top,
-              width: Math.max(1, right - left),
-              height: Math.max(1, bottom - top),
-            }
-          })()
-
-  return {
-    left: rect.left - viewport.left,
-    top: rect.top - viewport.top,
-    width: rect.width,
-    height: rect.height,
-  }
-}
-
-function spreadsheetSelectionCenter(
-  sheet: XlsxSheetData,
-  selection: SpreadsheetSelection,
-  zoomFactor: number
-) {
-  if (selection.type === "range") {
-    const startRow = Math.min(selection.startRow, selection.endRow)
-    const endRow = Math.max(selection.startRow, selection.endRow)
-    const startColumn = Math.min(selection.startColumn, selection.endColumn)
-    const endColumn = Math.max(selection.startColumn, selection.endColumn)
-    return {
-      left:
-        spreadsheetRowHeaderWidthPx * zoomFactor +
-        spreadsheetAxisOffset(sheet, "column", startColumn, zoomFactor) +
-        spreadsheetAxisSpan(
-          sheet,
-          "column",
-          startColumn,
-          endColumn,
-          zoomFactor
-        ) /
-          2,
-      top:
-        spreadsheetHeaderHeightPx * zoomFactor +
-        spreadsheetAxisOffset(sheet, "row", startRow, zoomFactor) +
-        spreadsheetAxisSpan(sheet, "row", startRow, endRow, zoomFactor) / 2,
-    }
-  }
-  if (!selection.anchor) return null
-  const frame = resolveSpreadsheetAnchorFrame(
-    sheet,
-    selection.anchor,
-    emptySpreadsheetViewport,
-    zoomFactor
-  )
-  return {
-    left: frame.left + frame.width / 2,
-    top: frame.top + frame.height / 2,
-  }
-}
-
-function resolveSpreadsheetRangeFrame(
-  sheet: XlsxSheetData,
-  selection: Extract<SpreadsheetSelection, { type: "range" }>,
-  viewport: SpreadsheetViewport,
-  zoomFactor: number
-): Omit<SpreadsheetAnnotationFrame, "id" | "index"> | null {
-  const startRow = Math.min(selection.startRow, selection.endRow)
-  const endRow = Math.max(selection.startRow, selection.endRow)
-  const startColumn = Math.min(selection.startColumn, selection.endColumn)
-  const endColumn = Math.max(selection.startColumn, selection.endColumn)
-  const headerHeight = spreadsheetHeaderHeightPx * zoomFactor
-  const rowHeaderWidth = spreadsheetRowHeaderWidthPx * zoomFactor
-  const rawLeft =
-    rowHeaderWidth +
-    spreadsheetAxisOffset(sheet, "column", startColumn, zoomFactor) -
-    viewport.left
-  const rawTop =
-    headerHeight +
-    spreadsheetAxisOffset(sheet, "row", startRow, zoomFactor) -
-    viewport.top
-  const rawRight =
-    rawLeft +
-    spreadsheetAxisSpan(sheet, "column", startColumn, endColumn, zoomFactor)
-  const rawBottom =
-    rawTop + spreadsheetAxisSpan(sheet, "row", startRow, endRow, zoomFactor)
-
-  const left = Math.max(rowHeaderWidth, rawLeft)
-  const top = Math.max(headerHeight, rawTop)
-  const right = Math.min(viewport.width, rawRight)
-  const bottom = Math.min(viewport.height, rawBottom)
-  if (right <= left || bottom <= top) return null
-  return {
-    left,
-    top,
-    width: right - left,
-    height: bottom - top,
-  }
-}
-
-function resolveSpreadsheetAnnotationFrames(
-  sheet: XlsxSheetData | null,
-  activeSheetIndex: number,
-  markers: readonly SpreadsheetAnnotationMarker[],
-  viewport: SpreadsheetViewport,
-  zoomScale: number
-): readonly SpreadsheetAnnotationFrame[] {
-  if (!sheet || markers.length === 0 || viewport.width <= 0) return []
-  const zoomFactor = Math.max(0.1, zoomScale / 100)
-  return markers.flatMap((marker) => {
-    const { selection } = marker
-    if (selection.sheetIndex !== activeSheetIndex) return []
-    const frame =
-      selection.type === "range"
-        ? resolveSpreadsheetRangeFrame(sheet, selection, viewport, zoomFactor)
-        : selection.anchor
-          ? resolveSpreadsheetAnchorFrame(
-              sheet,
-              selection.anchor,
-              viewport,
-              zoomFactor
-            )
-          : null
-    return frame
-      ? [
-          {
-            ...frame,
-            id: marker.id,
-            index: marker.index,
-          },
-        ]
-      : []
-  })
+type SpreadsheetGeometryResolver =
+  XlsxScrollerRenderProps["getAnnotationGeometry"]
+function spreadsheetGeometryTarget(
+  selection: SpreadsheetSelection
+): Parameters<SpreadsheetGeometryResolver>[0] {
+  return selection.type === "range"
+    ? {
+        type: "range",
+        range: {
+          start: { row: selection.startRow, col: selection.startColumn },
+          end: { row: selection.endRow, col: selection.endColumn },
+        },
+      }
+    : { type: selection.type, id: selection.objectId }
 }
 
 function isSpreadsheetAnnotatedCell(
@@ -487,16 +264,23 @@ function SpreadsheetPreviewControllerSession({
   const paneRef = useRef<HTMLElement>(null)
   const viewerRef = useRef<HTMLDivElement>(null)
   const scrollerRef = useRef<HTMLDivElement | null>(null)
-  const viewportFrameRef = useRef<number | null>(null)
+  const geometryResolverRef = useRef<SpreadsheetGeometryResolver | null>(null)
+  const hoverTargetResolverRef = useRef<
+    XlsxScrollerRenderProps["getAnnotationTargetAtPoint"] | null
+  >(null)
   const handledAnnotationNavigationSequenceRef = useRef<number | null>(null)
-  const [selectionAnchor, setSelectionAnchor] =
-    useState<OfficeSelectionAnchor | null>(null)
   const [interactionVersion, setInteractionVersion] = useState(0)
   const [interactionSessionKey, setInteractionSessionKey] = useState<
     number | null
   >(null)
-  const [spreadsheetViewport, setSpreadsheetViewport] =
-    useState<SpreadsheetViewport>(emptySpreadsheetViewport)
+  const [annotationFrames, setAnnotationFrames] = useState<
+    readonly SpreadsheetAnnotationFrame[]
+  >([])
+  const [selectionAnchor, setSelectionAnchor] =
+    useState<OfficeSelectionAnchor | null>(null)
+  const [selectionFillFrames, setSelectionFillFrames] = useState<
+    readonly XlsxImageRect[]
+  >([])
   const selectionEnabled = Boolean(selectionAction)
   const { file, isPreparing } = useWorkbookBuffer(document)
   const controller = useXlsxViewerController({
@@ -506,68 +290,6 @@ function SpreadsheetPreviewControllerSession({
     allowResizeInReadOnly: allowSpreadsheetResizeInReadOnly,
     useWorker,
   })
-
-  const updateSpreadsheetViewport = useCallback(() => {
-    const scroller = scrollerRef.current
-    if (!scroller) {
-      setSpreadsheetViewport((current) =>
-        current === emptySpreadsheetViewport
-          ? current
-          : emptySpreadsheetViewport
-      )
-      return
-    }
-    const nextViewport = {
-      left: scroller.scrollLeft,
-      top: scroller.scrollTop,
-      width: scroller.clientWidth,
-      height: scroller.clientHeight,
-    }
-    setSpreadsheetViewport((current) =>
-      current.left === nextViewport.left &&
-      current.top === nextViewport.top &&
-      current.width === nextViewport.width &&
-      current.height === nextViewport.height
-        ? current
-        : nextViewport
-    )
-  }, [])
-
-  const scheduleSpreadsheetViewportUpdate = useCallback(() => {
-    if (viewportFrameRef.current !== null) {
-      window.cancelAnimationFrame(viewportFrameRef.current)
-    }
-    viewportFrameRef.current = window.requestAnimationFrame(() => {
-      viewportFrameRef.current = null
-      updateSpreadsheetViewport()
-    })
-  }, [updateSpreadsheetViewport])
-
-  useEffect(() => {
-    scheduleSpreadsheetViewportUpdate()
-    const scroller = scrollerRef.current
-    const viewer = viewerRef.current
-    if (!scroller && !viewer) return
-    const resizeObserver =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(scheduleSpreadsheetViewportUpdate)
-    if (scroller) resizeObserver?.observe(scroller)
-    if (viewer) resizeObserver?.observe(viewer)
-    return () => {
-      resizeObserver?.disconnect()
-      if (viewportFrameRef.current !== null) {
-        window.cancelAnimationFrame(viewportFrameRef.current)
-        viewportFrameRef.current = null
-      }
-    }
-  }, [
-    controller.activeSheet,
-    controller.activeSheetIndex,
-    controller.zoomScale,
-    isPreparing,
-    scheduleSpreadsheetViewportUpdate,
-  ])
 
   useEffect(() => {
     if (!useWorker || document.status !== "ready" || isPreparing) return
@@ -591,19 +313,11 @@ function SpreadsheetPreviewControllerSession({
     useWorker,
   ])
 
-  const capturePointerAnchor = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (!selectionEnabled) return
-      const surfaceBounds = event.currentTarget.getBoundingClientRect()
-      setSelectionAnchor({
-        left: event.clientX - surfaceBounds.left,
-        top: event.clientY - surfaceBounds.top,
-      })
-      setInteractionSessionKey(annotationSessionKey)
-      setInteractionVersion((current) => current + 1)
-    },
-    [annotationSessionKey, selectionEnabled]
-  )
+  const capturePointerSelection = useCallback(() => {
+    if (!selectionEnabled) return
+    setInteractionSessionKey(annotationSessionKey)
+    setInteractionVersion((current) => current + 1)
+  }, [annotationSessionKey, selectionEnabled])
 
   const captureKeyboardSelection = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -614,7 +328,6 @@ function SpreadsheetPreviewControllerSession({
         event.key === "Tab" ||
         event.key === " "
       ) {
-        setSelectionAnchor(null)
         setInteractionSessionKey(annotationSessionKey)
         setInteractionVersion((current) => current + 1)
       }
@@ -701,23 +414,82 @@ function SpreadsheetPreviewControllerSession({
     return null
   })()
 
-  const annotationFrames = useMemo(
-    () =>
-      resolveSpreadsheetAnnotationFrames(
-        controller.activeSheet,
-        controller.activeSheetIndex,
-        annotationMarkers,
-        spreadsheetViewport,
-        controller.zoomScale
-      ),
-    [
-      annotationMarkers,
-      controller.activeSheet,
-      controller.activeSheetIndex,
-      controller.zoomScale,
-      spreadsheetViewport,
-    ]
-  )
+  useEffect(() => {
+    let animationFrame: number | null = null
+    const refresh = () => {
+      const resolve = geometryResolverRef.current
+      const scroller = scrollerRef.current
+      const frames =
+        resolve && scroller
+          ? annotationMarkers.flatMap((marker) => {
+              if (marker.selection.sheetIndex !== controller.activeSheetIndex)
+                return []
+              const geometry = resolve(
+                spreadsheetGeometryTarget(marker.selection)
+              )
+              return (
+                geometry?.viewportRects.map((rect, partIndex) => ({
+                  ...rect,
+                  id: marker.id,
+                  index: marker.index,
+                  partIndex,
+                })) ?? []
+              )
+            })
+          : []
+      setAnnotationFrames((current) =>
+        JSON.stringify(current) === JSON.stringify(frames) ? current : frames
+      )
+      const rects =
+        selection && resolve
+          ? resolve(spreadsheetGeometryTarget(selection))?.viewportRects
+          : undefined
+      const fillFrames =
+        selection &&
+        selection.type !== "range" &&
+        !annotationMarkers.some(
+          (marker) =>
+            marker.selection.sheetIndex === selection.sheetIndex &&
+            marker.selection.type === selection.type &&
+            marker.selection.objectId === selection.objectId
+        )
+          ? (rects ?? [])
+          : []
+      setSelectionFillFrames((current) =>
+        JSON.stringify(current) === JSON.stringify(fillFrames)
+          ? current
+          : fillFrames
+      )
+      const bounds = scroller?.getBoundingClientRect()
+      const anchor =
+        rects?.length && bounds
+          ? {
+              left:
+                bounds.left +
+                Math.max(...rects.map((rect) => rect.left + rect.width)),
+              top:
+                bounds.top +
+                Math.max(...rects.map((rect) => rect.top + rect.height)),
+            }
+          : null
+      setSelectionAnchor((current) =>
+        current?.left === anchor?.left && current?.top === anchor?.top
+          ? current
+          : anchor
+      )
+      if (annotationMarkers.length || selection)
+        animationFrame = window.requestAnimationFrame(refresh)
+    }
+    refresh()
+    return () => {
+      if (animationFrame !== null) window.cancelAnimationFrame(animationFrame)
+    }
+  }, [
+    annotationMarkers,
+    controller.activeSheetIndex,
+    controller.zoomScale,
+    selection,
+  ])
 
   useEffect(() => {
     if (
@@ -741,18 +513,20 @@ function SpreadsheetPreviewControllerSession({
       return
     }
 
-    const sheet = controller.activeSheet
     const scroller = scrollerRef.current
-    if (!sheet || !scroller) return
-    const center = spreadsheetSelectionCenter(
-      sheet,
-      marker.selection,
-      Math.max(0.1, controller.zoomScale / 100)
+    const geometry = geometryResolverRef.current?.(
+      spreadsheetGeometryTarget(marker.selection)
     )
-    if (!center) return
-
-    const nextScrollLeft = Math.max(0, center.left - scroller.clientWidth / 2)
-    const nextScrollTop = Math.max(0, center.top - scroller.clientHeight / 2)
+    if (!scroller || !geometry) return
+    const rect = geometry.contentRect
+    const nextScrollLeft = Math.max(
+      0,
+      rect.left + rect.width / 2 - scroller.clientWidth / 2
+    )
+    const nextScrollTop = Math.max(
+      0,
+      rect.top + rect.height / 2 - scroller.clientHeight / 2
+    )
     handledAnnotationNavigationSequenceRef.current =
       annotationNavigation.sequence
     if (typeof scroller.scrollTo === "function") {
@@ -765,7 +539,6 @@ function SpreadsheetPreviewControllerSession({
       scroller.scrollLeft = nextScrollLeft
       scroller.scrollTop = nextScrollTop
     }
-    scheduleSpreadsheetViewportUpdate()
   }, [
     annotationMarkers,
     annotationNavigation,
@@ -775,7 +548,6 @@ function SpreadsheetPreviewControllerSession({
     controller.setActiveTabIndex,
     controller.tabs,
     controller.zoomScale,
-    scheduleSpreadsheetViewportUpdate,
   ])
 
   const getAnnotatedCellStyle = useCallback(
@@ -795,29 +567,133 @@ function SpreadsheetPreviewControllerSession({
   )
 
   const renderSpreadsheetScroller = useCallback(
-    ({ children, viewportProps }: XlsxScrollerRenderProps) => {
-      const { ref, onScroll, ...restViewportProps } = viewportProps
+    ({
+      children,
+      viewportProps,
+      getAnnotationGeometry,
+      getAnnotationTargetAtPoint,
+    }: XlsxScrollerRenderProps) => {
+      const { ref, ...restViewportProps } = viewportProps
       return (
         <div
-          {...restViewportProps}
-          ref={(element) => {
-            scrollerRef.current = element
-            if (typeof ref === "function") {
-              ref(element)
-            } else if (ref) {
-              ;(ref as { current: HTMLDivElement | null }).current = element
-            }
-          }}
-          onScroll={(event) => {
-            onScroll?.(event)
-            scheduleSpreadsheetViewportUpdate()
-          }}
+          className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
+          data-testid="spreadsheet-annotation-viewport"
         >
-          {children}
+          <div
+            {...restViewportProps}
+            ref={(element) => {
+              scrollerRef.current = element
+              geometryResolverRef.current = element
+                ? getAnnotationGeometry
+                : null
+              hoverTargetResolverRef.current = element
+                ? getAnnotationTargetAtPoint
+                : null
+              if (typeof ref === "function") {
+                ref(element)
+              } else if (ref) {
+                ;(ref as { current: HTMLDivElement | null }).current = element
+              }
+            }}
+          >
+            {children}
+          </div>
+          {selectionFillFrames.length > 0 && (
+            <div
+              className="office-annotation-overlay"
+              data-testid="spreadsheet-selection-fill-overlay"
+              aria-hidden="true"
+            >
+              {selectionFillFrames.map((rect) => (
+                <span
+                  key={`${rect.left}:${rect.top}:${rect.width}:${rect.height}`}
+                  className="absolute bg-[color-mix(in_srgb,var(--app-selection)_12%,transparent)]"
+                  style={{
+                    left: rect.left,
+                    top: rect.top,
+                    width: rect.width,
+                    height: rect.height,
+                  }}
+                />
+              ))}
+            </div>
+          )}
+          <OfficeAnnotationHover
+            scopeRef={scrollerRef}
+            enabled={selectionEnabled}
+            resolve={(point) => {
+              const target = hoverTargetResolverRef.current?.(point.x, point.y)
+              const scroller = scrollerRef.current
+              if (!target || !scroller) return []
+              const selectedMarkers = selection
+                ? [...annotationMarkers, { id: "active", index: 0, selection }]
+                : annotationMarkers
+              if (
+                target.type === "range"
+                  ? isSpreadsheetAnnotatedCell(
+                      selectedMarkers,
+                      controller.activeSheetIndex,
+                      target.range.start.row,
+                      target.range.start.col
+                    )
+                  : selectedMarkers.some(
+                      (marker) =>
+                        marker.selection.sheetIndex ===
+                          controller.activeSheetIndex &&
+                        marker.selection.type === target.type &&
+                        marker.selection.objectId === target.id
+                    )
+              )
+                return []
+              const bounds = scroller.getBoundingClientRect()
+              return (
+                geometryResolverRef
+                  .current?.(target)
+                  ?.viewportRects.map((rect) => ({
+                    ...rect,
+                    left: bounds.left + rect.left,
+                    top: bounds.top + rect.top,
+                  })) ?? []
+              )
+            }}
+          />
+          {annotationFrames.length > 0 && (
+            <div
+              className="office-annotation-overlay spreadsheet-preview-annotation-overlay"
+              data-testid="spreadsheet-annotation-overlay"
+              aria-hidden="true"
+            >
+              {annotationFrames.map((frame) => (
+                <span
+                  key={`${frame.id}:${frame.partIndex}`}
+                  className="office-annotation-frame spreadsheet-preview-annotation-frame"
+                  data-spreadsheet-annotation-frame={frame.id}
+                  style={{
+                    left: frame.left,
+                    top: frame.top,
+                    width: frame.width,
+                    height: frame.height,
+                  }}
+                >
+                  <OfficeAnnotationNumberBubble
+                    index={frame.index}
+                    className="spreadsheet-preview-annotation-index"
+                  />
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )
     },
-    [scheduleSpreadsheetViewportUpdate]
+    [
+      annotationFrames,
+      selectionFillFrames,
+      selectionEnabled,
+      selection,
+      annotationMarkers,
+      controller.activeSheetIndex,
+    ]
   )
 
   const shellDocument = useMemo<SpreadsheetDocumentState>(() => {
@@ -865,7 +741,7 @@ function SpreadsheetPreviewControllerSession({
           ref={viewerRef}
           className="spreadsheet-preview-viewer"
           onPointerUpCapture={
-            selectionEnabled ? capturePointerAnchor : undefined
+            selectionEnabled ? capturePointerSelection : undefined
           }
           onKeyUpCapture={
             selectionEnabled ? captureKeyboardSelection : undefined
@@ -881,6 +757,9 @@ function SpreadsheetPreviewControllerSession({
               <OfficePreviewLoadingState label={t("officePreview.loading")} />
             }
             readOnly
+            selectionColor="var(--app-selection)"
+            selectionFillColor="color-mix(in srgb, var(--app-selection) 12%, transparent)"
+            selectionHeaderColor={spreadsheetSelectionHeaderColor}
             renderScroller={renderSpreadsheetScroller}
             rounded={false}
             showDefaultToolbar={false}
@@ -891,32 +770,6 @@ function SpreadsheetPreviewControllerSession({
               "dark"
             )}
           />
-          {annotationFrames.length > 0 && (
-            <div
-              className="office-annotation-overlay spreadsheet-preview-annotation-overlay"
-              data-testid="spreadsheet-annotation-overlay"
-              aria-hidden="true"
-            >
-              {annotationFrames.map((frame) => (
-                <span
-                  key={frame.id}
-                  className="office-annotation-frame spreadsheet-preview-annotation-frame"
-                  data-spreadsheet-annotation-frame={frame.id}
-                  style={{
-                    left: frame.left,
-                    top: frame.top,
-                    width: frame.width,
-                    height: frame.height,
-                  }}
-                >
-                  <OfficeAnnotationNumberBubble
-                    index={frame.index}
-                    className="spreadsheet-preview-annotation-index"
-                  />
-                </span>
-              ))}
-            </div>
-          )}
         </div>
       )}
       {selection && selectionAction && (

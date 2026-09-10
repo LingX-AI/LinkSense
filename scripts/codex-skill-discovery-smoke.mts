@@ -16,6 +16,7 @@ import { promisify } from "node:util"
 import { modelProviderProtocolModeSchema } from "@linksense/shared"
 
 import { CodexJsonRpcClient } from "../apps/runner/src/codex/json-rpc-client.ts"
+import { serializePromptLink } from "../apps/runner/src/codex/prompt.ts"
 import {
   CODEX_SCHEMA_VERSION,
   type CodexThread,
@@ -156,12 +157,12 @@ When this Skill is supplied explicitly, reply with exactly this marker and nothi
     if (!discoveryOnly) {
       if (!providerKey) {
         throw new Error(
-          "LINK_SENSE_API_KEY is required to verify structured Skill execution; provide it in the process environment or deploy/runner.env, or set CODEX_DISCOVERY_ONLY=1 to verify discovery without a model request"
+          "LINK_SENSE_API_KEY is required to verify Markdown-linked Skill execution; provide it in the process environment or deploy/runner.env, or set CODEX_DISCOVERY_ONLY=1 to verify discovery without a model request"
         )
       }
       if (!codexModel) {
         throw new Error(
-          "LINKSENSE_CODEX_MODEL is required to verify structured Skill execution; provide it in the process environment or deploy/runner.env"
+          "LINKSENSE_CODEX_MODEL is required to verify Markdown-linked Skill execution; provide it in the process environment or deploy/runner.env"
         )
       }
       const providerBaseUrl =
@@ -169,7 +170,7 @@ When this Skill is supplied explicitly, reply with exactly this marker and nothi
         runnerEnvironment.LINKSENSE_CODEX_BASE_URL?.trim()
       if (!providerBaseUrl) {
         throw new Error(
-          "LINKSENSE_CODEX_BASE_URL is required to verify structured Skill execution through the managed model gateway"
+          "LINKSENSE_CODEX_BASE_URL is required to verify Markdown-linked Skill execution through the managed model gateway"
         )
       }
       const protocolMode = modelProviderProtocolModeSchema.parse(
@@ -330,7 +331,7 @@ When this Skill is supplied explicitly, reply with exactly this marker and nothi
             name: selectedBrowserSkill.name,
             relativePath: discoveredBrowserSkillRelativePath,
           },
-          structuredSkillExecuted: false,
+          markdownSkillExecuted: false,
           nativeThreadResumed: false,
         })
       )
@@ -355,13 +356,8 @@ When this Skill is supplied explicitly, reply with exactly this marker and nothi
       input: [
         {
           type: "text",
-          text: "Use the structured Skill supplied with this turn. Do not read files or run commands.",
+          text: `${serializePromptLink(`$${selectedSkill.name}`, selectedSkill.path)} Follow the selected Skill.`,
           text_elements: [],
-        },
-        {
-          type: "skill",
-          name: selectedSkill.name,
-          path: selectedSkill.path,
         },
       ],
       cwd: paths.workspace,
@@ -372,7 +368,7 @@ When this Skill is supplied explicitly, reply with exactly this marker and nothi
     const completed = await completedTurns.wait(turn.turn.id)
     if (completed.status !== "completed") {
       throw new Error(
-        `Structured Skill turn did not complete: ${JSON.stringify(completed.error)}`
+        `Markdown Skill turn did not complete: ${JSON.stringify(completed.error)}`
       )
     }
     const thread = await client.request<{ thread: CodexThread }>(
@@ -385,10 +381,10 @@ When this Skill is supplied explicitly, reply with exactly this marker and nothi
     const answer = agentText(requiredTurn(thread.thread, turn.turn.id))
     if (answer.trim() !== marker) {
       throw new Error(
-        `Codex did not execute the discovered structured Skill: ${JSON.stringify(answer)}`
+        `Codex did not execute the discovered Markdown-linked Skill: ${JSON.stringify(answer)}`
       )
     }
-    completedPhase = "structured-skill-executed"
+    completedPhase = "markdown-skill-executed"
 
     await client.close()
     client = createClient(paths.home, paths.codexHome, gatewayToken)
@@ -425,7 +421,7 @@ When this Skill is supplied explicitly, reply with exactly this marker and nothi
           name: selectedSkill.name,
           relativePath: discoveredSkillRelativePath,
         },
-        structuredSkillExecuted: true,
+        markdownSkillExecuted: true,
         nativeThreadResumed: true,
         nativeThreadId: started.thread.id,
         nativeTurnId: turn.turn.id,

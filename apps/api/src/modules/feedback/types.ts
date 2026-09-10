@@ -2,6 +2,7 @@ import type { Readable } from "node:stream";
 
 import type {
   AdminFeedbackPage,
+  FeedbackDetails,
   FeedbackImageMimeType,
   FeedbackSubmissionResult,
 } from "@linksense/shared";
@@ -47,12 +48,34 @@ export type DeletedFeedbackRecord = {
   imageObjectKeys: string[];
 };
 
+export type CreateFeedbackReplyRecord = {
+  id: string;
+  feedbackId: string;
+  authorId: string;
+  content: string;
+  createdAt: Date;
+  images: FeedbackImageRecord[];
+};
+
 export interface FeedbackStore {
+  createReply(
+    input: CreateFeedbackReplyRecord,
+  ): Promise<FeedbackSubmissionResult>;
+  findDetails(input: {
+    feedbackId: string;
+    submitterId?: string;
+  }): Promise<FeedbackDetails | null>;
+  exists(input: { feedbackId: string; submitterId?: string }): Promise<boolean>;
   create(input: CreateFeedbackRecord): Promise<FeedbackSubmissionResult>;
-  list(input: { cursor?: string; limit: number }): Promise<AdminFeedbackPage>;
+  list(input: {
+    cursor?: string;
+    limit: number;
+    submitterId?: string;
+  }): Promise<AdminFeedbackPage>;
   findImage(input: {
     feedbackId: string;
     imageId: string;
+    replyId?: string;
   }): Promise<FeedbackImageRecord | null>;
   delete(feedbackId: string): Promise<DeletedFeedbackRecord | null>;
 }
@@ -77,7 +100,7 @@ export interface FeedbackAudit {
     input:
       | {
           actorId: string;
-          action: "feedback_submitted";
+          action: "feedback_submitted" | "feedback_replied";
           targetType: "feedback";
           targetId: string;
           result: "success";

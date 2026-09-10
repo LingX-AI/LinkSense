@@ -169,7 +169,7 @@ function findSpacedStrongDelimiters(
 } | null {
   const innerStart = openerStart + 2
   let contentStart = innerStart
-  while (content[contentStart] === " " || content[contentStart] === "\t") {
+  while (isInlineWhitespace(content[contentStart])) {
     contentStart += 1
   }
 
@@ -177,7 +177,7 @@ function findSpacedStrongDelimiters(
   if (
     !firstInnerCharacter ||
     firstInnerCharacter === "*" ||
-    /\s/u.test(firstInnerCharacter)
+    isInlineWhitespace(firstInnerCharacter)
   ) {
     return null
   }
@@ -200,8 +200,7 @@ function findSpacedStrongDelimiters(
     let closingWhitespaceStart = cursor
     while (
       closingWhitespaceStart > contentStart &&
-      (content[closingWhitespaceStart - 1] === " " ||
-        content[closingWhitespaceStart - 1] === "\t")
+      isInlineWhitespace(content[closingWhitespaceStart - 1])
     ) {
       closingWhitespaceStart -= 1
     }
@@ -228,6 +227,15 @@ function findSpacedStrongDelimiters(
   }
 
   return null
+}
+
+function isInlineWhitespace(character: string | undefined): boolean {
+  return Boolean(
+    character &&
+    character !== "\n" &&
+    character !== "\r" &&
+    /\s/u.test(character)
+  )
 }
 
 function findLastImageStartOutsideCode(content: string): number | null {

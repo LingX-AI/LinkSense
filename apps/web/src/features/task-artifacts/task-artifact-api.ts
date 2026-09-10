@@ -1,4 +1,5 @@
 import { z } from "zod"
+import type { TaskArtifactFileType } from "@linksense/shared"
 
 import { apiRequest } from "@/api/client"
 
@@ -45,6 +46,7 @@ export type TaskArtifactPage = z.infer<typeof taskArtifactPageSchema>
 
 export function getTaskArtifacts(input: {
   search?: string
+  fileType?: TaskArtifactFileType
   cursor?: string | null
   limit?: number
   signal?: AbortSignal
@@ -52,6 +54,7 @@ export function getTaskArtifacts(input: {
   return apiRequest("/conversations/artifacts", {
     query: {
       search: input.search,
+      file_type: input.fileType,
       cursor: input.cursor,
       limit: input.limit ?? 50,
     },

@@ -13,7 +13,9 @@ concurrency:
 jobs:
   prepare:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
+      actions: read
       contents: read
     outputs:
       release_version: ${{ steps.release.outputs.release_version }}
@@ -52,6 +54,28 @@ jobs:
             echo "This workflow is intentionally limited to the private-source phase." >&2
             exit 1
           }
+          require_successful_workflow() {
+            workflow_file=$1
+            workflow_name=$2
+            workflow_run=$(
+              TARGET_SHA="$GITHUB_SHA" gh api --method GET \
+                "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_file/runs" \
+                -f branch=main \
+                -f head_sha="$GITHUB_SHA" \
+                -f event=push \
+                -f status=completed \
+                -f per_page=100 \
+                --jq 'first(.workflow_runs[] | select(.head_sha == env.TARGET_SHA and .conclusion == "success")) | select(. != null) | [.id, .html_url] | @tsv'
+            )
+            test -n "$workflow_run" || {
+              echo "$workflow_name must pass on main at $GITHUB_SHA before releasing." >&2
+              echo "Wait for the existing $workflow_name workflow to succeed, then dispatch the release again." >&2
+              exit 1
+            }
+            printf '%s verified: %s\n' "$workflow_name" "$workflow_run"
+          }
+          require_successful_workflow ci.yml CI
+          require_successful_workflow security.yml Security
           package_version=$(node -p 'require("./package.json").version')
           package_license=$(node -p 'require("./package.json").license')
           [[ "$package_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -79,58 +103,31 @@ jobs:
             echo "license=$package_license"
           } >> "$GITHUB_OUTPUT"
 
-  verify:
-    needs: prepare
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          fetch-depth: 0
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
-        with:
-          version: 10.6.4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 24
-          cache: pnpm
-      - name: Scan Git history for secrets
-        run: scripts/run-gitleaks.sh
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Install Redis test runtime
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends redis-server
-      - name: Audit production dependencies
-        run: pnpm audit --registry=https://registry.npmjs.org --prod --audit-level high
-      - name: Generate Prisma client
-        run: pnpm db:generate
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - name: Validate and freeze release inputs before building images
         env:
-          DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build
-      - name: Verify code and release resources
-        run: |
-          pnpm --filter @linksense/shared build
-          pnpm test:deployment
-          pnpm --filter @linksense/shared test
-          pnpm --filter @linksense/runner test
-          pnpm --filter @linksense/api test
-          pnpm --filter @linksense/web test:unit
-          pnpm --filter @linksense/docs test
-          pnpm typecheck
-          pnpm lint
-          pnpm build
-      - name: Run privileged runner filesystem test
-        run: |
-          sudo env "PATH=$PATH" pnpm --filter @linksense/runner exec vitest run test/workspace-manager.test.ts
+          RELEASE_VERSION: ${{ steps.release.outputs.release_version }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          RELEASE_WORKFLOW_ID: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: sh scripts/prepare-release-inputs.sh release-inputs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-inputs
+          path: release-inputs/
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
 
   images:
-    needs: [prepare, verify]
+    needs: prepare
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     permissions:
       contents: read
       packages: write
     strategy:
-      fail-fast: true
+      # Preserve completed sibling builds when one architecture or image fails.
+      fail-fast: false
       matrix:
         include:
           - name: api
@@ -206,8 +203,12 @@ jobs:
             org.opencontainers.image.licenses=${{ needs.prepare.outputs.license }}
           provenance: mode=min
           sbom: true
-          cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.architecture }}
-          cache-to: type=gha,mode=min,scope=${{ matrix.name }}-${{ matrix.architecture }}
+          # The migration image retains the shared dependency stage that the
+          # API runtime's minimal cache does not include.
+          cache-from: |
+            type=gha,scope=${{ matrix.name }}-${{ matrix.architecture }}
+            ${{ matrix.name == 'api' && format('type=gha,scope=migrate-{0}', matrix.architecture) || '' }}
+          cache-to: type=gha,mode=min,scope=${{ matrix.name }}-${{ matrix.architecture }},timeout=2m,ignore-error=true
       - name: Smoke-test ${{ matrix.name }} candidate
         shell: bash
         run: |
@@ -234,16 +235,18 @@ jobs:
           path: image-reference/${{ matrix.name }}-${{ matrix.architecture }}
           if-no-files-found: error
           retention-days: 3
+          overwrite: true
 
   worker-image:
-    needs: [prepare, verify]
+    needs: prepare
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
     strategy:
-      fail-fast: true
+      # Preserve completed sibling builds when one architecture or image fails.
+      fail-fast: false
       matrix:
         include:
           - architecture: amd64
@@ -278,7 +281,7 @@ jobs:
           provenance: mode=min
           sbom: true
           cache-from: type=gha,scope=worker-${{ matrix.architecture }}
-          cache-to: type=gha,mode=min,scope=worker-${{ matrix.architecture }}
+          cache-to: type=gha,mode=min,scope=worker-${{ matrix.architecture }},timeout=2m,ignore-error=true
       - name: Smoke-test worker candidate
         shell: bash
         run: |
@@ -300,10 +303,12 @@ jobs:
           path: image-reference/worker-${{ matrix.architecture }}
           if-no-files-found: error
           retention-days: 3
+          overwrite: true
 
   image-indexes:
     needs: [prepare, images, worker-image]
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: write
@@ -345,10 +350,12 @@ jobs:
           path: image-references/
           if-no-files-found: error
           retention-days: 3
+          overwrite: true
 
   assets:
     needs: [prepare, image-indexes]
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -356,47 +363,15 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
-      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: image-indexes
           path: image-references
-      - name: Resolve immutable upstream images
-        shell: bash
-        run: |
-          set -euo pipefail
-          resolve() {
-            key=$1
-            tag=$2
-            printf 'IMAGE_%s=%s\n' "$key" \
-              "$(scripts/resolve-release-image.sh "$tag" linux/amd64 linux/arm64)" \
-              >> "$GITHUB_ENV"
-          }
-          resolve POSTGRES docker.io/library/postgres:16.10-alpine3.22
-          resolve REDIS docker.io/library/redis:7.4.5-alpine3.21
-          resolve MINIO quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-          resolve MINIO_CLIENT docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
-          resolve BUSYBOX docker.io/library/busybox:1.37.0
-          resolve GATEWAY docker.io/library/nginx:1.28.0-alpine3.21
-          resolve ELASTICSEARCH docker.elastic.co/elasticsearch/elasticsearch:8.19.2
-          resolve DOCLING quay.io/docling-project/docling-serve:v1.27.0
-          for name in api web migrate runner worker; do
-            key=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')
-            printf 'IMAGE_LINKSENSE_%s=%s\n' "$key" "$(cat "image-references/$name")" >> "$GITHUB_ENV"
-          done
-      - name: Download the locked tokenizer
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir tokenizer
-          repository=$(jq -r .repository deploy/release/tokenizer.lock.json)
-          revision=$(jq -r .revision deploy/release/tokenizer.lock.json)
-          jq -r '.files[]' deploy/release/tokenizer.lock.json | while IFS= read -r file; do
-            curl --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 15 -fsSL \
-              "https://huggingface.co/${repository}/resolve/${revision}/${file}?download=true" \
-              -o "tokenizer/$file"
-          done
-      - name: Assemble release assets and manifest
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-inputs
+          path: release-inputs
+      - name: Assemble release assets from the verified inputs
         shell: bash
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
@@ -404,23 +379,21 @@ jobs:
           RELEASE_WORKFLOW_ID: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          export RELEASE_BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-          mkdir release-assets
-          install -m 0755 \
-            deploy/release/linksense-installer.sh \
-            deploy/release/linksense-cli.sh \
-            release-assets/
-          install -m 0644 \
-            LICENSE \
-            deploy/release/compose.common.yml \
-            deploy/release/compose.core.yml \
-            deploy/release/compose.full.yml \
-            deploy/release/gateway.conf.template \
-            deploy/release/tokenizer.lock.json \
-            release-assets/
-          node scripts/bundle-release-installers.mjs release-assets
+          (cd release-inputs && sha256sum -c SHA256SUMS)
+          test "$(sed -n 's/^RELEASE_VERSION=//p' release-inputs/identity.env)" = "$RELEASE_VERSION"
+          test "$(sed -n 's/^SOURCE_SHA=//p' release-inputs/identity.env)" = "$RELEASE_GIT_COMMIT"
+          test "$(sed -n 's/^RELEASE_WORKFLOW_ID=//p' release-inputs/identity.env)" = "$RELEASE_WORKFLOW_ID"
+          export RELEASE_BUILD_TIME="$(sed -n 's/^RELEASE_BUILD_TIME=//p' release-inputs/identity.env)"
+          while IFS='=' read -r key value; do
+            export "$key=$value"
+          done < release-inputs/upstream-images.env
+          for name in api web migrate runner worker; do
+            key=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')
+            export "IMAGE_LINKSENSE_${key}=$(cat "image-references/$name")"
+          done
+          cp -R release-inputs/release-assets release-assets
           node scripts/generate-release-manifest.mjs \
-            release-assets/release-manifest.env tokenizer release-assets
+            release-assets/release-manifest.env release-inputs/tokenizer release-assets
           (
             cd release-assets
             sha256sum release-manifest.env > release-manifest.env.sha256
@@ -432,10 +405,12 @@ jobs:
           path: release-assets/
           if-no-files-found: error
           retention-days: 3
+          overwrite: true
 
   release:
     needs: [prepare, image-indexes, assets]
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
       packages: write
@@ -491,45 +466,16 @@ jobs:
               test "${current##*@}" = "$tested_digest"
             fi
           done
-      - name: Create the private GitHub Release
-        shell: bash
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - name: Verify all draft assets before publishing the private GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
-        run: |
-          set -euo pipefail
-          if ! gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
-            gh release create "$RELEASE_VERSION" release-assets/* \
-              --target "$SOURCE_SHA" \
-              --generate-notes \
-              --title "LinkSense $RELEASE_VERSION (private source)"
-          fi
-          git fetch --force origin \
-            "refs/tags/$RELEASE_VERSION:refs/tags/$RELEASE_VERSION"
-          test "$(git rev-list -n 1 "$RELEASE_VERSION")" = "$SOURCE_SHA"
-          for asset in release-assets/*; do
-            if ! gh release view "$RELEASE_VERSION" \
-              --json assets \
-              --jq '.assets[].name' | grep -Fx "$(basename "$asset")" >/dev/null; then
-              gh release upload "$RELEASE_VERSION" "$asset"
-            fi
-            gh release view "$RELEASE_VERSION" \
-              --json assets \
-              --jq '.assets[].name' | grep -Fx "$(basename "$asset")" >/dev/null
-          done
-          find release-assets -maxdepth 1 -type f -exec basename {} \; | \
-            sort > expected-assets.txt
-          gh release view "$RELEASE_VERSION" --json assets --jq '.assets[].name' | \
-            sort > published-assets.txt
-          diff -u expected-assets.txt published-assets.txt
-          mkdir verified-release-assets
-          gh release download "$RELEASE_VERSION" --dir verified-release-assets
-          cmp release-assets/SHA256SUMS verified-release-assets/SHA256SUMS
-          (
-            cd verified-release-assets
-            sha256sum -c "$GITHUB_WORKSPACE/release-assets/SHA256SUMS"
-          )
+          RELEASE_WORKFLOW_ID: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/publish-release.mjs release-assets
       - name: Summarize the release boundary
         shell: bash
         env:

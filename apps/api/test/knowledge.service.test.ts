@@ -2711,6 +2711,44 @@ describe("KnowledgeService", () => {
     ]);
   });
 
+  it.each([[], [KNOWLEDGE_BASE_ID_2]].map((selection) => ({ selection })))(
+    "allows all currently authorized knowledge bases when the turn selection is %j",
+    async ({ selection }) => {
+      const resolveUsableKnowledgeBaseIds = vi.fn(async (_actorId: string, requested?: string[]) =>
+        [BASE_ID, KNOWLEDGE_BASE_ID_2].filter((id) => requested === undefined || requested.includes(id)),
+      );
+      const knowledge = service(fakeStore({
+        getTurnKnowledgeBaseIds: vi.fn(async () => selection),
+        resolveUsableKnowledgeBaseIds,
+      }));
+
+      const scope = await knowledge.getTurnRetrievalScope(ACTOR, { turnId: DOCUMENT_ID });
+
+      expect(scope).toEqual({
+        requested_ids: selection,
+        usable_ids: selection.length ? [KNOWLEDGE_BASE_ID_2, BASE_ID] : [BASE_ID, KNOWLEDGE_BASE_ID_2],
+        unavailable_ids: [],
+      });
+      expect(resolveUsableKnowledgeBaseIds).toHaveBeenCalledWith(ACTOR.id);
+    },
+  );
+
+  it("rechecks grants on every tool scope request and keeps unselected access after a selected grant is revoked", async () => {
+    const resolveUsableKnowledgeBaseIds = vi.fn()
+      .mockResolvedValueOnce([BASE_ID, KNOWLEDGE_BASE_ID_2])
+      .mockResolvedValueOnce([KNOWLEDGE_BASE_ID_2])
+      .mockResolvedValueOnce([]);
+    const knowledge = service(fakeStore({
+      getTurnKnowledgeBaseIds: vi.fn(async () => [BASE_ID]),
+      resolveUsableKnowledgeBaseIds,
+    }));
+    expect((await knowledge.getTurnRetrievalScope(ACTOR, { turnId: DOCUMENT_ID })).usable_ids).toEqual([BASE_ID, KNOWLEDGE_BASE_ID_2]);
+    expect(await knowledge.getTurnRetrievalScope(ACTOR, { turnId: DOCUMENT_ID })).toEqual({
+      requested_ids: [BASE_ID], usable_ids: [KNOWLEDGE_BASE_ID_2], unavailable_ids: [BASE_ID],
+    });
+    expect((await knowledge.getTurnRetrievalScope(ACTOR, { turnId: DOCUMENT_ID })).usable_ids).toEqual([]);
+  });
+
   it("renames only document metadata without scheduling processing", async () => {
     const enqueue = vi.fn(async () => undefined);
     const renameDocument = vi.fn(async () => ({

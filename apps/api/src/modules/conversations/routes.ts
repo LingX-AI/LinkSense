@@ -2,11 +2,15 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
 import {
+  conversationShareCreateSchema,
   conversationCollaborationModeSchema,
+  conversationHistoryQuerySchema,
+  conversationSourcesSchema,
   conversationOrderUpdateSchema,
   conversationUserInputResponseSchema,
   knowledgeBaseIdsSchema,
   officeAnnotationInputSchema,
+  interactiveApplicationMessageSourceSchema,
   priorityCapabilityIdsSchema,
   updateModelPreferenceSchema,
 } from "@linksense/shared";
@@ -77,6 +81,7 @@ const turnSubmissionFields = {
 const turnSubmissionBodySchema = z.union([
   z.strictObject({
     input_text: inputText,
+    message_source: interactiveApplicationMessageSourceSchema.optional(),
     ...turnSubmissionFields,
   }),
   z.strictObject({
@@ -188,10 +193,12 @@ export const conversationRoutes: FastifyPluginAsync<{
           "default",
         ),
         prewarmed_conversation_id: z.string().uuid().optional(),
+        category_id: z.string().uuid().nullable().optional(),
       })
       .parse(request.body);
     const result = await services.conversations.create(user.id, {
       collaborationMode: body.collaboration_mode,
+      ...(body.category_id !== undefined ? { categoryId: body.category_id } : {}),
       ...(body.prewarmed_conversation_id
         ? { prewarmedConversationId: body.prewarmed_conversation_id }
         : {}),
@@ -224,6 +231,7 @@ export const conversationRoutes: FastifyPluginAsync<{
       ok(
         await services.conversations.reorder(user.id, {
           group: body.group,
+          ...(body.category_id !== undefined ? { categoryId: body.category_id } : {}),
           conversationIds: body.conversation_ids,
         }),
         request.id,
@@ -234,18 +242,30 @@ export const conversationRoutes: FastifyPluginAsync<{
   app.get("/:id", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
     const { id } = uuidParamsSchema.parse(request.params);
+    const query = conversationHistoryQuerySchema.parse(request.query);
     return reply.send(
-      ok(await services.conversations.get(user.id, id), request.id),
+      ok(await services.conversations.get(user.id, id, query), request.id),
     );
+  });
+
+  app.get("/:id/sources", async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id } = uuidParamsSchema.parse(request.params);
+    const sources = await services.conversations.getReferencedSources(user.id, id);
+    return reply.send(ok(conversationSourcesSchema.parse(sources), request.id));
   });
 
   app.post("/:id/share", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
     const { id } = uuidParamsSchema.parse(request.params);
+    const input = conversationShareCreateSchema.parse(request.body);
     return reply
       .code(201)
       .send(
-        ok(await services.conversationShares.create(user.id, id), request.id),
+        ok(
+          await services.conversationShares.create(user.id, id, input),
+          request.id,
+        ),
       );
   });
 
@@ -287,6 +307,7 @@ export const conversationRoutes: FastifyPluginAsync<{
         archive_status: z.enum(["active", "archived"]).optional(),
         pinned: z.boolean().optional(),
         completion_read: z.literal(true).optional(),
+        category_id: z.string().uuid().nullable().optional(),
         collaboration_mode: conversationCollaborationModeSchema.optional(),
       })
       .refine((value) => Object.keys(value).length > 0)
@@ -299,6 +320,7 @@ export const conversationRoutes: FastifyPluginAsync<{
             ? { archiveStatus: body.archive_status }
             : {}),
           ...(body.pinned !== undefined ? { pinned: body.pinned } : {}),
+          ...(body.category_id !== undefined ? { categoryId: body.category_id } : {}),
           ...(body.completion_read ? { completionRead: true } : {}),
           ...(body.collaboration_mode
             ? { collaborationMode: body.collaboration_mode }
@@ -334,7 +356,12 @@ export const conversationRoutes: FastifyPluginAsync<{
           ? body.message_display.kind === "presentation_annotation"
             ? { presentationAnnotation: body.message_display }
             : { officeAnnotation: body.message_display }
-          : { inputText: body.input_text }),
+          : {
+              inputText: body.input_text,
+              ...(body.message_source
+                ? { messageSource: body.message_source }
+                : {}),
+            }),
         submitMode: body.submit_mode,
       },
       auditContext(request),

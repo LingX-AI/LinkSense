@@ -5,9 +5,9 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type CSSProperties,
   type RefObject,
 } from "react"
+import { autoUpdate, offset, shift, useFloating } from "@floating-ui/react-dom"
 import {
   ListPlusIcon,
   LoaderCircleIcon,
@@ -66,7 +66,7 @@ export function OfficeSelectionPrompt<TSelection>({
 }: Readonly<{
   scopeRef: RefObject<HTMLElement | null>
   selection: TSelection
-  anchor?: OfficeSelectionAnchor | null
+  anchor: OfficeSelectionAnchor | null
   action: OfficeSelectionAction<TSelection>
   voiceTranscriptionAvailability?: VoiceTranscriptionAvailabilityState
 }>) {
@@ -83,6 +83,36 @@ export function OfficeSelectionPrompt<TSelection>({
   const voiceLastAppliedValueRef = useRef("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isMultiline, setIsMultiline] = useState(false)
+  const {
+    refs: actionRefs,
+    floatingStyles,
+    isPositioned,
+  } = useFloating({
+    open: Boolean(anchor),
+    placement: "bottom-end",
+    middleware: [
+      offset(selectionActionEdgeInset),
+      shift(({ elements }) => ({
+        boundary: elements.floating.parentElement ?? undefined,
+        padding: selectionActionEdgeInset,
+        crossAxis: true,
+      })),
+    ],
+    whileElementsMounted: autoUpdate,
+  })
+  const { setReference, setFloating } = actionRefs
+
+  useLayoutEffect(() => {
+    setReference(
+      anchor
+        ? {
+            getBoundingClientRect: () =>
+              new DOMRect(anchor.left, anchor.top, 0, 0),
+            contextElement: scopeRef.current ?? undefined,
+          }
+        : null
+    )
+  }, [anchor, scopeRef, setReference])
 
   const applyTranscript = useCallback((transcript: string) => {
     if (latestValueRef.current !== voiceLastAppliedValueRef.current) return
@@ -191,16 +221,6 @@ export function OfficeSelectionPrompt<TSelection>({
     return () => window.removeEventListener("keydown", handleShortcut)
   }, [action.disabled, scopeRef])
 
-  const actionStyle: CSSProperties | undefined = anchor
-    ? {
-        left: `${anchor.left}px`,
-        top: `${anchor.top}px`,
-        // Preserve the usual left placement while keeping the trigger inside
-        // the preview when its anchor is close to the pane's left edge.
-        transform: `translate(max(-100%, ${selectionActionEdgeInset - anchor.left}px), ${selectionActionEdgeInset}px)`,
-      }
-    : undefined
-
   const resetPrompt = () => {
     setValue("")
     latestValueRef.current = ""
@@ -262,12 +282,13 @@ export function OfficeSelectionPrompt<TSelection>({
       <PopoverTrigger
         render={
           <Button
+            ref={setFloating}
             type="button"
             variant="outline"
             size="sm"
             className={cn(
-              "office-selection-action",
-              !anchor && "office-selection-action-docked"
+              "office-selection-action transition-[color,background-color,border-color,box-shadow,opacity]",
+              (!anchor || !isPositioned) && "invisible"
             )}
             disabled={action.disabled}
             aria-describedby={
@@ -276,7 +297,7 @@ export function OfficeSelectionPrompt<TSelection>({
                 : undefined
             }
             title={action.disabled ? action.disabledReason : undefined}
-            style={actionStyle}
+            style={floatingStyles}
           />
         }
       >

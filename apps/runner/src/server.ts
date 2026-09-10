@@ -24,6 +24,7 @@ import {
   modelTokenPricingSchema,
   personalizationSettingsSchema,
   reasoningEffortSchema,
+  runnerKnowledgeBaseSelectionSchema,
   runnerCodexAgentKeySchema,
   runnerCodexAgentKeysSchema,
   runtimeMcpServerSchema,
@@ -270,7 +271,7 @@ export const startTurnBodySchema = z
       approvedPlanImplementation: z.literal(true).optional(),
       requireFinalResponse: z.boolean().optional(),
       applicationInstructions: z.string().min(1).max(20_000).optional(),
-      selectedKnowledgeBaseCount: z.number().int().nonnegative().optional(),
+      selectedKnowledgeBases: runnerKnowledgeBaseSelectionSchema.optional(),
       officeSelectionContext: z.string().min(1).max(1_000_000).optional(),
       attachments: z.array(
         z.strictObject({
@@ -336,7 +337,7 @@ export const startTurnBodySchema = z
         body.context.requireFinalResponse ||
         body.context.applicationInstructions ||
         body.context.officeSelectionContext ||
-        (body.context.selectedKnowledgeBaseCount ?? 0) !== 0
+        (body.context.selectedKnowledgeBases?.length ?? 0) !== 0
       ) {
         context.addIssue({
           code: "custom",
@@ -599,6 +600,7 @@ export const goalClearBodySchema = z.strictObject({
 });
 export const forkThreadBodySchema = z.strictObject({
   ...goalClearBodySchema.omit({ codexThreadId: true }).shape,
+  sourceConversationId: uuid,
   sourceCodexThreadId: z.string().min(1).max(240),
   throughCodexTurnId: z.string().min(1).max(240),
 });
@@ -845,6 +847,7 @@ export function buildRunnerServer(
       return personalizationSettingsSchema.parse({
         custom_instructions: settings.custom_instructions,
         memories_enabled: settings.memories_enabled,
+        task_auto_naming: settings.task_auto_naming,
       });
     } catch (error) {
       request.log.error(
@@ -874,13 +877,19 @@ export function buildRunnerServer(
         ownerId,
         update.data,
       );
-      await pool.refreshOwnerPersonalization(
-        ownerId,
-        settings.memories_enabled,
-      );
+      if (
+        update.data.custom_instructions !== undefined ||
+        update.data.memories_enabled !== undefined
+      ) {
+        await pool.refreshOwnerPersonalization(
+          ownerId,
+          settings.memories_enabled,
+        );
+      }
       return personalizationSettingsSchema.parse({
         custom_instructions: settings.custom_instructions,
         memories_enabled: settings.memories_enabled,
+        task_auto_naming: settings.task_auto_naming,
       });
     } catch (error) {
       request.log.error(
@@ -1539,10 +1548,9 @@ export function buildRunnerServer(
                   applicationInstructions: body.context.applicationInstructions,
                 }
               : {}),
-            ...(body.context.selectedKnowledgeBaseCount !== undefined
+            ...(body.context.selectedKnowledgeBases !== undefined
               ? {
-                  selectedKnowledgeBaseCount:
-                    body.context.selectedKnowledgeBaseCount,
+                  selectedKnowledgeBases: body.context.selectedKnowledgeBases,
                 }
               : {}),
             ...(body.context.officeSelectionContext !== undefined
@@ -1895,6 +1903,7 @@ export function buildRunnerServer(
           conversationId,
           ownerId: body.ownerId,
           expectedRuntimeGeneration: body.expectedRuntimeGeneration,
+          sourceConversationId: body.sourceConversationId,
           sourceCodexThreadId: body.sourceCodexThreadId,
           throughCodexTurnId: body.throughCodexTurnId,
           projectionTurnId: body.projectionTurnId,
@@ -2289,7 +2298,7 @@ export function buildRunnerServer(
         parsedBody.data.context.requireFinalResponse !== undefined ||
         parsedBody.data.context.applicationInstructions !== undefined ||
         parsedBody.data.context.officeSelectionContext !== undefined ||
-        (parsedBody.data.context.selectedKnowledgeBaseCount ?? 0) !== 0
+        (parsedBody.data.context.selectedKnowledgeBases?.length ?? 0) !== 0
       ) {
         return reply.code(400).send({ error_code: "RUNNER_PREWARM_INVALID" });
       }
@@ -2462,7 +2471,7 @@ function resolveHealthRoots(config: RunnerConfig): {
     home,
     control,
     workspace: path.join(home, "workspaces"),
-    codexHome: path.join(home, ".codex"),
+    codexHome: path.join(home, "task-homes"),
   };
 }
 

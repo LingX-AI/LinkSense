@@ -286,6 +286,9 @@ describe("presentation preview layout", () => {
     const frame = declarationFor(".presentation-selection-frame")
     expect(frame).toMatch(/position:\s*absolute;/u)
     expect(frame).toMatch(/border:\s*2px dashed var\(--app-selection\);/u)
+    expect(frame).toMatch(
+      /background:\s*color-mix\(in srgb, var\(--app-selection\) 12%, transparent\);/u
+    )
     expect(previewStyles).toMatch(
       /\[data-pptx-element\]\[data-pptx-selectable="true"\]:hover:not\([\s\S]*?\[aria-selected="true"\][\s\S]*?\):not\(\[data-pptx-selection-active="true"\]\)\s*\{[\s\S]*?border-color:\s*transparent\s*!important;[\s\S]*?outline:\s*none\s*!important;/u
     )

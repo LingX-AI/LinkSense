@@ -3,6 +3,7 @@ import type { Logger } from "pino";
 import type {
   ImageGenerationRequest,
   RunnerMemoryUsageCapture,
+  RunnerHeartbeat,
 } from "@linksense/shared";
 import type {
   LinkSensePublishedEvent,
@@ -224,6 +225,13 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       ...this.workers.values(),
       ...this.memoryUsageWorkers.values(),
     ]);
+  }
+
+  async reportHeartbeat(ownerId: string, input: RunnerHeartbeat): Promise<void> {
+    const response = await this.post("/internal/runner/heartbeat", input, ownerId);
+    if (asRecord(asRecord(response).data).confirmed !== true) {
+      throw new Error("LinkSense worker heartbeat was not confirmed");
+    }
   }
 
   async reportProcessExit(input: ProcessExitReport): Promise<void> {
@@ -679,7 +687,9 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     ownerId: string,
     callerSignal?: AbortSignal,
   ): Promise<Response> {
-    const timeoutMs = pathname.startsWith("/internal/knowledge/")
+    const timeoutMs = pathname === "/internal/runner/heartbeat"
+      ? 5_000
+      : pathname.startsWith("/internal/knowledge/")
       ? deriveKnowledgeSearchTimeouts(
           this.options.knowledgeSearchTimeoutMs ??
             DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
@@ -726,6 +736,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function runnerEventThreadId(event: LinkSenseRunnerEvent): string | null {
+  // Preparation belongs to the local request and survives its native fork.
+  if ("preparation" in event && event.preparation) return null;
   if ("method" in event) {
     const threadId = event.params.threadId;
     return typeof threadId === "string" && threadId.length > 0

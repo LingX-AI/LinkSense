@@ -20,8 +20,11 @@ async function tempRoot(): Promise<string> {
 }
 
 describe("runtime cleanup directories", () => {
-  it("removes the exact workspace and control directories", async () => {
+  it("removes the task HOME, workspace and control directories", async () => {
     const root = await tempRoot()
+    const home = path.join(root, "task-home")
+    await mkdir(home)
+    await writeFile(path.join(home, "private-state"), "state", { mode: 0o600 })
     const workspace = path.join(root, "home", "workspaces", "task")
     const taskControl = path.join(root, "control", "workspaces", "task")
     await Promise.all([
@@ -31,8 +34,9 @@ describe("runtime cleanup directories", () => {
     await writeFile(path.join(workspace, "attachment.txt"), "content")
 
     await expect(
-      removeConversationRuntimeDirectories({ workspace, taskControl }),
+      removeConversationRuntimeDirectories({ taskHome: home, workspace, taskControl }),
     ).resolves.toEqual({ workspace: "deleted", control: "deleted" })
+    await expect(lstat(home)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(lstat(workspace)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(lstat(taskControl)).rejects.toMatchObject({ code: "ENOENT" })
   })
@@ -42,6 +46,7 @@ describe("runtime cleanup directories", () => {
 
     await expect(
       removeConversationRuntimeDirectories({
+        taskHome: path.join(root, "task-home"),
         workspace: path.join(root, "home", "workspaces", "missing"),
         taskControl: path.join(root, "control", "workspaces", "missing"),
       }),
@@ -56,7 +61,7 @@ describe("runtime cleanup directories", () => {
 
     await expect(
       removeConversationRuntimeDirectories(
-        { workspace: "/private/workspace", taskControl: "/private/control" },
+        { taskHome: "/private/task-home", workspace: "/private/workspace", taskControl: "/private/control" },
         {
           inspect: vi.fn(async () => ({}) as never),
           makeRemovable: vi.fn(async () => undefined),

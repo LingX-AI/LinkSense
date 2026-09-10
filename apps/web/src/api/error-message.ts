@@ -1,3 +1,4 @@
+import { errorCatalog } from "@linksense/shared"
 import type { TFunction } from "i18next"
 
 import { ApiError } from "@/api/client"
@@ -7,6 +8,12 @@ import {
 } from "@/lib/public-copy"
 
 const errorCodeToKey: Record<string, string> = {
+  APPLICATION_NOT_FOUND: errorCatalog.APPLICATION_NOT_FOUND.message_key,
+  APPLICATION_DISABLED: errorCatalog.APPLICATION_DISABLED.message_key,
+  APPLICATION_DEPENDENCY_UNAVAILABLE:
+    errorCatalog.APPLICATION_DEPENDENCY_UNAVAILABLE.message_key,
+  TASK_CATEGORY_NAME_EXISTS: errorCatalog.TASK_CATEGORY_NAME_EXISTS.message_key,
+  TASK_CATEGORY_NOT_FOUND: errorCatalog.TASK_CATEGORY_NOT_FOUND.message_key,
   NETWORK_UNAVAILABLE: "errors.networkUnavailable",
   API_RESPONSE_INVALID: "errors.invalidResponse",
   AUTH_INVALID_CREDENTIALS: "errors.authInvalidCredentials",
@@ -101,6 +108,7 @@ const errorCodeToKey: Record<string, string> = {
   ARTIFACT_NOT_FOUND: "errors.artifactNotFound",
   DOWNLOAD_FORBIDDEN: "errors.downloadForbidden",
   RUNNER_UNAVAILABLE: "errors.runnerUnavailable",
+  DEPLOYMENT_STOPPED: "errors.deploymentStopped",
   TOKEN_LIMIT_EXCEEDED: "errors.tokenLimitExceeded",
   LAST_ENABLED_ADMIN_REQUIRED: "errors.lastAdminRequired",
   MODEL_IN_USE_BY_SYSTEM_SETTING: "errors.modelProvider.inUseBySystemSetting",

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { Conversation } from "@/api/contracts"
 import { SortableConversationGroup } from "@/features/conversations/sortable-conversation-group"
+import { SidebarConversationDnd } from "./sidebar-conversation-dnd"
 import i18n from "@/i18n"
 
 const conversations = [
@@ -10,6 +11,7 @@ const conversations = [
     id: "task-first",
     title: "第一项任务",
     archived: false,
+    category_id: null,
     updated_at: "2026-08-12T08:00:00.000Z",
     pinned_at: null,
     sort_order: 0,
@@ -22,6 +24,7 @@ const conversations = [
     id: "task-second",
     title: "第二项任务",
     archived: false,
+    category_id: null,
     updated_at: "2026-08-12T07:00:00.000Z",
     pinned_at: null,
     sort_order: 1,
@@ -41,24 +44,30 @@ describe("sortable conversation group", () => {
 
   it("uses the task row for pointer dragging without rendering a visible handle", () => {
     render(
-      <SortableConversationGroup
+      <SidebarConversationDnd
         conversations={conversations}
+        categories={[]}
         disabled={false}
         onReorder={vi.fn(async () => undefined)}
+        onReorderCategories={vi.fn(async () => undefined)}
+        onMove={vi.fn(async () => undefined)}
+        onError={vi.fn()}
       >
-        {(conversation, sortable) => (
-          <div
-            ref={sortable.setNodeRef}
-            style={sortable.style}
-            data-testid={`task-${conversation.id}`}
-            data-dragging={sortable.isDragging || undefined}
-            onPointerDown={sortable.onPointerDown}
-          >
-            <span>{conversation.title}</span>
-            {sortable.keyboardActivator}
-          </div>
-        )}
-      </SortableConversationGroup>
+        <SortableConversationGroup conversations={conversations}>
+          {(conversation, sortable) => (
+            <div
+              ref={sortable.setNodeRef}
+              data-testid={`task-${conversation.id}`}
+              data-dragging={sortable.isDragging || undefined}
+              onPointerDown={sortable.onPointerDown}
+            >
+              <span>{conversation.title}</span>
+              {sortable.keyboardActivator}
+              {sortable.dropIndicator}
+            </div>
+          )}
+        </SortableConversationGroup>
+      </SidebarConversationDnd>
     )
 
     expect(screen.getAllByText(/项任务$/u)).toHaveLength(2)
@@ -89,33 +98,39 @@ describe("sortable conversation group", () => {
     const openTask = vi.fn()
 
     render(
-      <SortableConversationGroup
+      <SidebarConversationDnd
         conversations={conversations}
+        categories={[]}
         disabled={false}
         onReorder={vi.fn(async () => undefined)}
+        onReorderCategories={vi.fn(async () => undefined)}
+        onMove={vi.fn(async () => undefined)}
+        onError={vi.fn()}
       >
-        {(conversation, sortable) => (
-          <div
-            ref={sortable.setNodeRef}
-            style={sortable.style}
-            data-testid={`task-${conversation.id}`}
-            data-dragging={sortable.isDragging || undefined}
-            onPointerDown={sortable.onPointerDown}
-          >
-            <a
-              href={`/conversations/${conversation.id}`}
-              data-testid={`task-link-${conversation.id}`}
-              onClick={(event) => {
-                event.preventDefault()
-                openTask()
-              }}
+        <SortableConversationGroup conversations={conversations}>
+          {(conversation, sortable) => (
+            <div
+              ref={sortable.setNodeRef}
+              data-testid={`task-${conversation.id}`}
+              data-dragging={sortable.isDragging || undefined}
+              onPointerDown={sortable.onPointerDown}
             >
-              {conversation.title}
-            </a>
-            {sortable.keyboardActivator}
-          </div>
-        )}
-      </SortableConversationGroup>
+              <a
+                href={`/conversations/${conversation.id}`}
+                data-testid={`task-link-${conversation.id}`}
+                onClick={(event) => {
+                  event.preventDefault()
+                  openTask()
+                }}
+              >
+                {conversation.title}
+              </a>
+              {sortable.keyboardActivator}
+              {sortable.dropIndicator}
+            </div>
+          )}
+        </SortableConversationGroup>
+      </SidebarConversationDnd>
     )
 
     const firstTask = screen.getByTestId("task-task-first")

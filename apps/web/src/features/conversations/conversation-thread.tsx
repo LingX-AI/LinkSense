@@ -16,8 +16,8 @@ import {
 } from "react"
 import {
   coreMcpServerKey,
-  userMessageDisplaySchema,
-  type UserMessageDisplay,
+  officeAnnotationDisplaySchema,
+  type OfficeAnnotationDisplay,
 } from "@linksense/shared"
 import type { TFunction } from "i18next"
 import {
@@ -74,11 +74,20 @@ import {
   formatFirstPartyCapabilityName,
   useProductName,
 } from "@/app/product-branding"
+import {
+  TurnActivityItem,
+  type TurnActivitySource,
+} from "@/features/conversations/turn-activity-item"
 import { getConversationMessageAnchorId } from "@/features/conversations/conversation-message-anchor"
+import {
+  ConversationMessageList,
+  type ConversationMessageRow,
+  type ConversationThreadNavigation,
+  type ConversationHistoryControl,
+} from "@/features/conversations/conversation-message-list"
 import { ConversationForkSourceMarker } from "@/features/conversations/conversation-fork-source-marker"
 import { AssistantHtmlPreviewLoading } from "@/features/conversations/assistant-html-preview-loading"
 import {
-  NativeActivityItem,
   NativeSubAgentActivityGroup,
   NativeSubAgentActivityItem,
 } from "@/features/conversations/native-activity-item"
@@ -200,10 +209,8 @@ import {
   normalizeAssistantMarkdown,
   prepareStreamingAssistantMarkdown,
 } from "@/features/conversations/streaming-markdown"
-import {
-  selectLatestStreamingReasoningSummary,
-  type StreamingReasoningSummaries,
-} from "@/features/conversations/streaming-reasoning-summaries"
+import type { StreamingReasoningSummaries } from "@/features/conversations/streaming-reasoning-summaries"
+import { selectReasoningActivitySummary } from "@/features/conversations/reasoning-activity-summary"
 import { normalizeLanguage } from "@/i18n"
 import { getPublicRuntimeMessage } from "@/lib/public-copy"
 import {
@@ -459,7 +466,7 @@ function UserMessageAttachments({
                 key={file.id}
                 type="button"
                 variant="ghost"
-                className="user-message-file-attachment user-message-file-attachment-previewable"
+                className="user-message-resource-chip user-message-file-attachment user-message-file-attachment-previewable"
                 aria-label={t(getConversationFilePreviewLabelKey(file), {
                   name: file.name,
                 })}
@@ -468,7 +475,10 @@ function UserMessageAttachments({
                 {content}
               </Button>
             ) : (
-              <div key={file.id} className="user-message-file-attachment">
+              <div
+                key={file.id}
+                className="user-message-resource-chip user-message-file-attachment"
+              >
                 {content}
               </div>
             )
@@ -478,7 +488,7 @@ function UserMessageAttachments({
       <ConversationAttachmentOverflow
         items={overflowItems}
         hiddenCount={hiddenCount}
-        triggerClassName="user-message-file-attachment user-message-attachment-overflow-trigger"
+        triggerClassName="user-message-resource-chip user-message-file-attachment user-message-attachment-overflow-trigger"
         side="bottom"
       />
     </div>
@@ -523,7 +533,7 @@ function UserMessageSelectionBadge({
   return (
     <Badge
       variant="outline"
-      className="user-message-capability"
+      className="user-message-resource-chip user-message-capability"
       title={selection.name}
     >
       <UserMessageSelectionIcon selection={selection} />
@@ -595,7 +605,7 @@ function UserMessageSelections({
             type="button"
             className={cn(
               badgeVariants({ variant: "outline" }),
-              "user-message-capability user-message-capability-overflow"
+              "user-message-resource-chip user-message-capability user-message-capability-overflow"
             )}
             aria-label={overflowLabel(overflowSelections.length)}
           >
@@ -2297,13 +2307,15 @@ async function copyTextToClipboard(content: string) {
   return copyTextWithDomFallback(content)
 }
 
-function getOfficeAnnotationDisplay(value: unknown): UserMessageDisplay | null {
-  const parsed = userMessageDisplaySchema.safeParse(value)
+function getOfficeAnnotationDisplay(
+  value: unknown
+): OfficeAnnotationDisplay | null {
+  const parsed = officeAnnotationDisplaySchema.safeParse(value)
   return parsed.success ? parsed.data : null
 }
 
 function officeAnnotationCardItems(
-  display: UserMessageDisplay,
+  display: OfficeAnnotationDisplay,
   t: TFunction
 ): ReadonlyArray<Readonly<{ request: string; locationLabel: string }>> {
   if (display.kind === "presentation_annotation") {
@@ -2783,7 +2795,21 @@ const Message = memo(function Message({
                 </div>
               </form>
             ) : user ? (
-              <ConversationUserMessageText content={displayedUserContent} />
+              <>
+                <ConversationUserMessageText content={displayedUserContent} />
+                {message.delivery_status === "sending" && (
+                  <span
+                    role="status"
+                    className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"
+                  >
+                    <LoaderCircleIcon
+                      className="size-3 animate-spin"
+                      aria-hidden="true"
+                    />
+                    {t("conversation.messageSending")}
+                  </span>
+                )}
+              </>
             ) : proposedPlan ? (
               <ConversationProposedPlanCard
                 streaming={message.streaming === true}
@@ -3015,6 +3041,7 @@ type NativeLifecycleEntry = {
   method: "item/started" | "item/completed"
   sequence: number
   createdAt: string
+  stopped: boolean
 }
 
 function collapseNativeLifecycle(events: ConversationEvent[]) {
@@ -3022,6 +3049,16 @@ function collapseNativeLifecycle(events: ConversationEvent[]) {
     ...new Map(events.map((event) => [event.id, event])).values(),
   ].sort((left, right) => left.sequence_no - right.sequence_no)
   const latestByItemId = new Map<string, NativeLifecycleEntry>()
+  const stoppedTurns = new Set(
+    uniqueEvents.flatMap((event) => {
+      if (event.type !== "turn/completed") return []
+      const native = getNativeCodexPayload(event)
+      return native?.method === "turn/completed" &&
+        native.params.turn.status !== "inProgress"
+        ? [JSON.stringify([native.params.threadId, native.params.turn.id])]
+        : []
+    })
+  )
   for (const event of uniqueEvents) {
     const native = getNativeCodexPayload(event)
     if (
@@ -3041,6 +3078,11 @@ function collapseNativeLifecycle(events: ConversationEvent[]) {
       method: native.method,
       sequence: previous?.sequence ?? event.sequence_no,
       createdAt: previous?.createdAt ?? event.created_at,
+      stopped:
+        native.params.item.type === "contextCompaction" &&
+        stoppedTurns.has(
+          JSON.stringify([native.params.threadId, native.params.turnId])
+        ),
     })
   }
   return [...latestByItemId.values()]
@@ -3160,6 +3202,13 @@ function getConversationActivityRenderKey(activity: ConversationActivity) {
 }
 
 type TurnTimelineEntry =
+  | {
+      id: string
+      kind: "thinking"
+      sequence?: number
+      createdAt?: string
+      fallbackOrder: number
+    }
   | {
       id: string
       kind: "message"
@@ -3346,7 +3395,7 @@ function groupAdjacentNativeSubAgentActivities(
 function isVisibleActiveNativeProcessingActivity(
   activity: NativeLifecycleEntry
 ) {
-  if (activity.method !== "item/started") return false
+  if (activity.method !== "item/started" || activity.stopped) return false
   if (activity.item.type === "subAgentActivity") return false
   if (
     activity.item.type === "collabAgentToolCall" &&
@@ -3389,6 +3438,9 @@ function TurnSummary({
   plan,
   hasProcessedContent,
   hasActiveProcessing,
+  reasoningSummary,
+  hasBlockingRequest,
+  hasStreamingResponse,
   completedWithoutOutput,
   processedStartedAt,
   conversationGoal,
@@ -3428,6 +3480,9 @@ function TurnSummary({
   plan?: ConversationTurnPlan | null
   hasProcessedContent: boolean
   hasActiveProcessing: boolean
+  reasoningSummary?: string
+  hasBlockingRequest: boolean
+  hasStreamingResponse: boolean
   completedWithoutOutput: boolean
   processedStartedAt?: string
   conversationGoal?: ThreadGoal | null
@@ -3502,6 +3557,16 @@ function TurnSummary({
     nativeReconnectFailed ||
     Boolean(interruptRequestedAt) ||
     turn.status === "interrupted"
+  const contextCompactionRunning =
+    visuallyRunning &&
+    !interruptedForDisplay &&
+    !terminalErrorActivity &&
+    nativeActivities.some(
+      (activity) =>
+        activity.item.type === "contextCompaction" &&
+        activity.method === "item/started" &&
+        !activity.stopped
+    )
   const visibleIntermediateMessages = intermediateMessages.filter(
     (message) => message.content.trim().length > 0
   )
@@ -3583,12 +3648,32 @@ function TurnSummary({
     timeline.length > 0
   const canCollapseActivity =
     hasActivityDetails && activityCollapseAvailable && !nativeReconnectFailed
-  const showThinkingActivity =
+  const progressAllowed =
     visuallyRunning &&
     hasProcessedContent &&
     !finalAnswerVisible &&
-    !hasActiveProcessing &&
-    !nativeReconnectState
+    !nativeReconnectState &&
+    !hasBlockingRequest &&
+    !hasStreamingResponse &&
+    !terminalErrorActivity
+  const showThinkingActivity =
+    progressAllowed && !hasActiveProcessing && !contextCompactionRunning
+  const thinkingAfterCompaction =
+    showThinkingActivity &&
+    nativeActivities.at(-1)?.item.type === "contextCompaction"
+  const showThinkingInTimeline =
+    showThinkingActivity && !thinkingAfterCompaction
+  const isSummaryEntry = (entry: TurnTimelineEntry | undefined) =>
+    entry?.kind === "native_activity" ||
+    entry?.kind === "native_tool_group" ||
+    (entry?.kind === "legacy_activity" && entry.activity.type !== "error")
+  const displayTimeline: TurnTimelineEntry[] =
+    showThinkingInTimeline && !isSummaryEntry(timeline.at(-1))
+      ? [
+          ...timeline,
+          { id: "thinking", kind: "thinking", fallbackOrder: fallbackOrder++ },
+        ]
+      : timeline
   const showActivityPanel = hasActivityDetails || showThinkingActivity
 
   const endedAt = nativeReconnectFailed
@@ -3688,24 +3773,30 @@ function TurnSummary({
           )
         : null
   const initialThinking =
-    visuallyRunning && !hasProcessedContent && !nativeReconnectState
+    visuallyRunning &&
+    !contextCompactionRunning &&
+    !hasProcessedContent &&
+    !nativeReconnectState &&
+    !hasBlockingRequest
   const completedDurationLabel =
     !rawRunning && turn.status === "completed"
       ? t("conversation.elapsed")
       : null
-  const statusLabel = initialThinking
-    ? t("conversation.thinking")
-    : interruptedForDisplay
-      ? t("statuses.interrupted")
-      : turn.status === "failed" ||
-          completedWithoutOutput ||
-          Boolean(terminalErrorActivity)
-        ? t("statuses.failed")
-        : rawRunning
-          ? t("conversation.processing")
-          : turn.status === "completed"
-            ? completedDurationLabel
-            : t(`statuses.${turn.status}`)
+  const statusLabel = contextCompactionRunning
+    ? t("conversation.processing")
+    : initialThinking || thinkingAfterCompaction
+      ? t("conversation.thinking")
+      : interruptedForDisplay
+        ? t("statuses.interrupted")
+        : turn.status === "failed" ||
+            completedWithoutOutput ||
+            Boolean(terminalErrorActivity)
+          ? t("statuses.failed")
+          : rawRunning
+            ? t("conversation.processing")
+            : turn.status === "completed"
+              ? completedDurationLabel
+              : t(`statuses.${turn.status}`)
   const activityLabel = (activity: ConversationActivity) => {
     const fallbackKey = `conversation.activities.${activity.type}`
     const fallback = t(fallbackKey)
@@ -3834,7 +3925,95 @@ function TurnSummary({
                   placement="inline"
                 />
               )}
-              {timeline.map((entry) => {
+              {displayTimeline.map((entry, index) => {
+                if (
+                  entry.kind === "native_activity" ||
+                  entry.kind === "native_tool_group" ||
+                  entry.kind === "thinking" ||
+                  (entry.kind === "legacy_activity" &&
+                    entry.activity.type !== "error")
+                ) {
+                  const entries =
+                    entry.kind === "native_activity"
+                      ? [entry.activity]
+                      : entry.kind === "native_tool_group"
+                        ? entry.activities
+                        : []
+                  const firstActivity = entries[0]
+                  const coordinationSettled =
+                    firstActivity?.item.type === "collabAgentToolCall" &&
+                    nativeSubAgentCoordinationSettled
+                  const activityRunning =
+                    entry.kind === "legacy_activity"
+                      ? isRunningConversationActivity(entry.activity)
+                      : !coordinationSettled &&
+                        entries.some(isVisibleActiveNativeProcessingActivity)
+                  const source: TurnActivitySource =
+                    entry.kind === "thinking"
+                      ? { kind: "thinking" }
+                      : entry.kind === "legacy_activity"
+                        ? {
+                            kind: "legacy",
+                            id: entry.id,
+                            label: activityLabel(entry.activity),
+                            running: activityRunning,
+                            capabilityName: entry.activity.capability_name
+                              ? formatFirstPartyCapabilityName(
+                                  entry.activity.capability_name,
+                                  productName
+                                )
+                              : undefined,
+                          }
+                        : {
+                            kind: "native",
+                            activities: entries,
+                            grouped: entry.kind === "native_tool_group",
+                          }
+                  const progress =
+                    index === displayTimeline.length - 1 &&
+                    progressAllowed &&
+                    !entries.some((activity) => activity.stopped)
+                      ? showThinkingInTimeline
+                        ? "thinking"
+                        : activityRunning
+                          ? "active"
+                          : undefined
+                      : undefined
+                  return (
+                    <TurnActivityItem
+                      key={`activity-after-${displayTimeline[index - 1]?.id ?? turn.id}`}
+                      source={source}
+                      progress={progress}
+                      reasoningSummary={reasoningSummary}
+                      stopped={
+                        !running ||
+                        nativeReconnectFailed ||
+                        coordinationSettled ||
+                        (entries.length > 0 &&
+                          entries.every((activity) => activity.stopped))
+                      }
+                      artifactFilesById={artifactFilesById}
+                      loadArtifactPreview={loadArtifactPreview}
+                      onPreviewImage={onPreviewImage}
+                      open={
+                        firstActivity
+                          ? nativeActivityOpen(firstActivity.item.id)
+                          : false
+                      }
+                      onOpenChange={
+                        firstActivity
+                          ? (open) => {
+                              onActivityDisclosureToggle?.()
+                              onNativeActivityOpenChange(
+                                firstActivity.item.id,
+                                open
+                              )
+                            }
+                          : undefined
+                      }
+                    />
+                  )
+                }
                 if (entry.kind === "guided_message") {
                   if (canCollapseActivity && !activityOpen) return null
                   return (
@@ -3872,29 +4051,6 @@ function TurnSummary({
                     </div>
                   )
                 }
-                if (entry.kind === "native_activity") {
-                  const coordinationSettled =
-                    entry.activity.item.type === "collabAgentToolCall" &&
-                    nativeSubAgentCoordinationSettled
-                  return (
-                    <NativeActivityItem
-                      key={entry.id}
-                      item={entry.activity.item}
-                      method={entry.activity.method}
-                      artifactFilesById={artifactFilesById}
-                      loadArtifactPreview={loadArtifactPreview}
-                      onPreviewImage={onPreviewImage}
-                      open={nativeActivityOpen(entry.activity.item.id)}
-                      onOpenChange={(open) => {
-                        onActivityDisclosureToggle?.()
-                        onNativeActivityOpenChange(entry.activity.item.id, open)
-                      }}
-                      stopped={
-                        !running || nativeReconnectFailed || coordinationSettled
-                      }
-                    />
-                  )
-                }
                 if (entry.kind === "native_subagent_activity") {
                   return (
                     <NativeSubAgentActivityItem
@@ -3914,30 +4070,6 @@ function TurnSummary({
                       stopped={nativeReconnectFailed}
                       selectedAgentId={selectedSubAgentId}
                       onAgentSelect={onSubAgentSelect}
-                    />
-                  )
-                }
-                if (entry.kind === "native_tool_group") {
-                  const firstActivity = entry.activities[0]
-                  if (!firstActivity) return null
-                  return (
-                    <NativeActivityItem
-                      key={entry.id}
-                      item={firstActivity.item}
-                      method={firstActivity.method}
-                      artifactFilesById={artifactFilesById}
-                      loadArtifactPreview={loadArtifactPreview}
-                      onPreviewImage={onPreviewImage}
-                      activityGroup={entry.activities.map((activity) => ({
-                        item: activity.item,
-                        method: activity.method,
-                      }))}
-                      open={nativeActivityOpen(firstActivity.item.id)}
-                      onOpenChange={(open) => {
-                        onActivityDisclosureToggle?.()
-                        onNativeActivityOpenChange(firstActivity.item.id, open)
-                      }}
-                      stopped={!running || nativeReconnectFailed}
                     />
                   )
                 }
@@ -4023,20 +4155,6 @@ function TurnSummary({
                   </span>
                 </div>
               )}
-              {showThinkingActivity && (
-                <Marker
-                  className="activity-item live-reasoning-summary turn-thinking-activity conversation-marker"
-                  data-running="true"
-                  aria-busy="true"
-                  role="status"
-                  aria-live="polite"
-                  aria-atomic="true"
-                >
-                  <MarkerContent className="shimmer">
-                    {t("conversation.thinking")}
-                  </MarkerContent>
-                </Marker>
-              )}
             </div>
           </CollapsibleContent>
         )}
@@ -4049,19 +4167,6 @@ function TurnSummary({
             className="turn-guidance-message"
           >
             {renderGuidedMessage(message)}
-          </div>
-        ))}
-      {canCollapseActivity &&
-        !activityOpen &&
-        userInputRequests.map((request) => (
-          <div
-            key={`collapsed-user-input-request-${request.id}`}
-            className="py-1"
-          >
-            <ConversationUserInputRequestCard
-              request={request}
-              submitting={false}
-            />
           </div>
         ))}
       <ArtifactFiles
@@ -4118,6 +4223,9 @@ export function ConversationThread({
   embedded = false,
   defaultActivityOpen = false,
   hideMessageActions = false,
+  navigationRef,
+  onVisibleMessageChange,
+  history,
 }: {
   conversation: Conversation
   knowledgeBases?: KnowledgeBase[]
@@ -4165,6 +4273,9 @@ export function ConversationThread({
   embedded?: boolean
   defaultActivityOpen?: boolean
   hideMessageActions?: boolean
+  navigationRef?: Ref<ConversationThreadNavigation>
+  onVisibleMessageChange?: (ids: string[]) => void
+  history?: ConversationHistoryControl
 }) {
   const { t } = useTranslation()
   const productName = useProductName()
@@ -4587,9 +4698,10 @@ export function ConversationThread({
     ).filter(
       (summary) => summary.turnId === turn.id && summary.text.trim().length > 0
     )
-    const liveReasoningSummary = selectLatestStreamingReasoningSummary(
+    const reasoningSummary = selectReasoningActivitySummary(
+      turn.id,
       liveReasoningSummaries,
-      turn.id
+      turnNativeEvents
     )
     const processedAssistantMessages = turnAssistantMessages.filter(
       (message) =>
@@ -4646,8 +4758,11 @@ export function ConversationThread({
       visibleNativeActivities.length > 0 ||
       visiblePlanEvents.length > 0 ||
       turnLiveReasoningSummaries.length > 0 ||
+      Boolean(reasoningSummary) ||
       turnTerminalFormRequests.length > 0 ||
       turnArtifacts.length > 0
+    // Reasoning labels the fallback; it must not count as a separate active
+    // tool and suppress the status row between tool calls.
     const hasActiveProcessing =
       processedAssistantMessages.some(
         (message) =>
@@ -4657,14 +4772,14 @@ export function ConversationThread({
       collapseActivityLifecycle(visibleTurnActivities).some(
         isRunningConversationActivity
       ) ||
-      visibleNativeActivities.some(isVisibleActiveNativeProcessingActivity) ||
-      (!turnFinalAnswerConfirmed && Boolean(liveReasoningSummary?.text.trim()))
+      visibleNativeActivities.some(isVisibleActiveNativeProcessingActivity)
     const processedStartedAt = earliestTimestamp([
       ...processedAssistantMessages.map((message) => message.created_at),
       ...visibleTurnActivities.map((activity) => activity.created_at),
       ...visibleNativeActivities.map((activity) => activity.createdAt),
       ...visiblePlanEvents.map((event) => event.created_at),
       ...turnLiveReasoningSummaries.map((summary) => summary.createdAt),
+      reasoningSummary?.createdAt,
       ...turnTerminalFormRequests.map((request) => request.created_at),
       ...turnArtifacts.map((artifact) => artifact.created_at),
     ])
@@ -4734,6 +4849,15 @@ export function ConversationThread({
         }
         hasProcessedContent={hasProcessedContent}
         hasActiveProcessing={hasActiveProcessing}
+        reasoningSummary={reasoningSummary?.text}
+        hasBlockingRequest={conversation.user_input_requests.some(
+          (request) =>
+            request.turn_id === turn.id &&
+            (request.status === "pending" || request.status === "answering")
+        )}
+        hasStreamingResponse={processedAssistantMessages.some(
+          (message) => message.streaming === true
+        )}
         completedWithoutOutput={completedWithoutOutput}
         processedStartedAt={processedStartedAt}
         conversationGoal={conversation.goal}
@@ -4819,7 +4943,7 @@ export function ConversationThread({
         renderedConversationMessages[index],
       ])
   )
-  const renderedMessageNodes = messages.flatMap((message) => {
+  const renderMessageNodes = (message: ConversationMessage) => {
     const nodes: ReactNode[] = []
     if (
       message.usage_type === "steer_current_turn" ||
@@ -4904,11 +5028,100 @@ export function ConversationThread({
     }
 
     return nodes
-  })
-
-  if (recentTurn && !firstAssistantMessageByTurn.has(recentTurn.id)) {
-    renderedMessageNodes.push(summaryFor(recentTurn))
   }
+
+  const rowGroups = new Map<
+    string,
+    {
+      key: string
+      turnId?: string
+      messageIds: string[]
+      renderers: (() => ReactNode)[]
+    }
+  >()
+  const addRow = (
+    key: string,
+    render: () => ReactNode,
+    messageId?: string,
+    turnId?: string
+  ) => {
+    let row = rowGroups.get(key)
+    if (!row) {
+      row = { key, turnId, messageIds: [], renderers: [] }
+      rowGroups.set(key, row)
+    }
+    row.renderers.push(render)
+    if (messageId) row.messageIds.push(messageId)
+  }
+  for (const message of messages) {
+    if (
+      message.usage_type === "steer_current_turn" ||
+      isHiddenPlanImplementationMessage(message)
+    )
+      continue
+    const turn = message.turn_id ? turnById.get(message.turn_id) : undefined
+    if (
+      message.role === "assistant" &&
+      turn &&
+      firstAssistantMessageByTurn.get(turn.id) !== message.id &&
+      !renderedConversationMessageIds.has(message.id)
+    )
+      continue
+    addRow(
+      turn ? getTurnRenderKey(turn) : getConversationMessageRenderKey(message),
+      () => renderMessageNodes(message),
+      message.role === "user" ? message.id : undefined,
+      turn?.id
+    )
+  }
+  if (recentTurn && !firstAssistantMessageByTurn.has(recentTurn.id)) {
+    addRow(
+      getTurnRenderKey(recentTurn),
+      () => summaryFor(recentTurn),
+      undefined,
+      recentTurn.id
+    )
+  }
+  const loadedRows: ConversationMessageRow[] = [...rowGroups.values()].map(
+    (row) => ({
+      key: row.key,
+      turnId: row.turnId,
+      messageIds: row.messageIds,
+      render: () => row.renderers.flatMap((render) => render()),
+    })
+  )
+  const rowsByTurn = new Map(
+    loadedRows.filter((row) => row.turnId).map((row) => [row.turnId, row])
+  )
+  const indexedTurns = new Set(
+    conversation.history?.index.map((item) => item.turn_id)
+  )
+  const loadedTurns = new Set(conversation.history?.turn_ids)
+  const messageRows: ConversationMessageRow[] = conversation.history
+    ? [
+        ...conversation.history.index.flatMap(
+          (item): ConversationMessageRow[] => {
+            const loaded = rowsByTurn.get(item.turn_id)
+            if (loaded) return [loaded]
+            if (!item.has_content || loadedTurns.has(item.turn_id)) return []
+            return [
+              {
+                key: item.message_id
+                  ? `message-${item.message_id}`
+                  : `turn-${item.turn_id}`,
+                turnId: item.turn_id,
+                messageIds: item.message_id ? [item.message_id] : [],
+                loaded: false,
+                render: () => null,
+              },
+            ]
+          }
+        ),
+        ...loadedRows.filter(
+          (row) => !row.turnId || !indexedTurns.has(row.turnId)
+        ),
+      ]
+    : loadedRows
 
   return (
     <div
@@ -4971,7 +5184,13 @@ export function ConversationThread({
               </div>
             )
           ))}
-        {renderedMessageNodes}
+        <ConversationMessageList
+          pinnedMessageId={editingMessageId}
+          rows={messageRows}
+          navigationRef={navigationRef}
+          onVisibleMessageChange={onVisibleMessageChange}
+          history={history}
+        />
         {messages.length > 0 && emptyNotice && (
           <div className="conversation-inline-notice-row">
             <ConversationEmptyNotice>{emptyNotice}</ConversationEmptyNotice>

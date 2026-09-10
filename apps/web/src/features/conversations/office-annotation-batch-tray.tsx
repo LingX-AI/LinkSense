@@ -1,6 +1,5 @@
 import { useRef, useState } from "react"
 import {
-  ArrowUpIcon,
   LoaderCircleIcon,
   MessageCirclePlusIcon,
   Trash2Icon,
@@ -158,7 +157,7 @@ export function OfficeAnnotationBatchTray({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="office-annotation-batch-locate h-auto min-w-0 flex-1 items-start justify-start gap-2 rounded-lg p-0 text-start whitespace-normal"
+                  className="office-annotation-batch-locate h-auto min-w-0 flex-1 items-start justify-start gap-2 rounded-lg p-0 text-start whitespace-normal hover:bg-transparent"
                   aria-label={t("officePreview.annotationBatch.locate", {
                     index: index + 1,
                   })}
@@ -222,17 +221,20 @@ export function OfficeAnnotationBatchTray({
             </Button>
             <Button
               type="button"
-              size="icon"
-              className="office-annotation-batch-send rounded-full"
-              aria-label={t("officePreview.annotationBatch.sendAll")}
+              size="xs"
+              className="office-annotation-batch-send"
+              aria-busy={busy}
               disabled={busy}
               onClick={() => void submit()}
             >
-              {busy ? (
-                <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
-              ) : (
-                <ArrowUpIcon aria-hidden="true" />
+              {busy && (
+                <LoaderCircleIcon
+                  data-icon="inline-start"
+                  className="animate-spin"
+                  aria-hidden="true"
+                />
               )}
+              {t("officePreview.annotationBatch.sendAll")}
             </Button>
           </div>
         </HoverCardContent>

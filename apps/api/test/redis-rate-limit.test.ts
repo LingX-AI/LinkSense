@@ -4,7 +4,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { Redis } from "ioredis"
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { Queue, Worker } from "bullmq"
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { TaskRecoveryScheduler, type TaskRecoveryQueueControl } from "../src/modules/events/recovery-scheduler.js"
 
 import {
   LinkSenseRedis,
@@ -66,6 +68,154 @@ describe("Redis atomic protection", () => {
   beforeEach(async () => {
     await client.flushdb()
     await setSuccessfulRecoveryBaseline(client)
+  })
+
+  it("keeps prewarm reservations owner-bound and replaces only a live owned revision", async () => {
+    const reservation = {
+      ownerId: "71000000-0000-4000-8000-000000000001",
+      conversationId: "71000000-0000-4000-8000-000000000002",
+      reservationRevision: "71000000-0000-4000-8000-000000000003",
+    }
+    const next = { ...reservation, reservationRevision: "71000000-0000-4000-8000-000000000004" }
+    const otherOwner = { ...next, ownerId: "71000000-0000-4000-8000-000000000005" }
+    expect(await protection.reserveConversationPrewarm(reservation, true)).toBe(true)
+    expect(await protection.reserveConversationPrewarm(next, true)).toBe(false)
+    expect(await protection.reserveConversationPrewarm(otherOwner, false)).toBe(false)
+    expect(await protection.claimConversationPrewarm(otherOwner.ownerId, reservation.conversationId)).toBe(false)
+    expect(await protection.isConversationPrewarmCurrent(reservation)).toBe(true)
+    expect(await protection.reserveConversationPrewarm(next, false)).toBe(true)
+    expect(await protection.isConversationPrewarmCurrent(reservation)).toBe(false)
+    expect(await protection.isConversationPrewarmCurrent(next)).toBe(true)
+    const ttl = await client.pttl(`linksense:conversation-prewarm:${reservation.conversationId}`)
+    expect(ttl).toBeGreaterThan(0)
+    expect(ttl).toBeLessThanOrEqual(15 * 60_000)
+  })
+
+  it("claims prewarm once across API instances and never renews an expired or claimed reservation", async () => {
+    const reservation = {
+      ownerId: "71000000-0000-4000-8000-000000000011",
+      conversationId: "71000000-0000-4000-8000-000000000012",
+      reservationRevision: "71000000-0000-4000-8000-000000000013",
+    }
+    const secondInstance = new LinkSenseRedis(testConfig(), client)
+    expect(await protection.reserveConversationPrewarm(reservation, true)).toBe(true)
+    const claims = await Promise.all([protection, secondInstance].map(instance =>
+      instance.claimConversationPrewarm(reservation.ownerId, reservation.conversationId)))
+    expect(claims.sort()).toEqual([false, true])
+    expect(await protection.reserveConversationPrewarm(reservation, false)).toBe(false)
+    expect(await protection.isConversationPrewarmCurrent(reservation)).toBe(false)
+    expect(await protection.reserveConversationPrewarm(reservation, true)).toBe(true)
+    await client.pexpire(`linksense:conversation-prewarm:${reservation.conversationId}`, 0)
+    expect(await protection.reserveConversationPrewarm(reservation, false)).toBe(false)
+    expect(await protection.claimConversationPrewarm(reservation.ownerId, reservation.conversationId)).toBe(false)
+  })
+
+  it("registers a worker atomically with capacity and checks only the exact slot", async () => {
+    const owner = "10000000-0000-4000-8000-000000000001"
+    const slot = await protection.acquireTurnSlot("conversation", "turn", owner)
+    expect(slot.acquired).toBe(true)
+    expect(await protection.runnerOwnerDeadline(owner)).toBeGreaterThan(Date.now())
+    expect(await protection.hasTurnSlot("conversation", "turn", owner)).toBe(true)
+    expect(await protection.hasTurnSlot("conversation", "old-turn", owner)).toBe(false)
+    expect(await protection.hasTurnSlot("conversation", "turn", "other-owner")).toBe(false)
+    await client.zadd("linksense:runner-owner-deadlines", 42, owner)
+    await protection.acquireTurnSlot("conversation", "turn", owner)
+    expect(await protection.runnerOwnerDeadline(owner)).toBe(42)
+  })
+
+  it("returns only expired workers and never removes a newer concurrent heartbeat", async () => {
+    const expired = "10000000-0000-4000-8000-000000000001"
+    const live = "10000000-0000-4000-8000-000000000002"
+    await client.zadd("linksense:runner-owner-deadlines", 42, expired)
+    await protection.recordRunnerHeartbeat(live)
+    expect(await protection.expiredRunnerOwners()).toEqual([{ ownerId: expired, deadline: 42 }])
+    await protection.recordRunnerHeartbeat(expired)
+    await protection.acknowledgeExpiredRunnerOwner(expired, 42)
+    expect(await protection.runnerOwnerDeadline(expired)).toBeGreaterThan(Date.now())
+    expect(await protection.expiredRunnerOwners()).toEqual([])
+  })
+
+  it("maintains an isolated owner slot index through acquire, release and Redis bootstrap", async () => {
+    const owner = "10000000-0000-4000-8000-000000000001"
+    const other = "10000000-0000-4000-8000-000000000002"
+    const conversationId = "10000000-0000-4000-8000-000000000003"
+    const turnId = "10000000-0000-4000-8000-000000000004"
+    await protection.acquireTurnSlot(conversationId, turnId, owner)
+    expect(await protection.runningTurnSlotsForOwner(owner)).toEqual({ slots: [{ conversationId, turnId }], after: null })
+    expect(await protection.runningTurnSlotsForOwner(other)).toEqual({ slots: [], after: null })
+    await client.del("linksense:running-turn-owner-index", "linksense:runner-owner-deadlines")
+    const lease = await protection.acquireRunningTurnReconcileLease()
+    expect(lease).not.toBeNull()
+    await protection.reconcileRunningTurnSlots([{ conversationId, turnId, ownerId: owner }], lease!)
+    expect((await protection.runningTurnSlotsForOwner(owner)).slots).toEqual([{ conversationId, turnId }])
+    expect(await protection.runnerOwnerDeadline(owner)).toBeGreaterThan(Date.now())
+    await protection.releaseTurnSlot(conversationId, "old-turn")
+    expect((await protection.runningTurnSlotsForOwner(owner)).slots).toHaveLength(1)
+    await protection.releaseTurnSlot(conversationId, turnId)
+    expect((await protection.runningTurnSlotsForOwner(owner)).slots).toHaveLength(0)
+  })
+
+  it("bounds expiry discovery and acknowledges only the enqueued lease", async () => {
+    for (let index = 0; index < 105; index++) {
+      await client.zadd("linksense:runner-owner-deadlines", 42, `10000000-0000-4000-8000-${String(index).padStart(12, "0")}`)
+    }
+    const entries = await protection.expiredRunnerOwners()
+    expect(entries).toHaveLength(100)
+    const first = entries[0]!
+    await protection.acknowledgeExpiredRunnerOwner(first.ownerId, first.deadline)
+    expect(await protection.runnerOwnerDeadline(first.ownerId)).toBeNull()
+  })
+
+  it("persists dispatch pagination across API instances and clears it at the end", async () => {
+    const other = new LinkSenseRedis(testConfig(), client)
+    const cursor = { id: "10000000-0000-4000-8000-000000000001", createdAt: "2026-09-07T00:00:00.000Z" }
+    await protection.setRecoveryDispatchCursor("start", cursor)
+    expect(await other.recoveryDispatchCursor("start")).toEqual(cursor)
+    expect(await other.recoveryDispatchCursor("context")).toBeNull()
+    await other.setRecoveryDispatchCursor("start", null)
+    expect(await protection.recoveryDispatchCursor("start")).toBeNull()
+  })
+
+  it("recovers one expired worker through real BullMQ delivery and bounded retry", async () => {
+    const ownerId = "10000000-0000-4000-8000-000000000001"
+    const conversationId = "10000000-0000-4000-8000-000000000003"
+    const projectionTurnId = "10000000-0000-4000-8000-000000000004"
+    const capabilityGeneration = "a".repeat(64)
+    await protection.acquireTurnSlot(conversationId, projectionTurnId, ownerId)
+    await client.zadd("linksense:runner-owner-deadlines", 1, ownerId)
+    const connection = { path: join(directory, "redis.sock") }
+    type RecoveryJob = Parameters<TaskRecoveryQueueControl["add"]>[1]
+    const queue = new Queue<RecoveryJob, void, RecoveryJob["type"]>("test-task-recovery", { connection, defaultJobOptions: { attempts: 2, backoff: { type: "fixed", delay: 1 } } })
+    const reconcileAfterProcessExit = vi.fn()
+      .mockResolvedValueOnce({ outcome: "failed", reasonCode: "RUNNER_UNAVAILABLE" })
+      .mockImplementationOnce(async () => {
+        await protection.releaseTurnSlot(conversationId, projectionTurnId)
+        return { outcome: "not_applicable" }
+      })
+    const events = { recoverRunningTurns: vi.fn(), reconcileAfterProcessExit }
+    const prisma = {
+      $transaction: vi.fn((run: (tx: unknown) => Promise<unknown>): Promise<unknown> => run(prisma)),
+      conversationTurn: { findMany: vi.fn(async () => [{ id: projectionTurnId, conversationId, capabilityGeneration, submittedBy: ownerId }]) },
+      conversationTurnStartIntent: { findMany: vi.fn(async () => []) },
+      conversationTurnAttempt: { findMany: vi.fn(async () => []) },
+    }
+    const conversations = { recoverStartIntent: vi.fn(), recoverContextWindowAttempt: vi.fn() }
+    const scheduler = new TaskRecoveryScheduler(
+      { redisUrl: "redis://unused" }, prisma as never, protection, events,
+      conversations, queue,
+      (processor) => new Worker("test-task-recovery", processor, { connection }),
+    )
+    try {
+      await scheduler.start()
+      await vi.waitFor(() => expect(reconcileAfterProcessExit).toHaveBeenCalledTimes(2))
+      await vi.waitFor(async () => expect(await protection.runningTurnCount()).toBe(0))
+      expect(events.recoverRunningTurns).not.toHaveBeenCalled()
+      expect(conversations.recoverStartIntent).not.toHaveBeenCalled()
+      expect(reconcileAfterProcessExit).toHaveBeenNthCalledWith(1, { conversationId, projectionTurnId, capabilityGeneration })
+      expect(reconcileAfterProcessExit).toHaveBeenNthCalledWith(2, { conversationId, projectionTurnId, capabilityGeneration })
+    } finally {
+      await scheduler.close()
+    }
   })
 
   it("sets a fixed window TTL and begins cooldown exactly at the threshold", async () => {
@@ -475,15 +625,17 @@ describe("Redis atomic protection", () => {
       "turn-finished",
       "owner-finished",
     )
+    const lease = await protection.acquireRunningTurnReconcileLease()
+    expect(lease).not.toBeNull()
     await protection.releaseTurnSlot("conversation-finished", "turn-finished")
 
-    await reconcileSlots(
-      protection,
+    await protection.reconcileRunningTurnSlots(
       [{
         conversationId: "conversation-finished",
         turnId: "turn-finished",
         ownerId: "owner-finished",
       }],
+      lease!,
     )
 
     expect(await protection.runningTurnCount()).toBe(0)
@@ -495,6 +647,8 @@ describe("Redis atomic protection", () => {
       "turn-a",
       "owner-aba",
     )
+    const lease = await protection.acquireRunningTurnReconcileLease()
+    expect(lease).not.toBeNull()
     await protection.releaseTurnSlot("conversation-aba", "turn-a")
     await protection.acquireTurnSlot(
       "conversation-aba",
@@ -503,13 +657,13 @@ describe("Redis atomic protection", () => {
     )
     await protection.releaseTurnSlot("conversation-aba", "turn-b")
 
-    await reconcileSlots(protection, [
+    await protection.reconcileRunningTurnSlots([
       {
         conversationId: "conversation-aba",
         turnId: "turn-a",
         ownerId: "owner-aba",
       },
-    ])
+    ], lease!)
 
     expect(await protection.runningTurnCount()).toBe(0)
     await expect(
@@ -534,12 +688,21 @@ describe("Redis atomic protection", () => {
       },
     ])
     await protection.releaseTurnSlot("conversation-observed", "turn-observed")
+    await client.hset("linksense:running-turn-release-markers", "previous-snapshot:released-turn", "1")
 
     await reconcileSlots(protection, [])
 
     await expect(
       client.hlen("linksense:running-turn-release-markers"),
     ).resolves.toBe(0)
+  })
+
+  it("does not accumulate historical release markers during ordinary task completion", async () => {
+    for (let index = 0; index < 10; index++) {
+      await protection.acquireTurnSlot("conversation-normal", `turn-${index}`, "owner-normal")
+      await protection.releaseTurnSlot("conversation-normal", `turn-${index}`)
+    }
+    expect(await client.hlen("linksense:running-turn-release-markers")).toBe(0)
   })
 
   it("rejects a stale reconciliation lease after a newer API instance takes ownership", async () => {

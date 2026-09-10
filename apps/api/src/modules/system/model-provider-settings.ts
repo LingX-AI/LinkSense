@@ -255,7 +255,7 @@ const storedModelProviderSchema = z.strictObject({
   baseUrl: modelProviderBaseUrlSchema,
   protocolMode: modelProviderProtocolModeSchema,
   apiKey: z.string().min(1).max(16_384).nullable(),
-  models: z.array(managedPricedModelSchema).min(1).max(100),
+  models: z.array(managedPricedModelSchema).max(100),
 })
 
 const storedTokenLimitsSchema = z.strictObject({
@@ -411,7 +411,9 @@ export class ModelProviderSettingsService
         (provider) => provider.api_key !== undefined
       ).length
       const nextTitleModel =
-        input.title_model ?? current?.titleModel ?? input.default_model
+        input.title_model !== undefined
+          ? input.title_model
+          : current?.titleModel ?? input.default_model
 
       const next = storedModelProviderSettingsSchema.parse({
         version: 9,
@@ -783,7 +785,8 @@ export class ModelProviderSettingsService
           model.kind === "chat" && model.enabled
       )
       if (
-        !remainingModels.some((model) => model.enabled) ||
+        (remainingModels.length > 0 &&
+          !remainingModels.some((model) => model.enabled)) ||
         (provider.models.some(
           (model) => model.kind === "chat" && model.enabled
         ) &&
@@ -873,7 +876,7 @@ export class ModelProviderSettingsService
     if (conversationId && !source.conversation) {
       throw new AppError("CONVERSATION_NOT_FOUND")
     }
-    if (!stored) return unconfiguredPreference()
+    if (!stored || stored.defaultModel === null) return unconfiguredPreference()
     const selection = resolveSelection(
       stored,
       source.conversation?.preferredModel ??
@@ -1001,7 +1004,9 @@ export class ModelProviderSettingsService
     if (conversationId && !source.conversation) {
       throw new AppError("CONVERSATION_NOT_FOUND")
     }
-    if (!stored) throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED")
+    if (!stored || stored.defaultModel === null) {
+      throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED")
+    }
     const selection = resolveSelection(
       stored,
       source.conversation?.preferredModel ??

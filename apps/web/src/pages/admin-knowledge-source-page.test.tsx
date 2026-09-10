@@ -103,7 +103,7 @@ describe("AdminKnowledgeSourcePage", () => {
     await interaction.click(screen.getByRole("button", { name: "保存" }))
 
     const notification = await screen.findByText(
-      "SharePoint 数据源设置已保存并通过身份验证。"
+      "SharePoint 数据源设置已保存并通过身份验证"
     )
     expect(notification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(notification.closest('[data-slot="alert"]')).toBeNull()

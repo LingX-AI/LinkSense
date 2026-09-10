@@ -46,7 +46,6 @@ import {
   userRuntimePaths,
 } from "../user-runtime.js"
 import {
-  repairTaskOwnedRegularFileIfExists,
   repairWorkspacePermissionsOnce,
   workspacePermissionMarkerName,
 } from "./workspace-permission-repair.js"
@@ -444,6 +443,10 @@ export class WorkerManager {
           if (homeExists) {
             await assertSafeDirectoryIfExists(
               directories.root,
+              safeChildPath(directories.home, "task-homes"),
+            )
+            await assertSafeDirectoryIfExists(
+              directories.root,
               directories.workspaces,
             )
           }
@@ -459,6 +462,7 @@ export class WorkerManager {
           }
         }
         const result = await removeConversationRuntimeDirectories({
+          taskHome: safeChildPath(safeChildPath(directories.home, "task-homes"), validatedConversationId),
           workspace: safeChildPath(
             directories.workspaces,
             validatedConversationId,
@@ -921,8 +925,7 @@ export class WorkerManager {
       taskOwnedDirectoryPreparationDependencies,
       0o750,
     )
-    await prepareTaskOwnedDirectory(directories.root, directories.codex)
-    await prepareTaskOwnedDirectory(directories.root, directories.codexPlugins)
+    await prepareTaskOwnedDirectory(directories.root, directories.taskHomes)
 
     await mkdir(directories.control, { mode: 0o700 }).catch(
       ignoreExistingDirectory,
@@ -931,15 +934,6 @@ export class WorkerManager {
     await chown(directories.control, API_UID, SHARED_GROUP_GID)
     await chmod(directories.control, 0o700)
 
-    await Promise.all(
-      ["config.toml", "auth.json", "AGENTS.md"].map((filename) =>
-        repairTaskOwnedRegularFileIfExists(
-          safeChildPath(directories.codex, filename),
-          linksenseRuntimeIdentity,
-          workspacePermissionPolicy.sharedWritableFile,
-        ),
-      ),
-    )
     const repair = await repairWorkspacePermissionsOnce({
       workspacesRoot: directories.workspaces,
       markerPath: safeChildPath(
@@ -1043,8 +1037,7 @@ export class WorkerManager {
     owner: string
     home: string
     homeAgentsMountpoint: string
-    codex: string
-    codexPlugins: string
+    taskHomes: string
     managed: string
     managedAgents: string
     managedSkills: string
@@ -1057,7 +1050,6 @@ export class WorkerManager {
     const root = path.resolve(this.config.LINKSENSE_USER_DATA_ROOT)
     const owner = safeChildPath(root, validatedOwnerId)
     const home = safeChildPath(owner, "home")
-    const codex = safeChildPath(home, ".codex")
     const managed = safeChildPath(owner, "managed")
     const managedAgents = safeChildPath(managed, "agents")
     return {
@@ -1065,8 +1057,7 @@ export class WorkerManager {
       owner,
       home,
       homeAgentsMountpoint: safeChildPath(home, ".agents"),
-      codex,
-      codexPlugins: safeChildPath(codex, "plugins"),
+      taskHomes: safeChildPath(home, "task-homes"),
       managed,
       managedAgents,
       managedSkills: safeChildPath(managedAgents, "skills"),
@@ -1356,7 +1347,7 @@ export function buildWorkerContainerSpec(
     User: "0:1000",
     Env: Object.entries({
       HOME: workerHome,
-      CODEX_HOME: `${workerHome}/.codex`,
+      CODEX_HOME: `${workerControlRoot}/supervisor-codex`,
       LINKSENSE_RUNNER_MODE: "worker",
       LINKSENSE_WORKER_OWNER_ID: validatedOwnerId,
       LINKSENSE_USER_DATA_ROOT: workerHome,

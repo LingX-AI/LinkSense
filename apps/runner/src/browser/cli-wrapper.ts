@@ -279,15 +279,13 @@ export async function browserCliMain(
   }
   const canonicalHome = await realpath(userHome)
   const canonicalCodexHome = await realpath(codexHome)
-  if (canonicalCodexHome !== path.join(canonicalHome, ".codex")) {
-    throw new Error("browser CODEX_HOME is outside the user HOME")
-  }
-  const workspace = await resolveTaskWorkspace(cwd, canonicalHome)
+  const expectedWorkspace = browserWorkspaceForCodexHome(canonicalHome, canonicalCodexHome)
+  const workspace = await resolveTaskWorkspace(cwd, expectedWorkspace)
   const conversationId = path.basename(workspace)
   const runtimeRoot =
     dependencies.runtimeRoot ?? DEFAULT_BROWSER_RUNTIME_ROOT
   const stateRoot = path.join(
-    canonicalHome,
+    path.dirname(canonicalCodexHome),
     ".local",
     "share",
     "linksense",
@@ -675,17 +673,33 @@ async function writeBrowserConfig(
   await rename(temporaryPath, destination)
 }
 
+export function browserWorkspaceForCodexHome(userHome: string, codexHome: string, expectedTaskId?: string): string {
+  const taskHome = path.dirname(codexHome)
+  const taskId = path.basename(taskHome)
+  if (!path.isAbsolute(userHome) || path.normalize(userHome) !== userHome ||
+    !path.isAbsolute(codexHome) || path.normalize(codexHome) !== codexHome ||
+    path.basename(codexHome) !== ".codex" ||
+    path.dirname(taskHome) !== path.join(userHome, "task-homes") || !conversationIdPattern.test(taskId) ||
+    (expectedTaskId !== undefined && taskId !== expectedTaskId)) {
+    throw new Error("browser requires a task CODEX_HOME inside the user HOME")
+  }
+  return path.join(userHome, "workspaces", taskId)
+}
+
 async function resolveTaskWorkspace(
   cwd: string,
-  canonicalHome: string,
+  expectedWorkspace: string,
 ): Promise<string> {
-  const workspaceRoot = await realpath(
-    path.join(canonicalHome, "workspaces"),
-  )
+  const taskId = path.basename(expectedWorkspace)
+  const workspaceRoot = path.dirname(expectedWorkspace)
+  const rootInfo = await lstat(workspaceRoot)
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+    throw new Error("browser workspace root boundary is invalid")
+  }
   let candidate = await realpath(cwd)
   while (true) {
     if (
-      conversationIdPattern.test(path.basename(candidate)) &&
+      path.basename(candidate) === taskId &&
       path.dirname(candidate) === workspaceRoot &&
       (await hasTaskWorkspaceDirectories(candidate))
     ) {

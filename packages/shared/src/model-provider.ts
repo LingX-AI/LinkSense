@@ -171,6 +171,7 @@ export const modelProviderBaseUrlSchema = z
   .url()
   .max(2_048)
   .refine((value) => {
+    if (!URL.canParse(value)) return false
     const url = new URL(value)
     return (
       (url.protocol === "http:" || url.protocol === "https:") &&
@@ -204,7 +205,6 @@ const updateManagedModelSchema = z.union([
 
 const updateModelCollectionSchema = z
   .array(updateManagedModelSchema)
-  .min(1)
   .max(100)
 
 export const updateManagedModelProviderSchema = z
@@ -271,7 +271,7 @@ function validateModelProviderCollection(
       message: "model_identifiers_must_be_unique",
     })
   }
-  if (!models.some((model) => model.enabled)) {
+  if (models.length > 0 && !models.some((model) => model.enabled)) {
     context.addIssue({
       code: "custom",
       path: ["providers"],

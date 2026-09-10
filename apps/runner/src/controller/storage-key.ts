@@ -1,7 +1,7 @@
 import { createHash, createHmac } from "node:crypto"
 
 export const WORKER_RUNTIME_LAYOUT =
-  "single-writer-managed-agents-readonly-task-owned-home-codex-owner-volume-subpaths"
+  "task-codex-home-task-capability-projections-owner-volume-subpaths"
 
 export function ownerStorageKey(ownerId: string, secret: string): string {
   return createHmac("sha256", secret)
