@@ -83,6 +83,17 @@ afterEach(async () => {
 });
 
 describe("AppServerProcessPool", () => {
+  it("requests a native interrupt before closing a pool with active execution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-deploy-shutdown-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    await pool.startTurn(startOperationInput());
+    await pool.closeAll();
+    expect(controlled.requests.filter((request) => request.method === "turn/interrupt")).toHaveLength(1);
+    expect(controlled.requests.filter((request) => request.method === "turn/start")).toHaveLength(1);
+  });
+
   it("sends complete long application instructions through bounded native context fragments", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-full-context-"));
     roots.push(root);

@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { toast, type ExternalToast } from "sonner"
 
 export const notificationDuration = 1_500
+export const actionableNotificationDuration = 5_000
 
 export type NotificationVariant = "success" | "error" | "info" | "warning"
 
@@ -29,7 +30,10 @@ function withNotificationDuration(
 ): ExternalToast {
   return {
     ...withoutTrailingDescriptionPeriod(options),
-    duration: notificationDuration,
+    duration:
+      options?.action || options?.cancel
+        ? actionableNotificationDuration
+        : notificationDuration,
   }
 }
 

@@ -332,9 +332,13 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     },
   )
   installSignalHandlers(logger, async () => {
-    await heartbeat.close()
-    await server.close()
-    await pool.closeAll()
+    // Trigger native cancellation immediately, including blocked HTTP starts.
+    // Waiting for server.close first can deadlock on those same requests.
+    const closingPool = pool.closeAll();
+    const closed = Promise.all([server.close(), closingPool]);
+    // Attach a rejection handler before waiting for heartbeat shutdown.
+    const closing = Promise.all([heartbeat.close(), closed]);
+    await closing
     await modelGateway.close()
     await eventSink.close()
   })

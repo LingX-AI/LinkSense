@@ -90,7 +90,6 @@ metadata_file="${LINKSENSE_DEPLOYMENT_METADATA_FILE:-${deployment_root}/.data/de
 gateway_template="${deployment_root}/deploy/nginx/production-gateway.conf.template"
 remote_name="${LINKSENSE_DEPLOY_REMOTE:-origin}"
 deploy_branch="main"
-turn_wait_seconds="${LINKSENSE_DEPLOY_WAIT_SECONDS:-900}"
 health_wait_seconds="${LINKSENSE_DEPLOY_HEALTH_WAIT_SECONDS:-600}"
 force_rebuild="${LINKSENSE_FORCE_REBUILD:-0}"
 reuse_previous_worker_image="${LINKSENSE_REUSE_PREVIOUS_WORKER_IMAGE:-0}"
@@ -99,19 +98,13 @@ lock_state_file="${LINKSENSE_DEPLOY_STATE_FILE:-${lock_file}.state}"
 maintenance_message="The system is under maintenance. Please wait a moment."
 production_image_tag="${LINKSENSE_PRODUCTION_IMAGE_TAG:-pro-latest}"
 
-case "$turn_wait_seconds" in
-  *[!0-9]* | "")
-    echo "LINKSENSE_DEPLOY_WAIT_SECONDS must be a positive integer" >&2
-    exit 1
-    ;;
-esac
 case "$health_wait_seconds" in
   *[!0-9]* | "")
     echo "LINKSENSE_DEPLOY_HEALTH_WAIT_SECONDS must be a positive integer" >&2
     exit 1
     ;;
 esac
-if [ "$turn_wait_seconds" -lt 60 ] || [ "$health_wait_seconds" -lt 60 ]; then
+if [ "$health_wait_seconds" -lt 60 ]; then
   echo "deployment wait limits must be at least 60 seconds" >&2
   exit 1
 fi
@@ -144,7 +137,7 @@ case "$production_image_tag" in
     ;;
 esac
 
-for command_name in awk curl cut date df docker du flock git grep head install mktemp readlink sed sha256sum tail tr; do
+for command_name in awk curl cut date df docker du flock git grep head install mktemp readlink sed sha256sum tail timeout tr; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "missing required command: $command_name" >&2
     exit 1
@@ -280,6 +273,9 @@ environment_changed=0
 environment_pending_file=""
 maintenance_active=0
 runtime_touched=0
+execution_settled=0
+shutdown_deadline=0
+deployment_helper=""
 deployment_succeeded=0
 cleanup_started=0
 volume_cutover=0
@@ -1461,52 +1457,117 @@ worker_instance_key() {
 remove_deployment_workers() {
   expected_instance="$(worker_instance_key)"
   worker_ids="$(
-    docker ps -aq \
+    bounded_docker ps -aq \
       --filter 'label=com.linksense.runner.managed=true' \
       --filter "label=com.linksense.runner.instance=${expected_instance}"
   )"
   [ -n "$worker_ids" ] || return 0
   for worker_id in $worker_ids; do
     actual_managed="$(
-      docker inspect --format '{{ index .Config.Labels "com.linksense.runner.managed" }}' "$worker_id"
+      bounded_docker inspect --format '{{ index .Config.Labels "com.linksense.runner.managed" }}' "$worker_id"
     )"
     actual_instance="$(
-      docker inspect --format '{{ index .Config.Labels "com.linksense.runner.instance" }}' "$worker_id"
+      bounded_docker inspect --format '{{ index .Config.Labels "com.linksense.runner.instance" }}' "$worker_id"
     )"
     if [ "$actual_managed" != "true" ] || [ "$actual_instance" != "$expected_instance" ]; then
       echo "refusing to remove worker outside this deployment: $worker_id" >&2
       return 1
     fi
-    docker stop --time 60 "$worker_id" >/dev/null 2>&1 || true
-    docker rm "$worker_id" >/dev/null
   done
+  # All workers share the remaining grace period, not one timeout per worker.
+  worker_grace="$(shutdown_remaining)"
+  stop_pids=""
+  for worker_id in $worker_ids; do
+    bounded_docker stop --time "$worker_grace" "$worker_id" &
+    stop_pids="$stop_pids $!"
+  done
+  stop_failed=0
+  for stop_pid in $stop_pids; do
+    wait "$stop_pid" || stop_failed=1
+  done
+  [ "$stop_failed" -eq 0 ] || return 1
+  # Without -f, Docker refuses removal if a worker somehow remains running.
+  # No volumes are removed; the persistent history and files stay in place.
+  bounded_docker rm $worker_ids
 }
 
-active_operation_count() {
-  compose exec -T postgres sh -ec \
-    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "SELECT (SELECT count(*) FROM conversation_turns WHERE status = '\''running'\'') + (SELECT count(*) FROM conversation_turn_start_intents);"'
+bounded_docker() {
+  # Daemon/transport failure must fail closed, not hang deployment indefinitely.
+  timeout --kill-after=2s 20s docker "$@"
 }
 
-wait_for_active_operations() {
-  deadline="$(( $(date +%s) + turn_wait_seconds ))"
-  while :; do
-    active_count="$(active_operation_count)"
-    case "$active_count" in
-      *[!0-9]* | "")
-        echo "unable to read active conversation operation count" >&2
-        return 1
-        ;;
-    esac
-    if [ "$active_count" -eq 0 ]; then
-      return 0
-    fi
-    if [ "$(date +%s)" -ge "$deadline" ]; then
-      echo "timed out waiting for ${active_count} active conversation operation(s)" >&2
+shutdown_remaining() {
+  remaining="$(( shutdown_deadline - $(date +%s) ))"
+  [ "$remaining" -ge 0 ] || remaining=0
+  printf '%s\n' "$remaining"
+}
+
+stop_deployment_service() {
+  service_name="$1"
+  service_grace="$(shutdown_remaining)"
+  [ "$service_grace" -le 2 ] || service_grace=2
+  bounded_docker compose -f "$compose_file" --env-file "$environment_file" \
+    stop --timeout "$service_grace" "$service_name"
+  service_ids="$(bounded_docker compose -f "$compose_file" --env-file "$environment_file" ps -aq "$service_name")"
+  for service_id in $service_ids; do
+    if [ "$(bounded_docker inspect --format '{{.State.Running}}' "$service_id")" != "false" ]; then
+      echo "execution service did not stop: $service_name" >&2
       return 1
     fi
-    echo "Waiting for ${active_count} active conversation operation(s) to finish..."
-    sleep 5
   done
+}
+
+run_deployment_task_command() {
+  task_command="$1"
+  task_timeout="$2"
+  [ "$task_timeout" -gt 0 ] || return 1
+  deployment_helper="linksense-deployment-tasks-${temporary_root##*/}"
+  task_status=0
+  set -- "$task_command"
+  if [ "$task_command" = "settle" ]; then
+    set -- "$@" --runtime-stopped
+  fi
+  # The new image contains the offline command; never start another API server
+  # or any dependencies here. It uses the same validated production settings.
+  timeout --kill-after=2s "${task_timeout}s" \
+    docker compose -f "$compose_file" --env-file "$environment_file" \
+    run --rm --no-deps -T --pull never --name "$deployment_helper" \
+    --label "com.linksense.deployment.helper=${deployment_helper}" \
+    --entrypoint node api dist/commands/deployment-task-stop.js "$@" || task_status=$?
+  # A killed Compose client does not kill its one-off container.
+  cleanup_deployment_helper || return 1
+  return "$task_status"
+}
+
+cleanup_deployment_helper() {
+  [ -n "$deployment_helper" ] || return 0
+  helper_ids="$(bounded_docker ps -aq --filter "name=^/${deployment_helper}$")" || return 1
+  if [ -n "$helper_ids" ]; then
+    if [ "$(bounded_docker inspect --format '{{ index .Config.Labels "com.linksense.deployment.helper" }}' "$deployment_helper")" != "$deployment_helper" ]; then
+      echo "refusing to remove an unrecognized deployment helper" >&2
+      return 1
+    fi
+    bounded_docker rm -f "$deployment_helper" || return 1
+  fi
+  deployment_helper=""
+}
+
+stop_deployment_execution() {
+  shutdown_deadline="$(( $(date +%s) + 10 ))"
+  echo "Stopping active execution for deployment (shared 10-second grace period)..."
+  # Stop every API replica first: they own ingress, schedulers and recovery.
+  stop_deployment_service api
+  if ! run_deployment_task_command interrupt "$(shutdown_remaining)"; then
+    echo "Native interruption did not finish; proceeding with container shutdown." >&2
+  fi
+  # Stop the controller before the worker snapshot, preventing new workers.
+  stop_deployment_service runner
+  remove_deployment_workers
+}
+
+settle_deployment_execution() {
+  run_deployment_task_command settle 95 || return 1
+  execution_settled=1
 }
 
 create_postgres_backup() {
@@ -1615,6 +1676,11 @@ existing_release_is_healthy() {
 }
 
 rollback_runtime() {
+  if [ "$runtime_touched" -eq 1 ] && [ "$execution_settled" -ne 1 ]; then
+    echo "Execution shutdown or state settlement failed; automatic restart is disabled to prevent task replay." >&2
+    echo "Maintenance remains enabled. Resolve the reported error and rerun deployment." >&2
+    return 1
+  fi
   if [ "$release_committed" -eq 1 ] || [ "$migration_may_have_applied" -eq 1 ]; then
     echo "The new runtime may have committed database changes; automatic image rollback is disabled." >&2
     echo "Maintenance remains enabled for manual recovery and backup review." >&2
@@ -1662,6 +1728,7 @@ on_exit() {
   fi
   cleanup_started=1
   trap - 0 HUP INT TERM
+  cleanup_deployment_helper || echo "Deployment helper cleanup failed; inspect Docker before restarting." >&2
   if [ "$exit_status" -ne 0 ] && [ "$deployment_succeeded" -ne 1 ]; then
     set +e
     if [ "$fresh_install" -eq 1 ]; then
@@ -1921,23 +1988,12 @@ if [ "$fresh_install" -eq 1 ]; then
   echo "No successful production release metadata exists; performing the initial startup without drain or pre-deploy backup."
   runtime_touched=1
 else
-  # Reload the bind-mounted Gateway template without closing its listening
-  # socket, then route new requests to a maintenance response. Existing SSE
-  # connections stay attached to the old Nginx workers while API and Runner
-  # drain normally.
+  # Images are already built. Block ingress only during the runtime switch.
   activate_maintenance
-  wait_for_active_operations
-  # A compose stop can partially stop replicas before returning an error. Mark
-  # the runtime touched before the first mutating call so exit recovery always
-  # brings the complete old service set back before disabling maintenance.
+  # A partial shutdown is not safe to restart until durable settlement succeeds.
   runtime_touched=1
-  compose stop --timeout 120 api
-  if [ "$(active_operation_count)" -ne 0 ]; then
-    echo "a conversation operation started while entering maintenance mode" >&2
-    exit 1
-  fi
-  compose stop --timeout 120 runner
-  remove_deployment_workers
+  stop_deployment_execution
+  settle_deployment_execution
   if [ "$volume_cutover" -eq 1 ]; then
     compose stop --timeout 120 postgres-backup >/dev/null 2>&1 || true
     initialize_migration_target_volumes

@@ -21,6 +21,7 @@ import { isDeepStrictEqual } from "node:util"
 import {
   conversationFormAutoResolutionMs,
   coreMcpServerKey,
+  DEFAULT_TASK_AUTO_NAMING,
   managedBrowserMcpServerKey,
   personalizationSettingsSchema,
   updatePersonalizationSettingsSchema,
@@ -84,6 +85,9 @@ const personalizationStateSchema = z.strictObject({
   version: z.literal(1),
   revision: z.uuid(),
   ...personalizationSettingsSchema.shape,
+  task_auto_naming: personalizationSettingsSchema.shape.task_auto_naming.default(
+    DEFAULT_TASK_AUTO_NAMING,
+  ),
 })
 
 export type ConversationPaths = {
@@ -259,6 +263,7 @@ export class WorkspaceManager {
           update.custom_instructions ?? current.custom_instructions,
         memories_enabled:
           update.memories_enabled ?? current.memories_enabled,
+        task_auto_naming: update.task_auto_naming ?? current.task_auto_naming,
       })
       await this.writePersonalizationState(paths, next)
       return projectPersonalizationSnapshot(next)
@@ -943,6 +948,7 @@ function projectPersonalizationSnapshot(
     revision: state.revision,
     custom_instructions: state.custom_instructions,
     memories_enabled: state.memories_enabled,
+    task_auto_naming: state.task_auto_naming,
   }
 }
 

@@ -1345,6 +1345,14 @@ export const errorCatalog = {
       "en-US": "The execution service is unavailable. Try again later.",
     },
   },
+  DEPLOYMENT_STOPPED: {
+    message_key: "errors.deploymentStopped",
+    http_status: 503,
+    messages: {
+      "zh-CN": "本次任务因系统更新而中止，已有内容已保留。请确认进度后手动继续。",
+      "en-US": "This task was stopped for a system update. Existing content was kept. Review its progress before continuing manually.",
+    },
+  },
   EXECUTION_SERVICE_INCOMPATIBLE: {
     message_key: "errors.runner.executionServiceIncompatible",
     http_status: 503,

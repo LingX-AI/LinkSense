@@ -847,6 +847,7 @@ export function buildRunnerServer(
       return personalizationSettingsSchema.parse({
         custom_instructions: settings.custom_instructions,
         memories_enabled: settings.memories_enabled,
+        task_auto_naming: settings.task_auto_naming,
       });
     } catch (error) {
       request.log.error(
@@ -876,13 +877,19 @@ export function buildRunnerServer(
         ownerId,
         update.data,
       );
-      await pool.refreshOwnerPersonalization(
-        ownerId,
-        settings.memories_enabled,
-      );
+      if (
+        update.data.custom_instructions !== undefined ||
+        update.data.memories_enabled !== undefined
+      ) {
+        await pool.refreshOwnerPersonalization(
+          ownerId,
+          settings.memories_enabled,
+        );
+      }
       return personalizationSettingsSchema.parse({
         custom_instructions: settings.custom_instructions,
         memories_enabled: settings.memories_enabled,
+        task_auto_naming: settings.task_auto_naming,
       });
     } catch (error) {
       request.log.error(

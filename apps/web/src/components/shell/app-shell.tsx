@@ -110,6 +110,7 @@ import {
   taskCategoryKeys,
 } from "@/features/task-categories/task-category-api"
 import { SidebarConversationDnd } from "@/features/conversations/sidebar-conversation-dnd"
+import { useConversationArchiveNotification } from "@/features/conversations/use-conversation-archive-notification"
 import {
   TaskCategoryDialog,
   type TaskCategoryAction,
@@ -553,6 +554,7 @@ function AppSidebarContent({
     onError: (error) => setActionError(getErrorMessage(error, t)),
   })
 
+  const showArchiveNotification = useConversationArchiveNotification()
   const archiveMutation = useMutation({
     mutationFn: (conversation: Conversation) =>
       apiRequest(`/conversations/${conversation.id}`, {
@@ -562,6 +564,7 @@ function AppSidebarContent({
       }),
     onMutate: () => setActionError(undefined),
     onSuccess: (_nextConversation, archivedConversation) => {
+      showArchiveNotification(archivedConversation)
       if (isConversationPathActive(location.pathname, archivedConversation)) {
         navigate("/conversations/new", { replace: true })
         onNavigate?.()

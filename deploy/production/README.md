@@ -46,7 +46,17 @@ sudo ./deploy/production/deploy-production.sh --allow-migrations
 
 `LINKSENSE_PUBLIC_BASE_URL` 接受 HTTP 或 HTTPS。HTTP 仅适合本机或可信内网，核心功能可以运行，但管理健康页会持续提示传输未加密，OIDC 与 Teams 登录不可用；通过公网访问时仍应使用 HTTPS。初始化脚本会按该 URL 的协议同步网关转发协议。
 
-若仓库当前 migration 已在目标数据库审查并应用，可去掉 `--allow-migrations`；脚本仍会执行幂等的 migration deploy 与 seed。全新实例路径会验证不存在任何既有 Compose 容器，也没有残留的 PostgreSQL/Redis 项目数据卷，才跳过旧服务的维护、drain 与预发布备份；如果部署元数据缺失但任何生产状态仍然存在，脚本会 fail closed，不能把它误判为全新安装。
+若仓库当前 migration 已在目标数据库审查并应用，可去掉 `--allow-migrations`；脚本仍会执行幂等的 migration deploy 与 seed。全新实例路径会验证不存在任何既有 Compose 容器，也没有残留的 PostgreSQL/Redis 项目数据卷，才跳过旧服务的维护、任务中止与预发布备份；如果部署元数据缺失但任何生产状态仍然存在，脚本会 fail closed，不能把它误判为全新安装。
+
+### 强制切换运行环境
+
+普通 `sudo sh ./deploy/production/deploy-production.sh` 默认以部署优先，不等待运行中的任务自然结束，也不需要另加强制参数。先构建镜像，构建失败不会停止原有服务。构建成功后才进入维护，停止全部 API 实例（包括后台调度与恢复），在共享的 10 秒宽限窗口内尝试原生中断，随后停止控制器并并行停止当前部署的 Worker；宽限期用完后直接强制停止。这个窗口不是整个部署的耗时上限，Docker 操作、状态保存、备份、迁移和健康检查另有独立时限。
+
+执行容器确认停止后，新 API 镜像中的独立命令在事务中标记未完成任务为 `DEPLOYMENT_STOPPED`、暂停目标、阻断排队请求并释放执行占用。未投影的输入和附件保留为待手动处理的请求，旧启动意图不会在重启后重发。历史消息、已完成任务和文件不会删除；已发生的外部操作无法回滚，用户应检查实际进度后再继续。旧 Worker 的延迟事件不能重新激活已中止任务。
+
+部署锁、迁移审批、数据库备份和上线健康检查仍然生效。若无法确认容器停止或无法保存任务状态，脚本明确失败并保留维护，不自动恢复可能重发任务的旧服务；排除报错后重新运行相同部署命令。主机需要 GNU `timeout`（Linux coreutils），以免 Docker 或独立命令失联后无限等待。此行为适用于 Git 生产部署脚本，不改变发行包的 `upgrade.sh` 流程。
+
+开发验证：先运行 `pnpm --filter @linksense/shared build` 和 `pnpm --filter @linksense/api build`，再执行 `pnpm exec node scripts/smoke-deployment-task-stop.mjs`。该检查只使用新建的临时 PostgreSQL 容器，验证事务回滚、历史保留、延迟事件隔离与重复执行；要求 Docker 中已存在 `postgres:16-alpine` 镜像，不访问业务数据库，结束后移除测试容器及其临时数据卷。
 
 如果服务器必须通过 HTTP token 拉取，可在 root shell 中交互保存凭据，避免令牌进入 shell 历史：
 
@@ -158,7 +168,7 @@ git diff HEAD origin/main -- prisma/migrations
 sudo ./deploy/production/deploy-production.sh --allow-migrations
 ```
 
-发布流程会先校验两个 external volume 的 driver、Options、标签以及 Docker data-root，再在旧服务在线时构建固定生产标签 `pro-latest` 的镜像；随后让**现有 Gateway 容器持续监听端口并保持维护标记**，阻止新请求，等待 running turn 和持久化 start intent 清零，停止 API/Runner、精确移除本部署的动态 Worker，并把经过 `pg_restore --list` 验证的 PostgreSQL custom-format 备份直接发布到 backup external volume。Web/API 更新完成后只 reload Gateway 配置，不重建 Gateway；脚本在维护状态下验证 migration、Compose 健康、网关探针及 Worker 镜像指纹，并原子提交发布元数据，最后才关闭维护页。这样服务替换期间不会因为 Gateway 被删除而暴露 Nginx 502。
+发布流程会先校验两个 external volume 的 driver、Options、标签以及 Docker data-root，再在旧服务在线时构建固定生产标签 `pro-latest` 的镜像；随后让**现有 Gateway 容器持续监听端口并保持维护标记**，阻止新请求，按共享短暂宽限窗口停止 API/Runner、精确移除本部署的动态 Worker，并保存任务中止状态，不等待任务自然结束；随后把经过 `pg_restore --list` 验证的 PostgreSQL custom-format 备份直接发布到 backup external volume。Web/API 更新完成后只 reload Gateway 配置，不重建 Gateway；脚本在维护状态下验证 migration、Compose 健康、网关探针及 Worker 镜像指纹，并原子提交发布元数据，最后才关闭维护页。这样服务替换期间不会因为 Gateway 被删除而暴露 Nginx 502。
 
 为缩短日常发布时间，Worker 镜像不再按每个 Git 提交重建。脚本会根据上一次成功部署 revision 到本次 target revision 之间的 `Dockerfile.runner`、runner/shared 源码、公共 Python/Node/浏览器运行时、Codex 模板、lockfile 以及相关构建输入判断是否需要重建；只有这些 Worker 输入路径变化、`pro-latest` 镜像缺失，或显式设置 `LINKSENSE_FORCE_REBUILD=1` 时才重建 `linksense-runner-worker:pro-latest`。普通 API/Web 修改会复用现有 Worker 镜像，避免反复导出 6GB+ 镜像。真正需要重建 Worker 时，如果 `deploy/runtime/browser` 没变，脚本会从上一版 Worker 镜像复用已安装的 Playwright/Chromium runtime，避免重新下载浏览器；浏览器 runtime 发生变化时，Playwright 默认从官方 CDN 下载。需要使用组织代理时，可在 `.env.production` 中通过 `PLAYWRIGHT_DOWNLOAD_HOST` 覆盖下载地址。
 

@@ -524,16 +524,19 @@ describe("WorkspaceManager", () => {
     expect(initial).toMatchObject({
       custom_instructions: "",
       memories_enabled: true,
+      task_auto_naming: "first_message",
     })
 
     const updated = await manager.updatePersonalization(ownerA, {
       custom_instructions: "请优先使用中文，并运行相关测试。",
       memories_enabled: false,
+      task_auto_naming: "every_message",
     })
     expect(updated.revision).not.toBe(initial.revision)
     expect(updated).toMatchObject({
       custom_instructions: "请优先使用中文，并运行相关测试。",
       memories_enabled: false,
+      task_auto_naming: "every_message",
     })
     const ownerAPaths = manager.ownerPathsFor(ownerA)
     manager.bindOwner(taskA, ownerA)
@@ -556,6 +559,7 @@ describe("WorkspaceManager", () => {
     expect(other).toMatchObject({
       custom_instructions: "",
       memories_enabled: true,
+      task_auto_naming: "first_message",
     })
     manager.bindOwner(taskB, ownerB)
     const taskBPaths = await manager.ensureConversation(taskB, "current")

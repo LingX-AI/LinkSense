@@ -40,6 +40,32 @@ afterEach(async () => {
 });
 
 describe("ConversationEventService sanitization and terminal semantics", () => {
+  it("acknowledges late native events without reviving deployment-stopped turns", async () => {
+    const fixture = eventFixture();
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValueOnce(
+      { ...turnRow({ status: "failed", completedAt: NOW }), errorCode: "DEPLOYMENT_STOPPED" },
+    );
+    await expect(fixture.service.ingest(CONVERSATION_ID, {
+      method: "turn/started", visibility: "user_visible",
+      params: { threadId: "codex-thread-1", turn: { id: "codex-turn-1", status: "inProgress" } },
+    })).resolves.toMatchObject({ accepted: true, ignored: true });
+    expect(fixture.tx.conversationEvent.create).not.toHaveBeenCalled();
+    expect(fixture.tx.conversationTurn.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not apply a delayed active Goal notification from before deployment", async () => {
+    const fixture = eventFixture();
+    fixture.prisma.auditLog.findFirst.mockResolvedValueOnce({ createdAt: new Date("2026-09-09T00:00:00Z") });
+    await expect(fixture.service.ingest(CONVERSATION_ID, {
+      method: "thread/goal/updated", visibility: "user_visible", params: {
+        threadId: "codex-thread-1", turnId: "codex-turn-1", goal: {
+          threadId: "codex-thread-1", objective: "finish the task", status: "active", tokenBudget: null,
+          tokensUsed: 0, timeUsedSeconds: 0, createdAt: 1_785_996_100, updatedAt: 1_785_996_100,
+        },
+      },
+    })).resolves.toMatchObject({ accepted: true, ignored: true });
+    expect(fixture.tx.conversationGoal.upsert).not.toHaveBeenCalled();
+  });
   it("validates and publishes an interactive application custom event", async () => {
     const fixture = eventFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValueOnce({
@@ -171,6 +197,29 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
         visibility: "user_collapsed",
       }),
     );
+  });
+
+  it.each([true, false])("acknowledges orphan usage only with a deployment stop fence (%s)", async (stopped) => {
+    const fixture = eventFixture();
+    fixture.prisma.auditLog.findFirst.mockResolvedValue(stopped ? { createdAt: NOW } : null);
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValue(null);
+    const captureTokenUsage = vi.fn(async () => ({ accepted: false, reason_code: "TURN_PROJECTION_PENDING" }));
+    const service = new ConversationEventService(
+      { ...fixture.prisma, conversationTurnStartIntent: { findUnique: vi.fn(async () => null) } } as never,
+      fixture.redis as never,
+      fixture.conversations as never,
+      undefined,
+      undefined,
+      { captureTokenUsage },
+    );
+    const tokens = { totalTokens: 30, inputTokens: 20, cachedInputTokens: 5, outputTokens: 10, reasoningOutputTokens: 3 };
+    await expect(service.ingest(CONVERSATION_ID, {
+      method: "thread/tokenUsage/updated", visibility: "internal_sanitized",
+      params: { threadId: "codex-thread-1", turnId: "codex-turn-orphan", tokenUsage: { total: tokens, last: tokens, modelContextWindow: null } },
+    })).resolves.toMatchObject(stopped
+      ? { accepted: true, ignored: true, reason_code: "DEPLOYMENT_STOPPED" }
+      : { accepted: false, reason_code: "TURN_PROJECTION_PENDING" });
+    expect(fixture.tx.conversationEvent.create).not.toHaveBeenCalled();
   });
 
   it("persists one native Codex item event without inventing a LinkSense step or tool event", async () => {
@@ -5834,6 +5883,7 @@ function eventFixture(
 ) {
   const tx = transactionFixture(options);
   const prisma = {
+    auditLog: { findFirst: vi.fn<() => Promise<{ createdAt: Date } | null>>().mockResolvedValue(null) },
     conversation: {
       findFirst: vi.fn(async () => ({ id: CONVERSATION_ID })),
       findUnique: vi.fn(async () => ({
@@ -6109,6 +6159,7 @@ function turnRow(
     status: "running" | "completed" | "failed" | "interrupted";
     completedAt: Date | null;
     interruptedAt: Date | null;
+    errorCode: string | null;
   }> = {},
 ) {
   return {
@@ -6123,6 +6174,7 @@ function turnRow(
     sequenceNo: 1,
     completedAt: null,
     interruptedAt: null,
+    errorCode: null,
     updatedAt: NOW,
     idempotencyKey: "automation:test",
     interruptRequestedAt: null,

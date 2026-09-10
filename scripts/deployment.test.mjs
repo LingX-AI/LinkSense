@@ -714,7 +714,7 @@ restore_git_checkout_modes
   }
 });
 
-test("production Git deployment is serialized, migration-gated, drain-safe, and rollbackable", async () => {
+test("production Git deployment is serialized, migration-gated, force-stopped, and rollbackable", async () => {
   const script = await readFile(productionDeployPath, "utf8");
 
   assert.match(script, /^set -eu$/mu);
@@ -819,9 +819,9 @@ test("production Git deployment is serialized, migration-gated, drain-safe, and 
   const buildIndex = script.indexOf("compose build $build_services");
   const capacityIndex = script.lastIndexOf("\nvalidate_migration_capacity\n");
   const maintenanceIndex = script.lastIndexOf("\n  activate_maintenance\n");
-  const drainIndex = script.lastIndexOf("\n  wait_for_active_operations\n");
+  const stopIndex = script.lastIndexOf("\n  stop_deployment_execution\n");
   const runtimeTouchedIndex = script.lastIndexOf("\n  runtime_touched=1\n");
-  const apiStopIndex = script.indexOf("compose stop --timeout 120 api");
+  const settleIndex = script.lastIndexOf("\n  settle_deployment_execution\n");
   const backupIndex = script.lastIndexOf("create_postgres_backup");
   const capabilityPathRewriteIndex = script.lastIndexOf(
     "rewrite_legacy_capability_storage_paths",
@@ -835,9 +835,9 @@ test("production Git deployment is serialized, migration-gated, drain-safe, and 
     buildIndex,
     capacityIndex,
     maintenanceIndex,
-    drainIndex,
+    stopIndex,
     runtimeTouchedIndex,
-    apiStopIndex,
+    settleIndex,
     backupIndex,
     capabilityPathRewriteIndex,
     upIndex,
@@ -849,11 +849,12 @@ test("production Git deployment is serialized, migration-gated, drain-safe, and 
   assert.ok(buildIndex < maintenanceIndex);
   assert.ok(buildIndex < capacityIndex);
   assert.ok(capacityIndex < maintenanceIndex);
-  assert.ok(maintenanceIndex < drainIndex);
-  assert.ok(drainIndex < runtimeTouchedIndex);
-  assert.ok(runtimeTouchedIndex < apiStopIndex);
-  assert.ok(drainIndex < apiStopIndex);
-  assert.ok(apiStopIndex < backupIndex);
+  assert.ok(maintenanceIndex < runtimeTouchedIndex);
+  assert.ok(runtimeTouchedIndex < stopIndex);
+  assert.ok(stopIndex < settleIndex);
+  assert.ok(settleIndex < backupIndex);
+  assert.doesNotMatch(script, /wait_for_active_operations|active_operation_count|LINKSENSE_DEPLOY_WAIT_SECONDS/u);
+  assert.match(script, /execution_settled.*-ne 1[\s\S]*Maintenance remains enabled/u);
   assert.ok(backupIndex < capabilityPathRewriteIndex);
   assert.ok(capabilityPathRewriteIndex < upIndex);
   assert.ok(backupIndex < upIndex);
@@ -925,11 +926,8 @@ test("production Git deployment is serialized, migration-gated, drain-safe, and 
     /The system is under maintenance\. Please wait a moment\./u,
   );
 
-  assert.match(
-    script,
-    /conversation_turns WHERE status = '\\''running'\\''/u,
-  );
-  assert.match(script, /conversation_turn_start_intents/u);
+  assert.match(script, /dist\/commands\/deployment-task-stop.js/u);
+  assert.match(script, /--runtime-stopped/u);
   assert.match(script, /pg_dump[\s\S]*--format=custom/u);
   assert.match(script, /pg_restore --list "\$temporary_dump"/u);
   assert.match(script, /linksense-predeploy-\$\{timestamp\}\.dump/u);

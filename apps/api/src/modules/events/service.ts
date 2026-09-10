@@ -37,6 +37,7 @@ import { projectKnowledgeCitations } from "./knowledge-citations.js";
 import { createProjectedAssistantMessage } from "./knowledge-message-projection.js";
 import type { TurnKnowledgeSourceStore } from "./knowledge-source-store.js";
 import { nextConversationEventSequence } from "./sequence.js";
+import { isStoppedDeploymentEvent } from "./deployment-fence.js";
 import type { UsageAnalyticsService } from "../usage/service.js";
 import { upsertConversationGoal } from "../conversations/goals.js";
 import type { TaskRecoveryScheduler } from "./recovery-scheduler.js";
@@ -678,6 +679,21 @@ export class ConversationEventService {
           )
         : { accepted: true };
       if (!usageResult.accepted || usageResult.reason_code) {
+        const threadId = nativeThreadId(input.params);
+        // A killed, unprojected turn can leave a usage snapshot at the head of
+        // the durable outbox. Acknowledge only deployment-fenced orphans; keep
+        // normal start/projection races retryable and retain known-turn usage.
+        if (
+          usageResult.reason_code === "TURN_PROJECTION_PENDING" &&
+          threadId &&
+          await isStoppedDeploymentEvent(this.prisma, conversationId, threadId)
+        ) {
+          return {
+            accepted: true,
+            ignored: true,
+            reason_code: "DEPLOYMENT_STOPPED",
+          };
+        }
         return usageResult;
       }
       return this.ingestNativeTokenUsageUpdate(
@@ -1524,6 +1540,17 @@ export class ConversationEventService {
       parsedGoal.data.threadId !== threadId
     ) {
       return { accepted: false, reason_code: "THREAD_PROJECTION_PENDING" };
+    }
+    if (
+      await isStoppedDeploymentEvent(this.prisma, conversationId, threadId, {
+        nativeUpdatedAt: parsedGoal.data.updatedAt,
+      })
+    ) {
+      return {
+        accepted: true,
+        ignored: true,
+        reason_code: "DEPLOYMENT_STOPPED",
+      };
     }
     const projection = await this.resolveThreadProjection(
       conversationId,
@@ -3120,6 +3147,19 @@ export class ConversationEventService {
         },
       });
       if (!goal) return false;
+      if (
+        goal.status === "paused" &&
+        await isStoppedDeploymentEvent(
+          this.prisma,
+          conversationId,
+          threadId,
+          nativeStartedAt
+            ? { nativeUpdatedAt: nativeStartedAt.getTime() / 1_000 }
+            : {},
+        )
+      ) {
+        return false;
+      }
 
       const activeGoalTurnId =
         goal.status === "active" ? goal.activeTurnId : null;
@@ -3171,7 +3211,7 @@ export class ConversationEventService {
           return false;
         }
       }
-      if (!turn) return false;
+      if (!turn || turn.errorCode === "DEPLOYMENT_STOPPED") return false;
       if (turn.codexTurnId === codexTurnId) return true;
       const existingAttempt = await tx.conversationTurnAttempt.findUnique({
         where: { codexTurnId },
@@ -3263,6 +3303,11 @@ export class ConversationEventService {
         });
     if (!turn) {
       if (
+        await isStoppedDeploymentEvent(this.prisma, conversationId, threadId)
+      ) {
+        return { status: "stale" } as const;
+      }
+      if (
         conversation.codexThreadId === threadId &&
         (await this.isStaleUnprojectedGoalTurn(
           conversationId,
@@ -3273,6 +3318,9 @@ export class ConversationEventService {
         return { status: "stale" } as const;
       }
       return { status: "pending" } as const;
+    }
+    if (turn.errorCode === "DEPLOYMENT_STOPPED") {
+      return { status: "stale" } as const;
     }
     const attempt =
       persistedAttempt ??
@@ -3367,6 +3415,10 @@ export class ConversationEventService {
       where: { conversationId, codexThreadId: threadId },
       select: { id: true },
     });
+    if (
+      !projectedTurn &&
+      await isStoppedDeploymentEvent(this.prisma, conversationId, threadId)
+    ) return "stale";
     return projectedTurn ? "stale" : "pending";
   }
 

@@ -39,6 +39,22 @@ describe("notification toast", () => {
     expect(notificationDuration).toBe(1_500)
   })
 
+  it("allows five seconds for notification actions and restores the normal duration once settled", () => {
+    const action = { label: "Undo", onClick: vi.fn() }
+    notify.success("Task archived", { id: "archive", action })
+    expect(toastSpies.success).toHaveBeenLastCalledWith("Task archived", {
+      id: "archive",
+      action,
+      duration: 5_000,
+    })
+    notify.success("Archive undone", { id: "archive", action: null })
+    expect(toastSpies.success).toHaveBeenLastCalledWith("Archive undone", {
+      id: "archive",
+      action: null,
+      duration: notificationDuration,
+    })
+  })
+
   it("configures one reusable, auto-dismiss notification center", () => {
     render(<NotificationCenter />)
 

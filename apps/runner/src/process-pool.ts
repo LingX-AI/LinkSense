@@ -15,6 +15,7 @@ import {
   type FileHandle,
 } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
+import { interruptNativeExecutionForShutdown } from "./codex/native-shutdown.js";
 
 import type { Logger } from "pino";
 import { z } from "zod";
@@ -3674,6 +3675,9 @@ export class AppServerProcessPool {
   async closeAll(): Promise<void> {
     this.shuttingDown = true;
     this.processExitRetryAbort.abort();
+    // Cancel before waiting on requests that may themselves require cancellation.
+    const interrupted = new Set(this.processes.values());
+    await interruptNativeExecutionForShutdown([...interrupted]);
     for (;;) {
       const pendingOperations = [
         ...this.metadataOperations,
@@ -3691,6 +3695,10 @@ export class AppServerProcessPool {
         await this.releaseReservedProcessSlot();
       }
       const managedProcesses = [...this.processes.values()];
+      await interruptNativeExecutionForShutdown(
+        managedProcesses.filter((managed) => !interrupted.has(managed)),
+      );
+      for (const managed of managedProcesses) interrupted.add(managed);
       await Promise.all(
         managedProcesses.map((managed) =>
           this.withProcessLifecycleLock(managed.conversationId, async () => {

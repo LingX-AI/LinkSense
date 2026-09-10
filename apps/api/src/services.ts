@@ -633,6 +633,7 @@ export function createServices(input: {
     input.redis,
     new ManagedTaskTitleGenerator(modelProviderSettings),
     usageAnalytics,
+    input.runner,
   );
   const system = new SystemService(
     input.prisma,
