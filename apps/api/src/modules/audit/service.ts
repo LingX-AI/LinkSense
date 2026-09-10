@@ -140,6 +140,7 @@ const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
     "reason_code",
   ],
   feedback_submitted: ["image_count", "content_length"],
+  feedback_replied: ["image_count", "content_length"],
   feedback_deleted: ["image_count"],
   invalid_auth_tokens_cleaned: [
     "refresh_token_count",

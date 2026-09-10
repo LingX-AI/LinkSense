@@ -1,12 +1,13 @@
 import {
-  useEffect,
   useId,
   useRef,
   useState,
   type ClipboardEvent,
   type FormEvent,
 } from "react"
-import { useMutation } from "@tanstack/react-query"
+import { FeedbackImageSelection } from "@/features/feedback/feedback-image-selection"
+import { feedbackKeys } from "@/features/feedback/queries"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   FEEDBACK_MAX_IMAGES,
   FEEDBACK_MAX_IMAGE_SIZE_BYTES,
@@ -14,11 +15,9 @@ import {
 } from "@linksense/shared"
 import {
   CircleHelpIcon,
-  FileImageIcon,
   ImagePlusIcon,
   LifeBuoyIcon,
   MessageSquareTextIcon,
-  Trash2Icon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { useLocation } from "react-router-dom"
@@ -71,6 +70,7 @@ const acceptedFeedbackImageTypes = new Set([
 export function SupportMenu({ className }: SupportMenuProps) {
   const { t, i18n } = useTranslation()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const feedbackId = useId()
   const feedbackImagesId = useId()
   const imageInputRef = useRef<HTMLInputElement | null>(null)
@@ -109,6 +109,7 @@ export function SupportMenu({ className }: SupportMenuProps) {
 
     try {
       await submission.mutateAsync()
+      await queryClient.invalidateQueries({ queryKey: feedbackKeys.all })
       resetFeedback()
       setFeedbackOpen(false)
       notify.success(t("support.feedbackSubmitted"), {
@@ -205,112 +206,120 @@ export function SupportMenu({ className }: SupportMenuProps) {
           if (!open) resetFeedback()
         }}
       >
-        <DialogContent closeLabel={t("common.close")} className="sm:max-w-xl">
-          <DialogHeader>
+        <DialogContent
+          closeLabel={t("common.close")}
+          className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
+        >
+          <DialogHeader className="shrink-0 px-6 pt-6 pr-14 pb-5">
             <DialogTitle>{t("support.feedbackTitle")}</DialogTitle>
             <DialogDescription>
               {t("support.feedbackDescription")}
             </DialogDescription>
           </DialogHeader>
           <form
-            className="flex flex-col gap-6"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
             onSubmit={(event) => void handleFeedbackSubmit(event)}
           >
-            <FieldShell id={feedbackId} label={t("support.feedbackLabel")}>
-              <Textarea
-                id={feedbackId}
-                value={feedback}
-                rows={6}
-                maxLength={2_000}
-                autoFocus={shouldAutoFocusOnDesktop()}
-                placeholder={t("support.feedbackPlaceholder")}
-                aria-invalid={submission.isError || undefined}
-                disabled={submission.isPending}
-                onChange={(event) => {
-                  setFeedback(event.target.value)
-                  submission.reset()
-                }}
-                onPaste={(event) => {
-                  const clipboardImages = getClipboardImages(event)
-                  if (clipboardImages.length === 0) return
-
-                  addImages(clipboardImages)
-                  const includesText = Array.from(
-                    event.clipboardData.items
-                  ).some(
-                    (item) =>
-                      item.kind === "string" && item.type === "text/plain"
-                  )
-                  if (!includesText) event.preventDefault()
-                }}
-              />
-            </FieldShell>
-            <FieldShell
-              id={feedbackImagesId}
-              label={t("support.feedbackImagesLabel")}
-              hint={t("support.feedbackImagesHint", {
-                count: FEEDBACK_MAX_IMAGES,
-                size: FEEDBACK_MAX_IMAGE_SIZE_BYTES / 1024 / 1024,
-              })}
-              error={imageError ?? undefined}
+            <div
+              data-slot="feedback-dialog-body"
+              className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain px-6 pb-6"
             >
-              <Input
-                ref={imageInputRef}
+              <FieldShell id={feedbackId} label={t("support.feedbackLabel")}>
+                <Textarea
+                  id={feedbackId}
+                  value={feedback}
+                  rows={6}
+                  maxLength={2_000}
+                  autoFocus={shouldAutoFocusOnDesktop()}
+                  placeholder={t("support.feedbackPlaceholder")}
+                  aria-invalid={submission.isError || undefined}
+                  disabled={submission.isPending}
+                  onChange={(event) => {
+                    setFeedback(event.target.value)
+                    submission.reset()
+                  }}
+                  onPaste={(event) => {
+                    const clipboardImages = getClipboardImages(event)
+                    if (clipboardImages.length === 0) return
+
+                    addImages(clipboardImages)
+                    const includesText = Array.from(
+                      event.clipboardData.items
+                    ).some(
+                      (item) =>
+                        item.kind === "string" && item.type === "text/plain"
+                    )
+                    if (!includesText) event.preventDefault()
+                  }}
+                />
+              </FieldShell>
+              <FieldShell
                 id={feedbackImagesId}
-                className="sr-only"
-                type="file"
-                multiple
-                accept="image/png,image/jpeg,image/webp,image/gif"
-                disabled={
-                  submission.isPending || images.length >= FEEDBACK_MAX_IMAGES
-                }
-                onChange={(event) => addImages(event.target.files)}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className="w-fit"
-                disabled={
-                  submission.isPending || images.length >= FEEDBACK_MAX_IMAGES
-                }
-                onClick={() => imageInputRef.current?.click()}
+                label={t("support.feedbackImagesLabel")}
+                hint={t("support.feedbackImagesHint", {
+                  count: FEEDBACK_MAX_IMAGES,
+                  size: FEEDBACK_MAX_IMAGE_SIZE_BYTES / 1024 / 1024,
+                })}
+                error={imageError ?? undefined}
               >
-                <ImagePlusIcon data-icon="inline-start" />
-                {t("support.addFeedbackImages")}
-              </Button>
-              {images.length > 0 && (
-                <ul
-                  className="grid grid-cols-3 gap-3 sm:grid-cols-5"
-                  aria-label={t("support.selectedFeedbackImages")}
+                <Input
+                  ref={imageInputRef}
+                  id={feedbackImagesId}
+                  className="sr-only"
+                  type="file"
+                  multiple
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  disabled={
+                    submission.isPending || images.length >= FEEDBACK_MAX_IMAGES
+                  }
+                  onChange={(event) => addImages(event.target.files)}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-fit"
+                  disabled={
+                    submission.isPending || images.length >= FEEDBACK_MAX_IMAGES
+                  }
+                  onClick={() => imageInputRef.current?.click()}
                 >
-                  {images.map((image) => (
-                    <FeedbackImageSelection
-                      key={image.id}
-                      image={image}
-                      disabled={submission.isPending}
-                      removeLabel={t("support.removeFeedbackImage", {
-                        name: image.file.name,
-                      })}
-                      onRemove={() => {
-                        setImages((current) =>
-                          current.filter(
-                            (candidate) => candidate.id !== image.id
+                  <ImagePlusIcon data-icon="inline-start" />
+                  {t("support.addFeedbackImages")}
+                </Button>
+                {images.length > 0 && (
+                  <ul
+                    className="grid grid-cols-3 gap-3 sm:grid-cols-5"
+                    aria-label={t("support.selectedFeedbackImages")}
+                  >
+                    {images.map((image) => (
+                      <FeedbackImageSelection
+                        key={image.id}
+                        image={image}
+                        disabled={submission.isPending}
+                        removeLabel={t("support.removeFeedbackImage", {
+                          name: image.file.name,
+                        })}
+                        onRemove={() => {
+                          setImages((current) =>
+                            current.filter(
+                              (candidate) => candidate.id !== image.id
+                            )
                           )
-                        )
-                        setImageError(null)
-                        submission.reset()
-                      }}
-                    />
-                  ))}
-                </ul>
+                          setImageError(null)
+                          submission.reset()
+                        }}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </FieldShell>
+              {submission.isError && (
+                <StatusBanner variant="error">
+                  {getErrorMessage(submission.error, t)}
+                </StatusBanner>
               )}
-            </FieldShell>
-            {submission.isError && (
-              <StatusBanner variant="error">
-                {getErrorMessage(submission.error, t)}
-              </StatusBanner>
-            )}
-            <DialogFooter>
+            </div>
+            <DialogFooter className="shrink-0 border-t border-divider px-6 py-4">
               <DialogClose
                 render={
                   <Button
@@ -352,61 +361,5 @@ function getClipboardImages(event: ClipboardEvent<HTMLTextAreaElement>) {
 
   return Array.from(event.clipboardData.files).filter((file) =>
     file.type.startsWith("image/")
-  )
-}
-
-function FeedbackImageSelection({
-  image,
-  disabled,
-  removeLabel,
-  onRemove,
-}: {
-  image: SelectedFeedbackImage
-  disabled: boolean
-  removeLabel: string
-  onRemove: () => void
-}) {
-  const [source, setSource] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (typeof URL.createObjectURL !== "function") return
-    const objectUrl = URL.createObjectURL(image.file)
-    let active = true
-    queueMicrotask(() => {
-      if (active) setSource(objectUrl)
-    })
-    return () => {
-      active = false
-      URL.revokeObjectURL(objectUrl)
-    }
-  }, [image.file])
-
-  return (
-    <li className="relative aspect-square min-w-0 overflow-hidden rounded-xl border border-divider bg-muted">
-      {source ? (
-        <img
-          src={source}
-          alt={image.file.name}
-          width="96"
-          height="96"
-          className="size-full object-contain"
-        />
-      ) : (
-        <span className="flex size-full items-center justify-center text-muted-foreground">
-          <FileImageIcon aria-hidden="true" />
-        </span>
-      )}
-      <Button
-        type="button"
-        variant="secondary"
-        size="icon-sm"
-        className="absolute top-1 right-1"
-        disabled={disabled}
-        aria-label={removeLabel}
-        onClick={onRemove}
-      >
-        <Trash2Icon />
-      </Button>
-    </li>
   )
 }

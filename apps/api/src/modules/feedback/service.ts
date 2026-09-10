@@ -4,7 +4,13 @@ import {
   FEEDBACK_MAX_IMAGES,
   FEEDBACK_MAX_IMAGE_SIZE_BYTES,
   feedbackContentSchema,
+  feedbackReplyInputSchema,
+  myFeedbackSchema,
   type FeedbackImageMimeType,
+  type FeedbackDetails,
+  type MyFeedbackPage,
+  type AdminFeedbackPage,
+  type FeedbackSubmissionResult,
 } from "@linksense/shared";
 import { fileTypeFromBuffer } from "file-type";
 import { z } from "zod";
@@ -55,12 +61,45 @@ export class FeedbackService {
     actor: FeedbackActor,
     input: { content: unknown; images: FeedbackUpload[] },
     context: { ipAddress?: string | null; userAgent?: string | null } = {},
-  ) {
+  ): Promise<FeedbackSubmissionResult> {
     const content = feedbackContentSchema.safeParse(input.content);
-    if (!content.success || input.images.length > FEEDBACK_MAX_IMAGES) {
+    if (!content.success || input.images.length > FEEDBACK_MAX_IMAGES)
       throw new AppError("FEEDBACK_SUBMISSION_INVALID");
-    }
+    return this.saveSubmission(
+      actor,
+      { content: content.data, images: input.images },
+      context,
+    );
+  }
 
+  async replyForAdmin(
+    actor: FeedbackActor,
+    feedbackId: string,
+    input: { content: unknown; images: FeedbackUpload[] },
+    context: { ipAddress?: string | null; userAgent?: string | null } = {},
+  ): Promise<FeedbackSubmissionResult> {
+    assertAdmin(actor);
+    await this.assertExists(feedbackId);
+    const parsed = feedbackReplyInputSchema.safeParse({
+      content: input.content ?? "",
+      image_count: input.images.length,
+    });
+    if (!parsed.success) throw new AppError("FEEDBACK_SUBMISSION_INVALID");
+    return this.saveSubmission(
+      actor,
+      { content: parsed.data.content, images: input.images },
+      context,
+      feedbackId,
+    );
+  }
+
+  private async saveSubmission(
+    actor: FeedbackActor,
+    input: { content: string; images: FeedbackUpload[] },
+    context: { ipAddress?: string | null; userAgent?: string | null },
+    parentFeedbackId?: string,
+  ): Promise<FeedbackSubmissionResult> {
+    const content = input.content;
     const feedbackId = this.createId();
     const createdAt = this.now();
     const preparedImages: FeedbackImageRecord[] = [];
@@ -90,30 +129,40 @@ export class FeedbackService {
 
     let result;
     try {
-      result = await this.options.store.create({
-        id: feedbackId,
-        submitterId: actor.id,
-        submitterName: actor.name,
-        submitterEmail: actor.email,
-        content: content.data,
-        createdAt,
-        images: preparedImages,
-      });
-    } catch {
+      result = parentFeedbackId
+        ? await this.options.store.createReply({
+            id: feedbackId,
+            feedbackId: parentFeedbackId,
+            authorId: actor.id,
+            content,
+            createdAt,
+            images: preparedImages,
+          })
+        : await this.options.store.create({
+            id: feedbackId,
+            submitterId: actor.id,
+            submitterName: actor.name,
+            submitterEmail: actor.email,
+            content,
+            createdAt,
+            images: preparedImages,
+          });
+    } catch (error) {
       await this.cleanupUploadedObjects(uploadedKeys);
+      if (error instanceof AppError) throw error;
       throw new AppError("FEEDBACK_SUBMISSION_FAILED");
     }
 
     await this.options.audit
       .write({
         actorId: actor.id,
-        action: "feedback_submitted",
+        action: parentFeedbackId ? "feedback_replied" : "feedback_submitted",
         targetType: "feedback",
-        targetId: feedbackId,
+        targetId: parentFeedbackId ?? feedbackId,
         result: "success",
         metadata: {
           image_count: preparedImages.length,
-          content_length: content.data.length,
+          content_length: content.length,
         },
         ...context,
       })
@@ -121,7 +170,10 @@ export class FeedbackService {
     return result;
   }
 
-  listForAdmin(actor: FeedbackActor, input: unknown) {
+  listForAdmin(
+    actor: FeedbackActor,
+    input: unknown,
+  ): Promise<AdminFeedbackPage> {
     assertAdmin(actor);
     const parsed = listInputSchema.parse(input);
     return this.options.store.list({
@@ -130,13 +182,85 @@ export class FeedbackService {
     });
   }
 
+  async listForUser(
+    actor: FeedbackActor,
+    input: unknown,
+  ): Promise<MyFeedbackPage> {
+    const parsed = listInputSchema.parse(input);
+    const page = await this.options.store.list({
+      limit: parsed.limit,
+      ...(parsed.cursor ? { cursor: parsed.cursor } : {}),
+      submitterId: actor.id,
+    });
+    return {
+      ...page,
+      items: page.items.map((item) =>
+        myFeedbackSchema.parse({
+          id: item.id,
+          content: item.content,
+          created_at: item.created_at,
+          images: item.images,
+          reply_count: item.reply_count,
+        }),
+      ),
+    };
+  }
+
+  async details(
+    actor: FeedbackActor,
+    feedbackId: string,
+    admin = false,
+  ): Promise<FeedbackDetails> {
+    if (admin) assertAdmin(actor);
+    const details = await this.options.store.findDetails({
+      feedbackId,
+      ...(admin ? {} : { submitterId: actor.id }),
+    });
+    if (!details) throw new AppError("NOT_FOUND");
+    return details;
+  }
+
+  private async assertExists(feedbackId: string, submitterId?: string) {
+    if (
+      !(await this.options.store.exists({
+        feedbackId,
+        ...(submitterId ? { submitterId } : {}),
+      }))
+    ) {
+      throw new AppError("NOT_FOUND");
+    }
+  }
+
+  async readImageForUser(
+    actor: FeedbackActor,
+    feedbackId: string,
+    imageId: string,
+    replyId?: string,
+  ): Promise<FeedbackImageContent> {
+    await this.assertExists(feedbackId, actor.id);
+    return this.readImage(feedbackId, imageId, replyId);
+  }
+
   async readImageForAdmin(
     actor: FeedbackActor,
     feedbackId: string,
     imageId: string,
+    replyId?: string,
   ): Promise<FeedbackImageContent> {
     assertAdmin(actor);
-    const image = await this.options.store.findImage({ feedbackId, imageId });
+    return this.readImage(feedbackId, imageId, replyId);
+  }
+
+  private async readImage(
+    feedbackId: string,
+    imageId: string,
+    replyId?: string,
+  ): Promise<FeedbackImageContent> {
+    const image = await this.options.store.findImage({
+      feedbackId,
+      imageId,
+      ...(replyId ? { replyId } : {}),
+    });
     if (!image) throw new AppError("NOT_FOUND");
     const storedSize = await this.options.storage
       .getObjectSize(image.objectKey)

@@ -46,6 +46,35 @@ describe("support menu", () => {
     expect(helpLink).toHaveAttribute("rel", "noreferrer noopener")
   })
 
+  it("keeps feedback submission actions and heading outside the scrolling fields", async () => {
+    const interaction = userEvent.setup()
+    renderSupportMenu()
+    await interaction.click(screen.getByRole("button", { name: "反馈与帮助" }))
+    await interaction.click(
+      await screen.findByRole("menuitem", { name: "反馈" })
+    )
+    const dialog = await screen.findByRole("dialog", { name: "提交反馈" })
+    const body = within(dialog)
+      .getByRole("textbox", { name: "反馈内容" })
+      .closest<HTMLDivElement>('[data-slot="feedback-dialog-body"]')
+    expect(dialog).toHaveClass(
+      "flex",
+      "flex-col",
+      "overflow-hidden",
+      "max-h-[calc(100dvh-2rem)]"
+    )
+    expect(body).toHaveClass("min-h-0", "overflow-y-auto")
+    expect(body).not.toContainElement(
+      within(dialog).getByRole("heading", { name: "提交反馈" })
+    )
+    const submit = within(dialog).getByRole("button", { name: "提交" })
+    expect(submit.closest('[data-slot="dialog-footer"]')).toHaveClass(
+      "shrink-0"
+    )
+    expect(body).not.toContainElement(submit)
+    expect(submit.closest("form")).toContainElement(body)
+  })
+
   it("submits text and selected images through the feedback API", async () => {
     const interaction = userEvent.setup()
     const fetchMock = vi.fn<typeof fetch>(

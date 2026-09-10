@@ -8,6 +8,7 @@ import { hasMaintenanceAdminEntry } from "@/app/maintenance-admin-entry"
 import { useProductName } from "@/app/product-branding"
 import { ErrorState, LoadingState } from "@/components/feedback/page-state"
 import { MaintenancePage } from "@/pages/maintenance-page"
+import { MaintenanceIndicator } from "@/components/shell/maintenance-indicator"
 
 const maintenanceAdminAuthPaths = new Set([
   "/login",
@@ -69,7 +70,12 @@ export function ProtectedRoute() {
   if (bootstrap?.maintenance?.active && user?.role !== "admin") {
     return <MaintenancePage maintenance={bootstrap.maintenance} />
   }
-  return <Outlet />
+  return (
+    <>
+      <Outlet />
+      <MaintenanceIndicator />
+    </>
+  )
 }
 
 export function PublicAuthRoute() {

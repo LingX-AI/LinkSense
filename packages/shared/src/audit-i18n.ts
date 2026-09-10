@@ -84,6 +84,7 @@ const actionMessages = {
   credential_used: ["已使用凭证", "Credential used"],
   execution_concurrency_settings_updated: ["已更新执行并发设置", "Execution concurrency settings updated"],
   external_application_session_id_updated: ["已更新外部应用会话 ID", "External application session ID updated"],
+  feedback_replied: ["已回复用户反馈", "User feedback replied"],
   feedback_deleted: ["已删除用户反馈", "User feedback deleted"],
   feedback_submitted: ["已提交用户反馈", "User feedback submitted"],
   bot_channel_connected: ["已连接消息渠道", "Messaging channel connected"],

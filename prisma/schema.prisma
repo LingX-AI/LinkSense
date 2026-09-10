@@ -2039,6 +2039,33 @@ model FeedbackImage {
   @@map("feedback_images")
 }
 
+model FeedbackReply {
+  id         String   @id @default(uuid()) @db.Uuid
+  feedbackId String   @map("feedback_id") @db.Uuid
+  authorId   String   @map("author_id") @db.Uuid
+  content    String   @db.Text
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([feedbackId, createdAt, id], map: "feedback_replies_feedback_created_id_idx")
+  @@map("feedback_replies")
+}
+
+model FeedbackReplyImage {
+  id             String   @id @default(uuid()) @db.Uuid
+  replyId        String   @map("reply_id") @db.Uuid
+  objectKey      String   @unique(map: "feedback_reply_images_object_key_key") @map("object_key") @db.Text
+  filename       String   @db.VarChar(260)
+  mimeType       String   @map("mime_type") @db.VarChar(160)
+  sizeBytes      BigInt   @map("size_bytes") @db.BigInt
+  checksumSha256 String   @map("checksum_sha256") @db.VarChar(64)
+  sortOrder      Int      @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([replyId, sortOrder], map: "feedback_reply_images_reply_order_key")
+  @@index([replyId, createdAt], map: "feedback_reply_images_reply_created_idx")
+  @@map("feedback_reply_images")
+}
+
 model SystemSetting {
   id           String   @id @default("00000000-0000-4000-8000-000000000001") @db.Uuid
   settingsJson Json     @map("settings_json") @db.JsonB

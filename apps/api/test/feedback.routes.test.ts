@@ -4,6 +4,7 @@ import multipart from "@fastify/multipart";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
 import {
   adminFeedbackRoutes,
@@ -124,9 +125,98 @@ describe("feedback routes", () => {
     );
     expect(requireAdmin).toHaveBeenCalledTimes(3);
   });
+  it("authenticates personal lists, details, and reply image reads", async () => {
+    const listForUser = vi.fn(async () => ({ items: [], next_cursor: null }));
+    const details = vi.fn(async () => ({ replies: [] }));
+    const readImageForUser = vi.fn(async () => ({
+      data: Readable.from(PNG),
+      filename: "reply.png",
+      mimeType: "image/png",
+      sizeBytes: PNG.length,
+    }));
+    const app = await feedbackApp({ listForUser, details, readImageForUser });
+    const id = "10000000-0000-4000-8000-000000000010";
+    const list = await app.inject(`/api/v1/feedback`);
+    const detail = await app.inject(`/api/v1/feedback/${id}`);
+    const image = await app.inject(
+      `/api/v1/feedback/${id}/replies/${id}/images/${id}`,
+    );
+    expect(list.statusCode).toBe(200);
+    expect(detail.headers["cache-control"]).toBe("private, no-store");
+    expect(details).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "user" }),
+      id,
+      false,
+    );
+    expect(image.rawPayload).toEqual(PNG);
+    expect(image.headers["cache-control"]).toBe("private, no-store");
+    expect(readImageForUser).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "user" }),
+      id,
+      id,
+      id,
+    );
+  });
+
+  it("accepts administrator image-only replies and protects the reply endpoint", async () => {
+    const replyForAdmin = vi.fn(async () => ({ image_count: 1 }));
+    const app = Fastify();
+    apps.push(app);
+    app.setErrorHandler((error, request, reply) =>
+      sendAppError(reply, request, error),
+    );
+    await app.register(multipart);
+    app.decorate("requireAdmin", async (request) => {
+      if (request.headers["x-test-role"] !== "admin")
+        throw new AppError("FORBIDDEN");
+      request.authUser = authUser("admin");
+    });
+    await app.register(adminFeedbackRoutes, {
+      prefix: "/api/v1/admin/feedback",
+      services: { feedback: { replyForAdmin } } as unknown as AppServices,
+    });
+    const form = multipartFeedback("", ["reply.png"]);
+    const url =
+      "/api/v1/admin/feedback/10000000-0000-4000-8000-000000000010/replies";
+    expect(
+      (await app.inject({ method: "POST", url, ...form })).statusCode,
+    ).toBe(403);
+    expect(replyForAdmin).not.toHaveBeenCalled();
+    const result = await app.inject({
+      method: "POST",
+      url,
+      ...form,
+      headers: { ...form.headers, "x-test-role": "admin" },
+    });
+    expect(result.statusCode).toBe(201);
+    expect(replyForAdmin).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "admin" }),
+      expect.any(String),
+      { content: "", images: [expect.objectContaining({ bytes: PNG })] },
+      expect.anything(),
+    );
+  });
+
+  it("rejects unauthenticated personal feedback reads before calling services", async () => {
+    const listForUser = vi.fn();
+    const app = Fastify();
+    apps.push(app);
+    app.setErrorHandler((error, request, reply) =>
+      sendAppError(reply, request, error),
+    );
+    app.decorate("authenticate", async () => {
+      throw new AppError("AUTH_REQUIRED");
+    });
+    await app.register(feedbackRoutes, {
+      prefix: "/feedback",
+      services: { feedback: { listForUser } } as unknown as AppServices,
+    });
+    expect((await app.inject("/feedback")).statusCode).toBe(401);
+    expect(listForUser).not.toHaveBeenCalled();
+  });
 });
 
-async function feedbackApp(feedback: { submit: ReturnType<typeof vi.fn> }) {
+async function feedbackApp(feedback: Record<string, ReturnType<typeof vi.fn>>) {
   const app = Fastify();
   apps.push(app);
   app.setErrorHandler((error, request, reply) =>
