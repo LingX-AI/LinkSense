@@ -1,4 +1,6 @@
 import Fastify from "fastify";
+import { registerMaintenanceGuard } from "../src/app.js";
+import { sendAppError } from "../src/lib/http.js";
 import fastifyJwt from "@fastify/jwt";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -20,6 +22,42 @@ afterEach(async () => {
 });
 
 describe("application embed routes", () => {
+  it.each(["public", "required"] as const)("blocks %s embedded business requests while keeping the frame available during maintenance", async (authMode) => {
+    const { app, external, acceptTurn, getMaintenanceStatus } = await routeFixture(authMode, { maintenanceActive: true });
+    for (const headers of [
+      {},
+      { authorization: "Bearer administrator-session" },
+      { "x-linksense-embed-app-id": APP_ID, "x-linksense-embed-session-id": SESSION_ID, "x-linksense-embed-origin": ORIGIN },
+    ]) {
+      for (const endpoint of [
+        { method: "POST", url: "/api/v1/embed/session/turns" },
+        { method: "GET", url: "/api/v1/embed/session/conversations" },
+        { method: "GET", url: "/api/v1/embed/session/events" },
+        { method: "POST", url: "/api/v1/embed/public-sessions" },
+        { method: "POST", url: "/api/v1/embed/sessions/exchange" },
+        { method: "POST", url: "/api/v1/embed/tickets" },
+      ] as const) {
+        const response = await app.inject({ ...endpoint, headers });
+        expect(response.statusCode, response.body).toBe(503);
+        expect(response.json().error_code).toBe("SYSTEM_MAINTENANCE_ACTIVE");
+      }
+    }
+    expect(external.verifyPublicSession).not.toHaveBeenCalled();
+    expect(external.verifyAccessToken).not.toHaveBeenCalled();
+    expect(external.createPublicSession).not.toHaveBeenCalled();
+    expect(acceptTurn).not.toHaveBeenCalled();
+    const frame = await app.inject({ url: `/api/v1/embed/frame/${APP_ID}?parent_origin=${encodeURIComponent(ORIGIN)}` });
+    expect(frame.statusCode).toBe(200);
+    expect(frame.headers["content-security-policy"]).toContain(`frame-ancestors ${ORIGIN}`);
+
+    getMaintenanceStatus.mockResolvedValue({ enabled: false, active: false, reason: null, start_at: null, end_at: null });
+    const resumed = await app.inject({
+      method: "POST", url: "/api/v1/embed/public-sessions", payload: { app_id: APP_ID, origin: ORIGIN },
+    });
+    expect(resumed.statusCode, resumed.body).toBe(201);
+    expect(external.createPublicSession).toHaveBeenCalledTimes(1);
+  });
+
   it("mounts the complete chat, tool-interaction, attachment, artifact, and knowledge surface", async () => {
     const { app } = await routeFixture("required");
 
@@ -625,9 +663,19 @@ async function routeFixture(
   options: {
     developmentAssets?: boolean;
     knowledgeInstalled?: boolean;
+    maintenanceActive?: boolean;
   } = {},
 ) {
   const app = Fastify();
+  app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
+  const getMaintenanceStatus = vi.fn(async () => ({
+    enabled: options.maintenanceActive ?? false,
+    active: options.maintenanceActive ?? false,
+    reason: null,
+    start_at: null,
+    end_at: null,
+  }));
+  registerMaintenanceGuard(app, { getMaintenanceStatus });
   apps.push(app);
   await app.register(fastifyJwt, {
     secret: "application-embed-route-test-secret-with-enough-entropy",
@@ -784,6 +832,7 @@ async function routeFixture(
   await app.ready();
   return {
     app,
+    getMaintenanceStatus,
     external,
     acceptTurn,
     assertModelPreferenceMutable,

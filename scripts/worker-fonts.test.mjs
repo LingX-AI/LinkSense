@@ -77,6 +77,58 @@ test("installer verifies all downloads before publishing readable fonts and reje
   }
 });
 
+test("installer falls back through pinned mirrors when GitHub raw is too slow", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-font-fallback-"));
+  try {
+    const payload = "fallback font bytes";
+    const checksum = createHash("sha256").update(payload).digest("hex");
+    const revision = "1".repeat(40);
+    const manifest = path.join(directory, "manifest");
+    const destination = path.join(directory, "installed");
+    const cache = path.join(directory, "cache");
+    const calls = path.join(directory, "calls");
+    await writeFile(path.join(directory, "payload"), payload);
+    await writeFile(
+      manifest,
+      `${checksum}  font.ttf  https://raw.githubusercontent.com/example/fonts/${revision}/fonts/font.ttf\n`,
+    );
+    await writeFile(path.join(directory, "curl"), `#!/bin/sh
+output=""
+url=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output) output="$2"; shift 2 ;;
+    *) url="$1"; shift ;;
+  esac
+done
+printf '%s\n' "$url" >> "$FONT_TEST_CALLS"
+case "$url" in
+  https://raw.githubusercontent.com/*) printf 'partial' > "$output"; exit 28 ;;
+  https://cdn.jsdelivr.net/gh/example/fonts@${revision}/fonts/font.ttf) exit 22 ;;
+  https://gh-proxy.com/https://raw.githubusercontent.com/example/fonts/${revision}/fonts/font.ttf) cp "$FONT_TEST_PAYLOAD" "$output" ;;
+  *) exit 7 ;;
+esac
+`, { mode: 0o755 });
+
+    await run("sh", [path.join(root, "install.sh"), manifest, destination, cache], {
+      env: {
+        ...process.env,
+        PATH: `${directory}:${process.env.PATH}`,
+        FONT_TEST_CALLS: calls,
+        FONT_TEST_PAYLOAD: path.join(directory, "payload"),
+      },
+    });
+
+    assert.equal(await readFile(path.join(destination, "font.ttf"), "utf8"), payload);
+    assert.equal(
+      await readFile(calls, "utf8"),
+      `https://raw.githubusercontent.com/example/fonts/${revision}/fonts/font.ttf\nhttps://cdn.jsdelivr.net/gh/example/fonts@${revision}/fonts/font.ttf\nhttps://gh-proxy.com/https://raw.githubusercontent.com/example/fonts/${revision}/fonts/font.ttf\n`,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("font cache survives interrupted builds, resumes partial files and installs offline on rebuild", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "linksense-font-cache-"));
   try {

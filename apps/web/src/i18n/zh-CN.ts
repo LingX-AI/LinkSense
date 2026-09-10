@@ -96,6 +96,7 @@ export const zhCN = {
     send: "发送消息",
     stop: "停止生成",
     errors: {
+      systemUnavailable: "暂时无法获取系统状态，请检查网络后重试。",
       requestFailed: "刷新会话失败，请稍后重试。",
       authenticationFailed: "无法建立外部访问会话，请由宿主系统重新认证。",
       hostAuthenticationFailed:

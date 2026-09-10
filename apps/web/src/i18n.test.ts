@@ -22,6 +22,24 @@ function leafStrings(value: unknown): string[] {
 }
 
 describe("i18n resources", () => {
+  it("localizes embedded system status and falls back to Chinese when an English key is missing", () => {
+    const key = "embed.errors.systemUnavailable"
+    expect(i18n.t(key, { lng: "zh-CN" })).toBe(
+      zhCN.embed.errors.systemUnavailable
+    )
+    expect(i18n.t(key, { lng: "en-US" })).toBe(
+      enUS.embed.errors.systemUnavailable
+    )
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(instance.t(key, { lng: "en-US" })).toBe(
+      zhCN.embed.errors.systemUnavailable
+    )
+    expect(i18n.t("maintenance.title", { lng: "en-US" })).toBe(
+      "System maintenance"
+    )
+  })
+
   it("detects supported languages across browser language APIs", () => {
     expect(resolveBrowserLanguage(["en-GB", "zh-CN"], "zh-CN")).toBe("en-US")
     expect(resolveBrowserLanguage(["fr-FR", "zh-HK"], "en-US")).toBe("zh-CN")

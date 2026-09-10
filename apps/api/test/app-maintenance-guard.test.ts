@@ -32,4 +32,22 @@ describe("maintenance request guard", () => {
       shouldBlockForMaintenance({ ...activeMaintenance, active: false }, "user")
     ).toBe(false)
   })
+
+  it.each([
+    "/api/v1/embed/tickets",
+    "/api/v1/embed/public-sessions",
+    "/api/v1/embed/sessions/exchange",
+    "/api/v1/embed/session",
+    "/api/v1/embed/session/turns",
+    "/api/v1/embed/session/events",
+    "/api/v1/embed/session/attachments",
+    "/api/v1/embed/session/files/file-id/download",
+    "/api/v1/embed/session/conversations?limit=10",
+  ])("does not exempt the embedded business endpoint %s", (path) => {
+    expect(isMaintenanceExemptPath(path)).toBe(false)
+  })
+
+  it("keeps existing embedded credentials renewable without enabling business access", () => {
+    expect(isMaintenanceExemptPath("/api/v1/embed/sessions/renew")).toBe(true)
+  })
 })

@@ -97,6 +97,8 @@ export const enUS = {
     send: "Send message",
     stop: "Stop generation",
     errors: {
+      systemUnavailable:
+        "System status is temporarily unavailable. Check your connection and try again.",
       requestFailed: "The session could not be refreshed. Try again.",
       authenticationFailed:
         "The external session could not be established. Reauthenticate through the host system.",
