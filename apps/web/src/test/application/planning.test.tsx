@@ -874,7 +874,7 @@ describe("LinkSense application", () => {
       await eventStreamStart
     })
     expect(
-      await screen.findByText("计划模式未生成可确认的计划，请重新发起请求。", {
+      await screen.findByText("计划模式未生成可确认的计划，请重新发起请求", {
         exact: true,
       })
     ).toBeVisible()

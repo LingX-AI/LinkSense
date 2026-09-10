@@ -187,7 +187,7 @@ describe("administrator knowledge-base governance", () => {
         reason: "内容需要复核",
       })
     })
-    const notification = await screen.findByText("知识库已停用。")
+    const notification = await screen.findByText("知识库已停用")
     expect(notification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(notification.closest('[data-slot="alert"]')).toBeNull()
   })

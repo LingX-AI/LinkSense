@@ -779,7 +779,7 @@ describe("LinkSense application", () => {
     await interaction.keyboard("{Enter}")
 
     const error = await screen.findByText(
-      "最多只能保留 5 条后续请求，请先处理已有请求。"
+      "最多只能保留 5 条后续请求，请先处理已有请求"
     )
     expect(error.closest("[data-sonner-toast]")).toHaveAttribute(
       "data-type",
@@ -829,7 +829,7 @@ describe("LinkSense application", () => {
     )
     expect(
       await screen.findByText(
-        "当前补充包含附件或指定插件/Skill，已自动排队为下一条请求。"
+        "当前补充包含附件或指定插件/Skill，已自动排队为下一条请求"
       )
     ).toBeVisible()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()

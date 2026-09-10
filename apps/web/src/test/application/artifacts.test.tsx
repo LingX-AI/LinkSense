@@ -137,7 +137,7 @@ describe("LinkSense application", () => {
       })
     )
 
-    const notification = await screen.findByText("未找到该产物。")
+    const notification = await screen.findByText("未找到该产物")
     expect(notification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(notification.closest(".conversation-top-overlay-stack")).toBeNull()
     expect(click).not.toHaveBeenCalled()

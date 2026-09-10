@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { setAccessToken } from "@/api/session"
+import { notify } from "@/components/feedback/notification"
 import { MaintenanceSettingsForm } from "@/features/admin/maintenance-settings-form"
 import i18n from "@/i18n"
 
@@ -19,6 +20,14 @@ function envelope(data: unknown) {
     status: 200,
     headers: { "content-type": "application/json" },
   })
+}
+
+function renderForm(queryClient: QueryClient) {
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MaintenanceSettingsForm />
+    </QueryClientProvider>
+  )
 }
 
 describe("maintenance settings form", () => {
@@ -34,6 +43,9 @@ describe("maintenance settings form", () => {
   })
 
   it("saves an enabled maintenance window without a reason", async () => {
+    const successNotification = vi
+      .spyOn(notify, "success")
+      .mockReturnValue("maintenance-settings-feedback")
     const requests: RequestInit[] = []
     const startAt = dayjs("2026-08-05T01:00").toISOString()
     const endAt = dayjs("2026-08-05T02:30").toISOString()
@@ -78,11 +90,7 @@ describe("maintenance settings form", () => {
       },
     })
     const interaction = userEvent.setup()
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MaintenanceSettingsForm />
-      </QueryClientProvider>
-    )
+    renderForm(queryClient)
 
     const maintenanceSwitch = await screen.findByRole("switch", {
       name: "开启计划维护",
@@ -127,6 +135,12 @@ describe("maintenance settings form", () => {
     expect(payload.reason).toBeNull()
     expect(Date.parse(payload.end_at)).toBeGreaterThan(
       Date.parse(payload.start_at)
+    )
+    await waitFor(() =>
+      expect(successNotification).toHaveBeenCalledWith(
+        "维护设置已保存",
+        expect.objectContaining({ id: "maintenance-settings-feedback" })
+      )
     )
   })
 
@@ -175,11 +189,7 @@ describe("maintenance settings form", () => {
       },
     })
     const interaction = userEvent.setup()
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MaintenanceSettingsForm />
-      </QueryClientProvider>
-    )
+    renderForm(queryClient)
 
     await interaction.click(
       await screen.findByRole("switch", { name: "开启计划维护" })
@@ -252,11 +262,7 @@ describe("maintenance settings form", () => {
       },
     })
     const interaction = userEvent.setup()
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MaintenanceSettingsForm />
-      </QueryClientProvider>
-    )
+    renderForm(queryClient)
 
     await interaction.click(
       await screen.findByRole("switch", { name: "开启计划维护" })
@@ -311,11 +317,7 @@ describe("maintenance settings form", () => {
       },
     })
     const interaction = userEvent.setup()
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MaintenanceSettingsForm />
-      </QueryClientProvider>
-    )
+    renderForm(queryClient)
 
     await interaction.click(
       await screen.findByRole("switch", { name: "开启计划维护" })
@@ -339,6 +341,9 @@ describe("maintenance settings form", () => {
   })
 
   it("immediately disables a persisted maintenance schedule from the switch", async () => {
+    const successNotification = vi
+      .spyOn(notify, "success")
+      .mockReturnValue("maintenance-settings-feedback")
     const requests: RequestInit[] = []
     const settings = {
       enabled: true,
@@ -370,11 +375,7 @@ describe("maintenance settings form", () => {
       },
     })
     const interaction = userEvent.setup()
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MaintenanceSettingsForm />
-      </QueryClientProvider>
-    )
+    renderForm(queryClient)
 
     await interaction.click(
       await screen.findByRole("switch", { name: "开启计划维护" })
@@ -393,6 +394,12 @@ describe("maintenance settings form", () => {
       end_at: null,
     })
     expect(screen.queryByLabelText("维护原因")).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(successNotification).toHaveBeenCalledWith(
+        "系统维护已关闭",
+        expect.objectContaining({ id: "maintenance-settings-feedback" })
+      )
+    )
   })
 
   it("can disable the maintenance schedule immediately after enabling it", async () => {
@@ -431,11 +438,7 @@ describe("maintenance settings form", () => {
       },
     })
     const interaction = userEvent.setup()
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MaintenanceSettingsForm />
-      </QueryClientProvider>
-    )
+    renderForm(queryClient)
 
     await interaction.click(
       await screen.findByRole("switch", { name: "开启计划维护" })

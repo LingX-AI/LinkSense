@@ -390,7 +390,7 @@ describe("administrator authentication settings", () => {
         },
       })
     )
-    expect(await screen.findByText("开放注册设置已更新。")).toBeVisible()
+    expect(await screen.findByText("开放注册设置已更新")).toBeVisible()
   })
 
   it("saves task concurrency overrides and leaves blank fields on deployment defaults", async () => {
@@ -454,7 +454,7 @@ describe("administrator authentication settings", () => {
         },
       })
     )
-    expect(await screen.findByText("任务并发设置已更新。")).toBeVisible()
+    expect(await screen.findByText("任务并发设置已更新")).toBeVisible()
   })
 
   it("switches between setting categories without ever filling stored secrets", async () => {
@@ -653,7 +653,7 @@ describe("administrator authentication settings", () => {
     await interaction.type(nameInput, "MOSS 工作台")
     await interaction.click(screen.getByRole("button", { name: "保存" }))
 
-    await screen.findByText("系统设置已更新。")
+    await screen.findByText("系统设置已更新")
     await waitFor(() =>
       expect(
         queryClient.getQueryData<{ system_name: string }>([
@@ -707,7 +707,7 @@ describe("administrator authentication settings", () => {
       new File(["logo"], "logo.png", { type: "image/png" })
     )
 
-    await screen.findByText("系统 Logo 已更新。")
+    await screen.findByText("系统 Logo 已更新")
     expect(uploadBodyWasFormData).toBe(true)
     expect(
       queryClient.getQueryData<{ logo_url: string | null }>([
@@ -1480,7 +1480,7 @@ describe("administrator authentication settings", () => {
         model: "reranker-model",
       },
     })
-    expect(await screen.findByText("知识库检索模型设置已更新。")).toBeVisible()
+    expect(await screen.findByText("知识库检索模型设置已更新")).toBeVisible()
   })
 
   it("requires explicit confirmation before switching embedding models and points to index rebuild", async () => {
@@ -1790,7 +1790,7 @@ describe("administrator authentication settings", () => {
       default_model: "model-a",
     })
     expect(updateBody.providers[0]).not.toHaveProperty("api_key")
-    expect(await screen.findByText("模型渠道设置已更新。")).toBeVisible()
+    expect(await screen.findByText("模型渠道设置已更新")).toBeVisible()
   })
 
   it("saves the system default and task auto-naming models together", async () => {
@@ -2507,7 +2507,7 @@ describe("administrator authentication settings", () => {
     expect(requests.some((request) => request.init?.method === "PUT")).toBe(
       false
     )
-    expect(await screen.findByText("模型渠道已删除。")).toBeVisible()
+    expect(await screen.findByText("模型渠道已删除")).toBeVisible()
   })
 
   it("keeps a selected model channel and explains how to release it", async () => {
@@ -3012,7 +3012,7 @@ describe("administrator authentication settings", () => {
     expect(requests.some((request) => request.init?.method === "PUT")).toBe(
       false
     )
-    expect(await screen.findByText("模型已删除。")).toBeVisible()
+    expect(await screen.findByText("模型已删除")).toBeVisible()
   })
 
   it("keeps a persisted model when its immediate deletion fails", async () => {
@@ -3326,7 +3326,7 @@ describe("administrator authentication settings", () => {
     })
     expect(secretInput).toHaveValue("")
     expect(secretInput).toHaveAttribute("placeholder", "••••••••••••")
-    expect(await screen.findByText("认证配置已更新并立即生效。")).toBeVisible()
+    expect(await screen.findByText("认证配置已更新并立即生效")).toBeVisible()
   })
 
   it("saves only the SMTP namespace and applies the returned revision", async () => {
@@ -3422,7 +3422,7 @@ describe("administrator authentication settings", () => {
     })
     expect(passwordInput).toHaveValue("")
     expect(passwordInput).toHaveAttribute("placeholder", "••••••••••••")
-    expect(await screen.findByText("认证配置已更新并立即生效。")).toBeVisible()
+    expect(await screen.findByText("认证配置已更新并立即生效")).toBeVisible()
   })
 })
 

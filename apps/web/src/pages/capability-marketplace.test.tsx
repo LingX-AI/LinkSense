@@ -890,7 +890,7 @@ describe("capability marketplace pages", () => {
     })
     resolveInstall?.(envelope(installedCapability))
     const installNotification =
-      await screen.findByText("已从插件中心安装到你的个人技能。")
+      await screen.findByText("已从插件中心安装到你的个人技能")
     expect(installNotification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(installNotification.closest('[data-slot="alert"]')).toBeNull()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
@@ -962,7 +962,7 @@ describe("capability marketplace pages", () => {
       ).toBe(true)
     })
     resolveUninstall?.(envelope({ deleted: true }))
-    expect(await screen.findByText("插件中心技能已卸载。")).toBeVisible()
+    expect(await screen.findByText("插件中心技能已卸载")).toBeVisible()
     const reinstalledActionTrigger = await within(item).findByRole("button", {
       name: "操作",
     })
@@ -1059,7 +1059,7 @@ describe("capability marketplace pages", () => {
     expect(deleteLoading.closest("[data-sonner-toast]")).not.toBeNull()
 
     resolveDelete?.(envelope({ deleted: true }))
-    expect(await screen.findByText("个人技能已永久删除。")).toBeVisible()
+    expect(await screen.findByText("个人技能已永久删除")).toBeVisible()
     expect(await screen.findByText("没有符合条件的个人技能")).toBeVisible()
   })
 
@@ -1329,7 +1329,7 @@ describe("capability marketplace pages", () => {
       })
     )
     const updateNotification =
-      await screen.findByText("插件中心技能已更新到当前获批发布。")
+      await screen.findByText("插件中心技能已更新到当前获批发布")
     expect(updateNotification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(updateNotification.closest('[data-slot="alert"]')).toBeNull()
     await waitFor(() => {
@@ -2444,7 +2444,7 @@ describe("capability marketplace pages", () => {
         user_group_id: groupTargetId,
       })
     )
-    const shareNotification = await screen.findByText("共享成功。")
+    const shareNotification = await screen.findByText("共享成功")
     expect(shareNotification.closest("[data-sonner-toast]")).not.toBeNull()
     await waitFor(() => {
       const sharedGroupRow = within(dialog)
@@ -3111,7 +3111,7 @@ describe("capability marketplace pages", () => {
     expect(importLoading.closest("[data-sonner-toast]")).not.toBeNull()
 
     resolveConfirm(envelope(capability))
-    expect(await screen.findByText("技能已安装。")).toBeVisible()
+    expect(await screen.findByText("技能已安装")).toBeVisible()
 
     const actionTrigger = screen.getByRole("button", { name: "操作" })
     expect(actionTrigger.querySelector("svg")).not.toBeNull()
@@ -3178,7 +3178,7 @@ describe("capability marketplace pages", () => {
       })
     })
     const publishNotification =
-      await screen.findByText("发布快照已提交管理员审核。")
+      await screen.findByText("发布快照已提交管理员审核")
     expect(publishNotification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(publishNotification.closest('[data-slot="alert"]')).toBeNull()
 
@@ -3433,7 +3433,7 @@ describe("capability marketplace pages", () => {
       })
     })
     const reviewNotification = await screen.findByText(
-      "发布已审核通过并成为当前插件中心版本。"
+      "发布已审核通过并成为当前插件中心版本"
     )
     expect(reviewNotification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(reviewNotification.closest('[data-slot="alert"]')).toBeNull()

@@ -1109,6 +1109,14 @@ export const zhCN = {
       conflictDescription:
         "“{{incoming}}”与已有文档“{{existing}}”同名但内容不同。请选择如何处理此文件。",
       confirmedName: "服务端确认名称：{{name}}",
+      batch: {
+        runningTitle: "正在上传和处理文档",
+        attentionTitle: "部分文档需要处理",
+        completedTitle: "本批文档处理已结束",
+        summary: "已处理 {{completed}} / {{total}} 个文档",
+        issues: "{{count}} 个文档未成功完成",
+        viewDetails: "查看详情",
+      },
       state: {
         waiting: "等待上传",
         uploading: "正在上传",
@@ -3468,7 +3476,8 @@ export const zhCN = {
       endMinute: "结束时间 · 分钟",
       timezoneHint: "时间按当前设备所在时区填写，保存后统一转换为系统时间。",
       save: "保存维护设置",
-      saved: "维护设置已保存。",
+      saved: "维护设置已保存",
+      closed: "系统维护已关闭",
       status: {
         active: "维护中",
         scheduled: "已安排",

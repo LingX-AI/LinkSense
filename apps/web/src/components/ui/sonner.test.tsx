@@ -72,8 +72,7 @@ describe("Toaster", () => {
             toast:
               "cn-toast left-1/2! right-auto! w-max! max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 py-3!",
             content: "min-w-0",
-            closeButton:
-              "static! order-last ml-auto! shrink-0 self-center transform-none! focus-visible:ring-2 focus-visible:ring-ring",
+            closeButton: expect.stringContaining("border-0!"),
           },
         },
       })

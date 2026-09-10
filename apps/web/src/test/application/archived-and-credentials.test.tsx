@@ -235,7 +235,7 @@ describe("LinkSense application", () => {
       ).not.toBeInTheDocument()
     )
     expect(await screen.findByText("没有已归档任务")).toBeVisible()
-    expect(await screen.findByText("已清除 1 个已归档任务。")).toBeVisible()
+    expect(await screen.findByText("已清除 1 个已归档任务")).toBeVisible()
     expect(
       screen.queryByRole("button", { name: "搜索" })
     ).not.toBeInTheDocument()

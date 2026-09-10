@@ -407,7 +407,7 @@ describe("LinkSense application", () => {
     await interaction.upload(folderInput, macMetadata)
 
     expect(
-      await screen.findByText("已跳过临时文件，请选择其他有意义的文件。")
+      await screen.findByText("已跳过临时文件，请选择其他有意义的文件")
     ).toBeInTheDocument()
     expect(
       requests.filter(

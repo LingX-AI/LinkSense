@@ -542,7 +542,7 @@ describe("AutomationPage", () => {
       })
     })
     resolveRun(envelope({ status: "started", turn_id: TURN_ID }, 202))
-    expect(await screen.findByText("已开始执行“立即执行测试”。")).toBeVisible()
+    expect(await screen.findByText("已开始执行“立即执行测试”")).toBeVisible()
     expect(success).toHaveBeenCalledWith("已开始执行“立即执行测试”。", {
       id: `automation-run-now-${AUTOMATION_ID}`,
     })

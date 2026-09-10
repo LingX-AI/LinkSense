@@ -7,33 +7,62 @@ export type NotificationVariant = "success" | "error" | "info" | "warning"
 
 export type NotificationOptions = Omit<ExternalToast, "duration">
 
+function withoutTrailingPeriod(content: ReactNode): ReactNode {
+  return typeof content === "string"
+    ? content.replace(/[。.]+\s*$/u, "")
+    : content
+}
+
+function withoutTrailingDescriptionPeriod(
+  options?: NotificationOptions
+): NotificationOptions | undefined {
+  if (!options || typeof options.description !== "string") return options
+
+  return {
+    ...options,
+    description: withoutTrailingPeriod(options.description),
+  }
+}
+
 function withNotificationDuration(
   options?: NotificationOptions
 ): ExternalToast {
   return {
-    ...options,
+    ...withoutTrailingDescriptionPeriod(options),
     duration: notificationDuration,
   }
 }
 
 export const notify = {
   loading(message: ReactNode, options?: NotificationOptions) {
-    return toast.loading(message, { ...options, duration: Infinity })
+    return toast.loading(withoutTrailingPeriod(message), {
+      ...withoutTrailingDescriptionPeriod(options),
+      duration: Infinity,
+    })
   },
   success(message: ReactNode, options?: NotificationOptions) {
-    return toast.success(message, withNotificationDuration(options))
+    return toast.success(
+      withoutTrailingPeriod(message),
+      withNotificationDuration(options)
+    )
   },
   error(message: ReactNode, options?: NotificationOptions) {
-    return toast.error(message, {
+    return toast.error(withoutTrailingPeriod(message), {
       closeButton: true,
       ...withNotificationDuration(options),
     })
   },
   info(message: ReactNode, options?: NotificationOptions) {
-    return toast.info(message, withNotificationDuration(options))
+    return toast.info(
+      withoutTrailingPeriod(message),
+      withNotificationDuration(options)
+    )
   },
   warning(message: ReactNode, options?: NotificationOptions) {
-    return toast.warning(message, withNotificationDuration(options))
+    return toast.warning(
+      withoutTrailingPeriod(message),
+      withNotificationDuration(options)
+    )
   },
   dismiss(id?: string | number) {
     return toast.dismiss(id)

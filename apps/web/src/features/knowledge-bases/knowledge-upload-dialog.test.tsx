@@ -1,9 +1,20 @@
+import { useState } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { KnowledgeUploadDialog } from "@/features/knowledge-bases/knowledge-upload-dialog"
+import {
+  KnowledgeUploadBatchProgress,
+  type KnowledgeUploadBatchStatus,
+} from "@/features/knowledge-bases/knowledge-upload-batch-progress"
 import i18n from "@/i18n"
 
 const uploadKnowledgeDocument = vi.hoisted(() => vi.fn())
@@ -98,6 +109,43 @@ function renderDialog(documents: ReturnType<typeof documentFixture>[] = []) {
   }
 }
 
+function renderUploadExperience() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+
+  function UploadExperience() {
+    const [open, setOpen] = useState(true)
+    const [batchStatus, setBatchStatus] =
+      useState<KnowledgeUploadBatchStatus | null>(null)
+    return (
+      <>
+        {batchStatus && (
+          <KnowledgeUploadBatchProgress
+            status={batchStatus}
+            onViewDetails={() => setOpen(true)}
+          />
+        )}
+        <KnowledgeUploadDialog
+          open={open}
+          onOpenChange={setOpen}
+          knowledgeBaseId={knowledgeBaseId}
+          documents={[]}
+          onUploaded={vi.fn()}
+          onLocateDocument={vi.fn()}
+          onBatchStatusChange={setBatchStatus}
+        />
+      </>
+    )
+  }
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <UploadExperience />
+    </QueryClientProvider>
+  )
+}
+
 describe("knowledge document upload queue", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
@@ -118,6 +166,49 @@ describe("knowledge document upload queue", () => {
     expect(i18n.t("knowledge.upload.ocrDescription", { lng: "en-US" })).toBe(
       "Recognize text in scans and images. Enabling OCR increases document processing time."
     )
+    expect(
+      i18n.t("knowledge.upload.batch.runningTitle", { lng: "zh-CN" })
+    ).toBe("正在上传和处理文档")
+    expect(
+      i18n.t("knowledge.upload.batch.runningTitle", { lng: "en-US" })
+    ).toBe("Uploading and processing documents")
+  })
+
+  it("closes the upload dialog and exposes the overall batch progress after upload starts", async () => {
+    uploadKnowledgeDocument.mockResolvedValue({
+      status: "accepted",
+      document: documentFixture(),
+    })
+    const interaction = userEvent.setup()
+    renderUploadExperience()
+    const fileInput = screen.getByLabelText("选择文档")
+    await waitFor(() => expect(fileInput).toBeEnabled())
+    await interaction.upload(
+      fileInput,
+      new File(["content"], "制度.pdf", { type: "application/pdf" })
+    )
+
+    await interaction.click(
+      screen.getByRole("button", { name: "开始上传（1）" })
+    )
+
+    expect(
+      screen.queryByRole("dialog", { name: "上传文档" })
+    ).not.toBeInTheDocument()
+    const batchProgress = await screen.findByRole("status")
+    expect(
+      within(batchProgress).getAllByText("正在上传和处理文档")[0]
+    ).toBeVisible()
+    expect(within(batchProgress).getByText("已处理 0 / 1 个文档")).toBeVisible()
+    await waitFor(() =>
+      expect(
+        screen.getByRole("progressbar", { name: "正在上传和处理文档" })
+      ).toHaveAttribute("aria-valuenow", "40")
+    )
+
+    await interaction.click(screen.getByRole("button", { name: "查看详情" }))
+    expect(screen.getByRole("dialog", { name: "上传文档" })).toBeVisible()
+    expect(screen.getByLabelText("选择文档")).toBeDisabled()
   })
 
   it("uploads a selected directory with relative paths and lists unsupported files", async () => {

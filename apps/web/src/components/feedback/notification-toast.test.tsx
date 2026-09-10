@@ -58,8 +58,8 @@ describe("notification toast", () => {
     )
 
     expect(container).toBeEmptyDOMElement()
-    expect(toastSpies.success).toHaveBeenCalledWith("资料已保存。", {
-      description: "修改已生效。",
+    expect(toastSpies.success).toHaveBeenCalledWith("资料已保存", {
+      description: "修改已生效",
       duration: notificationDuration,
       id: "profile-saved",
     })
@@ -71,7 +71,7 @@ describe("notification toast", () => {
         variant="error"
       />
     )
-    expect(toastSpies.error).toHaveBeenCalledWith("保存失败。", {
+    expect(toastSpies.error).toHaveBeenCalledWith("保存失败", {
       closeButton: true,
       description: undefined,
       duration: notificationDuration,
@@ -81,19 +81,29 @@ describe("notification toast", () => {
 
   it("shares the same duration through the imperative notification API", () => {
     notify.loading("正在处理。", { id: "connection-warning" })
+    notify.success("Saved.", { id: "saved" })
+    notify.info("请稍候…", { id: "waiting" })
     notify.warning("连接不稳定。", { id: "connection-warning" })
     notify.error("下载失败。", { id: "file-download-error" })
     notify.dismiss("connection-warning")
 
-    expect(toastSpies.loading).toHaveBeenCalledWith("正在处理。", {
+    expect(toastSpies.loading).toHaveBeenCalledWith("正在处理", {
       duration: Infinity,
       id: "connection-warning",
     })
-    expect(toastSpies.warning).toHaveBeenCalledWith("连接不稳定。", {
+    expect(toastSpies.success).toHaveBeenCalledWith("Saved", {
+      duration: notificationDuration,
+      id: "saved",
+    })
+    expect(toastSpies.info).toHaveBeenCalledWith("请稍候…", {
+      duration: notificationDuration,
+      id: "waiting",
+    })
+    expect(toastSpies.warning).toHaveBeenCalledWith("连接不稳定", {
       duration: notificationDuration,
       id: "connection-warning",
     })
-    expect(toastSpies.error).toHaveBeenCalledWith("下载失败。", {
+    expect(toastSpies.error).toHaveBeenCalledWith("下载失败", {
       closeButton: true,
       duration: notificationDuration,
       id: "file-download-error",

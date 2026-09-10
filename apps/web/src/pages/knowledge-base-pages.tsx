@@ -169,6 +169,10 @@ import {
   createDefaultKnowledgeSourceSyncScheduleDraft,
   knowledgeSourceSyncScheduleFromDraft,
 } from "@/features/knowledge-bases/knowledge-source-schedule"
+import {
+  KnowledgeUploadBatchProgress,
+  type KnowledgeUploadBatchStatus,
+} from "@/features/knowledge-bases/knowledge-upload-batch-progress"
 import { KnowledgeUploadDialog } from "@/features/knowledge-bases/knowledge-upload-dialog"
 import {
   canCancelKnowledgeDocument,
@@ -1123,6 +1127,8 @@ function KnowledgeBaseDetailContent({
     [entriesQuery.data]
   )
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [uploadBatchStatus, setUploadBatchStatus] =
+    useState<KnowledgeUploadBatchStatus | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [renameDocumentTarget, setRenameDocumentTarget] =
@@ -1320,7 +1326,8 @@ function KnowledgeBaseDetailContent({
       hasActiveDocumentProcessing &&
       !disabled) ||
     Boolean(actionError) ||
-    Boolean(sourceQuery.data)
+    Boolean(sourceQuery.data) ||
+    Boolean(uploadBatchStatus)
 
   return (
     <PageLayout
@@ -1375,6 +1382,12 @@ function KnowledgeBaseDetailContent({
       afterHeader={
         hasDetailNotice ? (
           <div className="knowledge-detail-notices">
+            {uploadBatchStatus && (
+              <KnowledgeUploadBatchProgress
+                status={uploadBatchStatus}
+                onViewDetails={() => setUploadOpen(true)}
+              />
+            )}
             {hasSearchCapabilityNotice && (
               <KnowledgeSearchStatusBanner
                 capability={searchCapability.capability}
@@ -1444,6 +1457,7 @@ function KnowledgeBaseDetailContent({
         knowledgeBaseId={knowledgeBase.id}
         documents={documents}
         onUploaded={invalidate}
+        onBatchStatusChange={setUploadBatchStatus}
         onLocateDocument={(documentId) => {
           window.document
             .getElementById(`knowledge-document-${documentId}`)

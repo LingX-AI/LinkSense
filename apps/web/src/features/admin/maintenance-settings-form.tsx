@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import dayjs from "dayjs"
-import { useState, type FormEvent } from "react"
+import { useCallback, useState, type FormEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
 
@@ -58,6 +58,7 @@ const maintenanceDurationPresets = [
 
 export function MaintenanceSettingsForm() {
   const { t } = useTranslation()
+  const [message, setMessage] = useState<string | null>(null)
   const query = useQuery({
     queryKey: ["admin", "maintenance-settings"],
     queryFn: ({ signal }) =>
@@ -66,6 +67,14 @@ export function MaintenanceSettingsForm() {
         signal,
       }),
   })
+  const clearMessage = useCallback(() => setMessage(null), [])
+  const handleUpdateSuccess = useCallback(
+    (enabled: boolean) =>
+      setMessage(
+        t(enabled ? "admin.maintenance.saved" : "admin.maintenance.closed")
+      ),
+    [t]
+  )
 
   if (query.isLoading) return <LoadingState />
   if (query.error || !query.data) {
@@ -78,17 +87,30 @@ export function MaintenanceSettingsForm() {
   }
 
   return (
-    <MaintenanceSettingsEditor
-      key={`${query.data.enabled}:${query.data.start_at}:${query.data.end_at}`}
-      settings={query.data}
-    />
+    <>
+      <NotificationToast
+        id="maintenance-settings-feedback"
+        message={message}
+        onDismiss={clearMessage}
+      />
+      <MaintenanceSettingsEditor
+        key={`${query.data.enabled}:${query.data.start_at}:${query.data.end_at}`}
+        settings={query.data}
+        onUpdateStart={clearMessage}
+        onUpdateSuccess={handleUpdateSuccess}
+      />
+    </>
   )
 }
 
 function MaintenanceSettingsEditor({
   settings,
+  onUpdateStart,
+  onUpdateSuccess,
 }: {
   settings: MaintenanceStatus
+  onUpdateStart: () => void
+  onUpdateSuccess: (enabled: boolean) => void
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -107,7 +129,6 @@ function MaintenanceSettingsEditor({
     initialDuration.unit
   )
   const [persistedEnabled, setPersistedEnabled] = useState(settings.enabled)
-  const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const createPayload = (nextEnabled = enabled): MaintenanceUpdatePayload => ({
@@ -133,7 +154,7 @@ function MaintenanceSettingsEditor({
       }),
     onSuccess: async ({ settings: updatedSettings }) => {
       setPersistedEnabled(updatedSettings.enabled)
-      setMessage(t("admin.maintenance.saved"))
+      onUpdateSuccess(updatedSettings.enabled)
       setError(null)
       queryClient.setQueryData(
         ["admin", "maintenance-settings"],
@@ -218,7 +239,6 @@ function MaintenanceSettingsEditor({
           </Badge>
         }
       />
-      <NotificationToast id="maintenance-settings-saved" message={message} />
       {error && (
         <StatusBanner className="mt-3" variant="error">
           {error}
@@ -228,7 +248,7 @@ function MaintenanceSettingsEditor({
         className="form-stack settings-form"
         onSubmit={(event: FormEvent) => {
           event.preventDefault()
-          setMessage(null)
+          onUpdateStart()
           const validationError = validate()
           setError(validationError)
           if (!validationError) mutation.mutate(createPayload())
@@ -248,7 +268,7 @@ function MaintenanceSettingsEditor({
             checked={enabled}
             disabled={mutation.isPending}
             onCheckedChange={(nextEnabled) => {
-              setMessage(null)
+              onUpdateStart()
               setError(null)
               setEnabled(nextEnabled)
               if (!nextEnabled && persistedEnabled) {

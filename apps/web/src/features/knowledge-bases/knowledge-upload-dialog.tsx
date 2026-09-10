@@ -45,6 +45,7 @@ import {
   uploadKnowledgeDocument,
   type KnowledgeUploadConflictOptions,
 } from "@/features/knowledge-bases/knowledge-base-api"
+import type { KnowledgeUploadBatchStatus } from "@/features/knowledge-bases/knowledge-upload-batch-progress"
 import type { KnowledgeDocument } from "@/features/knowledge-bases/knowledge-base-contracts"
 import { useKnowledgeUploadLimits } from "@/features/knowledge-bases/knowledge-base-hooks"
 import {
@@ -89,6 +90,7 @@ export function KnowledgeUploadDialog({
   documents,
   onUploaded,
   onLocateDocument,
+  onBatchStatusChange,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -97,6 +99,7 @@ export function KnowledgeUploadDialog({
   documents: KnowledgeDocument[]
   onUploaded: () => void | Promise<void>
   onLocateDocument: (documentId: string) => void
+  onBatchStatusChange?: (status: KnowledgeUploadBatchStatus | null) => void
 }) {
   const { t, i18n } = useTranslation()
   const locale = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
@@ -107,6 +110,7 @@ export function KnowledgeUploadDialog({
   const [uploadMode, setUploadMode] = useState<"files" | "folder">("files")
   const [activeRequestCount, setActiveRequestCount] = useState(0)
   const [conflictItemId, setConflictItemId] = useState<string>()
+  const [batchStarted, setBatchStarted] = useState(false)
   const controllersRef = useRef(new Map<string, AbortController>())
   const fileInputRef = useRef<HTMLInputElement>(null)
   const limitsQuery = useKnowledgeUploadLimits(open)
@@ -126,6 +130,12 @@ export function KnowledgeUploadDialog({
   )
   const conflictItem = items.find((item) => item.id === conflictItemId)
   const uploading = batchRunning || activeRequestCount > 0
+  const batchOngoing =
+    batchStarted && items.some((item) => !isUploadQueueItemComplete(item.state))
+  const batchStatus = useMemo(
+    () => getKnowledgeUploadBatchStatus(items, batchStarted),
+    [batchStarted, items]
+  )
   const shouldRecommendOcr = items.some(
     (item) =>
       item.state === "waiting" &&
@@ -193,6 +203,10 @@ export function KnowledgeUploadDialog({
       return changed ? next : current
     })
   }, [documents, t])
+
+  useEffect(() => {
+    onBatchStatusChange?.(batchStatus)
+  }, [batchStatus, onBatchStatusChange])
 
   const updateItem = (
     itemId: string,
@@ -292,7 +306,9 @@ export function KnowledgeUploadDialog({
   const startWaitingUploads = async () => {
     const pendingItems = items.filter((item) => item.state === "waiting")
     if (pendingItems.length === 0) return
+    setBatchStarted(true)
     setBatchRunning(true)
+    onOpenChange(false)
     let cursor = 0
     const workers = Array.from(
       { length: Math.min(3, pendingItems.length) },
@@ -344,6 +360,7 @@ export function KnowledgeUploadDialog({
         error: error ?? undefined,
       }
     })
+    setBatchStarted(false)
     setItems(nextItems)
   }
 
@@ -362,10 +379,11 @@ export function KnowledgeUploadDialog({
       open={open}
       onOpenChange={(nextOpen) => {
         onOpenChange(nextOpen)
-        if (!nextOpen && !uploading) {
+        if (!nextOpen && !uploading && !batchOngoing) {
           setItems([])
           setBatchError(undefined)
           setConflictItemId(undefined)
+          setBatchStarted(false)
           setOcrEnabled(false)
           setUploadMode("files")
         }
@@ -477,7 +495,7 @@ export function KnowledgeUploadDialog({
             type="file"
             accept={uploadMode === "folder" ? undefined : knowledgeUploadAccept}
             multiple
-            disabled={uploading || !limits}
+            disabled={uploading || batchOngoing || !limits}
             aria-invalid={batchError ? true : undefined}
             onChange={(event) => handleFiles(event.currentTarget.files)}
           />
@@ -664,6 +682,48 @@ export function KnowledgeUploadDialog({
       </Dialog>
     </Dialog>
   )
+}
+
+function isUploadQueueItemComplete(state: UploadQueueState) {
+  return (
+    state === "ready" ||
+    state === "duplicate" ||
+    state === "skipped" ||
+    state === "failed"
+  )
+}
+
+function getKnowledgeUploadBatchStatus(
+  items: UploadQueueItem[],
+  batchStarted: boolean
+): KnowledgeUploadBatchStatus | null {
+  if (!batchStarted || items.length === 0) return null
+  const completedCount = items.filter((item) =>
+    isUploadQueueItemComplete(item.state)
+  ).length
+  const issueCount = items.filter(
+    (item) =>
+      item.state === "failed" ||
+      item.state === "skipped" ||
+      item.state === "conflict"
+  ).length
+  const totalProgress = items.reduce(
+    (total, item) =>
+      total + (isUploadQueueItemComplete(item.state) ? 100 : item.progress),
+    0
+  )
+  return {
+    totalCount: items.length,
+    completedCount,
+    issueCount,
+    progressPercent: Math.round(totalProgress / items.length),
+    phase:
+      completedCount === items.length
+        ? "completed"
+        : items.some((item) => item.state === "conflict")
+          ? "attention"
+          : "running",
+  }
 }
 
 function resolveUploadConflictOptions(

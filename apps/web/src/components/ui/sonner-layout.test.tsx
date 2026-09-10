@@ -62,6 +62,7 @@ describe("notification close button layout", () => {
       expect(style.alignSelf).toBe("center")
       expect(style.marginLeft).toBe("auto")
       expect(style.flexShrink).toBe("0")
+      expect(style.borderWidth).toBe("0px")
     }
   )
 })

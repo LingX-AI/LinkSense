@@ -1223,6 +1223,14 @@ export const enUS = {
       conflictDescription:
         "“{{incoming}}” has the same name as “{{existing}}” but different content. Choose how to handle this file.",
       confirmedName: "Server-confirmed name: {{name}}",
+      batch: {
+        runningTitle: "Uploading and processing documents",
+        attentionTitle: "Some documents need attention",
+        completedTitle: "Document batch processing finished",
+        summary: "Processed {{completed}} / {{total}} documents",
+        issues: "{{count}} documents did not finish successfully",
+        viewDetails: "View details",
+      },
       state: {
         waiting: "Waiting to upload",
         uploading: "Uploading",
@@ -3725,7 +3733,8 @@ export const enUS = {
       timezoneHint:
         "Times use the current device time zone and are converted to system time when saved.",
       save: "Save maintenance settings",
-      saved: "Maintenance settings saved.",
+      saved: "Maintenance settings saved",
+      closed: "System maintenance turned off",
       status: {
         active: "In maintenance",
         scheduled: "Scheduled",

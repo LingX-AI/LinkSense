@@ -609,7 +609,7 @@ describe("ClawHubSkillRepositoryPanel", () => {
       })
     )
     const installedToast =
-      await screen.findByText("已从技能仓库安装到你的个人技能。")
+      await screen.findByText("已从技能仓库安装到你的个人技能")
     expect(installedToast.closest("[data-sonner-toast]")).not.toBeNull()
     expect(await screen.findByText("已安装")).toBeVisible()
   })

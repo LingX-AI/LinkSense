@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -35,7 +35,8 @@ describe("SidebarConversationActions", () => {
     vi.restoreAllMocks()
   })
 
-  it("uses native action titles without mounting tooltip portals", () => {
+  it("shows the pin and archive action names in the shared tooltip", async () => {
+    const interaction = userEvent.setup()
     renderActions(false)
     const pinButton = screen.getByRole("button", {
       name: "置顶任务“整理项目会议纪要”",
@@ -44,9 +45,28 @@ describe("SidebarConversationActions", () => {
       name: "归档任务“整理项目会议纪要”",
     })
 
-    expect(pinButton).toHaveAttribute("title", "置顶任务")
-    expect(archiveButton).toHaveAttribute("title", "归档任务")
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+    expect(pinButton).not.toHaveAttribute("title")
+    expect(archiveButton).not.toHaveAttribute("title")
+
+    await interaction.hover(pinButton)
+    const pinTooltip = await screen.findByRole("tooltip")
+    expect(pinTooltip).toHaveTextContent("置顶任务")
+    expect(pinTooltip).toHaveClass(
+      "rounded-md",
+      "border",
+      "border-[var(--app-border)]",
+      "bg-[var(--app-popover)]",
+      "font-medium",
+      "text-[var(--app-text)]"
+    )
+
+    await interaction.unhover(pinButton)
+    await waitFor(() =>
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+    )
+
+    await interaction.hover(archiveButton)
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("归档任务")
   })
 
   it("keeps pin and archive actions clickable", async () => {
@@ -81,7 +101,7 @@ describe("SidebarConversationActions", () => {
       name: "取消置顶任务“整理项目会议纪要”",
     })
 
-    expect(unpinButton).toHaveAttribute("title", "取消置顶")
+    expect(unpinButton).not.toHaveAttribute("title")
 
     await i18n.changeLanguage("en-US")
     fixture.rerender(
@@ -101,7 +121,7 @@ describe("SidebarConversationActions", () => {
     const englishArchiveButton = screen.getByRole("button", {
       name: "Archive task “Project meeting notes”",
     })
-    expect(englishUnpinButton).toHaveAttribute("title", "Unpin")
-    expect(englishArchiveButton).toHaveAttribute("title", "Archive task")
+    expect(englishUnpinButton).not.toHaveAttribute("title")
+    expect(englishArchiveButton).not.toHaveAttribute("title")
   })
 })

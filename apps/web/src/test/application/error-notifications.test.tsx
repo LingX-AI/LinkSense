@@ -42,7 +42,7 @@ describe("conversation error notifications", () => {
     await interaction.type(composer, "你好呀")
     await interaction.click(screen.getByRole("button", { name: "发送" }))
 
-    const message = "应用不存在或你无权访问。"
+    const message = "应用不存在或你无权访问"
     const error = await screen.findByText(message)
     expect(error.closest("[data-sonner-toast]")).toHaveAttribute(
       "data-type",
@@ -106,7 +106,7 @@ describe("conversation error notifications", () => {
     })
     await interaction.click(restore)
 
-    const error = await screen.findByText("请求的资源不存在或你无权访问。")
+    const error = await screen.findByText("请求的资源不存在或你无权访问")
     expect(error.closest("[data-sonner-toast]")).toHaveAttribute(
       "data-type",
       "error"
