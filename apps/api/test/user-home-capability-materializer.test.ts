@@ -572,7 +572,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       capabilities: [capability],
     })
 
-    expect(publicationGuard).toHaveBeenCalledTimes(2)
+    expect(publicationGuard).toHaveBeenCalledTimes(1)
     expect(published.generation).not.toBe(initial.generation)
     await expect(
       readFile(

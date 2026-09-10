@@ -675,17 +675,32 @@ async function writeBrowserConfig(
   await rename(temporaryPath, destination)
 }
 
+export function browserWorkspaceForTaskHome(userHome: string, expectedTaskId?: string): string {
+  const homes = path.dirname(userHome)
+  const taskId = path.basename(userHome)
+  if (!path.isAbsolute(userHome) || path.normalize(userHome) !== userHome ||
+    path.basename(homes) !== "task-homes" || !conversationIdPattern.test(taskId) ||
+    (expectedTaskId !== undefined && taskId !== expectedTaskId)) {
+    throw new Error("browser requires an isolated task HOME")
+  }
+  return path.join(path.dirname(homes), "workspaces", taskId)
+}
+
 async function resolveTaskWorkspace(
   cwd: string,
   canonicalHome: string,
 ): Promise<string> {
-  const workspaceRoot = await realpath(
-    path.join(canonicalHome, "workspaces"),
-  )
+  const expectedWorkspace = browserWorkspaceForTaskHome(canonicalHome)
+  const taskId = path.basename(expectedWorkspace)
+  const workspaceRoot = path.dirname(expectedWorkspace)
+  const rootInfo = await lstat(workspaceRoot)
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+    throw new Error("browser workspace root boundary is invalid")
+  }
   let candidate = await realpath(cwd)
   while (true) {
     if (
-      conversationIdPattern.test(path.basename(candidate)) &&
+      path.basename(candidate) === taskId &&
       path.dirname(candidate) === workspaceRoot &&
       (await hasTaskWorkspaceDirectories(candidate))
     ) {

@@ -43,3 +43,4 @@ export * from "./voice.js";
 export * from "./voice-transcription-settings.js";
 export * from "./weixin.js";
 export * from "./workspace-permissions.js";
+export * from "./capability-snapshot.js";

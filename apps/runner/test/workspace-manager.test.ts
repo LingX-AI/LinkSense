@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto"
 import {
   chmod,
+  cp,
+  rename,
   chown,
   lstat,
   mkdir,
@@ -1017,6 +1019,60 @@ describe("WorkspaceManager", () => {
 })
 
 describe("CapabilityRuntimeManager", () => {
+  it("reuses verified immutable bytes across tasks while checking each task binding", async () => {
+    const fixture = await publishedRuntimeFixture()
+    const onFullVerification = vi.fn()
+    const identity = { uid: process.getuid?.() ?? 1000, gid: process.getgid?.() ?? 1000 }
+    const manager = new CapabilityRuntimeManager({ apiIdentity: identity, taskIdentity: identity, onFullVerification })
+    const seed = path.join(path.dirname(fixture.userHome), "seed")
+    await rename(path.join(fixture.userHome, ".agents"), seed)
+    const id = `${generation}-11111111-1111-4111-8111-111111111111`
+    const snapshots = path.join(fixture.userHome, ".agents", "snapshots")
+    const tasks = path.join(fixture.userHome, ".agents", "tasks")
+    await mkdir(snapshots, { recursive: true, mode: 0o750 })
+    await mkdir(tasks, { mode: 0o750 })
+    const snapshot = path.join(snapshots, id)
+    await rename(seed, snapshot)
+    await writeFile(path.join(snapshot, "capability-snapshot.json"), JSON.stringify({
+      version: 1, id, generation, contentDigest: fixture.contentDigest, sourceDigest: generation, pluginNames: ["documents"],
+    }), { mode: 0o640 })
+    const capabilities = [
+      { id: "019f45dd-a318-7d02-b03b-eaece8887881", name: "documents", type: "plugin" as const, revision: "current" },
+      { id: "019f45dd-a318-7d02-b03b-eaece8887882", name: "reports", type: "skill" as const, revision: "current" },
+    ]
+    const inputs = []
+    for (const task of ["019f45dd-a318-7d02-b03b-eaece8887883", "019f45dd-a318-7d02-b03b-eaece8887884"]) {
+      const userHome = path.join(fixture.userHome, "task-homes", task)
+      await mkdir(path.join(userHome, ".codex"), { recursive: true })
+      await chmod(userHome, 0o770)
+      await chmod(path.join(userHome, ".codex"), 0o770)
+      await symlink(`../snapshots/${id}`, path.join(tasks, task))
+      await symlink(path.join(tasks, task), path.join(userHome, ".agents"))
+      const controlRoot = path.join(path.dirname(fixture.controlRoot), task)
+      await cp(fixture.controlRoot, controlRoot, { recursive: true })
+      await writeFile(path.join(controlRoot, "capabilities", "capability-source-sha256"), `${generation}\n`, { mode: 0o600 })
+      inputs.push({ userHome, controlRoot, expectedGeneration: generation, capabilities, reuseImmutableSnapshot: true })
+    }
+    const first = inputs[0]
+    const second = inputs[1]
+    if (!first || !second) throw new Error("missing task fixtures")
+    const before = await manager.resolvePublished(first)
+    const after = await manager.resolvePublished(second)
+    expect(onFullVerification).toHaveBeenCalledTimes(1)
+    expect(after.contentDigest).toBe(before.contentDigest)
+    expect(after.skillsRoot).not.toBe(before.skillsRoot)
+    await expect(manager.resolvePublished({ ...second, capabilities: capabilities.slice(0, 1) })).rejects.toBeInstanceOf(CapabilityRuntimeError)
+    await writeFile(path.join(second.controlRoot, "capabilities", "capability-content-sha256"), `${"f".repeat(64)}\n`)
+    await expect(manager.resolvePublished(second)).rejects.toBeInstanceOf(CapabilityRuntimeError)
+    await writeFile(path.join(second.controlRoot, "capabilities", "capability-content-sha256"), `${fixture.contentDigest}\n`)
+    await chmod(snapshot, 0o770)
+    await expect(manager.resolvePublished(second)).rejects.toBeInstanceOf(CapabilityRuntimeError)
+    await chmod(snapshot, 0o750)
+    await rm(path.join(tasks, path.basename(second.userHome)))
+    await symlink(snapshot, path.join(tasks, path.basename(second.userHome)))
+    await expect(manager.resolvePublished(second)).rejects.toBeInstanceOf(CapabilityRuntimeError)
+  })
+
   it("validates the API-published user HOME without copying source or cache", async () => {
     const fixture = await publishedRuntimeFixture()
     const manager = localCapabilityRuntimeManager()

@@ -1,10 +1,44 @@
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
+import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:4000/api/v1/";
 const DEFAULT_RUNNER_BASE_URL = "http://127.0.0.1:4010/";
 const PREWARM_RELATIVE_PATH = "conversations/prewarm";
+const { createParser } = createRequire(new URL("../apps/runner/package.json", import.meta.url))("eventsource-parser");
+
+export function isAssistantTextDelta(event, turnId) {
+  if (!event || event.turn_id !== turnId) return false;
+  const text = event.event_type === "item/agentMessage/delta"
+    ? event.payload?.params?.delta
+    : event.event_type === "conversation.message.delta" && event.payload?.role !== "user"
+      ? event.payload?.delta : null;
+  return typeof text === "string" && text.length > 0;
+}
+
+export async function observeFirstText(url, headers, turnId, submittedAt, signal) {
+  try {
+    const response = await fetch(url, { headers, signal });
+    if (!response.ok || !response.body) throw new Error(`event stream returned HTTP ${response.status}`);
+    let firstTextMs = null;
+    const parser = createParser({ maxBufferSize: 2 * 1024 * 1024, onEvent: ({ data }) => {
+      let event;
+      try { event = JSON.parse(data); } catch { return; }
+      if (firstTextMs === null && isAssistantTextDelta(event, turnId)) firstTextMs = round(performance.now() - submittedAt);
+    } });
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (firstTextMs === null) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parser.feed(decoder.decode(value, { stream: true }));
+      }
+      return firstTextMs;
+    } finally { await reader.cancel(); reader.releaseLock(); }
+  } catch (error) { if (signal.aborted) return null; throw error; }
+}
 
 export function percentile(values, percentage) {
   if (values.length === 0) return null;
@@ -192,13 +226,16 @@ function endpoint(baseUrl, relativePath) {
 
 async function measurePrewarm(config) {
   const measurements = [];
-  for (let index = 0; index < config.prewarmSamples; index += 1) {
+  let reservationId = null;
+  // Do not create several unclaimed task HOMEs just to time an enqueue receipt.
+  const samples = config.conversationId ? config.prewarmSamples : 1;
+  for (let index = 0; index < samples; index += 1) {
     const { response, body, durationMs } = await requestJson(
       endpoint(config.apiBaseUrl, PREWARM_RELATIVE_PATH),
       {
         method: "POST",
         headers: authenticatedHeaders(config.accessToken),
-        body: "{}",
+        body: JSON.stringify(config.conversationId ? { conversation_id: config.conversationId } : {}),
       },
       config.requestTimeoutMs,
     );
@@ -209,12 +246,15 @@ async function measurePrewarm(config) {
       );
     }
     measurements.push(durationMs);
+    reservationId = data.conversation_id ?? null;
   }
   return {
     first_observed_ms: round(measurements[0]),
     warm: summarizeDurations(measurements.slice(1)),
     samples_ms: measurements.map(round),
     cold_start_verified: false,
+    boundary: "prewarm_enqueue_receipt",
+    conversation_id: reservationId,
   };
 }
 
@@ -237,15 +277,14 @@ async function runnerHealth(config) {
   };
 }
 
-async function createEphemeralConversation(config) {
-  const { response, body } = await requestJson(
-    endpoint(config.apiBaseUrl, "conversations/drafts"),
+async function createEphemeralConversation(config, reservationId) {
+  const { response, body, durationMs } = await requestJson(
+    endpoint(config.apiBaseUrl, "conversations/"),
     {
       method: "POST",
       headers: authenticatedHeaders(config.accessToken),
       body: JSON.stringify({
-        input_text: "",
-        priority_capability_ids: config.capabilityIds,
+        ...(reservationId ? { prewarmed_conversation_id: reservationId } : {}),
       }),
     },
     config.requestTimeoutMs,
@@ -257,7 +296,7 @@ async function createEphemeralConversation(config) {
       `ephemeral conversation creation returned HTTP ${response.status} without a conversation id.`,
     );
   }
-  return conversationId;
+  return { conversationId, durationMs: round(durationMs) };
 }
 
 async function readConversation(config, conversationId) {
@@ -313,7 +352,6 @@ async function measureTurns(config, conversationId) {
           input_text: `${config.turnMessage} (${index + 1}/${config.turnSamples}, ${idempotencyKey})`,
           priority_capability_ids: config.capabilityIds,
           idempotency_key: idempotencyKey,
-          draft_policy: "preserve",
           submit_mode: "normal",
         }),
       },
@@ -330,16 +368,26 @@ async function measureTurns(config, conversationId) {
         `turn submission returned HTTP ${response.status} without a starting receipt.`,
       );
     }
-    const terminal = await waitForTurn(
+    const streamAbort = new AbortController();
+    let streamError;
+    const firstText = observeFirstText(endpoint(config.apiBaseUrl, `conversations/${conversationId}/events`),
+      authenticatedHeaders(config.accessToken), receipt.turn_id, submittedAt,
+      AbortSignal.any([streamAbort.signal, AbortSignal.timeout(config.turnCompletionTimeoutMs)])
+    ).catch((error) => { streamError = error; return null; });
+    let terminal;
+    try { terminal = await waitForTurn(
       config,
       conversationId,
       receipt.turn_id,
       submittedAt,
-    );
+    ); } finally { streamAbort.abort(); }
+    const firstTextMs = await firstText;
+    if (streamError) throw streamError;
     turns.push({
       sample: index + 1,
       turn_id: receipt.turn_id,
       acceptance_ms: round(durationMs),
+      first_text_ms: firstTextMs,
       ...terminal,
     });
   }
@@ -351,7 +399,7 @@ async function deleteEphemeralConversation(config, conversationId) {
     endpoint(config.apiBaseUrl, `conversations/${conversationId}`),
     {
       method: "DELETE",
-      headers: authenticatedHeaders(config.accessToken),
+      headers: { authorization: `Bearer ${config.accessToken}` },
     },
     config.requestTimeoutMs,
   );
@@ -477,20 +525,23 @@ export async function runLatencySmoke(environment = process.env) {
   const config = configuration(environment);
   const result = {
     measured_at: new Date().toISOString(),
-    note:
-      "The first prewarm is only a verified cold start when the token belongs to a dedicated user with no existing worker.",
+    note: "Prewarm measures queue acceptance, not native readiness. First text measures SSE arrival, not browser paint or pure provider latency.",
     runner_before: await runnerHealth(config),
     prewarm: await measurePrewarm(config),
     turns: [],
     runner_after: null,
     ephemeral_conversation_id: null,
+    creation_ms: null,
   };
 
   let ephemeralConversationId = null;
   if (config.allowTurn) {
-    const conversationId =
-      config.conversationId ??
-      (ephemeralConversationId = await createEphemeralConversation(config));
+    let conversationId = config.conversationId;
+    if (!conversationId) {
+      const created = await createEphemeralConversation(config, result.prewarm.conversation_id);
+      conversationId = ephemeralConversationId = created.conversationId;
+      result.creation_ms = created.durationMs;
+    }
     result.ephemeral_conversation_id = ephemeralConversationId;
     try {
       result.turns = await measureTurns(config, conversationId);
@@ -516,11 +567,11 @@ function printHuman(result, failures) {
   process.stdout.write("LinkSense latency measurement\n");
   process.stdout.write(`${result.note}\n\n`);
   process.stdout.write(
-    `Worker prewarm: first=${result.prewarm.first_observed_ms}ms, warm=${JSON.stringify(result.prewarm.warm)}\n`,
+    `Prewarm enqueue: first=${result.prewarm.first_observed_ms}ms, repeated=${JSON.stringify(result.prewarm.warm)}; create=${result.creation_ms}ms\n`,
   );
   for (const turn of result.turns) {
     process.stdout.write(
-      `Turn ${turn.sample}: accept=${turn.acceptance_ms}ms, project=${turn.projection_ms}ms, complete=${turn.completion_ms}ms, status=${turn.final_status}\n`,
+      `Turn ${turn.sample}: accept=${turn.acceptance_ms}ms, project=${turn.projection_ms}ms, first_text=${turn.first_text_ms}ms, complete=${turn.completion_ms}ms, status=${turn.final_status}\n`,
     );
   }
   if (result.runner_before || result.runner_after) {

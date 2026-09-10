@@ -22,9 +22,9 @@ describe("managed browser MCP server", () => {
   it("keeps browser output inside a bounded JSON-RPC tool response", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "linksense-browser-mcp-"))
     roots.push(root)
-    const home = path.join(root, "home")
+    const home = path.join(root, "home", "task-homes", conversationId)
     const codexHome = path.join(home, ".codex")
-    const workspace = path.join(home, "workspaces", conversationId)
+    const workspace = path.join(root, "home", "workspaces", conversationId)
     await Promise.all([
       mkdir(codexHome, { recursive: true }),
       ...["artifacts", "attachments", "temp"].map((directory) =>

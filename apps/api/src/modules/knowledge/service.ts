@@ -1662,8 +1662,20 @@ export class KnowledgeService {
     locator: { turnId?: string; codexTurnId?: string },
   ): Promise<KnowledgeSelectionResult> {
     assertActiveActor(actor);
-    const requested = await this.#store.getTurnKnowledgeBaseIds(locator);
-    return this.resolveUsableKnowledgeBaseIds(actor, requested);
+    const [requested, usable] = await Promise.all([
+      this.#store.getTurnKnowledgeBaseIds(locator),
+      this.#store.resolveUsableKnowledgeBaseIds(actor.id),
+    ]);
+    const usableSet = new Set(usable);
+    return {
+      requested_ids: requested,
+      // Selection controls focus and ordering, never resource authorization.
+      usable_ids: uniqueIds([
+        ...requested.filter((id) => usableSet.has(id)),
+        ...usable,
+      ]),
+      unavailable_ids: requested.filter((id) => !usableSet.has(id)),
+    };
   }
 
   async #startDocumentOperation(

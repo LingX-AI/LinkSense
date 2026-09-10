@@ -412,8 +412,6 @@ const PLAN_OUTPUT_MISSING_ERROR_CODE = "PLAN_OUTPUT_MISSING";
 const ACCEPTED_START_RECOVERY_WINDOW_MILLISECONDS = 60_000;
 const ACCEPTED_START_RECOVERY_POLL_MILLISECONDS = 250;
 const START_INTENT_RECOVERY_LOCK_TTL_MILLISECONDS = 15_000;
-const RESERVED_RUNTIME_CLAIM_WINDOW_MILLISECONDS = 1_000;
-const RESERVED_RUNTIME_CLAIM_POLL_MILLISECONDS = 25;
 const CONVERSATION_DETAIL_TRANSIENT_EVENT_TYPES = [
   "conversation.message.delta",
   "item/agentMessage/delta",
@@ -984,28 +982,40 @@ export class ConversationService {
         applicationId: true,
         codexThreadId: true,
         collaborationMode: true,
+        interactiveApplicationPackageId: true,
       },
     });
     if (existing && existing.ownerId !== input.ownerId) return;
-    if (existing?.applicationId) {
-      await this.preflight.ensureUserHome(input.ownerId);
-      await this.runner.prewarmWorker(input.ownerId);
-      return;
-    }
-
-    const [resolved, modelRuntime, executionConcurrency] = await Promise.all([
+    const applicationRuntime = await this.applicationRuntimeForConversation(
+      input.ownerId,
+      existing?.applicationId,
+      existing?.interactiveApplicationPackageId,
+    );
+    // Publish the mount boundary first, then overlap the cheap claimable
+    // directory with capability preparation and Worker startup.
+    await this.preflight.ensureUserHome(input.ownerId);
+    const [resolved, modelRuntime, executionConcurrency, runtime] = await Promise.all([
       this.preflight.resolve({
         userId: input.ownerId,
         conversationId: input.conversationId,
         priorityCapabilityIds: [],
+        ...(applicationRuntime?.kind === "standard" ? {
+          capabilityScope: {
+            applicationId: applicationRuntime.applicationId,
+            sourceOwnerId: applicationRuntime.applicationOwnerId,
+            capabilityIds: applicationRuntime.capabilityIds,
+            mcpServerIds: applicationRuntime.mcpServerIds,
+          },
+        } : {}),
       }),
-      this.modelRuntimeForUser(
+      applicationRuntime?.model && applicationRuntime.reasoningEffort
+        ? this.modelRuntimeForSelection(input.ownerId, input.conversationId,
+            applicationRuntime.model, applicationRuntime.reasoningEffort)
+        : this.modelRuntimeForUser(
         input.ownerId,
         existing ? input.conversationId : undefined,
       ),
       this.executionConcurrencyForStart(),
-    ]);
-    const [runtime] = await Promise.all([
       this.runner.prepareRuntime(input.conversationId, input.ownerId),
       this.runner.prewarmWorker(input.ownerId),
     ]);
@@ -6905,19 +6915,15 @@ export class ConversationService {
         runtime = prewarmedRuntime;
       } else {
         const reservedRuntime = prewarmedConversationId
-          ? await this.waitForReservedRuntime(id, ownerId)
+          ? await this.runner.inspectRuntime(id, ownerId)
           : null;
         if (reservedRuntime) {
           runtime = reservedRuntime;
         } else {
-          // Reuse this task's verified prewarm publication when available.
-          // A cold task prepares its own snapshot without changing or waiting
-          // for another task's capabilities.
-          await this.preflight.resolve({
-            userId: ownerId,
-            conversationId: id,
-            priorityCapabilityIds: [],
-          });
+          // Creation needs storage, not a native process or capability set.
+          // Prewarm/first submit resolve the final authorized scope (including
+          // the application creator's capabilities and credentials).
+          await this.preflight.ensureUserHome(ownerId);
           runtime = await this.runner.prepareRuntime(id, ownerId);
         }
       }
@@ -6989,28 +6995,6 @@ export class ConversationService {
         .catch(() => undefined);
       throw error;
     }
-  }
-
-  private async waitForReservedRuntime(
-    conversationId: string,
-    ownerId: string,
-  ): Promise<Awaited<ReturnType<RunnerClient["inspectRuntime"]>>> {
-    const deadline = Date.now() + RESERVED_RUNTIME_CLAIM_WINDOW_MILLISECONDS;
-    do {
-      const runtime = await this.runner
-        .inspectRuntime(conversationId, ownerId)
-        .catch(() => null);
-      if (runtime) return runtime;
-      if (Date.now() >= deadline) return null;
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(
-          resolve,
-          RESERVED_RUNTIME_CLAIM_POLL_MILLISECONDS,
-        );
-        timer.unref();
-      });
-    } while (Date.now() < deadline);
-    return null;
   }
 
   private async prepareOfficeAnnotation(

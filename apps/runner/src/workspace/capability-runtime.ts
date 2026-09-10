@@ -8,6 +8,11 @@ import { z } from "zod"
 
 import {
   builtInSkillNames,
+  capabilitySnapshotDirectory,
+  capabilitySnapshotManifest,
+  capabilitySnapshotIdSchema,
+  capabilitySnapshotSchema,
+  type CapabilitySnapshot,
   linksenseRuntimeIdentity,
 } from "@linksense/shared"
 
@@ -76,6 +81,12 @@ export class CapabilityRuntimeError extends Error {
 export class CapabilityRuntimeManager {
   readonly #apiIdentity: RuntimeIdentity
   readonly #taskIdentity: RuntimeIdentity
+  readonly #onFullVerification: (() => void) | undefined
+  readonly #verifiedSnapshots = new Map<string, {
+    capabilityFingerprint: string
+    contentDigest: string
+    pluginContentDigest: string
+  }>()
   readonly #verifiedPublications = new Map<
     string,
     {
@@ -87,7 +98,9 @@ export class CapabilityRuntimeManager {
   constructor(options?: {
     apiIdentity?: RuntimeIdentity
     taskIdentity?: RuntimeIdentity
+    onFullVerification?: () => void
   }) {
+    this.#onFullVerification = options?.onFullVerification
     this.#apiIdentity = options?.apiIdentity ?? {
       uid: linksenseRuntimeIdentity.apiUid,
       gid: linksenseRuntimeIdentity.sharedGid,
@@ -223,6 +236,7 @@ export class CapabilityRuntimeManager {
     capabilities: CapabilityRuntimeInput[]
     lockHeld?: boolean
     reuseVerified?: boolean
+    reuseImmutableSnapshot?: boolean
   }): Promise<PreparedCapabilityRuntime> {
     if (!capabilityGenerationPattern.test(input.expectedGeneration)) {
       throw new CapabilityRuntimeError()
@@ -239,7 +253,33 @@ export class CapabilityRuntimeManager {
       const capabilityFingerprint = capabilityRuntimeFingerprint(
         input.capabilities,
       )
+      // Snapshot IDs are never reused, including after repair. Validate the
+      // task binding on every lookup; only immutable file bytes are cached.
+      const snapshot = await this.assertAgentsProjection(input.userHome)
+      if (snapshot) {
+        const paths = this.pathsFor(input.userHome, input.controlRoot)
+        await Promise.all([
+          this.assertDirectory(input.userHome, 0o770, this.#taskIdentity),
+          this.assertDirectory(path.join(input.userHome, ".codex"), 0o770, this.#taskIdentity),
+          this.assertDirectory(paths.capabilityControl, 0o700, this.#apiIdentity),
+        ])
+        const markers = await Promise.all([
+          "capability-generation", "capability-content-sha256", "capability-source-sha256",
+        ].map(async (name) => {
+          const target = path.join(paths.capabilityControl, name)
+          await this.assertRegularFile(target, 0o600, this.#apiIdentity)
+          return this.readControlDigest(target)
+        }))
+        if (snapshot.manifest.generation !== input.expectedGeneration ||
+          markers[0] !== snapshot.manifest.generation || markers[1] !== snapshot.manifest.contentDigest ||
+          markers[2] !== snapshot.manifest.sourceDigest) throw new CapabilityRuntimeError()
+        const cached = input.reuseImmutableSnapshot ? this.#verifiedSnapshots.get(snapshot.root) : undefined
+        if (cached?.capabilityFingerprint === capabilityFingerprint && cached.contentDigest === snapshot.manifest.contentDigest) {
+          return { ...paths, contentDigest: cached.contentDigest, pluginContentDigest: cached.pluginContentDigest, generation: input.expectedGeneration }
+        }
+      }
       const verified = input.reuseVerified
+        && !snapshot
         ? this.#verifiedPublications.get(cacheKey)
         : undefined
       if (
@@ -249,6 +289,13 @@ export class CapabilityRuntimeManager {
         return verified.runtime
       }
       const runtime = await this.resolveLocked(input)
+      if (snapshot) {
+        if (this.#verifiedSnapshots.size >= 256 && !this.#verifiedSnapshots.has(snapshot.root)) {
+          const oldest = this.#verifiedSnapshots.keys().next().value
+          if (oldest !== undefined) this.#verifiedSnapshots.delete(oldest)
+        }
+        this.#verifiedSnapshots.set(snapshot.root, { capabilityFingerprint, contentDigest: runtime.contentDigest, pluginContentDigest: runtime.pluginContentDigest })
+      }
       // Verification is an optional speed cache. Bound it independently of
       // how many historical tasks this worker has served.
       if (this.#verifiedPublications.size >= 256 && !this.#verifiedPublications.has(cacheKey)) {
@@ -274,6 +321,7 @@ export class CapabilityRuntimeManager {
     expectedGeneration: string
     capabilities: CapabilityRuntimeInput[]
   }): Promise<PreparedCapabilityRuntime> {
+    this.#onFullVerification?.()
     const paths = this.pathsFor(input.userHome, input.controlRoot)
     await Promise.all([
       this.assertDirectory(
@@ -445,12 +493,12 @@ export class CapabilityRuntimeManager {
     )
   }
 
-  private async assertAgentsProjection(userHome: string): Promise<void> {
+  private async assertAgentsProjection(userHome: string): Promise<{ root: string; manifest: CapabilitySnapshot } | null> {
     const agents = path.join(userHome, ".agents")
     const info = await lstat(agents)
     if (!info.isSymbolicLink()) {
       await this.assertDirectory(agents, 0o750, this.#apiIdentity)
-      return
+      return null
     }
     const homes = path.dirname(userHome)
     const conversationId = path.basename(userHome)
@@ -461,7 +509,23 @@ export class CapabilityRuntimeManager {
     if (path.resolve(userHome, await readlink(agents)) !== projection) {
       throw new CapabilityRuntimeError()
     }
-    await this.assertDirectory(projection, 0o750, this.#apiIdentity)
+    const taskProjection = await lstat(projection)
+    if (!taskProjection.isSymbolicLink()) throw new CapabilityRuntimeError()
+    const target = await readlink(projection)
+    const id = path.basename(target)
+    if (!capabilitySnapshotIdSchema.safeParse(id).success || target !== `../${capabilitySnapshotDirectory}/${id}`) throw new CapabilityRuntimeError()
+    const snapshotParent = path.join(path.dirname(homes), ".agents", capabilitySnapshotDirectory)
+    const root = path.join(snapshotParent, id)
+    await Promise.all([
+      this.assertDirectory(path.dirname(projection), 0o750, this.#apiIdentity),
+      this.assertDirectory(snapshotParent, 0o750, this.#apiIdentity),
+      this.assertDirectory(root, 0o750, this.#apiIdentity),
+      this.assertRegularFile(path.join(root, capabilitySnapshotManifest), 0o640, this.#apiIdentity),
+    ])
+    if ((await lstat(path.join(root, capabilitySnapshotManifest))).size > 64 * 1024) throw new CapabilityRuntimeError()
+    const manifest = capabilitySnapshotSchema.parse(JSON.parse(await readFile(path.join(root, capabilitySnapshotManifest), "utf8")))
+    if (manifest.id !== id) throw new CapabilityRuntimeError()
+    return { root, manifest }
   }
 
   private async assertDirectory(

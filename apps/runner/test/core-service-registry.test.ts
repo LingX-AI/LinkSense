@@ -10,6 +10,18 @@ const conversationId = "01900000-0000-7000-8000-000000000001"
 const token = "turn-token-00000000000000000000000000000000"
 
 describe("Core MCP module registry", () => {
+  it.each(["default", "plan"] as const)("makes knowledge tools available without input-box selection in %s mode", (mode) => {
+    const registry = createCoreMcpRegistry({ mode, environment: defaultEnvironment() })
+    for (const name of ["search_knowledge_base", "list_knowledge_documents"]) {
+      const description = registry.tools.find((tool) => tool.name === name)?.description
+      expect(description).toContain("including unselected bases")
+      expect(description).toContain("Input-box selection expresses focus, not access permission")
+    }
+    const read = registry.tools.find((tool) => tool.name === "get_knowledge_document_markdown")
+    expect(read?.description).toContain("whether or not its knowledge base was selected")
+    expect(read?.description).toContain("Authorization is checked on every call")
+  })
+
   it("registers all ordinary built-in services in Default mode", () => {
     const registry = createCoreMcpRegistry({
       mode: "default",

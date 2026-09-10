@@ -74,16 +74,14 @@ import { ExternalImageService } from "./modules/external-images/service.js";
 import { TurnKnowledgeSourceStore } from "./modules/events/knowledge-source-store.js";
 import { PrismaKnowledgeStore } from "./modules/knowledge/repository.js";
 import { KnowledgeService } from "./modules/knowledge/service.js";
+import { createTurnKnowledgeScopeResolver } from "./modules/knowledge/turn-scope.js";
 import { MinioKnowledgeDocumentIngestionAdapter } from "./modules/knowledge/ingestion.js";
 import { PrismaMinioKnowledgeDocumentAccessAdapter } from "./modules/knowledge/access.js";
 import {
   KnowledgeDocumentEventPublisher,
   RedisKnowledgeEventSource,
 } from "./modules/knowledge/events.js";
-import {
-  InternalKnowledgeSearchService,
-  type TurnKnowledgeScopeResolver,
-} from "./modules/knowledge/internal-search.js";
+import { InternalKnowledgeSearchService } from "./modules/knowledge/internal-search.js";
 import { TurnKnowledgeDocumentReferenceStore } from "./modules/knowledge/knowledge-document-ref-store.js";
 import { KnowledgeTurnAssetReadService } from "./modules/knowledge/turn-asset-read.js";
 import { ConversationAssetSnapshots } from "./modules/knowledge/conversation-asset-snapshots.js";
@@ -607,73 +605,10 @@ export function createServices(input: {
       knowledgeSourceRuntime,
     );
     knowledgeSourceServiceRef.current = knowledgeSourceService;
-    const turnKnowledgeScopes: TurnKnowledgeScopeResolver = {
-      async getTurnRetrievalScope(actor, locator) {
-        const direct = await knowledge?.getTurnRetrievalScope(actor, locator);
-        if (!direct) throw new Error("KNOWLEDGE_NOT_INSTALLED");
-        const applicationIds =
-          await applications.resolveUsableKnowledgeBaseIdsForTurn(
-            actor.id,
-            locator,
-            direct.requested_ids,
-          );
-        const usable = direct.requested_ids.filter(
-          (id) => direct.usable_ids.includes(id) || applicationIds.includes(id),
-        );
-        const usableSet = new Set(usable);
-        return {
-          requested_ids: direct.requested_ids,
-          usable_ids: usable,
-          unavailable_ids: direct.requested_ids.filter(
-            (id) => !usableSet.has(id),
-          ),
-        };
-      },
-      listDocuments: async (actor, knowledgeBaseId, request) => {
-        if (!knowledge) throw new Error("KNOWLEDGE_NOT_INSTALLED");
-        const applicationIds =
-          await applications.resolveUsableKnowledgeBaseIdsForTurn(
-            actor.id,
-            { turnId: request.turnId },
-            [knowledgeBaseId],
-          );
-        return applicationIds.includes(knowledgeBaseId)
-          ? knowledge.listDocumentsForAuthorizedApplicationTurn(
-              knowledgeBaseId,
-              request,
-            )
-          : knowledge.listDocuments(actor, knowledgeBaseId, request);
-      },
-      getParsedContentChunk: async (
-        actor,
-        knowledgeBaseId,
-        documentId,
-        documentVersionId,
-        request,
-      ) => {
-        if (!knowledge) throw new Error("KNOWLEDGE_NOT_INSTALLED");
-        const applicationIds =
-          await applications.resolveUsableKnowledgeBaseIdsForTurn(
-            actor.id,
-            { turnId: request.turnId },
-            [knowledgeBaseId],
-          );
-        return applicationIds.includes(knowledgeBaseId)
-          ? knowledge.getParsedContentChunkForAuthorizedApplicationTurn(
-              knowledgeBaseId,
-              documentId,
-              documentVersionId,
-              request,
-            )
-          : knowledge.getParsedContentChunk(
-              actor,
-              knowledgeBaseId,
-              documentId,
-              documentVersionId,
-              request,
-            );
-      },
-    };
+    const turnKnowledgeScopes = createTurnKnowledgeScopeResolver(
+      knowledge,
+      applications,
+    );
     knowledgeSearch = new InternalKnowledgeSearchService(
       input.prisma,
       turnKnowledgeScopes,

@@ -6,6 +6,8 @@ import {
   evaluateLatencyTargets,
   findProjectedTurn,
   percentile,
+  isAssistantTextDelta,
+  observeFirstText,
   runLatencySmoke,
   summarizeDurations,
   unwrapData,
@@ -108,7 +110,8 @@ test("default smoke mode only calls the authenticated prewarm endpoint", async (
       LINKSENSE_LATENCY_PREWARM_SAMPLES: "2",
     });
     assert.equal(result.turns.length, 0);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 1);
+    assert.equal(result.prewarm.boundary, "prewarm_enqueue_receipt");
     assert.ok(
       calls.every(
         (call) =>
@@ -122,4 +125,64 @@ test("default smoke mode only calls the authenticated prewarm endpoint", async (
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+
+test("first text ignores other turns, reasoning, tools and empty deltas", () => {
+  const event = { turn_id: "turn-a", event_type: "item/agentMessage/delta", payload: { params: { delta: "hello" } } };
+  assert.equal(isAssistantTextDelta(event, "turn-a"), true);
+  assert.equal(isAssistantTextDelta(event, "turn-b"), false);
+  assert.equal(isAssistantTextDelta({ ...event, event_type: "item/reasoning/summaryTextDelta" }, "turn-a"), false);
+  assert.equal(isAssistantTextDelta({ ...event, payload: { params: { delta: "" } } }, "turn-a"), false);
+  assert.equal(isAssistantTextDelta({ ...event, event_type: "conversation.message.delta", payload: { delta: "hello", role: "user" } }, "turn-a"), false);
+});
+
+test("first text is measured from fragmented SSE and closes the stream", async () => {
+  const originalFetch = globalThis.fetch;
+  let cancelled = false;
+  const event = { turn_id: "turn-a", event_type: "item/agentMessage/delta", payload: { params: { delta: "你好" } } };
+  const encoded = new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`);
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) { controller.enqueue(encoded.slice(0, 70)); controller.enqueue(encoded.slice(70)); },
+    cancel() { cancelled = true; },
+  }));
+  try {
+    const result = await observeFirstText(new URL("http://127.0.0.1/events"), {}, "turn-a", performance.now(), new AbortController().signal);
+    assert.equal(typeof result, "number");
+    assert.equal(cancelled, true);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("turn benchmark uses the current create and submit contracts and bodyless DELETE", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ path: url.pathname, ...options });
+    const json = (data, status = 200) => new Response(JSON.stringify({ data }), { status });
+    if (url.pathname.endsWith('/prewarm')) return json({ accepted: true, conversation_id: 'reserved-task' }, 202);
+    if (url.pathname.endsWith('/conversations/')) {
+      assert.deepEqual(JSON.parse(options.body), { prewarmed_conversation_id: 'reserved-task' });
+      return json({ id: 'reserved-task' }, 201);
+    }
+    if (url.pathname.endsWith('/turns')) {
+      assert.equal('draft_policy' in JSON.parse(options.body), false);
+      return json({ accepted: true, status: 'starting', turn_id: 'test-turn' }, 202);
+    }
+    if (url.pathname.endsWith('/events')) {
+      return new Response(`data: ${JSON.stringify({ turn_id: 'test-turn', event_type: 'item/agentMessage/delta', payload: { params: { delta: 'OK' } } })}\n\n`);
+    }
+    if (options.method === 'DELETE') {
+      assert.equal(options.headers['content-type'], undefined);
+      assert.equal(options.body, undefined);
+      return new Response(null, { status: 204 });
+    }
+    return json({ turns: [{ id: 'test-turn', status: 'completed' }] });
+  };
+  try {
+    const { result } = await runLatencySmoke({ LINKSENSE_LATENCY_ACCESS_TOKEN: 'test-token', LINKSENSE_LATENCY_ALLOW_TURN: '1', LINKSENSE_LATENCY_TURN_SAMPLES: '1' });
+    assert.equal(result.ephemeral_conversation_id, null);
+    assert.equal(typeof result.creation_ms, 'number');
+    assert.equal(result.turns[0].final_status, 'completed');
+    assert.equal(calls.filter((call) => call.method === 'DELETE').length, 1);
+  } finally { globalThis.fetch = originalFetch; }
 });

@@ -77,6 +77,8 @@ try {
     assert.equal(info.uid, 1001); assert.equal(info.gid, 1000); assert.equal(info.mode & 0o777, 0o770)
   }
   checked("task homes have production UID/GID and stay outside downloadable workspaces")
+  await taskNode("import(process.argv[1]).then(({browserCliMain}) => browserCliMain(['__cleanup'], {HOME:process.argv[2], CODEX_HOME:process.argv[3]}, process.argv[4], {policy:{sessionRoot:process.argv[5],sessionLimit:2}})).then(code=>{process.exitCode=code})", path.join(runner, "browser/cli-wrapper.js"), pathsA.home, pathsA.codexHome, pathsA.workspace, path.join(root, "browser-sessions"))
+  checked("browser cleanup resolves the isolated task HOME as the real task UID")
   await taskNode("require('node:fs').writeFileSync(process.argv[1], 'task-write')", path.join(pathsA.codexHome, "task-write"))
   await assert.rejects(taskNode("require('node:fs').writeFileSync(process.argv[1], 'tampered')", path.join(pathsA.home, ".agents/plugins/marketplace.json")), /EACCES|EPERM|EROFS/)
   await assert.rejects(taskNode("require('node:fs').writeFileSync(process.argv[1], 'tampered')", a.generationPath), /EACCES|EPERM/)

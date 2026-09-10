@@ -981,9 +981,9 @@ export const errorCatalog = {
     message_key: "errors.knowledgeSearch.noAvailableBases",
     http_status: 409,
     messages: {
-      "zh-CN": "本轮未选择知识库，或已选知识库当前不可用。",
+      "zh-CN": "当前没有可访问且可用的知识库。",
       "en-US":
-        "No knowledge base is selected for this run, or the selected knowledge bases are no longer available.",
+        "No knowledge bases are currently accessible and available.",
     },
   },
   KNOWLEDGE_SEARCH_UNAVAILABLE: {

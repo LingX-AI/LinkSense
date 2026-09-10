@@ -251,17 +251,18 @@ RUN uv venv --python /opt/linksense/runtime/python/bin/python /tmp/linksense-use
   && rm -rf /tmp/linksense-user-python-smoke \
   && node /opt/linksense/runtime/node/smoke.mjs \
   && conversation_id=019f45dd-a318-7d02-b03b-eaece8887865 \
-  && mkdir -p "/tmp/browser-smoke/home/.codex" "/tmp/browser-smoke/home/workspaces/$conversation_id/artifacts" "/tmp/browser-smoke/home/workspaces/$conversation_id/attachments" "/tmp/browser-smoke/home/workspaces/$conversation_id/temp" \
+  && task_home="/tmp/browser-smoke/home/task-homes/$conversation_id" \
+  && mkdir -p "$task_home/.codex" "/tmp/browser-smoke/home/workspaces/$conversation_id/artifacts" "/tmp/browser-smoke/home/workspaces/$conversation_id/attachments" "/tmp/browser-smoke/home/workspaces/$conversation_id/temp" \
   && printf '%s\n' '<!doctype html><html><head><title>LinkSense Chromium smoke</title></head><body><main>managed workspace HTML preview</main></body></html>' > "/tmp/browser-smoke/home/workspaces/$conversation_id/artifacts/browser-smoke.html" \
   && chown -R linksense-task:node /tmp/browser-smoke \
   && test "$(stat -c %a /opt/linksense/runtime/shell)" = 755 \
   && test "$(stat -c %a /opt/linksense/runtime/shell/linksense-bash-env.sh)" = 444 \
   && cd "/tmp/browser-smoke/home/workspaces/$conversation_id" \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="/tmp/browser-smoke/home/.codex" /usr/bin/bash -lc 'test "$(command -v linksense-browser)" = /opt/linksense/bin/linksense-browser && test "$(command -v linksense-pnpm)" = /opt/linksense/bin/linksense-pnpm && test "$(command -v linksense-plugin-stdio)" = /opt/linksense/bin/linksense-plugin-stdio && test "$(command -v linksense-uv)" = /opt/linksense/bin/linksense-uv' \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="/tmp/browser-smoke/home/.codex" /usr/bin/bash -lc 'linksense-browser open-workspace-html artifacts/browser-smoke.html' \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="/tmp/browser-smoke/home/.codex" /usr/bin/bash -lc 'linksense-browser screenshot --filename=chromium-smoke.png' \
+  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="$task_home" CODEX_HOME="$task_home/.codex" /usr/bin/bash -lc 'test "$(command -v linksense-browser)" = /opt/linksense/bin/linksense-browser && test "$(command -v linksense-pnpm)" = /opt/linksense/bin/linksense-pnpm && test "$(command -v linksense-plugin-stdio)" = /opt/linksense/bin/linksense-plugin-stdio && test "$(command -v linksense-uv)" = /opt/linksense/bin/linksense-uv' \
+  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="$task_home" CODEX_HOME="$task_home/.codex" /usr/bin/bash -lc 'linksense-browser open-workspace-html artifacts/browser-smoke.html' \
+  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="$task_home" CODEX_HOME="$task_home/.codex" /usr/bin/bash -lc 'linksense-browser screenshot --filename=chromium-smoke.png' \
   && test -s "/tmp/browser-smoke/home/workspaces/$conversation_id/temp/browser/chromium-smoke.png" \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="/tmp/browser-smoke/home/.codex" /usr/bin/bash -lc 'linksense-browser close' \
+  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="$task_home" CODEX_HOME="$task_home/.codex" /usr/bin/bash -lc 'linksense-browser close' \
   && cd /app \
   && rm -rf /tmp/browser-smoke
 ARG WORKER_IMAGE_FINGERPRINT=unversioned
@@ -374,17 +375,18 @@ RUN uv venv --python /opt/linksense/runtime/python/bin/python /tmp/linksense-use
   && rm -rf /tmp/linksense-user-python-smoke \
   && node /opt/linksense/runtime/node/smoke.mjs \
   && conversation_id=019f45dd-a318-7d02-b03b-eaece8887865 \
-  && mkdir -p "/tmp/browser-smoke/home/.codex" "/tmp/browser-smoke/home/workspaces/$conversation_id/artifacts" "/tmp/browser-smoke/home/workspaces/$conversation_id/attachments" "/tmp/browser-smoke/home/workspaces/$conversation_id/temp" \
+  && task_home="/tmp/browser-smoke/home/task-homes/$conversation_id" \
+  && mkdir -p "$task_home/.codex" "/tmp/browser-smoke/home/workspaces/$conversation_id/artifacts" "/tmp/browser-smoke/home/workspaces/$conversation_id/attachments" "/tmp/browser-smoke/home/workspaces/$conversation_id/temp" \
   && printf '%s\n' '<!doctype html><html><head><title>LinkSense Chromium smoke</title></head><body><main>managed workspace HTML preview</main></body></html>' > "/tmp/browser-smoke/home/workspaces/$conversation_id/artifacts/browser-smoke.html" \
   && chown -R linksense-task:node /tmp/browser-smoke \
   && test "$(stat -c %a /opt/linksense/runtime/shell)" = 755 \
   && test "$(stat -c %a /opt/linksense/runtime/shell/linksense-bash-env.sh)" = 444 \
   && cd "/tmp/browser-smoke/home/workspaces/$conversation_id" \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="/tmp/browser-smoke/home/.codex" /usr/bin/bash -lc 'test "$(command -v linksense-browser)" = /opt/linksense/bin/linksense-browser && test "$(command -v linksense-pnpm)" = /opt/linksense/bin/linksense-pnpm && test "$(command -v linksense-plugin-stdio)" = /opt/linksense/bin/linksense-plugin-stdio && test "$(command -v linksense-uv)" = /opt/linksense/bin/linksense-uv' \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="/tmp/browser-smoke/home/.codex" /usr/bin/bash -lc 'linksense-browser open-workspace-html artifacts/browser-smoke.html' \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="/tmp/browser-smoke/home/.codex" /usr/bin/bash -lc 'linksense-browser screenshot --filename=chromium-smoke.png' \
+  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="$task_home" CODEX_HOME="$task_home/.codex" /usr/bin/bash -lc 'test "$(command -v linksense-browser)" = /opt/linksense/bin/linksense-browser && test "$(command -v linksense-pnpm)" = /opt/linksense/bin/linksense-pnpm && test "$(command -v linksense-plugin-stdio)" = /opt/linksense/bin/linksense-plugin-stdio && test "$(command -v linksense-uv)" = /opt/linksense/bin/linksense-uv' \
+  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="$task_home" CODEX_HOME="$task_home/.codex" /usr/bin/bash -lc 'linksense-browser open-workspace-html artifacts/browser-smoke.html' \
+  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="$task_home" CODEX_HOME="$task_home/.codex" /usr/bin/bash -lc 'linksense-browser screenshot --filename=chromium-smoke.png' \
   && test -s "/tmp/browser-smoke/home/workspaces/$conversation_id/temp/browser/chromium-smoke.png" \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="/tmp/browser-smoke/home/.codex" /usr/bin/bash -lc 'linksense-browser close' \
+  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="$task_home" CODEX_HOME="$task_home/.codex" /usr/bin/bash -lc 'linksense-browser close' \
   && cd /app \
   && rm -rf /tmp/browser-smoke
 ARG WORKER_IMAGE_FINGERPRINT=unversioned

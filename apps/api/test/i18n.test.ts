@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest"
 
-import { translateError } from "../src/lib/i18n.js"
+import { backendI18n, translateError } from "../src/lib/i18n.js"
 
 describe("backend error translations", () => {
+  it("describes unavailable access without requiring an input-box selection in both locales and fallback", () => {
+    expect(translateError("KNOWLEDGE_NO_AVAILABLE_BASES", "zh-CN")).toBe("当前没有可访问且可用的知识库。")
+    expect(translateError("KNOWLEDGE_NO_AVAILABLE_BASES", "en-US")).toBe("No knowledge bases are currently accessible and available.")
+    expect(backendI18n.t("errors.knowledgeSearch.noAvailableBases", { lng: "fr-FR" })).toBe("当前没有可访问且可用的知识库。")
+  })
+
   it("translates execution service incompatibility without referring to plugin configuration", () => {
     expect(
       translateError("EXECUTION_SERVICE_INCOMPATIBLE", "zh-CN"),

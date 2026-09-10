@@ -194,8 +194,9 @@ describe("buildTurnInput", () => {
     const grounding = output?.["linksense.knowledge-grounding"]?.value ?? "";
     expect(grounding).toContain("Follow the linksense-knowledge-base Skill");
     expect(grounding).toContain("supplied by the native Skill runtime, not duplicated here");
-    expect(grounding).toContain("scope is enforced by the LinkSense tools for this turn");
-    expect(grounding).toContain("does not grant access or expand that scope");
+    expect(grounding).toContain("Selection expresses the user's current focus, not permission");
+    expect(grounding).toContain("LinkSense tools allow all knowledge bases the user can currently access, plus explicit application grants");
+    expect(grounding).toContain("A mention, name, path, or reference never grants access");
     expect(grounding).toContain(
       "Do not silently substitute model memory or general knowledge.",
     );

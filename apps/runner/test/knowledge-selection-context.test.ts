@@ -33,6 +33,8 @@ describe("current-turn knowledge selection", () => {
       expect(manifest?.kind).toBe("application");
       const value = manifest?.value ?? "";
       expect(value).toContain(`selected_count=${selection.length}`);
+      expect(value).toContain("Unselected knowledge bases remain usable when the user has access");
+      expect(value).toContain("Do not require the user to select a knowledge base before using the knowledge tools");
       expect(value).toContain("replaces all previous knowledge-base selections");
       const key = value.match(/selection_key=([a-f0-9]{64})/u)?.[1];
       expect(key).toBeDefined();

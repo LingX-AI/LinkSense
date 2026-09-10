@@ -722,6 +722,75 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.redis.acquireUserLifecycleLock).not.toHaveBeenCalled();
   });
 
+  it("prewarms an application with its creator's authorized scope instead of the user's personal catalog", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(conversationRow({ applicationId: APPLICATION_ID, codexThreadId: null }));
+    const capabilityIds = ["60000000-0000-4000-8000-000000000006"];
+    fixture.applicationResolver.resolveRuntime.mockResolvedValueOnce({
+      kind: "standard", applicationId: APPLICATION_ID, applicationOwnerId: APPLICATION_OWNER_ID,
+      applicationName: "Application", applicationUpdatedAt: NOW, instructions: "Application instructions",
+      model: null, reasoningEffort: null, capabilityIds, knowledgeBaseIds: [], mcpServerIds: [],
+    });
+    await fixture.service.executePrewarm({ ownerId: OWNER_ID, conversationId: CONVERSATION_ID, collaborationMode: "default" });
+    expect(fixture.preflight.resolve).toHaveBeenCalledWith(expect.objectContaining({
+      userId: OWNER_ID, conversationId: CONVERSATION_ID,
+      capabilityScope: { applicationId: APPLICATION_ID, sourceOwnerId: APPLICATION_OWNER_ID, capabilityIds, mcpServerIds: [] },
+    }));
+    expect(fixture.runner.prewarmConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not prewarm a revoked application or another user's task", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(conversationRow({ ownerId: APPLICATION_OWNER_ID }));
+    await fixture.service.executePrewarm({ ownerId: OWNER_ID, conversationId: CONVERSATION_ID, collaborationMode: "default" });
+    expect(fixture.preflight.resolve).not.toHaveBeenCalled();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(conversationRow({ applicationId: APPLICATION_ID }));
+    fixture.applicationResolver.resolveRuntime.mockRejectedValueOnce(new AppError("FORBIDDEN"));
+    await expect(fixture.service.executePrewarm({ ownerId: OWNER_ID, conversationId: CONVERSATION_ID, collaborationMode: "default" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.runner.prewarmConversation).not.toHaveBeenCalled();
+  });
+
+  it("prepares a claimable directory while capability prewarm is still pending", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+    let finishCapabilities!: () => void;
+    const pending = new Promise<void>((resolve) => { finishCapabilities = resolve; });
+    const original = fixture.preflight.resolve.getMockImplementation()!;
+    fixture.preflight.resolve.mockImplementationOnce(async (...args) => {
+      await pending;
+      return original(...args);
+    });
+    const run = fixture.service.executePrewarm({
+      ownerId: OWNER_ID,
+      conversationId: "71000000-0000-4000-8000-000000000003",
+      collaborationMode: "default",
+    });
+    try {
+      await vi.waitFor(() => expect(fixture.runner.prepareRuntime).toHaveBeenCalledOnce());
+      expect(fixture.runner.prewarmConversation).not.toHaveBeenCalled();
+    } finally {
+      finishCapabilities();
+      await run;
+    }
+  });
+
+  it("creates a cold task without waiting for capability publication or polling an absent runtime", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+    fixture.runner.inspectPrewarmedConversation.mockResolvedValueOnce(null as never);
+    fixture.runner.inspectRuntime.mockResolvedValue(null);
+    fixture.preflight.resolve.mockRejectedValue(new Error("capabilities must be prepared by prewarm or first submit"));
+    await fixture.service.create(OWNER_ID, {
+      collaborationMode: "default",
+      prewarmedConversationId: "71000000-0000-4000-8000-000000000004",
+    });
+    expect(fixture.runner.inspectRuntime).toHaveBeenCalledTimes(1);
+    expect(fixture.preflight.resolve).not.toHaveBeenCalled();
+    expect(fixture.preflight.ensureUserHome).toHaveBeenCalledWith(OWNER_ID);
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledOnce();
+  });
+
   it("recovers the persisted running-turn capability generation and snapshot without using current preflight state", async () => {
     const fixture = await conversationFixture();
     const capabilityId = "60000000-0000-4000-8000-000000000001";
@@ -1178,14 +1247,11 @@ describe("ConversationService ownership and draft lifecycle", () => {
         pinnedAt: expect.any(Date),
       }),
     });
-    expect(fixture.preflight.resolve).toHaveBeenCalledWith({
-      conversationId: fixture.runner.prepareRuntime.mock.calls[0]?.[0],
-      userId: OWNER_ID,
-      priorityCapabilityIds: [],
-    });
+    expect(fixture.preflight.resolve).not.toHaveBeenCalled();
+    expect(fixture.preflight.ensureUserHome).toHaveBeenCalledWith(OWNER_ID);
     const createdId = fixture.runner.prepareRuntime.mock.calls[0]?.[0];
     expect(
-      fixture.preflight.resolve.mock.invocationCallOrder[0],
+      fixture.preflight.ensureUserHome.mock.invocationCallOrder[0],
     ).toBeLessThan(fixture.runner.prepareRuntime.mock.invocationCallOrder[0]!);
     expect(createdId).toEqual(expect.any(String));
     for (const directory of ["attachments", "artifacts", "temp"]) {

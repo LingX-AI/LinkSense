@@ -289,7 +289,7 @@ describe("controller authentication and routing", () => {
     await server.close()
   })
 
-  it("accepts only the claimed owner's scoped callback token and relays with the global token", async () => {
+  it.each(["/internal/runner/events", "/internal/runner/heartbeat"])("authenticates and relays the scoped callback %s", async (route) => {
     const { server } = await createServer()
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ success: true }), {
@@ -301,7 +301,7 @@ describe("controller authentication and routing", () => {
 
     const forged = await server.inject({
       method: "POST",
-      url: "/internal/runner/events",
+      url: route,
       headers: {
         authorization: `Bearer ${ownerWorkerSecret(otherOwnerId, secret)}`,
         "x-linksense-owner-id": ownerId,
@@ -313,7 +313,7 @@ describe("controller authentication and routing", () => {
 
     const accepted = await server.inject({
       method: "POST",
-      url: "/internal/runner/events",
+      url: route,
       headers: {
         authorization: `Bearer ${ownerWorkerSecret(ownerId, secret)}`,
         "x-linksense-owner-id": ownerId,

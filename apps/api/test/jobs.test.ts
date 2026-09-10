@@ -165,6 +165,19 @@ describe("maintenance cleanup failures", () => {
     ).rejects.toThrow("outside its conversation root")
   })
 
+  it("discards stale persisted prewarms before preparing a runtime", async () => {
+    const jobs = createBackgroundJobs(queueControl({ failedJobs: [] }))
+    const processor = vi.fn(async () => undefined)
+    jobs.registerConversationPrewarmProcessor(processor)
+    const data: MaintenanceJob = { type: "conversation-prewarm", ownerId: OWNER_ID, conversationId: "01900000-0000-7000-8000-000000000001", collaborationMode: "default" }
+    const old = { data, timestamp: Date.now() - 60_001 } as Job<MaintenanceJob>
+    await expect(jobs["process"](old, { cleanupExpiredTokens: vi.fn() } as never)).resolves.toEqual({ discarded: true, reasonCode: "PREWARM_EXPIRED" })
+    expect(processor).not.toHaveBeenCalled()
+    const fresh = { data, timestamp: Date.now() } as Job<MaintenanceJob>
+    await expect(jobs["process"](fresh, { cleanupExpiredTokens: vi.fn() } as never)).resolves.toEqual({ prewarmed: true })
+    expect(processor).toHaveBeenCalledTimes(1)
+  })
+
   it("queues low-priority conversation prewarm as a deduplicated one-shot job", async () => {
     const queue = queueControl({ failedJobs: [] })
     const jobs = createBackgroundJobs(queue)

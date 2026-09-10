@@ -2704,13 +2704,15 @@ export class PrismaKnowledgeStore implements KnowledgeStore {
 
   async resolveUsableKnowledgeBaseIds(
     actorId: string,
-    requestedIds: string[],
+    requestedIds?: string[],
   ): Promise<string[]> {
-    if (requestedIds.length === 0) return [];
+    if (requestedIds?.length === 0) return [];
     const groupIds = await this.listActiveGroupIds(actorId);
     const grants = await this.#database.knowledgeBaseGrant.findMany({
       where: {
-        knowledgeBaseId: { in: requestedIds },
+        ...(requestedIds === undefined
+          ? {}
+          : { knowledgeBaseId: { in: requestedIds } }),
         status: "active",
         OR: [
           { granteeType: "user", userId: actorId },
@@ -2724,10 +2726,13 @@ export class PrismaKnowledgeStore implements KnowledgeStore {
     const granted = new Set(grants.map((grant) => grant.knowledgeBaseId));
     const bases = await this.#database.knowledgeBase.findMany({
       where: {
-        id: { in: requestedIds },
+        ...(requestedIds === undefined
+          ? { OR: [{ ownerId: actorId }, { id: { in: [...granted] } }] }
+          : { id: { in: requestedIds } }),
         lifecycleStatus: "active",
         availabilityStatus: "enabled",
       },
+      orderBy: { id: "asc" },
       select: { id: true, ownerId: true },
     });
     const usable = new Set(
@@ -2735,7 +2740,9 @@ export class PrismaKnowledgeStore implements KnowledgeStore {
         .filter((base) => base.ownerId === actorId || granted.has(base.id))
         .map((base) => base.id),
     );
-    return requestedIds.filter((id) => usable.has(id));
+    return (requestedIds ?? bases.map((base) => base.id)).filter((id) =>
+      usable.has(id),
+    );
   }
 
   async persistTurnKnowledgeBaseSnapshot(input: {

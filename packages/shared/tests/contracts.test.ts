@@ -1143,7 +1143,7 @@ describe("shared boundary contracts", () => {
 
   it("publishes one stable runner turn-start contract version", () => {
     expect(RUNNER_TURN_START_CONTRACT_VERSION).toBe(
-      "task-codex-home-v18",
+      "task-capability-snapshots-v19",
     );
   });
 

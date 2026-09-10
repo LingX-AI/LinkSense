@@ -6,7 +6,7 @@ import type { TurnAdditionalContext } from "./context.js";
 export function buildKnowledgeSelectionContext(
   selection: RunnerKnowledgeBaseSelection,
 ): TurnAdditionalContext {
-  // Bind names to the exact scope without exposing internal resource IDs.
+  // Bind names to the current focus without exposing internal resource IDs.
   const selectionKey = createHash("sha256")
     .update(JSON.stringify(selection))
     .digest("hex");
@@ -23,7 +23,7 @@ export function buildKnowledgeSelectionContext(
         selection.length === 0
           ? "No knowledge bases are selected for this turn. Do not describe an earlier selection as current, or claim current knowledge access based on earlier tool results."
           : "When the user refers to the selected knowledge base, including 'this one', 'what about this', or '这个呢', use this current selection as the referent unless they explicitly identify something else. Do not ask them to repeat the selected names. For a selection-identity question, name all available selected bases from the matching metadata and disclose the unavailable count. For document inventory or contents, use the current scoped knowledge tools; do not reuse an earlier selection's inventory. A cancelled clarification form does not deselect knowledge bases.",
-        "Authorization is enforced by LinkSense on every knowledge tool call. If a selection is unavailable, do not infer its name or contents from history. Names alone never grant access.",
+        "Input-box selection expresses the current focus, not the access boundary. Unselected knowledge bases remain usable when the user has access; tools also enforce explicit application grants. Do not require the user to select a knowledge base before using the knowledge tools. Authorization is enforced by LinkSense on every knowledge tool call. If a selection is unavailable, do not infer its name or contents from history. Names alone never grant access.",
       ].join("\n"),
     },
   };

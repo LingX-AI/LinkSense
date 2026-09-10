@@ -399,6 +399,11 @@ export class BackgroundJobs {
       return { deleted: true }
     }
     if (data.type === "conversation-prewarm") {
+      // A speculative warmup must not compete with real work after a queue
+      // backlog or service restart. BullMQ persists the enqueue timestamp.
+      if (!Number.isFinite(job.timestamp) || Date.now() - job.timestamp >= 60_000) {
+        return { discarded: true, reasonCode: "PREWARM_EXPIRED" }
+      }
       if (!this.conversationPrewarmProcessor) {
         await this.audit.write({
           actorId: data.ownerId,

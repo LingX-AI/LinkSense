@@ -307,6 +307,39 @@ function createHarness(
 }
 
 describe("InternalKnowledgeSearchService", () => {
+  it.each([[], ["00000000-0000-4000-8000-000000000099"]].map((selected) => ({ selected })))(
+    "searches, lists and reads an authorized unselected library with selection %j",
+    async ({ selected }) => {
+      const scope = { requested_ids: selected, usable_ids: [BASE_ID], unavailable_ids: selected };
+      const harness = createHarness({ scopes: Array.from({ length: 7 }, () => scope), applyCandidateFilter: true });
+      const turn = { ownerId: OWNER_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID };
+
+      await expect(harness.service.search(input())).resolves.toMatchObject({
+        success: true, results: [{ content: "完整父段内容" }],
+      });
+      expect(harness.search).toHaveBeenCalledWith(expect.objectContaining({ authorizedKnowledgeBaseIds: [BASE_ID] }));
+      const listing = await harness.service.listDocuments(turn);
+      expect(listing.documents).toHaveLength(1);
+      const documentRef = listing.documents[0]?.document_ref;
+      expect(documentRef).toBeDefined();
+      await expect(harness.service.getDocumentMarkdown({ ...turn, documentRef: documentRef ?? "" })).resolves.toMatchObject({
+        success: true, markdown: "# 发布手册\n", complete: true,
+      });
+    },
+  );
+
+  it("rejects an unselected document after its grant is revoked, even with a previously issued handle", async () => {
+    const harness = createHarness({ scopes: [
+      { requested_ids: [], usable_ids: [BASE_ID], unavailable_ids: [] },
+      { requested_ids: [], usable_ids: [], unavailable_ids: [] },
+    ] });
+    await expect(harness.service.getDocumentMarkdown({
+      ownerId: OWNER_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID,
+      documentRef: "document_ref_0000000000000000001",
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(harness.capture).not.toHaveBeenCalled();
+  });
+
   it("collects unique valid knowledge image references for turn authorization", () => {
     expect(
       collectKnowledgeAssetReferenceIds(

@@ -249,10 +249,10 @@ describe("managed browser CLI", () => {
   it("creates an isolated full Chromium config and reuses only the current task session", async () => {
     const root = await temporaryRoot()
     const runtimeRoot = path.join(root, "runtime")
-    const userHome = path.join(root, "home")
+    const userHome = path.join(root, "home", "task-homes", firstConversationId)
     const codexHome = path.join(userHome, ".codex")
     const workspace = path.join(
-      userHome,
+      path.join(root, "home"),
       "workspaces",
       firstConversationId,
     )
@@ -447,13 +447,25 @@ describe("managed browser CLI", () => {
     expect(calls.every((call) => call.cwd === canonicalWorkspace)).toBe(true)
   })
 
+  it("rejects another task's workspace even when both tasks belong to the same owner", async () => {
+    const root = await temporaryRoot()
+    const userHome = path.join(root, "home", "task-homes", firstConversationId)
+    const codexHome = path.join(userHome, ".codex")
+    const other = path.join(root, "home", "workspaces", secondConversationId)
+    await mkdir(codexHome, { recursive: true })
+    for (const name of ["artifacts", "attachments", "temp"]) await mkdir(path.join(other, name), { recursive: true })
+    const runCli = vi.fn<BrowserCliRunner>(async () => 0)
+    await expect(browserCliMain(["__cleanup"], { HOME: userHome, CODEX_HOME: codexHome }, other, { runCli })).rejects.toThrow("inside the current task workspace")
+    expect(runCli).not.toHaveBeenCalled()
+  })
+
   it("opens a bounded self-contained workspace HTML through the managed browser", async () => {
     const root = await temporaryRoot()
     const runtimeRoot = path.join(root, "runtime")
-    const userHome = path.join(root, "home")
+    const userHome = path.join(root, "home", "task-homes", firstConversationId)
     const codexHome = path.join(userHome, ".codex")
     const workspace = path.join(
-      userHome,
+      path.join(root, "home"),
       "workspaces",
       firstConversationId,
     )
@@ -517,10 +529,10 @@ describe("managed browser CLI", () => {
   it("rejects workspace HTML traversal, symbolic links, and oversized files", async () => {
     const root = await temporaryRoot()
     const runtimeRoot = path.join(root, "runtime")
-    const userHome = path.join(root, "home")
+    const userHome = path.join(root, "home", "task-homes", firstConversationId)
     const codexHome = path.join(userHome, ".codex")
     const workspace = path.join(
-      userHome,
+      path.join(root, "home"),
       "workspaces",
       firstConversationId,
     )
@@ -578,10 +590,10 @@ describe("managed browser CLI", () => {
 
   it("runs supervisor cleanup with only the scoped browser environment", async () => {
     const root = await temporaryRoot()
-    const userHome = path.join(root, "home")
+    const userHome = path.join(root, "home", "task-homes", firstConversationId)
     const codexHome = path.join(userHome, ".codex")
     const workspace = path.join(
-      userHome,
+      path.join(root, "home"),
       "workspaces",
       firstConversationId,
     )

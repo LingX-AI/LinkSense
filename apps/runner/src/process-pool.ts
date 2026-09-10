@@ -4702,6 +4702,7 @@ export class AppServerProcessPool {
           capabilities: input.capabilities,
           lockHeld: true,
           reuseVerified,
+          reuseImmutableSnapshot: true,
         });
       return { capabilityRuntime, leaseToken };
     } catch (error) {
