@@ -231,12 +231,17 @@ describe("LinkSense application", () => {
         name: "清除全部已归档任务？",
       })
     ).not.toBeInTheDocument()
-    const clearingLabel = screen.getByText("正在清除已归档任务…")
-    const clearingState = clearingLabel.closest('[role="status"]')
-    expect(clearingState).toHaveAttribute("aria-busy", "true")
-    expect(
-      clearingState?.compareDocumentPosition(screen.getByText("1 个任务"))
-    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    const clearingLabel = await screen.findByText("正在清除已归档任务…")
+    const clearingToast = clearingLabel.closest("[data-sonner-toast]")
+    expect(clearingToast).toHaveAttribute("data-type", "loading")
+    expect(clearingToast?.closest("[data-sonner-toaster]")).toHaveAttribute(
+      "data-y-position",
+      "top"
+    )
+    expect(clearingToast?.closest("[data-sonner-toaster]")).toHaveAttribute(
+      "data-x-position",
+      "center"
+    )
     expect(clearButton).toBeDisabled()
     await waitFor(() =>
       expect(requests).toContainEqual(
@@ -249,7 +254,10 @@ describe("LinkSense application", () => {
     finishClearArchived()
     expect(await screen.findByText("没有已归档任务")).toBeVisible()
     expect(screen.queryByText("正在清除已归档任务…")).not.toBeInTheDocument()
-    expect(await screen.findByText("已清除 1 个已归档任务")).toBeVisible()
+    const successLabel = await screen.findByText("已清除 1 个已归档任务")
+    expect(successLabel).toBeVisible()
+    expect(successLabel.closest("[data-sonner-toast]")).toBe(clearingToast)
+    expect(clearingToast).toHaveAttribute("data-type", "success")
     expect(
       screen.queryByRole("button", { name: "搜索" })
     ).not.toBeInTheDocument()
@@ -299,12 +307,17 @@ describe("LinkSense application", () => {
     )
 
     expect(dialog).not.toBeInTheDocument()
-    expect(screen.getByText("正在清除已归档任务…")).toBeVisible()
+    const clearingLabel = await screen.findByText("正在清除已归档任务…")
+    expect(clearingLabel).toBeVisible()
+    const clearingToast = clearingLabel.closest("[data-sonner-toast]")
+    expect(clearingToast).toHaveAttribute("data-type", "loading")
     finishClearArchived()
 
     await waitFor(() =>
       expect(screen.queryByText("正在清除已归档任务…")).not.toBeInTheDocument()
     )
+    expect(clearingToast).toHaveAttribute("data-type", "error")
+    expect(clearingToast).toBeVisible()
     expect(
       screen.queryByRole("dialog", {
         name: "清除全部已归档任务？",

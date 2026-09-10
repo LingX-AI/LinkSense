@@ -8,6 +8,7 @@ import {
   applicationIconPresetSchema,
   applicationSchema,
   type Application,
+  type ApplicationUnavailableReason,
   type ApplicationIconInput,
   type ApplicationIconPreset,
   type CreateApplicationInput,
@@ -54,6 +55,12 @@ type AccessibleApplications = {
   owned: Set<string>;
   shared: Set<string>;
   accessSource: Map<string, "direct" | "user_group">;
+};
+
+export type ApplicationTaskMetadata = {
+  icon: Application["icon"];
+  available: boolean;
+  unavailable_reason: ApplicationUnavailableReason | null;
 };
 
 export interface ApplicationIconStore {
@@ -156,10 +163,10 @@ export class ApplicationService {
     return projected;
   }
 
-  async resolveDisplayIcons(
+  async resolveTaskMetadata(
     actorId: string,
     applicationIds: readonly string[],
-  ): Promise<ReadonlyMap<string, Application["icon"]>> {
+  ): Promise<ReadonlyMap<string, ApplicationTaskMetadata>> {
     const requestedIds = [...new Set(applicationIds)];
     if (requestedIds.length === 0) return new Map();
     const actor = await this.prisma.user.findFirst({
@@ -183,18 +190,31 @@ export class ApplicationService {
         id: { in: accessibleIds },
         status: { in: ["active", "disabled"] },
       },
-      select: {
-        id: true,
-        iconPreset: true,
-        iconObjectKey: true,
-      },
     });
+    if (rows.length === 0) return new Map();
+    const applications = await this.#projectApplications(
+      actorId,
+      rows,
+      access,
+      false,
+    );
     return new Map(
-      await Promise.all(
-        rows.map(
-          async (row) => [row.id, await this.#projectIcon(row)] as const,
-        ),
-      ),
+      applications.map((application) => {
+        const reason =
+          application.status !== "active"
+            ? "APPLICATION_DISABLED"
+            : !application.dependencies_available
+              ? "APPLICATION_DEPENDENCY_UNAVAILABLE"
+              : null;
+        return [
+          application.id,
+          {
+            icon: application.icon,
+            available: reason === null,
+            unavailable_reason: reason,
+          },
+        ];
+      }),
     );
   }
 

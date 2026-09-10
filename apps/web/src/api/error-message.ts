@@ -8,6 +8,10 @@ import {
 } from "@/lib/public-copy"
 
 const errorCodeToKey: Record<string, string> = {
+  APPLICATION_NOT_FOUND: errorCatalog.APPLICATION_NOT_FOUND.message_key,
+  APPLICATION_DISABLED: errorCatalog.APPLICATION_DISABLED.message_key,
+  APPLICATION_DEPENDENCY_UNAVAILABLE:
+    errorCatalog.APPLICATION_DEPENDENCY_UNAVAILABLE.message_key,
   TASK_CATEGORY_NAME_EXISTS: errorCatalog.TASK_CATEGORY_NAME_EXISTS.message_key,
   TASK_CATEGORY_NOT_FOUND: errorCatalog.TASK_CATEGORY_NOT_FOUND.message_key,
   NETWORK_UNAVAILABLE: "errors.networkUnavailable",

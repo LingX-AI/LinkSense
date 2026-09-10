@@ -2389,6 +2389,7 @@ export const zhCN = {
     currentShares: "当前共享对象",
     noShares: "尚未共享给任何用户或用户组。",
     revoke: "取消共享",
+    taskUnavailable: "应用不可用，暂时无法发送消息",
     conversationManaged: "此任务由应用“{{name}}”管理",
     conversationManagedDescription:
       "模型、插件、Skill 和知识库由应用创建者维护",

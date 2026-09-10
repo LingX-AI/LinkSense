@@ -9,6 +9,14 @@ import {
 import { interactiveApplicationPackageSchema } from "./interactive-applications.js";
 
 export const applicationStatusSchema = z.enum(["active", "disabled"]);
+export const applicationUnavailableReasonSchema = z.enum([
+  "APPLICATION_NOT_FOUND",
+  "APPLICATION_DISABLED",
+  "APPLICATION_DEPENDENCY_UNAVAILABLE",
+]);
+export type ApplicationUnavailableReason = z.infer<
+  typeof applicationUnavailableReasonSchema
+>;
 export const applicationKindSchema = z.enum(["standard", "interactive"]);
 export const applicationListScopeSchema = z.enum(["all", "owned", "shared"]);
 export const applicationAccessSourceSchema = z.enum([

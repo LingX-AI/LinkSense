@@ -15,6 +15,7 @@ import {
 } from "react"
 import {
   ArrowUpIcon,
+  CircleAlertIcon,
   BookOpenIcon,
   FileIcon,
   FolderOpenIcon,
@@ -48,6 +49,7 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Input } from "@/components/ui/input"
+import { FieldDescription } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import {
   Popover,
@@ -419,6 +421,7 @@ type ConversationComposerProps = Readonly<{
   planMode?: boolean
   planModeAvailable?: boolean
   planModeDisabled?: boolean
+  unavailableMessage?: string
   interactionBlocked?: boolean
   modelPreference?: ModelPreference
   modelPreferencePending?: boolean
@@ -491,6 +494,7 @@ export const ConversationComposer = forwardRef<
     planModeAvailable = true,
     planModeDisabled = false,
     interactionBlocked = false,
+    unavailableMessage,
     modelPreference,
     modelPreferencePending = false,
     modelContextUsage,
@@ -1573,6 +1577,15 @@ export const ConversationComposer = forwardRef<
         </div>
       )}
 
+      {unavailableMessage && (
+        <FieldDescription role="status" className="flex items-start gap-2">
+          <CircleAlertIcon
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0 text-destructive"
+          />
+          {unavailableMessage}
+        </FieldDescription>
+      )}
       <div className="composer-input-layer">
         {hasComposerInputUrl && (
           <ConversationComposerUrlHighlightLayer
@@ -1617,18 +1630,21 @@ export const ConversationComposer = forwardRef<
                 ? "conversation-slash-command-menu"
                 : undefined
           }
-          placeholder={t(
-            !value.trim() && hasPastedTextAttachment
-              ? "conversation.pastedTextAttachmentPlaceholder"
-              : goalMode
-                ? "conversation.goal.placeholder"
-                : planMode
-                  ? "conversation.plan.placeholder"
-                  : isRunning
-                    ? "conversation.followUpPlaceholder"
-                    : "conversation.placeholder",
-            { productName }
-          )}
+          placeholder={
+            unavailableMessage ??
+            t(
+              !value.trim() && hasPastedTextAttachment
+                ? "conversation.pastedTextAttachmentPlaceholder"
+                : goalMode
+                  ? "conversation.goal.placeholder"
+                  : planMode
+                    ? "conversation.plan.placeholder"
+                    : isRunning
+                      ? "conversation.followUpPlaceholder"
+                      : "conversation.placeholder",
+              { productName }
+            )
+          }
           disabled={submitting || interactionBlocked}
           className={cn(
             "composer-input composer-input-textarea min-h-14 border-0 bg-transparent px-1 py-2 text-sm leading-6 shadow-none focus-visible:bg-transparent focus-visible:ring-0",

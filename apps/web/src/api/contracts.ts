@@ -1,4 +1,5 @@
 import {
+  applicationUnavailableReasonSchema,
   applicationUsageReportSchema as sharedApplicationUsageReportSchema,
   authSessionSchema as sharedAuthSessionSchema,
   authUserSchema as sharedAuthUserSchema,
@@ -896,6 +897,10 @@ export const conversationSchema = z
         kind: z.enum(["standard", "interactive"]).default("standard"),
         package_id: z.string().uuid().nullable().default(null),
         icon: sharedApplicationIconSchema.optional(),
+        available: z.boolean().optional(),
+        unavailable_reason: applicationUnavailableReasonSchema
+          .nullable()
+          .optional(),
       })
       .nullable()
       .optional(),

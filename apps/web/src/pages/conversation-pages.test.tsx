@@ -1960,6 +1960,148 @@ describe("conversation knowledge base snapshots", () => {
     expect(screen.queryByText(/当前状态与此操作冲突/)).not.toBeInTheDocument()
   })
 
+  it.each(["missing", "disabled", "dependency", "loading", "active"] as const)(
+    "blocks application messages until usable and preserves drafts (%s)",
+    async (state) => {
+      let currentState = state
+      const applicationId = "50000000-0000-4000-8000-000000000001"
+      const conversationId = "application-availability"
+      seedLocalDraft(conversationId, { input: "保留的消息草稿" })
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          if (path.endsWith(`/applications/${applicationId}`)) {
+            if (currentState === "loading")
+              return new Promise<Response>(() => {})
+            if (currentState === "missing")
+              return Promise.resolve(
+                errorEnvelope(404, "APPLICATION_NOT_FOUND")
+              )
+            return Promise.resolve(
+              envelope({
+                id: applicationId,
+                owner: {
+                  id: "50000000-0000-4000-8000-000000000002",
+                  name: "Owner",
+                },
+                name: "测试应用",
+                icon: { type: "preset", preset: "bot" },
+                description: null,
+                instructions: null,
+                model: "model-a",
+                reasoning_effort: "medium",
+                status: currentState === "disabled" ? "disabled" : "active",
+                is_owner: false,
+                can_manage: false,
+                access_source: "direct",
+                capability_count: 0,
+                knowledge_base_count: 0,
+                mcp_server_count: 0,
+                dependencies_available: currentState !== "dependency",
+                capabilities: [],
+                knowledge_bases: [],
+                mcp_servers: [],
+                created_at: "2026-07-28T00:00:00.000Z",
+                updated_at: "2026-07-28T00:00:00.000Z",
+              })
+            )
+          }
+          if (path.endsWith("/model-preference"))
+            return Promise.resolve(envelope(modelPreference()))
+          if (path.endsWith(`/conversations/${conversationId}`))
+            return Promise.resolve(
+              envelope({
+                id: conversationId,
+                title: "应用任务",
+                category_id: null,
+                updated_at: "2026-07-28T00:00:00.000Z",
+                application: { id: applicationId, name: "测试应用" },
+                messages: [],
+                turns: [],
+                attachments: [],
+                artifacts: [],
+                pending_requests: [],
+              })
+            )
+          if (path.endsWith("/events"))
+            return Promise.resolve(
+              new Response("", {
+                headers: { "content-type": "text/event-stream" },
+              })
+            )
+          if (init?.method === "POST")
+            return Promise.resolve(errorEnvelope(400, "BAD_REQUEST"))
+          return Promise.resolve(envelope([]))
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const queryClient = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      })
+      render(
+        <MemoryRouter initialEntries={[`/conversations/${conversationId}`]}>
+          <QueryClientProvider client={queryClient}>
+            <Routes>
+              <Route
+                path="/conversations/:conversationId"
+                element={<ConversationPage />}
+              />
+            </Routes>
+          </QueryClientProvider>
+        </MemoryRouter>
+      )
+      const input = await screen.findByRole("textbox", { name: "任务输入框" })
+      await waitFor(() => expect(input).toHaveValue("保留的消息草稿"))
+      const send = screen.getByRole("button", { name: "发送" })
+      if (state === "active") {
+        await waitFor(() => expect(send).toBeEnabled())
+        expect(input).toBeEnabled()
+      } else {
+        if (state !== "loading") {
+          const reason =
+            state === "missing"
+              ? "应用不存在或你无权访问。"
+              : state === "disabled"
+                ? "应用已停用，暂时不能开始新任务。"
+                : "应用依赖的模型、插件/Skill 或知识库当前不可用。"
+          const notice = await screen.findByText(reason)
+          expect(notice).toBeVisible()
+          expect(
+            notice.querySelector("svg.lucide-circle-alert")
+          ).toBeInTheDocument()
+        }
+        expect(send).toBeDisabled()
+        expect(input).toBeDisabled()
+        const interaction = userEvent.setup()
+        await interaction.click(send)
+        await interaction.click(input)
+        await interaction.keyboard("{Enter}")
+        expect(input).toHaveValue("保留的消息草稿")
+        expect(
+          fetchMock.mock.calls.some(
+            ([url, init]) =>
+              init?.method === "POST" && String(url).endsWith("/turns")
+          )
+        ).toBe(false)
+        if (state !== "loading") {
+          currentState = "active"
+          await act(async () => {
+            await queryClient.invalidateQueries({
+              queryKey: ["applications", "detail", "user-1", applicationId],
+            })
+          })
+          await waitFor(() => expect(send).toBeEnabled())
+          expect(input).toBeEnabled()
+          expect(input).toHaveValue("保留的消息草稿")
+        }
+      }
+      queryClient.clear()
+    }
+  )
+
   it("starts an application task from the Composer slash menu", async () => {
     const applicationId = "30000000-0000-4000-8000-000000000001"
     const conversationId = "30000000-0000-4000-8000-000000000002"

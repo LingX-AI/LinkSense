@@ -13,7 +13,7 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query"
-import type { ConversationOrderGroup } from "@linksense/shared"
+import { errorCatalog, type ConversationOrderGroup } from "@linksense/shared"
 import {
   BellIcon,
   BlocksIcon,
@@ -94,6 +94,11 @@ import {
   readStoredSidebarWidth,
 } from "@/components/shell/sidebar-width"
 import { SupportMenu } from "@/components/shell/support-menu"
+import {
+  Tooltip,
+  TooltipTrigger,
+  ActionTooltipContent,
+} from "@/components/ui/tooltip"
 import { ApplicationIconDisplay } from "@/features/applications/application-icon"
 import { defaultApplicationIcon } from "@/features/applications/application-icon-default"
 import { SystemUpdateNotice } from "@/features/admin/system-update"
@@ -1007,6 +1012,11 @@ function AppSidebarContent({
                         conversation.execution_status === "failed"
                       const title =
                         conversation.title || t("conversation.untitled")
+                      const unavailableReason =
+                        conversation.application?.unavailable_reason
+                      const unavailableMessage = unavailableReason
+                        ? t(errorCatalog[unavailableReason].message_key)
+                        : undefined
                       const pinned = Boolean(conversation.pinned_at)
                       const renameAllowed = !conversation.application
                       const reconnectFailed =
@@ -1100,6 +1110,27 @@ function AppSidebarContent({
                                 >
                                   {title}
                                 </span>
+                                {unavailableMessage && (
+                                  <Tooltip>
+                                    <TooltipTrigger
+                                      render={<span />}
+                                      role="status"
+                                      tabIndex={0}
+                                      aria-label={t(
+                                        "applications.taskUnavailable"
+                                      )}
+                                      className="shrink-0 text-destructive"
+                                    >
+                                      <CircleAlertIcon
+                                        aria-hidden="true"
+                                        className="size-3.5"
+                                      />
+                                    </TooltipTrigger>
+                                    <ActionTooltipContent side="top">
+                                      {unavailableMessage}
+                                    </ActionTooltipContent>
+                                  </Tooltip>
+                                )}
                                 {hasUnreadResult &&
                                   (hasUnreadFailure ? (
                                     <span

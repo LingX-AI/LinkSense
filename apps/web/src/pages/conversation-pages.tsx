@@ -839,6 +839,16 @@ export function ConversationPage({
       }),
     enabled: applicationDetailActorId.length > 0 && applicationId.length > 0,
   })
+  const applicationUnavailableMessage = applicationDetailQuery.isError
+    ? getErrorMessage(applicationDetailQuery.error, t)
+    : applicationDetailQuery.data?.status === "disabled"
+      ? t("errors.application.disabled")
+      : applicationDetailQuery.data?.dependencies_available === false
+        ? t("errors.application.dependencyUnavailable")
+        : undefined
+  const applicationInteractionBlocked =
+    isApplicationConversation &&
+    (!applicationDetailQuery.data || Boolean(applicationUnavailableMessage))
   const startApplicationFromComposerMutation = useMutation({
     mutationFn: (application: Application) =>
       apiRequest(`/applications/${application.id}/conversations`, {
@@ -4309,7 +4319,7 @@ export function ConversationPage({
   }
 
   const submitComposer = (input: string) => {
-    if (applicationSubmissionSending) return
+    if (applicationSubmissionSending || applicationInteractionBlocked) return
     if (isConversationContextCompactionCommand(input)) {
       startContextCompaction()
       return
@@ -5568,6 +5578,8 @@ export function ConversationPage({
             voiceTranscriptionAvailability={voiceTranscriptionAvailability}
             key={`${composerInstanceId}:${newTaskResetVersion}`}
             value={value}
+            interactionBlocked={applicationInteractionBlocked}
+            unavailableMessage={applicationUnavailableMessage}
             onValueChange={setValue}
             capabilities={availableCapabilities}
             capabilitiesLoading={capabilityQuery.isLoading}
@@ -5803,7 +5815,10 @@ export function ArchivedConversationListPage() {
         method: "DELETE",
         schema: archivedConversationClearResultSchema,
       }),
-    onSuccess: async (result) => {
+    onMutate: () => ({
+      toastId: notify.loading(t("conversation.clearingArchived")),
+    }),
+    onSuccess: async (result, _variables, context) => {
       setCursor(undefined)
       setCursorStack([])
       await queryClient.invalidateQueries({ queryKey: ["conversations"] })
@@ -5811,10 +5826,12 @@ export function ArchivedConversationListPage() {
         t("conversation.clearArchivedSuccess", {
           count: result.deleted_count,
         }),
-        { id: "conversation-clear-archived-success" }
+        { id: context.toastId }
       )
     },
-    onError: (nextError) => setError(getErrorMessage(nextError, t)),
+    onError: (nextError, _variables, context) => {
+      notify.error(getErrorMessage(nextError, t), { id: context?.toastId })
+    },
   })
 
   const goNext = () => {
@@ -5869,9 +5886,6 @@ export function ArchivedConversationListPage() {
         variant="error"
         onDismiss={dismissError}
       />
-      {clearArchivedMutation.isPending && (
-        <LoadingState label={t("conversation.clearingArchived")} />
-      )}
       {query.isLoading && <LoadingState />}
       {query.isError && (
         <ErrorState

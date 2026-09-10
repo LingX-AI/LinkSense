@@ -13,6 +13,65 @@ import {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each([
+    ["APPLICATION_NOT_FOUND", "应用不存在或你无权访问。"],
+    ["APPLICATION_DISABLED", "应用已停用，暂时不能开始新任务。"],
+    [
+      "APPLICATION_DEPENDENCY_UNAVAILABLE",
+      "应用依赖的模型、插件/Skill 或知识库当前不可用。",
+    ],
+  ] as const)(
+    "marks only unavailable application tasks and shows their reason (%s)",
+    async (reason, message) => {
+      installApiMock({
+        conversationListResponse: () =>
+          json({
+            success: true,
+            data: {
+              items: conversations.map((item, index) => ({
+                ...item,
+                application:
+                  index === 2
+                    ? null
+                    : {
+                        id: "50000000-0000-4000-8000-000000000001",
+                        name: "应用",
+                        available: index === 1,
+                        unavailable_reason: index === 1 ? null : reason,
+                      },
+              })),
+              next_cursor: null,
+            },
+          }),
+      })
+      renderApp()
+      const sidebar = await screen.findByRole("complementary", {
+        name: "LinkSense 导航",
+      })
+      const warning = await within(sidebar).findByRole("status", {
+        name: "应用不可用，暂时无法发送消息",
+      })
+      expect(warning.closest("a")).toHaveTextContent(conversations[0]!.title)
+      await userEvent.setup().hover(warning)
+      const tooltip = await screen.findByRole("tooltip")
+      expect(tooltip).toHaveTextContent(message)
+      expect(tooltip).toHaveClass(
+        "rounded-md",
+        "border",
+        "border-[var(--app-border)]",
+        "bg-[var(--app-popover)]",
+        "text-[var(--app-text)]",
+        "font-medium"
+      )
+      expect(tooltip.children).toHaveLength(0)
+      expect(
+        within(sidebar).getAllByRole("status", {
+          name: "应用不可用，暂时无法发送消息",
+        })
+      ).toHaveLength(1)
+    }
+  )
+
   it("does not expose rename actions or shortcuts for application-managed tasks", async () => {
     const applicationName = "AISG学校政策问答助手"
     const application = {

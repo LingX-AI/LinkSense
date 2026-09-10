@@ -69,7 +69,6 @@ import {
   RUNNER_TURN_INTERRUPT_REQUESTED,
   userMessageDisplaySchema,
   type HtmlAnnotation,
-  type ApplicationIcon,
   type ConversationCollaborationMode,
   type ConversationOrderGroup,
   type ConversationPlanReviewAction,
@@ -94,6 +93,7 @@ import {
   workspacePermissionPolicy,
 } from "@linksense/shared";
 import { capabilityPackageNameSchema } from "../capabilities/package-name.js";
+import type { ApplicationTaskMetadata } from "../applications/service.js";
 import type { CapabilityRuntimeVerification } from "../capabilities/user-home-materializer.js";
 import { nextConversationEventSequence } from "../events/sequence.js";
 import type {
@@ -163,10 +163,10 @@ export interface ConversationApplicationResolver {
     actorId: string,
     applicationId: string,
   ): Promise<boolean>;
-  resolveDisplayIcons?(
+  resolveTaskMetadata?(
     actorId: string,
     applicationIds: readonly string[],
-  ): Promise<ReadonlyMap<string, ApplicationIcon>>;
+  ): Promise<ReadonlyMap<string, ApplicationTaskMetadata>>;
 }
 
 export type CapabilityResolutionScope = {
@@ -1932,7 +1932,7 @@ export class ConversationService {
       running,
       pending,
       automationTargets,
-      applicationIcons,
+      applicationMetadata,
       planOutputMissingConversationIds,
     ] = await Promise.all([
       this.prisma.conversationTurn.findMany({
@@ -1955,7 +1955,7 @@ export class ConversationService {
             distinct: ["conversationId"],
           })
         : Promise.resolve([]),
-      this.resolveApplicationDisplayIcons(ownerId, selected),
+      this.resolveApplicationTaskMetadata(ownerId, selected),
       this.findLatestPlanOutputMissingConversationIds(selected),
     ]);
     const runningIds = new Set(
@@ -1982,7 +1982,10 @@ export class ConversationService {
                 ? "failed"
                 : (row.lastTurnStatus ?? "idle"),
           row.applicationId
-            ? applicationIcons.get(row.applicationId)
+            ? applicationMetadata.get(row.applicationId) ?? {
+                available: false,
+                unavailable_reason: "APPLICATION_NOT_FOUND",
+              }
             : undefined,
           automationTargetIds.has(row.id),
         ),
@@ -1997,10 +2000,10 @@ export class ConversationService {
     };
   }
 
-  private async resolveApplicationDisplayIcons(
+  private async resolveApplicationTaskMetadata(
     ownerId: string,
     conversations: readonly ConversationProjection[],
-  ): Promise<ReadonlyMap<string, ApplicationIcon>> {
+  ): Promise<ReadonlyMap<string, ApplicationTaskMetadata>> {
     const applicationIds = [
       ...new Set(
         conversations.flatMap((conversation) =>
@@ -2010,20 +2013,11 @@ export class ConversationService {
     ];
     if (
       applicationIds.length === 0 ||
-      this.applicationResolver?.resolveDisplayIcons === undefined
+      this.applicationResolver?.resolveTaskMetadata === undefined
     ) {
       return new Map();
     }
-    try {
-      return await this.applicationResolver.resolveDisplayIcons(
-        ownerId,
-        applicationIds,
-      );
-    } catch {
-      // Icons are optional presentation metadata and must never make the task
-      // list unavailable when storage or application metadata is degraded.
-      return new Map();
-    }
+    return this.applicationResolver.resolveTaskMetadata(ownerId, applicationIds);
   }
 
   private async findLatestPlanOutputMissingConversationIds(
@@ -9719,7 +9713,9 @@ function safeTokenCount(value: bigint): number {
 export function projectConversation(
   row: ConversationProjection,
   executionStatus: string,
-  applicationIcon?: ApplicationIcon,
+  applicationMetadata?: Omit<ApplicationTaskMetadata, "icon"> & {
+    icon?: ApplicationTaskMetadata["icon"];
+  },
   hasAutomation = false,
 ) {
   return {
@@ -9754,7 +9750,7 @@ export function projectConversation(
               ? ("interactive" as const)
               : ("standard" as const),
             package_id: row.interactiveApplicationPackageId ?? null,
-            ...(applicationIcon ? { icon: applicationIcon } : {}),
+            ...(applicationMetadata ?? {}),
           }
         : null,
     created_at: row.createdAt.toISOString(),

@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ApplicationIcon,
+  ApplicationUnavailableReason,
   ConversationCollaborationMode,
   RunnerCodexGoal,
   RunnerCodexSubAgentSummaries,
@@ -1277,11 +1278,11 @@ describe("ConversationService ownership and draft lifecycle", () => {
         applicationNameSnapshot: "Finance assistant",
       }),
     ]);
-    fixture.applicationResolver.resolveDisplayIcons.mockResolvedValueOnce(
+    fixture.applicationResolver.resolveTaskMetadata.mockResolvedValueOnce(
       new Map([
         [
           APPLICATION_ID,
-          { type: "preset" as const, preset: "graduation-cap" as const },
+          { icon: { type: "preset" as const, preset: "graduation-cap" as const }, available: true, unavailable_reason: null },
         ],
       ]),
     );
@@ -1292,7 +1293,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
 
     expect(
-      fixture.applicationResolver.resolveDisplayIcons,
+      fixture.applicationResolver.resolveTaskMetadata,
     ).toHaveBeenCalledWith(OWNER_ID, [APPLICATION_ID]);
     expect(result.items[0]?.application).toEqual({
       id: APPLICATION_ID,
@@ -1300,7 +1301,36 @@ describe("ConversationService ownership and draft lifecycle", () => {
       kind: "standard",
       package_id: null,
       icon: { type: "preset", preset: "graduation-cap" },
+      available: true,
+      unavailable_reason: null,
     });
+  });
+
+  it.each(["APPLICATION_NOT_FOUND", "APPLICATION_DISABLED", "APPLICATION_DEPENDENCY_UNAVAILABLE"] as const)(
+    "rejects message admission when the application reports %s",
+    async (code) => {
+      const fixture = await conversationFixture();
+      const row = conversationRow({ applicationId: APPLICATION_ID, applicationNameSnapshot: "Finance assistant" });
+      fixture.prisma.conversation.findFirst.mockResolvedValue(row);
+      fixture.prisma.conversation.findUnique.mockResolvedValue(row);
+      fixture.applicationResolver.resolveRuntime.mockRejectedValueOnce(new AppError(code));
+      await expect(fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, {
+        inputText: "hello", priorityCapabilityIds: [], submitMode: "normal", idempotencyKey: `unavailable-${code}`,
+      }, {})).rejects.toMatchObject({ code });
+      expect(fixture.defaultTransaction.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+      expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+    },
+  );
+
+  it("marks missing or inaccessible applications unavailable without removing their task snapshots", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findMany.mockResolvedValueOnce([
+      conversationRow({ applicationId: APPLICATION_ID, applicationNameSnapshot: "Finance assistant" }),
+      conversationRow({ id: SECOND_CONVERSATION_ID }),
+    ]);
+    const result = await fixture.service.list(OWNER_ID, { archived: false, limit: 30 });
+    expect(result.items[0]?.application).toMatchObject({ name: "Finance assistant", available: false, unavailable_reason: "APPLICATION_NOT_FOUND" });
+    expect(result.items[1]?.application).toBeNull();
   });
 
   it("projects the persisted unread completion reminder into task rows", async () => {
@@ -11137,7 +11167,7 @@ async function conversationFixture() {
     })),
     assertCurrentAccess: vi.fn(async () => undefined),
     allowsUserModelSelection: vi.fn(async () => false),
-    resolveDisplayIcons: vi.fn(async () => new Map<string, ApplicationIcon>()),
+    resolveTaskMetadata: vi.fn(async () => new Map<string, { icon: ApplicationIcon; available: boolean; unavailable_reason: ApplicationUnavailableReason | null }>()),
   };
   const defaultTransaction = transactionFixture();
   defaultTransaction.conversation.findUnique.mockImplementation(async () => {

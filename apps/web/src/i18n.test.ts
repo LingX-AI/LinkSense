@@ -22,6 +22,19 @@ function leafStrings(value: unknown): string[] {
 }
 
 describe("i18n resources", () => {
+  it("localizes unavailable application task guidance with a Chinese fallback", () => {
+    const key = "applications.taskUnavailable"
+    expect(i18n.t(key, { lng: "zh-CN" })).toBe("应用不可用，暂时无法发送消息")
+    expect(i18n.t(key, { lng: "en-US" })).toBe(
+      "This app is unavailable. You cannot send messages right now."
+    )
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(instance.t(key, { lng: "en-US" })).toBe(
+      "应用不可用，暂时无法发送消息"
+    )
+  })
+
   it("localizes embedded system status and falls back to Chinese when an English key is missing", () => {
     const key = "embed.errors.systemUnavailable"
     expect(i18n.t(key, { lng: "zh-CN" })).toBe(

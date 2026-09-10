@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { applicationIconSchema } from "./applications.js";
+import {
+  applicationIconSchema,
+  applicationUnavailableReasonSchema,
+} from "./applications.js";
 import {
   capabilitySelectionIdSchema,
   capabilityTypeSchema,
@@ -104,6 +107,10 @@ export const conversationSchema = z.strictObject({
       kind: z.enum(["standard", "interactive"]).default("standard"),
       package_id: uuidSchema.nullable().default(null),
       icon: applicationIconSchema.optional(),
+      available: z.boolean().optional(),
+      unavailable_reason: applicationUnavailableReasonSchema
+        .nullable()
+        .optional(),
     })
     .nullable(),
   created_at: timestampSchema,

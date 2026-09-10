@@ -2570,6 +2570,8 @@ export const enUS = {
     currentShares: "Current recipients",
     noShares: "This application has not been shared with anyone yet.",
     revoke: "Revoke",
+    taskUnavailable:
+      "This app is unavailable. You cannot send messages right now.",
     conversationManaged: "This task is managed by “{{name}}”",
     conversationManagedDescription:
       "The model, plugins, Skills, and knowledge bases are maintained by the application creator.",
