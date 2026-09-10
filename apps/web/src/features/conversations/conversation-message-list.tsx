@@ -89,7 +89,9 @@ function VirtualMessageList({
   "use no memo"
   // TanStack Virtual exposes a mutable instance; React Compiler must not memoize it.
   const hostRef = useRef<HTMLDivElement>(null)
-  const hasNavigationRequestRef = useRef(false)
+  const navigationRequestRef = useRef<
+    { kind: "message" } | { kind: "latest"; behavior: ScrollBehavior } | null
+  >(null)
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null)
   const [scrollMargin, setScrollMargin] = useState(0)
   const [scrollPaddingStart, setScrollPaddingStart] = useState(0)
@@ -97,6 +99,7 @@ function VirtualMessageList({
   const pinnedIndex = pinnedMessageId
     ? rows.findIndex((row) => row.messageIds.includes(pinnedMessageId))
     : -1
+  const lastRowKey = rows.at(-1)?.key
   const virtualizer = useVirtualizer<HTMLElement, HTMLDivElement>({
     count: rows.length,
     getScrollElement: () => scrollElement,
@@ -153,25 +156,34 @@ function VirtualMessageList({
     if (header) observer.observe(header)
     return () => observer.disconnect()
   }, [])
+  useLayoutEffect(() => {
+    const request = navigationRequestRef.current
+    if (!scrollElement || !lastRowKey || request?.kind !== "latest") return
+    // Submission requests bottom navigation before React inserts the new row.
+    // Retarget before paint so the virtualizer cannot reconcile to the former
+    // last index and briefly scroll backward. Size-only streaming updates are
+    // still owned by useConversationScroll's smooth follow loop.
+    virtualizer.scrollToEnd({ behavior: request.behavior })
+  }, [lastRowKey, rows.length, scrollElement, virtualizer])
   useImperativeHandle(
     navigationRef,
     () => ({
       scrollToMessage: (id) => {
         const index = rows.findIndex((row) => row.messageIds.includes(id))
         if (index < 0) return false
-        hasNavigationRequestRef.current = true
+        navigationRequestRef.current = { kind: "message" }
         virtualizer.scrollToIndex(index, { align: "start", behavior: "auto" })
         return true
       },
       scrollToLatest: (behavior) => {
         if (!scrollElement || !rows.length) return false
-        hasNavigationRequestRef.current = true
+        navigationRequestRef.current = { kind: "latest", behavior }
         virtualizer.scrollToEnd({ behavior })
         return true
       },
       cancelScroll: () => {
-        if (!scrollElement || !hasNavigationRequestRef.current) return
-        hasNavigationRequestRef.current = false
+        if (!scrollElement || !navigationRequestRef.current) return
+        navigationRequestRef.current = null
         // Use the public offset API to replace the pending index target, so
         // later measurements cannot keep reconciling back to the live reply.
         virtualizer.scrollToOffset(scrollElement.scrollTop, {
