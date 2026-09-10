@@ -1,13 +1,25 @@
 import { cleanup, render, screen } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { Button } from "@/components/ui/button"
 import { EmptyState, LoadingState } from "@/components/feedback/page-state"
+import i18n from "@/i18n"
 
-afterEach(cleanup)
+beforeEach(async () => {
+  await i18n.changeLanguage("zh-CN")
+  document.documentElement.classList.remove("dark")
+  delete document.documentElement.dataset.theme
+})
+
+afterEach(async () => {
+  cleanup()
+  document.documentElement.classList.remove("dark")
+  delete document.documentElement.dataset.theme
+  await i18n.changeLanguage("zh-CN")
+})
 
 describe("LoadingState", () => {
-  it("centers full-page shimmer feedback across the viewport height", () => {
+  it("centers the product logo across the viewport and keeps the loading label accessible", () => {
     const { container } = render(<LoadingState label="正在加载" fullScreen />)
 
     const status = screen.getByRole("status")
@@ -20,7 +32,15 @@ describe("LoadingState", () => {
     )
     expect(status).toHaveAttribute("aria-busy", "true")
     expect(status).toHaveAttribute("aria-live", "polite")
-    expect(screen.getByText("正在加载")).toHaveClass("shimmer")
+    const logo = screen.getByRole("img", { name: "LinkSense" })
+    expect(logo).toBeVisible()
+    expect(logo).toHaveAttribute(
+      "src",
+      expect.stringContaining("linksense-lockup-primary.svg")
+    )
+    expect(logo).toHaveClass("h-6", "sm:h-7", "motion-safe:animate-pulse")
+    expect(screen.getByText("正在加载")).toHaveClass("sr-only")
+    expect(status.querySelector(".shimmer")).not.toBeInTheDocument()
     expect(status.querySelector("svg")).not.toBeInTheDocument()
     expect(status.querySelector(".animate-spin")).not.toBeInTheDocument()
     expect(status.textContent).not.toContain("…")
@@ -28,12 +48,44 @@ describe("LoadingState", () => {
     expect(container.querySelector(".page-state-loading")).toBe(status)
   })
 
+  it("uses the dark-theme product logo for full-screen loading", () => {
+    document.documentElement.dataset.theme = "dark"
+    document.documentElement.classList.add("dark")
+
+    render(<LoadingState fullScreen />)
+
+    expect(screen.getByRole("img", { name: "LinkSense" })).toHaveAttribute(
+      "src",
+      expect.stringContaining("linksense-lockup-on-dark.svg")
+    )
+  })
+
+  it.each([
+    ["zh-CN", "正在加载…"],
+    ["en-US", "Loading…"],
+    ["fr-FR", "正在加载…"],
+  ])(
+    "keeps the full-screen loading announcement localized for %s",
+    async (language, expected) => {
+      await i18n.changeLanguage(language)
+
+      render(<LoadingState fullScreen />)
+
+      expect(screen.getByRole("status")).toHaveTextContent(expected)
+      expect(screen.getByText(expected)).toHaveClass("sr-only")
+      expect(screen.getByRole("img", { name: "LinkSense" })).toBeVisible()
+    }
+  )
+
   it("keeps embedded loading feedback at its local content height", () => {
     render(<LoadingState label="正在加载" />)
 
     const status = screen.getByRole("status")
     expect(status).toHaveClass("page-state-loading")
     expect(status).not.toHaveClass("page-state-loading-fullscreen", "fixed")
+    expect(screen.getByText("正在加载")).toHaveClass("shimmer")
+    expect(screen.getByText("正在加载")).not.toHaveClass("sr-only")
+    expect(screen.queryByRole("img")).not.toBeInTheDocument()
   })
 })
 

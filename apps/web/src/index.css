@@ -4770,7 +4770,7 @@
 
 .conversation-image-preview-viewer .image-preview-stage,
 .read-only-file-preview-image-viewer .image-preview-stage {
-  inset: 18px 24px 78px;
+  @apply inset-0;
 }
 
 .conversation-image-preview-viewer .image-preview-fallback,
@@ -4781,11 +4781,12 @@
 
 .conversation-image-preview-viewer .image-preview-zoom-controls,
 .read-only-file-preview-image-viewer .image-preview-zoom-controls {
+  @apply bg-background/50 backdrop-blur-xl;
+
   bottom: 18px;
   gap: 0;
   padding: 2px;
   border: 1px solid var(--app-border);
-  background: color-mix(in srgb, var(--app-surface) 94%, transparent);
   color: var(--app-text);
   transform: translateX(-50%);
   box-shadow: 0 6px 16px color-mix(in srgb, var(--app-text) 10%, transparent);
