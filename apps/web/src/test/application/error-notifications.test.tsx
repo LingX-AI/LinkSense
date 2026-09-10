@@ -1,10 +1,11 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { notify } from "@/components/feedback/notification"
 import {
   conversations,
+  conversation,
   installApiMock,
   json,
   renderApp,
@@ -17,6 +18,149 @@ describe("conversation error notifications", () => {
   afterEach(() => {
     notify.dismiss()
   })
+
+  it.each([null, "80000000-0000-4000-8000-000000000001"])(
+    "waits for task detail when its read receipt arrives first without replaying an old runner error, category=%s",
+    async (categoryId) => {
+      const target = {
+        ...conversations[0],
+        category_id: categoryId,
+        execution_status: "completed",
+        has_unread_completion: true,
+      }
+      let releaseDetail!: () => void
+      const detailReady = new Promise<void>((resolve) => {
+        releaseDetail = resolve
+      })
+      let markedRead = false
+      const { requests } = installApiMock({
+        conversationListResponse: () =>
+          json({
+            success: true,
+            data: {
+              items: [
+                { ...target, has_unread_completion: !markedRead },
+                conversations[1],
+              ],
+              next_cursor: null,
+            },
+          }),
+        conversationGetResponse: async () => {
+          await detailReady
+          return json({
+            success: true,
+            data: {
+              ...conversation,
+              ...target,
+              has_unread_completion: !markedRead,
+              execution_status: "completed",
+              running_turn: null,
+              turns: [],
+              last_event_id: "c1:182",
+            },
+          })
+        },
+        conversationPatchResponse: async () => {
+          markedRead = true
+          return json({
+            success: true,
+            data: { ...target, has_unread_completion: false },
+          })
+        },
+      })
+      const baseFetch = window.fetch
+      const cursors: Array<string | null> = []
+      let streamController:
+        ReadableStreamDefaultController<Uint8Array> | undefined
+      const errorFrame = (sequence: number) =>
+        new TextEncoder().encode(
+          `id: c1:${sequence}\nevent: conversation.error\ndata: ${JSON.stringify(
+            {
+              id: `60000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`,
+              conversation_id: "20000000-0000-4000-8000-000000000001",
+              turn_id: null,
+              sequence_no: sequence,
+              event_type: "conversation.error",
+              visibility: "user_visible",
+              sse_event_id: `c1:${sequence}`,
+              payload: {
+                schema_version: 1,
+                error_code: "RUNNER_UNAVAILABLE",
+                message_key: "errors.runnerUnavailable",
+                retryable: true,
+              },
+              created_at: "2026-09-09T06:14:12.541Z",
+            }
+          )}\n\n`
+        )
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input), window.location.origin)
+          if (url.pathname === "/api/v1/task-categories" && categoryId)
+            return json({
+              success: true,
+              data: [
+                {
+                  id: categoryId,
+                  name: "日常工作",
+                  sort_order: 0,
+                  created_at: "2026-09-09T00:00:00.000Z",
+                  updated_at: "2026-09-09T00:00:00.000Z",
+                },
+              ],
+            })
+          if (url.pathname === "/api/v1/conversations/c1/events") {
+            const cursor = new Headers(init?.headers).get("Last-Event-ID")
+            cursors.push(cursor)
+            return new Response(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  streamController = controller
+                  if (!cursor) controller.enqueue(errorFrame(2))
+                },
+              }),
+              { headers: { "content-type": "text/event-stream" } }
+            )
+          }
+          return baseFetch(input, init)
+        })
+      )
+      const interaction = userEvent.setup()
+      renderApp("/conversations/new")
+      const sidebar = await screen.findByRole("complementary", {
+        name: "LinkSense 导航",
+      })
+      await interaction.click(
+        await within(sidebar).findByRole("link", {
+          name: new RegExp(target.title),
+        })
+      )
+      await waitFor(() =>
+        expect(requests).toContainEqual(
+          expect.objectContaining({
+            method: "PATCH",
+            path: "/api/v1/conversations/c1",
+            body: { completion_read: true },
+          })
+        )
+      )
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(cursors).toEqual([])
+      await act(async () => releaseDetail())
+      await waitFor(() => expect(cursors).toEqual(["c1:182"]))
+      expect(
+        screen.queryByText(/执行服务暂不可用，请稍后重试/u)
+      ).not.toBeInTheDocument()
+      // A new failure after the snapshot is still delivered normally.
+      await act(async () => streamController?.enqueue(errorFrame(183)))
+      expect(
+        await screen.findByText(/执行服务暂不可用，请稍后重试/u)
+      ).toBeVisible()
+    }
+  )
 
   it("shows admission errors at the global top, expires them, and shows the same error on retry", async () => {
     const { requests } = installApiMock({

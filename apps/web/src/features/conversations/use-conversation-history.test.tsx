@@ -23,6 +23,7 @@ const index = Array.from({ length: 50 }, (_, i) => ({
 function page(start: number, end: number) {
   const window = index.slice(start - 1, end)
   return conversationSchema.parse({
+    category_id: null,
     id: "task",
     title: "History",
     updated_at: "2026-09-07T00:00:00Z",

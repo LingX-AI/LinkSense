@@ -133,28 +133,53 @@ describe("ModelProviderSettingsForm", () => {
       locale: "zh-CN",
       table: "模型列表",
       edit: "编辑模型 Model A",
+      modelKind: "对话模型",
+      apiKeyConfigured: true,
+      channelSummary:
+        "当前渠道通过 OpenAI 兼容 / vLLM 接入，已添加 1 个模型，且密钥已配置",
+      priceUnit: "，价格单位为元 / 百万 Token。",
       priceHeader: "输入 / 输入命中缓存 / 输出单价",
     },
     {
       locale: "en-US",
       table: "Models",
       edit: "Edit model Model A",
+      modelKind: "Chat model",
+      apiKeyConfigured: false,
+      channelSummary:
+        "This channel connects through OpenAI-compatible / vLLM and includes 1 model. No API key is configured yet",
+      priceUnit: ". Prices are shown in CNY / 1M tokens.",
       priceHeader: "Input / cached input / output price",
     },
     {
       locale: "fr-FR",
       table: "模型列表",
       edit: "编辑模型 Model A",
+      modelKind: "对话模型",
+      apiKeyConfigured: true,
+      channelSummary:
+        "当前渠道通过 OpenAI 兼容 / vLLM 接入，已添加 1 个模型，且密钥已配置",
+      priceUnit: "，价格单位为元 / 百万 Token。",
       priceHeader: "输入 / 输入命中缓存 / 输出单价",
     },
   ])(
     "shows a compact catalog with $locale translations or fallback",
-    async ({ locale, table, edit, priceHeader }) => {
+    async ({
+      locale,
+      table,
+      edit,
+      modelKind,
+      apiKeyConfigured,
+      channelSummary,
+      priceUnit,
+      priceHeader,
+    }) => {
       await i18n.changeLanguage(locale)
       renderModels({
         ...settings,
         providers: settings.providers.map((provider) => ({
           ...provider,
+          api_key_configured: apiKeyConfigured,
           models: provider.models.map((model) => ({
             ...model,
             input_price_per_million: "1.5",
@@ -177,9 +202,27 @@ describe("ModelProviderSettingsForm", () => {
       expect(
         within(catalog).getByRole("cell", { name: "1.5 / 0.2 / 4.5" })
       ).toBeVisible()
-      expect(
-        within(catalog).getByRole("row", { name: "Model A" })
-      ).toBeVisible()
+      const modelRow = within(catalog).getByRole("row", { name: "Model A" })
+      expect(modelRow).toBeVisible()
+      const modelKindBadge = within(modelRow)
+        .getByText(modelKind)
+        .closest('[data-slot="badge"]')
+      expect(modelKindBadge).toHaveAttribute("data-variant", "ghost")
+      expect(modelKindBadge).not.toHaveClass("bg-secondary")
+      const channelGroup = screen.getByRole("group", { name: "Primary" })
+      const channelSummaryLabel = within(channelGroup).getByText(channelSummary)
+      const priceUnitLabel = within(channelGroup).getByText(priceUnit)
+      expect(priceUnitLabel).toHaveClass("whitespace-nowrap")
+      expect(channelSummaryLabel.parentElement).toBe(
+        priceUnitLabel.parentElement
+      )
+      expect(channelSummaryLabel.parentElement).toHaveClass(
+        "leading-relaxed",
+        "text-muted-foreground"
+      )
+      expect(channelSummaryLabel.parentElement?.textContent).toBe(
+        `${channelSummary}${priceUnit}`
+      )
       expect(within(catalog).getByText("model-a")).toBeVisible()
       expect(within(catalog).queryByRole("textbox")).not.toBeInTheDocument()
       expect(screen.queryByLabelText("Base URL")).not.toBeInTheDocument()
@@ -187,6 +230,38 @@ describe("ModelProviderSettingsForm", () => {
       expect(screen.getByRole("dialog", { name: edit })).toBeVisible()
     }
   )
+
+  it("uses the plural channel summary when multiple models are configured", async () => {
+    await i18n.changeLanguage("en-US")
+    const channel = settings.providers[0]
+    const model = channel?.models[0]
+    if (!channel || !model) {
+      throw new Error("Expected the model settings fixture to include a model")
+    }
+
+    renderModels({
+      ...settings,
+      providers: [
+        {
+          ...channel,
+          models: [
+            model,
+            {
+              ...model,
+              id: "model-b",
+              display_name: "Model B",
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(
+      screen.getByText(
+        "This channel connects through OpenAI-compatible / vLLM and includes 2 models. The API key is configured"
+      )
+    ).toBeVisible()
+  })
 
   it.each([
     {
@@ -295,6 +370,15 @@ describe("ModelProviderSettingsForm", () => {
       title_model: null,
     })
     expect(screen.getByText("No models in this channel")).toBeVisible()
+    const emptyChannelSummary = within(
+      screen.getByRole("group", { name: "Primary" })
+    ).getByText(
+      "This channel connects through OpenAI-compatible / vLLM and includes 0 models. The API key is configured"
+    )
+    expect(emptyChannelSummary.parentElement?.textContent).toBe(
+      "This channel connects through OpenAI-compatible / vLLM and includes 0 models. The API key is configured."
+    )
+    expect(screen.queryByText(/Prices are shown in/)).not.toBeInTheDocument()
     expect(
       screen.queryByRole("combobox", { name: "Conversation default model" })
     ).not.toBeInTheDocument()

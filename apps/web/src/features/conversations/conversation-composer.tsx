@@ -68,6 +68,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ConversationAttachmentPreviews } from "@/features/conversations/conversation-attachment-previews"
+import { ConversationAttachmentUploadPreview } from "@/features/conversations/conversation-attachment-upload-preview"
 import { ConversationAttachmentOverflow } from "@/features/conversations/conversation-attachment-overflow"
 import { capabilityPresentation } from "@/features/capabilities/built-in-presentation"
 import {
@@ -90,7 +91,10 @@ import {
 } from "@/features/conversations/conversation-slash-command"
 import { ConversationComposerUrlHighlightLayer } from "@/features/conversations/conversation-composer-url-highlight-layer"
 import { getConversationComposerInputSegments } from "@/features/conversations/conversation-composer-url-highlighting"
-import { isPreviewableConversationImage } from "@/features/conversations/conversation-attachment-preview-utils"
+import {
+  isPreviewableConversationImage,
+  isPreviewableImageMimeType,
+} from "@/features/conversations/conversation-attachment-preview-utils"
 import type {
   KnowledgeBase,
   KnowledgeSearchCapability,
@@ -192,6 +196,7 @@ export type PendingAttachmentUpload = Readonly<{
   name: string
   size: number
   mimeType?: string
+  previewFile?: File
 }>
 
 type ComposerAttachmentDisplayItem =
@@ -210,6 +215,7 @@ type ComposerAttachmentDisplayItem =
       size: number
       mimeType?: string | null
       pastedText?: PendingPastedTextAttachment
+      previewFile?: File
     }>
 
 const maxVisibleComposerAttachments = 2
@@ -727,7 +733,11 @@ export const ConversationComposer = forwardRef<
   )
   const hasNonImageAttachments =
     fileAttachments.length > 0 ||
-    visiblePendingAttachmentUploads.length > 0 ||
+    visiblePendingAttachmentUploads.some(
+      (upload) =>
+        !attachmentPreviewEnabled ||
+        !isPreviewableImageMimeType(upload.mimeType)
+    ) ||
     visiblePendingPastedTextAttachment !== null
   const isPastedTextAttachmentPending = pendingPastedTextAttachment !== null
   const composerAttachmentItems: ComposerAttachmentDisplayItem[] = [
@@ -745,6 +755,7 @@ export const ConversationComposer = forwardRef<
       name: file.name,
       size: file.size,
       mimeType: file.mimeType,
+      previewFile: file.previewFile,
     })),
     ...(visiblePendingPastedTextAttachment
       ? [
@@ -1416,6 +1427,19 @@ export const ConversationComposer = forwardRef<
             )
           })}
           {visibleComposerAttachmentItems.map((item, index) => {
+            if (
+              item.status === "uploading" &&
+              attachmentPreviewEnabled &&
+              isPreviewableImageMimeType(item.mimeType)
+            ) {
+              return (
+                <ConversationAttachmentUploadPreview
+                  key={item.key}
+                  name={item.name}
+                  file={item.previewFile}
+                />
+              )
+            }
             if (
               item.status === "uploaded" &&
               attachmentPreviewEnabled &&

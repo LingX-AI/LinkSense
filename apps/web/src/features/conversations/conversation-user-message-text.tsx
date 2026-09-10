@@ -6,13 +6,9 @@ import { Button } from "@/components/ui/button"
 import { getConversationComposerInputSegments } from "@/features/conversations/conversation-composer-url-highlighting"
 import { cn } from "@/lib/utils"
 
-export function ConversationUserMessageText({
-  content,
-  collapsible = false,
-}: {
-  content: string
-  collapsible?: boolean
-}) {
+const collapsedLineCount = 15
+
+export function ConversationUserMessageText({ content }: { content: string }) {
   const { t } = useTranslation()
   const contentId = useId()
   const contentRef = useRef<HTMLParagraphElement>(null)
@@ -22,21 +18,21 @@ export function ConversationUserMessageText({
 
   useLayoutEffect(() => {
     const element = contentRef.current
-    if (!collapsible || !element) return
+    if (!element) return
     const measure = () => {
       const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight)
       const bounds = element.getBoundingClientRect()
       if (bounds.width > 0 && Number.isFinite(lineHeight)) {
-        setOverflowing(bounds.height > lineHeight * 5 + 1)
+        setOverflowing(bounds.height > lineHeight * collapsedLineCount + 1)
       }
     }
     measure()
     // Observe the unclipped paragraph so wrapping and font changes are measured
-    // even while its parent is limited to five lines.
+    // even while its parent is limited to fifteen lines.
     const observer = new ResizeObserver(measure)
     observer.observe(element)
     return () => observer.disconnect()
-  }, [collapsible, content])
+  }, [content])
 
   const text = (
     <p ref={contentRef} id={contentId} className="whitespace-pre-wrap">
@@ -57,39 +53,39 @@ export function ConversationUserMessageText({
     </p>
   )
 
-  if (!collapsible) return text
   const collapsed = overflowing && !expanded
   const toggleLabel = t(
-    expanded ? "conversation.collapseMessage" : "conversation.expandMessage"
+    expanded ? "conversation.showLess" : "conversation.showMore"
   )
 
   return (
     <div className="min-w-0">
       <div
         className={cn(
-          !expanded && "max-h-[5lh] overflow-hidden",
-          collapsed && "mask-b-from-70% mask-b-to-100%"
+          collapsed &&
+            "max-h-[15lh] overflow-hidden mask-b-from-80% mask-b-to-100%"
         )}
       >
         {text}
       </div>
       {overflowing && (
-        <div className="-my-1 flex justify-center">
+        <div className="-mb-1 flex justify-start pt-1">
           <Button
             type="button"
             variant="ghost"
-            size="icon-xs"
-            className="text-muted-foreground hover:text-muted-foreground aria-expanded:bg-transparent aria-expanded:text-muted-foreground"
+            size="xs"
+            className="-ml-2 text-muted-foreground hover:text-foreground aria-expanded:bg-transparent aria-expanded:text-muted-foreground"
             aria-label={toggleLabel}
             title={toggleLabel}
             aria-expanded={expanded}
             aria-controls={contentId}
             onClick={() => setExpanded((value) => !value)}
           >
+            {toggleLabel}
             {expanded ? (
-              <ChevronUpIcon data-icon="inline-start" aria-hidden="true" />
+              <ChevronUpIcon data-icon="inline-end" aria-hidden="true" />
             ) : (
-              <ChevronDownIcon data-icon="inline-start" aria-hidden="true" />
+              <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
             )}
           </Button>
         </div>

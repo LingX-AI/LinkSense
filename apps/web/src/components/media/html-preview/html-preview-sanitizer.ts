@@ -2,6 +2,7 @@ import DOMPurify from "dompurify"
 import { officeAnnotationCursor } from "@/components/media/office-preview/office-annotation-cursor"
 import { installOfficeAnnotationHover } from "@/components/media/office-preview/office-annotation-hover-controller"
 import { maximumOfficeAnnotationCount } from "@linksense/shared"
+import { getHtmlPreviewBoundingRect } from "./html-preview-geometry"
 import {
   htmlPreviewAnnotationFocusMessageType,
   htmlPreviewAnnotationsMessageType,
@@ -196,6 +197,7 @@ const fitRuntime = `
 (() => {
   const installStorageFallback = (${installHtmlPreviewStorageFallback.toString()});
   installStorageFallback(window);
+  const getBoundingRect = (${getHtmlPreviewBoundingRect.toString()});
   const installAnnotationController = (${installHtmlPreviewAnnotationController.toString()});
   const annotationController = installAnnotationController(window, {
     modeMessageType: ${JSON.stringify(htmlPreviewAnnotationModeMessageType)},
@@ -208,6 +210,7 @@ const fitRuntime = `
     maximumSelectionCount: ${maximumHtmlSelectionCount},
     annotationCursor: ${JSON.stringify(officeAnnotationCursor)},
     installHover: (${installOfficeAnnotationHover.toString()}),
+    getBoundingRect,
   });
   const installAnnotations = (${installHtmlPreviewAnnotationsController.toString()});
   const annotationsController = installAnnotations(window, {
@@ -217,6 +220,7 @@ const fitRuntime = `
     maximumMarkers: ${maximumOfficeAnnotationCount},
     maximumElements: ${maximumHtmlSelectionCount},
     annotatedAttribute: ${JSON.stringify(htmlAnnotatedAttribute)},
+    getBoundingRect,
   });
   const minimumZoom = 0.5;
   const maximumZoom = 2;

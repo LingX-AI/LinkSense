@@ -1,7 +1,7 @@
 import { maximumOfficeAnnotationCount } from "@linksense/shared"
 import { z } from "zod"
 
-import { maximumHtmlSelectionCount } from "./html-preview-selection"
+import type { getHtmlPreviewBoundingRect } from "./html-preview-geometry"
 import type { HtmlAnnotationMarker, HtmlSelection } from "./html-preview.types"
 
 export const htmlPreviewAnnotationsMessageType =
@@ -15,7 +15,6 @@ const annotationFrameSchema = z
   .object({
     id: z.string().min(1).max(500),
     index: z.number().int().positive(),
-    elementIndex: z.number().int().nonnegative(),
     left: z.number().finite(),
     top: z.number().finite(),
     width: z.number().finite().positive(),
@@ -25,9 +24,7 @@ const annotationFrameSchema = z
 const framesMessageSchema = z
   .object({
     type: z.literal(htmlPreviewAnnotationFramesMessageType),
-    frames: z
-      .array(annotationFrameSchema)
-      .max(maximumOfficeAnnotationCount * maximumHtmlSelectionCount),
+    frames: z.array(annotationFrameSchema).max(maximumOfficeAnnotationCount),
   })
   .strict()
 export type HtmlAnnotationFrame = z.infer<typeof annotationFrameSchema>
@@ -79,6 +76,7 @@ export function installHtmlPreviewAnnotationsController(
     maximumMarkers: number
     maximumElements: number
     annotatedAttribute: string
+    getBoundingRect: typeof getHtmlPreviewBoundingRect
   }>
 ): Readonly<{ refresh: () => void; destroy: () => void }> {
   type Marker = { id: string; index: number; selectors: string[] }
@@ -148,16 +146,16 @@ export function installHtmlPreviewAnnotationsController(
   const refresh = () => {
     if (destroyed) return
     const nextMarkedElements = new Set<Element>()
-    const frames = markers.flatMap((marker) =>
-      marker.selectors.flatMap((selector, elementIndex) => {
+    const frames = markers.flatMap((marker) => {
+      const rects = marker.selectors.flatMap((selector) => {
         const element = resolveElement(selector)
         if (element) nextMarkedElements.add(element)
         const bounds = element && visibleBounds(element)
-        return bounds
-          ? [{ id: marker.id, index: marker.index, elementIndex, ...bounds }]
-          : []
+        return bounds ? [bounds] : []
       })
-    )
+      const bounds = config.getBoundingRect(rects)
+      return bounds ? [{ id: marker.id, index: marker.index, ...bounds }] : []
+    })
     for (const element of markedElements)
       if (!nextMarkedElements.has(element))
         element.removeAttribute(config.annotatedAttribute)

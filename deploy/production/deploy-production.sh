@@ -1243,6 +1243,7 @@ worker_source_fingerprint() {
       deploy/codex-system/requirements.toml \
       deploy/docker/configure-debian-apt.sh \
       deploy/runtime/browser \
+      deploy/runtime/fonts \
       deploy/runtime/node \
       deploy/runtime/python \
       deploy/runtime/shell
@@ -1265,6 +1266,7 @@ worker_runtime_changed_paths() {
     deploy/codex-home-template/config.toml \
     deploy/codex-system/requirements.toml \
     deploy/runtime/browser \
+    deploy/runtime/fonts \
     deploy/runtime/node \
     deploy/runtime/python \
     deploy/runtime/shell
@@ -1289,6 +1291,7 @@ worker_rebuild_changed_paths() {
     deploy/codex-system/requirements.toml \
     deploy/docker/configure-debian-apt.sh \
     deploy/runtime/browser \
+    deploy/runtime/fonts \
     deploy/runtime/node \
     deploy/runtime/python \
     deploy/runtime/shell

@@ -217,7 +217,7 @@ function ModelSettingsRow({
         </div>
       </TableCell>
       <TableCell>
-        <Badge variant="secondary">
+        <Badge variant="ghost">
           {t(`admin.modelProvider.modelKinds.${model.kind}`)}
         </Badge>
       </TableCell>

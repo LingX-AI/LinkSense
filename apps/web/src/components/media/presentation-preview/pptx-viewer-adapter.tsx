@@ -114,6 +114,16 @@ const initialLayoutStableFrameCount = 2
 const emptyPresentationAnnotationMarkers: readonly PresentationAnnotationMarker[] =
   []
 
+type PresentationViewerLayout = Readonly<{
+  viewport: HTMLElement
+  slideWrapper: HTMLElement
+  viewportWidth: number
+  viewportHeight: number
+  slideWidth: number
+  slideHeight: number
+  compact: boolean
+}>
+
 function measuredElementSize(element: HTMLElement) {
   const bounds = element.getBoundingClientRect()
   return {
@@ -122,27 +132,58 @@ function measuredElementSize(element: HTMLElement) {
   }
 }
 
-function presentationViewerLayoutFits(root: HTMLElement) {
+function readFittedPresentationLayout(
+  root: HTMLElement
+): PresentationViewerLayout | null {
   const viewport = root.querySelector<HTMLElement>("[data-pptx-viewport]")
   const slideWrapper = viewport?.firstElementChild
-  if (!viewport || !(slideWrapper instanceof HTMLElement)) return false
+  if (!viewport || !(slideWrapper instanceof HTMLElement)) return null
 
   const viewportSize = measuredElementSize(viewport)
   const slideSize = measuredElementSize(slideWrapper)
+  const padding = window.getComputedStyle(viewport)
+  const viewportWidth =
+    viewportSize.width -
+    (Number.parseFloat(padding.paddingLeft) || 0) -
+    (Number.parseFloat(padding.paddingRight) || 0)
+  const viewportHeight =
+    viewportSize.height -
+    (Number.parseFloat(padding.paddingTop) || 0) -
+    (Number.parseFloat(padding.paddingBottom) || 0)
   if (
-    viewportSize.width <= 0 ||
-    viewportSize.height <= 0 ||
-    slideSize.width <= 0 ||
-    slideSize.height <= 0
+    ![viewportWidth, viewportHeight, slideSize.width, slideSize.height].every(
+      (size) => Number.isFinite(size) && size > 0
+    ) ||
+    slideSize.width > viewportWidth + 1 ||
+    slideSize.height > viewportHeight + 1
   ) {
-    // DOM-only test environments do not calculate layout. The consecutive
-    // frame check still prevents exposing the viewer in its mount frame.
-    return true
+    return null
   }
 
+  return {
+    viewport,
+    slideWrapper,
+    viewportWidth,
+    viewportHeight,
+    slideWidth: slideSize.width,
+    slideHeight: slideSize.height,
+    compact: Boolean(findMobileActions(root)),
+  }
+}
+
+function samePresentationLayout(
+  previous: PresentationViewerLayout | null,
+  current: PresentationViewerLayout
+): boolean {
   return (
-    slideSize.width <= viewportSize.width + 1 &&
-    slideSize.height <= viewportSize.height + 1
+    previous !== null &&
+    previous.viewport === current.viewport &&
+    previous.slideWrapper === current.slideWrapper &&
+    previous.viewportWidth === current.viewportWidth &&
+    previous.viewportHeight === current.viewportHeight &&
+    previous.slideWidth === current.slideWidth &&
+    previous.slideHeight === current.slideHeight &&
+    previous.compact === current.compact
   )
 }
 
@@ -443,6 +484,7 @@ export const PptxViewerAdapter = forwardRef<
   const viewerSurfaceReadyRef = useRef(false)
   const viewerLayoutFrameRef = useRef<number | null>(null)
   const viewerLayoutStableFramesRef = useRef(0)
+  const viewerLayoutRef = useRef<PresentationViewerLayout | null>(null)
   const [viewerRevision, setViewerRevision] = useState(0)
   const [compactSlidesOpen, setCompactSlidesOpen] = useState(false)
   const [activeSlideIndex, setActiveSlideIndex] = useState(0)
@@ -464,6 +506,7 @@ export const PptxViewerAdapter = forwardRef<
       viewerLayoutFrameRef.current = null
     }
     viewerLayoutStableFramesRef.current = 0
+    viewerLayoutRef.current = null
     viewerSurfaceReadyRef.current = false
     setViewerSurfaceReady(false)
   }, [])
@@ -481,16 +524,19 @@ export const PptxViewerAdapter = forwardRef<
       const root = rootRef.current
       if (!root?.querySelector("[data-pptx-viewport]")) {
         viewerLayoutStableFramesRef.current = 0
-        return
-      }
-      if (!presentationViewerLayoutFits(root)) {
-        viewerLayoutStableFramesRef.current = 0
-        viewerLayoutFrameRef.current =
-          window.requestAnimationFrame(inspectLayout)
+        viewerLayoutRef.current = null
         return
       }
 
-      viewerLayoutStableFramesRef.current += 1
+      const layout = readFittedPresentationLayout(root)
+      // The viewer measures and fits after mounting, then may fit again when
+      // its compact navigation changes the available canvas space. Merely
+      // fitting on consecutive frames does not mean those frames have settled.
+      viewerLayoutStableFramesRef.current =
+        layout && samePresentationLayout(viewerLayoutRef.current, layout)
+          ? viewerLayoutStableFramesRef.current + 1
+          : 0
+      viewerLayoutRef.current = layout
       if (viewerLayoutStableFramesRef.current < initialLayoutStableFrameCount) {
         viewerLayoutFrameRef.current =
           window.requestAnimationFrame(inspectLayout)
@@ -1391,7 +1437,10 @@ export const PptxViewerAdapter = forwardRef<
       }
       if (viewerLayoutFrameRef.current !== null) {
         window.cancelAnimationFrame(viewerLayoutFrameRef.current)
+        viewerLayoutFrameRef.current = null
       }
+      viewerLayoutRef.current = null
+      viewerLayoutStableFramesRef.current = 0
     },
     [cancelWheelAnchor]
   )

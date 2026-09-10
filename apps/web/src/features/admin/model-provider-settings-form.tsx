@@ -223,23 +223,30 @@ export function ModelProviderSettingsForm({
               </DropdownMenu>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span>
-              {t(`admin.imageUnderstanding.providers.${channel.provider}`)}
-            </span>
-            <span>
-              {t("admin.modelProvider.providerDescription", {
-                count: channel.models.length,
-              })}
-            </span>
+          <p className="text-xs leading-relaxed text-muted-foreground">
             <span>
               {t(
                 channel.api_key_configured
-                  ? "admin.modelProvider.keyConfigured"
-                  : "admin.modelProvider.keyNotConfigured"
+                  ? "admin.modelProvider.channelSummaryConfigured"
+                  : "admin.modelProvider.channelSummaryNotConfigured",
+                {
+                  provider: t(
+                    `admin.imageUnderstanding.providers.${channel.provider}`
+                  ),
+                  count: channel.models.length,
+                }
               )}
             </span>
-          </div>
+            {channel.models.length > 0 && (
+              <span className="whitespace-nowrap">
+                {t("admin.modelProvider.priceUnitSummary", {
+                  unit: t("admin.modelProvider.priceUnit"),
+                })}
+              </span>
+            )}
+            {channel.models.length === 0 &&
+              t("admin.modelProvider.channelSummaryEnd")}
+          </p>
           {channel.models.length === 0 ? (
             <Empty>
               <EmptyHeader>
@@ -251,9 +258,6 @@ export function ModelProviderSettingsForm({
             </Empty>
           ) : (
             <div className="flex min-w-0 flex-col gap-2">
-              <p className="text-xs text-muted-foreground">
-                {t("admin.modelProvider.priceUnit")}
-              </p>
               <ModelSettingsTable
                 models={channel.models}
                 disabled={disabled}

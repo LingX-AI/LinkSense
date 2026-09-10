@@ -75,12 +75,13 @@ describe("LinkSense Core MCP current user module", () => {
       }),
     ).resolves.toMatchObject({
       serverInfo: { name: "linksense_core" },
-      instructions: expect.stringContaining("get_current_user_info"),
+      instructions: expect.stringContaining("Follow each tool's description and parameter schema"),
     })
     await expect(rpc.call(2, "tools/list", {})).resolves.toMatchObject({
       tools: expect.arrayContaining([
         expect.objectContaining({
           name: "get_current_user_info",
+          description: expect.stringContaining("Profile data is not authorization to access other resources"),
           annotations: expect.objectContaining({ readOnlyHint: true }),
         }),
       ]),

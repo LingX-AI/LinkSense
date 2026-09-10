@@ -4,6 +4,51 @@ import composerStyles from "@/index.css?raw"
 import { describe, expect, it } from "vitest"
 
 describe("conversation composer capability chips", () => {
+  it("uses one flat borderless surface for category, queued request, and goal bars", () => {
+    const sharedSurface = composerStyles.match(
+      /:is\(\s*\.conversation-category-dock,\s*\.pending-requests,\s*\.conversation-goal-bar\s*\)\s*\{([^}]*)\}/u
+    )?.[1]
+    expect(sharedSurface).toMatch(/border:\s*0;/u)
+    expect(sharedSurface).toMatch(/box-shadow:\s*none;/u)
+    expect(sharedSurface).toMatch(
+      /background:\s*var\(--app-activity-surface\);/u
+    )
+  })
+
+  it.each([
+    { theme: "light", selector: /:root\s*\{([^}]*)\}/u, background: "#f5f5f5" },
+    { theme: "dark", selector: /\.dark\s*\{([^}]*)\}/u, background: "#292929" },
+  ])(
+    "uses the $theme gray surface above the composer",
+    ({ selector, background }) => {
+      const theme = composerStyles.match(selector)?.[1]
+      expect(theme).toContain(`--app-activity-surface: ${background};`)
+      const barRules = [
+        /\.conversation-category-dock,\s*\.pending-requests\s*\{([^}]*)\}/u,
+        /(?:^|\n)\.conversation-goal-bar\s*\{([^}]*)\}/u,
+      ]
+      for (const rule of barRules) {
+        expect(composerStyles.match(rule)?.[1]).not.toMatch(
+          /(?:background|box-shadow|border(?:-color|-bottom|-top)?):/u
+        )
+      }
+    }
+  )
+
+  it("shares the queued follow-up surface with the category bar above the composer", () => {
+    const surface = composerStyles.match(
+      /\.conversation-category-dock,\s*\.pending-requests\s*\{([^}]*)\}/u
+    )?.[1]
+    expect(surface).toMatch(
+      /width:\s*min\(calc\(100% - 28px\),\s*calc\(var\(--app-composer-width\) - 28px\)\);/u
+    )
+    expect(surface).toMatch(/border-radius:\s*20px 20px 0 0;/u)
+    expect(surface).toMatch(/margin-bottom:\s*-1px;/u)
+    expect(composerStyles).toMatch(
+      /\.conversation-bottom-stack:has\(\.conversation-category-dock\),\s*\.conversation-bottom-stack:has\(\.pending-requests\)\s*\{\s*gap:\s*0;/u
+    )
+  })
+
   it("gives the capability picker a wider responsive width", () => {
     const pickerRule = composerStyles.match(
       /\.capability-picker-popover\s*\{([^}]*)\}/u
@@ -205,7 +250,7 @@ describe("conversation composer capability chips", () => {
     expect(iconRule).toMatch(/height:\s*14px;/u)
   })
 
-  it("uses compact thumbnails that preserve the complete image when files share the context row", () => {
+  it("uses compact thumbnails that fill their boxes when files share the context row", () => {
     const mixedAttachmentRule = composerStyles.match(
       /\.composer-context-row-with-files\s*\{([^}]*)\}/u
     )?.[1]
@@ -219,7 +264,7 @@ describe("conversation composer capability chips", () => {
     expect(mixedAttachmentRule).toMatch(/align-items:\s*flex-start;/u)
     expect(mixedAttachmentThumbnailRule).toMatch(/width:\s*40px;/u)
     expect(mixedAttachmentThumbnailRule).toMatch(/height:\s*40px;/u)
-    expect(thumbnailImageRule).toMatch(/object-fit:\s*contain;/u)
+    expect(thumbnailImageRule).toMatch(/object-fit:\s*cover;/u)
     expect(thumbnailImageRule).not.toMatch(/object-position:/u)
   })
 

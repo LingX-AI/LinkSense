@@ -324,17 +324,15 @@ describe("LinkSense Core MCP subprocess", () => {
       }),
     ).resolves.toMatchObject({
       serverInfo: { name: "linksense_core" },
-      instructions: expect.stringMatching(
-        /search_knowledge_base for focused factual[\s\S]*list_knowledge_documents for document inventory[\s\S]*get_knowledge_document_markdown only when the user needs a complete named document/u,
-      ),
+      instructions: expect.stringContaining("Follow each tool's description and parameter schema"),
     });
     const toolList = await rpc.call(3, "tools/list", {});
     expect(toolList).toMatchObject({
       tools: expect.arrayContaining([
         expect.objectContaining({
           name: "search_knowledge_base",
-          description: expect.stringContaining(
-            "Copy the complete Markdown image reference exactly as returned",
+          description: expect.stringMatching(
+            /Use this tool for focused factual[\s\S]*Copy the complete Markdown image reference exactly as returned/u,
           ),
           inputSchema: expect.objectContaining({
             properties: expect.objectContaining({
@@ -344,9 +342,13 @@ describe("LinkSense Core MCP subprocess", () => {
             }),
           }),
         }),
-        expect.objectContaining({ name: "list_knowledge_documents" }),
+        expect.objectContaining({
+          name: "list_knowledge_documents",
+          description: expect.stringContaining("Use this tool when the user asks which documents are available"),
+        }),
         expect.objectContaining({
           name: "get_knowledge_document_markdown",
+          description: expect.stringContaining("Use only for a user request that needs the complete named document"),
         }),
       ]),
     });

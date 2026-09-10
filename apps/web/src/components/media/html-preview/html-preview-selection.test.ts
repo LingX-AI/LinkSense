@@ -4,6 +4,8 @@ import {
 } from "./html-preview-annotations"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { fireEvent } from "@testing-library/react"
+import Selecto from "selecto"
+import { getHtmlPreviewBoundingRect } from "./html-preview-geometry"
 import { officeAnnotationCursor } from "@/components/media/office-preview/office-annotation-cursor"
 import { installOfficeAnnotationHover } from "@/components/media/office-preview/office-annotation-hover-controller"
 
@@ -53,9 +55,10 @@ afterEach(() => {
     .forEach((element) => element.remove())
   vi.restoreAllMocks()
   document.documentElement.style.removeProperty("--app-selection")
+  document.documentElement.style.removeProperty("zoom")
 })
 
-function installController() {
+function installController(useRealSelecto = false) {
   let selectEnd:
     ((event: Readonly<{ selected: readonly Element[] }>) => void) | null = null
   const state = {
@@ -86,7 +89,7 @@ function installController() {
       state.destroyed = true
     }
   }
-  Reflect.set(window, "Selecto", SelectoMock)
+  Reflect.set(window, "Selecto", useRealSelecto ? Selecto : SelectoMock)
   const controller = installHtmlPreviewAnnotationController(window, {
     modeMessageType: htmlPreviewAnnotationModeMessageType,
     selectionMessageType: htmlPreviewSelectionMessageType,
@@ -98,6 +101,7 @@ function installController() {
     maximumSelectionCount: maximumHtmlSelectionCount,
     annotationCursor: officeAnnotationCursor,
     installHover: installOfficeAnnotationHover,
+    getBoundingRect: getHtmlPreviewBoundingRect,
   })
   controllers.push(controller)
   return {
@@ -130,6 +134,91 @@ function annotationOverlay(selector: string): SVGSVGElement {
 }
 
 describe("HTML preview live selection", () => {
+  it.each([0.5, 1, 1.5])(
+    "keeps the drag rectangle at the mouse coordinates with %s document zoom and selects the enclosed elements",
+    (zoom) => {
+      vi.useFakeTimers()
+      document.documentElement.style.setProperty("zoom", String(zoom))
+      document.body.innerHTML =
+        '<h1 id="heading">Heading</h1><p id="caption">Caption</p><p id="outside">Outside</p>'
+      const heading = document.getElementById("heading")
+      const caption = document.getElementById("caption")
+      const outside = document.getElementById("outside")
+      if (!heading || !caption || !outside)
+        throw new Error("Missing drag fixture")
+      heading.getBoundingClientRect = () => new DOMRect(80, 90, 120, 40)
+      caption.getBoundingClientRect = () => new DOMRect(100, 170, 140, 30)
+      outside.getBoundingClientRect = () => new DOMRect(600, 500, 100, 40)
+      const postMessage = vi
+        .spyOn(window, "postMessage")
+        .mockImplementation(() => {})
+      installController(true)
+      setAnnotationMode(true)
+      const overlay = annotationOverlay(".html-preview-selection-fill-overlay")
+      // jsdom does not lay out CSS zoom. Supply the rendered overlay geometry,
+      // independently of its unscaled CSS dimensions, as a browser would.
+      overlay.getBoundingClientRect = () =>
+        new DOMRect(20, 30, 800 * zoom, 600 * zoom)
+      const path = overlay.querySelector("path")
+      const start = { clientX: 60, clientY: 70, button: 0, buttons: 1 }
+      const end = { clientX: 260, clientY: 220, button: 0, buttons: 1 }
+      fireEvent.mouseDown(document.body, start)
+      fireEvent.mouseMove(window, end)
+      expect(overlay).toHaveAttribute(
+        "viewBox",
+        `0 0 ${800 * zoom} ${600 * zoom}`
+      )
+      expect(path).toHaveAttribute("d", "M40,40H240V190H40Z")
+      expect(overlay.getRootNode()).not.toBe(document)
+      fireEvent.mouseUp(window, { ...end, buttons: 0 })
+      expect(path).toHaveAttribute("d", "M60,60H220V170H60Z")
+      const message = parseHtmlPreviewSelectionMessage(
+        postMessage.mock.calls.at(-1)?.[0]
+      )
+      expect(
+        message?.selection?.elements.map((element) => element.selector)
+      ).toEqual(["#heading", "#caption"])
+      expect(message?.anchor).toEqual({ right: 240, top: 90, bottom: 200 })
+      // Dragging back towards the top-left uses the same viewport coordinates.
+      fireEvent.mouseDown(document.body, end)
+      fireEvent.mouseMove(window, start)
+      expect(path).toHaveAttribute("d", "M40,40H240V190H40Z")
+      fireEvent.mouseUp(window, { ...start, buttons: 0 })
+      expect(path).toHaveAttribute("d", "M60,60H220V170H60Z")
+    }
+  )
+
+  it("draws one enclosing selection frame and keeps every selected element in the payload", () => {
+    document.body.innerHTML =
+      '<h1 id="heading">Heading</h1><svg id="scene"></svg><p id="caption">Caption</p>'
+    const elements = ["heading", "scene", "caption"].map((id) =>
+      document.getElementById(id)
+    )
+    const [heading, scene, caption] = elements
+    if (!heading || !scene || !caption) throw new Error("Missing group fixture")
+    heading.getBoundingClientRect = () => new DOMRect(160, 40, 180, 40)
+    scene.getBoundingClientRect = () => new DOMRect(50, 100, 500, 300)
+    caption.getBoundingClientRect = () => new DOMRect(180, 430, 220, 20)
+    const postMessage = vi
+      .spyOn(window, "postMessage")
+      .mockImplementation(() => {})
+    const { select } = installController()
+    setAnnotationMode(true)
+    const overlay = annotationOverlay(".html-preview-selection-fill-overlay")
+    overlay.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600)
+    select([heading, scene, caption])
+    expect(overlay.querySelector("path")).toHaveAttribute(
+      "d",
+      "M50,40H550V450H50Z"
+    )
+    const message = parseHtmlPreviewSelectionMessage(
+      postMessage.mock.calls.at(-1)?.[0]
+    )
+    expect(
+      message?.selection?.elements.map((element) => element.selector)
+    ).toEqual(["#heading", "#scene", "#caption"])
+  })
+
   it.each(["img", "svg"])(
     "keeps %s hover and selection frames outside clipped content and document SVG styles",
     (tag) => {
@@ -196,7 +285,7 @@ describe("HTML preview live selection", () => {
       expect(document.querySelectorAll("svg")).toHaveLength(
         tag === "svg" ? 1 : 0
       )
-      expect(layer?.querySelector("slot")).not.toBeNull()
+      expect(layer?.querySelector("slot")).toBeNull()
       bounds = new DOMRect(20, 30, 450, 270)
       fireEvent.scroll(clip)
       expect(frame).toHaveAttribute("d", "M50,60H350V240H50Z")
@@ -268,7 +357,10 @@ describe("HTML preview live selection", () => {
     setAnnotationMode(true, "#5ca8ff")
 
     expect(frame).toHaveAttribute("stroke", "rgb(92, 168, 255)")
-    expect(styles?.textContent).toContain("border: 1px solid rgb(92, 168, 255)")
+    expect(frame).toHaveAttribute(
+      "fill",
+      "color-mix(in srgb, rgb(92, 168, 255) 12%, transparent)"
+    )
     expect(state.selected).toEqual([target])
     expect(target).toHaveAttribute(htmlSelectedAttribute)
   })

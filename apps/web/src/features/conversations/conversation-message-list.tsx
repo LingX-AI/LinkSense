@@ -28,6 +28,7 @@ export type ConversationMessageRow = {
 export type ConversationThreadNavigation = {
   scrollToMessage: (messageId: string) => boolean
   scrollToLatest: (behavior: ScrollBehavior) => boolean
+  cancelScroll: () => void
 }
 
 type MessageListProps = {
@@ -54,7 +55,11 @@ function StaticMessageList({
   const hostRef = useRef<HTMLDivElement>(null)
   useImperativeHandle(
     navigationRef,
-    () => ({ scrollToMessage: () => false, scrollToLatest: () => false }),
+    () => ({
+      scrollToMessage: () => false,
+      scrollToLatest: () => false,
+      cancelScroll: () => {},
+    }),
     []
   )
   useVisibleConversationMessages({ hostRef, onVisibleMessageChange })
@@ -84,6 +89,7 @@ function VirtualMessageList({
   "use no memo"
   // TanStack Virtual exposes a mutable instance; React Compiler must not memoize it.
   const hostRef = useRef<HTMLDivElement>(null)
+  const hasNavigationRequestRef = useRef(false)
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null)
   const [scrollMargin, setScrollMargin] = useState(0)
   const [scrollPaddingStart, setScrollPaddingStart] = useState(0)
@@ -104,11 +110,21 @@ function VirtualMessageList({
         : [...new Set([...indexes, pinnedIndex])].sort((a, b) => a - b)
     },
     anchorTo: "end",
+    // Preserve prepend anchors, but disable the virtualizer's implicit bottom
+    // pinning. useConversationScroll owns following and its user-controlled pause.
+    scrollEndThreshold: -1,
     scrollMargin,
     scrollPaddingStart,
     directDomUpdates: true,
     directDomUpdatesMode: "position",
   })
+  // Compensate changes entirely above the viewport. A streaming reply that
+  // starts above it can still be the content the user is currently reading.
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (
+    item,
+    _delta,
+    instance
+  ) => item.end <= (instance.scrollOffset ?? 0)
   useLayoutEffect(() => {
     const host = hostRef.current
     const scroller = host?.closest<HTMLElement>(".conversation-scroll")
@@ -143,13 +159,24 @@ function VirtualMessageList({
       scrollToMessage: (id) => {
         const index = rows.findIndex((row) => row.messageIds.includes(id))
         if (index < 0) return false
+        hasNavigationRequestRef.current = true
         virtualizer.scrollToIndex(index, { align: "start", behavior: "auto" })
         return true
       },
       scrollToLatest: (behavior) => {
         if (!scrollElement || !rows.length) return false
+        hasNavigationRequestRef.current = true
         virtualizer.scrollToEnd({ behavior })
         return true
+      },
+      cancelScroll: () => {
+        if (!scrollElement || !hasNavigationRequestRef.current) return
+        hasNavigationRequestRef.current = false
+        // Use the public offset API to replace the pending index target, so
+        // later measurements cannot keep reconciling back to the live reply.
+        virtualizer.scrollToOffset(scrollElement.scrollTop, {
+          behavior: "auto",
+        })
       },
     }),
     [rows, scrollElement, virtualizer]

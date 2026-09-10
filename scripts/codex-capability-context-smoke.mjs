@@ -209,7 +209,7 @@ await server.connect(new StdioServerTransport());
   const changedKnowledge = await turn(session, id, { selectedKnowledgeBases: [{ id: randomUUID(), name: "CONTEXT_KNOWLEDGE_B" }] });
   check("changing knowledge selection supplies current names and replacement semantics", changedKnowledge.lastIndexOf("CONTEXT_KNOWLEDGE_B") > changedKnowledge.lastIndexOf("CONTEXT_KNOWLEDGE_A") && changedKnowledge.includes("replaces all previous knowledge-base selections"));
   const cleared = await turn(session, id);
-  check("clearing knowledge selection supplies an explicit empty current scope", cleared.lastIndexOf("No knowledge bases are selected for this turn.") > cleared.lastIndexOf("CONTEXT_KNOWLEDGE_B"));
+  check("clearing knowledge selection supplies an explicit empty current scope", cleared.lastIndexOf("No knowledge bases are selected.") > cleared.lastIndexOf("CONTEXT_KNOWLEDGE_B"));
   const applicationInstructions = `CONTEXT_APPLICATION_START\n${"应用要求。".repeat(3990)}\nCONTEXT_APPLICATION_END`;
   assert(applicationInstructions.length <= 20000);
   const application = await turn(session, id, { ...pluginSelection, prioritySkills: [{ name: "context-standalone" }], selectedKnowledgeBases, applicationInstructions });

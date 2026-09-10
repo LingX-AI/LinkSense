@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { htmlAnnotatedAttribute } from "./html-preview-selection"
+import { getHtmlPreviewBoundingRect } from "./html-preview-geometry"
 import {
   htmlPreviewAnnotationsMessageType,
   htmlPreviewAnnotationFramesMessageType,
@@ -27,6 +28,7 @@ function install() {
     maximumMarkers: 20,
     maximumElements: 20,
     annotatedAttribute: htmlAnnotatedAttribute,
+    getBoundingRect: getHtmlPreviewBoundingRect,
   })
   const postMessage = vi
     .spyOn(window, "postMessage")
@@ -48,6 +50,96 @@ function setMarkers(selectors: string[]) {
 }
 
 describe("HTML annotation live geometry", () => {
+  it("emits one enclosing frame per annotation and follows each group's visible elements", () => {
+    document.body.innerHTML =
+      '<h1 id="heading">Heading</h1><svg id="scene"></svg><p id="caption">Caption</p><p id="other">Another annotation</p>'
+    const heading = document.getElementById("heading")
+    const scene = document.getElementById("scene")
+    const caption = document.getElementById("caption")
+    const other = document.getElementById("other")
+    if (!heading || !scene || !caption || !other)
+      throw new Error("Missing annotation fixture")
+    let headingBounds = new DOMRect(160, 40, 180, 40)
+    let sceneBounds = new DOMRect(50, 100, 500, 300)
+    heading.getBoundingClientRect = () => headingBounds
+    scene.getBoundingClientRect = () => sceneBounds
+    caption.getBoundingClientRect = () => new DOMRect(180, 430, 220, 20)
+    other.getBoundingClientRect = () => new DOMRect(600, 100, 100, 60)
+    const postMessage = install()
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: window,
+        data: {
+          type: htmlPreviewAnnotationsMessageType,
+          markers: [
+            {
+              id: "draft-1",
+              index: 1,
+              selectors: ["#heading", "#scene", "#caption", "#missing"],
+            },
+            { id: "draft-2", index: 2, selectors: ["#other"] },
+          ],
+        },
+      })
+    )
+    const expectGroup = (bounds: {
+      left: number
+      top: number
+      width: number
+      height: number
+    }) => {
+      expect(postMessage).toHaveBeenLastCalledWith(
+        {
+          type: htmlPreviewAnnotationFramesMessageType,
+          frames: [
+            { id: "draft-1", index: 1, ...bounds },
+            {
+              id: "draft-2",
+              index: 2,
+              left: 600,
+              top: 100,
+              width: 100,
+              height: 60,
+            },
+          ],
+        },
+        "*"
+      )
+    }
+    expectGroup({ left: 50, top: 40, width: 500, height: 410 })
+    for (const element of [heading, scene, caption, other])
+      expect(element).toHaveAttribute(htmlAnnotatedAttribute, "true")
+    // Live zoom/scroll updates must use the elements' current displayed bounds.
+    headingBounds = new DOMRect(80, -10, 270, 60)
+    sceneBounds = new DOMRect(-20, 70, 750, 450)
+    vi.advanceTimersByTime(20)
+    expectGroup({ left: 0, top: 0, width: 730, height: 520 })
+    scene.style.display = "none"
+    vi.advanceTimersByTime(20)
+    expectGroup({ left: 80, top: 0, width: 320, height: 450 })
+    caption.remove()
+    vi.advanceTimersByTime(20)
+    expectGroup({ left: 80, top: 0, width: 270, height: 50 })
+    heading.remove()
+    vi.advanceTimersByTime(20)
+    expect(postMessage).toHaveBeenLastCalledWith(
+      {
+        type: htmlPreviewAnnotationFramesMessageType,
+        frames: [
+          {
+            id: "draft-2",
+            index: 2,
+            left: 600,
+            top: 100,
+            width: 100,
+            height: 60,
+          },
+        ],
+      },
+      "*"
+    )
+  })
+
   it("follows scrolling, zoom, layout changes and removed elements without annotation mode", () => {
     document.body.innerHTML = '<div id="target">Selected element</div>'
     const target = document.getElementById("target")
@@ -64,7 +156,6 @@ describe("HTML annotation live geometry", () => {
             expect.objectContaining({
               id: "draft-1",
               index: 1,
-              elementIndex: 0,
               ...frame,
             }),
           ],
@@ -114,7 +205,6 @@ describe("HTML annotation live geometry", () => {
           {
             id: "draft-1",
             index: 1,
-            elementIndex: 0,
             left: 120,
             top: 100,
             width: 160,
@@ -167,7 +257,6 @@ describe("HTML annotation live geometry", () => {
           {
             id: "a",
             index: 1,
-            elementIndex: 0,
             left: Infinity,
             top: 0,
             width: 1,

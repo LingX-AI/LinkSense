@@ -416,6 +416,7 @@ export function workerImageFingerprint(rootDirectory = repositoryRoot) {
     "deploy/docker/configure-debian-apt.sh",
     "deploy/docker/runner-runtime-smoke.mjs",
     "deploy/runtime/browser",
+    "deploy/runtime/fonts",
     "deploy/runtime/node",
     "deploy/runtime/python",
     "deploy/runtime/shell",

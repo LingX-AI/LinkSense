@@ -336,9 +336,9 @@ describe("HTML preview", () => {
     }
   )
 
-  it("draws numbered markers for saved element annotations", async () => {
+  it("draws one numbered frame for a saved annotation containing multiple elements", async () => {
     const content = new TextEncoder().encode(
-      '<!doctype html><html><body><h1 id="hero">欢迎</h1></body></html>'
+      '<!doctype html><html><body><h1 id="hero">欢迎</h1><p id="caption">说明</p></body></html>'
     )
     const preview = () => (
       <HtmlPreview
@@ -363,6 +363,14 @@ describe("HTML preview", () => {
                   outerHtml: '<h1 id="hero">欢迎</h1>',
                   attributes: {},
                   bounds: { x: 20, y: 30, width: 200, height: 60 },
+                },
+                {
+                  selector: "#caption",
+                  domPath: [1],
+                  tagName: "p",
+                  classNames: [],
+                  attributes: {},
+                  bounds: { x: 20, y: 100, width: 200, height: 20 },
                 },
               ],
             },
@@ -393,7 +401,6 @@ describe("HTML preview", () => {
               {
                 id: "draft-1",
                 index: 1,
-                elementIndex: 0,
                 left,
                 top,
                 width,
@@ -406,7 +413,7 @@ describe("HTML preview", () => {
     expect(
       screen.queryByTestId("html-preview-annotation-overlay")
     ).not.toBeInTheDocument()
-    postFrames(20, 30, 200, 60)
+    postFrames(20, 30, 200, 90)
     const overlay = await screen.findByTestId("html-preview-annotation-overlay")
     const frame = overlay.querySelector<HTMLElement>(
       '[data-html-annotation-frame="draft-1"]'
@@ -415,16 +422,22 @@ describe("HTML preview", () => {
       left: "20px",
       top: "30px",
       width: "200px",
-      height: "60px",
+      height: "90px",
     })
-    postFrames(40, 10, 300, 90)
+    postFrames(40, 10, 300, 135)
     expect(frame).toHaveStyle({
       left: "40px",
       top: "10px",
       width: "300px",
-      height: "90px",
+      height: "135px",
     })
     expect(frame).toHaveTextContent("1")
+    expect(
+      overlay.querySelectorAll("[data-html-annotation-frame]")
+    ).toHaveLength(1)
+    expect(
+      overlay.querySelectorAll(".office-annotation-number-bubble")
+    ).toHaveLength(1)
     rerender(preview())
     expect(
       screen.getByTestId("html-preview-annotation-overlay")

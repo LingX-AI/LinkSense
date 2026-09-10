@@ -2796,12 +2796,7 @@ const Message = memo(function Message({
               </form>
             ) : user ? (
               <>
-                <ConversationUserMessageText
-                  content={displayedUserContent}
-                  collapsible={
-                    message.display?.kind === "interactive_application"
-                  }
-                />
+                <ConversationUserMessageText content={displayedUserContent} />
                 {message.delivery_status === "sending" && (
                   <span
                     role="status"
@@ -4131,19 +4126,6 @@ function TurnSummary({
             className="turn-guidance-message"
           >
             {renderGuidedMessage(message)}
-          </div>
-        ))}
-      {canCollapseActivity &&
-        !activityOpen &&
-        userInputRequests.map((request) => (
-          <div
-            key={`collapsed-user-input-request-${request.id}`}
-            className="py-1"
-          >
-            <ConversationUserInputRequestCard
-              request={request}
-              submitting={false}
-            />
           </div>
         ))}
       <ArtifactFiles

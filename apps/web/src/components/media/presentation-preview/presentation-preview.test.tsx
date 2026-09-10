@@ -24,8 +24,8 @@ const viewer = vi.hoisted(() => ({
   loading: false,
   reportSlideCountWhileLoading: false,
   slideCount: 4,
-  viewportWidth: 0,
-  viewportHeight: 0,
+  viewportWidth: 1_000,
+  viewportHeight: 800,
   slideWrapperWidth: 0,
   slideWrapperHeight: 0,
   zoom: 1,
@@ -495,6 +495,29 @@ function setBoundingRect(
     }) as DOMRect
 }
 
+function controlAnimationFrames() {
+  let sequence = 0
+  const callbacks = new Map<number, FrameRequestCallback>()
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    const id = ++sequence
+    callbacks.set(id, callback)
+    return id
+  })
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+    callbacks.delete(id)
+  })
+
+  return async () => {
+    await act(async () => {
+      const frame = [...callbacks.entries()]
+      for (const [id, callback] of frame) {
+        if (!callbacks.delete(id)) continue
+        callback(performance.now())
+      }
+    })
+  }
+}
+
 describe("presentation preview", () => {
   beforeEach(async () => {
     viewer.activeSlideIndex = 0
@@ -502,8 +525,8 @@ describe("presentation preview", () => {
     viewer.loading = false
     viewer.reportSlideCountWhileLoading = false
     viewer.slideCount = 4
-    viewer.viewportWidth = 0
-    viewer.viewportHeight = 0
+    viewer.viewportWidth = 1_000
+    viewer.viewportHeight = 800
     viewer.slideWrapperWidth = 0
     viewer.slideWrapperHeight = 0
     viewer.zoom = 1
@@ -651,6 +674,131 @@ describe("presentation preview", () => {
     )
     expect(viewerSurface).not.toHaveAttribute("aria-hidden")
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
+  })
+
+  it("keeps fitting slides covered while their dimensions are still shrinking", async () => {
+    const nextFrame = controlAnimationFrames()
+    viewer.viewportWidth = 800
+    viewer.viewportHeight = 600
+    viewer.slideWrapperWidth = 780
+    viewer.slideWrapperHeight = 440
+    render(
+      <PresentationPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="settling-slide.pptx"
+      />
+    )
+
+    const adapter = screen.getByTestId("pptx-viewer-adapter")
+    const surface = document.querySelector(".presentation-preview-pptx-surface")
+    await nextFrame()
+    for (const width of [760, 740, 720]) {
+      viewer.slideWrapperWidth = width
+      viewer.slideWrapperHeight = (width * 9) / 16
+      await nextFrame()
+      expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+      expect(surface).toHaveAttribute("aria-hidden", "true")
+    }
+
+    await nextFrame()
+    expect(adapter).toHaveAttribute("aria-busy", "true")
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "true")
+    expect(surface).not.toHaveAttribute("aria-hidden")
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+
+    // Normal user resizing and zooming must not bring the loading mask back.
+    viewer.viewportWidth = 640
+    fireEvent.resize(window)
+    fireEvent.click(screen.getByRole("button", { name: "放大演示文稿" }))
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "true")
+    expect(viewer.zoomIn).toHaveBeenCalledOnce()
+    expect(viewer.mountCount).toBe(1)
+  })
+
+  it("waits for the viewport dimensions and compact navigation layout to settle", async () => {
+    const nextFrame = controlAnimationFrames()
+    viewer.compactLayout = false
+    render(
+      <PresentationPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="settling-pane.pptx"
+      />
+    )
+
+    const adapter = screen.getByTestId("pptx-viewer-adapter")
+    await nextFrame()
+    viewer.viewportWidth = 720
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+    viewer.viewportHeight = 560
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+    await act(async () => viewer.setCompactLayout?.(true))
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "true")
+  })
+
+  it("keeps an unmeasured viewport covered until it has a usable size", async () => {
+    const nextFrame = controlAnimationFrames()
+    viewer.viewportWidth = 0
+    viewer.viewportHeight = 0
+    render(
+      <PresentationPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="unmeasured-pane.pptx"
+      />
+    )
+
+    const adapter = screen.getByTestId("pptx-viewer-adapter")
+    await nextFrame()
+    await nextFrame()
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+    expect(screen.getByRole("status")).toBeInTheDocument()
+
+    viewer.viewportWidth = 800
+    viewer.viewportHeight = 600
+    await nextFrame()
+    await nextFrame()
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "true")
+  })
+
+  it("includes the viewport padding when deciding whether the initial slide fits", async () => {
+    const nextFrame = controlAnimationFrames()
+    viewer.viewportWidth = 800
+    viewer.viewportHeight = 600
+    viewer.slideWrapperWidth = 798
+    viewer.slideWrapperHeight = 570
+    render(
+      <PresentationPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="canvas-gutters.pptx"
+      />
+    )
+
+    const adapter = screen.getByTestId("pptx-viewer-adapter")
+    const viewport = document.querySelector<HTMLElement>(
+      "[data-pptx-viewport]"
+    )!
+    viewport.style.padding = "16px 4px"
+    await nextFrame()
+    await nextFrame()
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+
+    viewer.slideWrapperWidth = 792
+    viewer.slideWrapperHeight = 568
+    await nextFrame()
+    await nextFrame()
+    await nextFrame()
+    expect(adapter).toHaveAttribute("data-pptx-ready", "true")
   })
 
   it("exposes a compact download action without a dropdown affordance", async () => {
@@ -1243,6 +1391,10 @@ describe("presentation preview", () => {
         toJSON: () => ({}),
       } as DOMRect
     }
+
+    await waitFor(() =>
+      expect(adapter).toHaveAttribute("data-pptx-ready", "true")
+    )
 
     fireEvent.pointerDown(element, {
       buttons: 1,

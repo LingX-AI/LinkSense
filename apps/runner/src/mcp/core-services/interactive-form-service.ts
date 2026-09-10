@@ -11,7 +11,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
 
 import {
-  interactiveFormInstructions,
+  requestUserFormSafetyInstructions,
   requestUserFormUsageInstructions,
 } from "../../interactive-form-instructions.js"
 import {
@@ -241,10 +241,6 @@ export const interactiveFormCoreMcpModule = {
     return {
       key: "interactive_form",
       tools: [requestUserFormTool, emitApplicationEventTool],
-      instructions: [
-        interactiveFormInstructions,
-        "Use emit_application_event only when the current LinkSense application instructions declare the exact custom event name and payload schema. Never use it for message deltas, reasoning, or tool progress.",
-      ].join("\n"),
       async callTool(input) {
         if (input.toolName === "emit_application_event") {
           try {
@@ -528,6 +524,7 @@ const requestUserFormTool = {
     "Show a blocking interactive form card inside the current conversation and wait for the user's response.",
     requestUserFormUsageInstructions,
     "Also call this tool when the user explicitly asks for an interactive form, form card, interactive card, confirmation card, or a fillable or selectable UI; that explicit request is sufficient even for one field. Do not replace these interactions with Markdown, plain-text questions, or html-preview, and never claim that a form was displayed unless this tool call succeeded. Supports text, textarea, single/multi select, date, date-time, number, and boolean fields. Declare purpose=input for ordinary forms or purpose=approval with an exact required two-option decision mapping for approve and reject flows. It only records user intent and never performs the side effect itself. Never use it for secrets.",
+    requestUserFormSafetyInstructions,
   ].join(" "),
   inputSchema: mcpToolInputSchemaSchema.parse(
     z.toJSONSchema(interactiveFormArgumentsSchema),

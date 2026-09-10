@@ -63,6 +63,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   if (originalScrollTo)
     Object.defineProperty(HTMLElement.prototype, "scrollTo", originalScrollTo)
@@ -70,6 +71,154 @@ afterEach(() => {
 })
 
 describe("virtual conversation messages", () => {
+  it("keeps the reading position inside a long streaming reply and resumes only at the bottom", async () => {
+    let replyHeight = 1_000
+    const observers: Array<{
+      elements: Set<Element>
+      notify: (target: Element) => void
+    }> = []
+    const originalResizeObserver = window.ResizeObserver
+    window.ResizeObserver = class implements ResizeObserver {
+      readonly elements = new Set<Element>()
+      private readonly callback: ResizeObserverCallback
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback
+        observers.push(this)
+      }
+      observe(target: Element) {
+        this.elements.add(target)
+      }
+      unobserve(target: Element) {
+        this.elements.delete(target)
+      }
+      disconnect() {
+        this.elements.clear()
+      }
+      notify(target: Element) {
+        this.callback(
+          [
+            {
+              target,
+              borderBoxSize: [{ blockSize: replyHeight, inlineSize: 900 }],
+              contentBoxSize: [],
+              devicePixelContentBoxSize: [],
+              contentRect: DOMRect.fromRect({
+                height: replyHeight,
+                width: 900,
+              }),
+            },
+          ],
+          this
+        )
+      }
+    }
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.dataset.conversationRow === "message-39"
+          ? replyHeight
+          : this.hasAttribute("data-conversation-row")
+            ? 100
+            : 600
+      }
+    )
+    function Harness() {
+      const navigationRef = useRef<ConversationThreadNavigation>(null)
+      const scroll = useConversationScroll("streaming-task", { navigationRef })
+      return (
+        <div
+          className="conversation-scroll"
+          ref={scroll.scrollContainerRef}
+          data-testid="scroller"
+        >
+          <div ref={scroll.contentRef} data-testid="stream-content">
+            <ConversationMessageList
+              rows={rows(0, 40)}
+              navigationRef={navigationRef}
+            />
+          </div>
+          <button onClick={() => scroll.scrollToBottom("auto")}>Latest</button>
+        </div>
+      )
+    }
+    try {
+      render(<Harness />)
+      const container = screen.getByTestId("scroller")
+      await waitFor(() => {
+        expect(screen.getByText("message-39")).toBeInTheDocument()
+        expect(container.scrollTop).toBe(
+          container.scrollHeight - container.clientHeight
+        )
+      })
+      const resizeReply = async (delta = 200) => {
+        replyHeight += delta
+        const reply = screen
+          .getByText("message-39")
+          .closest("[data-conversation-row]")
+        if (!reply) throw new Error("Missing streaming reply")
+        const content = screen.getByTestId("stream-content")
+        act(() => {
+          for (const target of [reply, content])
+            for (const observer of observers)
+              if (observer.elements.has(target)) observer.notify(target)
+        })
+        await act(async () => {
+          await new Promise<void>((resolve) =>
+            window.requestAnimationFrame(() => resolve())
+          )
+        })
+      }
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+      fireEvent.wheel(container, { deltaY: -120 })
+      container.scrollTop -= 120
+      fireEvent.scroll(container)
+      const readingTop = container.scrollTop
+      // The user can stop scrolling to read while streaming continues. Flush
+      // the virtualizer's scroll-idle timer without waiting on wall-clock time.
+      act(() => vi.advanceTimersByTime(200))
+      vi.useRealTimers()
+      await resizeReply()
+      await resizeReply()
+      expect(container.scrollTop).toBe(readingTop)
+
+      // A layout shrink can put the paused viewport at the bottom without
+      // any user navigation. Subsequent output must still leave it paused.
+      await resizeReply(-520)
+      expect(container.scrollHeight - container.clientHeight).toBe(readingTop)
+      await resizeReply()
+      expect(container.scrollTop).toBe(readingTop)
+
+      fireEvent.wheel(container, { deltaY: 1_000 })
+      container.scrollTop = container.scrollHeight - container.clientHeight
+      fireEvent.scroll(container)
+      await resizeReply()
+      expect(container.scrollTop).toBe(
+        container.scrollHeight - container.clientHeight
+      )
+
+      fireEvent.wheel(container, { deltaY: -120 })
+      container.scrollTop -= 120
+      fireEvent.scroll(container)
+      fireEvent.click(screen.getByRole("button", { name: "Latest" }))
+      // Interrupt the virtualizer before its pending bottom reconciliation settles.
+      fireEvent.wheel(container, { deltaY: -120 })
+      container.scrollTop -= 120
+      fireEvent.scroll(container)
+      const interruptedTop = container.scrollTop
+      await resizeReply()
+      expect(container.scrollTop).toBe(interruptedTop)
+
+      fireEvent.click(screen.getByRole("button", { name: "Latest" }))
+      await resizeReply()
+      expect(container.scrollTop).toBe(
+        container.scrollHeight - container.clientHeight
+      )
+    } finally {
+      cleanup()
+      window.ResizeObserver = originalResizeObserver
+      vi.useRealTimers()
+    }
+  })
+
   it("positions a navigation target below the fixed conversation header", async () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       function (this: HTMLElement) {

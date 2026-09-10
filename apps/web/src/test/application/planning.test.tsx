@@ -23,6 +23,7 @@ describe("LinkSense application", () => {
         json({
           success: true,
           data: {
+            category_id: null,
             id: "new-task-1",
             title: "未命名任务",
             archived: false,
@@ -72,6 +73,7 @@ describe("LinkSense application", () => {
       ).toEqual({
         collaboration_mode: "plan",
         prewarmed_conversation_id: "71000000-0000-4000-8000-000000000001",
+        category_id: null,
       })
       expect(
         requests.find(
@@ -671,12 +673,14 @@ describe("LinkSense application", () => {
     expect(
       quotaCard?.closest(".conversation-token-quota-card-dock")?.parentElement
     ).toHaveClass("conversation-bottom-stack")
-    expect(
-      quotaCard?.closest(".conversation-token-quota-card-dock")
-        ?.nextElementSibling
-    ).toHaveClass("composer-shell")
-
     const composer = await screen.findByRole("textbox", { name: "任务输入框" })
+    const composerShell = composer.closest(".composer-shell")
+    expect(composerShell?.parentElement).toBe(
+      quotaCard?.closest(".conversation-token-quota-card-dock")?.parentElement
+    )
+    expect(quotaCard?.compareDocumentPosition(composer)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    )
     await interaction.type(composer, "尝试发起任务")
     const sendButton = screen.getByRole("button", { name: "发送" })
     expect(sendButton).toBeDisabled()
@@ -1254,9 +1258,7 @@ describe("LinkSense application", () => {
     await interaction.click(
       screen.getByRole("button", { name: "选择模型与推理强度" })
     )
-    await interaction.hover(
-      await screen.findByRole("menuitem", { name: /^模型/ })
-    )
+    await interaction.click(screen.getByRole("button", { name: "模型" }))
     fireEvent.click(
       await screen.findByRole("menuitemradio", { name: "Test Model" })
     )

@@ -1,4 +1,9 @@
 import { z } from "zod"
+import type { SelectoEvents, SelectoOptions } from "selecto"
+import type {
+  getHtmlPreviewBoundingRect,
+  HtmlPreviewRect,
+} from "./html-preview-geometry"
 
 import type { HtmlSelection } from "@/components/media/html-preview/html-preview.types"
 import type { OfficeSelectionAnchor } from "@/components/media/office-preview/office-preview.types"
@@ -76,9 +81,9 @@ export type HtmlPreviewSelectionViewportAnchor = NonNullable<
 >
 
 type SelectoInstance = Readonly<{
-  on: (
-    event: "selectEnd",
-    listener: (event: Readonly<{ selected: readonly Element[] }>) => void
+  on: <Name extends "drag" | "dragEnd" | "selectEnd">(
+    event: Name,
+    listener: (event: SelectoEvents[Name]) => void
   ) => SelectoInstance
   setSelectedTargets: (elements: readonly Element[]) => unknown
   findSelectableTargets?: () => unknown
@@ -86,7 +91,7 @@ type SelectoInstance = Readonly<{
 }>
 
 type SelectoConstructor = new (
-  options: Readonly<Record<string, unknown>>
+  options: Partial<SelectoOptions>
 ) => SelectoInstance
 
 export type HtmlPreviewAnnotationController = Readonly<{
@@ -161,6 +166,7 @@ export function installHtmlPreviewAnnotationController(
     maximumSelectionCount: number
     annotationCursor: string
     installHover: typeof installOfficeAnnotationHover
+    getBoundingRect: typeof getHtmlPreviewBoundingRect
   }>
 ): HtmlPreviewAnnotationController {
   const selectableElementSelector = [
@@ -236,6 +242,7 @@ export function installHtmlPreviewAnnotationController(
   const selectableTargetSelector = attributeSelector(config.selectableAttribute)
   const markedElements = new Set<Element>()
   let selectedElements: Element[] = []
+  let dragSelection: HtmlPreviewRect | null = null
   let selecto: SelectoInstance | null = null
   let overlayRoot: HTMLElement | null = null
   let overlayShadow: ShadowRoot | null = null
@@ -452,14 +459,14 @@ export function installHtmlPreviewAnnotationController(
   }
 
   const selectionAnchor = () => {
-    const rects = selectedElements
-      .map((element) => element.getBoundingClientRect())
-      .filter((rect) => rect.width > 0 && rect.height > 0)
-    if (rects.length === 0) return null
+    const bounds = config.getBoundingRect(
+      selectedElements.map((element) => element.getBoundingClientRect())
+    )
+    if (!bounds) return null
     return {
-      right: Math.max(...rects.map((rect) => rect.right)),
-      top: Math.min(...rects.map((rect) => rect.top)),
-      bottom: Math.max(...rects.map((rect) => rect.bottom)),
+      right: bounds.left + bounds.width,
+      top: bounds.top,
+      bottom: bounds.top + bounds.height,
     }
   }
 
@@ -476,43 +483,45 @@ export function installHtmlPreviewAnnotationController(
     const viewBox = `0 0 ${Math.max(1, origin.width)} ${Math.max(1, origin.height)}`
     if (overlay.getAttribute("viewBox") !== viewBox)
       overlay.setAttribute("viewBox", viewBox)
-    const shapes = selectedElements
-      .flatMap((element) => {
-        if (
-          !element.isConnected ||
-          element.getAttribute(config.annotatedAttribute) === "true"
-        )
-          return []
-        const bounds = element.getBoundingClientRect()
-        let left = Math.max(bounds.left, origin.left)
-        let top = Math.max(bounds.top, origin.top)
-        let right = Math.min(bounds.right, origin.right)
-        let bottom = Math.min(bounds.bottom, origin.bottom)
-        for (
-          let parent = element.parentElement;
-          parent;
-          parent = parent.parentElement
-        ) {
-          const style = targetWindow.getComputedStyle(parent)
-          const clip = parent.getBoundingClientRect()
-          if (/auto|scroll|hidden|clip/u.test(style.overflowX)) {
-            left = Math.max(left, clip.left)
-            right = Math.min(right, clip.right)
+    const rects = dragSelection
+      ? [dragSelection]
+      : selectedElements.flatMap((element) => {
+          if (
+            !element.isConnected ||
+            element.getAttribute(config.annotatedAttribute) === "true"
+          )
+            return []
+          const bounds = element.getBoundingClientRect()
+          let left = Math.max(bounds.left, origin.left)
+          let top = Math.max(bounds.top, origin.top)
+          let right = Math.min(bounds.right, origin.right)
+          let bottom = Math.min(bounds.bottom, origin.bottom)
+          for (
+            let parent = element.parentElement;
+            parent;
+            parent = parent.parentElement
+          ) {
+            const style = targetWindow.getComputedStyle(parent)
+            const clip = parent.getBoundingClientRect()
+            if (/auto|scroll|hidden|clip/u.test(style.overflowX)) {
+              left = Math.max(left, clip.left)
+              right = Math.min(right, clip.right)
+            }
+            if (/auto|scroll|hidden|clip/u.test(style.overflowY)) {
+              top = Math.max(top, clip.top)
+              bottom = Math.min(bottom, clip.bottom)
+            }
           }
-          if (/auto|scroll|hidden|clip/u.test(style.overflowY)) {
-            top = Math.max(top, clip.top)
-            bottom = Math.min(bottom, clip.bottom)
-          }
-        }
-        return right > left && bottom > top
-          ? [
-              `M${left - origin.left},${top - origin.top}H${right - origin.left}V${bottom - origin.top}H${left - origin.left}Z`,
-            ]
-          : []
-      })
-      .join(" ")
-    if (path.getAttribute("d") !== shapes) path.setAttribute("d", shapes)
-    if (selectedElements.length > 0)
+          return right > left && bottom > top
+            ? [{ left, top, width: right - left, height: bottom - top }]
+            : []
+        })
+    const bounds = config.getBoundingRect(rects)
+    const shape = bounds
+      ? `M${bounds.left - origin.left},${bounds.top - origin.top}H${bounds.left + bounds.width - origin.left}V${bounds.top + bounds.height - origin.top}H${bounds.left - origin.left}Z`
+      : ""
+    if (path.getAttribute("d") !== shape) path.setAttribute("d", shape)
+    if (selectedElements.length > 0 || dragSelection !== null)
       selectionFillAnimationFrame =
         targetWindow.requestAnimationFrame(paintSelectionFill)
   }
@@ -593,6 +602,7 @@ export function installHtmlPreviewAnnotationController(
     )
     selecto?.destroy()
     selecto = null
+    dragSelection = null
     updateSelectionMarkers([])
     for (const element of markedElements) {
       if (element.getAttribute(config.selectableAttribute) === markerValue) {
@@ -615,10 +625,6 @@ export function installHtmlPreviewAnnotationController(
     annotationStyles.textContent = `
       [data-office-annotation-scope="true"], [data-office-annotation-scope="true"] * {
         cursor: var(--office-annotation-cursor) !important;
-      }
-      ${attributeSelector(config.overlayAttribute)} .selecto-selection {
-        border: 1px solid ${selectionColor} !important;
-        background: color-mix(in srgb, ${selectionColor} 12%, transparent) !important;
       }
     `
     if (!overlayStyles || !overlayShadow) return
@@ -701,9 +707,9 @@ export function installHtmlPreviewAnnotationController(
     overlayShadow = overlayRoot.attachShadow({ mode: "open" })
     overlayStyles = document.createElement("style")
     overlayShadow.append(overlayStyles)
-    // Selecto owns its light-DOM drag rectangle and injected stylesheet.
-    // Project it alongside the isolated media frames without changing its API.
-    overlayShadow.append(document.createElement("slot"))
+    // Do not project Selecto's light-DOM rectangle into this shadow tree: its
+    // transform-based positioning does not account for CSS zoom. Paint its
+    // public drag rect in the SVG's viewport-sized viewBox instead.
     body.append(overlayRoot)
     refreshSelectableElements()
 
@@ -764,7 +770,16 @@ export function installHtmlPreviewAnnotationController(
       preventClickEventOnDrag: true,
       preventClickEventOnDragStart: false,
     })
+    selecto.on("drag", (event) => {
+      dragSelection = event.isSelect ? event.rect : null
+      paintSelectionFill()
+    })
+    selecto.on("dragEnd", () => {
+      dragSelection = null
+      paintSelectionFill()
+    })
     selecto.on("selectEnd", (event) => {
+      dragSelection = null
       const normalized = normalizeSelectionTargets(event.selected)
       selecto?.setSelectedTargets(normalized)
       updateSelectionMarkers(normalized)

@@ -92,6 +92,7 @@ const completedConversation: Conversation = {
   id: "conversation-1",
   title: "回归测试",
   archived: false,
+  category_id: null,
   collaboration_mode: "default",
   user_input_requests: [],
   plan_reviews: [],
@@ -380,7 +381,8 @@ describe("conversation turn responses", () => {
     ).toBeVisible()
   })
 
-  it("keeps a terminal LinkSense form visible in its completed turn", () => {
+  it("hides a submitted form with collapsed activity and preserves its result when reopened", async () => {
+    const interaction = userEvent.setup()
     render(
       <ConversationThread
         conversation={{
@@ -417,16 +419,35 @@ describe("conversation turn responses", () => {
       />
     )
 
-    const card = screen.getByTestId("conversation-user-input-request")
-    expect(card).toHaveAttribute("data-request-status", "submitted")
-    expect(within(card).getByText("已提交")).toBeVisible()
-    expect(within(card).getByRole("textbox", { name: /标题/ })).toHaveValue(
-      "季度复盘"
-    )
-    expect(within(card).getByRole("textbox", { name: /标题/ })).toBeDisabled()
-    expect(
-      screen.getAllByTestId("conversation-user-input-request")
-    ).toHaveLength(1)
+    const summary = screen.getByTestId("turn-summary-turn-1")
+    const finalReply = screen.getByRole("article", { name: "助手回复" })
+    expect(screen.queryByTestId("conversation-user-input-request")).toBeNull()
+    expect(within(finalReply).getByText("处理完成")).toBeVisible()
+
+    for (let cycle = 0; cycle < 2; cycle++) {
+      await interaction.click(
+        within(summary).getByRole("button", { name: "展开中间过程" })
+      )
+      const card = within(summary).getByTestId(
+        "conversation-user-input-request"
+      )
+      expect(card).toBeVisible()
+      expect(card).toHaveAttribute("data-request-status", "submitted")
+      expect(within(card).getByText("已提交")).toBeVisible()
+      expect(within(card).getByRole("textbox", { name: /标题/ })).toHaveValue(
+        "季度复盘"
+      )
+      expect(within(card).getByRole("textbox", { name: /标题/ })).toBeDisabled()
+      expect(
+        screen.getAllByTestId("conversation-user-input-request")
+      ).toHaveLength(1)
+
+      await interaction.click(
+        within(summary).getByRole("button", { name: "收起中间过程" })
+      )
+      expect(screen.queryByTestId("conversation-user-input-request")).toBeNull()
+      expect(within(finalReply).getByText("处理完成")).toBeVisible()
+    }
   })
 
   it("keeps streamed assistant markdown stable while work is still running", () => {
@@ -6568,26 +6589,39 @@ describe("conversation turn responses", () => {
     expect(screen.queryByText("LinkSense", { exact: true })).toBeNull()
   })
 
-  it("folds only application messages and copies the complete content while collapsed", async () => {
+  it("folds long manual and application messages and copies the complete content while collapsed", async () => {
     const interaction = userEvent.setup()
     const writeText = vi
       .spyOn(navigator.clipboard, "writeText")
       .mockResolvedValue()
-    const getComputedStyle = window.getComputedStyle
+    const getComputedStyle = window.getComputedStyle.bind(window)
     vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
       const style = getComputedStyle(element)
-      style.lineHeight = "24px"
+      Object.defineProperty(style, "lineHeight", {
+        configurable: true,
+        value: "24px",
+      })
       return style
     })
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
-      DOMRect.fromRect({ width: 300, height: 240 })
+      DOMRect.fromRect({ width: 300, height: 384 })
     )
-    const content = "完整应用研究要求\n".repeat(20).trimEnd()
+    const applicationContent = "完整应用研究要求\n".repeat(20).trimEnd()
+    const manualContent = "完整手动输入要求\n".repeat(20).trimEnd()
+    const completedUserMessage = completedConversation.messages?.find(
+      (message) => message.role === "user"
+    )
+    const completedAssistantMessage = completedConversation.messages?.find(
+      (message) => message.role === "assistant"
+    )
+    if (!completedUserMessage || !completedAssistantMessage) {
+      throw new Error("Expected the completed conversation fixture messages")
+    }
     const applicationMessage = {
       id: "application-message",
       role: "user" as const,
       turn_id: "turn-1",
-      content,
+      content: applicationContent,
       display: {
         kind: "interactive_application" as const,
         application_id: "20000000-0000-4000-8000-000000000001",
@@ -6599,40 +6633,49 @@ describe("conversation turn responses", () => {
           ...completedConversation,
           messages: [
             applicationMessage,
-            ...(completedConversation.messages ?? []),
+            {
+              ...completedUserMessage,
+              content: manualContent,
+            },
+            completedAssistantMessage,
           ],
         }}
         onDownload={vi.fn()}
       />
     )
-    expect(screen.getAllByRole("button", { name: "展开消息" })).toHaveLength(1)
+    expect(screen.getAllByRole("button", { name: "显示更多" })).toHaveLength(2)
     const [appMessage, manualMessage] = screen.getAllByRole("article", {
       name: "用户消息",
     })
     expect(
-      within(manualMessage!).queryByRole("button", { name: "展开消息" })
-    ).not.toBeInTheDocument()
+      within(manualMessage!).getByRole("button", { name: "显示更多" })
+    ).toBeVisible()
     await interaction.click(
       within(appMessage!).getByRole("button", { name: "复制消息" })
     )
-    expect(writeText).toHaveBeenLastCalledWith(content)
-    await interaction.click(screen.getByRole("button", { name: "展开消息" }))
+    expect(writeText).toHaveBeenLastCalledWith(applicationContent)
+    await interaction.click(
+      within(appMessage!).getByRole("button", { name: "显示更多" })
+    )
     view.rerender(
       <ConversationThread
         conversation={{
           ...completedConversation,
           messages: [
             { ...applicationMessage },
-            ...(completedConversation.messages ?? []),
+            {
+              ...completedUserMessage,
+              content: manualContent,
+            },
+            completedAssistantMessage,
           ],
         }}
         onDownload={vi.fn()}
       />
     )
-    expect(screen.getByRole("button", { name: "收起消息" })).toHaveAttribute(
-      "aria-expanded",
-      "true"
-    )
+    expect(
+      within(appMessage!).getByRole("button", { name: "收起" })
+    ).toHaveAttribute("aria-expanded", "true")
   })
 
   it("exposes role-specific message actions and copies either message", async () => {

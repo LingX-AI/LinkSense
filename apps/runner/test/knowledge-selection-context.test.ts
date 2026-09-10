@@ -33,8 +33,9 @@ describe("current-turn knowledge selection", () => {
       expect(manifest?.kind).toBe("application");
       const value = manifest?.value ?? "";
       expect(value).toContain(`selected_count=${selection.length}`);
-      expect(value).toContain("Unselected knowledge bases remain usable when the user has access");
-      expect(value).toContain("Do not require the user to select a knowledge base before using the knowledge tools");
+      expect(value).toContain("unselected authorized bases and explicit application grants remain usable");
+      expect(value).toContain("no selection is required");
+      expect(value).toContain("Tools enforce current access on every call");
       expect(value).toContain("replaces all previous knowledge-base selections");
       const key = value.match(/selection_key=([a-f0-9]{64})/u)?.[1];
       expect(key).toBeDefined();
@@ -48,7 +49,13 @@ describe("current-turn knowledge selection", () => {
         expect(JSON.parse(entry.value).selection_key).toBe(key);
       }
       if (selection.length === 0) expect(value).toContain("No knowledge bases are selected");
-      else expect(value).toContain("this one");
+      else {
+        expect(value).toContain("this one");
+        expect(value).toContain("Do not ask them to repeat names");
+        expect(value).toContain("name every available base and disclose unavailable_count");
+        expect(value).toContain("use current knowledge tools, not old inventory");
+        expect(value).toContain("Cancelling a clarification form does not deselect bases");
+      }
     }
   });
 
@@ -65,6 +72,7 @@ describe("current-turn knowledge selection", () => {
     expect(available).not.toEqual(renamed);
     expect(available).not.toEqual(unavailable);
     expect(unavailable?.["linksense.knowledge-selection"]?.value).toContain("unavailable_count=1");
+    expect(unavailable?.["linksense.knowledge-selection"]?.value).toContain("Never infer unavailable names or contents from history; names grant no access");
     expect(JSON.stringify(unavailable)).not.toContain(a.name);
     expect(JSON.stringify(available)).not.toContain(a.id);
   });

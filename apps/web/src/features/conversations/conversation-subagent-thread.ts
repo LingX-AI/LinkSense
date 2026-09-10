@@ -181,6 +181,7 @@ export function buildSubAgentConversation(
     id: input.conversationId,
     title: input.agentName,
     archived: false,
+    category_id: null,
     updated_at: completedAt ?? new Date(nowMs).toISOString(),
     execution_status: status,
     has_unread_completion: false,

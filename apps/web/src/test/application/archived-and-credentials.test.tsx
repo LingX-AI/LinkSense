@@ -170,6 +170,10 @@ describe("LinkSense application", () => {
 
   it("confirms and clears all archived tasks without targeting active tasks", async () => {
     let archivedListRequestCount = 0
+    let finishClearArchived!: () => void
+    const clearArchivedStart = new Promise<void>((resolve) => {
+      finishClearArchived = resolve
+    })
     const archivedTask = {
       ...conversations[1],
       id: "archived-task-1",
@@ -178,7 +182,10 @@ describe("LinkSense application", () => {
     }
     const { requests } = installApiMock({
       userOverride: { role: "user" },
-      clearArchivedDeletedCount: 1,
+      clearArchivedResponse: async () => {
+        await clearArchivedStart
+        return json({ success: true, data: { deleted_count: 1 } })
+      },
       conversationListResponse: (query) => {
         if (query.get("archived") !== "true") {
           return json({
@@ -219,6 +226,18 @@ describe("LinkSense application", () => {
     )
     await interaction.click(confirmButton)
 
+    expect(
+      screen.queryByRole("dialog", {
+        name: "清除全部已归档任务？",
+      })
+    ).not.toBeInTheDocument()
+    const clearingLabel = screen.getByText("正在清除已归档任务…")
+    const clearingState = clearingLabel.closest('[role="status"]')
+    expect(clearingState).toHaveAttribute("aria-busy", "true")
+    expect(
+      clearingState?.compareDocumentPosition(screen.getByText("1 个任务"))
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(clearButton).toBeDisabled()
     await waitFor(() =>
       expect(requests).toContainEqual(
         expect.objectContaining({
@@ -227,14 +246,9 @@ describe("LinkSense application", () => {
         })
       )
     )
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("dialog", {
-          name: "清除全部已归档任务？",
-        })
-      ).not.toBeInTheDocument()
-    )
+    finishClearArchived()
     expect(await screen.findByText("没有已归档任务")).toBeVisible()
+    expect(screen.queryByText("正在清除已归档任务…")).not.toBeInTheDocument()
     expect(await screen.findByText("已清除 1 个已归档任务")).toBeVisible()
     expect(
       screen.queryByRole("button", { name: "搜索" })
@@ -242,6 +256,64 @@ describe("LinkSense application", () => {
     expect(
       screen.queryByRole("button", { name: "清除全部" })
     ).not.toBeInTheDocument()
+  })
+
+  it("keeps the clear confirmation closed and restores the archived list when clearing fails", async () => {
+    let finishClearArchived!: () => void
+    const clearArchivedStart = new Promise<void>((resolve) => {
+      finishClearArchived = resolve
+    })
+    const archivedTask = {
+      ...conversations[1],
+      id: "archived-task-1",
+      archived: true,
+      archive_status: "archived",
+    }
+    installApiMock({
+      userOverride: { role: "user" },
+      conversationListResponse: (query) =>
+        json({
+          success: true,
+          data: {
+            items: query.get("archived") === "true" ? [archivedTask] : [],
+            next_cursor: null,
+            total_count: query.get("archived") === "true" ? 1 : 0,
+          },
+        }),
+      clearArchivedResponse: async () => {
+        await clearArchivedStart
+        return json({ success: false, error_code: "INTERNAL_ERROR" }, 500)
+      },
+    })
+    const interaction = userEvent.setup()
+    renderApp("/archived")
+
+    await interaction.click(
+      await screen.findByRole("button", { name: "清除全部" })
+    )
+    const dialog = await screen.findByRole("dialog", {
+      name: "清除全部已归档任务？",
+    })
+    await interaction.click(
+      within(dialog).getByRole("button", { name: "清除全部" })
+    )
+
+    expect(dialog).not.toBeInTheDocument()
+    expect(screen.getByText("正在清除已归档任务…")).toBeVisible()
+    finishClearArchived()
+
+    await waitFor(() =>
+      expect(screen.queryByText("正在清除已归档任务…")).not.toBeInTheDocument()
+    )
+    expect(
+      screen.queryByRole("dialog", {
+        name: "清除全部已归档任务？",
+      })
+    ).not.toBeInTheDocument()
+    expect(screen.getByText("1 个任务")).toBeVisible()
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "清除全部" })).toBeEnabled()
+    )
   })
 
   it("creates a personal credential with multiple environment variables", async () => {

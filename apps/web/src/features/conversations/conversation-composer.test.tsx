@@ -2914,6 +2914,79 @@ describe("conversation voice input", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("shows uploading images in the same thumbnail layout as completed images", () => {
+    const previewFile = new File(["image"], "upload-preview.png", {
+      type: "image/png",
+    })
+    vi.stubGlobal(
+      "URL",
+      class extends URL {
+        static createObjectURL = vi.fn(() => "blob:pending-image")
+        static revokeObjectURL = vi.fn()
+      }
+    )
+    const pendingAttachmentUploads = [
+      {
+        id: "pending-image",
+        name: previewFile.name,
+        size: previewFile.size,
+        mimeType: previewFile.type,
+        previewFile,
+      },
+    ]
+    const { props, rerender } = renderComposer({ pendingAttachmentUploads })
+    const loading = screen.getByRole("status", {
+      name: "正在上传附件 upload-preview.png",
+    })
+    expect(loading.closest(".image-preview-thumbnail")).not.toBeNull()
+    expect(loading.querySelector("img")).toHaveAttribute(
+      "src",
+      "blob:pending-image"
+    )
+    expect(loading.querySelector('[data-slot="spinner"]')).not.toBeNull()
+    expect(loading.closest(".composer-context-row")).not.toHaveClass(
+      "composer-context-row-with-files"
+    )
+    expect(document.querySelector(".attachment-chip-pending")).toBeNull()
+
+    rerender(
+      <ConversationComposer
+        {...props}
+        pendingAttachmentUploads={pendingAttachmentUploads}
+        attachments={[
+          {
+            id: "mixed-file",
+            name: "brief.pdf",
+            size: 1_024,
+            kind: "attachment",
+            download_available: false,
+          },
+        ]}
+      />
+    )
+    expect(
+      screen
+        .getByRole("status", { name: "正在上传附件 upload-preview.png" })
+        .closest(".composer-context-row")
+    ).toHaveClass("composer-context-row-with-files")
+
+    rerender(
+      <ConversationComposer
+        {...props}
+        pendingAttachmentUploads={pendingAttachmentUploads}
+        attachmentPreviewEnabled={false}
+      />
+    )
+    const pendingChip = screen.getByRole("status", {
+      name: "正在上传附件 upload-preview.png",
+    })
+    expect(pendingChip).toHaveClass("attachment-chip-pending")
+    expect(document.querySelector(".image-preview-thumbnail")).toBeNull()
+    expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith(
+      "blob:pending-image"
+    )
+  })
+
   it("collapses uploaded attachments after the first two and reveals the complete list on hover", async () => {
     const interaction = userEvent.setup()
     const attachments = ["一.pdf", "二.pdf", "三.pdf", "四.pdf"].map(

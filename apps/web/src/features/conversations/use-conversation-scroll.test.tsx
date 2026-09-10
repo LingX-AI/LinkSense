@@ -528,6 +528,62 @@ describe("conversation scroll behavior", () => {
     expect(screen.queryByRole("button", { name: "回到底部" })).toBeNull()
   })
 
+  it.each([0.5, 1, 12, 24])(
+    "keeps follow paused after the user scrolls up only %spx",
+    (distance) => {
+      render(<ScrollHarness conversationId="conversation-1" />)
+      const container = screen.getByTestId("scroll-container")
+      fireEvent.wheel(container, { deltaY: -distance })
+      act(() => setScrollTop(container, 1_500 - distance))
+
+      for (const height of [2_050, 2_100, 2_300]) {
+        layout.scrollHeight = height
+        triggerContentResize()
+        settleStreamingFollow()
+        expect(container.scrollTop).toBe(1_500 - distance)
+      }
+    }
+  )
+
+  it("does not resume from a delayed scroll event after an upward wheel gesture", () => {
+    render(<ScrollHarness conversationId="conversation-1" />)
+    const container = screen.getByTestId("scroll-container")
+    fireEvent.wheel(container, { deltaY: -10 })
+    fireEvent.scroll(container)
+    layout.scrollHeight = 2_300
+    triggerContentResize()
+    settleStreamingFollow()
+    expect(container.scrollTop).toBe(1_500)
+  })
+
+  it("does not resume when layout changes place the paused viewport at the bottom", () => {
+    render(<ScrollHarness conversationId="conversation-1" />)
+    const container = screen.getByTestId("scroll-container")
+    fireEvent.wheel(container, { deltaY: -200 })
+    act(() => setScrollTop(container, 1_300))
+    layout.scrollHeight = 1_800
+    fireEvent.scroll(container)
+    triggerContentResize()
+
+    layout.scrollHeight = 2_300
+    triggerContentResize()
+    settleStreamingFollow()
+    expect(container.scrollTop).toBe(1_300)
+  })
+
+  it("keeps follow paused when scrolling downward stops short of the bottom", () => {
+    render(<ScrollHarness conversationId="conversation-1" />)
+    const container = screen.getByTestId("scroll-container")
+    fireEvent.wheel(container, { deltaY: -200 })
+    act(() => setScrollTop(container, 1_300))
+    fireEvent.wheel(container, { deltaY: 190 })
+    act(() => setScrollTop(container, 1_490))
+    layout.scrollHeight = 2_300
+    triggerContentResize()
+    settleStreamingFollow()
+    expect(container.scrollTop).toBe(1_490)
+  })
+
   it("keeps the user's position and the button visible after scrolling up more than 500px", () => {
     render(<ScrollHarness conversationId="conversation-1" />)
     const container = screen.getByTestId("scroll-container")
@@ -551,6 +607,7 @@ describe("conversation scroll behavior", () => {
 
     fireEvent.wheel(container, { deltaY: -200 })
     act(() => setScrollTop(container, 1_300))
+    fireEvent.wheel(container, { deltaY: 200 })
     act(() => setScrollTop(container, 1_500))
     scrollToMock.mockClear()
 
@@ -563,6 +620,105 @@ describe("conversation scroll behavior", () => {
 
     expect(container.scrollTop).toBe(1_700)
     expect(scrollToMock).not.toHaveBeenCalled()
+  })
+
+  it("pauses and resumes when the user navigates with the keyboard", () => {
+    render(<ScrollHarness conversationId="conversation-1" />)
+    const container = screen.getByTestId("scroll-container")
+    fireEvent.keyDown(container, { key: "ArrowUp" })
+    act(() => setScrollTop(container, 1_490))
+    layout.scrollHeight = 2_200
+    triggerContentResize()
+    settleStreamingFollow()
+    expect(container.scrollTop).toBe(1_490)
+
+    fireEvent.keyDown(container, { key: "End" })
+    act(() => setScrollTop(container, 1_700))
+    layout.scrollHeight = 2_300
+    triggerContentResize()
+    settleStreamingFollow()
+    expect(container.scrollTop).toBe(1_800)
+  })
+
+  it("pauses while dragging the scrollbar and resumes after dragging it to the bottom", () => {
+    render(<ScrollHarness conversationId="conversation-1" />)
+    const container = screen.getByTestId("scroll-container")
+    fireEvent.pointerDown(container, { isPrimary: true })
+    act(() => setScrollTop(container, 1_490))
+    fireEvent.pointerUp(window)
+    layout.scrollHeight = 2_200
+    triggerContentResize()
+    settleStreamingFollow()
+    expect(container.scrollTop).toBe(1_490)
+
+    fireEvent.pointerDown(container, { isPrimary: true })
+    act(() => setScrollTop(container, 1_700))
+    fireEvent.pointerUp(window)
+    layout.scrollHeight = 2_300
+    triggerContentResize()
+    settleStreamingFollow()
+    expect(container.scrollTop).toBe(1_800)
+  })
+
+  it("keeps touch scrolling paused and resumes when downward momentum reaches the bottom", () => {
+    render(<ScrollHarness conversationId="conversation-1" />)
+    const container = screen.getByTestId("scroll-container")
+    const dispatchTouch = (type: string, clientY: number) => {
+      // JSDOM does not provide the Touch constructor or TouchList interface.
+      const event = new Event(type, { bubbles: true })
+      Object.defineProperty(event, "touches", {
+        value: { item: () => ({ clientY }) },
+      })
+      fireEvent(container, event)
+    }
+    dispatchTouch("touchstart", 100)
+    dispatchTouch("touchmove", 110)
+    act(() => setScrollTop(container, 1_490))
+    fireEvent.touchEnd(container)
+    layout.scrollHeight = 2_200
+    triggerContentResize()
+    settleStreamingFollow()
+    expect(container.scrollTop).toBe(1_490)
+
+    dispatchTouch("touchstart", 200)
+    dispatchTouch("touchmove", 100)
+    act(() => setScrollTop(container, 1_600))
+    fireEvent.touchEnd(container)
+    act(() => setScrollTop(container, 1_700))
+    layout.scrollHeight = 2_300
+    triggerContentResize()
+    settleStreamingFollow()
+    expect(container.scrollTop).toBe(1_800)
+  })
+
+  it("does not reuse a completed gesture to resume after a later position adjustment", () => {
+    render(<ScrollHarness conversationId="conversation-1" />)
+    const container = screen.getByTestId("scroll-container")
+    fireEvent.wheel(container, { deltaY: -200 })
+    act(() => setScrollTop(container, 1_300))
+    fireEvent.wheel(container, { deltaY: 100 })
+    act(() => setScrollTop(container, 1_400))
+    fireEvent(container, new Event("scrollend"))
+    act(() => setScrollTop(container, 1_500))
+    layout.scrollHeight = 2_300
+    triggerContentResize()
+    settleStreamingFollow()
+    expect(container.scrollTop).toBe(1_500)
+  })
+
+  it("continues following new output after the user clicks back to the bottom", () => {
+    render(<ScrollHarness conversationId="conversation-1" />)
+    const container = screen.getByTestId("scroll-container")
+    fireEvent.wheel(container, { deltaY: -700 })
+    act(() => setScrollTop(container, 800))
+    fireEvent.click(screen.getByRole("button", { name: "回到底部" }))
+    runAnimationFrame(0)
+    runAnimationFrame(CONVERSATION_SCROLL_TO_BOTTOM_DURATION_MS)
+    expect(container.scrollTop).toBe(1_500)
+    layout.scrollHeight = 2_300
+    triggerContentResize()
+    settleStreamingFollow()
+    expect(container.scrollTop).toBe(1_800)
   })
 
   it("keeps streaming follow immediate when reduced motion is requested", () => {

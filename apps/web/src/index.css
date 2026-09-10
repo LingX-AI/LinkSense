@@ -479,13 +479,15 @@
 .sidebar-conversation-item:not([data-active="true"]):not(
     .sidebar-link-active
   ):hover,
+.sidebar-conversation-item:not([data-active="true"]):not(
+    .sidebar-link-active
+  ):has(:focus-visible),
 .sidebar-user-button:hover {
   background: var(--app-sidebar-hover);
   color: var(--app-text);
 }
 
-.sidebar-nav-item[data-active="true"],
-.sidebar-conversation-item[data-active="true"] {
+.sidebar-nav-item[data-active="true"] {
   background: var(--app-sidebar-active);
   color: var(--app-text);
 }
@@ -1067,8 +1069,8 @@
 }
 
 .sidebar-conversation-link {
-  min-height: 36px;
-  padding: 8px;
+  padding: 0 8px;
+  padding-left: calc(8px + var(--sidebar-conversation-indent, 0px));
   color: var(--app-text);
   transition: none;
 }
@@ -1078,8 +1080,15 @@
 }
 
 .sidebar-conversation-item {
+  --sidebar-conversation-actions-width: 80px;
   content-visibility: auto;
-  contain-intrinsic-size: auto 36px;
+  contain-intrinsic-size: auto 32px;
+}
+
+.sidebar-conversation-item.sidebar-link-active,
+.sidebar-conversation-item[data-active="true"] {
+  background: color-mix(in srgb, var(--app-sidebar-active) 65%, transparent);
+  color: var(--app-text);
 }
 
 .sidebar-conversation-item[data-dragging="true"] {
@@ -1116,21 +1125,9 @@
   color: var(--app-text);
 }
 
-.sidebar-conversation-item:not([data-active="true"]):not(
-    .sidebar-link-active
-  ):hover
-  .sidebar-conversation-link,
-.sidebar-conversation-item:not([data-active="true"]):not(
-    .sidebar-link-active
-  ):has(:focus-visible)
-  .sidebar-conversation-link {
-  background: var(--app-sidebar-hover);
-  color: var(--app-text);
-}
-
 .sidebar-conversation-item:hover .sidebar-conversation-link,
 .sidebar-conversation-item:has(:focus-visible) .sidebar-conversation-link {
-  padding-right: 60px;
+  padding-right: var(--sidebar-conversation-actions-width);
 }
 
 @media (hover: hover) {
@@ -1155,7 +1152,7 @@
   .sidebar-conversation-link,
   .sidebar-conversation-item[data-running="true"] .sidebar-conversation-link,
   .sidebar-conversation-item[data-warning="true"] .sidebar-conversation-link {
-    padding-right: 60px;
+    padding-right: var(--sidebar-conversation-actions-width);
   }
 
   .sidebar-conversation-actions {
@@ -3946,6 +3943,7 @@
   pointer-events: auto;
 }
 
+.conversation-bottom-stack:has(.conversation-category-dock),
 .conversation-bottom-stack:has(.pending-requests) {
   gap: 0;
 }
@@ -3959,6 +3957,12 @@
   z-index: 1;
 }
 
+:is(.conversation-category-dock, .pending-requests, .conversation-goal-bar) {
+  border: 0;
+  background: var(--app-activity-surface);
+  box-shadow: none;
+}
+
 .conversation-goal-bar {
   position: relative;
   z-index: 0;
@@ -3970,10 +3974,7 @@
   margin: 0 auto -10px;
   padding: 6px 18px 8px;
   overflow: hidden;
-  border: 1px solid var(--app-border);
   border-radius: 24px 24px 0 0;
-  background: var(--app-composer);
-  box-shadow: none;
   color: var(--app-muted);
 }
 
@@ -4530,7 +4531,7 @@
 .image-preview-thumbnail-trigger img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
 }
 
 .image-preview-thumbnail-trigger > svg {
@@ -5415,10 +5416,6 @@ button.annotation-hover-file:focus-visible {
 
 .user-message-attachment-images .image-preview-thumbnail-trigger:hover {
   background: var(--app-hover);
-}
-
-.user-message-attachment-images .image-preview-thumbnail-trigger img {
-  object-fit: contain;
 }
 
 .user-message-attachment-files {
@@ -7427,6 +7424,7 @@ button.annotation-hover-file:focus-visible {
   margin-top: var(--conversation-assistant-block-gap, 8px);
 }
 
+.conversation-category-dock,
 .pending-requests {
   position: relative;
   z-index: 0;
@@ -7434,25 +7432,16 @@ button.annotation-hover-file:focus-visible {
   margin-inline: auto;
   margin-bottom: -1px;
   overflow: hidden;
-  border: 1px solid var(--app-border);
-  border-bottom: 0;
   border-radius: 20px 20px 0 0;
-  background: var(--app-composer);
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 4%),
-    0 3px 8px rgb(0 0 0 / 3%);
 }
 
 .conversation-bottom-stack:has(.conversation-goal-bar) .pending-requests {
   margin-bottom: 0;
   width: min(calc(100% - 56px), calc(var(--app-composer-width) - 56px));
-  border-bottom: 1px solid var(--app-border);
   border-radius: 24px 24px 0 0;
-  box-shadow: none;
 }
 
 .pending-requests + .conversation-goal-bar {
-  border-top: 0;
   border-radius: 0;
 }
 
@@ -7983,6 +7972,7 @@ button.annotation-hover-file:focus-visible {
 .form-field {
   display: grid;
   min-width: 0;
+  align-content: start;
   gap: 5px;
 }
 

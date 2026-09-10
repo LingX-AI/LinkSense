@@ -1581,7 +1581,7 @@ trust_level = "trusted"
         "linksense.runtime-identity": {
           kind: "application",
           value: expect.stringContaining(
-            "You are the AI assistant operating inside LinkSense",
+            "You are the AI assistant in LinkSense",
           ),
         },
       },

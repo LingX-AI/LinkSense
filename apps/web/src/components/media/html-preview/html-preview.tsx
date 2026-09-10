@@ -174,9 +174,7 @@ export function HtmlPreview({
       ? annotationGeometry.frames.filter((candidate) =>
           annotationMarkers.some(
             (marker) =>
-              marker.id === candidate.id &&
-              marker.index === candidate.index &&
-              candidate.elementIndex < marker.selection.elements.length
+              marker.id === candidate.id && marker.index === candidate.index
           )
         )
       : []
@@ -543,7 +541,7 @@ export function HtmlPreview({
         >
           {annotationFrames.map((frame) => (
             <span
-              key={`${frame.id}:${frame.elementIndex}`}
+              key={frame.id}
               className="office-annotation-frame html-preview-annotation-frame"
               data-html-annotation-frame={frame.id}
               style={{
