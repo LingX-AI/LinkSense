@@ -215,7 +215,7 @@ Before considering a feature complete, confirm that:
 ## Git and Collaboration
 
 - Before Git operations, inspect the actual worktree, branch, and diff. Do not initialize a repository when the current directory is not already a Git repository.
-- When the user requests `git commit`, split all changes into multiple semantically clear commits according to their actual content. Write every commit message in English, for example: `feat: add the xxx feature`.
+- When the user requests `git commit`, split all changes into multiple semantically clear commits according to their actual content. Every commit message must be written in English, including merge commits; for example: `feat: add the xxx feature`.
 - Do not include unrelated formatting, temporary files, private configuration, local environment files, or generated artifacts in a commit.
 - When the user asks for an explanation of the requirements, fully describe the scope, boundaries, assumptions, and acceptance criteria, and wait for confirmation before coding.
 - Base final conclusions on actual code, commands, and test results. Do not present assumptions as verified facts.
