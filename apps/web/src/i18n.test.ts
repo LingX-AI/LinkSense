@@ -88,6 +88,28 @@ describe("i18n resources", () => {
     expect(leafKeys(enUS).sort()).toEqual(leafKeys(zhCN).sort())
   })
 
+  it("labels the reranking switch by when it takes effect", async () => {
+    expect(i18n.t("admin.knowledgeModels.enabled", { lng: "zh-CN" })).toBe(
+      "检索时启用"
+    )
+    expect(i18n.t("admin.knowledgeModels.enabled", { lng: "en-US" })).toBe(
+      "Enable during search"
+    )
+
+    await i18n.changeLanguage("fr-FR")
+    expect(i18n.t("admin.knowledgeModels.enabled")).toBe("检索时启用")
+    await i18n.changeLanguage("zh-CN")
+  })
+
+  it("uses a specific label for saving initial user token configuration", () => {
+    expect(
+      i18n.t("admin.modelProvider.saveUserTokenLimits", { lng: "zh-CN" })
+    ).toBe("保存配置")
+    expect(
+      i18n.t("admin.modelProvider.saveUserTokenLimits", { lng: "en-US" })
+    ).toBe("Save configuration")
+  })
+
   it("localizes administrator update guidance and keeps zh-CN fallback", async () => {
     expect(
       i18n.t("systemUpdate.notice.title", {
@@ -217,6 +239,9 @@ describe("i18n resources", () => {
       "对话可选",
       "对话默认模型",
       "对话与系统模型选择",
+      "对话可选：{{name}}",
+      "拖动左侧手柄或在操作菜单中上下移动。输入框按渠道顺序、渠道内模型顺序展示已开启“对话可选”的模型。",
+      "对话默认模型用于用户尚未选择模型时；任务自动命名模型用于生成任务名称。",
       "集中管理对话、知识检索等模型及其服务渠道。用户选择模型后，系统会自动使用对应服务；管理员可为每个对话模型设置可选的推理强度。",
       "适合原生支持 Responses 的服务，可使用完整的对话和工具能力。",
       "这里的模型共用当前渠道的连接地址和密钥。对话模型可设置是否出现在用户的模型选项中；知识检索等模型会由系统按需使用。",

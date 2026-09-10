@@ -778,8 +778,12 @@ describe("LinkSense application", () => {
     )
     await interaction.keyboard("{Enter}")
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    const error = await screen.findByText(
       "最多只能保留 5 条后续请求，请先处理已有请求。"
+    )
+    expect(error.closest("[data-sonner-toast]")).toHaveAttribute(
+      "data-type",
+      "error"
     )
     expect(screen.getByRole("textbox", { name: "任务输入框" })).toHaveValue(
       "只补充一条文字说明"

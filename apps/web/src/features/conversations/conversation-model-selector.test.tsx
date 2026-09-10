@@ -21,6 +21,30 @@ describe("ConversationModelSelector", () => {
 
   afterEach(cleanup)
 
+  it("shows models in the preference order supplied by model settings", async () => {
+    const interaction = userEvent.setup()
+    const ordered = [...modelPreference.models].reverse()
+    render(
+      <ConversationModelSelector
+        pending={false}
+        onChange={vi.fn()}
+        preference={{ ...modelPreference, models: ordered }}
+      />
+    )
+    await interaction.click(
+      screen.getByRole("button", { name: "选择模型与推理强度" })
+    )
+    await interaction.hover(
+      await screen.findByRole("menuitem", { name: /^模型/u })
+    )
+    const menu = await screen.findByRole("group", { name: "模型" })
+    expect(
+      within(menu)
+        .getAllByRole("menuitemradio")
+        .map((item) => item.textContent)
+    ).toEqual(ordered.map((model) => model.display_name))
+  })
+
   it("renders model and reasoning effort as separate side submenus", async () => {
     const interaction = userEvent.setup()
     render(
@@ -62,14 +86,16 @@ describe("ConversationModelSelector", () => {
     expect(modelTrigger).toHaveAttribute("aria-haspopup", "menu")
     expect(effortTrigger).toHaveAttribute("aria-haspopup", "menu")
     expect(modelTrigger).toHaveClass(
+      "text-[length:var(--app-font-13)]",
+      "leading-5",
       "focus:bg-hover",
-      "data-popup-open:bg-accent",
-      "data-open:bg-accent"
+      "data-popup-open:bg-hover"
     )
     expect(effortTrigger).toHaveClass(
+      "text-[length:var(--app-font-13)]",
+      "leading-5",
       "focus:bg-hover",
-      "data-popup-open:bg-accent",
-      "data-open:bg-accent"
+      "data-popup-open:bg-hover"
     )
     expect(menu).toHaveClass("w-max", "min-w-52", "max-w-[calc(100vw-1rem)]")
     expect(menu).not.toHaveClass("w-64")
@@ -80,6 +106,7 @@ describe("ConversationModelSelector", () => {
     const effortSection = await screen.findByRole("group", {
       name: "推理强度",
     })
+    expect(effortTrigger).toHaveAttribute("data-popup-open")
     expect(
       within(effortSection).queryByRole("menuitemradio", { name: "最小" })
     ).not.toBeInTheDocument()
@@ -89,7 +116,12 @@ describe("ConversationModelSelector", () => {
       ).toBeVisible()
     }
     for (const item of within(effortSection).getAllByRole("menuitemradio")) {
-      expect(item).toHaveClass("min-h-9", "text-sm")
+      expect(item).toHaveClass(
+        "min-h-9",
+        "text-[length:var(--app-font-13)]",
+        "leading-5",
+        "focus:bg-hover"
+      )
     }
     expect(effortSection.closest('[role="menu"]')).toHaveClass(
       "w-max",
@@ -100,10 +132,16 @@ describe("ConversationModelSelector", () => {
 
     await interaction.hover(modelTrigger)
     const modelSection = await screen.findByRole("group", { name: "模型" })
+    expect(modelTrigger).toHaveAttribute("data-popup-open")
     for (const modelName of ["GPT-5.6-Sol", "Model B"]) {
       expect(
         within(modelSection).getByRole("menuitemradio", { name: modelName })
-      ).toHaveClass("min-h-9", "text-sm")
+      ).toHaveClass(
+        "min-h-9",
+        "text-[length:var(--app-font-13)]",
+        "leading-5",
+        "focus:bg-hover"
+      )
     }
     expect(modelSection.closest('[role="menu"]')).toHaveClass(
       "w-max",
@@ -111,6 +149,15 @@ describe("ConversationModelSelector", () => {
       "max-w-[calc(100vw-1rem)]"
     )
     expect(modelSection.closest('[role="menu"]')).not.toHaveClass("w-64")
+    await interaction.keyboard("{ArrowRight}")
+    await waitFor(() =>
+      expect(
+        within(modelSection).getByRole("menuitemradio", { name: "GPT-5.6-Sol" })
+      ).toHaveFocus()
+    )
+    expect(modelTrigger).not.toHaveFocus()
+    expect(modelTrigger).toHaveAttribute("data-popup-open")
+    expect(modelTrigger).toHaveClass("data-popup-open:bg-hover")
     await interaction.keyboard("{Escape}{Escape}")
     await waitFor(() =>
       expect(screen.queryByRole("menu")).not.toBeInTheDocument()
@@ -181,6 +228,30 @@ describe("ConversationModelSelector", () => {
     }
   )
 
+  it.each([0, 84, 85, 100, 141])(
+    "keeps the context ring in the foreground color at %i percent usage",
+    (percentage) => {
+      render(
+        <ConversationModelSelector
+          pending={false}
+          onChange={vi.fn()}
+          preference={modelPreference}
+          contextUsage={{
+            turnId: "turn-ring-color",
+            usedTokens: percentage * 1_000,
+            modelContextWindow: 100_000,
+          }}
+        />
+      )
+
+      const ring = screen
+        .getByLabelText(`背景信息窗口：${percentage}% 已用`)
+        .querySelector("svg")
+      expect(ring).toHaveClass("text-foreground")
+      expect(ring).not.toHaveClass("text-destructive")
+    }
+  )
+
   it("shows the real percentage while capping an over-limit ring", () => {
     render(
       <ConversationModelSelector
@@ -230,7 +301,9 @@ describe("ConversationModelSelector", () => {
       />
     )
 
-    await interaction.hover(screen.getByLabelText("背景信息窗口：暂无用量"))
+    const contextTrigger = screen.getByLabelText("背景信息窗口：暂无用量")
+    expect(contextTrigger.querySelector("svg")).toHaveClass("text-foreground")
+    await interaction.hover(contextTrigger)
 
     expect(await screen.findByText("背景信息窗口：")).toBeVisible()
     expect(screen.getByText("暂无用量")).toBeVisible()

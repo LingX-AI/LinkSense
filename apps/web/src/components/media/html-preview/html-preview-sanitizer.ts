@@ -132,11 +132,6 @@ body {
   cursor: default;
 }
 
-[data-linksense-selected="true"] {
-  outline: 2px dashed Highlight !important;
-  outline-offset: 2px !important;
-}
-
 [data-linksense-overlay-root="true"] {
   position: fixed !important;
   z-index: 2147483647 !important;

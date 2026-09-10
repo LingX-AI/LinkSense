@@ -79,6 +79,7 @@ import {
   LoadingState,
 } from "@/components/feedback/page-state"
 import { notify } from "@/components/feedback/notification"
+import { NotificationToast } from "@/components/feedback/notification-toast"
 import type { ImagePreviewItem } from "@/components/media/image-preview"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { ConversationSearchDialog } from "@/components/shell/conversation-search-dialog"
@@ -516,6 +517,9 @@ export function ConversationPage({
     setComposerAttachmentOperationPending,
   ] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const dismissError = useCallback((message: string) => {
+    setError((current) => (current === message ? null : current))
+  }, [])
   const [tokenQuotaNotice, setTokenQuotaNotice] = useState<string | null>(null)
   const [dismissedTokenQuotaBlockKey, setDismissedTokenQuotaBlockKey] =
     useState<string | null>(null)
@@ -5299,15 +5303,17 @@ export function ConversationPage({
         />
       )}
 
-      {(error || showConnectionWarning) && (
+      <NotificationToast
+        message={error}
+        variant="error"
+        onDismiss={dismissError}
+      />
+      {showConnectionWarning && (
         <div className="conversation-top-overlay-stack">
           <div className="conversation-banner-stack">
-            {error && <StatusBanner variant="error">{error}</StatusBanner>}
-            {showConnectionWarning && (
-              <StatusBanner variant="warning">
-                {t("conversation.reconnecting")}
-              </StatusBanner>
-            )}
+            <StatusBanner variant="warning">
+              {t("conversation.reconnecting")}
+            </StatusBanner>
           </div>
         </div>
       )}
@@ -5692,6 +5698,9 @@ export function ArchivedConversationListPage() {
     title: string
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const dismissError = useCallback((message: string) => {
+    setError((current) => (current === message ? null : current))
+  }, [])
   const [searchOpen, setSearchOpen] = useState(false)
   const [clearAllOpen, setClearAllOpen] = useState(false)
   const [cursor, setCursor] = useState<string | undefined>()
@@ -5799,7 +5808,11 @@ export function ArchivedConversationListPage() {
         ) : undefined
       }
     >
-      {error && <StatusBanner variant="error">{error}</StatusBanner>}
+      <NotificationToast
+        message={error}
+        variant="error"
+        onDismiss={dismissError}
+      />
       {query.isLoading && <LoadingState />}
       {query.isError && (
         <ErrorState

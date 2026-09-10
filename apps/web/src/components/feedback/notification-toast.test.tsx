@@ -32,7 +32,7 @@ import {
 
 describe("notification toast", () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   it("uses a 1.5 second global display duration", () => {
@@ -72,6 +72,7 @@ describe("notification toast", () => {
       />
     )
     expect(toastSpies.error).toHaveBeenCalledWith("保存失败。", {
+      closeButton: true,
       description: undefined,
       duration: notificationDuration,
       id: "profile-saved",
@@ -93,9 +94,101 @@ describe("notification toast", () => {
       id: "connection-warning",
     })
     expect(toastSpies.error).toHaveBeenCalledWith("下载失败。", {
+      closeButton: true,
       duration: notificationDuration,
       id: "file-download-error",
     })
     expect(toastSpies.dismiss).toHaveBeenCalledWith("connection-warning")
+  })
+
+  it.each(["onAutoClose", "onDismiss"] as const)(
+    "reports %s once so callers can clear an error and show it again",
+    (eventName) => {
+      toastSpies.error.mockReturnValue("error-toast")
+      const onDismiss = vi.fn()
+      const { rerender } = render(
+        <NotificationToast
+          message="保存失败。"
+          variant="error"
+          onDismiss={onDismiss}
+        />
+      )
+      const options = toastSpies.error.mock.calls[0]?.[1]
+      expect(options).toEqual(
+        expect.objectContaining({
+          onAutoClose: expect.any(Function),
+          onDismiss: expect.any(Function),
+        })
+      )
+      options[eventName]()
+      options[eventName]()
+      expect(onDismiss).toHaveBeenCalledExactlyOnceWith("保存失败。")
+
+      rerender(
+        <NotificationToast
+          message={null}
+          variant="error"
+          onDismiss={onDismiss}
+        />
+      )
+      rerender(
+        <NotificationToast
+          message="保存失败。"
+          variant="error"
+          onDismiss={onDismiss}
+        />
+      )
+      expect(toastSpies.error).toHaveBeenCalledTimes(2)
+    }
+  )
+
+  it("dismisses a resolved error and ignores its stale dismissal callback", () => {
+    toastSpies.error
+      .mockReturnValueOnce("first-error")
+      .mockReturnValueOnce("second-error")
+    const onDismiss = vi.fn()
+    const { rerender } = render(
+      <NotificationToast
+        message="保存失败。"
+        variant="error"
+        onDismiss={onDismiss}
+      />
+    )
+    const firstOptions = toastSpies.error.mock.calls[0]?.[1]
+    rerender(
+      <NotificationToast message={null} variant="error" onDismiss={onDismiss} />
+    )
+    expect(toastSpies.dismiss).toHaveBeenCalledWith("first-error")
+
+    rerender(
+      <NotificationToast
+        message="保存失败。"
+        variant="error"
+        onDismiss={onDismiss}
+      />
+    )
+    firstOptions.onAutoClose()
+    expect(onDismiss).not.toHaveBeenCalled()
+    toastSpies.error.mock.calls[1]?.[1].onDismiss()
+    expect(onDismiss).toHaveBeenCalledExactlyOnceWith("保存失败。")
+  })
+
+  it("does not repeat an unchanged error when the page rerenders", () => {
+    const onDismiss = vi.fn()
+    const { rerender } = render(
+      <NotificationToast
+        message="保存失败。"
+        variant="error"
+        onDismiss={onDismiss}
+      />
+    )
+    rerender(
+      <NotificationToast
+        message="保存失败。"
+        variant="error"
+        onDismiss={onDismiss}
+      />
+    )
+    expect(toastSpies.error).toHaveBeenCalledTimes(1)
   })
 })

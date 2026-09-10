@@ -24,7 +24,7 @@ describe("conversation composer capability chips", () => {
     expect(iconRule).toMatch(/border-radius:\s*8px;/u)
   })
 
-  it("removes the action icon background and makes add-group icons smaller", () => {
+  it("removes the action icon border and background and makes add-group icons smaller", () => {
     const actionIconRule = composerStyles.match(
       /\.capability-picker-popover\s+\.capability-menu-action-icon\s*\{([^}]*)\}/u
     )?.[1]
@@ -34,6 +34,7 @@ describe("conversation composer capability chips", () => {
 
     expect(actionIconRule).toMatch(/width:\s*20px;/u)
     expect(actionIconRule).toMatch(/height:\s*20px;/u)
+    expect(actionIconRule).toMatch(/border:\s*0;/u)
     expect(actionIconRule).toMatch(/background:\s*transparent;/u)
     expect(actionSvgRule).toMatch(/width:\s*14px;/u)
     expect(actionSvgRule).toMatch(/height:\s*14px;/u)

@@ -583,6 +583,27 @@ describe("conversation turn responses", () => {
   )
 
   it.each([false, true])(
+    "renders assistant emphasis containing Unicode horizontal whitespace when streaming=%s",
+    (streaming) => {
+      const { container } = render(
+        <AssistantMarkdown
+          streaming={streaming}
+          content={
+            "这是当前会话选中的知识库，共包含**\u00a010 个文档**，内容比较杂。"
+          }
+        />
+      )
+
+      expect(
+        screen.getByText("10 个文档", { selector: "strong" })
+      ).toBeVisible()
+      expect(
+        container.querySelector(".assistant-markdown")
+      ).not.toHaveTextContent("**")
+    }
+  )
+
+  it.each([false, true])(
     "renders strong emphasis next to Chinese text when streaming=%s",
     (streaming) => {
       const emphasized = "安装、迁移、新增或变更（IMAC）"

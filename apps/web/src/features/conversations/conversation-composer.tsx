@@ -1653,7 +1653,7 @@ export const ConversationComposer = forwardRef<
                     autoFocus={shouldAutoFocusOnDesktop()}
                   />
                 )}
-                <CommandList>
+                <CommandList className="[&_[data-slot=command-item]]:rounded-md">
                   <CommandGroup heading={t("conversation.addGroup")}>
                     <CommandItem
                       value={t("conversation.attachFileMenuSearchValue")}

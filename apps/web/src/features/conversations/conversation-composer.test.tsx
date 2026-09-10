@@ -456,6 +456,28 @@ describe("conversation voice input", () => {
     expect(onRetryCapabilities).toHaveBeenCalledTimes(1)
   })
 
+  it("uses compact hover corners across Add actions, plugins, and Skills", async () => {
+    const interaction = userEvent.setup()
+    renderStatefulComposer({
+      capabilities: [
+        capabilityFixture({ id: "plugin-1", name: "Office", type: "plugin" }),
+        capabilityFixture({ name: "Code Review" }),
+      ],
+    })
+
+    await interaction.click(screen.getByRole("button", { name: "添加" }))
+
+    const options = screen.getAllByRole("option")
+    expect(options).toHaveLength(6)
+    for (const option of options) {
+      expect(option.closest('[data-slot="command-list"]')).toHaveClass(
+        "[&_[data-slot=command-item]]:rounded-md"
+      )
+      await interaction.hover(option)
+      expect(option).toHaveAttribute("data-selected", "true")
+    }
+  })
+
   it("keeps @ as ordinary text when it is entered inside a word", async () => {
     const interaction = userEvent.setup()
     renderStatefulComposer()

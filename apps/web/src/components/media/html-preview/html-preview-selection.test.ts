@@ -121,7 +121,96 @@ function setAnnotationMode(enabled: boolean, selectionColor = "#0b73e0") {
   )
 }
 
+function annotationOverlay(selector: string): SVGSVGElement {
+  const overlay = document
+    .querySelector(`[${htmlSelectionOverlayAttribute}]`)
+    ?.shadowRoot?.querySelector<SVGSVGElement>(selector)
+  if (!overlay) throw new Error(`Missing annotation overlay: ${selector}`)
+  return overlay
+}
+
 describe("HTML preview live selection", () => {
+  it.each(["img", "svg"])(
+    "keeps %s hover and selection frames outside clipped content and document SVG styles",
+    (tag) => {
+      vi.useFakeTimers()
+      document.body.innerHTML = `
+        <style>svg { max-width: 200px; border-radius: 40px; transform: scale(.5); }
+          path { stroke: none !important; opacity: 0 !important; }</style>
+        <figure style="overflow-x: hidden; overflow-y: hidden">
+          ${tag === "img" ? '<img id="visual" src="data:image/png;base64,AA==">' : '<svg id="visual"><g><path id="art" d="M0 0H10" /></g></svg>'}
+        </figure>`
+      const target = document.getElementById("visual")
+      const clip = document.querySelector("figure")
+      if (!target || !clip) throw new Error("Missing media fixture")
+      const originalMarkup = target.innerHTML
+      let bounds = new DOMRect(50, 60, 300, 180)
+      target.getBoundingClientRect = () => bounds
+      clip.getBoundingClientRect = () => new DOMRect(50, 60, 300, 180)
+      document.body.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600)
+      const hit = target.querySelector("path") ?? target
+      vi.spyOn(document, "elementFromPoint").mockReturnValue(hit)
+      const { select, state } = installController()
+      setAnnotationMode(true)
+      const host = document.querySelector(`[${htmlSelectionOverlayAttribute}]`)
+      const layer = host?.shadowRoot
+      expect(layer).not.toBeNull()
+      const hover = layer?.querySelector<SVGSVGElement>(
+        ".office-annotation-hover-overlay"
+      )
+      const selected = layer?.querySelector<SVGSVGElement>(
+        ".html-preview-selection-fill-overlay"
+      )
+      if (!hover || !selected) throw new Error("Missing isolated media frames")
+      for (const overlay of [hover, selected])
+        overlay.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600)
+      fireEvent.pointerMove(hit, {
+        pointerType: "mouse",
+        buttons: 0,
+        clientX: 100,
+        clientY: 100,
+      })
+      vi.advanceTimersByTime(20)
+      expect(hover.querySelector("path")).toHaveAttribute(
+        "d",
+        "M50,60H350V240H50Z"
+      )
+      expect(hover.querySelector("path")).toHaveAttribute("stroke-width", "1.5")
+      expect(hover.querySelector("path")).not.toHaveAttribute(
+        "stroke-dasharray"
+      )
+      expect(state.selected).toEqual([])
+      select([target])
+      vi.advanceTimersByTime(20)
+      expect(hover.querySelector("path")).toHaveAttribute("d", "")
+      const frame = selected.querySelector("path")
+      expect(frame).toHaveAttribute("d", "M50,60H350V240H50Z")
+      expect(frame).toHaveAttribute("stroke", "rgb(11, 115, 224)")
+      expect(frame).toHaveAttribute("stroke-dasharray", "6 4")
+      expect(frame).toHaveAttribute(
+        "fill",
+        "color-mix(in srgb, rgb(11, 115, 224) 12%, transparent)"
+      )
+      expect(window.getComputedStyle(target).outline).not.toContain("dashed")
+      expect(target.innerHTML).toBe(originalMarkup)
+      expect(document.querySelectorAll("svg")).toHaveLength(
+        tag === "svg" ? 1 : 0
+      )
+      expect(layer?.querySelector("slot")).not.toBeNull()
+      bounds = new DOMRect(20, 30, 450, 270)
+      fireEvent.scroll(clip)
+      expect(frame).toHaveAttribute("d", "M50,60H350V240H50Z")
+      clip.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600)
+      fireEvent.resize(window)
+      expect(frame).toHaveAttribute("d", "M20,30H470V300H20Z")
+      target.setAttribute(htmlAnnotatedAttribute, "true")
+      vi.advanceTimersByTime(20)
+      expect(frame).toHaveAttribute("d", "")
+      setAnnotationMode(false)
+      expect(host?.isConnected).toBe(false)
+    }
+  )
+
   it("tints selected images without replacing their content and clears the tint on deselection", () => {
     document.body.innerHTML =
       '<img id="photo" src="data:image/png;base64,AA==" style="background: red">'
@@ -131,10 +220,7 @@ describe("HTML preview live selection", () => {
     target.getBoundingClientRect = () => bounds
     const { select } = installController()
     setAnnotationMode(true)
-    const overlay = document.querySelector<SVGSVGElement>(
-      ".html-preview-selection-fill-overlay"
-    )
-    if (!overlay) throw new Error("Missing selected fill overlay")
+    const overlay = annotationOverlay(".html-preview-selection-fill-overlay")
     overlay.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600)
     select([target])
     expect(overlay.querySelector("path")).toHaveAttribute(
@@ -142,9 +228,10 @@ describe("HTML preview live selection", () => {
       "M30,40H150V120H30Z"
     )
     expect(target).toHaveAttribute("style", "background: red")
-    expect(
-      document.querySelector("[data-linksense-preview-styles]")?.textContent
-    ).toContain("fill: color-mix(in srgb, rgb(11, 115, 224) 12%, transparent)")
+    expect(overlay.querySelector("path")).toHaveAttribute(
+      "fill",
+      "color-mix(in srgb, rgb(11, 115, 224) 12%, transparent)"
+    )
     bounds = new DOMRect(15, 20, 180, 120)
     fireEvent.scroll(document)
     expect(overlay.querySelector("path")).toHaveAttribute(
@@ -172,16 +259,15 @@ describe("HTML preview live selection", () => {
     select([target])
 
     const styles = document.querySelector("[data-linksense-preview-styles]")
-    expect(styles?.textContent).toContain(
-      "outline: 2px dashed rgb(11, 115, 224)"
-    )
+    const frame = annotationOverlay(
+      ".html-preview-selection-fill-overlay"
+    ).querySelector("path")
+    expect(frame).toHaveAttribute("stroke", "rgb(11, 115, 224)")
     expect(styles?.textContent).not.toContain("Highlight")
 
     setAnnotationMode(true, "#5ca8ff")
 
-    expect(styles?.textContent).toContain(
-      "outline: 2px dashed rgb(92, 168, 255)"
-    )
+    expect(frame).toHaveAttribute("stroke", "rgb(92, 168, 255)")
     expect(styles?.textContent).toContain("border: 1px solid rgb(92, 168, 255)")
     expect(state.selected).toEqual([target])
     expect(target).toHaveAttribute(htmlSelectedAttribute)
@@ -245,10 +331,7 @@ describe("HTML preview live selection", () => {
     vi.spyOn(window, "postMessage").mockImplementation(() => {})
     const { state, select } = installController()
     setAnnotationMode(true)
-    const overlay = document.querySelector<SVGSVGElement>(
-      ".office-annotation-hover-overlay"
-    )
-    if (!overlay) throw new Error("Missing hover overlay")
+    const overlay = annotationOverlay(".office-annotation-hover-overlay")
     overlay.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600)
     const path = overlay.querySelector("path")
     fireEvent.pointerMove(target, {
@@ -296,14 +379,19 @@ describe("HTML preview live selection", () => {
     vi.spyOn(window, "postMessage").mockImplementation(() => {})
     const { select, state } = installController()
     setAnnotationMode(true)
+    const overlay = annotationOverlay(".html-preview-selection-fill-overlay")
+    overlay.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600)
+    const frame = overlay.querySelector("path")
     select([heading])
-    expect(window.getComputedStyle(heading).outline).toContain("dashed")
+    expect(frame).toHaveAttribute("d", "M10,20H110V60H10Z")
+    expect(window.getComputedStyle(heading).outline).not.toContain("dashed")
     heading.setAttribute(htmlAnnotatedAttribute, "true")
     select([heading])
-    expect(window.getComputedStyle(heading).outline).not.toContain("dashed")
+    expect(frame).toHaveAttribute("d", "")
     expect(state.selected).toEqual([heading])
     heading.removeAttribute(htmlAnnotatedAttribute)
-    expect(window.getComputedStyle(heading).outline).toContain("dashed")
+    select([heading])
+    expect(frame).toHaveAttribute("d", "M10,20H110V60H10Z")
   })
 
   it("selects the real rendered element without cloning or changing its animation", () => {

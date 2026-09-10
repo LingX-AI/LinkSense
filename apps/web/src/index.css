@@ -4869,6 +4869,7 @@
 .capability-picker-popover .capability-menu-action-icon {
   width: 20px;
   height: 20px;
+  border: 0;
   border-radius: 0;
   background: transparent;
 }

@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { formatTokenCount, type UsageNumberLanguage } from "@/lib/usage-number"
 import type { ConversationModelContextUsage } from "@/features/conversations/conversation-context-usage"
-import { cn } from "@/lib/utils"
 
 export function ConversationModelSelector({
   preference,
@@ -87,7 +86,7 @@ export function ConversationModelSelector({
           className="w-max max-w-[calc(100vw-1rem)] min-w-52"
         >
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="min-h-9 text-sm">
+            <DropdownMenuSubTrigger className="min-h-9 text-[length:var(--app-font-13)] leading-5">
               <span className="flex min-w-0 flex-1 items-center gap-2">
                 <span>{t("conversation.model")}</span>
                 <span className="ml-auto max-w-[min(18rem,50vw)] truncate font-normal text-muted-foreground">
@@ -123,7 +122,7 @@ export function ConversationModelSelector({
                       key={model.id}
                       value={model.id}
                       closeOnClick={false}
-                      className="min-h-9 text-sm"
+                      className="min-h-9 text-[length:var(--app-font-13)] leading-5"
                     >
                       <span className="max-w-[min(20rem,calc(100vw-5rem))] truncate">
                         {model.display_name}
@@ -135,7 +134,7 @@ export function ConversationModelSelector({
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="min-h-9 text-sm">
+            <DropdownMenuSubTrigger className="min-h-9 text-[length:var(--app-font-13)] leading-5">
               <span className="flex min-w-0 flex-1 items-center gap-2">
                 <span>{t("conversation.reasoningEffort")}</span>
                 <span className="ml-auto font-normal text-muted-foreground">
@@ -162,7 +161,7 @@ export function ConversationModelSelector({
                       key={effort}
                       value={effort}
                       closeOnClick={false}
-                      className="min-h-9 text-sm"
+                      className="min-h-9 text-[length:var(--app-font-13)] leading-5"
                     >
                       {t(`reasoningEffort.${effort}`)}
                     </DropdownMenuRadioItem>
@@ -249,11 +248,7 @@ function ContextUsageRing({ percentage }: { percentage: number | null }) {
   return (
     <svg
       viewBox="0 0 20 20"
-      className={cn(
-        "size-4 -rotate-90",
-        percentage !== null && percentage >= 85 && "text-destructive",
-        percentage !== null && percentage < 85 && "text-foreground"
-      )}
+      className="size-4 -rotate-90 text-foreground"
       aria-hidden="true"
     >
       <circle

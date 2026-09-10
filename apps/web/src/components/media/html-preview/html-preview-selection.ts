@@ -238,6 +238,8 @@ export function installHtmlPreviewAnnotationController(
   let selectedElements: Element[] = []
   let selecto: SelectoInstance | null = null
   let overlayRoot: HTMLElement | null = null
+  let overlayShadow: ShadowRoot | null = null
+  let overlayStyles: HTMLStyleElement | null = null
   let selectionFillOverlay: SVGSVGElement | null = null
   let selectionFillAnimationFrame: number | null = null
   let annotationStyles: HTMLStyleElement | null = null
@@ -461,7 +463,8 @@ export function installHtmlPreviewAnnotationController(
     }
   }
 
-  // Paint above the content so images and existing backgrounds receive the same tint.
+  // Paint the frame and tint above the content. An outline on the selected
+  // element itself can be clipped by a surrounding image or SVG container.
   const paintSelectionFill = () => {
     if (selectionFillAnimationFrame !== null)
       targetWindow.cancelAnimationFrame(selectionFillAnimationFrame)
@@ -599,6 +602,8 @@ export function installHtmlPreviewAnnotationController(
     markedElements.clear()
     overlayRoot?.remove()
     overlayRoot = null
+    overlayShadow = null
+    overlayStyles = null
     selectionFillOverlay = null
     annotationStyles?.remove()
     annotationStyles = null
@@ -611,40 +616,56 @@ export function installHtmlPreviewAnnotationController(
       [data-office-annotation-scope="true"], [data-office-annotation-scope="true"] * {
         cursor: var(--office-annotation-cursor) !important;
       }
-      ${attributeSelector(config.selectedAttribute)}:not([${config.annotatedAttribute}="true"]) {
-        outline: 2px dashed ${selectionColor} !important;
-        outline-offset: 2px !important;
+      ${attributeSelector(config.overlayAttribute)} .selecto-selection {
+        border: 1px solid ${selectionColor} !important;
+        background: color-mix(in srgb, ${selectionColor} 12%, transparent) !important;
       }
-      ${attributeSelector(config.overlayAttribute)} {
+    `
+    if (!overlayStyles || !overlayShadow) return
+    // Artifact SVG selectors must not style the annotation SVGs. The shadow
+    // host also resets layout, clipping and transforms from generic page rules.
+    overlayStyles.textContent = `
+      :host {
+        all: initial !important;
+        display: block !important;
         position: fixed !important;
         z-index: 2147483647 !important;
         inset: 0 !important;
         pointer-events: none !important;
       }
-      ${attributeSelector(config.overlayAttribute)} .selecto-selection {
-        border: 1px solid ${selectionColor} !important;
-        background: color-mix(in srgb, ${selectionColor} 12%, transparent) !important;
-      }
-      ${attributeSelector(config.overlayAttribute)} .office-annotation-hover-overlay,
-      ${attributeSelector(config.overlayAttribute)} .html-preview-selection-fill-overlay {
-        position: absolute !important;
-        inset: 0 !important;
-        width: 100% !important;
-        height: 100% !important;
-        overflow: hidden !important;
-        pointer-events: none !important;
-      }
-      ${attributeSelector(config.overlayAttribute)} .office-annotation-hover-frame {
-        fill: color-mix(in srgb, ${selectionColor} 8%, transparent);
-        stroke: color-mix(in srgb, ${selectionColor} 42%, white);
-        stroke-width: 1.5;
-        vector-effect: non-scaling-stroke;
-      }
-      ${attributeSelector(config.overlayAttribute)} .html-preview-selection-fill {
-        fill: color-mix(in srgb, ${selectionColor} 12%, transparent) !important;
-        stroke: none !important;
+      svg {
+        all: initial;
+        display: block;
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        pointer-events: none;
       }
     `
+    const hoverPath = overlayShadow.querySelector(
+      ".office-annotation-hover-frame"
+    )
+    hoverPath?.setAttribute(
+      "fill",
+      `color-mix(in srgb, ${selectionColor} 8%, transparent)`
+    )
+    hoverPath?.setAttribute(
+      "stroke",
+      `color-mix(in srgb, ${selectionColor} 42%, white)`
+    )
+    hoverPath?.setAttribute("stroke-width", "1.5")
+    hoverPath?.setAttribute("vector-effect", "non-scaling-stroke")
+    const selectionPath = selectionFillOverlay?.querySelector("path")
+    selectionPath?.setAttribute(
+      "fill",
+      `color-mix(in srgb, ${selectionColor} 12%, transparent)`
+    )
+    selectionPath?.setAttribute("stroke", selectionColor)
+    selectionPath?.setAttribute("stroke-width", "2")
+    selectionPath?.setAttribute("stroke-dasharray", "6 4")
+    selectionPath?.setAttribute("vector-effect", "non-scaling-stroke")
   }
 
   let selectoLoadAttempts = 0
@@ -672,12 +693,17 @@ export function installHtmlPreviewAnnotationController(
 
     annotationStyles = document.createElement("style")
     annotationStyles.setAttribute("data-linksense-preview-styles", markerValue)
-    updateSelectionStyles()
     document.head.append(annotationStyles)
 
     overlayRoot = document.createElement("div")
     overlayRoot.setAttribute(config.overlayAttribute, markerValue)
     overlayRoot.setAttribute("aria-hidden", "true")
+    overlayShadow = overlayRoot.attachShadow({ mode: "open" })
+    overlayStyles = document.createElement("style")
+    overlayShadow.append(overlayStyles)
+    // Selecto owns its light-DOM drag rectangle and injected stylesheet.
+    // Project it alongside the isolated media frames without changing its API.
+    overlayShadow.append(document.createElement("slot"))
     body.append(overlayRoot)
     refreshSelectableElements()
 
@@ -692,7 +718,7 @@ export function installHtmlPreviewAnnotationController(
     )
     selectionFillPath.classList.add("html-preview-selection-fill")
     selectionFillOverlay.append(selectionFillPath)
-    overlayRoot.append(selectionFillOverlay)
+    overlayShadow.append(selectionFillOverlay)
 
     const hoverOverlay = document.createElementNS(
       "http://www.w3.org/2000/svg",
@@ -705,7 +731,8 @@ export function installHtmlPreviewAnnotationController(
     )
     hoverPath.classList.add("office-annotation-hover-frame")
     hoverOverlay.append(hoverPath)
-    overlayRoot.append(hoverOverlay)
+    overlayShadow.append(hoverOverlay)
+    updateSelectionStyles()
     stopHover = config.installHover(
       body,
       hoverOverlay,

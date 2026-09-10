@@ -24,7 +24,10 @@ export const notify = {
     return toast.success(message, withNotificationDuration(options))
   },
   error(message: ReactNode, options?: NotificationOptions) {
-    return toast.error(message, withNotificationDuration(options))
+    return toast.error(message, {
+      closeButton: true,
+      ...withNotificationDuration(options),
+    })
   },
   info(message: ReactNode, options?: NotificationOptions) {
     return toast.info(message, withNotificationDuration(options))
