@@ -38,15 +38,50 @@ github_proxy_url_for() {
 }
 
 download_font() {
-  download_url="$1"
-  retry_count="$2"
-  curl --fail --silent --show-error --location \
+  curl --disable --fail --silent --show-error --location \
     --proto '=https' --proto-redir '=https' \
     --connect-timeout 15 --max-time 300 \
-    --retry "$retry_count" --retry-all-errors --retry-delay 2 --retry-max-time 600 \
+    --retry 0 \
     --speed-time 30 --speed-limit 1024 --continue-at - \
-    --output "$partial_font" "$download_url"
+    --output "$partial_font" "$1"
 }
+
+download_verified_source() (
+  # Resume only bytes from the exact same URL. A mirror can serve a different
+  # representation (or an error page) even when curl reports success.
+  source_url="$1"
+  source_key="$(printf '%s' "$source_url" | sha256sum | awk '{ print $1 }')"
+  partial_font="$cached_font.$source_key.part"
+  if [ -f "$partial_font" ] && verify_download "$partial_font"; then
+    mv "$partial_font" "$cached_font"
+    exit 0
+  fi
+  resumed=0
+  [ ! -s "$partial_font" ] || resumed=1
+  for attempt in 1 2; do
+    result=0
+    download_font "$source_url" || result=$?
+    if [ "$result" -eq 0 ] && verify_download "$partial_font"; then
+      mv "$partial_font" "$cached_font"
+      exit 0
+    fi
+    # A successful transfer with bad bytes, or a rejected range, is not a
+    # verified font. Discard that source's partial and retry from zero once.
+    case "$result" in
+      0|22|33)
+        rm -f "$partial_font"
+        if [ "$attempt" -eq 1 ] && [ "$resumed" -eq 1 ]; then
+          printf '[fonts] Invalid resumed download; restarting: %s\n' "$filename" >&2
+          continue
+        fi
+        ;;
+    esac
+    # Preserve partial bytes only after transport errors for the next build.
+    printf '[fonts] Source failed or checksum mismatch: %s (%s)\n' "$filename" "$source_url" >&2
+    exit 1
+  done
+  exit 1
+)
 
 # Only install after every pinned download has passed its checksum.
 while read -r checksum filename url; do
@@ -63,37 +98,22 @@ while read -r checksum filename url; do
     continue
   fi
   rm -f "$cached_font"
-  partial_font="$cached_font.part"
-  if ! { [ -f "$partial_font" ] && verify_download "$partial_font"; }; then
-    printf '[fonts] Downloading/resuming: %s\n' "$filename"
-    # Keep partial bytes in the BuildKit cache after network errors or cancellation.
-    if ! download_font "$url" 0; then
-      mirror_url="$(jsdelivr_url_for "$url" || true)"
-      if [ -z "$mirror_url" ]; then
-        echo "Font download failed and no mirror is available: $filename" >&2
-        exit 1
-      fi
-      printf '[fonts] Primary source failed; trying CDN mirror: %s\n' "$filename" >&2
-      if ! download_font "$mirror_url" 0; then
-        proxy_url="$(github_proxy_url_for "$url" || true)"
-        if [ -z "$proxy_url" ]; then
-          echo "Font download failed and no proxy is available: $filename" >&2
-          exit 1
-        fi
-        printf '[fonts] CDN mirror failed; trying HTTPS proxy: %s\n' "$filename" >&2
-        if ! download_font "$proxy_url" 2; then
-          echo "Font download failed from all pinned sources: $filename" >&2
-          exit 1
-        fi
-      fi
+  mirror_url="$(jsdelivr_url_for "$url" || true)"
+  proxy_url="$(github_proxy_url_for "$url" || true)"
+  # Prefer the CDN so restricted GitHub access does not delay every file.
+  downloaded=0
+  for source_url in "$mirror_url" "$url" "$proxy_url"; do
+    [ -n "$source_url" ] || continue
+    printf '[fonts] Downloading/resuming: %s (%s)\n' "$filename" "$source_url"
+    if download_verified_source "$source_url"; then
+      downloaded=1
+      break
     fi
-  fi
-  if ! verify_download "$partial_font"; then
-    rm -f "$partial_font"
-    echo "Font checksum mismatch: $filename" >&2
+  done
+  if [ "$downloaded" -ne 1 ]; then
+    echo "Font download failed from all pinned sources: $filename" >&2
     exit 1
   fi
-  mv "$partial_font" "$cached_font"
 done < "$font_manifest"
 
 install -d -m 0755 "$font_destination"

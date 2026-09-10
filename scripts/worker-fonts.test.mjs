@@ -77,7 +77,7 @@ test("installer verifies all downloads before publishing readable fonts and reje
   }
 });
 
-test("installer falls back through pinned mirrors when GitHub raw is too slow", async () => {
+test("installer isolates partial bytes by source and falls back after a successful but corrupt response", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "linksense-font-fallback-"));
   try {
     const payload = "fallback font bytes";
@@ -104,8 +104,10 @@ done
 printf '%s\n' "$url" >> "$FONT_TEST_CALLS"
 case "$url" in
   https://raw.githubusercontent.com/*) printf 'partial' > "$output"; exit 28 ;;
-  https://cdn.jsdelivr.net/gh/example/fonts@${revision}/fonts/font.ttf) exit 22 ;;
-  https://gh-proxy.com/https://raw.githubusercontent.com/example/fonts/${revision}/fonts/font.ttf) cp "$FONT_TEST_PAYLOAD" "$output" ;;
+  https://cdn.jsdelivr.net/gh/example/fonts@${revision}/fonts/font.ttf) printf 'invalid response' > "$output" ;;
+  https://gh-proxy.com/https://raw.githubusercontent.com/example/fonts/${revision}/fonts/font.ttf)
+    test ! -s "$output" || exit 99
+    cp "$FONT_TEST_PAYLOAD" "$output" ;;
   *) exit 7 ;;
 esac
 `, { mode: 0o755 });
@@ -122,7 +124,7 @@ esac
     assert.equal(await readFile(path.join(destination, "font.ttf"), "utf8"), payload);
     assert.equal(
       await readFile(calls, "utf8"),
-      `https://raw.githubusercontent.com/example/fonts/${revision}/fonts/font.ttf\nhttps://cdn.jsdelivr.net/gh/example/fonts@${revision}/fonts/font.ttf\nhttps://gh-proxy.com/https://raw.githubusercontent.com/example/fonts/${revision}/fonts/font.ttf\n`,
+      `https://cdn.jsdelivr.net/gh/example/fonts@${revision}/fonts/font.ttf\nhttps://raw.githubusercontent.com/example/fonts/${revision}/fonts/font.ttf\nhttps://gh-proxy.com/https://raw.githubusercontent.com/example/fonts/${revision}/fonts/font.ttf\n`,
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -159,7 +161,8 @@ cp "$FONT_TEST_PAYLOAD" "$2"
       env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, FONT_TEST_PAYLOAD: path.join(directory, "payload"), FONT_TEST_CALLS: calls, FONT_TEST_MODE: mode },
     });
     await assert.rejects(invoke("fail"));
-    assert.equal(await readFile(`${cachedFile}.part`, "utf8"), "complete");
+    const sourceKey = createHash("sha256").update("https://example.com/font").digest("hex");
+    assert.equal(await readFile(`${cachedFile}.${sourceKey}.part`, "utf8"), "complete");
     await assert.rejects(stat(destination), { code: "ENOENT" });
     await invoke("resume");
     assert.equal(await readFile(cachedFile, "utf8"), payload);
@@ -177,6 +180,64 @@ cp "$FONT_TEST_PAYLOAD" "$2"
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("installer rejects corrupt responses from every source with bounded attempts and preserves installed fonts", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-font-reject-"));
+  try {
+    const destination = path.join(directory, "installed");
+    await mkdir(destination);
+    await writeFile(path.join(destination, "existing.ttf"), "existing font");
+    await writeFile(path.join(directory, "manifest"), `${"0".repeat(64)}  font.ttf  https://raw.githubusercontent.com/example/fonts/${"1".repeat(40)}/font.ttf\n`);
+    await writeFile(path.join(directory, "curl"), `#!/bin/sh
+printf 'call\\n' >> "$FONT_TEST_CALLS"
+while [ "$1" != "--output" ]; do shift; done
+printf 'not a valid font' > "$2"
+`, { mode: 0o755 });
+    await assert.rejects(run("sh", [path.join(root, "install.sh"), path.join(directory, "manifest"), destination, path.join(directory, "cache")], {
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, FONT_TEST_CALLS: path.join(directory, "calls") },
+    }), /Font download failed from all pinned sources/u);
+    assert.equal(await readFile(path.join(directory, "calls"), "utf8"), "call\ncall\ncall\n");
+    assert.deepEqual(await readdir(destination), ["existing.ttf"]);
+    assert.equal(await readFile(path.join(destination, "existing.ttf"), "utf8"), "existing font");
+    assert.deepEqual(await readdir(path.join(directory, "cache")), []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+for (const failure of ["checksum", "range"]) {
+  test(`installer restarts once from zero when resumed bytes fail ${failure} validation`, async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "linksense-font-resume-"));
+    try {
+      const payload = "complete font bytes";
+      const checksum = createHash("sha256").update(payload).digest("hex");
+      const url = "https://example.com/font";
+      const sourceKey = createHash("sha256").update(url).digest("hex");
+      const cache = path.join(directory, "cache");
+      await mkdir(cache);
+      await writeFile(path.join(cache, `${checksum}-font.ttf.${sourceKey}.part`), "bad prefix");
+      await writeFile(path.join(directory, "manifest"), `${checksum}  font.ttf  ${url}\n`);
+      await writeFile(path.join(directory, "payload"), payload);
+      await writeFile(path.join(directory, "curl"), `#!/bin/sh
+printf 'call\\n' >> "$FONT_TEST_CALLS"
+while [ "$1" != "--output" ]; do shift; done
+if [ -s "$2" ]; then
+  if [ "$FONT_TEST_FAILURE" = range ]; then exit 33; fi
+  printf 'suffix' >> "$2"
+else
+  cp "$FONT_TEST_PAYLOAD" "$2"
+fi
+`, { mode: 0o755 });
+      await run("sh", [path.join(root, "install.sh"), path.join(directory, "manifest"), path.join(directory, "installed"), cache], {
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, FONT_TEST_CALLS: path.join(directory, "calls"), FONT_TEST_PAYLOAD: path.join(directory, "payload"), FONT_TEST_FAILURE: failure },
+      });
+      assert.equal(await readFile(path.join(directory, "installed/font.ttf"), "utf8"), payload);
+      assert.equal(await readFile(path.join(directory, "calls"), "utf8"), "call\ncall\n");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
 
 test("font verification fails when fontconfig substitutes a different family or style", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "linksense-font-verify-"));
