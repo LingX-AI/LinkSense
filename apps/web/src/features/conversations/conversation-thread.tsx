@@ -3041,6 +3041,7 @@ type NativeLifecycleEntry = {
   method: "item/started" | "item/completed"
   sequence: number
   createdAt: string
+  stopped: boolean
 }
 
 function collapseNativeLifecycle(events: ConversationEvent[]) {
@@ -3048,6 +3049,16 @@ function collapseNativeLifecycle(events: ConversationEvent[]) {
     ...new Map(events.map((event) => [event.id, event])).values(),
   ].sort((left, right) => left.sequence_no - right.sequence_no)
   const latestByItemId = new Map<string, NativeLifecycleEntry>()
+  const stoppedTurns = new Set(
+    uniqueEvents.flatMap((event) => {
+      if (event.type !== "turn/completed") return []
+      const native = getNativeCodexPayload(event)
+      return native?.method === "turn/completed" &&
+        native.params.turn.status !== "inProgress"
+        ? [JSON.stringify([native.params.threadId, native.params.turn.id])]
+        : []
+    })
+  )
   for (const event of uniqueEvents) {
     const native = getNativeCodexPayload(event)
     if (
@@ -3067,6 +3078,11 @@ function collapseNativeLifecycle(events: ConversationEvent[]) {
       method: native.method,
       sequence: previous?.sequence ?? event.sequence_no,
       createdAt: previous?.createdAt ?? event.created_at,
+      stopped:
+        native.params.item.type === "contextCompaction" &&
+        stoppedTurns.has(
+          JSON.stringify([native.params.threadId, native.params.turnId])
+        ),
     })
   }
   return [...latestByItemId.values()]
@@ -3379,7 +3395,7 @@ function groupAdjacentNativeSubAgentActivities(
 function isVisibleActiveNativeProcessingActivity(
   activity: NativeLifecycleEntry
 ) {
-  if (activity.method !== "item/started") return false
+  if (activity.method !== "item/started" || activity.stopped) return false
   if (activity.item.type === "subAgentActivity") return false
   if (
     activity.item.type === "collabAgentToolCall" &&
@@ -3541,6 +3557,16 @@ function TurnSummary({
     nativeReconnectFailed ||
     Boolean(interruptRequestedAt) ||
     turn.status === "interrupted"
+  const contextCompactionRunning =
+    visuallyRunning &&
+    !interruptedForDisplay &&
+    !terminalErrorActivity &&
+    nativeActivities.some(
+      (activity) =>
+        activity.item.type === "contextCompaction" &&
+        activity.method === "item/started" &&
+        !activity.stopped
+    )
   const visibleIntermediateMessages = intermediateMessages.filter(
     (message) => message.content.trim().length > 0
   )
@@ -3630,13 +3656,19 @@ function TurnSummary({
     !hasBlockingRequest &&
     !hasStreamingResponse &&
     !terminalErrorActivity
-  const showThinkingActivity = progressAllowed && !hasActiveProcessing
+  const showThinkingActivity =
+    progressAllowed && !hasActiveProcessing && !contextCompactionRunning
+  const thinkingAfterCompaction =
+    showThinkingActivity &&
+    nativeActivities.at(-1)?.item.type === "contextCompaction"
+  const showThinkingInTimeline =
+    showThinkingActivity && !thinkingAfterCompaction
   const isSummaryEntry = (entry: TurnTimelineEntry | undefined) =>
     entry?.kind === "native_activity" ||
     entry?.kind === "native_tool_group" ||
     (entry?.kind === "legacy_activity" && entry.activity.type !== "error")
   const displayTimeline: TurnTimelineEntry[] =
-    showThinkingActivity && !isSummaryEntry(timeline.at(-1))
+    showThinkingInTimeline && !isSummaryEntry(timeline.at(-1))
       ? [
           ...timeline,
           { id: "thinking", kind: "thinking", fallbackOrder: fallbackOrder++ },
@@ -3742,6 +3774,7 @@ function TurnSummary({
         : null
   const initialThinking =
     visuallyRunning &&
+    !contextCompactionRunning &&
     !hasProcessedContent &&
     !nativeReconnectState &&
     !hasBlockingRequest
@@ -3749,19 +3782,21 @@ function TurnSummary({
     !rawRunning && turn.status === "completed"
       ? t("conversation.elapsed")
       : null
-  const statusLabel = initialThinking
-    ? t("conversation.thinking")
-    : interruptedForDisplay
-      ? t("statuses.interrupted")
-      : turn.status === "failed" ||
-          completedWithoutOutput ||
-          Boolean(terminalErrorActivity)
-        ? t("statuses.failed")
-        : rawRunning
-          ? t("conversation.processing")
-          : turn.status === "completed"
-            ? completedDurationLabel
-            : t(`statuses.${turn.status}`)
+  const statusLabel = contextCompactionRunning
+    ? t("conversation.processing")
+    : initialThinking || thinkingAfterCompaction
+      ? t("conversation.thinking")
+      : interruptedForDisplay
+        ? t("statuses.interrupted")
+        : turn.status === "failed" ||
+            completedWithoutOutput ||
+            Boolean(terminalErrorActivity)
+          ? t("statuses.failed")
+          : rawRunning
+            ? t("conversation.processing")
+            : turn.status === "completed"
+              ? completedDurationLabel
+              : t(`statuses.${turn.status}`)
   const activityLabel = (activity: ConversationActivity) => {
     const fallbackKey = `conversation.activities.${activity.type}`
     const fallback = t(fallbackKey)
@@ -3935,8 +3970,10 @@ function TurnSummary({
                             grouped: entry.kind === "native_tool_group",
                           }
                   const progress =
-                    index === displayTimeline.length - 1 && progressAllowed
-                      ? showThinkingActivity
+                    index === displayTimeline.length - 1 &&
+                    progressAllowed &&
+                    !entries.some((activity) => activity.stopped)
+                      ? showThinkingInTimeline
                         ? "thinking"
                         : activityRunning
                           ? "active"
@@ -3949,7 +3986,11 @@ function TurnSummary({
                       progress={progress}
                       reasoningSummary={reasoningSummary}
                       stopped={
-                        !running || nativeReconnectFailed || coordinationSettled
+                        !running ||
+                        nativeReconnectFailed ||
+                        coordinationSettled ||
+                        (entries.length > 0 &&
+                          entries.every((activity) => activity.stopped))
                       }
                       artifactFilesById={artifactFilesById}
                       loadArtifactPreview={loadArtifactPreview}

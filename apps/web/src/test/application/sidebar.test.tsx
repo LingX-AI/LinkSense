@@ -899,6 +899,47 @@ describe("LinkSense application", () => {
     expect(await screen.findByRole("dialog", { name: "搜索" })).toBeVisible()
   })
 
+  it.each(["mobile", "desktop"] as const)(
+    "restricts the %s task list to vertical scrolling with long titles",
+    async (layout) => {
+      const longTitle = "移动端侧边栏长任务标题".repeat(20)
+      installApiMock({
+        conversationListResponse: () =>
+          json({
+            success: true,
+            data: {
+              items: [{ ...conversations[0], title: longTitle }],
+              next_cursor: null,
+            },
+          }),
+      })
+      renderApp()
+      if (layout === "mobile") {
+        await userEvent
+          .setup()
+          .click(await screen.findByRole("button", { name: "打开导航" }))
+      }
+      const sidebar = await screen.findByRole(
+        layout === "mobile" ? "dialog" : "complementary",
+        { name: layout === "mobile" ? "LinkSense" : "LinkSense 导航" }
+      )
+      const title = await within(sidebar).findByText(longTitle)
+      const scroller = title.closest(".sidebar-conversation-scroll")
+
+      // JSDOM has no layout engine; assert the scroll and shrink constraints.
+      expect(scroller).toHaveClass(
+        "overflow-x-hidden",
+        "overflow-y-auto",
+        "min-w-0"
+      )
+      expect(scroller?.parentElement).toHaveClass("min-w-0", "overflow-hidden")
+      expect(title).toHaveClass("min-w-0", "sidebar-conversation-title-fade")
+      expect(
+        within(sidebar).getByRole("link", { name: longTitle })
+      ).toHaveAttribute("href", `/conversations/${conversations[0]!.id}`)
+    }
+  )
+
   it("aligns the mobile navigation close control with the sidebar controls", async () => {
     installApiMock()
     const interaction = userEvent.setup()

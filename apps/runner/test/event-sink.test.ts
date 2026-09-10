@@ -34,6 +34,27 @@ afterEach(async () => {
 });
 
 describe("HttpRunnerEventSink", () => {
+  it("retains queued and delayed preparation compaction across native thread alignment", async () => {
+    const { root, workspaceManager } = await createWorkspaceManager();
+    const outbox = new RunnerEventOutboxStore(workspaceManager);
+    const started: LinkSenseCodexEvent = {
+      method: "item/started", visibility: "user_collapsed",
+      preparation: { turnId: "01900000-0000-7000-8000-000000000099" },
+      params: { threadId: "source-thread", turnId: "compact-turn", item: { id: "compact", type: "contextCompaction" } },
+    };
+    await outbox.append(conversationId, started);
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({ success: true, data: { accepted: true } }));
+    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000/internal", "runner-shared-secret-value", workspaceManager, { fetch: fetchMock });
+    await sink.alignConversationThread(conversationId, "target-thread");
+    expect(await outboxFiles(root)).toHaveLength(1);
+    await sink.publish(conversationId, { ...started, method: "item/completed" });
+    await sink.flushConversation(conversationId);
+    expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).event)).toEqual([
+      started, { ...started, method: "item/completed" },
+    ]);
+    expect(await outboxFiles(root)).toHaveLength(0);
+    await sink.close();
+  });
   it("reports owner-scoped heartbeats without accessing or draining conversation outboxes", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ data: { confirmed: true } })));

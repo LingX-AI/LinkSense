@@ -2918,6 +2918,87 @@ describe("capability marketplace pages", () => {
     expect(submittedBody).not.toHaveProperty("external_link")
   }, APPLICATION_CREATION_TEST_TIMEOUT)
 
+  it.each(["zh-CN", "en-US"])("allows manual skill fields to grow within limits and shows name rules in %s", async (language) => {
+    await i18n.changeLanguage(language)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(envelope({ items: [], next_cursor: null }))
+      )
+    )
+    const interaction = userEvent.setup()
+    renderUserPageWithRouter("/capabilities?section=skill&scope=personal")
+
+    await interaction.click(
+      await screen.findByRole("button", { name: i18n.t("capability.addSkill") })
+    )
+    const dialog = await screen.findByRole("dialog")
+    expect(dialog).toHaveClass("max-h-[calc(100dvh-2rem)]", "overflow-y-auto")
+    await interaction.click(
+      within(dialog).getByLabelText(i18n.t("capability.source"))
+    )
+    await interaction.click(
+      await screen.findByRole("option", {
+        name: i18n.t("marketplace.importSources.manualSkill"),
+      })
+    )
+
+    const nameInput = within(dialog).getByRole("textbox", {
+      name: i18n.t("common.name"),
+    })
+    const hint = within(dialog).getByText(i18n.t("marketplace.skillNameHint"))
+    expect(hint).toBeVisible()
+    expect(nameInput).toHaveAccessibleDescription(hint.textContent ?? "")
+    expect(
+      nameInput.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(nameInput).toHaveAttribute("maxlength", "64")
+    await interaction.click(nameInput)
+    await interaction.paste("a".repeat(65))
+    expect(nameInput).toHaveValue("a".repeat(64))
+
+    const fields = [
+      {
+        label: i18n.t("common.description"),
+        minHeight: "min-h-16",
+        maxHeight: "max-h-40",
+        content: "Skill description\n".repeat(100),
+      },
+      {
+        label: i18n.t("marketplace.skillMarkdown"),
+        minHeight: "min-h-56",
+        maxHeight: "max-h-96",
+        content: "# Skill instructions\n".repeat(300),
+      },
+    ]
+    for (const { label, minHeight, maxHeight, content } of fields) {
+      const field = within(dialog).getByRole("textbox", { name: label })
+      await interaction.click(field)
+      await interaction.paste(content)
+
+      expect(field).toHaveValue(content)
+      expect(field).toHaveClass(
+        minHeight,
+        maxHeight,
+        "field-sizing-content",
+        "overflow-y-auto",
+        "resize-none"
+      )
+      expect(field).not.toHaveClass("field-sizing-fixed", "h-16", "h-56")
+      await interaction.clear(field)
+      expect(field).toHaveValue("")
+      expect(field).toHaveClass(minHeight, maxHeight, "field-sizing-content")
+    }
+  })
+
+  it("falls back to Chinese name rules when the English resource is missing", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    expect(fallback.t("marketplace.skillNameHint", { lng: "en-US" })).toBe(
+      "名称为 1–64 个字符，仅支持小写英文字母、数字和连字符（-）；连字符不能位于开头或结尾，也不能连续使用。请勿使用系统内置技能名称。例如：my-skill。"
+    )
+  })
+
   it("shows a persistent three-dot action menu with icons and submits a listing request", async () => {
     const capability = {
       id: CAPABILITY_ID,

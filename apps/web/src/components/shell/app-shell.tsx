@@ -911,10 +911,10 @@ function AppSidebarContent({
 
         <div
           data-scrolled={conversationListScrolled ? "true" : undefined}
-          className="sidebar-conversation-region -mr-3 flex min-h-[72px] flex-1 flex-col overflow-hidden"
+          className="sidebar-conversation-region -mr-3 flex min-h-[72px] min-w-0 flex-1 flex-col overflow-hidden"
         >
           <div
-            className="sidebar-conversation-scroll min-h-0 flex-1 space-y-3 overflow-y-auto pr-3.5"
+            className="sidebar-conversation-scroll min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto pr-3.5"
             onScroll={(event) => {
               setConversationListScrolled(event.currentTarget.scrollTop > 0)
             }}

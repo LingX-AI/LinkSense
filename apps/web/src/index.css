@@ -1178,7 +1178,7 @@
 
 .mobile-shell-trigger {
   position: absolute;
-  top: 11px;
+  top: calc((var(--conversation-top-bar-height) - 28px) / 2);
   left: 10px;
   z-index: 50;
 }

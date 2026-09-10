@@ -1238,13 +1238,14 @@ describe("conversation knowledge base snapshots", () => {
     ).toHaveLength(1)
   })
 
-  it("queues a rapid follow-up while the accepted turn is still projecting", async () => {
+  it("shows streamed preparation compaction and queues a follow-up before the accepted turn is projected", async () => {
     authMock.runningMessageAction = "steer"
-    const conversationId = "conversation-starting-follow-up"
+    const conversationId = "71000000-0000-4000-8000-000000000088"
     const firstTurnId = "40000000-0000-4000-8000-000000000088"
     const firstInput = "第一条消息"
     const followUpInput = "紧接着发送的第二条消息"
     const projectionRefresh = createDeferred<Response>()
+    let eventController: ReadableStreamDefaultController<Uint8Array> | undefined
     let draftSaveAttempts = 0
     let detailAttempts = 0
     let turnStartAttempts = 0
@@ -1274,8 +1275,16 @@ describe("conversation knowledge base snapshots", () => {
       const url = String(input)
       const path = new URL(url, window.location.origin).pathname
       if (url.includes("/events")) {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            eventController = controller
+            init?.signal?.addEventListener("abort", () => controller.close(), {
+              once: true,
+            })
+          },
+        })
         return Promise.resolve(
-          new Response("", {
+          new Response(stream, {
             status: 200,
             headers: { "content-type": "text/event-stream" },
           })
@@ -1384,6 +1393,62 @@ describe("conversation knowledge base snapshots", () => {
 
     await waitFor(() => expect(turnStartAttempts).toBe(1))
     expect(await screen.findByText("正在思考", { exact: true })).toBeVisible()
+    await waitFor(() => expect(eventController).toBeDefined())
+    const emitCompaction = (
+      method: "item/started" | "item/completed",
+      sequence: number
+    ) => {
+      const event = {
+        id: `72000000-0000-4000-8000-00000000000${sequence}`,
+        conversation_id: conversationId,
+        sse_event_id: `${conversationId}:${sequence}`,
+        event_type: method,
+        visibility: "user_collapsed",
+        turn_id: firstTurnId,
+        sequence_no: sequence,
+        created_at: "2026-08-14T00:00:01.000Z",
+        payload: {
+          schema_version: 2,
+          source: "codex_app_server",
+          method,
+          params: {
+            threadId: "source-thread",
+            turnId: "internal-compact-turn",
+            item: { id: "compact-item", type: "contextCompaction" },
+          },
+        },
+      }
+      eventController!.enqueue(
+        new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`)
+      )
+    }
+    await act(async () => emitCompaction("item/started", 1))
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId(`turn-summary-${firstTurnId}`)
+          .querySelector(".turn-status")
+      ).toHaveTextContent("正在处理")
+    )
+    expect(screen.getAllByText("正在压缩上下文", { exact: true })).toHaveLength(
+      1
+    )
+    expect(
+      screen.getByText("正在压缩上下文").closest(".native-activity-item")
+    ).toBeVisible()
+    expect(
+      screen.queryByText("正在思考", { exact: true })
+    ).not.toBeInTheDocument()
+    await act(async () => emitCompaction("item/completed", 2))
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId(`turn-summary-${firstTurnId}`)
+          .querySelector(".turn-status")
+      ).toHaveTextContent("正在思考")
+    )
+    expect(screen.getAllByText("正在思考", { exact: true })).toHaveLength(1)
+    expect(screen.getByText("上下文已压缩")).toBeVisible()
     await waitFor(() => expect(queryClient.isMutating()).toBe(0))
     await waitFor(() => expect(detailAttempts).toBeGreaterThan(1))
     expect(composer).toHaveValue("")

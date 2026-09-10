@@ -2805,6 +2805,8 @@ export const enUS = {
     zipSkillPackageHint:
       "Only ZIP files that follow the skill package convention are accepted.",
     skillMarkdown: "SKILL.md content",
+    skillNameHint:
+      "Use 1–64 characters: lowercase English letters, numbers, and hyphens (-). Hyphens cannot appear at the start or end, or consecutively. Do not use built-in skill names. Example: my-skill.",
     skillPreview: "Skill content preview",
     applyForListing: "Submit for listing",
     pendingReviewAction: "Listing review pending",

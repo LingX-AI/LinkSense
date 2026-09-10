@@ -675,6 +675,8 @@ type ManagedProcess = {
   modelTransitionNonce: string | null;
   internalModelTransitionCompaction: {
     baselineTurnIds: ReadonlySet<string>;
+    projectionTurnId: string;
+    threadId: string;
   } | null;
   knownTurnIds: Set<string>;
   /** Native turn/start notifications observed for this loaded app-server. */
@@ -1727,6 +1729,7 @@ export class AppServerProcessPool {
             sourceTurns = await this.runModelTransitionCompaction(
               managed,
               baselineTurnIds,
+              eventProjectionTurnIdFor(input),
             );
             baselineTurnIds = sourceTurns.map((turn) => turn.id);
           }
@@ -1755,6 +1758,7 @@ export class AppServerProcessPool {
           sourceTurns = await this.runModelTransitionCompaction(
             managed,
             sourceTurns.map((turn) => turn.id),
+            eventProjectionTurnIdFor(input),
           );
         }
         const forked = await this.forkManagedThread(
@@ -2083,6 +2087,7 @@ export class AppServerProcessPool {
   private async runModelTransitionCompaction(
     managed: ManagedProcess,
     baselineTurnIds: readonly string[],
+    projectionTurnId: string,
   ): Promise<CodexTurn[]> {
     const threadId = managed.codexThreadId;
     if (!threadId) {
@@ -2091,6 +2096,8 @@ export class AppServerProcessPool {
     const baseline = new Set(baselineTurnIds);
     managed.internalModelTransitionCompaction = {
       baselineTurnIds: baseline,
+      projectionTurnId,
+      threadId,
     };
     managed.modelGatewayLease.setManualModelTransitionCompaction(true);
     try {
@@ -5051,8 +5058,11 @@ export class AppServerProcessPool {
         // the read waterline before the awaiting caller observes that response.
         this.rememberSubAgentMetadata(managed, notification);
         this.rememberSubAgentRuntime(managed, notification);
+        const preparation = managed.internalModelTransitionCompaction;
         managed.notificationChain = managed.notificationChain
-          .then(() => this.handleNotification(managed, notification))
+          .then(() =>
+            this.handleNotification(managed, notification, preparation),
+          )
           .catch(() =>
             this.options.logger.error(
               { conversationId: input.conversationId },
@@ -5485,7 +5495,27 @@ export class AppServerProcessPool {
   private async handleNotification(
     managed: ManagedProcess,
     notification: JsonRpcNotification,
+    preparation: ManagedProcess["internalModelTransitionCompaction"] = null,
   ): Promise<void> {
+    // Capture preparation at receipt time: the serialized delivery may run
+    // after compaction finishes and the native thread has already forked.
+    if (preparation) {
+      for (const event of mapCodexNotification(notification)) {
+        if (
+          (event.method === "item/started" ||
+            event.method === "item/completed") &&
+          event.params.threadId === preparation.threadId &&
+          !preparation.baselineTurnIds.has(event.params.turnId) &&
+          event.params.item.type === "contextCompaction"
+        ) {
+          await this.options.eventSink.publish(managed.conversationId, {
+            ...event,
+            preparation: { turnId: preparation.projectionTurnId },
+          });
+        }
+      }
+      return;
+    }
     const params = notification.params as
       { threadId?: unknown; turn?: CodexTurn; turnId?: string } | undefined;
     const notifiedThreadId =

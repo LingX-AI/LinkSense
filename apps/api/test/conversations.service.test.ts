@@ -491,7 +491,9 @@ describe("ConversationService ownership and draft lifecycle", () => {
         "utf8",
       ),
     ).resolves.toBe("forked context");
-    expect(fixture.cleanup.enqueueRuntimeCleanup).not.toHaveBeenCalled();
+    expect(fixture.cleanup.enqueueRuntimeCleanup).toHaveBeenCalledTimes(
+      runnerInitiallyUnavailable ? 1 : 0,
+    );
   });
 
   it("returns the same fork for a repeated idempotency key", async () => {
@@ -7855,6 +7857,10 @@ describe("ConversationService pending and turn materialization", () => {
     ).resolves.toBe("released");
 
     expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
+    expect(transaction.conversationEvent.updateMany).toHaveBeenCalledWith({
+      where: { conversationId: CONVERSATION_ID, turnId: intent.projectionTurnId },
+      data: { turnId: null, visibility: "internal_sanitized" },
+    });
     expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledWith(
       CONVERSATION_ID,
       intent.projectionTurnId,
@@ -11720,6 +11726,7 @@ function transactionFixture() {
         }) => Promise<Record<string, unknown>>
       >(async () => eventRow()),
       createMany: vi.fn(async () => ({ count: 0 })),
+      updateMany: vi.fn(async () => ({ count: 0 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
     conversation: {

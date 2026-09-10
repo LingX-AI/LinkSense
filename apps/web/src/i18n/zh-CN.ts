@@ -2607,6 +2607,8 @@ export const zhCN = {
     zipSkillPackage: "ZIP 技能包",
     zipSkillPackageHint: "仅接受符合技能结构约定的 ZIP 文件。",
     skillMarkdown: "SKILL.md 内容",
+    skillNameHint:
+      "名称为 1–64 个字符，仅支持小写英文字母、数字和连字符（-）；连字符不能位于开头或结尾，也不能连续使用。请勿使用系统内置技能名称。例如：my-skill。",
     skillPreview: "Skill 内容预览",
     applyForListing: "申请上架",
     pendingReviewAction: "上架审核中",

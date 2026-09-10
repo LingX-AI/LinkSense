@@ -1401,6 +1401,18 @@ const runnerCodexItemCompletedParamsSchema = z.strictObject({
   ...runnerCodexItemLifecycleBaseShape,
   completedAtMs: z.number().nonnegative().finite().optional(),
 });
+
+// Correlates native compaction items emitted before turn/start with the
+// admitted local request. Native thread/turn/item identities stay unchanged.
+const runnerPreparationShape = {
+  preparation: z.strictObject({ turnId: uuidSchema }).optional(),
+};
+function validPreparationItem(event: {
+  preparation?: { turnId: string } | undefined;
+  params: { item: { type: string } };
+}): boolean {
+  return !event.preparation || event.params.item.type === "contextCompaction";
+}
 const runnerCodexDeltaParamsSchema = z.strictObject({
   threadId: runnerNativeIdSchema,
   turnId: runnerNativeIdSchema,
@@ -1507,8 +1519,12 @@ export const runnerCodexEventSchema = z.discriminatedUnion("method", [
     runnerCodexTokenUsageParamsSchema,
   ),
   runnerCodexEvent("turn/plan/updated", runnerCodexTurnPlanParamsSchema),
-  runnerCodexEvent("item/started", runnerCodexItemStartedParamsSchema),
-  runnerCodexEvent("item/completed", runnerCodexItemCompletedParamsSchema),
+  runnerCodexEvent("item/started", runnerCodexItemStartedParamsSchema)
+    .extend(runnerPreparationShape)
+    .refine(validPreparationItem),
+  runnerCodexEvent("item/completed", runnerCodexItemCompletedParamsSchema)
+    .extend(runnerPreparationShape)
+    .refine(validPreparationItem),
   runnerCodexEvent("item/agentMessage/delta", runnerCodexDeltaParamsSchema),
   runnerCodexEvent("item/plan/delta", runnerCodexDeltaParamsSchema),
   runnerCodexEvent(

@@ -204,6 +204,19 @@ describe("sidebar theme", () => {
     )
   })
 
+  it("centers the mobile navigation button against the conversation title bar", () => {
+    const titleBarRule = sidebarStyles.match(
+      /(?:^|\n)\.conversation-top-bar\s*\{([^}]*)\}/u
+    )?.[1]
+    expect(titleBarRule).toContain(
+      "height: var(--conversation-top-bar-height);"
+    )
+    expect(titleBarRule).toContain("align-items: center;")
+    expect(cssRule(".mobile-shell-trigger")).toContain(
+      "top: calc((var(--conversation-top-bar-height) - 28px) / 2);"
+    )
+  })
+
   it("collapses the desktop sidebar and makes room for its restore control", () => {
     expect(cssRule('.app-shell[data-sidebar-collapsed="true"]')).toContain(
       "grid-template-columns: 0 minmax(0, 1fr);"

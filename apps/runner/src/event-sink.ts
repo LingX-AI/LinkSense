@@ -736,6 +736,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function runnerEventThreadId(event: LinkSenseRunnerEvent): string | null {
+  // Preparation belongs to the local request and survives its native fork.
+  if ("preparation" in event && event.preparation) return null;
   if ("method" in event) {
     const threadId = event.params.threadId;
     return typeof threadId === "string" && threadId.length > 0

@@ -51,6 +51,7 @@ export function TurnActivityItem({
   const { t } = useTranslation()
   const activities = source.kind === "native" ? source.activities : []
   const first = activities[0]
+  const isContextCompaction = first?.item.type === "contextCompaction"
   const effectiveActivities = stopped
     ? activities.map((activity): NativeToolActivity => ({
         ...activity,
@@ -81,7 +82,11 @@ export function TurnActivityItem({
       : buildNativeActivityViewModel(active.item, active.method)
     : null
   const summaryModel = progress === "active" ? (activeModel ?? model) : model
-  const thinking = progress === "thinking" || source.kind === "thinking"
+  // Compaction is a distinct lifecycle activity, including its completed and
+  // interrupted states. Generic reasoning must not replace that record.
+  const thinking =
+    (progress === "thinking" && !isContextCompaction) ||
+    source.kind === "thinking"
   const nativeRunning = activeActivities.length > 0
   const label = thinking
     ? reasoningSummary?.trim() || t("conversation.thinking")
@@ -124,7 +129,7 @@ export function TurnActivityItem({
   return (
     <ConversationActivityItem
       summary={summary}
-      deferred={progress !== undefined}
+      deferred={progress !== undefined && !isContextCompaction}
       className={
         source.kind === "legacy"
           ? "legacy-activity-item"

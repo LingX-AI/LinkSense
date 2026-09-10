@@ -3840,6 +3840,66 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it.each(["completed", "failed", "interrupted"] as const)("streams real model-switch compaction before turn/start and preserves %s lifecycle", async (status) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-compaction-progress-"));
+    roots.push(root);
+    const compactTurn: CodexTurn = {
+      id: "native-compact-turn", status: "inProgress", error: null,
+      items: [{ id: "native-compact-item", type: "contextCompaction" }],
+    };
+    const controlled = createControlledAppServer({
+      threadResumeModel: "source-model",
+      threadReadTurns: [{ id: "previous-turn", status: "completed", items: [], error: null }],
+      compactTurn,
+    });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    let releasePublication: (() => void) | undefined;
+    if (status === "completed") {
+      eventSink.publish.mockImplementationOnce(() => new Promise<void>((resolve) => {
+        releasePublication = resolve;
+      }));
+    }
+    const input = {
+      ...startOperationInput(), model: "target-model", codexThreadId: "source-thread",
+      modelTransitionSource: {
+        model: "source-model",
+        provider: { revision: 1, baseUrl: "https://source.example.test/v1", protocolMode: "native_responses" as const, apiKey: "test-source-key" },
+      },
+    };
+    const start = pool.startTurn(input);
+    const outcome = start.then((result) => ({ result }), (error: unknown) => ({ error }));
+    await waitForFast(() => expect(controlled.methods).toContain("thread/compact/start"));
+    const params = { threadId: "source-thread", turnId: compactTurn.id, item: compactTurn.items![0] };
+    controlled.notify({ method: "turn/started", params: { threadId: params.threadId, turn: compactTurn } });
+    controlled.notify({ method: "item/started", params });
+    controlled.notify({ method: "item/started", params: { ...params, threadId: "unrelated-thread" } });
+    controlled.notify({ method: "item/started", params: { ...params, item: { id: "unrelated-item", type: "agentMessage", text: "private" } } });
+    await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledWith(input.conversationId, {
+      method: "item/started", visibility: "user_collapsed", params,
+      preparation: { turnId: input.projectionTurnId },
+    }));
+    expect(controlled.methods).not.toContain("turn/start");
+    expect(eventSink.publish).toHaveBeenCalledTimes(1);
+    if (status === "completed") controlled.notify({ method: "item/completed", params });
+    controlled.notify({ method: "turn/completed", params: { threadId: params.threadId, turn: { ...compactTurn, status } } });
+    compactTurn.status = status;
+    const settled = await outcome;
+    releasePublication?.();
+    if (status === "completed") {
+      expect(settled).toHaveProperty("result");
+      await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledWith(input.conversationId, {
+        method: "item/completed", visibility: "user_collapsed", params,
+        preparation: { turnId: input.projectionTurnId },
+      }));
+    } else {
+      expect(settled).toHaveProperty("error");
+      expect(controlled.methods).not.toContain("turn/start");
+      expect(eventSink.publish).toHaveBeenCalledTimes(1);
+    }
+    expect(eventSink.publish.mock.calls.some(([, event]) => "method" in event && event.method === "turn/completed")).toBe(false);
+    await pool.closeAll();
+  });
+
   it("forks the persisted GPT-5.5 thread before starting a GPT-5.6 Luna turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-model-rebuild-"));
     roots.push(root);

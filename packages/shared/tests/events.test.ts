@@ -17,6 +17,29 @@ const turnId = "30000000-0000-4000-8000-000000000001";
 const entityId = "40000000-0000-4000-8000-000000000001";
 const createdAt = "2026-07-11T00:00:00.000Z";
 
+describe("native preparation compaction correlation", () => {
+  it.each(["item/started", "item/completed"])("accepts %s with a local preparation turn", (method) => {
+    const event = {
+      method,
+      visibility: "user_visible",
+      preparation: { turnId },
+      params: {
+        threadId: "source-thread",
+        turnId: "native-compact-turn",
+        item: { id: "compact-item", type: "contextCompaction" },
+      },
+    };
+    expect(runnerCodexEventSchema.parse(event)).toEqual(event);
+    expect(runnerCodexEventSchema.safeParse({
+      ...event,
+      params: { ...event.params, item: { id: "message", type: "agentMessage", text: "hello" } },
+    }).success).toBe(false);
+    expect(runnerCodexEventSchema.safeParse({
+      ...event, preparation: { turnId: "invalid" },
+    }).success).toBe(false);
+  });
+});
+
 const payloads: Record<string, Record<string, unknown>> = {
   "conversation.status.changed": {
     schema_version: 1,

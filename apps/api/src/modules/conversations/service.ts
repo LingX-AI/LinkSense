@@ -8535,6 +8535,19 @@ export class ConversationService {
     tx: Prisma.TransactionClient,
     intent: TurnStartIntent,
   ): Promise<Parameters<typeof projectStoredEvent>[0] | null> {
+    // Preparation items can precede the local turn. If admission fails, keep
+    // their sequence numbers for SSE cursors but remove the uncreated turn link
+    // and exclude these unfinished items from public conversation history.
+    await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM conversations WHERE id = ${intent.conversationId}::uuid FOR UPDATE
+    `;
+    await tx.conversationEvent.updateMany({
+      where: {
+        conversationId: intent.conversationId,
+        turnId: intent.projectionTurnId,
+      },
+      data: { turnId: null, visibility: "internal_sanitized" },
+    });
     if (!intent.pendingRequestId) {
       const sequenceNo = await nextConversationEventSequence(
         tx,
