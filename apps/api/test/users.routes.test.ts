@@ -31,9 +31,10 @@ function managedUserFixture(input: Partial<ManagedUser> = {}): ManagedUser {
     preferredLocale: null,
     selfRegisteredAt: null,
     runningMessageAction: "queue",
-    totalTokenLimit: null,
-    weeklyTokenLimit: null,
-    monthlyTokenLimit: null,
+    totalCreditLimitMicros: null,
+    weeklyCreditLimitMicros: null,
+    monthlyCreditLimitMicros: null,
+    creditQuotaResetAt: null,
     lastLoginAt: null,
     lastLoginMethod: null,
     passwordUpdatedAt: null,
@@ -257,24 +258,24 @@ describe("administrator user list routes", () => {
     const listUsers = vi.fn(async () => ({
       items: [
         managedUserFixture({
-          weeklyTokenLimit: 1_000n,
-          monthlyTokenLimit: 4_000n,
+          weeklyCreditLimitMicros: 1_000n,
+          monthlyCreditLimitMicros: 4_000n,
         }),
       ],
       nextCursor: null,
     }));
-    const getCurrentTokenQuotaUsage = vi.fn(async () => ({
+    const getCurrentCreditQuotaUsage = vi.fn(async () => ({
       weekly: {
-        limitTokens: 1_000n,
-        usedTokens: 1_000n,
-        remainingTokens: 0n,
+        limitCreditMicros: 1_000n,
+        usedCreditMicros: 1_000n,
+        remainingCreditMicros: 0n,
         remainingPercentage: 0,
         resetAt: new Date("2026-08-09T16:00:00.000Z"),
       },
       monthly: {
-        limitTokens: 4_000n,
-        usedTokens: 1_000n,
-        remainingTokens: 3_000n,
+        limitCreditMicros: 4_000n,
+        usedCreditMicros: 1_000n,
+        remainingCreditMicros: 3_000n,
         remainingPercentage: 75,
         resetAt: new Date("2026-09-01T00:00:00.000Z"),
       },
@@ -286,7 +287,7 @@ describe("administrator user list routes", () => {
       service: {
         listUsers,
         resolveAvatarUrl: vi.fn(async () => null),
-        getCurrentTokenQuotaUsage,
+        getCurrentCreditQuotaUsage,
       } as never,
       authentication: {
         authenticate: vi.fn(async () => undefined),
@@ -306,20 +307,20 @@ describe("administrator user list routes", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().data.items[0]).toMatchObject({
-      weekly_token_limit: "1000",
-      monthly_token_limit: "4000",
-      token_quota: {
+      weekly_credit_limit: "0.001",
+      monthly_credit_limit: "0.004",
+      credit_quota: {
         weekly: {
-          remaining_tokens: "0",
+          remaining_credits: "0",
           remaining_percentage: 0,
         },
         monthly: {
-          remaining_tokens: "3000",
+          remaining_credits: "0.003",
           remaining_percentage: 75,
         },
       },
     });
-    expect(getCurrentTokenQuotaUsage).toHaveBeenCalledOnce();
+    expect(getCurrentCreditQuotaUsage).toHaveBeenCalledOnce();
   });
 });
 
@@ -328,36 +329,36 @@ describe("administrator user list service", () => {
     const users = [
       managedUserFixture({
         id: "00000000-0000-4000-8000-000000000010",
-        weeklyTokenLimit: 1_000n,
+        weeklyCreditLimitMicros: 1_000n,
       }),
       managedUserFixture({
         id: "00000000-0000-4000-8000-000000000011",
         email: "nonzero@example.com",
-        weeklyTokenLimit: 1_000n,
+        weeklyCreditLimitMicros: 1_000n,
       }),
       managedUserFixture({
         id: "00000000-0000-4000-8000-000000000012",
         email: "nolimit@example.com",
-        weeklyTokenLimit: null,
+        weeklyCreditLimitMicros: null,
       }),
     ];
     const listUsers = vi.fn(async () => ({
       items: users,
       nextCursor: null,
     }));
-    const tokenQuotaUsage = {
+    const creditQuotaUsage = {
       currentUsageForLimits: vi.fn(async (userId: string) => ({
         total: null,
         weekly:
           userId === "00000000-0000-4000-8000-000000000012"
             ? null
             : {
-                limitTokens: 1_000n,
-                usedTokens:
+                limitCreditMicros: 1_000n,
+                usedCreditMicros:
                   userId === "00000000-0000-4000-8000-000000000010"
                     ? 1_000n
                     : 250n,
-                remainingTokens:
+                remainingCreditMicros:
                   userId === "00000000-0000-4000-8000-000000000010"
                     ? 0n
                     : 750n,
@@ -376,11 +377,11 @@ describe("administrator user list service", () => {
         acquireUserLifecycleLock: vi.fn(async () => null),
         releaseUserLifecycleLock: vi.fn(async () => undefined),
       },
-      tokenQuotaUsage,
+      creditQuotaUsage,
     });
 
     const result = await service.listUsers({
-      token_quota_remaining_zero: "weekly",
+      credit_quota_remaining_zero: "weekly",
       limit: 100,
     });
 
@@ -388,7 +389,7 @@ describe("administrator user list service", () => {
       "00000000-0000-4000-8000-000000000010",
     ]);
     expect(listUsers).toHaveBeenCalledWith({
-      tokenQuotaRemainingZero: "weekly",
+      creditQuotaRemainingZero: "weekly",
       limit: 100,
     });
   });
@@ -406,9 +407,10 @@ describe("user response projection", () => {
       preferredLocale: null,
       selfRegisteredAt: new Date("2026-07-17T00:00:00.000Z"),
       runningMessageAction: "queue",
-      totalTokenLimit: null,
-      weeklyTokenLimit: 10_000n,
-      monthlyTokenLimit: null,
+      totalCreditLimitMicros: null,
+      weeklyCreditLimitMicros: 10_000n,
+      monthlyCreditLimitMicros: null,
+      creditQuotaResetAt: null,
       lastLoginAt: null,
       lastLoginMethod: null,
       passwordUpdatedAt: null,
@@ -462,8 +464,8 @@ describe("user response projection", () => {
       ],
       group_count: 2,
       registration_source: "self_registration",
-      weekly_token_limit: "10000",
-      monthly_token_limit: null,
+      weekly_credit_limit: "0.01",
+      monthly_credit_limit: null,
     });
   });
 
@@ -479,9 +481,10 @@ describe("user response projection", () => {
       preferredLocale: null,
       selfRegisteredAt: null,
       runningMessageAction: "queue",
-      totalTokenLimit: null,
-      weeklyTokenLimit: 1_000n,
-      monthlyTokenLimit: null,
+      totalCreditLimitMicros: null,
+      weeklyCreditLimitMicros: 1_000n,
+      monthlyCreditLimitMicros: null,
+      creditQuotaResetAt: null,
       lastLoginAt: null,
       lastLoginMethod: null,
       passwordUpdatedAt: null,
@@ -491,11 +494,11 @@ describe("user response projection", () => {
     };
     const service = {
       resolveAvatarUrl: vi.fn(async () => null),
-      getCurrentTokenQuotaUsage: vi.fn(async () => ({
+      getCurrentCreditQuotaUsage: vi.fn(async () => ({
         weekly: {
-          limitTokens: 1_000n,
-          usedTokens: 250n,
-          remainingTokens: 750n,
+          limitCreditMicros: 1_000n,
+          usedCreditMicros: 250n,
+          remainingCreditMicros: 750n,
           remainingPercentage: 75,
           resetAt: new Date("2026-08-09T16:00:00.000Z"),
         },
@@ -504,19 +507,19 @@ describe("user response projection", () => {
     } as never;
 
     expect(await projectUserResponse(user, service)).not.toHaveProperty(
-      "token_quota",
+      "credit_quota",
     );
     const response = await projectUserResponse(user, service, {
-      includeTokenQuotaUsage: true,
+      includeCreditQuotaUsage: true,
     });
 
     expect(response).toMatchObject({
       registration_source: "organization_invitation",
-      token_quota: {
+      credit_quota: {
         weekly: {
-          limit_tokens: "1000",
-          used_tokens: "250",
-          remaining_tokens: "750",
+          limit_credits: "0.001",
+          used_credits: "0.00025",
+          remaining_credits: "0.00075",
           remaining_percentage: 75,
           reset_at: "2026-08-09T16:00:00.000Z",
         },
@@ -527,8 +530,8 @@ describe("user response projection", () => {
 });
 
 describe("administrator user token limit routes", () => {
-  it("bulk-updates selected users through the static token-limits endpoint", async () => {
-    const updateUserTokenLimits = vi.fn(async () => [
+  it("bulk-updates selected users through the static credit-limits endpoint", async () => {
+    const updateUserCreditLimits = vi.fn(async () => [
       {
         id: "00000000-0000-4000-8000-000000000010",
         email: "user@example.com",
@@ -539,9 +542,10 @@ describe("administrator user token limit routes", () => {
         preferredLocale: null,
         selfRegisteredAt: null,
         runningMessageAction: "queue" as const,
-        totalTokenLimit: 500_000n,
-        weeklyTokenLimit: null,
-        monthlyTokenLimit: 100_000n,
+        totalCreditLimitMicros: 500_000n,
+        weeklyCreditLimitMicros: null,
+        monthlyCreditLimitMicros: 100_000n,
+        creditQuotaResetAt: null,
         lastLoginAt: null,
         lastLoginMethod: null,
         passwordUpdatedAt: null,
@@ -562,7 +566,7 @@ describe("administrator user token limit routes", () => {
     await app.register(adminUserRoutes, {
       prefix: "/admin",
       service: {
-        updateUserTokenLimits,
+        updateUserCreditLimits,
         resolveAvatarUrl: vi.fn(async () => null),
       } as never,
       authentication: {
@@ -578,12 +582,12 @@ describe("administrator user token limit routes", () => {
 
     const response = await app.inject({
       method: "PATCH",
-      url: "/admin/users/token-limits",
+      url: "/admin/users/credit-limits",
       payload: {
         user_ids: ["00000000-0000-4000-8000-000000000010"],
-        total_token_limit: "500000",
-        weekly_token_limit: null,
-        monthly_token_limit: "100000",
+        total_credit_limit: "0.5",
+        weekly_credit_limit: null,
+        monthly_credit_limit: "0.1",
       },
     });
 
@@ -591,18 +595,18 @@ describe("administrator user token limit routes", () => {
     expect(response.json().data.items).toMatchObject([
       {
         id: "00000000-0000-4000-8000-000000000010",
-        total_token_limit: "500000",
-        weekly_token_limit: null,
-        monthly_token_limit: "100000",
+        total_credit_limit: "0.5",
+        weekly_credit_limit: null,
+        monthly_credit_limit: "0.1",
       },
     ]);
-    expect(updateUserTokenLimits).toHaveBeenCalledWith(
+    expect(updateUserCreditLimits).toHaveBeenCalledWith(
       expect.objectContaining({ role: "admin", status: "active" }),
       {
         user_ids: ["00000000-0000-4000-8000-000000000010"],
-        total_token_limit: "500000",
-        weekly_token_limit: null,
-        monthly_token_limit: "100000",
+        total_credit_limit: "0.5",
+        weekly_credit_limit: null,
+        monthly_credit_limit: "0.1",
       },
       expect.objectContaining({}),
     );
@@ -622,9 +626,10 @@ describe("own profile route", () => {
       preferredLocale: "zh-CN",
       selfRegisteredAt: null,
       runningMessageAction: "steer",
-      totalTokenLimit: null,
-      weeklyTokenLimit: null,
-      monthlyTokenLimit: null,
+      totalCreditLimitMicros: null,
+      weeklyCreditLimitMicros: null,
+      monthlyCreditLimitMicros: null,
+      creditQuotaResetAt: null,
       lastLoginAt: null,
       lastLoginMethod: "password",
       passwordUpdatedAt: null,

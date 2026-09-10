@@ -1,9 +1,8 @@
 import { z } from "zod";
 
 import { timestampSchema, uuidSchema } from "./common.js";
+import { creditAmountSchema } from "./credit-limits.js";
 import { emailSchema, userNameSchema } from "./users.js";
-
-const tokenCountSchema = z.string().regex(/^(0|[1-9][0-9]*)$/u);
 
 export const currentUserInfoInputSchema = z.strictObject({});
 
@@ -12,16 +11,16 @@ export const currentUserGroupSchema = z.strictObject({
   name: z.string().trim().min(1).max(120),
 });
 
-export const currentUserTokenQuotaTotalSchema = z.strictObject({
-  limit_tokens: tokenCountSchema,
-  used_tokens: tokenCountSchema,
-  remaining_tokens: tokenCountSchema,
+export const currentUserCreditQuotaTotalSchema = z.strictObject({
+  limit_credits: creditAmountSchema,
+  used_credits: creditAmountSchema,
+  remaining_credits: creditAmountSchema,
   remaining_percentage: z.number().int().min(0).max(100),
 });
 
-export const currentUserTokenQuotaPeriodSchema =
-  currentUserTokenQuotaTotalSchema.extend({
-  reset_at: timestampSchema,
+export const currentUserCreditQuotaPeriodSchema =
+  currentUserCreditQuotaTotalSchema.extend({
+    reset_at: timestampSchema,
   });
 
 export const currentUserInfoSuccessSchema = z.strictObject({
@@ -31,10 +30,10 @@ export const currentUserInfoSuccessSchema = z.strictObject({
     email: emailSchema,
     user_groups: z.array(currentUserGroupSchema).max(10_000),
   }),
-  token_quota: z.strictObject({
-    total: currentUserTokenQuotaTotalSchema.nullable(),
-    weekly: currentUserTokenQuotaPeriodSchema.nullable(),
-    monthly: currentUserTokenQuotaPeriodSchema.nullable(),
+  credit_quota: z.strictObject({
+    total: currentUserCreditQuotaTotalSchema.nullable(),
+    weekly: currentUserCreditQuotaPeriodSchema.nullable(),
+    monthly: currentUserCreditQuotaPeriodSchema.nullable(),
   }),
 });
 

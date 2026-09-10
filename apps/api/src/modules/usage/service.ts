@@ -35,6 +35,7 @@ import utc from "dayjs/plugin/utc.js";
 
 import type { Prisma, PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
+import { creditUsageSnapshot } from "../system/quota-settings.js";
 import {
   calculatePriceAndCostSnapshot,
   modelUsageCaptureSchema,
@@ -304,6 +305,7 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
               model,
               ...delta,
               ...costSnapshot,
+              ...(await creditUsageSnapshot(tx, costSnapshot.totalCostPicoCny)),
               observedAt,
               createdAt: observedAt,
             },
@@ -401,6 +403,7 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
           measurementMethod: input.measurementMethod,
           ...tokens,
           ...costSnapshot,
+          ...(await creditUsageSnapshot(this.prisma, costSnapshot.totalCostPicoCny)),
           observedAt,
           createdAt: observedAt,
         },

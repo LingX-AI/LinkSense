@@ -11,10 +11,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ModelProviderSettings } from "@/api/contracts"
-import {
-  InitialUserTokenQuotaSettingsForm,
-  ModelProviderSettingsForm,
-} from "@/features/admin/model-provider-settings-form"
+import { ModelProviderSettingsForm } from "@/features/admin/model-provider-settings-form"
 import i18n from "@/i18n"
 
 const settings: ModelProviderSettings = {
@@ -50,10 +47,6 @@ const settings: ModelProviderSettings = {
   ],
   default_model: "model-a",
   title_model: "model-a",
-  token_limits: {
-    weekly_token_limit: null,
-    monthly_token_limit: null,
-  },
 }
 
 afterEach(() => {
@@ -90,7 +83,6 @@ function installSaveMock(initial = settings, detectContext = false) {
         revision: saved.revision + 1,
         default_model: input.default_model,
         title_model: input.title_model ?? input.default_model,
-        token_limits: input.token_limits,
         providers: input.providers.map((provider) => {
           const { api_key: apiKey, ...connection } = provider
           return {
@@ -706,102 +698,5 @@ describe("ModelProviderSettingsForm", () => {
         name: "Available in conversations: Model A",
       })
     ).toHaveAttribute("aria-disabled", "true")
-  })
-})
-
-describe("InitialUserTokenQuotaSettingsForm", () => {
-  beforeEach(async () => {
-    await i18n.changeLanguage("en-US")
-  })
-
-  it("sends initial user token usage with the model provider update", async () => {
-    let requestBody: Record<string, unknown> | null = null
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_url, init?: RequestInit) => {
-        requestBody = JSON.parse(String(init?.body))
-        return new Response(
-          JSON.stringify({
-            success: true,
-            data: {
-              code: "SYSTEM_SETTINGS_UPDATED",
-              settings: {
-                ...settings,
-                revision: 4,
-                token_limits: requestBody?.token_limits,
-              },
-            },
-          }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }
-        )
-      })
-    )
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    })
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <InitialUserTokenQuotaSettingsForm settings={settings} />
-      </QueryClientProvider>
-    )
-
-    const user = userEvent.setup()
-    const heading = screen.getByRole("heading", {
-      level: 2,
-      name: "Initial user token usage",
-    })
-    expect(heading).toHaveClass("text-sm", "leading-5", "font-semibold")
-    expect(heading.closest("form")).toHaveClass("w-full")
-    expect(heading.closest("form")).not.toHaveClass("max-w-[720px]")
-    expect(heading.closest('[data-slot="model-settings-card"]')).toHaveClass(
-      "rounded-2xl",
-      "border",
-      "border-[color:var(--app-border)]"
-    )
-    expect(
-      screen.getByText(/New or imported users receive these initial weekly/u)
-    ).toHaveClass("form-hint")
-    for (const hint of screen.getAllByText(/Enter an amount greater than 0/u)) {
-      expect(hint).toHaveClass("form-hint")
-    }
-    const weeklyInput = screen.getByLabelText("Weekly usage (M tokens)")
-    const monthlyInput = screen.getByLabelText("Monthly usage (M tokens)")
-    const weeklyField = weeklyInput.closest('[data-slot="field"]')
-    expect(weeklyField?.parentElement).toBe(
-      monthlyInput.closest('[data-slot="field"]')?.parentElement
-    )
-    expect(weeklyField?.parentElement).toHaveClass("grid-cols-1")
-    await user.type(weeklyInput, "0.05")
-    await user.type(monthlyInput, "0.2")
-    const saveButton = screen.getByRole("button", {
-      name: "Save configuration",
-    })
-    expect(saveButton).toHaveClass("w-auto", "justify-self-start")
-    await user.click(saveButton)
-
-    await waitFor(() => {
-      expect(requestBody).toMatchObject({
-        expected_revision: 3,
-        providers: [
-          {
-            id: "provider-1",
-            name: "Primary",
-            base_url: "https://models.example.test/v1",
-            models: [{ id: "model-a" }],
-          },
-        ],
-        token_limits: {
-          weekly_token_limit: "50000",
-          monthly_token_limit: "200000",
-        },
-      })
-    })
   })
 })

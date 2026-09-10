@@ -34,35 +34,10 @@ describe("open registration contracts", () => {
     ).toThrow()
   })
 
-  it("requires a positive total quota whenever registration is enabled", () => {
-    expect(
-      registrationSettingsSchema.parse({
-        enabled: false,
-        total_token_limit: null,
-      }),
-    ).toEqual({
-      enabled: false,
-      total_token_limit: null,
-    })
-    expect(
-      registrationSettingsSchema.parse({
-        enabled: true,
-        total_token_limit: "12500000",
-      }),
-    ).toEqual({ enabled: true, total_token_limit: "12500000" })
-    expect(() =>
-      registrationSettingsSchema.parse({
-        enabled: true,
-        total_token_limit: null,
-      }),
-    ).toThrow()
+  it("controls registration independently of quotas and rejects old quota fields", () => {
+    expect(registrationSettingsSchema.parse({ enabled: true })).toEqual({ enabled: true })
+    expect(registrationSettingsSchema.parse({ enabled: false })).toEqual({ enabled: false })
     expect(() => registrationSettingsSchema.parse({})).toThrow()
-    expect(() =>
-      registrationSettingsSchema.parse({
-        enabled: true,
-        total_token_limit: "1000000",
-        allowlist: [],
-      }),
-    ).toThrow()
+    expect(() => registrationSettingsSchema.parse({ enabled: true, total_token_limit: "100" })).toThrow()
   })
 })

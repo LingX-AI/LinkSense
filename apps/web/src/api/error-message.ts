@@ -109,7 +109,7 @@ const errorCodeToKey: Record<string, string> = {
   DOWNLOAD_FORBIDDEN: "errors.downloadForbidden",
   RUNNER_UNAVAILABLE: "errors.runnerUnavailable",
   DEPLOYMENT_STOPPED: "errors.deploymentStopped",
-  TOKEN_LIMIT_EXCEEDED: "errors.tokenLimitExceeded",
+  CREDIT_LIMIT_EXCEEDED: "errors.creditLimitExceeded",
   LAST_ENABLED_ADMIN_REQUIRED: "errors.lastAdminRequired",
   MODEL_IN_USE_BY_SYSTEM_SETTING: "errors.modelProvider.inUseBySystemSetting",
   MODEL_MANAGEMENT_DISABLED: "errors.modelProvider.managementDisabled",

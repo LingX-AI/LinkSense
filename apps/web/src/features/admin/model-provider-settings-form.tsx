@@ -1,5 +1,4 @@
-import { useId, useState, type FormEvent } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useId, useState } from "react"
 import { arrayMove } from "@dnd-kit/sortable"
 import {
   ArrowDownIcon,
@@ -11,26 +10,11 @@ import {
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import type { ManagedPricedModel } from "@linksense/shared"
-import { apiRequest } from "@/api/client"
-import {
-  modelProviderSettingsUpdateResultSchema,
-  type ModelProviderSettings,
-} from "@/api/contracts"
-import { getErrorMessage } from "@/api/error-message"
-import {
-  MILLION_TOKEN_QUOTA_INPUT_PATTERN,
-  millionTokenQuotaInputToTokenLimit,
-  tokenLimitToMillionTokenQuotaInput,
-} from "@/lib/token-quota"
+import { type ModelProviderSettings } from "@/api/contracts"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
-import { notify } from "@/components/feedback/notification"
 import { StatusBanner } from "@/components/feedback/status-banner"
-import { FieldShell } from "@/components/forms/form-field"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { Button } from "@/components/ui/button"
-import { FieldGroup } from "@/components/ui/field"
-import { Spinner } from "@/components/ui/spinner"
-import { Input } from "@/components/ui/input"
 import {
   Empty,
   EmptyHeader,
@@ -50,7 +34,6 @@ import { ModelSettingsTable } from "./model-settings-table"
 import {
   isSettingsDraftValid,
   settingsDraft,
-  toSettingsProviderUpdate,
   type ModelChannel,
 } from "./model-settings-draft"
 import { useModelSettings } from "./use-model-settings"
@@ -459,158 +442,5 @@ function ModelDefaultSelections({
         {t("common.save")}
       </Button>
     </form>
-  )
-}
-
-export function InitialUserTokenQuotaSettingsForm({
-  settings,
-}: {
-  settings: ModelProviderSettings
-}) {
-  const { t } = useTranslation()
-  const readOnly = settings.management_enabled === false
-  const queryClient = useQueryClient()
-  const idPrefix = useId()
-  const [apiError, setApiError] = useState<string | null>(null)
-  const [revision, setRevision] = useState(settings.revision)
-  const [weeklyTokenLimit, setWeeklyTokenLimit] = useState(
-    tokenLimitToMillionTokenQuotaInput(settings.token_limits.weekly_token_limit)
-  )
-  const [monthlyTokenLimit, setMonthlyTokenLimit] = useState(
-    tokenLimitToMillionTokenQuotaInput(
-      settings.token_limits.monthly_token_limit
-    )
-  )
-
-  const mutation = useMutation({
-    mutationFn: (tokenLimits: {
-      weekly_token_limit: string | null
-      monthly_token_limit: string | null
-    }) =>
-      apiRequest("/admin/model-provider-settings", {
-        method: "PUT",
-        body: {
-          expected_revision: revision,
-          providers: settings.providers.map(toSettingsProviderUpdate),
-          default_model: settings.default_model,
-          title_model: settings.title_model,
-          token_limits: tokenLimits,
-        },
-        schema: modelProviderSettingsUpdateResultSchema,
-      }),
-    onSuccess: async (result) => {
-      setRevision(result.settings.revision)
-      setWeeklyTokenLimit(
-        tokenLimitToMillionTokenQuotaInput(
-          result.settings.token_limits.weekly_token_limit
-        )
-      )
-      setMonthlyTokenLimit(
-        tokenLimitToMillionTokenQuotaInput(
-          result.settings.token_limits.monthly_token_limit
-        )
-      )
-      setApiError(null)
-      notify.success(t("admin.modelProvider.userTokenLimitsSaved"), {
-        id: "model-provider-token-limits-saved",
-      })
-      await queryClient.invalidateQueries({
-        queryKey: ["admin", "model-provider-settings"],
-      })
-    },
-    onError: (nextError) => {
-      setApiError(getErrorMessage(nextError, t))
-    },
-  })
-
-  return (
-    <section
-      className="grid min-w-0 gap-4"
-      aria-labelledby={`${idPrefix}-initial-token-quota-title`}
-    >
-      <form
-        className="grid w-full gap-4"
-        inert={readOnly}
-        aria-disabled={readOnly}
-        onSubmit={(event: FormEvent) => {
-          event.preventDefault()
-          if (readOnly) return
-          let tokenLimits: {
-            weekly_token_limit: string | null
-            monthly_token_limit: string | null
-          }
-          try {
-            tokenLimits = {
-              weekly_token_limit:
-                millionTokenQuotaInputToTokenLimit(weeklyTokenLimit),
-              monthly_token_limit:
-                millionTokenQuotaInputToTokenLimit(monthlyTokenLimit),
-            }
-          } catch {
-            setApiError(t("admin.tokenLimitInputInvalid"))
-            return
-          }
-          setApiError(null)
-          mutation.mutate(tokenLimits)
-        }}
-      >
-        <div
-          data-slot="model-settings-card"
-          className="grid min-w-0 gap-4 rounded-2xl border border-[color:var(--app-border)] bg-card p-4"
-        >
-          <SettingsSectionHeader
-            id={`${idPrefix}-initial-token-quota-title`}
-            title={t("admin.modelProvider.userTokenLimits")}
-            description={t("admin.modelProvider.userTokenLimitsDescription")}
-          />
-
-          {apiError && <StatusBanner variant="error">{apiError}</StatusBanner>}
-
-          <FieldGroup className="grid grid-cols-1 gap-4">
-            <FieldShell
-              id={`${idPrefix}-weekly-token-limit`}
-              label={t("admin.weeklyTokenLimit")}
-              hint={t("admin.modelProvider.tokenLimitHint")}
-            >
-              <Input
-                id={`${idPrefix}-weekly-token-limit`}
-                name={`${idPrefix}-weekly-token-limit`}
-                inputMode="decimal"
-                pattern={MILLION_TOKEN_QUOTA_INPUT_PATTERN}
-                value={weeklyTokenLimit}
-                onChange={(event) => setWeeklyTokenLimit(event.target.value)}
-                placeholder={t("admin.noTokenLimit")}
-              />
-            </FieldShell>
-            <FieldShell
-              id={`${idPrefix}-monthly-token-limit`}
-              label={t("admin.monthlyTokenLimit")}
-              hint={t("admin.modelProvider.tokenLimitHint")}
-            >
-              <Input
-                id={`${idPrefix}-monthly-token-limit`}
-                name={`${idPrefix}-monthly-token-limit`}
-                inputMode="decimal"
-                pattern={MILLION_TOKEN_QUOTA_INPUT_PATTERN}
-                value={monthlyTokenLimit}
-                onChange={(event) => setMonthlyTokenLimit(event.target.value)}
-                placeholder={t("admin.noTokenLimit")}
-              />
-            </FieldShell>
-          </FieldGroup>
-        </div>
-
-        <Button
-          type="submit"
-          size="sm"
-          className="w-auto justify-self-start"
-          disabled={readOnly || mutation.isPending}
-          aria-busy={mutation.isPending || undefined}
-        >
-          {mutation.isPending && <Spinner data-icon="inline-start" />}
-          {t("admin.modelProvider.saveUserTokenLimits")}
-        </Button>
-      </form>
-    </section>
   )
 }

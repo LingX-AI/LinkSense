@@ -6,6 +6,7 @@ import {
   type User,
 } from "../../generated/prisma/client.js"
 import { sanitizeAuditMetadata } from "../audit/service.js"
+import { quotaSettingsFromJson, storedCreditLimits } from "../system/quota-settings.js"
 
 import type {
   AuthPersistence,
@@ -577,7 +578,7 @@ export class PrismaAuthRepository implements AuthPersistence {
             passwordHash: input.passwordHash,
             preferredLocale: null,
             selfRegisteredAt: input.now,
-            totalTokenLimit: registrationPolicy.totalTokenLimit,
+            ...registrationPolicy,
             passwordUpdatedAt: input.now,
             authValidAfter: input.now,
             createdAt: input.now,
@@ -597,7 +598,6 @@ export class PrismaAuthRepository implements AuthPersistence {
           metadata: {
             role: "user",
             status: "active",
-            total_token_limit: registrationPolicy.totalTokenLimit.toString(),
           },
           ipAddress: input.audit.ipAddress ?? null,
           userAgent: input.audit.userAgent ?? null,
@@ -800,30 +800,11 @@ function readBooleanSetting(value: Prisma.JsonValue | undefined, key: string) {
   return typeof entry === "boolean" ? entry : undefined
 }
 
-function readSelfRegistrationPolicy(
-  value: Prisma.JsonValue | undefined,
-): { totalTokenLimit: bigint } | null {
+function readSelfRegistrationPolicy(value: Prisma.JsonValue | undefined): ReturnType<typeof storedCreditLimits> | null {
   if (!value || Array.isArray(value) || typeof value !== "object") return null
   const registration = value.self_registration
-  if (
-    !registration ||
-    Array.isArray(registration) ||
-    typeof registration !== "object"
-  ) {
-    return null
-  }
-  if (registration.enabled !== true) return null
-  const totalTokenLimit = registration.total_token_limit
-  if (
-    typeof totalTokenLimit !== "string" ||
-    !/^[1-9][0-9]*$/u.test(totalTokenLimit)
-  ) {
-    return null
-  }
-  const parsed = BigInt(totalTokenLimit)
-  return parsed <= 9_223_372_036_854_775_807n
-    ? { totalTokenLimit: parsed }
-    : null
+  if (!registration || Array.isArray(registration) || typeof registration !== "object" || registration.enabled !== true) return null
+  return storedCreditLimits(quotaSettingsFromJson(value).self_registered_users)
 }
 
 function registrationUserName(email: string): string {

@@ -804,7 +804,7 @@ async function routeFixture(
       updatePreference: updateModelPreference,
     },
     files: { deleteStagedAttachments },
-    tokenLimits: { assertCanStartTask },
+    creditLimits: { assertCanStartTask },
     voiceTranscriptionRateLimits: {
       assertAllowed: assertVoiceUserAllowed,
       assertApplicationEmbedSessionAllowed,

@@ -170,7 +170,7 @@ async function mockApi(
       })
     }
     if (path === "/admin/registration-settings") {
-      return ok(route, { enabled: false, total_token_limit: null })
+      return ok(route, { enabled: false })
     }
     if (path === "/admin/execution-concurrency-settings") {
       return ok(route, {

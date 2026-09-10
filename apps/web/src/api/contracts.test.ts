@@ -220,12 +220,12 @@ describe("API response contracts", () => {
       role: "user",
       status: "active",
       registration_source: "self_registration",
-      token_quota: {
+      credit_quota: {
         total: null,
         weekly: {
-          limit_tokens: "1000",
-          used_tokens: "250",
-          remaining_tokens: "750",
+          limit_credits: "0.001",
+          used_credits: "0.00025",
+          remaining_credits: "0.00075",
           remaining_percentage: 75,
           reset_at: now,
         },
@@ -233,12 +233,12 @@ describe("API response contracts", () => {
       },
     })
 
-    expect(result.token_quota).toEqual({
+    expect(result.credit_quota).toEqual({
       total: null,
       weekly: {
-        limit_tokens: "1000",
-        used_tokens: "250",
-        remaining_tokens: "750",
+        limit_credits: "0.001",
+        used_credits: "0.00025",
+        remaining_credits: "0.00075",
         remaining_percentage: 75,
         reset_at: now,
       },
@@ -252,7 +252,7 @@ describe("API response contracts", () => {
         role: "user",
         status: "active",
         registration_source: "organization_invitation",
-      }).token_quota
+      }).credit_quota
     ).toBeUndefined()
   })
 

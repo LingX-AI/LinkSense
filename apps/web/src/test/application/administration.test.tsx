@@ -704,13 +704,13 @@ describe("LinkSense application", () => {
     )
   })
 
-  it("edits per-user token usage in million-token units", async () => {
+  it("edits per-user credit quotas in credits", async () => {
     const { requests } = installApiMock({
       managedUsersOverride: [
         {
-          total_token_limit: "7000000",
-          weekly_token_limit: "2500000",
-          monthly_token_limit: "500000",
+          total_credit_limit: "7",
+          weekly_credit_limit: "2.5",
+          monthly_credit_limit: "0.5",
         },
       ],
     })
@@ -723,26 +723,23 @@ describe("LinkSense application", () => {
     })
     expect(userRow).toHaveTextContent("2.5")
     expect(userRow).toHaveTextContent("0.5")
-    expect(within(userRow).getByText("7 百万 Token")).toBeVisible()
+    expect(within(userRow).getByText("7")).toBeVisible()
 
     await interaction.click(screen.getByRole("button", { name: "编辑" }))
     const dialog = await screen.findByRole("dialog", { name: "编辑用户" })
     const quotaSection = within(dialog).getByRole("region", {
-      name: "个人 Token 用量",
+      name: "个人额度",
     })
     expect(quotaSection.tagName).toBe("SECTION")
     expect(
       within(quotaSection).getByRole("heading", {
         level: 3,
-        name: "个人 Token 用量",
+        name: "个人额度",
       })
     ).toHaveClass("form-label")
-    const totalQuotaInput =
-      within(dialog).getByLabelText("总额度（百万 Token）")
-    const weeklyQuotaInput =
-      within(dialog).getByLabelText("周用量（百万 Token）")
-    const monthlyQuotaInput =
-      within(dialog).getByLabelText("月用量（百万 Token）")
+    const totalQuotaInput = within(dialog).getByLabelText("总额度")
+    const weeklyQuotaInput = within(dialog).getByLabelText("周额度")
+    const monthlyQuotaInput = within(dialog).getByLabelText("月额度")
     expect(totalQuotaInput).toHaveValue("7")
     expect(weeklyQuotaInput).toHaveValue("2.5")
     expect(monthlyQuotaInput).toHaveValue("0.5")
@@ -765,20 +762,20 @@ describe("LinkSense application", () => {
             request.method === "PATCH"
         )?.body
       ).toMatchObject({
-        total_token_limit: "8500000",
-        weekly_token_limit: "750000",
-        monthly_token_limit: "1250000",
+        total_credit_limit: "8.5",
+        weekly_credit_limit: "0.75",
+        monthly_credit_limit: "1.25",
       })
     )
   })
 
-  it("shows a short hyphen for missing per-user token usage", async () => {
+  it("shows a short hyphen for missing per-user credit quotas", async () => {
     installApiMock({
       managedUsersOverride: [
         {
-          total_token_limit: null,
-          weekly_token_limit: null,
-          monthly_token_limit: null,
+          total_credit_limit: null,
+          weekly_credit_limit: null,
+          monthly_credit_limit: null,
         },
       ],
     })
@@ -864,16 +861,15 @@ describe("LinkSense application", () => {
     await screen.findByText("lin@example.com", {}, { timeout: 5_000 })
     await interaction.click(screen.getByLabelText("选择用户 林晓"))
     await interaction.click(
-      screen.getByRole("button", { name: "批量设置用量（1）" })
+      screen.getByRole("button", { name: "批量设置额度（1）" })
     )
     const dialog = await screen.findByRole("dialog", {
-      name: "批量设置用户 Token 用量",
+      name: "批量设置用户额度",
     })
     await interaction.click(within(dialog).getByText("更新总额度"))
-    await interaction.click(within(dialog).getByText("更新周用量"))
-    await interaction.click(within(dialog).getByText("更新月用量"))
-    const totalQuotaInput =
-      within(dialog).getByLabelText("总额度（百万 Token）")
+    await interaction.click(within(dialog).getByText("更新周额度"))
+    await interaction.click(within(dialog).getByText("更新月额度"))
+    const totalQuotaInput = within(dialog).getByLabelText("总额度")
     await interaction.type(totalQuotaInput, "1.5")
     await interaction.click(
       within(dialog).getByRole("button", { name: "保存" })
@@ -883,12 +879,12 @@ describe("LinkSense application", () => {
       expect(
         requests.find(
           (request) =>
-            request.path === "/api/v1/admin/users/token-limits" &&
+            request.path === "/api/v1/admin/users/credit-limits" &&
             request.method === "PATCH"
         )?.body
       ).toEqual({
         user_ids: ["user-1"],
-        total_token_limit: "1500000",
+        total_credit_limit: "1.5",
       })
     )
   })
@@ -900,21 +896,21 @@ describe("LinkSense application", () => {
           id: "weekly-exhausted-user",
           name: "周用完",
           email: "weekly-exhausted@example.com",
-          weekly_token_limit: "10000000",
-          monthly_token_limit: "40000000",
-          token_quota: {
+          weekly_credit_limit: "10",
+          monthly_credit_limit: "40",
+          credit_quota: {
             total: null,
             weekly: {
-              limit_tokens: "10000000",
-              used_tokens: "10000000",
-              remaining_tokens: "0",
+              limit_credits: "10",
+              used_credits: "10",
+              remaining_credits: "0",
               remaining_percentage: 0,
               reset_at: "2026-08-10T00:00:00.000Z",
             },
             monthly: {
-              limit_tokens: "40000000",
-              used_tokens: "30000000",
-              remaining_tokens: "10000000",
+              limit_credits: "40",
+              used_credits: "30",
+              remaining_credits: "10",
               remaining_percentage: 25,
               reset_at: "2026-09-01T00:00:00.000Z",
             },
@@ -924,21 +920,21 @@ describe("LinkSense application", () => {
           id: "weekly-remaining-user",
           name: "还有用量",
           email: "weekly-remaining@example.com",
-          weekly_token_limit: "10000000",
-          monthly_token_limit: "40000000",
-          token_quota: {
+          weekly_credit_limit: "10",
+          monthly_credit_limit: "40",
+          credit_quota: {
             total: null,
             weekly: {
-              limit_tokens: "10000000",
-              used_tokens: "5000000",
-              remaining_tokens: "5000000",
+              limit_credits: "10",
+              used_credits: "5",
+              remaining_credits: "5",
               remaining_percentage: 50,
               reset_at: "2026-08-10T00:00:00.000Z",
             },
             monthly: {
-              limit_tokens: "40000000",
-              used_tokens: "40000000",
-              remaining_tokens: "0",
+              limit_credits: "40",
+              used_credits: "40",
+              remaining_credits: "0",
               remaining_percentage: 0,
               reset_at: "2026-09-01T00:00:00.000Z",
             },
@@ -953,16 +949,16 @@ describe("LinkSense application", () => {
       name: /weekly-exhausted@example\.com/u,
     })
     expect(exhaustedRow).toHaveTextContent("10")
-    expect(exhaustedRow).toHaveTextContent("用量剩余 0%")
+    expect(exhaustedRow).toHaveTextContent("剩余额度 0（0%）")
     expect(exhaustedRow).toHaveTextContent("40")
-    expect(exhaustedRow).toHaveTextContent("用量剩余 25%")
+    expect(exhaustedRow).toHaveTextContent("剩余额度 10（25%）")
     expect(
       await screen.findByText("weekly-remaining@example.com")
     ).toBeVisible()
 
-    await interaction.click(screen.getByLabelText("用量剩余"))
+    await interaction.click(screen.getByLabelText("额度剩余"))
     await interaction.click(
-      await screen.findByRole("option", { name: "周用量剩余为 0" })
+      await screen.findByRole("option", { name: "周额度剩余为 0" })
     )
 
     await waitFor(() =>
@@ -971,7 +967,7 @@ describe("LinkSense application", () => {
           (request) =>
             request.path === "/api/v1/admin/users" &&
             new URLSearchParams(request.query).get(
-              "token_quota_remaining_zero"
+              "credit_quota_remaining_zero"
             ) === "weekly"
         )
       ).toBe(true)
@@ -986,9 +982,9 @@ describe("LinkSense application", () => {
     const { requests } = installApiMock({
       managedUsersOverride: [
         {
-          total_token_limit: "7000000",
-          weekly_token_limit: "2500000",
-          monthly_token_limit: "500000",
+          total_credit_limit: "7",
+          weekly_credit_limit: "2.5",
+          monthly_credit_limit: "0.5",
         },
       ],
     })
@@ -1023,18 +1019,15 @@ describe("LinkSense application", () => {
 
     await interaction.click(
       within(actionCellElement).getByRole("button", {
-        name: "调整 林晓 的用量",
+        name: "调整 林晓 的额度",
       })
     )
     const dialog = await screen.findByRole("dialog", {
-      name: "调整个人 Token 用量",
+      name: "调整个人额度",
     })
-    const totalQuotaInput =
-      within(dialog).getByLabelText("总额度（百万 Token）")
-    const weeklyQuotaInput =
-      within(dialog).getByLabelText("周用量（百万 Token）")
-    const monthlyQuotaInput =
-      within(dialog).getByLabelText("月用量（百万 Token）")
+    const totalQuotaInput = within(dialog).getByLabelText("总额度")
+    const weeklyQuotaInput = within(dialog).getByLabelText("周额度")
+    const monthlyQuotaInput = within(dialog).getByLabelText("月额度")
     expect(totalQuotaInput).toHaveValue("7")
     expect(weeklyQuotaInput).toHaveValue("2.5")
     expect(monthlyQuotaInput).toHaveValue("0.5")
@@ -1056,9 +1049,9 @@ describe("LinkSense application", () => {
             request.method === "PATCH"
         )?.body
       ).toEqual({
-        total_token_limit: "8000000",
-        weekly_token_limit: "600000",
-        monthly_token_limit: null,
+        total_credit_limit: "8",
+        weekly_credit_limit: "0.6",
+        monthly_credit_limit: null,
       })
     )
   })

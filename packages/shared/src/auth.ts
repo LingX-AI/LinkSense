@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import { localeSchema, timestampSchema, uuidSchema } from "./common.js";
 import { passwordSchema } from "./password.js";
-import { tokenLimitValueSchema } from "./token-limits.js";
 import {
   emailSchema,
   loginMethodSchema,
@@ -45,20 +44,7 @@ export const registrationAvailabilitySchema = z.strictObject({
   enabled: z.boolean(),
 });
 
-export const registrationSettingsSchema = z
-  .strictObject({
-    enabled: z.boolean(),
-    total_token_limit: tokenLimitValueSchema.nullable(),
-  })
-  .superRefine((value, context) => {
-    if (value.enabled && value.total_token_limit === null) {
-      context.addIssue({
-        code: "custom",
-        path: ["total_token_limit"],
-        message: "registration_total_token_limit_required",
-      });
-    }
-  });
+export const registrationSettingsSchema = registrationAvailabilitySchema;
 
 export const updateRegistrationSettingsSchema = registrationSettingsSchema;
 

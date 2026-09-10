@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { defaultQuotaSettings } from "@linksense/shared";
 
 import { Prisma } from "../src/generated/prisma/client.js";
 import { UsageAnalyticsService } from "../src/modules/usage/service.js";
@@ -103,6 +104,8 @@ describe("UsageAnalyticsService token capture", () => {
           outputTokens: 30n,
           reasoningOutputTokens: 8n,
           totalCostPicoCny: 0n,
+          creditPriceMicrosCny: 10_000n,
+          usedCreditMicros: 0n,
           unpricedTokens: 80n,
           observedAt: NOW,
         }),
@@ -121,58 +124,74 @@ describe("UsageAnalyticsService token capture", () => {
     );
   });
 
-  it("freezes the active input, cached-input, and output prices on the usage record", async () => {
-    const fixture = captureFixture();
-    const modelCatalog = {
-      getAdminSettings: vi.fn(async () => ({
-        providers: [
-          {
-            models: [
-              {
-                id: "gpt-5.6-sol",
-                display_name: "GPT 5.6 Sol",
-                kind: "chat",
-                input_price_per_million: "10",
-                cached_input_price_per_million: "2",
-                output_price_per_million: "20",
-              },
-            ],
-          },
-        ],
-      })),
-    };
-    const service = new UsageAnalyticsService(fixture.prisma as never, {
-      now: () => NOW,
-      modelCatalog: modelCatalog as never,
-    });
+  it.each([
+    {
+      creditPrice: "0.01",
+      creditPriceMicrosCny: 10_000n,
+      usedCreditMicros: 102_000n,
+    },
+    {
+      creditPrice: "0.02",
+      creditPriceMicrosCny: 20_000n,
+      usedCreditMicros: 51_000n,
+    },
+  ])(
+    "freezes prices, cost, and credits at CNY $creditPrice per credit on native usage",
+    async ({ creditPrice, creditPriceMicrosCny, usedCreditMicros }) => {
+      const fixture = captureFixture({ creditPrice });
+      const modelCatalog = {
+        getAdminSettings: vi.fn(async () => ({
+          providers: [
+            {
+              models: [
+                {
+                  id: "gpt-5.6-sol",
+                  display_name: "GPT 5.6 Sol",
+                  kind: "chat",
+                  input_price_per_million: "10",
+                  cached_input_price_per_million: "2",
+                  output_price_per_million: "20",
+                },
+              ],
+            },
+          ],
+        })),
+      };
+      const service = new UsageAnalyticsService(fixture.prisma as never, {
+        now: () => NOW,
+        modelCatalog: modelCatalog as never,
+      });
 
-    await service.captureTokenUsage(
-      CONVERSATION_ID,
-      tokenParams({
-        totalTokens: 180,
-        inputTokens: 120,
-        cachedInputTokens: 40,
-        outputTokens: 60,
-        reasoningOutputTokens: 20,
-      }),
-    );
-
-    expect(fixture.tx.tokenUsageRecord.createMany).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({
-          inputPriceMicrosPerMillion: 10_000_000n,
-          cachedInputPriceMicrosPerMillion: 2_000_000n,
-          outputPriceMicrosPerMillion: 20_000_000n,
-          inputCostPicoCny: 400_000_000n,
-          cachedInputCostPicoCny: 20_000_000n,
-          outputCostPicoCny: 600_000_000n,
-          totalCostPicoCny: 1_020_000_000n,
-          unpricedTokens: 0n,
+      await service.captureTokenUsage(
+        CONVERSATION_ID,
+        tokenParams({
+          totalTokens: 180,
+          inputTokens: 120,
+          cachedInputTokens: 40,
+          outputTokens: 60,
+          reasoningOutputTokens: 20,
         }),
-      ],
-      skipDuplicates: true,
-    });
-  });
+      );
+
+      expect(fixture.tx.tokenUsageRecord.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            inputPriceMicrosPerMillion: 10_000_000n,
+            cachedInputPriceMicrosPerMillion: 2_000_000n,
+            outputPriceMicrosPerMillion: 20_000_000n,
+            inputCostPicoCny: 400_000_000n,
+            cachedInputCostPicoCny: 20_000_000n,
+            outputCostPicoCny: 600_000_000n,
+            totalCostPicoCny: 1_020_000_000n,
+            creditPriceMicrosCny,
+            usedCreditMicros,
+            unpricedTokens: 0n,
+          }),
+        ],
+        skipDuplicates: true,
+      });
+    },
+  );
 
   it("uses the absolute thread cursor delta after the first observation", async () => {
     const fixture = captureFixture({
@@ -1112,53 +1131,81 @@ describe("UsageAnalyticsService personal profiles", () => {
 });
 
 describe("UsageAnalyticsService knowledge model capture", () => {
-  it("persists an idempotent price-and-cost snapshot for a knowledge model call", async () => {
-    const createMany = vi.fn(async () => ({ count: 1 }));
-    const service = new UsageAnalyticsService(
-      { modelUsageRecord: { createMany } } as never,
-      { now: () => NOW },
-    );
+  it.each([
+    {
+      creditPrice: "0.01",
+      creditPriceMicrosCny: 10_000n,
+      usedCreditMicros: 6_600n,
+    },
+    {
+      creditPrice: "0.02",
+      creditPriceMicrosCny: 20_000n,
+      usedCreditMicros: 3_300n,
+    },
+  ])(
+    "persists idempotent model cost and credits at CNY $creditPrice per credit",
+    async ({ creditPrice, creditPriceMicrosCny, usedCreditMicros }) => {
+      const createMany = vi.fn(async () => ({ count: 1 }));
+      const service = new UsageAnalyticsService(
+        {
+          systemSetting: {
+            findUnique: vi.fn(async () => ({
+              settingsJson: {
+                quota_settings: {
+                  ...defaultQuotaSettings(),
+                  credit_price_cny: creditPrice,
+                },
+              },
+            })),
+          },
+          modelUsageRecord: { createMany },
+        } as never,
+        { now: () => NOW },
+      );
 
-    await expect(
-      service.recordModelUsage({
-        requestId: "50000000-0000-4000-8000-000000000001",
-        ownerId: USER_1,
-        knowledgeBaseId: "60000000-0000-4000-8000-000000000001",
-        workload: "query_embedding",
-        modelKind: "embedding",
-        model: "embedding-v1",
-        measurementMethod: "provider",
-        tokenUsage: {
-          totalTokens: 13,
-          inputTokens: 10,
-          cachedInputTokens: 2,
-          outputTokens: 3,
-          reasoningOutputTokens: 0,
-        },
-        pricing: {
-          input_price_per_million: "5",
-          cached_input_price_per_million: "1",
-          output_price_per_million: "8",
-        },
-      }),
-    ).resolves.toEqual({ recorded: true });
-    expect(createMany).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({
-          inputPriceMicrosPerMillion: 5_000_000n,
-          cachedInputPriceMicrosPerMillion: 1_000_000n,
-          outputPriceMicrosPerMillion: 8_000_000n,
-          inputCostPicoCny: 40_000_000n,
-          cachedInputCostPicoCny: 2_000_000n,
-          outputCostPicoCny: 24_000_000n,
-          totalCostPicoCny: 66_000_000n,
-          unpricedTokens: 0n,
-          observedAt: NOW,
+      await expect(
+        service.recordModelUsage({
+          requestId: "50000000-0000-4000-8000-000000000001",
+          ownerId: USER_1,
+          knowledgeBaseId: "60000000-0000-4000-8000-000000000001",
+          workload: "query_embedding",
+          modelKind: "embedding",
+          model: "embedding-v1",
+          measurementMethod: "provider",
+          tokenUsage: {
+            totalTokens: 13,
+            inputTokens: 10,
+            cachedInputTokens: 2,
+            outputTokens: 3,
+            reasoningOutputTokens: 0,
+          },
+          pricing: {
+            input_price_per_million: "5",
+            cached_input_price_per_million: "1",
+            output_price_per_million: "8",
+          },
         }),
-      ],
-      skipDuplicates: true,
-    });
-  });
+      ).resolves.toEqual({ recorded: true });
+      expect(createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            inputPriceMicrosPerMillion: 5_000_000n,
+            cachedInputPriceMicrosPerMillion: 1_000_000n,
+            outputPriceMicrosPerMillion: 8_000_000n,
+            inputCostPicoCny: 40_000_000n,
+            cachedInputCostPicoCny: 2_000_000n,
+            outputCostPicoCny: 24_000_000n,
+            totalCostPicoCny: 66_000_000n,
+            creditPriceMicrosCny,
+            usedCreditMicros,
+            unpricedTokens: 0n,
+            observedAt: NOW,
+          }),
+        ],
+        skipDuplicates: true,
+      });
+    },
+  );
 
   it("persists task auto-naming usage as a generation workload", async () => {
     const createMany = vi.fn(async () => ({ count: 1 }));
@@ -1170,6 +1217,7 @@ describe("UsageAnalyticsService knowledge model capture", () => {
             applicationNameSnapshot: "知识助手",
           })),
         },
+        systemSetting: { findUnique: vi.fn(async () => null) },
         modelUsageRecord: { createMany },
       } as never,
       { now: () => NOW },
@@ -1219,6 +1267,7 @@ describe("UsageAnalyticsService knowledge model capture", () => {
 });
 
 function captureFixture(options?: {
+  creditPrice?: string;
   cursor?: {
     totalTokens: bigint;
     inputTokens: bigint;
@@ -1231,6 +1280,20 @@ function captureFixture(options?: {
   forkRootId?: string | null;
 }) {
   const tx = {
+    systemSetting: {
+      findUnique: vi.fn(async () =>
+        options?.creditPrice
+          ? {
+              settingsJson: {
+                quota_settings: {
+                  ...defaultQuotaSettings(),
+                  credit_price_cny: options.creditPrice,
+                },
+              },
+            }
+          : null,
+      ),
+    },
     $executeRaw: vi.fn(async () => 1),
     conversation: {
       findUnique: vi.fn(async () => ({
@@ -1244,16 +1307,16 @@ function captureFixture(options?: {
     conversationTurn: {
       findFirst: vi.fn<
         () => Promise<{
-          id: string
-          model: string
-          startedAt: Date
+          id: string;
+          model: string;
+          startedAt: Date;
         } | null>
       >(async () => ({
-          id: TURN_ID,
-          model: "gpt-5.6-sol",
-          startedAt:
-            options?.turnStartedAt ?? new Date("2026-07-27T01:00:00.000Z"),
-        })),
+        id: TURN_ID,
+        model: "gpt-5.6-sol",
+        startedAt:
+          options?.turnStartedAt ?? new Date("2026-07-27T01:00:00.000Z"),
+      })),
     },
     usageAnalyticsState: {
       findUnique: vi.fn(async () => ({

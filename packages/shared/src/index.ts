@@ -35,7 +35,7 @@ export * from "./schedules.js";
 export * from "./settings.js";
 export * from "./system-update.js";
 export * from "./skill-creator.js";
-export * from "./token-limits.js";
+export * from "./credit-limits.js";
 export * from "./task-artifacts.js";
 export * from "./upload-files.js";
 export * from "./usage.js";

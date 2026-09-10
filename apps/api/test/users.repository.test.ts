@@ -150,19 +150,19 @@ describe("PrismaUserRepository administrator lifecycle", () => {
     transaction.user.findUnique.mockResolvedValueOnce(actor);
     transaction.user.count.mockResolvedValueOnce(2);
     transaction.user.findMany.mockResolvedValueOnce(
-      targetIds.map((id) => persistedUser({ id, monthlyTokenLimit: 100_000n })),
+      targetIds.map((id) => persistedUser({ id, monthlyCreditLimitMicros: 100_000n })),
     );
     const repository = new PrismaUserRepository(
       prismaWithTransaction(transaction),
     );
 
     await expect(
-      repository.updateUserTokenLimits({
+      repository.updateUserCreditLimits({
         actorId: actor.id,
         targetUserIds: targetIds,
-        totalTokenLimit: 500_000n,
-        weeklyTokenLimit: null,
-        monthlyTokenLimit: 100_000n,
+        totalCreditLimitMicros: 500_000n,
+        weeklyCreditLimitMicros: null,
+        monthlyCreditLimitMicros: 100_000n,
         now: NOW,
         audit: {},
       }),
@@ -171,9 +171,9 @@ describe("PrismaUserRepository administrator lifecycle", () => {
     expect(transaction.user.updateMany).toHaveBeenCalledWith({
       where: { id: { in: targetIds } },
       data: {
-        totalTokenLimit: 500_000n,
-        weeklyTokenLimit: null,
-        monthlyTokenLimit: 100_000n,
+        totalCreditLimitMicros: 500_000n,
+        weeklyCreditLimitMicros: null,
+        monthlyCreditLimitMicros: 100_000n,
         updatedAt: NOW,
       },
     });
@@ -181,12 +181,12 @@ describe("PrismaUserRepository administrator lifecycle", () => {
     expect(transaction.refreshToken.updateMany).not.toHaveBeenCalled();
     expect(transaction.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        action: "users_token_limits_updated",
+        action: "users_credit_limits_updated",
         metadataJson: {
           user_count: 2,
-          total_token_limit_changed: true,
-          weekly_token_limit_changed: true,
-          monthly_token_limit_changed: true,
+          total_credit_limit_changed: true,
+          weekly_credit_limit_changed: true,
+          monthly_credit_limit_changed: true,
         },
       }),
     });
@@ -530,8 +530,9 @@ describe("PrismaUserRepository administrator lifecycle", () => {
       name: created.name,
       role: "user",
       userGroupIds: [groupId],
-      weeklyTokenLimit: 25_000n,
-      monthlyTokenLimit: 100_000n,
+      totalCreditLimitMicros: 1_000_000n,
+      weeklyCreditLimitMicros: 25_000n,
+      monthlyCreditLimitMicros: 100_000n,
       actorId: actor.id,
       now: NOW,
       audit: {},
@@ -540,8 +541,9 @@ describe("PrismaUserRepository administrator lifecycle", () => {
     expect(transaction.user.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          weeklyTokenLimit: 25_000n,
-          monthlyTokenLimit: 100_000n,
+          totalCreditLimitMicros: 1_000_000n,
+      weeklyCreditLimitMicros: 25_000n,
+          monthlyCreditLimitMicros: 100_000n,
         }),
       }),
     );
@@ -613,8 +615,9 @@ describe("PrismaUserRepository administrator lifecycle", () => {
           userGroupNames: [group.name],
         },
       ],
-      weeklyTokenLimit: 30_000n,
-      monthlyTokenLimit: 120_000n,
+      totalCreditLimitMicros: 2_000_000n,
+      weeklyCreditLimitMicros: 30_000n,
+      monthlyCreditLimitMicros: 120_000n,
       actorId: actor.id,
       now: NOW,
       audit: {},
@@ -624,8 +627,9 @@ describe("PrismaUserRepository administrator lifecycle", () => {
       expect.objectContaining({
         data: [
           expect.objectContaining({
-            weeklyTokenLimit: 30_000n,
-            monthlyTokenLimit: 120_000n,
+            totalCreditLimitMicros: 2_000_000n,
+      weeklyCreditLimitMicros: 30_000n,
+            monthlyCreditLimitMicros: 120_000n,
           }),
         ],
       }),
@@ -665,8 +669,9 @@ describe("PrismaUserRepository administrator lifecycle", () => {
         name: "Orphan",
         role: "user",
         userGroupIds: [groupId],
-        weeklyTokenLimit: null,
-        monthlyTokenLimit: null,
+        totalCreditLimitMicros: null,
+        weeklyCreditLimitMicros: null,
+        monthlyCreditLimitMicros: null,
         actorId: actor.id,
         now: NOW,
         audit: {},
@@ -858,9 +863,10 @@ function persistedUser(overrides: Record<string, unknown> = {}) {
     preferredLocale: null,
     selfRegisteredAt: null,
     runningMessageAction: "queue",
-    totalTokenLimit: null,
-    weeklyTokenLimit: null,
-    monthlyTokenLimit: null,
+    totalCreditLimitMicros: null,
+    weeklyCreditLimitMicros: null,
+    monthlyCreditLimitMicros: null,
+    creditQuotaResetAt: null,
     lastLoginAt: null,
     lastLoginMethod: null,
     passwordUpdatedAt: null,

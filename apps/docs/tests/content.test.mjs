@@ -27,6 +27,7 @@ const expectedMarkdownPaths = [
   "admin-guide/model-settings.md",
   "admin-guide/overview.md",
   "admin-guide/plugin-governance.md",
+  "admin-guide/quota-settings.md",
   "admin-guide/roles.md",
   "admin-guide/system-settings.md",
   "admin-guide/system-update.md",

@@ -10,6 +10,12 @@ import {
 } from "./audit-i18n.js"
 
 describe("audit i18n catalog", () => {
+  it("uses quota wording in Chinese credit audit actions and retains the English label", () => {
+    const key = auditTranslationKey("actions", "users_credit_limits_updated")
+    expect(auditFlatTranslations("zh-CN")[key]).toBe("已更新用户额度")
+    expect(auditFlatTranslations("en-US")[key]).toBe("User credit quotas updated")
+  })
+
   it.each(["zh-CN", "en-US"] as const)(
     "provides complete %s resources for every registered code",
     (locale) => {

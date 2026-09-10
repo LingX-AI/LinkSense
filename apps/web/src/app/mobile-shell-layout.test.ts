@@ -25,6 +25,6 @@ describe("mobile shell layout", () => {
   it("skips offscreen sidebar item layout without changing list semantics", () => {
     expect(appStyles).toContain(".sidebar-conversation-item")
     expect(appStyles).toContain("content-visibility: auto")
-    expect(appStyles).toContain("contain-intrinsic-size: auto 36px")
+    expect(appStyles).toContain("contain-intrinsic-size: auto 32px")
   })
 })
