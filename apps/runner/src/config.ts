@@ -71,10 +71,16 @@ const securePackageRepositoryUrl = z
 
 const runnerConfigSchema = z
   .object({
+    NODE_ENV: z
+      .enum(["development", "test", "production"])
+      .default("development"),
     CODEX_BIN: z.string().trim().min(1).default("codex"),
     LINKSENSE_RUNNER_MODE: z
       .enum(["controller", "worker", "standalone"])
       .default("standalone"),
+    LINKSENSE_WORKER_PROVIDER: z
+      .enum(["docker", "local-process"])
+      .default("docker"),
     LINKSENSE_WORKER_OWNER_ID: uuid.optional(),
     LINKSENSE_USER_DATA_ROOT: absoluteDirectory,
     LINKSENSE_USER_DATA_VOLUME: dockerVolumeName.optional(),
@@ -105,6 +111,7 @@ const runnerConfigSchema = z
       DEFAULT_NODE_PACKAGE_REGISTRY_URL,
     ),
     LINKSENSE_CODEX_HOME_TEMPLATE: z.string().trim().min(1).optional(),
+    LINKSENSE_WORKER_CONTROL_ROOT: absoluteDirectory.optional(),
     LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS: positiveInteger(900),
     LINKSENSE_WORKER_IDLE_TTL_SECONDS: positiveInteger(900),
     LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN: booleanEnvironment(false),
@@ -190,6 +197,42 @@ const runnerConfigSchema = z
         path: ["LINKSENSE_WORKER_OWNER_ID"],
         message: "worker_owner_id_required",
       })
+    }
+    if (config.LINKSENSE_WORKER_PROVIDER !== "local-process") return
+    if (config.NODE_ENV !== "development") {
+      context.addIssue({
+        code: "custom",
+        path: ["LINKSENSE_WORKER_PROVIDER"],
+        message: "local_process_provider_development_only",
+      })
+    }
+    if (
+      config.LINKSENSE_RUNNER_MODE === "standalone" ||
+      !["127.0.0.1", "::1", "localhost"].includes(
+        config.LINKSENSE_RUNNER_HOST,
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["LINKSENSE_RUNNER_HOST"],
+        message: "local_process_provider_loopback_controller_or_worker_required",
+      })
+    }
+    if (config.LINKSENSE_USER_DATA_VOLUME) {
+      context.addIssue({
+        code: "custom",
+        path: ["LINKSENSE_USER_DATA_VOLUME"],
+        message: "local_process_provider_docker_volume_forbidden",
+      })
+    }
+    if (config.LINKSENSE_RUNNER_MODE === "worker") {
+      if (!config.LINKSENSE_WORKER_CONTROL_ROOT) {
+        context.addIssue({
+          code: "custom",
+          path: ["LINKSENSE_WORKER_CONTROL_ROOT"],
+          message: "local_process_worker_path_required",
+        })
+      }
     }
   })
 

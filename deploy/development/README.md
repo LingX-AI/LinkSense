@@ -1,6 +1,13 @@
 # Development startup and environment consistency
 
-Development applications continue to run in Linux containers. Development, API, Runner and Web builds pin the same Node base-image digest, and Prisma Client is generated inside Linux. PostgreSQL and Redis use the base Compose configuration, while task workers use the production Dockerfile. Development retains source hot reload; production runs compiled artifacts. Before release, run `pnpm build` and validate production images with `pnpm dev:prod`.
+The default `pnpm dev` applications continue to run in Linux containers. Development, API, Runner and Web builds pin the same Node base-image digest, and Prisma Client is generated inside Linux. PostgreSQL and Redis use the base Compose configuration, while task workers use the production Dockerfile. Development retains source hot reload; production runs compiled artifacts. Before release, run `pnpm build` and validate production images with `pnpm dev:prod`.
+
+`pnpm dev:host` is the explicit no-local-Docker alternative. It runs the
+applications and complete task workers as host Node processes while connecting
+to host-reachable or remote PostgreSQL, Redis, and MinIO services. Container-only
+DNS names are rejected instead of triggering an implicit fallback. The local
+worker provider is development-only, loopback-only, and non-isolated; it is not
+a production sandbox. `pnpm dev:host:stop` stops its registered process groups.
 
 Run `pnpm dev:prepare` once to build images, prepare infrastructure and the database, synchronize source, and start every application until ready, warming runtime caches. Services remain running when preparation finishes; `pnpm dev` then attaches logs and source watching. Running `pnpm dev` directly also performs any missing preparation.
 

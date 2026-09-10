@@ -13,7 +13,7 @@ import { loadCodexTemplateFeatureOverrides } from "./codex/template-features.js"
 import { parseRunnerConfig, type RunnerConfig } from "./config.js"
 import { FetchWorkerTransport } from "./controller/worker-http-client.js"
 import { WorkerManager } from "./controller/worker-manager.js"
-import { DockerEngineClient } from "./docker/engine-client.js"
+import { createWorkerProvider } from "./controller/worker-provider-registry.js"
 import { RunnerHeartbeatReporter } from "./heartbeat.js"
 import {
   createUserRuntimeEnsurer,
@@ -28,7 +28,7 @@ import {
 
 const workerControlRoot = "/run/linksense-control"
 const managedRuntimeToolBin = "/opt/linksense/bin"
-const taskProcessIdentity = {
+const containerTaskProcessIdentity = {
   uid: linksenseRuntimeIdentity.taskUid,
   gid: linksenseRuntimeIdentity.sharedGid,
 } as const
@@ -37,7 +37,8 @@ export function resolveOwnerExecutionPaths(
   config: Pick<
     RunnerConfig,
     "LINKSENSE_RUNNER_MODE" | "LINKSENSE_USER_DATA_ROOT"
-  >,
+  > &
+    Partial<Pick<RunnerConfig, "LINKSENSE_WORKER_CONTROL_ROOT">>,
   ownerId: string,
 ): {
   home: string
@@ -52,7 +53,7 @@ export function resolveOwnerExecutionPaths(
     home,
     control:
       config.LINKSENSE_RUNNER_MODE === "worker"
-        ? workerControlRoot
+        ? config.LINKSENSE_WORKER_CONTROL_ROOT ?? workerControlRoot
         : path.join(config.LINKSENSE_USER_DATA_ROOT, ownerId, "control"),
     runtime: path.join(home, ".local", "share", "linksense"),
   }
@@ -71,13 +72,10 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 
 async function startController(config: RunnerConfig): Promise<void> {
   const logger = pino({ level: process.env.LOG_LEVEL ?? "info" })
-  const docker = new DockerEngineClient(
-    config.LINKSENSE_DOCKER_SOCKET_PATH,
-    config.LINKSENSE_DOCKER_API_VERSION,
-  )
+  const provider = createWorkerProvider(config, logger)
   const workers = new WorkerManager(
     config,
-    docker,
+    provider,
     new FetchWorkerTransport(),
     logger,
   )
@@ -90,11 +88,8 @@ async function startController(config: RunnerConfig): Promise<void> {
   workers.startIdleReaper()
   const server = buildControllerServer(config, workers)
   installSignalHandlers(logger, async () => {
-    workers.stopIdleReaper()
     await server.close()
-    if (config.LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN) {
-      await workers.stopAllWorkers()
-    }
+    await workers.shutdown(config.LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN)
   })
   await server.listen({
     host: config.LINKSENSE_RUNNER_HOST,
@@ -123,6 +118,12 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   const logger = pino({ level: process.env.LOG_LEVEL ?? "info" })
   const workerOwnerId = config.LINKSENSE_WORKER_OWNER_ID
   const isWorker = config.LINKSENSE_RUNNER_MODE === "worker"
+  const isLocalProcessWorker =
+    isWorker && config.LINKSENSE_WORKER_PROVIDER === "local-process"
+  const currentProcessIdentity = {
+    uid: process.getuid?.() ?? linksenseRuntimeIdentity.taskUid,
+    gid: process.getgid?.() ?? linksenseRuntimeIdentity.sharedGid,
+  }
   if (isWorker && !config.LINKSENSE_CODEX_HOME_TEMPLATE) {
     throw new Error("worker Codex home template is required")
   }
@@ -133,7 +134,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   if (isWorker) process.umask(0o007)
   const runtimeRootForOwner = (ownerId: string) =>
     resolveOwnerExecutionPaths(config, ownerId).runtime
-  if (isWorker) {
+  if (isWorker && !isLocalProcessWorker) {
     if (!workerOwnerId) throw new Error("worker owner id is required")
     await prepareManagedPackageSourceConfig(
       config.LINKSENSE_PYTHON_PACKAGE_INDEX_URL,
@@ -146,28 +147,28 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     })
   }
   const initializeRuntime = createUserRuntimeEnsurer(runtimeRootForOwner, {
-    ...(isWorker ||
+    ...((isWorker && !isLocalProcessWorker) ||
     existsSync(config.LINKSENSE_PYTHON_BASE_SITE_PACKAGES)
       ? {
           basePythonSitePackages:
             config.LINKSENSE_PYTHON_BASE_SITE_PACKAGES,
         }
       : {}),
-    ...(isWorker ||
+    ...((isWorker && !isLocalProcessWorker) ||
     existsSync(config.LINKSENSE_NODE_BASE_PROJECT)
       ? { baseNodeProject: config.LINKSENSE_NODE_BASE_PROJECT }
       : {}),
-    ...(isWorker ||
+    ...((isWorker && !isLocalProcessWorker) ||
     existsSync(config.LINKSENSE_NODE_REGISTER_HOOK)
       ? { nodeRegisterHook: config.LINKSENSE_NODE_REGISTER_HOOK }
       : {}),
     pnpmVersion: config.LINKSENSE_PNPM_VERSION,
     pythonPackageIndexUrl: config.LINKSENSE_PYTHON_PACKAGE_INDEX_URL,
     nodePackageRegistryUrl: config.LINKSENSE_NODE_PACKAGE_REGISTRY_URL,
-    ...(isWorker
+    ...(isWorker && !isLocalProcessWorker
       ? {
           bashEnvironmentFile: MANAGED_BASH_ENVIRONMENT_FILE,
-          processIdentity: taskProcessIdentity,
+          processIdentity: containerTaskProcessIdentity,
           resetBrowserSessions: true,
           runtimeToolBin: managedRuntimeToolBin,
         }
@@ -192,16 +193,21 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
         ? {
             fixedOwnerId: workerOwnerId,
             fixedHomeRoot: config.LINKSENSE_USER_DATA_ROOT,
-            fixedControlRoot: workerControlRoot,
-            directoryCleanupIdentity: taskProcessIdentity,
-            managedCodexFileIdentity: taskProcessIdentity,
+            fixedControlRoot:
+              config.LINKSENSE_WORKER_CONTROL_ROOT ?? workerControlRoot,
+            ...(isLocalProcessWorker
+              ? {}
+              : {
+                  directoryCleanupIdentity: containerTaskProcessIdentity,
+                  managedCodexFileIdentity: containerTaskProcessIdentity,
+                }),
           }
         : {}),
       userNodeModulesForOwner: (ownerId) =>
         userRuntimePaths(runtimeRootForOwner(ownerId)).nodeModules,
     },
   )
-  if (isWorker) {
+  if (isWorker && !isLocalProcessWorker) {
     await Promise.all([
       verifySharedWorkspaceAccess(
         path.join(config.LINKSENSE_USER_DATA_ROOT, "workspaces"),
@@ -265,7 +271,14 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     globalFeatureOverrides,
     workspaceManager,
     modelGateway,
-    capabilityRuntimeManager: new CapabilityRuntimeManager(),
+    capabilityRuntimeManager: new CapabilityRuntimeManager(
+      isLocalProcessWorker
+        ? {
+            apiIdentity: currentProcessIdentity,
+            taskIdentity: currentProcessIdentity,
+          }
+        : undefined,
+    ),
     eventSink,
     logger,
     mcpCommand: process.execPath,
@@ -294,15 +307,15 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
               userHome,
               codexHome,
               workspace,
-              ...(isWorker
-                ? { processIdentity: taskProcessIdentity }
+              ...(isWorker && !isLocalProcessWorker
+                ? { processIdentity: containerTaskProcessIdentity }
                 : {}),
             }),
         }
       : {}),
-    ...(isWorker
+    ...(isWorker && !isLocalProcessWorker
       ? {
-          codexProcessIdentity: taskProcessIdentity,
+          codexProcessIdentity: containerTaskProcessIdentity,
         }
       : {}),
   })
@@ -362,7 +375,10 @@ function installSignalHandlers(
   logger: pino.Logger,
   stop: () => Promise<void>,
 ): void {
+  let stopping = false
   const stopFromSignal = () => {
+    if (stopping) return
+    stopping = true
     void stop().then(
       () => process.exit(0),
       (error: unknown) => {
@@ -376,6 +392,7 @@ function installSignalHandlers(
   }
   process.once("SIGTERM", stopFromSignal)
   process.once("SIGINT", stopFromSignal)
+  if (process.channel) process.once("disconnect", stopFromSignal)
 }
 
 export function isMainModule(

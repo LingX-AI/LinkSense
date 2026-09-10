@@ -102,7 +102,7 @@ pnpm dev:prepare
 pnpm dev
 ```
 
-Preparation builds application images, the production task worker, and the bilingual Help Center using the production build stage, checks infrastructure and database initialization, then starts services and warms runtime caches until ready. `pnpm dev` also prepares missing inputs automatically. Daily startup targets 10 seconds after preparation; see the [development startup guide](./deploy/development/README.md) for cache rules and automated timing. Default addresses:
+Preparation builds application images, the production task worker, and the bilingual Help Center using the production build stage, checks infrastructure and database initialization, then starts services and warms runtime caches until ready. `pnpm dev` also prepares missing inputs automatically. To work without a local Docker Engine, configure host-reachable PostgreSQL, Redis, and MinIO services and use the non-isolated, development-only `pnpm dev:host`; see the [development startup guide](./deploy/development/README.md) for details. Daily container startup targets 10 seconds after preparation. Default addresses:
 
 - Web: `http://localhost:5173`
 - API: `http://localhost:4000`

@@ -1,6 +1,12 @@
 # 开发启动与环境一致性
 
-开发应用继续在 Linux 容器中运行，开发、API、Runner 和 Web 构建固定使用同一 Node 基础镜像摘要，Prisma Client 在容器内生成；数据库与 Redis 复用基础 Compose 配置，任务 Worker 使用生产 Dockerfile。开发仍保留源码热更新，生产运行编译产物，因此发布前仍需执行 `pnpm build`，并通过 `pnpm dev:prod` 验收生产镜像。
+默认的 `pnpm dev` 仍让开发应用在 Linux 容器中运行，开发、API、Runner 和 Web 构建固定使用同一 Node 基础镜像摘要，Prisma Client 在容器内生成；数据库与 Redis 复用基础 Compose 配置，任务 Worker 使用生产 Dockerfile。开发仍保留源码热更新，生产运行编译产物，因此发布前仍需执行 `pnpm build`，并通过 `pnpm dev:prod` 验收生产镜像。
+
+`pnpm dev:host` 是不在本机运行 Docker 时的显式替代方案。它把应用和完整任务
+Worker 作为宿主机 Node 进程运行，并连接宿主机可访问或远程的 PostgreSQL、Redis
+和 MinIO。脚本会拒绝容器专用 DNS 名称，不会静默切换执行后端。本地 Worker
+Provider 仅限回环地址的开发环境且不提供隔离，不能作为生产 Sandbox。使用
+`pnpm dev:host:stop` 停止登记的进程组。
 
 首次执行 `pnpm dev:prepare` 会构建镜像、准备基础设施与数据库、校准源码，并启动所有应用直至就绪，预热运行时缓存。命令完成后服务保持运行，随后执行 `pnpm dev` 接入日志和源码监听。也可直接执行 `pnpm dev`，自动完成缺少的准备步骤。
 
