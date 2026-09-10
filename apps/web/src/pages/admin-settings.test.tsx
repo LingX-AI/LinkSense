@@ -257,13 +257,16 @@ function settingsPayload(path: string) {
   return authenticationSettings
 }
 
-function renderSettings(page: "settings" | "models" = "settings") {
+function renderSettings(
+  page: "settings" | "models" = "settings",
+  initialPath = "/"
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   const view = render(
     <ThemeProvider>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialPath]}>
         <QueryClientProvider client={queryClient}>
           <AdminPages page={page} />
         </QueryClientProvider>
@@ -313,6 +316,24 @@ describe("administrator authentication settings", () => {
     cleanup()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it("opens maintenance configuration directly from the indicator destination", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        return envelope(settingsPayload(path))
+      })
+    )
+    renderSettings("settings", "/admin/settings?section=maintenance")
+    expect(
+      await screen.findByRole("tab", { name: "系统维护" })
+    ).toHaveAttribute("aria-selected", "true")
+    expect(
+      await screen.findByRole("heading", { name: "系统维护" })
+    ).toBeVisible()
+    expect(screen.getByRole("switch", { name: "开启计划维护" })).toBeVisible()
   })
 
   it("enables open registration from its dedicated settings tab", async () => {
@@ -855,10 +876,8 @@ describe("administrator authentication settings", () => {
     expect(embeddingModelCard).not.toBeNull()
     expect(rankModelCard).not.toBeNull()
     expect(embeddingModelCard).toBe(rankModelCard)
-    expect(embeddingModelGroup.closest("form")).toHaveClass(
-      "w-full",
-      "max-w-[720px]"
-    )
+    expect(embeddingModelGroup.closest("form")).toHaveClass("w-full")
+    expect(embeddingModelGroup.closest("form")).not.toHaveClass("max-w-[720px]")
     expect(embeddingModelGroup.closest("form")).not.toHaveClass("max-w-none")
     expect(embeddingModelCard).toHaveClass(
       "grid",

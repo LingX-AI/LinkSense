@@ -7,14 +7,15 @@ import voiceTranscriptionSettingsSource from "@/features/admin/voice-transcripti
 import { describe, expect, it } from "vitest"
 
 describe("knowledge model settings layout", () => {
-  it("keeps every specialized model form responsive within the standard width", () => {
+  it("lets every model settings form fill the global settings content width", () => {
     for (const source of [
       knowledgeModelSettingsSource,
+      imageGenerationSettingsSource,
       imageUnderstandingSettingsSource,
       voiceTranscriptionSettingsSource,
-      imageGenerationSettingsSource,
     ]) {
-      expect(source).toContain('className="grid w-full max-w-[720px] gap-4"')
+      expect(source).toContain('className="grid w-full gap-4"')
+      expect(source).not.toContain("max-w-[720px]")
     }
   })
 

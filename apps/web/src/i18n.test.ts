@@ -22,6 +22,21 @@ function leafStrings(value: unknown): string[] {
 }
 
 describe("i18n resources", () => {
+  it("provides matching feedback reply translations and falls back for missing English keys", () => {
+    expect(leafKeys(zhCN.myFeedback)).toEqual(leafKeys(enUS.myFeedback))
+    for (const key of leafKeys(zhCN.myFeedback)) {
+      expect(i18n.t(`myFeedback.${key}`, { lng: "zh-CN" })).not.toBe(
+        `myFeedback.${key}`
+      )
+      expect(i18n.t(`myFeedback.${key}`, { lng: "en-US" })).not.toBe(
+        `myFeedback.${key}`
+      )
+    }
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(instance.t("myFeedback.replied", { lng: "en-US" })).toBe("已回复")
+  })
+
   it("localizes unavailable application task guidance with a Chinese fallback", () => {
     const key = "applications.taskUnavailable"
     expect(i18n.t(key, { lng: "zh-CN" })).toBe("应用不可用，暂时无法发送消息")
@@ -50,6 +65,26 @@ describe("i18n resources", () => {
     )
     expect(i18n.t("maintenance.title", { lng: "en-US" })).toBe(
       "System maintenance"
+    )
+  })
+
+  it("localizes the maintenance configuration shortcut with a Chinese fallback", () => {
+    expect(i18n.t("maintenance.indicatorLabel", { lng: "zh-CN" })).toBe(
+      "已开启系统维护"
+    )
+    expect(i18n.t("maintenance.indicatorLabel", { lng: "en-US" })).toBe(
+      "System maintenance enabled"
+    )
+    const key = "maintenance.openSettings"
+    expect(i18n.t(key, { lng: "zh-CN" })).toBe("打开系统维护配置")
+    expect(i18n.t(key, { lng: "en-US" })).toBe(
+      "Open system maintenance settings"
+    )
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(instance.t(key, { lng: "en-US" })).toBe("打开系统维护配置")
+    expect(instance.t("maintenance.indicatorLabel", { lng: "en-US" })).toBe(
+      "已开启系统维护"
     )
   })
 

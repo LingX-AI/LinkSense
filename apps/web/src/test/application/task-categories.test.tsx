@@ -43,6 +43,8 @@ function installCategoryApi(
     listAfterRename?: Promise<void>
     newTaskEventStreamBody?: string
     newTaskEventStreamStart?: Promise<void>
+    newTaskCreationStart?: Promise<void>
+    newTaskTurnResponse?: () => Promise<Response>
   } = {}
 ) {
   let categories = [...(options.categories ?? initialCategories)]
@@ -61,6 +63,7 @@ function installCategoryApi(
   const actions: Array<{ path: string; method: string; body: unknown }> = []
   let renamed = false
   const fixture = installApiMock({
+    newTaskCreationStart: options.newTaskCreationStart,
     newTaskEventStreamBody: options.newTaskEventStreamBody,
     newTaskEventStreamStart: options.newTaskEventStreamStart,
     conversationListResponse: async () => {
@@ -210,6 +213,14 @@ function installCategoryApi(
         }
         uploadedAttachments.push(attachment)
         return json({ success: true, data: attachment })
+      }
+      if (
+        path === "/api/v1/conversations/new-task-1/turns" &&
+        method === "POST" &&
+        options.newTaskTurnResponse
+      ) {
+        actions.push({ path, method, body })
+        return options.newTaskTurnResponse()
       }
       const response = await baseFetch(input, init)
       if (path === "/api/v1/conversations" && method === "POST") {
@@ -653,7 +664,7 @@ describe("task categories", () => {
     expect(categoryOption).toHaveClass("px-2", "gap-2")
     expect(categoryOption.querySelector("svg")).toHaveClass("size-3.5")
     const categoryPopup = screen.getByRole("dialog", { name: "任务分类" })
-    for (const name of ["新建任务分类", "未分类"]) {
+    for (const name of ["新建任务分类"]) {
       const action = within(categoryPopup).getByRole("button", { name })
       expect(action).toHaveClass("border-0", "px-2", "gap-2")
       expect(action.querySelector("svg")).toHaveClass("size-3.5")
@@ -682,11 +693,88 @@ describe("task categories", () => {
     expect(
       within(popup).getByRole("button", { name: "新建任务分类" })
     ).toBeVisible()
-    await interaction.click(
-      within(popup).getByRole("button", { name: "未分类" })
-    )
-    await waitFor(() => expect(trigger).toHaveTextContent("未分类"))
+    expect(
+      within(popup).queryByRole("button", { name: "未分类" })
+    ).not.toBeInTheDocument()
+    expect(
+      within(popup).queryByRole("option", { name: "未分类" })
+    ).not.toBeInTheDocument()
+    await interaction.keyboard("{Escape}")
+    expect(trigger).toHaveTextContent("生活")
   })
+
+  it.each([
+    { persisted: false, keyboard: false },
+    { persisted: true, keyboard: false },
+    { persisted: false, keyboard: true },
+  ])(
+    "clears the category without opening the menu or losing the draft, persisted=$persisted, keyboard=$keyboard",
+    async ({ persisted, keyboard }) => {
+      const { actions, requests } = installCategoryApi()
+      const interaction = userEvent.setup()
+      renderApp("/conversations/new")
+      await chooseCategory(interaction, "工作")
+      await interaction.type(
+        screen.getByRole("textbox", { name: "任务输入框" }),
+        "保留这段草稿"
+      )
+      if (persisted) {
+        await interaction.upload(
+          screen.getByLabelText("添加附件"),
+          new File(["notes"], "notes.txt", { type: "text/plain" })
+        )
+        await waitFor(() =>
+          expect(
+            requests.some(
+              (request) => request.path === "/api/v1/conversations/new-task-1"
+            )
+          ).toBe(true)
+        )
+      }
+      const trigger = screen.getByRole("combobox", { name: "任务分类" })
+      await waitFor(() => expect(trigger).toBeEnabled())
+      await interaction.hover(trigger)
+      const clear = await screen.findByRole("button", { name: "取消分类选择" })
+      expect(trigger).not.toContainElement(clear)
+      if (keyboard) {
+        trigger.focus()
+        await interaction.tab()
+        expect(clear).toHaveFocus()
+        await interaction.keyboard("{Enter}")
+      } else {
+        await interaction.click(clear)
+      }
+      await waitFor(() => expect(trigger).toHaveTextContent("未分类"))
+      expect(
+        screen.queryByRole("dialog", { name: "任务分类" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "取消分类选择" })
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole("textbox", { name: "任务输入框" })).toHaveValue(
+        "保留这段草稿"
+      )
+      expect(readNewTaskCategory(user.id)).toBeNull()
+      expect(actions.some((action) => action.method === "DELETE")).toBe(false)
+      if (persisted) {
+        expect(actions).toContainEqual({
+          path: "/api/v1/conversations/new-task-1",
+          method: "PATCH",
+          body: { category_id: null },
+        })
+        expect(screen.getAllByText("notes.txt").length).toBeGreaterThan(0)
+      } else {
+        expect(trigger).toHaveFocus()
+        expect(
+          requests.some(
+            (request) =>
+              request.path === "/api/v1/conversations" &&
+              request.method === "POST"
+          )
+        ).toBe(false)
+      }
+    }
+  )
 
   it("creates and selects a category from the picker while preserving the task draft", async () => {
     const { actions, requests } = installCategoryApi()
@@ -1003,6 +1091,93 @@ describe("task categories", () => {
       within(sourceFolder).getByText(conversations[0].title)
     ).toBeInTheDocument()
   })
+
+  it.each([false, true])(
+    "hides the category bar immediately across delayed task creation and admission, failure=%s",
+    async (failure) => {
+      let releaseCreation!: () => void
+      const newTaskCreationStart = new Promise<void>((resolve) => {
+        releaseCreation = resolve
+      })
+      let releaseTurn!: () => void
+      const turnStart = new Promise<void>((resolve) => {
+        releaseTurn = resolve
+      })
+      const { actions, requests } = installCategoryApi({
+        newTaskCreationStart,
+        newTaskTurnResponse: async () => {
+          await turnStart
+          return failure
+            ? json({ success: false, error_code: "INTERNAL_ERROR" }, 500)
+            : json(
+                {
+                  success: true,
+                  data: {
+                    turn_id: "00000000-0000-4000-8000-000000000002",
+                    accepted: true,
+                    status: "starting",
+                  },
+                },
+                202
+              )
+        },
+      })
+      const interaction = userEvent.setup()
+      renderApp("/conversations/new")
+      try {
+        await chooseCategory(interaction, "生活")
+        await interaction.type(
+          screen.getByRole("textbox", { name: "任务输入框" }),
+          "整理今天的计划"
+        )
+        await interaction.click(screen.getByRole("button", { name: "发送" }))
+        expect(
+          screen.queryByRole("combobox", { name: "任务分类" })
+        ).not.toBeInTheDocument()
+        expect(document.querySelector(".conversation-category-dock")).toBeNull()
+
+        releaseCreation()
+        await waitFor(() =>
+          expect(actions).toContainEqual(
+            expect.objectContaining({
+              path: "/api/v1/conversations/new-task-1/turns",
+              method: "POST",
+            })
+          )
+        )
+        expect(document.querySelector(".conversation-category-dock")).toBeNull()
+        const detailRequests = () =>
+          requests.filter(
+            (request) =>
+              request.path === "/api/v1/conversations/new-task-1" &&
+              request.method === "GET"
+          ).length
+        const beforeReceipt = detailRequests()
+        releaseTurn()
+        if (failure) {
+          expect(
+            await screen.findByRole("combobox", { name: "任务分类" })
+          ).toHaveTextContent("生活")
+          expect(
+            screen.getByRole("textbox", { name: "任务输入框" })
+          ).toHaveValue("整理今天的计划")
+        } else {
+          await waitFor(() =>
+            expect(detailRequests()).toBeGreaterThan(beforeReceipt)
+          )
+          expect(
+            document.querySelector(".conversation-category-dock")
+          ).toBeNull()
+          expect(
+            screen.getByRole("article", { name: "用户消息" })
+          ).toHaveTextContent("整理今天的计划")
+        }
+      } finally {
+        releaseCreation()
+        releaseTurn()
+      }
+    }
+  )
 
   it("sends the chosen category with task creation", async () => {
     const { requests } = installCategoryApi()

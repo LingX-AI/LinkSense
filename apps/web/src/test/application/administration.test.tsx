@@ -21,7 +21,8 @@ describe("LinkSense application", () => {
       screen
         .getByRole("heading", { name: "角色与权限" })
         .closest(".management-page")
-    ).toHaveClass("role-permission-page")
+        ?.closest(".settings-content")
+    ).toHaveClass("settings-content")
     expect(
       screen.getByRole("complementary", { name: "LinkSense 设置导航" })
     ).toBeVisible()

@@ -87,3 +87,28 @@ export type CredentialBinding = z.infer<typeof credentialBindingSchema>;
 export type CredentialBindingMapping = z.infer<
   typeof credentialBindingMappingSchema
 >;
+
+/** Redacted configuration status; this does not test external service access. */
+export const credentialConfigurationStatusSchema = z.enum([
+  "configured",
+  "missing",
+  "disabled",
+  "conflict",
+  "invalid",
+]);
+export const credentialPluginConfigurationSchema = z.strictObject({
+  capability_id: z.string().min(1).max(160),
+  available: z.boolean(),
+  fields: z.array(
+    z.strictObject({
+      env_key: credentialEnvironmentKeySchema,
+      status: credentialConfigurationStatusSchema,
+    }),
+  ),
+});
+export type CredentialConfigurationStatus = z.infer<
+  typeof credentialConfigurationStatusSchema
+>;
+export type CredentialPluginConfiguration = z.infer<
+  typeof credentialPluginConfigurationSchema
+>;

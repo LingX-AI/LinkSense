@@ -1,3 +1,4 @@
+import { credentialPluginConfigurationSchema } from "@linksense/shared"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -10,7 +11,6 @@ import {
   conversationSchema,
   credentialBindingSchema,
   credentialSchema,
-  effectiveCredentialBindingSchema,
   getNativeCodexPayload,
   healthSchema,
   initializeSystemResultSchema,
@@ -294,10 +294,10 @@ describe("API response contracts", () => {
       }).success
     ).toBe(false)
     expect(
-      effectiveCredentialBindingSchema.safeParse({
+      credentialPluginConfigurationSchema.safeParse({
         capability_id: "plugin-1",
-        env_key: "SERVICE_API_KEY",
-        effective_source: "school",
+        available: true,
+        fields: [{ env_key: "SERVICE_API_KEY", status: "school" }],
       }).success
     ).toBe(false)
   })

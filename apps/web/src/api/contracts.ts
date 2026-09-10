@@ -1126,12 +1126,6 @@ export const conversationDetailSchema = z.union([
   conversationSchema,
 ])
 
-const effectiveCredentialSourceSchema = z.enum([
-  "personal",
-  "missing",
-  "conflict",
-])
-
 export const credentialSchema = z
   .strictObject({
     id: z.string(),
@@ -1162,16 +1156,6 @@ export const credentialBindingSchema = z.strictObject({
 })
 
 export type CredentialBinding = z.infer<typeof credentialBindingSchema>
-
-export const effectiveCredentialBindingSchema = z.strictObject({
-  capability_id: z.string(),
-  env_key: z.string(),
-  effective_source: effectiveCredentialSourceSchema,
-})
-
-export type EffectiveCredentialBinding = z.infer<
-  typeof effectiveCredentialBindingSchema
->
 
 export const userGroupSchema = z
   .object({

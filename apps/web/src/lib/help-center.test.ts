@@ -47,6 +47,7 @@ describe("help center routing", () => {
     ["/admin/models", "admin-guide/model-settings"],
     ["/admin/settings", "admin-guide/system-settings"],
     ["/admin/health", "admin-guide/health"],
+    ["/settings/feedback", "user-guide/feedback"],
     ["/admin/feedback", "admin-guide/feedback"],
     ["/admin/audit", "admin-guide/audit"],
     ["/admin/usage", "admin-guide/usage"],

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import {
   createCredentialInputSchema,
+  credentialPluginConfigurationSchema,
   credentialEnvironmentKeySchema,
   credentialProviderTypeSchema,
   credentialSecretPayloadSchema,
@@ -80,14 +81,18 @@ export const credentialRoutes: FastifyPluginAsync<
     );
   });
 
-  app.get("/effective-bindings", async (request, reply) => {
+  app.get("/plugin-configurations", async (request, reply) => {
     const actor = await actorFor(request);
-    const query = z.strictObject({ capability_id: uuid }).parse(request.query);
-    const items = await options.service.listEffectiveBindings(
-      actor,
-      query.capability_id,
+    z.strictObject({}).parse(request.query);
+    const items = await options.service.listPluginConfigurations(actor);
+    return reply.send(
+      ok(
+        {
+          items: z.array(credentialPluginConfigurationSchema).parse(items),
+        },
+        request,
+      ),
     );
-    return reply.send(ok({ items }, request));
   });
 
   app.put("/bindings", async (request, reply) => {
@@ -102,6 +107,19 @@ export const credentialRoutes: FastifyPluginAsync<
       })),
     });
     return reply.send(ok({ items }, request));
+  });
+
+  app.delete("/bindings", async (request, reply) => {
+    const actor = await actorFor(request);
+    const query = z
+      .strictObject({ credential_id: uuid, capability_id: uuid })
+      .parse(request.query);
+    await options.service.revokePluginBindings(
+      actor,
+      query.credential_id,
+      query.capability_id,
+    );
+    return reply.code(204).send();
   });
 
   app.delete("/bindings/:id", async (request, reply) => {

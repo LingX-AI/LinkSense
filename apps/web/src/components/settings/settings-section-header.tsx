@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { cn } from "@/lib/utils"
 
 export function SettingsSectionHeader({
   id,
@@ -7,6 +8,8 @@ export function SettingsSectionHeader({
   descriptionId,
   status,
   action,
+  titleAction,
+  actionAlignment = "start",
 }: {
   id: string
   title: string
@@ -14,16 +17,25 @@ export function SettingsSectionHeader({
   descriptionId?: string
   status?: ReactNode
   action?: ReactNode
+  titleAction?: ReactNode
+  actionAlignment?: "start" | "center"
 }) {
   return (
     <div
       data-slot="settings-section-header"
-      className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+      className={cn(
+        "flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between",
+        actionAlignment === "center" &&
+          "flex-row items-center justify-between sm:items-center"
+      )}
     >
-      <div className="min-w-0 space-y-1">
+      <div className={cn("min-w-0 space-y-1", titleAction && "flex-1")}>
         <div
           data-slot="settings-section-title-row"
-          className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
+          className={cn(
+            "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1",
+            titleAction && "flex-nowrap"
+          )}
         >
           <h2
             id={id}
@@ -39,6 +51,14 @@ export function SettingsSectionHeader({
               {status}
             </div>
           ) : null}
+          {titleAction ? (
+            <div
+              data-slot="settings-section-title-action"
+              className="ml-auto flex shrink-0 items-center"
+            >
+              {titleAction}
+            </div>
+          ) : null}
         </div>
         {description ? (
           <p id={descriptionId} className="form-hint max-w-3xl text-pretty">
@@ -47,7 +67,15 @@ export function SettingsSectionHeader({
         ) : null}
       </div>
       {action ? (
-        <div className="flex shrink-0 items-center pt-0.5">{action}</div>
+        <div
+          data-slot="settings-section-action"
+          className={cn(
+            "flex shrink-0 items-center",
+            actionAlignment === "center" ? "pt-0" : "pt-0.5"
+          )}
+        >
+          {action}
+        </div>
       ) : null}
     </div>
   )

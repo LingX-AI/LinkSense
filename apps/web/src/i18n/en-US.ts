@@ -362,8 +362,7 @@ export const enUS = {
     generalPageDescription:
       "Manage interface preferences that apply only to your account.",
     interfaceLanguage: "Interface language",
-    interfaceLanguageDescription:
-      "Your language preference is saved to your account and stays consistent in the web app and Teams.",
+    interfaceLanguageDescription: "App UI language",
     runningMessageAction: "New messages during a run",
     runningMessageActionDescription:
       "When a task is still running, new messages follow this preference automatically instead of opening a choice dialog.",
@@ -711,6 +710,8 @@ export const enUS = {
   },
   maintenance: {
     title: "System maintenance",
+    indicatorLabel: "System maintenance enabled",
+    openSettings: "Open system maintenance settings",
     defaultReason: "The system is undergoing scheduled maintenance.",
     description:
       "This page will recover automatically when maintenance ends. Try again later.",
@@ -1662,6 +1663,7 @@ export const enUS = {
     noResults: "No matching categories",
     choose: "Task category",
     unclassified: "Unclassified",
+    clearSelection: "Clear category selection",
     unavailable: "Category unavailable",
     loadError: "Unable to load task categories",
     deleteDescription:
@@ -3137,79 +3139,131 @@ export const enUS = {
   },
   credential: {
     title: "Plugin credentials",
-    description:
-      "Environment variable values are sent only on submit and are never displayed again.",
     add: "Add credential",
-    secret: "Environment variable value",
-    secretHint:
-      "Environment variable values are not displayed after saving. Do not put secrets in the name.",
     personal: "Personal credential",
-    lastUsed: "Last used",
-    bindingCount: "Bindings",
-    bind: "Bind to plugin",
     capabilityId: "Plugin ID",
     credentialId: "Credential ID",
     deleteTitle: "Permanently delete this credential?",
-    deleteDescription:
-      "The encrypted credential and every binding will be permanently deleted. This action cannot be undone.",
-    empty: "No credentials configured.",
     edit: "Edit credential",
     confirmCreate: "Confirm creation",
     confirmUpdate: "Confirm update",
     disableTitle: "Disable this credential?",
-    disableDescription:
-      "New turns will stop using this credential. Existing binding records are retained.",
     enableTitle: "Enable this credential?",
-    enableDescription:
-      "New turns may use this credential again when authorization and binding rules allow it.",
-    providerType: "Provider type",
     providerPlaceholder: "For example: openai_api",
-    providerTypeHint:
-      "Enter a stable service type, such as openai_api. Use lowercase letters, numbers, underscores, or hyphens only.",
-    providerTypeFormat:
-      "Provider type can use only lowercase letters, numbers, underscores, or hyphens, such as openai_api.",
-    secretKey: "Environment variable name",
-    secretKeyHint:
-      "Enter the environment variable name declared by the plugin, such as API_KEY. It must start with a letter or underscore.",
-    secretKeyFormat:
-      "Environment variable name must start with a letter or underscore and contain only letters, numbers, and underscores.",
-    secretKeyDuplicate: "Environment variables cannot repeat.",
     nameInvalid: "Enter a credential name within 160 characters.",
-    secretRequired: "Enter the environment variable value to save.",
-    keepSecretHint:
-      "Leave blank to keep this environment variable's encrypted value; entering a new value replaces only this environment variable.",
-    savedSecretHint:
-      "Saved environment variable values are not displayed. If you do not add a new environment variable, only the name and provider type are updated.",
-    bindings: "Current bindings",
     plugin: "Plugin",
-    bindingMapping: "{{envKey}} ← {{credentialKey}}",
+    description:
+      "Plugin credentials contain API keys and other authorization details that plugins use to access external services. Add a credential and link it to a plugin to use these details automatically when you run the plugin.",
+    secret: "Authorization value",
+    secretHint:
+      "Saved keys and authorization details are not shown again. Do not include secrets in names.",
+    bind: "Link plugin",
+    lastUsed: "Last used",
+    empty:
+      "No credentials yet. Add keys or authorization details here when a plugin needs access to an external service.",
+    deleteDescription:
+      "Plugins using this credential will no longer be able to access external services through it. The credential and its links will be permanently deleted and cannot be restored.",
+    disableDescription:
+      "Plugins will stop using this credential in subsequent runs. Existing plugin links will be kept.",
+    enableDescription:
+      "Linked plugins can use this credential again in subsequent runs.",
+    providerType: "Service identifier",
+    providerTypeHint:
+      "Enter the identifier supplied for this service, such as openai_api. Use lowercase letters, numbers, underscores, or hyphens.",
+    providerTypeFormat:
+      "Use lowercase letters, numbers, underscores, or hyphens for the service identifier, such as openai_api.",
+    secretKey: "Configuration name",
+    secretKeyHint:
+      "Enter the name required by the plugin, such as API_KEY. Copy it exactly as shown in the plugin instructions.",
+    secretKeyFormat:
+      "Configuration names must begin with a letter or underscore and contain only letters, numbers, or underscores.",
+    secretKeyDuplicate: "Configuration names must be unique.",
+    secretRequired: "Enter the authorization details to save.",
+    keepSecretHint:
+      "Leave blank to keep the saved value. Enter a new value to replace it.",
+    savedSecretHint:
+      "Saved authorization details are not displayed. They are kept unless you enter new values.",
+    bindings: "Linked plugins",
     bindingPriority:
-      "Plugins use only personal credential fields you explicitly map. {{productName}} never guesses or randomly selects a credential.",
-    mappingTitle: "Environment variable mappings",
+      "Choose a plugin and confirm which information it should use from this credential. The plugin will use these details in subsequent runs.",
+    mappingTitle: "Confirm the information to use",
     mappingDescription:
-      "The left side shows each environment variable required by the plugin. Choose the field in this credential that provides its value on the right. Matching names are selected automatically.",
-    pluginEnvironmentKey: "Plugin environment variable",
-    credentialField: "Credential field",
-    notMapped: "Not mapped",
-    bindingInProgress: "Binding the credential and updating the plugin…",
-    bindingSucceeded: "Credential mappings updated.",
-    confirmBind: "Confirm binding",
-    unbindTitle: "Remove credential binding?",
+      "Matching names have been selected automatically. For any remaining items, select the corresponding information from this credential.",
+    pluginEnvironmentKey: "Information the plugin needs",
+    credentialField: "Use from this credential",
+    notMapped: "Not selected",
+    bindingInProgress: "Saving plugin links…",
+    bindingSucceeded: "Plugin links saved.",
+    confirmBind: "Save links",
+    unbindTitle: "Remove this information link?",
     unbindDescription:
-      "New turns will no longer inject this credential through the binding. The action is audited.",
-    confirmUnbind: "Remove binding",
-    unbindNamed: "Remove binding to {{name}}",
-    addSecretField: "Add environment variable",
-    removeSecretField: "Remove this environment variable",
-    effectiveSources: "Effective plugin credential sources",
-    effectiveSourcesDescription:
-      "Shows whether each plugin environment variable has an available personal credential for new turns. Credential names and values are never shown.",
-    noDeclaredKeys:
-      "This plugin has no environment variables that require a local credential mapping.",
-    effectiveSource: {
-      personal: "Personal credential",
-      missing: "Credential missing",
-      conflict: "Binding conflict",
+      "“{{plugin}}” will stop reading “{{name}}” from this credential. The saved information will be kept.",
+    confirmUnbind: "Remove link",
+    unbindNamed: "Unlink {{name}}",
+    addSecretField: "Add configuration item",
+    removeSecretField: "Remove this configuration item",
+    noDeclaredKeys: "This plugin has no credential information to configure.",
+    pluginCount_one: "Used by {{count}} plugin",
+    pluginCount_other: "Used by {{count}} plugins",
+    associatedFields_one: "{{count}} item linked",
+    associatedFields_other: "{{count}} items linked",
+    notAssociated:
+      "Not used by any plugins yet. Link a plugin to use these details automatically when it runs.",
+    unavailablePlugin: "Inaccessible plugin",
+    credentialDetails: "Credential details",
+    showDetails: "View configuration details",
+    hideDetails: "Hide configuration details",
+    pluginActionsNamed: "Link actions for {{name}}",
+    detailsNamed: "Configuration details for {{name}}",
+    manageAssociation: "Manage links",
+    removeAssociation: "Unlink plugin",
+    removeAssociationTitle: "Unlink this plugin?",
+    removeAssociationDescription:
+      "“{{name}}” will stop using all information from this credential. The credential will be kept, and you can link it again later.",
+    completeConfiguration: "Complete setup",
+    fixAssociation: "Resolve links",
+    enableAction: "Enable credential",
+    configurationNote:
+      "This shows the saved configuration. It does not verify access to the external service.",
+    usesField: "Uses this credential’s:",
+    otherCredential: "Provided by another credential.",
+    removeField: "Remove link",
+    removeFieldNamed: "Remove the link for {{name}}",
+    mappingSummary: "{{configured}} of {{total}} items selected",
+    unselectedFields: "Not yet selected:",
+    selectInformation: "Select or adjust information",
+    configurationStatus: {
+      loading: "Checking…",
+      failed: "Status unavailable",
+      unavailable: "Plugin unavailable",
+      configured: "Credentials configured",
+      missing: "More information needed",
+      disabled: "This credential is disabled",
+      disabledElsewhere: "A credential is disabled",
+      conflict: "Conflicting links",
+      invalid: "Configuration needs updating",
+    },
+    configurationHelp: {
+      failed: "Could not load configuration status. Try again.",
+      unavailable:
+        "This plugin is unavailable or you do not have access. Unlink it or contact an administrator.",
+      missing:
+        "The plugin has information that is not configured. View the details to see what is missing and complete setup.",
+      disabled:
+        "Enable this credential so the plugin can use its information again.",
+      disabledElsewhere:
+        "Another credential used by this plugin is disabled. Enable that credential or update the links.",
+      conflict:
+        "The same item is linked to multiple credentials. Manage the links to select the information to use.",
+      invalid:
+        "Linked information cannot be used or no longer matches the plugin requirements. Check the saved values and update the links.",
+    },
+    fieldStatus: {
+      configured: "Configured",
+      missing: "Not configured",
+      disabled: "The credential providing this value is disabled",
+      conflict: "Linked to multiple credentials",
+      invalid: "Update needed",
     },
   },
   profile: {
@@ -3462,6 +3516,26 @@ export const enUS = {
     costCompositionNote:
       "Costs retain full precision for storage and aggregation and are displayed with two decimal places. Rounding differences are allocated proportionally within each total so displayed details add up to the displayed total. Regular input cost excludes cached input, which is charged at its own rate. Prices and costs are fixed when each call is recorded, so later price changes never recalculate history.",
   },
+  myFeedback: {
+    title: "My feedback",
+    description: "View your feedback and administrator replies.",
+    empty: "No feedback yet",
+    emptyDescription: "Use the help menu to share an issue or suggestion.",
+    replyStatus: "Reply status",
+    replied: "Replied",
+    awaitingReply: "Awaiting reply",
+    detailsDescription: "View the feedback and its reply history.",
+    replies: "Replies",
+    noReplies: "No replies yet",
+    administrator: "Administrator",
+    writeReply: "Reply to user",
+    replyHint: "Send text, images, or both.",
+    replyPlaceholder: "Write a reply…",
+    replyImages: "Reply images",
+    replySuccess: "Reply sent",
+    sendingReply: "Sending…",
+    sendReply: "Send reply",
+  },
   adminFeedback: {
     title: "User feedback",
     description:
@@ -3485,7 +3559,7 @@ export const enUS = {
     deleteLabel: "Delete feedback submitted by {{name}}",
     deleteTitle: "Delete this feedback?",
     deleteDescription:
-      "This will delete the feedback submitted by {{name}} and all of its images. This action cannot be undone.",
+      "This will delete the feedback submitted by {{name}}, every reply, and all their images. This action cannot be undone.",
     deleting: "Deleting…",
     deleteSuccess: "Feedback deleted.",
   },

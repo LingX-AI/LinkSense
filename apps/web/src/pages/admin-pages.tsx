@@ -20,7 +20,6 @@ import {
   LoaderCircleIcon,
   MoreHorizontalIcon,
   PencilIcon,
-  RefreshCwIcon,
   SearchIcon,
   SlidersHorizontalIcon,
   Trash2Icon,
@@ -80,6 +79,7 @@ import {
 } from "@/features/admin/audit-i18n"
 import { productFilenamePrefix, useProductName } from "@/app/product-branding"
 import { downloadBlob } from "@/lib/download-blob"
+import { RefreshButton } from "@/components/feedback/refresh-button"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import {
   EmptyState,
@@ -2108,7 +2108,6 @@ function RoleOverviewPage() {
     <PageLayout
       title={t("admin.rolesTitle")}
       description={t("admin.rolesDescription", { productName })}
-      className="role-permission-page"
     >
       {summaryQuery.isLoading && <LoadingState />}
       {summaryQuery.isError && (
@@ -5222,20 +5221,10 @@ function HealthPage() {
       title={t("health.title")}
       description={t("health.description", { productName })}
       actions={
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={t("common.refresh")}
-          title={t("common.refresh")}
-          onClick={() => void query.refetch()}
-          disabled={query.isFetching}
-        >
-          <RefreshCwIcon
-            className={query.isFetching ? "animate-spin" : undefined}
-            aria-hidden="true"
-          />
-        </Button>
+        <RefreshButton
+          refreshing={query.isFetching}
+          onRefresh={() => void query.refetch()}
+        />
       }
     >
       {error && <StatusBanner variant="error">{error}</StatusBanner>}

@@ -61,6 +61,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -158,28 +159,35 @@ export function SettingsGeneralPage() {
           id="interface-language-heading"
           title={t("settings.interfaceLanguage")}
           description={t("settings.interfaceLanguageDescription")}
+          descriptionId="interface-language-description"
+          actionAlignment="center"
+          action={
+            <Select
+              value={language}
+              onValueChange={changeLanguage}
+              disabled={mutation.isPending}
+            >
+              <SelectTrigger
+                id="settings-language"
+                aria-labelledby="interface-language-heading"
+                aria-describedby="interface-language-description"
+                className="w-32"
+              >
+                <SelectValue>
+                  {t(
+                    language === "zh-CN" ? "common.chinese" : "common.english"
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="zh-CN">{t("common.chinese")}</SelectItem>
+                  <SelectItem value="en-US">{t("common.english")}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          }
         />
-        <FieldShell
-          id="settings-language"
-          label={t("common.language")}
-          className="settings-language-field"
-        >
-          <Select
-            value={language}
-            onValueChange={changeLanguage}
-            disabled={mutation.isPending}
-          >
-            <SelectTrigger id="settings-language" className="h-9! w-full">
-              <SelectValue>
-                {t(language === "zh-CN" ? "common.chinese" : "common.english")}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="zh-CN">{t("common.chinese")}</SelectItem>
-              <SelectItem value="en-US">{t("common.english")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </FieldShell>
       </section>
       <section
         className="settings-panel mt-4"
@@ -825,7 +833,7 @@ export function SettingsAppearancePage() {
         </RadioGroup>
       </FieldSet>
       <section
-        className="appearance-font-size-setting"
+        className="settings-panel appearance-font-size-setting"
         aria-labelledby="appearance-font-size-heading"
         aria-describedby="appearance-font-size-description"
       >

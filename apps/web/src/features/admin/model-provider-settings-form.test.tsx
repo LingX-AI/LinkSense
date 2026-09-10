@@ -758,7 +758,8 @@ describe("InitialUserTokenQuotaSettingsForm", () => {
       name: "Initial user token usage",
     })
     expect(heading).toHaveClass("text-sm", "leading-5", "font-semibold")
-    expect(heading.closest("form")).toHaveClass("w-full", "max-w-[720px]")
+    expect(heading.closest("form")).toHaveClass("w-full")
+    expect(heading.closest("form")).not.toHaveClass("max-w-[720px]")
     expect(heading.closest('[data-slot="model-settings-card"]')).toHaveClass(
       "rounded-2xl",
       "border",

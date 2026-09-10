@@ -82,7 +82,7 @@ export function ImageUnderstandingSettingsForm({
       aria-labelledby={`${idPrefix}-title`}
     >
       <form
-        className="grid w-full max-w-[720px] gap-4"
+        className="grid w-full gap-4"
         onSubmit={(event: FormEvent) => {
           event.preventDefault()
           if (readOnly) return
@@ -111,7 +111,6 @@ export function ImageUnderstandingSettingsForm({
             id={`${idPrefix}-model`}
             label={t("admin.imageUnderstanding.selectModel")}
             hint={t("admin.imageUnderstanding.selectModelHint")}
-            className="max-w-[720px]"
           >
             <Select
               name="image-understanding-model"

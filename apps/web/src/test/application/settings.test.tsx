@@ -211,8 +211,17 @@ describe("LinkSense application", () => {
     )
     expect(steerAction).toBeChecked()
 
-    await chooseSelectOption(interaction, "语言", "English")
+    const languageSelector = screen.getByRole("combobox", { name: "界面语言" })
+    expect(screen.queryByText("语言", { exact: true })).not.toBeInTheDocument()
+    expect(languageSelector).toHaveAccessibleDescription("应用UI语言")
+    expect(
+      languageSelector.closest('[data-slot="settings-section-header"]')
+    ).toContainElement(screen.getByRole("heading", { name: "界面语言" }))
+    await chooseSelectOption(interaction, "界面语言", "English")
     await waitFor(() => expect(document.documentElement.lang).toBe("en-US"))
+    expect(
+      screen.getByRole("combobox", { name: "Interface language" })
+    ).toHaveAccessibleDescription("App UI language")
     expect(screen.getByRole("heading", { name: /^General$/u })).toBeVisible()
     expect(
       screen.getByRole("complementary", {
@@ -304,7 +313,7 @@ describe("LinkSense application", () => {
     expect(
       await screen.findByRole("heading", { name: /^常规$/u })
     ).toBeVisible()
-    await chooseSelectOption(interaction, "语言", "English")
+    await chooseSelectOption(interaction, "界面语言", "English")
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "无法连接服务，请检查网络后重试。"

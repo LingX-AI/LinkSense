@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   credentialEnvironmentKeySchema,
+  credentialPluginConfigurationSchema,
   credentialProviderTypeSchema,
 } from "@linksense/shared"
 import {
@@ -9,7 +10,6 @@ import {
   LinkIcon,
   MoreHorizontalIcon,
   Trash2Icon,
-  UnlinkIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
@@ -19,7 +19,6 @@ import {
   capabilitySummarySchema,
   credentialBindingSchema,
   credentialSchema,
-  effectiveCredentialBindingSchema,
   paginatedSchema,
   type Credential,
   type CredentialBinding,
@@ -39,6 +38,14 @@ import { capabilityPresentation } from "@/features/capabilities/built-in-present
 import { PageLayout } from "@/components/shell/page-layout"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardAction,
+  CardContent,
+} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import {
   Dialog,
@@ -52,6 +59,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -63,6 +71,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { CredentialPluginAssociation } from "@/features/credentials/credential-plugin-association"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { Spinner } from "@/components/ui/spinner"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
@@ -121,6 +135,7 @@ export function CredentialManagementPage() {
   const [editing, setEditing] = useState<Credential | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Credential | null>(null)
   const [statusTarget, setStatusTarget] = useState<Credential | null>(null)
+  const [detailTarget, setDetailTarget] = useState<Credential | null>(null)
   const [bindingTarget, setBindingTarget] = useState<Credential | null>(null)
   const [unbindTarget, setUnbindTarget] = useState<CredentialBinding | null>(
     null
@@ -134,7 +149,12 @@ export function CredentialManagementPage() {
   const [bindingMappings, setBindingMappings] = useState<
     Record<string, string>
   >({})
-  const [effectiveCapabilityId, setEffectiveCapabilityId] = useState("")
+  const [mappingDetailsOpen, setMappingDetailsOpen] = useState(false)
+  const [removePluginTarget, setRemovePluginTarget] = useState<{
+    credentialId: string
+    capabilityId: string
+    name: string
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editorError, setEditorError] = useState<string | null>(null)
 
@@ -166,13 +186,11 @@ export function CredentialManagementPage() {
       }),
   })
 
-  const effectiveBindingQuery = useQuery({
-    queryKey: ["credentials", "effective-bindings", effectiveCapabilityId],
-    enabled: Boolean(effectiveCapabilityId),
+  const configurationQuery = useQuery({
+    queryKey: ["credentials", "plugin-configurations"],
     queryFn: ({ signal }) =>
-      apiRequest("/credentials/effective-bindings", {
-        schema: paginatedSchema(effectiveCredentialBindingSchema),
-        query: { capability_id: effectiveCapabilityId },
+      apiRequest("/credentials/plugin-configurations", {
+        schema: paginatedSchema(credentialPluginConfigurationSchema),
         signal,
       }),
   })
@@ -206,10 +224,10 @@ export function CredentialManagementPage() {
     setEditorOpen(true)
   }
 
-  const openBinding = (credential: Credential) => {
+  const openBinding = (credential: Credential, pluginId = "") => {
     setBindingTarget(credential)
-    setCapabilityId("")
-    setBindingMappings({})
+    setMappingDetailsOpen(false)
+    selectBindingCapability(pluginId, credential)
   }
 
   const closeBinding = () => {
@@ -386,6 +404,23 @@ export function CredentialManagementPage() {
     onError: (nextError) => setError(getErrorMessage(nextError, t)),
   })
 
+  const removePluginMutation = useMutation({
+    mutationFn: (target: { credentialId: string; capabilityId: string }) =>
+      apiRequest("/credentials/bindings", {
+        method: "DELETE",
+        query: {
+          credential_id: target.credentialId,
+          capability_id: target.capabilityId,
+        },
+        schema: emptySchema,
+      }),
+    onSuccess: async () => {
+      setRemovePluginTarget(null)
+      await invalidate()
+    },
+    onError: (nextError) => setError(getErrorMessage(nextError, t)),
+  })
+
   const credentialItems = credentialQuery.data?.items ?? []
 
   const bindingsByCredential = useMemo(() => {
@@ -418,7 +453,10 @@ export function CredentialManagementPage() {
   const selectedDeclaredEnvironmentKeys =
     selectedCapability?.risk_summary?.declared_environment_keys ?? []
 
-  const selectBindingCapability = (nextCapabilityId: string | null) => {
+  const selectBindingCapability = (
+    nextCapabilityId: string | null,
+    target = bindingTarget
+  ) => {
     const normalizedCapabilityId = nextCapabilityId ?? ""
     setCapabilityId(normalizedCapabilityId)
 
@@ -433,11 +471,11 @@ export function CredentialManagementPage() {
           (binding) =>
             binding.status === "active" &&
             binding.capability_id === normalizedCapabilityId &&
-            binding.credential_id === bindingTarget?.id
+            binding.credential_id === target?.id
         )
         .map((binding) => [binding.env_key, binding.credential_key])
     )
-    const credentialKeys = new Set(bindingTarget?.secret_keys ?? [])
+    const credentialKeys = new Set(target?.secret_keys ?? [])
 
     setBindingMappings(
       Object.fromEntries(
@@ -553,208 +591,210 @@ export function CredentialManagementPage() {
           }}
         />
       )}
-      {credentialItems.length === 0 && (
+      {credentialQuery.isSuccess && credentialItems.length === 0 && (
         <EmptyState title={t("credential.empty")} />
       )}
 
-      <div className="entity-list">
-        {credentialItems.map((credential) => {
-          const bindings = bindingsByCredential.get(credential.id) ?? []
-          return (
-            <article
-              key={credential.id}
-              className="entity-row entity-row-top credential-row"
-            >
-              <span className="capability-logo">
-                <KeyRoundIcon aria-hidden="true" />
-              </span>
-              <div className="credential-row-main min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2>{credential.name}</h2>
-                  <Badge variant="secondary">{credential.type}</Badge>
-                  <Badge
-                    variant={
-                      credential.status === "active" ? "secondary" : "outline"
-                    }
-                  >
-                    {t(`statuses.${credential.status}`)}
-                  </Badge>
-                </div>
-                <div className="entity-meta">
-                  <span>
-                    {t("credential.lastUsed")}:{" "}
-                    {formatDateTime(
-                      credential.last_used_at ?? undefined,
-                      language
-                    )}
-                  </span>
-                  <span>
-                    {t("credential.bindingCount")}: {bindings.length}
-                  </span>
-                </div>
-              </div>
-              <div className="entity-actions">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={
-                    credential.status !== "active" || bindMutation.isPending
-                  }
-                  onClick={() => openBinding(credential)}
-                >
-                  <LinkIcon aria-hidden="true" /> {t("credential.bind")}
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={t("common.actions")}
-                      />
-                    }
-                  >
-                    <MoreHorizontalIcon aria-hidden="true" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => openEdit(credential)}>
-                      {t("common.edit")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => setStatusTarget(credential)}
-                    >
-                      {t(
-                        credential.status === "active"
-                          ? "common.disable"
-                          : "common.enable"
-                      )}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onClick={() => setDeleteTarget(credential)}
-                    >
-                      {t("common.delete")}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-              {bindings.length > 0 && (
-                <ul
-                  className="binding-list credential-binding-list"
-                  aria-label={t("credential.bindings")}
-                >
-                  {bindings.map((binding) => (
-                    <li key={binding.id}>
-                      <span className="min-w-0 flex-1 truncate">
-                        {capabilityNameById.get(binding.capability_id) ??
-                          binding.capability_id}{" "}
-                        ·{" "}
-                        {t("credential.bindingMapping", {
-                          envKey: binding.env_key,
-                          credentialKey: binding.credential_key,
-                        })}{" "}
-                        · {t("credential.personal")}
+      <div className="flex min-w-0 flex-col gap-4">
+        {bindingQuery.isSuccess &&
+          credentialItems.map((credential) => {
+            const bindings = bindingsByCredential.get(credential.id) ?? []
+            const plugins = new Map<string, CredentialBinding[]>()
+            for (const binding of bindings) {
+              const group = plugins.get(binding.capability_id) ?? []
+              group.push(binding)
+              plugins.set(binding.capability_id, group)
+            }
+            return (
+              <article
+                key={credential.id}
+                aria-labelledby={`credential-${credential.id}`}
+              >
+                <Card size="sm">
+                  <CardHeader className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                        <KeyRoundIcon className="size-4" aria-hidden="true" />
                       </span>
+                      <div className="flex min-w-0 flex-col gap-1.5">
+                        <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+                          <h2
+                            id={`credential-${credential.id}`}
+                            className="min-w-0 font-semibold wrap-anywhere"
+                          >
+                            {credential.name}
+                          </h2>
+                          <Badge
+                            variant={
+                              credential.status === "active"
+                                ? "secondary"
+                                : "outline"
+                            }
+                          >
+                            {t(`statuses.${credential.status}`)}
+                          </Badge>
+                        </CardTitle>
+                        <CardDescription className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                          <span>
+                            {t("credential.lastUsed")}:{" "}
+                            {formatDateTime(
+                              credential.last_used_at ?? undefined,
+                              language
+                            )}
+                          </span>
+                          <span>
+                            {t("credential.pluginCount", {
+                              count: plugins.size,
+                            })}
+                          </span>
+                        </CardDescription>
+                      </div>
+                    </div>
+                    <CardAction className="flex shrink-0 items-center gap-1 max-sm:pl-12">
                       <Button
                         type="button"
-                        size="icon-xs"
-                        variant="ghost"
-                        aria-label={t("credential.unbindNamed", {
-                          name:
-                            capabilityNameById.get(binding.capability_id) ??
-                            binding.capability_id,
-                        })}
-                        onClick={() => setUnbindTarget(binding)}
+                        size="sm"
+                        variant="secondary"
+                        disabled={
+                          credential.status !== "active" ||
+                          bindMutation.isPending
+                        }
+                        onClick={() => openBinding(credential)}
                       >
-                        <UnlinkIcon aria-hidden="true" />
+                        <LinkIcon data-icon="inline-start" aria-hidden="true" />{" "}
+                        {t("credential.bind")}
                       </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </article>
-          )
-        })}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={t("common.actions")}
+                            />
+                          }
+                        >
+                          <MoreHorizontalIcon aria-hidden="true" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuGroup>
+                            <DropdownMenuItem
+                              onClick={() => setDetailTarget(credential)}
+                            >
+                              {t("credential.credentialDetails")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => openEdit(credential)}
+                            >
+                              {t("common.edit")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => setStatusTarget(credential)}
+                            >
+                              {t(
+                                credential.status === "active"
+                                  ? "common.disable"
+                                  : "common.enable"
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => setDeleteTarget(credential)}
+                            >
+                              {t("common.delete")}
+                            </DropdownMenuItem>
+                          </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </CardAction>
+                  </CardHeader>
+                  <CardContent className="flex min-w-0 flex-col gap-2 sm:pl-16">
+                    {plugins.size > 0 && (
+                      <p className="text-xs font-medium text-muted-foreground">
+                        {t("credential.bindings")}
+                      </p>
+                    )}
+                    {plugins.size === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {t("credential.notAssociated")}
+                      </p>
+                    )}
+                    {[...plugins].map(([pluginId, pluginBindings]) => (
+                      <CredentialPluginAssociation
+                        key={pluginId}
+                        name={
+                          capabilityNameById.get(pluginId) ??
+                          t("credential.unavailablePlugin")
+                        }
+                        bindings={pluginBindings}
+                        configuration={configurationQuery.data?.items.find(
+                          (item) => item.capability_id === pluginId
+                        )}
+                        disabled={credential.status !== "active"}
+                        loading={
+                          configurationQuery.isPending ||
+                          capabilityQuery.isPending
+                        }
+                        failed={
+                          configurationQuery.isError || capabilityQuery.isError
+                        }
+                        pending={
+                          bindMutation.isPending ||
+                          unbindMutation.isPending ||
+                          removePluginMutation.isPending ||
+                          statusMutation.isPending
+                        }
+                        onManage={() => openBinding(credential, pluginId)}
+                        onEnable={() => setStatusTarget(credential)}
+                        onRemove={() =>
+                          setRemovePluginTarget({
+                            credentialId: credential.id,
+                            capabilityId: pluginId,
+                            name:
+                              capabilityNameById.get(pluginId) ??
+                              t("credential.unavailablePlugin"),
+                          })
+                        }
+                        onRemoveField={setUnbindTarget}
+                        onRetry={() => {
+                          void configurationQuery.refetch()
+                          void capabilityQuery.refetch()
+                        }}
+                      />
+                    ))}
+                  </CardContent>
+                </Card>
+              </article>
+            )
+          })}
       </div>
 
-      <section
-        className="settings-section"
-        aria-labelledby="effective-credential-heading"
+      <Dialog
+        open={detailTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailTarget(null)
+        }}
       >
-        <h2 id="effective-credential-heading">
-          {t("credential.effectiveSources")}
-        </h2>
-        <p>{t("credential.effectiveSourcesDescription")}</p>
-        <FieldShell
-          id="effective-plugin"
-          label={t("credential.plugin")}
-          className="credential-effective-plugin-field"
-        >
-          <Select
-            name="credential-plugin-filter"
-            value={effectiveCapabilityId || null}
-            onValueChange={(value) => setEffectiveCapabilityId(value ?? "")}
-          >
-            <SelectTrigger id="effective-plugin" className="h-9! w-full">
-              <SelectValue>
-                {capabilityNameById.get(effectiveCapabilityId) ??
-                  t("common.select")}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={null}>{t("common.select")}</SelectItem>
-              {capabilityQuery.data?.items
-                .filter(
-                  (item) => item.type === "plugin" && item.status === "active"
-                )
-                .map((capability) => (
-                  <SelectItem
-                    key={capability.id}
-                    value={capability.id}
-                    disabled={!capability.can_select}
-                  >
-                    {capabilityPresentation(capability, t, productName).name}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        </FieldShell>
-        {effectiveBindingQuery.isLoading && <LoadingState />}
-        {effectiveBindingQuery.isError && (
-          <ErrorState
-            message={getErrorMessage(effectiveBindingQuery.error, t)}
-            onRetry={() => void effectiveBindingQuery.refetch()}
-          />
-        )}
-        {effectiveBindingQuery.data?.items.length === 0 && (
-          <p className="form-hint">{t("credential.noDeclaredKeys")}</p>
-        )}
-        {Boolean(effectiveBindingQuery.data?.items.length) && (
-          <dl className="definition-list credential-effective-source-list">
-            {effectiveBindingQuery.data?.items.map((binding) => (
-              <div key={`${binding.capability_id}:${binding.env_key}`}>
-                <dt>{binding.env_key}</dt>
-                <dd>
-                  <Badge
-                    variant={
-                      binding.effective_source === "conflict" ||
-                      binding.effective_source === "missing"
-                        ? "outline"
-                        : "secondary"
-                    }
-                  >
-                    {t(
-                      `credential.effectiveSource.${binding.effective_source}`
-                    )}
-                  </Badge>
-                </dd>
-              </div>
-            ))}
+        <DialogContent closeLabel={t("common.close")}>
+          <DialogHeader>
+            <DialogTitle>{t("credential.credentialDetails")}</DialogTitle>
+            <DialogDescription className="wrap-anywhere">
+              {detailTarget?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <dl className="flex min-w-0 flex-col gap-1 text-sm">
+            <dt className="text-muted-foreground">
+              {t("credential.providerType")}
+            </dt>
+            <dd>
+              <code translate="no" className="wrap-anywhere">
+                {detailTarget?.type}
+              </code>
+            </dd>
           </dl>
-        )}
-      </section>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={editorOpen}
@@ -809,6 +849,8 @@ export function CredentialManagementPage() {
               <Input
                 id="credential-provider"
                 name="credential-provider"
+                spellCheck={false}
+                autoComplete="off"
                 className="h-9"
                 value={providerType}
                 onChange={(event) => {
@@ -848,6 +890,8 @@ export function CredentialManagementPage() {
                       <Input
                         id={`credential-secret-key-${entry.id}`}
                         name={`credential-secret-fields[${index}].key`}
+                        spellCheck={false}
+                        autoComplete="off"
                         className="h-9"
                         value={entry.key}
                         onChange={(event) => {
@@ -968,9 +1012,18 @@ export function CredentialManagementPage() {
         open={Boolean(bindingTarget)}
         onOpenChange={(open) => !open && closeBinding()}
       >
-        <DialogContent className="sm:max-w-2xl" closeLabel={t("common.close")}>
+        <DialogContent
+          className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"
+          closeLabel={t("common.close")}
+        >
           <DialogHeader>
-            <DialogTitle>{t("credential.bind")}</DialogTitle>
+            <DialogTitle>
+              {t(
+                capabilityId
+                  ? "credential.manageAssociation"
+                  : "credential.bind"
+              )}
+            </DialogTitle>
             <DialogDescription>
               {t("credential.bindingPriority", { productName })}
             </DialogDescription>
@@ -986,7 +1039,7 @@ export function CredentialManagementPage() {
               <Select
                 name="binding-capability"
                 value={capabilityId || null}
-                onValueChange={selectBindingCapability}
+                onValueChange={(value) => selectBindingCapability(value)}
                 required
               >
                 <SelectTrigger id="binding-capability" className="h-9! w-full">
@@ -1024,7 +1077,11 @@ export function CredentialManagementPage() {
               </StatusBanner>
             )}
             {selectedDeclaredEnvironmentKeys.length > 0 && (
-              <div className="space-y-3">
+              <Collapsible
+                open={mappingDetailsOpen}
+                onOpenChange={setMappingDetailsOpen}
+                className="flex flex-col gap-3"
+              >
                 <div>
                   <h3 className="text-sm font-semibold">
                     {t("credential.mappingTitle")}
@@ -1033,7 +1090,33 @@ export function CredentialManagementPage() {
                     {t("credential.mappingDescription")}
                   </p>
                 </div>
-                <div className="space-y-3">
+                <p className="text-sm">
+                  {t("credential.mappingSummary", {
+                    configured: selectedDeclaredEnvironmentKeys.filter((key) =>
+                      Boolean(bindingMappings[key])
+                    ).length,
+                    total: selectedDeclaredEnvironmentKeys.length,
+                  })}
+                </p>
+                {selectedDeclaredEnvironmentKeys.some(
+                  (key) => !bindingMappings[key]
+                ) && (
+                  <p className="text-sm text-muted-foreground">
+                    {t("credential.unselectedFields")}{" "}
+                    <code translate="no" className="wrap-anywhere">
+                      {selectedDeclaredEnvironmentKeys
+                        .filter((key) => !bindingMappings[key])
+                        .join(", ")}
+                    </code>
+                  </p>
+                )}
+                <CollapsibleTrigger
+                  render={<Button variant="secondary" size="sm" />}
+                  className="self-start"
+                >
+                  {t("credential.selectInformation")}
+                </CollapsibleTrigger>
+                <CollapsibleContent className="flex flex-col gap-3">
                   {selectedDeclaredEnvironmentKeys.map((envKey) => (
                     <div
                       key={envKey}
@@ -1043,8 +1126,13 @@ export function CredentialManagementPage() {
                         <p className="text-xs font-medium text-muted-foreground">
                           {t("credential.pluginEnvironmentKey")}
                         </p>
-                        <div className="flex h-9 items-center rounded-lg bg-muted/50 px-3">
-                          <code className="truncate text-sm">{envKey}</code>
+                        <div className="flex min-h-9 items-center rounded-lg bg-muted/50 px-3">
+                          <code
+                            translate="no"
+                            className="text-sm wrap-anywhere"
+                          >
+                            {envKey}
+                          </code>
                         </div>
                       </div>
                       <FieldShell
@@ -1091,8 +1179,8 @@ export function CredentialManagementPage() {
                       </FieldShell>
                     </div>
                   ))}
-                </div>
-              </div>
+                </CollapsibleContent>
+              </Collapsible>
             )}
             <DialogFooter>
               <DialogClose render={<Button type="button" variant="ghost" />}>
@@ -1145,10 +1233,30 @@ export function CredentialManagementPage() {
         onConfirm={() => deleteMutation.mutate()}
       />
       <ConfirmDialog
+        open={Boolean(removePluginTarget)}
+        onOpenChange={(open) => !open && setRemovePluginTarget(null)}
+        title={t("credential.removeAssociationTitle")}
+        description={t("credential.removeAssociationDescription", {
+          name: removePluginTarget?.name,
+        })}
+        confirmLabel={t("credential.removeAssociation")}
+        pending={removePluginMutation.isPending}
+        onConfirm={() => {
+          if (removePluginTarget)
+            removePluginMutation.mutate(removePluginTarget)
+        }}
+      />
+      <ConfirmDialog
         open={Boolean(unbindTarget)}
         onOpenChange={(open) => !open && setUnbindTarget(null)}
         title={t("credential.unbindTitle")}
-        description={t("credential.unbindDescription")}
+        description={t("credential.unbindDescription", {
+          name: unbindTarget?.env_key,
+          plugin: unbindTarget
+            ? (capabilityNameById.get(unbindTarget.capability_id) ??
+              t("credential.unavailablePlugin"))
+            : "",
+        })}
         confirmLabel={t("credential.confirmUnbind")}
         pending={unbindMutation.isPending}
         onConfirm={() => unbindMutation.mutate()}

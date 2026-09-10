@@ -805,7 +805,8 @@ function installApiMock(options?: {
           },
         })
       }
-      if (path === "/api/v1/task-categories" && method === "GET") return json({ success: true, data: [] })
+      if (path === "/api/v1/task-categories" && method === "GET")
+        return json({ success: true, data: [] })
       if (path === "/api/v1/conversations/prewarm" && method === "POST") {
         return json(
           {
@@ -1467,20 +1468,8 @@ function installApiMock(options?: {
       if (path === "/api/v1/credentials/bindings") {
         return json({ success: true, data: { items: [], next_cursor: null } })
       }
-      if (path === "/api/v1/credentials/effective-bindings") {
-        return json({
-          success: true,
-          data: {
-            items: [
-              {
-                capability_id: "p1",
-                env_key: "SERVICE_API_KEY",
-                effective_source: "personal",
-              },
-            ],
-            next_cursor: null,
-          },
-        })
+      if (path === "/api/v1/credentials/plugin-configurations") {
+        return json({ success: true, data: { items: [] } })
       }
       if (path === "/api/v1/credentials") {
         if (method === "POST") {

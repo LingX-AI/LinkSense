@@ -5564,9 +5564,8 @@ export function ConversationPage({
             />
           )}
         {!blockingPanelActive &&
-          (isNew ||
-            (!isApplicationConversation &&
-              displayConversation.messages?.length === 0)) && (
+          (isNew || !isApplicationConversation) &&
+          visibleMessages.length === 0 && (
             <TaskCategoryComposerPicker
               value={
                 isNew ? newTaskCategoryId : displayConversation.category_id

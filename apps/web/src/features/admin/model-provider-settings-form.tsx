@@ -529,7 +529,7 @@ export function InitialUserTokenQuotaSettingsForm({
       aria-labelledby={`${idPrefix}-initial-token-quota-title`}
     >
       <form
-        className="grid w-full max-w-[720px] gap-4"
+        className="grid w-full gap-4"
         inert={readOnly}
         aria-disabled={readOnly}
         onSubmit={(event: FormEvent) => {

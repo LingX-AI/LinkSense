@@ -126,6 +126,10 @@ const helpRoutes: readonly HelpRoute[] = [
     documentPath: "admin-guide/health",
   },
   {
+    matches: (pathname) => startsWithSegment(pathname, "/settings/feedback"),
+    documentPath: "user-guide/feedback",
+  },
+  {
     matches: (pathname) => startsWithSegment(pathname, "/admin/feedback"),
     documentPath: "admin-guide/feedback",
   },

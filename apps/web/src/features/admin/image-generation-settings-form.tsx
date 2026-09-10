@@ -205,7 +205,7 @@ export function ImageGenerationSettingsForm({
       aria-labelledby={`${idPrefix}-title`}
     >
       <form
-        className="grid w-full max-w-[720px] gap-4"
+        className="grid w-full gap-4"
         onSubmit={(event: FormEvent) => {
           event.preventDefault()
           if (readOnly || !formValid) return

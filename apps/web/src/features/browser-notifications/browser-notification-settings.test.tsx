@@ -100,7 +100,7 @@ describe("BrowserNotificationSettings", () => {
       notificationSwitch.closest('[data-slot="settings-section-title-row"]')
     ).toContainElement(notificationHeading)
     expect(
-      notificationSwitch.closest('[data-slot="settings-section-status"]')
+      notificationSwitch.closest('[data-slot="settings-section-title-action"]')
     ).not.toBeNull()
 
     expect(notificationSwitch).not.toBeChecked()

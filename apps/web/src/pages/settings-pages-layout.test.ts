@@ -1,22 +1,34 @@
-// @vitest-environment node
-
+import { screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-
-import appStyles from "@/index.css?raw"
-import settingsPageSource from "@/pages/settings-pages.tsx?raw"
+import {
+  installApiMock,
+  renderApp,
+  setupApplicationTests,
+} from "@/test/application/fixture"
 
 describe("settings page layout", () => {
-  it("keeps the interface language control on the right side of its field row", () => {
-    expect(settingsPageSource).toContain(
-      'className="settings-panel settings-language-panel"'
-    )
-    expect(settingsPageSource).toContain('className="settings-language-field"')
-
-    expect(appStyles).toMatch(
-      /\.settings-language-field \{[\s\S]*?display: grid;[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 220px;[\s\S]*?align-items: center;[\s\S]*?gap: 16px 24px;[\s\S]*?margin-top: 16px;[\s\S]*?\}/u
-    )
-    expect(appStyles).toMatch(
-      /@media \(max-width: 767px\) \{[\s\S]*?\.settings-language-field \{[\s\S]*?grid-template-columns: 1fr;[\s\S]*?gap: 6px;[\s\S]*?\}/u
-    )
+  setupApplicationTests()
+  it("places the language selector beside its description and the notification switch in its title row", async () => {
+    installApiMock()
+    renderApp("/settings/general")
+    const language = await screen.findByRole("combobox", { name: "界面语言" })
+    const heading = screen.getByRole("heading", { name: "界面语言" })
+    const header = heading.closest('[data-slot="settings-section-header"]')
+    expect(header).toContainElement(language)
+    expect(
+      language.closest('[data-slot="settings-section-action"]')
+    ).not.toBeNull()
+    expect(
+      language.closest('[data-slot="settings-section-title-row"]')
+    ).toBeNull()
+    expect(screen.queryByText("语言", { exact: true })).not.toBeInTheDocument()
+    expect(language).toHaveAccessibleDescription("应用UI语言")
+    const toggle = screen.getByRole("switch", { name: "启用浏览器通知" })
+    expect(
+      toggle.closest('[data-slot="settings-section-title-row"]')
+    ).toContainElement(screen.getByRole("heading", { name: "浏览器通知" }))
+    expect(
+      toggle.closest('[data-slot="settings-section-title-action"]')
+    ).not.toBeNull()
   })
 })
