@@ -19,6 +19,7 @@ import { sendAppError } from "../src/lib/http.js";
 import { CapabilityPackageImporter } from "../src/modules/capabilities/importer.js";
 import { capabilityRoutes } from "../src/modules/capabilities/routes.js";
 import { CapabilityService } from "../src/modules/capabilities/service.js";
+import { scanCapabilitySupplyChain } from "../src/modules/capabilities/supply-chain-scanner.js";
 import type {
   CapabilityAuditInput,
   CapabilityPreferenceRecord,
@@ -1028,6 +1029,7 @@ describe("CapabilityService owner-only visibility", () => {
           },
         ],
         dependency_commands: [],
+        supply_chain_review: await scanCapabilitySupplyChain(packageRoot),
       },
       logo: {
         bytes: ONE_PIXEL_PNG,
@@ -1338,6 +1340,13 @@ describe("capabilityRoutes", () => {
         risk_summary: {
           contains_mcp_server: false,
           contains_scripts: false,
+          supply_chain_review: {
+            scanner_version: "1.0.0",
+            ruleset_version: "2026-09-10",
+            verdict: "passed",
+            finding_count: 0,
+            findings: [],
+          },
         },
       },
     });
@@ -1363,6 +1372,18 @@ describe("capabilityRoutes", () => {
         can_govern: false,
       },
     });
+    expect(store.audits).toContainEqual(
+      expect.objectContaining({
+        action: "capability_installed",
+        metadata: expect.objectContaining({
+          security_scanner_version: "1.0.0",
+          security_ruleset_version: "2026-09-10",
+          security_content_sha256:
+            body.data.risk_summary.supply_chain_review.content_sha256,
+          security_verdict: "passed",
+        }),
+      }),
+    );
 
     const installed = confirmResponse.json().data as { id: string };
     const contentResponse = await app.inject({
@@ -1383,6 +1404,73 @@ describe("capabilityRoutes", () => {
         "/confirm",
     });
     expect(repeatedConfirm.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("returns deterministic findings and blocks confirmation for critical content", async () => {
+    const root = await tempRoot();
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, root);
+    const app = Fastify();
+    app.setErrorHandler((error, request, reply) =>
+      sendAppError(reply, request, error),
+    );
+    await app.register(capabilityRoutes, {
+      prefix: "/api/v1/capabilities",
+      service,
+      resolveActor: () => ownerActor(),
+    });
+
+    const token = `github_pat_${"A".repeat(30)}`;
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities",
+      payload: {
+        source_type: "local",
+        type: "skill",
+        name: "unsafe-skill",
+        skill_markdown: `# Instructions\n\nUse ${token}`,
+      },
+    });
+
+    expect(previewResponse.statusCode).toBe(202);
+    const previewBody = previewResponse.json();
+    expect(previewBody.data.risk_summary.supply_chain_review).toMatchObject({
+      scanner_version: "1.0.0",
+      ruleset_version: "2026-09-10",
+      verdict: "blocked",
+      highest_severity: "critical",
+      finding_count: 1,
+      findings: [
+        {
+          rule_id: "embedded_access_token",
+          severity: "critical",
+          path: "SKILL.md",
+        },
+      ],
+    });
+    expect(
+      JSON.stringify(previewBody.data.risk_summary.supply_chain_review),
+    ).not.toContain(token);
+
+    const confirmResponse = await app.inject({
+      method: "POST",
+      url:
+        "/api/v1/capabilities/imports/" +
+        String(previewBody.data.preview_token) +
+        "/confirm",
+    });
+
+    expect(confirmResponse.statusCode).toBe(400);
+    expect(confirmResponse.json()).toMatchObject({
+      success: false,
+      error_code: "INVALID_PACKAGE",
+      params: {
+        reason_code: "security_review_blocked",
+        finding_count: 1,
+      },
+    });
+    expect(store.capabilities).toEqual([]);
     await app.close();
   });
 

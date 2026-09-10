@@ -14,6 +14,7 @@ import { z } from "zod";
 import { capabilityRiskSummarySchema } from "@linksense/shared";
 
 import { AppError } from "../../lib/errors.js";
+import { hashPackageDirectory } from "../../lib/package-directory-integrity.js";
 import type {
   ClawHubCapabilityOrigin,
   CapabilityImportSource,
@@ -22,6 +23,7 @@ import type {
   PreparedCapabilityPackage,
   PreparedLogo,
 } from "./types.js";
+import { assertCapabilitySupplyChainReviewCurrent } from "./supply-chain-scanner.js";
 
 const PREVIEW_TTL_MS = 15 * 60 * 1_000;
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
@@ -163,6 +165,10 @@ export class CapabilityPreviewRepository {
     assertSafeRelativePath(packageRootRelative);
     await mkdir(directory, { recursive: false, mode: 0o700 });
     try {
+      assertCapabilitySupplyChainReviewCurrent(
+        input.prepared.riskSummary.supply_chain_review,
+        await hashPackageDirectory(input.prepared.packageRoot),
+      );
       const skillContentPreview = await readSkillContentPreview(input.prepared);
       await rename(input.prepared.stagingDirectory, packageDirectory);
       if (input.prepared.logo !== null) {
@@ -282,6 +288,11 @@ export class CapabilityPreviewRepository {
       await rm(directory, { recursive: true, force: true });
       throw new AppError("INVALID_PACKAGE");
     }
+
+    assertCapabilitySupplyChainReviewCurrent(
+      state.prepared.risk_summary.supply_chain_review,
+      await hashPackageDirectory(packageRoot),
+    );
 
     let logo: PreparedLogo | null = null;
     if (state.prepared.logo !== null) {

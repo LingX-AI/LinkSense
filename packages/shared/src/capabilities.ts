@@ -91,6 +91,58 @@ export const capabilityMcpEnvironmentReferenceSchema = z.strictObject({
   http_header: z.string().trim().min(1).max(256).nullable(),
 });
 
+export const capabilitySupplyChainScannerVersion = "1.0.0" as const;
+export const capabilitySupplyChainRulesetVersion = "2026-09-10" as const;
+export const capabilitySupplyChainContentDigestAlgorithm =
+  "linksense-capability-package-v1" as const;
+
+export const capabilitySupplyChainSeveritySchema = z.enum([
+  "low",
+  "medium",
+  "high",
+  "critical",
+]);
+
+export const capabilitySupplyChainRuleIds = [
+  "embedded_private_key",
+  "embedded_access_token",
+  "dynamic_code_execution",
+  "shell_command_execution",
+  "download_and_execute",
+  "sensitive_data_exfiltration",
+  "cloud_metadata_access",
+  "reverse_shell",
+  "destructive_system_command",
+  "startup_persistence",
+  "oversized_scannable_file",
+] as const;
+export const capabilitySupplyChainRuleIdSchema = z.enum(
+  capabilitySupplyChainRuleIds,
+);
+
+export const capabilitySupplyChainFindingSchema = z.strictObject({
+  rule_id: capabilitySupplyChainRuleIdSchema,
+  severity: capabilitySupplyChainSeveritySchema,
+  path: z.string().min(1).max(1_024),
+  line: z.number().int().positive().nullable(),
+});
+
+export const capabilitySupplyChainReviewSchema = z.strictObject({
+  scanner_version: z.string().regex(/^\d+\.\d+\.\d+$/u),
+  ruleset_version: z.string().min(1).max(64),
+  content_digest_algorithm: z.literal(
+    capabilitySupplyChainContentDigestAlgorithm,
+  ),
+  content_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  verdict: z.enum(["passed", "warnings", "blocked"]),
+  highest_severity: capabilitySupplyChainSeveritySchema.nullable(),
+  finding_count: z.number().int().nonnegative(),
+  findings: z.array(capabilitySupplyChainFindingSchema).max(200),
+  findings_truncated: z.boolean(),
+  scanned_file_count: z.number().int().nonnegative(),
+  skipped_file_count: z.number().int().nonnegative(),
+});
+
 export const capabilityRiskSummarySchema = z.strictObject({
   contains_mcp_server: z.boolean().default(false),
   contains_scripts: z.boolean().default(false),
@@ -106,6 +158,7 @@ export const capabilityRiskSummarySchema = z.strictObject({
     .max(1_000)
     .default([]),
   dependency_commands: z.array(z.string().min(1).max(500)).default([]),
+  supply_chain_review: capabilitySupplyChainReviewSchema.optional(),
 });
 
 export const capabilitySchema = z
@@ -249,6 +302,12 @@ export type CapabilityMcpEnvironmentReference = z.infer<
 >;
 export type CapabilityRiskSummary = z.infer<
   typeof capabilityRiskSummarySchema
+>;
+export type CapabilitySupplyChainFinding = z.infer<
+  typeof capabilitySupplyChainFindingSchema
+>;
+export type CapabilitySupplyChainReview = z.infer<
+  typeof capabilitySupplyChainReviewSchema
 >;
 export type MarketplaceListing = z.infer<typeof marketplaceListingSchema>;
 export type MarketplaceRelease = z.infer<typeof marketplaceReleaseSchema>;

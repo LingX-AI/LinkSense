@@ -5,10 +5,12 @@ import { dirname, extname, join } from "node:path";
 import {
   builtInCapabilityDefinitions,
   builtInCapabilityId,
+  capabilitySupplyChainReviewSchema,
 } from "@linksense/shared";
 import { lock } from "proper-lockfile";
 
 import { AppError } from "../../lib/errors.js";
+import { hashPackageDirectory } from "../../lib/package-directory-integrity.js";
 import {
   CapabilityPackageImporter,
   capabilityDirectory,
@@ -24,6 +26,10 @@ import {
   type CapabilityImportPreview,
   type ClawHubPreviewSource,
 } from "./preview.js";
+import {
+  assertCapabilitySupplyChainApproval,
+  scanCapabilitySupplyChain,
+} from "./supply-chain-scanner.js";
 import {
   type MaterializeUserHomes,
   type UserHomeCapabilityTargets,
@@ -408,6 +414,9 @@ export class CapabilityService {
     );
     let sourceAndDatabaseCommitted = false;
     try {
+      assertCapabilitySupplyChainApproval(
+        preview.prepared.riskSummary.supply_chain_review,
+      );
       if (preview.clawHubOrigin !== null) {
         if (this.#validateClawHubInstall === undefined) {
           throw new AppError("CLAWHUB_SERVICE_UNAVAILABLE");
@@ -488,11 +497,12 @@ export class CapabilityService {
       this.#capabilityRoot,
       capabilityId,
     );
+    const prepared = await marketplacePreparedPackage(input);
     return withCapabilityMutationLock(capabilityPath, async () => {
       const capability = await this.#activateInstall(
         actor,
         capabilityId,
-        marketplacePreparedPackage(input),
+        prepared,
         "marketplace",
         { listingId: input.listingId, releaseId: input.releaseId },
         null,
@@ -524,11 +534,12 @@ export class CapabilityService {
       this.#capabilityRoot,
       capabilityId,
     );
+    const prepared = await marketplacePreparedPackage(input);
     return withCapabilityMutationLock(capabilityPath, async () => {
       const capability = await this.#activateUpdate(
         actor,
         capabilityId,
-        marketplacePreparedPackage(input),
+        prepared,
         "marketplace",
         { listingId: input.listingId, releaseId: input.releaseId },
         true,
@@ -572,6 +583,10 @@ export class CapabilityService {
         capabilityPath,
       );
       replacement = stagedReplacement;
+      assertCapabilitySupplyChainApproval(
+        prepared.riskSummary.supply_chain_review,
+        await hashPackageDirectory(stagedReplacement.currentDirectory),
+      );
       if (prepared.logo !== null) {
         logoObjectKey = await this.#storeLogo(
           id,
@@ -630,6 +645,7 @@ export class CapabilityService {
             source_type: sourceType,
             contains_scripts: prepared.riskSummary.contains_scripts,
             contains_mcp_server: prepared.riskSummary.contains_mcp_server,
+            ...supplyChainAuditMetadata(prepared.riskSummary),
           }),
         );
         return created;
@@ -679,6 +695,10 @@ export class CapabilityService {
         capabilityPath,
       );
       replacement = stagedReplacement;
+      assertCapabilitySupplyChainApproval(
+        prepared.riskSummary.supply_chain_review,
+        await hashPackageDirectory(stagedReplacement.currentDirectory),
+      );
       if (prepared.logo !== null) {
         newLogoObjectKey = await this.#storeLogo(
           capabilityId,
@@ -742,6 +762,7 @@ export class CapabilityService {
             source_type: sourceType,
             contains_scripts: prepared.riskSummary.contains_scripts,
             contains_mcp_server: prepared.riskSummary.contains_mcp_server,
+            ...supplyChainAuditMetadata(prepared.riskSummary),
           }),
         );
         return value;
@@ -784,6 +805,9 @@ export class CapabilityService {
       current.sourceType === "clawhub"
     ) {
       throw new AppError("CONFLICT");
+    }
+    if (input.status === "active") {
+      await this.#assertStoredSupplyChainApproval(current);
     }
     if (input.name !== undefined && input.name.trim() !== current.name) {
       throw new AppError("VALIDATION_ERROR");
@@ -935,6 +959,9 @@ export class CapabilityService {
     if (capability.status === "failed" || capability.ownerId !== actor.id) {
       throw new AppError("CAPABILITY_NOT_FOUND");
     }
+    if (status === "enabled") {
+      await this.#assertStoredSupplyChainApproval(capability);
+    }
     await this.#store.transaction(async (store) => {
       await store.upsertPreference(
         actor.id,
@@ -975,6 +1002,21 @@ export class CapabilityService {
     if (result.length !== requested.size)
       throw new AppError("CAPABILITY_NOT_FOUND");
     return result;
+  }
+
+  async #assertStoredSupplyChainApproval(
+    capability: CapabilityRecord,
+  ): Promise<void> {
+    const review = capabilityRiskSummaryReview(capability.riskSummaryJson);
+    if (review === undefined) return;
+    const packageRoot = join(
+      capabilityDirectory(this.#capabilityRoot, capability.id),
+      "current",
+    );
+    assertCapabilitySupplyChainApproval(
+      review,
+      await hashPackageDirectory(packageRoot),
+    );
   }
 
   async requireCapability(capabilityId: string): Promise<CapabilityRecord> {
@@ -1362,9 +1404,11 @@ function assertCanPatchCapability(
   }
 }
 
-function marketplacePreparedPackage(
+async function marketplacePreparedPackage(
   input: MarketplaceReleaseInstallInput,
-): PreparedCapabilityPackage {
+): Promise<PreparedCapabilityPackage> {
+  const supplyChainReview = await scanCapabilitySupplyChain(input.packageRoot);
+  assertCapabilitySupplyChainApproval(supplyChainReview);
   return {
     stagingDirectory: input.packageRoot,
     packageRoot: input.packageRoot,
@@ -1372,9 +1416,40 @@ function marketplacePreparedPackage(
     name: input.name,
     description: input.description,
     manifest: input.manifest,
-    riskSummary: input.riskSummary,
+    riskSummary: {
+      ...input.riskSummary,
+      supply_chain_review: supplyChainReview,
+    },
     logo: input.logo,
   };
+}
+
+function supplyChainAuditMetadata(
+  riskSummary: CapabilityRiskSummary,
+): Record<string, string | number> {
+  const review = riskSummary.supply_chain_review;
+  if (review === undefined) return {};
+  return {
+    security_scanner_version: review.scanner_version,
+    security_ruleset_version: review.ruleset_version,
+    security_content_sha256: review.content_sha256,
+    security_verdict: review.verdict,
+    security_finding_count: review.finding_count,
+  };
+}
+
+function capabilityRiskSummaryReview(
+  value: Record<string, unknown> | null,
+): CapabilityRiskSummary["supply_chain_review"] {
+  const review = value?.supply_chain_review;
+  if (review === undefined) return undefined;
+  const parsed = capabilitySupplyChainReviewSchema.safeParse(review);
+  if (!parsed.success) {
+    throw new AppError("INVALID_PACKAGE", {
+      reason_code: "security_review_stale",
+    });
+  }
+  return parsed.data;
 }
 
 function assertActiveActor(actor: RequestActor): void {

@@ -11,6 +11,10 @@ import {
   slugifyCapabilityName,
   stageAtomicDirectoryReplacement,
 } from "../capabilities/importer.js";
+import {
+  assertCapabilitySupplyChainApproval,
+  scanCapabilitySupplyChain,
+} from "../capabilities/supply-chain-scanner.js";
 import { stripSkillFrontmatter } from "../capabilities/preview.js";
 import type { CapabilityView } from "../capabilities/service.js";
 import type {
@@ -251,6 +255,10 @@ export class MarketplaceService {
       const contentSha256 = await hashMarketplacePackage(
         stagedReplacement.currentDirectory,
       );
+      const supplyChainReview = await scanCapabilitySupplyChain(
+        stagedReplacement.currentDirectory,
+      );
+      assertCapabilitySupplyChainApproval(supplyChainReview, contentSha256);
       releaseLogoKey = await this.#snapshotLogo(
         listingId,
         releaseId,
@@ -302,7 +310,10 @@ export class MarketplaceService {
           packagePath: stagedReplacement.currentDirectory,
           contentSha256,
           manifestJson: source.manifestJson ?? {},
-          riskSummaryJson: normalizeRiskSummary(source.riskSummaryJson),
+          riskSummaryJson: {
+            ...normalizeRiskSummary(source.riskSummaryJson),
+            supply_chain_review: supplyChainReview,
+          },
           submittedBy: actor.id,
         });
         await store.writeAudit(
@@ -316,6 +327,7 @@ export class MarketplaceService {
               release_number: release.releaseNumber,
               capability_id: source.id,
               content_sha256: contentSha256,
+              ...supplyChainReviewAuditMetadata(supplyChainReview),
             },
           ),
         );
@@ -403,6 +415,12 @@ export class MarketplaceService {
       release.packagePath,
       release.contentSha256,
     );
+    if (input.decision === "approved") {
+      assertCapabilitySupplyChainApproval(
+        release.riskSummaryJson.supply_chain_review,
+        release.contentSha256,
+      );
+    }
     const reviewComment = validateReviewComment(input.comment);
     if (input.decision === "rejected" && reviewComment === null) {
       throw new AppError("VALIDATION_ERROR");
@@ -447,6 +465,11 @@ export class MarketplaceService {
             listing_id: updatedListing.id,
             release_number: updatedRelease.releaseNumber,
             decision: input.decision,
+            ...(input.decision === "approved"
+              ? supplyChainReviewAuditMetadata(
+                  updatedRelease.riskSummaryJson.supply_chain_review,
+                )
+              : {}),
           },
         ),
       );
@@ -968,6 +991,19 @@ function normalizeRiskSummary(value: Record<string, unknown> | null) {
         })
       : [],
     dependency_commands: stringArray(value?.dependency_commands),
+  };
+}
+
+function supplyChainReviewAuditMetadata(
+  review: MarketplaceReleaseRecord["riskSummaryJson"]["supply_chain_review"],
+): Record<string, string | number> {
+  if (review === undefined) return {};
+  return {
+    security_scanner_version: review.scanner_version,
+    security_ruleset_version: review.ruleset_version,
+    security_content_sha256: review.content_sha256,
+    security_verdict: review.verdict,
+    security_finding_count: review.finding_count,
   };
 }
 

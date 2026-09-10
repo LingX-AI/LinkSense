@@ -102,4 +102,49 @@ describe("CapabilityRiskSummary", () => {
     expect(sourceRule).not.toContain("border:")
     expect(sourceRule).not.toContain("background:")
   })
+
+  it("shows content-bound findings without exposing matched secret values", () => {
+    const secret = `github_pat_${"A".repeat(30)}`
+    render(
+      <CapabilityRiskSummary
+        value={{
+          contains_mcp_server: false,
+          contains_scripts: false,
+          contains_external_connections: false,
+          requires_environment_variables: false,
+          requires_credentials: false,
+          contains_dependency_download_commands: false,
+          declared_environment_keys: [],
+          mcp_environment_references: [],
+          dependency_commands: [],
+          supply_chain_review: {
+            scanner_version: "1.0.0",
+            ruleset_version: "2026-09-10",
+            content_digest_algorithm: "linksense-capability-package-v1",
+            content_sha256: "a".repeat(64),
+            verdict: "blocked",
+            highest_severity: "critical",
+            finding_count: 1,
+            findings: [
+              {
+                rule_id: "embedded_access_token",
+                severity: "critical",
+                path: "SKILL.md",
+                line: 5,
+              },
+            ],
+            findings_truncated: false,
+            scanned_file_count: 1,
+            skipped_file_count: 0,
+          },
+        }}
+      />
+    )
+
+    expect(screen.getByText("供应链安全扫描")).toBeVisible()
+    expect(screen.getByText("已阻止")).toBeVisible()
+    expect(screen.getByText("包含高置信访问令牌")).toBeVisible()
+    expect(screen.getByText("SKILL.md:5")).toBeVisible()
+    expect(screen.queryByText(secret)).not.toBeInTheDocument()
+  })
 })

@@ -14,6 +14,8 @@ Personal capabilities belong to you and are not automatically visible to other u
 3. Wait while LinkSense parses its source, files, manifest, and risk declarations.
 4. Review the preview and confirm the risks before installation.
 
+LinkSense runs a deterministic supply-chain scan over readable instructions, scripts, and configuration files in the package. Findings include a severity, file, and line. The result is bound to the current content hash and scanner version; packages with critical findings cannot be installed or submitted for publication, and changed content requires a new preview.
+
 The preview expires. Repeat the check if it does, and never install an untrusted package.
 
 ## Create a Skill

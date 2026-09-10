@@ -102,6 +102,14 @@ describe("MarketplaceService", () => {
 
     expect(firstSubmission.listing.status).toBe("draft");
     expect(firstSubmission.latest_release.status).toBe("pending");
+    expect(
+      firstSubmission.latest_release.risk_summary.supply_chain_review,
+    ).toMatchObject({
+      scanner_version: "1.0.0",
+      ruleset_version: "2026-09-10",
+      verdict: "passed",
+      content_sha256: firstSubmission.latest_release.content_sha256,
+    });
     expect(await service.listCatalog(installerActor())).toEqual([]);
     await expect(
       service.review(publisherActor(), firstReleaseId, {
@@ -140,6 +148,13 @@ describe("MarketplaceService", () => {
         actorId: PUBLISHER_ID,
         action: "marketplace_release_reviewed",
         targetId: firstReleaseId,
+        metadata: expect.objectContaining({
+          security_scanner_version: "1.0.0",
+          security_ruleset_version: "2026-09-10",
+          security_content_sha256:
+            firstSubmission.latest_release.content_sha256,
+          security_verdict: "passed",
+        }),
       }),
     );
     await expect(service.listAllPublications(reviewerActor())).resolves.toEqual(
@@ -263,6 +278,33 @@ describe("MarketplaceService", () => {
         update_available: false,
       }),
     ]);
+  });
+
+  it("binds marketplace approval to the deterministic scan and blocks critical findings", async () => {
+    const root = await createCapabilityRoot();
+    const source = sourceCapability(root);
+    const store = new MemoryMarketplaceStore([source]);
+    const service = createService(
+      store,
+      new MemoryMarketplaceInstaller(store),
+      root,
+    );
+    const token = `github_pat_${"A".repeat(30)}`;
+    await writeFile(
+      join(source.storagePath, "SKILL.md"),
+      skillMarkdown("team-reports", `Use ${token}`),
+    );
+
+    await expect(
+      service.submit(publisherActor(), { capabilityId: source.id }),
+    ).rejects.toMatchObject({
+      code: "INVALID_PACKAGE",
+      params: {
+        reason_code: "security_review_blocked",
+        finding_count: 1,
+      },
+    });
+    expect(store.releases).toEqual([]);
   });
 
   it("allows an administrator publisher to reject their own submission and still requires a comment", async () => {

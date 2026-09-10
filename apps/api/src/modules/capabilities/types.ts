@@ -1,5 +1,7 @@
 import type { FastifyRequest } from "fastify";
-import type { CapabilityMcpEnvironmentReference } from "@linksense/shared";
+import type {
+  CapabilityRiskSummary as SharedCapabilityRiskSummary,
+} from "@linksense/shared";
 
 export type UserRole = "admin" | "user";
 
@@ -54,17 +56,7 @@ export interface CapabilityPreferenceRecord {
   updatedAt: Date;
 }
 
-export interface CapabilityRiskSummary {
-  contains_mcp_server: boolean;
-  contains_scripts: boolean;
-  contains_external_connections: boolean;
-  requires_environment_variables: boolean;
-  requires_credentials: boolean;
-  contains_dependency_download_commands: boolean;
-  declared_environment_keys: string[];
-  mcp_environment_references: CapabilityMcpEnvironmentReference[];
-  dependency_commands: string[];
-}
+export type CapabilityRiskSummary = SharedCapabilityRiskSummary;
 
 export interface PreparedLogo {
   bytes: Buffer;
