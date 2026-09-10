@@ -750,9 +750,9 @@ describe("task categories", () => {
           within(folder).queryByText(conversations[0].title)
         ).not.toBeInTheDocument()
         expect(
-          screen.getByRole("button", {
-            name: `取消置顶任务“${conversations[0].title}”`,
-          })
+          within(
+            screen.getByRole("heading", { name: "置顶" }).closest("section")!
+          ).getByText(conversations[0].title)
         ).toBeVisible()
       } else {
         expect(within(folder).getByText(conversations[0].title)).toBeVisible()
@@ -933,8 +933,11 @@ describe("task categories", () => {
     renderApp()
     await interaction.click(
       await screen.findByRole("button", {
-        name: `将“${conversations[0].title}”移动到分类`,
+        name: `${conversations[0].title}的更多操作`,
       })
+    )
+    await interaction.click(
+      await screen.findByRole("menuitem", { name: "移动到分类" })
     )
     let dialog = await screen.findByRole("dialog", { name: "移动到分类" })
     expect(
@@ -951,8 +954,11 @@ describe("task categories", () => {
     expect(within(folder).getByText(conversations[0].title)).toBeVisible()
     await interaction.click(
       screen.getByRole("button", {
-        name: `将“${conversations[0].title}”移动到分类`,
+        name: `${conversations[0].title}的更多操作`,
       })
+    )
+    await interaction.click(
+      await screen.findByRole("menuitem", { name: "移动到分类" })
     )
     dialog = await screen.findByRole("dialog", { name: "移动到分类" })
     await chooseCategory(interaction, "未分类", dialog)
@@ -979,8 +985,11 @@ describe("task categories", () => {
     const sourceFolder = await screen.findByRole("region", { name: "工作" })
     await interaction.click(
       await screen.findByRole("button", {
-        name: `将“${conversations[0].title}”移动到分类`,
+        name: `${conversations[0].title}的更多操作`,
       })
+    )
+    await interaction.click(
+      await screen.findByRole("menuitem", { name: "移动到分类" })
     )
     const dialog = await screen.findByRole("dialog", { name: "移动到分类" })
     await chooseCategory(interaction, "生活", dialog)

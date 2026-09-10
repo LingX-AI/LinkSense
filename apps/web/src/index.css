@@ -1080,7 +1080,7 @@
 }
 
 .sidebar-conversation-item {
-  --sidebar-conversation-actions-width: 80px;
+  --sidebar-conversation-actions-width: 56px;
   content-visibility: auto;
   contain-intrinsic-size: auto 32px;
 }
@@ -1126,23 +1126,24 @@
 }
 
 .sidebar-conversation-item:hover .sidebar-conversation-link,
-.sidebar-conversation-item:has(:focus-visible) .sidebar-conversation-link {
+.sidebar-conversation-item:has(:focus-visible) .sidebar-conversation-link,
+.sidebar-conversation-item:has([data-popup-open]) .sidebar-conversation-link {
   padding-right: var(--sidebar-conversation-actions-width);
 }
 
 @media (hover: hover) {
   .sidebar-conversation-scroll:has(.sidebar-conversation-item:hover)
-    .sidebar-conversation-item:not(:hover)
+    .sidebar-conversation-item:not(:hover):not(:has([data-popup-open]))
     .sidebar-conversation-actions {
     pointer-events: none;
     opacity: 0;
   }
 
   .sidebar-conversation-scroll:has(.sidebar-conversation-item:hover)
-    .sidebar-conversation-item:not(:hover)
+    .sidebar-conversation-item:not(:hover):not(:has([data-popup-open]))
     .sidebar-conversation-running,
   .sidebar-conversation-scroll:has(.sidebar-conversation-item:hover)
-    .sidebar-conversation-item:not(:hover)
+    .sidebar-conversation-item:not(:hover):not(:has([data-popup-open]))
     .sidebar-conversation-warning {
     opacity: 1;
   }

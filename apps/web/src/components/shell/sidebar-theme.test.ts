@@ -45,9 +45,9 @@ describe("sidebar theme", () => {
     )
   })
 
-  it("reserves room for all three task actions", () => {
+  it("reserves room for the task menu and archive button", () => {
     expect(cssRule(".sidebar-conversation-item")).toContain(
-      "--sidebar-conversation-actions-width: 80px;"
+      "--sidebar-conversation-actions-width: 56px;"
     )
   })
   it("uses the documented 248px default for task and settings sidebars", () => {
@@ -316,7 +316,7 @@ describe("sidebar theme", () => {
 
   it("keeps a clear title gap before conversation actions across input modes", () => {
     expect(sidebarStyles).toMatch(
-      /\.sidebar-conversation-item:hover\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item:has\(:focus-visible\)\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*var\(--sidebar-conversation-actions-width\);/u
+      /\.sidebar-conversation-item:hover\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item:has\(:focus-visible\)\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item:has\(\[data-popup-open\]\)\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*var\(--sidebar-conversation-actions-width\);/u
     )
     expect(sidebarStyles).toMatch(
       /@media \(hover:\s*none\)\s*\{[^}]*\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item\[data-running="true"\]\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item\[data-warning="true"\]\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*var\(--sidebar-conversation-actions-width\);/u

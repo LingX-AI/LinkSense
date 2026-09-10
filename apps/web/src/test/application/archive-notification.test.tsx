@@ -41,11 +41,12 @@ describe("task archive notification", () => {
       const title = conversations[origin === "sidebar" ? 1 : 0].title
       if (pinned) {
         await interaction.click(
-          within(sidebar).getByRole("button", { name: `置顶任务“${title}”` })
+          within(sidebar).getByRole("button", { name: `${title}的更多操作` })
         )
-        await within(sidebar).findByRole("button", {
-          name: `取消置顶任务“${title}”`,
-        })
+        await interaction.click(
+          await screen.findByRole("menuitem", { name: "置顶任务" })
+        )
+        await within(sidebar).findByRole("heading", { name: "置顶" })
       }
       if (origin === "sidebar") {
         await interaction.click(

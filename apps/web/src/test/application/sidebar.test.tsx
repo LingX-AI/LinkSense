@@ -218,8 +218,8 @@ describe("LinkSense application", () => {
       within(completedItem as HTMLElement).queryByRole("status")
     ).not.toBeInTheDocument()
 
-    const pinButton = within(item as HTMLElement).getByRole("button", {
-      name: /^置顶任务/u,
+    const moreButton = within(item as HTMLElement).getByRole("button", {
+      name: /的更多操作$/u,
     })
     const archiveButton = within(item as HTMLElement).getByRole("button", {
       name: /^归档任务/u,
@@ -229,7 +229,7 @@ describe("LinkSense application", () => {
         name: /^删除任务/u,
       })
     ).not.toBeInTheDocument()
-    for (const button of [pinButton, archiveButton]) {
+    for (const button of [moreButton, archiveButton]) {
       expect(button).toHaveClass(
         "w-5",
         "transition-none",
@@ -239,16 +239,14 @@ describe("LinkSense application", () => {
       )
       expect(button).not.toHaveClass("hover:bg-[var(--app-sidebar-active)]")
     }
-    const pinIcon = pinButton.querySelector("svg")
+    const moreIcon = moreButton.querySelector("svg")
     const archiveIcon = archiveButton.querySelector("svg")
-    expect(pinIcon).toHaveClass("size-4")
-    expect(pinIcon).not.toHaveClass("size-3.5")
-    expect(pinIcon).toHaveAttribute("data-icon", "sidebar-pin")
+    expect(moreIcon).toHaveClass("size-3.5")
     expect(archiveIcon).toHaveClass("size-3.5")
-    expect(pinIcon).toHaveAttribute("stroke-width", "2")
+    expect(moreIcon).toHaveAttribute("stroke-width", "2")
     expect(archiveIcon).toHaveAttribute("stroke-width", "2")
     const actions = archiveButton.parentElement
-    expect(actions).toContainElement(pinButton)
+    expect(actions).toContainElement(moreButton)
     expect(actions).toContainElement(archiveButton)
     expect(actions).toHaveClass(
       "gap-1",
@@ -532,7 +530,7 @@ describe("LinkSense application", () => {
     expect(remainingItem).not.toBeNull()
     expect(
       within(remainingItem as HTMLElement).getByRole("button", {
-        name: /^置顶任务/u,
+        name: /的更多操作$/u,
       })
     ).toBeInTheDocument()
     expect(
@@ -570,9 +568,12 @@ describe("LinkSense application", () => {
       ".sidebar-conversation-item"
     )
     expect(taskItem).not.toBeNull()
-    const pinButton = within(taskItem as HTMLElement).getByRole("button", {
-      name: `置顶任务“${taskTitle}”`,
-    })
+    await interaction.click(
+      within(taskItem as HTMLElement).getByRole("button", {
+        name: `${taskTitle}的更多操作`,
+      })
+    )
+    const pinButton = await screen.findByRole("menuitem", { name: "置顶任务" })
     expect(pinButton.querySelector("svg")).toHaveAttribute(
       "data-icon",
       "sidebar-pin"
@@ -602,8 +603,13 @@ describe("LinkSense application", () => {
       .getByText(taskTitle)
       .closest(".sidebar-conversation-item")
     expect(pinnedItem).not.toBeNull()
-    const unpinButton = within(pinnedItem as HTMLElement).getByRole("button", {
-      name: `取消置顶任务“${taskTitle}”`,
+    await interaction.click(
+      within(pinnedItem as HTMLElement).getByRole("button", {
+        name: `${taskTitle}的更多操作`,
+      })
+    )
+    const unpinButton = await screen.findByRole("menuitem", {
+      name: "取消置顶",
     })
     expect(unpinButton.querySelector("svg")).toHaveAttribute(
       "data-icon",
@@ -683,10 +689,10 @@ describe("LinkSense application", () => {
     expect(keyboardActivator.querySelector("svg")).toBeNull()
     expect(firstTask).toHaveClass("cursor-grab")
 
-    const pinButton = within(firstTask).getByRole("button", {
-      name: `置顶任务“${conversations[1]!.title}”`,
+    const moreButton = within(firstTask).getByRole("button", {
+      name: `${conversations[1]!.title}的更多操作`,
     })
-    fireEvent.pointerDown(pinButton, {
+    fireEvent.pointerDown(moreButton, {
       button: 0,
       clientX: 10,
       clientY: 10,
@@ -733,10 +739,13 @@ describe("LinkSense application", () => {
 
     await interaction.click(
       within(taskItem as HTMLElement).getByRole("button", {
-        name: `取消置顶任务“${task.title}”`,
+        name: `${task.title}的更多操作`,
       })
     )
 
+    await interaction.click(
+      await screen.findByRole("menuitem", { name: "取消置顶" })
+    )
     const dialog = await screen.findByRole("dialog", {
       name: "无法取消置顶",
     })

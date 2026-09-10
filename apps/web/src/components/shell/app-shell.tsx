@@ -1181,7 +1181,7 @@ function AppSidebarContent({
                               aria-label={t("statuses.running")}
                               className={cn(
                                 "sidebar-conversation-running pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--app-muted)] opacity-100 group-hover:opacity-0",
-                                "group-has-[:focus-visible]:opacity-0"
+                                "group-has-data-[popup-open]:opacity-0 group-has-[:focus-visible]:opacity-0"
                               )}
                             >
                               <LoaderCircleIcon
@@ -1199,7 +1199,7 @@ function AppSidebarContent({
                               )}
                               className={cn(
                                 "sidebar-conversation-warning pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--destructive)] opacity-100 group-hover:opacity-0",
-                                "group-has-[:focus-visible]:opacity-0"
+                                "group-has-data-[popup-open]:opacity-0 group-has-[:focus-visible]:opacity-0"
                               )}
                             >
                               <CircleAlertIcon
