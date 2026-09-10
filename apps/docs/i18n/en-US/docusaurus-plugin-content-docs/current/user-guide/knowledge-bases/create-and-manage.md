@@ -9,7 +9,7 @@ A knowledge base turns long-lived documents into retrievable, cited context.
 
 ## Create a local knowledge base
 
-1. Open **Library** from the sidebar and stay on the **Knowledge bases** tab.
+1. Open **Resource library** from the sidebar, then choose the **Knowledge bases** tab.
 2. Choose **Create knowledge base**.
 3. Enter a name and description.
 4. Select local upload and save.

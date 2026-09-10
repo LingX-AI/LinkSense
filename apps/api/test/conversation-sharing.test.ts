@@ -1,3 +1,4 @@
+import { conversationShareCreateSchema } from "@linksense/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import { ConversationShareService } from "../src/modules/conversations/sharing.js";
@@ -9,8 +10,120 @@ const TURN_ID = "40000000-0000-4000-8000-000000000001";
 const MESSAGE_ID = "50000000-0000-4000-8000-000000000001";
 
 describe("ConversationShareService", () => {
+  it("creates separate immutable links and never adds messages outside the submitted preview", async () => {
+    const source = conversationDetail();
+    const firstInput = conversationShareCreateSchema.parse({
+      snapshot: source,
+    });
+    const rows = new Map<string, ReturnType<typeof shareRow>>();
+    const create = vi.fn(
+      async ({
+        data,
+      }: {
+        data: Pick<
+          ReturnType<typeof shareRow>,
+          "snapshotJson" | "titleSnapshot"
+        >;
+      }) => {
+        const row = {
+          ...shareRow(),
+          ...data,
+          id: rows.size ? "30000000-0000-4000-8000-000000000002" : SHARE_ID,
+        };
+        rows.set(row.id, structuredClone(row));
+        return row;
+      },
+    );
+    const reader = { get: vi.fn(async () => source) };
+    const service = new ConversationShareService(
+      {
+        conversationShare: {
+          create,
+          findUnique: vi.fn(async ({ where }: { where: { id: string } }) =>
+            rows.get(where.id),
+          ),
+        },
+      } as never,
+      reader,
+    );
+
+    source.messages.push({
+      ...source.messages[0]!,
+      id: "50000000-0000-4000-8000-000000000099",
+      content_text: "Later private message",
+    });
+    source.messages[2]!.content_text = "Edited answer";
+    source.conversation.title = "New title";
+    source.files.push({
+      ...source.files[0]!,
+      id: "60000000-0000-4000-8000-000000000099",
+      filename: "later-private.md",
+    });
+
+    const first = await service.create(OWNER_ID, CONVERSATION_ID, firstInput);
+    const second = await service.create(
+      OWNER_ID,
+      CONVERSATION_ID,
+      conversationShareCreateSchema.parse({ snapshot: source }),
+    );
+    expect(first.id).not.toBe(second.id);
+    reader.get.mockClear();
+    const savedFirst = await service.get(first.id);
+    const savedSecond = await service.get(second.id);
+    expect(savedFirst.snapshot).toEqual(firstInput.snapshot);
+    expect(savedFirst.title).toBe("Shared task");
+    expect(savedFirst.snapshot?.files.map((file) => file.filename)).toEqual([
+      "result.md",
+    ]);
+    expect(
+      savedSecond.snapshot?.messages.map((message) => message.content_text),
+    ).toContain("Later private message");
+    expect(savedSecond.title).toBe("New title");
+    expect(reader.get).not.toHaveBeenCalled();
+  });
+
+  it.each(["conversation", "message", "file", "role", "turn"])(
+    "rejects a preview with a forged %s",
+    async (field) => {
+      const input = conversationShareCreateSchema.parse({
+        snapshot: conversationDetail(),
+      });
+      const foreignId = "90000000-0000-4000-8000-000000000001";
+      if (field === "conversation") input.snapshot.conversation.id = foreignId;
+      if (field === "message") input.snapshot.messages[0]!.id = foreignId;
+      if (field === "file") input.snapshot.files[0]!.id = foreignId;
+      if (field === "role") input.snapshot.messages[1]!.role = "user";
+      if (field === "turn") input.snapshot.messages[0]!.turn_id = foreignId;
+      const create = vi.fn();
+      const service = new ConversationShareService(
+        { conversationShare: { create } } as never,
+        { get: vi.fn(async () => conversationDetail()) },
+      );
+      await expect(
+        service.create(OWNER_ID, CONVERSATION_ID, input),
+      ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+      expect(create).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not store a snapshot when source ownership is denied", async () => {
+    const create = vi.fn();
+    const service = new ConversationShareService(
+      { conversationShare: { create } } as never,
+      { get: vi.fn().mockRejectedValue(new Error("access denied")) },
+    );
+    await expect(
+      service.create(
+        OWNER_ID,
+        CONVERSATION_ID,
+        conversationShareCreateSchema.parse({ snapshot: conversationDetail() }),
+      ),
+    ).rejects.toThrow("access denied");
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it("stores a read-only snapshot without owner or runtime identifiers", async () => {
-    const upsert = vi.fn(async (input: unknown) => {
+    const create = vi.fn(async (input: unknown) => {
       void input;
       return shareRow();
     });
@@ -18,11 +131,15 @@ describe("ConversationShareService", () => {
       get: vi.fn(async () => conversationDetail()),
     };
     const service = new ConversationShareService(
-      { conversationShare: { upsert } } as never,
+      { conversationShare: { create } } as never,
       reader,
     );
 
-    const result = await service.create(OWNER_ID, CONVERSATION_ID);
+    const result = await service.create(
+      OWNER_ID,
+      CONVERSATION_ID,
+      conversationShareCreateSchema.parse({ snapshot: conversationDetail() }),
+    );
 
     expect(reader.get).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID);
     expect(result).toMatchObject({
@@ -31,8 +148,8 @@ describe("ConversationShareService", () => {
       url_path: `/share/${SHARE_ID}`,
     });
     const storedSnapshot = (
-      upsert.mock.calls[0]?.[0] as {
-        create: {
+      create.mock.calls[0]?.[0] as {
+        data: {
           snapshotJson: {
             conversation: Record<string, unknown>;
             turns: Array<Record<string, unknown>>;
@@ -43,7 +160,7 @@ describe("ConversationShareService", () => {
           };
         };
       }
-    ).create.snapshotJson;
+    ).data.snapshotJson;
     expect(storedSnapshot.conversation).not.toHaveProperty("owner_id");
     expect(storedSnapshot.turns[0]).not.toHaveProperty("submitted_by");
     expect(storedSnapshot.turns[0]).not.toHaveProperty("codex_thread_id");
@@ -52,9 +169,9 @@ describe("ConversationShareService", () => {
     );
     expect(storedSnapshot.files[0]).toMatchObject({ downloadable: false });
     expect(storedSnapshot.messages).toHaveLength(2);
-    expect(storedSnapshot.messages.map((message) => message.content_text)).toEqual(
-      ["Please fix the layout", "The layout is fixed."],
-    );
+    expect(
+      storedSnapshot.messages.map((message) => message.content_text),
+    ).toEqual(["Please fix the layout", "The layout is fixed."]);
     expect(storedSnapshot.activities).toEqual([]);
     expect(storedSnapshot.events).toEqual([]);
   });

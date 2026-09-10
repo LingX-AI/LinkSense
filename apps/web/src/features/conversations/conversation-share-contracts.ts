@@ -1,21 +1,18 @@
 import { z } from "zod"
+import {
+  conversationShareReceiptSchema,
+  conversationShareSnapshotSchema,
+} from "@linksense/shared"
 
-import { conversationDetailSchema } from "@/api/contracts"
+import { projectConversationShareSnapshot } from "@/features/conversations/conversation-share-content"
 
-export const conversationShareReceiptSchema = z.strictObject({
-  id: z.string().uuid(),
-  conversation_id: z.string().uuid(),
-  title: z.string(),
-  url_path: z.string().startsWith("/share/"),
-  created_at: z.string(),
-  updated_at: z.string(),
-})
+export { conversationShareReceiptSchema } from "@linksense/shared"
 
-export const publicConversationShareSchema = conversationShareReceiptSchema
-  .omit({ url_path: true })
-  .extend({
-    url_path: z.string().startsWith("/share/"),
-    snapshot: conversationDetailSchema,
+export const publicConversationShareSchema =
+  conversationShareReceiptSchema.extend({
+    snapshot: conversationShareSnapshotSchema.transform(
+      projectConversationShareSnapshot
+    ),
   })
 
 export type PublicConversationShare = z.infer<

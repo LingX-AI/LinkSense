@@ -12,6 +12,7 @@ import {
   conversationEventSchema,
   isMeaninglessTemporaryUploadFilename,
   workspacePermissionPolicy,
+  type TaskArtifactFileType,
 } from "@linksense/shared";
 import { detectCfbf } from "@file-type/cfbf";
 import { FileTypeParser } from "file-type";
@@ -40,6 +41,7 @@ import {
   type ConversationService,
 } from "../conversations/service.js";
 import { nextConversationEventSequence } from "../events/sequence.js";
+import { taskArtifactFileTypeFilter } from "./task-artifact-file-type-filter.js";
 
 export interface FileCleanupScheduler {
   enqueueObjectDelete(objectKey: string): Promise<void>;
@@ -108,7 +110,12 @@ export class FileService {
 
   async listTaskArtifacts(
     ownerId: string,
-    input: { search?: string; cursor?: string; limit: number },
+    input: {
+      search?: string;
+      fileType?: TaskArtifactFileType;
+      cursor?: string;
+      limit: number;
+    },
   ) {
     const cursor = input.cursor
       ? parseTaskArtifactCursor(input.cursor)
@@ -151,6 +158,7 @@ export class FileService {
         AND f.minio_object_key IS NOT NULL
         ${cursorFilter}
         ${searchFilter}
+        ${input.fileType ? taskArtifactFileTypeFilter(input.fileType) : Prisma.empty}
       ORDER BY f.created_at DESC, f.id DESC
       LIMIT ${input.limit + 1}
     `);

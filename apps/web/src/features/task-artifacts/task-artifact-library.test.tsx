@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { MemoryRouter, Route, Routes } from "react-router-dom"
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
 
 import { downloadBlob } from "@/lib/download-blob"
 import i18n from "@/i18n"
@@ -102,8 +102,8 @@ describe("task artifact library", () => {
     vi.stubGlobal("fetch", fetchMock)
     renderLibrary()
 
-    expect(screen.getByRole("heading", { name: "文件库" })).toBeVisible()
-    const tabs = screen.getByRole("tablist", { name: "文件库内容" })
+    expect(screen.getByRole("heading", { name: "资料库" })).toBeVisible()
+    const tabs = screen.getByRole("tablist", { name: "资料库内容" })
     expect(tabs).toHaveAttribute("data-variant", "default")
     expect(within(tabs).getByRole("tab", { name: "任务产物" })).toHaveAttribute(
       "data-active",
@@ -181,113 +181,293 @@ describe("task artifact library", () => {
     ).toBe(true)
   })
 
-  it("automatically loads the next page when the list end approaches the scroll viewport", async () => {
-    let observerCallback: IntersectionObserverCallback | undefined
-    let observedTarget: Element | undefined
-    let observerOptions: IntersectionObserverInit | undefined
-    const disconnect = vi.fn()
-    class IntersectionObserverMock {
-      constructor(
-        callback: IntersectionObserverCallback,
-        options?: IntersectionObserverInit
-      ) {
-        observerCallback = callback
-        observerOptions = options
-      }
+  it.each(["all", "pdf"] as const)(
+    "automatically loads the next page with the %s file type filter and resets pagination when it changes",
+    async (fileType) => {
+      const interaction = userEvent.setup()
+      let observerCallback: IntersectionObserverCallback | undefined
+      let observedTarget: Element | undefined
+      let observerOptions: IntersectionObserverInit | undefined
+      const disconnect = vi.fn()
+      class IntersectionObserverMock {
+        constructor(
+          callback: IntersectionObserverCallback,
+          options?: IntersectionObserverInit
+        ) {
+          observerCallback = callback
+          observerOptions = options
+        }
 
-      observe(target: Element) {
-        observedTarget = target
-      }
+        observe(target: Element) {
+          observedTarget = target
+        }
 
-      unobserve() {}
-      disconnect = disconnect
-      takeRecords() {
-        return []
+        unobserve() {}
+        disconnect = disconnect
+        takeRecords() {
+          return []
+        }
       }
+      vi.stubGlobal("IntersectionObserver", IntersectionObserverMock)
+
+      let resolveNextPage: ((response: Response) => void) | undefined
+      const nextPageResponse = new Promise<Response>((resolve) => {
+        resolveNextPage = resolve
+      })
+      const fetchMock = vi.fn((input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin)
+        if (url.pathname !== "/api/v1/conversations/artifacts") {
+          return Promise.reject(
+            new Error(`Unexpected request: ${url.pathname}`)
+          )
+        }
+        if (url.searchParams.get("file_type") === "word") {
+          return Promise.resolve(
+            Response.json({
+              success: true,
+              data: {
+                items: [artifact({ filename: "筛选结果.docx" })],
+                next_cursor: null,
+              },
+            })
+          )
+        }
+        if (url.searchParams.get("cursor") === "next-page") {
+          return nextPageResponse
+        }
+        return Promise.resolve(
+          Response.json({
+            success: true,
+            data: {
+              items: [artifact({ filename: "第一页产物.pdf" })],
+              next_cursor: "next-page",
+            },
+          })
+        )
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      renderLibrary(
+        `/knowledge-bases?tab=artifacts${fileType === "all" ? "" : `&file_type=${fileType}`}`
+      )
+
+      expect(await screen.findByText("第一页产物.pdf")).toBeVisible()
+      await waitFor(() => expect(observedTarget).toBeDefined())
+      expect(observerOptions).toMatchObject({
+        rootMargin: "0px 0px 240px 0px",
+      })
+      expect(observerOptions?.root).toHaveClass("management-scroll")
+      expect(
+        screen.queryByRole("button", { name: "加载更多" })
+      ).not.toBeInTheDocument()
+
+      const triggerIntersection = (isIntersecting: boolean) => {
+        if (!observerCallback || !observedTarget) {
+          throw new Error(
+            "Expected the task artifact load sentinel to be observed"
+          )
+        }
+        observerCallback(
+          [
+            {
+              isIntersecting,
+              target: observedTarget,
+            } as IntersectionObserverEntry,
+          ],
+          {} as IntersectionObserver
+        )
+      }
+      act(() => triggerIntersection(false))
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      act(() => triggerIntersection(true))
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+      expect(
+        new URL(
+          String(fetchMock.mock.calls[1]?.[0]),
+          window.location.origin
+        ).searchParams.get("file_type")
+      ).toBe(fileType === "all" ? null : fileType)
+      expect(screen.getByRole("status")).toHaveTextContent("正在加载更多…")
+
+      act(() => triggerIntersection(true))
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+
+      await act(async () => {
+        resolveNextPage?.(
+          Response.json({
+            success: true,
+            data: {
+              items: [
+                artifact({
+                  id: "30000000-0000-4000-8000-000000000099",
+                  filename: "第二页产物.pdf",
+                }),
+              ],
+              next_cursor: null,
+            },
+          })
+        )
+      })
+      expect(await screen.findByText("第二页产物.pdf")).toBeVisible()
+      expect(screen.queryByRole("status")).not.toBeInTheDocument()
+      expect(disconnect).toHaveBeenCalled()
+
+      await interaction.click(
+        screen.getByRole("combobox", { name: "按文件类型筛选" })
+      )
+      await interaction.click(
+        await screen.findByRole("option", { name: "Word" })
+      )
+      expect(await screen.findByText("筛选结果.docx")).toBeVisible()
+      expect(screen.queryByText("第一页产物.pdf")).not.toBeInTheDocument()
+      expect(screen.queryByText("第二页产物.pdf")).not.toBeInTheDocument()
+      const nextFilterRequest = new URL(
+        String(fetchMock.mock.calls.at(-1)?.[0]),
+        window.location.origin
+      )
+      expect(nextFilterRequest.searchParams.get("file_type")).toBe("word")
+      expect(nextFilterRequest.searchParams.has("cursor")).toBe(false)
     }
-    vi.stubGlobal("IntersectionObserver", IntersectionObserverMock)
+  )
 
-    let resolveNextPage: ((response: Response) => void) | undefined
-    const nextPageResponse = new Promise<Response>((resolve) => {
-      resolveNextPage = resolve
-    })
+  it("combines type selection with search, hides unmatched task groups, and clears only the type when choosing all", async () => {
+    const interaction = userEvent.setup()
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = new URL(String(input), window.location.origin)
-      if (url.pathname !== "/api/v1/conversations/artifacts") {
-        return Promise.reject(new Error(`Unexpected request: ${url.pathname}`))
-      }
-      if (url.searchParams.get("cursor") === "next-page") {
-        return nextPageResponse
+      const files = [artifact({ filename: "季度总结.docx" })]
+      if (!url.searchParams.has("file_type")) {
+        files.push(
+          artifact({
+            id: "30000000-0000-4000-8000-000000000002",
+            conversation_id: archivedTaskId,
+            filename: "季度图片.png",
+            mime_type: "image/png",
+            task: {
+              id: archivedTaskId,
+              title: "图片任务",
+              archive_status: "active",
+            },
+          })
+        )
       }
       return Promise.resolve(
         Response.json({
           success: true,
-          data: {
-            items: [artifact({ filename: "第一页产物.pdf" })],
-            next_cursor: "next-page",
-          },
+          data: { items: files, next_cursor: null },
         })
       )
     })
     vi.stubGlobal("fetch", fetchMock)
-    renderLibrary()
+    renderLibrary("/knowledge-bases?tab=artifacts&search=季度")
 
-    expect(await screen.findByText("第一页产物.pdf")).toBeVisible()
-    await waitFor(() => expect(observedTarget).toBeDefined())
-    expect(observerOptions).toMatchObject({
-      rootMargin: "0px 0px 240px 0px",
-    })
-    expect(observerOptions?.root).toHaveClass("management-scroll")
-    expect(
-      screen.queryByRole("button", { name: "加载更多" })
-    ).not.toBeInTheDocument()
-
-    const triggerIntersection = (isIntersecting: boolean) => {
-      if (!observerCallback || !observedTarget) {
-        throw new Error(
-          "Expected the task artifact load sentinel to be observed"
-        )
-      }
-      observerCallback(
-        [
-          {
-            isIntersecting,
-            target: observedTarget,
-          } as IntersectionObserverEntry,
-        ],
-        {} as IntersectionObserver
-      )
+    expect(await screen.findByText("季度图片.png")).toBeVisible()
+    const filter = screen.getByRole("combobox", { name: "按文件类型筛选" })
+    expect(filter).toHaveTextContent("全部类型")
+    await interaction.click(filter)
+    for (const name of [
+      "全部类型",
+      "图片",
+      "Word",
+      "Excel",
+      "PPT",
+      "HTML",
+      "PDF",
+      "压缩包",
+      "文本",
+      "音频",
+      "视频",
+      "其他",
+    ]) {
+      expect(await screen.findByRole("option", { name })).toBeVisible()
     }
-    act(() => triggerIntersection(false))
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await interaction.click(screen.getByRole("option", { name: "Word" }))
+    await waitFor(() =>
+      expect(screen.queryByText("季度图片.png")).not.toBeInTheDocument()
+    )
+    expect(screen.getByText("季度总结.docx")).toBeVisible()
+    expect(
+      screen.queryByRole("link", { name: "图片任务" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByTestId("library-location")).toHaveTextContent(
+      "file_type=word"
+    )
 
-    act(() => triggerIntersection(true))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
-    expect(screen.getByRole("status")).toHaveTextContent("正在加载更多…")
-
-    act(() => triggerIntersection(true))
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-
-    await act(async () => {
-      resolveNextPage?.(
-        Response.json({
-          success: true,
-          data: {
-            items: [
-              artifact({
-                id: "30000000-0000-4000-8000-000000000099",
-                filename: "第二页产物.pdf",
-              }),
-            ],
-            next_cursor: null,
-          },
-        })
-      )
+    const search = screen.getByRole("textbox", {
+      name: "搜索任务标题或文件名…",
     })
-    expect(await screen.findByText("第二页产物.pdf")).toBeVisible()
-    expect(screen.queryByRole("status")).not.toBeInTheDocument()
-    expect(disconnect).toHaveBeenCalled()
+    await interaction.clear(search)
+    await interaction.type(search, "总结")
+    await waitFor(() => {
+      const request = new URL(
+        String(fetchMock.mock.calls.at(-1)?.[0]),
+        window.location.origin
+      )
+      expect(request.searchParams.get("search")).toBe("总结")
+      expect(request.searchParams.get("file_type")).toBe("word")
+    })
+    await interaction.click(filter)
+    await interaction.click(
+      await screen.findByRole("option", { name: "全部类型" })
+    )
+    expect(await screen.findByText("季度图片.png")).toBeVisible()
+    expect(search).toHaveValue("总结")
+    expect(screen.getByTestId("library-location")).toHaveTextContent(
+      "tab=artifacts&search="
+    )
+    expect(screen.getByTestId("library-location")).not.toHaveTextContent(
+      "file_type"
+    )
+    const request = new URL(
+      String(fetchMock.mock.calls.at(-1)?.[0]),
+      window.location.origin
+    )
+    expect(request.searchParams.has("file_type")).toBe(false)
+    expect(request.searchParams.get("search")).toBe("总结")
   })
+
+  it.each([
+    {
+      value: "image",
+      label: "图片",
+      queryValue: "image",
+      empty: "没有匹配的任务产物",
+    },
+    {
+      value: "unsupported",
+      label: "全部类型",
+      queryValue: null,
+      empty: "暂无任务产物",
+    },
+  ])(
+    "hydrates file type $value from the URL and shows the appropriate empty state",
+    async ({ value, label, queryValue, empty }) => {
+      const fetchMock = vi.fn(() =>
+        Promise.resolve(
+          Response.json({
+            success: true,
+            data: { items: [], next_cursor: null },
+          })
+        )
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      renderLibrary(`/knowledge-bases?tab=artifacts&file_type=${value}`)
+
+      expect(
+        screen.getByRole("combobox", { name: "按文件类型筛选" })
+      ).toHaveTextContent(label)
+      expect(await screen.findByText(empty)).toBeVisible()
+      expect(
+        new URL(
+          String(vi.mocked(fetch).mock.calls[0]?.[0]),
+          window.location.origin
+        ).searchParams.get("file_type")
+      ).toBe(queryValue)
+      if (queryValue)
+        expect(
+          screen.queryByText(/任务生成并登记可下载文件后/)
+        ).not.toBeInTheDocument()
+    }
+  )
 
   it("hydrates the artifact search field from the library URL", async () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL) => Promise<Response>>(
@@ -324,9 +504,14 @@ function renderLibrary(initialEntry = "/knowledge-bases?tab=artifacts") {
         <Routes>
           <Route path="/knowledge-bases" element={<KnowledgeBaseListPage />} />
         </Routes>
+        <LibraryLocation />
       </QueryClientProvider>
     </MemoryRouter>
   )
+}
+
+function LibraryLocation() {
+  return <div data-testid="library-location">{useLocation().search}</div>
 }
 
 function artifact(overrides: Record<string, unknown> = {}) {

@@ -25,9 +25,11 @@ Generated documents and media appear as deliverable cards. A download action cre
 
 ## Browse task artifacts in one place
 
-Open **Knowledge Bases** from the sidebar and choose **Task artifacts** to browse registered deliverables from your tasks by task name and creation time. Supported files use the same preview experience as the task page, and every listed file can be downloaded directly. Artifacts from archived tasks remain listed with an archived label.
+Open **Resource library** from the sidebar and choose **Task artifacts** to browse registered deliverables from your tasks by task name and creation time. Supported files use the same preview experience as the task page, and every listed file can be downloaded directly. Artifacts from archived tasks remain listed with an archived label.
 
-Search matches both task names and filenames. Select a task name to return to the original task for context. Artifacts from a permanently deleted task are no longer available through this list.
+Search matches both task names and filenames. Use the file type filter beside it to show images, Word, Excel, PPT, HTML, PDF, archives, text, audio, video, or other files. Combine the filter with a search term to narrow the results further, or select **All types** to remove the type restriction.
+
+Select a task name to return to the original task for context. Artifacts from a permanently deleted task are no longer available through this list.
 
 ## Better file results
 

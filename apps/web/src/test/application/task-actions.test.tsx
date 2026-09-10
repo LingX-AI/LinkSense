@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   setupApplicationTests,
   conversation,
@@ -218,6 +218,13 @@ describe("LinkSense application", () => {
   }, 30_000)
 
   it("uploads all pasted files one at a time", async () => {
+    vi.stubGlobal(
+      "URL",
+      class extends URL {
+        static createObjectURL = vi.fn(() => "blob:pasted-image")
+        static revokeObjectURL = vi.fn()
+      }
+    )
     let resolveFirstUpload: ((response: Response) => void) | undefined
     const firstUpload = new Promise<Response>((resolve) => {
       resolveFirstUpload = resolve
@@ -281,6 +288,14 @@ describe("LinkSense application", () => {
     await waitFor(() => expect(uploadedNames).toEqual([documentFile.name]), {
       timeout: 10_000,
     })
+    const imageUpload = screen.getByRole("status", {
+      name: `正在上传附件 ${imageFile.name}`,
+    })
+    expect(imageUpload.closest(".image-preview-thumbnail")).not.toBeNull()
+    expect(imageUpload.querySelector("img")).toHaveAttribute(
+      "src",
+      "blob:pasted-image"
+    )
     expect(
       requests.filter(
         (request) =>
