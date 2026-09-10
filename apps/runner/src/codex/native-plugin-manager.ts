@@ -152,6 +152,7 @@ export type NativePluginRefreshStage =
   | "input"
   | "lock"
   | "generation-before"
+  | "register-marketplace"
   | "inspect-current"
   | "read-state"
   | "remove-stale"
@@ -236,6 +237,8 @@ export class NativePluginManager {
         throw new NativePluginRefreshError()
       }
 
+      stage = "register-marketplace"
+      await this.ensureTaskMarketplace(input)
       stage = "inspect-current"
       const before = await this.listManagedPlugins(input)
       const configuredPluginIds = await configuredManagedPluginIds(
@@ -401,7 +404,7 @@ export class NativePluginManager {
         (entry) => entry.name === NATIVE_PLUGIN_MARKETPLACE_NAME,
       )
       const expectedMarketplacePath = path.join(
-        input.userHome,
+        path.dirname(input.codexHome),
         ".agents",
         "plugins",
         "marketplace.json",
@@ -437,7 +440,7 @@ export class NativePluginManager {
           plugin.summary.source.type !== "local" ||
           !(await isPathInside(
             path.join(
-              input.userHome,
+              path.dirname(input.codexHome),
               ".agents",
               "plugin-sources",
               pluginName,
@@ -533,6 +536,21 @@ export class NativePluginManager {
     const parsed = cliPluginListSchema.safeParse(value)
     if (!parsed.success) throw new NativePluginRefreshError()
     return parsed.data
+  }
+
+  private async ensureTaskMarketplace(input: {
+    command: string
+    userHome: string
+    codexHome: string
+    workspace: string
+    processIdentity?: ProcessIdentity
+  }): Promise<void> {
+    const taskRoot = path.dirname(input.codexHome)
+    if (await taskMarketplaceIsRegistered(input.codexHome, taskRoot)) return
+    // Codex 0.150.1 discovers the personal marketplace via HOME. Register the
+    // stable task root natively so shared HOME never controls task capabilities.
+    await this.runJsonCommand(input, ["plugin", "marketplace", "add", taskRoot, "--json"])
+    if (!await taskMarketplaceIsRegistered(input.codexHome, taskRoot)) throw new NativePluginRefreshError()
   }
 
   private async runJsonCommand(
@@ -712,6 +730,19 @@ function managedPluginName(pluginId: string): string | null {
   if (!pluginId.endsWith(suffix)) return null
   const pluginName = pluginId.slice(0, -suffix.length)
   return pluginNamePattern.test(pluginName) ? pluginName : null
+}
+
+async function taskMarketplaceIsRegistered(codexHome: string, taskRoot: string): Promise<boolean> {
+  let source: string
+  try { source = await readFile(path.join(codexHome, "config.toml"), "utf8") }
+  catch (error) { if (errorCode(error) === "ENOENT") return false; throw error }
+  if (Buffer.byteLength(source, "utf8") > MAX_CODEX_CONFIG_BYTES) throw new NativePluginRefreshError()
+  const config = z.object({ marketplaces: z.record(z.string(), z.unknown()).optional() }).parse(parse(source))
+  const entry = config.marketplaces?.[NATIVE_PLUGIN_MARKETPLACE_NAME]
+  if (entry === undefined) return false
+  const marketplace = z.object({ source_type: z.literal("local"), source: z.string() }).parse(entry)
+  if (!await isSamePath(marketplace.source, taskRoot)) throw new NativePluginRefreshError()
+  return true
 }
 
 async function configuredManagedPluginIds(

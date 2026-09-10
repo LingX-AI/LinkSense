@@ -58,6 +58,69 @@ async function tempRoot(): Promise<string> {
   return root
 }
 
+describe("shared user HOME with task capabilities", () => {
+  it("shares private tool state across tasks, isolates native state, and preserves the login when deleting a task", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    manager.bindOwner(taskB, ownerA)
+    const [first, second] = await Promise.all([
+      manager.ensureConversation(taskA, "current"),
+      manager.ensureConversation(taskB, "current"),
+    ])
+    expect(first.home).toBe(path.join(root, ownerA, "home"))
+    expect(second.home).toBe(first.home)
+    expect(first.codexHome).not.toBe(second.codexHome)
+    const configDirectory = path.join(first.home, ".example-cli")
+    await mkdir(configDirectory, { mode: 0o700 })
+    await writeFile(path.join(configDirectory, "login.json"), "synthetic-login", { mode: 0o600 })
+    expect(await readFile(path.join(second.home, ".example-cli", "login.json"), "utf8")).toBe("synthetic-login")
+    await manager.removeConversation(taskA)
+    expect(await readFile(path.join(second.home, ".example-cli", "login.json"), "utf8")).toBe("synthetic-login")
+    expect((await lstat(configDirectory)).mode & 0o777).toBe(0o700)
+    expect((await lstat(path.join(configDirectory, "login.json"))).mode & 0o777).toBe(0o600)
+    expect((await lstat(second.codexHome)).isDirectory()).toBe(true)
+    await expect(lstat(first.codexHome)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("discovers skills from the task workspace without publishing a shared HOME skills directory", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    const paths = await manager.ensureConversation(taskA, "current")
+    expect(await readlink(path.join(paths.workspace, ".agents"))).toBe(
+      path.join(root, ownerA, "home", ".agents", "tasks", taskA),
+    )
+    await expect(lstat(path.join(root, ownerA, "home", ".agents", "skills")))
+      .rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it.each(["directory", "foreign-link"])("rejects a workspace capability %s substitution without modifying it", async (kind) => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    const paths = manager.pathsFor(taskA)
+    const entry = path.join(paths.workspace, ".agents")
+    await mkdir(paths.workspace, { recursive: true })
+    if (kind === "directory") await mkdir(entry)
+    else await symlink(path.join(root, "another-task"), entry)
+    await expect(manager.ensureConversation(taskA, "current")).rejects.toBeInstanceOf(WorkspaceBoundaryError)
+    expect((await lstat(entry)).isSymbolicLink()).toBe(kind === "foreign-link")
+  })
+
+  it("updates task instructions on an existing template without changing native history", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    const paths = await manager.ensureConversation(taskA, "current")
+    await writeFile(path.join(paths.workspace, "AGENTS.md"), "<!-- linksense-template:current -->\nold task HOME instructions")
+    await writeFile(path.join(paths.codexHome, "history-fixture"), "same-history", { mode: 0o600 })
+    await manager.ensureConversation(taskA, "current")
+    expect(await readFile(path.join(paths.workspace, "AGENTS.md"), "utf8")).toContain("shared user HOME")
+    expect(await readFile(path.join(paths.codexHome, "history-fixture"), "utf8")).toBe("same-history")
+  })
+})
+
 describe("workspace filesystem helpers", () => {
   it("only tolerates chmod denial for a shared-group writable directory", () => {
     expect(
@@ -285,9 +348,9 @@ describe("WorkspaceManager", () => {
       manager.ensureConversation(otherTask, "current"),
     ])
 
-    expect(first.home).toBe(path.join(root, ownerA, "home", "task-homes", taskA))
-    expect(first.codexHome).toBe(path.join(first.home, ".codex"))
-    expect(second.home).not.toBe(first.home)
+    expect(first.taskHome).toBe(path.join(root, ownerA, "home", "task-homes", taskA))
+    expect(first.codexHome).toBe(path.join(first.taskHome, ".codex"))
+    expect(second.taskHome).not.toBe(first.taskHome)
     expect(second.codexHome).not.toBe(first.codexHome)
     expect(second.workspace).not.toBe(first.workspace)
     expect(second.taskControl).not.toBe(first.taskControl)
@@ -295,13 +358,13 @@ describe("WorkspaceManager", () => {
     expect(first.taskControl).toBe(
       path.join(root, ownerA, "control", "workspaces", taskA),
     )
-    expect(other.home).not.toBe(first.home)
+    expect(other.taskHome).not.toBe(first.taskHome)
     const taskAgentsFile = await readFile(
       path.join(first.workspace, "AGENTS.md"),
       "utf8",
     )
     expect(taskAgentsFile).toContain(
-      "Only operate inside the current task workspace",
+      "Create and edit task files only inside the current task workspace",
     )
     expect(taskAgentsFile).toContain(
       "built-in `linksense-skill-creator` workflow",
@@ -335,7 +398,7 @@ describe("WorkspaceManager", () => {
     await mkdir(path.join(root, ownerA, "home", ".agents", "tasks", taskA), { recursive: true })
     const paths = await manager.ensureConversation(taskA, "current")
     const skillsLink = path.join(paths.workspace, "skills")
-    const skillsRoot = path.join(paths.home, ".agents", "skills")
+    const skillsRoot = path.join(paths.taskHome, ".agents", "skills")
     const skillsTarget = path.relative(paths.workspace, skillsRoot)
 
     expect((await lstat(skillsLink)).isSymbolicLink()).toBe(true)
@@ -371,10 +434,12 @@ describe("WorkspaceManager", () => {
     manager.bindOwner(taskA, ownerA)
     const paths = manager.pathsFor(taskA)
     const skillsLink = path.join(paths.workspace, "skills")
-    const skillsRoot = path.join(paths.home, ".agents", "skills")
+    const skillsRoot = path.join(paths.taskHome, ".agents", "skills")
     const skillsTarget = path.relative(paths.workspace, skillsRoot)
     await mkdir(paths.workspace, { recursive: true })
-    await mkdir(skillsRoot, { recursive: true })
+    await mkdir(path.join(root, ownerA, "home", ".agents", "tasks", taskA, "skills"), { recursive: true })
+    await mkdir(paths.taskHome, { recursive: true })
+    await symlink(path.join(root, ownerA, "home", ".agents", "tasks", taskA), path.join(paths.taskHome, ".agents"))
     await symlink(skillsRoot, skillsLink, "dir")
 
     await manager.ensureConversation(taskA, "current")
@@ -551,7 +616,7 @@ describe("WorkspaceManager", () => {
     })
     expect((await lstat(second.workspace)).isDirectory()).toBe(true)
     expect(await readFile(persistentPlugin, "utf8")).toBe("keep")
-    await expect(lstat(first.home)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(lstat(first.taskHome)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(lstat(first.codexHome)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
@@ -973,7 +1038,8 @@ describe("WorkspaceManager", () => {
     manager.bindOwner(taskA, ownerA)
 
     expect(await manager.ensureConversation(taskA, "current")).toMatchObject({
-      home: path.join(fixedHome, "task-homes", taskA),
+      home: fixedHome,
+      taskHome: path.join(fixedHome, "task-homes", taskA),
       control: path.join(fixedControl, "workspaces", taskA),
       workspace: path.join(fixedHome, "workspaces", taskA),
       codexHome: path.join(fixedHome, "task-homes", taskA, ".codex"),
@@ -1024,11 +1090,11 @@ describe("CapabilityRuntimeManager", () => {
     const onFullVerification = vi.fn()
     const identity = { uid: process.getuid?.() ?? 1000, gid: process.getgid?.() ?? 1000 }
     const manager = new CapabilityRuntimeManager({ apiIdentity: identity, taskIdentity: identity, onFullVerification })
-    const seed = path.join(path.dirname(fixture.userHome), "seed")
-    await rename(path.join(fixture.userHome, ".agents"), seed)
+    const seed = path.join(path.dirname(fixture.taskHome), "seed")
+    await rename(path.join(fixture.taskHome, ".agents"), seed)
     const id = `${generation}-11111111-1111-4111-8111-111111111111`
-    const snapshots = path.join(fixture.userHome, ".agents", "snapshots")
-    const tasks = path.join(fixture.userHome, ".agents", "tasks")
+    const snapshots = path.join(fixture.taskHome, ".agents", "snapshots")
+    const tasks = path.join(fixture.taskHome, ".agents", "tasks")
     await mkdir(snapshots, { recursive: true, mode: 0o750 })
     await mkdir(tasks, { mode: 0o750 })
     const snapshot = path.join(snapshots, id)
@@ -1042,16 +1108,16 @@ describe("CapabilityRuntimeManager", () => {
     ]
     const inputs = []
     for (const task of ["019f45dd-a318-7d02-b03b-eaece8887883", "019f45dd-a318-7d02-b03b-eaece8887884"]) {
-      const userHome = path.join(fixture.userHome, "task-homes", task)
-      await mkdir(path.join(userHome, ".codex"), { recursive: true })
-      await chmod(userHome, 0o770)
-      await chmod(path.join(userHome, ".codex"), 0o770)
+      const taskHome = path.join(fixture.taskHome, "task-homes", task)
+      await mkdir(path.join(taskHome, ".codex"), { recursive: true })
+      await chmod(taskHome, 0o770)
+      await chmod(path.join(taskHome, ".codex"), 0o770)
       await symlink(`../snapshots/${id}`, path.join(tasks, task))
-      await symlink(path.join(tasks, task), path.join(userHome, ".agents"))
+      await symlink(path.join(tasks, task), path.join(taskHome, ".agents"))
       const controlRoot = path.join(path.dirname(fixture.controlRoot), task)
       await cp(fixture.controlRoot, controlRoot, { recursive: true })
       await writeFile(path.join(controlRoot, "capabilities", "capability-source-sha256"), `${generation}\n`, { mode: 0o600 })
-      inputs.push({ userHome, controlRoot, expectedGeneration: generation, capabilities, reuseImmutableSnapshot: true })
+      inputs.push({ taskHome, controlRoot, expectedGeneration: generation, capabilities, reuseImmutableSnapshot: true })
     }
     const first = inputs[0]
     const second = inputs[1]
@@ -1068,8 +1134,8 @@ describe("CapabilityRuntimeManager", () => {
     await chmod(snapshot, 0o770)
     await expect(manager.resolvePublished(second)).rejects.toBeInstanceOf(CapabilityRuntimeError)
     await chmod(snapshot, 0o750)
-    await rm(path.join(tasks, path.basename(second.userHome)))
-    await symlink(snapshot, path.join(tasks, path.basename(second.userHome)))
+    await rm(path.join(tasks, path.basename(second.taskHome)))
+    await symlink(snapshot, path.join(tasks, path.basename(second.taskHome)))
     await expect(manager.resolvePublished(second)).rejects.toBeInstanceOf(CapabilityRuntimeError)
   })
 
@@ -1079,7 +1145,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [
@@ -1098,9 +1164,9 @@ describe("CapabilityRuntimeManager", () => {
         ],
       }),
     ).resolves.toMatchObject({
-      skillsRoot: path.join(fixture.userHome, ".agents", "skills"),
+      skillsRoot: path.join(fixture.taskHome, ".agents", "skills"),
       pluginSourceRoot: path.join(
-        fixture.userHome,
+        fixture.taskHome,
         ".agents",
         "plugin-sources",
       ),
@@ -1124,7 +1190,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [
@@ -1158,7 +1224,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [
@@ -1197,7 +1263,7 @@ describe("CapabilityRuntimeManager", () => {
       },
     ]
     const before = await manager.resolvePublished({
-      userHome: fixture.userHome,
+      taskHome: fixture.taskHome,
       controlRoot: fixture.controlRoot,
       expectedGeneration: generation,
       capabilities,
@@ -1220,7 +1286,7 @@ describe("CapabilityRuntimeManager", () => {
       `${contentDigest}\n`,
     )
     const after = await manager.resolvePublished({
-      userHome: fixture.userHome,
+      taskHome: fixture.taskHome,
       controlRoot: fixture.controlRoot,
       expectedGeneration: generation,
       capabilities,
@@ -1242,7 +1308,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: "b".repeat(64),
         capabilities: [capability],
@@ -1258,7 +1324,7 @@ describe("CapabilityRuntimeManager", () => {
     )
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [capability],
@@ -1276,7 +1342,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [
@@ -1315,7 +1381,7 @@ describe("CapabilityRuntimeManager", () => {
       },
     ]
     const verified = await manager.resolvePublished({
-      userHome: fixture.userHome,
+      taskHome: fixture.taskHome,
       controlRoot: fixture.controlRoot,
       expectedGeneration: generation,
       capabilities,
@@ -1327,7 +1393,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities,
@@ -1336,7 +1402,7 @@ describe("CapabilityRuntimeManager", () => {
     ).resolves.toBe(verified)
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities,
@@ -1351,7 +1417,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [
@@ -1379,7 +1445,7 @@ describe("CapabilityRuntimeManager", () => {
 
     await expect(
       manager.resolvePublished({
-        userHome: fixture.userHome,
+        taskHome: fixture.taskHome,
         controlRoot: fixture.controlRoot,
         expectedGeneration: generation,
         capabilities: [
@@ -1413,13 +1479,13 @@ describe("CapabilityRuntimeManager", () => {
 
 async function publishedRuntimeFixture() {
   const root = await tempRoot()
-  const userHome = path.join(root, "home")
+  const taskHome = path.join(root, "home")
   const controlRoot = path.join(root, "control")
-  const skillsRoot = path.join(userHome, ".agents", "skills")
-  const pluginsRoot = path.join(userHome, ".agents", "plugin-sources")
+  const skillsRoot = path.join(taskHome, ".agents", "skills")
+  const pluginsRoot = path.join(taskHome, ".agents", "plugin-sources")
   const pluginRoot = path.join(pluginsRoot, "documents")
   const marketplacePath = path.join(
-    userHome,
+    taskHome,
     ".agents",
     "plugins",
     "marketplace.json",
@@ -1445,7 +1511,7 @@ async function publishedRuntimeFixture() {
       recursive: true,
     }),
     mkdir(pluginRoot, { recursive: true }),
-    mkdir(path.join(userHome, ".codex", "plugins"), { recursive: true }),
+    mkdir(path.join(taskHome, ".codex", "plugins"), { recursive: true }),
     mkdir(path.dirname(marketplacePath), { recursive: true }),
     mkdir(capabilityControl, { recursive: true }),
   ])
@@ -1495,8 +1561,8 @@ async function publishedRuntimeFixture() {
     writeFile(marketplacePath, marketplace),
   ])
   const directoryModes = [
-    [userHome, 0o770],
-    [path.join(userHome, ".agents"), 0o750],
+    [taskHome, 0o770],
+    [path.join(taskHome, ".agents"), 0o750],
     [skillsRoot, 0o750],
     [path.join(skillsRoot, "reports"), 0o750],
     [path.join(skillsRoot, "linksense-browser"), 0o750],
@@ -1506,8 +1572,8 @@ async function publishedRuntimeFixture() {
     [path.join(skillsRoot, "linksense-image-generation"), 0o750],
     [path.join(skillsRoot, "linksense-knowledge-base"), 0o750],
     [path.join(skillsRoot, "linksense-skill-creator"), 0o750],
-    [path.join(userHome, ".agents", "plugins"), 0o750],
-    [path.join(userHome, ".codex"), 0o770],
+    [path.join(taskHome, ".agents", "plugins"), 0o750],
+    [path.join(taskHome, ".codex"), 0o770],
     [pluginsRoot, 0o750],
     [pluginRoot, 0o750],
     [capabilityControl, 0o700],
@@ -1551,7 +1617,7 @@ async function publishedRuntimeFixture() {
     chmod(path.join(capabilityControl, "capability-content-sha256"), 0o600),
   ])
   return {
-    userHome,
+    taskHome,
     controlRoot,
     marketplacePath,
     skillsRoot,

@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.build.json && node dist/commands/bundle-linksense-docs.js",
     "start": "node dist/index.js",
     "runtime:migrate-task-homes": "tsx --env-file-if-exists=../../.env src/commands/migrate-task-codex-homes.ts",
+    "runtime:consolidate-tool-homes": "tsx --env-file-if-exists=../../.env src/commands/consolidate-user-tool-homes.ts",
     "knowledge:reset-storage": "tsx --env-file-if-exists=../../.env src/commands/reset-knowledge-storage.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --pool=threads --maxWorkers=4 --maxConcurrency=2",

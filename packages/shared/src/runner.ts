@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const RUNNER_TURN_START_CONTRACT_VERSION =
-  "task-capability-snapshots-v19" as const;
+  "shared-user-home-v21" as const;
 
 /** Names are server-resolved display data; null means unavailable to this user. */
 export const runnerKnowledgeBaseSelectionSchema = z

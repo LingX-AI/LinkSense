@@ -34,7 +34,7 @@ describe("runtime cleanup directories", () => {
     await writeFile(path.join(workspace, "attachment.txt"), "content")
 
     await expect(
-      removeConversationRuntimeDirectories({ home, workspace, taskControl }),
+      removeConversationRuntimeDirectories({ taskHome: home, workspace, taskControl }),
     ).resolves.toEqual({ workspace: "deleted", control: "deleted" })
     await expect(lstat(home)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(lstat(workspace)).rejects.toMatchObject({ code: "ENOENT" })
@@ -46,7 +46,7 @@ describe("runtime cleanup directories", () => {
 
     await expect(
       removeConversationRuntimeDirectories({
-        home: path.join(root, "task-home"),
+        taskHome: path.join(root, "task-home"),
         workspace: path.join(root, "home", "workspaces", "missing"),
         taskControl: path.join(root, "control", "workspaces", "missing"),
       }),
@@ -61,7 +61,7 @@ describe("runtime cleanup directories", () => {
 
     await expect(
       removeConversationRuntimeDirectories(
-        { home: "/private/task-home", workspace: "/private/workspace", taskControl: "/private/control" },
+        { taskHome: "/private/task-home", workspace: "/private/workspace", taskControl: "/private/control" },
         {
           inspect: vi.fn(async () => ({}) as never),
           makeRemovable: vi.fn(async () => undefined),

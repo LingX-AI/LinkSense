@@ -279,15 +279,13 @@ export async function browserCliMain(
   }
   const canonicalHome = await realpath(userHome)
   const canonicalCodexHome = await realpath(codexHome)
-  if (canonicalCodexHome !== path.join(canonicalHome, ".codex")) {
-    throw new Error("browser CODEX_HOME is outside the user HOME")
-  }
-  const workspace = await resolveTaskWorkspace(cwd, canonicalHome)
+  const expectedWorkspace = browserWorkspaceForCodexHome(canonicalHome, canonicalCodexHome)
+  const workspace = await resolveTaskWorkspace(cwd, expectedWorkspace)
   const conversationId = path.basename(workspace)
   const runtimeRoot =
     dependencies.runtimeRoot ?? DEFAULT_BROWSER_RUNTIME_ROOT
   const stateRoot = path.join(
-    canonicalHome,
+    path.dirname(canonicalCodexHome),
     ".local",
     "share",
     "linksense",
@@ -675,22 +673,23 @@ async function writeBrowserConfig(
   await rename(temporaryPath, destination)
 }
 
-export function browserWorkspaceForTaskHome(userHome: string, expectedTaskId?: string): string {
-  const homes = path.dirname(userHome)
-  const taskId = path.basename(userHome)
+export function browserWorkspaceForCodexHome(userHome: string, codexHome: string, expectedTaskId?: string): string {
+  const taskHome = path.dirname(codexHome)
+  const taskId = path.basename(taskHome)
   if (!path.isAbsolute(userHome) || path.normalize(userHome) !== userHome ||
-    path.basename(homes) !== "task-homes" || !conversationIdPattern.test(taskId) ||
+    !path.isAbsolute(codexHome) || path.normalize(codexHome) !== codexHome ||
+    path.basename(codexHome) !== ".codex" ||
+    path.dirname(taskHome) !== path.join(userHome, "task-homes") || !conversationIdPattern.test(taskId) ||
     (expectedTaskId !== undefined && taskId !== expectedTaskId)) {
-    throw new Error("browser requires an isolated task HOME")
+    throw new Error("browser requires a task CODEX_HOME inside the user HOME")
   }
-  return path.join(path.dirname(homes), "workspaces", taskId)
+  return path.join(userHome, "workspaces", taskId)
 }
 
 async function resolveTaskWorkspace(
   cwd: string,
-  canonicalHome: string,
+  expectedWorkspace: string,
 ): Promise<string> {
-  const expectedWorkspace = browserWorkspaceForTaskHome(canonicalHome)
   const taskId = path.basename(expectedWorkspace)
   const workspaceRoot = path.dirname(expectedWorkspace)
   const rootInfo = await lstat(workspaceRoot)

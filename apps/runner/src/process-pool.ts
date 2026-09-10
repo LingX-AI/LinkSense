@@ -57,6 +57,7 @@ import {
   type PlanSkillReference,
   type TurnContextInput,
 } from "./context.js";
+import { prepareCodexAdditionalContext } from "./codex/additional-context.js";
 import {
   blockUnresolvedLocalMarkdownImages,
   projectAssistantMessageAssets,
@@ -72,6 +73,7 @@ import {
 import {
   builtInMcpConfigOverrides,
   linkSenseModelProviderConfigOverrides,
+  linkSenseSkillConfigOverrides,
   linkSenseModelProviderId,
 } from "./codex/runtime-config-overrides.js";
 import {
@@ -1847,12 +1849,15 @@ export class AppServerProcessPool {
         input.collaborationMode === "plan"
           ? await loadPlanSkillReferences(prioritySkills)
           : [];
-      const additionalContext = buildTurnAdditionalContext(
+      const turnAdditionalContext = buildTurnAdditionalContext(
         input.context,
         managed.authorizedSkills,
         input.collaborationMode,
         planSkillReferences,
       );
+      const additionalContext = turnAdditionalContext
+        ? prepareCodexAdditionalContext(turnAdditionalContext)
+        : undefined;
       const collaborationMode = buildTurnCollaborationMode(
         input.context,
         input.model,
@@ -4696,7 +4701,7 @@ export class AppServerProcessPool {
     try {
       const capabilityRuntime =
         await this.options.capabilityRuntimeManager.resolvePublished({
-          userHome: paths.home,
+          taskHome: paths.taskHome,
           controlRoot: paths.control,
           expectedGeneration: input.capabilityGeneration,
           capabilities: input.capabilities,
@@ -4898,6 +4903,7 @@ export class AppServerProcessPool {
           // config.toml. Codex alone persists native plugin selections there.
           configOverrides: [
             ...this.globalFeatureOverrides,
+            ...linkSenseSkillConfigOverrides(input.collaborationMode),
             ...linkSenseModelProviderConfigOverrides({
               baseUrl: this.options.modelGateway.baseUrl,
               protocolMode: input.modelProvider.protocolMode,

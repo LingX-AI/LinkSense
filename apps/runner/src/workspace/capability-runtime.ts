@@ -74,7 +74,7 @@ export class CapabilityRuntimeError extends Error {
 
 /**
  * The API owns capability source materialization. The runner only validates
- * the atomically published read-only $HOME/.agents projection and never
+ * the atomically published read-only task .agents projection and never
  * copies source files, edits Codex configuration, or manages Codex's
  * task-owned installation cache under CODEX_HOME.
  */
@@ -112,21 +112,21 @@ export class CapabilityRuntimeManager {
   }
 
   pathsFor(
-    userHome: string,
+    taskHome: string,
     controlRoot: string,
   ): Omit<
     PreparedCapabilityRuntime,
     "contentDigest" | "pluginContentDigest" | "generation"
   > {
     return {
-      skillsRoot: path.join(userHome, ".agents", "skills"),
+      skillsRoot: path.join(taskHome, ".agents", "skills"),
       pluginSourceRoot: path.join(
-        userHome,
+        taskHome,
         ".agents",
         "plugin-sources",
       ),
       marketplacePath: path.join(
-        userHome,
+        taskHome,
         ".agents",
         "plugins",
         "marketplace.json",
@@ -188,10 +188,10 @@ export class CapabilityRuntimeManager {
   }
 
   async existing(
-    userHome: string,
+    taskHome: string,
     controlRoot: string,
   ): Promise<PreparedCapabilityRuntime | null> {
-    const paths = this.pathsFor(userHome, controlRoot)
+    const paths = this.pathsFor(taskHome, controlRoot)
     try {
       const generation = await this.readControlDigest(
         path.join(paths.capabilityControl, "capability-generation"),
@@ -230,7 +230,7 @@ export class CapabilityRuntimeManager {
   }
 
   async resolvePublished(input: {
-    userHome: string
+    taskHome: string
     controlRoot: string
     expectedGeneration: string
     capabilities: CapabilityRuntimeInput[]
@@ -255,12 +255,12 @@ export class CapabilityRuntimeManager {
       )
       // Snapshot IDs are never reused, including after repair. Validate the
       // task binding on every lookup; only immutable file bytes are cached.
-      const snapshot = await this.assertAgentsProjection(input.userHome)
+      const snapshot = await this.assertAgentsProjection(input.taskHome)
       if (snapshot) {
-        const paths = this.pathsFor(input.userHome, input.controlRoot)
+        const paths = this.pathsFor(input.taskHome, input.controlRoot)
         await Promise.all([
-          this.assertDirectory(input.userHome, 0o770, this.#taskIdentity),
-          this.assertDirectory(path.join(input.userHome, ".codex"), 0o770, this.#taskIdentity),
+          this.assertDirectory(input.taskHome, 0o770, this.#taskIdentity),
+          this.assertDirectory(path.join(input.taskHome, ".codex"), 0o770, this.#taskIdentity),
           this.assertDirectory(paths.capabilityControl, 0o700, this.#apiIdentity),
         ])
         const markers = await Promise.all([
@@ -316,28 +316,28 @@ export class CapabilityRuntimeManager {
   }
 
   private async resolveLocked(input: {
-    userHome: string
+    taskHome: string
     controlRoot: string
     expectedGeneration: string
     capabilities: CapabilityRuntimeInput[]
   }): Promise<PreparedCapabilityRuntime> {
     this.#onFullVerification?.()
-    const paths = this.pathsFor(input.userHome, input.controlRoot)
+    const paths = this.pathsFor(input.taskHome, input.controlRoot)
     await Promise.all([
       this.assertDirectory(
         paths.capabilityControl,
         0o700,
         this.#apiIdentity,
       ),
-      this.assertDirectory(input.userHome, 0o770, this.#taskIdentity),
-      this.assertAgentsProjection(input.userHome),
+      this.assertDirectory(input.taskHome, 0o770, this.#taskIdentity),
+      this.assertAgentsProjection(input.taskHome),
       this.assertDirectory(
-        path.join(input.userHome, ".agents", "plugins"),
+        path.join(input.taskHome, ".agents", "plugins"),
         0o750,
         this.#apiIdentity,
       ),
       this.assertDirectory(
-        path.join(input.userHome, ".codex"),
+        path.join(input.taskHome, ".codex"),
         0o770,
         this.#taskIdentity,
       ),
@@ -493,20 +493,20 @@ export class CapabilityRuntimeManager {
     )
   }
 
-  private async assertAgentsProjection(userHome: string): Promise<{ root: string; manifest: CapabilitySnapshot } | null> {
-    const agents = path.join(userHome, ".agents")
+  private async assertAgentsProjection(taskHome: string): Promise<{ root: string; manifest: CapabilitySnapshot } | null> {
+    const agents = path.join(taskHome, ".agents")
     const info = await lstat(agents)
     if (!info.isSymbolicLink()) {
       await this.assertDirectory(agents, 0o750, this.#apiIdentity)
       return null
     }
-    const homes = path.dirname(userHome)
-    const conversationId = path.basename(userHome)
+    const homes = path.dirname(taskHome)
+    const conversationId = path.basename(taskHome)
     if (path.basename(homes) !== "task-homes" || !z.uuid().safeParse(conversationId).success) {
       throw new CapabilityRuntimeError()
     }
     const projection = path.join(path.dirname(homes), ".agents", "tasks", conversationId)
-    if (path.resolve(userHome, await readlink(agents)) !== projection) {
+    if (path.resolve(taskHome, await readlink(agents)) !== projection) {
       throw new CapabilityRuntimeError()
     }
     const taskProjection = await lstat(projection)
@@ -576,10 +576,10 @@ export class CapabilityRuntimeManager {
 }
 
 function verifiedPublicationKey(input: {
-  userHome: string
+  taskHome: string
   controlRoot: string
 }): string {
-  return [input.userHome, input.controlRoot].join("\u0000")
+  return [input.taskHome, input.controlRoot].join("\u0000")
 }
 
 function capabilityRuntimeFingerprint(

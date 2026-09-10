@@ -462,7 +462,7 @@ export class WorkerManager {
           }
         }
         const result = await removeConversationRuntimeDirectories({
-          home: safeChildPath(safeChildPath(directories.home, "task-homes"), validatedConversationId),
+          taskHome: safeChildPath(safeChildPath(directories.home, "task-homes"), validatedConversationId),
           workspace: safeChildPath(
             directories.workspaces,
             validatedConversationId,

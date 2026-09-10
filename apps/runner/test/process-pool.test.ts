@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 
 import pino, { type Logger } from "pino";
+import { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ChildProcessFactory } from "../src/codex/json-rpc-client.js";
@@ -82,6 +83,34 @@ afterEach(async () => {
 });
 
 describe("AppServerProcessPool", () => {
+  it("sends complete long application instructions through bounded native context fragments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-full-context-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    const instructions = "应用步骤🙂。".repeat(2_000);
+    input.context.applicationInstructions = instructions;
+    await pool.startTurn(input);
+    const start = controlled.requests.find(request => request.method === "turn/start");
+    expect(start).toBeDefined();
+    const parsed = z.object({
+      additionalContext: z.record(z.string(), z.object({
+        kind: z.enum(["application", "untrusted"]), value: z.string(),
+      })),
+    }).parse(start?.params);
+    const parts = Object.entries(parsed.additionalContext)
+      .filter(([key]) => key.startsWith("linksense.application-instructions.part."))
+      .sort(([a], [b]) => a.localeCompare(b));
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.map(([, part]) => part.value.split("\n").slice(1).join("\n")).join("")).toContain(instructions);
+    for (const [, part] of parts) {
+      expect(part.kind).toBe("application");
+      expect(Buffer.byteLength(part.value)).toBeLessThanOrEqual(3_000);
+    }
+    await pool.closeAll();
+  });
+
   it("uses a same-turn terminal notification without regressing newer snapshots", () => {
     const running = { id: "child-turn-1", status: "inProgress" as const };
     const completed = { id: "child-turn-1", status: "completed" as const };
@@ -537,7 +566,12 @@ describe("AppServerProcessPool", () => {
     await mkdir(codexHome, { recursive: true });
     await writeFile(
       join(codexHome, "config.toml"),
-      `[features]
+      `[skills]
+include_instructions = false
+[skills.bundled]
+enabled = true
+
+[features]
 apps = true
 plugins = false
 
@@ -563,6 +597,8 @@ trust_level = "trusted"
     await pool.startTurn(startOperationInput());
 
     const args = controlled.args ?? [];
+    expect(args).toContain("skills.include_instructions=true");
+    expect(args).toContain("skills.bundled.enabled=false");
     expect(args).not.toContain("features.use_legacy_landlock=true");
     expect(args).not.toContain("features.hooks=true");
     expect(args).not.toContain(
@@ -624,6 +660,8 @@ trust_level = "trusted"
       "utf8",
     );
     expect(persistedConfig).toContain("apps = true");
+    expect(persistedConfig).toContain("include_instructions = false");
+    expect(persistedConfig).toContain("enabled = true");
     expect(persistedConfig).toContain("plugins = false");
     expect(persistedConfig).toContain('[projects."/persisted-user-project"]');
     expect(persistedConfig).not.toContain("features.apps=false");
@@ -908,6 +946,8 @@ trust_level = "trusted"
 
     const childEnvironment = controlled.environment;
     if (!childEnvironment) throw new Error("app-server was not started");
+    expect(controlled.args).toContain("skills.include_instructions=false");
+    expect(controlled.args).toContain("skills.bundled.enabled=false");
     expect(childEnvironment[pluginCredentialSource]).toBeUndefined();
     expect(childEnvironment[mcpCredentialSource]).toBeUndefined();
     expect(childEnvironment[mcpEnvironmentSource]).toBeUndefined();
@@ -2775,7 +2815,7 @@ trust_level = "trusted"
       controlled.factory,
     );
     const stableSkillPath = join(
-      workspaceManager.pathsFor(input.conversationId).home,
+      workspaceManager.pathsFor(input.conversationId).taskHome,
       ".agents",
       "skills",
       "reports",
@@ -6459,7 +6499,7 @@ trust_level = "trusted"
       expect(browserSessionCleanup).toHaveBeenCalledWith({
         conversationId,
         ownerId: "01900000-0000-7000-8000-000000000002",
-        userHome: taskRuntimeHome(root, conversationId),
+        userHome: join(root, "home"),
         codexHome: join(taskRuntimeHome(root, conversationId), ".codex"),
         workspace: join(root, "home", "workspaces", conversationId),
       });
@@ -10522,23 +10562,23 @@ function createCapabilityRuntimeManagerMock() {
     ),
     resolvePublished: vi.fn(
       async ({
-        userHome,
+        taskHome,
         controlRoot,
         expectedGeneration,
       }: {
-        userHome: string;
+        taskHome: string;
         controlRoot: string;
         expectedGeneration: string;
         reuseVerified?: boolean;
       }) => ({
-        skillsRoot: join(userHome, ".agents", "skills"),
+        skillsRoot: join(taskHome, ".agents", "skills"),
         pluginSourceRoot: join(
-          userHome,
+          taskHome,
           ".agents",
           "plugin-sources",
         ),
         marketplacePath: join(
-          userHome,
+          taskHome,
           ".agents",
           "plugins",
           "marketplace.json",

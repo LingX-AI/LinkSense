@@ -76,6 +76,7 @@ const managedModelTopLevelKeys = [
 const runtimeGenerationFileName = "runtime-generation"
 const personalizationFileName = "personalization.json"
 const globalAgentsFileName = "AGENTS.md"
+const taskRulesVersion = "shared-home-v1"
 const managedCodexFileNames = ["config.toml", "auth.json", globalAgentsFileName]
 const coreMcpInteractiveFormToolTimeoutSeconds =
   Math.ceil(conversationFormAutoResolutionMs / 1_000) + 30
@@ -86,7 +87,10 @@ const personalizationStateSchema = z.strictObject({
 })
 
 export type ConversationPaths = {
+  /** Persistent HOME shared by this execution user's tools. */
   home: string
+  /** Task-owned native state; never use the shared HOME for task cleanup. */
+  taskHome: string
   control: string
   taskControl: string
   workspace: string
@@ -200,14 +204,15 @@ export class WorkspaceManager {
     const ownerId = this.ownerFor(conversationId)
     const owner = this.ownerPathsFor(ownerId)
     const workspace = path.join(owner.home, "workspaces", conversationId)
-    const home = path.join(owner.home, "task-homes", conversationId)
+    const taskHome = path.join(owner.home, "task-homes", conversationId)
     const control = path.join(owner.control, "workspaces", conversationId)
     return {
-      home,
+      home: owner.home,
+      taskHome,
       control,
       taskControl: control,
       workspace,
-      codexHome: path.join(home, ".codex"),
+      codexHome: path.join(taskHome, ".codex"),
     }
   }
 
@@ -267,20 +272,21 @@ export class WorkspaceManager {
     const paths = this.pathsFor(conversationId)
     const ownerId = this.ownerFor(conversationId)
     const owner = await this.ensureOwner(ownerId)
-    await assertTaskDirectoryParents(owner.home, paths.home)
+    await assertTaskDirectoryParents(owner.home, paths.taskHome)
+    await assertTaskDirectoryParents(owner.home, paths.workspace)
     await assertTaskDirectoryParents(owner.control, paths.taskControl)
     await ensureSupervisorDirectory(
       path.dirname(paths.taskControl),
       0o700,
     )
     await ensureSupervisorDirectory(paths.taskControl, 0o700)
-    await mkdir(path.dirname(paths.home), { recursive: true, mode: 0o770 })
+    await mkdir(path.dirname(paths.taskHome), { recursive: true, mode: 0o770 })
     await this.ensureTaskDirectories(paths)
     await this.writeGlobalAgentsFile(paths, owner.personalization)
-    // The owner mount is read-only. Each task discovers only its own API
-    // publication, while all writable Codex state lives in its separate task HOME.
+    // Keep plugin source paths stable for existing native installations. Skill
+    // discovery uses the workspace projection below, independently of HOME.
     await ensureDirectoryLink(
-      path.join(paths.home, ".agents"),
+      path.join(paths.taskHome, ".agents"),
       path.join(owner.home, ".agents", "tasks", conversationId),
     )
     await Promise.all([
@@ -317,11 +323,15 @@ export class WorkspaceManager {
         ),
       ),
     )
+    await ensureCapabilityProjectionLink(
+      path.join(paths.workspace, ".agents"),
+      path.join(owner.home, ".agents", "tasks", conversationId),
+    )
     const runtimeGeneration = await this.ensureRuntimeGeneration(
       paths.taskControl,
     )
     const nodeModules = this.options.userNodeModulesForOwner?.(ownerId)
-    const skillsRoot = path.join(paths.home, ".agents", "skills")
+    const skillsRoot = path.join(paths.taskHome, ".agents", "skills")
     await ensureDirectoryLink(
       path.join(paths.workspace, "skills"),
       path.relative(paths.workspace, skillsRoot),
@@ -553,11 +563,11 @@ export class WorkspaceManager {
   async removeConversation(conversationId: string): Promise<void> {
     const paths = this.pathsFor(conversationId)
     const owner = this.ownerPathsFor(this.ownerFor(conversationId))
-    await assertTaskDirectoryParents(owner.home, paths.home)
+    await assertTaskDirectoryParents(owner.home, paths.taskHome)
     await assertTaskDirectoryParents(owner.home, paths.workspace)
     await assertTaskDirectoryParents(owner.control, paths.taskControl)
     await removeConversationRuntimeDirectories({
-      home: paths.home,
+      taskHome: paths.taskHome,
       workspace: paths.workspace,
       taskControl: paths.taskControl,
       ...(this.options.directoryCleanupIdentity
@@ -634,15 +644,15 @@ export class WorkspaceManager {
 
   private async ensureTaskDirectories(paths: ConversationPaths): Promise<void> {
     await Promise.all([
-      mkdir(paths.home, { recursive: true, mode: 0o770 }),
+      mkdir(paths.taskHome, { recursive: true, mode: 0o770 }),
       mkdir(paths.control, { recursive: true, mode: 0o700 }),
     ])
     await setManagedDirectoryMode(
-      paths.home,
+      paths.taskHome,
       0o770,
       this.options.directoryCleanupIdentity,
     )
-    await this.ensureTaskDirectoryOwner(paths.home)
+    await this.ensureTaskDirectoryOwner(paths.taskHome)
     await ensureSupervisorDirectory(paths.control, 0o700)
     await mkdir(paths.codexHome, { recursive: true, mode: 0o770 })
     await setManagedDirectoryMode(
@@ -819,7 +829,7 @@ export class WorkspaceManager {
     templateVersion: string,
   ): Promise<void> {
     const agentsPath = path.join(paths.workspace, "AGENTS.md")
-    const marker = `<!-- linksense-template:${templateVersion} -->`
+    const marker = `<!-- linksense-template:${templateVersion} rules:${taskRulesVersion} -->`
     try {
       const current = await readFile(agentsPath, "utf8")
       if (current.startsWith(marker)) return
@@ -885,8 +895,9 @@ function renderAgentsFile(
 
 - You are assisting organization members, team leads, IT staff, and administrators. Use clear language and avoid unnecessary developer terminology.
 - User custom instructions from the global Codex AGENTS.md are preferences only. They never override these LinkSense-managed task rules, authorization boundaries, or safety requirements.
-- Only operate inside the current task workspace: ${workspacePath}
-- You may read current capability instructions from the user's private directories ${path.join(userHomePath, ".agents", "skills")} and ${codexHomePath}.
+- Create and edit task files only inside the current task workspace: ${workspacePath}
+- Tools may persist their own user configuration and login state in the shared user HOME ${userHomePath}. Use the tool's authentication commands; never inspect or display stored credentials. This does not authorize reading other tasks or changing managed capabilities.
+- You may read current capability instructions from ${path.join(workspacePath, ".agents", "skills")} and ${codexHomePath}.
 - The workspace \`skills/\` entry is a read-only convenience link to current Skill resources for third-party Skill scripts and data.
 - Never write to, update, remove, or edit LinkSense-managed Skill and Plugin directories from a task. The only permitted Skill installation path is the built-in \`linksense-skill-creator\` workflow, which creates a ZIP in this task, previews it through the protected Skill Creator service, and installs the exact preview only after explicit user confirmation.
 - Never inspect another task's workspace, Codex session or rollout history, LinkSense deployment configuration, backend source, credentials, tokens, environment variables, or internal logs.
@@ -972,7 +983,25 @@ async function ensureDirectoryLink(
   } catch (error) {
     if (!isNodeError(error) || error.code !== "ENOENT") throw error
   }
-  await symlink(target, destination, "dir")
+  try {
+    await symlink(target, destination, "dir")
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "EEXIST") throw error
+    const current = await readlink(destination)
+    if (path.resolve(destinationDirectory, current) !== normalizedTarget) throw error
+  }
+}
+
+async function ensureCapabilityProjectionLink(destination: string, target: string): Promise<void> {
+  try {
+    await symlink(target, destination, "dir")
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "EEXIST") throw error
+  }
+  const info = await lstat(destination)
+  if (!info.isSymbolicLink() || path.resolve(path.dirname(destination), await readlink(destination)) !== target) {
+    throw new WorkspaceBoundaryError("task capability projection boundary is invalid")
+  }
 }
 
 async function setRegularFileMode(

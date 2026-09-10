@@ -1,12 +1,12 @@
 import { execFile } from "node:child_process"
 import {
   chmod,
-  cp,
   mkdir,
   mkdtemp,
   readFile,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -41,6 +41,7 @@ type SmokeRuntimePaths = ReturnType<
   UserHomeCapabilityMaterializer["pathsFor"]
 > & {
   homeRoot: string
+  taskHome: string
   codexHome: string
 }
 
@@ -96,6 +97,7 @@ async function runSmoke(): Promise<void> {
     const paths: SmokeRuntimePaths = {
       ...materializer.pathsFor(ownerId, conversationId),
       homeRoot: conversationPaths.home,
+      taskHome: conversationPaths.taskHome,
       codexHome: conversationPaths.codexHome,
     }
     const controlRoot = conversationPaths.control
@@ -306,24 +308,30 @@ async function reconcileNativePlugin(input: {
         },
       ]
     : []
-  await input.nativePluginManager.reconcileBeforeStart({
-    command: codexCommand,
-    userHome: input.paths.homeRoot,
-    codexHome: input.paths.codexHome,
-    workspace: input.workspace,
-    capabilityControl: input.paths.controlCapabilitiesRoot,
+  const lease = await input.capabilityRuntimeManager.acquireLease({
+    controlRoot: input.controlRoot,
     expectedGeneration: input.generation,
-    pluginNames: input.pluginNames,
-    validatePublished: async () => {
-      await input.capabilityRuntimeManager.resolvePublished({
-        userHome: input.paths.homeRoot,
-        controlRoot: input.controlRoot,
-        expectedGeneration: input.generation,
-        capabilities: runtimeCapabilities,
-        lockHeld: true,
-      })
-    },
   })
+  try {
+    const runtime = await input.capabilityRuntimeManager.resolvePublished({
+      taskHome: input.paths.taskHome,
+      controlRoot: input.controlRoot,
+      expectedGeneration: input.generation,
+      capabilities: runtimeCapabilities,
+      lockHeld: true,
+    })
+    await input.nativePluginManager.reconcileBeforeStart({
+      command: codexCommand,
+      userHome: input.paths.homeRoot,
+      codexHome: input.paths.codexHome,
+      workspace: input.workspace,
+      capabilityControl: input.paths.controlCapabilitiesRoot,
+      expectedGeneration: input.generation,
+      pluginContentDigest: runtime.pluginContentDigest,
+      pluginNames: input.pluginNames,
+      lockHeld: true,
+    })
+  } finally { await lease.release() }
 }
 
 async function projectManagedAgents(
@@ -331,7 +339,7 @@ async function projectManagedAgents(
 ): Promise<void> {
   const projectedRoot = path.join(paths.homeRoot, ".agents")
   await rm(projectedRoot, { recursive: true, force: true })
-  await cp(paths.managedAgentsRoot, projectedRoot, { recursive: true })
+  await symlink(path.join(paths.ownerRoot, "managed", "agents"), projectedRoot, "dir")
 }
 
 async function writePluginSource(

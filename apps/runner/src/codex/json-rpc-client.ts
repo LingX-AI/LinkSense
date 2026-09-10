@@ -407,8 +407,8 @@ function codexChildEnvironment(
     // turn-scoped inputs so capability credentials cannot replace the
     // protected shell bootstrap even if an upstream validation regresses.
     ...runtimeEnvironment,
-    // HOME is the user's persistent single-machine-style home. CODEX_HOME is
-    // its shared `.codex` child, while each task still receives a distinct cwd.
+    // Tools share the execution user's persistent HOME. Native Codex state
+    // remains in the task's CODEX_HOME, independently of its workspace cwd.
     HOME: userHome,
     CODEX_HOME: codexHome,
     [CODEX_REMOTE_CONTROL_DISABLED_ENV]: "1",

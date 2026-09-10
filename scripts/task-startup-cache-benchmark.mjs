@@ -60,7 +60,7 @@ try {
     const paths = await measure(sample, "task_home_ms", () => workspace.ensureConversation(conversationId, "startup-cache-benchmark"));
     const lease = await runtime.acquireLease({ controlRoot: paths.control, expectedGeneration: publication.generation });
     try {
-      const prepared = await measure(sample, "verification_ms", () => runtime.resolvePublished({ userHome: paths.home, controlRoot: paths.control, expectedGeneration: publication.generation, capabilities, lockHeld: true, reuseImmutableSnapshot: true }));
+      const prepared = await measure(sample, "verification_ms", () => runtime.resolvePublished({ taskHome: paths.taskHome, controlRoot: paths.control, expectedGeneration: publication.generation, capabilities, lockHeld: true, reuseImmutableSnapshot: true }));
       const pluginNames = capabilities.filter((c) => c.type === "plugin").map((c) => c.name);
       await measure(sample, "native_install_ms", () => native.reconcileBeforeStart({ command: "codex", userHome: paths.home, codexHome: paths.codexHome, workspace: paths.workspace, capabilityControl: prepared.capabilityControl, expectedGeneration: publication.generation, pluginContentDigest: prepared.pluginContentDigest, pluginNames, lockHeld: true, processIdentity: identity }));
       const client = new CodexJsonRpcClient({ command: "codex", userHome: paths.home, codexHome: paths.codexHome, logger, processIdentity: identity, configOverrides: ["features.plugins=true", "features.remote_plugin=false", "features.plugin_sharing=false", "features.memories=false", "features.apps=false", "features.hooks=false", "check_for_update_on_startup=false"] });

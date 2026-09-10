@@ -17,6 +17,20 @@ import {
 
 export const linkSenseModelProviderId = "link-sense" as const;
 
+/**
+ * Native discovery must reach the model as well as skills/list. CLI overrides
+ * also cover existing task homes, without rewriting Codex-owned config files.
+ * Plan supplies selected Skills as read-only references through additionalContext.
+ */
+export function linkSenseSkillConfigOverrides(
+  mode: "default" | "plan",
+): string[] {
+  return [
+    `skills.include_instructions=${mode === "default"}`,
+    "skills.bundled.enabled=false",
+  ];
+}
+
 const coreMcpEnvironmentVariables = [
   "LINKSENSE_COLLABORATION_MODE",
   "LINKSENSE_CONVERSATION_ID",
