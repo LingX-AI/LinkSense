@@ -441,6 +441,32 @@ describe("conversation voice input", () => {
     expect(screen.getByRole("option", { name: /MCP 状态/ })).toBeVisible()
   })
 
+  it("opens the Add menu when @ is entered after a text boundary", async () => {
+    const interaction = userEvent.setup()
+    const onRetryCapabilities = vi.fn()
+    const { props } = renderStatefulComposer({ onRetryCapabilities })
+    const input = screen.getByRole("textbox", { name: "任务输入框" })
+
+    await interaction.type(input, "请添加 @")
+
+    expect(input).toHaveValue("请添加 ")
+    expect(props.onValueChange).toHaveBeenLastCalledWith("请添加 ")
+    expect(screen.getByRole("option", { name: "文件" })).toBeVisible()
+    expect(screen.getByRole("option", { name: "文件夹" })).toBeVisible()
+    expect(onRetryCapabilities).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps @ as ordinary text when it is entered inside a word", async () => {
+    const interaction = userEvent.setup()
+    renderStatefulComposer()
+    const input = screen.getByRole("textbox", { name: "任务输入框" })
+
+    await interaction.type(input, "user@example.com")
+
+    expect(input).toHaveValue("user@example.com")
+    expect(screen.queryByRole("option", { name: "文件" })).toBeNull()
+  })
+
   it("enables native Goal mode from the add menu and exposes the mode chip", async () => {
     const interaction = userEvent.setup()
     const onGoalModeChange = vi.fn()

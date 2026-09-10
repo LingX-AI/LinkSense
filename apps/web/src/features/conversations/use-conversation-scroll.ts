@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type RefCallback,
+  type RefObject,
 } from "react"
 
 export const CONVERSATION_SCROLL_BUTTON_THRESHOLD_PX = 500
@@ -41,7 +42,15 @@ export function getConversationDistanceFromBottom(
 
 export function useConversationScroll(
   conversationId: string,
-  options: { preservePositionOnConversationChange?: boolean } = {}
+  {
+    preservePositionOnConversationChange = false,
+    navigationRef,
+  }: {
+    preservePositionOnConversationChange?: boolean
+    navigationRef?: RefObject<{
+      scrollToLatest: (behavior: ScrollBehavior) => boolean
+    } | null>
+  } = {}
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const followingLatestRef = useRef(true)
@@ -102,6 +111,11 @@ export function useConversationScroll(
     const element = containerRef.current
     if (!element) return
 
+    if (navigationRef?.current?.scrollToLatest("auto")) {
+      lastScrollTopRef.current = element.scrollTop
+      return
+    }
+
     const top = element.scrollHeight
     if (typeof element.scrollTo === "function") {
       element.scrollTo({ top, behavior: "auto" })
@@ -109,11 +123,15 @@ export function useConversationScroll(
       element.scrollTop = top
     }
     lastScrollTopRef.current = element.scrollTop
-  }, [cancelResizeFollow, cancelScrollAnimation])
+  }, [cancelResizeFollow, cancelScrollAnimation, navigationRef])
 
   const followLatestSmoothly = useCallback(() => {
     const element = containerRef.current
     if (!element || scrollAnimationFrameRef.current !== null) return
+    if (navigationRef?.current?.scrollToLatest("auto")) {
+      setShowScrollToBottom(false)
+      return
+    }
 
     const reducedMotion =
       typeof window.matchMedia === "function" &&
@@ -160,10 +178,17 @@ export function useConversationScroll(
     }
 
     resizeFollowFrameRef.current = window.requestAnimationFrame(animate)
-  }, [scrollToBottomImmediately])
+  }, [navigationRef, scrollToBottomImmediately])
 
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "auto") => {
+      if (navigationRef?.current?.scrollToLatest(behavior)) {
+        cancelScrollAnimation()
+        cancelResizeFollow()
+        followingLatestRef.current = true
+        setShowScrollToBottom(false)
+        return
+      }
       if (
         behavior !== "smooth" ||
         typeof window.requestAnimationFrame !== "function"
@@ -225,7 +250,12 @@ export function useConversationScroll(
       scrollAnimationFrameRef.current = window.requestAnimationFrame(animate)
       setShowScrollToBottom(false)
     },
-    [cancelResizeFollow, cancelScrollAnimation, scrollToBottomImmediately]
+    [
+      cancelResizeFollow,
+      cancelScrollAnimation,
+      navigationRef,
+      scrollToBottomImmediately,
+    ]
   )
 
   const scrollToElement = useCallback(
@@ -364,7 +394,7 @@ export function useConversationScroll(
     if (
       !containerChanged &&
       conversationChanged &&
-      options.preservePositionOnConversationChange
+      preservePositionOnConversationChange
     ) {
       lastScrollTopRef.current = container.scrollTop
       updateButtonVisibility()
@@ -375,7 +405,7 @@ export function useConversationScroll(
   }, [
     container,
     conversationId,
-    options.preservePositionOnConversationChange,
+    preservePositionOnConversationChange,
     scrollToBottomImmediately,
     updateButtonVisibility,
   ])

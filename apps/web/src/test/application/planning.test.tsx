@@ -774,7 +774,7 @@ describe("LinkSense application", () => {
     expect(await screen.findByText("实现输入框上方清单")).toBeVisible()
   })
 
-  it("filters the Codex reasoning summary streamed for the running turn", async () => {
+  it("shows the readable Codex reasoning summary streamed for the running turn", async () => {
     const conversationId = "20000000-0000-4000-8000-000000000001"
     const turnId = "30000000-0000-4000-8000-000000000001"
     const summaryText = "Evaluating test timing reliability"
@@ -821,7 +821,7 @@ describe("LinkSense application", () => {
     renderApp()
 
     expect(await screen.findByText("正在处理", { exact: true })).toBeVisible()
-    expect(screen.queryByText(summaryText, { exact: true })).toBeNull()
+    expect(await screen.findByText(summaryText, { exact: true })).toBeVisible()
     expect(screen.queryByText("思考内容", { exact: true })).toBeNull()
   })
 

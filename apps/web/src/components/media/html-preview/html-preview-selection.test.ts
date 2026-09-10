@@ -1,17 +1,24 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
-
 import {
   htmlPreviewAnnotationFocusMessageType,
+  postHtmlPreviewAnnotationFocus,
+} from "./html-preview-annotations"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { fireEvent } from "@testing-library/react"
+import { officeAnnotationCursor } from "@/components/media/office-preview/office-annotation-cursor"
+import { installOfficeAnnotationHover } from "@/components/media/office-preview/office-annotation-hover-controller"
+
+import {
   htmlPreviewAnnotationModeMessageType,
   htmlPreviewSelectionMessageType,
+  htmlPreviewSelectionClearMessageType,
   htmlSelectableAttribute,
   htmlSelectedAttribute,
+  htmlAnnotatedAttribute,
   htmlSelectionAnchor,
   htmlSelectionOverlayAttribute,
   installHtmlPreviewAnnotationController,
   maximumHtmlSelectionCount,
   parseHtmlPreviewSelectionMessage,
-  postHtmlPreviewAnnotationFocus,
   postHtmlPreviewAnnotationMode,
   type HtmlPreviewAnnotationController,
 } from "@/components/media/html-preview/html-preview-selection"
@@ -38,12 +45,14 @@ const controllers: HtmlPreviewAnnotationController[] = []
 
 afterEach(() => {
   for (const controller of controllers.splice(0)) controller.destroy()
+  vi.useRealTimers()
   Reflect.deleteProperty(window, "Selecto")
   document.body.replaceChildren()
   document.head
     .querySelectorAll("[data-linksense-preview-styles]")
     .forEach((element) => element.remove())
   vi.restoreAllMocks()
+  document.documentElement.style.removeProperty("--app-selection")
 })
 
 function installController() {
@@ -79,13 +88,16 @@ function installController() {
   }
   Reflect.set(window, "Selecto", SelectoMock)
   const controller = installHtmlPreviewAnnotationController(window, {
-    focusMessageType: htmlPreviewAnnotationFocusMessageType,
     modeMessageType: htmlPreviewAnnotationModeMessageType,
     selectionMessageType: htmlPreviewSelectionMessageType,
+    clearMessageType: htmlPreviewSelectionClearMessageType,
     selectableAttribute: htmlSelectableAttribute,
     selectedAttribute: htmlSelectedAttribute,
+    annotatedAttribute: htmlAnnotatedAttribute,
     overlayAttribute: htmlSelectionOverlayAttribute,
     maximumSelectionCount: maximumHtmlSelectionCount,
+    annotationCursor: officeAnnotationCursor,
+    installHover: installOfficeAnnotationHover,
   })
   controllers.push(controller)
   return {
@@ -96,16 +108,204 @@ function installController() {
   }
 }
 
-function setAnnotationMode(enabled: boolean) {
+function setAnnotationMode(enabled: boolean, selectionColor = "#0b73e0") {
   window.dispatchEvent(
     new MessageEvent("message", {
       source: window,
-      data: { type: htmlPreviewAnnotationModeMessageType, enabled },
+      data: {
+        type: htmlPreviewAnnotationModeMessageType,
+        enabled,
+        selectionColor,
+      },
     })
   )
 }
 
 describe("HTML preview live selection", () => {
+  it("tints selected images without replacing their content and clears the tint on deselection", () => {
+    document.body.innerHTML =
+      '<img id="photo" src="data:image/png;base64,AA==" style="background: red">'
+    const target = document.getElementById("photo")
+    if (!target) throw new Error("Missing selected image")
+    let bounds = new DOMRect(30, 40, 120, 80)
+    target.getBoundingClientRect = () => bounds
+    const { select } = installController()
+    setAnnotationMode(true)
+    const overlay = document.querySelector<SVGSVGElement>(
+      ".html-preview-selection-fill-overlay"
+    )
+    if (!overlay) throw new Error("Missing selected fill overlay")
+    overlay.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600)
+    select([target])
+    expect(overlay.querySelector("path")).toHaveAttribute(
+      "d",
+      "M30,40H150V120H30Z"
+    )
+    expect(target).toHaveAttribute("style", "background: red")
+    expect(
+      document.querySelector("[data-linksense-preview-styles]")?.textContent
+    ).toContain("fill: color-mix(in srgb, rgb(11, 115, 224) 12%, transparent)")
+    bounds = new DOMRect(15, 20, 180, 120)
+    fireEvent.scroll(document)
+    expect(overlay.querySelector("path")).toHaveAttribute(
+      "d",
+      "M15,20H195V140H15Z"
+    )
+    target.setAttribute(htmlAnnotatedAttribute, "true")
+    fireEvent.scroll(document)
+    expect(overlay.querySelector("path")).toHaveAttribute("d", "")
+    target.removeAttribute(htmlAnnotatedAttribute)
+    select([])
+    expect(overlay.querySelector("path")).toHaveAttribute("d", "")
+    setAnnotationMode(false)
+    expect(overlay).not.toBeInTheDocument()
+  })
+
+  it("uses the shared blue and updates its color without clearing the selected elements", () => {
+    document.body.innerHTML = '<p id="target">Selected text</p>'
+    const target = document.getElementById("target")
+    if (!target) throw new Error("Selected element expected")
+    target.getBoundingClientRect = () => rect({ width: 160, height: 32 })
+    const { select, state } = installController()
+
+    setAnnotationMode(true)
+    select([target])
+
+    const styles = document.querySelector("[data-linksense-preview-styles]")
+    expect(styles?.textContent).toContain(
+      "outline: 2px dashed rgb(11, 115, 224)"
+    )
+    expect(styles?.textContent).not.toContain("Highlight")
+
+    setAnnotationMode(true, "#5ca8ff")
+
+    expect(styles?.textContent).toContain(
+      "outline: 2px dashed rgb(92, 168, 255)"
+    )
+    expect(styles?.textContent).toContain("border: 1px solid rgb(92, 168, 255)")
+    expect(state.selected).toEqual([target])
+    expect(target).toHaveAttribute(htmlSelectedAttribute)
+  })
+
+  it("clears a submitted selection without leaving its outline or disabling annotation mode", () => {
+    document.body.innerHTML = '<h1 id="hero">欢迎</h1><p id="next">下一条</p>'
+    const heading = document.getElementById("hero")
+    const next = document.getElementById("next")
+    if (!heading || !next) throw new Error("Missing selection fixture")
+    heading.getBoundingClientRect = () =>
+      rect({ left: 10, top: 20, width: 100, height: 40 })
+    next.getBoundingClientRect = () =>
+      rect({ left: 10, top: 80, width: 100, height: 40 })
+    const postMessage = vi
+      .spyOn(window, "postMessage")
+      .mockImplementation(() => {})
+    const { select, state } = installController()
+    const clearSubmitted = (source: Window | null = window) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source,
+          data: {
+            type: htmlPreviewSelectionClearMessageType,
+            selectors: ["#hero"],
+          },
+        })
+      )
+    setAnnotationMode(true)
+    select([heading])
+    clearSubmitted(null)
+    expect(heading).toHaveAttribute(htmlSelectedAttribute)
+    clearSubmitted()
+    expect(heading).not.toHaveAttribute(htmlSelectedAttribute)
+    expect(state.selected).toEqual([])
+    expect(postMessage).toHaveBeenLastCalledWith(
+      {
+        type: htmlPreviewSelectionMessageType,
+        selection: null,
+        anchor: null,
+      },
+      "*"
+    )
+    expect(state.destroyed).toBe(false)
+    expect(heading).toHaveAttribute(htmlSelectableAttribute)
+    select([next])
+    clearSubmitted()
+    expect(next).toHaveAttribute(htmlSelectedAttribute)
+    expect(state.selected).toEqual([next])
+  })
+
+  it("previews hovered elements without selecting them and restores the cursor on exit", () => {
+    vi.useFakeTimers()
+    document.body.innerHTML = '<p id="hover-target">Text</p>'
+    const target = document.getElementById("hover-target")
+    if (!target) throw new Error("Missing hover target")
+    document.body.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600)
+    let bounds = new DOMRect(100, 80, 240, 60)
+    target.getBoundingClientRect = () => bounds
+    vi.spyOn(document, "elementFromPoint").mockReturnValue(target)
+    vi.spyOn(window, "postMessage").mockImplementation(() => {})
+    const { state, select } = installController()
+    setAnnotationMode(true)
+    const overlay = document.querySelector<SVGSVGElement>(
+      ".office-annotation-hover-overlay"
+    )
+    if (!overlay) throw new Error("Missing hover overlay")
+    overlay.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600)
+    const path = overlay.querySelector("path")
+    fireEvent.pointerMove(target, {
+      pointerType: "mouse",
+      buttons: 0,
+      clientX: 120,
+      clientY: 90,
+    })
+    vi.advanceTimersByTime(20)
+    expect(path).toHaveAttribute("d", "M100,80H340V140H100Z")
+    expect(state.selected).toEqual([])
+    expect(target).not.toHaveAttribute(htmlSelectedAttribute)
+    expect(
+      document.body.style.getPropertyValue("--office-annotation-cursor")
+    ).toBe(officeAnnotationCursor)
+    bounds = new DOMRect(80, 40, 360, 90)
+    vi.advanceTimersByTime(20)
+    expect(path).toHaveAttribute("d", "M80,40H440V130H80Z")
+    target.setAttribute(htmlAnnotatedAttribute, "true")
+    vi.advanceTimersByTime(20)
+    expect(path).toHaveAttribute("d", "")
+    target.removeAttribute(htmlAnnotatedAttribute)
+    select([target])
+    vi.advanceTimersByTime(20)
+    expect(path).toHaveAttribute("d", "")
+    setAnnotationMode(false)
+    expect(document.body).not.toHaveAttribute("data-office-annotation-scope")
+    expect(overlay).not.toBeInTheDocument()
+  })
+
+  it("rejects malformed selection colors without injecting CSS", () => {
+    installController()
+
+    setAnnotationMode(true, "red; } body { display: none; }")
+
+    expect(document.querySelector("[data-linksense-preview-styles]")).toBeNull()
+  })
+
+  it("does not add another dashed outline when an annotated element is selected again", () => {
+    document.body.innerHTML = '<h1 id="hero">欢迎</h1>'
+    const heading = document.getElementById("hero")
+    if (!heading) throw new Error("Missing selection fixture")
+    heading.getBoundingClientRect = () =>
+      rect({ left: 10, top: 20, width: 100, height: 40 })
+    vi.spyOn(window, "postMessage").mockImplementation(() => {})
+    const { select, state } = installController()
+    setAnnotationMode(true)
+    select([heading])
+    expect(window.getComputedStyle(heading).outline).toContain("dashed")
+    heading.setAttribute(htmlAnnotatedAttribute, "true")
+    select([heading])
+    expect(window.getComputedStyle(heading).outline).not.toContain("dashed")
+    expect(state.selected).toEqual([heading])
+    heading.removeAttribute(htmlAnnotatedAttribute)
+    expect(window.getComputedStyle(heading).outline).toContain("dashed")
+  })
+
   it("selects the real rendered element without cloning or changing its animation", () => {
     document.body.innerHTML = `
       <section id="intro">
@@ -181,16 +381,21 @@ describe("HTML preview live selection", () => {
     )
   })
 
-  it("validates selection messages and maps the iframe anchor into the pane", () => {
+  it("validates selection messages and maps the iframe selection's bottom-right corner into the viewport", () => {
     const frame = document.createElement("iframe")
     const postMessage = vi.fn()
     Object.defineProperty(frame, "contentWindow", {
       configurable: true,
       value: { postMessage },
     })
+    document.documentElement.style.setProperty("--app-selection", "#0b73e0")
     postHtmlPreviewAnnotationMode(frame, true)
     expect(postMessage).toHaveBeenCalledWith(
-      { type: htmlPreviewAnnotationModeMessageType, enabled: true },
+      {
+        type: htmlPreviewAnnotationModeMessageType,
+        enabled: true,
+        selectionColor: "#0b73e0",
+      },
       "*"
     )
     postHtmlPreviewAnnotationFocus(frame, {
@@ -208,23 +413,19 @@ describe("HTML preview live selection", () => {
     expect(postMessage).toHaveBeenLastCalledWith(
       {
         type: htmlPreviewAnnotationFocusMessageType,
-        bounds: { left: 100, top: 200, width: 300, height: 80 },
+        selectors: ["#hero"],
       },
       "*"
     )
 
-    const pane = document.createElement("section")
-    document.body.append(pane, frame)
-    Object.defineProperty(pane, "clientWidth", { value: 800 })
-    Object.defineProperty(pane, "clientHeight", { value: 600 })
-    pane.getBoundingClientRect = () =>
-      rect({ left: 250, top: 50, width: 800, height: 600 })
+    document.body.append(frame)
     frame.getBoundingClientRect = () =>
       rect({ left: 300, top: 100, width: 700, height: 500 })
 
     expect(
-      htmlSelectionAnchor(pane, frame, { right: 120, top: 40, bottom: 60 })
-    ).toEqual({ left: 170, top: 100 })
+      htmlSelectionAnchor(frame, { right: 120, top: 40, bottom: 60 })
+    ).toEqual({ left: 420, top: 160 })
+    expect(htmlSelectionAnchor(frame, null)).toBeNull()
     expect(
       parseHtmlPreviewSelectionMessage({
         type: htmlPreviewSelectionMessageType,
@@ -232,26 +433,5 @@ describe("HTML preview live selection", () => {
         anchor: { right: 120, top: 40, bottom: 60 },
       })
     ).toBeNull()
-  })
-
-  it("scrolls the live HTML document to a requested saved annotation", () => {
-    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {})
-    installController()
-
-    window.dispatchEvent(
-      new MessageEvent("message", {
-        source: window,
-        data: {
-          type: htmlPreviewAnnotationFocusMessageType,
-          bounds: { left: 1_000, top: 800, width: 200, height: 100 },
-        },
-      })
-    )
-
-    expect(scrollTo).toHaveBeenCalledWith({
-      left: Math.max(0, 1_100 - window.innerWidth / 2),
-      top: Math.max(0, 850 - window.innerHeight / 2),
-      behavior: "smooth",
-    })
   })
 })

@@ -22,15 +22,18 @@ import {
 } from "@/features/conversations/conversation-share-contracts"
 import { projectConversationForSharing } from "@/features/conversations/conversation-share-content"
 import { ConversationThread } from "@/features/conversations/conversation-thread"
+import type { ConversationHistoryControl } from "@/features/conversations/conversation-message-list"
 
 export function ConversationShareDialog({
   conversation,
   open,
   onOpenChange,
+  history,
 }: Readonly<{
   conversation: Conversation
   open: boolean
   onOpenChange: (open: boolean) => void
+  history?: ConversationHistoryControl
 }>) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
@@ -99,6 +102,7 @@ export function ConversationShareDialog({
           aria-label={t("conversation.share.previewLabel")}
         >
           <ConversationThread
+            history={history}
             conversation={projectConversationForSharing(conversation)}
             onDownload={() => undefined}
             editingDisabled

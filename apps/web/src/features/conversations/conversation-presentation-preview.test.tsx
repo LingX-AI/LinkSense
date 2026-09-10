@@ -140,7 +140,7 @@ describe("conversation presentation preview", () => {
       screen.getByRole("button", { name: "查看 1 条待发送标注" })
     )
     await userEvent.click(
-      await screen.findByRole("button", { name: "全部处理" })
+      await screen.findByRole("button", { name: "发送" })
     )
     expect(onAskSelection).toHaveBeenCalledWith(file, [
       {

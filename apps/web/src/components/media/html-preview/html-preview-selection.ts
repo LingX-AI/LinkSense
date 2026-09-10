@@ -2,17 +2,19 @@ import { z } from "zod"
 
 import type { HtmlSelection } from "@/components/media/html-preview/html-preview.types"
 import type { OfficeSelectionAnchor } from "@/components/media/office-preview/office-preview.types"
+import type { installOfficeAnnotationHover } from "@/components/media/office-preview/office-annotation-hover-controller"
 
 export const htmlSelectableAttribute = "data-linksense-selectable"
 export const htmlSelectedAttribute = "data-linksense-selected"
+export const htmlAnnotatedAttribute = "data-linksense-annotated"
 export const htmlSelectionOverlayAttribute = "data-linksense-overlay-root"
 export const maximumHtmlSelectionCount = 20
 export const htmlPreviewAnnotationModeMessageType =
   "linksense:html-preview:annotation-mode"
-export const htmlPreviewAnnotationFocusMessageType =
-  "linksense:html-preview:annotation-focus"
 export const htmlPreviewSelectionMessageType =
   "linksense:html-preview:selection-change"
+export const htmlPreviewSelectionClearMessageType =
+  "linksense:html-preview:selection-clear"
 
 const finiteNumberSchema = z.number().finite()
 const htmlElementBoundsSchema = z
@@ -97,39 +99,26 @@ export function postHtmlPreviewAnnotationMode(
   enabled: boolean
 ) {
   frame.contentWindow?.postMessage(
-    { type: htmlPreviewAnnotationModeMessageType, enabled },
+    {
+      type: htmlPreviewAnnotationModeMessageType,
+      enabled,
+      selectionColor: window
+        .getComputedStyle(frame.ownerDocument.documentElement)
+        .getPropertyValue("--app-selection")
+        .trim(),
+    },
     "*"
   )
 }
 
-export function postHtmlPreviewAnnotationFocus(
+export function postHtmlPreviewSelectionClear(
   frame: HTMLIFrameElement,
   selection: HtmlSelection
-) {
-  const bounds = selection.elements
-    .map((element) => element.bounds)
-    .filter(
-      (candidate) =>
-        Number.isFinite(candidate.x) &&
-        Number.isFinite(candidate.y) &&
-        Number.isFinite(candidate.width) &&
-        Number.isFinite(candidate.height) &&
-        candidate.width > 0 &&
-        candidate.height > 0
-    )
-  if (bounds.length === 0) return
-  const left = Math.min(...bounds.map((candidate) => candidate.x))
-  const top = Math.min(...bounds.map((candidate) => candidate.y))
-  const right = Math.max(
-    ...bounds.map((candidate) => candidate.x + candidate.width)
-  )
-  const bottom = Math.max(
-    ...bounds.map((candidate) => candidate.y + candidate.height)
-  )
+): void {
   frame.contentWindow?.postMessage(
     {
-      type: htmlPreviewAnnotationFocusMessageType,
-      bounds: { left, top, width: right - left, height: bottom - top },
+      type: htmlPreviewSelectionClearMessageType,
+      selectors: selection.elements.map((element) => element.selector),
     },
     "*"
   )
@@ -141,28 +130,14 @@ export function parseHtmlPreviewSelectionMessage(value: unknown) {
 }
 
 export function htmlSelectionAnchor(
-  pane: HTMLElement,
   frame: HTMLIFrameElement,
   anchor: HtmlPreviewSelectionViewportAnchor | null
 ): OfficeSelectionAnchor | null {
   if (anchor === null) return null
   const frameRect = frame.getBoundingClientRect()
-  const paneRect = pane.getBoundingClientRect()
   return {
-    left: Math.min(
-      pane.clientWidth - 8,
-      Math.max(8, frameRect.left - paneRect.left + anchor.right)
-    ),
-    top: Math.min(
-      pane.clientHeight - 48,
-      Math.max(
-        8,
-        frameRect.top -
-          paneRect.top +
-          anchor.top +
-          (anchor.bottom - anchor.top) / 2
-      )
-    ),
+    left: frameRect.left + anchor.right,
+    top: frameRect.top + anchor.bottom,
   }
 }
 
@@ -176,13 +151,16 @@ export function htmlSelectionAnchor(
 export function installHtmlPreviewAnnotationController(
   targetWindow: Window,
   config: Readonly<{
-    focusMessageType: string
     modeMessageType: string
     selectionMessageType: string
+    clearMessageType: string
     selectableAttribute: string
     selectedAttribute: string
+    annotatedAttribute: string
     overlayAttribute: string
     maximumSelectionCount: number
+    annotationCursor: string
+    installHover: typeof installOfficeAnnotationHover
   }>
 ): HtmlPreviewAnnotationController {
   const selectableElementSelector = [
@@ -260,7 +238,10 @@ export function installHtmlPreviewAnnotationController(
   let selectedElements: Element[] = []
   let selecto: SelectoInstance | null = null
   let overlayRoot: HTMLElement | null = null
+  let selectionFillOverlay: SVGSVGElement | null = null
+  let selectionFillAnimationFrame: number | null = null
   let annotationStyles: HTMLStyleElement | null = null
+  let selectionColor = ""
   let mutationObserver: MutationObserver | null = null
   let retryAnimationFrame: number | null = null
   let annotationRequested = false
@@ -428,6 +409,7 @@ export function installHtmlPreviewAnnotationController(
     for (const candidate of [clone, ...clone.querySelectorAll("*")]) {
       candidate.removeAttribute(config.selectableAttribute)
       candidate.removeAttribute(config.selectedAttribute)
+      candidate.removeAttribute(config.annotatedAttribute)
       candidate.removeAttribute("value")
     }
     return boundedText(clone.outerHTML, 8_000)
@@ -479,7 +461,61 @@ export function installHtmlPreviewAnnotationController(
     }
   }
 
+  // Paint above the content so images and existing backgrounds receive the same tint.
+  const paintSelectionFill = () => {
+    if (selectionFillAnimationFrame !== null)
+      targetWindow.cancelAnimationFrame(selectionFillAnimationFrame)
+    selectionFillAnimationFrame = null
+    const overlay = selectionFillOverlay
+    const path = overlay?.querySelector("path")
+    if (!overlay || !path) return
+    const origin = overlay.getBoundingClientRect()
+    const viewBox = `0 0 ${Math.max(1, origin.width)} ${Math.max(1, origin.height)}`
+    if (overlay.getAttribute("viewBox") !== viewBox)
+      overlay.setAttribute("viewBox", viewBox)
+    const shapes = selectedElements
+      .flatMap((element) => {
+        if (
+          !element.isConnected ||
+          element.getAttribute(config.annotatedAttribute) === "true"
+        )
+          return []
+        const bounds = element.getBoundingClientRect()
+        let left = Math.max(bounds.left, origin.left)
+        let top = Math.max(bounds.top, origin.top)
+        let right = Math.min(bounds.right, origin.right)
+        let bottom = Math.min(bounds.bottom, origin.bottom)
+        for (
+          let parent = element.parentElement;
+          parent;
+          parent = parent.parentElement
+        ) {
+          const style = targetWindow.getComputedStyle(parent)
+          const clip = parent.getBoundingClientRect()
+          if (/auto|scroll|hidden|clip/u.test(style.overflowX)) {
+            left = Math.max(left, clip.left)
+            right = Math.min(right, clip.right)
+          }
+          if (/auto|scroll|hidden|clip/u.test(style.overflowY)) {
+            top = Math.max(top, clip.top)
+            bottom = Math.min(bottom, clip.bottom)
+          }
+        }
+        return right > left && bottom > top
+          ? [
+              `M${left - origin.left},${top - origin.top}H${right - origin.left}V${bottom - origin.top}H${left - origin.left}Z`,
+            ]
+          : []
+      })
+      .join(" ")
+    if (path.getAttribute("d") !== shapes) path.setAttribute("d", shapes)
+    if (selectedElements.length > 0)
+      selectionFillAnimationFrame =
+        targetWindow.requestAnimationFrame(paintSelectionFill)
+  }
+
   const postSelection = () => {
+    paintSelectionFill()
     const anchor = selectionAnchor()
     targetWindow.parent.postMessage(
       {
@@ -521,8 +557,14 @@ export function installHtmlPreviewAnnotationController(
   }
 
   const handleScrollOrResize = () => refresh()
+  let stopHover: (() => void) | null = null
 
   const disable = () => {
+    if (selectionFillAnimationFrame !== null)
+      targetWindow.cancelAnimationFrame(selectionFillAnimationFrame)
+    selectionFillAnimationFrame = null
+    stopHover?.()
+    stopHover = null
     annotationRequested = false
     if (retryAnimationFrame !== null) {
       targetWindow.cancelAnimationFrame(retryAnimationFrame)
@@ -557,9 +599,52 @@ export function installHtmlPreviewAnnotationController(
     markedElements.clear()
     overlayRoot?.remove()
     overlayRoot = null
+    selectionFillOverlay = null
     annotationStyles?.remove()
     annotationStyles = null
     postSelection()
+  }
+
+  const updateSelectionStyles = () => {
+    if (!annotationStyles) return
+    annotationStyles.textContent = `
+      [data-office-annotation-scope="true"], [data-office-annotation-scope="true"] * {
+        cursor: var(--office-annotation-cursor) !important;
+      }
+      ${attributeSelector(config.selectedAttribute)}:not([${config.annotatedAttribute}="true"]) {
+        outline: 2px dashed ${selectionColor} !important;
+        outline-offset: 2px !important;
+      }
+      ${attributeSelector(config.overlayAttribute)} {
+        position: fixed !important;
+        z-index: 2147483647 !important;
+        inset: 0 !important;
+        pointer-events: none !important;
+      }
+      ${attributeSelector(config.overlayAttribute)} .selecto-selection {
+        border: 1px solid ${selectionColor} !important;
+        background: color-mix(in srgb, ${selectionColor} 12%, transparent) !important;
+      }
+      ${attributeSelector(config.overlayAttribute)} .office-annotation-hover-overlay,
+      ${attributeSelector(config.overlayAttribute)} .html-preview-selection-fill-overlay {
+        position: absolute !important;
+        inset: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        overflow: hidden !important;
+        pointer-events: none !important;
+      }
+      ${attributeSelector(config.overlayAttribute)} .office-annotation-hover-frame {
+        fill: color-mix(in srgb, ${selectionColor} 8%, transparent);
+        stroke: color-mix(in srgb, ${selectionColor} 42%, white);
+        stroke-width: 1.5;
+        vector-effect: non-scaling-stroke;
+      }
+      ${attributeSelector(config.overlayAttribute)} .html-preview-selection-fill {
+        fill: color-mix(in srgb, ${selectionColor} 12%, transparent) !important;
+        stroke: none !important;
+      }
+    `
   }
 
   let selectoLoadAttempts = 0
@@ -567,6 +652,7 @@ export function installHtmlPreviewAnnotationController(
     if (destroyed) return
     annotationRequested = true
     if (selecto !== null) {
+      updateSelectionStyles()
       refresh()
       return
     }
@@ -586,23 +672,7 @@ export function installHtmlPreviewAnnotationController(
 
     annotationStyles = document.createElement("style")
     annotationStyles.setAttribute("data-linksense-preview-styles", markerValue)
-    annotationStyles.textContent = `
-      ${selectableTargetSelector} { cursor: crosshair !important; }
-      ${attributeSelector(config.selectedAttribute)} {
-        outline: 2px dashed Highlight !important;
-        outline-offset: 2px !important;
-      }
-      ${attributeSelector(config.overlayAttribute)} {
-        position: fixed !important;
-        z-index: 2147483647 !important;
-        inset: 0 !important;
-        pointer-events: none !important;
-      }
-      ${attributeSelector(config.overlayAttribute)} .selecto-selection {
-        border: 1px solid Highlight !important;
-        background: color-mix(in srgb, Highlight 12%, transparent) !important;
-      }
-    `
+    updateSelectionStyles()
     document.head.append(annotationStyles)
 
     overlayRoot = document.createElement("div")
@@ -610,6 +680,47 @@ export function installHtmlPreviewAnnotationController(
     overlayRoot.setAttribute("aria-hidden", "true")
     body.append(overlayRoot)
     refreshSelectableElements()
+
+    selectionFillOverlay = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "svg"
+    )
+    selectionFillOverlay.classList.add("html-preview-selection-fill-overlay")
+    const selectionFillPath = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "path"
+    )
+    selectionFillPath.classList.add("html-preview-selection-fill")
+    selectionFillOverlay.append(selectionFillPath)
+    overlayRoot.append(selectionFillOverlay)
+
+    const hoverOverlay = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "svg"
+    )
+    hoverOverlay.classList.add("office-annotation-hover-overlay")
+    const hoverPath = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "path"
+    )
+    hoverPath.classList.add("office-annotation-hover-frame")
+    hoverOverlay.append(hoverPath)
+    overlayRoot.append(hoverOverlay)
+    stopHover = config.installHover(
+      body,
+      hoverOverlay,
+      (_point, target) => {
+        const candidate = target.closest(selectableTargetSelector)
+        if (
+          !candidate ||
+          selectedElements.includes(candidate) ||
+          candidate.getAttribute(config.annotatedAttribute) === "true"
+        )
+          return []
+        return [candidate.getBoundingClientRect()]
+      },
+      config.annotationCursor
+    )
 
     selecto = new Selecto({
       container: overlayRoot,
@@ -667,36 +778,34 @@ export function installHtmlPreviewAnnotationController(
     const message = event.data as {
       type?: unknown
       enabled?: unknown
-      bounds?: unknown
+      selectionColor?: unknown
+      selectors?: unknown
     }
-    if (message.type === config.focusMessageType) {
-      if (typeof message.bounds !== "object" || message.bounds === null) {
-        return
-      }
-      const bounds = message.bounds as Record<string, unknown>
-      const left = bounds.left
-      const top = bounds.top
-      const width = bounds.width
-      const height = bounds.height
+    if (message.type === config.clearMessageType) {
+      const selectors = message.selectors
       if (
-        typeof left !== "number" ||
-        !Number.isFinite(left) ||
-        typeof top !== "number" ||
-        !Number.isFinite(top) ||
-        typeof width !== "number" ||
-        !Number.isFinite(width) ||
-        width <= 0 ||
-        typeof height !== "number" ||
-        !Number.isFinite(height) ||
-        height <= 0
-      ) {
+        !Array.isArray(selectors) ||
+        selectors.length === 0 ||
+        selectors.length > config.maximumSelectionCount ||
+        !selectors.every(
+          (selector) =>
+            typeof selector === "string" &&
+            selector.length > 0 &&
+            selector.length <= 1000
+        )
+      )
         return
-      }
-      targetWindow.scrollTo({
-        left: Math.max(0, left + width / 2 - targetWindow.innerWidth / 2),
-        top: Math.max(0, top + height / 2 - targetWindow.innerHeight / 2),
-        behavior: "smooth",
-      })
+      // A completed request must not erase a different selection made while it was pending.
+      if (
+        selectors.length !== selectedElements.length ||
+        !selectedElements.every((element) =>
+          selectors.includes(uniqueSelector(element))
+        )
+      )
+        return
+      updateSelectionMarkers([])
+      selecto?.setSelectedTargets([])
+      postSelection()
       return
     }
     if (
@@ -705,8 +814,15 @@ export function installHtmlPreviewAnnotationController(
     ) {
       return
     }
-    if (message.enabled) enable()
-    else disable()
+    if (message.enabled) {
+      if (typeof message.selectionColor !== "string") return
+      // Parse the parent theme color before interpolating it into the iframe CSS.
+      const colorStyle = targetWindow.document.createElement("span").style
+      colorStyle.color = message.selectionColor
+      if (!colorStyle.color) return
+      selectionColor = colorStyle.color
+      enable()
+    } else disable()
   }
 
   targetWindow.addEventListener("message", handleMessage)

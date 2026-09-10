@@ -840,8 +840,17 @@ describe("conversation knowledge base snapshots", () => {
       const url = String(input)
       const path = new URL(url, window.location.origin).pathname
       if (url.includes("/events")) {
+        // A healthy subscription stays open. An empty, closed response starts
+        // reconnect polling and makes the exact refresh count depend on timing.
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            init?.signal?.addEventListener("abort", () => controller.close(), {
+              once: true,
+            })
+          },
+        })
         return Promise.resolve(
-          new Response("", {
+          new Response(stream, {
             status: 200,
             headers: { "content-type": "text/event-stream" },
           })

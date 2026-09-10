@@ -135,8 +135,51 @@ describe("ConversationModelSelector", () => {
     })
     expect(within(popup).getByText("背景信息窗口：")).toBeVisible()
     expect(within(popup).getByText("60% 已用")).toBeVisible()
-    expect(within(popup).getByText("已用 155k 标记，共 258k")).toBeVisible()
+    expect(within(popup).getByText("已用 151.4k 标记，共 252k")).toBeVisible()
   })
+
+  it.each([
+    {
+      language: "zh-CN",
+      badge: "背景信息窗口：50% 已用",
+      detail: "已用 128k 标记，共 256k",
+    },
+    {
+      language: "en-US",
+      badge: "Background context window: 50% used",
+      detail: "128k tokens used, 256k total",
+    },
+    {
+      language: "fr-FR",
+      badge: "背景信息窗口：50% 已用",
+      detail: "已用 128k 标记，共 256k",
+    },
+  ])(
+    "shows runtime context counts in units of 1024 with $language translations or fallback",
+    async ({ language, badge, detail }) => {
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      render(
+        <ConversationModelSelector
+          pending={false}
+          onChange={vi.fn()}
+          preference={modelPreference}
+          contextUsage={{
+            turnId: "turn-binary-context",
+            usedTokens: 131_072,
+            modelContextWindow: 262_144,
+          }}
+        />
+      )
+
+      const trigger = screen.getByLabelText(badge)
+      expect(
+        trigger.querySelector('circle[stroke-dasharray="50 50"]')
+      ).toBeInTheDocument()
+      await interaction.hover(trigger)
+      expect(await screen.findByText(detail)).toBeVisible()
+    }
+  )
 
   it("shows the real percentage while capping an over-limit ring", () => {
     render(

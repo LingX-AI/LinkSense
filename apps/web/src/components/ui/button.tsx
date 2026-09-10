@@ -9,6 +9,8 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        annotation:
+          "bg-[var(--app-selection)] text-white hover:bg-[color-mix(in_srgb,var(--app-selection)_88%,var(--app-text))] focus-visible:ring-[var(--app-selection)]/30",
         outline:
           "border-border bg-background hover:bg-hover hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-transparent",
         "outline-strong":

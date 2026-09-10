@@ -1,6 +1,9 @@
 import { act, cleanup, fireEvent, render } from "@testing-library/react"
 import {
   XlsxViewer,
+  type XlsxChart,
+  type XlsxImage,
+  type XlsxScrollerRenderProps,
   type XlsxSheetData,
   type XlsxViewerController,
   type XlsxWorkbookTab,
@@ -283,6 +286,259 @@ describe("@extend-ai/react-xlsx live row and column resizing", () => {
     cleanup()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it.each([false, true])(
+    "returns native annotation bounds through scrolling and zoom with canvas=%s",
+    (experimentalCanvas) => {
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+        createCanvasContextMock()
+      )
+      const controller = createController()
+      let scrollerProps: XlsxScrollerRenderProps | undefined
+      const renderScroller = (props: XlsxScrollerRenderProps) => {
+        scrollerProps = props
+        return <div {...props.viewportProps}>{props.children}</div>
+      }
+      const view = () => (
+        <XlsxViewer
+          controller={controller}
+          experimentalCanvas={experimentalCanvas}
+          renderScroller={renderScroller}
+          height={400}
+          readOnly
+          showDefaultToolbar={false}
+        />
+      )
+      const { container, rerender } = render(view())
+      const scroller = requireElement<HTMLElement>(container, '[role="grid"]')
+      Object.defineProperty(scroller, "clientWidth", {
+        configurable: true,
+        value: 500,
+      })
+      Object.defineProperty(scroller, "clientHeight", {
+        configurable: true,
+        value: 400,
+      })
+      scroller.getBoundingClientRect = () => new DOMRect(300, 100, 500, 400)
+      const hover = (x: number, y: number) => {
+        if (!scrollerProps) throw new Error("Missing native scroller layout")
+        return scrollerProps.getAnnotationTargetAtPoint(x, y)
+      }
+      expect(hover(380, 150)).toEqual({
+        type: "range",
+        range: { start: { row: 0, col: 0 }, end: { row: 0, col: 0 } },
+      })
+      expect(hover(310, 150)).toBeNull()
+      expect(hover(380, 110)).toBeNull()
+      const geometry = () => {
+        if (!scrollerProps) throw new Error("Missing native scroller layout")
+        return scrollerProps.getAnnotationGeometry({
+          type: "range",
+          range: { start: { row: 0, col: 0 }, end: { row: 1, col: 1 } },
+        })
+      }
+      expect(geometry()?.contentRect).toEqual({
+        left: 60,
+        top: 36,
+        width: 300,
+        height: 120,
+      })
+      scroller.scrollLeft = 30
+      scroller.scrollTop = 10
+      expect(hover(550, 230)).toEqual({
+        type: "range",
+        range: { start: { row: 1, col: 1 }, end: { row: 1, col: 1 } },
+      })
+      expect(geometry()?.viewportRects).toEqual([
+        { left: 60, top: 36, width: 150, height: 60 },
+        { left: 210, top: 36, width: 120, height: 60 },
+        { left: 60, top: 96, width: 150, height: 50 },
+        { left: 210, top: 96, width: 120, height: 50 },
+      ])
+      controller.zoomScale = 100
+      rerender(view())
+      expect(hover(470, 185)).toEqual({
+        type: "range",
+        range: { start: { row: 1, col: 1 }, end: { row: 1, col: 1 } },
+      })
+      expect(geometry()?.contentRect).toEqual({
+        left: 40,
+        top: 24,
+        width: 200,
+        height: 80,
+      })
+      scroller.scrollLeft = 500
+      scroller.scrollTop = 500
+      expect(geometry()?.viewportRects).toEqual([
+        { left: 40, top: 24, width: 100, height: 40 },
+      ])
+      Object.defineProperty(scroller, "clientWidth", { value: 100 })
+      Object.defineProperty(scroller, "clientHeight", { value: 50 })
+      expect(geometry()?.viewportRects).toEqual([
+        { left: 40, top: 24, width: 60, height: 26 },
+      ])
+    }
+  )
+
+  it("includes native gridline thickness and changed row dimensions in annotation geometry", () => {
+    const controller = createController()
+    controller.activeSheet.showGridLines = true
+    controller.activeSheet.rowHeightOverridesPx[0] = 70
+    let scrollerProps: XlsxScrollerRenderProps | undefined
+    render(
+      <XlsxViewer
+        controller={controller}
+        experimentalCanvas={false}
+        renderScroller={(props) => {
+          scrollerProps = props
+          return <div {...props.viewportProps}>{props.children}</div>
+        }}
+        height={400}
+        readOnly
+      />
+    )
+    if (!scrollerProps) throw new Error("Missing native scroller layout")
+    expect(
+      scrollerProps.getAnnotationGeometry({
+        type: "range",
+        range: { start: { row: 0, col: 0 }, end: { row: 0, col: 0 } },
+      })?.contentRect
+    ).toEqual({ left: 60, top: 36, width: 151.5, height: 106.5 })
+  })
+
+  it("previews the topmost chart or image without changing the sheet selection", () => {
+    const image: XlsxImage = {
+      id: "preview-image",
+      anchor: {
+        kind: "absolute",
+        positionEmu: { x: 10 * 9525, y: 5 * 9525 },
+        sizeEmu: { cx: 60 * 9525, cy: 30 * 9525 },
+      },
+      mimeType: "image/png",
+      src: "data:image/png;base64,AA==",
+      sheetIndex: 0,
+      workbookSheetIndex: 0,
+      zIndex: 1,
+    }
+    const chart: XlsxChart = {
+      id: "preview-chart",
+      anchor: image.anchor,
+      axes: [],
+      chartType: "bar",
+      series: [],
+      sheetIndex: 0,
+      workbookSheetIndex: 0,
+      zIndex: 2,
+    }
+    const controller: XlsxViewerController = {
+      ...createController(),
+      images: [image],
+      charts: [chart],
+      getSheetImages: () => [image],
+      getSheetCharts: () => [chart],
+    }
+    let scrollerProps: XlsxScrollerRenderProps | undefined
+    const view = () => (
+      <XlsxViewer
+        controller={controller}
+        experimentalCanvas={false}
+        renderScroller={(props) => {
+          scrollerProps = props
+          return <div {...props.viewportProps}>{props.children}</div>
+        }}
+        height={400}
+        readOnly
+      />
+    )
+    const { container, rerender } = render(view())
+    const scroller = requireElement<HTMLElement>(container, '[role="grid"]')
+    Object.defineProperty(scroller, "clientWidth", { value: 500 })
+    Object.defineProperty(scroller, "clientHeight", { value: 400 })
+    scroller.getBoundingClientRect = () => new DOMRect(300, 100, 500, 400)
+    if (!scrollerProps) throw new Error("Missing native scroller layout")
+    expect(scrollerProps.getAnnotationTargetAtPoint(400, 160)).toEqual({
+      type: "chart",
+      id: chart.id,
+    })
+    controller.charts = []
+    controller.getSheetCharts = () => []
+    rerender(view())
+    expect(scrollerProps.getAnnotationTargetAtPoint(400, 160)).toEqual({
+      type: "image",
+      id: image.id,
+    })
+    expect(controller.selectCell).not.toHaveBeenCalled()
+    expect(controller.selectChart).not.toHaveBeenCalled()
+    expect(controller.selectImage).not.toHaveBeenCalled()
+  })
+
+  it("keeps saved annotations aligned with the frozen canvas during a live zoom gesture", () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      createCanvasContextMock()
+    )
+    const controller = createController()
+    let scrollerProps: XlsxScrollerRenderProps | undefined
+    const { container } = render(
+      <XlsxViewer
+        controller={controller}
+        experimentalCanvas
+        readOnly
+        enableGestureZoom
+        renderScroller={(props) => {
+          scrollerProps = props
+          return <div {...props.viewportProps}>{props.children}</div>
+        }}
+        height={400}
+      />
+    )
+    const scroller = requireElement<HTMLElement>(container, '[role="grid"]')
+    Object.defineProperty(scroller, "clientWidth", { value: 500 })
+    Object.defineProperty(scroller, "clientHeight", { value: 400 })
+    scroller.getBoundingClientRect = () => new DOMRect(0, 0, 500, 400)
+    fireEvent.wheel(scroller, {
+      ctrlKey: true,
+      deltaY: 100,
+      clientX: 0,
+      clientY: 0,
+    })
+    const canvas = container.querySelectorAll("canvas").item(3)
+    const scale = Number(/scale\(([^)]+)\)/u.exec(canvas.style.transform)?.[1])
+    expect(scale).toBeLessThan(1)
+    expect(scale).toBeGreaterThan(0)
+    if (!scrollerProps) throw new Error("Missing native scroller layout")
+    const geometry = scrollerProps.getAnnotationGeometry({
+      type: "range",
+      range: {
+        start: { row: 0, col: 0 },
+        end: { row: 0, col: 0 },
+      },
+    })
+    expect(geometry?.viewportRects).toHaveLength(1)
+    expect(geometry?.viewportRects[0]?.left).toBe(60)
+    expect(geometry?.viewportRects[0]?.top).toBe(36)
+    expect(geometry?.viewportRects[0]?.width).toBeCloseTo(150 * scale)
+    expect(geometry?.viewportRects[0]?.height).toBeCloseTo(60 * scale)
+    expect(
+      scrollerProps.getAnnotationTargetAtPoint(60 + 20 * scale, 36 + 10 * scale)
+    ).toEqual({
+      type: "range",
+      range: { start: { row: 0, col: 0 }, end: { row: 0, col: 0 } },
+    })
+    const scrollingCell = scrollerProps.getAnnotationGeometry({
+      type: "range",
+      range: { start: { row: 1, col: 1 }, end: { row: 1, col: 1 } },
+    })?.viewportRects[0]
+    if (!scrollingCell) throw new Error("Missing zoomed scrolling cell")
+    expect(
+      scrollerProps.getAnnotationTargetAtPoint(
+        scrollingCell.left + scrollingCell.width / 2,
+        scrollingCell.top + scrollingCell.height / 2
+      )
+    ).toEqual({
+      type: "range",
+      range: { start: { row: 1, col: 1 }, end: { row: 1, col: 1 } },
+    })
   })
 
   it("updates the column DOM on pointermove and commits the final logical width on pointerup", () => {

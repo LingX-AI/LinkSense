@@ -1,4 +1,13 @@
 import DOMPurify from "dompurify"
+import { officeAnnotationCursor } from "@/components/media/office-preview/office-annotation-cursor"
+import { installOfficeAnnotationHover } from "@/components/media/office-preview/office-annotation-hover-controller"
+import { maximumOfficeAnnotationCount } from "@linksense/shared"
+import {
+  htmlPreviewAnnotationFocusMessageType,
+  htmlPreviewAnnotationsMessageType,
+  htmlPreviewAnnotationFramesMessageType,
+  installHtmlPreviewAnnotationsController,
+} from "./html-preview-annotations"
 
 import {
   htmlPreviewCurrentPageSelector,
@@ -6,11 +15,12 @@ import {
   htmlPreviewZoomMessageType,
 } from "@/components/media/html-preview/html-preview-fit"
 import {
-  htmlPreviewAnnotationFocusMessageType,
   htmlPreviewAnnotationModeMessageType,
   htmlPreviewSelectionMessageType,
+  htmlPreviewSelectionClearMessageType,
   htmlSelectableAttribute,
   htmlSelectedAttribute,
+  htmlAnnotatedAttribute,
   htmlSelectionOverlayAttribute,
   installHtmlPreviewAnnotationController,
   maximumHtmlSelectionCount,
@@ -193,13 +203,25 @@ const fitRuntime = `
   installStorageFallback(window);
   const installAnnotationController = (${installHtmlPreviewAnnotationController.toString()});
   const annotationController = installAnnotationController(window, {
-    focusMessageType: ${JSON.stringify(htmlPreviewAnnotationFocusMessageType)},
     modeMessageType: ${JSON.stringify(htmlPreviewAnnotationModeMessageType)},
     selectionMessageType: ${JSON.stringify(htmlPreviewSelectionMessageType)},
+    clearMessageType: ${JSON.stringify(htmlPreviewSelectionClearMessageType)},
     selectableAttribute: ${JSON.stringify(htmlSelectableAttribute)},
     selectedAttribute: ${JSON.stringify(htmlSelectedAttribute)},
+    annotatedAttribute: ${JSON.stringify(htmlAnnotatedAttribute)},
     overlayAttribute: ${JSON.stringify(htmlSelectionOverlayAttribute)},
     maximumSelectionCount: ${maximumHtmlSelectionCount},
+    annotationCursor: ${JSON.stringify(officeAnnotationCursor)},
+    installHover: (${installOfficeAnnotationHover.toString()}),
+  });
+  const installAnnotations = (${installHtmlPreviewAnnotationsController.toString()});
+  const annotationsController = installAnnotations(window, {
+    markersMessageType: ${JSON.stringify(htmlPreviewAnnotationsMessageType)},
+    framesMessageType: ${JSON.stringify(htmlPreviewAnnotationFramesMessageType)},
+    focusMessageType: ${JSON.stringify(htmlPreviewAnnotationFocusMessageType)},
+    maximumMarkers: ${maximumOfficeAnnotationCount},
+    maximumElements: ${maximumHtmlSelectionCount},
+    annotatedAttribute: ${JSON.stringify(htmlAnnotatedAttribute)},
   });
   const minimumZoom = 0.5;
   const maximumZoom = 2;
@@ -342,6 +364,7 @@ const fitRuntime = `
     root.dataset.linksenseFitScale = String(fitScale);
     root.dataset.linksenseAppliedScale = String(appliedScale);
     annotationController.refresh();
+    annotationsController.refresh();
     if (!hasReportedReady) {
       hasReportedReady = true;
       parent.postMessage(

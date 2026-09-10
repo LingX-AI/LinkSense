@@ -1,4 +1,12 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
+import type { XlsxScrollerRenderProps } from "@extend-ai/react-xlsx"
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import JSZip from "jszip"
 import type { ReactNode } from "react"
 import userEvent from "@testing-library/user-event"
@@ -7,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SpreadsheetPreview } from "@/components/media/spreadsheet-preview/spreadsheet-preview"
 import type { SpreadsheetSelectionAction } from "@/components/media/spreadsheet-preview/spreadsheet-preview.types"
 import i18n from "@/i18n"
+import { mockOfficeSelectionLayout } from "@/test/office-selection-layout"
 
 const xlsx = vi.hoisted(() => ({
   setWasmSource: vi.fn(),
@@ -242,6 +251,8 @@ vi.mock("@extend-ai/react-xlsx", async () => {
     loadingState,
     readOnly,
     renderScroller,
+    selectionColor,
+    selectionFillColor,
     showDefaultToolbar,
     toolbar,
   }: {
@@ -253,14 +264,9 @@ vi.mock("@extend-ai/react-xlsx", async () => {
     }) => React.CSSProperties | null | undefined
     loadingState?: React.ReactNode
     readOnly?: boolean
-    renderScroller?: (props: {
-      children: React.ReactNode
-      viewportProps: React.HTMLAttributes<HTMLDivElement> & {
-        ref: React.Ref<HTMLDivElement>
-        style: React.CSSProperties
-        tabIndex: number
-      }
-    }) => React.ReactNode
+    renderScroller?: (props: XlsxScrollerRenderProps) => React.ReactNode
+    selectionColor?: string
+    selectionFillColor?: string
     showDefaultToolbar?: boolean
     toolbar?:
       React.ReactNode | ((controller: MockController) => React.ReactNode)
@@ -280,11 +286,69 @@ vi.mock("@extend-ai/react-xlsx", async () => {
         style: annotatedCellStyle ?? undefined,
       })
     )
+    let scrollerElement: HTMLDivElement | null = null
     const scroller =
       renderScroller?.({
+        getAnnotationTargetAtPoint: () => ({
+          type: "range",
+          range: { start: { row: 1, col: 1 }, end: { row: 1, col: 1 } },
+        }),
+        getAnnotationGeometry: (target) => {
+          const scale = controller.zoomScale / 100
+          const object =
+            target.type === "image"
+              ? controller.selectedImage
+              : controller.selectedChart
+          const range = target.type === "range" ? target.range : null
+          const anchor = object?.anchor
+          const contentRect = range
+            ? {
+                left:
+                  (40 + Math.min(range.start.col, range.end.col) * 64) * scale,
+                top:
+                  (24 + Math.min(range.start.row, range.end.row) * 20) * scale,
+                width:
+                  (Math.abs(range.end.col - range.start.col) + 1) * 64 * scale,
+                height:
+                  (Math.abs(range.end.row - range.start.row) + 1) * 20 * scale,
+              }
+            : anchor
+              ? {
+                  left: (40 + anchor.positionEmu.x / 9525) * scale,
+                  top: (24 + anchor.positionEmu.y / 9525) * scale,
+                  width: Math.max(1, (anchor.sizeEmu.cx / 9525) * scale),
+                  height: Math.max(1, (anchor.sizeEmu.cy / 9525) * scale),
+                }
+              : null
+          if (!contentRect || !scrollerElement) return null
+          const left = Math.max(
+            40 * scale,
+            contentRect.left - scrollerElement.scrollLeft
+          )
+          const top = Math.max(
+            24 * scale,
+            contentRect.top - scrollerElement.scrollTop
+          )
+          const right = Math.min(
+            360,
+            contentRect.left + contentRect.width - scrollerElement.scrollLeft
+          )
+          const bottom = Math.min(
+            240,
+            contentRect.top + contentRect.height - scrollerElement.scrollTop
+          )
+          return {
+            contentRect,
+            viewportRects:
+              right > left && bottom > top
+                ? [{ left, top, width: right - left, height: bottom - top }]
+                : [],
+          }
+        },
         children: scrollerContent,
         viewportProps: {
           ref: (element) => {
+            scrollerElement = element
             if (!element) return
             Object.defineProperty(element, "clientWidth", {
               configurable: true,
@@ -310,6 +374,8 @@ vi.mock("@extend-ai/react-xlsx", async () => {
         "data-allow-resize-in-read-only": String(allowResizeInReadOnly),
         "data-read-only": String(readOnly),
         "data-default-toolbar": String(showDefaultToolbar),
+        "data-selection-color": selectionColor,
+        "data-selection-fill": selectionFillColor,
       },
       toolbarContent,
       scroller,
@@ -447,6 +513,7 @@ describe("spreadsheet preview", () => {
   afterEach(() => {
     vi.useRealTimers()
     cleanup()
+    vi.restoreAllMocks()
   })
 
   it("enables read-only row and column resizing and submits a worker-backed range", async () => {
@@ -520,6 +587,100 @@ describe("spreadsheet preview", () => {
     )
   })
 
+  it("anchors range actions to the selection through keyboard selection, scrolling, and zoom", async () => {
+    mockOfficeSelectionLayout()
+    render(
+      <SpreadsheetPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="budget.xlsx"
+        selectionAction={createSelectionAction(vi.fn())}
+      />
+    )
+    const scroller = screen.getByTestId("xlsx-scroller-content").parentElement
+    if (!scroller) throw new Error("Missing spreadsheet scroller")
+    vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(300, 100, 360, 240)
+    )
+    fireEvent.scroll(scroller)
+    await userEvent.click(screen.getByRole("button", { name: "Select range" }))
+    const action = screen.getByRole("button", { name: /问 LinkSense/u })
+    await waitFor(() =>
+      expect(action.style.transform).toBe("translate(388px, 192px)")
+    )
+
+    fireEvent.keyUp(scroller, { key: "ArrowDown" })
+    await waitFor(() =>
+      expect(action.style.transform).toBe("translate(388px, 192px)")
+    )
+    expect(action).not.toHaveClass("invisible")
+    scroller.scrollLeft = 30
+    scroller.scrollTop = 20
+    fireEvent.scroll(scroller)
+    await waitFor(() =>
+      expect(action.style.transform).toBe("translate(358px, 172px)")
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: "放大 Excel 工作簿" })
+    )
+    await waitFor(() =>
+      expect(action.style.transform).toBe("translate(381px, 180px)")
+    )
+  })
+
+  it("previews a hovered worksheet cell without committing a range selection", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    render(
+      <SpreadsheetPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="hover.xlsx"
+        selectionAction={createSelectionAction(onSubmit)}
+      />
+    )
+    const overlay = await screen.findByTestId("office-annotation-hover-overlay")
+    const target = screen.getByTestId("xlsx-scroller-content")
+    const scroller = target.parentElement
+    if (!scroller) throw new Error("Missing spreadsheet viewport")
+    vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(100, 100, 360, 240)
+    )
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(100, 100, 360, 240)
+    )
+    vi.spyOn(document, "elementFromPoint").mockReturnValue(target)
+    fireEvent.pointerMove(target, {
+      pointerType: "mouse",
+      buttons: 0,
+      clientX: 210,
+      clientY: 150,
+    })
+    await waitFor(() =>
+      expect(overlay.querySelector("path")).toHaveAttribute(
+        "d",
+        "M104,44H168V64H104Z"
+      )
+    )
+    expect(screen.queryByRole("button", { name: /问 LinkSense/u })).toBeNull()
+    expect(onSubmit).not.toHaveBeenCalled()
+    scroller.scrollLeft = 20
+    fireEvent.scroll(scroller)
+    await waitFor(() =>
+      expect(overlay.querySelector("path")).toHaveAttribute(
+        "d",
+        "M84,44H148V64H84Z"
+      )
+    )
+    await userEvent.click(screen.getByRole("button", { name: "Select range" }))
+    fireEvent.pointerMove(target, {
+      pointerType: "mouse",
+      buttons: 0,
+      clientX: 210,
+      clientY: 150,
+    })
+    await waitFor(() =>
+      expect(overlay.querySelector("path")?.getAttribute("d") || "").toBe("")
+    )
+  })
+
   it("draws numbered markers for saved worksheet range annotations", async () => {
     render(
       <SpreadsheetPreview
@@ -549,6 +710,11 @@ describe("spreadsheet preview", () => {
     const frame = overlay.querySelector(
       '[data-spreadsheet-annotation-frame="draft-1"]'
     )
+    expect(
+      frame?.closest('[data-testid="spreadsheet-annotation-viewport"]')
+    ).toContainElement(
+      screen.getByTestId("xlsx-scroller-content").parentElement
+    )
     expect(frame).toHaveStyle({
       left: "104px",
       top: "44px",
@@ -560,6 +726,40 @@ describe("spreadsheet preview", () => {
       "style",
       expect.stringContaining("background-color")
     )
+
+    const scroller = screen.getByTestId("xlsx-scroller-content").parentElement
+    if (!scroller) throw new Error("Missing spreadsheet scroller")
+    scroller.scrollLeft = 30
+    scroller.scrollTop = 10
+    fireEvent.scroll(scroller)
+    await waitFor(() =>
+      expect(frame).toHaveStyle({ left: "74px", top: "34px" })
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: "放大 Excel 工作簿" })
+    )
+    await waitFor(() => {
+      if (!(frame instanceof HTMLElement))
+        throw new Error("Missing annotation frame")
+      expect(Number.parseFloat(frame.style.left)).toBeCloseTo(84.4)
+      expect(Number.parseFloat(frame.style.top)).toBeCloseTo(38.4)
+      expect(Number.parseFloat(frame.style.width)).toBeCloseTo(140.8)
+      expect(Number.parseFloat(frame.style.height)).toBeCloseTo(44)
+    })
+    expect(frame).toHaveTextContent("1")
+    scroller.scrollLeft = 500
+    scroller.scrollTop = 500
+    fireEvent.scroll(scroller)
+    await waitFor(() =>
+      expect(screen.queryByTestId("spreadsheet-annotation-overlay")).toBeNull()
+    )
+    scroller.scrollLeft = 0
+    scroller.scrollTop = 0
+    fireEvent.scroll(scroller)
+    const restoredOverlay = await screen.findByTestId(
+      "spreadsheet-annotation-overlay"
+    )
+    expect(restoredOverlay).toHaveTextContent("1")
   })
 
   it("opens the annotation worksheet and scrolls its range into view", async () => {
@@ -810,6 +1010,7 @@ describe("spreadsheet preview", () => {
   })
 
   it("exposes bounded image and chart selections without workbook payloads", async () => {
+    mockOfficeSelectionLayout()
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     render(
       <SpreadsheetPreview
@@ -820,7 +1021,28 @@ describe("spreadsheet preview", () => {
       />
     )
 
+    const scroller = screen.getByTestId("xlsx-scroller-content").parentElement
+    if (!scroller) throw new Error("Missing spreadsheet scroller")
+    vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(300, 100, 360, 240)
+    )
+    fireEvent.scroll(scroller)
     await userEvent.click(screen.getByRole("button", { name: "Select image" }))
+    const imageFill = await screen.findByTestId(
+      "spreadsheet-selection-fill-overlay"
+    )
+    expect(imageFill.firstElementChild).toHaveClass(
+      "bg-[color-mix(in_srgb,var(--app-selection)_12%,transparent)]"
+    )
+    expect(screen.getByTestId("xlsx-viewer")).toHaveAttribute(
+      "data-selection-fill",
+      "color-mix(in srgb, var(--app-selection) 12%, transparent)"
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /问 LinkSense/u }).style.transform
+      ).toBe("translate(197px, 133px)")
+    )
     await submitCurrentSelection("替换这张图片")
     expect(onSubmit).toHaveBeenLastCalledWith(
       {
@@ -841,6 +1063,14 @@ describe("spreadsheet preview", () => {
     expect(onSubmit.mock.calls.at(-1)?.[0]).not.toHaveProperty("src")
 
     await userEvent.click(screen.getByRole("button", { name: "Select chart" }))
+    expect(
+      await screen.findByTestId("spreadsheet-selection-fill-overlay")
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /问 LinkSense/u }).style.transform
+      ).toBe("translate(197px, 133px)")
+    )
     await submitCurrentSelection("改成折线图")
     expect(onSubmit).toHaveBeenLastCalledWith(
       {

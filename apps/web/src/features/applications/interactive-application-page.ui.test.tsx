@@ -15,6 +15,8 @@ import type { ReactNode } from "react"
 import type { ConversationEvent } from "@/api/contracts"
 import { AuthContext } from "@/app/auth-state"
 import { InteractiveApplicationPage } from "@/features/applications/interactive-application-page"
+import { getPendingConversationTurnSubmission } from "@/features/conversations/conversation-pending-turn-submission"
+import { getPendingConversationExecution } from "@/features/conversations/conversation-pending-execution"
 import i18n from "@/i18n"
 
 const { apiRequest, useConversationEvents } = vi.hoisted(() => ({
@@ -90,6 +92,149 @@ describe("interactive application runtime page", () => {
     cleanup()
     vi.restoreAllMocks()
     vi.clearAllMocks()
+  })
+
+  it("shows the submitted message and opens chat before the slow request finishes, then acknowledges without waiting for refresh", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    renderPage(queryClient)
+    const frame = await screen.findByTitle("研究工作台")
+    const frameWindow = (frame as HTMLIFrameElement).contentWindow!
+    const postMessage = vi.spyOn(frameWindow, "postMessage")
+    act(() => dispatchFrameMessage(frameWindow, { type: "ready" }))
+    const initialize = postMessage.mock.calls
+      .map(([value]) => value as Record<string, unknown>)
+      .find((value) => value.type === "initialize")!
+    await userEvent.click(screen.getByRole("button", { name: "隐藏聊天" }))
+    const conversationId = "30000000-0000-4000-8000-000000000001"
+    const receipt = {
+      accepted: true,
+      turn_id: "60000000-0000-4000-8000-000000000001",
+      status: "starting",
+    }
+    let finishRequest = () => {}
+    apiRequest.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishRequest = () => resolve(receipt)
+        })
+    )
+    const refresh = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockImplementation(() => new Promise(() => {}))
+    const request = {
+      type: "request",
+      instanceId: initialize.instanceId,
+      requestId: "run-1",
+      method: "tasks.run",
+      params: { prompt: "生成完整研究报表", idempotency_key: "research-1" },
+    }
+    act(() => dispatchFrameMessage(frameWindow, request))
+
+    await waitFor(() =>
+      expect(
+        getPendingConversationTurnSubmission(queryClient, conversationId)
+          ?.message.content
+      ).toBe("生成完整研究报表")
+    )
+    expect(frame.closest(".interactive-application-layout")).toHaveAttribute(
+      "data-chat-open",
+      "true"
+    )
+    expect(
+      getPendingConversationTurnSubmission(queryClient, conversationId)?.message
+    ).toMatchObject({
+      display: { kind: "interactive_application" },
+      delivery_status: "sending",
+    })
+    expect(
+      getPendingConversationExecution(queryClient, conversationId)
+    ).not.toBeNull()
+    expect(refresh).not.toHaveBeenCalled()
+    // A repeated click shares the same in-flight submission.
+    act(() =>
+      dispatchFrameMessage(frameWindow, { ...request, requestId: "run-2" })
+    )
+    expect(
+      apiRequest.mock.calls.filter(([path]) => path.endsWith("/turns"))
+    ).toHaveLength(1)
+
+    await act(async () => finishRequest())
+    await waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "response",
+          requestId: "run-1",
+          ok: true,
+          result: receipt,
+        }),
+        "*"
+      )
+    )
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: "run-2",
+        ok: true,
+        result: receipt,
+      }),
+      "*"
+    )
+    expect(
+      getPendingConversationTurnSubmission(queryClient, conversationId)
+    ).toMatchObject({
+      turnId: receipt.turn_id,
+      message: { turn_id: receipt.turn_id },
+    })
+    expect(
+      getPendingConversationTurnSubmission(queryClient, conversationId)?.message
+        .delivery_status
+    ).toBeUndefined()
+    expect(refresh).toHaveBeenCalled()
+  })
+
+  it("clears optimistic state and reports a submission failure in the host and SDK", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    renderPage(queryClient)
+    const frameWindow = (
+      (await screen.findByTitle("研究工作台")) as HTMLIFrameElement
+    ).contentWindow!
+    const postMessage = vi.spyOn(frameWindow, "postMessage")
+    act(() => dispatchFrameMessage(frameWindow, { type: "ready" }))
+    const initialize = postMessage.mock.calls
+      .map(([value]) => value as Record<string, unknown>)
+      .find((value) => value.type === "initialize")!
+    apiRequest.mockRejectedValueOnce(new Error("send failed"))
+    act(() =>
+      dispatchFrameMessage(frameWindow, {
+        type: "request",
+        instanceId: initialize.instanceId,
+        requestId: "run-failed",
+        method: "tasks.run",
+        params: { prompt: "生成报表" },
+      })
+    )
+    await waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId: "run-failed", ok: false }),
+        "*"
+      )
+    )
+    expect(
+      getPendingConversationTurnSubmission(
+        queryClient,
+        "30000000-0000-4000-8000-000000000001"
+      )
+    ).toBeNull()
+    expect(
+      getPendingConversationExecution(
+        queryClient,
+        "30000000-0000-4000-8000-000000000001"
+      )
+    ).toBeNull()
+    expect(screen.getByRole("alert")).toBeVisible()
   })
 
   it("places the LinkSense-native chat beside the application and keeps both surfaces mounted when toggled", async () => {
@@ -367,10 +512,11 @@ function dispatchFrameMessage(
   )
 }
 
-function renderPage() {
-  const queryClient = new QueryClient({
+function renderPage(
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
+) {
   return render(
     <AuthContext.Provider
       value={{

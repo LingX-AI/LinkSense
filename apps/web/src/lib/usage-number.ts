@@ -17,9 +17,9 @@ const cnyDisplayScale = 2n
 const cnyTransportFactor = 10n ** cnyTransportScale
 
 const tokenScales = [
-  { divisor: 1_000_000_000n, suffix: "B" },
-  { divisor: 1_000_000n, suffix: "M" },
-  { divisor: 1_000n, suffix: "K" },
+  { exponent: 3n, suffix: "B" },
+  { exponent: 2n, suffix: "M" },
+  { exponent: 1n, suffix: "K" },
 ] as const
 
 export function formatIntegerCount(
@@ -32,14 +32,18 @@ export function formatIntegerCount(
 
 export function formatTokenCount(
   value: number | string,
-  language: UsageNumberLanguage
+  language: UsageNumberLanguage,
+  unitBase: 1_000 | 1_024 = 1_000
 ): string {
   const parsed = parseNonNegativeInteger(value)
   if (parsed === null) return "—"
-  const scaleIndex = tokenScales.findIndex((scale) => parsed >= scale.divisor)
+  const base = BigInt(unitBase)
+  const scaleIndex = tokenScales.findIndex(
+    (scale) => parsed >= base ** scale.exponent
+  )
   if (scaleIndex === -1) return parsed.toLocaleString(language)
 
-  return formatScaledTokenCount(parsed, scaleIndex, language)
+  return formatScaledTokenCount(parsed, scaleIndex, language, base)
 }
 
 export function formatCnyCost(
@@ -125,14 +129,16 @@ function parseCnyCost(value: number | string) {
 function formatScaledTokenCount(
   value: bigint,
   scaleIndex: number,
-  language: UsageNumberLanguage
+  language: UsageNumberLanguage,
+  base: bigint
 ): string {
   const scale = tokenScales[scaleIndex]
   if (!scale) return "—"
 
-  const roundedTenths = (value * 10n + scale.divisor / 2n) / scale.divisor
-  if (roundedTenths >= 10_000n && scaleIndex > 0) {
-    return formatScaledTokenCount(value, scaleIndex - 1, language)
+  const divisor = base ** scale.exponent
+  const roundedTenths = (value * 10n + divisor / 2n) / divisor
+  if (roundedTenths >= base * 10n && scaleIndex > 0) {
+    return formatScaledTokenCount(value, scaleIndex - 1, language, base)
   }
 
   const whole = roundedTenths / 10n

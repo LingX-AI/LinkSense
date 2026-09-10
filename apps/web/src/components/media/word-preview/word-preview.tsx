@@ -1,3 +1,4 @@
+import { autoUpdate } from "@floating-ui/react-dom"
 import {
   useCallback,
   useEffect,
@@ -32,6 +33,7 @@ import { useTranslation } from "react-i18next"
 import "@eigenpal/docx-editor-react/styles.css"
 
 import { OfficeAnnotationNumberBubble } from "@/components/media/office-preview/office-annotation-number-bubble"
+import { OfficeAnnotationHover } from "@/components/media/office-preview/office-annotation-hover"
 import { officeDocumentSessionKey } from "@/components/media/office-preview/office-document-session"
 import { OfficePreviewLoadingState } from "@/components/media/office-preview/office-preview-loading-state"
 import { OfficePreviewShell } from "@/components/media/office-preview/office-preview-shell"
@@ -206,18 +208,7 @@ type WordAnnotationMarkerFrame = Readonly<{
   id: string
   index: number
   rects: readonly DomSelectionRect[]
-  anchor: OfficeSelectionAnchor
 }>
-
-function selectionRectsAnchor(
-  rects: readonly DomSelectionRect[]
-): OfficeSelectionAnchor | null {
-  if (rects.length === 0) return null
-  return {
-    left: Math.max(...rects.map((rect) => rect.x + rect.width)),
-    top: Math.min(...rects.map((rect) => rect.y)),
-  }
-}
 
 function wordAnnotationMarkerFramesEqual(
   current: readonly WordAnnotationMarkerFrame[],
@@ -231,8 +222,6 @@ function wordAnnotationMarkerFramesEqual(
         nextFrame !== undefined &&
         frame.id === nextFrame.id &&
         frame.index === nextFrame.index &&
-        frame.anchor.left === nextFrame.anchor.left &&
-        frame.anchor.top === nextFrame.anchor.top &&
         selectionRectsEqual(frame.rects, nextFrame.rects)
       )
     })
@@ -327,6 +316,7 @@ function WordPreviewSession({
   const [selectionRects, setSelectionRects] = useState<
     readonly DomSelectionRect[]
   >([])
+  const annotationOverlayRef = useRef<HTMLDivElement>(null)
   const [annotationFrames, setAnnotationFrames] = useState<
     readonly WordAnnotationMarkerFrame[]
   >([])
@@ -496,10 +486,7 @@ function WordPreviewSession({
   }, [document.status, scheduleFitDocumentToWidth, viewerFailed])
 
   const applySelectionState = useCallback(
-    (
-      state: WordSelectionLocation | null,
-      anchor: OfficeSelectionAnchor | null
-    ) => {
+    (state: WordSelectionLocation | null) => {
       if (!state?.hasSelection) {
         setSelection(null)
         setSelectionSessionKey(null)
@@ -546,7 +533,6 @@ function WordPreviewSession({
           : {}),
       })
       setSelectionSessionKey(annotationSessionKey)
-      setSelectionAnchor(anchor)
       updatePageInfo()
     },
     [annotationSessionKey, updatePageInfo]
@@ -568,7 +554,7 @@ function WordPreviewSession({
       ) {
         return
       }
-      applySelectionState(normalizedState, null)
+      applySelectionState(normalizedState)
     },
     [applySelectionState, selectionEnabled]
   )
@@ -669,13 +655,7 @@ function WordPreviewSession({
       const anchorPosition = pointerSelectionAnchorPositionRef.current
       const headPosition = pointerSelectionHeadPositionRef.current
       clearPointerSelectionPositions()
-      const surfaceBounds = editorSurfaceRef.current?.getBoundingClientRect()
-      if (
-        !surfaceBounds ||
-        !pages ||
-        anchorPosition === null ||
-        headPosition === null
-      ) {
+      if (!pages || anchorPosition === null || headPosition === null) {
         latestSelectionStateRef.current = null
         setSelection(null)
         setSelectionSessionKey(null)
@@ -683,28 +663,15 @@ function WordPreviewSession({
         setSelectionRects([])
         return
       }
-      const anchor = {
-        left: Math.min(
-          surfaceBounds.width,
-          Math.max(0, clientX - surfaceBounds.left)
-        ),
-        top: Math.min(
-          surfaceBounds.height,
-          Math.max(0, clientY - surfaceBounds.top)
-        ),
-      }
       clearPendingPointerSelection()
       pointerSelectionTimerRef.current = window.setTimeout(() => {
-        const finishSelection = (
-          state: WordSelectionLocation | null,
-          selectionAnchor: OfficeSelectionAnchor | null
-        ) => {
-          applySelectionState(state, selectionAnchor)
+        const finishSelection = (state: WordSelectionLocation | null) => {
+          applySelectionState(state)
           pointerSelectionTimerRef.current = null
         }
         const view = editorViewRef.current
         if (!view) {
-          finishSelection(null, null)
+          finishSelection(null)
           return
         }
 
@@ -714,7 +681,7 @@ function WordPreviewSession({
             : getWordParagraphSelectionRange(view, anchorPosition)
         const hasNativeSelection = hasNativeSelectionInPages(pages)
         if (!pointerRange && !hasNativeSelection) {
-          finishSelection(null, null)
+          finishSelection(null)
           return
         }
 
@@ -726,15 +693,14 @@ function WordPreviewSession({
             )
             view.dispatch(view.state.tr.setSelection(textSelection))
           } catch {
-            finishSelection(null, null)
+            finishSelection(null)
             return
           }
         }
 
         finishSelection(
           normalizeWordSelectionState(extractSelectionState(view.state)) ??
-            latestSelectionStateRef.current,
-          anchor
+            latestSelectionStateRef.current
         )
       }, 0)
     },
@@ -778,6 +744,7 @@ function WordPreviewSession({
 
   const clearSelectionOverlay = useCallback(() => {
     setSelectionRects((current) => (current.length === 0 ? current : []))
+    setSelectionAnchor(null)
   }, [])
 
   const clearAnnotationFrames = useCallback(() => {
@@ -797,7 +764,8 @@ function WordPreviewSession({
       return
     }
 
-    const surfaceBounds = surface.getBoundingClientRect()
+    const surfaceBounds = annotationOverlayRef.current?.getBoundingClientRect()
+    if (!surfaceBounds) return
     const nextFrames = annotationMarkers.flatMap((marker) => {
       const { positionFrom, positionTo } = marker.selection
       if (
@@ -823,14 +791,13 @@ function WordPreviewSession({
             rect.width > 0 &&
             rect.height > 0
         )
-        const anchor = selectionRectsAnchor(rects)
-        return anchor
+        const frames = getWordSelectionFrames(rects)
+        return frames.length > 0
           ? [
               {
                 id: marker.id,
                 index: marker.index,
-                rects,
-                anchor,
+                rects: frames,
               },
             ]
           : []
@@ -867,11 +834,12 @@ function WordPreviewSession({
     }
 
     try {
+      const surfaceRect = surface.getBoundingClientRect()
       const nextRects = getSelectionRectsFromDom(
         pages,
         positionFrom,
         positionTo,
-        surface.getBoundingClientRect()
+        surfaceRect
       ).filter(
         (rect) =>
           Number.isFinite(rect.x) &&
@@ -883,6 +851,21 @@ function WordPreviewSession({
       )
       setSelectionRects((current) =>
         selectionRectsEqual(current, nextRects) ? current : nextRects
+      )
+      const nextAnchor = nextRects.length
+        ? {
+            left:
+              surfaceRect.left +
+              Math.max(...nextRects.map((rect) => rect.x + rect.width)),
+            top:
+              surfaceRect.top +
+              Math.max(...nextRects.map((rect) => rect.y + rect.height)),
+          }
+        : null
+      setSelectionAnchor((current) =>
+        current?.left === nextAnchor?.left && current?.top === nextAnchor?.top
+          ? current
+          : nextAnchor
       )
     } catch {
       clearSelectionOverlay()
@@ -950,6 +933,23 @@ function WordPreviewSession({
         ? null
         : new ResizeObserver(scheduleSelectionOverlayRefresh)
     resizeObserver?.observe(surface)
+    resizeObserver?.observe(pages)
+    const mutationObserver = new MutationObserver(
+      scheduleSelectionOverlayRefresh
+    )
+    mutationObserver.observe(pages, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["style", "class"],
+    })
+    const overlay = annotationOverlayRef.current
+    const stopTracking = overlay
+      ? autoUpdate(pages, overlay, scheduleSelectionOverlayRefresh, {
+          animationFrame: true,
+        })
+      : undefined
     scheduleSelectionOverlayRefresh()
 
     return () => {
@@ -971,6 +971,8 @@ function WordPreviewSession({
         handleScaleTransitionComplete
       )
       resizeObserver?.disconnect()
+      mutationObserver.disconnect()
+      stopTracking?.()
       selectionOverlaySuspendedRef.current = false
       if (selectionOverlayFrameRef.current !== null) {
         window.cancelAnimationFrame(selectionOverlayFrameRef.current)
@@ -1213,6 +1215,57 @@ function WordPreviewSession({
             }}
             onError={() => setViewerFailed(true)}
           />
+          <OfficeAnnotationHover
+            scopeRef={editorSurfaceRef}
+            scopeSelector=".docx-editor__scroll-container"
+            enabled={selectionEnabled && layoutReady}
+            resolve={(point, target) => {
+              const paragraph = target.closest<HTMLElement>(
+                ".layout-page-content .layout-paragraph"
+              )
+              const pages =
+                editorSurfaceRef.current?.querySelector<HTMLElement>(
+                  ".paged-editor__pages"
+                )
+              const view = editorViewRef.current
+              if (
+                !paragraph ||
+                !pages ||
+                !view ||
+                pointerSelectionActiveRef.current
+              )
+                return []
+              const position = clickToPositionDom(pages, point.x, point.y, zoom)
+              const range =
+                position === null
+                  ? null
+                  : getWordParagraphSelectionRange(view, position)
+              if (!range) return []
+              const selections = [
+                activeSelection,
+                ...annotationMarkers.map((marker) => marker.selection),
+              ]
+              if (
+                selections.some(
+                  (selected) =>
+                    selected?.positionFrom !== undefined &&
+                    selected.positionTo !== undefined &&
+                    selected.positionFrom < range.to &&
+                    selected.positionTo > range.from
+                )
+              )
+                return []
+              const origin = new DOMRect()
+              return getWordSelectionFrames(
+                getSelectionRectsFromDom(pages, range.from, range.to, origin)
+              ).map((rect) => ({
+                left: rect.x,
+                top: rect.y,
+                width: rect.width,
+                height: rect.height,
+              }))
+            }}
+          />
           {activeSelection && selectionFrames.length > 0 && (
             <svg
               className="word-preview-selection-overlay"
@@ -1233,38 +1286,37 @@ function WordPreviewSession({
               ))}
             </svg>
           )}
-          {annotationMarkers.length > 0 && annotationFrames.length > 0 && (
+          {annotationMarkers.length > 0 && (
             <div
+              ref={annotationOverlayRef}
               className="office-annotation-overlay word-preview-annotation-overlay"
-              data-testid="word-annotation-overlay"
+              data-testid={
+                annotationFrames.length ? "word-annotation-overlay" : undefined
+              }
               aria-hidden="true"
             >
-              {annotationFrames.map((frame) => (
-                <span key={frame.id}>
-                  {frame.rects.map((rect, rectIndex) => (
-                    <span
-                      key={`${frame.id}:${rect.pageIndex}:${rect.x}:${rect.y}:${rectIndex}`}
-                      className="office-annotation-highlight word-preview-annotation-highlight"
-                      data-word-annotation-frame={frame.id}
-                      style={{
-                        left: rect.x,
-                        top: rect.y,
-                        width: rect.width,
-                        height: rect.height,
-                      }}
-                    />
-                  ))}
-                  <OfficeAnnotationNumberBubble
-                    index={frame.index}
-                    className="office-annotation-number-bubble-floating word-preview-annotation-index"
-                    data-word-annotation-marker={frame.id}
+              {annotationFrames.flatMap((frame) =>
+                frame.rects.map((rect) => (
+                  <span
+                    key={`${frame.id}:${rect.pageIndex}`}
+                    className="office-annotation-frame word-preview-annotation-highlight"
+                    data-word-annotation-frame={frame.id}
+                    data-page-index={rect.pageIndex}
                     style={{
-                      left: frame.anchor.left,
-                      top: frame.anchor.top,
+                      left: rect.x,
+                      top: rect.y,
+                      width: rect.width,
+                      height: rect.height,
                     }}
-                  />
-                </span>
-              ))}
+                  >
+                    <OfficeAnnotationNumberBubble
+                      index={frame.index}
+                      className="word-preview-annotation-index"
+                      data-word-annotation-marker={frame.id}
+                    />
+                  </span>
+                ))
+              )}
             </div>
           )}
         </div>

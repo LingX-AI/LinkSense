@@ -442,6 +442,7 @@ function capabilityPreviewResponse() {
 }
 
 function installApiMock(options?: {
+  conversationSourcesResponse?: () => Response | Promise<Response>
   initialized?: boolean
   initializationCredentialRequired?: boolean
   systemName?: string
@@ -570,6 +571,15 @@ function installApiMock(options?: {
           ? (JSON.parse(init.body) as unknown)
           : undefined
       requests.push({ path, method, query: url.search, body: requestBody })
+
+      if (
+        /^\/api\/v1\/conversations\/[^/]+\/sources$/.test(path) &&
+        method === "GET"
+      ) {
+        if (options?.conversationSourcesResponse)
+          return options.conversationSourcesResponse()
+        return json({ success: true, data: { items: [] } })
+      }
 
       if (path === "/api/v1/system/bootstrap") {
         return json({

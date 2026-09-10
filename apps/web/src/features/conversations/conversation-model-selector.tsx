@@ -284,7 +284,7 @@ function formatCompactTokenMarks(
   value: number,
   language: UsageNumberLanguage
 ): string {
-  return formatTokenCount(value, language).replace(/[KMB]$/u, (suffix) =>
+  return formatTokenCount(value, language, 1_024).replace(/[KMB]$/u, (suffix) =>
     suffix.toLowerCase()
   )
 }

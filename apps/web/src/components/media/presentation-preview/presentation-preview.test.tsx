@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { PresentationPreview } from "@/components/media/presentation-preview/presentation-preview"
+import { mockOfficeSelectionLayout } from "@/test/office-selection-layout"
 import type {
   PresentationAnnotationMarker,
   PresentationSelectionAction,
@@ -515,7 +516,10 @@ describe("presentation preview", () => {
     await i18n.changeLanguage("zh-CN")
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
   it("renders loading and retryable error states without mounting the viewer", async () => {
     const { rerender } = render(
@@ -1395,7 +1399,78 @@ describe("presentation preview", () => {
     expect(viewer.setZoom).toHaveBeenLastCalledWith(2)
   })
 
+  it("previews slide elements on hover without duplicating retained annotation frames", async () => {
+    const documentState = {
+      status: "ready" as const,
+      content: new Uint8Array([1]),
+    }
+    const action = createSelectionAction(vi.fn().mockResolvedValue(undefined))
+    const marker: PresentationAnnotationMarker = {
+      id: "hover-mark",
+      index: 1,
+      selection: {
+        slideIndex: 0,
+        slideNumber: 1,
+        elementIds: ["title-1"],
+        elements: [],
+      },
+    }
+    const { rerender } = render(
+      <PresentationPreview
+        document={documentState}
+        fileName="hover.pptx"
+        selectionAction={action}
+      />
+    )
+    const overlay = await screen.findByTestId("office-annotation-hover-overlay")
+    const viewport = document.querySelector<HTMLElement>("[data-pptx-viewport]")
+    const target = screen.getByText("认识人工智能").parentElement
+    if (!viewport || !target) throw new Error("Missing slide viewport")
+    await waitFor(() =>
+      expect(viewport).toHaveAttribute("data-office-annotation-scope", "true")
+    )
+    setBoundingRect(viewport, { left: 100, top: 100, width: 900, height: 700 })
+    setBoundingRect(overlay, { left: 100, top: 100, width: 900, height: 700 })
+    setBoundingRect(target, { left: 200, top: 160, width: 400, height: 80 })
+    vi.spyOn(document, "elementFromPoint").mockReturnValue(target)
+    fireEvent.pointerMove(target, {
+      pointerType: "mouse",
+      buttons: 0,
+      clientX: 220,
+      clientY: 200,
+    })
+    await waitFor(() =>
+      expect(overlay.querySelector("path")).toHaveAttribute(
+        "d",
+        "M100,60H500V140H100Z"
+      )
+    )
+    expect(target).toHaveAttribute("aria-selected", "false")
+    expect(screen.queryByRole("button", { name: /问 LinkSense/u })).toBeNull()
+    rerender(
+      <PresentationPreview
+        document={documentState}
+        fileName="hover.pptx"
+        selectionAction={action}
+        annotationMarkers={[marker]}
+      />
+    )
+    await waitFor(() =>
+      expect(overlay.querySelector("path")?.getAttribute("d") || "").toBe("")
+    )
+    rerender(
+      <PresentationPreview
+        document={documentState}
+        fileName="hover.pptx"
+        annotationMarkers={[marker]}
+      />
+    )
+    expect(screen.queryByTestId("office-annotation-hover-overlay")).toBeNull()
+    expect(viewport).not.toHaveAttribute("data-office-annotation-scope")
+  })
+
   it("supports additive selection while leaving template elements inert", async () => {
+    mockOfficeSelectionLayout()
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     render(
       <PresentationPreview
@@ -1442,6 +1517,11 @@ describe("presentation preview", () => {
     fireEvent.click(image, { shiftKey: true })
     await waitFor(() => expect(image).toHaveAttribute("aria-selected", "true"))
     expect(title).toHaveAttribute("aria-selected", "true")
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /问 LinkSense/u }).style.transform
+      ).toBe("translate(686px, 408px)")
+    )
     await waitFor(() => {
       expect(
         document.querySelector("[data-pptx-selection-frame='image-1']")

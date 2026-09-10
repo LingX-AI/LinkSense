@@ -3909,7 +3909,7 @@ describe("conversation turn responses", () => {
     expect(summary.querySelector(".turn-image-generation-loading")).toBeNull()
   })
 
-  it("shows text-only thinking while waiting even when a plan is running", () => {
+  it("shows thinking without a tool disclosure while a plan is running", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T08:00:23.000Z"))
     const runningTurn = {
@@ -3956,15 +3956,28 @@ describe("conversation turn responses", () => {
     const summary = screen.getByTestId("turn-summary-turn-1")
     expect(within(summary).getByText("正在处理", { exact: true })).toBeVisible()
     expect(within(summary).getByText("20s", { exact: true })).toBeVisible()
-    expect(within(summary).getByText("运行了一个命令")).toBeVisible()
+    expect(within(summary).queryByText("运行了一个命令")).toBeNull()
     const thinking = within(summary).getByText("正在思考", { exact: true })
     expect(thinking).toBeVisible()
-    expect(thinking).toHaveClass("shimmer")
-    expect(thinking).toHaveAttribute("data-slot", "marker-content")
-    const thinkingRow = thinking.closest(".turn-thinking-activity")
+    expect(thinking.closest(".native-activity-summary")).toHaveClass("shimmer")
+    expect(thinking.closest('[data-slot="marker-content"]')).not.toBeNull()
+    const thinkingRow = thinking.closest('[data-slot="marker"]')
     expect(thinkingRow).toHaveAttribute("role", "status")
     expect(thinkingRow).toHaveAttribute("aria-busy", "true")
-    expect(thinkingRow?.querySelector("svg")).toBeNull()
+    expect(summary.querySelectorAll(".native-activity-item")).toHaveLength(1)
+    expect(
+      within(summary).queryByRole("button", {
+        name: i18n.t("conversation.nativeActivityDetails.expand", {
+          activity: "正在思考",
+        }),
+      })
+    ).toBeNull()
+    expect(summary.querySelector(".native-activity-chevron")).toBeNull()
+    fireEvent.click(thinking)
+    expect(within(summary).queryByText("pnpm test")).toBeNull()
+    expect(within(summary).getByText("正在思考", { exact: true })).toBe(
+      thinking
+    )
   })
 
   it("keeps thinking visible while named subagents work in the background", () => {
@@ -5219,15 +5232,17 @@ describe("conversation turn responses", () => {
     )
     expect(toolCall).toBeVisible()
     expect(fileServiceMarker).not.toBeNull()
-    expect(fileServiceMarker).toHaveClass("legacy-activity-item")
+    expect(fileServiceMarker?.closest(".legacy-activity-item")).not.toBeNull()
     expect(
       within(fileServiceMarker as HTMLElement).getByText(
         "LinkSense File Service"
       )
     ).toBeVisible()
-    expect(fileServiceActivity.nextElementSibling).toHaveTextContent(
-      "LinkSense File Service"
-    )
+    expect(
+      fileServiceActivity
+        .closest('[data-slot="marker-content"]')
+        ?.querySelector(".trace-chip")
+    ).toHaveTextContent("LinkSense File Service")
     expect(
       toolCall.closest(".activity-item-main")?.querySelector("svg")
     ).toHaveClass("size-3.5")
@@ -6479,14 +6494,16 @@ describe("conversation turn responses", () => {
     ).toHaveAttribute("aria-expanded", "true")
     const completedActivity = screen
       .getByText("运行了一个命令", {
-        selector: ".native-activity-summary",
+        selector: ".native-activity-summary > span",
       })
       .closest(".native-activity-item")
     expect(completedActivity).not.toHaveAttribute("data-running")
     expect(
-      screen.getByText("运行了一个命令", {
-        selector: ".native-activity-summary",
-      })
+      screen
+        .getByText("运行了一个命令", {
+          selector: ".native-activity-summary > span",
+        })
+        .closest(".native-activity-summary")
     ).not.toHaveClass("shimmer")
     expect(
       screen.getByText("正在执行测试").closest(".process-commentary")
@@ -6519,6 +6536,73 @@ describe("conversation turn responses", () => {
     expect(screen.getByText("Took", { exact: true })).toBeVisible()
     expect(screen.queryByText(/NaN|-/u)).toBeNull()
     expect(screen.queryByText("LinkSense", { exact: true })).toBeNull()
+  })
+
+  it("folds only application messages and copies the complete content while collapsed", async () => {
+    const interaction = userEvent.setup()
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue()
+    const getComputedStyle = window.getComputedStyle
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
+      const style = getComputedStyle(element)
+      style.lineHeight = "24px"
+      return style
+    })
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      DOMRect.fromRect({ width: 300, height: 240 })
+    )
+    const content = "完整应用研究要求\n".repeat(20).trimEnd()
+    const applicationMessage = {
+      id: "application-message",
+      role: "user" as const,
+      turn_id: "turn-1",
+      content,
+      display: {
+        kind: "interactive_application" as const,
+        application_id: "20000000-0000-4000-8000-000000000001",
+      },
+    }
+    const view = render(
+      <ConversationThread
+        conversation={{
+          ...completedConversation,
+          messages: [
+            applicationMessage,
+            ...(completedConversation.messages ?? []),
+          ],
+        }}
+        onDownload={vi.fn()}
+      />
+    )
+    expect(screen.getAllByRole("button", { name: "展开消息" })).toHaveLength(1)
+    const [appMessage, manualMessage] = screen.getAllByRole("article", {
+      name: "用户消息",
+    })
+    expect(
+      within(manualMessage!).queryByRole("button", { name: "展开消息" })
+    ).not.toBeInTheDocument()
+    await interaction.click(
+      within(appMessage!).getByRole("button", { name: "复制消息" })
+    )
+    expect(writeText).toHaveBeenLastCalledWith(content)
+    await interaction.click(screen.getByRole("button", { name: "展开消息" }))
+    view.rerender(
+      <ConversationThread
+        conversation={{
+          ...completedConversation,
+          messages: [
+            { ...applicationMessage },
+            ...(completedConversation.messages ?? []),
+          ],
+        }}
+        onDownload={vi.fn()}
+      />
+    )
+    expect(screen.getByRole("button", { name: "收起消息" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    )
   })
 
   it("exposes role-specific message actions and copies either message", async () => {

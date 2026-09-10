@@ -1,5 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Page, type Route } from "@playwright/test"
+import { writeFile } from "node:fs/promises"
+import dayjs from "dayjs"
 import JSZip from "jszip"
 
 import {
@@ -1105,6 +1107,284 @@ test("task message rail stays compact at rest and expands into a message preview
     .toBeGreaterThan(0)
   await expect(targetMessage).toBeInViewport()
 })
+
+for (const viewport of [
+  { name: "desktop", width: 1440, height: 900 },
+  { name: "mobile", width: 390, height: 844 },
+]) {
+  test(`100 historical messages load on scroll and keep navigation working (${viewport.name})`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize(viewport)
+    const conversationId = "20000000-0000-4000-8000-000000000001"
+    const turns = Array.from({ length: 50 }, (_, index) => ({
+      id: `history-turn-${index + 1}`,
+      sequence_no: index + 1,
+      status: "completed",
+      created_at: dayjs(NOW).add(index, "minute").toISOString(),
+      started_at: dayjs(NOW).add(index, "minute").toISOString(),
+      completed_at: dayjs(NOW)
+        .add(index, "minute")
+        .add(4, "second")
+        .toISOString(),
+    }))
+    const messages = turns.flatMap((turn) => [
+      {
+        id: `history-user-${turn.sequence_no}`,
+        turn_id: turn.id,
+        sequence_no: turn.sequence_no * 2 - 1,
+        role: "user",
+        content_text: `第 ${turn.sequence_no} 轮：请分析项目进展`,
+        created_at: turn.created_at,
+      },
+      {
+        id: `history-assistant-${turn.sequence_no}`,
+        turn_id: turn.id,
+        sequence_no: turn.sequence_no * 2,
+        role: "assistant",
+        phase: "final_answer",
+        content_text: `第 ${turn.sequence_no} 轮分析结果。\n\n项目已完成需求梳理、方案评审和开发验证，当前进度符合预期。\n\n- 已完成：核心流程和数据检查。\n- 进行中：异常处理与交互细节。\n- 下一步：结合反馈安排下一轮验证。${"\n\n补充说明：本轮记录用于检查长对话的阅读体验。".repeat(turn.sequence_no % 3)}`,
+        created_at: turn.completed_at,
+      },
+    ])
+    expect(messages).toHaveLength(100)
+    const requests: { around: number | null; count: number }[] = []
+    const deliveredIds = new Set<string>()
+    const pageErrors: string[] = []
+    page.on("pageerror", (error) => pageErrors.push(error.message))
+    await page.route(
+      (url) => url.pathname === `/api/v1/conversations/${conversationId}`,
+      async (route) => {
+        const value = new URL(route.request().url()).searchParams.get(
+          "around_turn"
+        )
+        const around = value === null ? null : Number(value)
+        const pageStart =
+          around === null
+            ? turns.length - 20
+            : Math.floor((around - 1) / 20) * 20
+        const pageTurns = turns.slice(pageStart, pageStart + 20)
+        const pageTurnIds = new Set(pageTurns.map((turn) => turn.id))
+        const pageMessages = messages.filter((message) =>
+          pageTurnIds.has(message.turn_id)
+        )
+        requests.push({ around, count: pageMessages.length })
+        pageMessages.forEach((message) => deliveredIds.add(message.id))
+        await ok(route, {
+          conversation: {
+            id: conversationId,
+            title: "100 条历史消息滚动测试",
+            archive_status: "active",
+            execution_status: "completed",
+            updated_at: NOW,
+          },
+          messages: pageMessages,
+          turns,
+          history: {
+            scope_id: turns[0].id,
+            turn_ids: [...pageTurnIds],
+            index: turns.map((turn) => ({
+              turn_id: turn.id,
+              sequence_no: turn.sequence_no,
+              message_id: `history-user-${turn.sequence_no}`,
+              created_at: turn.created_at,
+              has_content: true,
+            })),
+          },
+          pending_requests: [],
+          files: [],
+          events: [],
+        })
+      }
+    )
+
+    await page.goto(`/conversations/${conversationId}`)
+    const scroller = page.locator(".conversation-scroll")
+    const mountedMessages = page.locator(
+      '.message-row[id^="conversation-message-history-"]'
+    )
+    const latestMessage = page.locator(
+      "#conversation-message-history-assistant-50"
+    )
+    const navigation = page.getByRole("navigation", { name: "任务消息导航" })
+    const activeIds = () =>
+      navigation
+        .locator('[aria-current="true"]')
+        .evaluateAll((elements) =>
+          elements.map((element) =>
+            element
+              .closest("li")
+              ?.getAttribute("data-testid")
+              ?.replace("conversation-line-", "")
+          )
+        )
+    const visibleIds = () =>
+      scroller.evaluate((element) => {
+        const viewport = element.getBoundingClientRect()
+        const workspace = element.closest(".conversation-workspace")
+        const bottom =
+          workspace
+            ?.querySelector(".conversation-bottom-stack")
+            ?.getBoundingClientRect().top ?? viewport.bottom
+        const top =
+          workspace
+            ?.querySelector(".conversation-top-bar")
+            ?.getBoundingClientRect().bottom ?? viewport.top
+        return [
+          ...element.querySelectorAll<HTMLElement>(
+            '[data-conversation-row][data-loaded="true"]'
+          ),
+        ]
+          .filter((row) => {
+            const bounds = row.getBoundingClientRect()
+            return (
+              bounds.height > 0 &&
+              bounds.bottom > Math.max(viewport.top, top) &&
+              bounds.top < Math.min(viewport.bottom, bottom)
+            )
+          })
+          .flatMap((row) =>
+            (row.dataset.messageIds ?? "").split(" ").filter(Boolean)
+          )
+      })
+    const expectVisibleHighlights = async () => {
+      if (viewport.name !== "desktop") return
+      await expect
+        .poll(
+          async () =>
+            JSON.stringify(await activeIds()) ===
+            JSON.stringify(await visibleIds())
+        )
+        .toBe(true)
+      await expect(navigation.getByRole("button")).toHaveCount(50)
+    }
+    await expect(latestMessage).toBeInViewport()
+    expect(requests).toEqual([{ around: null, count: 40 }])
+    expect(await mountedMessages.count()).toBeLessThan(30)
+    await expect(
+      page.locator("#conversation-message-history-user-1")
+    ).toHaveCount(0)
+    await expectVisibleHighlights()
+    if (viewport.name === "desktop") {
+      await expect
+        .poll(async () => (await activeIds()).length)
+        .toBeGreaterThanOrEqual(2)
+      // Jump directly to an unloaded exchange: intermediate pages stay unloaded.
+      await navigation
+        .getByRole("button", { name: "第 1 组问答", exact: true })
+        .click()
+    } else {
+      const previousTop = await scroller.evaluate(
+        (element) => element.scrollTop
+      )
+      await scroller.hover()
+      await page.mouse.wheel(0, -650)
+      await expect
+        .poll(() => scroller.evaluate((element) => element.scrollTop))
+        .toBeLessThan(previousTop)
+      await scroller.evaluate((element) => {
+        element.scrollTop = 0
+      })
+    }
+    await expect(
+      page.locator("#conversation-message-history-user-1")
+    ).toBeInViewport()
+    await expect.poll(() => requests.length).toBe(2)
+    expect(requests).toEqual([
+      { around: null, count: 40 },
+      { around: 1, count: 40 },
+    ])
+    expect(deliveredIds.size).toBe(80)
+    await expectVisibleHighlights()
+    const previousVisible = await visibleIds()
+    await scroller.hover()
+    await page.mouse.wheel(0, 650)
+    await expect.poll(visibleIds).not.toEqual(previousVisible)
+    await expectVisibleHighlights()
+
+    // Scroll into the gap between the two loaded windows. It loads that page,
+    // without silently skipping the missing exchanges.
+    await scroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight / 2
+    })
+    await expect.poll(() => requests.length).toBe(3)
+    expect(requests).toEqual([
+      { around: null, count: 40 },
+      { around: 1, count: 40 },
+      { around: 21, count: 40 },
+    ])
+    await expect(scroller.locator('[data-loaded="false"]')).toHaveCount(0)
+    expect(deliveredIds.size).toBe(100)
+    expect(await mountedMessages.count()).toBeLessThan(30)
+    await expectVisibleHighlights()
+    if (viewport.name === "desktop") {
+      await expect
+        .poll(async () => (await activeIds()).length)
+        .toBeGreaterThanOrEqual(2)
+      const target = page.locator("#conversation-message-history-user-10")
+      await expect(target).toHaveCount(0)
+      const marker = navigation.getByRole("button", {
+        name: "第 10 轮：请分析项目进展",
+        exact: true,
+      })
+      await marker.hover()
+      await expect(
+        page.getByRole("dialog", { name: "第 10 轮：请分析项目进展" })
+      ).toContainText("第 10 轮分析结果")
+      await marker.click()
+      await expect(target).toBeInViewport()
+      await expect
+        .poll(async () => {
+          const box = await target.boundingBox()
+          const header = await page
+            .locator(".conversation-top-bar")
+            .boundingBox()
+          return (box?.y ?? 0) - ((header?.y ?? 0) + (header?.height ?? 0))
+        })
+        .toBeGreaterThanOrEqual(0)
+      await expect(marker).toHaveAttribute("aria-current", "true")
+      await expectVisibleHighlights()
+    }
+    await page.keyboard.press("Escape")
+    await page.mouse.click(viewport.width / 2, 120)
+    const screenshot = `../../output/playwright/history-global-nav-${viewport.name}.png`
+    await page.screenshot({ path: screenshot, fullPage: true })
+    await testInfo.attach(`100 messages - ${viewport.name}`, {
+      path: screenshot,
+      contentType: "image/png",
+    })
+    const highlightedMessageIds =
+      viewport.name === "desktop" ? await activeIds() : []
+    await page.getByRole("button", { name: "回到底部" }).click()
+    await expect(latestMessage).toBeInViewport()
+    await expectVisibleHighlights()
+    expect(await mountedMessages.count()).toBeLessThan(30)
+    await expectNoHorizontalOverflow(page)
+    expect(requests).toHaveLength(3)
+    expect(pageErrors).toEqual([])
+    const reportPath = `../../output/playwright/history-global-nav-${viewport.name}.json`
+    await writeFile(
+      reportPath,
+      JSON.stringify(
+        {
+          viewport,
+          requests,
+          uniqueMessages: deliveredIds.size,
+          navigationItems: await navigation.getByRole("button").count(),
+          highlightedMessageIds,
+          mountedMessages: await mountedMessages.count(),
+          pageErrors,
+        },
+        null,
+        2
+      )
+    )
+    await testInfo.attach("history-pagination", {
+      path: reportPath,
+      contentType: "application/json",
+    })
+  })
+}
 
 test("long task follows new content without interrupting historical reading", async ({
   page,

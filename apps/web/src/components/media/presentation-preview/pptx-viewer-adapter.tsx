@@ -24,6 +24,7 @@ import { I18nextProvider, useTranslation } from "react-i18next"
 
 import { OfficePreviewLoadingState } from "@/components/media/office-preview/office-preview-loading-state"
 import { OfficeAnnotationNumberBubble } from "@/components/media/office-preview/office-annotation-number-bubble"
+import { OfficeAnnotationHover } from "@/components/media/office-preview/office-annotation-hover"
 import { createPresentationViewerI18n } from "@/components/media/presentation-preview/pptx-viewer-i18n"
 import type { OfficeSelectionAnchor } from "@/components/media/office-preview/office-preview.types"
 import type {
@@ -699,14 +700,8 @@ export const PptxViewerAdapter = forwardRef<
         ...selectedFrames.map((frame) => frame.top + frame.height)
       )
       onSelectionAnchorChange({
-        left: Math.min(
-          Math.max(selectedRight, 136),
-          Math.max(8, rootRect.width - 8)
-        ),
-        top: Math.min(
-          Math.max(selectedBottom, 0),
-          Math.max(0, rootRect.height - 40)
-        ),
+        left: rootRect.left + selectedRight,
+        top: rootRect.top + selectedBottom,
       })
     })
   }, [annotationMarkers, onSelectionAnchorChange, selectionEnabled])
@@ -1553,6 +1548,30 @@ export const PptxViewerAdapter = forwardRef<
           />
         </I18nextProvider>
       </div>
+      <OfficeAnnotationHover
+        scopeRef={rootRef}
+        scopeSelector="[data-pptx-viewport]"
+        enabled={selectionEnabled && viewerReady}
+        resolve={(_point, target) => {
+          const node = closestElementNode(target)
+          const element = node && resolveTopLevelElement(node)
+          if (
+            !node ||
+            !element ||
+            selectedIdsRef.current.includes(element.id) ||
+            annotationMarkers.some(
+              (marker) =>
+                marker.selection.slideIndex === activeSlideIndex &&
+                marker.selection.elementIds.includes(element.id)
+            )
+          )
+            return []
+          const elementNode = node.closest<HTMLElement>(
+            `[data-element-id="${CSS.escape(element.id)}"]`
+          )
+          return elementNode ? [elementNode.getBoundingClientRect()] : []
+        }}
+      />
       <div
         className="presentation-selection-overlay"
         data-pptx-selection-overlay="true"

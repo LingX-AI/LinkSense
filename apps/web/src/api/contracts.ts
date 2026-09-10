@@ -23,6 +23,7 @@ import {
   capabilityRiskSummarySchema as sharedCapabilityRiskSummarySchema,
   conversationEventSchema,
   conversationCollaborationModeSchema,
+  conversationHistoryPageSchema,
   conversationOrderResultSchema as sharedConversationOrderResultSchema,
   conversationPlanReviewSchema as sharedConversationPlanReviewSchema,
   conversationUserInputRequestSchema,
@@ -66,6 +67,7 @@ import {
   weixinLoginSessionSchema as sharedWeixinLoginSessionSchema,
   userMessageCapabilitySchema,
   userMessageDisplaySchema,
+  officeAnnotationDisplaySchema,
   uuidSchema,
   type AuthenticationSettings as SharedAuthenticationSettings,
   type AuthSession as SharedAuthSession,
@@ -463,6 +465,8 @@ export const conversationMessageSchema = z
   }))
 
 export type ConversationMessage = z.infer<typeof conversationMessageSchema> & {
+  /** Local submission feedback, cleared when the server accepts the message. */
+  delivery_status?: "sending"
   /** Client-only identity retained while a streamed message becomes persisted. */
   client_render_key?: string
 }
@@ -674,7 +678,7 @@ export const pendingRequestSchema = z
     block_code: z.string().nullable().optional(),
     created_at: z.string().optional(),
     input_text: z.string().optional(),
-    display: userMessageDisplaySchema.nullable().optional(),
+    display: officeAnnotationDisplaySchema.nullable().optional(),
     priority_capability_ids: z.array(z.string()).optional(),
     knowledge_base_ids: z.array(z.string()).optional(),
     collaboration_mode: conversationCollaborationModeSchema.optional(),
@@ -896,6 +900,7 @@ export const conversationSchema = z
       .optional(),
     goal: threadGoalSchema.nullable().optional(),
     messages: z.array(conversationMessageSchema).optional(),
+    history: conversationHistoryPageSchema.optional(),
     attachments: z.array(conversationFileSchema).optional(),
     artifacts: z.array(conversationFileSchema).optional(),
     turns: z.array(turnSchema).optional(),
@@ -938,6 +943,7 @@ const conversationDetailPayloadSchema = z
     conversation: conversationSchema,
     goal: threadGoalSchema.nullable().optional(),
     messages: z.array(conversationMessageSchema).default([]),
+    history: conversationHistoryPageSchema.optional(),
     turns: z.array(turnSchema).default([]),
     pending_requests: z.array(pendingRequestSchema).default([]),
     user_input_requests: z
@@ -1077,6 +1083,7 @@ const conversationDetailPayloadSchema = z
       ...value.conversation,
       goal: value.goal ?? value.conversation.goal ?? null,
       messages,
+      history: value.history,
       turns: value.turns,
       running_turn: runningTurn ?? null,
       pending_requests: value.pending_requests.map((request) => ({

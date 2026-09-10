@@ -1,7 +1,8 @@
 import { queryOptions } from "@tanstack/react-query"
 
 import { ApiError, apiRequest } from "@/api/client"
-import { conversationDetailSchema } from "@/api/contracts"
+import { conversationDetailSchema, type Conversation } from "@/api/contracts"
+import { mergeConversationHistory } from "@/features/conversations/conversation-history"
 
 export function isDefinitiveConversationUnavailableError(error: unknown) {
   return (
@@ -20,15 +21,20 @@ export function conversationDetailQueryOptions(
     refetchOnWindowFocus: "always",
     retry: (failureCount, error) =>
       !isDefinitiveConversationUnavailableError(error) && failureCount < 1,
-    queryFn: ({ signal }) => {
+    queryFn: async ({ signal, client }) => {
       if (!conversationId) {
         throw new Error("Conversation id is required")
       }
 
-      return apiRequest(`/conversations/${conversationId}`, {
+      const latest = await apiRequest(`/conversations/${conversationId}`, {
         schema: conversationDetailSchema,
         signal,
       })
+      return mergeConversationHistory(
+        client.getQueryData<Conversation>(["conversation", conversationId]),
+        latest,
+        "latest"
+      )
     },
   })
 }

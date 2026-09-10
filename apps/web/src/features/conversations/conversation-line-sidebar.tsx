@@ -31,8 +31,8 @@ export type ConversationLineSidebarItem = {
 export type ConversationLineSidebarProps = {
   ariaLabel: string
   items: readonly ConversationLineSidebarItem[]
-  activeItemId?: string | null
-  defaultActiveItemId?: string | null
+  activeItemIds?: readonly string[]
+  defaultActiveItemIds?: readonly string[]
   proximityRadius?: number
   markerLength?: number
   collapsedMarkerLength?: number
@@ -90,8 +90,8 @@ function cancelEffectFrame(frameId: number) {
 export function ConversationLineSidebar({
   ariaLabel,
   items,
-  activeItemId,
-  defaultActiveItemId = null,
+  activeItemIds,
+  defaultActiveItemIds = [],
   proximityRadius = 40,
   markerLength = 26,
   collapsedMarkerLength = 6,
@@ -116,17 +116,34 @@ export function ConversationLineSidebar({
   const previewSuppressionTimerRef = useRef<number | null>(null)
   const smoothingRef = useRef(smoothing)
   const reducedMotionRef = useRef(false)
-  const [uncontrolledActiveId, setUncontrolledActiveId] = useState<
-    string | null
-  >(defaultActiveItemId)
+  const [uncontrolledActiveIds, setUncontrolledActiveIds] =
+    useState(defaultActiveItemIds)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [previewSuppressed, setPreviewSuppressed] = useState(false)
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(
     getReducedMotionPreference
   )
 
-  const selectedItemId =
-    activeItemId === undefined ? uncontrolledActiveId : activeItemId
+  const selectedItemIds = activeItemIds ?? uncontrolledActiveIds
+  const selectedItems = new Set(selectedItemIds)
+  useEffect(() => {
+    const list = listRef.current
+    if (
+      !list ||
+      !selectedItemIds.length ||
+      list.scrollHeight <= list.clientHeight
+    )
+      return
+    const first = items.findIndex((item) => selectedItemIds.includes(item.id))
+    const target = itemRefs.current[first]
+    if (!target) return
+    const bounds = list.getBoundingClientRect()
+    const rect = target.getBoundingClientRect()
+    if (rect.top < bounds.top || rect.bottom > bounds.bottom) {
+      list.scrollTop +=
+        rect.top - bounds.top - (list.clientHeight - rect.height) / 2
+    }
+  }, [items, selectedItemIds])
   const applyEffectsImmediately = useCallback(() => {
     itemRefs.current.forEach((element, index) => {
       if (!element) return
@@ -339,10 +356,10 @@ export function ConversationLineSidebar({
         data-testid="conversation-line-sidebar-list"
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
-        className="m-0 flex list-none flex-col [gap:var(--line-item-gap)] overflow-visible p-0"
+        className="m-0 flex max-h-[calc(100dvh-10rem)] [scrollbar-width:none] list-none flex-col [gap:var(--line-item-gap)] overflow-x-hidden overflow-y-auto p-0"
       >
         {items.map((item, index) => {
-          const selected = selectedItemId === item.id
+          const selected = selectedItems.has(item.id)
           const previewVisible = previewIndex === index
           const previewTime = formatContextualMessageTime(
             item.createdAt,
@@ -358,7 +375,7 @@ export function ConversationLineSidebar({
               }}
               data-testid={`conversation-line-${item.id}`}
               data-selected={selected || undefined}
-              className="relative flex h-2.5 w-[var(--line-marker-length)] items-center overflow-visible [--line-effect:0]"
+              className="relative flex h-2.5 w-[var(--line-marker-length)] shrink-0 items-center overflow-visible [--line-effect:0]"
             >
               <HoverCard
                 open={previewVisible}
@@ -397,8 +414,8 @@ export function ConversationLineSidebar({
                         handleKeyboardNavigation(event, index)
                       }
                       onClick={(event) => {
-                        if (activeItemId === undefined) {
-                          setUncontrolledActiveId(item.id)
+                        if (activeItemIds === undefined) {
+                          setUncontrolledActiveIds([item.id])
                         }
                         if (onItemSelect) {
                           setPreviewSuppression(
@@ -422,7 +439,7 @@ export function ConversationLineSidebar({
                       previewVisible
                         ? "[transform:scaleX(1)] opacity-100"
                         : "[transform:scaleX(calc(var(--line-collapsed-scale)+(1-var(--line-collapsed-scale))*var(--line-effect)))] opacity-[calc(0.48+var(--line-effect)*0.52)]",
-                      selected && "bg-[var(--app-text)]"
+                      selected && "bg-[var(--app-text)] opacity-100"
                     )}
                   />
                 </HoverCardTrigger>

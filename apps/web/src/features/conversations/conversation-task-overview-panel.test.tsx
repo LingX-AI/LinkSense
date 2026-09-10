@@ -60,6 +60,42 @@ describe("ConversationTaskOverviewPanel", () => {
 
   afterEach(() => cleanup())
 
+  it("uses compact rows and matching action icons for files and sources", async () => {
+    const props = {
+      events: [],
+      files: [artifact, { ...artifact, id: "artifact-2", name: "second.pdf" }],
+      onDownload: vi.fn(),
+      sourcesState: {
+        sources: [
+          { url: "https://example.test/a", title: "资料 A" },
+          { url: "https://example.test/b", title: "资料 B" },
+        ],
+      },
+    }
+    const view = render(<ConversationTaskOverviewPanel {...props} />)
+    const downloads = await screen.findAllByRole("button", { name: /^下载 / })
+    const links = screen.getAllByRole("link")
+    expect(downloads).toHaveLength(2)
+    expect(links).toHaveLength(2)
+    for (const row of [...downloads, ...links]) {
+      expect(row).toHaveClass("h-8")
+      expect(row.lastElementChild).toHaveClass("size-3.5")
+    }
+    expect(downloads[0].parentElement).toHaveClass("flex", "flex-col", "gap-0")
+    expect(links[0].closest("ul")).toHaveClass("gap-0")
+    view.rerender(
+      <ConversationTaskOverviewPanel
+        {...props}
+        downloadingFileId={artifact.id}
+      />
+    )
+    expect(downloads[0]).toBeDisabled()
+    expect(downloads[0].lastElementChild).toHaveClass(
+      "size-3.5",
+      "animate-spin"
+    )
+  })
+
   it("stays open until the title-bar button explicitly toggles it", async () => {
     const user = userEvent.setup()
     const onDownload = vi.fn()

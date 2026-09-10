@@ -652,12 +652,15 @@ describe("conversation activity typography", () => {
     )
   })
 
-  it("matches thinking and processed status labels to the configured UI font size", () => {
+  it("uses the same UI typography for processing, thinking and tool summary rows", () => {
     expect(conversationStyles).toMatch(
       /\.turn-status\s*\{[^}]*font-size:\s*var\(--app-ui-font-size\);[^}]*font-weight:\s*500;[^}]*line-height:\s*var\(--app-ui-compact-line-height\);/u
     )
     expect(conversationStyles).toMatch(
-      /\.turn-thinking-activity\s*\{[^}]*font-size:\s*var\(--app-ui-font-size\);[^}]*font-weight:\s*500;[^}]*line-height:\s*var\(--app-ui-compact-line-height\);/u
+      /\.native-activity-trigger\s*\{[^}]*font-size:\s*var\(--app-ui-font-size\);[^}]*font-weight:\s*500;[^}]*line-height:\s*var\(--app-ui-compact-line-height\);/u
+    )
+    expect(conversationStyles).not.toMatch(
+      /\.turn-thinking-activity\s*\{[^}]*font-size:/u
     )
   })
 
@@ -962,7 +965,7 @@ describe("conversation activity typography", () => {
 
   it("uses medium weight for the text-only thinking activity", () => {
     expect(conversationStyles).toMatch(
-      /\.turn-thinking-activity\s*\{[^}]*font-weight:\s*500;/u
+      /\.native-activity-trigger\s*\{[^}]*font-weight:\s*500;/u
     )
   })
 
@@ -1105,7 +1108,7 @@ describe("office preview annotation batch tray layout", () => {
 
   it("draws compact chat-bubble numbered markers on saved annotations", () => {
     const annotationFrameRule = conversationStyles.match(
-      /\.office-annotation-frame,\s*\.office-annotation-highlight\s*\{([^}]*)\}/u
+      /\.office-annotation-frame\s*\{([^}]*)\}/u
     )?.[1]
     const annotationIndexRule = conversationStyles.match(
       /\.office-annotation-number-bubble\s*\{([^}]*)\}/u

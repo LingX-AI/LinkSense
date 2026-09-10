@@ -1,4 +1,8 @@
 import {
+  htmlPreviewAnnotationFocusMessageType,
+  htmlPreviewAnnotationFramesMessageType,
+} from "./html-preview-annotations"
+import {
   act,
   cleanup,
   fireEvent,
@@ -12,9 +16,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { HtmlPreview } from "@/components/media/html-preview/html-preview"
 import { htmlPreviewReadyMessageType } from "@/components/media/html-preview/html-preview-fit"
 import {
-  htmlPreviewAnnotationFocusMessageType,
   htmlPreviewAnnotationModeMessageType,
   htmlPreviewSelectionMessageType,
+  htmlPreviewSelectionClearMessageType,
 } from "@/components/media/html-preview/html-preview-selection"
 import {
   htmlPreviewShellInitializeMessageType,
@@ -25,11 +29,14 @@ import i18n from "@/i18n"
 
 beforeEach(async () => {
   await i18n.changeLanguage("zh-CN")
+  document.documentElement.style.setProperty("--app-selection", "#0b73e0")
 })
 
 afterEach(() => {
   vi.useRealTimers()
   cleanup()
+  document.documentElement.style.removeProperty("--app-selection")
+  delete document.documentElement.dataset.theme
 })
 
 function sendInteractionReady(frame: HTMLIFrameElement, deferredFit = false) {
@@ -209,6 +216,7 @@ describe("HTML preview", () => {
     const modeButton = screen.getByRole("button", {
       name: "进入 HTML 标注模式",
     })
+    expect(modeButton).toHaveClass("bg-[var(--app-selection)]", "text-white")
     expect(modeButton).toBeDisabled()
     fireEvent.load(interactionFrame)
     sendInteractionReady(interactionFrame)
@@ -217,13 +225,18 @@ describe("HTML preview", () => {
 
     await waitFor(() =>
       expect(postMessage).toHaveBeenCalledWith(
-        { type: htmlPreviewAnnotationModeMessageType, enabled: true },
+        {
+          type: htmlPreviewAnnotationModeMessageType,
+          enabled: true,
+          selectionColor: "#0b73e0",
+        },
         "*"
       )
     )
     expect(
       screen.getByRole("button", { name: "退出 HTML 标注模式" })
     ).toHaveAttribute("aria-pressed", "true")
+    expect(modeButton).toHaveClass("bg-[var(--app-selection)]", "text-white")
     expect(screen.getByTestId("html-preview-interaction-frame")).toBe(
       interactionFrame
     )
@@ -233,78 +246,105 @@ describe("HTML preview", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("submits a live iframe selection through the shared prompt", async () => {
-    const onSubmit = vi.fn().mockResolvedValue(undefined)
-    render(
-      <HtmlPreview
-        document={{
-          status: "ready",
-          content: new TextEncoder().encode(
-            '<!doctype html><html><body><h1 id="hero">欢迎</h1></body></html>'
-          ),
-        }}
-        fileName="landing.html"
-        selectionAction={selectionAction(onSubmit)}
-        onClose={vi.fn()}
-      />
-    )
+  it.each([true, false])(
+    "clears the iframe selection only after a successful submission (success=%s)",
+    async (succeeds) => {
+      const onSubmit = vi.fn(async () => {
+        if (!succeeds) throw new Error("annotation_save_failed")
+      })
+      render(
+        <HtmlPreview
+          document={{
+            status: "ready",
+            content: new TextEncoder().encode(
+              '<!doctype html><html><body><h1 id="hero">欢迎</h1></body></html>'
+            ),
+          }}
+          fileName="landing.html"
+          selectionAction={selectionAction(onSubmit)}
+          onClose={vi.fn()}
+        />
+      )
 
-    const frame = (await screen.findByTestId(
-      "html-preview-interaction-frame"
-    )) as HTMLIFrameElement
-    fireEvent.load(frame)
-    sendInteractionReady(frame)
-    await userEvent.click(
-      screen.getByRole("button", { name: "进入 HTML 标注模式" })
-    )
-    sendSelection(frame, {
-      elements: [
-        {
-          selector: "#hero",
-          domPath: [0],
-          tagName: "h1",
-          id: "hero",
-          classNames: [],
-          text: "欢迎",
-          outerHtml: '<h1 id="hero">欢迎</h1>',
-          attributes: {},
-          bounds: { x: 20, y: 20, width: 200, height: 60 },
-        },
-      ],
-    })
-
-    const askButton = await screen.findByRole("button", {
-      name: /问 LinkSense/u,
-    })
-    await userEvent.click(askButton)
-    await userEvent.type(
-      screen.getByRole("textbox", { name: "针对所选内容询问 LinkSense" }),
-      "改为英文"
-    )
-    await userEvent.click(screen.getByRole("button", { name: "发送" }))
-
-    expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({
+      const frame = (await screen.findByTestId(
+        "html-preview-interaction-frame"
+      )) as HTMLIFrameElement
+      if (!frame.contentWindow) throw new Error("Missing iframe window")
+      const postMessage = vi.spyOn(frame.contentWindow, "postMessage")
+      fireEvent.load(frame)
+      sendInteractionReady(frame)
+      await userEvent.click(
+        screen.getByRole("button", { name: "进入 HTML 标注模式" })
+      )
+      sendSelection(frame, {
         elements: [
-          expect.objectContaining({
+          {
             selector: "#hero",
+            domPath: [0],
             tagName: "h1",
+            id: "hero",
+            classNames: [],
             text: "欢迎",
-          }),
+            outerHtml: '<h1 id="hero">欢迎</h1>',
+            attributes: {},
+            bounds: { x: 20, y: 20, width: 200, height: 60 },
+          },
         ],
-      }),
-      "改为英文"
-    )
-  })
+      })
+
+      const askButton = await screen.findByRole("button", {
+        name: /问 LinkSense/u,
+      })
+      await userEvent.click(askButton)
+      await userEvent.type(
+        screen.getByRole("textbox", { name: "针对所选内容询问 LinkSense" }),
+        "改为英文"
+      )
+      await userEvent.click(screen.getByRole("button", { name: "发送" }))
+
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          elements: [
+            expect.objectContaining({
+              selector: "#hero",
+              tagName: "h1",
+              text: "欢迎",
+            }),
+          ],
+        }),
+        "改为英文"
+      )
+      const clearMessage = {
+        type: htmlPreviewSelectionClearMessageType,
+        selectors: ["#hero"],
+      }
+      if (succeeds) {
+        await waitFor(() =>
+          expect(postMessage).toHaveBeenCalledWith(clearMessage, "*")
+        )
+        sendSelection(frame, null)
+        expect(
+          screen.queryByRole("button", { name: /问 LinkSense/u })
+        ).toBeNull()
+      } else {
+        expect(await screen.findByRole("alert")).toBeVisible()
+        expect(postMessage).not.toHaveBeenCalledWith(clearMessage, "*")
+        expect(
+          screen.getByRole("textbox", { name: "针对所选内容询问 LinkSense" })
+        ).toHaveValue("改为英文")
+      }
+    }
+  )
 
   it("draws numbered markers for saved element annotations", async () => {
-    render(
+    const content = new TextEncoder().encode(
+      '<!doctype html><html><body><h1 id="hero">欢迎</h1></body></html>'
+    )
+    const preview = () => (
       <HtmlPreview
         document={{
           status: "ready",
-          content: new TextEncoder().encode(
-            '<!doctype html><html><body><h1 id="hero">欢迎</h1></body></html>'
-          ),
+          content,
         }}
         fileName="landing.html"
         annotationMarkers={[
@@ -331,9 +371,44 @@ describe("HTML preview", () => {
         onClose={vi.fn()}
       />
     )
+    const { rerender } = render(preview())
 
+    const interactionFrame = await screen.findByTestId<HTMLIFrameElement>(
+      "html-preview-interaction-frame"
+    )
+    sendInteractionReady(interactionFrame)
+    const postFrames = (
+      left: number,
+      top: number,
+      width: number,
+      height: number
+    ) =>
+      fireEvent(
+        window,
+        new MessageEvent("message", {
+          source: interactionFrame.contentWindow,
+          data: {
+            type: htmlPreviewAnnotationFramesMessageType,
+            frames: [
+              {
+                id: "draft-1",
+                index: 1,
+                elementIndex: 0,
+                left,
+                top,
+                width,
+                height,
+              },
+            ],
+          },
+        })
+      )
+    expect(
+      screen.queryByTestId("html-preview-annotation-overlay")
+    ).not.toBeInTheDocument()
+    postFrames(20, 30, 200, 60)
     const overlay = await screen.findByTestId("html-preview-annotation-overlay")
-    const frame = overlay.querySelector(
+    const frame = overlay.querySelector<HTMLElement>(
       '[data-html-annotation-frame="draft-1"]'
     )
     expect(frame).toHaveStyle({
@@ -342,7 +417,18 @@ describe("HTML preview", () => {
       width: "200px",
       height: "60px",
     })
+    postFrames(40, 10, 300, 90)
+    expect(frame).toHaveStyle({
+      left: "40px",
+      top: "10px",
+      width: "300px",
+      height: "90px",
+    })
     expect(frame).toHaveTextContent("1")
+    rerender(preview())
+    expect(
+      screen.getByTestId("html-preview-annotation-overlay")
+    ).toContainElement(frame)
     expect(
       screen.queryByRole("button", { name: /问 LinkSense/u })
     ).not.toBeInTheDocument()
@@ -398,7 +484,7 @@ describe("HTML preview", () => {
       expect(postMessage).toHaveBeenCalledWith(
         {
           type: htmlPreviewAnnotationFocusMessageType,
-          bounds: { left: 600, top: 900, width: 200, height: 60 },
+          selectors: ["#hero"],
         },
         "*"
       )
@@ -433,7 +519,11 @@ describe("HTML preview", () => {
     )
     await waitFor(() =>
       expect(postMessage).toHaveBeenCalledWith(
-        { type: htmlPreviewAnnotationModeMessageType, enabled: true },
+        {
+          type: htmlPreviewAnnotationModeMessageType,
+          enabled: true,
+          selectionColor: "#0b73e0",
+        },
         "*"
       )
     )
@@ -443,13 +533,34 @@ describe("HTML preview", () => {
     expect(interactionFrame.currentSlide).toBe("3")
     expect(interactionFrame).toHaveAttribute("aria-hidden", "false")
 
+    document.documentElement.style.setProperty("--app-selection", "#5ca8ff")
+    document.documentElement.dataset.theme = "dark"
+    await waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        {
+          type: htmlPreviewAnnotationModeMessageType,
+          enabled: true,
+          selectionColor: "#5ca8ff",
+        },
+        "*"
+      )
+    )
+    expect(screen.getByTestId("html-preview-interaction-frame")).toBe(
+      interactionFrame
+    )
+    expect(interactionFrame.currentSlide).toBe("3")
+
     await userEvent.click(
       screen.getByRole("button", { name: "退出 HTML 标注模式" })
     )
 
     await waitFor(() =>
       expect(postMessage).toHaveBeenCalledWith(
-        { type: htmlPreviewAnnotationModeMessageType, enabled: false },
+        {
+          type: htmlPreviewAnnotationModeMessageType,
+          enabled: false,
+          selectionColor: "#5ca8ff",
+        },
         "*"
       )
     )

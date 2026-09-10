@@ -167,6 +167,8 @@ import {
 } from "@/features/conversations/conversation-office-preview-update"
 import { buildConversationLineSidebarItems } from "@/features/conversations/conversation-line-sidebar-items"
 import { getConversationMessageAnchorId } from "@/features/conversations/conversation-message-anchor"
+import type { ConversationThreadNavigation } from "@/features/conversations/conversation-message-list"
+import { useConversationHistory } from "@/features/conversations/use-conversation-history"
 import {
   patchConversationTitle,
   patchSidebarConversationExecutionStatus,
@@ -177,6 +179,10 @@ import {
 } from "@/features/conversations/conversation-order"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import { ConversationTaskOverviewPanel } from "@/features/conversations/conversation-task-overview-panel"
+import {
+  conversationSourcesQueryKey,
+  conversationSourcesQueryOptions,
+} from "@/features/conversations/conversation-sources-query"
 import { ConversationShareDialog } from "@/features/conversations/conversation-share"
 import { buildConversationTaskOverview } from "@/features/conversations/conversation-task-overview"
 import { readTaskOverviewOpenPreference } from "@/features/conversations/conversation-task-overview-preference"
@@ -758,6 +764,16 @@ export function ConversationPage({
       )
     }
   }, [conversationId, newTaskPromotionConversationId])
+  const threadNavigationRef = useRef<ConversationThreadNavigation>(null)
+  const [visibleMessageIds, setVisibleMessageIds] = useState<string[]>([])
+  const handleVisibleMessageChange = useCallback((ids: string[]) => {
+    setVisibleMessageIds((previous) =>
+      previous.length === ids.length &&
+      previous.every((id, index) => id === ids[index])
+        ? previous
+        : ids
+    )
+  }, [])
   const {
     scrollContainerRef,
     contentRef,
@@ -768,6 +784,7 @@ export function ConversationPage({
     preserveScrollPositionForInteraction,
   } = useConversationScroll(conversationId ?? newConversationPlaceholderId, {
     preservePositionOnConversationChange: isNewTaskPromotion,
+    navigationRef: threadNavigationRef,
   })
   const bottomStackRef = useConversationBottomStackHeight()
 
@@ -1030,6 +1047,19 @@ export function ConversationPage({
     (knowledgeBasesLoading || knowledgeBaseSelectionVerificationFailed)
 
   const conversation = conversationQuery.data
+  const sourcesQuery = useQuery({
+    ...conversationSourcesQueryOptions(
+      conversationId,
+      conversation?.history?.scope_id,
+      conversation?.last_event_id ?? conversation?.updated_at
+    ),
+    enabled:
+      !isNew &&
+      Boolean(conversation) &&
+      taskOverviewOpen &&
+      taskOverviewSuppressedConversationId !== conversationId,
+  })
+  const conversationHistory = useConversationHistory(conversation)
   const pendingConversationExecution = usePendingConversationExecution(
     conversationId ?? newConversationPlaceholderId
   )
@@ -1050,6 +1080,14 @@ export function ConversationPage({
   const currentPendingTurnSubmission = pendingSubmissionBelongsToConversation
     ? pendingTurnSubmission
     : cachedPendingTurnSubmission
+  const applicationSubmissionScrollId =
+    currentPendingTurnSubmission?.message.display?.kind ===
+    "interactive_application"
+      ? currentPendingTurnSubmission.optimisticId
+      : undefined
+  useLayoutEffect(() => {
+    if (applicationSubmissionScrollId) scrollToBottom("auto")
+  }, [applicationSubmissionScrollId, scrollToBottom])
   const reconciledPendingUserMessage = currentPendingTurnSubmission
     ? conversation?.messages?.find(
         (message) =>
@@ -1129,12 +1167,14 @@ export function ConversationPage({
     (attachment) => !optimisticallyConsumedAttachmentIds?.has(attachment.id)
   )
   const running = conversation?.running_turn?.status === "running"
-  const pendingTurnExecutionActive = pendingSubmissionBelongsToConversation
+  const pendingTurnExecutionActive = Boolean(currentPendingTurnSubmission)
+  const applicationSubmissionSending =
+    currentPendingTurnSubmission?.message.delivery_status === "sending"
   const acceptedTurnAwaitingProjection = Boolean(
     pendingTurnExecutionActive &&
-    pendingTurnSubmission?.status !== undefined &&
+    currentPendingTurnSubmission?.status !== undefined &&
     !conversation?.turns?.some(
-      (turn) => turn.id === pendingTurnSubmission.turnId
+      (turn) => turn.id === currentPendingTurnSubmission.turnId
     )
   )
   const acceptedCompactionAwaitingProjection = Boolean(
@@ -1144,6 +1184,7 @@ export function ConversationPage({
   )
   const turnExecutionActive =
     running ||
+    applicationSubmissionSending ||
     acceptedTurnAwaitingProjection ||
     acceptedCompactionAwaitingProjection
   const latestConversationTurn = conversation?.turns?.at(-1)
@@ -1608,6 +1649,10 @@ export function ConversationPage({
               queryKey: ["conversation", conversationId],
               exact: true,
             })
+            void queryClient.invalidateQueries(
+              { queryKey: conversationSourcesQueryKey(conversationId) },
+              { cancelRefetch: false }
+            )
           }
           const matchesPendingExecution =
             !terminal ||
@@ -1673,6 +1718,10 @@ export function ConversationPage({
               exact: true,
             })
             clearPendingConversationExecution(queryClient, conversationId)
+            void queryClient.invalidateQueries(
+              { queryKey: conversationSourcesQueryKey(conversationId) },
+              { cancelRefetch: false }
+            )
             clearPendingConversationTurnSubmission(queryClient, conversationId)
             setPendingTurnSubmission((current) =>
               current?.conversationId === conversationId &&
@@ -1805,6 +1854,12 @@ export function ConversationPage({
               )
             }
             if (item.type === "agentMessage" || item.type === "plan") {
+              if (native.method === "item/completed") {
+                void queryClient.invalidateQueries(
+                  { queryKey: conversationSourcesQueryKey(conversationId) },
+                  { cancelRefetch: false }
+                )
+              }
               if (
                 native.method === "item/completed" &&
                 item.type === "plan" &&
@@ -1958,6 +2013,10 @@ export function ConversationPage({
           return
         }
         if (event.type === "conversation.message.completed") {
+          void queryClient.invalidateQueries(
+            { queryKey: conversationSourcesQueryKey(conversationId) },
+            { cancelRefetch: false }
+          )
           clearNativeReconnect()
           if (payload.role === "assistant") {
             const messageId =
@@ -3712,6 +3771,16 @@ export function ConversationPage({
       } finally {
         dispatchedInterruptTurnIdsRef.current.delete(turnId)
         clearPendingConversationExecution(queryClient, targetConversationId)
+        const pending = getPendingConversationTurnSubmission(
+          queryClient,
+          targetConversationId
+        )
+        if (pending?.turnId === turnId && pending.interruptRequested) {
+          clearPendingConversationTurnSubmission(
+            queryClient,
+            targetConversationId
+          )
+        }
         setPendingTurnSubmission((current) =>
           current?.turnId === turnId && current.interruptRequested
             ? null
@@ -3731,7 +3800,7 @@ export function ConversationPage({
   const requestTurnInterrupt = interruptMutation.mutate
 
   useEffect(() => {
-    const pending = pendingTurnSubmission
+    const pending = currentPendingTurnSubmission
     if (
       !pending?.interruptRequested ||
       !pending.turnId ||
@@ -3745,7 +3814,7 @@ export function ConversationPage({
       targetConversationId: pending.conversationId,
       turnId: pending.turnId,
     })
-  }, [pendingTurnSubmission, requestTurnInterrupt])
+  }, [currentPendingTurnSubmission, requestTurnInterrupt])
 
   useEffect(() => {
     const turnId = conversation?.running_turn?.id
@@ -4202,6 +4271,7 @@ export function ConversationPage({
   }
 
   const submitComposer = (input: string) => {
+    if (applicationSubmissionSending) return
     if (isConversationContextCompactionCommand(input)) {
       startContextCompaction()
       return
@@ -4782,9 +4852,31 @@ export function ConversationPage({
     ...displayConversation,
     messages: visibleMessages,
   })
+  const hiddenImplementationTurnIds = new Set(
+    (displayConversation.plan_reviews ?? []).flatMap((review) =>
+      review.status === "resolved" &&
+      review.decision === "implement" &&
+      review.follow_up_turn_id
+        ? [review.follow_up_turn_id]
+        : []
+    )
+  )
   const lineSidebarItems = buildConversationLineSidebarItems(
-    visibleMessages,
-    t("conversation.awaitingAssistant")
+    visibleMessages.filter(
+      (message) =>
+        message.role !== "user" ||
+        !message.turn_id ||
+        !hiddenImplementationTurnIds.has(message.turn_id)
+    ),
+    t("conversation.awaitingAssistant"),
+    displayConversation.history
+      ? {
+          index: displayConversation.history.index,
+          unloadedLabel: (ordinal) =>
+            t("conversation.historyExchange", { count: ordinal }),
+          unloadedPreview: t("conversation.historyViewExchange"),
+        }
+      : undefined
   )
   const showConnectionWarning = visuallyRunning && reconnectingWarningVisible
   const reconciledPendingTurnId = activePendingTurnSubmission
@@ -5176,6 +5268,14 @@ export function ConversationPage({
               key={conversationId}
               events={visibleEvents}
               files={overviewFiles}
+              sourcesState={{
+                sources: sourcesQuery.data?.items ?? [],
+                loading: sourcesQuery.isLoading,
+                failed: sourcesQuery.isError,
+                onRetry: () => {
+                  void sourcesQuery.refetch()
+                },
+              }}
               defaultOpen={!taskOverviewSuppressed && taskOverviewOpen}
               subAgentSummariesByTurnId={subAgentSummariesByTurnId}
               downloadingFileId={downloadingFileId}
@@ -5193,6 +5293,7 @@ export function ConversationPage({
       {!isNew && (
         <ConversationShareDialog
           conversation={displayConversation}
+          history={conversation?.history ? conversationHistory : undefined}
           open={shareOpen}
           onOpenChange={setShareOpen}
         />
@@ -5215,10 +5316,11 @@ export function ConversationPage({
         <ConversationLineSidebar
           ariaLabel={t("conversation.messageNavigation")}
           items={lineSidebarItems}
-          activeItemId={lineSidebarItems.at(-1)?.id}
+          activeItemIds={visibleMessageIds}
           className="conversation-message-line-sidebar hidden md:block"
           onItemSelect={(item) => {
             pauseAutoFollow()
+            if (threadNavigationRef.current?.scrollToMessage(item.id)) return
             const prefersReducedMotion = window.matchMedia(
               "(prefers-reduced-motion: reduce)"
             ).matches
@@ -5233,6 +5335,9 @@ export function ConversationPage({
       )}
 
       <ConversationThread
+        navigationRef={threadNavigationRef}
+        onVisibleMessageChange={handleVisibleMessageChange}
+        history={conversation?.history ? conversationHistory : undefined}
         conversation={{
           ...displayConversation,
           available_capabilities: availableCapabilities,
@@ -5449,6 +5554,7 @@ export function ConversationPage({
             }
             onPlanModeChange={handlePlanModeChange}
             submitting={
+              applicationSubmissionSending ||
               sendMutation.isPending ||
               goalStartMutation.isPending ||
               contextCompactionMutation.isPending ||
@@ -5520,6 +5626,14 @@ export function ConversationPage({
               const pending = activePendingTurnSubmission
               if (pending) {
                 setInterruptingConversationId(pending.conversationId)
+                updatePendingConversationTurnSubmission(
+                  queryClient,
+                  pending.conversationId,
+                  (current) =>
+                    current.idempotencyKey === pending.idempotencyKey
+                      ? { ...current, interruptRequested: true }
+                      : current
+                )
                 setPendingTurnSubmission((current) =>
                   current === pending
                     ? { ...current, interruptRequested: true }

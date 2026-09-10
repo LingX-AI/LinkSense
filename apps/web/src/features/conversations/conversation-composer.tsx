@@ -157,6 +157,29 @@ function hasTransferredFiles(dataTransfer: DataTransfer): boolean {
   return Array.from(dataTransfer.types).includes("Files")
 }
 
+function isCapabilityMenuShortcutInsertion(
+  previousValue: string,
+  nextValue: string,
+  selectionStart: number | null
+): boolean {
+  if (selectionStart === null || nextValue.length !== previousValue.length + 1)
+    return false
+
+  const insertionIndex = selectionStart - 1
+  if (
+    insertionIndex < 0 ||
+    nextValue[insertionIndex] !== "@" ||
+    `${nextValue.slice(0, insertionIndex)}${nextValue.slice(insertionIndex + 1)}` !==
+      previousValue
+  ) {
+    return false
+  }
+
+  return (
+    insertionIndex === 0 || /\s/u.test(previousValue[insertionIndex - 1] ?? "")
+  )
+}
+
 type PendingPastedTextAttachment = Readonly<{
   name: string
   characterCount: number
@@ -1541,6 +1564,18 @@ export const ConversationComposer = forwardRef<
             setSlashPanel(null)
             setDismissedSlashValue(null)
             setDismissedSkillValue(null)
+            if (
+              !attachmentActionDisabled &&
+              isCapabilityMenuShortcutInsertion(
+                latestValueRef.current,
+                nextValue,
+                event.target.selectionStart
+              )
+            ) {
+              setKnowledgeMenuOpen(false)
+              handleCapabilityMenuOpenChange(true)
+              return
+            }
             latestValueRef.current = nextValue
             onValueChange(nextValue)
           }}

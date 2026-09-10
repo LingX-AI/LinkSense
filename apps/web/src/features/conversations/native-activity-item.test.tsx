@@ -28,7 +28,9 @@ describe("NativeActivityItem", () => {
 
     const runningLabel = screen.getByText("正在运行一个命令")
     const runningActivity = container.querySelector(".native-activity-item")
-    expect(runningLabel).toHaveClass("shimmer")
+    expect(runningLabel.closest(".native-activity-summary")).toHaveClass(
+      "shimmer"
+    )
     expect(runningActivity).toHaveAttribute("data-running", "true")
     expect(runningActivity).toHaveAttribute("aria-busy", "true")
     expect(runningLabel.closest('[data-slot="marker-content"]')).not.toBeNull()
@@ -43,7 +45,9 @@ describe("NativeActivityItem", () => {
 
     const completedLabel = screen.getByText("运行了一个命令")
     const completedActivity = container.querySelector(".native-activity-item")
-    expect(completedLabel).not.toHaveClass("shimmer")
+    expect(completedLabel.closest(".native-activity-summary")).not.toHaveClass(
+      "shimmer"
+    )
     expect(completedActivity).not.toHaveAttribute("data-running")
     expect(completedActivity).not.toHaveAttribute("aria-busy")
   })
@@ -928,6 +932,7 @@ describe("NativeActivityItem", () => {
 
     expect(screen.getByText("运行了一个命令")).toBeVisible()
     expect(screen.queryByText("pnpm test")).toBeNull()
+    expect(screen.queryByText("pnpm test", { selector: "code" })).toBeNull()
     expect(screen.queryByText("执行失败")).toBeNull()
     expect(container.querySelector(".native-activity-status")).toBeNull()
     expect(

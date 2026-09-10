@@ -4,6 +4,22 @@ import { describe, expect, it } from "vitest"
 import { Button } from "@/components/ui/button"
 
 describe("Button", () => {
+  it.each([false, true])(
+    "keeps annotation actions blue with white text when pressed=%s",
+    (pressed) => {
+      render(
+        <Button variant="annotation" aria-pressed={pressed}>
+          Annotate
+        </Button>
+      )
+      expect(screen.getByRole("button", { name: "Annotate" })).toHaveClass(
+        "bg-[var(--app-selection)]",
+        "text-white",
+        "hover:bg-[color-mix(in_srgb,var(--app-selection)_88%,var(--app-text))]"
+      )
+    }
+  )
+
   it("uses targeted transitions and removes the mobile tap delay", () => {
     render(<Button>Save</Button>)
 

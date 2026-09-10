@@ -1,4 +1,5 @@
 import { coreMcpServerKey } from "@linksense/shared"
+import type { TFunction } from "i18next"
 
 import type { NativeCodexItem } from "@/api/contracts"
 import { isSkillDefinitionReadAction } from "@/features/conversations/native-activity-icon-kind"
@@ -45,6 +46,42 @@ export type NativeActivityViewModel = {
   searchQueries: string[]
   detailRows: NativeActivityDetailRow[]
   expandable: boolean
+}
+
+export function translateNativeActivitySummary(
+  model: NativeActivityViewModel,
+  t: TFunction
+): string | null {
+  if (model.summaryParts.length > 0) {
+    return model.summaryParts
+      .map((part) => t(part.key, part.values))
+      .join(t("conversation.nativeActivities.summary.separator"))
+  }
+  return model.summaryKey
+    ? t(model.summaryKey, model.summaryValues)
+    : model.summary
+}
+
+/** Reuse the already-redacted detail model for a compact tool preview. */
+export function getNativeActivityPreview(
+  model: NativeActivityViewModel,
+  label: string
+): string | null {
+  return joinedNativeValues(
+    [
+      ...model.commands,
+      ...model.fileChanges.map((change) => change.path),
+      ...model.searchQueries,
+      ...model.detailRows.flatMap((row) =>
+        row.kind === "text" &&
+        row.labelKey !== "conversation.nativeActivityDetails.fields.plugin"
+          ? [row.value]
+          : []
+      ),
+    ]
+      .map((value) => value?.replace(/\s+/gu, " ").trim())
+      .filter((value) => value && !label.includes(value))
+  )
 }
 
 export type NativeCommandActivity = {
