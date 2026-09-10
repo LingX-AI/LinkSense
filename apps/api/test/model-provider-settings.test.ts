@@ -14,6 +14,122 @@ const CONVERSATION_A_ID = "00000000-0000-4000-8000-0000000000a1"
 const CONVERSATION_B_ID = "00000000-0000-4000-8000-0000000000b1"
 
 describe("ModelProviderSettingsService", () => {
+  it("persists an empty channel, returns no selectable models, and supports adding its first model later", async () => {
+    const database = inMemoryDatabase()
+    const metadataClient = { readContextWindows: vi.fn(async () => new Map<string, number>()) }
+    const service = new ModelProviderSettingsService(database.prisma, testConfig(), metadataClient)
+    const emptyChannel = provider("empty", "https://models.example.test/v1", [], "native_responses", "test-channel-key")
+    const saved = await service.update(ACTOR_ID, {
+      expected_revision: 0, providers: [emptyChannel], default_model: null, title_model: null,
+    }, {})
+    expect(saved).toMatchObject({ revision: 1, providers: [{ id: "empty", models: [], api_key_configured: true }], default_model: null, title_model: null })
+    expect(metadataClient.readContextWindows).not.toHaveBeenCalled()
+    const reloaded = new ModelProviderSettingsService(database.prisma, testConfig(), metadataClient)
+    await expect(reloaded.getAdminSettings()).resolves.toEqual(saved)
+    await expect(reloaded.getPreference(USER_ID)).resolves.toEqual({ configured: false, models: [], default_model: null, selected_model: null, selected_reasoning_effort: null })
+    await expect(reloaded.resolveRuntime(USER_ID)).rejects.toMatchObject({ code: "MODEL_PROVIDER_NOT_CONFIGURED" })
+    await expect(reloaded.resolveTaskTitleModel()).resolves.toBeNull()
+    await reloaded.update(ACTOR_ID, {
+      expected_revision: 1,
+      providers: [provider("empty", emptyChannel.base_url, [pricedModel("first", ["medium"], "medium")])],
+      default_model: "first", title_model: "first",
+    }, {})
+    await expect(reloaded.getPreference(USER_ID)).resolves.toMatchObject({ configured: true, models: [{ id: "first" }], selected_model: "first" })
+    await expect(reloaded.resolveRuntime(USER_ID)).resolves.toMatchObject({ model: "first", provider: { apiKey: "test-channel-key" } })
+  })
+
+  it("deletes an empty channel while retaining another empty channel", async () => {
+    const database = inMemoryDatabase()
+    const service = new ModelProviderSettingsService(database.prisma, testConfig())
+    await service.update(ACTOR_ID, {
+      expected_revision: 0,
+      providers: [provider("first", "https://first.example.test/v1", []), provider("second", "https://second.example.test/v1", [])],
+      default_model: null, title_model: null,
+    }, {})
+    const next = await service.deleteProvider(ACTOR_ID, { expected_revision: 1, provider_id: "second" }, {})
+    expect(next.providers.map((channel) => channel.id)).toEqual(["first"])
+    await expect(service.getPreference(USER_ID)).resolves.toMatchObject({ configured: false, models: [] })
+  })
+
+  it("persists channel and model order and returns enabled chat models in that order without changing selections", async () => {
+    const database = inMemoryDatabase()
+    const metadataClient = {
+      readContextWindows: vi.fn(async () => new Map<string, number>()),
+    }
+    const service = new ModelProviderSettingsService(
+      database.prisma,
+      testConfig(),
+      metadataClient,
+    )
+    const alpha = pricedModel("alpha", ["medium"], "medium")
+    const beta = pricedModel("beta", ["medium"], "medium")
+    const hidden = {
+      ...pricedModel("hidden", ["medium"], "medium"),
+      enabled: false,
+    }
+    const gamma = pricedModel("gamma", ["medium"], "medium")
+    const firstChannel = provider(
+      "first", "https://first.example.test/v1", [alpha, hidden, beta],
+      "native_responses", "first-test-key",
+    )
+    const secondChannel = provider(
+      "second", "https://second.example.test/v1", [gamma],
+      "native_responses", "second-test-key",
+    )
+    await service.update(ACTOR_ID, {
+      expected_revision: 0,
+      providers: [firstChannel, secondChannel],
+      default_model: "alpha",
+      title_model: "hidden",
+    }, {})
+    await service.updatePreference(USER_ID, {
+      selected_model: "beta", selected_reasoning_effort: "medium",
+    }, {})
+    await service.update(ACTOR_ID, {
+      expected_revision: 1,
+      providers: [
+        provider("second", secondChannel.base_url, [gamma]),
+        {
+          ...provider("first", firstChannel.base_url, [beta, hidden, alpha]),
+          models: [
+            beta,
+            {
+              id: "embedding", display_name: "Embedding", kind: "embedding",
+              enabled: true, input_price_per_million: "0",
+            },
+            hidden,
+            alpha,
+          ],
+        },
+      ],
+      default_model: "alpha",
+      title_model: "hidden",
+    }, {})
+    const reloaded = new ModelProviderSettingsService(
+      database.prisma, testConfig(), metadataClient,
+    )
+    const persisted = await reloaded.getAdminSettings()
+    expect(persisted.providers.map((channel) => channel.id)).toEqual([
+      "second", "first",
+    ])
+    expect(persisted.providers.flatMap((channel) =>
+      channel.models.map((model) => model.id),
+    )).toEqual(["gamma", "beta", "embedding", "hidden", "alpha"])
+    const preference = await reloaded.getPreference(USER_ID)
+    expect(preference.models.map((model) => model.id)).toEqual([
+      "gamma", "beta", "alpha",
+    ])
+    expect(preference).toMatchObject({
+      default_model: "alpha", selected_model: "beta",
+      selected_reasoning_effort: "medium",
+    })
+    expect(persisted.title_model).toBe("hidden")
+    await expect(reloaded.resolveRuntime(USER_ID)).resolves.toMatchObject({
+      model: "beta",
+      provider: { baseUrl: firstChannel.base_url, apiKey: "first-test-key" },
+    })
+  })
+
   it("reads common OpenAI-compatible model context window fields", () => {
     expect(
       parseOpenAiCompatibleModelContextWindows({

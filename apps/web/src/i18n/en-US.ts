@@ -1,6 +1,7 @@
 export const enUS = {
   common: {
     close: "Close",
+    notifications: "Notifications",
     cancel: "Cancel",
     save: "Save",
     create: "Create",
@@ -3746,6 +3747,49 @@ export const enUS = {
       initialQuota: "Initial user token usage",
     },
     modelProvider: {
+      catalogDescription:
+        "Manage model connections, pricing, and their order in the composer.",
+      currentChannel: "Current channel",
+      editChannel: "Edit channel",
+      connectionDescription:
+        "Models in this channel share these connection settings.",
+      channelActions: "Channel actions",
+      keyConfigured: "Key configured",
+      keyNotConfigured: "No key configured",
+      noChannels: "No model channels yet",
+      noChannelsDescription:
+        "Add a channel and configure its first model to get started.",
+      noModelsDescription:
+        "Use Add model to configure a model for this channel.",
+      editModel: "Edit model {{name}}",
+      modelEditorDescription:
+        "Channel: {{name}}. Saving updates only this model.",
+      basicInformation: "Basic information",
+      pricing: "Model pricing",
+      capabilities: "Capabilities",
+      modelName: "Model",
+      priceSummary: "Input / cached input / output price",
+      modelActions: "Actions for model {{name}}",
+      modelAvailability: "Available in conversations: {{name}}",
+      modelOrder: "Model order",
+      moveUp: "Move up",
+      moveDown: "Move down",
+      moveChannelUp: "Move channel up",
+      moveChannelDown: "Move channel down",
+      orderHint:
+        "Drag a handle or use Move up and Move down. The composer lists available chat models in channel order, then model order within each channel.",
+      reorderModel: "Reorder model {{name}}",
+      reorderInstructions:
+        "Press Space to start sorting, use the up and down arrow keys to move, press Space to confirm, or Escape to cancel.",
+      reorderStarted: "Started reordering {{name}}.",
+      reorderPosition: "{{name}} moved to position {{position}}.",
+      reorderCancelled: "Reordering cancelled.",
+      discardTitle: "Discard unsaved changes?",
+      discardDescription:
+        "Closing will discard the changes made in this editor.",
+      discardAction: "Discard changes",
+      selectionsHint:
+        "The default conversation model is used before a user makes a selection. The task naming model generates task titles.",
       title: "Model service",
       description:
         "Manage conversation, knowledge retrieval, and other models with their service channels. The system uses the right service for each selected model, and administrators can set the reasoning levels available for chat models.",
@@ -3764,7 +3808,7 @@ export const enUS = {
         "The channel name is only used for administrator identification and takes effect after you save the model settings.",
       renameProviderAction: "Rename",
       unnamedProvider: "Unconfigured model channel",
-      deleteProvider: "Delete model channel {{name}}",
+      deleteProvider: "Delete channel",
       saveProvider: "Save model channel {{name}}",
       deleteProviderTitle: "Delete model channel “{{name}}”?",
       deleteProviderDescription:
@@ -3796,7 +3840,7 @@ export const enUS = {
       modelsDescription:
         "Models here share this channel's connection and key. Chat models can appear in the user's model choices, while retrieval and other models are used automatically when needed.",
       addModel: "Add model",
-      noModels: "No models yet. Add one to continue.",
+      noModels: "No models in this channel",
       newModelName: "Model {{index}}",
       unnamedModel: "Unnamed model",
       modelId: "Model ID",
@@ -3819,7 +3863,7 @@ export const enUS = {
       priceUnit: "CNY / 1M tokens",
       showInComposer: "Available in conversations",
       saveModel: "Save model {{name}}",
-      deleteModel: "Delete model {{name}}",
+      deleteModel: "Delete model",
       deleteModelTitle: "Delete model “{{name}}”?",
       deleteModelDescription:
         "The model will be deleted immediately after confirmation. Historical tasks and usage records are not affected.",
@@ -3840,6 +3884,7 @@ export const enUS = {
         "New or imported users receive these initial weekly and monthly allowances. Leave a value blank to set no allowance. Existing users are not affected.",
       tokenLimitHint:
         "Enter an amount greater than 0. Decimals are allowed and the unit is million tokens. Leave blank to set no initial allowance.",
+      saveUserTokenLimits: "Save configuration",
       userTokenLimitsSaved: "Initial user token usage updated.",
       saved: "Model channel settings updated.",
     },
@@ -3865,7 +3910,7 @@ export const enUS = {
       rerankerModelPlaceholder: "Select a ranker model",
       rerankDescription:
         "Moves more relevant results to the top. Knowledge retrieval still works when this is off.",
-      enabled: "Enabled",
+      enabled: "Enable during search",
       baseUrl: "Base URL",
       embeddingBaseUrlHint:
         "Enter the embedding model connection address supplied by the provider.",

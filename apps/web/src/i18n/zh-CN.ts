@@ -1,6 +1,7 @@
 export const zhCN = {
   common: {
     close: "关闭",
+    notifications: "通知",
     cancel: "取消",
     save: "保存",
     create: "创建",
@@ -3489,6 +3490,43 @@ export const zhCN = {
       initialQuota: "用户初始 Token 用量",
     },
     modelProvider: {
+      catalogDescription: "管理模型连接、价格和输入框中的显示顺序。",
+      currentChannel: "当前渠道",
+      editChannel: "编辑渠道",
+      connectionDescription: "同一渠道内的模型共用这里的连接设置。",
+      channelActions: "渠道操作",
+      keyConfigured: "密钥已配置",
+      keyNotConfigured: "未配置密钥",
+      noChannels: "还没有模型渠道",
+      noChannelsDescription: "添加渠道并配置第一个模型后，即可开始使用。",
+      noModelsDescription: "点击“添加模型”，配置此渠道可使用的模型。",
+      editModel: "编辑模型 {{name}}",
+      modelEditorDescription: "所属渠道：{{name}}。保存只更新当前模型。",
+      basicInformation: "基本信息",
+      pricing: "模型价格",
+      capabilities: "能力设置",
+      modelName: "模型",
+      priceSummary: "输入 / 输入命中缓存 / 输出单价",
+      modelActions: "模型 {{name}} 的操作",
+      modelAvailability: "对话可选：{{name}}",
+      modelOrder: "模型顺序",
+      moveUp: "上移",
+      moveDown: "下移",
+      moveChannelUp: "上移渠道",
+      moveChannelDown: "下移渠道",
+      orderHint:
+        "拖动左侧手柄或在操作菜单中上下移动。输入框按渠道顺序、渠道内模型顺序展示已开启“对话可选”的模型。",
+      reorderModel: "调整模型 {{name}} 的顺序",
+      reorderInstructions:
+        "按空格键开始排序，使用上下方向键调整位置，再按空格键确认，按 Escape 键取消。",
+      reorderStarted: "开始调整 {{name}} 的顺序。",
+      reorderPosition: "{{name}} 已移动到第 {{position}} 位。",
+      reorderCancelled: "已取消排序。",
+      discardTitle: "放弃未保存的修改？",
+      discardDescription: "关闭后，本次编辑的内容不会保存。",
+      discardAction: "放弃修改",
+      selectionsHint:
+        "对话默认模型用于用户尚未选择模型时；任务自动命名模型用于生成任务名称。",
       title: "模型服务",
       description:
         "集中管理对话、知识检索等模型及其服务渠道。用户选择模型后，系统会自动使用对应服务；管理员可为每个对话模型设置可选的推理强度。",
@@ -3507,7 +3545,7 @@ export const zhCN = {
         "渠道名称仅用于管理员识别；保存模型设置后正式生效。",
       renameProviderAction: "重命名",
       unnamedProvider: "未配置的模型渠道",
-      deleteProvider: "删除模型渠道 {{name}}",
+      deleteProvider: "删除渠道",
       saveProvider: "保存模型渠道 {{name}}",
       deleteProviderTitle: "删除模型渠道“{{name}}”？",
       deleteProviderDescription:
@@ -3536,7 +3574,7 @@ export const zhCN = {
       modelsDescription:
         "这里的模型共用当前渠道的连接地址和密钥。对话模型可设置是否出现在用户的模型选项中；知识检索等模型会由系统按需使用。",
       addModel: "添加模型",
-      noModels: "还没有模型，请先添加一个。",
+      noModels: "此渠道暂无模型",
       newModelName: "模型 {{index}}",
       unnamedModel: "未命名模型",
       modelId: "模型 ID",
@@ -3558,7 +3596,7 @@ export const zhCN = {
       priceUnit: "元 / 百万 Token",
       showInComposer: "对话可选",
       saveModel: "保存模型 {{name}}",
-      deleteModel: "删除模型 {{name}}",
+      deleteModel: "删除模型",
       deleteModelTitle: "删除模型“{{name}}”？",
       deleteModelDescription:
         "确认后模型将立即删除；历史任务和用量记录不会受影响。",
@@ -3579,6 +3617,7 @@ export const zhCN = {
         "新建或导入用户时，系统会为其应用这里的每周和每月初始额度。留空表示不预设额度；已有用户不会受到影响。",
       tokenLimitHint:
         "请输入大于 0 的额度，可包含小数，单位为百万 Token；留空表示不预设。",
+      saveUserTokenLimits: "保存配置",
       userTokenLimitsSaved: "用户初始 Token 用量已更新。",
       saved: "模型渠道设置已更新。",
     },
@@ -3603,7 +3642,7 @@ export const zhCN = {
       rerankerModelPlaceholder: "请选择 Ranker 模型",
       rerankDescription:
         "用于把更相关的搜索结果排在前面；关闭后仍可正常使用知识库检索。",
-      enabled: "启用",
+      enabled: "检索时启用",
       baseUrl: "Base URL",
       embeddingBaseUrlHint: "填写服务商提供的嵌入模型连接地址。",
       rerankBaseUrlHint: "填写服务商提供的结果排序模型连接地址。",

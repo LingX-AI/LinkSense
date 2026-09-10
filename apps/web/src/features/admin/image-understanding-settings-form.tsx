@@ -78,15 +78,82 @@ export function ImageUnderstandingSettingsForm({
 
   return (
     <section
-      className="mt-6 grid min-w-0 gap-4 border-t border-border/60 pt-6"
+      className="mt-6 grid min-w-0 gap-4"
       aria-labelledby={`${idPrefix}-title`}
     >
-      <SettingsSectionHeader
-        id={`${idPrefix}-title`}
-        title={t("admin.imageUnderstanding.title")}
-        description={t("admin.imageUnderstanding.selectionDescription")}
-        status={
-          <div className="flex items-center gap-2">
+      <form
+        className="grid w-full max-w-[720px] gap-4"
+        onSubmit={(event: FormEvent) => {
+          event.preventDefault()
+          if (readOnly) return
+          setError(null)
+          mutation.mutate()
+        }}
+      >
+        <div
+          data-slot="model-settings-card"
+          className="grid min-w-0 gap-4 rounded-2xl border border-[color:var(--app-border)] bg-card p-4"
+        >
+          <SettingsSectionHeader
+            id={`${idPrefix}-title`}
+            title={t("admin.imageUnderstanding.title")}
+            description={t("admin.imageUnderstanding.selectionDescription")}
+          />
+
+          {error && <StatusBanner variant="error">{error}</StatusBanner>}
+          {imageModels.length === 0 && (
+            <StatusBanner variant="warning">
+              {t("admin.imageUnderstanding.noImageModels")}
+            </StatusBanner>
+          )}
+
+          <FieldShell
+            id={`${idPrefix}-model`}
+            label={t("admin.imageUnderstanding.selectModel")}
+            hint={t("admin.imageUnderstanding.selectModelHint")}
+            className="max-w-[720px]"
+          >
+            <Select
+              name="image-understanding-model"
+              items={imageModels.map((candidate) => ({
+                value: candidate.id,
+                label: candidate.display_name,
+              }))}
+              value={model}
+              disabled={readOnly}
+              onValueChange={(value) => setModel(value ?? "")}
+            >
+              <SelectTrigger
+                id={`${idPrefix}-model`}
+                className="w-full"
+                disabled={readOnly}
+              >
+                <SelectValue
+                  placeholder={t("admin.imageUnderstanding.modelPlaceholder")}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {imageModels.map((candidate) => (
+                    <SelectItem key={candidate.id} value={candidate.id}>
+                      {candidate.display_name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </FieldShell>
+
+          <p className="form-hint">
+            {settings.thinking_strategy
+              ? t("admin.imageUnderstanding.activeStrategy")
+              : t("admin.imageUnderstanding.strategyAfterValidation")}
+          </p>
+
+          <div
+            data-slot="model-settings-toggle"
+            className="flex items-center gap-2 pt-1"
+          >
             <Switch
               id={`${idPrefix}-enabled`}
               name="image-understanding-enabled"
@@ -98,67 +165,7 @@ export function ImageUnderstandingSettingsForm({
               {t("admin.imageUnderstanding.enabled")}
             </Label>
           </div>
-        }
-      />
-
-      {error && <StatusBanner variant="error">{error}</StatusBanner>}
-      {imageModels.length === 0 && (
-        <StatusBanner variant="warning">
-          {t("admin.imageUnderstanding.noImageModels")}
-        </StatusBanner>
-      )}
-
-      <form
-        className="grid max-w-none gap-4"
-        onSubmit={(event: FormEvent) => {
-          event.preventDefault()
-          if (readOnly) return
-          setError(null)
-          mutation.mutate()
-        }}
-      >
-        <FieldShell
-          id={`${idPrefix}-model`}
-          label={t("admin.imageUnderstanding.selectModel")}
-          hint={t("admin.imageUnderstanding.selectModelHint")}
-          className="max-w-[720px]"
-        >
-          <Select
-            name="image-understanding-model"
-            items={imageModels.map((candidate) => ({
-              value: candidate.id,
-              label: candidate.display_name,
-            }))}
-            value={model}
-            disabled={readOnly}
-            onValueChange={(value) => setModel(value ?? "")}
-          >
-            <SelectTrigger
-              id={`${idPrefix}-model`}
-              className="w-full"
-              disabled={readOnly}
-            >
-              <SelectValue
-                placeholder={t("admin.imageUnderstanding.modelPlaceholder")}
-              />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {imageModels.map((candidate) => (
-                  <SelectItem key={candidate.id} value={candidate.id}>
-                    {candidate.display_name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </FieldShell>
-
-        <p className="form-hint">
-          {settings.thinking_strategy
-            ? t("admin.imageUnderstanding.activeStrategy")
-            : t("admin.imageUnderstanding.strategyAfterValidation")}
-        </p>
+        </div>
 
         <div>
           <Button
