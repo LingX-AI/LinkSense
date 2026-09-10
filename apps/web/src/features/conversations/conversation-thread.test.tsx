@@ -2255,6 +2255,12 @@ describe("conversation turn responses", () => {
     expect(skillLabel).toBeVisible()
     expect(skillLabel).toHaveClass("user-message-capability-label")
     expect(knowledgeBaseLabel).toHaveClass("user-message-capability-label")
+    expect(skillLabel.closest(".user-message-capability")).toHaveClass(
+      "user-message-resource-chip"
+    )
+    expect(knowledgeBaseLabel.closest(".user-message-capability")).toHaveClass(
+      "user-message-resource-chip"
+    )
     expect(within(userMessage).queryByText("linksense-browser")).toBeNull()
   })
 
@@ -2884,7 +2890,10 @@ describe("conversation turn responses", () => {
     expect(attachmentGroup).not.toBeNull()
     expect(textCard).not.toBeNull()
     expect(filePill).toHaveTextContent("EdTech出差费用明细表.xlsx")
-    expect(filePill).toHaveClass("user-message-file-attachment-previewable")
+    expect(filePill).toHaveClass(
+      "user-message-resource-chip",
+      "user-message-file-attachment-previewable"
+    )
     expect(textCard).not.toContainElement(filePill)
     expect(
       attachmentGroup!.compareDocumentPosition(textCard!) &

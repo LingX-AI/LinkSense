@@ -466,7 +466,7 @@ function UserMessageAttachments({
                 key={file.id}
                 type="button"
                 variant="ghost"
-                className="user-message-file-attachment user-message-file-attachment-previewable"
+                className="user-message-resource-chip user-message-file-attachment user-message-file-attachment-previewable"
                 aria-label={t(getConversationFilePreviewLabelKey(file), {
                   name: file.name,
                 })}
@@ -475,7 +475,10 @@ function UserMessageAttachments({
                 {content}
               </Button>
             ) : (
-              <div key={file.id} className="user-message-file-attachment">
+              <div
+                key={file.id}
+                className="user-message-resource-chip user-message-file-attachment"
+              >
                 {content}
               </div>
             )
@@ -485,7 +488,7 @@ function UserMessageAttachments({
       <ConversationAttachmentOverflow
         items={overflowItems}
         hiddenCount={hiddenCount}
-        triggerClassName="user-message-file-attachment user-message-attachment-overflow-trigger"
+        triggerClassName="user-message-resource-chip user-message-file-attachment user-message-attachment-overflow-trigger"
         side="bottom"
       />
     </div>
@@ -530,7 +533,7 @@ function UserMessageSelectionBadge({
   return (
     <Badge
       variant="outline"
-      className="user-message-capability"
+      className="user-message-resource-chip user-message-capability"
       title={selection.name}
     >
       <UserMessageSelectionIcon selection={selection} />
@@ -602,7 +605,7 @@ function UserMessageSelections({
             type="button"
             className={cn(
               badgeVariants({ variant: "outline" }),
-              "user-message-capability user-message-capability-overflow"
+              "user-message-resource-chip user-message-capability user-message-capability-overflow"
             )}
             aria-label={overflowLabel(overflowSelections.length)}
           >

@@ -50,6 +50,8 @@ const selectionTextLimit = 4_000
 const selectionFormulaLimit = 2_000
 const allowSpreadsheetResizeInReadOnly = true
 const spreadsheetWorkerLoadTimeoutMs = 15_000
+// Canvas fillStyle cannot resolve CSS variables in the library's header color.
+const spreadsheetSelectionHeaderColor = "rgba(11, 115, 224, 0.08)"
 const emptySpreadsheetAnnotationMarkers: readonly SpreadsheetAnnotationMarker[] =
   []
 const preparedWorkbookBufferCache = new WeakMap<
@@ -757,6 +759,7 @@ function SpreadsheetPreviewControllerSession({
             readOnly
             selectionColor="var(--app-selection)"
             selectionFillColor="color-mix(in srgb, var(--app-selection) 12%, transparent)"
+            selectionHeaderColor={spreadsheetSelectionHeaderColor}
             renderScroller={renderSpreadsheetScroller}
             rounded={false}
             showDefaultToolbar={false}

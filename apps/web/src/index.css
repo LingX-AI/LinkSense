@@ -5363,26 +5363,34 @@ button.annotation-hover-file:focus-visible {
   margin-bottom: 8px;
 }
 
-.user-message-capability {
+.user-message-resource-chip {
+  display: inline-flex;
   height: auto;
   min-height: calc(var(--app-ui-compact-line-height) + 8px);
-  max-width: min(100%, 260px);
+  align-items: center;
+  gap: 4px;
   border: 1px solid var(--app-border);
   border-radius: 999px;
+  padding: 2px 8px;
   background: var(--app-canvas);
   color: var(--app-text);
   font-size: var(--app-ui-font-size);
+  font-weight: 500;
   line-height: var(--app-ui-compact-line-height);
+}
+
+.user-message-capability {
+  max-width: min(100%, 260px);
 }
 
 .user-message-capability-label {
-  font-size: var(--app-ui-font-size);
-  line-height: var(--app-ui-compact-line-height);
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .user-message-capability-icon {
-  width: calc(var(--app-ui-font-size) + 2px);
-  height: calc(var(--app-ui-font-size) + 2px);
+  width: calc(var(--app-ui-font-size) + 2px) !important;
+  height: calc(var(--app-ui-font-size) + 2px) !important;
   flex: none;
   object-fit: contain;
 }
@@ -5422,17 +5430,8 @@ button.annotation-hover-file:focus-visible {
 }
 
 .user-message-file-attachment {
-  display: flex;
   width: fit-content;
   max-width: min(100%, 420px);
-  min-height: 38px;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--app-border);
-  border-radius: 999px;
-  padding: 6px 12px;
-  background: transparent;
-  color: var(--app-text);
 }
 
 .user-message-file-attachment-previewable:hover,
@@ -5455,23 +5454,23 @@ button.annotation-hover-file:focus-visible {
 
 .user-message-file-attachment-icon {
   display: grid;
-  width: 18px;
-  height: 18px;
+  width: calc(var(--app-ui-font-size) + 2px);
+  height: calc(var(--app-ui-font-size) + 2px);
   flex: none;
   place-items: center;
 }
 
 .user-message-file-attachment-icon .file-type-icon {
-  width: 18px;
-  height: 18px;
+  width: 100%;
+  height: 100%;
 }
 
 .user-message-file-attachment-name {
   min-width: 0;
   overflow: hidden;
-  font-size: var(--app-font-13);
-  font-weight: 500;
-  line-height: var(--app-line-20);
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

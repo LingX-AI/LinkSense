@@ -253,6 +253,7 @@ vi.mock("@extend-ai/react-xlsx", async () => {
     renderScroller,
     selectionColor,
     selectionFillColor,
+    selectionHeaderColor,
     showDefaultToolbar,
     toolbar,
   }: {
@@ -267,6 +268,7 @@ vi.mock("@extend-ai/react-xlsx", async () => {
     renderScroller?: (props: XlsxScrollerRenderProps) => React.ReactNode
     selectionColor?: string
     selectionFillColor?: string
+    selectionHeaderColor?: string
     showDefaultToolbar?: boolean
     toolbar?:
       React.ReactNode | ((controller: MockController) => React.ReactNode)
@@ -376,6 +378,7 @@ vi.mock("@extend-ai/react-xlsx", async () => {
         "data-default-toolbar": String(showDefaultToolbar),
         "data-selection-color": selectionColor,
         "data-selection-fill": selectionFillColor,
+        "data-selection-header": selectionHeaderColor,
       },
       toolbarContent,
       scroller,
@@ -514,6 +517,25 @@ describe("spreadsheet preview", () => {
     vi.useRealTimers()
     cleanup()
     vi.restoreAllMocks()
+  })
+
+  it("uses a faint, concrete color for selected row and column headers", () => {
+    render(
+      <SpreadsheetPreview
+        document={{ status: "ready", content: new Uint8Array([1, 2, 3]) }}
+        fileName="budget.xlsx"
+      />
+    )
+
+    const headerColor = screen
+      .getByTestId("xlsx-viewer")
+      .getAttribute("data-selection-header")
+
+    // Canvas cannot resolve CSS variables, so the header needs a literal color.
+    expect(headerColor).toMatch(/^rgba\(/u)
+    const style = document.createElement("span").style
+    style.backgroundColor = headerColor ?? ""
+    expect(style.backgroundColor).toBe("rgba(11, 115, 224, 0.08)")
   })
 
   it("enables read-only row and column resizing and submits a worker-backed range", async () => {

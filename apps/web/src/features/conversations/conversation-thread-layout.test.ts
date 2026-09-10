@@ -1612,7 +1612,7 @@ describe("user message attachments", () => {
     expect(imageListRule).toMatch(/justify-content:\s*flex-end;/u)
   })
 
-  it("uses filled bordered image thumbnails and a transparent file pill", () => {
+  it("uses filled bordered image thumbnails and the shared resource pill", () => {
     const thumbnailRule = conversationStyles.match(
       /\.user-message-attachment-images \.image-preview-thumbnail\s*\{([^}]*)\}/u
     )?.[1]
@@ -1625,6 +1625,9 @@ describe("user message attachments", () => {
     const fileRule = conversationStyles.match(
       /\.user-message-file-attachment\s*\{([^}]*)\}/u
     )?.[1]
+    const resourceRule = conversationStyles.match(
+      /\.user-message-resource-chip\s*\{([^}]*)\}/u
+    )?.[1]
     const previewableFileRule = conversationStyles.match(
       /\.user-message-file-attachment-previewable:hover,\s*\.user-message-file-attachment-previewable:focus-visible\s*\{([^}]*)\}/u
     )?.[1]
@@ -1635,10 +1638,16 @@ describe("user message attachments", () => {
     expect(triggerRule).toMatch(/background:\s*transparent;/u)
     expect(imageRule).toMatch(/object-fit:\s*contain;/u)
     expect(imageRule).not.toMatch(/object-position:/u)
-    expect(fileRule).toMatch(/min-height:\s*38px;/u)
-    expect(fileRule).toMatch(/border:\s*1px solid var\(--app-border\);/u)
-    expect(fileRule).toMatch(/border-radius:\s*999px;/u)
-    expect(fileRule).toMatch(/background:\s*transparent;/u)
+    expect(resourceRule).toMatch(
+      /min-height:\s*calc\(var\(--app-ui-compact-line-height\) \+ 8px\);/u
+    )
+    expect(resourceRule).toMatch(/gap:\s*4px;/u)
+    expect(resourceRule).toMatch(/border:\s*1px solid var\(--app-border\);/u)
+    expect(resourceRule).toMatch(/border-radius:\s*999px;/u)
+    expect(resourceRule).toMatch(/padding:\s*2px 8px;/u)
+    expect(resourceRule).toMatch(/background:\s*var\(--app-canvas\);/u)
+    expect(resourceRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
+    expect(fileRule).toMatch(/max-width:\s*min\(100%, 420px\);/u)
     expect(previewableFileRule).toMatch(
       /border-color:\s*color-mix\(in srgb, var\(--app-text\) 16%, transparent\);/u
     )
@@ -1675,9 +1684,9 @@ describe("user message attachments", () => {
 })
 
 describe("user message capability badges", () => {
-  it("uses a white bordered pill for selected Skills and knowledge bases", () => {
-    const badgeRule = conversationStyles.match(
-      /\.user-message-capability\s*\{([^}]*)\}/u
+  it("uses the shared plugin pill for Skills and knowledge bases", () => {
+    const resourceRule = conversationStyles.match(
+      /\.user-message-resource-chip\s*\{([^}]*)\}/u
     )?.[1]
     const iconRule = conversationStyles.match(
       /\.user-message-capability-icon\s*\{([^}]*)\}/u
@@ -1686,27 +1695,25 @@ describe("user message capability badges", () => {
       /\.user-message-capability-label\s*\{([^}]*)\}/u
     )?.[1]
 
-    expect(badgeRule).toMatch(/height:\s*auto;/u)
-    expect(badgeRule).toMatch(
+    expect(resourceRule).toMatch(/height:\s*auto;/u)
+    expect(resourceRule).toMatch(
       /min-height:\s*calc\(var\(--app-ui-compact-line-height\) \+ 8px\);/u
     )
-    expect(badgeRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
-    expect(badgeRule).toMatch(
+    expect(resourceRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
+    expect(resourceRule).toMatch(
       /line-height:\s*var\(--app-ui-compact-line-height\);/u
     )
-    expect(badgeRule).toMatch(/border:\s*1px solid var\(--app-border\);/u)
-    expect(badgeRule).toMatch(/border-radius:\s*999px;/u)
-    expect(badgeRule).toMatch(/background:\s*var\(--app-canvas\);/u)
-    expect(badgeRule).toMatch(/color:\s*var\(--app-text\);/u)
-    expect(labelRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
-    expect(labelRule).toMatch(
-      /line-height:\s*var\(--app-ui-compact-line-height\);/u
+    expect(resourceRule).toMatch(/border:\s*1px solid var\(--app-border\);/u)
+    expect(resourceRule).toMatch(/border-radius:\s*999px;/u)
+    expect(resourceRule).toMatch(/background:\s*var\(--app-canvas\);/u)
+    expect(resourceRule).toMatch(/color:\s*var\(--app-text\);/u)
+    expect(labelRule).toMatch(/font-size:\s*inherit;/u)
+    expect(labelRule).toMatch(/line-height:\s*inherit;/u)
+    expect(iconRule).toMatch(
+      /width:\s*calc\(var\(--app-ui-font-size\) \+ 2px\) !important;/u
     )
     expect(iconRule).toMatch(
-      /width:\s*calc\(var\(--app-ui-font-size\) \+ 2px\);/u
-    )
-    expect(iconRule).toMatch(
-      /height:\s*calc\(var\(--app-ui-font-size\) \+ 2px\);/u
+      /height:\s*calc\(var\(--app-ui-font-size\) \+ 2px\) !important;/u
     )
   })
 })
