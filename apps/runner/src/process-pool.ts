@@ -93,7 +93,6 @@ import type {
   CodexThread,
   CodexThreadStatus,
   CodexTurn,
-  CodexUserInput,
   JsonRpcNotification,
   JsonRpcRequest,
   CollaborationModeListResponse,
@@ -479,7 +478,7 @@ function resolvePrioritySkills(
     authorizedSkills.map((skill) => [skill.name, skill] as const),
   );
   const seen = new Set<string>();
-  return context.prioritySkills.map(({ name }) => {
+  const skills = context.prioritySkills.map(({ name }) => {
     const skill = byName.get(name);
     if (!skill) {
       throw new CodexProtocolError("priority skill is unavailable");
@@ -490,16 +489,20 @@ function resolvePrioritySkills(
     seen.add(name);
     return skill;
   });
-}
-
-function buildPrioritySkillInputs(
-  skills: AuthorizedTurnSkill[],
-): CodexUserInput[] {
-  return skills.map((skill) => ({
-    type: "skill",
-    name: skill.name,
-    path: skill.path,
-  }));
+  // Knowledge selection already carries a server-authorized scope. Reuse its
+  // built-in Skill rather than inventing a knowledge:// protocol or inlining
+  // the retrieval workflow into every turn's application instructions.
+  if (
+    (context.selectedKnowledgeBases?.length ?? 0) > 0 &&
+    !seen.has("linksense-knowledge-base")
+  ) {
+    const knowledgeSkill = byName.get("linksense-knowledge-base");
+    if (!knowledgeSkill) {
+      throw new CodexProtocolError("knowledge-base skill is unavailable");
+    }
+    skills.push(knowledgeSkill);
+  }
+  return skills;
 }
 
 const MAX_PLAN_SKILL_REFERENCE_CONTENT_BYTES = 56_000;
@@ -560,10 +563,10 @@ async function loadPlanSkillReferences(
   return references;
 }
 
-function buildPriorityPluginInputs(
+function resolvePriorityPlugins(
   context: TurnContextInput,
   authorizedPlugins: NativePluginActivation[],
-): CodexUserInput[] {
+): NativePluginActivation[] {
   const byName = new Map(
     authorizedPlugins.map((plugin) => [plugin.name, plugin] as const),
   );
@@ -577,11 +580,7 @@ function buildPriorityPluginInputs(
       throw new CodexProtocolError("priority plugin is duplicated");
     }
     seen.add(name);
-    return {
-      type: "mention",
-      name: plugin.name,
-      path: plugin.mentionPath,
-    };
+    return plugin;
   });
 }
 
@@ -886,6 +885,10 @@ export class AppServerProcessPool {
 
   get size(): number {
     return this.processes.size;
+  }
+
+  get ownerIds(): string[] {
+    return [...new Set([...this.processes.values()].map((entry) => entry.ownerId))];
   }
 
   get runningCount(): number {
@@ -1826,13 +1829,24 @@ export class AppServerProcessPool {
         };
       }
 
-      const turnInput = buildTurnInput(
-        input.context,
-        input.collaborationMode,
-      );
       const prioritySkills = resolvePrioritySkills(
         input.context,
         managed.authorizedSkills,
+      );
+      const priorityPlugins =
+        input.collaborationMode === "plan"
+          ? []
+          : resolvePriorityPlugins(input.context, managed.authorizedPlugins);
+      const turnInput = buildTurnInput(
+        input.context,
+        {
+          plugins: priorityPlugins.map((plugin) => ({
+            name: plugin.name,
+            path: plugin.mentionPath,
+          })),
+          skills: prioritySkills,
+        },
+        input.collaborationMode,
       );
       const planSkillReferences =
         input.collaborationMode === "plan"
@@ -1850,27 +1864,16 @@ export class AppServerProcessPool {
         input.reasoningEffort,
         input.collaborationMode,
       );
-      const prioritySkillInputs =
-        input.collaborationMode === "plan"
-          ? []
-          : buildPrioritySkillInputs(prioritySkills);
-      const priorityPluginInputs =
-        input.collaborationMode === "plan"
-          ? []
-          : buildPriorityPluginInputs(
-              input.context,
-              managed.authorizedPlugins,
-            );
       nativeRequestIssued = true;
       const turnStartParams: TurnStartParams = {
         threadId: managed.codexThreadId,
         model: input.model,
         effort: input.reasoningEffort,
+        // Request native readable summaries even when a model defaults to none.
+        summary: "auto",
         clientUserMessageId: input.projectionTurnId,
         input: [
           { type: "text", text: turnInput, text_elements: [] },
-          ...priorityPluginInputs,
-          ...prioritySkillInputs,
         ],
         ...(transitionNonce
           ? {
@@ -1895,7 +1898,7 @@ export class AppServerProcessPool {
       };
       if (input.goal) {
         // Active Goals auto-start a continuation, so establish the Goal paused
-        // until the explicit turn carrying native plugin and Skill inputs exists.
+        // until the explicit turn carrying native capability references exists.
         const response = await managed.client.request<ThreadGoalSetResponse>(
           "thread/goal/set",
           {
@@ -3251,32 +3254,57 @@ export class AppServerProcessPool {
     const runtimeWasEnsured = !managed;
     let preparedCapability: PreparedCapabilityRuntimeLease | undefined;
     try {
-      const [initialPaths, runtimeEnvironment] = await Promise.all([
-        managed
-          ? this.options.workspaceManager
-              .readRuntimeGeneration(input.conversationId)
-              .then((runtimeGeneration) => {
-                if (!runtimeGeneration) {
-                  throw new StartOperationRuntimeGenerationMismatchError();
-                }
-                return {
-                  ...this.options.workspaceManager.pathsFor(
-                    input.conversationId,
-                  ),
-                  runtimeGeneration,
-                };
-              })
-          : this.options.workspaceManager.ensureConversation(
-              input.conversationId,
-              this.options.templateVersion,
-            ),
-        this.options.runtimeEnvironmentForOwner?.(input.ownerId) ??
-          Promise.resolve({}),
-      ]);
-      let paths = initialPaths;
+      let paths = managed
+        ? await this.options.workspaceManager
+            .readRuntimeGeneration(input.conversationId)
+            .then((runtimeGeneration) => {
+              if (!runtimeGeneration) {
+                throw new StartOperationRuntimeGenerationMismatchError();
+              }
+              return {
+                ...this.options.workspaceManager.pathsFor(
+                  input.conversationId,
+                ),
+                runtimeGeneration,
+              };
+            })
+        : await this.options.workspaceManager.ensureConversation(
+            input.conversationId,
+            this.options.templateVersion,
+          );
       if (paths.runtimeGeneration !== input.expectedRuntimeGeneration) {
         throw new StartOperationRuntimeGenerationMismatchError();
       }
+      // Recovery observes the existing native turn. A settings update must
+      // not replace its healthy process; the next start applies new settings.
+      if (
+        managed &&
+        !managed.closing &&
+        !managed.evicting &&
+        managed.client.isHealthy &&
+        managed.activeCollaborationMode ===
+          (input.collaborationMode ?? "default") &&
+        (managed.activeTurnId !== null || hasContinuingGoal(managed))
+      ) {
+        if (
+          managed.ownerId !== input.ownerId ||
+          managed.codexThreadId !== input.codexThreadId ||
+          managed.runtimeGeneration !== input.expectedRuntimeGeneration ||
+          managed.capabilityGeneration !== input.capabilityGeneration ||
+          managed.mcpGeneration !== mcpGenerationFor(input) ||
+          managed.activeProjectionTurnId !== input.projectionTurnId
+        ) {
+          throw new CodexProtocolError(
+            "active recovery runtime identity mismatch",
+          );
+        }
+        return {
+          thread: await this.readManagedRecoveryThread(managed),
+          managed,
+        };
+      }
+      const runtimeEnvironment =
+        (await this.options.runtimeEnvironmentForOwner?.(input.ownerId)) ?? {};
       if (
         input.operationKind !== "compact" &&
         input.runtimePurpose !== "control"
@@ -3409,21 +3437,10 @@ export class AppServerProcessPool {
       managed.ownerId = input.ownerId;
       managed.starting = true;
       this.clearIdleTimer(managed);
-      if (!managed.codexThreadId) {
-        throw new CodexProtocolError("conversation has no Codex thread");
-      }
-      const response = await managed.client.request<{ thread: CodexThread }>(
-        "thread/read",
-        { threadId: managed.codexThreadId, includeTurns: true },
-      );
-      if (response.thread.id !== managed.codexThreadId) {
-        throw new CodexProtocolError("Codex read an unexpected thread");
-      }
-      assertLinkSenseThreadProvider(response.thread, "read");
-      for (const turn of response.thread.turns ?? []) {
-        managed.knownTurnIds.add(turn.id);
-      }
-      return { thread: response.thread, managed };
+      return {
+        thread: await this.readManagedRecoveryThread(managed),
+        managed,
+      };
     } catch (error) {
       this.releaseStartingProcess(managed);
       if (preparedCapability !== undefined) {
@@ -3433,6 +3450,26 @@ export class AppServerProcessPool {
       }
       throw error;
     }
+  }
+
+  private async readManagedRecoveryThread(
+    managed: ManagedProcess,
+  ): Promise<CodexThread> {
+    if (!managed.codexThreadId) {
+      throw new CodexProtocolError("conversation has no Codex thread");
+    }
+    const response = await managed.client.request<{ thread: CodexThread }>(
+      "thread/read",
+      { threadId: managed.codexThreadId, includeTurns: true },
+    );
+    if (response.thread.id !== managed.codexThreadId) {
+      throw new CodexProtocolError("Codex read an unexpected thread");
+    }
+    assertLinkSenseThreadProvider(response.thread, "read");
+    for (const turn of response.thread.turns ?? []) {
+      managed.knownTurnIds.add(turn.id);
+    }
+    return response.thread;
   }
 
   private async readThreadForRecovery(input: {

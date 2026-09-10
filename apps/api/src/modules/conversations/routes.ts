@@ -3,10 +3,13 @@ import { z } from "zod";
 
 import {
   conversationCollaborationModeSchema,
+  conversationHistoryQuerySchema,
+  conversationSourcesSchema,
   conversationOrderUpdateSchema,
   conversationUserInputResponseSchema,
   knowledgeBaseIdsSchema,
   officeAnnotationInputSchema,
+  interactiveApplicationMessageSourceSchema,
   priorityCapabilityIdsSchema,
   updateModelPreferenceSchema,
 } from "@linksense/shared";
@@ -77,6 +80,7 @@ const turnSubmissionFields = {
 const turnSubmissionBodySchema = z.union([
   z.strictObject({
     input_text: inputText,
+    message_source: interactiveApplicationMessageSourceSchema.optional(),
     ...turnSubmissionFields,
   }),
   z.strictObject({
@@ -234,9 +238,17 @@ export const conversationRoutes: FastifyPluginAsync<{
   app.get("/:id", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
     const { id } = uuidParamsSchema.parse(request.params);
+    const query = conversationHistoryQuerySchema.parse(request.query);
     return reply.send(
-      ok(await services.conversations.get(user.id, id), request.id),
+      ok(await services.conversations.get(user.id, id, query), request.id),
     );
+  });
+
+  app.get("/:id/sources", async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id } = uuidParamsSchema.parse(request.params);
+    const sources = await services.conversations.getReferencedSources(user.id, id);
+    return reply.send(ok(conversationSourcesSchema.parse(sources), request.id));
   });
 
   app.post("/:id/share", async (request, reply) => {
@@ -334,7 +346,12 @@ export const conversationRoutes: FastifyPluginAsync<{
           ? body.message_display.kind === "presentation_annotation"
             ? { presentationAnnotation: body.message_display }
             : { officeAnnotation: body.message_display }
-          : { inputText: body.input_text }),
+          : {
+              inputText: body.input_text,
+              ...(body.message_source
+                ? { messageSource: body.message_source }
+                : {}),
+            }),
         submitMode: body.submit_mode,
       },
       auditContext(request),

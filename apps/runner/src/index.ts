@@ -14,6 +14,7 @@ import { parseRunnerConfig, type RunnerConfig } from "./config.js"
 import { FetchWorkerTransport } from "./controller/worker-http-client.js"
 import { WorkerManager } from "./controller/worker-manager.js"
 import { DockerEngineClient } from "./docker/engine-client.js"
+import { RunnerHeartbeatReporter } from "./heartbeat.js"
 import {
   createUserRuntimeEnsurer,
   MANAGED_BASH_ENVIRONMENT_FILE,
@@ -316,6 +317,11 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     throw error
   }
   const ownerRegistry = new ConversationOwnerRegistry(workerOwnerId)
+  const heartbeat = new RunnerHeartbeatReporter(
+    () => workerOwnerId ? [workerOwnerId] : pool.ownerIds,
+    (ownerId, input) => eventSink.reportHeartbeat(ownerId, input),
+    (ownerId) => logger.warn({ ownerId }, "Runner heartbeat delivery failed"),
+  )
   const server = buildRunnerServer(
     config,
     pool,
@@ -326,6 +332,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     },
   )
   installSignalHandlers(logger, async () => {
+    await heartbeat.close()
     await server.close()
     await pool.closeAll()
     await modelGateway.close()
@@ -336,6 +343,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
       host: config.LINKSENSE_RUNNER_HOST,
       port: config.LINKSENSE_RUNNER_PORT,
     })
+    heartbeat.start()
   } catch (error) {
     await Promise.allSettled([
       pool.closeAll(),

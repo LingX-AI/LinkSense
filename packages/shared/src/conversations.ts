@@ -169,7 +169,7 @@ export const pendingRequestSchema = z
     block_code: pendingRequestBlockCodeSchema.nullable(),
     idempotency_key: z.string().min(1).max(120).nullable(),
     display: z
-      .lazy(() => userMessageDisplaySchema)
+      .lazy(() => officeAnnotationDisplaySchema)
       .nullable()
       .optional(),
     last_start_checked_at: timestampSchema.nullable(),
@@ -632,11 +632,24 @@ export const officeAnnotationInputSchema = z.discriminatedUnion("kind", [
   htmlAnnotationInputSchema,
 ]);
 
-export const userMessageDisplaySchema = z.discriminatedUnion("kind", [
+export const officeAnnotationDisplaySchema = z.discriminatedUnion("kind", [
   presentationAnnotationDisplaySchema,
   wordAnnotationDisplaySchema,
   spreadsheetAnnotationDisplaySchema,
   htmlAnnotationDisplaySchema,
+]);
+
+export const interactiveApplicationMessageSourceSchema = z.literal(
+  "interactive_application",
+);
+export const interactiveApplicationMessageDisplaySchema = z.strictObject({
+  kind: interactiveApplicationMessageSourceSchema,
+  application_id: uuidSchema,
+});
+
+export const userMessageDisplaySchema = z.discriminatedUnion("kind", [
+  ...officeAnnotationDisplaySchema.options,
+  interactiveApplicationMessageDisplaySchema,
 ]);
 
 export const userMessageCapabilitySchema = z.strictObject({
@@ -796,6 +809,12 @@ export type HtmlAnnotationDisplayItem = z.infer<
   typeof htmlAnnotationDisplayItemSchema
 >;
 export type OfficeAnnotationInput = z.infer<typeof officeAnnotationInputSchema>;
+export type OfficeAnnotationDisplay = z.infer<
+  typeof officeAnnotationDisplaySchema
+>;
+export type InteractiveApplicationMessageSource = z.infer<
+  typeof interactiveApplicationMessageSourceSchema
+>;
 export type UserMessageDisplay = z.infer<typeof userMessageDisplaySchema>;
 export type UserMessageCapability = z.infer<typeof userMessageCapabilitySchema>;
 
@@ -820,7 +839,7 @@ function spreadsheetAnnotationSelectionLabel(
 export function buildOfficeAnnotationDisplay(
   annotation: OfficeAnnotationInput,
   fileName: string,
-): UserMessageDisplay {
+): OfficeAnnotationDisplay {
   if (annotation.kind === "presentation_annotation") {
     return {
       kind: "presentation_annotation",
@@ -878,7 +897,7 @@ export function buildOfficeAnnotationDisplay(
 }
 
 export function officeAnnotationRequestText(
-  annotation: OfficeAnnotationInput | UserMessageDisplay,
+  annotation: OfficeAnnotationInput | OfficeAnnotationDisplay,
 ): string {
   if (annotation.annotations.length === 1) {
     return annotation.annotations[0]?.request ?? "";

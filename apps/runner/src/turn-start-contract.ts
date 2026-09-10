@@ -41,6 +41,7 @@ const safePathSegments = new Set([
   "requireFinalResponse",
   "applicationInstructions",
   "officeSelectionContext",
+  "selectedKnowledgeBases",
   "attachments",
   "filename",
   "relativePath",
@@ -64,6 +65,7 @@ const safePathSegments = new Set([
 ]);
 
 const safeCustomMessages = new Set([
+  "knowledge_selection_is_duplicated",
   "fork_requires_codex_thread",
   "skill_name_invalid",
   "plugin_name_invalid",

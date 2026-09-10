@@ -29,6 +29,9 @@ import {
 import type { AuditContext, AuditService } from "../audit/service.js";
 import { restoreUnreferencedVersionCleanupEligibility } from "../knowledge/retention.js";
 import type { KnowledgeStore } from "../knowledge/types.js";
+import { resolveRunnerKnowledgeSelection } from "./knowledge-selection.js";
+import { extractReferencedSources, mergeReferencedSources } from "./referenced-sources.js";
+import type { ConversationTitleService } from "./title-service.js";
 import {
   builtInCapabilityDefinitionForId,
   capabilitySelectionIdSchema,
@@ -43,6 +46,11 @@ import {
   conversationFormUiHintsSchema,
   officeAnnotationRequestText,
   conversationCollaborationModeSchema,
+  CONVERSATION_HISTORY_PAGE_TURN_LIMIT,
+  type ConversationHistoryQuery,
+  type ConversationHistoryPage,
+  type ConversationSource,
+  type ConversationSources,
   conversationEventSchema,
   conversationPlanReviewActionSchema,
   conversationPlanReviewStatusSchema,
@@ -68,6 +76,8 @@ import {
   type PublicKnowledgeCitation,
   type ReasoningEffort,
   type OfficeAnnotationInput,
+  type OfficeAnnotationDisplay,
+  type InteractiveApplicationMessageSource,
   type PresentationAnnotation,
   type PresentationAnnotationInput,
   type SpreadsheetAnnotation,
@@ -284,6 +294,7 @@ export type TurnSubmission = TurnSubmissionBase &
   (
     | {
         inputText: string;
+        messageSource?: InteractiveApplicationMessageSource;
         officeAnnotation?: never;
         presentationAnnotation?: never;
       }
@@ -722,6 +733,10 @@ export class ConversationService {
     private readonly applicationResolver?: ConversationApplicationResolver,
     private readonly tokenLimits?: TokenLimitEnforcer,
     private readonly executionConcurrencySettings?: ExecutionConcurrencySettingsReader,
+    private readonly titleRefresh?: Pick<
+      ConversationTitleService,
+      "scheduleForUserMessage"
+    >,
   ) {}
 
   private async executionConcurrencyForStart(): Promise<ResolvedExecutionConcurrencySettings> {
@@ -1408,8 +1423,12 @@ export class ConversationService {
                   continuationContext.application_instructions,
               }
             : {}),
-          selectedKnowledgeBaseCount:
-            continuationContext.selected_knowledge_base_count,
+          selectedKnowledgeBases: await resolveRunnerKnowledgeSelection(
+            this.prisma,
+            this.knowledgeStore,
+            conversation.ownerId,
+            jsonStringArray(turn.knowledgeBaseIdsJson),
+          ),
           attachments: [],
           priorityPlugins: runnerPriorityCapabilities(
             continuationContext.priority_capability_ids,
@@ -1526,12 +1545,10 @@ export class ConversationService {
         return "released";
       }
       if (intent.runnerStatus === "slot_pending") {
-        const slots = await this.redis.runningTurnSlots();
-        const hasExactSlot = slots.some(
-          (slot) =>
-            slot.conversationId === intent.conversationId &&
-            slot.turnId === intent.projectionTurnId &&
-            slot.ownerId === intent.ownerId,
+        const hasExactSlot = await this.redis.hasTurnSlot(
+          intent.conversationId,
+          intent.projectionTurnId,
+          intent.ownerId,
         );
         if (hasExactSlot) {
           intent = await this.markStartIntentSlotAcquired(intent);
@@ -1737,6 +1754,12 @@ export class ConversationService {
         modelRuntime,
         modelTransitionSource,
         executionConcurrency,
+        await resolveRunnerKnowledgeSelection(
+          this.prisma,
+          this.knowledgeStore,
+          intent.ownerId,
+          intent.knowledgeBaseIdsJson,
+        ),
       ),
     );
   }
@@ -1763,8 +1786,8 @@ export class ConversationService {
         }
       });
     // Retaining the promise makes the background continuation observable and
-    // deduplicated. The periodic recovery coordinator remains the durable
-    // fallback if this API process exits or this bounded fast path times out.
+    // deduplicated. The durable pending-intent dispatcher handles this exact
+    // operation if the API exits or this bounded fast path times out.
     this.acceptedStartRecoveries.set(projectionTurnId, tracked);
   }
 
@@ -2175,7 +2198,68 @@ export class ConversationService {
     });
   }
 
-  async get(ownerId: string, conversationId: string) {
+  async getReferencedSources(
+    ownerId: string,
+    conversationId: string,
+  ): Promise<ConversationSources> {
+    const conversation = await this.assertOwner(ownerId, conversationId);
+    if (!conversation.codexThreadId) return { items: [] };
+    const turns = await this.prisma.conversationTurn.findMany({
+      where: { conversationId, codexThreadId: conversation.codexThreadId },
+      select: { id: true },
+    });
+    const turnIds = turns.map((turn) => turn.id);
+    if (!turnIds.length) return { items: [] };
+    const reviews = await this.prisma.conversationPlanReview.findMany({
+      where: { conversationId, sourceTurnId: { in: turnIds } },
+      select: { sourceTurnId: true },
+    });
+    const reviewTurns = new Set(reviews.map((review) => review.sourceTurnId));
+    const hookEvents = reviewTurns.size
+      ? await this.prisma.conversationEvent.findMany({
+          where: {
+            conversationId,
+            turnId: { in: [...reviewTurns] },
+            eventType: "hook/completed",
+          },
+          select: { turnId: true, payloadJson: true },
+        })
+      : [];
+    const supersededIds = indexStopHookSupersededAssistantMessageIds(hookEvents, reviewTurns);
+    const sources = new Map<string, ConversationSource>();
+    let afterSequence = 0;
+    // Bound body reads and parser memory independently of the task reader's page.
+    // This endpoint only returns the deduplicated link summary to the browser.
+    const batchSize = 50;
+    while (true) {
+      const messages = await this.prisma.conversationMessage.findMany({
+        where: {
+          conversationId,
+          turnId: { in: turnIds },
+          role: "assistant",
+          sequenceNo: { gt: afterSequence },
+        },
+        select: { id: true, sequenceNo: true, contentText: true },
+        orderBy: { sequenceNo: "asc" },
+        take: batchSize,
+      });
+      for (const message of messages) {
+        if (!supersededIds.has(message.id)) {
+          mergeReferencedSources(sources, extractReferencedSources(message.contentText));
+        }
+      }
+      const lastMessage = messages.at(-1);
+      if (!lastMessage || messages.length < batchSize) break;
+      afterSequence = lastMessage.sequenceNo;
+    }
+    return { items: [...sources.values()] };
+  }
+
+  async get(
+    ownerId: string,
+    conversationId: string,
+    historyQuery?: ConversationHistoryQuery,
+  ) {
     const conversation = await this.assertOwner(ownerId, conversationId);
     const turns = conversation.codexThreadId
       ? await this.prisma.conversationTurn.findMany({
@@ -2187,9 +2271,28 @@ export class ConversationService {
         })
       : [];
     const activeTurnIds = turns.map((turn) => turn.id);
+    // Full snapshots (sharing and embedded sessions) use the same projection;
+    // the task reader requests a bounded window of complete turns.
+    const aroundTurn = historyQuery?.around_turn;
+    const targetIndex =
+      aroundTurn === undefined
+        ? -1
+        : turns.findIndex((turn) => turn.sequenceNo === aroundTurn);
+    if (aroundTurn !== undefined && targetIndex < 0) {
+      throw new AppError("VALIDATION_ERROR");
+    }
+    const pageStart =
+      Math.floor(targetIndex / CONVERSATION_HISTORY_PAGE_TURN_LIMIT) *
+      CONVERSATION_HISTORY_PAGE_TURN_LIMIT;
+    const messageTurns = historyQuery
+      ? targetIndex < 0
+        ? turns.slice(-CONVERSATION_HISTORY_PAGE_TURN_LIMIT)
+        : turns.slice(pageStart, pageStart + CONVERSATION_HISTORY_PAGE_TURN_LIMIT)
+      : turns;
+    const messageTurnIds = messageTurns.map((turn) => turn.id);
     const visibleEventScope = {
       conversationId,
-      OR: [{ turnId: null }, { turnId: { in: activeTurnIds } }],
+      OR: [{ turnId: null }, { turnId: { in: messageTurnIds } }],
       visibility: { in: ["user_visible", "user_collapsed"] },
     } satisfies Prisma.ConversationEventWhereInput;
     const [
@@ -2205,9 +2308,10 @@ export class ConversationService {
       planReviews,
       goal,
       latestModelContextUsage,
+      indexMessages,
     ] = await Promise.all([
       this.prisma.conversationMessage.findMany({
-        where: { conversationId, turnId: { in: activeTurnIds } },
+        where: { conversationId, turnId: { in: messageTurnIds } },
         orderBy: { sequenceNo: "asc" },
       }),
       this.prisma.pendingRequest.findMany({
@@ -2234,10 +2338,10 @@ export class ConversationService {
         orderBy: { sequenceNo: "desc" },
         take: CONVERSATION_DETAIL_EVENT_LIMIT,
       }),
-      this.findLatestPlanEvents(conversationId, activeTurnIds),
+      this.findLatestPlanEvents(conversationId, messageTurnIds),
       this.countTurnFileChanges(conversationId, activeTurnIds),
-      this.findUserMessageDisplayEvents(conversationId, activeTurnIds),
-      this.findPriorityCapabilityEvents(conversationId, activeTurnIds),
+      this.findUserMessageDisplayEvents(conversationId, messageTurnIds),
+      this.findPriorityCapabilityEvents(conversationId, messageTurnIds),
       this.prisma.conversationUserInputRequest.findMany({
         where: { conversationId, turnId: { in: activeTurnIds } },
         orderBy: { createdAt: "asc" },
@@ -2258,7 +2362,52 @@ export class ConversationService {
           lastObservedAt: true,
         },
       }),
+      historyQuery && activeTurnIds.length > 0
+        ? this.prisma.conversationMessage.findMany({
+            where: { conversationId, turnId: { in: activeTurnIds } },
+            // Only metadata crosses this boundary; never load historical bodies
+            // to draw the navigation. The first user item anchors each turn.
+            distinct: ["turnId", "role"],
+            select: { id: true, turnId: true, role: true, createdAt: true },
+            orderBy: { sequenceNo: "asc" },
+          })
+        : [],
     ]);
+    const firstUserByTurn = new Map<string, (typeof indexMessages)[number]>();
+    const turnsWithContent = new Set<string>();
+    for (const message of indexMessages) {
+      if (!message.turnId) continue;
+      turnsWithContent.add(message.turnId);
+      if (message.role === "user" && !firstUserByTurn.has(message.turnId)) {
+        firstUserByTurn.set(message.turnId, message);
+      }
+    }
+    const hiddenImplementationTurns = new Set(
+      planReviews.flatMap((review) =>
+        review.status === "resolved" &&
+        review.decision === "implement" &&
+        review.followUpTurnId
+          ? [review.followUpTurnId]
+          : [],
+      ),
+    );
+    const history: ConversationHistoryPage | undefined = historyQuery
+      ? {
+          scope_id: turns[0]?.id ?? null,
+          turn_ids: messageTurnIds,
+          index: turns.map((turn) => ({
+            turn_id: turn.id,
+            sequence_no: turn.sequenceNo,
+            message_id: hiddenImplementationTurns.has(turn.id)
+              ? null
+              : firstUserByTurn.get(turn.id)?.id ?? null,
+            created_at: (
+              firstUserByTurn.get(turn.id)?.createdAt ?? turn.createdAt
+            ).toISOString(),
+            has_content: turnsWithContent.has(turn.id),
+          })),
+        }
+      : undefined;
     const planReviewTurnIds = new Set(
       planReviews.map((review) => review.sourceTurnId),
     );
@@ -2281,18 +2430,34 @@ export class ConversationService {
     const visibleMessages = messages.filter(
       (message) => !supersededAssistantMessageIds.has(message.id),
     );
+    const forkBoundary =
+      history && conversation.forkSourceMessageId
+        ? await this.prisma.conversationMessage.findFirst({
+            where: {
+              conversationId,
+              turnId: { in: activeTurnIds },
+              createdAt: { lte: conversation.createdAt },
+            },
+            orderBy: { sequenceNo: "desc" },
+            select: { sequenceNo: true, createdAt: true },
+          })
+        : null;
     const forkSource = await this.resolveForkSourceProjection(
       ownerId,
       conversation,
-      visibleMessages,
+      history && conversation.forkSourceMessageId
+        ? forkBoundary
+          ? [forkBoundary]
+          : []
+        : visibleMessages,
     );
     const publicKnowledgeCitations = await this.loadPublicKnowledgeCitations(
       conversationId,
-      activeTurnIds,
+      messageTurnIds,
     );
     const steeredMessageEvents = await this.findSteeredMessageEvents(
       conversationId,
-      activeTurnIds,
+      messageTurnIds,
     );
     const steeredMessageMetadata = new Map<
       string,
@@ -2388,6 +2553,7 @@ export class ConversationService {
         ...(forkSource ? { fork_source: forkSource } : {}),
       },
       goal: goal ? projectConversationGoal(goal) : null,
+      ...(history ? { history } : {}),
       messages: visibleMessages.map((message) =>
         projectMessage(
           message,
@@ -4059,6 +4225,7 @@ export class ConversationService {
               modelRuntime,
               null,
               executionConcurrency,
+              [],
             ),
           );
           this.trackAcceptedStartRecovery(projectionTurnId);
@@ -6847,7 +7014,7 @@ export class ConversationService {
     annotation: OfficeAnnotationInput,
   ): Promise<{
     inputText: string;
-    display: UserMessageDisplay;
+    display: OfficeAnnotationDisplay;
   }> {
     const file = await this.prisma.conversationFile.findFirst({
       where: { id: annotation.file_id, conversationId },
@@ -7384,7 +7551,10 @@ export class ConversationService {
         throw new AppError("ATTACHMENT_UPLOAD_INVALID");
       }
 
-      if (input.prepared.messageDisplay) {
+      if (
+        input.prepared.messageDisplay &&
+        input.prepared.messageDisplay.kind !== "interactive_application"
+      ) {
         await tx.$queryRaw<Array<{ id: string }>>`
           SELECT id
           FROM conversation_files
@@ -7579,7 +7749,7 @@ export class ConversationService {
   ): Promise<TurnStartProjectionResult> {
     const startedGoal = goalSnapshotForStart(intent, startedTurn);
     const isCompact = intent.taskKind === "compact";
-    return this.prisma.$transaction(async (tx) => {
+    const projection = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.conversationTurnStartIntent.updateMany({
         where: {
           projectionTurnId: intent.projectionTurnId,
@@ -7920,7 +8090,8 @@ export class ConversationService {
         regeneration ? regeneratesLogicalFirstTurn : created.sequenceNo === 1
       )
         ? fallbackTitle(
-            intent.messageDisplayJson
+            intent.messageDisplayJson &&
+            intent.messageDisplayJson.kind !== "interactive_application"
               ? officeAnnotationRequestText(intent.messageDisplayJson)
               : intent.inputText,
           )
@@ -8083,6 +8254,15 @@ export class ConversationService {
       if (deleted.count !== 1) throw new AppError("CONFLICT");
       return { created, attachedEvents };
     });
+    // Both direct and recovered starts reach this committed projection. Naming
+    // runs independently of the turn, using the accepted user request only.
+    if (!isCompact && intent.planReviewAction !== "implement") {
+      this.titleRefresh?.scheduleForUserMessage(
+        intent.conversationId,
+        intent.inputText,
+      );
+    }
+    return projection;
   }
 
   private async markStartIntentForRelease(
@@ -8503,6 +8683,14 @@ export class ConversationService {
         conversation.applicationId,
         conversation.interactiveApplicationPackageId,
       );
+      const fromInteractiveApplication =
+        "messageSource" in submission &&
+        submission.messageSource === "interactive_application";
+      if (
+        fromInteractiveApplication && applicationRuntime?.kind !== "interactive"
+      ) {
+        throw new AppError("VALIDATION_ERROR");
+      }
       const officeAnnotation = submissionOfficeAnnotation(submission);
       const preservesStagedAttachments =
         Boolean(officeAnnotation) ||
@@ -8550,7 +8738,14 @@ export class ConversationService {
         ...(preservesStagedAttachments
           ? { preserveStagedAttachments: true }
           : {}),
-        messageDisplay: preparedAnnotation?.display ?? null,
+        messageDisplay:
+          preparedAnnotation?.display ??
+          (fromInteractiveApplication && applicationRuntime
+            ? {
+                kind: "interactive_application",
+                application_id: applicationRuntime.applicationId,
+              }
+            : null),
       };
       const currentCollaborationMode =
         conversationCollaborationModeSchema.parse(
@@ -9038,16 +9233,22 @@ export class ConversationService {
         modelRuntime.model,
         conversation.codexThreadId,
       );
-      const runnerStartInput = buildRunnerStartInputFromIntent(
-        startIntent,
-        conversation.codexThreadId,
-        resolved.capabilities,
-        resolved.environment ?? {},
-        modelRuntime,
-        modelTransitionSource,
-        executionConcurrency,
-      );
       try {
+        const runnerStartInput = buildRunnerStartInputFromIntent(
+          startIntent,
+          conversation.codexThreadId,
+          resolved.capabilities,
+          resolved.environment ?? {},
+          modelRuntime,
+          modelTransitionSource,
+          executionConcurrency,
+          await resolveRunnerKnowledgeSelection(
+            this.prisma,
+            this.knowledgeStore,
+            startIntent.ownerId,
+            startIntent.knowledgeBaseIdsJson,
+          ),
+        );
         if (returnWhenAccepted) {
           await this.runner.acceptStartTurn(runnerStartInput);
           this.trackAcceptedStartRecovery(projectionTurnId);
@@ -9817,7 +10018,7 @@ const MAXIMUM_OFFICE_CONTEXT_LENGTH = 1_000;
 const MAXIMUM_OFFICE_FORMULA_LENGTH = 2_000;
 
 function matchesAnnotationFile(
-  kind: OfficeAnnotationInput["kind"] | UserMessageDisplay["kind"],
+  kind: OfficeAnnotationInput["kind"] | OfficeAnnotationDisplay["kind"],
   file: { filename: string; mimeType: string | null },
 ): boolean {
   const lowerName = file.filename.toLocaleLowerCase("en-US");
@@ -10055,7 +10256,7 @@ function buildHtmlAnnotationSection(
 
 function buildOfficeAnnotationPrompt(
   annotation: OfficeAnnotationInput,
-  display: UserMessageDisplay,
+  display: OfficeAnnotationDisplay,
 ): string {
   if (annotation.kind !== display.kind) throw new AppError("VALIDATION_ERROR");
 
@@ -10256,6 +10457,13 @@ function resolveUserMessageProjection(
     };
   }
   const storedDisplay = index.displays.get(row.id) ?? null;
+  if (storedDisplay?.kind === "interactive_application") {
+    return {
+      contentText: row.contentText,
+      display: storedDisplay,
+      selectedCapabilities,
+    };
+  }
   const inspected = inspectOfficeAnnotationPrompt(row.contentText);
   if (storedDisplay && !inspected.suspected) {
     return { contentText: "", display: null, selectedCapabilities };
@@ -10522,6 +10730,9 @@ function buildRunnerStartInputFromIntent(
   modelRuntime: ResolvedModelRuntime,
   modelTransitionSource: ResolvedModelTransitionRuntime | null,
   executionConcurrency: ResolvedExecutionConcurrencySettings,
+  selectedKnowledgeBases: NonNullable<
+    RunnerStartInput["context"]["selectedKnowledgeBases"]
+  >,
 ): RunnerStartInput {
   const runnerContext = buildOfficeAnnotationRunnerContext(intent.inputText);
   const isCompact = intent.taskKind === "compact";
@@ -10566,9 +10777,7 @@ function buildRunnerStartInputFromIntent(
       ...(!isCompact && intent.applicationInstructions
         ? { applicationInstructions: intent.applicationInstructions }
         : {}),
-      selectedKnowledgeBaseCount: isCompact
-        ? 0
-        : intent.knowledgeBaseIdsJson.length,
+      selectedKnowledgeBases: isCompact ? [] : selectedKnowledgeBases,
       ...(!isCompact && runnerContext.officeSelectionContext
         ? {
             officeSelectionContext: runnerContext.officeSelectionContext,

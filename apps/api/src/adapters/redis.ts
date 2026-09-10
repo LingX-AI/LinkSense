@@ -3,6 +3,8 @@ import { isIP } from "node:net"
 
 import { Redis } from "ioredis"
 import ipaddr from "ipaddr.js"
+import { runnerHeartbeatLeaseMs } from "@linksense/shared"
+import { z } from "zod"
 
 import type { AppConfig } from "../config.js"
 import { hmacSha256 } from "../lib/crypto.js"
@@ -49,6 +51,12 @@ return 0
 `
 
 const ACQUIRE_CONCURRENCY_SCRIPT = `
+local function watch_owner()
+  local time = redis.call('TIME')
+  local deadline = time[1] * 1000 + math.floor(time[2] / 1000) + ${runnerHeartbeatLeaseMs}
+  redis.call('ZADD', KEYS[5], 'NX', deadline, ARGV[3])
+  redis.call('ZADD', KEYS[6], 0, ARGV[3] .. ':' .. ARGV[1])
+end
 local recovery_outcome = redis.call('HGET', KEYS[4], 'outcome')
 local recovery_last_success_at = redis.call(
   'HGET',
@@ -68,6 +76,7 @@ local current_turn = redis.call('HGET', KEYS[1], ARGV[1])
 if current_turn then
   if current_turn == ARGV[2] then
     redis.call('HSET', KEYS[2], ARGV[1], ARGV[3])
+    watch_owner()
     return {1, count, 1}
   end
   return {0, count, 1}
@@ -76,14 +85,21 @@ if count >= tonumber(ARGV[4]) then return {0, count, 1} end
 redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
 redis.call('HSET', KEYS[2], ARGV[1], ARGV[3])
 redis.call('HDEL', KEYS[3], ARGV[1] .. ':' .. ARGV[2])
+watch_owner()
 return {1, count + 1, 1}
 `
 
 const RELEASE_CONCURRENCY_SCRIPT = `
 if redis.call('HGET', KEYS[1], ARGV[1]) == ARGV[2] then
+  local owner = redis.call('HGET', KEYS[2], ARGV[1])
+  if owner then redis.call('ZREM', KEYS[4], owner .. ':' .. ARGV[1]) end
   redis.call('HDEL', KEYS[1], ARGV[1])
   redis.call('HDEL', KEYS[2], ARGV[1])
-  redis.call('HSET', KEYS[3], ARGV[1] .. ':' .. ARGV[2], '1')
+  -- Only a concurrent bootstrap snapshot can resurrect a released token.
+  -- Ordinary event-driven releases must not accumulate historical markers.
+  if redis.call('EXISTS', KEYS[5]) == 1 then
+    redis.call('HSET', KEYS[3], ARGV[1] .. ':' .. ARGV[2], '1')
+  end
   return 1
 end
 return 0
@@ -124,6 +140,8 @@ for index = 3, #ARGV, 3 do
   local conversation_id = ARGV[index]
   local database_turn = ARGV[index + 1]
   local owner_id = ARGV[index + 2]
+  local time = redis.call('TIME')
+  redis.call('ZADD', KEYS[6], 'NX', time[1] * 1000 + math.floor(time[2] / 1000) + ${runnerHeartbeatLeaseMs}, owner_id)
   local current_turn = redis.call('HGET', KEYS[1], conversation_id)
   if not current_turn then
     local released = redis.call(
@@ -137,6 +155,9 @@ for index = 3, #ARGV, 3 do
     end
   elseif current_turn == database_turn then
     redis.call('HSET', KEYS[2], conversation_id, owner_id)
+  end
+  if redis.call('HGET', KEYS[1], conversation_id) == database_turn then
+    redis.call('ZADD', KEYS[7], 0, owner_id .. ':' .. conversation_id)
   end
 end
 
@@ -194,6 +215,14 @@ return 1
 `
 
 const RUNNING_TURN_SLOTS_KEY = "linksense:running-turn-slots"
+const RUNNER_OWNER_DEADLINES_KEY = "linksense:runner-owner-deadlines"
+const RUNNING_TURN_OWNER_INDEX_KEY = "linksense:running-turn-owner-index"
+const RECOVERY_DISPATCH_CURSORS_KEY = "linksense:recovery-dispatch-cursors"
+const recoveryDispatchCursorSchema = z.strictObject({
+  id: z.uuid(),
+  createdAt: z.iso.datetime(),
+})
+export type RecoveryDispatchCursor = z.infer<typeof recoveryDispatchCursorSchema>
 const RUNNING_TURN_SLOT_OWNERS_KEY = "linksense:running-turn-slot-owners"
 const RUNNING_TURN_RELEASE_MARKERS_KEY =
   "linksense:running-turn-release-markers"
@@ -506,11 +535,13 @@ export class LinkSenseRedis {
     try {
       const result = await this.client.eval(
         ACQUIRE_CONCURRENCY_SCRIPT,
-        4,
+        6,
         RUNNING_TURN_SLOTS_KEY,
         RUNNING_TURN_SLOT_OWNERS_KEY,
         RUNNING_TURN_RELEASE_MARKERS_KEY,
         RUNNING_TURN_RECOVERY_STATUS_KEY,
+        RUNNER_OWNER_DEADLINES_KEY,
+        RUNNING_TURN_OWNER_INDEX_KEY,
         conversationId,
         turnId,
         ownerId,
@@ -531,10 +562,12 @@ export class LinkSenseRedis {
     try {
       await this.client.eval(
         RELEASE_CONCURRENCY_SCRIPT,
-        3,
+        5,
         RUNNING_TURN_SLOTS_KEY,
         RUNNING_TURN_SLOT_OWNERS_KEY,
         RUNNING_TURN_RELEASE_MARKERS_KEY,
+        RUNNING_TURN_OWNER_INDEX_KEY,
+        RUNNING_TURN_RECONCILE_LOCK_KEY,
         conversationId,
         turnId,
       )
@@ -698,6 +731,190 @@ export class LinkSenseRedis {
     }
   }
 
+  async runningTurnSlotsForOwner(
+    ownerId: string,
+    after?: string,
+  ): Promise<{
+    slots: Array<{ conversationId: string; turnId: string }>
+    after: string | null
+  }> {
+    try {
+      z.uuid().parse(ownerId)
+      if (after) z.uuid().parse(after)
+      const values = z.array(z.string()).parse(
+        await this.client.eval(
+          `
+        local prefix = ARGV[1] .. ':'
+        local minimum = '[' .. prefix
+        if ARGV[2] ~= '' then minimum = '(' .. prefix .. ARGV[2] end
+        local members = redis.call('ZRANGEBYLEX', KEYS[1], minimum, '[' .. prefix .. '~', 'LIMIT', 0, 100)
+        local result = {''}
+        if #members == 100 then result[1] = string.sub(members[#members], #prefix + 1) end
+        for _, member in ipairs(members) do
+          local conversation = string.sub(member, #prefix + 1)
+          local turn = redis.call('HGET', KEYS[2], conversation)
+          if turn and redis.call('HGET', KEYS[3], conversation) == ARGV[1] then
+            table.insert(result, conversation)
+            table.insert(result, turn)
+          else
+            redis.call('ZREM', KEYS[1], member)
+          end
+        end
+        return result
+      `,
+          3,
+          RUNNING_TURN_OWNER_INDEX_KEY,
+          RUNNING_TURN_SLOTS_KEY,
+          RUNNING_TURN_SLOT_OWNERS_KEY,
+          ownerId,
+          after ?? "",
+        ),
+      )
+      const slots: Array<{ conversationId: string; turnId: string }> = []
+      for (let index = 1; index < values.length; index += 2) {
+        slots.push({
+          conversationId: z.uuid().parse(values[index]),
+          turnId: z.uuid().parse(values[index + 1]),
+        })
+      }
+      return { slots, after: values[0] ? z.uuid().parse(values[0]) : null }
+    } catch {
+      throw new RedisUnavailableError("concurrency_owner_read")
+    }
+  }
+
+  async hasTurnSlot(
+    conversationId: string,
+    turnId: string,
+    ownerId: string,
+  ): Promise<boolean> {
+    try {
+      const result = await this.client.eval(
+        `
+        if redis.call('HGET', KEYS[1], ARGV[1]) == ARGV[2]
+          and redis.call('HGET', KEYS[2], ARGV[1]) == ARGV[3] then return 1 end
+        return 0
+      `,
+        2,
+        RUNNING_TURN_SLOTS_KEY,
+        RUNNING_TURN_SLOT_OWNERS_KEY,
+        conversationId,
+        turnId,
+        ownerId,
+      )
+      return result === 1
+    } catch {
+      throw new RedisUnavailableError("concurrency_read")
+    }
+  }
+
+  async recordRunnerHeartbeat(ownerId: string): Promise<void> {
+    try {
+      await this.client.eval(
+        `
+        local time = redis.call('TIME')
+        redis.call('ZADD', KEYS[1], time[1] * 1000 + math.floor(time[2] / 1000) + ARGV[2], ARGV[1])
+      `,
+        1,
+        RUNNER_OWNER_DEADLINES_KEY,
+        ownerId,
+        runnerHeartbeatLeaseMs,
+      )
+    } catch {
+      throw new RedisUnavailableError("runner_heartbeat")
+    }
+  }
+
+  async expiredRunnerOwners(): Promise<
+    Array<{ ownerId: string; deadline: number }>
+  > {
+    try {
+      const rows = z.array(z.string()).parse(
+        await this.client.eval(
+          `
+        local time = redis.call('TIME')
+        return redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', time[1] * 1000 + math.floor(time[2] / 1000), 'WITHSCORES', 'LIMIT', 0, 100)
+      `,
+          1,
+          RUNNER_OWNER_DEADLINES_KEY,
+        ),
+      )
+      const result: Array<{ ownerId: string; deadline: number }> = []
+      for (let i = 0; i < rows.length; i += 2) {
+        result.push({
+          ownerId: z.uuid().parse(rows[i]),
+          deadline: z.coerce
+            .number()
+            .int()
+            .nonnegative()
+            .parse(rows[i + 1]),
+        })
+      }
+      return result
+    } catch {
+      throw new RedisUnavailableError("runner_heartbeat_expired")
+    }
+  }
+
+  async runnerOwnerDeadline(ownerId: string): Promise<number | null> {
+    try {
+      const value = await this.client.zscore(
+        RUNNER_OWNER_DEADLINES_KEY,
+        ownerId,
+      )
+      return value === null
+        ? null
+        : z.coerce.number().int().nonnegative().parse(value)
+    } catch {
+      throw new RedisUnavailableError("runner_heartbeat_read")
+    }
+  }
+
+  async acknowledgeExpiredRunnerOwner(
+    ownerId: string,
+    deadline: number,
+  ): Promise<void> {
+    try {
+      // Enqueue first, then remove only the observed lease. A concurrent beat
+      // must survive acknowledgement of an older worker failure.
+      await this.client.eval(
+        `
+        if tonumber(redis.call('ZSCORE', KEYS[1], ARGV[1])) == tonumber(ARGV[2]) then
+          redis.call('ZREM', KEYS[1], ARGV[1])
+        end
+      `,
+        1,
+        RUNNER_OWNER_DEADLINES_KEY,
+        ownerId,
+        deadline,
+      )
+    } catch {
+      throw new RedisUnavailableError("runner_heartbeat_acknowledge")
+    }
+  }
+
+  async recoveryDispatchCursor(
+    kind: "start" | "context",
+  ): Promise<RecoveryDispatchCursor | null> {
+    const value = await this.client.hget(RECOVERY_DISPATCH_CURSORS_KEY, kind)
+    return value ? recoveryDispatchCursorSchema.parse(JSON.parse(value)) : null
+  }
+
+  async setRecoveryDispatchCursor(
+    kind: "start" | "context",
+    cursor: RecoveryDispatchCursor | null,
+  ): Promise<void> {
+    if (cursor) {
+      await this.client.hset(
+        RECOVERY_DISPATCH_CURSORS_KEY,
+        kind,
+        JSON.stringify(recoveryDispatchCursorSchema.parse(cursor)),
+      )
+    } else {
+      await this.client.hdel(RECOVERY_DISPATCH_CURSORS_KEY, kind)
+    }
+  }
+
   async runningTurnSlots(): Promise<ObservedRunningTurnSlot[]> {
     try {
       const [turns, owners] = await Promise.all([
@@ -766,12 +983,14 @@ export class LinkSenseRedis {
     try {
       const result = await this.client.eval(
         RECONCILE_CONCURRENCY_SCRIPT,
-        5,
+        7,
         RUNNING_TURN_SLOTS_KEY,
         RUNNING_TURN_SLOT_OWNERS_KEY,
         RUNNING_TURN_RELEASE_MARKERS_KEY,
         RUNNING_TURN_RECONCILE_LOCK_KEY,
         RUNNING_TURN_RECONCILE_FENCE_KEY,
+        RUNNER_OWNER_DEADLINES_KEY,
+        RUNNING_TURN_OWNER_INDEX_KEY,
         lease.token,
         lease.fence,
         ...slots.flatMap(({ conversationId, turnId, ownerId }) => [

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { rm } from "node:fs/promises"
 import { relative, resolve, sep } from "node:path"
 
-import { Queue, Worker, type ConnectionOptions, type Job } from "bullmq"
+import { Queue, Worker, type ConnectionOptions, type RedisOptions, type Job } from "bullmq"
 import { z } from "zod"
 
 import type { AppConfig } from "../config.js"
@@ -928,7 +928,7 @@ function assertCleanupDescendant(
   }
 }
 
-export function bullMqConnection(input: string): ConnectionOptions {
+export function bullMqConnection(input: string): RedisOptions {
   const url = new URL(input)
   if (url.protocol !== "redis:" && url.protocol !== "rediss:") {
     throw new Error("REDIS_URL must use redis or rediss")

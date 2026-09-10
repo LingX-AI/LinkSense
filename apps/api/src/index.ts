@@ -76,7 +76,7 @@ export function createApiLifecycle(
           host: resources.host,
           port: resources.port,
         });
-        resources.services.events.startRecoveryMonitor();
+        await resources.services.events.startRecoveryMonitor();
       } catch (error) {
         await close().catch(() => undefined);
         throw error;
@@ -198,7 +198,9 @@ export function configureApiFileCreationMask(): void {
 async function closeApiResources(
   resources: ApiStartupResources,
 ): Promise<void> {
-  resources.services.events.stopRecoveryMonitor();
+  const recoveryResult = await Promise.allSettled([
+    Promise.resolve().then(() => resources.services.events.stopRecoveryMonitor()),
+  ]);
   const appResult = await Promise.allSettled([
     Promise.resolve().then(() => resources.app.close()),
   ]);
@@ -233,6 +235,7 @@ async function closeApiResources(
     Promise.resolve().then(() => resources.prisma.$disconnect()),
   ]);
   const failures = [
+    ...recoveryResult,
     ...appResult,
     ...governanceResult,
     ...knowledgeResult,
@@ -249,9 +252,9 @@ async function closePartiallyStartedApi(
   redis: Pick<LinkSenseRedis, "close">,
   prisma: { $disconnect(): Promise<void> },
 ): Promise<void> {
-  services?.events.stopRecoveryMonitor();
   if (services) {
     await Promise.allSettled([
+      Promise.resolve().then(() => services.events.stopRecoveryMonitor()),
       Promise.resolve().then(() => services.knowledgeGovernance?.close()),
       Promise.resolve().then(() => services.knowledgeSourceRuntime?.close()),
     ]);

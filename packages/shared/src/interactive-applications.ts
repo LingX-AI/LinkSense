@@ -2,6 +2,16 @@ import { z } from "zod";
 
 import { timestampSchema, uuidSchema } from "./common.js";
 
+export const interactiveApplicationTaskInputSchema = z.strictObject({
+  prompt: z.string().trim().min(1).max(200_000),
+  capability_ids: z.array(z.string()).max(50).default([]),
+  knowledge_base_ids: z.array(uuidSchema).max(20).default([]),
+  idempotency_key: z.string().trim().min(1).max(120).optional(),
+});
+export type InteractiveApplicationTaskInput = z.infer<
+  typeof interactiveApplicationTaskInputSchema
+>;
+
 export const INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES = 10 * 1024 * 1024;
 export const INTERACTIVE_APPLICATION_EXPANDED_MAX_BYTES = 30 * 1024 * 1024;
 export const INTERACTIVE_APPLICATION_ENTRY_MAX_BYTES = 5 * 1024 * 1024;

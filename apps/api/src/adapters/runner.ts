@@ -22,6 +22,7 @@ import {
   type RunnerTurnInterruptResult,
   type RuntimeMcpServer,
   type RunnerCodexGoal,
+  type RunnerKnowledgeBaseSelection,
 } from "@linksense/shared";
 import { z } from "zod";
 
@@ -235,7 +236,7 @@ export type RunnerStartInput = {
     approvedPlanImplementation?: true;
     requireFinalResponse?: boolean;
     applicationInstructions?: string;
-    selectedKnowledgeBaseCount?: number;
+    selectedKnowledgeBases?: RunnerKnowledgeBaseSelection;
     officeSelectionContext?: string;
     attachments: Array<{ filename: string; relativePath: string }>;
     priorityPlugins: Array<{

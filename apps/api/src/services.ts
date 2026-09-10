@@ -150,6 +150,7 @@ import {
   decryptExternalApplicationSessionId,
 } from "./modules/application-embed/service.js";
 import { ConversationShareService } from "./modules/conversations/sharing.js";
+import { TaskRecoveryScheduler } from "./modules/events/recovery-scheduler.js";
 
 const EMPTY_MCP_RUNTIME = {
   servers: [],
@@ -734,6 +735,7 @@ export function createServices(input: {
     applications,
     tokenLimits,
     system,
+    conversationTitles,
   );
   jobs.registerConversationPrewarmProcessor((job) =>
     conversations.executePrewarm(job),
@@ -867,6 +869,9 @@ export function createServices(input: {
     knowledgeSources,
     usageAnalytics,
   );
+  events.configureRecoveryScheduler(new TaskRecoveryScheduler(
+    input.config, input.prisma, input.redis, events, conversations,
+  ));
   const systemUpdate = new SystemUpdateChecker(
     input.config.releaseVersion,
     input.redis,

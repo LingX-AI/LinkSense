@@ -31,6 +31,7 @@ import {
   type ExecutionCapability,
 } from "../src/modules/conversations/service.js";
 import type { CapabilityRuntimeVerification } from "../src/modules/capabilities/user-home-materializer.js";
+import { ConversationTitleService } from "../src/modules/conversations/title-service.js";
 import { AppError } from "../src/lib/errors.js";
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
@@ -79,6 +80,184 @@ afterEach(async () => {
 });
 
 describe("ConversationService ownership and draft lifecycle", () => {
+  it("releases the acquired slot when current knowledge selection metadata cannot be loaded", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.knowledgeBase.findMany.mockRejectedValueOnce(
+      new Error("knowledge metadata unavailable"),
+    );
+    await expect(fixture.service.acceptTurn(
+      OWNER_ID,
+      CONVERSATION_ID,
+      {
+        inputText: "这个呢",
+        knowledgeBaseIds: [KNOWLEDGE_BASE_ID],
+        priorityCapabilityIds: [],
+        submitMode: "normal",
+        idempotencyKey: "knowledge-metadata-failure",
+      },
+      {},
+    )).rejects.toThrow("knowledge metadata unavailable");
+    expect(fixture.redis.acquireTurnSlot).toHaveBeenCalledOnce();
+    expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledOnce();
+    expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+  it.each([[], [KNOWLEDGE_BASE_ID], [KNOWLEDGE_BASE_ID, "30000000-0000-4000-8000-000000000009"], ["30000000-0000-4000-8000-000000000009"]])("dispatches the explicit complete knowledge selection %j instead of the conversation's old selection", async (...ids: string[]) => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ selectedKnowledgeBaseIdsJson: ["30000000-0000-4000-8000-000000000008"] }));
+    vi.spyOn(fixture.service, "recoverStartIntent").mockResolvedValue("projected");
+    await fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, {
+      inputText: "这个呢", knowledgeBaseIds: ids, priorityCapabilityIds: [],
+      submitMode: "normal", idempotencyKey: `knowledge-${ids.length}-${ids.at(-1) ?? "empty"}`,
+    }, {});
+    expect(fixture.runner.acceptStartTurn).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.objectContaining({ selectedKnowledgeBases: ids.map((id) => ({ id, name: "Knowledge base" })) }),
+    }));
+    expect(fixture.prisma.knowledgeBase.findMany).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { in: ["30000000-0000-4000-8000-000000000008"] } }),
+    }));
+  });
+  it("checks ownership before loading a history page", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(null);
+    await expect(fixture.service.get(OWNER_ID, CONVERSATION_ID, { around_turn: 26 })).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.prisma.conversationMessage.findMany).not.toHaveBeenCalled();
+  });
+
+  it("checks ownership before reading referenced sources", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(null);
+    await expect(fixture.service.getReferencedSources(OWNER_ID, CONVERSATION_ID)).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.prisma.conversationMessage.findMany).not.toHaveBeenCalled();
+  });
+
+  it("summarizes sources from all reply pages while excluding user messages and other threads", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ codexThreadId: "active-thread" }));
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([turnRow({ id: TURN_ID })]);
+    const messages = Array.from({ length: 101 }, (_, index) => messageRow({
+      id: `reply-${index}`, turnId: TURN_ID, role: "assistant", sequenceNo: index + 1,
+      contentText: `[来源 ${index}](https://example.test/${index}) [重复](https://example.test/0)`,
+    }));
+    messages.push(messageRow({ role: "user", sequenceNo: 102, contentText: "https://user-only.test" }));
+    messages.push(messageRow({ role: "assistant", turnId: "old-turn", sequenceNo: 103, contentText: "https://old-thread.test" }));
+    fixture.prisma.conversationMessage.findMany.mockImplementation(async (input?: {
+      where?: { role?: string; turnId?: { in: string[] }; sequenceNo?: { gt: number } };
+      take?: number;
+    }) => messages.filter((message) => message.role === input?.where?.role && input.where.turnId?.in.includes(message.turnId) && message.sequenceNo > (input.where.sequenceNo?.gt ?? 0)).slice(0, input?.take));
+    const result = await fixture.service.getReferencedSources(OWNER_ID, CONVERSATION_ID);
+    expect(result.items).toHaveLength(101);
+    expect(result.items[0]).toEqual({ url: "https://example.test/0", title: "来源 0" });
+    expect(result.items.at(-1)).toEqual({ url: "https://example.test/100", title: "来源 100" });
+    expect(fixture.prisma.conversationMessage.findMany).toHaveBeenCalledTimes(3);
+    expect(fixture.prisma.conversationMessage.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: { conversationId: CONVERSATION_ID, turnId: { in: [TURN_ID] }, role: "assistant", sequenceNo: { gt: 100 } },
+      take: 50,
+    }));
+    expect(fixture.prisma.conversationTurn.findMany).toHaveBeenCalledWith({ where: { conversationId: CONVERSATION_ID, codexThreadId: "active-thread" }, select: { id: true } });
+  });
+
+  it("omits superseded plan replies from referenced sources", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ codexThreadId: "active-thread" }));
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([turnRow()]);
+    fixture.setStoredPlanReview(planReviewRow());
+    fixture.prisma.conversationEvent.findMany.mockResolvedValue([{ turnId: TURN_ID, payloadJson: {
+      method: "hook/completed", params: { run: { eventName: "stop", status: "blocked" }, supersededItemId: "draft" },
+      local: { superseded_item_id: "draft", superseded_message_id: MESSAGE_ID },
+    } }]);
+    fixture.prisma.conversationMessage.findMany.mockResolvedValue([
+      messageRow({ id: MESSAGE_ID, role: "assistant", contentText: "[已替换](https://discarded.test)" }),
+      messageRow({ id: PLAN_MESSAGE_ID, role: "assistant", contentText: "[最终方案](https://retained.test)" }),
+    ]);
+    expect(await fixture.service.getReferencedSources(OWNER_ID, CONVERSATION_ID)).toEqual({ items: [{ url: "https://retained.test/", title: "最终方案" }] });
+  });
+
+  it("returns an empty source summary for a task without a thread", async () => {
+    const fixture = await conversationFixture();
+    expect(await fixture.service.getReferencedSources(OWNER_ID, CONVERSATION_ID)).toEqual({ items: [] });
+    expect(fixture.prisma.conversationMessage.findMany).not.toHaveBeenCalled();
+  });
+
+  it("keeps the fork boundary available when its message is outside the loaded page", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(conversationRow({
+      codexThreadId: "history-thread", forkSourceConversationId: SECOND_CONVERSATION_ID, forkSourceMessageId: MESSAGE_ID,
+    })).mockResolvedValueOnce(null);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([
+      turnRow({ id: TURN_ID, sequenceNo: 30, status: "completed", completedAt: NOW }),
+    ]);
+    fixture.prisma.conversationMessage.findMany.mockResolvedValue([
+      messageRow({ id: "latest-message", turnId: TURN_ID, sequenceNo: 90 }),
+    ]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValueOnce(messageRow({ sequenceNo: 8 }));
+    const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID, {});
+    expect(result.conversation.fork_source).toEqual({ available: false, boundary_sequence_no: 8 });
+    expect(result.messages.map((message) => message.sequence_no)).toEqual([90]);
+  });
+
+  it("loads a target window and returns the complete lightweight index", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ codexThreadId: "history-thread" }));
+    const turns = Array.from({ length: 50 }, (_, index) => turnRow({
+      id: `history-turn-${index + 1}`, sequenceNo: index + 1,
+      codexThreadId: "history-thread", status: "completed", completedAt: NOW,
+    }));
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue(turns);
+    const messages = turns.flatMap((turn, index) => [
+      messageRow({ id: `user-${index}`, turnId: turn.id, sequenceNo: index * 2 + 1, role: "user" }),
+      messageRow({ id: `assistant-${index}`, turnId: turn.id, sequenceNo: index * 2 + 2, role: "assistant" }),
+    ]);
+    fixture.prisma.conversationMessage.findMany.mockImplementation(async (input?: {
+      where?: { turnId?: { in: string[] } };
+    }) => messages.filter((message) => input?.where?.turnId?.in.includes(message.turnId)));
+
+    const latest = await fixture.service.get(OWNER_ID, CONVERSATION_ID, {});
+    expect(latest.messages).toHaveLength(40);
+    expect(latest.history?.index).toHaveLength(50);
+    expect(latest.history?.index[0]).toEqual({ turn_id: "history-turn-1", sequence_no: 1, message_id: "user-0", created_at: NOW.toISOString(), has_content: true });
+    expect(latest.history?.turn_ids).toEqual(turns.slice(-20).map((turn) => turn.id));
+    expect(fixture.prisma.conversationMessage.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      distinct: ["turnId", "role"], select: { id: true, turnId: true, role: true, createdAt: true },
+    }));
+    const first = await fixture.service.get(OWNER_ID, CONVERSATION_ID, { around_turn: 1 });
+    expect(first.messages).toHaveLength(40);
+    expect(first.history?.turn_ids).toEqual(turns.slice(0, 20).map((turn) => turn.id));
+    const middle = await fixture.service.get(OWNER_ID, CONVERSATION_ID, { around_turn: 25 });
+    expect(middle.messages).toHaveLength(40);
+    expect(middle.history?.turn_ids).toEqual(turns.slice(20, 40).map((turn) => turn.id));
+    const last = await fixture.service.get(OWNER_ID, CONVERSATION_ID, { around_turn: 50 });
+    expect(last.messages).toHaveLength(20);
+    await expect(fixture.service.get(OWNER_ID, CONVERSATION_ID, { around_turn: 51 })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect((await fixture.service.get(OWNER_ID, CONVERSATION_ID)).messages).toHaveLength(100);
+  });
+
+  it("indexes empty and assistant-only turns without exposing hidden implementation prompts as navigation targets", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ codexThreadId: "history-thread" }));
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([
+      turnRow({ id: TURN_ID, sequenceNo: 1 }),
+      turnRow({ id: "empty-turn", sequenceNo: 2 }),
+      turnRow({ id: "assistant-turn", sequenceNo: 3 }),
+      turnRow({ id: "implementation-turn", sequenceNo: 4 }),
+    ]);
+    fixture.prisma.conversationMessage.findMany.mockResolvedValue([
+      messageRow({ id: MESSAGE_ID, turnId: TURN_ID, role: "user" }),
+      messageRow({ id: "assistant-message", turnId: "assistant-turn", role: "assistant" }),
+      messageRow({ id: "hidden-prompt", turnId: "implementation-turn", role: "user" }),
+    ]);
+    fixture.setStoredPlanReview(planReviewRow({
+      status: "resolved", decision: "implement", followUpTurnId: "implementation-turn",
+    }));
+    const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID, {});
+    expect(result.history?.index.map(({ message_id, has_content }) => ({ message_id, has_content }))).toEqual([
+      { message_id: MESSAGE_ID, has_content: true },
+      { message_id: null, has_content: false },
+      { message_id: null, has_content: true },
+      { message_id: null, has_content: true },
+    ]);
+  });
+
   it("forks a terminal assistant message into an independent numbered task", async () => {
     const fixture = await conversationFixture();
     const source = conversationRow({
@@ -377,7 +556,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
           environment: {},
           context: {
             userInput: "",
-            selectedKnowledgeBaseCount: 0,
+            selectedKnowledgeBases: [],
             attachments: [],
             priorityPlugins: [],
             prioritySkills: [],
@@ -422,6 +601,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       expect(
         fixture.defaultTransaction.conversationMessage.create,
       ).not.toHaveBeenCalled();
+      expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
     },
   );
 
@@ -2847,6 +3027,127 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
   });
 
+  it("restores an application message source from persisted display metadata without changing its full content", async () => {
+    const fixture = await conversationFixture();
+    const activeTurn = turnRow({ status: "completed" });
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(
+      conversationRow({ codexThreadId: activeTurn.codexThreadId }),
+    );
+    fixture.prisma.conversationTurn.findMany.mockResolvedValueOnce([activeTurn]);
+    fixture.prisma.conversationMessage.findMany.mockResolvedValueOnce([
+      messageRow({ contentText: "完整研究要求\n".repeat(20) }),
+      messageRow({
+        id: "30000000-0000-4000-8000-000000000099",
+        contentText: "手动输入的追问",
+      }),
+    ]);
+    fixture.prisma.conversationEvent.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        turnId: activeTurn.id,
+        payloadJson: {
+          schema_version: 1,
+          message_id: MESSAGE_ID,
+          display: {
+            kind: "interactive_application",
+            application_id: APPLICATION_ID,
+          },
+        },
+      }]);
+    const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(result.messages[0]).toMatchObject({
+      content_text: "完整研究要求\n".repeat(20),
+      display: {
+        kind: "interactive_application",
+        application_id: APPLICATION_ID,
+      },
+    });
+    expect(result.messages[1]).toMatchObject({
+      content_text: "手动输入的追问",
+      display: null,
+    });
+  });
+
+  it("rejects an application message source on a conversation without an interactive application", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
+    await expect(
+      fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, {
+        inputText: "研究要求",
+        messageSource: "interactive_application",
+        priorityCapabilityIds: [],
+        submitMode: "normal",
+      }, {}),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+  });
+
+  it("persists interactive source metadata with the user message and forwards the full prompt to the runner", async () => {
+    const fixture = await conversationFixture();
+    const runtime: ApplicationTurnConfiguration = {
+      kind: "interactive",
+      applicationId: APPLICATION_ID,
+      applicationOwnerId: OWNER_ID,
+      applicationName: "研究工作台",
+      applicationUpdatedAt: NOW,
+      instructions: "完成研究",
+      model: TEST_MODEL_RUNTIME.model,
+      reasoningEffort: TEST_MODEL_RUNTIME.reasoningEffort,
+      capabilityIds: [],
+      knowledgeBaseIds: [],
+      mcpServerIds: [],
+    };
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({
+      applicationId: APPLICATION_ID,
+      interactiveApplicationPackageId: "70000000-0000-4000-8000-000000000088",
+    }));
+    fixture.applicationResolver.resolveRuntime.mockResolvedValue(runtime);
+    fixture.defaultTransaction.application.findFirst.mockResolvedValue({
+      id: APPLICATION_ID,
+      ownerId: OWNER_ID,
+      kind: "interactive",
+      status: "active",
+      updatedAt: NOW,
+      instructions: runtime.instructions,
+      model: runtime.model,
+      reasoningEffort: runtime.reasoningEffort,
+    });
+    const prompt = "研究主题：最新 AI 新闻\n".repeat(20);
+    await fixture.service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      inputText: prompt,
+      messageSource: "interactive_application",
+      priorityCapabilityIds: [],
+      submitMode: "normal",
+      idempotencyKey: "interactive-persisted-message",
+    }, {});
+    const display = {
+      kind: "interactive_application",
+      application_id: APPLICATION_ID,
+    };
+    expect(
+      fixture.defaultTransaction.conversationTurnStartIntent.create,
+    ).toHaveBeenCalledWith({
+      data: expect.objectContaining({ inputText: prompt, messageDisplayJson: display }),
+    });
+    expect(fixture.defaultTransaction.conversationMessage.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ contentText: prompt, role: "user" }),
+    });
+    expect(fixture.defaultTransaction.conversationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: "conversation.message.display_context",
+        payloadJson: expect.objectContaining({ display }),
+      }),
+    });
+    expect(fixture.runner.startTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({ userInput: prompt }),
+      }),
+    );
+    expect(
+      fixture.defaultTransaction.conversationFile.findFirst,
+    ).not.toHaveBeenCalled();
+  });
+
   it("projects presentation annotation sidecars independently of the bounded public event window", async () => {
     const fixture = await conversationFixture();
     const activeTurn = turnRow({ status: "completed" });
@@ -5259,7 +5560,7 @@ describe("ConversationService pending and turn materialization", () => {
           context: {
             userInput: "run the application",
             applicationInstructions: applicationRuntime.instructions,
-            selectedKnowledgeBaseCount: 1,
+            selectedKnowledgeBases: [{ id: KNOWLEDGE_BASE_ID, name: "Knowledge base" }],
             attachments: [],
             priorityPlugins: [],
             prioritySkills: [
@@ -5472,6 +5773,66 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.redis.acquireTurnSlot).toHaveBeenCalled();
     expect(fixture.runner.startTurn).toHaveBeenCalled();
   });
+
+  it.each(["empty result", "provider failure"])(
+    "keeps a task running while automatic naming is pending and after %s",
+    async (outcome) => {
+      const fixture = await conversationFixture();
+      let finishNaming: (() => void) | undefined;
+      const generation = new Promise<null>((resolve, reject) => {
+        finishNaming = () => {
+          if (outcome === "provider failure") {
+            reject(new Error("title unavailable"));
+          } else {
+            resolve(null);
+          }
+        };
+      });
+      const generator = { generate: vi.fn(() => generation) };
+      const titles = new ConversationTitleService(
+        fixture.prisma as never,
+        fixture.redis as never,
+        generator as never,
+        { recordModelUsage: vi.fn() } as never,
+      );
+      const refresh = vi.spyOn(titles, "refresh");
+      fixture.titleRefresh.scheduleForUserMessage.mockImplementation(
+        (conversationId: string, content: string) =>
+          titles.scheduleForUserMessage(conversationId, content),
+      );
+
+      await expect(
+        fixture.service.startTurn(
+          OWNER_ID,
+          CONVERSATION_ID,
+          {
+            inputText: "name while the task runs",
+            priorityCapabilityIds: [],
+            submitMode: "normal",
+          },
+          {},
+        ),
+      ).resolves.toMatchObject({ status: "running" });
+
+      expect(generator.generate).toHaveBeenCalledExactlyOnceWith([
+        { role: "user", content: "name while the task runs" },
+      ]);
+      expect(fixture.redis.releaseConversationLock).toHaveBeenCalled();
+      expect(fixture.redis.releaseUserLifecycleLock).toHaveBeenCalled();
+      finishNaming?.();
+      if (outcome === "provider failure") {
+        await expect(refresh.mock.results[0]?.value).rejects.toThrow(
+          "title unavailable",
+        );
+      } else {
+        await expect(refresh.mock.results[0]?.value).resolves.toBe(false);
+      }
+      expect(fixture.runner.startTurn).toHaveBeenCalledOnce();
+      expect(fixture.runner.interrupt).not.toHaveBeenCalled();
+      expect(fixture.runner.reconcile).not.toHaveBeenCalled();
+      expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects a start when a staged attachment disappears during preflight before the intent lease is created", async () => {
     const fixture = await conversationFixture();
@@ -5697,13 +6058,16 @@ describe("ConversationService pending and turn materialization", () => {
         .invocationCallOrder[0],
     ).toBeLessThan(fixture.runner.startTurn.mock.invocationCallOrder[0]!);
     expect(fixture.redis.releaseUserLifecycleLock).not.toHaveBeenCalled();
+    expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
 
     resolveRunner?.({
       codexThreadId: "codex-thread-1",
       codexTurnId: "codex-turn-1",
     });
     await expect(start).resolves.toMatchObject({ status: "running" });
-    expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
+    expect(
+      fixture.titleRefresh.scheduleForUserMessage,
+    ).toHaveBeenCalledExactlyOnceWith(CONVERSATION_ID, "start");
     expect(fixture.redis.releaseUserLifecycleLock).toHaveBeenCalledWith(
       OWNER_ID,
       "user-lifecycle-lock",
@@ -5807,6 +6171,7 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.runner.startTurn).toHaveBeenCalledOnce();
     expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
     expect(fixture.prisma.conversationTurn.create).not.toHaveBeenCalled();
+    expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
   });
 
   it("keeps the slot when deterministic failure cannot CAS the intent to release-pending", async () => {
@@ -6101,7 +6466,7 @@ describe("ConversationService pending and turn materialization", () => {
           ),
           requireFinalResponse: true,
           applicationInstructions: "Use the persisted application workflow.",
-          selectedKnowledgeBaseCount: 1,
+          selectedKnowledgeBases: [{ id: KNOWLEDGE_BASE_ID, name: "Knowledge base" }],
           attachments: [],
         }),
       }),
@@ -6157,13 +6522,7 @@ describe("ConversationService pending and turn materialization", () => {
       runnerStatus: "slot_pending",
     });
     await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
-    fixture.redis.runningTurnSlots.mockResolvedValueOnce([
-      {
-        conversationId: CONVERSATION_ID,
-        turnId: intent.projectionTurnId,
-        ownerId: OWNER_ID,
-      },
-    ]);
+    fixture.redis.hasTurnSlot.mockResolvedValueOnce(true);
     fixture.runner.inspectStartOperation.mockResolvedValueOnce({
       conversationId: CONVERSATION_ID,
       projectionTurnId: intent.projectionTurnId,
@@ -6297,7 +6656,9 @@ describe("ConversationService pending and turn materialization", () => {
       data: { runnerStatus: "prepared" },
     });
     expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
-    expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
+    expect(
+      fixture.titleRefresh.scheduleForUserMessage,
+    ).toHaveBeenCalledExactlyOnceWith(CONVERSATION_ID, "recover this accepted turn");
   });
 
   it.each([
@@ -6326,7 +6687,7 @@ describe("ConversationService pending and turn materialization", () => {
       goal: null,
     },
   ])(
-    "defers automatic naming when projecting a recovered $name start",
+    "schedules automatic naming immediately when projecting a recovered $name start",
     async ({ inputText, intent: mode, goal }) => {
       const fixture = await conversationFixture();
       const intent = startIntentRow({
@@ -6335,13 +6696,7 @@ describe("ConversationService pending and turn materialization", () => {
         runnerStatus: "slot_pending",
       });
       await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
-      fixture.redis.runningTurnSlots.mockResolvedValueOnce([
-        {
-          conversationId: CONVERSATION_ID,
-          turnId: intent.projectionTurnId,
-          ownerId: OWNER_ID,
-        },
-      ]);
+      fixture.redis.hasTurnSlot.mockResolvedValueOnce(true);
       fixture.runner.inspectStartOperation.mockResolvedValueOnce({
         conversationId: CONVERSATION_ID,
         projectionTurnId: intent.projectionTurnId,
@@ -6372,10 +6727,9 @@ describe("ConversationService pending and turn materialization", () => {
         fixture.service.recoverStartIntent(intent.projectionTurnId),
       ).resolves.toBe("projected");
 
-      expect(inputText).toBeTruthy();
       expect(
         fixture.titleRefresh.scheduleForUserMessage,
-      ).not.toHaveBeenCalled();
+      ).toHaveBeenCalledExactlyOnceWith(CONVERSATION_ID, inputText);
     },
   );
 
@@ -6399,13 +6753,7 @@ describe("ConversationService pending and turn materialization", () => {
       runnerStatus: "slot_pending",
     });
     await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
-    fixture.redis.runningTurnSlots.mockResolvedValueOnce([
-      {
-        conversationId: CONVERSATION_ID,
-        turnId: intent.projectionTurnId,
-        ownerId: OWNER_ID,
-      },
-    ]);
+    fixture.redis.hasTurnSlot.mockResolvedValueOnce(true);
     fixture.runner.inspectStartOperation.mockResolvedValueOnce({
       conversationId: CONVERSATION_ID,
       projectionTurnId: intent.projectionTurnId,
@@ -6481,13 +6829,7 @@ describe("ConversationService pending and turn materialization", () => {
       runnerStatus: "slot_pending",
     });
     await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
-    fixture.redis.runningTurnSlots.mockResolvedValueOnce([
-      {
-        conversationId: CONVERSATION_ID,
-        turnId: intent.projectionTurnId,
-        ownerId: OWNER_ID,
-      },
-    ]);
+    fixture.redis.hasTurnSlot.mockResolvedValueOnce(true);
     fixture.runner.inspectStartOperation.mockResolvedValueOnce({
       conversationId: CONVERSATION_ID,
       projectionTurnId: intent.projectionTurnId,
@@ -6639,7 +6981,7 @@ describe("ConversationService pending and turn materialization", () => {
         codexThreadId: null,
         context: {
           userInput: "start once",
-          selectedKnowledgeBaseCount: 0,
+          selectedKnowledgeBases: [],
           attachments: [],
           priorityPlugins: [],
           prioritySkills: [],
@@ -6750,7 +7092,7 @@ describe("ConversationService pending and turn materialization", () => {
       codexThreadId: "codex-thread-existing",
       context: {
         userInput: "recover with the authorized plugin",
-        selectedKnowledgeBaseCount: 1,
+        selectedKnowledgeBases: [{ id: KNOWLEDGE_BASE_ID, name: "Knowledge base" }],
         attachments: [],
         priorityPlugins: [
           {
@@ -7234,6 +7576,7 @@ describe("ConversationService pending and turn materialization", () => {
       fixture.service.recoverStartIntent(intent.projectionTurnId),
     ).resolves.toBe("released");
 
+    expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
     expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledWith(
       CONVERSATION_ID,
       intent.projectionTurnId,
@@ -7318,7 +7661,7 @@ describe("ConversationService pending and turn materialization", () => {
     const fixture = await conversationFixture();
     const intent = startIntentRow({ runnerStatus: "slot_pending" });
     await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
-    fixture.redis.runningTurnSlots.mockResolvedValueOnce([]);
+    fixture.redis.hasTurnSlot.mockResolvedValueOnce(false);
     const transaction = transactionFixture();
     transaction.conversationTurnStartIntent.findUnique.mockResolvedValueOnce({
       ownerId: OWNER_ID,
@@ -7351,7 +7694,7 @@ describe("ConversationService pending and turn materialization", () => {
 
     const replaced = await conversationFixture();
     await replaced.prisma.conversationTurnStartIntent.create({ data: intent });
-    replaced.redis.runningTurnSlots.mockResolvedValueOnce([]);
+    replaced.redis.hasTurnSlot.mockResolvedValueOnce(false);
     replaced.runner.sealStartOperation.mockRejectedValueOnce(
       new RunnerStartOperationUncertainError(),
     );
@@ -9527,7 +9870,7 @@ describe("ConversationService pending and turn materialization", () => {
     });
     expect(
       fixture.knowledgeStore.resolveUsableKnowledgeBaseIds,
-    ).not.toHaveBeenCalled();
+    ).toHaveBeenCalledWith(OWNER_ID, [KNOWLEDGE_BASE_ID]);
     expect(fixture.runner.startTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         codexThreadId: "codex-thread-source",
@@ -9553,7 +9896,7 @@ describe("ConversationService pending and turn materialization", () => {
         ],
         context: expect.objectContaining({
           userInput: "edited request",
-          selectedKnowledgeBaseCount: 1,
+          selectedKnowledgeBases: [{ id: KNOWLEDGE_BASE_ID, name: "Knowledge base" }],
           attachments: [
             {
               filename: "notes.txt",
@@ -10168,6 +10511,11 @@ async function conversationFixture() {
   let storedPlanReview: ReturnType<typeof planReviewRow> | null = null;
   let preparedRuntimeGeneration = "80000000-0000-4000-8000-000000000001";
   const prisma = {
+    knowledgeBase: {
+      findMany: vi.fn(async (input: { where: { id: { in: string[] } } }) =>
+        input.where.id.in.map((id) => ({ id, name: "Knowledge base" })),
+      ),
+    },
     conversation: {
       findFirst: vi.fn<
         (
@@ -10379,14 +10727,7 @@ async function conversationFixture() {
       }>
     >(async () => ({ acquired: true, count: 1, capacityReady: true })),
     releaseTurnSlot: vi.fn(async () => undefined),
-    runningTurnSlots: vi.fn(
-      async () =>
-        [] as Array<{
-          conversationId: string;
-          turnId: string;
-          ownerId: string | null;
-        }>,
-    ),
+    hasTurnSlot: vi.fn(async () => false),
     publishConversationEvent: vi.fn(async () => undefined),
   };
   const runner = {
@@ -10743,6 +11084,9 @@ function createService(
     tokenLimits: {
       assertCanStartTask(userId: string): Promise<void>;
     };
+    titleRefresh: {
+      scheduleForUserMessage(conversationId: string, content: string): void;
+    };
   },
   workspaceRoot: string,
 ) {
@@ -10780,6 +11124,8 @@ function createService(
     } as never,
     fixture.applicationResolver as never,
     fixture.tokenLimits,
+    undefined,
+    fixture.titleRefresh,
   );
 }
 

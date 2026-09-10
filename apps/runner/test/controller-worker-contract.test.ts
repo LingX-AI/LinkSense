@@ -183,7 +183,7 @@ describe("controller to dynamic worker turn-start contract", () => {
             context: {
               userInput: "Use the selected PDF plugin.",
               requireFinalResponse: true,
-              selectedKnowledgeBaseCount: 1,
+              selectedKnowledgeBases: [{ id: "10000000-0000-4000-8000-000000000001", name: "Knowledge base" }],
               attachments: [],
               priorityPlugins: [
                 {
@@ -214,7 +214,7 @@ describe("controller to dynamic worker turn-start contract", () => {
         expect(forwardedBody?.environment).toEqual({});
         expect(forwardedBody?.context).toMatchObject({
           requireFinalResponse: true,
-          selectedKnowledgeBaseCount: 1,
+          selectedKnowledgeBases: [{ id: "10000000-0000-4000-8000-000000000001", name: "Knowledge base" }],
         });
         expect(workerInput).toMatchObject({
           ownerId,
@@ -226,7 +226,7 @@ describe("controller to dynamic worker turn-start contract", () => {
           environment: {},
           context: {
             requireFinalResponse: true,
-            selectedKnowledgeBaseCount: 1,
+            selectedKnowledgeBases: [{ id: "10000000-0000-4000-8000-000000000001", name: "Knowledge base" }],
             priorityPlugins: [
               {
                 id: capabilityId,

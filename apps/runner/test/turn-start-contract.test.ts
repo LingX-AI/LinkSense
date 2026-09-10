@@ -49,7 +49,7 @@ describe("turn-start contract diagnostics", () => {
       codexThreadId: "thread-native-1",
       context: {
         userInput: "",
-        selectedKnowledgeBaseCount: 0,
+        selectedKnowledgeBases: [],
         attachments: [],
         priorityPlugins: [],
         prioritySkills: [],

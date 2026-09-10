@@ -34,6 +34,21 @@ afterEach(async () => {
 });
 
 describe("HttpRunnerEventSink", () => {
+  it("reports owner-scoped heartbeats without accessing or draining conversation outboxes", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ data: { confirmed: true } })));
+    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000", "runner-shared-secret-value", workspaceManager, { fetch: fetchMock });
+    const input = { bootId: "01900000-0000-7000-8000-000000000003", startup: true };
+    await sink.reportHeartbeat(ownerId, input);
+    expect(fetchMock).toHaveBeenCalledWith(new URL("http://127.0.0.1:4000/internal/runner/heartbeat"), expect.objectContaining({
+      method: "POST", body: JSON.stringify(input),
+      headers: expect.objectContaining({ "x-linksense-owner-id": ownerId }),
+    }));
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: { confirmed: false } })));
+    await expect(sink.reportHeartbeat(ownerId, input)).rejects.toThrow("not confirmed");
+    await sink.close();
+  });
+
   it("durably retries memory usage with the owner-scoped identity", async () => {
     const { root, workspaceManager } = await createWorkspaceManager();
     await workspaceManager.ensureOwner(ownerId);

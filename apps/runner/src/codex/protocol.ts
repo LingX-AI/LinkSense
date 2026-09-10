@@ -345,6 +345,7 @@ export type TurnStartParams = {
   threadId: string;
   model: string;
   effort: ReasoningEffort;
+  summary: "auto" | "concise" | "detailed" | "none";
   clientUserMessageId: string;
   input: CodexUserInput[];
   /**

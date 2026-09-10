@@ -3563,7 +3563,7 @@ describe("ConversationEventService SSE replay privacy", () => {
       services: {
         config: { runnerSharedSecret: "runner-secret" },
         conversations: { assertOwner },
-        events: { reconcileAfterProcessExit },
+        events: { reconcileAfterProcessExit, scheduleProcessExitRecovery: vi.fn(async () => undefined) },
       } as unknown as AppServices,
     });
 
@@ -3594,6 +3594,33 @@ describe("ConversationEventService SSE replay privacy", () => {
       success: true,
       data: { confirmed: true, outcome: "succeeded" },
     });
+  });
+
+  it("accepts an authenticated worker heartbeat without reading any conversation", async () => {
+    const recordRunnerHeartbeat = vi.fn(async () => undefined);
+    const assertOwner = vi.fn(async () => undefined);
+    const app = Fastify();
+    apps.push(app);
+    app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
+    await app.register(internalRunnerRoutes, {
+      services: {
+        config: { runnerSharedSecret: "runner-secret" },
+        conversations: { assertOwner },
+        events: { recordRunnerHeartbeat },
+      } as unknown as AppServices,
+    });
+    const payload = { bootId: "60000000-0000-4000-8000-000000000001", startup: true };
+    const unauthorized = await app.inject({ method: "POST", url: "/runner/heartbeat", payload });
+    expect(unauthorized.statusCode).toBe(401);
+    const headers = { authorization: "Bearer runner-secret", "x-linksense-owner-id": OWNER_ID };
+    const invalid = await app.inject({ method: "POST", url: "/runner/heartbeat", headers, payload: { ...payload, ownerId: OTHER_ID } });
+    expect(invalid.statusCode).toBe(400);
+    const missingOwner = await app.inject({ method: "POST", url: "/runner/heartbeat", headers: { authorization: "Bearer runner-secret" }, payload });
+    expect(missingOwner.statusCode).toBe(400);
+    const response = await app.inject({ method: "POST", url: "/runner/heartbeat", headers, payload });
+    expect(response.statusCode).toBe(200);
+    expect(recordRunnerHeartbeat).toHaveBeenCalledExactlyOnceWith(OWNER_ID, payload);
+    expect(assertOwner).not.toHaveBeenCalled();
   });
 
   it("records owner-scoped native memory usage without requiring the conversation to still exist", async () => {
@@ -3677,7 +3704,7 @@ describe("ConversationEventService SSE replay privacy", () => {
         services: {
           config: { runnerSharedSecret: "runner-secret" },
           conversations: { assertOwner },
-          events: { reconcileAfterProcessExit },
+          events: { reconcileAfterProcessExit, scheduleProcessExitRecovery: vi.fn(async () => undefined) },
         } as unknown as AppServices,
       });
 
@@ -3714,7 +3741,7 @@ describe("ConversationEventService SSE replay privacy", () => {
       services: {
         config: { runnerSharedSecret: "runner-secret" },
         conversations: { assertOwner: vi.fn(async () => undefined) },
-        events: { reconcileAfterProcessExit },
+        events: { reconcileAfterProcessExit, scheduleProcessExitRecovery: vi.fn(async () => undefined) },
         audit: { write: auditWrite },
       } as unknown as AppServices,
     });
@@ -3750,7 +3777,7 @@ describe("ConversationEventService SSE replay privacy", () => {
       services: {
         config: { runnerSharedSecret: "runner-secret" },
         conversations: { assertOwner: vi.fn(async () => undefined) },
-        events: { reconcileAfterProcessExit },
+        events: { reconcileAfterProcessExit, scheduleProcessExitRecovery: vi.fn(async () => undefined) },
       } as unknown as AppServices,
     });
 

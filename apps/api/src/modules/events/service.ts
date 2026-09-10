@@ -17,6 +17,7 @@ import {
   runnerCodexGoalSchema,
   runnerCodexErrorMessageSchema,
   threadGoalStatusSchema,
+  type RunnerHeartbeat,
 } from "@linksense/shared";
 import {
   Prisma,
@@ -38,6 +39,7 @@ import type { TurnKnowledgeSourceStore } from "./knowledge-source-store.js";
 import { nextConversationEventSequence } from "./sequence.js";
 import type { UsageAnalyticsService } from "../usage/service.js";
 import { upsertConversationGoal } from "../conversations/goals.js";
+import type { TaskRecoveryScheduler } from "./recovery-scheduler.js";
 
 export type RunnerEventInput = {
   eventType: string;
@@ -148,7 +150,7 @@ class RunningTurnRecoveryCycleError extends Error {
 }
 
 export class ConversationEventService {
-  private recoveryTimer: NodeJS.Timeout | null = null;
+  private recoveryScheduler: TaskRecoveryScheduler | null = null;
   private recoveryInFlight: Promise<void> | null = null;
 
   constructor(
@@ -2920,20 +2922,27 @@ export class ConversationEventService {
     return firstFailureReason;
   }
 
-  startRecoveryMonitor(intervalMilliseconds = 15_000): void {
-    if (this.recoveryTimer) return;
-    this.recoveryTimer = setInterval(() => {
-      void this.recoverRunningTurns({ requireObserved: false }).catch(
-        () => undefined,
-      );
-    }, intervalMilliseconds);
-    this.recoveryTimer.unref();
+  configureRecoveryScheduler(scheduler: TaskRecoveryScheduler): void {
+    this.recoveryScheduler = scheduler;
   }
 
-  stopRecoveryMonitor(): void {
-    if (!this.recoveryTimer) return;
-    clearInterval(this.recoveryTimer);
-    this.recoveryTimer = null;
+  async recordRunnerHeartbeat(ownerId: string, input: RunnerHeartbeat): Promise<void> {
+    if (!this.recoveryScheduler) throw new AppError("RUNNER_UNAVAILABLE");
+    await this.recoveryScheduler.heartbeat(ownerId, input);
+  }
+
+  async scheduleProcessExitRecovery(input: Parameters<TaskRecoveryScheduler["enqueueTurn"]>[0]): Promise<void> {
+    if (!this.recoveryScheduler) throw new AppError("RUNNER_UNAVAILABLE");
+    await this.recoveryScheduler.enqueueTurn(input);
+  }
+
+  async startRecoveryMonitor(): Promise<void> {
+    if (!this.recoveryScheduler) throw new AppError("RUNNER_UNAVAILABLE");
+    await this.recoveryScheduler.start();
+  }
+
+  async stopRecoveryMonitor(): Promise<void> {
+    await this.recoveryScheduler?.close();
   }
 
   async historyPage(

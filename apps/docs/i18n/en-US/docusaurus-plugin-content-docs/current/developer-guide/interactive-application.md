@@ -99,6 +99,10 @@ const unsubscribe = LinkSense.events.on(
 )
 ```
 
+On submission, LinkSense immediately opens the chat pane and shows the message as sending. Once accepted, the pending message is reconciled with the persisted message. `tasks.run()` returns the server's acceptance receipt without waiting for chat history refreshes or research results. Repeated calls for the same in-flight submission share one request; applications should still disable their generate button during submission and handle failures.
+
+Application-submitted messages exceeding five rendered lines at the current chat width are collapsed by default with a fade at the bottom. Arrow icon buttons expand or collapse the full content. The complete prompt is still sent, saved, and copied. Manually typed chat messages are unaffected.
+
 The trusted LinkSense chat displays message streaming, reasoning, and tool progress, so those native events are not duplicated into the iframe. Custom events include a stable id, schema version, turn, sequence, and timestamp. Keep UI updates idempotent across reconnects.
 
 ### Re-entering a task and restoring events

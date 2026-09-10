@@ -19,11 +19,86 @@ const KNOWLEDGE_BASE_ID = "40000000-0000-4000-8000-000000000002";
 const AGENT_KEY = `agent_${"a".repeat(24)}`;
 const apps: Array<ReturnType<typeof Fastify>> = [];
 
+describe("interactive application message source", () => {
+  it("passes the validated source alongside the complete prompt", async () => {
+    const { app, startTurn: acceptTurn } = await conversationRouteFixture();
+    const response = await app.inject({
+      method: "POST",
+      url: `/conversations/${CONVERSATION_ID}/turns`,
+      payload: {
+        input_text: "完整研究要求",
+        message_source: "interactive_application",
+      },
+    });
+    expect(response.statusCode, response.body).toBe(202);
+    expect(acceptTurn).toHaveBeenCalledWith(
+      OWNER_ID,
+      CONVERSATION_ID,
+      expect.objectContaining({
+        inputText: "完整研究要求",
+        messageSource: "interactive_application",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("rejects unsupported message sources before accepting a turn", async () => {
+    const { app, startTurn: acceptTurn } = await conversationRouteFixture();
+    const response = await app.inject({
+      method: "POST",
+      url: `/conversations/${CONVERSATION_ID}/turns`,
+      payload: { input_text: "研究要求", message_source: "system" },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(acceptTurn).not.toHaveBeenCalled();
+  });
+});
+
 afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
 });
 
 describe("conversation list route", () => {
+  it("returns the validated source summary for the authenticated owner", async () => {
+    const { app, getReferencedSources } = await conversationRouteFixture();
+    const response = await app.inject({ method: "GET", url: `/conversations/${CONVERSATION_ID}/sources` });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toEqual({ items: [{ url: "https://example.test/guide", title: "Guide" }] });
+    expect(getReferencedSources).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID);
+  });
+  it("does not expose sources when resource access is denied", async () => {
+    const { app, getReferencedSources } = await conversationRouteFixture();
+    getReferencedSources.mockRejectedValueOnce(new AppError("CONVERSATION_NOT_FOUND"));
+    const response = await app.inject({ method: "GET", url: `/conversations/${CONVERSATION_ID}/sources` });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).not.toHaveProperty("data");
+  });
+  it("rejects invalid source task IDs before querying", async () => {
+    const { app, getReferencedSources } = await conversationRouteFixture();
+    const response = await app.inject({ method: "GET", url: "/conversations/invalid/sources" });
+    expect(response.statusCode).toBe(400);
+    expect(getReferencedSources).not.toHaveBeenCalled();
+  });
+  it.each([undefined, 26])("validates a history target and forwards the authenticated owner (around=%s)", async (around) => {
+    const { app, get } = await conversationRouteFixture();
+    const response = await app.inject({ method: "GET", url: `/conversations/${CONVERSATION_ID}${around ? `?around_turn=${around}` : ""}` });
+    expect(response.statusCode).toBe(200);
+    expect(get).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, around ? { around_turn: around } : {});
+  });
+
+  it.each(["0", "-1", "1.5", "nope", "9007199254740992"])("rejects invalid history target %s before reading messages", async (around) => {
+    const { app, get } = await conversationRouteFixture();
+    expect((await app.inject({ method: "GET", url: `/conversations/${CONVERSATION_ID}?around_turn=${around}` })).statusCode).toBe(400);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it("does not return history when resource authorization fails", async () => {
+    const { app, get } = await conversationRouteFixture();
+    get.mockRejectedValueOnce(new AppError("CONVERSATION_NOT_FOUND"));
+    const response = await app.inject({ method: "GET", url: `/conversations/${CONVERSATION_ID}?around_turn=26` });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).not.toHaveProperty("data.messages");
+  });
   it.each([
     ["缺省值", "/conversations", false],
     ["false 字面量", "/conversations?archived=false", false],
@@ -1243,6 +1318,8 @@ async function conversationRouteFixture(
   applicationAllowsUserModelSelection = false,
 ) {
   const list = vi.fn(async () => ({ items: [], next_cursor: null }));
+  const get = vi.fn(async () => ({ conversation: { id: CONVERSATION_ID }, messages: [] }));
+  const getReferencedSources = vi.fn(async () => ({ items: [{ url: "https://example.test/guide", title: "Guide" }] }));
   const create = vi.fn(async () => ({ id: CONVERSATION_ID }));
   const clearArchived = vi.fn(async () => ({ deleted_count: 2 }));
   const reorder = vi.fn(async (_ownerId: string, input: {
@@ -1460,7 +1537,9 @@ async function conversationRouteFixture(
     prefix: "/conversations",
     services: {
       conversations: {
+        getReferencedSources,
         list,
+        get,
         create,
         clearArchived,
         reorder,
@@ -1496,7 +1575,9 @@ async function conversationRouteFixture(
   });
   return {
     app,
+    getReferencedSources,
     list,
+    get,
     create,
     clearArchived,
     reorder,

@@ -1,5 +1,5 @@
 diff --git a/dist/index.cjs b/dist/index.cjs
-index a242d3c12520ed9e5324a354a7d88a70eae1022a..28bb20ef5a8cd75b9cb9309486a085013aab7b6a 100644
+index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908d796ddcd 100644
 --- a/dist/index.cjs
 +++ b/dist/index.cjs
 @@ -23324,6 +23324,7 @@ function XlsxGrid({
@@ -76,8 +76,139 @@ index a242d3c12520ed9e5324a354a7d88a70eae1022a..28bb20ef5a8cd75b9cb9309486a08501
      palette,
      resolveCellDisplayRect,
      resolveMergeAnchorCell,
+@@ -29979,6 +29984,93 @@ function XlsxGrid({
+     }
+   }
+   gridKeyboardHandlerRef.current = handleGridKeyDown;
++  // Expose the renderer's own layout to annotation overlays in both canvas and DOM modes.
++  const getAnnotationGeometry = (target) => {
++    const scroller = scrollRef.current;
++    if (!scroller) return null;
++    const rect = target.type === "range"
++      ? resolveGeometryOverlayRect(target.range)
++      : target.type === "image"
++        ? imageRects.find((entry) => entry.image.id === target.id)?.rect
++        : chartRects.find((entry) => entry.chart.id === target.id)?.rect;
++    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
++    const liveZoom = liveGestureZoomRef.current;
++    const scale = liveZoom && liveZoom.baseZoomScale === zoomScale ? liveZoom.targetZoomScale / liveZoom.baseZoomScale : 1;
++    const translateX = scale !== 1 ? liveZoom.anchor.x * (1 - scale) : 0;
++    const translateY = scale !== 1 ? liveZoom.anchor.y * (1 - scale) : 0;
++    const canvasTarget = experimentalCanvas && (target.type === "range" || target.type === "image" && bakedImageRects.some((entry) => entry.image.id === target.id));
++    const paintedViewport = paintedDrawingViewportRef.current;
++    const splitAxis = (start, size, header, frozenEnd, scroll, viewportSize, translate, canvasStart, paintedScroll) => {
++      const end = start + size;
++      const segments = [];
++      if (target.type === "range") {
++        if (start < frozenEnd) segments.push({ start, end: Math.min(end, frozenEnd), frozen: true });
++        if (end > frozenEnd) segments.push({ start: Math.max(start, frozenEnd), end, frozen: false });
++      } else {
++        segments.push({ start, end, frozen: frozenEnd > header && end <= frozenEnd + 0.5 });
++      }
++      return segments.flatMap((segment) => {
++        const scrollOffset = segment.frozen ? 0 : scroll;
++        const clipStart = segment.frozen ? header : frozenEnd;
++        const clipEnd = segment.frozen ? Math.min(frozenEnd, viewportSize) : viewportSize;
++        // Canvas cells scale around each painted pane's origin; DOM drawings use the overlay origin.
++        const origin = segment.frozen ? header : canvasStart;
++        const paintedOffset = segment.frozen ? 0 : paintedScroll;
++        const project = (position) => experimentalCanvas
++          ? canvasTarget
++            ? origin + (position - paintedOffset - origin) * scale + paintedOffset - scrollOffset + translate
++            : position * scale - scrollOffset + translate
++          : (position - scrollOffset) * scale + translate;
++        const first = Math.max(clipStart, project(segment.start));
++        const last = Math.min(clipEnd, project(segment.end));
++        return last > first ? [{ start: first, size: last - first }] : [];
++      });
++    };
++    const columns = splitAxis(rect.left, rect.width, displayRowHeaderWidth, frozenPaneRight, scroller.scrollLeft, scroller.clientWidth, translateX, scrollBodyCanvasLeft, paintedViewport.left);
++    const rows = splitAxis(rect.top, rect.height, displayHeaderHeight, frozenPaneBottom, scroller.scrollTop, scroller.clientHeight, translateY, scrollBodyCanvasTop, paintedViewport.top);
++    return {
++      contentRect: rect,
++      viewportRects: rows.flatMap((row) => columns.map((column) => ({ left: column.start, top: row.start, width: column.size, height: row.size })))
++    };
++  };
++  const getAnnotationTargetAtPoint = (clientX, clientY) => {
++    const scroller = scrollRef.current;
++    if (!scroller) return null;
++    const bounds = scroller.getBoundingClientRect();
++    const x = clientX - bounds.left;
++    const y = clientY - bounds.top;
++    if (x < displayRowHeaderWidth || y < displayHeaderHeight || x >= scroller.clientWidth || y >= scroller.clientHeight) return null;
++    const containsPoint = (rect) => x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height;
++    const drawings = [
++      ...imageRects.map(({ image }) => ({ target: { type: "image", id: image.id }, zIndex: image.zIndex })),
++      ...chartRects.map(({ chart }) => ({ target: { type: "chart", id: chart.id }, zIndex: chart.zIndex }))
++    ].sort((first, second) => second.zIndex - first.zIndex);
++    for (const drawing of drawings) {
++      if (getAnnotationGeometry(drawing.target)?.viewportRects.some(containsPoint)) return drawing.target;
++    }
++    // Invert the live canvas transform before reusing the renderer's cell hit test.
++    const liveZoom = liveGestureZoomRef.current;
++    let hitX = clientX;
++    let hitY = clientY;
++    if (experimentalCanvas && liveZoom && liveZoom.baseZoomScale === zoomScale) {
++      const scale = liveZoom.targetZoomScale / liveZoom.baseZoomScale;
++      const inverse = (point, header, frozenEnd, canvasStart, scroll, paintedScroll, anchor) => {
++        const frozen = point < frozenEnd;
++        const origin = frozen ? header : canvasStart;
++        const paintedOffset = frozen ? 0 : paintedScroll;
++        const scrollOffset = frozen ? 0 : scroll;
++        return (point - origin - paintedOffset + scrollOffset - anchor * (1 - scale)) / scale + paintedOffset + origin - scrollOffset;
++      };
++      const painted = paintedDrawingViewportRef.current;
++      hitX = bounds.left + inverse(x, displayRowHeaderWidth, frozenPaneRight, scrollBodyCanvasLeft, scroller.scrollLeft, painted.left, liveZoom.anchor.x);
++      hitY = bounds.top + inverse(y, displayHeaderHeight, frozenPaneBottom, scrollBodyCanvasTop, scroller.scrollTop, painted.top, liveZoom.anchor.y);
++    }
++    const cell = resolvePointerCellFromClient(hitX, hitY);
++    if (!cell) return null;
++    const anchor = resolveMergeAnchorCell(cell);
++    const target = { type: "range", range: { start: anchor, end: anchor } };
++    return getAnnotationGeometry(target)?.viewportRects.some(containsPoint) ? target : null;
++  };
+   const scrollerViewportProps = {
+     ref: scrollRef,
+     "aria-colcount": Math.max(activeSheet?.colCount ?? 0, displayColLimit),
+@@ -30617,7 +30709,7 @@ function XlsxGrid({
+       )
+     }
+   );
+-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { style: { backgroundColor: palette.canvas, display: "flex", flex: 1, minHeight: 0, minWidth: 0 }, children: renderScroller ? renderScroller({ children: scrollerContent, viewportProps: scrollerViewportProps }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { ...scrollerViewportProps, children: scrollerContent }, activeTabIndex) });
++  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { style: { backgroundColor: palette.canvas, display: "flex", flex: 1, minHeight: 0, minWidth: 0 }, children: renderScroller ? renderScroller({ children: scrollerContent, viewportProps: scrollerViewportProps, getAnnotationGeometry, getAnnotationTargetAtPoint }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { ...scrollerViewportProps, children: scrollerContent }, activeTabIndex) });
+ }
+ function XlsxViewerInner({
+   allowResizeInReadOnly = false,
+diff --git a/dist/index.d.cts b/dist/index.d.cts
+index 427c2f7709ffca0561e98386ccd0c324268026b3..b1c0199e22f289fe13294b9b96e057bf5b61fbe2 100644
+--- a/dist/index.d.cts
++++ b/dist/index.d.cts
+@@ -872,6 +872,9 @@ interface XlsxFileTooLargeRenderProps {
+     maxFileSizeBytes: number;
+ }
+ interface XlsxScrollerRenderProps {
++    getAnnotationTargetAtPoint: (clientX: number, clientY: number) => { type: "range"; range: XlsxCellRange } | { type: "image" | "chart"; id: string } | null;
++    /** Current native layout including gridlines, auto sizing, frozen panes and live zoom. */
++    getAnnotationGeometry: (target: { type: "range"; range: XlsxCellRange } | { type: "image" | "chart"; id: string }) => { contentRect: XlsxImageRect; viewportRects: XlsxImageRect[] } | null;
+     /** Workbook grid content that should be rendered inside the scrollable viewport. */
+     children: React.ReactNode;
+     /** Props that must be applied to the actual scrollable viewport element. */
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 427c2f7709ffca0561e98386ccd0c324268026b3..b1c0199e22f289fe13294b9b96e057bf5b61fbe2 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -872,6 +872,9 @@ interface XlsxFileTooLargeRenderProps {
+     maxFileSizeBytes: number;
+ }
+ interface XlsxScrollerRenderProps {
++    getAnnotationTargetAtPoint: (clientX: number, clientY: number) => { type: "range"; range: XlsxCellRange } | { type: "image" | "chart"; id: string } | null;
++    /** Current native layout including gridlines, auto sizing, frozen panes and live zoom. */
++    getAnnotationGeometry: (target: { type: "range"; range: XlsxCellRange } | { type: "image" | "chart"; id: string }) => { contentRect: XlsxImageRect; viewportRects: XlsxImageRect[] } | null;
+     /** Workbook grid content that should be rendered inside the scrollable viewport. */
+     children: React.ReactNode;
+     /** Props that must be applied to the actual scrollable viewport element. */
 diff --git a/dist/index.js b/dist/index.js
-index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d2d92dfc62d10990ab1afb37027b69c9d6ce31a0 100644
+index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09dd2c64f47 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -23290,6 +23290,7 @@ function XlsxGrid({
@@ -154,3 +285,106 @@ index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d2d92dfc62d10990ab1afb37027b69c9
      palette,
      resolveCellDisplayRect,
      resolveMergeAnchorCell,
+@@ -29945,6 +29950,93 @@ function XlsxGrid({
+     }
+   }
+   gridKeyboardHandlerRef.current = handleGridKeyDown;
++  // Expose the renderer's own layout to annotation overlays in both canvas and DOM modes.
++  const getAnnotationGeometry = (target) => {
++    const scroller = scrollRef.current;
++    if (!scroller) return null;
++    const rect = target.type === "range"
++      ? resolveGeometryOverlayRect(target.range)
++      : target.type === "image"
++        ? imageRects.find((entry) => entry.image.id === target.id)?.rect
++        : chartRects.find((entry) => entry.chart.id === target.id)?.rect;
++    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
++    const liveZoom = liveGestureZoomRef.current;
++    const scale = liveZoom && liveZoom.baseZoomScale === zoomScale ? liveZoom.targetZoomScale / liveZoom.baseZoomScale : 1;
++    const translateX = scale !== 1 ? liveZoom.anchor.x * (1 - scale) : 0;
++    const translateY = scale !== 1 ? liveZoom.anchor.y * (1 - scale) : 0;
++    const canvasTarget = experimentalCanvas && (target.type === "range" || target.type === "image" && bakedImageRects.some((entry) => entry.image.id === target.id));
++    const paintedViewport = paintedDrawingViewportRef.current;
++    const splitAxis = (start, size, header, frozenEnd, scroll, viewportSize, translate, canvasStart, paintedScroll) => {
++      const end = start + size;
++      const segments = [];
++      if (target.type === "range") {
++        if (start < frozenEnd) segments.push({ start, end: Math.min(end, frozenEnd), frozen: true });
++        if (end > frozenEnd) segments.push({ start: Math.max(start, frozenEnd), end, frozen: false });
++      } else {
++        segments.push({ start, end, frozen: frozenEnd > header && end <= frozenEnd + 0.5 });
++      }
++      return segments.flatMap((segment) => {
++        const scrollOffset = segment.frozen ? 0 : scroll;
++        const clipStart = segment.frozen ? header : frozenEnd;
++        const clipEnd = segment.frozen ? Math.min(frozenEnd, viewportSize) : viewportSize;
++        // Canvas cells scale around each painted pane's origin; DOM drawings use the overlay origin.
++        const origin = segment.frozen ? header : canvasStart;
++        const paintedOffset = segment.frozen ? 0 : paintedScroll;
++        const project = (position) => experimentalCanvas
++          ? canvasTarget
++            ? origin + (position - paintedOffset - origin) * scale + paintedOffset - scrollOffset + translate
++            : position * scale - scrollOffset + translate
++          : (position - scrollOffset) * scale + translate;
++        const first = Math.max(clipStart, project(segment.start));
++        const last = Math.min(clipEnd, project(segment.end));
++        return last > first ? [{ start: first, size: last - first }] : [];
++      });
++    };
++    const columns = splitAxis(rect.left, rect.width, displayRowHeaderWidth, frozenPaneRight, scroller.scrollLeft, scroller.clientWidth, translateX, scrollBodyCanvasLeft, paintedViewport.left);
++    const rows = splitAxis(rect.top, rect.height, displayHeaderHeight, frozenPaneBottom, scroller.scrollTop, scroller.clientHeight, translateY, scrollBodyCanvasTop, paintedViewport.top);
++    return {
++      contentRect: rect,
++      viewportRects: rows.flatMap((row) => columns.map((column) => ({ left: column.start, top: row.start, width: column.size, height: row.size })))
++    };
++  };
++  const getAnnotationTargetAtPoint = (clientX, clientY) => {
++    const scroller = scrollRef.current;
++    if (!scroller) return null;
++    const bounds = scroller.getBoundingClientRect();
++    const x = clientX - bounds.left;
++    const y = clientY - bounds.top;
++    if (x < displayRowHeaderWidth || y < displayHeaderHeight || x >= scroller.clientWidth || y >= scroller.clientHeight) return null;
++    const containsPoint = (rect) => x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height;
++    const drawings = [
++      ...imageRects.map(({ image }) => ({ target: { type: "image", id: image.id }, zIndex: image.zIndex })),
++      ...chartRects.map(({ chart }) => ({ target: { type: "chart", id: chart.id }, zIndex: chart.zIndex }))
++    ].sort((first, second) => second.zIndex - first.zIndex);
++    for (const drawing of drawings) {
++      if (getAnnotationGeometry(drawing.target)?.viewportRects.some(containsPoint)) return drawing.target;
++    }
++    // Invert the live canvas transform before reusing the renderer's cell hit test.
++    const liveZoom = liveGestureZoomRef.current;
++    let hitX = clientX;
++    let hitY = clientY;
++    if (experimentalCanvas && liveZoom && liveZoom.baseZoomScale === zoomScale) {
++      const scale = liveZoom.targetZoomScale / liveZoom.baseZoomScale;
++      const inverse = (point, header, frozenEnd, canvasStart, scroll, paintedScroll, anchor) => {
++        const frozen = point < frozenEnd;
++        const origin = frozen ? header : canvasStart;
++        const paintedOffset = frozen ? 0 : paintedScroll;
++        const scrollOffset = frozen ? 0 : scroll;
++        return (point - origin - paintedOffset + scrollOffset - anchor * (1 - scale)) / scale + paintedOffset + origin - scrollOffset;
++      };
++      const painted = paintedDrawingViewportRef.current;
++      hitX = bounds.left + inverse(x, displayRowHeaderWidth, frozenPaneRight, scrollBodyCanvasLeft, scroller.scrollLeft, painted.left, liveZoom.anchor.x);
++      hitY = bounds.top + inverse(y, displayHeaderHeight, frozenPaneBottom, scrollBodyCanvasTop, scroller.scrollTop, painted.top, liveZoom.anchor.y);
++    }
++    const cell = resolvePointerCellFromClient(hitX, hitY);
++    if (!cell) return null;
++    const anchor = resolveMergeAnchorCell(cell);
++    const target = { type: "range", range: { start: anchor, end: anchor } };
++    return getAnnotationGeometry(target)?.viewportRects.some(containsPoint) ? target : null;
++  };
+   const scrollerViewportProps = {
+     ref: scrollRef,
+     "aria-colcount": Math.max(activeSheet?.colCount ?? 0, displayColLimit),
+@@ -30583,7 +30675,7 @@ function XlsxGrid({
+       )
+     }
+   );
+-  return /* @__PURE__ */ jsx3("div", { style: { backgroundColor: palette.canvas, display: "flex", flex: 1, minHeight: 0, minWidth: 0 }, children: renderScroller ? renderScroller({ children: scrollerContent, viewportProps: scrollerViewportProps }) : /* @__PURE__ */ jsx3("div", { ...scrollerViewportProps, children: scrollerContent }, activeTabIndex) });
++  return /* @__PURE__ */ jsx3("div", { style: { backgroundColor: palette.canvas, display: "flex", flex: 1, minHeight: 0, minWidth: 0 }, children: renderScroller ? renderScroller({ children: scrollerContent, viewportProps: scrollerViewportProps, getAnnotationGeometry, getAnnotationTargetAtPoint }) : /* @__PURE__ */ jsx3("div", { ...scrollerViewportProps, children: scrollerContent }, activeTabIndex) });
+ }
+ function XlsxViewerInner({
+   allowResizeInReadOnly = false,
