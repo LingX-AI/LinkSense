@@ -17,6 +17,7 @@ import {
 } from "./runner.js"
 import type { AuditService } from "../modules/audit/service.js"
 import { pruneExpiredCapabilityPreviews } from "../modules/capabilities/preview.js"
+import { UserHomeCapabilityMaterializer } from "../modules/capabilities/user-home-materializer.js"
 import { assertConversationWorkspacePath } from "../lib/user-runtime-paths.js"
 
 export interface AuthTokenCleanup {
@@ -419,6 +420,9 @@ export class BackgroundJobs {
     if (data.type === "runtime-cleanup") {
       const result = await executeRuntimeCleanupJob({
         runner: this.runner,
+        removeCapabilityProjection: () => new UserHomeCapabilityMaterializer({
+          userDataRoot: this.workspaceRoot,
+        }).removeConversation(data.ownerId, data.conversationId),
         ...(this.prisma ? { prisma: this.prisma } : {}),
         ownerId: data.ownerId,
         conversationId: data.conversationId,
@@ -639,6 +643,7 @@ export class BackgroundJobs {
 
 export async function executeRuntimeCleanupJob(input: {
   runner: Pick<RunnerClient, "cleanupRuntime">
+  removeCapabilityProjection: () => Promise<void>
   prisma?: Pick<PrismaClient, "runtimeCleanupOutbox">
   ownerId: string
   conversationId: string
@@ -726,6 +731,15 @@ export async function executeRuntimeCleanupJob(input: {
   }
   try {
     await input.runner.cleanupRuntime(input.conversationId, input.ownerId)
+    try {
+      await input.removeCapabilityProjection()
+    } catch (error) {
+      const denied = error instanceof Error && "code" in error && (error.code === "EACCES" || error.code === "EPERM")
+      throw new RunnerRuntimeCleanupError(
+        denied ? "CLEANUP_PERMISSION_DENIED" : "CLEANUP_DIRECTORY_REMOVE_FAILED",
+        "delete_control",
+      )
+    }
     if (input.outboxId && input.prisma && claim) {
       await input.prisma.runtimeCleanupOutbox.deleteMany({
         where: {

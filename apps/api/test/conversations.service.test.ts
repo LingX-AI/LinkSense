@@ -705,6 +705,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
 
     expect(fixture.preflight.resolve).toHaveBeenCalledWith({
+      conversationId,
       userId: OWNER_ID,
       priorityCapabilityIds: [],
     });
@@ -1178,6 +1179,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       }),
     });
     expect(fixture.preflight.resolve).toHaveBeenCalledWith({
+      conversationId: fixture.runner.prepareRuntime.mock.calls[0]?.[0],
       userId: OWNER_ID,
       priorityCapabilityIds: [],
     });
@@ -4576,6 +4578,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     );
     expect(fixture.preflight.withCapabilityStartBarrier).toHaveBeenCalledWith(
       {
+        conversationId: CONVERSATION_ID,
         userId: OWNER_ID,
         priorityCapabilityIds: [capabilityId],
         capabilities: expect.arrayContaining([
@@ -5507,6 +5510,7 @@ describe("ConversationService pending and turn materialization", () => {
         APPLICATION_ID,
       );
       expect(fixture.preflight.resolve).toHaveBeenCalledWith({
+        conversationId: CONVERSATION_ID,
         userId: OWNER_ID,
         priorityCapabilityIds: [applicationCapabilityId],
         capabilityScope: {

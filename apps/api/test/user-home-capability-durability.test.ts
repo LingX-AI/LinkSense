@@ -20,6 +20,7 @@ import {
   skillCapability,
   useCapabilityFilesystem,
 } from "./user-home-capability-fixture.js"
+const TASK_ID = "01900000-0000-7000-8000-000000000011"
 const { temporaryDirectory } = useCapabilityFilesystem()
 
 describe("UserHomeCapabilityMaterializer durability", () => {
@@ -38,7 +39,7 @@ describe("UserHomeCapabilityMaterializer durability", () => {
       "Write a concise report.",
     )
     const materializer = new UserHomeCapabilityMaterializer({ userDataRoot })
-    const paths = materializer.pathsFor(OWNER_ID)
+    const paths = materializer.pathsFor(OWNER_ID, TASK_ID)
     const homeRoot = join(paths.ownerRoot, "home")
     const codexHome = join(homeRoot, ".codex")
 
@@ -47,7 +48,7 @@ describe("UserHomeCapabilityMaterializer durability", () => {
     await Promise.all([chmod(homeRoot, 0o710), chmod(codexHome, 0o700)])
 
     const result = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [
         pluginCapability(pluginSource, {
           API_KEY: CREDENTIAL_SOURCE,
@@ -256,7 +257,7 @@ describe("UserHomeCapabilityMaterializer durability", () => {
     ).resolves.toBe('model = "test"\n')
 
     const cleared = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [],
     })
     expect(cleared.generation).not.toBe(result.generation)

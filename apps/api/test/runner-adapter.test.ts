@@ -597,7 +597,8 @@ describe("RunnerClient thread fork", () => {
         conversationId,
         ownerId,
         expectedRuntimeGeneration: runtimeGeneration,
-        sourceCodexThreadId: "thread-source-1",
+        sourceConversationId: "01900000-0000-7000-8000-000000000003",
+      sourceCodexThreadId: "thread-source-1",
         throughCodexTurnId: "turn-native-2",
         projectionTurnId,
         ...modelRuntime,
@@ -612,6 +613,7 @@ describe("RunnerClient thread fork", () => {
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
       ownerId,
       expectedRuntimeGeneration: runtimeGeneration,
+      sourceConversationId: "01900000-0000-7000-8000-000000000003",
       sourceCodexThreadId: "thread-source-1",
       throughCodexTurnId: "turn-native-2",
       projectionTurnId,

@@ -16,6 +16,7 @@ import {
 } from "../src/modules/capabilities/user-home-materializer.js";
 import { hashMarketplacePackage } from "../src/modules/marketplace/package.js";
 
+const TASK_ID = "01900000-0000-7000-8000-000000000011";
 const USER_ID = "10000000-0000-4000-8000-000000000001";
 const OTHER_USER_ID = "10000000-0000-4000-8000-000000000004";
 const APPLICATION_OWNER_ID = "10000000-0000-4000-8000-000000000002";
@@ -60,12 +61,13 @@ describe("DatabaseConversationPreflight credential isolation", () => {
 
     await expect(
       preflight.resolve({
-        userId: USER_ID,
+        userId: USER_ID, conversationId: TASK_ID,
         priorityCapabilityIds: [BUILT_IN_BROWSER_ID],
       }),
     ).resolves.toMatchObject({ capabilities: [] });
     expect(reconcile).toHaveBeenCalledWith({
       ownerId: USER_ID,
+      conversationId: TASK_ID,
       capabilities: [],
     });
     expect(credentials.resolveForCapability).not.toHaveBeenCalled();
@@ -86,7 +88,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
 
     await expect(
       preflight.resolve({
-        userId: USER_ID,
+        userId: USER_ID, conversationId: TASK_ID,
         priorityCapabilityIds: [BUILT_IN_BROWSER_ID],
         capabilityScope: {
           sourceOwnerId: APPLICATION_OWNER_ID,
@@ -123,7 +125,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     );
 
     const result = await preflight.resolve({
-      userId: USER_ID,
+      userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
       capabilityScope: {
         sourceOwnerId: APPLICATION_OWNER_ID,
@@ -141,6 +143,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     ]);
     expect(reconcile).toHaveBeenCalledWith({
       ownerId: USER_ID,
+      conversationId: TASK_ID,
       capabilities: [
         expect.objectContaining({
           id: PRIMARY_PLUGIN_ID,
@@ -195,7 +198,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     );
 
     const result = await preflight.resolve({
-      userId: USER_ID,
+      userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [],
       capabilityScope: {
         sourceOwnerId: APPLICATION_OWNER_ID,
@@ -279,12 +282,12 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     };
 
     await preflight.resolve({
-      userId: USER_ID,
+      userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [],
       capabilityScope,
     });
     await preflight.resolve({
-      userId: OTHER_USER_ID,
+      userId: OTHER_USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [],
       capabilityScope,
     });
@@ -334,7 +337,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     );
 
     const result = await preflight.resolve({
-      userId: USER_ID,
+      userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
       capabilityScope: {
         sourceOwnerId: APPLICATION_OWNER_ID,
@@ -416,7 +419,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
 
     await expect(
       preflight.resolve({
-        userId: USER_ID,
+        userId: USER_ID, conversationId: TASK_ID,
         priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
         capabilityScope: {
           sourceOwnerId: APPLICATION_OWNER_ID,
@@ -458,7 +461,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     );
 
     await expect(
-      preflight.resolve({ userId: USER_ID, priorityCapabilityIds: [] }),
+      preflight.resolve({ userId: USER_ID, conversationId: TASK_ID, priorityCapabilityIds: [] }),
     ).rejects.toMatchObject({ code: "CAPABILITY_NOT_FOUND" });
     expect(prisma.capability.updateMany).not.toHaveBeenCalled();
   });
@@ -491,7 +494,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     );
 
     await expect(
-      preflight.resolve({ userId: USER_ID, priorityCapabilityIds: [] }),
+      preflight.resolve({ userId: USER_ID, conversationId: TASK_ID, priorityCapabilityIds: [] }),
     ).rejects.toMatchObject({ code: "CAPABILITY_NOT_FOUND" });
   });
 
@@ -515,7 +518,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     );
 
     await expect(
-      preflight.resolve({ userId: USER_ID, priorityCapabilityIds: [] }),
+      preflight.resolve({ userId: USER_ID, conversationId: TASK_ID, priorityCapabilityIds: [] }),
     ).rejects.toMatchObject({ code: "INVALID_PACKAGE" });
     expect(credentials.resolveForCapability).not.toHaveBeenCalled();
   });
@@ -543,7 +546,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     );
 
     await expect(
-      preflight.resolve({ userId: USER_ID, priorityCapabilityIds: [] }),
+      preflight.resolve({ userId: USER_ID, conversationId: TASK_ID, priorityCapabilityIds: [] }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     expect(credentials.resolveForCapability).not.toHaveBeenCalled();
   });
@@ -594,11 +597,11 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       materializerWithReconcile(reconcile),
     );
     const result = await preflight.resolve({
-      userId: USER_ID,
+      userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [],
     });
     const repeated = await preflight.resolve({
-      userId: USER_ID,
+      userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [],
     });
 
@@ -624,6 +627,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     expect(reconcile).toHaveBeenCalledTimes(2);
     expect(reconcile).toHaveBeenLastCalledWith({
       ownerId: USER_ID,
+      conversationId: TASK_ID,
       capabilities: expect.arrayContaining([
         expect.objectContaining({
           id: PRIMARY_PLUGIN_ID,
@@ -667,7 +671,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     );
 
     const result = await preflight.resolve({
-      userId: USER_ID,
+      userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [],
     });
 
@@ -675,6 +679,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     expect(result.environment).toEqual({});
     expect(reconcile).toHaveBeenCalledWith({
       ownerId: USER_ID,
+      conversationId: TASK_ID,
       capabilities: [],
     });
   });
@@ -701,7 +706,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     );
 
     await expect(
-      preflight.resolve({ userId: USER_ID, priorityCapabilityIds: [] }),
+      preflight.resolve({ userId: USER_ID, conversationId: TASK_ID, priorityCapabilityIds: [] }),
     ).rejects.toMatchObject({ code: "EXECUTION_ENVIRONMENT_INVALID" });
   });
 
@@ -728,7 +733,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     );
 
     await expect(
-      preflight.resolve({ userId: USER_ID, priorityCapabilityIds: [] }),
+      preflight.resolve({ userId: USER_ID, conversationId: TASK_ID, priorityCapabilityIds: [] }),
     ).rejects.toMatchObject({ code: "CREDENTIAL_BINDING_CONFLICT" });
   });
 
@@ -759,7 +764,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       materializerWithReconcile(reconcile),
     );
     const started = await preflight.resolve({
-      userId: USER_ID,
+      userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [],
     });
     const credentialEnvironment =
@@ -978,11 +983,11 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     );
 
     await expect(
-      preflight.resolve({ userId: USER_ID, priorityCapabilityIds: [] }),
+      preflight.resolve({ userId: USER_ID, conversationId: TASK_ID, priorityCapabilityIds: [] }),
     ).rejects.toMatchObject({ code: "CAPABILITY_HOME_SYNC_FAILED" });
   });
 
-  it("treats an active-turn publication deferral as a committed mutation outcome", async () => {
+  it("initializes the owner mount without publishing capabilities or consulting an active task", async () => {
     const root = await capabilityRoot();
     const skill = {
       ...capability(PRIMARY_PLUGIN_ID, join(root, "primary"), false),
@@ -1004,7 +1009,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       ),
     );
 
-    await expect(preflight.refreshUserHome(USER_ID)).resolves.toBe("deferred");
+    await expect(preflight.ensureUserHome(USER_ID)).resolves.toBeUndefined();
   });
 
   it("reuses the resolve verification snapshot at the final start barrier", async () => {
@@ -1035,7 +1040,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       ),
     );
     const resolved = await preflight.resolve({
-      userId: USER_ID,
+      userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
     });
     const action = vi.fn(async () => "created");
@@ -1044,7 +1049,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     await expect(
       preflight.withCapabilityStartBarrier(
         {
-          userId: USER_ID,
+          userId: USER_ID, conversationId: TASK_ID,
           priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
           ...resolved,
           environment: resolved.environment ?? {},
@@ -1079,7 +1084,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       materializer(),
     );
     const resolved = await preflight.resolve({
-      userId: USER_ID,
+      userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
     });
     prisma.capability.findMany.mockResolvedValueOnce([]);
@@ -1088,7 +1093,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     await expect(
       preflight.withCapabilityStartBarrier(
         {
-          userId: USER_ID,
+          userId: USER_ID, conversationId: TASK_ID,
           priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
           ...resolved,
           environment: resolved.environment ?? {},
@@ -1134,7 +1139,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       materializer(),
     );
     const resolved = await preflight.resolve({
-      userId: USER_ID,
+      userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
     });
     const action = vi.fn(async () => "created");
@@ -1142,7 +1147,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     await expect(
       preflight.withCapabilityStartBarrier(
         {
-          userId: USER_ID,
+          userId: USER_ID, conversationId: TASK_ID,
           priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
           ...resolved,
           environment: resolved.environment ?? {},
@@ -1223,7 +1228,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
 
     await expect(
       preflight.resolve({
-        userId: USER_ID,
+        userId: USER_ID, conversationId: TASK_ID,
         priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
       }),
     ).rejects.toMatchObject({ code: "CAPABILITY_NOT_FOUND" });
@@ -1269,7 +1274,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
 
     await expect(
       preflight.resolve({
-        userId: USER_ID,
+        userId: USER_ID, conversationId: TASK_ID,
         priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
       }),
     ).resolves.toMatchObject({
@@ -1282,7 +1287,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     );
     await expect(
       preflight.resolve({
-        userId: USER_ID,
+        userId: USER_ID, conversationId: TASK_ID,
         priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
       }),
     ).rejects.toMatchObject({ code: "CAPABILITY_NOT_FOUND" });
@@ -1325,16 +1330,17 @@ describe("running-turn capability publication guard", () => {
       await expect(
         guard({
           ownerId: USER_ID,
+      conversationId: TASK_ID,
           currentGeneration: CAPABILITY_GENERATION,
           nextGeneration: "c".repeat(64),
         }),
       ).resolves.toBe(allowed);
       expect(conversationTurnFindFirst).toHaveBeenCalledWith({
-        where: { submittedBy: USER_ID, status: "running" },
+        where: { submittedBy: USER_ID, conversationId: TASK_ID, status: "running" },
         select: { id: true },
       });
       expect(startIntentFindFirst).toHaveBeenCalledWith({
-        where: { ownerId: USER_ID },
+        where: { ownerId: USER_ID, conversationId: TASK_ID },
         select: { projectionTurnId: true },
       });
     },
@@ -1373,6 +1379,7 @@ function capabilityVerification(
 
 type MaterializerTestDouble = Pick<
   UserHomeCapabilityMaterializer,
+  | "ensureOwner"
   | "reconcile"
   | "reconcileWithinPublicationStartFence"
   | "resolvePublishedRuntimeWithinPublicationStartFence"
@@ -1403,6 +1410,7 @@ function materializerWithReconcile<
     };
   });
   return {
+    ensureOwner: vi.fn(async () => undefined),
     reconcile: reconciler,
     reconcileWithinPublicationStartFence: vi.fn((input: T) =>
       reconciler(input),

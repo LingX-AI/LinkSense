@@ -310,6 +310,7 @@ export type RunnerGoalClearInput = Pick<
 >;
 
 export type RunnerForkInput = Omit<RunnerGoalClearInput, "codexThreadId"> & {
+  sourceConversationId: string;
   sourceCodexThreadId: string;
   throughCodexTurnId: string;
 };

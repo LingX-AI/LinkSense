@@ -26,6 +26,7 @@ import {
   skillCapability,
   useCapabilityFilesystem,
 } from "./user-home-capability-fixture.js"
+const TASK_ID = "01900000-0000-7000-8000-000000000011"
 const { temporaryDirectory } = useCapabilityFilesystem()
 
 const { syncFileHandle } = vi.hoisted(() => ({
@@ -60,7 +61,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
         userDataRoot: join(root, "users"),
       })
       const input = {
-        ownerId: OWNER_ID,
+        ownerId: OWNER_ID, conversationId: TASK_ID,
         capabilities: [pluginCapability(source)],
       }
       const initial = await materializer.reconcile(input)
@@ -134,7 +135,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     })
 
     const result = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [
         pluginCapability(pluginRoot, {
           SHARED_TOKEN: CREDENTIAL_SOURCE,
@@ -191,7 +192,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     })
 
     const published = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [],
     })
 
@@ -223,12 +224,12 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     const capability = pluginCapability(pluginSource)
 
     const before = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [capability],
     })
     await writeFile(join(pluginSource, "README.md"), "after")
     const after = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [capability],
     })
 
@@ -265,7 +266,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       skillCapability(skillSource),
     ]
     const initial = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities,
     })
     await writeFile(
@@ -278,7 +279,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     )
 
     const repaired = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities,
     })
 
@@ -310,7 +311,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       publicationGuard,
     })
     const input = {
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [pluginCapability(pluginSource)],
     }
     const initial = await materializer.reconcile(input)
@@ -339,7 +340,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       },
     })
     const input = {
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [pluginCapability(pluginSource)],
     }
 
@@ -385,15 +386,15 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     })
     const capability = pluginCapability(pluginSource)
     const initial = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [capability],
     })
     lifecycle.length = 0
 
     await expect(
-      materializer.withPublicationStartFence(OWNER_ID, () =>
+      materializer.withPublicationStartFence({ ownerId: OWNER_ID, conversationId: TASK_ID }, () =>
         materializer.resolvePublishedRuntimeWithinPublicationStartFence({
-          ownerId: OWNER_ID,
+          ownerId: OWNER_ID, conversationId: TASK_ID,
           capabilities: [capability],
         }),
       ),
@@ -401,10 +402,10 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     expect(lifecycle).toEqual([])
 
     const republished = await materializer.withPublicationStartFence(
-      OWNER_ID,
+      { ownerId: OWNER_ID, conversationId: TASK_ID },
       () =>
         materializer.resolvePublishedRuntimeWithinPublicationStartFence({
-          ownerId: OWNER_ID,
+          ownerId: OWNER_ID, conversationId: TASK_ID,
           capabilities: [{ ...capability, revision: "revision-2" }],
         }),
     )
@@ -423,7 +424,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       userDataRoot: join(root, "users"),
     })
     const input = {
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [pluginCapability(pluginSource)],
     }
     const published = await materializer.reconcile(input)
@@ -460,7 +461,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     })
     const capability = pluginCapability(pluginSource)
     const initial = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [capability],
     })
     publicationGuard.mockClear()
@@ -469,14 +470,14 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
 
     await expect(
       materializer.reconcile({
-        ownerId: OWNER_ID,
+        ownerId: OWNER_ID, conversationId: TASK_ID,
         capabilities: [capability],
       }),
     ).rejects.toMatchObject({
       name: "UserHomeCapabilityPublicationDeferredError",
     })
     expect(publicationGuard).toHaveBeenCalledWith({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       currentGeneration: initial.generation,
       nextGeneration: expect.not.stringMatching(
         new RegExp(`^${initial.generation}$`, "u"),
@@ -506,7 +507,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       publicationGuard,
     })
     const input = {
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [pluginCapability(pluginSource)],
     }
     const initial = await materializer.reconcile(input)
@@ -534,7 +535,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     })
     await release()
     expect(publicationGuard).toHaveBeenCalledWith({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       currentGeneration: initial.generation,
       nextGeneration: initial.generation,
     })
@@ -560,14 +561,14 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     })
     const capability = pluginCapability(pluginSource)
     const initial = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [capability],
     })
     publicationGuard.mockClear()
     await writeFile(join(pluginSource, "README.md"), "after")
 
     const published = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [capability],
     })
 
@@ -593,7 +594,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     })
     const capability = pluginCapability(pluginSource)
     const initial = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [capability],
     })
     await mkdir(join(initial.pluginsRoot, "cache"), { recursive: true })
@@ -612,7 +613,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     )
 
     const reconciled = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [capability],
     })
 
@@ -646,7 +647,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     })
     const capability = pluginCapability(pluginSource)
     const initial = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [capability],
     })
     await mkdir(join(initial.pluginsRoot, "unlisted-plugin"))
@@ -659,7 +660,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
 
     await expect(
       materializer.reconcile({
-        ownerId: OWNER_ID,
+        ownerId: OWNER_ID, conversationId: TASK_ID,
         capabilities: [capability],
       }),
     ).rejects.toThrow(/invalid type/u)
@@ -686,7 +687,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       userDataRoot: join(root, "users"),
     })
     const initial = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [],
     })
     const outside = join(root, "outside-cache")
@@ -695,7 +696,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
 
     await expect(
       materializer.reconcile({
-        ownerId: OWNER_ID,
+        ownerId: OWNER_ID, conversationId: TASK_ID,
         capabilities: [],
       }),
     ).rejects.toThrow(/real director(?:y|ies)/u)
@@ -704,7 +705,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     await writeFile(join(initial.pluginsRoot, "unlisted-plugin"), "invalid")
     await expect(
       materializer.reconcile({
-        ownerId: OWNER_ID,
+        ownerId: OWNER_ID, conversationId: TASK_ID,
         capabilities: [],
       }),
     ).rejects.toThrow(/plugin root entries must be real directories/u)
@@ -728,7 +729,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     })
 
     const before = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [
         {
           ...capability,
@@ -737,7 +738,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       ],
     })
     const after = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [
         {
           ...capability,
@@ -772,7 +773,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       userDataRoot: join(root, "users"),
     })
     const initial = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [pluginCapability(pluginSource)],
     })
 
@@ -784,7 +785,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
 
     await expect(
       materializer.reconcile({
-        ownerId: OWNER_ID,
+        ownerId: OWNER_ID, conversationId: TASK_ID,
         capabilities: [pluginCapability(pluginSource)],
       }),
     ).rejects.toThrow(/symbolic links/u)
@@ -816,7 +817,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       userDataRoot: join(root, "users"),
     })
     const initial = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [
         pluginCapability(pluginSource),
         skillCapability(skillSource),
@@ -835,7 +836,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
 
     await expect(
       materializer.reconcile({
-        ownerId: OWNER_ID,
+        ownerId: OWNER_ID, conversationId: TASK_ID,
         capabilities: [
           pluginCapability(pluginSource),
           skillCapability(skillSource),
@@ -879,7 +880,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       skillCapability(skillSource),
     ]
     const initial = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities,
     })
 
@@ -896,7 +897,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     )
 
     await expect(
-      materializer.reconcile({ ownerId: OWNER_ID, capabilities }),
+      materializer.reconcile({ ownerId: OWNER_ID, conversationId: TASK_ID, capabilities }),
     ).rejects.toThrow(/skill manifest is invalid/u)
     await expect(readFile(initial.generationPath, "utf8")).resolves.toBe(
       `${initial.generation}\n`,
@@ -919,14 +920,14 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     const userDataRoot = join(root, "users")
     const materializer = new UserHomeCapabilityMaterializer({ userDataRoot })
 
-    expect(() => materializer.pathsFor("../outside")).toThrow(/owner id/u)
+    expect(() => materializer.pathsFor("../outside", TASK_ID)).toThrow(/owner id/u)
 
     const outside = join(root, "outside")
     await mkdir(userDataRoot)
     await mkdir(outside)
     await symlink(outside, join(userDataRoot, OWNER_ID))
     await expect(
-      materializer.reconcile({ ownerId: OWNER_ID, capabilities: [] }),
+      materializer.reconcile({ ownerId: OWNER_ID, conversationId: TASK_ID, capabilities: [] }),
     ).rejects.toThrow(/real directory/u)
     expect(await readdir(outside)).toEqual([])
   })
@@ -954,7 +955,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
 
     const first = materializerA
       .reconcile({
-        ownerId: OWNER_ID,
+        ownerId: OWNER_ID, conversationId: TASK_ID,
         capabilities: [pluginCapability(firstSource)],
       })
       .then((result) => {
@@ -963,7 +964,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       })
     const second = materializerB
       .reconcile({
-        ownerId: OWNER_ID,
+        ownerId: OWNER_ID, conversationId: TASK_ID,
         capabilities: [pluginCapability(secondSource)],
       })
       .then((result) => {
@@ -976,7 +977,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     expect(completions).toHaveLength(2)
     const last = completions.at(-1)
     expect(last).toBeDefined()
-    const paths = materializerA.pathsFor(OWNER_ID)
+    const paths = materializerA.pathsFor(OWNER_ID, TASK_ID)
     await expect(readFile(paths.generationPath, "utf8")).resolves.toBe(
       `${last?.generation}\n`,
     )
@@ -1008,7 +1009,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
         publicationGuard,
       })
       const input = {
-        ownerId: OWNER_ID,
+        ownerId: OWNER_ID, conversationId: TASK_ID,
         capabilities: [pluginCapability(pluginSource)],
       }
       const initial = await materializer.reconcile(input)
@@ -1055,7 +1056,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       userDataRoot: join(root, "users"),
     })
     const initial = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [pluginCapability(pluginSource)],
     })
     await writeFile(join(pluginSource, "README.md"), "after")
@@ -1070,7 +1071,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     })
     let settled = false
     const publication = materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [pluginCapability(pluginSource)],
     })
     void publication.then(
@@ -1113,7 +1114,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       userDataRoot: join(root, "users"),
     })
     const input = {
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [pluginCapability(pluginSource)],
     }
     const initial = await materializer.reconcile(input)
@@ -1129,21 +1130,10 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
 
     try {
       await expect(
-        Promise.race([
-          materializer.withVerifiedRuntime(
-            {
-              ...input,
-              verification: initial.verification,
-            },
-            async () => "intent-created",
-          ),
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error("start fence timed out")),
-              500,
-            ),
-          ),
-        ]),
+        materializer.withVerifiedRuntime(
+          { ...input, verification: initial.verification },
+          async () => "intent-created",
+        ),
       ).resolves.toBe("intent-created")
     } finally {
       await release()
@@ -1166,12 +1156,12 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       userDataRoot: join(root, "users"),
     })
     const oldInput = {
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [pluginCapability(oldSource)],
     }
     const oldPublication = await materializer.reconcile(oldInput)
     const current = await materializer.reconcile({
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [pluginCapability(newSource)],
     })
     const action = vi.fn(async () => undefined)
@@ -1193,7 +1183,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     await expect(
       materializer.withVerifiedRuntime(
         {
-          ownerId: OWNER_ID,
+          ownerId: OWNER_ID, conversationId: TASK_ID,
           capabilities: [pluginCapability(newSource)],
           verification: current.verification,
         },
@@ -1215,7 +1205,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     await expect(
       materializer.withVerifiedRuntime(
         {
-          ownerId: OWNER_ID,
+          ownerId: OWNER_ID, conversationId: TASK_ID,
           capabilities: [pluginCapability(newSource)],
           verification: current.verification,
         },
@@ -1246,7 +1236,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       publicationGuard,
     })
     const oldInput = {
-      ownerId: OWNER_ID,
+      ownerId: OWNER_ID, conversationId: TASK_ID,
       capabilities: [pluginCapability(oldSource)],
     }
     const initial = await materializer.reconcile(oldInput)
@@ -1260,7 +1250,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       async () => {
         activeIntent = true
         changedPublication = materializer.reconcile({
-          ownerId: OWNER_ID,
+          ownerId: OWNER_ID, conversationId: TASK_ID,
           capabilities: [pluginCapability(newSource)],
         })
       },

@@ -46,7 +46,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "2aa056291b23735e118c6da15623302065d135f979b8a56d68ee07589611b0e7"
+  "3d8423319bb4d57c8ca24e15e3ae5494730c3b1756466e468acf626f94544a4b"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"
@@ -71,6 +71,7 @@ export interface UserHomeCapabilityInput {
 
 export interface UserHomeCapabilityReconcileInput {
   ownerId: string
+  conversationId: string
   capabilities: UserHomeCapabilityInput[]
 }
 
@@ -102,6 +103,7 @@ export interface ReconciledUserHomeCapabilities
 
 export type UserHomeCapabilityPublicationGuard = (input: {
   ownerId: string
+  conversationId: string
   currentGeneration: string | null
   nextGeneration: string
 }) => Promise<boolean>
@@ -167,15 +169,55 @@ export class UserHomeCapabilityMaterializer {
     this.#instrumentation = options.instrumentation
   }
 
-  pathsFor(ownerId: string): UserHomeCapabilityPaths {
+  async ensureOwner(ownerId: string): Promise<void> {
     assertOwnerId(ownerId)
+    const ownerRoot = path.join(this.#userDataRoot, ownerId)
+    await ensureDirectory(this.#userDataRoot, 0o770)
+    await ensureManagedDirectory(ownerRoot, 0o770)
+    const managed = path.join(ownerRoot, "managed")
+    const agents = path.join(managed, "agents")
+    await ensureManagedDirectory(managed, 0o750)
+    await ensureManagedDirectory(agents, 0o750)
+    await ensureManagedProjectionMarker(agents)
+    await ensureManagedDirectory(path.join(agents, "tasks"), 0o750)
+    await ensureManagedDirectory(path.join(ownerRoot, "control"), 0o700)
+    await ensureManagedDirectory(path.join(ownerRoot, "control", "workspaces"), 0o700)
+  }
+
+  async removeConversation(ownerId: string, conversationId: string): Promise<void> {
+    const paths = this.pathsFor(ownerId, conversationId)
+    for (const directory of [
+      this.#userDataRoot,
+      paths.ownerRoot,
+      path.join(paths.ownerRoot, "managed"),
+      path.join(paths.ownerRoot, "managed", "agents"),
+      paths.managedRoot,
+      paths.managedAgentsRoot,
+    ]) {
+      const info = await lstat(directory).catch((error: unknown) => {
+        if (isMissingPathError(error)) return null
+        throw error
+      })
+      if (!info) return
+      if (!info.isDirectory() || info.isSymbolicLink()) {
+        throw new UserHomeCapabilityMaterializationError("task capability cleanup boundary is invalid")
+      }
+    }
+    await rm(paths.managedAgentsRoot, { recursive: true, force: true })
+  }
+
+  pathsFor(ownerId: string, conversationId: string): UserHomeCapabilityPaths {
+    assertOwnerId(ownerId)
+    assertOwnerId(conversationId)
     const ownerRoot = path.resolve(this.#userDataRoot, ownerId)
     assertPathWithin(this.#userDataRoot, ownerRoot)
-    const managedRoot = path.join(ownerRoot, "managed")
-    const managedAgentsRoot = path.join(managedRoot, "agents")
+    const managedRoot = path.join(ownerRoot, "managed", "agents", "tasks")
+    const managedAgentsRoot = path.join(managedRoot, conversationId)
     const controlCapabilitiesRoot = path.join(
       ownerRoot,
       "control",
+      "workspaces",
+      conversationId,
       "capabilities",
     )
     return {
@@ -208,7 +250,7 @@ export class UserHomeCapabilityMaterializer {
   async reconcile(
     input: UserHomeCapabilityReconcileInput,
   ): Promise<ReconciledUserHomeCapabilities> {
-    return this.withPublicationStartFence(input.ownerId, () =>
+    return this.withPublicationStartFence(input, () =>
       this.reconcileWithinPublicationStartFence(input),
     )
   }
@@ -216,7 +258,7 @@ export class UserHomeCapabilityMaterializer {
   async reconcileWithinPublicationStartFence(
     input: UserHomeCapabilityReconcileInput,
   ): Promise<ReconciledUserHomeCapabilities> {
-    const paths = this.pathsFor(input.ownerId)
+    const paths = this.pathsFor(input.ownerId, input.conversationId)
     validateCapabilitySet(input.capabilities)
     await this.#prepareOwnerDirectories(paths)
     const sourceDigest = await calculateCapabilitySourceDigest(
@@ -238,6 +280,7 @@ export class UserHomeCapabilityMaterializer {
       if (
         !(await this.#publicationGuard({
           ownerId: input.ownerId,
+          conversationId: input.conversationId,
           currentGeneration: observedGeneration,
           nextGeneration: staged.generation,
         }))
@@ -262,6 +305,7 @@ export class UserHomeCapabilityMaterializer {
         if (
           !(await this.#publicationGuard({
             ownerId: input.ownerId,
+            conversationId: input.conversationId,
             currentGeneration,
             nextGeneration: staged.generation,
           }))
@@ -305,7 +349,7 @@ export class UserHomeCapabilityMaterializer {
   async resolvePublishedRuntimeWithinPublicationStartFence(
     input: UserHomeCapabilityReconcileInput,
   ): Promise<ReconciledUserHomeCapabilities> {
-    const paths = this.pathsFor(input.ownerId)
+    const paths = this.pathsFor(input.ownerId, input.conversationId)
     validateCapabilitySet(input.capabilities)
     const verification = await readPublishedRuntimeVerification(
       paths,
@@ -323,8 +367,8 @@ export class UserHomeCapabilityMaterializer {
   ): Promise<T> {
     // A running worker holds reconcile.lock for its full lifetime. The
     // publication/start fence is deliberately separate and short-lived.
-    return this.withPublicationStartFence(input.ownerId, async () => {
-      const paths = this.pathsFor(input.ownerId)
+    return this.withPublicationStartFence(input, async () => {
+      const paths = this.pathsFor(input.ownerId, input.conversationId)
       validateCapabilitySet(input.capabilities)
       assertRuntimeVerification(input.verification, input.capabilities)
       // Resolve already proved that the source set maps to this published
@@ -359,8 +403,8 @@ export class UserHomeCapabilityMaterializer {
     },
     action: () => Promise<T>,
   ): Promise<T> {
-    return this.withPublicationStartFence(input.ownerId, async () => {
-      const paths = this.pathsFor(input.ownerId)
+    return this.withPublicationStartFence(input, async () => {
+      const paths = this.pathsFor(input.ownerId, input.conversationId)
       validateCapabilitySet(input.capabilities)
       assertRuntimeVerification(input.verification, input.capabilities)
       await this.#assertManagedParents(paths)
@@ -380,10 +424,11 @@ export class UserHomeCapabilityMaterializer {
   }
 
   async withPublicationStartFence<T>(
-    ownerId: string,
+    input: Pick<UserHomeCapabilityReconcileInput, "ownerId" | "conversationId">,
     action: () => Promise<T>,
   ): Promise<T> {
-    const paths = this.pathsFor(ownerId)
+    await this.ensureOwner(input.ownerId)
+    const paths = this.pathsFor(input.ownerId, input.conversationId)
     await this.#prepareOwnerDirectories(paths)
     const release = await this.#acquirePublicationStartLock(paths)
     try {
@@ -450,7 +495,7 @@ export class UserHomeCapabilityMaterializer {
     await ensureManagedDirectory(paths.managedRoot, 0o750)
     await ensureManagedDirectory(paths.managedAgentsRoot, 0o750)
     await ensureManagedProjectionMarker(paths.managedAgentsRoot)
-    await ensureManagedDirectory(path.join(paths.ownerRoot, "control"), 0o700)
+    await ensureManagedDirectory(path.dirname(paths.controlCapabilitiesRoot), 0o700)
     await ensureManagedDirectory(paths.controlCapabilitiesRoot, 0o700)
     await ensureManagedDirectory(
       path.join(paths.controlCapabilitiesRoot, "publication-start"),

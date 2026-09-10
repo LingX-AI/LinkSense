@@ -327,6 +327,7 @@ export type GoalClearInput = Pick<
 >;
 
 export type ForkThreadInput = Omit<GoalClearInput, "codexThreadId"> & {
+  sourceConversationId: string;
   sourceCodexThreadId: string;
   throughCodexTurnId: string;
 };
@@ -718,7 +719,7 @@ type ManagedProcess = {
   mcpProxyRuntimeId: string | null;
   runtimeFingerprint: string | null;
   modelGatewayLease: ModelGatewayLease;
-  capabilityLeaseToken: OwnerCapabilityLeaseToken | null;
+  capabilityLeaseToken: TaskCapabilityLeaseToken | null;
   finalizationPromise: Promise<void> | null;
 };
 
@@ -767,25 +768,25 @@ type PreparedUserMcpProxyRuntime = {
   configServers: RuntimeMcpServer[];
 };
 
-type OwnerCapabilityLeaseState = {
+type TaskCapabilityLeaseState = {
   generation: string;
   capabilityControl: string;
-  holders: Set<OwnerCapabilityLeaseToken>;
+  holders: Set<TaskCapabilityLeaseToken>;
   release: CapabilityRuntimeLease["release"];
 };
 
-type OwnerCapabilityLeaseToken = {
+type TaskCapabilityLeaseToken = {
   ownerId: string;
   conversationId: string;
   projectionTurnId: string;
-  lease: OwnerCapabilityLeaseState;
+  lease: TaskCapabilityLeaseState;
   managed: ManagedProcess | null;
   released: boolean;
 };
 
 type PreparedCapabilityRuntimeLease = {
   capabilityRuntime: PreparedCapabilityRuntime;
-  leaseToken: OwnerCapabilityLeaseToken;
+  leaseToken: TaskCapabilityLeaseToken;
 };
 
 export class AppServerProcessPool {
@@ -796,6 +797,8 @@ export class AppServerProcessPool {
     string,
     UserMcpProxyRuntime
   >();
+  private readonly metadataClients = new Set<CodexJsonRpcClient>();
+  private readonly metadataOperations = new Set<Promise<unknown>>();
   private readonly processCreations = new Map<
     string,
     { ownerId: string; promise: Promise<ManagedProcess> }
@@ -803,13 +806,11 @@ export class AppServerProcessPool {
   private pendingProcessSlots = 0;
   private processCapacityTail: Promise<void> = Promise.resolve();
   private readonly processLifecycleLocks = new Map<string, Promise<void>>();
-  private readonly ownerCapabilityLocks = new Map<string, Promise<void>>();
-  private readonly ownerCapabilityWaiters = new Map<string, Set<() => void>>();
-  private readonly ownerCapabilityLeases = new Map<
+  private readonly taskCapabilityLocks = new Map<string, Promise<void>>();
+  private readonly taskCapabilityLeases = new Map<
     string,
-    OwnerCapabilityLeaseState
+    TaskCapabilityLeaseState
   >();
-  private readonly loadedCapabilityGenerations = new Map<string, string>();
   private readonly activeStartOperations = new Map<string, Promise<void>>();
   private readonly startOperationLocks = new Map<string, Promise<void>>();
   private readonly startOperationStore: StartOperationStore;
@@ -1023,7 +1024,7 @@ export class AppServerProcessPool {
       input.ownerId,
     );
     const startedAt = Date.now();
-    return this.withOwnerCapabilityLock(input.ownerId, () =>
+    return this.withTaskCapabilityLock(input.conversationId, () =>
       this.withProcessLifecycleLock(input.conversationId, async () => {
         let managed: ManagedProcess | undefined;
         try {
@@ -1340,7 +1341,7 @@ export class AppServerProcessPool {
     }) => Promise<void>,
   ): Promise<StartOperationResult> {
     this.assertAcceptingOperations();
-    return this.withOwnerCapabilityLock(input.ownerId, () =>
+    return this.withTaskCapabilityLock(input.conversationId, () =>
       this.withProcessLifecycleLock(input.conversationId, async () => {
         try {
           return await this.startTurnLocked(input, onPrepared);
@@ -1474,11 +1475,11 @@ export class AppServerProcessPool {
       existing.mcpGeneration === mcpGenerationFor(input) &&
       existing.runtimeFingerprint === desiredRuntimeFingerprint;
     let capabilityRuntime: PreparedCapabilityRuntime | null = null;
-    let leaseToken: OwnerCapabilityLeaseToken | null = null;
+    let leaseToken: TaskCapabilityLeaseToken | null = null;
     if (operationKind !== "compact") {
       try {
         const preparedCapability =
-          await this.prepareOwnerCapabilityGeneration(
+          await this.prepareTaskCapabilityGeneration(
             input,
             paths,
             canReuseValidatedProcess,
@@ -1590,12 +1591,6 @@ export class AppServerProcessPool {
         runtimeEnvironment,
         managed.codexThreadId,
       );
-      if (operationKind !== "compact") {
-        this.loadedCapabilityGenerations.set(
-          input.ownerId,
-          input.capabilityGeneration,
-        );
-      }
     } else {
       if (leaseToken) {
         await this.replaceManagedCapabilityLeaseToken(managed, leaseToken);
@@ -2451,7 +2446,7 @@ export class AppServerProcessPool {
       input.conversationId,
       input.ownerId,
     );
-    return this.withOwnerCapabilityLock(input.ownerId, () =>
+    return this.withTaskCapabilityLock(input.conversationId, () =>
       this.withProcessLifecycleLock(input.conversationId, async () => {
         let managed: ManagedProcess | undefined;
         try {
@@ -2523,111 +2518,125 @@ export class AppServerProcessPool {
 
   async forkThread(input: ForkThreadInput): Promise<ForkThreadResult> {
     this.assertAcceptingOperations();
-    this.options.workspaceManager.bindOwner(
-      input.conversationId,
-      input.ownerId,
-    );
-    return this.withOwnerCapabilityLock(input.ownerId, () =>
+    if (input.conversationId === input.sourceConversationId) {
+      throw new CodexProtocolError("fork target must be a different task");
+    }
+    for (const id of [input.conversationId, input.sourceConversationId]) {
+      this.options.workspaceManager.bindOwner(id, input.ownerId);
+    }
+    const source = await this.withProcessLifecycleLock(input.sourceConversationId, async () => {
+      const active = this.processes.get(input.sourceConversationId);
+      if (active && active.client.isHealthy && !active.closing) {
+        return (await active.client.request<ThreadReadResponse>("thread/read", {
+          threadId: input.sourceCodexThreadId, includeTurns: true,
+        })).thread;
+      }
+      return this.withThreadMetadataClient(input.sourceConversationId, input, async (client) =>
+        (await client.request<ThreadReadResponse>("thread/read", {
+          threadId: input.sourceCodexThreadId, includeTurns: true,
+        })).thread,
+      );
+    });
+    if (source.id !== input.sourceCodexThreadId || typeof source.path !== "string") {
+      throw new CodexProtocolError("fork source runtime is invalid");
+    }
+    assertLinkSenseThreadProvider(source, "read");
+    const sourceHome = this.options.workspaceManager.pathsFor(input.sourceConversationId).codexHome;
+    const [canonicalHome, canonicalRollout] = await Promise.all([realpath(sourceHome), realpath(source.path)]);
+    const rolloutRelative = relative(canonicalHome, canonicalRollout);
+    if (!rolloutRelative || rolloutRelative.startsWith(`..${sep}`) || rolloutRelative === ".." || isAbsolute(rolloutRelative)) {
+      throw new CodexProtocolError("fork source path is outside its task");
+    }
+    const turns = source.turns ?? [];
+    const targetIndex = turns.findIndex((turn) => turn.id === input.throughCodexTurnId);
+    if (targetIndex < 0 || !isTerminalTurn(turns[targetIndex]!)) {
+      throw new CodexProtocolError("fork source turn is not terminal");
+    }
+    const expectedTurnIds = turns.slice(0, targetIndex + 1).map((turn) => turn.id);
+    return this.withTaskCapabilityLock(input.conversationId, () =>
       this.withProcessLifecycleLock(input.conversationId, async () => {
-        let managed: ManagedProcess | undefined;
-        try {
-          const recovered = await this.readThreadForAuthorizedRecoveryLocked({
-            conversationId: input.conversationId,
-            projectionTurnId: input.projectionTurnId,
-            ownerId: input.ownerId,
-            expectedRuntimeGeneration: input.expectedRuntimeGeneration,
-            capabilityGeneration: EMPTY_MCP_GENERATION,
-            mcpGeneration: EMPTY_MCP_GENERATION,
-            mcpServers: [],
-            codexThreadId: input.sourceCodexThreadId,
-            runtimePurpose: "control",
-            collaborationMode: "default",
-            capabilities: [],
-            environment: {},
-            model: input.model,
-            reasoningEffort: input.reasoningEffort,
-            modelProvider: input.modelProvider,
-          });
-          managed = recovered.managed;
-          const sourceTurns = recovered.thread.turns ?? [];
-          const targetIndex = sourceTurns.findIndex(
-            (turn) => turn.id === input.throughCodexTurnId,
-          );
-          if (targetIndex < 0) {
-            throw new CodexProtocolError("fork source turn was not found");
+        if (await this.options.workspaceManager.readRuntimeGeneration(input.conversationId) !== input.expectedRuntimeGeneration) {
+          throw new StartOperationRuntimeGenerationMismatchError();
+        }
+        const workspace = this.options.workspaceManager.pathsFor(input.conversationId).workspace;
+        const result = await this.withThreadMetadataClient(input.conversationId, input, async (client) => {
+          const forked = await client.request<ThreadForkResponse>("thread/fork", {
+            threadId: source.id,
+            path: canonicalRollout,
+            lastTurnId: input.throughCodexTurnId,
+            deferGoalContinuation: true,
+            ...linkSenseThreadRuntimeOverrides(input.model, workspace),
+          } satisfies ThreadForkParams);
+          if (!forked.thread.id || forked.thread.id === source.id) {
+            throw new CodexProtocolError("Codex returned an invalid fork thread");
           }
-          if (!isTerminalTurn(sourceTurns[targetIndex]!)) {
-            throw new CodexProtocolError("fork source turn is not terminal");
-          }
-
-          const workspace = this.options.workspaceManager.pathsFor(
-            input.conversationId,
-          ).workspace;
-          const forked = await this.forkManagedThread(
-            managed,
-            input.model,
-            workspace,
-          );
-          const expectedTurnIds = sourceTurns
-            .slice(0, targetIndex + 1)
-            .map((turn) => turn.id);
-          const rollbackCount = sourceTurns.length - targetIndex - 1;
-          const resultingThread =
-            rollbackCount > 0
-              ? (
-                  await managed.client.request<ThreadRollbackResponse>(
-                    "thread/rollback",
-                    {
-                      threadId: managed.codexThreadId!,
-                      numTurns: rollbackCount,
-                    } satisfies ThreadRollbackParams,
-                  )
-                ).thread
-              : forked.thread;
-          if (resultingThread.id !== managed.codexThreadId) {
-            throw new CodexProtocolError(
-              "Codex returned an invalid forked thread",
-            );
-          }
-          assertLinkSenseThreadProvider(
-            resultingThread,
-            rollbackCount > 0 ? "rollback" : "fork",
-          );
-          const resultingTurnIds =
-            resultingThread.turns?.map((turn) => turn.id) ?? [];
-          if (!sameStringSequence(resultingTurnIds, expectedTurnIds)) {
+          assertLinkSenseThreadRuntime(forked, "fork", input.model);
+          const ids = (forked.thread.turns ?? []).map((turn) => turn.id);
+          if (!sameStringSequence(ids, expectedTurnIds)) {
             throw new CodexProtocolError("fork history verification failed");
           }
-
-          managed.activeProjectionTurnId = null;
-          managed.activeCollaborationMode = null;
-          this.syncModelGatewayTurnCorrelation(managed);
-          await this.options.eventSink.alignConversationThread?.(
-            managed.conversationId,
-            managed.codexThreadId,
-          );
-          await managed.client.request<{ cleared: boolean }>(
-            "thread/goal/clear",
-            { threadId: managed.codexThreadId },
-          );
-          managed.activeGoal = null;
-          managed.knownTurnIds = new Set(resultingTurnIds);
-          managed.runtimeFingerprint = null;
-          managed.lastUsedAt = Date.now();
-          return {
-            codexThreadId: managed.codexThreadId!,
-            codexTurnIds: resultingTurnIds,
-          };
-        } finally {
-          if (managed && this.processes.get(input.conversationId) === managed) {
-            managed.starting = false;
-            managed.lastUsedAt = Date.now();
-            await this.releaseManagedCapabilityLeaseIfIdle(managed);
-            this.scheduleIdleClose(managed);
-          }
-        }
+          await client.request("thread/goal/clear", { threadId: forked.thread.id });
+          return { codexThreadId: forked.thread.id, codexTurnIds: ids };
+        });
+        await this.options.eventSink.alignConversationThread?.(input.conversationId, result.codexThreadId);
+        return result;
       }),
     );
+  }
+
+  /** Native metadata operations never resume or replay a turn. */
+  private async withThreadMetadataClient<T>(
+    conversationId: string,
+    input: { ownerId: string; modelProvider?: ForkThreadInput["modelProvider"] },
+    action: (client: CodexJsonRpcClient) => Promise<T>,
+  ): Promise<T> {
+    const operation = this.runThreadMetadataClient(conversationId, input, action);
+    this.metadataOperations.add(operation);
+    try {
+      return await operation;
+    } finally {
+      this.metadataOperations.delete(operation);
+    }
+  }
+
+  private async runThreadMetadataClient<T>(
+    conversationId: string,
+    input: { ownerId: string; modelProvider?: ForkThreadInput["modelProvider"] },
+    action: (client: CodexJsonRpcClient) => Promise<T>,
+  ): Promise<T> {
+    const paths = this.options.workspaceManager.pathsFor(conversationId);
+    const runtimeEnvironment = (await this.options.runtimeEnvironmentForOwner?.(input.ownerId)) ?? {};
+    await this.reserveProcessSlot(this.options.processLimit);
+    let client: CodexJsonRpcClient | undefined;
+    try {
+      client = new CodexJsonRpcClient({
+        command: this.options.command,
+        userHome: paths.home,
+        codexHome: paths.codexHome,
+        logger: this.options.logger,
+        ...(this.options.childProcessFactory ? { childProcessFactory: this.options.childProcessFactory } : {}),
+        ...(this.options.codexRequestTimeoutMs !== undefined ? { requestTimeoutMs: this.options.codexRequestTimeoutMs } : {}),
+        ...(this.options.codexProcessIdentity ? { processIdentity: this.options.codexProcessIdentity } : {}),
+        runtimeEnvironment,
+        configOverrides: [
+          ...this.globalFeatureOverrides,
+          ...(input.modelProvider ? linkSenseModelProviderConfigOverrides({ baseUrl: this.options.modelGateway.baseUrl, protocolMode: input.modelProvider.protocolMode }) : []),
+          "features.plugins=false",
+          "features.memories=false",
+        ],
+      });
+      this.metadataClients.add(client);
+      await client.initialize();
+      return await action(client);
+    } finally {
+      // Retain failed-to-close children and their reserved capacity so a later
+      // shutdown can reap them instead of losing track of a live process.
+      if (client) {
+        await client.close();
+        this.metadataClients.delete(client);
+      }
+      await this.releaseReservedProcessSlot();
+    }
   }
 
   async getGoal(input: GoalRuntimeInput): Promise<ThreadGoal | null> {
@@ -2700,7 +2709,7 @@ export class AppServerProcessPool {
       input.conversationId,
       input.ownerId,
     );
-    return this.withOwnerCapabilityLock(input.ownerId, () =>
+    return this.withTaskCapabilityLock(input.conversationId, () =>
       this.withProcessLifecycleLock(input.conversationId, async () => {
         let managed: ManagedProcess | undefined;
         try {
@@ -2752,7 +2761,6 @@ export class AppServerProcessPool {
         throw new CodexProtocolError("recovered turn is not durably terminal");
       }
       await this.releaseManagedCapabilityLeaseToken(managed);
-      this.notifyOwnerCapabilityWaiters(managed.ownerId);
       this.scheduleIdleClose(managed);
     });
   }
@@ -2825,7 +2833,7 @@ export class AppServerProcessPool {
       input.conversationId,
       input.ownerId,
     );
-    return this.withOwnerCapabilityLock(input.ownerId, () =>
+    return this.withTaskCapabilityLock(input.conversationId, () =>
       this.withProcessLifecycleLock(input.conversationId, async () => {
         let managed: ManagedProcess | undefined;
         let usedAuthorizedRecovery = false;
@@ -3309,7 +3317,7 @@ export class AppServerProcessPool {
         input.operationKind !== "compact" &&
         input.runtimePurpose !== "control"
       ) {
-        preparedCapability = await this.prepareOwnerCapabilityGeneration(
+        preparedCapability = await this.prepareTaskCapabilityGeneration(
           recoveryStartInput,
           paths,
         );
@@ -3416,15 +3424,6 @@ export class AppServerProcessPool {
           runtimeEnvironment,
           managed.codexThreadId,
         );
-        if (
-          input.operationKind !== "compact" &&
-          input.runtimePurpose !== "control"
-        ) {
-          this.loadedCapabilityGenerations.set(
-            input.ownerId,
-            input.capabilityGeneration,
-          );
-        }
       } else {
         if (leaseToken) {
           await this.replaceManagedCapabilityLeaseToken(managed, leaseToken);
@@ -3648,55 +3647,22 @@ export class AppServerProcessPool {
 
   async resetOwnerMemories(ownerId: string): Promise<void> {
     this.assertAcceptingOperations();
-    const conversationIds = [...this.processes.values()]
-      .filter((managed) => managed.ownerId === ownerId)
-      .map((managed) => managed.conversationId);
-    for (const conversationId of conversationIds) {
-      let reset = false;
+    const ids = new Set([
+      ...await this.options.workspaceManager.listConversationIds(),
+      ...this.processes.keys(),
+    ]);
+    for (const conversationId of ids) {
+      if (this.options.workspaceManager.ownerFor(conversationId) !== ownerId) continue;
       await this.withProcessLifecycleLock(conversationId, async () => {
         const managed = this.processes.get(conversationId);
-        if (
-          !managed ||
-          managed.ownerId !== ownerId ||
-          managed.closing ||
-          !managed.client.isHealthy
-        ) {
-          return;
+        if (managed && !managed.closing && managed.client.isHealthy) {
+          await managed.client.request("memory/reset", undefined);
+        } else if (await this.options.workspaceManager.readRuntimeGeneration(conversationId)) {
+          await this.withThreadMetadataClient(conversationId, { ownerId }, (client) =>
+            client.request("memory/reset", undefined),
+          );
         }
-        await managed.client.request("memory/reset", undefined);
-        reset = true;
       });
-      if (reset) return;
-    }
-
-    const owner = await this.options.workspaceManager.ensureOwner(ownerId);
-    const runtimeEnvironment =
-      (await this.options.runtimeEnvironmentForOwner?.(ownerId)) ?? {};
-    const client = new CodexJsonRpcClient({
-      command: this.options.command,
-      userHome: owner.home,
-      codexHome: owner.codexHome,
-      logger: this.options.logger,
-      ...(this.options.childProcessFactory
-        ? { childProcessFactory: this.options.childProcessFactory }
-        : {}),
-      ...(this.options.codexRequestTimeoutMs !== undefined
-        ? { requestTimeoutMs: this.options.codexRequestTimeoutMs }
-        : {}),
-      configOverrides: [
-        ...this.globalFeatureOverrides,
-        ...memoryConfigOverrides(owner.personalization),
-      ],
-      runtimeEnvironment,
-      ...(this.options.codexProcessIdentity
-        ? { processIdentity: this.options.codexProcessIdentity }
-        : {}),
-    });
-    try {
-      await client.initialize();
-      await client.request("memory/reset", undefined);
-    } finally {
-      await client.close().catch(() => undefined);
     }
   }
 
@@ -3705,6 +3671,7 @@ export class AppServerProcessPool {
     this.processExitRetryAbort.abort();
     for (;;) {
       const pendingOperations = [
+        ...this.metadataOperations,
         ...this.activeStartOperations.values(),
         ...this.activeSteerOperations.values(),
         ...[...this.processCreations.values()].map(({ promise }) => promise),
@@ -3712,6 +3679,11 @@ export class AppServerProcessPool {
       if (pendingOperations.length > 0) {
         await Promise.allSettled(pendingOperations);
         await Promise.resolve();
+      }
+      for (const client of this.metadataClients) {
+        await client.close();
+        this.metadataClients.delete(client);
+        await this.releaseReservedProcessSlot();
       }
       const managedProcesses = [...this.processes.values()];
       await Promise.all(
@@ -4253,7 +4225,7 @@ export class AppServerProcessPool {
       state.requestFingerprint !== undefined &&
       state.requestFingerprint === startRequestFingerprint(recoveryInput)
     ) {
-      return this.withOwnerCapabilityLock(recoveryInput.ownerId, () =>
+      return this.withTaskCapabilityLock(recoveryInput.conversationId, () =>
         this.withProcessLifecycleLock(state.conversationId, async () => {
           let managed: ManagedProcess | undefined;
           try {
@@ -4568,44 +4540,44 @@ export class AppServerProcessPool {
     }
   }
 
-  private async withOwnerCapabilityLock<T>(
-    ownerId: string,
+  private async withTaskCapabilityLock<T>(
+    conversationId: string,
     operation: () => Promise<T>,
   ): Promise<T> {
     const previous =
-      this.ownerCapabilityLocks.get(ownerId) ?? Promise.resolve();
+      this.taskCapabilityLocks.get(conversationId) ?? Promise.resolve();
     let release: () => void = () => undefined;
     const current = new Promise<void>((resolve) => {
       release = resolve;
     });
     const tail = previous.then(() => current);
-    this.ownerCapabilityLocks.set(ownerId, tail);
+    this.taskCapabilityLocks.set(conversationId, tail);
     await previous;
     try {
       return await operation();
     } finally {
       release();
-      if (this.ownerCapabilityLocks.get(ownerId) === tail) {
-        this.ownerCapabilityLocks.delete(ownerId);
+      if (this.taskCapabilityLocks.get(conversationId) === tail) {
+        this.taskCapabilityLocks.delete(conversationId);
       }
     }
   }
 
-  private async retainOwnerCapabilityLease(input: {
+  private async retainTaskCapabilityLease(input: {
     ownerId: string;
     conversationId: string;
     projectionTurnId: string;
     controlRoot: string;
     generation: string;
-  }): Promise<OwnerCapabilityLeaseToken> {
-    let lease = this.ownerCapabilityLeases.get(input.ownerId);
+  }): Promise<TaskCapabilityLeaseToken> {
+    let lease = this.taskCapabilityLeases.get(input.conversationId);
     if (lease) {
       if (
         lease.generation !== input.generation ||
         lease.capabilityControl !== join(input.controlRoot, "capabilities")
       ) {
         throw new CodexProtocolError(
-          "owner capability generation is still in use",
+          "task capability generation is still in use",
         );
       }
     } else {
@@ -4621,9 +4593,9 @@ export class AppServerProcessPool {
         holders: new Set(),
         release: acquired.release,
       };
-      this.ownerCapabilityLeases.set(input.ownerId, lease);
+      this.taskCapabilityLeases.set(input.conversationId, lease);
     }
-    const token: OwnerCapabilityLeaseToken = {
+    const token: TaskCapabilityLeaseToken = {
       ownerId: input.ownerId,
       conversationId: input.conversationId,
       projectionTurnId: input.projectionTurnId,
@@ -4635,23 +4607,23 @@ export class AppServerProcessPool {
     return token;
   }
 
-  private async releaseOwnerCapabilityLeaseToken(
-    token: OwnerCapabilityLeaseToken,
+  private async releaseTaskCapabilityLeaseToken(
+    token: TaskCapabilityLeaseToken,
   ): Promise<void> {
     if (token.released) return;
     token.released = true;
     token.managed = null;
     const { lease } = token;
     if (!lease.holders.delete(token) || lease.holders.size > 0) return;
-    if (this.ownerCapabilityLeases.get(token.ownerId) === lease) {
-      this.ownerCapabilityLeases.delete(token.ownerId);
+    if (this.taskCapabilityLeases.get(token.conversationId) === lease) {
+      this.taskCapabilityLeases.delete(token.conversationId);
     }
     await lease.release();
   }
 
   private async replaceManagedCapabilityLeaseToken(
     managed: ManagedProcess,
-    token: OwnerCapabilityLeaseToken,
+    token: TaskCapabilityLeaseToken,
   ): Promise<void> {
     const previous = managed.capabilityLeaseToken;
     if (previous === token) return;
@@ -4659,7 +4631,7 @@ export class AppServerProcessPool {
     token.managed = managed;
     if (previous) {
       previous.managed = null;
-      await this.releaseOwnerCapabilityLeaseToken(previous);
+      await this.releaseTaskCapabilityLeaseToken(previous);
     }
   }
 
@@ -4670,14 +4642,14 @@ export class AppServerProcessPool {
     if (!token) return;
     managed.capabilityLeaseToken = null;
     token.managed = null;
-    await this.releaseOwnerCapabilityLeaseToken(token);
+    await this.releaseTaskCapabilityLeaseToken(token);
   }
 
   private async releaseCapabilityLeaseTokenIfDetached(
-    token: OwnerCapabilityLeaseToken,
+    token: TaskCapabilityLeaseToken,
   ): Promise<void> {
     if (token.managed?.capabilityLeaseToken === token) return;
-    await this.releaseOwnerCapabilityLeaseToken(token);
+    await this.releaseTaskCapabilityLeaseToken(token);
   }
 
   private async releaseManagedCapabilityLeaseIfIdle(
@@ -4695,55 +4667,26 @@ export class AppServerProcessPool {
     if (managed) await this.releaseManagedCapabilityLeaseToken(managed);
   }
 
-  private async prepareOwnerCapabilityGeneration(
+  private async prepareTaskCapabilityGeneration(
     input: StartTurnInput,
     paths: EnsuredConversationPaths,
     reuseVerified = false,
   ): Promise<PreparedCapabilityRuntimeLease> {
     const generationAlreadyLoaded =
-      this.loadedCapabilityGenerations.get(input.ownerId) ===
+      this.processes.get(input.conversationId)?.capabilityGeneration ===
       input.capabilityGeneration;
 
     if (!generationAlreadyLoaded) {
-      await this.waitForOwnerProcessesToBecomeIdle(
-        input.ownerId,
-        input.conversationId,
-      );
-      for (const managed of [...this.processes.values()].filter(
-        (candidate) => candidate.ownerId === input.ownerId,
-      )) {
-        if (
-          managed.activeTurnId ||
-          managed.uncertainStartOperationId ||
-          managed.capabilityLeaseToken ||
-          (managed.starting && managed.conversationId !== input.conversationId)
-        ) {
-          throw new CodexProtocolError(
-            "owner capability generation is still in use",
-          );
+      const managed = this.processes.get(input.conversationId);
+      if (managed) {
+        if (managed.activeTurnId || managed.uncertainStartOperationId || managed.capabilityLeaseToken || hasContinuingGoal(managed)) {
+          throw new CodexProtocolError("task capability generation is still in use");
         }
-        if (managed.conversationId === input.conversationId) {
-          await this.closeManagedProcess(managed);
-        } else {
-          await this.withProcessLifecycleLock(
-            managed.conversationId,
-            async () => {
-              if (
-                this.processes.get(managed.conversationId) === managed &&
-                !managed.activeTurnId &&
-                !managed.uncertainStartOperationId &&
-                !managed.capabilityLeaseToken &&
-                !managed.starting
-              ) {
-                await this.closeManagedProcess(managed);
-              }
-            },
-          );
-        }
+        await this.closeManagedProcess(managed);
       }
     }
 
-    const leaseToken = await this.retainOwnerCapabilityLease({
+    const leaseToken = await this.retainTaskCapabilityLease({
       ownerId: input.ownerId,
       conversationId: input.conversationId,
       projectionTurnId: eventProjectionTurnIdFor(input),
@@ -4762,13 +4705,13 @@ export class AppServerProcessPool {
         });
       return { capabilityRuntime, leaseToken };
     } catch (error) {
-      await this.releaseOwnerCapabilityLeaseToken(leaseToken);
+      await this.releaseTaskCapabilityLeaseToken(leaseToken);
       throw error;
     }
   }
 
   /**
-   * Codex owns native plugin state under the shared owner CODEX_HOME. Verify
+   * Codex owns native plugin state under the task CODEX_HOME. Verify
    * that state immediately before every real app-server creation while the
    * cross-process capability lease is held. Healthy process reuse does not
    * need another check, and the manager's exact-match path is read-only.
@@ -4797,45 +4740,6 @@ export class AppServerProcessPool {
     });
   }
 
-  private async waitForOwnerProcessesToBecomeIdle(
-    ownerId: string,
-    currentConversationId: string,
-  ): Promise<void> {
-    while (
-      [...this.processes.values()].some(
-        (managed) =>
-          managed.ownerId === ownerId &&
-          (managed.activeTurnId !== null ||
-            hasContinuingGoal(managed) ||
-            managed.uncertainStartOperationId !== null ||
-            managed.capabilityLeaseToken !== null ||
-            (managed.starting &&
-              managed.conversationId !== currentConversationId)),
-      )
-    ) {
-      await new Promise<void>((resolve) => {
-        const waiters =
-          this.ownerCapabilityWaiters.get(ownerId) ?? new Set<() => void>();
-        const finish = () => {
-          clearTimeout(timer);
-          waiters.delete(finish);
-          resolve();
-        };
-        const timer = setTimeout(finish, 1_000);
-        timer.unref();
-        waiters.add(finish);
-        this.ownerCapabilityWaiters.set(ownerId, waiters);
-      });
-    }
-  }
-
-  private notifyOwnerCapabilityWaiters(ownerId: string): void {
-    const waiters = this.ownerCapabilityWaiters.get(ownerId);
-    if (!waiters) return;
-    this.ownerCapabilityWaiters.delete(ownerId);
-    for (const resolve of waiters) resolve();
-  }
-
   private async getOrCreate(
     input: StartTurnInput,
     capabilityRuntime: PreparedCapabilityRuntime | null,
@@ -4847,7 +4751,7 @@ export class AppServerProcessPool {
       reservedProcessSlot: boolean;
       allowReplacementThread?: boolean;
       resumeModel?: string;
-      capabilityLeaseToken: OwnerCapabilityLeaseToken | null;
+      capabilityLeaseToken: TaskCapabilityLeaseToken | null;
     },
   ): Promise<ManagedProcess> {
     this.assertAcceptingOperations();
@@ -4903,7 +4807,7 @@ export class AppServerProcessPool {
       reservedProcessSlot: boolean;
       allowReplacementThread?: boolean;
       resumeModel?: string;
-      capabilityLeaseToken: OwnerCapabilityLeaseToken | null;
+      capabilityLeaseToken: TaskCapabilityLeaseToken | null;
     },
   ): Promise<ManagedProcess> {
     return this.withReservedProcessSlot(async (commit) => {
@@ -4989,7 +4893,7 @@ export class AppServerProcessPool {
             ...preparedMcpProxy.childEnvironment,
             [modelGatewayEnvironmentKey]: modelGatewayLease.token,
           },
-          // Keep task-scoped runtime settings out of the owner-shared
+          // Keep task-scoped runtime settings out of the task-scoped
           // config.toml. Codex alone persists native plugin selections there.
           configOverrides: [
             ...this.globalFeatureOverrides,
@@ -5166,7 +5070,6 @@ export class AppServerProcessPool {
           if (wasCurrent) {
             this.processes.delete(input.conversationId);
           }
-          this.notifyOwnerCapabilityWaiters(managed.ownerId);
           if (!closeWasExpected) {
             void this.recoverExitedManagedProcess(managed).catch(() =>
               this.options.logger.error(
@@ -5794,7 +5697,6 @@ export class AppServerProcessPool {
         this.syncModelGatewayTurnCorrelation(managed);
         managed.lastUsedAt = Date.now();
         managed.browserCleanupPending = !goalWillContinue;
-        this.notifyOwnerCapabilityWaiters(managed.ownerId);
         if (managed.browserCleanupPending) {
           await this.cleanupBrowserSession(managed);
           managed.browserCleanupPending = false;
@@ -6526,7 +6428,6 @@ export class AppServerProcessPool {
       return;
     }
     managed.starting = false;
-    this.notifyOwnerCapabilityWaiters(managed.ownerId);
     this.scheduleIdleClose(managed);
   }
 
@@ -6811,7 +6712,6 @@ export class AppServerProcessPool {
         managed.conversationId,
         managed.mcpProxyRuntimeId,
       );
-      this.notifyOwnerCapabilityWaiters(managed.ownerId);
       if (!browserAlreadyClean) await this.cleanupBrowserSession(managed);
       managed.browserCleanupPending = false;
       await this.options.eventSink.flushConversation?.(
@@ -6841,11 +6741,11 @@ export class AppServerProcessPool {
     if (managed.capabilityLeaseToken === token) {
       managed.capabilityLeaseToken = null;
     }
-    await this.releaseOwnerCapabilityLeaseToken(token);
+    await this.releaseTaskCapabilityLeaseToken(token);
   }
 
   private async reportProtectedProcessExitUntilConfirmed(
-    token: OwnerCapabilityLeaseToken,
+    token: TaskCapabilityLeaseToken,
   ): Promise<boolean> {
     let attempt = 0;
     while (!this.processExitRetryAbort.signal.aborted) {

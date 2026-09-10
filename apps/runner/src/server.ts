@@ -600,6 +600,7 @@ export const goalClearBodySchema = z.strictObject({
 });
 export const forkThreadBodySchema = z.strictObject({
   ...goalClearBodySchema.omit({ codexThreadId: true }).shape,
+  sourceConversationId: uuid,
   sourceCodexThreadId: z.string().min(1).max(240),
   throughCodexTurnId: z.string().min(1).max(240),
 });
@@ -1895,6 +1896,7 @@ export function buildRunnerServer(
           conversationId,
           ownerId: body.ownerId,
           expectedRuntimeGeneration: body.expectedRuntimeGeneration,
+          sourceConversationId: body.sourceConversationId,
           sourceCodexThreadId: body.sourceCodexThreadId,
           throughCodexTurnId: body.throughCodexTurnId,
           projectionTurnId: body.projectionTurnId,
@@ -2462,7 +2464,7 @@ function resolveHealthRoots(config: RunnerConfig): {
     home,
     control,
     workspace: path.join(home, "workspaces"),
-    codexHome: path.join(home, ".codex"),
+    codexHome: path.join(home, "task-homes"),
   };
 }
 

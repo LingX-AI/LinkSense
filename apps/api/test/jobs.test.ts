@@ -362,6 +362,7 @@ describe("maintenance cleanup failures", () => {
   })
 
   it("clears the durable row only after runner cleanup succeeds", async () => {
+    const removeCapabilityProjection = vi.fn(async () => undefined)
     const cleanupRuntime = vi.fn().mockResolvedValue({ success: true })
     const deleteMany = vi.fn().mockResolvedValue({ count: 1 })
     const outbox = runtimeCleanupOutboxRow()
@@ -372,6 +373,7 @@ describe("maintenance cleanup failures", () => {
 
     await expect(
       executeRuntimeCleanupJob({
+        removeCapabilityProjection,
         runner: { cleanupRuntime },
         prisma: {
           runtimeCleanupOutbox: { findUnique, updateMany, deleteMany } as never,
@@ -381,6 +383,8 @@ describe("maintenance cleanup failures", () => {
         outboxId: outbox.id,
       }),
     ).resolves.toEqual({ cleaned: true })
+    expect(removeCapabilityProjection.mock.invocationCallOrder[0]).toBeGreaterThan(cleanupRuntime.mock.invocationCallOrder[0]!)
+    expect(deleteMany.mock.invocationCallOrder[0]).toBeGreaterThan(removeCapabilityProjection.mock.invocationCallOrder[0]!)
     expect(deleteMany).toHaveBeenCalledWith({
       where: {
         id: outbox.id,
@@ -396,6 +400,20 @@ describe("maintenance cleanup failures", () => {
     )
   })
 
+  it("retains a retryable cleanup if API projection removal fails after the runtime is gone", async () => {
+    const outbox = runtimeCleanupOutboxRow({ status: "queued" })
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const deleteMany = vi.fn()
+    await expect(executeRuntimeCleanupJob({
+      runner: { cleanupRuntime: vi.fn().mockResolvedValue({ success: true }) },
+      removeCapabilityProjection: vi.fn().mockRejectedValue(Object.assign(new Error("private path"), { code: "EACCES" })),
+      prisma: { runtimeCleanupOutbox: { findUnique: vi.fn().mockResolvedValue(outbox), updateMany, deleteMany } as never },
+      ownerId: outbox.ownerId, conversationId: outbox.conversationId, outboxId: outbox.id,
+    })).rejects.toThrow("CLEANUP_PERMISSION_DENIED")
+    expect(deleteMany).not.toHaveBeenCalled()
+    expect(updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "pending", stage: "delete_control", lastErrorCode: "CLEANUP_PERMISSION_DENIED" }) }))
+  })
+
   it("discards a runtime cleanup whose queue payload does not match its durable owner binding", async () => {
     const cleanupRuntime = vi.fn().mockResolvedValue({ success: true })
     const outbox = runtimeCleanupOutboxRow()
@@ -403,6 +421,7 @@ describe("maintenance cleanup failures", () => {
 
     await expect(
       executeRuntimeCleanupJob({
+        removeCapabilityProjection: vi.fn(async () => undefined),
         runner: { cleanupRuntime },
         prisma: {
           runtimeCleanupOutbox: { findUnique } as never,
@@ -436,6 +455,7 @@ describe("maintenance cleanup failures", () => {
 
     await expect(
       executeRuntimeCleanupJob({
+        removeCapabilityProjection: vi.fn(async () => undefined),
         runner: { cleanupRuntime },
         prisma: {
           runtimeCleanupOutbox: { findUnique, updateMany } as never,

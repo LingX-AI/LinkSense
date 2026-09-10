@@ -100,7 +100,6 @@ export type EnsuredConversationPaths = ConversationPaths & {
 export type OwnerPaths = {
   home: string
   control: string
-  codexHome: string
 }
 
 export type PersonalizationSnapshot = PersonalizationSettings & {
@@ -199,13 +198,16 @@ export class WorkspaceManager {
       throw new WorkspaceBoundaryError("invalid conversation id")
     }
     const ownerId = this.ownerFor(conversationId)
-    const { home, control, codexHome } = this.ownerPathsFor(ownerId)
+    const owner = this.ownerPathsFor(ownerId)
+    const workspace = path.join(owner.home, "workspaces", conversationId)
+    const home = path.join(owner.home, "task-homes", conversationId)
+    const control = path.join(owner.control, "workspaces", conversationId)
     return {
       home,
       control,
-      taskControl: path.join(control, "workspaces", conversationId),
-      workspace: path.join(home, "workspaces", conversationId),
-      codexHome,
+      taskControl: control,
+      workspace,
+      codexHome: path.join(home, ".codex"),
     }
   }
 
@@ -217,16 +219,12 @@ export class WorkspaceManager {
     const control =
       this.options.fixedControlRoot ??
       path.join(this.userDataRoot, ownerId, "control")
-    return {
-      home,
-      control,
-      codexHome: path.join(home, ".codex"),
-    }
+    return { home, control }
   }
 
   async ensureOwner(ownerId: string): Promise<EnsuredOwnerPaths> {
     const paths = this.ownerPathsFor(ownerId)
-    await this.ensureOwnerDirectories(paths)
+    await this.ensureOwnerStorage(paths)
     const personalization = await this.withPersonalizationOperation(
       ownerId,
       async () => this.readOrCreatePersonalization(paths),
@@ -246,7 +244,7 @@ export class WorkspaceManager {
   ): Promise<PersonalizationSnapshot> {
     const update = updatePersonalizationSettingsSchema.parse(input)
     const paths = this.ownerPathsFor(ownerId)
-    await this.ensureOwnerDirectories(paths)
+    await this.ensureOwnerStorage(paths)
     return this.withPersonalizationOperation(ownerId, async () => {
       const current = await this.readOrCreatePersonalization(paths)
       const next = personalizationStateSchema.parse({
@@ -258,7 +256,6 @@ export class WorkspaceManager {
           update.memories_enabled ?? current.memories_enabled,
       })
       await this.writePersonalizationState(paths, next)
-      await this.writeGlobalAgentsFile(paths, next)
       return projectPersonalizationSnapshot(next)
     })
   }
@@ -269,12 +266,23 @@ export class WorkspaceManager {
   ): Promise<EnsuredConversationPaths> {
     const paths = this.pathsFor(conversationId)
     const ownerId = this.ownerFor(conversationId)
-    await this.ensureOwner(ownerId)
+    const owner = await this.ensureOwner(ownerId)
+    await assertTaskDirectoryParents(owner.home, paths.home)
+    await assertTaskDirectoryParents(owner.control, paths.taskControl)
     await ensureSupervisorDirectory(
-      path.join(paths.control, "workspaces"),
+      path.dirname(paths.taskControl),
       0o700,
     )
     await ensureSupervisorDirectory(paths.taskControl, 0o700)
+    await mkdir(path.dirname(paths.home), { recursive: true, mode: 0o770 })
+    await this.ensureTaskDirectories(paths)
+    await this.writeGlobalAgentsFile(paths, owner.personalization)
+    // The owner mount is read-only. Each task discovers only its own API
+    // publication, while all writable Codex state lives in its separate task HOME.
+    await ensureDirectoryLink(
+      path.join(paths.home, ".agents"),
+      path.join(owner.home, ".agents", "tasks", conversationId),
+    )
     await Promise.all([
       mkdir(path.join(paths.workspace, "attachments"), {
         recursive: true,
@@ -544,7 +552,12 @@ export class WorkspaceManager {
 
   async removeConversation(conversationId: string): Promise<void> {
     const paths = this.pathsFor(conversationId)
+    const owner = this.ownerPathsFor(this.ownerFor(conversationId))
+    await assertTaskDirectoryParents(owner.home, paths.home)
+    await assertTaskDirectoryParents(owner.home, paths.workspace)
+    await assertTaskDirectoryParents(owner.control, paths.taskControl)
     await removeConversationRuntimeDirectories({
+      home: paths.home,
       workspace: paths.workspace,
       taskControl: paths.taskControl,
       ...(this.options.directoryCleanupIdentity
@@ -607,7 +620,19 @@ export class WorkspaceManager {
     }
   }
 
-  private async ensureOwnerDirectories(paths: OwnerPaths): Promise<void> {
+  private async ensureOwnerStorage(paths: OwnerPaths): Promise<void> {
+    await mkdir(paths.home, { recursive: true, mode: 0o770 })
+    await setManagedDirectoryMode(paths.home, 0o770, this.options.directoryCleanupIdentity)
+    await this.ensureTaskDirectoryOwner(paths.home)
+    await ensureSupervisorDirectory(paths.control, 0o700)
+    const homes = path.join(paths.home, "task-homes")
+    await assertTaskDirectoryParents(paths.home, homes)
+    await mkdir(homes, { recursive: true, mode: 0o770 })
+    await setManagedDirectoryMode(homes, 0o770, this.options.directoryCleanupIdentity)
+    await this.ensureTaskDirectoryOwner(homes)
+  }
+
+  private async ensureTaskDirectories(paths: ConversationPaths): Promise<void> {
     await Promise.all([
       mkdir(paths.home, { recursive: true, mode: 0o770 }),
       mkdir(paths.control, { recursive: true, mode: 0o700 }),
@@ -617,6 +642,7 @@ export class WorkspaceManager {
       0o770,
       this.options.directoryCleanupIdentity,
     )
+    await this.ensureTaskDirectoryOwner(paths.home)
     await ensureSupervisorDirectory(paths.control, 0o700)
     await mkdir(paths.codexHome, { recursive: true, mode: 0o770 })
     await setManagedDirectoryMode(
@@ -624,6 +650,7 @@ export class WorkspaceManager {
       0o770,
       this.options.directoryCleanupIdentity,
     )
+    await this.ensureTaskDirectoryOwner(paths.codexHome)
     await mkdir(path.join(paths.codexHome, "logs"), {
       recursive: true,
       mode: 0o770,
@@ -633,6 +660,7 @@ export class WorkspaceManager {
       0o770,
       this.options.directoryCleanupIdentity,
     )
+    await this.ensureTaskDirectoryOwner(path.join(paths.codexHome, "logs"))
     const managedCodexFileIdentity =
       this.options.managedCodexFileIdentity
     if (managedCodexFileIdentity) {
@@ -673,7 +701,6 @@ export class WorkspaceManager {
       const state = personalizationStateSchema.parse(
         JSON.parse(await readFile(statePath, "utf8")),
       )
-      await this.writeGlobalAgentsFile(paths, state)
       return projectPersonalizationSnapshot(state)
     } catch (error) {
       if (!isNodeError(error) || error.code !== "ENOENT") throw error
@@ -686,7 +713,6 @@ export class WorkspaceManager {
       memories_enabled: true,
     })
     await this.writePersonalizationState(paths, state)
-    await this.writeGlobalAgentsFile(paths, state)
     return projectPersonalizationSnapshot(state)
   }
 
@@ -716,14 +742,28 @@ export class WorkspaceManager {
   }
 
   private async writeGlobalAgentsFile(
-    paths: OwnerPaths,
-    state: z.infer<typeof personalizationStateSchema>,
+    paths: ConversationPaths,
+    state: PersonalizationSnapshot,
   ): Promise<void> {
     const targetPath = path.join(paths.codexHome, globalAgentsFileName)
     await this.writeCodexConfig(
       targetPath,
       renderGlobalAgentsFile(state),
     )
+  }
+
+  private async ensureTaskDirectoryOwner(directory: string): Promise<void> {
+    const identity = this.options.managedCodexFileIdentity
+    if (!identity) return
+    const info = await lstat(directory)
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+      throw new WorkspaceBoundaryError("task runtime directory boundary is invalid")
+    }
+    if (info.uid === identity.uid && info.gid === identity.gid) return
+    if (!isSupervisorOwned(info)) {
+      throw new WorkspaceBoundaryError("task runtime directory owner is invalid")
+    }
+    await chown(directory, identity.uid, identity.gid)
   }
 
   private async withPersonalizationOperation<T>(
@@ -866,7 +906,7 @@ function renderAgentsFile(
 }
 
 function renderGlobalAgentsFile(
-  state: z.infer<typeof personalizationStateSchema>,
+  state: PersonalizationSnapshot,
 ): string {
   const instructions =
     state.custom_instructions.length > 0
@@ -888,6 +928,26 @@ function projectPersonalizationSnapshot(
     revision: state.revision,
     custom_instructions: state.custom_instructions,
     memories_enabled: state.memories_enabled,
+  }
+}
+
+async function assertTaskDirectoryParents(root: string, target: string): Promise<void> {
+  const relative = path.relative(root, target)
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new WorkspaceBoundaryError("task runtime escapes its owner root")
+  }
+  let current = root
+  for (const segment of ["", ...relative.split(path.sep).slice(0, -1)]) {
+    current = path.join(current, segment)
+    try {
+      const info = await lstat(current)
+      if (!info.isDirectory() || info.isSymbolicLink()) {
+        throw new WorkspaceBoundaryError("task runtime parent boundary is invalid")
+      }
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") return
+      throw error
+    }
   }
 }
 

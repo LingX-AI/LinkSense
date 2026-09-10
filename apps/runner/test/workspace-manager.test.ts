@@ -241,7 +241,35 @@ describe("workspace filesystem helpers", () => {
 })
 
 describe("WorkspaceManager", () => {
-  it("shares one user HOME and CODEX_HOME while keeping task workspaces isolated", async () => {
+  it("rejects a substituted task-home parent during preparation and cleanup", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    const owner = await manager.ensureOwner(ownerA)
+    const external = path.join(root, "outside")
+    await mkdir(external)
+    await writeFile(path.join(external, "keep"), "untouched")
+    await rm(path.join(owner.home, "task-homes"), { recursive: true })
+    await symlink(external, path.join(owner.home, "task-homes"))
+    await expect(manager.ensureConversation(taskA, "current")).rejects.toBeInstanceOf(WorkspaceBoundaryError)
+    await expect(manager.removeConversation(taskA)).rejects.toBeInstanceOf(WorkspaceBoundaryError)
+    expect(await readdir(external)).toEqual(["keep"])
+    expect(await readFile(path.join(external, "keep"), "utf8")).toBe("untouched")
+  })
+
+  it("never reads or repairs a legacy shared Codex directory when preparing a task", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    const owner = await manager.ensureOwner(ownerA)
+    const legacy = path.join(owner.home, ".codex")
+    await writeFile(legacy, "deliberately invalid legacy runtime")
+    const task = await manager.ensureConversation(taskA, "current")
+    expect((await lstat(task.codexHome)).isDirectory()).toBe(true)
+    expect(await readFile(legacy, "utf8")).toBe("deliberately invalid legacy runtime")
+  })
+
+  it("isolates HOME, CODEX_HOME and capability publication for every task of the same user", async () => {
     const root = await tempRoot()
     const manager = new WorkspaceManager(root)
     manager.bindOwner(taskA, ownerA)
@@ -255,13 +283,13 @@ describe("WorkspaceManager", () => {
       manager.ensureConversation(otherTask, "current"),
     ])
 
-    expect(first.home).toBe(path.join(root, ownerA, "home"))
+    expect(first.home).toBe(path.join(root, ownerA, "home", "task-homes", taskA))
     expect(first.codexHome).toBe(path.join(first.home, ".codex"))
-    expect(second.home).toBe(first.home)
-    expect(second.codexHome).toBe(first.codexHome)
+    expect(second.home).not.toBe(first.home)
+    expect(second.codexHome).not.toBe(first.codexHome)
     expect(second.workspace).not.toBe(first.workspace)
     expect(second.taskControl).not.toBe(first.taskControl)
-    expect(first.workspace).toBe(path.join(first.home, "workspaces", taskA))
+    expect(first.workspace).toBe(path.join(root, ownerA, "home", "workspaces", taskA))
     expect(first.taskControl).toBe(
       path.join(root, ownerA, "control", "workspaces", taskA),
     )
@@ -302,6 +330,7 @@ describe("WorkspaceManager", () => {
     const manager = new WorkspaceManager(root)
     manager.bindOwner(taskA, ownerA)
 
+    await mkdir(path.join(root, ownerA, "home", ".agents", "tasks", taskA), { recursive: true })
     const paths = await manager.ensureConversation(taskA, "current")
     const skillsLink = path.join(paths.workspace, "skills")
     const skillsRoot = path.join(paths.home, ".agents", "skills")
@@ -391,8 +420,10 @@ describe("WorkspaceManager", () => {
       memories_enabled: false,
     })
     const ownerAPaths = manager.ownerPathsFor(ownerA)
+    manager.bindOwner(taskA, ownerA)
+    const taskAPaths = await manager.ensureConversation(taskA, "current")
     const globalInstructions = await readFile(
-      path.join(ownerAPaths.codexHome, "AGENTS.md"),
+      path.join(taskAPaths.codexHome, "AGENTS.md"),
       "utf8",
     )
     expect(globalInstructions).toContain("请优先使用中文，并运行相关测试。")
@@ -410,9 +441,11 @@ describe("WorkspaceManager", () => {
       custom_instructions: "",
       memories_enabled: true,
     })
+    manager.bindOwner(taskB, ownerB)
+    const taskBPaths = await manager.ensureConversation(taskB, "current")
     expect(
       await readFile(
-        path.join(manager.ownerPathsFor(ownerB).codexHome, "AGENTS.md"),
+        path.join(taskBPaths.codexHome, "AGENTS.md"),
         "utf8",
       ),
     ).not.toContain("请优先使用中文")
@@ -500,7 +533,7 @@ describe("WorkspaceManager", () => {
       manager.ensureConversation(taskB, "current"),
     ])
     const persistentPlugin = path.join(
-      first.codexHome,
+      second.codexHome,
       "plugins",
       "documents",
       "marker",
@@ -516,8 +549,8 @@ describe("WorkspaceManager", () => {
     })
     expect((await lstat(second.workspace)).isDirectory()).toBe(true)
     expect(await readFile(persistentPlugin, "utf8")).toBe("keep")
-    expect((await lstat(first.home)).isDirectory()).toBe(true)
-    expect((await lstat(first.codexHome)).isDirectory()).toBe(true)
+    await expect(lstat(first.home)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(lstat(first.codexHome)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("initializes the Codex template once and preserves Codex-owned user state", async () => {
@@ -867,7 +900,7 @@ describe("WorkspaceManager", () => {
     expect(config).toContain("supports_websockets = false")
   })
 
-  it("normalizes private Codex config files when a worker prepares the next conversation", async () => {
+  it("normalizes only the current task Codex config files before its next turn", async () => {
     const root = await tempRoot()
     const template = path.join(root, "template")
     await mkdir(template)
@@ -888,7 +921,7 @@ describe("WorkspaceManager", () => {
     const authPath = path.join(first.codexHome, "auth.json")
     await Promise.all([chmod(configPath, 0o000), chmod(authPath, 0o600)])
 
-    await manager.ensureConversation(taskB, "replacement")
+    await manager.ensureConversation(taskA, "replacement")
 
     expect((await lstat(configPath)).mode & 0o777).toBe(0o660)
     expect((await lstat(authPath)).mode & 0o777).toBe(0o660)
@@ -919,7 +952,7 @@ describe("WorkspaceManager", () => {
     await symlink(externalConfig, configPath)
 
     await expect(
-      manager.ensureConversation(taskB, "replacement"),
+      manager.ensureConversation(taskA, "replacement"),
     ).rejects.toThrow(WorkspaceBoundaryError)
     expect(await readFile(externalConfig, "utf8")).toBe(
       'model = "external"\n',
@@ -938,10 +971,10 @@ describe("WorkspaceManager", () => {
     manager.bindOwner(taskA, ownerA)
 
     expect(await manager.ensureConversation(taskA, "current")).toMatchObject({
-      home: fixedHome,
-      control: fixedControl,
+      home: path.join(fixedHome, "task-homes", taskA),
+      control: path.join(fixedControl, "workspaces", taskA),
       workspace: path.join(fixedHome, "workspaces", taskA),
-      codexHome: path.join(fixedHome, ".codex"),
+      codexHome: path.join(fixedHome, "task-homes", taskA, ".codex"),
       taskControl: path.join(fixedControl, "workspaces", taskA),
     })
     expect(() => manager.bindOwner(taskB, ownerB)).toThrow(

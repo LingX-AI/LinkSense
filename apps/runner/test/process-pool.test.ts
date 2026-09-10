@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -193,10 +194,7 @@ describe("AppServerProcessPool", () => {
   it("starts a native Goal turn with the selected Skill input before activating it", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-native-goal-"));
     roots.push(root);
-    const skillPath = join(
-      root,
-      "home",
-      ".agents",
+    const skillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "frontend-slides",
       "SKILL.md",
@@ -535,7 +533,7 @@ describe("AppServerProcessPool", () => {
   it("forces template features for an existing user without rewriting user-owned config state", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-feature-policy-"));
     roots.push(root);
-    const codexHome = join(root, "home", ".codex");
+    const codexHome = join(taskRuntimeHome(root), ".codex");
     await mkdir(codexHome, { recursive: true });
     await writeFile(
       join(codexHome, "config.toml"),
@@ -2661,10 +2659,7 @@ trust_level = "trusted"
   it("projects an authorized Skill image before its absolute path is redacted", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-skill-image-view-"));
     roots.push(root);
-    const skillPath = join(
-      root,
-      "home",
-      ".agents",
+    const skillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "presentation-themes",
       "SKILL.md",
@@ -2753,10 +2748,7 @@ trust_level = "trusted"
     roots.push(root);
     const knowledgeSkill = await createKnowledgeSkill(root);
     const input = startOperationInput();
-    const skillPath = join(
-      root,
-      "home",
-      ".agents",
+    const skillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "reports",
       "SKILL.md",
@@ -2989,10 +2981,7 @@ trust_level = "trusted"
     const root = await mkdtemp(join(tmpdir(), "linksense-plan-skill-"));
     roots.push(root);
     const input = startOperationInput();
-    const skillPath = join(
-      root,
-      "home",
-      ".agents",
+    const skillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "presentations",
       "SKILL.md",
@@ -3087,10 +3076,7 @@ trust_level = "trusted"
     const root = await mkdtemp(join(tmpdir(), "linksense-plan-skill-large-"));
     roots.push(root);
     const input = startOperationInput();
-    const skillPath = join(
-      root,
-      "home",
-      ".agents",
+    const skillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "presentations",
       "SKILL.md",
@@ -3145,10 +3131,7 @@ trust_level = "trusted"
     roots.push(root);
     const firstInput = startOperationInput();
     const secondProjectionTurnId = "01900000-0000-7000-8000-000000000101";
-    const stableSkillPath = join(
-      root,
-      "home",
-      ".agents",
+    const stableSkillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "reports",
       "SKILL.md",
@@ -3194,7 +3177,7 @@ trust_level = "trusted"
       controlled.factory,
     );
     expect(workspaceManager.pathsFor(firstInput.conversationId).codexHome).toBe(
-      join(root, "home", ".codex"),
+      join(taskRuntimeHome(root), ".codex"),
     );
     const context = {
       ...firstInput.context,
@@ -4638,20 +4621,14 @@ trust_level = "trusted"
   it("rebuilds between Plan and Default and restores the Default authorized runtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-mode-process-rebuild-"));
     roots.push(root);
-    const pluginSourceSkillPath = join(
-      root,
-      "home",
-      ".agents",
+    const pluginSourceSkillPath = join(taskRuntimeHome(root), ".agents",
       "plugin-sources",
       "pdf",
       "skills",
       "pdf",
       "SKILL.md",
     );
-    const pluginCacheRoot = join(
-      root,
-      "home",
-      ".codex",
+    const pluginCacheRoot = join(taskRuntimeHome(root), ".codex",
       "plugins",
       "cache",
       "linksense-personal",
@@ -4924,20 +4901,14 @@ trust_level = "trusted"
       join(tmpdir(), "linksense-plugin-cache-path-mismatch-"),
     );
     roots.push(root);
-    const sourceSkillPath = join(
-      root,
-      "home",
-      ".agents",
+    const sourceSkillPath = join(taskRuntimeHome(root), ".agents",
       "plugin-sources",
       "pdf",
       "skills",
       "pdf",
       "SKILL.md",
     );
-    const cacheRoot = join(
-      root,
-      "home",
-      ".codex",
+    const cacheRoot = join(taskRuntimeHome(root), ".codex",
       "plugins",
       "cache",
       "linksense-personal",
@@ -5254,7 +5225,7 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("waits for another running turn before refreshing a new owner capability generation", async () => {
+  it("starts a different task capability generation without waiting for or closing the running task", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-capability-generation-rebuild-"),
     );
@@ -5282,30 +5253,9 @@ trust_level = "trusted"
       },
     });
 
-    await new Promise((resolve) => setImmediate(resolve));
-    expect(nativePluginManager.reconcileBeforeStart).toHaveBeenCalledOnce();
-    expect(
-      controlled.methods.filter((method) => method === "initialize"),
-    ).toHaveLength(1);
-
-    controlled.notify({
-      method: "turn/completed",
-      params: {
-        threadId: first.codexThreadId,
-        turn: {
-          id: first.codexTurnId,
-          status: "completed",
-          items: [],
-          error: null,
-        },
-      },
-    });
-    await waitForFast(() => expect(pool.runningCount).toBe(0));
-    await confirmRecoveryProjection(pool, firstInput);
-
-    await expect(secondStart).resolves.toMatchObject({
-      codexTurnId: "turn-native-2",
-    });
+    await expect(secondStart).resolves.toMatchObject({ codexTurnId: "turn-native-2" });
+    expect(pool.runningCount).toBe(2);
+    expect(first.codexTurnId).toBe("turn-native-1");
     expect(nativePluginManager.reconcileBeforeStart).toHaveBeenCalledTimes(2);
     expect(
       nativePluginManager.reconcileBeforeStart.mock.calls[1]?.[0],
@@ -5317,8 +5267,8 @@ trust_level = "trusted"
     expect(
       controlled.methods.filter((method) => method === "initialize"),
     ).toHaveLength(2);
-    expect(controlled.kill).toHaveBeenCalledOnce();
-    expect(pool.size).toBe(1);
+    expect(controlled.kill).not.toHaveBeenCalled();
+    expect(pool.size).toBe(2);
 
     await pool.closeAll();
   });
@@ -5386,7 +5336,7 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("shares one owner lock across same-generation conversation tokens", async () => {
+  it("holds independent task leases even when two tasks use the same capability generation", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-shared-capability-lease-"),
     );
@@ -5415,7 +5365,7 @@ trust_level = "trusted"
       projectionTurnId: "01900000-0000-7000-8000-000000000123",
     };
     const second = await pool.startTurn(secondInput);
-    expect(capabilityRuntimeManager.acquireLease).toHaveBeenCalledOnce();
+    expect(capabilityRuntimeManager.acquireLease).toHaveBeenCalledTimes(2);
     controlled.notify({
       method: "turn/completed",
       params: {
@@ -5426,9 +5376,9 @@ trust_level = "trusted"
     await waitForFast(() => expect(pool.runningCount).toBe(0));
 
     await confirmRecoveryProjection(pool, firstInput);
-    expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
-    await confirmRecoveryProjection(pool, secondInput);
     expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce();
+    await confirmRecoveryProjection(pool, secondInput);
+    expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledTimes(2);
     await pool.closeAll();
   });
 
@@ -5775,10 +5725,7 @@ trust_level = "trusted"
       pluginId,
       version: "26.715.12143",
       mentionPath: `plugin://${pluginId}`,
-      cacheRoot: join(
-        root,
-        "home",
-        ".codex",
+      cacheRoot: join(taskRuntimeHome(root), ".codex",
         "plugins",
         "cache",
         "linksense-personal",
@@ -5889,10 +5836,7 @@ trust_level = "trusted"
     const root = await mkdtemp(join(tmpdir(), "linksense-skill-revocation-"));
     roots.push(root);
     const firstInput = startOperationInput();
-    const firstSkillPath = join(
-      root,
-      "home",
-      ".agents",
+    const firstSkillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "reports",
       "SKILL.md",
@@ -6309,20 +6253,28 @@ trust_level = "trusted"
       { id: "turn-target", status: "completed", items: [], error: null },
       { id: "turn-after", status: "failed", items: [], error: null },
     ];
+    const sourceConversationId = "01900000-0000-7000-8000-000000000003";
+    const sourcePath = join(taskRuntimeHome(root, sourceConversationId), ".codex", "sessions", "source.jsonl");
+    await mkdir(dirname(sourcePath), { recursive: true });
+    await writeFile(sourcePath, "synthetic native rollout");
     const controlled = createControlledAppServer({
       threadReadTurns: sourceTurns,
+      threadReadPath: sourcePath,
+      threadForkTurns: sourceTurns.slice(0, 2),
     });
-    const { pool, eventSink } = createStartOperationPool(
+    const { pool, eventSink, workspaceManager } = createStartOperationPool(
       root,
       controlled.factory,
     );
     const start = startOperationInput();
+    await workspaceManager.ensureConversation(start.conversationId, "current");
 
     await expect(
       pool.forkThread({
         conversationId: start.conversationId,
         ownerId: start.ownerId,
         expectedRuntimeGeneration: start.expectedRuntimeGeneration,
+        sourceConversationId,
         sourceCodexThreadId: "thread-source",
         throughCodexTurnId: "turn-target",
         projectionTurnId: start.projectionTurnId,
@@ -6339,16 +6291,16 @@ trust_level = "trusted"
       expect.arrayContaining([
         "thread/read",
         "thread/fork",
-        "thread/rollback",
         "thread/goal/clear",
       ]),
     );
     expect(controlled.methods).not.toContain("turn/start");
     expect(
       controlled.requests.find(
-        (request) => request.method === "thread/rollback",
+        (request) => request.method === "thread/fork",
       )?.params,
-    ).toEqual({ threadId: "thread-forked-1", numTurns: 1 });
+    ).toMatchObject({ threadId: "thread-source", path: await realpath(sourcePath), lastTurnId: "turn-target" });
+    expect(controlled.methods).not.toContain("thread/rollback");
     expect(
       controlled.requests.find(
         (request) => request.method === "thread/goal/clear",
@@ -6507,8 +6459,8 @@ trust_level = "trusted"
       expect(browserSessionCleanup).toHaveBeenCalledWith({
         conversationId,
         ownerId: "01900000-0000-7000-8000-000000000002",
-        userHome: join(root, "home"),
-        codexHome: join(root, "home", ".codex"),
+        userHome: taskRuntimeHome(root, conversationId),
+        codexHome: join(taskRuntimeHome(root, conversationId), ".codex"),
         workspace: join(root, "home", "workspaces", conversationId),
       });
       expect(pool.size).toBe(1);
@@ -6574,6 +6526,7 @@ trust_level = "trusted"
       conversationId: "01900000-0000-7000-8000-000000000003",
       projectionTurnId: "01900000-0000-7000-8000-000000000098",
     });
+    const secondRejected = expect(second).rejects.toThrow("runner app-server process limit reached");
     await new Promise((resolve) => setImmediate(resolve));
     expect(runtimeCalls).toBe(1);
 
@@ -6581,9 +6534,7 @@ trust_level = "trusted"
     await expect(first).resolves.toMatchObject({
       codexTurnId: "turn-native-1",
     });
-    await expect(second).rejects.toThrow(
-      "runner app-server process limit reached",
-    );
+    await secondRejected;
     expect(limitedPool.size).toBe(1);
     await limitedPool.closeAll();
   });
@@ -6806,6 +6757,7 @@ trust_level = "trusted"
       conversationId: "01900000-0000-7000-8000-000000000003",
       projectionTurnId: "01900000-0000-7000-8000-000000000098",
     });
+    const secondRejected = expect(second).rejects.toThrow("runner app-server process limit reached");
     await new Promise((resolve) => setImmediate(resolve));
     expect(factoryCalls).toBe(1);
     expect(initializing.kill).not.toHaveBeenCalled();
@@ -6815,9 +6767,7 @@ trust_level = "trusted"
       status: "fulfilled",
       value: { codexTurnId: "turn-native-1" },
     });
-    await expect(second).rejects.toThrow(
-      "runner app-server process limit reached",
-    );
+    await secondRejected;
     expect(limitedPool.size).toBe(1);
     await limitedPool.closeAll();
   });
@@ -8787,50 +8737,32 @@ trust_level = "trusted"
         },
       ],
     };
-    const skillPath = join(
-      root,
-      "home",
-      ".agents",
+    const skillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "authorized",
       "SKILL.md",
     );
-    const browserSkillPath = join(
-      root,
-      "home",
-      ".agents",
+    const browserSkillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "linksense-browser",
       "SKILL.md",
     );
-    const fileServiceSkillPath = join(
-      root,
-      "home",
-      ".agents",
+    const fileServiceSkillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "linksense-file-service",
       "SKILL.md",
     );
-    const docsSkillPath = join(
-      root,
-      "home",
-      ".agents",
+    const docsSkillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "linksense-docs",
       "SKILL.md",
     );
-    const knowledgeBaseSkillPath = join(
-      root,
-      "home",
-      ".agents",
+    const knowledgeBaseSkillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "linksense-knowledge-base",
       "SKILL.md",
     );
-    const skillCreatorSkillPath = join(
-      root,
-      "home",
-      ".agents",
+    const skillCreatorSkillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "linksense-skill-creator",
       "SKILL.md",
@@ -8926,10 +8858,7 @@ trust_level = "trusted"
     const root = await mkdtemp(join(tmpdir(), "linksense-skill-unauthorized-"));
     roots.push(root);
     const input = startOperationInput();
-    const skillPath = join(
-      root,
-      "home",
-      ".agents",
+    const skillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "unauthorized",
       "SKILL.md",
@@ -8967,10 +8896,7 @@ trust_level = "trusted"
         join(tmpdir(), `linksense-skill-${catalogState}-`),
       );
       roots.push(root);
-      const skillPath = join(
-        root,
-        "home",
-        ".agents",
+      const skillPath = join(taskRuntimeHome(root), ".agents",
         "skills",
         "authorized",
         "SKILL.md",
@@ -9049,10 +8975,7 @@ trust_level = "trusted"
     const root = await mkdtemp(join(tmpdir(), "linksense-system-skill-"));
     roots.push(root);
     const input = startOperationInput();
-    const systemSkill = join(
-      root,
-      "home",
-      ".agents",
+    const systemSkill = join(taskRuntimeHome(root), ".agents",
       "skills",
       ".system",
       "imagegen",
@@ -9100,10 +9023,7 @@ trust_level = "trusted"
     const root = await mkdtemp(join(tmpdir(), "linksense-skill-duplicate-"));
     roots.push(root);
     const input = startOperationInput();
-    const skillPath = join(
-      root,
-      "home",
-      ".agents",
+    const skillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "duplicate",
       "SKILL.md",
@@ -9140,10 +9060,7 @@ trust_level = "trusted"
     );
     roots.push(root);
     const input = startOperationInput();
-    const skillPath = join(
-      root,
-      "home",
-      ".agents",
+    const skillPath = join(taskRuntimeHome(root), ".agents",
       "skills",
       "directory-name",
       "SKILL.md",
@@ -10462,6 +10379,10 @@ trust_level = "trusted"
   });
 });
 
+function taskRuntimeHome(root: string, conversationId = "01900000-0000-7000-8000-000000000001"): string {
+  return join(root, "home", "task-homes", conversationId);
+}
+
 async function createKnowledgeSkill(root: string): Promise<{
   name: string;
   description: string;
@@ -10469,7 +10390,7 @@ async function createKnowledgeSkill(root: string): Promise<{
   scope: "user";
   enabled: boolean;
 }> {
-  const path = join(root, "home", ".agents", "skills", "linksense-knowledge-base", "SKILL.md");
+  const path = join(taskRuntimeHome(root), ".agents", "skills", "linksense-knowledge-base", "SKILL.md");
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, "---\nname: linksense-knowledge-base\ndescription: Search selected knowledge bases\n---\nUse the scoped knowledge tools.\n");
   return {
@@ -10766,6 +10687,7 @@ function createControlledAppServer(
     initialGoal?: ControlledThreadGoal;
     threadReadTurns?: CodexTurn[];
     threadReadId?: string;
+    threadReadPath?: string;
     threadReadModelProvider?: string;
     threadReadMissingIds?: string[];
     threadReadNotificationsBeforeFirstResponse?: Record<string, unknown[]>;
@@ -11114,7 +11036,7 @@ function createControlledAppServer(
                   ? [...baseTurns, options.compactTurn]
                   : baseTurns;
               stdout.write(
-                `${JSON.stringify({ id: message.id, result: { thread: { ...selectedThread, id: options.threadReadId ?? requestedThreadId, modelProvider: options.threadReadModelProvider ?? "link-sense", turns } } })}\n`,
+                `${JSON.stringify({ id: message.id, result: { thread: { ...selectedThread, path: options.threadReadPath, id: options.threadReadId ?? requestedThreadId, modelProvider: options.threadReadModelProvider ?? "link-sense", turns } } })}\n`,
               );
             }
           } else if (message.method === "thread/list") {

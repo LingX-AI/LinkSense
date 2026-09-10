@@ -167,6 +167,8 @@ export type ThreadReadParams = {
 
 export type ThreadForkParams = {
   threadId: string;
+  path?: string | null;
+  lastTurnId?: string | null;
   model?: string | null;
   modelProvider?: string | null;
   cwd?: string | null;

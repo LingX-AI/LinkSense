@@ -94,7 +94,7 @@ async function runSmoke(): Promise<void> {
       "native-plugin-refresh-smoke",
     )
     const paths: SmokeRuntimePaths = {
-      ...materializer.pathsFor(ownerId),
+      ...materializer.pathsFor(ownerId, conversationId),
       homeRoot: conversationPaths.home,
       codexHome: conversationPaths.codexHome,
     }
@@ -127,6 +127,7 @@ async function runSmoke(): Promise<void> {
     await writePluginSource(sourceRoot, firstMarker)
     const firstPublication = await materializer.reconcile({
       ownerId,
+      conversationId,
       capabilities: [capability],
     })
     await projectManagedAgents(paths)
@@ -171,6 +172,7 @@ async function runSmoke(): Promise<void> {
     await writePluginSource(sourceRoot, secondMarker)
     const secondPublication = await materializer.reconcile({
       ownerId,
+      conversationId,
       capabilities: [capability],
     })
     await projectManagedAgents(paths)
@@ -221,6 +223,7 @@ async function runSmoke(): Promise<void> {
 
     const removedPublication = await materializer.reconcile({
       ownerId,
+      conversationId,
       capabilities: [],
     })
     await projectManagedAgents(paths)

@@ -803,7 +803,7 @@ describe("controller worker lifecycle", () => {
     await manager.initialize()
 
     expect(WORKER_RUNTIME_LAYOUT).toBe(
-      "single-writer-managed-agents-readonly-task-owned-home-codex-owner-volume-subpaths",
+      "task-codex-home-task-capability-projections-owner-volume-subpaths",
     )
     expect(workerContractKey(config)).not.toBe(
       contractWithoutRuntimeLayout(config),
@@ -1337,7 +1337,7 @@ describe("dynamic worker container contract", () => {
       },
     ])
     expect(spec.Env).toContain("HOME=/home/linksense")
-    expect(spec.Env).toContain("CODEX_HOME=/home/linksense/.codex")
+    expect(spec.Env).toContain("CODEX_HOME=/run/linksense-control/supervisor-codex")
     expect(spec.Env).toContain("LINKSENSE_USER_DATA_ROOT=/home/linksense")
     expect(spec.Env).not.toContain("LINK_SENSE_API_KEY=provider-key")
     expect(spec.Env).toContain("HTTPS_PROXY=http://proxy.internal")

@@ -178,6 +178,7 @@ export interface ConversationPreflight {
   ensureUserHome(userId: string): Promise<void>;
   resolve(input: {
     userId: string;
+    conversationId: string;
     priorityCapabilityIds: string[];
     capabilityScope?: CapabilityResolutionScope;
   }): Promise<{
@@ -220,6 +221,7 @@ export interface ConversationPreflight {
   withCapabilityStartBarrier<T>(
     input: {
       userId: string;
+      conversationId: string;
       priorityCapabilityIds: string[];
       capabilities: ExecutionCapability[];
       capabilityGeneration: string;
@@ -994,6 +996,7 @@ export class ConversationService {
     const [resolved, modelRuntime, executionConcurrency] = await Promise.all([
       this.preflight.resolve({
         userId: input.ownerId,
+        conversationId: input.conversationId,
         priorityCapabilityIds: [],
       }),
       this.modelRuntimeForUser(
@@ -6435,6 +6438,7 @@ export class ConversationService {
           conversationId: forkConversationId,
           ownerId,
           expectedRuntimeGeneration: runtime.runtimeGeneration,
+          sourceConversationId: conversationId,
           sourceCodexThreadId: source.codexThreadId,
           throughCodexTurnId: sourceTurn.codexTurnId,
           projectionTurnId: crypto.randomUUID(),
@@ -6906,12 +6910,12 @@ export class ConversationService {
         if (reservedRuntime) {
           runtime = reservedRuntime;
         } else {
-          // The hot resolve validates the durable capability publication and
-          // falls back to a full repair only when its markers are stale. This
-          // keeps an immediate first send from repeating the expensive full
-          // HOME scan already performed by capability mutations or prewarm.
+          // Reuse this task's verified prewarm publication when available.
+          // A cold task prepares its own snapshot without changing or waiting
+          // for another task's capabilities.
           await this.preflight.resolve({
             userId: ownerId,
+            conversationId: id,
             priorityCapabilityIds: [],
           });
           runtime = await this.runner.prepareRuntime(id, ownerId);
@@ -8961,6 +8965,7 @@ export class ConversationService {
       try {
         const authorizationPromise = this.preflight.resolve({
           userId: ownerId,
+          conversationId,
           priorityCapabilityIds: input.priorityCapabilityIds,
           ...(applicationRuntime?.kind === "standard"
             ? {
@@ -9076,6 +9081,7 @@ export class ConversationService {
       let startIntent = await this.preflight.withCapabilityStartBarrier(
         {
           userId: ownerId,
+          conversationId,
           priorityCapabilityIds: input.priorityCapabilityIds,
           capabilities: resolved.capabilities,
           capabilityGeneration: resolved.capabilityGeneration,

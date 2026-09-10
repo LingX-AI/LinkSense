@@ -128,7 +128,7 @@ describe("runner health", () => {
       home: join(standaloneRoot, ".runner-health", "home"),
       control: join(standaloneRoot, ".runner-health", "control"),
       workspace: join(standaloneRoot, ".runner-health", "home", "workspaces"),
-      codexHome: join(standaloneRoot, ".runner-health", "home", ".codex"),
+      codexHome: join(standaloneRoot, ".runner-health", "home", "task-homes"),
     });
 
     const workerHome = join(directory, "worker-home");
@@ -142,7 +142,7 @@ describe("runner health", () => {
       home: workerHome,
       control: "/run/linksense-control",
       workspace: join(workerHome, "workspaces"),
-      codexHome: join(workerHome, ".codex"),
+      codexHome: join(workerHome, "task-homes"),
     });
   });
 

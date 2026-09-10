@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import type { Stats } from "node:fs"
-import { lstat, readFile, readdir } from "node:fs/promises"
+import { lstat, readFile, readdir, readlink } from "node:fs/promises"
 import path from "node:path"
 
 import lockfile from "proper-lockfile"
@@ -249,6 +249,12 @@ export class CapabilityRuntimeManager {
         return verified.runtime
       }
       const runtime = await this.resolveLocked(input)
+      // Verification is an optional speed cache. Bound it independently of
+      // how many historical tasks this worker has served.
+      if (this.#verifiedPublications.size >= 256 && !this.#verifiedPublications.has(cacheKey)) {
+        const oldest = this.#verifiedPublications.keys().next().value
+        if (oldest !== undefined) this.#verifiedPublications.delete(oldest)
+      }
       this.#verifiedPublications.set(cacheKey, {
         capabilityFingerprint,
         runtime,
@@ -276,11 +282,7 @@ export class CapabilityRuntimeManager {
         this.#apiIdentity,
       ),
       this.assertDirectory(input.userHome, 0o770, this.#taskIdentity),
-      this.assertDirectory(
-        path.join(input.userHome, ".agents"),
-        0o750,
-        this.#apiIdentity,
-      ),
+      this.assertAgentsProjection(input.userHome),
       this.assertDirectory(
         path.join(input.userHome, ".agents", "plugins"),
         0o750,
@@ -441,6 +443,25 @@ export class CapabilityRuntimeManager {
       info.mode & 0o111 ? 0o750 : 0o640,
       this.#apiIdentity,
     )
+  }
+
+  private async assertAgentsProjection(userHome: string): Promise<void> {
+    const agents = path.join(userHome, ".agents")
+    const info = await lstat(agents)
+    if (!info.isSymbolicLink()) {
+      await this.assertDirectory(agents, 0o750, this.#apiIdentity)
+      return
+    }
+    const homes = path.dirname(userHome)
+    const conversationId = path.basename(userHome)
+    if (path.basename(homes) !== "task-homes" || !z.uuid().safeParse(conversationId).success) {
+      throw new CapabilityRuntimeError()
+    }
+    const projection = path.join(path.dirname(homes), ".agents", "tasks", conversationId)
+    if (path.resolve(userHome, await readlink(agents)) !== projection) {
+      throw new CapabilityRuntimeError()
+    }
+    await this.assertDirectory(projection, 0o750, this.#apiIdentity)
   }
 
   private async assertDirectory(

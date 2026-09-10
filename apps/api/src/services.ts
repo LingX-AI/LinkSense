@@ -378,23 +378,9 @@ export function createServices(input: {
         })
       ).map((user) => user.id);
     },
-    reconcileUser: async (userId) => {
-      const outcome = await databasePreflight.refreshUserHome(userId);
-      if (outcome === "deferred") {
-        await audit
-          .write({
-            actorId: null,
-            action: "capability_home_publication_deferred",
-            targetType: "user",
-            targetId: userId,
-            result: "success",
-            metadata: {
-              reason_code: "ACTIVE_TURN_OR_START_INTENT",
-            },
-          })
-          .catch(() => undefined);
-      }
-    },
+    // Capability changes affect future turns. Do not rewrite any existing
+    // task projection while publishing a personal catalog or credential change.
+    reconcileUser: (userId) => databasePreflight.ensureUserHome(userId),
   });
   materializeUserHomes = (targets) => userHomeReconciler.reconcile(targets);
   const preflight = input.preflight ?? databasePreflight;
@@ -942,6 +928,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     private readonly credentialSourceSecret: string,
     private readonly capabilityMaterializer: Pick<
       UserHomeCapabilityMaterializer,
+      | "ensureOwner"
       | "reconcile"
       | "reconcileWithinPublicationStartFence"
       | "resolvePublishedRuntimeWithinPublicationStartFence"
@@ -960,14 +947,12 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
   ) {}
 
   async ensureUserHome(userId: string): Promise<void> {
-    const outcome = await this.refreshUserHome(userId);
-    if (outcome === "deferred") {
-      throw new AppError("CAPABILITY_HOME_SYNC_FAILED");
-    }
+    await this.capabilityMaterializer.ensureOwner(userId);
   }
 
   async resolve(input: {
     userId: string;
+    conversationId: string;
     priorityCapabilityIds: string[];
     capabilityScope?: CapabilityResolutionScope;
   }) {
@@ -984,31 +969,14 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     }
   }
 
-  async refreshUserHome(userId: string): Promise<"published" | "deferred"> {
-    try {
-      await this.#resolveAndPublish({
-        userId,
-        priorityCapabilityIds: [],
-      });
-      return "published";
-    } catch (error) {
-      if (error instanceof UserHomeCapabilityPublicationDeferredError) {
-        return "deferred";
-      }
-      if (error instanceof UserHomeCapabilityMaterializationError) {
-        throw new AppError("CAPABILITY_HOME_SYNC_FAILED");
-      }
-      throw error;
-    }
-  }
-
   async #resolveAndPublish(input: {
     userId: string;
+    conversationId: string;
     priorityCapabilityIds: string[];
     capabilityScope?: CapabilityResolutionScope;
   }, preferPublishedRuntime = false) {
     return this.capabilityMaterializer.withPublicationStartFence(
-      input.userId,
+      { ownerId: input.userId, conversationId: input.conversationId },
       async () => {
         const [catalog, mcpRuntime] = await Promise.all([
           this.#resolveCatalog(input),
@@ -1023,6 +991,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
         try {
           const materializationInput = {
             ownerId: input.userId,
+            conversationId: input.conversationId,
             capabilities: catalog.materializationCapabilities,
           };
           materialized = preferPublishedRuntime
@@ -1260,6 +1229,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
   async withCapabilityStartBarrier<T>(
     input: {
       userId: string;
+      conversationId: string;
       priorityCapabilityIds: string[];
       capabilities: ExecutionCapability[];
       capabilityGeneration: string;
@@ -1281,6 +1251,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       return await this.capabilityMaterializer.withPublishedRuntime(
         {
           ownerId: input.userId,
+          conversationId: input.conversationId,
           verification: input.capabilityVerification,
           capabilities: input.capabilities.map((capability) => ({
             id: capability.id,
@@ -1697,14 +1668,14 @@ export function createRunningTurnCapabilityPublicationGuard(
     "conversationTurn" | "conversationTurnStartIntent"
   >,
 ): UserHomeCapabilityPublicationGuard {
-  return async ({ ownerId }) => {
+  return async ({ ownerId, conversationId }) => {
     const [runningTurn, startIntent] = await Promise.all([
       prisma.conversationTurn.findFirst({
-        where: { submittedBy: ownerId, status: "running" },
+        where: { submittedBy: ownerId, conversationId, status: "running" },
         select: { id: true },
       }),
       prisma.conversationTurnStartIntent.findFirst({
-        where: { ownerId },
+        where: { ownerId, conversationId },
         select: { projectionTurnId: true },
       }),
     ]);

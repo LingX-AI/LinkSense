@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const RUNNER_TURN_START_CONTRACT_VERSION =
-  "knowledge-selection-snapshot-v17" as const;
+  "task-codex-home-v18" as const;
 
 /** Names are server-resolved display data; null means unavailable to this user. */
 export const runnerKnowledgeBaseSelectionSchema = z
