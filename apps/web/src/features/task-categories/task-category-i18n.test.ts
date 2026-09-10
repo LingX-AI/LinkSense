@@ -13,6 +13,7 @@ describe("task category localization", () => {
     delete englishCategories.choose
     delete englishCategories.noResults
     delete englishCategories.reorderCompleted
+    delete englishCategories.clearSelection
     await instance.init({
       fallbackLng: "zh-CN",
       resources: {
@@ -36,6 +37,13 @@ describe("task category localization", () => {
       "Search categories"
     )
     expect(enUS.taskCategories.noResults).toBe("No matching categories")
+    expect(enUS.taskCategories.clearSelection).toBe("Clear category selection")
+    expect(instance.t("taskCategories.clearSelection", { lng: "zh-CN" })).toBe(
+      "取消分类选择"
+    )
+    expect(instance.t("taskCategories.clearSelection", { lng: "en-US" })).toBe(
+      "取消分类选择"
+    )
     expect(zhCN.taskCategories.renameAction).toBe("重命名")
     expect(enUS.taskCategories.renameAction).toBe("Rename")
     expect(
