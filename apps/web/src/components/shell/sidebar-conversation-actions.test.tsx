@@ -5,10 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SidebarConversationActions } from "@/components/shell/sidebar-conversation-actions"
 import i18n from "@/i18n"
 
-function renderActions(pinned: boolean) {
+function renderActions(pinned: boolean, onMoveToCategory?: () => void) {
   const callbacks = {
     onTogglePinned: vi.fn(),
     onArchive: vi.fn(),
+    onMoveToCategory,
   }
 
   return {
@@ -94,6 +95,58 @@ describe("SidebarConversationActions", () => {
     expect(callbacks.onTogglePinned).toHaveBeenCalledOnce()
     expect(callbacks.onArchive).toHaveBeenCalledOnce()
   })
+
+  it("matches the move icon size to archive and the stroke weight to both neighboring actions", () => {
+    renderActions(false, vi.fn())
+    const moveIcon = screen
+      .getByRole("button", {
+        name: "将“整理项目会议纪要”移动到分类",
+      })
+      .querySelector("svg")
+    const archiveIcon = screen
+      .getByRole("button", {
+        name: "归档任务“整理项目会议纪要”",
+      })
+      .querySelector("svg")
+    const pinIcon = screen
+      .getByRole("button", {
+        name: "置顶任务“整理项目会议纪要”",
+      })
+      .querySelector("svg")
+
+    expect(moveIcon).toHaveClass("size-3.5")
+    expect(archiveIcon).toHaveClass("size-3.5")
+    for (const icon of [moveIcon, archiveIcon, pinIcon]) {
+      expect(icon).toHaveAttribute("stroke-width", "2")
+      expect(icon).toHaveAttribute("aria-hidden", "true")
+    }
+  })
+
+  it.each([false, true])(
+    "keeps every task action background transparent when pinned is %s",
+    async (pinned) => {
+      const interaction = userEvent.setup()
+      const onMoveToCategory = vi.fn()
+      const callbacks = renderActions(pinned, onMoveToCategory)
+      const buttons = screen.getAllByRole("button")
+
+      expect(buttons).toHaveLength(3)
+      for (const button of buttons) {
+        expect(button).toHaveClass(
+          "hover:bg-transparent",
+          "aria-expanded:bg-transparent"
+        )
+        expect(button).not.toHaveClass(
+          "hover:bg-hover",
+          "aria-expanded:bg-muted"
+        )
+        await interaction.click(button)
+      }
+      expect(onMoveToCategory).toHaveBeenCalledOnce()
+      expect(callbacks.onTogglePinned).toHaveBeenCalledOnce()
+      expect(callbacks.onArchive).toHaveBeenCalledOnce()
+    }
+  )
 
   it("shows the unpin name for a pinned task in both supported languages", async () => {
     const fixture = renderActions(true)

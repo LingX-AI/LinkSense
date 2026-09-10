@@ -68,6 +68,8 @@ import {
   VoiceTranscriptionService,
 } from "./modules/voice/service.js";
 import { ManagedTaskTitleGenerator } from "./adapters/dashscope-title.js";
+import { TaskCategoryService } from "./modules/task-categories/service.js";
+import { TaskCategoryRepository } from "./modules/task-categories/repository.js";
 import { ConversationTitleService } from "./modules/conversations/title-service.js";
 import { SiteIconService } from "./modules/site-icons/service.js";
 import { ExternalImageService } from "./modules/external-images/service.js";
@@ -181,6 +183,7 @@ export type AppServices = {
   knowledgeModelSettings: KnowledgeModelSettingsService | null;
   sharePointSettings: SharePointSettingsService | null;
   audit: AuditService;
+  taskCategories: TaskCategoryService;
   conversations: ConversationService;
   conversationShares: ConversationShareService;
   automations: AutomationService;
@@ -799,6 +802,7 @@ export function createServices(input: {
   );
   return {
     ...input,
+    taskCategories: new TaskCategoryService(new TaskCategoryRepository(input.prisma)),
     mailer,
     authenticationSettings,
     modelProviderSettings,

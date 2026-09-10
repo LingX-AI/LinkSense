@@ -258,11 +258,17 @@ describe("ConversationService ownership and draft lifecycle", () => {
     ]);
   });
 
-  it("forks a terminal assistant message into an independent numbered task", async () => {
+  it.each([
+    { name: "keeps an uncategorized fork uncategorized", categoryId: null, categoryAvailable: true },
+    { name: "inherits the source task category in the fork", categoryId: "80000000-0000-4000-8000-000000000001", categoryAvailable: true },
+    { name: "rejects an unavailable category without creating an orphaned fork", categoryId: "80000000-0000-4000-8000-000000000001", categoryAvailable: false },
+    { name: "inherits the category on retry after the runner recovers without creating a duplicate task", categoryId: "80000000-0000-4000-8000-000000000001", categoryAvailable: true, runnerInitiallyUnavailable: true },
+  ])("$name", async ({ categoryId, categoryAvailable, runnerInitiallyUnavailable }) => {
     const fixture = await conversationFixture();
     const source = conversationRow({
       title: "Task",
       titleSource: "manual",
+      categoryId,
       codexThreadId: "codex-thread-source",
       forkRootId: null,
       forkSequence: null,
@@ -359,19 +365,38 @@ describe("ConversationService ownership and draft lifecycle", () => {
       async ({ data }: { data: Record<string, unknown> }) =>
         conversationRow(data),
     );
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue(categoryId && categoryAvailable ? [{ id: categoryId }] : []);
 
-    const result = await fixture.service.forkConversationAtMessage(
+    if (runnerInitiallyUnavailable) {
+      fixture.runner.forkThread.mockRejectedValueOnce(new AppError("RUNNER_UNAVAILABLE"));
+      await expect(fixture.service.forkConversationAtMessage(
+        OWNER_ID, CONVERSATION_ID, MESSAGE_ID, REGENERATION_ID, {},
+      )).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+      expect(fixture.defaultTransaction.conversation.create).not.toHaveBeenCalled();
+      expect(fixture.defaultTransaction.conversationForkCounter.upsert).not.toHaveBeenCalled();
+    }
+
+    const fork = fixture.service.forkConversationAtMessage(
       OWNER_ID,
       CONVERSATION_ID,
       MESSAGE_ID,
       REGENERATION_ID,
       {},
     );
+    if (!categoryAvailable) {
+      await expect(fork).rejects.toMatchObject({ code: "TASK_CATEGORY_NOT_FOUND" });
+      expect(fixture.defaultTransaction.conversation.create).not.toHaveBeenCalled();
+      expect(fixture.cleanup.enqueueRuntimeCleanup).toHaveBeenCalled();
+      return;
+    }
+    const result = await fork;
+    expect(fixture.defaultTransaction.conversation.create).toHaveBeenCalledTimes(1);
 
     expect(result).toMatchObject({
       title: "Task(2)",
       codex_thread_id: "codex-thread-forked",
       last_turn_status: "completed",
+      category_id: categoryId,
     });
     expect(fixture.runner.forkThread).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -384,6 +409,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     ).toHaveBeenCalledWith({
       data: expect.objectContaining({
         title: "Task(2)",
+        categoryId,
         forkRootId: CONVERSATION_ID,
         forkSequence: 2,
         forkSourceConversationId: CONVERSATION_ID,
@@ -2765,6 +2791,39 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
     expect(result.last_event_id).toBeUndefined();
     expect(fixture.prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("returns a replay boundary after a historical admission error, completed=%s", async (completed) => {
+    const fixture = await conversationFixture();
+    const historicalError = eventRow({
+      sequenceNo: 2n,
+      eventType: "conversation.error",
+      payloadJson: {
+        schema_version: 1,
+        error_code: "RUNNER_UNAVAILABLE",
+        message_key: "errors.runnerUnavailable",
+        retryable: true,
+      },
+      sseEventId: `${CONVERSATION_ID}:2`,
+    });
+    const completedTurn = turnRow({ status: "completed", codexThreadId: "codex-thread-1" });
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(conversationRow({
+      codexThreadId: completed ? "codex-thread-1" : null,
+      lastTurnStatus: completed ? "completed" : null,
+    }));
+    if (completed) fixture.prisma.conversationTurn.findMany.mockResolvedValueOnce([completedTurn]);
+    fixture.prisma.conversationEvent.findMany.mockResolvedValueOnce(
+      completed ? [nativeTurnCompletedEvent(completedTurn, 182n), historicalError] : [historicalError],
+    );
+
+    const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID, {});
+
+    expect(result.last_event_id).toBe(`${CONVERSATION_ID}:${completed ? 182 : 2}`);
+    expect(result.conversation.execution_status).toBe(completed ? "completed" : "idle");
+    expect(result.events).toContainEqual(expect.objectContaining({
+      event_type: "conversation.error", sse_event_id: `${CONVERSATION_ID}:2`,
+    }));
+    expect(result.activities).toEqual([]);
   });
 
   it("rewinds a running task cursor so re-entry rebuilds the complete streamed message", async () => {
@@ -11727,6 +11786,7 @@ function conversationRow(overrides: Record<string, unknown> = {}) {
     archiveStatus: "active",
     archivedAt: null,
     pinnedAt: null,
+    categoryId: null,
     sortOrder: null,
     codexThreadId: null,
     agentsTemplateVersion: "v1",
@@ -12149,3 +12209,78 @@ function nativeSubAgentEventRow(
     },
   });
 }
+
+describe("task category assignment", () => {
+  const categoryId = "60000000-0000-4000-8000-000000000099";
+
+  it("creates a task in its owned category in the same database transaction", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: categoryId }]);
+    fixture.prisma.conversation.create.mockImplementationOnce(async ({ data }) => conversationRow(data));
+    const result = await fixture.service.create(OWNER_ID, { collaborationMode: "default", categoryId });
+    expect(result.category_id).toBe(categoryId);
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ ownerId: OWNER_ID, categoryId }) });
+  });
+
+  it("rejects unavailable creation categories without persisting a task", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([]);
+    await expect(fixture.service.create(OWNER_ID, { collaborationMode: "default", categoryId })).rejects.toMatchObject({ code: "TASK_CATEGORY_NOT_FOUND" });
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+  });
+
+  it("moves an owned task and clears its old category order", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: categoryId }]);
+    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { categoryId });
+    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { categoryId, sortOrder: null } });
+  });
+
+  it("preserves global pin order when changing a pinned task's category", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: categoryId }]);
+    fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversationRow({ pinnedAt: NOW, sortOrder: 3 }));
+    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { categoryId });
+    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { categoryId } });
+  });
+
+  it("can remove category membership without deleting the task or its content", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversationRow({ categoryId }));
+    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { categoryId: null });
+    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { categoryId: null, sortOrder: null } });
+    expect(fixture.defaultTransaction.conversationMessage.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("keeps task order when the requested category is already assigned", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: categoryId }]);
+    fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversationRow({ categoryId, sortOrder: 3 }));
+    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { categoryId });
+    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { categoryId } });
+  });
+
+  it("rejects another owner's task before checking the destination", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(null);
+    await expect(fixture.service.patch(OWNER_ID, CONVERSATION_ID, { categoryId })).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.defaultTransaction.$queryRaw).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unavailable destination without changing the task", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([]);
+    await expect(fixture.service.patch(OWNER_ID, CONVERSATION_ID, { categoryId })).rejects.toMatchObject({ code: "TASK_CATEGORY_NOT_FOUND" });
+    expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
+  });
+
+  it("reorders only active unpinned tasks in the requested category", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: CONVERSATION_ID }, { id: SECOND_CONVERSATION_ID }]);
+    const result = await fixture.service.reorder(OWNER_ID, { group: "recent", categoryId, conversationIds: [SECOND_CONVERSATION_ID, CONVERSATION_ID] });
+    expect(result.category_id).toBe(categoryId);
+    const query = fixture.defaultTransaction.$queryRaw.mock.calls[0]?.[0];
+    expect(query).toMatchObject({ sql: expect.stringContaining("pinned_at IS NULL AND category_id ="), values: [OWNER_ID, categoryId] });
+  });
+});

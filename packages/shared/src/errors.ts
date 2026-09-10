@@ -12,6 +12,22 @@ type ErrorCatalogEntry = {
 };
 
 export const errorCatalog = {
+  TASK_CATEGORY_NOT_FOUND: {
+    message_key: "taskCategories.notFound",
+    http_status: 404,
+    messages: {
+      "zh-CN": "该任务分类不存在或你无权访问，请重新选择分类",
+      "en-US": "This task category is unavailable. Please choose another category",
+    },
+  },
+  TASK_CATEGORY_NAME_EXISTS: {
+    message_key: "taskCategories.nameExists",
+    http_status: 409,
+    messages: {
+      "zh-CN": "已存在同名任务分类，请使用其他名称",
+      "en-US": "A task category with this name already exists. Choose another name",
+    },
+  },
   BOT_CHANNEL_CONNECTION_CONFLICT: {
     message_key: "errors.botChannels.BOT_CHANNEL_CONNECTION_CONFLICT",
     http_status: 409,

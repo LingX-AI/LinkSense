@@ -13,6 +13,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom"
 
 import { setAccessToken } from "@/api/session"
 import { writeLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
+import { clearConversationAttachmentPreviewCacheForTests } from "@/features/conversations/conversation-attachment-preview-cache"
 import i18n from "@/i18n"
 import {
   ArchivedConversationListPage,
@@ -131,6 +132,7 @@ function createDeferred<T>() {
 
 function conversation(id: string, title: string) {
   return {
+    category_id: null,
     id,
     title,
     archived: true,
@@ -217,7 +219,11 @@ describe("archived conversation pagination", () => {
 
     await waitFor(() =>
       expect(fixture.createdBodies).toEqual([
-        { collaboration_mode: "default", prewarmed_conversation_id: current },
+        {
+          collaboration_mode: "default",
+          prewarmed_conversation_id: current,
+          category_id: null,
+        },
       ])
     )
   })
@@ -426,6 +432,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith(`/conversations/${conversationId}`)) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: conversationId,
             title: "原生目标",
             archived: false,
@@ -573,6 +580,7 @@ describe("conversation knowledge base snapshots", () => {
       updated_at: now,
     })
     const detail = (status: "active" | "paused") => ({
+      category_id: null,
       id: conversationId,
       title: "重复暂停目标",
       archived: false,
@@ -752,6 +760,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith(`/conversations/${conversationId}`)) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: conversationId,
             title: "原生目标完成态",
             archived: false,
@@ -939,6 +948,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith("/conversations/conversation-immediate-clear")) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: "conversation-immediate-clear",
             title: "立即清空输入框",
             archived: false,
@@ -1145,6 +1155,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith(`/conversations/${conversationId}`)) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: conversationId,
             title: "快速切换任务",
             archived: false,
@@ -1239,6 +1250,7 @@ describe("conversation knowledge base snapshots", () => {
     let turnStartAttempts = 0
     let pendingRequestBody: unknown = null
     const detail = () => ({
+      category_id: null,
       id: conversationId,
       title: "启动阶段连续发送",
       archived: false,
@@ -1416,6 +1428,7 @@ describe("conversation knowledge base snapshots", () => {
     const followUpInput = "第二条快速追问"
     let pendingRequestBody: unknown = null
     const detail = () => ({
+      category_id: null,
       id: conversationId,
       title: "连续发送任务",
       archived: false,
@@ -1551,143 +1564,206 @@ describe("conversation knowledge base snapshots", () => {
     ).toBe(false)
   })
 
-  it("shows a pending attachment chip while an uploaded file request is in flight", async () => {
-    const conversationId = "conversation-upload-pending"
-    const uploadResponse = createDeferred<Response>()
-    let uploadCompleted = false
-    const uploadedAttachment = {
-      id: "attachment-upload-pending",
-      name: "ui-ux-pro-max.zip",
-      mime_type: "application/zip",
-      size: 5_242_880,
-      kind: "attachment",
-      turn_id: null,
-      status: "staged",
-      download_available: false,
-    }
-    const detail = () => ({
-      id: conversationId,
-      title: "上传附件可见",
-      archived: false,
-      updated_at: "2026-08-13T00:00:00.000Z",
-      execution_status: "idle",
-      selected_knowledge_base_ids: [],
-      draft: {
-        input_text: "",
-        priority_capability_ids: [],
-        knowledge_base_ids: [],
+  it.each([
+    ["ui-ux-pro-max.zip", "application/zip", true],
+    ["photo.png", "image/png", true],
+    ["photo.png", "image/png", false],
+  ])(
+    "keeps the correct preview while uploading %s (%s, success=%s)",
+    async (name, mimeType, succeeds) => {
+      const localFile = new File(["content"], name, { type: mimeType })
+      let objectUrlSequence = 0
+      const revokeObjectURL = vi.fn()
+      vi.stubGlobal(
+        "URL",
+        class extends URL {
+          static createObjectURL = vi.fn(
+            () => `blob:local-upload-${++objectUrlSequence}`
+          )
+          static revokeObjectURL = revokeObjectURL
+        }
+      )
+      const conversationId = "conversation-upload-pending"
+      const uploadResponse = createDeferred<Response>()
+      let uploadCompleted = false
+      const uploadedAttachment = {
+        id: "attachment-upload-pending",
+        name,
+        mime_type: mimeType,
+        size: localFile.size,
+        kind: "attachment",
+        turn_id: null,
+        status: "staged",
+        download_available: false,
+      }
+      const detail = () => ({
+        category_id: null,
+        id: conversationId,
+        title: "上传附件可见",
+        archived: false,
         updated_at: "2026-08-13T00:00:00.000Z",
-      },
-      messages: [],
-      turns: [],
-      running_turn: null,
-      pending_requests: [],
-      attachments: uploadCompleted ? [uploadedAttachment] : [],
-      artifacts: [],
-    })
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      const path = new URL(url, window.location.origin).pathname
-      if (url.includes("/events")) {
-        return Promise.resolve(
-          new Response("", {
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
-          })
+        execution_status: "idle",
+        selected_knowledge_base_ids: [],
+        draft: {
+          input_text: "",
+          priority_capability_ids: [],
+          knowledge_base_ids: [],
+          updated_at: "2026-08-13T00:00:00.000Z",
+        },
+        messages: [],
+        turns: [],
+        running_turn: null,
+        pending_requests: [],
+        attachments: uploadCompleted ? [uploadedAttachment] : [],
+        artifacts: [],
+      })
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input)
+          const path = new URL(url, window.location.origin).pathname
+          if (url.includes("/events")) {
+            return Promise.resolve(
+              new Response("", {
+                status: 200,
+                headers: { "content-type": "text/event-stream" },
+              })
+            )
+          }
+          if (path.endsWith("/conversations/prewarm")) {
+            return Promise.resolve(
+              envelope({
+                accepted: true,
+                conversation_id: "71000000-0000-4000-8000-000000000001",
+              })
+            )
+          }
+          if (path.endsWith("/model-preference")) {
+            return Promise.resolve(envelope(modelPreference()))
+          }
+          if (path.endsWith("/capabilities")) {
+            return Promise.resolve(envelope({ items: [], next_cursor: null }))
+          }
+          if (path.endsWith("/knowledge-bases/search-capability")) {
+            return Promise.resolve(
+              envelope({
+                status: "available",
+                reason_code: null,
+                checked_at: "2026-08-13T00:00:00.000Z",
+              })
+            )
+          }
+          if (path.endsWith("/knowledge-bases")) {
+            return Promise.resolve(envelope({ items: [], next_cursor: null }))
+          }
+          if (
+            path.endsWith(`/conversations/${conversationId}/attachments`) &&
+            init?.method === "POST"
+          ) {
+            return uploadResponse.promise
+          }
+          if (path.endsWith(`/conversations/${conversationId}`)) {
+            return Promise.resolve(envelope(detail()))
+          }
+          return Promise.resolve(new Response(null, { status: 404 }))
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const queryClient = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      })
+      const interaction = userEvent.setup()
+
+      const { unmount } = render(
+        <MemoryRouter initialEntries={[`/conversations/${conversationId}`]}>
+          <QueryClientProvider client={queryClient}>
+            <Routes>
+              <Route
+                path="/conversations/:conversationId"
+                element={<ConversationPage />}
+              />
+            </Routes>
+          </QueryClientProvider>
+        </MemoryRouter>
+      )
+
+      expect(await screen.findByText("上传附件可见")).toBeVisible()
+
+      await interaction.upload(screen.getByLabelText("添加附件"), localFile)
+
+      const pendingChip = await screen.findByRole("status", {
+        name: `正在上传附件 ${name}`,
+      })
+      if (mimeType === "image/png") {
+        expect(pendingChip.closest(".image-preview-thumbnail")).not.toBeNull()
+        expect(pendingChip.querySelector("img")).toHaveAttribute(
+          "src",
+          "blob:local-upload-1"
         )
+        expect(pendingChip.querySelector('[data-slot="spinner"]')).toBeVisible()
+      } else {
+        expect(within(pendingChip).getByText(name)).toBeVisible()
+        expect(
+          pendingChip.querySelector(".attachment-chip-spinner")
+        ).not.toBeNull()
       }
-      if (path.endsWith("/conversations/prewarm")) {
-        return Promise.resolve(
-          envelope({
-            accepted: true,
-            conversation_id: "71000000-0000-4000-8000-000000000001",
-          })
-        )
-      }
-      if (path.endsWith("/model-preference")) {
-        return Promise.resolve(envelope(modelPreference()))
-      }
-      if (path.endsWith("/capabilities")) {
-        return Promise.resolve(envelope({ items: [], next_cursor: null }))
-      }
-      if (path.endsWith("/knowledge-bases/search-capability")) {
-        return Promise.resolve(
-          envelope({
-            status: "available",
-            reason_code: null,
-            checked_at: "2026-08-13T00:00:00.000Z",
-          })
-        )
-      }
-      if (path.endsWith("/knowledge-bases")) {
-        return Promise.resolve(envelope({ items: [], next_cursor: null }))
-      }
-      if (
-        path.endsWith(`/conversations/${conversationId}/attachments`) &&
-        init?.method === "POST"
-      ) {
-        return uploadResponse.promise
-      }
-      if (path.endsWith(`/conversations/${conversationId}`)) {
-        return Promise.resolve(envelope(detail()))
-      }
-      return Promise.resolve(new Response(null, { status: 404 }))
-    })
-    vi.stubGlobal("fetch", fetchMock)
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    })
-    const interaction = userEvent.setup()
-
-    render(
-      <MemoryRouter initialEntries={[`/conversations/${conversationId}`]}>
-        <QueryClientProvider client={queryClient}>
-          <Routes>
-            <Route
-              path="/conversations/:conversationId"
-              element={<ConversationPage />}
-            />
-          </Routes>
-        </QueryClientProvider>
-      </MemoryRouter>
-    )
-
-    expect(await screen.findByText("上传附件可见")).toBeVisible()
-
-    await interaction.upload(
-      screen.getByLabelText("添加附件"),
-      new File(["zip"], "ui-ux-pro-max.zip", { type: "application/zip" })
-    )
-
-    const pendingChip = await screen.findByRole("status", {
-      name: "正在上传附件 ui-ux-pro-max.zip",
-    })
-    expect(within(pendingChip).getByText("ui-ux-pro-max.zip")).toBeVisible()
-    expect(pendingChip.querySelector(".attachment-chip-spinner")).not.toBeNull()
-    expect(
-      screen.queryByRole("button", { name: "移除附件 ui-ux-pro-max.zip" })
-    ).not.toBeInTheDocument()
-
-    uploadCompleted = true
-    await act(async () => {
-      uploadResponse.resolve(envelope(uploadedAttachment))
-      await uploadResponse.promise
-    })
-
-    await waitFor(() =>
       expect(
-        screen.queryByRole("status", {
-          name: "正在上传附件 ui-ux-pro-max.zip",
-        })
+        screen.queryByRole("button", { name: `移除附件 ${name}` })
       ).not.toBeInTheDocument()
-    )
-    expect(
-      screen.getByRole("button", { name: "移除附件 ui-ux-pro-max.zip" })
-    ).toBeVisible()
-  })
+
+      uploadCompleted = succeeds
+      await act(async () => {
+        uploadResponse.resolve(
+          succeeds
+            ? envelope(uploadedAttachment)
+            : errorEnvelope(400, "FILE_TYPE_NOT_ALLOWED")
+        )
+        await uploadResponse.promise
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("status", {
+            name: `正在上传附件 ${name}`,
+          })
+        ).not.toBeInTheDocument()
+      )
+      if (succeeds) {
+        expect(
+          screen.getByRole("button", { name: `移除附件 ${name}` })
+        ).toBeVisible()
+        if (mimeType === "image/png") {
+          expect(
+            screen
+              .getByRole("button", { name: `预览图片 ${name}` })
+              .querySelector("img")
+          ).toHaveAttribute("src", "blob:local-upload-2")
+          expect(
+            screen.queryByRole("status", { name: `正在加载图片 ${name}` })
+          ).not.toBeInTheDocument()
+          expect(
+            fetchMock.mock.calls.some(([request]) =>
+              String(request).includes(
+                `/attachments/${uploadedAttachment.id}/content`
+              )
+            )
+          ).toBe(false)
+        }
+      } else {
+        expect(document.querySelector(".image-preview-thumbnail")).toBeNull()
+      }
+      if (mimeType === "image/png") {
+        expect(revokeObjectURL).toHaveBeenCalledWith("blob:local-upload-1")
+      }
+      unmount()
+      clearConversationAttachmentPreviewCacheForTests()
+      if (mimeType === "image/png" && succeeds) {
+        expect(revokeObjectURL).toHaveBeenCalledWith("blob:local-upload-2")
+      }
+    }
+  )
 
   it("clears all attachments atomically while persisting typed text locally", async () => {
     const conversationId = "conversation-clear-attachments"
@@ -1706,6 +1782,7 @@ describe("conversation knowledge base snapshots", () => {
       })
     )
     const detail = () => ({
+      category_id: null,
       id: conversationId,
       title: "批量清理附件",
       archived: false,
@@ -2092,6 +2169,7 @@ describe("conversation knowledge base snapshots", () => {
       if (url.includes("/api/v1/conversations/conversation-knowledge")) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: "conversation-knowledge",
             title: "知识库问答",
             archived: false,
@@ -2261,6 +2339,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith("/conversations/conversation-list-failure")) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: "conversation-list-failure",
             title: "知识库列表故障",
             archived: false,
@@ -2497,6 +2576,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith("/conversations/conversation-valid-intersection")) {
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: "conversation-valid-intersection",
             title: "权限变化测试",
             archived: false,
@@ -2671,6 +2751,7 @@ describe("conversation knowledge base snapshots", () => {
         if (path.endsWith(`/conversations/${conversationId}`)) {
           return Promise.resolve(
             envelope({
+              category_id: null,
               id: conversationId,
               title: "应用知识库问答",
               archived: false,
@@ -2899,6 +2980,7 @@ function renderPrewarmPage() {
       if (path.endsWith("/conversations/existing-prewarm-task"))
         return Promise.resolve(
           envelope({
+            category_id: null,
             id: "existing-prewarm-task",
             title: "已有任务",
             archived: false,

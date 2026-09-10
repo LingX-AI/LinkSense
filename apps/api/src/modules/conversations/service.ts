@@ -18,6 +18,7 @@ import {
   type RunnerSubAgentReadRuntimeInput,
 } from "../../adapters/runner.js";
 import type { LinkSenseRedis } from "../../adapters/redis.js";
+import { lockOwnedTaskCategory } from "../task-categories/repository.js";
 import { AppError } from "../../lib/errors.js";
 import { truncateConversationTitle } from "../../lib/conversation-title.js";
 import { ensureSharedWorkspaceDirectory } from "../../lib/shared-workspace-directory.js";
@@ -2973,6 +2974,7 @@ export class ConversationService {
       collaborationMode: ConversationCollaborationMode;
       fallbackLocale?: Locale;
       prewarmedConversationId?: string;
+      categoryId?: string | null;
     },
   ) {
     return this.withActiveUserLifecycleLock(ownerId, async () => {
@@ -2980,7 +2982,10 @@ export class ConversationService {
         ownerId,
         input.fallbackLocale,
         undefined,
-        { collaborationMode: input.collaborationMode },
+        {
+          collaborationMode: input.collaborationMode,
+          categoryId: input.categoryId ?? null,
+        },
         input.prewarmedConversationId,
       );
       return projectConversation(
@@ -2998,6 +3003,7 @@ export class ConversationService {
       archiveStatus?: "active" | "archived";
       pinned?: boolean;
       completionRead?: true;
+      categoryId?: string | null;
       collaborationMode?: ConversationCollaborationMode;
     },
   ) {
@@ -3007,6 +3013,9 @@ export class ConversationService {
     }
     const now = new Date();
     const conversation = await this.prisma.$transaction(async (tx) => {
+      if (input.categoryId) {
+        await lockOwnedTaskCategory(tx, ownerId, input.categoryId);
+      }
       await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id
         FROM conversations
@@ -3083,6 +3092,15 @@ export class ConversationService {
         where: { id: conversationId },
         data: {
           ...(input.title ? { title: input.title, titleSource: "manual" } : {}),
+          ...(input.categoryId !== undefined
+            ? {
+                categoryId: input.categoryId,
+                ...(!lockedConversation.pinnedAt &&
+                  input.categoryId !== lockedConversation.categoryId
+                  ? { sortOrder: null }
+                  : {}),
+              }
+            : {}),
           ...(input.archiveStatus
             ? {
                 archiveStatus: input.archiveStatus,
@@ -3113,6 +3131,7 @@ export class ConversationService {
     ownerId: string,
     input: {
       group: ConversationOrderGroup;
+      categoryId?: string | null;
       conversationIds: readonly string[];
     },
   ) {
@@ -3125,7 +3144,9 @@ export class ConversationService {
           AND ${
             input.group === "pinned"
               ? Prisma.sql`pinned_at IS NOT NULL`
-              : Prisma.sql`pinned_at IS NULL`
+              : input.categoryId
+                ? Prisma.sql`pinned_at IS NULL AND category_id = ${input.categoryId}::uuid`
+                : Prisma.sql`pinned_at IS NULL AND category_id IS NULL`
           }
         FOR UPDATE
       `);
@@ -3148,6 +3169,9 @@ export class ConversationService {
       `);
       return {
         group: input.group,
+        ...(input.categoryId !== undefined
+          ? { category_id: input.categoryId }
+          : {}),
         conversation_ids: [...input.conversationIds],
       };
     });
@@ -6539,6 +6563,9 @@ export class ConversationService {
             return existing;
           }
 
+          if (source.categoryId) {
+            await lockOwnedTaskCategory(tx, ownerId, source.categoryId);
+          }
           const rootConversationId = source.forkRootId ?? source.id;
           const baseTitle = forkBaseTitle(source.title, source.forkSequence);
           const counter = await tx.conversationForkCounter.upsert({
@@ -6560,6 +6587,7 @@ export class ConversationService {
               titleSource: "manual",
               archiveStatus: "active",
               pinnedAt: null,
+              categoryId: source.categoryId,
               sortOrder: null,
               workspaceRelPath: conversationWorkspaceRelativePath(
                 ownerId,
@@ -6917,6 +6945,7 @@ export class ConversationService {
       pinned?: boolean;
       collaborationMode?: ConversationCollaborationMode;
       autoGenerateTitle?: boolean;
+      categoryId?: string | null;
     },
     prewarmedConversationId?: string,
   ) {
@@ -6974,6 +7003,9 @@ export class ConversationService {
         select: { preferredLocale: true },
       });
       return await this.prisma.$transaction(async (tx) => {
+        if (options?.categoryId) {
+          await lockOwnedTaskCategory(tx, ownerId, options.categoryId);
+        }
         const created = await tx.conversation.create({
           data: {
             id,
@@ -6992,6 +7024,7 @@ export class ConversationService {
                 : "fallback",
             archiveStatus: "active",
             pinnedAt: options?.pinned ? new Date() : null,
+            categoryId: options?.categoryId ?? null,
             workspaceRelPath: conversationWorkspaceRelativePath(ownerId, id),
             agentsTemplateVersion: runtime.agentsTemplateVersion,
             collaborationMode: options?.collaborationMode ?? "default",
@@ -9616,6 +9649,7 @@ type ConversationProjection = {
   archiveStatus: string;
   archivedAt: Date | null;
   pinnedAt: Date | null;
+  categoryId: string | null;
   sortOrder: number | null;
   codexThreadId: string | null;
   agentsTemplateVersion: string | null;
@@ -9696,6 +9730,7 @@ export function projectConversation(
     archive_status: row.archiveStatus,
     archived_at: row.archivedAt?.toISOString() ?? null,
     pinned_at: row.pinnedAt?.toISOString() ?? null,
+    category_id: row.categoryId,
     sort_order: row.sortOrder,
     codex_thread_id: row.codexThreadId,
     agents_template_version: row.agentsTemplateVersion,

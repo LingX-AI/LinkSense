@@ -26,6 +26,7 @@ export const conversationArchiveStatusSchema = z.enum(["active", "archived"]);
 export const conversationOrderGroupSchema = z.enum(["pinned", "recent"]);
 export const conversationOrderUpdateSchema = z.strictObject({
   group: conversationOrderGroupSchema,
+  category_id: uuidSchema.nullable().optional(),
   conversation_ids: uniqueArraySchema(uuidSchema).min(2).max(10_000),
 });
 export const conversationOrderResultSchema = conversationOrderUpdateSchema;
@@ -85,6 +86,7 @@ export const conversationSchema = z.strictObject({
   archive_status: conversationArchiveStatusSchema,
   archived_at: timestampSchema.nullable(),
   pinned_at: timestampSchema.nullable(),
+  category_id: uuidSchema.nullable(),
   sort_order: z.number().int().nonnegative().nullable(),
   codex_thread_id: z.string().min(1).nullable(),
   agents_template_version: z.string().min(1).max(80).nullable(),

@@ -34,3 +34,11 @@ Deleting one task or clearing all archived tasks cannot be undone. Recoverable m
 :::tip Organization
 Pin active work, archive completed work, and permanently delete only after downloading anything you still need.
 :::
+
+## Share the current conversation
+
+Select **Share** in the task header, review the preview, then select **Copy link**. The link includes only the messages and attachment information in that preview, without your name. Attachments are not available for public download.
+
+The preview is fixed when the dialog opens. Later messages, further streamed output, and edits to existing content are not added to this share. To share updated content, close and reopen the dialog and copy a new link. Each new link has its own snapshot; earlier links remain unchanged.
+
+The share preview does not load additional history. To include older messages, load them in the original task before opening the share dialog. Permanently deleting the source task also invalidates its share links.

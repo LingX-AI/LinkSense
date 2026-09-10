@@ -16,6 +16,10 @@ A useful request normally states:
 
 ## Select a model and reasoning effort
 
+Click the model and reasoning effort button at the bottom of the composer to open the selection card. Drag the slider to preview effort levels and release to save. You can also click a position on the track or use the arrow keys. The slider shows only the levels supported by the current model.
+
+Click the model name at the top of the card to switch models. The reset button in the upper-right corner restores the current model's default effort. Switching models keeps your effort level when supported; otherwise, the new model's default is used.
+
 The selector shows only chat models marked as available in conversations. Model and reasoning effort are fixed when a new turn starts. Later administrator changes do not rewrite running or historical turns.
 
 If a previous model is no longer available in conversations, select another or use the conversation default.

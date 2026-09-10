@@ -28,6 +28,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/tasks/create-and-run",
             "user-guide/tasks/plan-mode",
             "user-guide/tasks/goal-tasks",
+            "user-guide/tasks/task-categories",
             "user-guide/tasks/files-and-results",
             "user-guide/tasks/file-annotations",
             "user-guide/tasks/voice-input",

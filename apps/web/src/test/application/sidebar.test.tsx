@@ -87,7 +87,8 @@ describe("LinkSense application", () => {
     ).toBe(false)
   })
 
-  it("uses native title details and a running indicator in compact task rows", async () => {
+  it("shows the styled task preview on hover and a running indicator in compact task rows", async () => {
+    const interaction = userEvent.setup()
     const longTitle =
       "请创建 artifacts/mcp-e2e-verification 中的完整任务并验证导入结果"
     const updatedAt = "2026-07-13T08:00:00.000Z"
@@ -122,17 +123,16 @@ describe("LinkSense application", () => {
 
     expect(item).not.toBeNull()
     expect(link).not.toBeNull()
+    expect(within(sidebar).getByRole("link", { name: longTitle })).toBe(link)
     expect(link).toHaveClass("sidebar-conversation-link")
-    expect(link).toHaveClass("min-h-9", "py-2")
+    expect(link).toHaveClass("h-8")
+    expect(link).not.toHaveClass("min-h-9", "py-2")
     expect(link).toHaveAttribute("aria-busy", "true")
     expect(title).toHaveClass("sidebar-conversation-title-fade", "font-medium")
     expect(title).not.toHaveClass("truncate")
     expect(title).not.toHaveClass("font-semibold")
     expect(title).not.toHaveAttribute("title")
-    expect(link).toHaveAttribute(
-      "title",
-      `${longTitle}\n${formatRelativeDate(updatedAt, "zh-CN")}`
-    )
+    expect(link).not.toHaveAttribute("title")
     expect(item!.querySelector("time")).toBeNull()
 
     const runningStatus = within(item as HTMLElement).getByRole("status", {
@@ -203,9 +203,19 @@ describe("LinkSense application", () => {
     expect(actions).not.toHaveClass("transition-opacity")
 
     expect(screen.queryByRole("dialog", { name: longTitle })).toBeNull()
+    await interaction.hover(link as HTMLElement)
+    const preview = await screen.findByRole("dialog", { name: longTitle })
+    expect(preview).toHaveClass("sidebar-conversation-preview", "rounded-xl")
+    expect(within(preview).getByText(longTitle)).toBeVisible()
+    expect(preview.querySelector("time")).toHaveAttribute("datetime", updatedAt)
+    expect(preview.querySelector("time")).toHaveTextContent(
+      formatRelativeDate(updatedAt, "zh-CN")
+    )
+    await interaction.unhover(link as HTMLElement)
+    await waitFor(() => expect(preview).not.toBeInTheDocument())
   })
 
-  it("does not mount task preview portals while hovering and switching tasks", async () => {
+  it("keeps task navigation and focus working after hovering the task preview", async () => {
     const interaction = userEvent.setup()
     installApiMock()
     renderApp()
@@ -218,15 +228,19 @@ describe("LinkSense application", () => {
 
     await interaction.hover(link as HTMLElement)
     expect(
-      screen.queryByRole("dialog", { name: conversations[1]!.title })
-    ).toBeNull()
+      await screen.findByRole("dialog", { name: conversations[1]!.title })
+    ).toBeVisible()
 
     await interaction.click(link as HTMLElement)
     expect(link).toHaveFocus()
     await interaction.unhover(link as HTMLElement)
-    expect(
-      screen.queryByRole("dialog", { name: conversations[1]!.title })
-    ).toBeNull()
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: conversations[1]!.title })
+      ).toBeNull()
+    })
+    expect(link).toHaveAttribute("aria-current", "page")
+    expect(link).toHaveFocus()
   })
 
   it("keeps task focus styling stable while another task is hovered", async () => {
@@ -1098,8 +1112,11 @@ describe("LinkSense application", () => {
       name: "插件中心",
     })
     const knowledgeBasesLink = within(sidebar).getByRole("link", {
-      name: "文件库",
+      name: "资料库",
     })
+    expect(knowledgeBasesLink.querySelector("svg")).toHaveClass(
+      "lucide-library-big"
+    )
 
     expect(taskScroller).not.toBeNull()
     expect(taskScroller?.contains(newTaskLink)).toBe(false)
@@ -1165,7 +1182,7 @@ describe("LinkSense application", () => {
       name: "插件中心",
     })
     const knowledgeBaseLink = within(sidebar).getByRole("link", {
-      name: "文件库",
+      name: "资料库",
     })
     expect(automationLink).toHaveAttribute("href", "/automations")
     expect(pluginLink).toHaveAttribute("href", "/capabilities")

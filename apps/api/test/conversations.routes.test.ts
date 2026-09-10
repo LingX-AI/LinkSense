@@ -181,19 +181,50 @@ describe("conversation archived clear route", () => {
 describe("conversation share route", () => {
   it("creates a snapshot share for the authenticated owner's task", async () => {
     const { app, createShare } = await conversationRouteFixture();
+    const snapshot = {
+      conversation: {
+        id: CONVERSATION_ID,
+        title: "Shared task",
+        updated_at: "2026-09-09T00:00:00.000Z",
+      },
+      messages: [
+        { id: MESSAGE_ID, role: "user", content_text: "Visible message" },
+      ],
+      turns: [],
+      files: [],
+      activities: [],
+      turn_file_change_counts: {},
+    };
 
     const response = await app.inject({
       method: "POST",
       url: `/conversations/${CONVERSATION_ID}/share`,
+      payload: { snapshot },
     });
 
     expect(response.statusCode, response.body).toBe(201);
-    expect(createShare).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID);
+    expect(createShare).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, {
+      snapshot: expect.objectContaining(snapshot),
+    });
     expect(response.json()).toMatchObject({
       success: true,
       data: { url_path: `/share/${MESSAGE_ID}` },
     });
   });
+
+  it.each([undefined, {}, { snapshot: {} }])(
+    "rejects sharing without a valid preview",
+    async (payload) => {
+      const { app, createShare } = await conversationRouteFixture();
+      const response = await app.inject({
+        method: "POST",
+        url: `/conversations/${CONVERSATION_ID}/share`,
+        ...(payload === undefined ? {} : { payload }),
+      });
+      expect(response.statusCode).toBe(400);
+      expect(createShare).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("conversation pinning route", () => {
@@ -1605,3 +1636,21 @@ async function conversationRouteFixture(
     createShare,
   };
 }
+
+describe("task category request boundaries", () => {
+  const categoryId = "60000000-0000-4000-8000-000000000099";
+  it.each([null, categoryId])("passes category %s when creating and moving a task", async (category_id) => {
+    const { app, create, patch } = await conversationRouteFixture();
+    expect((await app.inject({ method: "POST", url: "/conversations", payload: { category_id } })).statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(OWNER_ID, expect.objectContaining({ categoryId: category_id }));
+    expect((await app.inject({ method: "PATCH", url: `/conversations/${CONVERSATION_ID}`, payload: { category_id } })).statusCode).toBe(200);
+    expect(patch).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, { categoryId: category_id });
+  });
+  it("rejects invalid category IDs before task creation and assignment", async () => {
+    const { app, create, patch } = await conversationRouteFixture();
+    expect((await app.inject({ method: "POST", url: "/conversations", payload: { category_id: "bad" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PATCH", url: `/conversations/${CONVERSATION_ID}`, payload: { category_id: "bad" } })).statusCode).toBe(400);
+    expect(create).not.toHaveBeenCalled();
+    expect(patch).not.toHaveBeenCalled();
+  });
+});

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
-import { applicationIconPresets } from "@linksense/shared"
+import {
+  applicationIconPresets,
+  taskArtifactFileTypeSchema,
+} from "@linksense/shared"
 
 import i18n, { resolveBrowserLanguage, setAppLanguage } from "@/i18n"
 import { enUS } from "@/i18n/en-US"
@@ -86,6 +89,28 @@ describe("i18n resources", () => {
 
   it("keeps zh-CN and en-US key sets aligned", () => {
     expect(leafKeys(enUS).sort()).toEqual(leafKeys(zhCN).sort())
+  })
+
+  it("localizes every artifact filter and falls back to Chinese for an unsupported language", () => {
+    const fileTypes = ["all", ...taskArtifactFileTypeSchema.options]
+    expect(Object.keys(zhCN.library.artifacts.fileTypes)).toEqual(fileTypes)
+    expect(Object.keys(enUS.library.artifacts.fileTypes)).toEqual(fileTypes)
+    for (const key of [
+      "library.artifacts.fileTypeLabel",
+      ...fileTypes.map((value) => `library.artifacts.fileTypes.${value}`),
+    ]) {
+      for (const lng of ["zh-CN", "en-US"]) {
+        expect(i18n.t(key, { lng })).not.toBe(key)
+        expect(i18n.t(key, { lng })).not.toBe("")
+      }
+      expect(i18n.t(key, { lng: "fr-FR" })).toBe(i18n.t(key, { lng: "zh-CN" }))
+    }
+    expect(i18n.t("library.artifacts.fileTypeLabel", { lng: "en-US" })).toBe(
+      "Filter by file type"
+    )
+    expect(
+      i18n.t("library.artifacts.fileTypes.archive", { lng: "zh-CN" })
+    ).toBe("压缩包")
   })
 
   it("labels the reranking switch by when it takes effect", async () => {
@@ -496,6 +521,7 @@ describe("i18n resources", () => {
     expect(zhCN.conversation.clearArchivedDescription).toContain(
       "未归档任务不受影响"
     )
+    expect(zhCN.conversation.clearingArchived).toBe("正在清除已归档任务…")
     expect(enUS.settings.credentials).toBe("Plugin credentials")
     expect(enUS.credential.title).toBe("Plugin credentials")
     expect(enUS.nav.archived).toBe("Archived tasks")
@@ -508,15 +534,21 @@ describe("i18n resources", () => {
     expect(enUS.conversation.clearArchivedDescription).toContain(
       "Active tasks are not affected"
     )
+    expect(enUS.conversation.clearingArchived).toBe("Clearing archived tasks…")
   })
 
   it("localizes desktop sidebar and automation notification controls", () => {
     expect(zhCN.nav.automations).toBe("自动化")
     expect(enUS.nav.automations).toBe("Automations")
-    expect(zhCN.nav.knowledgeBases).toBe("文件库")
-    expect(enUS.nav.knowledgeBases).toBe("File library")
-    expect(zhCN.library.title).toBe("文件库")
-    expect(enUS.library.title).toBe("File library")
+    expect(zhCN.nav.knowledgeBases).toBe("资料库")
+    expect(enUS.nav.knowledgeBases).toBe("Resource library")
+    expect(zhCN.library.title).toBe("资料库")
+    expect(enUS.library.title).toBe("Resource library")
+    expect(zhCN.library.tabsLabel).toBe("资料库内容")
+    expect(enUS.library.tabsLabel).toBe("Resource library content")
+    expect(i18n.getFixedT("fr-FR")("nav.knowledgeBases")).toBe("资料库")
+    expect(i18n.getFixedT("fr-FR")("library.title")).toBe("资料库")
+    expect(i18n.getFixedT("fr-FR")("library.tabsLabel")).toBe("资料库内容")
     expect(zhCN.library.tabs.artifacts).toBe("任务产物")
     expect(enUS.library.tabs.artifacts).toBe("Task artifacts")
     expect(zhCN.library.artifacts.loadingMore).toBe("正在加载更多…")

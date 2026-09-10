@@ -18,6 +18,7 @@ import { errorEnvelope, ok } from "./lib/http.js";
 import { AppError, errorDetails, normalizeError } from "./lib/errors.js";
 import { authenticationPlugin } from "./plugins/authentication.js";
 import { systemRoutes, adminSystemRoutes } from "./modules/system/routes.js";
+import { taskCategoryRoutes } from "./modules/task-categories/routes.js";
 import { conversationRoutes } from "./modules/conversations/routes.js";
 import { publicConversationShareRoutes } from "./modules/conversations/share-routes.js";
 import { fileRoutes } from "./modules/files/routes.js";
@@ -449,6 +450,10 @@ export async function buildApi(
       { prefix: "/api/v1/knowledge-bases" },
     );
   }
+  await app.register(taskCategoryRoutes, {
+    prefix: "/api/v1/task-categories",
+    service: services.taskCategories,
+  });
   await app.register(conversationRoutes, {
     prefix: "/api/v1/conversations",
     services,

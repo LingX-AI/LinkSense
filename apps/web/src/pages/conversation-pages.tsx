@@ -179,6 +179,9 @@ import {
   replaceSidebarConversation,
   upsertSidebarConversation,
 } from "@/features/conversations/conversation-order"
+import { TaskCategoryComposerPicker } from "@/features/task-categories/task-category-composer-picker"
+import { useNewTaskCategory } from "@/features/task-categories/use-new-task-category"
+import { newTaskCategoryNavigationState } from "@/features/task-categories/new-task-category-preference"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import { ConversationTaskOverviewPanel } from "@/features/conversations/conversation-task-overview-panel"
 import {
@@ -195,7 +198,15 @@ import {
 import { ConversationThread } from "@/features/conversations/conversation-thread"
 import type { NativeSubAgentViewModel } from "@/features/conversations/native-subagent-activity"
 import { useSubAgentSummaries } from "@/features/conversations/use-subagent-summaries"
-import { createConversationAttachmentPreviewSource } from "@/features/conversations/conversation-attachment-preview-utils"
+import {
+  createConversationAttachmentPreviewSource,
+  isPreviewableImageMimeType,
+} from "@/features/conversations/conversation-attachment-preview-utils"
+import {
+  releaseConversationAttachmentPreviewResource,
+  retainConversationAttachmentPreviewResource,
+  type ConversationAttachmentPreviewResource,
+} from "@/features/conversations/conversation-attachment-preview-cache"
 import { ConversationPlanCard } from "@/features/conversations/conversation-plan-card"
 import {
   ConversationPlanDecisionCard,
@@ -300,6 +311,7 @@ function createPendingAttachmentUpload(
     name: file.name,
     size: file.size,
     mimeType: file.type || undefined,
+    previewFile: isPreviewableImageMimeType(file.type) ? file : undefined,
   }
 }
 
@@ -489,6 +501,12 @@ export function ConversationPage({
   const location = useLocation()
   const queryClient = useQueryClient()
   const [value, setValue] = useState("")
+  const {
+    categoryId: newTaskCategoryId,
+    isResolving: newTaskCategoryResolving,
+    chooseCategory: chooseNewTaskCategory,
+    resetCategory: resetNewTaskCategory,
+  } = useNewTaskCategory({ userId: user?.id, isNew })
   const [taskOverviewOpen, setTaskOverviewOpen] = useState(
     readTaskOverviewOpenPreference
   )
@@ -1236,7 +1254,9 @@ export function ConversationPage({
       return
     setError(null)
     if (!isNew) {
-      navigate("/conversations/new")
+      navigate("/conversations/new", {
+        state: newTaskCategoryNavigationState(user?.id, conversationId),
+      })
       return
     }
     setPendingFirstMessageConversationId(null)
@@ -1246,6 +1266,7 @@ export function ConversationPage({
     if (user) clearLocalConversationDraft(window.localStorage, user.id, "new")
     hydratedDraftScopeRef.current = null
     setValue("")
+    resetNewTaskCategory()
     setGoalMode(false)
     setNewTaskCollaborationMode("default")
     setSelectedCapabilityIds([])
@@ -1257,7 +1278,15 @@ export function ConversationPage({
     setOptimisticGoal(null)
     setNewTaskResetVersion((current) => current + 1)
     window.setTimeout(() => composerRef.current?.focus(), 0)
-  }, [isNew, navigate, resetPrewarm, setGoalMode, user])
+  }, [
+    isNew,
+    navigate,
+    resetPrewarm,
+    resetNewTaskCategory,
+    setGoalMode,
+    user,
+    conversationId,
+  ])
 
   useEffect(() => {
     legacyStreamItemIdByTurnRef.current.clear()
@@ -2327,6 +2356,7 @@ export function ConversationPage({
         method: "POST",
         body: {
           collaboration_mode: initialCollaborationMode,
+          category_id: newTaskCategoryId,
           ...(prewarmedConversationId
             ? {
                 prewarmed_conversation_id: prewarmedConversationId,
@@ -2545,6 +2575,7 @@ export function ConversationPage({
         title: t("conversation.untitled"),
         archived: false,
         pinned_at: null,
+        category_id: newTaskCategoryId,
         sort_order: null,
         updated_at: new Date().toISOString(),
         execution_status: "running",
@@ -2583,7 +2614,14 @@ export function ConversationPage({
       patchSidebarConversationExecutionStatus(cached, conversationId, "running")
     )
     return optimisticStatus
-  }, [collaborationMode, conversationId, isNew, queryClient, t])
+  }, [
+    collaborationMode,
+    conversationId,
+    isNew,
+    newTaskCategoryId,
+    queryClient,
+    t,
+  ])
 
   const restoreOptimisticSidebarExecutionStatus = useCallback(
     (
@@ -3499,8 +3537,8 @@ export function ConversationPage({
       navigate(`/conversations/${forkedConversation.id}`)
       void refreshConversationList().catch(() => undefined)
     },
-    onError: () => {
-      setError(t("conversation.forkMessageFailed"))
+    onError: (nextError) => {
+      setError(getErrorMessage(nextError, t))
     },
     onSettled: () => {
       notify.dismiss(conversationForkNotificationId)
@@ -3518,21 +3556,37 @@ export function ConversationPage({
       }
       const id = await ensureConversation()
       attachmentMutationTargetConversationIdRef.current = id
+      const previewResources: ConversationAttachmentPreviewResource[] = []
       try {
         for (const file of uploadableFiles) {
           const formData = new FormData()
           formData.append("file", file)
-          await apiRequest(`/conversations/${id}/attachments`, {
-            method: "POST",
-            body: formData,
-            schema: conversationFileSchema,
-          })
+          const attachment = await apiRequest(
+            `/conversations/${id}/attachments`,
+            {
+              method: "POST",
+              body: formData,
+              schema: conversationFileSchema,
+            }
+          )
+          if (
+            isPreviewableImageMimeType(attachment.mime_type) &&
+            isPreviewableImageMimeType(file.type)
+          ) {
+            previewResources.push(
+              retainConversationAttachmentPreviewResource(
+                attachment,
+                async () => file
+              )
+            )
+          }
         }
       } catch (nextError) {
         await refreshAfterMutation(id).catch(() => undefined)
+        previewResources.forEach(releaseConversationAttachmentPreviewResource)
         throw nextError
       }
-      return id
+      return { id, previewResources }
     },
     onMutate: (files) => {
       const pendingUploads = files
@@ -3546,7 +3600,13 @@ export function ConversationPage({
       }
       return { pendingUploadIds: pendingUploads.map((file) => file.id) }
     },
-    onSuccess: refreshAfterMutation,
+    onSuccess: async ({ id, previewResources }) => {
+      try {
+        await refreshAfterMutation(id)
+      } finally {
+        previewResources.forEach(releaseConversationAttachmentPreviewResource)
+      }
+    },
     onSettled: (_data, _error, _files, context) => {
       const pendingUploadIds = context?.pendingUploadIds
       if (!pendingUploadIds || pendingUploadIds.length === 0) return
@@ -3614,7 +3674,7 @@ export function ConversationPage({
     let targetConversationId: string | null = null
     return attachMutation
       .mutateAsync(files)
-      .then(async (id) => {
+      .then(async ({ id }) => {
         targetConversationId = id
         return true
       })
@@ -4030,12 +4090,34 @@ export function ConversationPage({
         schema: conversationSchema,
       }),
     onSuccess: async (nextConversation, variables) => {
+      if (typeof variables.title === "string") {
+        await Promise.all([
+          queryClient.cancelQueries({
+            queryKey: ["conversations", "sidebar"],
+            exact: true,
+          }),
+          queryClient.cancelQueries({
+            queryKey: ["conversation", nextConversation.id],
+            exact: true,
+          }),
+        ])
+        queryClient.setQueryData(
+          ["conversations", "sidebar"],
+          (current: { pages: Array<{ items: Conversation[] }> } | undefined) =>
+            patchSidebarConversationTitle(
+              current,
+              nextConversation.id,
+              nextConversation.title,
+              "manual"
+            )
+        )
+      }
       queryClient.setQueryData<Conversation>(
-        ["conversation", conversationId],
+        ["conversation", nextConversation.id],
         (currentConversation) =>
           currentConversation
             ? { ...currentConversation, ...nextConversation }
-            : nextConversation
+            : undefined
       )
       setRenameOpen(false)
       if (variables.archive_status === "archived") {
@@ -4677,6 +4759,7 @@ export function ConversationPage({
     id: newConversationPlaceholderId,
     title: t("conversation.untitled"),
     archived: false,
+    category_id: newTaskCategoryId,
     updated_at: new Date(0).toISOString(),
     has_unread_completion: false,
     has_automation: false,
@@ -5249,7 +5332,6 @@ export function ConversationPage({
       {!isNew && (
         <ConversationShareDialog
           conversation={displayConversation}
-          history={conversation?.history ? conversationHistory : undefined}
           open={shareOpen}
           onOpenChange={setShareOpen}
         />
@@ -5459,6 +5541,27 @@ export function ConversationPage({
               }
             />
           )}
+        {!blockingPanelActive &&
+          (isNew ||
+            (!isApplicationConversation &&
+              displayConversation.messages?.length === 0)) && (
+            <TaskCategoryComposerPicker
+              value={
+                isNew ? newTaskCategoryId : displayConversation.category_id
+              }
+              onChange={(categoryId) => {
+                chooseNewTaskCategory(categoryId)
+                if (!isNew)
+                  patchConversationMutation.mutate({ category_id: categoryId })
+              }}
+              disabled={
+                sendMutation.isPending ||
+                goalStartMutation.isPending ||
+                attachmentOperationPending ||
+                patchConversationMutation.isPending
+              }
+            />
+          )}
         {!blockingPanelActive && (
           <ConversationComposer
             ref={composerRef}
@@ -5564,7 +5667,9 @@ export function ConversationPage({
             onCompact={startContextCompaction}
             compactAvailable={compactionAvailable}
             compacting={contextCompactionMutation.isPending}
-            taskStartDisabled={taskStartDisabledByTokenQuota}
+            taskStartDisabled={
+              taskStartDisabledByTokenQuota || newTaskCategoryResolving
+            }
             onStartNewTask={startNewTaskFromComposer}
             onStartApplication={(application) => {
               if (
@@ -5699,7 +5804,6 @@ export function ArchivedConversationListPage() {
         schema: archivedConversationClearResultSchema,
       }),
     onSuccess: async (result) => {
-      setClearAllOpen(false)
       setCursor(undefined)
       setCursorStack([])
       await queryClient.invalidateQueries({ queryKey: ["conversations"] })
@@ -5765,6 +5869,9 @@ export function ArchivedConversationListPage() {
         variant="error"
         onDismiss={dismissError}
       />
+      {clearArchivedMutation.isPending && (
+        <LoadingState label={t("conversation.clearingArchived")} />
+      )}
       {query.isLoading && <LoadingState />}
       {query.isError && (
         <ErrorState
@@ -5889,8 +5996,10 @@ export function ArchivedConversationListPage() {
         description={t("conversation.clearArchivedDescription")}
         confirmLabel={t("conversation.clearArchived")}
         destructive
-        pending={clearArchivedMutation.isPending}
-        onConfirm={() => clearArchivedMutation.mutate()}
+        onConfirm={() => {
+          setClearAllOpen(false)
+          clearArchivedMutation.mutate()
+        }}
       />
       <ConversationSearchDialog
         open={searchOpen}
