@@ -1609,6 +1609,7 @@ test("Codex template requires the isolated Responses provider and disables nativ
   assert.match(config, /^websocket_connect_timeout_ms = 12000$/mu);
   assert.match(config, /^requires_openai_auth = false$/mu);
   assert.match(config, /^plugins = true$/mu);
+  assert.match(config, /^include_instructions = true$/mu);
   assert.match(config, /^multi_agent = true$/mu);
   assert.match(config, /^tool_call_mcp_elicitation = false$/mu);
   assert.match(
@@ -2018,7 +2019,7 @@ test("worker full Chromium capability is pinned, broad by default, Plan-read-onl
     const stage = dockerfile.split(/(?=^FROM )/mu).find((value) => value.split("\n")[0].endsWith(` AS ${stageName}`));
     assert.ok(stage, `missing ${stageName} stage`);
     assert.ok(stage.includes('task_home="/tmp/browser-smoke/home/task-homes/$conversation_id"'));
-    assert.ok(stage.includes('env HOME="$task_home" CODEX_HOME="$task_home/.codex"'));
+    assert.ok(stage.includes('env HOME="/tmp/browser-smoke/home" CODEX_HOME="$task_home/.codex"'));
     assert.match(stage, /COPY --chmod=0644 deploy\/runtime\/browser\/generate-user-agent\.mjs \/opt\/linksense\/runtime\/browser\/generate-user-agent\.mjs\nRUN node \/opt\/linksense\/runtime\/browser\/generate-user-agent\.mjs/u);
   }
   assert.match(
