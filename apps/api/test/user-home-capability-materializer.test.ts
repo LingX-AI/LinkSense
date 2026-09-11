@@ -64,6 +64,40 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     expect(await readdir(result.skillsRoot)).not.toContain("linksense-browser")
   })
 
+  it("republishes the hot-path runtime when the enabled built-in Skills change", async () => {
+    const root = await temporaryDirectory()
+    const userDataRoot = join(root, "users")
+    const input = {
+      ownerId: OWNER_ID,
+      conversationId: TASK_ID,
+      capabilities: [],
+    }
+    const dockerMaterializer = new UserHomeCapabilityMaterializer({
+      userDataRoot,
+    })
+    const dockerRuntime = await dockerMaterializer.reconcile(input)
+    expect(await readdir(dockerRuntime.skillsRoot)).toContain(
+      "linksense-browser",
+    )
+
+    const hostMaterializer = new UserHomeCapabilityMaterializer({
+      userDataRoot,
+      managedBrowserEnabled: false,
+    })
+    const hostRuntime = await hostMaterializer.withPublicationStartFence(
+      input,
+      () =>
+        hostMaterializer.resolvePublishedRuntimeWithinPublicationStartFence(
+          input,
+        ),
+    )
+
+    expect(hostRuntime.generation).not.toBe(dockerRuntime.generation)
+    expect(await readdir(hostRuntime.skillsRoot)).not.toContain(
+      "linksense-browser",
+    )
+  })
+
   it.sequential(
     "rolls back publication when flushing the new content fails",
     async () => {

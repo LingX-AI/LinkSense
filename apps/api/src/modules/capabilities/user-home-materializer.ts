@@ -390,6 +390,7 @@ export class UserHomeCapabilityMaterializer {
     const verification = await readPublishedRuntimeVerification(
       paths,
       input.capabilities,
+      this.#enabledBuiltInSkillNames,
     )
     if (verification) return reconciledRuntime(paths, verification)
     return this.#resolveSnapshot(input, false)
@@ -449,6 +450,7 @@ export class UserHomeCapabilityMaterializer {
           paths,
           input.capabilities,
           input.verification,
+          this.#enabledBuiltInSkillNames,
         ))
       ) {
         throw new UserHomeCapabilityMaterializationError(
@@ -843,6 +845,18 @@ function pluginNamesForCapabilities(
     .filter((capability) => capability.type === "plugin")
     .map((capability) => capability.name)
     .sort()
+}
+
+function skillNamesForCapabilities(
+  capabilities: UserHomeCapabilityInput[],
+  enabledBuiltIns: readonly BuiltInSkillName[],
+): string[] {
+  return [
+    ...enabledBuiltIns,
+    ...capabilities
+      .filter((capability) => capability.type === "skill")
+      .map((capability) => capability.name),
+  ].sort()
 }
 
 async function calculateCapabilitySourceDigest(
@@ -1473,6 +1487,29 @@ async function readPublishedPluginSourceNames(
   return names
 }
 
+async function readPublishedSkillSourceNames(
+  skillsRoot: string,
+): Promise<string[]> {
+  const root = await lstat(skillsRoot)
+  if (!root.isDirectory() || root.isSymbolicLink()) {
+    throw new UserHomeCapabilityMaterializationError(
+      "skill root must be a real directory",
+    )
+  }
+
+  const names: string[] = []
+  for (const name of (await readdir(skillsRoot)).sort()) {
+    const info = await lstat(path.join(skillsRoot, name))
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+      throw new UserHomeCapabilityMaterializationError(
+        "skill root entries must be real directories",
+      )
+    }
+    names.push(name)
+  }
+  return names
+}
+
 function calculateGeneration(
   capabilities: UserHomeCapabilityInput[],
   contentDigest: string,
@@ -1677,6 +1714,7 @@ async function runtimeMatches(
 async function readPublishedRuntimeVerification(
   paths: UserHomeCapabilityPaths,
   capabilities: UserHomeCapabilityInput[],
+  enabledBuiltIns: readonly BuiltInSkillName[],
 ): Promise<CapabilityRuntimeVerification | null> {
   try {
     const snapshot = await readTaskSnapshot(paths)
@@ -1691,11 +1729,12 @@ async function readPublishedRuntimeVerification(
     ) {
       return null
     }
-    const [generation, contentDigest, sourceDigest, publishedPluginNames, marketplaceNames] =
+    const [generation, contentDigest, sourceDigest, publishedSkillNames, publishedPluginNames, marketplaceNames] =
       await Promise.all([
         readGeneration(paths.generationPath),
         readDigest(paths.contentDigestPath),
         readDigest(paths.sourceDigestPath),
+        readPublishedSkillSourceNames(paths.skillsRoot),
         readPublishedPluginSourceNames(paths.pluginsRoot),
         readManagedPluginNames(paths.marketplacePath),
       ])
@@ -1709,7 +1748,9 @@ async function readPublishedRuntimeVerification(
       return null
     }
     const pluginNames = pluginNamesForCapabilities(capabilities)
+    const skillNames = skillNamesForCapabilities(capabilities, enabledBuiltIns)
     if (
+      JSON.stringify(publishedSkillNames) !== JSON.stringify(skillNames) ||
       JSON.stringify(publishedPluginNames) !== JSON.stringify(pluginNames) ||
       JSON.stringify([...marketplaceNames].sort()) !== JSON.stringify(pluginNames)
     ) {
@@ -1725,12 +1766,14 @@ async function publishedRuntimeMatchesVerification(
   paths: UserHomeCapabilityPaths,
   capabilities: UserHomeCapabilityInput[],
   verification: CapabilityRuntimeVerification,
+  enabledBuiltIns: readonly BuiltInSkillName[],
 ): Promise<boolean> {
   try {
     assertRuntimeVerification(verification, capabilities)
     const published = await readPublishedRuntimeVerification(
       paths,
       capabilities,
+      enabledBuiltIns,
     )
     return (
       published !== null &&
