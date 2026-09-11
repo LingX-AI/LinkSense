@@ -1,9 +1,10 @@
+import { defaultQuotaSettings } from "@linksense/shared";
 import ExcelJS from "exceljs";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   UserService,
-  type UserTokenQuotaUsage,
+  type UserCreditQuotaUsage,
 } from "../src/modules/users/service.js";
 import type {
   AvatarStorage,
@@ -63,20 +64,15 @@ describe("UserService", () => {
     expect(command).not.toHaveProperty("password");
     expect(command).not.toHaveProperty("passwordHash");
     expect(command).toMatchObject({
-      weeklyTokenLimit: null,
-      monthlyTokenLimit: null,
+      weeklyCreditLimitMicros: null,
+      monthlyCreditLimitMicros: null,
     });
     expect(command?.now.toISOString()).toBe("2026-07-11T08:00:00.750Z");
   });
 
-  it("copies model-setting initial token usage into newly created users", async () => {
+  it("copies initial credit quotas into newly created users", async () => {
     const fixture = userFixture();
-    vi.mocked(fixture.tokenLimitDefaults.getAdminSettings).mockResolvedValueOnce({
-      token_limits: {
-        weekly_token_limit: "25000",
-        monthly_token_limit: "100000",
-      },
-    });
+    vi.mocked(fixture.creditLimitDefaults.getSettings).mockResolvedValueOnce({ ...defaultQuotaSettings(), organization_members: { total_credit_limit: "1", weekly_credit_limit: "0.025", monthly_credit_limit: "0.1" } });
 
     await fixture.service.createUser(ADMIN, {
       name: "New User",
@@ -87,8 +83,8 @@ describe("UserService", () => {
 
     expect(fixture.persistence.createUser).toHaveBeenCalledWith(
       expect.objectContaining({
-        weeklyTokenLimit: 25_000n,
-        monthlyTokenLimit: 100_000n,
+        weeklyCreditLimitMicros: 25_000n,
+        monthlyCreditLimitMicros: 100_000n,
       }),
     );
   });
@@ -99,9 +95,9 @@ describe("UserService", () => {
       makeManagedUser({
         name: "Ada",
         email: "ada@example.com",
-        totalTokenLimit: 5_000n,
-        weeklyTokenLimit: 1_000n,
-        monthlyTokenLimit: 10_000n,
+        totalCreditLimitMicros: 5_000n,
+        weeklyCreditLimitMicros: 1_000n,
+        monthlyCreditLimitMicros: 10_000n,
         groups: [
           makeGroup({
             id: "00000000-0000-4000-8000-000000000022",
@@ -114,17 +110,17 @@ describe("UserService", () => {
         ],
       }),
     );
-    vi.mocked(fixture.tokenQuotaUsage.currentUsageForLimits).mockResolvedValueOnce({
+    vi.mocked(fixture.creditQuotaUsage.currentUsageForLimits).mockResolvedValueOnce({
       total: {
-        limitTokens: 5_000n,
-        usedTokens: 1_250n,
-        remainingTokens: 3_750n,
+        limitCreditMicros: 5_000n,
+        usedCreditMicros: 1_250n,
+        remainingCreditMicros: 3_750n,
         remainingPercentage: 75,
       },
       weekly: {
-        limitTokens: 1_000n,
-        usedTokens: 250n,
-        remainingTokens: 750n,
+        limitCreditMicros: 1_000n,
+        usedCreditMicros: 250n,
+        remainingCreditMicros: 750n,
         remainingPercentage: 75,
         resetAt: new Date("2026-08-24T00:00:00.000Z"),
       },
@@ -149,29 +145,30 @@ describe("UserService", () => {
           },
         ],
       },
-      token_quota: {
+      credit_quota: {
         total: {
-          limit_tokens: "5000",
-          used_tokens: "1250",
-          remaining_tokens: "3750",
+          limit_credits: "0.005",
+          used_credits: "0.00125",
+          remaining_credits: "0.00375",
           remaining_percentage: 75,
         },
         weekly: {
-          limit_tokens: "1000",
-          used_tokens: "250",
-          remaining_tokens: "750",
+          limit_credits: "0.001",
+          used_credits: "0.00025",
+          remaining_credits: "0.00075",
           remaining_percentage: 75,
           reset_at: "2026-08-24T00:00:00.000Z",
         },
         monthly: null,
       },
     });
-    expect(fixture.tokenQuotaUsage.currentUsageForLimits).toHaveBeenCalledWith(
+    expect(fixture.creditQuotaUsage.currentUsageForLimits).toHaveBeenCalledWith(
       "00000000-0000-4000-8000-000000000010",
       {
-        totalTokenLimit: 5_000n,
-        weeklyTokenLimit: 1_000n,
-        monthlyTokenLimit: 10_000n,
+        creditQuotaResetAt: null,
+        totalCreditLimitMicros: 5_000n,
+        weeklyCreditLimitMicros: 1_000n,
+        monthlyCreditLimitMicros: 10_000n,
       },
     );
   });
@@ -245,17 +242,17 @@ describe("UserService", () => {
     const targetUserId = "00000000-0000-4000-8000-000000000010";
 
     await fixture.service.updateUser(ADMIN, targetUserId, {
-      total_token_limit: "500000",
-      weekly_token_limit: "25000",
-      monthly_token_limit: null,
+      total_credit_limit: "0.5",
+      weekly_credit_limit: "0.025",
+      monthly_credit_limit: null,
     });
 
     expect(fixture.persistence.updateUser).toHaveBeenCalledWith(
       expect.objectContaining({
         targetUserId,
-        totalTokenLimit: 500_000n,
-        weeklyTokenLimit: 25_000n,
-        monthlyTokenLimit: null,
+        totalCreditLimitMicros: 500_000n,
+        weeklyCreditLimitMicros: 25_000n,
+        monthlyCreditLimitMicros: null,
       }),
     );
   });
@@ -265,19 +262,19 @@ describe("UserService", () => {
     const firstUserId = "00000000-0000-4000-8000-000000000011";
     const secondUserId = "00000000-0000-4000-8000-000000000010";
 
-    await fixture.service.updateUserTokenLimits(ADMIN, {
+    await fixture.service.updateUserCreditLimits(ADMIN, {
       user_ids: [firstUserId, secondUserId, firstUserId],
-      total_token_limit: "500000",
-      weekly_token_limit: null,
-      monthly_token_limit: "100000",
+      total_credit_limit: "0.5",
+      weekly_credit_limit: null,
+      monthly_credit_limit: "0.1",
     });
 
-    expect(fixture.persistence.updateUserTokenLimits).toHaveBeenCalledWith(
+    expect(fixture.persistence.updateUserCreditLimits).toHaveBeenCalledWith(
       expect.objectContaining({
         targetUserIds: [secondUserId, firstUserId],
-        totalTokenLimit: 500_000n,
-        weeklyTokenLimit: null,
-        monthlyTokenLimit: 100_000n,
+        totalCreditLimitMicros: 500_000n,
+        weeklyCreditLimitMicros: null,
+        monthlyCreditLimitMicros: 100_000n,
       }),
     );
   });
@@ -339,8 +336,8 @@ describe("UserService", () => {
       }),
     );
     expect(command).toMatchObject({
-      weeklyTokenLimit: null,
-      monthlyTokenLimit: null,
+      weeklyCreditLimitMicros: null,
+      monthlyCreditLimitMicros: null,
     });
     expect(command?.rows[0]).not.toHaveProperty("password");
 
@@ -355,14 +352,9 @@ describe("UserService", () => {
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
 
-  it("copies model-setting initial token usage into imported users", async () => {
+  it("copies initial credit quotas into imported users", async () => {
     const fixture = userFixture();
-    vi.mocked(fixture.tokenLimitDefaults.getAdminSettings).mockResolvedValueOnce({
-      token_limits: {
-        weekly_token_limit: "30000",
-        monthly_token_limit: "120000",
-      },
-    });
+    vi.mocked(fixture.creditLimitDefaults.getSettings).mockResolvedValueOnce({ ...defaultQuotaSettings(), organization_members: { total_credit_limit: "2", weekly_credit_limit: "0.03", monthly_credit_limit: "0.12" } });
 
     await fixture.service.importWorkbook(
       ADMIN,
@@ -374,8 +366,8 @@ describe("UserService", () => {
 
     expect(fixture.persistence.importUsers).toHaveBeenCalledWith(
       expect.objectContaining({
-        weeklyTokenLimit: 30_000n,
-        monthlyTokenLimit: 120_000n,
+        weeklyCreditLimitMicros: 30_000n,
+        monthlyCreditLimitMicros: 120_000n,
       }),
     );
   });
@@ -553,7 +545,7 @@ function userFixture(
     findManagedUser: vi.fn(async () => user),
     createUser: vi.fn(async () => user),
     updateUser: vi.fn(async () => ({ status: "updated" as const, user })),
-    updateUserTokenLimits: vi.fn(async () => [user]),
+    updateUserCreditLimits: vi.fn(async () => [user]),
     importUsers: vi.fn(async (input: ImportUserCommand) =>
       input.rows.map((row) =>
         makeManagedUser({
@@ -561,8 +553,8 @@ function userFixture(
           name: row.name,
           email: row.email,
           role: row.role,
-          weeklyTokenLimit: input.weeklyTokenLimit,
-          monthlyTokenLimit: input.monthlyTokenLimit,
+          weeklyCreditLimitMicros: input.weeklyCreditLimitMicros,
+          monthlyCreditLimitMicros: input.monthlyCreditLimitMicros,
         }),
       ),
     ),
@@ -587,23 +579,9 @@ function userFixture(
     acquireUserLifecycleLock: vi.fn(async () => "user-lifecycle-lock"),
     releaseUserLifecycleLock: vi.fn(async () => undefined),
   };
-  const tokenLimitDefaults = {
-    getAdminSettings: vi.fn(
-      async (): Promise<{
-        token_limits: {
-          weekly_token_limit: string | null;
-          monthly_token_limit: string | null;
-        };
-      }> => ({
-        token_limits: {
-          weekly_token_limit: null,
-          monthly_token_limit: null,
-        },
-      }),
-    ),
-  };
-  const tokenQuotaUsage = {
-    currentUsageForLimits: vi.fn(async (): Promise<UserTokenQuotaUsage> => ({
+  const creditLimitDefaults = { getSettings: vi.fn(async () => defaultQuotaSettings()) };
+  const creditQuotaUsage = {
+    currentUsageForLimits: vi.fn(async (): Promise<UserCreditQuotaUsage> => ({
       total: null,
       weekly: null,
       monthly: null,
@@ -614,8 +592,8 @@ function userFixture(
     avatarStorage,
     avatarCleanup,
     lifecycleCoordinator,
-    tokenLimitDefaults,
-    tokenQuotaUsage,
+    creditLimitDefaults,
+    creditQuotaUsage,
     materializeUserHomes,
     now: () => new Date(NOW),
     createId: () => `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
@@ -626,8 +604,8 @@ function userFixture(
     avatarStorage,
     avatarCleanup,
     lifecycleCoordinator,
-    tokenLimitDefaults,
-    tokenQuotaUsage,
+    creditLimitDefaults,
+    creditQuotaUsage,
     materializeUserHomes,
   };
 }
@@ -654,9 +632,10 @@ function makeManagedUser(overrides: Partial<ManagedUser> = {}): ManagedUser {
     preferredLocale: null,
     selfRegisteredAt: null,
     runningMessageAction: "queue",
-    totalTokenLimit: null,
-    weeklyTokenLimit: null,
-    monthlyTokenLimit: null,
+    totalCreditLimitMicros: null,
+    weeklyCreditLimitMicros: null,
+    monthlyCreditLimitMicros: null,
+    creditQuotaResetAt: null,
     lastLoginAt: null,
     lastLoginMethod: null,
     passwordUpdatedAt: null,
@@ -687,9 +666,10 @@ function makeUserRecord(overrides: Partial<UserRecord> = {}): UserRecord {
     preferredLocale: managed.preferredLocale,
     selfRegisteredAt: managed.selfRegisteredAt,
     runningMessageAction: managed.runningMessageAction,
-    totalTokenLimit: managed.totalTokenLimit,
-    weeklyTokenLimit: managed.weeklyTokenLimit,
-    monthlyTokenLimit: managed.monthlyTokenLimit,
+    totalCreditLimitMicros: managed.totalCreditLimitMicros,
+    weeklyCreditLimitMicros: managed.weeklyCreditLimitMicros,
+    monthlyCreditLimitMicros: managed.monthlyCreditLimitMicros,
+    creditQuotaResetAt: null,
     lastLoginAt: managed.lastLoginAt,
     lastLoginMethod: managed.lastLoginMethod,
     passwordUpdatedAt: managed.passwordUpdatedAt,

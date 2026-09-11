@@ -2,17 +2,21 @@ import { randomUUID } from "node:crypto";
 
 import {
   createUserInputSchema,
-  bulkUserTokenLimitsInputSchema,
+  defaultQuotaSettings,
+  creditMicrosToDecimal,
+  decimalToCreditMicros,
+  bulkUserCreditLimitsInputSchema,
   type CurrentUserInfoSuccess,
   importUserRowSchema,
   localeSchema,
-  type TokenLimitSettings,
+  type QuotaSettings,
   updateUserInputSchema,
   userNameSchema,
 } from "@linksense/shared";
 import { fileTypeFromBuffer } from "file-type";
 import { z } from "zod";
 
+import { storedCreditLimits } from "../system/quota-settings.js";
 import { AppError } from "../../lib/errors.js";
 import type { AuditContext } from "../audit/service.js";
 import { parseUserImportWorkbook } from "./import-workbook.js";
@@ -21,7 +25,7 @@ import type {
   AvatarUpload,
   ManagedUser,
   ManagedUserGroup,
-  TokenQuotaRemainingZeroFilter,
+  CreditQuotaRemainingZeroFilter,
   UserActor,
   UserPersistence,
   UserRecord,
@@ -46,36 +50,37 @@ export interface UserLifecycleCoordinator {
   releaseUserLifecycleLock(userId: string, token: string): Promise<void>;
 }
 
-export interface UserTokenLimitDefaultsReader {
-  getAdminSettings(): Promise<{ token_limits: TokenLimitSettings }>;
+export interface UserCreditLimitDefaultsReader {
+  getSettings(): Promise<QuotaSettings>;
 }
 
-export type UserTokenQuotaTotalUsage = {
-  limitTokens: bigint;
-  usedTokens: bigint;
-  remainingTokens: bigint;
+export type UserCreditQuotaTotalUsage = {
+  limitCreditMicros: bigint;
+  usedCreditMicros: bigint;
+  remainingCreditMicros: bigint;
   remainingPercentage: number;
 };
 
-export type UserTokenQuotaPeriodUsage = UserTokenQuotaTotalUsage & {
+export type UserCreditQuotaPeriodUsage = UserCreditQuotaTotalUsage & {
   resetAt: Date;
 };
 
-export type UserTokenQuotaUsage = {
-  total: UserTokenQuotaTotalUsage | null;
-  weekly: UserTokenQuotaPeriodUsage | null;
-  monthly: UserTokenQuotaPeriodUsage | null;
+export type UserCreditQuotaUsage = {
+  total: UserCreditQuotaTotalUsage | null;
+  weekly: UserCreditQuotaPeriodUsage | null;
+  monthly: UserCreditQuotaPeriodUsage | null;
 };
 
-export interface UserTokenQuotaUsageReader {
+export interface UserCreditQuotaUsageReader {
   currentUsageForLimits(
     userId: string,
     limits: {
-      totalTokenLimit: bigint | null;
-      weeklyTokenLimit: bigint | null;
-      monthlyTokenLimit: bigint | null;
+      totalCreditLimitMicros: bigint | null;
+      weeklyCreditLimitMicros: bigint | null;
+      monthlyCreditLimitMicros: bigint | null;
+      creditQuotaResetAt: Date | null;
     },
-  ): Promise<UserTokenQuotaUsage>;
+  ): Promise<UserCreditQuotaUsage>;
 }
 
 export type UserServiceOptions = {
@@ -83,8 +88,8 @@ export type UserServiceOptions = {
   avatarStorage: AvatarStorage;
   avatarCleanup: ObjectCleanupScheduler;
   lifecycleCoordinator: UserLifecycleCoordinator;
-  tokenLimitDefaults?: UserTokenLimitDefaultsReader;
-  tokenQuotaUsage?: UserTokenQuotaUsageReader;
+  creditLimitDefaults?: UserCreditLimitDefaultsReader;
+  creditQuotaUsage?: UserCreditQuotaUsageReader;
   materializeUserHomes?: (userIds: readonly string[]) => Promise<void>;
   avatarMaxBytes?: number;
   now?: () => Date;
@@ -117,7 +122,7 @@ export class UserService {
           .enum(["self_registration", "organization_invitation"])
           .optional(),
         user_group_id: z.string().uuid().optional(),
-        token_quota_remaining_zero: z
+        credit_quota_remaining_zero: z
           .enum(["total", "weekly", "monthly"])
           .optional(),
         cursor: z.string().uuid().optional(),
@@ -125,7 +130,7 @@ export class UserService {
       })
       .parse(query);
     const search = parsed.search ?? parsed.q;
-    return this.listUsersWithTokenQuotaFilter({
+    return this.listUsersWithCreditQuotaFilter({
       ...(search ? { search } : {}),
       ...(parsed.status ? { status: parsed.status } : {}),
       ...(parsed.role ? { role: parsed.role } : {}),
@@ -133,40 +138,40 @@ export class UserService {
         ? { registrationSource: parsed.registration_source }
         : {}),
       ...(parsed.user_group_id ? { userGroupId: parsed.user_group_id } : {}),
-      ...(parsed.token_quota_remaining_zero
-        ? { tokenQuotaRemainingZero: parsed.token_quota_remaining_zero }
+      ...(parsed.credit_quota_remaining_zero
+        ? { creditQuotaRemainingZero: parsed.credit_quota_remaining_zero }
         : {}),
       ...(parsed.cursor ? { cursor: parsed.cursor } : {}),
       limit: parsed.limit,
     });
   }
 
-  private async listUsersWithTokenQuotaFilter(input: {
+  private async listUsersWithCreditQuotaFilter(input: {
     search?: string;
     status?: "active" | "disabled";
     role?: "user" | "admin";
     registrationSource?: "self_registration" | "organization_invitation";
     userGroupId?: string;
-    tokenQuotaRemainingZero?: TokenQuotaRemainingZeroFilter;
+    creditQuotaRemainingZero?: CreditQuotaRemainingZeroFilter;
     cursor?: string;
     limit: number;
   }): Promise<{ items: ManagedUser[]; nextCursor: string | null }> {
-    const tokenQuotaRemainingZero = input.tokenQuotaRemainingZero;
-    if (!tokenQuotaRemainingZero) {
+    const creditQuotaRemainingZero = input.creditQuotaRemainingZero;
+    if (!creditQuotaRemainingZero) {
       return this.options.persistence.listUsers(input);
     }
     const result = await this.options.persistence.listUsers(input);
     const checks = await Promise.all(
       result.items.map(async (user) => ({
         user,
-        usage: await this.getCurrentTokenQuotaUsage(user),
+        usage: await this.getCurrentCreditQuotaUsage(user),
       })),
     );
     return {
       items: checks
         .filter(({ usage }) => {
-          const period = usage?.[tokenQuotaRemainingZero];
-          return period ? period.remainingPercentage === 0 : false;
+          const period = usage?.[creditQuotaRemainingZero];
+          return period ? period.remainingCreditMicros === 0n : false;
         })
         .map(({ user }) => user),
       nextCursor: result.nextCursor,
@@ -201,15 +206,16 @@ export class UserService {
         ? { user_group_ids: raw.user_group_ids }
         : {}),
     });
-    const tokenLimits = await this.defaultTokenLimitsForNewUser();
+    const creditLimits = await this.defaultCreditLimitsForNewUser();
     const user = await this.options.persistence.createUser({
       id: this.createId(),
       email: parsed.email,
       name: parsed.name,
       role: parsed.role,
       userGroupIds: parsed.user_group_ids,
-      weeklyTokenLimit: tokenLimits.weeklyTokenLimit,
-      monthlyTokenLimit: tokenLimits.monthlyTokenLimit,
+      totalCreditLimitMicros: creditLimits.totalCreditLimitMicros,
+      weeklyCreditLimitMicros: creditLimits.weeklyCreditLimitMicros,
+      monthlyCreditLimitMicros: creditLimits.monthlyCreditLimitMicros,
       actorId: actor.id,
       now: jwtBoundary(this.now()),
       audit,
@@ -238,14 +244,14 @@ export class UserService {
         ...(parsed.user_group_ids !== undefined
           ? { userGroupIds: parsed.user_group_ids }
           : {}),
-        ...(parsed.total_token_limit !== undefined
-          ? { totalTokenLimit: parseTokenLimit(parsed.total_token_limit) }
+        ...(parsed.total_credit_limit !== undefined
+          ? { totalCreditLimitMicros: parseCreditLimit(parsed.total_credit_limit) }
           : {}),
-        ...(parsed.weekly_token_limit !== undefined
-          ? { weeklyTokenLimit: parseTokenLimit(parsed.weekly_token_limit) }
+        ...(parsed.weekly_credit_limit !== undefined
+          ? { weeklyCreditLimitMicros: parseCreditLimit(parsed.weekly_credit_limit) }
           : {}),
-        ...(parsed.monthly_token_limit !== undefined
-          ? { monthlyTokenLimit: parseTokenLimit(parsed.monthly_token_limit) }
+        ...(parsed.monthly_credit_limit !== undefined
+          ? { monthlyCreditLimitMicros: parseCreditLimit(parsed.monthly_credit_limit) }
           : {}),
         now: jwtBoundary(this.now()),
         audit,
@@ -260,24 +266,24 @@ export class UserService {
     return result.user;
   }
 
-  async updateUserTokenLimits(
+  async updateUserCreditLimits(
     actor: UserActor,
     input: unknown,
     audit: AuditContext = {},
   ): Promise<ManagedUser[]> {
     assertAdministrator(actor);
-    const parsed = bulkUserTokenLimitsInputSchema.parse(input);
-    return this.options.persistence.updateUserTokenLimits({
+    const parsed = bulkUserCreditLimitsInputSchema.parse(input);
+    return this.options.persistence.updateUserCreditLimits({
       targetUserIds: [...new Set(parsed.user_ids)].sort(),
       actorId: actor.id,
-      ...(parsed.total_token_limit !== undefined
-        ? { totalTokenLimit: parseTokenLimit(parsed.total_token_limit) }
+      ...(parsed.total_credit_limit !== undefined
+        ? { totalCreditLimitMicros: parseCreditLimit(parsed.total_credit_limit) }
         : {}),
-      ...(parsed.weekly_token_limit !== undefined
-        ? { weeklyTokenLimit: parseTokenLimit(parsed.weekly_token_limit) }
+      ...(parsed.weekly_credit_limit !== undefined
+        ? { weeklyCreditLimitMicros: parseCreditLimit(parsed.weekly_credit_limit) }
         : {}),
-      ...(parsed.monthly_token_limit !== undefined
-        ? { monthlyTokenLimit: parseTokenLimit(parsed.monthly_token_limit) }
+      ...(parsed.monthly_credit_limit !== undefined
+        ? { monthlyCreditLimitMicros: parseCreditLimit(parsed.monthly_credit_limit) }
         : {}),
       now: jwtBoundary(this.now()),
       audit,
@@ -340,11 +346,12 @@ export class UserService {
     if (errors.length > 0) {
       throw new AppError("VALIDATION_ERROR", { errors });
     }
-    const tokenLimits = await this.defaultTokenLimitsForNewUser();
+    const creditLimits = await this.defaultCreditLimitsForNewUser();
     const items = await this.options.persistence.importUsers({
       rows,
-      weeklyTokenLimit: tokenLimits.weeklyTokenLimit,
-      monthlyTokenLimit: tokenLimits.monthlyTokenLimit,
+      totalCreditLimitMicros: creditLimits.totalCreditLimitMicros,
+      weeklyCreditLimitMicros: creditLimits.weeklyCreditLimitMicros,
+      monthlyCreditLimitMicros: creditLimits.monthlyCreditLimitMicros,
       actorId: actor.id,
       now: jwtBoundary(this.now()),
       audit,
@@ -361,7 +368,7 @@ export class UserService {
 
   async getCurrentUserInfo(userId: string): Promise<CurrentUserInfoSuccess> {
     const user = await this.getOwnProfile(userId);
-    const tokenQuota = await this.getCurrentTokenQuotaUsage(user);
+    const creditQuota = await this.getCurrentCreditQuotaUsage(user);
     return {
       success: true,
       user: {
@@ -371,7 +378,7 @@ export class UserService {
           .map((group) => ({ id: group.id, name: group.name }))
           .sort(compareCurrentUserGroups),
       },
-      token_quota: projectCurrentUserTokenQuota(tokenQuota),
+      credit_quota: projectCurrentUserCreditQuota(creditQuota),
     };
   }
 
@@ -390,17 +397,19 @@ export class UserService {
     );
   }
 
-  getCurrentTokenQuotaUsage(user: {
+  getCurrentCreditQuotaUsage(user: {
     id: string;
-    totalTokenLimit: bigint | null;
-    weeklyTokenLimit: bigint | null;
-    monthlyTokenLimit: bigint | null;
-  }): Promise<UserTokenQuotaUsage | null> {
-    if (!this.options.tokenQuotaUsage) return Promise.resolve(null);
-    return this.options.tokenQuotaUsage.currentUsageForLimits(user.id, {
-      totalTokenLimit: user.totalTokenLimit,
-      weeklyTokenLimit: user.weeklyTokenLimit,
-      monthlyTokenLimit: user.monthlyTokenLimit,
+    totalCreditLimitMicros: bigint | null;
+    weeklyCreditLimitMicros: bigint | null;
+    monthlyCreditLimitMicros: bigint | null;
+    creditQuotaResetAt: Date | null;
+  }): Promise<UserCreditQuotaUsage | null> {
+    if (!this.options.creditQuotaUsage) return Promise.resolve(null);
+    return this.options.creditQuotaUsage.currentUsageForLimits(user.id, {
+      totalCreditLimitMicros: user.totalCreditLimitMicros,
+      weeklyCreditLimitMicros: user.weeklyCreditLimitMicros,
+      monthlyCreditLimitMicros: user.monthlyCreditLimitMicros,
+      creditQuotaResetAt: user.creditQuotaResetAt,
     });
   }
 
@@ -583,19 +592,9 @@ export class UserService {
     }
   }
 
-  private async defaultTokenLimitsForNewUser(): Promise<{
-    weeklyTokenLimit: bigint | null;
-    monthlyTokenLimit: bigint | null;
-  }> {
-    const settings = await this.options.tokenLimitDefaults?.getAdminSettings();
-    return {
-      weeklyTokenLimit: parseTokenLimit(
-        settings?.token_limits.weekly_token_limit ?? null,
-      ),
-      monthlyTokenLimit: parseTokenLimit(
-        settings?.token_limits.monthly_token_limit ?? null,
-      ),
-    };
+  private async defaultCreditLimitsForNewUser(): Promise<ReturnType<typeof storedCreditLimits>> {
+    const settings = await this.options.creditLimitDefaults?.getSettings();
+    return storedCreditLimits((settings ?? defaultQuotaSettings()).organization_members);
   }
 
   private async withUserLifecycleLock<T>(
@@ -628,40 +627,40 @@ function assertAdministrator(actor: UserActor): void {
   }
 }
 
-function parseTokenLimit(value: string | null): bigint | null {
-  return value === null ? null : BigInt(value);
+function parseCreditLimit(value: string | null): bigint | null {
+  return value === null ? null : decimalToCreditMicros(value);
 }
 
-function projectCurrentUserTokenQuota(
-  usage: UserTokenQuotaUsage | null,
-): CurrentUserInfoSuccess["token_quota"] {
+function projectCurrentUserCreditQuota(
+  usage: UserCreditQuotaUsage | null,
+): CurrentUserInfoSuccess["credit_quota"] {
   return {
-    total: projectCurrentUserTokenQuotaTotal(usage?.total ?? null),
-    weekly: projectCurrentUserTokenQuotaPeriod(usage?.weekly ?? null),
-    monthly: projectCurrentUserTokenQuotaPeriod(usage?.monthly ?? null),
+    total: projectCurrentUserCreditQuotaTotal(usage?.total ?? null),
+    weekly: projectCurrentUserCreditQuotaPeriod(usage?.weekly ?? null),
+    monthly: projectCurrentUserCreditQuotaPeriod(usage?.monthly ?? null),
   };
 }
 
-function projectCurrentUserTokenQuotaTotal(
-  total: UserTokenQuotaTotalUsage | null,
-): CurrentUserInfoSuccess["token_quota"]["total"] {
+function projectCurrentUserCreditQuotaTotal(
+  total: UserCreditQuotaTotalUsage | null,
+): CurrentUserInfoSuccess["credit_quota"]["total"] {
   if (!total) return null;
   return {
-    limit_tokens: total.limitTokens.toString(),
-    used_tokens: total.usedTokens.toString(),
-    remaining_tokens: total.remainingTokens.toString(),
+    limit_credits: creditMicrosToDecimal(total.limitCreditMicros),
+    used_credits: creditMicrosToDecimal(total.usedCreditMicros),
+    remaining_credits: creditMicrosToDecimal(total.remainingCreditMicros),
     remaining_percentage: total.remainingPercentage,
   };
 }
 
-function projectCurrentUserTokenQuotaPeriod(
-  period: UserTokenQuotaPeriodUsage | null,
-): CurrentUserInfoSuccess["token_quota"]["weekly"] {
+function projectCurrentUserCreditQuotaPeriod(
+  period: UserCreditQuotaPeriodUsage | null,
+): CurrentUserInfoSuccess["credit_quota"]["weekly"] {
   if (!period) return null;
   return {
-    limit_tokens: period.limitTokens.toString(),
-    used_tokens: period.usedTokens.toString(),
-    remaining_tokens: period.remainingTokens.toString(),
+    limit_credits: creditMicrosToDecimal(period.limitCreditMicros),
+    used_credits: creditMicrosToDecimal(period.usedCreditMicros),
+    remaining_credits: creditMicrosToDecimal(period.remainingCreditMicros),
     remaining_percentage: period.remainingPercentage,
     reset_at: period.resetAt.toISOString(),
   };

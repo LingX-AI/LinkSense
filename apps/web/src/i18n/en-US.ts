@@ -155,8 +155,8 @@ export const enUS = {
     automationTask: "Automation task",
     unreadCompletion: "Task completed and not yet viewed",
     unreadFailure: "Task failed and has not been viewed",
-    tokenQuotaRemaining:
-      "Usage remaining: Total {{total}} · W {{weekly}} · M {{monthly}}",
+    creditQuotaRemainingTitle: "Credits remaining",
+    creditQuotaRemaining: "Total {{total}} · W {{weekly}} · M {{monthly}}",
   },
   support: {
     menuLabel: "Feedback and help",
@@ -305,6 +305,62 @@ export const enUS = {
       monthly: "Every {{interval}} month(s), day {{day}} at {{time}}",
       yearly: "Every {{interval}} year(s), {{month}}/{{day}} at {{time}}",
     },
+  },
+  quotaManagement: {
+    title: "Quota management",
+    description:
+      "Manage personal quotas for organization members and self-registered users, and the credit conversion price.",
+    conversionTitle: "Credit conversion",
+    conversionDescription:
+      "Convert model usage costs into credits. Price changes apply only to subsequent consumption; existing charges stay unchanged.",
+    creditPrice: "Amount per credit (CNY)",
+    conversionExample:
+      "For example, at CNY 0.01 per credit, a CNY 0.25 charge consumes 25 credits.",
+    organization_members: {
+      reset: "Reset all organization member quotas",
+      resetDescription:
+        "Restore every existing organization member's weekly, monthly, and total quotas to 100% of their own current limits. Unlimited quotas stay unlimited. Unsaved limits in this form do not apply to the reset. Historical usage stays available, and subsequent consumption is deducted as usual.",
+
+      title: "Initial organization member quotas",
+      description:
+        "Applied to each member created or imported afterwards. Use the button below to apply these limits to all existing organization members, or adjust members individually or in bulk in user management.",
+    },
+    self_registered_users: {
+      reset: "Reset all self-registered user quotas",
+      resetDescription:
+        "Restore every existing self-registered user's weekly, monthly, and total quotas to 100% of their own current limits. Unlimited quotas stay unlimited. Unsaved limits in this form do not apply to the reset. Historical usage stays available, and subsequent consumption is deducted as usual.",
+
+      title: "Self-registered user quotas",
+      description:
+        "Applied to each self-registered user. Changing these quotas also updates existing self-registered users, including individual overrides. Leaving a field blank removes that limit.",
+    },
+    weekly_credit_limit: "Weekly quota (credits)",
+    monthly_credit_limit: "Monthly quota (credits)",
+    total_credit_limit: "Total quota (credits)",
+    weekly_credit_limit_hint:
+      "Resets on Monday at midnight in the system time zone.",
+    monthly_credit_limit_hint:
+      "Resets on the first day of each month in the system time zone.",
+    total_credit_limit_hint:
+      "Lifetime consumption limit. Does not reset automatically.",
+    unlimited: "Unlimited",
+    invalidAmount:
+      "Enter a positive amount with up to 6 decimal places, no greater than 9,223,372,036,854.775807.",
+    applyOrganization: "Save and apply limits to all organization members",
+    applyDescription:
+      "Save weekly {{weekly}}, monthly {{monthly}}, and total {{total}} limits as the organization defaults and overwrite every existing organization member's limits, including individual overrides. Used credits are not reset; other form settings stay unchanged.",
+    confirmReset: "Confirm quota reset",
+    resetHint:
+      "Confirmation restores available credits immediately and preserves historical usage.",
+    confirmApply: "Confirm save and apply",
+    resetSuccess: "Reset quotas for {{count}} members.",
+    applySuccess:
+      "Saved new limits and applied them to {{count}} organization members.",
+    refreshFailed:
+      "The action completed, but the page could not refresh. Reload to see the latest quotas.",
+    saved: "Quota settings saved.",
+    enforcementHint:
+      "Blank means unlimited. Reaching any configured limit prevents new tasks; running tasks continue. Consumption is rounded up to the nearest 0.000001 credit.",
   },
   settings: {
     navigationLabel: "{{productName}} settings navigation",
@@ -1731,10 +1787,10 @@ export const enUS = {
     searchEmpty: "No results found",
     listEmpty: "No tasks yet. Start directly from the composer.",
     newTaskWelcome: "What should we do together in {{productName}}?",
-    tokenQuotaBlocked: {
+    creditQuotaBlocked: {
       title: "Token usage is exhausted",
       description:
-        "Your available token quota is exhausted. You cannot start new tasks or follow-up requests right now; running tasks are not affected.",
+        "Your available credit quota is exhausted. You cannot start new tasks or follow-up requests right now; running tasks are not affected.",
       dismiss: "Dismiss usage notice",
     },
     starterQuestions: {
@@ -2245,8 +2301,8 @@ export const enUS = {
         "A system update paused this request. Review its progress before continuing manually.",
       execution_environment_invalid:
         "The execution environment is not ready. Contact an administrator.",
-      token_limit_exceeded:
-        "This user's available token quota is exhausted and they cannot start a new task right now.",
+      credit_limit_exceeded:
+        "This user's available credit quota is exhausted and they cannot start a new task right now.",
     },
     activities: {
       analysis: "Analyzing the request",
@@ -3706,43 +3762,43 @@ export const enUS = {
     },
     loginMethod: "Sign-in method",
     lastLogin: "Last sign-in",
-    totalTokenLimit: "Total quota (M tokens)",
-    weeklyTokenLimit: "Weekly usage (M tokens)",
-    monthlyTokenLimit: "Monthly usage (M tokens)",
-    tokenLimitDisplay: "{{value}}M tokens",
-    tokenQuotaRemainingFilter: "Usage remaining",
-    totalTokenQuotaRemainingZero: "Total quota remaining is 0",
-    weeklyTokenQuotaRemainingZero: "Weekly remaining is 0",
-    monthlyTokenQuotaRemainingZero: "Monthly remaining is 0",
-    tokenQuotaRemainingPercentage: "Usage remaining {{percentage}}%",
-    tokenQuotaRemainingUnavailable: "Usage remaining -",
-    noTokenLimit: "No usage setting",
-    inheritTokenLimit: "No usage setting",
-    clearTokenLimit: "Leave blank to clear per-user usage",
-    tokenLimitHint:
-      "Enter a positive number. Decimals are allowed. Unit: million tokens. Blank means no per-user usage setting.",
-    tokenLimitInputInvalid:
-      "Enter a number greater than 0 with at most 6 decimal places. Unit: million tokens.",
-    userTokenLimits: "Per-user token usage",
-    userTokenLimitsDescription:
-      "The total quota never resets; weekly and monthly usage reset on their respective schedules. When any configured quota is exhausted, the user cannot start new tasks. Running tasks are not affected.",
-    adjustTokenLimits: "Adjust usage",
-    adjustUserTokenLimits: "Adjust usage for {{name}}",
-    singleTokenLimitsTitle: "Adjust per-user token usage",
-    singleTokenLimitsDescription:
-      "Update the total, weekly, and monthly usage for {{name}}. Leave a field blank for no corresponding per-user usage setting.",
+    totalCreditLimit: "Total quota (credits)",
+    weeklyCreditLimit: "Weekly quota (credits)",
+    monthlyCreditLimit: "Monthly quota (credits)",
+    creditLimitDisplay: "{{value}} credits",
+    creditQuotaRemainingFilter: "Quota remaining",
+    totalCreditQuotaRemainingZero: "Total quota remaining is 0",
+    weeklyCreditQuotaRemainingZero: "Weekly remaining is 0",
+    monthlyCreditQuotaRemainingZero: "Monthly remaining is 0",
+    creditQuotaRemainingAmount: "{{value}} credits remaining ({{percentage}}%)",
+    creditQuotaRemainingUnavailable: "Quota remaining -",
+    noCreditLimit: "Unlimited",
+    inheritCreditLimit: "Unlimited",
+    clearCreditLimit: "Leave blank to clear per-user quota",
+    creditLimitHint:
+      "Enter a positive number. Decimals are allowed. Unit: credits. Blank means no per-user quota setting.",
+    creditLimitInputInvalid:
+      "Enter a number greater than 0 with at most 6 decimal places. Unit: credits.",
+    userCreditLimits: "Per-user credit quotas",
+    userCreditLimitsDescription:
+      "The total quota never resets; weekly and monthly quota reset on their respective schedules. When any configured quota is exhausted, the user cannot start new tasks. Running tasks are not affected.",
+    adjustCreditLimits: "Adjust quota",
+    adjustUserCreditLimits: "Adjust quota for {{name}}",
+    singleCreditLimitsTitle: "Adjust per-user credit quotas",
+    singleCreditLimitsDescription:
+      "Update the total, weekly, and monthly quota for {{name}}. Leave a field blank for no corresponding per-user quota setting.",
     selfRegisteredTotalQuotaOverrideHint:
       "This account was self-registered. Saving a new open-registration total quota later will also update this total quota.",
-    batchTokenLimits: "Set usage ({{count}})",
-    batchTokenLimitsTitle: "Batch set user token usage",
-    batchTokenLimitsDescription:
-      "Apply the checked usage fields to {{count}} selected users. Unchecked fields stay unchanged.",
-    tokenLimitFields: "Usage to update",
-    updateTotalTokenLimit: "Update total quota",
-    updateWeeklyTokenLimit: "Update weekly usage",
-    updateMonthlyTokenLimit: "Update monthly usage",
-    singleTokenLimitsSaved: "Updated token usage for {{name}}.",
-    tokenLimitsSaved: "Updated token usage for {{count}} users.",
+    batchCreditLimits: "Set quota ({{count}})",
+    batchCreditLimitsTitle: "Batch set user credit quotas",
+    batchCreditLimitsDescription:
+      "Apply the checked quota fields to {{count}} selected users. Unchecked fields stay unchanged.",
+    creditLimitFields: "Usage to update",
+    updateTotalCreditLimit: "Update total quota",
+    updateWeeklyCreditLimit: "Update weekly quota",
+    updateMonthlyCreditLimit: "Update monthly quota",
+    singleCreditLimitsSaved: "Updated credit quotas for {{name}}.",
+    creditLimitsSaved: "Updated credit quotas for {{count}} users.",
     selectVisibleUsers: "Select users in the current list",
     selectUser: "Select user {{name}}",
     groups: "User groups",
@@ -3854,15 +3910,6 @@ export const enUS = {
       enabled: "Allow self-service registration",
       enabledDescription:
         "When enabled, the sign-in page shows a registration entry. Turning it off blocks new requests and activation links that were already sent.",
-      totalTokenLimit: "Total token quota per registered user",
-      totalTokenLimitUnit: "million tokens",
-      totalTokenLimitDescription:
-        "The quota applies to every user created through open registration, including existing users. Changing it does not reset usage, weekly, or monthly limits. A positive value is required while registration is enabled.",
-      totalTokenLimitPlaceholder: "For example: 10",
-      totalTokenLimitRequired:
-        "Enter a positive total token quota before enabling open registration.",
-      totalTokenLimitInvalid:
-        "Enter a number greater than 0 with up to 6 decimal places.",
       saved: "Open registration settings updated.",
     },
     systemName: "System display name",
@@ -3937,7 +3984,6 @@ export const enUS = {
       knowledge: "Knowledge retrieval models",
       voiceTranscription: "Speech-to-text model",
       imageGeneration: "Image generation model",
-      initialQuota: "Initial user token usage",
     },
     modelProvider: {
       catalogDescription:
@@ -4093,13 +4139,6 @@ export const enUS = {
       titleModel: "Task auto-naming model",
       titleModelHint:
         "Creates recognizable task names automatically. Its usage is included in analytics.",
-      userTokenLimits: "Initial user token usage",
-      userTokenLimitsDescription:
-        "New or imported users receive these initial weekly and monthly allowances. Leave a value blank to set no allowance. Existing users are not affected.",
-      tokenLimitHint:
-        "Enter an amount greater than 0. Decimals are allowed and the unit is million tokens. Leave blank to set no initial allowance.",
-      saveUserTokenLimits: "Save configuration",
-      userTokenLimitsSaved: "Initial user token usage updated.",
       saved: "Model channel settings updated.",
     },
     knowledgeModels: {
@@ -4925,8 +4964,8 @@ export const enUS = {
     runnerUnavailable: "The execution service is unavailable. Try again later.",
     deploymentStopped:
       "This task was stopped for a system update. Existing content was kept. Review its progress before continuing manually.",
-    tokenLimitExceeded:
-      "Your available token quota is exhausted and you cannot start a new task right now.",
+    creditLimitExceeded:
+      "Your available credit quota is exhausted and you cannot start a new task right now.",
     lastAdminRequired:
       "At least one enabled administrator must remain. This operation cannot be completed.",
     lastModelRequired:

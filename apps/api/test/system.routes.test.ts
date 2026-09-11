@@ -199,11 +199,9 @@ describe("admin system routes", () => {
   it("reads and updates open registration as an administrator", async () => {
     const getRegistrationSettings = vi.fn().mockResolvedValue({
       enabled: false,
-      total_token_limit: null,
     })
     const updateRegistrationSettings = vi.fn().mockResolvedValue({
       enabled: true,
-      total_token_limit: "12500000",
     })
     const app = Fastify()
     app.setErrorHandler((error, _request, reply) => {
@@ -237,13 +235,12 @@ describe("admin system routes", () => {
     expect(readResponse.statusCode).toBe(200)
     expect(readResponse.json().data).toEqual({
       enabled: false,
-      total_token_limit: null,
     })
 
     const invalidUpdateResponse = await app.inject({
       method: "PUT",
       url: "/api/v1/admin/registration-settings",
-      payload: { enabled: true, total_token_limit: null },
+      payload: { enabled: "invalid" },
     })
     expect(invalidUpdateResponse.statusCode).toBe(400)
     expect(updateRegistrationSettings).not.toHaveBeenCalled()
@@ -252,16 +249,16 @@ describe("admin system routes", () => {
       method: "PUT",
       url: "/api/v1/admin/registration-settings",
       headers: { "user-agent": "registration-settings-test" },
-      payload: { enabled: true, total_token_limit: "12500000" },
+      payload: { enabled: true },
     })
     expect(updateResponse.statusCode).toBe(200)
     expect(updateResponse.json().data).toEqual({
       code: "SYSTEM_SETTINGS_UPDATED",
-      settings: { enabled: true, total_token_limit: "12500000" },
+      settings: { enabled: true },
     })
     expect(updateRegistrationSettings).toHaveBeenCalledWith(
       "01900000-0000-7000-8000-000000000099",
-      { enabled: true, total_token_limit: "12500000" },
+      { enabled: true },
       expect.objectContaining({ userAgent: "registration-settings-test" }),
     )
     await app.close()

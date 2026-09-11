@@ -23,24 +23,13 @@ Download the template, fill in name, email, role, and groups, then upload it. Im
 
 You can update name, email, role, and group membership. An email change immediately revokes all sessions and unused password links, requiring sign-in with the new email.
 
-## Token usage
+## Credit quotas
 
-When editing an existing user, you can set per-user token usage:
+Set weekly, monthly, and total quotas individually or in bulk, in credits. Positive amounts accept up to six decimal places. Blank means unlimited. Bulk updates affect only selected fields; selected blank fields remove the corresponding limits.
 
-- Weekly usage: determines whether the user can start new tasks during the current week.
-- Monthly usage: determines whether the user can start new tasks during the current month.
-- Values use million tokens and accept positive numbers with up to 6 decimal places.
-- Leave a field blank for no per-user usage setting.
+Reaching any limit prevents new tasks while running tasks finish. Weekly quotas reset on Monday; monthly quotas reset on the first day of the month, in the system time zone. Total quotas never reset automatically.
 
-After usage remaining reaches 0 for the current period, the user cannot start new tasks until the next period resets. Already running tasks are not affected.
-
-Select multiple users in the user list to batch set weekly and monthly usage. Unchecked fields stay unchanged; a checked blank field clears that per-user usage field.
-
-:::tip Initial usage for new users
-To give newly created or imported users an automatic usage setting, configure **Settings → Model settings → Initial user token usage** first. Changing the initial usage does not affect existing users.
-:::
-
-The current version does not delete user accounts. Disable an account to prevent access.
+Configure defaults in [Quota management](./quota-settings.md). Organization defaults affect subsequent users, while self-registration quota changes update existing self-registered users too.
 
 ## Disable and restore
 

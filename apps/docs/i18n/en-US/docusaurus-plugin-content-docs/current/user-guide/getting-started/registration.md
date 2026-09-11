@@ -24,7 +24,7 @@ An activation link works only once. Request a new one if it expired, was already
 
 ## Usage available to registered accounts
 
-Administrators assign a total token allowance to accounts created through open registration. When it is exhausted, you cannot start tasks, submit follow-ups, or transcribe voice input; a task that is already running is not interrupted. Check the remaining allowance in your profile or sidebar and contact an administrator if it needs to change.
+Administrators can set independent weekly, monthly, and total credit quotas for self-registered accounts. An unset quota is unlimited. When any configured quota is exhausted, you cannot start tasks, submit follow-ups, or transcribe voice input; a task that is already running is not interrupted. The sidebar displays remaining credits as integers with the fractional part omitted. Your actual available balance retains its fractional precision. Contact an administrator if your quotas need to change.
 
 ## The email is already registered
 

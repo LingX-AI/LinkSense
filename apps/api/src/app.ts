@@ -539,7 +539,7 @@ export async function buildApi(
     service: services.voiceTranscription,
     availability: services.voiceTranscriptionSettings,
     rateLimits: services.voiceTranscriptionRateLimits,
-    tokenLimits: services.tokenLimits,
+    creditLimits: services.creditLimits,
     defaultLocale: services.system.defaultLocale,
   });
   await app.register(adminSystemRoutes, { prefix: "/api/v1/admin", services });

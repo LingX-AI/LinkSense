@@ -1631,13 +1631,13 @@ export const errorCatalog = {
       "en-US": "The system is currently at capacity. Try again later.",
     },
   },
-  TOKEN_LIMIT_EXCEEDED: {
-    message_key: "errors.conversation.tokenLimitExceeded",
+  CREDIT_LIMIT_EXCEEDED: {
+    message_key: "errors.conversation.creditLimitExceeded",
     http_status: 429,
     messages: {
-      "zh-CN": "你的可用 Token 额度已用尽，暂时不能发起新任务。",
+      "zh-CN": "你的可用额度已用尽，暂时不能发起新任务。",
       "en-US":
-        "Your available token quota is exhausted and you cannot start a new task right now.",
+        "Your available credit quota is exhausted and you cannot start a new task right now.",
     },
   },
   PENDING_REQUEST_LIMIT_REACHED: {

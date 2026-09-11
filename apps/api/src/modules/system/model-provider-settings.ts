@@ -16,7 +16,6 @@ import {
   modelServiceProviderSchema,
   modelProviderSettingsSchema,
   reasoningEffortSchema,
-  tokenLimitValueSchema,
   updateModelAvailabilitySchema,
   updateModelPreferenceSchema,
   updateModelProviderSettingsSchema,
@@ -32,7 +31,6 @@ import {
   type ModelProviderSettings,
   type ModelTokenPricing,
   type ReasoningEffort,
-  type TokenLimitSettings,
   type UpdateModelAvailability,
   type UpdateModelPreference,
   type UpdateModelProviderSettings,
@@ -242,11 +240,6 @@ const storedModelProviderSchema = z.strictObject({
   models: z.array(managedPricedModelSchema).max(100),
 })
 
-const storedTokenLimitsSchema = z.strictObject({
-  weeklyTokenLimit: tokenLimitValueSchema.nullable(),
-  monthlyTokenLimit: tokenLimitValueSchema.nullable(),
-})
-
 const storedModelProviderSettingsV7Schema = z.strictObject({
   version: z.literal(7),
   revision: z.number().int().positive(),
@@ -262,13 +255,12 @@ const storedModelProviderSettingsV8Schema = z.strictObject({
   titleModel: modelIdentifierSchema.nullable(),
 })
 
-const storedModelProviderSettingsSchema = z.strictObject({
+const storedModelProviderSettingsSchema = z.object({
   version: z.literal(9),
   revision: z.number().int().positive(),
   providers: z.array(storedModelProviderSchema).min(1).max(20),
   defaultModel: modelIdentifierSchema.nullable(),
   titleModel: modelIdentifierSchema.nullable(),
-  tokenLimits: storedTokenLimitsSchema,
 })
 
 type StoredModelProviderSettings = z.infer<
@@ -452,10 +444,6 @@ export class ModelProviderSettingsService
         }),
         defaultModel: input.default_model,
         titleModel: nextTitleModel,
-        tokenLimits: {
-          weeklyTokenLimit: input.token_limits.weekly_token_limit,
-          monthlyTokenLimit: input.token_limits.monthly_token_limit,
-        },
       })
       assertValidStoredSettings(next)
       const encrypted = encryptJson(
@@ -1270,7 +1258,6 @@ function migrateStoredModelProviderSettings(
     return storedModelProviderSettingsSchema.parse({
       ...version8.data,
       version: 9,
-      tokenLimits: defaultStoredTokenLimits(),
     })
   }
 
@@ -1280,7 +1267,6 @@ function migrateStoredModelProviderSettings(
       ...version7.data,
       version: 9,
       titleModel: version7.data.defaultModel,
-      tokenLimits: defaultStoredTokenLimits(),
     })
   }
 
@@ -1303,7 +1289,6 @@ function migrateStoredModelProviderSettings(
       })),
       defaultModel: version5.data.defaultModel,
       titleModel: version5.data.defaultModel,
-      tokenLimits: defaultStoredTokenLimits(),
     })
   }
 
@@ -1321,7 +1306,6 @@ function migrateStoredModelProviderSettings(
       })),
       defaultModel: version4.data.defaultModel,
       titleModel: version4.data.defaultModel,
-      tokenLimits: defaultStoredTokenLimits(),
     })
   }
 
@@ -1340,7 +1324,6 @@ function migrateStoredModelProviderSettings(
       })),
       defaultModel: version3.data.defaultModel,
       titleModel: version3.data.defaultModel,
-      tokenLimits: defaultStoredTokenLimits(),
     })
   }
 
@@ -1368,7 +1351,6 @@ function migrateStoredModelProviderSettings(
     ],
     defaultModel: legacy.defaultModel,
     titleModel: legacy.defaultModel,
-    tokenLimits: defaultStoredTokenLimits(),
   })
 }
 
@@ -1425,15 +1407,7 @@ function migrateVersion6Settings(
     providers,
     defaultModel: legacy.defaultModel,
     titleModel: legacy.defaultModel,
-    tokenLimits: defaultStoredTokenLimits(),
   })
-}
-
-function defaultStoredTokenLimits(): z.infer<typeof storedTokenLimitsSchema> {
-  return {
-    weeklyTokenLimit: null,
-    monthlyTokenLimit: null,
-  }
 }
 
 export function parseOpenAiCompatibleModelContextWindows(
@@ -1481,7 +1455,6 @@ function assertValidStoredSettings(
     })),
     default_model: settings.defaultModel,
     title_model: settings.titleModel,
-    token_limits: projectTokenLimits(settings.tokenLimits),
   })
   if (!parsed.success)
     throw new Error("stored model provider settings are invalid")
@@ -1508,7 +1481,6 @@ function projectAdminSettings(
           })),
           default_model: stored.defaultModel,
           title_model: stored.titleModel,
-          token_limits: projectTokenLimits(stored.tokenLimits),
         }
       : {
           configured: false,
@@ -1516,21 +1488,8 @@ function projectAdminSettings(
           providers: [],
           default_model: null,
           title_model: null,
-          token_limits: {
-            weekly_token_limit: null,
-            monthly_token_limit: null,
-          },
         }
   )
-}
-
-function projectTokenLimits(
-  limits: z.infer<typeof storedTokenLimitsSchema>,
-): TokenLimitSettings {
-  return {
-    weekly_token_limit: limits.weeklyTokenLimit,
-    monthly_token_limit: limits.monthlyTokenLimit,
-  }
 }
 
 function unconfiguredPreference(): ModelPreference {
@@ -1865,7 +1824,6 @@ function mergeLegacyModelDefinitions(
     providers,
     defaultModel,
     titleModel,
-    tokenLimits: stored?.tokenLimits ?? defaultStoredTokenLimits(),
   })
   assertValidStoredSettings(settings)
   return { settings, changed: true }

@@ -19,6 +19,34 @@ const dependencies = {
   LINKSENSE_RUNNER_SHARED_SECRET: "runner-secret",
 };
 
+function readinessResponse(url, status = 200) {
+  if (url.endsWith("/auth/refresh")) {
+    return Response.json(
+      { error_code: "AUTH_SESSION_EXPIRED" },
+      { status: status === 200 ? 401 : status },
+    );
+  }
+  if (url.endsWith("/system/bootstrap")) {
+    return Response.json({ success: true }, { status });
+  }
+  if (url.includes(".tsx")) {
+    return new Response("export default {}", {
+      status,
+      headers: { "content-type": "text/javascript" },
+    });
+  }
+  if (url.includes(".css")) {
+    return new Response(":root {}", {
+      status,
+      headers: { "content-type": "text/css" },
+    });
+  }
+  return new Response(
+    `<html lang="${url.includes("/en-US/") ? "en-US" : "zh-CN"}"></html>`,
+    { status },
+  );
+}
+
 test("host development exposes cleanup as a recovery command", async () => {
   const packageJson = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -155,23 +183,9 @@ test("host readiness waits for Docs before probing the Vite Help Center proxy", 
       calls.push(url);
       if (url === docsUrl) {
         docsAttempts += 1;
-        return new Response('<html lang="zh-CN"></html>', {
-          status: docsAttempts >= 2 ? 200 : 503,
-        });
+        return readinessResponse(url, docsAttempts >= 2 ? 200 : 503);
       }
-      if (url.includes(".tsx")) {
-        return new Response("export default {}", {
-          headers: { "content-type": "text/javascript" },
-        });
-      }
-      if (url.includes(".css")) {
-        return new Response(":root {}", {
-          headers: { "content-type": "text/css" },
-        });
-      }
-      return new Response(
-        `<html lang="${url.includes("/en-US/") ? "en-US" : "zh-CN"}"></html>`,
-      );
+      return readinessResponse(url);
     },
   });
 

@@ -3804,7 +3804,7 @@
   max-width: 100%;
 }
 
-.conversation-token-quota-card-dock {
+.conversation-credit-quota-card-dock {
   position: relative;
   z-index: 2;
   display: flex;
@@ -3813,7 +3813,7 @@
   pointer-events: auto;
 }
 
-.conversation-token-quota-card {
+.conversation-credit-quota-card {
   --card-spacing: 12px;
   width: 100%;
   border-color: var(--app-border);
@@ -3824,7 +3824,7 @@
   backdrop-filter: blur(14px);
 }
 
-.conversation-token-quota-card-header {
+.conversation-credit-quota-card-header {
   display: flex;
   grid-template-columns: none;
   align-items: center;
@@ -3832,7 +3832,7 @@
   min-width: 0;
 }
 
-.conversation-token-quota-card-icon {
+.conversation-credit-quota-card-icon {
   display: grid;
   width: 34px;
   height: 34px;
@@ -3843,37 +3843,37 @@
   color: var(--destructive);
 }
 
-.conversation-token-quota-card-icon svg {
+.conversation-credit-quota-card-icon svg {
   width: 18px;
   height: 18px;
   stroke-width: 1.9;
 }
 
-.conversation-token-quota-card-copy {
+.conversation-credit-quota-card-copy {
   min-width: 0;
   flex: 1 1 auto;
 }
 
-.conversation-token-quota-card-title {
+.conversation-credit-quota-card-title {
   color: var(--app-text);
   font-size: var(--app-font-13);
   font-weight: 650;
   line-height: var(--app-line-20);
 }
 
-.conversation-token-quota-card-description {
+.conversation-credit-quota-card-description {
   margin-top: 2px;
   color: var(--app-muted);
   font-size: var(--app-font-12);
   line-height: var(--app-line-18);
 }
 
-.conversation-token-quota-card-action {
+.conversation-credit-quota-card-action {
   margin-left: auto;
   align-self: center;
 }
 
-.conversation-token-quota-card-dismiss {
+.conversation-credit-quota-card-dismiss {
   color: var(--app-muted);
 }
 
@@ -11848,21 +11848,21 @@ button.annotation-hover-file:focus-visible {
     max-height: min(46svh, 360px);
   }
 
-  .conversation-token-quota-card {
+  .conversation-credit-quota-card {
     border-radius: 16px;
   }
 
-  .conversation-token-quota-card-header {
+  .conversation-credit-quota-card-header {
     align-items: flex-start;
     gap: 10px;
   }
 
-  .conversation-token-quota-card-icon {
+  .conversation-credit-quota-card-icon {
     width: 30px;
     height: 30px;
   }
 
-  .conversation-token-quota-card-description {
+  .conversation-credit-quota-card-description {
     font-size: var(--app-font-11);
     line-height: var(--app-line-16);
   }

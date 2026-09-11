@@ -492,7 +492,7 @@ describe("controller authentication and routing", () => {
           },
         ],
       },
-      token_quota: { total: null, weekly: null, monthly: null },
+      credit_quota: { total: null, weekly: null, monthly: null },
     }
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify(apiResponse), {

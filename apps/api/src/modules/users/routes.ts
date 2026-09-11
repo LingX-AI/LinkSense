@@ -4,6 +4,7 @@ import type {
   preHandlerHookHandler,
 } from "fastify";
 import {
+  creditMicrosToDecimal,
   updateModelPreferenceSchema,
   updatePersonalizationSettingsSchema,
 } from "@linksense/shared";
@@ -17,7 +18,7 @@ import { resolveLocale } from "../../lib/locale.js";
 import type { ModelProviderSettingsService } from "../system/model-provider-settings.js";
 import type { RunnerClient } from "../../adapters/runner.js";
 import { buildUserImportTemplate } from "./import-workbook.js";
-import type { UserService, UserTokenQuotaUsage } from "./service.js";
+import type { UserService, UserCreditQuotaUsage } from "./service.js";
 import type {
   ManagedUser,
   ManagedUserGroup,
@@ -50,7 +51,7 @@ export const meRoutes: FastifyPluginAsync<{
     return reply.send(
       ok(
         await projectUserResponse(user, service, {
-          includeTokenQuotaUsage: true,
+          includeCreditQuotaUsage: true,
         }),
         request,
       ),
@@ -67,7 +68,7 @@ export const meRoutes: FastifyPluginAsync<{
     return reply.send(
       ok(
         await projectUserResponse(user, service, {
-          includeTokenQuotaUsage: true,
+          includeCreditQuotaUsage: true,
         }),
         request,
       ),
@@ -140,7 +141,7 @@ export const meRoutes: FastifyPluginAsync<{
     return reply.send(
       ok(
         await projectUserResponse(user, service, {
-          includeTokenQuotaUsage: true,
+          includeCreditQuotaUsage: true,
         }),
         request,
       ),
@@ -162,7 +163,7 @@ export const adminUserRoutes: FastifyPluginAsync<{
           items: await Promise.all(
             result.items.map((user) =>
               projectUserResponse(user, service, {
-                includeTokenQuotaUsage: true,
+                includeCreditQuotaUsage: true,
               }),
             ),
           ),
@@ -197,9 +198,9 @@ export const adminUserRoutes: FastifyPluginAsync<{
       .send(template);
   });
 
-  app.patch("/users/token-limits", async (request, reply) => {
+  app.patch("/users/credit-limits", async (request, reply) => {
     const actor = await authentication.getActor(request);
-    const users = await service.updateUserTokenLimits(
+    const users = await service.updateUserCreditLimits(
       actor,
       request.body,
       auditContext(request),
@@ -321,12 +322,12 @@ export const adminUserRoutes: FastifyPluginAsync<{
 export async function projectUserResponse(
   user: UserRecord | ManagedUser,
   service: UserService,
-  options: { includeTokenQuotaUsage?: boolean } = {},
+  options: { includeCreditQuotaUsage?: boolean } = {},
 ) {
   const avatarUrl = await service.resolveAvatarUrl(user);
   const managed = "groups" in user ? user : null;
-  const tokenQuotaUsage = options.includeTokenQuotaUsage
-    ? await getCurrentTokenQuotaUsage(service, user)
+  const creditQuotaUsage = options.includeCreditQuotaUsage
+    ? await getCurrentCreditQuotaUsage(service, user)
     : undefined;
   return {
     id: user.id,
@@ -340,11 +341,11 @@ export async function projectUserResponse(
       ? ("self_registration" as const)
       : ("organization_invitation" as const),
     running_message_action: user.runningMessageAction,
-    total_token_limit: user.totalTokenLimit?.toString() ?? null,
-    weekly_token_limit: user.weeklyTokenLimit?.toString() ?? null,
-    monthly_token_limit: user.monthlyTokenLimit?.toString() ?? null,
-    ...(tokenQuotaUsage !== undefined
-      ? { token_quota: projectTokenQuotaUsage(tokenQuotaUsage) }
+    total_credit_limit: user.totalCreditLimitMicros === null ? null : creditMicrosToDecimal(user.totalCreditLimitMicros),
+    weekly_credit_limit: user.weeklyCreditLimitMicros === null ? null : creditMicrosToDecimal(user.weeklyCreditLimitMicros),
+    monthly_credit_limit: user.monthlyCreditLimitMicros === null ? null : creditMicrosToDecimal(user.monthlyCreditLimitMicros),
+    ...(creditQuotaUsage !== undefined
+      ? { credit_quota: projectCreditQuotaUsage(creditQuotaUsage) }
       : {}),
     last_login_at: user.lastLoginAt?.toISOString() ?? null,
     last_login_method: user.lastLoginMethod,
@@ -367,44 +368,44 @@ export async function projectUserResponse(
   };
 }
 
-async function getCurrentTokenQuotaUsage(
+async function getCurrentCreditQuotaUsage(
   service: UserService,
   user: UserRecord | ManagedUser,
-): Promise<UserTokenQuotaUsage | null> {
+): Promise<UserCreditQuotaUsage | null> {
   const reader = (
-    service as Partial<Pick<UserService, "getCurrentTokenQuotaUsage">>
-  ).getCurrentTokenQuotaUsage;
+    service as Partial<Pick<UserService, "getCurrentCreditQuotaUsage">>
+  ).getCurrentCreditQuotaUsage;
   if (!reader) return null;
   return reader.call(service, user);
 }
 
-function projectTokenQuotaUsage(usage: UserTokenQuotaUsage | null) {
+function projectCreditQuotaUsage(usage: UserCreditQuotaUsage | null) {
   if (!usage) return null;
   return {
-    total: projectTokenQuotaTotalUsage(usage.total),
-    weekly: projectTokenQuotaPeriodUsage(usage.weekly),
-    monthly: projectTokenQuotaPeriodUsage(usage.monthly),
+    total: projectCreditQuotaTotalUsage(usage.total),
+    weekly: projectCreditQuotaPeriodUsage(usage.weekly),
+    monthly: projectCreditQuotaPeriodUsage(usage.monthly),
   };
 }
 
-function projectTokenQuotaTotalUsage(total: UserTokenQuotaUsage["total"]) {
+function projectCreditQuotaTotalUsage(total: UserCreditQuotaUsage["total"]) {
   if (!total) return null;
   return {
-    limit_tokens: total.limitTokens.toString(),
-    used_tokens: total.usedTokens.toString(),
-    remaining_tokens: total.remainingTokens.toString(),
+    limit_credits: creditMicrosToDecimal(total.limitCreditMicros),
+    used_credits: creditMicrosToDecimal(total.usedCreditMicros),
+    remaining_credits: creditMicrosToDecimal(total.remainingCreditMicros),
     remaining_percentage: total.remainingPercentage,
   };
 }
 
-function projectTokenQuotaPeriodUsage(
-  period: UserTokenQuotaUsage["weekly"],
+function projectCreditQuotaPeriodUsage(
+  period: UserCreditQuotaUsage["weekly"],
 ) {
   if (!period) return null;
   return {
-    limit_tokens: period.limitTokens.toString(),
-    used_tokens: period.usedTokens.toString(),
-    remaining_tokens: period.remainingTokens.toString(),
+    limit_credits: creditMicrosToDecimal(period.limitCreditMicros),
+    used_credits: creditMicrosToDecimal(period.usedCreditMicros),
+    remaining_credits: creditMicrosToDecimal(period.remainingCreditMicros),
     remaining_percentage: period.remainingPercentage,
     reset_at: period.resetAt.toISOString(),
   };

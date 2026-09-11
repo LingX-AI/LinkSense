@@ -1,3 +1,4 @@
+import { defaultQuotaSettings } from "@linksense/shared";
 import { describe, expect, it, vi } from "vitest"
 
 import type { PrismaClient } from "../src/generated/prisma/client.js"
@@ -486,12 +487,12 @@ describe("PrismaAuthRepository transactions", () => {
     expect(transaction.user.update).not.toHaveBeenCalled()
   })
 
-  it("keeps registration disabled without a positive total quota and does not persist a token", async () => {
+  it("does not persist registration tokens while registration is disabled", async () => {
     const transaction = {
       $executeRaw: vi.fn(async () => 1),
       systemSetting: {
         findUnique: vi.fn(async () => ({
-          settingsJson: { self_registration: { enabled: true } },
+          settingsJson: { self_registration: { enabled: false } },
         })),
       },
       user: { findUnique: vi.fn() },
@@ -521,10 +522,8 @@ describe("PrismaAuthRepository transactions", () => {
       systemSetting: {
         findUnique: vi.fn(async () => ({
           settingsJson: {
-            self_registration: {
-              enabled: true,
-              total_token_limit: "12500000",
-            },
+            self_registration: { enabled: true },
+            quota_settings: { ...defaultQuotaSettings(), self_registered_users: { total_credit_limit: "12.5", weekly_credit_limit: "2", monthly_credit_limit: "5" } },
           },
         })),
       },
@@ -581,10 +580,8 @@ describe("PrismaAuthRepository transactions", () => {
       systemSetting: {
         findUnique: vi.fn(async () => ({
           settingsJson: {
-            self_registration: {
-              enabled: true,
-              total_token_limit: "12500000",
-            },
+            self_registration: { enabled: true },
+            quota_settings: { ...defaultQuotaSettings(), self_registered_users: { total_credit_limit: "12.5", weekly_credit_limit: "2", monthly_credit_limit: "5" } },
           },
         })),
       },
@@ -617,7 +614,9 @@ describe("PrismaAuthRepository transactions", () => {
         status: "active",
         preferredLocale: null,
         selfRegisteredAt: NOW,
-        totalTokenLimit: 12_500_000n,
+        totalCreditLimitMicros: 12_500_000n,
+        weeklyCreditLimitMicros: 2_000_000n,
+        monthlyCreditLimitMicros: 5_000_000n,
       }),
     })
     expect(transaction.registrationToken.updateMany).toHaveBeenCalledWith({

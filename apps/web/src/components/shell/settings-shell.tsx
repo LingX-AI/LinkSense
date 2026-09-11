@@ -3,6 +3,7 @@ import {
   ArrowLeftIcon,
   ArchiveIcon,
   BotIcon,
+  CoinsIcon,
   BookOpenCheckIcon,
   BrainIcon,
   ChartNoAxesCombinedIcon,
@@ -140,6 +141,12 @@ const administratorItems: SettingsNavigationItem[] = [
     labelKey: "settings.modelSettings",
     descriptionKey: "settings.modelSettingsDescription",
     icon: BotIcon,
+  },
+  {
+    to: "/admin/quotas",
+    labelKey: "quotaManagement.title",
+    descriptionKey: "quotaManagement.description",
+    icon: CoinsIcon,
   },
   {
     to: "/admin/settings",

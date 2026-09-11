@@ -243,7 +243,7 @@ export interface ConversationPreflight {
   ): Promise<T>;
 }
 
-export type TokenLimitEnforcer = {
+export type CreditLimitEnforcer = {
   assertCanStartTask(userId: string): Promise<void>;
 };
 
@@ -729,7 +729,7 @@ export class ConversationService {
       Partial<Pick<KnowledgeStore, "findKnowledgeBaseAccess">>,
     private readonly modelRuntimeSettings?: ModelRuntimeSettingsReader,
     private readonly applicationResolver?: ConversationApplicationResolver,
-    private readonly tokenLimits?: TokenLimitEnforcer,
+    private readonly creditLimits?: CreditLimitEnforcer,
     private readonly executionConcurrencySettings?: ExecutionConcurrencySettingsReader,
     private readonly titleRefresh?: Pick<
       ConversationTitleService,
@@ -4113,7 +4113,7 @@ export class ConversationService {
           return { conversation, latestTurn };
         });
 
-        await this.tokenLimits?.assertCanStartTask(ownerId);
+        await this.creditLimits?.assertCanStartTask(ownerId);
         const persistedState = persistedTurnRecoveryStateSchema.parse({
           conversationId,
           capabilityGeneration: source.latestTurn.capabilityGeneration,
@@ -8951,7 +8951,7 @@ export class ConversationService {
       }
 
       try {
-        await this.tokenLimits?.assertCanStartTask(ownerId);
+        await this.creditLimits?.assertCanStartTask(ownerId);
       } catch (error) {
         await this.recordPendingStartBlock(conversationId, pendingId, error);
         throw error;
@@ -11381,7 +11381,7 @@ function mapPreflightBlockCode(code: string): string | null {
     return "credential_binding_ambiguous";
   if (code === "CAPABILITY_NOT_FOUND") return "priority_capability_unavailable";
   if (code === "ATTACHMENT_UPLOAD_INVALID") return "attachment_unavailable";
-  if (code === "TOKEN_LIMIT_EXCEEDED") return "token_limit_exceeded";
+  if (code === "CREDIT_LIMIT_EXCEEDED") return "credit_limit_exceeded";
   if (code === "VALIDATION_ERROR" || code === "EXECUTION_ENVIRONMENT_INVALID") {
     return "execution_environment_invalid";
   }

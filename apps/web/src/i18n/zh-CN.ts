@@ -149,8 +149,8 @@ export const zhCN = {
     automationTask: "自动化任务",
     unreadCompletion: "任务已完成，尚未查看",
     unreadFailure: "任务执行失败，尚未查看",
-    tokenQuotaRemaining:
-      "用量剩余：总 {{total}} · 周 {{weekly}} · 月 {{monthly}}",
+    creditQuotaRemainingTitle: "剩余额度",
+    creditQuotaRemaining: "总 {{total}} · 周 {{weekly}} · 月 {{monthly}}",
   },
   support: {
     menuLabel: "反馈与帮助",
@@ -287,6 +287,55 @@ export const zhCN = {
       monthly: "每隔 {{interval}} 月，{{day}} 日 {{time}} 执行",
       yearly: "每隔 {{interval}} 年，{{month}} 月 {{day}} 日 {{time}} 执行",
     },
+  },
+  quotaManagement: {
+    title: "额度管理",
+    description: "设置组织成员、开放注册用户的个人额度及 credits 换算价格。",
+    conversionTitle: "Credits 换算",
+    conversionDescription:
+      "按模型调用费用折算 credits。修改价格只影响之后的消费，已产生的消耗保持不变。",
+    creditPrice: "1 credit 对应金额（人民币元）",
+    conversionExample:
+      "例如：1 credit = 0.01 元，消费 0.25 元会消耗 25 credits。",
+    organization_members: {
+      reset: "重置全部组织成员额度",
+      resetDescription:
+        "将全部已有组织成员的周、月、总额度恢复到各自现有限额的 100%，不限额的项目保持不限额。当前表单中未保存的限额不参与重置。历史消费记录保留，重置后发生的消费会继续扣减。",
+
+      title: "组织成员初始额度",
+      description:
+        "应用于之后新建或导入的每位组织成员。点击下方按钮可应用到全部已有组织成员，也可在用户管理中单独或批量调整。",
+    },
+    self_registered_users: {
+      reset: "重置全部注册成员额度",
+      resetDescription:
+        "将全部已有自助注册成员的周、月、总额度恢复到各自现有限额的 100%，不限额的项目保持不限额。当前表单中未保存的限额不参与重置。历史消费记录保留，重置后发生的消费会继续扣减。",
+
+      title: "开放注册用户额度",
+      description:
+        "应用于每位自助注册用户。修改此处额度会同步到已有自助注册用户，包含曾单独调整过额度的用户；留空会取消对应限制。",
+    },
+    weekly_credit_limit: "周额度（credits）",
+    monthly_credit_limit: "月额度（credits）",
+    total_credit_limit: "总额度（credits）",
+    weekly_credit_limit_hint: "按系统时区，每周一零点重置。",
+    monthly_credit_limit_hint: "按系统时区，每月一日零点重置。",
+    total_credit_limit_hint: "累计使用上限，不自动重置。",
+    unlimited: "不限额",
+    invalidAmount:
+      "请输入大于 0、最多 6 位小数且不超过 9,223,372,036,854.775807 的金额或额度。",
+    applyOrganization: "保存并应用限额到全部组织成员",
+    applyDescription:
+      "将周限额 {{weekly}}、月限额 {{monthly}}、总限额 {{total}} 保存为组织成员初始额度，并覆盖所有已有组织成员的限额，包括单独调整过的限额。不会清零已用额度；其他表单设置不受影响。",
+    confirmReset: "确认重置额度",
+    resetHint: "确认重置后立即恢复可用额度，历史消费记录保留。",
+    confirmApply: "确认保存并应用",
+    resetSuccess: "已重置 {{count}} 位成员的额度。",
+    applySuccess: "已保存新限额，并应用到 {{count}} 位组织成员。",
+    refreshFailed: "操作已完成，但页面数据刷新失败，请刷新页面查看最新额度。",
+    saved: "额度设置已保存。",
+    enforcementHint:
+      "留空表示不限额。任一已设置额度耗尽后，将暂停发起新任务，正在运行的任务继续完成。消耗精确到 0.000001 credit，不足该精度的部分向上取整。",
   },
   settings: {
     navigationLabel: "{{productName}} 设置导航",
@@ -1594,10 +1643,10 @@ export const zhCN = {
     searchEmpty: "没有找到结果",
     listEmpty: "还没有任务。可以直接从输入框开始。",
     newTaskWelcome: "我们一起在 {{productName}} 中做些什么？",
-    tokenQuotaBlocked: {
-      title: "Token 用量已达上限",
+    creditQuotaBlocked: {
+      title: "额度已达上限",
       description:
-        "可用 Token 额度已用尽，暂时不能发起新任务或补充请求；正在运行的任务不受影响。",
+        "可用额度已用尽，暂时不能发起新任务或补充请求；正在运行的任务不受影响。",
       dismiss: "关闭用量提醒",
     },
     starterQuestions: {
@@ -2075,8 +2124,7 @@ export const zhCN = {
       runner_unavailable: "执行服务暂不可用，请联系管理员。",
       deployment_stopped: "系统更新已暂停此请求，请确认进度后手动继续。",
       execution_environment_invalid: "执行环境未就绪，请联系管理员。",
-      token_limit_exceeded:
-        "该用户的可用 Token 额度已用尽，暂时不能发起新任务。",
+      credit_limit_exceeded: "该用户的可用额度已用尽，暂时不能发起新任务。",
     },
     activities: {
       analysis: "正在分析需求",
@@ -3448,43 +3496,41 @@ export const zhCN = {
     },
     loginMethod: "登录方式",
     lastLogin: "最近登录",
-    totalTokenLimit: "总额度（百万 Token）",
-    weeklyTokenLimit: "周用量（百万 Token）",
-    monthlyTokenLimit: "月用量（百万 Token）",
-    tokenLimitDisplay: "{{value}} 百万 Token",
-    tokenQuotaRemainingFilter: "用量剩余",
-    totalTokenQuotaRemainingZero: "总额度剩余为 0",
-    weeklyTokenQuotaRemainingZero: "周用量剩余为 0",
-    monthlyTokenQuotaRemainingZero: "月用量剩余为 0",
-    tokenQuotaRemainingPercentage: "用量剩余 {{percentage}}%",
-    tokenQuotaRemainingUnavailable: "用量剩余 -",
-    noTokenLimit: "不设置用量",
-    inheritTokenLimit: "不设置用量",
-    clearTokenLimit: "留空清除个人用量",
-    tokenLimitHint:
-      "填写大于 0 的数字，可填小数；单位为百万 Token；留空表示不设置个人用量。",
-    tokenLimitInputInvalid:
-      "请填写大于 0 的数字，最多 6 位小数；单位为百万 Token。",
-    userTokenLimits: "个人 Token 用量",
-    userTokenLimitsDescription:
-      "总额度不会周期性重置；周用量和月用量会按对应周期重置。任一已设置额度用完后，用户将无法发起新任务，正在运行的任务不受影响。",
-    adjustTokenLimits: "调整用量",
-    adjustUserTokenLimits: "调整 {{name}} 的用量",
-    singleTokenLimitsTitle: "调整个人 Token 用量",
-    singleTokenLimitsDescription:
-      "更新 {{name}} 的总额度、周用量和月用量；留空表示不设置对应的个人用量。",
+    totalCreditLimit: "总额度",
+    weeklyCreditLimit: "周额度",
+    monthlyCreditLimit: "月额度",
+    creditLimitDisplay: "{{value}}",
+    creditQuotaRemainingFilter: "额度剩余",
+    totalCreditQuotaRemainingZero: "总额度剩余为 0",
+    weeklyCreditQuotaRemainingZero: "周额度剩余为 0",
+    monthlyCreditQuotaRemainingZero: "月额度剩余为 0",
+    creditQuotaRemainingAmount: "剩余额度 {{value}}（{{percentage}}%）",
+    creditQuotaRemainingUnavailable: "额度剩余 -",
+    noCreditLimit: "不设置额度",
+    inheritCreditLimit: "不设置额度",
+    clearCreditLimit: "留空清除个人额度",
+    creditLimitHint: "填写大于 0 的数字，可填小数；留空表示不设置个人额度。",
+    creditLimitInputInvalid: "请填写大于 0 的数字，最多 6 位小数。",
+    userCreditLimits: "个人额度",
+    userCreditLimitsDescription:
+      "总额度不会周期性重置；周额度和月额度会按对应周期重置。任一已设置额度用完后，用户将无法发起新任务，正在运行的任务不受影响。",
+    adjustCreditLimits: "调整额度",
+    adjustUserCreditLimits: "调整 {{name}} 的额度",
+    singleCreditLimitsTitle: "调整个人额度",
+    singleCreditLimitsDescription:
+      "更新 {{name}} 的总额度、周额度和月额度；留空表示不设置对应的个人额度。",
     selfRegisteredTotalQuotaOverrideHint:
       "该用户由自主注册创建。以后保存新的开放注册总额度时，此处设置的总额度也会同步更新。",
-    batchTokenLimits: "批量设置用量（{{count}}）",
-    batchTokenLimitsTitle: "批量设置用户 Token 用量",
-    batchTokenLimitsDescription:
-      "将对已选择的 {{count}} 个用户应用本次勾选的用量字段；未勾选的字段保持不变。",
-    tokenLimitFields: "要更新的用量",
-    updateTotalTokenLimit: "更新总额度",
-    updateWeeklyTokenLimit: "更新周用量",
-    updateMonthlyTokenLimit: "更新月用量",
-    singleTokenLimitsSaved: "已更新 {{name}} 的 Token 用量。",
-    tokenLimitsSaved: "已更新 {{count}} 个用户的 Token 用量。",
+    batchCreditLimits: "批量设置额度（{{count}}）",
+    batchCreditLimitsTitle: "批量设置用户额度",
+    batchCreditLimitsDescription:
+      "将对已选择的 {{count}} 个用户应用本次勾选的额度字段；未勾选的字段保持不变。",
+    creditLimitFields: "要更新的额度",
+    updateTotalCreditLimit: "更新总额度",
+    updateWeeklyCreditLimit: "更新周额度",
+    updateMonthlyCreditLimit: "更新月额度",
+    singleCreditLimitsSaved: "已更新 {{name}} 的额度。",
+    creditLimitsSaved: "已更新 {{count}} 个用户的额度。",
     selectVisibleUsers: "选择当前列表中的用户",
     selectUser: "选择用户 {{name}}",
     groups: "所属用户组",
@@ -3594,13 +3640,6 @@ export const zhCN = {
       enabled: "允许用户自行注册",
       enabledDescription:
         "开启后，登录页会显示注册入口；关闭后，新的注册申请和已发出的激活链接都会停止生效。",
-      totalTokenLimit: "每位注册用户的总 Token 额度",
-      totalTokenLimitUnit: "百万 Token",
-      totalTokenLimitDescription:
-        "额度会统一应用于所有通过开放注册创建的用户，包括已有用户；调整额度不会清零已使用量，也不会按周或按月重置。开启开放注册时必须填写正数。",
-      totalTokenLimitPlaceholder: "例如：10",
-      totalTokenLimitRequired: "开启开放注册前，请填写正数总 Token 额度。",
-      totalTokenLimitInvalid: "请输入大于 0 的数值，最多支持 6 位小数。",
       saved: "开放注册设置已更新。",
     },
     systemName: "系统显示名称",
@@ -3671,7 +3710,6 @@ export const zhCN = {
       knowledge: "知识检索模型",
       voiceTranscription: "语音转文字模型",
       imageGeneration: "图片生成模型",
-      initialQuota: "用户初始 Token 用量",
     },
     modelProvider: {
       catalogDescription: "管理模型连接、价格和输入框中的显示顺序。",
@@ -3817,13 +3855,6 @@ export const zhCN = {
       titleModel: "任务自动命名模型",
       titleModelHint:
         "用于自动生成便于识别的任务名称，产生的用量会正常计入统计。",
-      userTokenLimits: "用户初始 Token 用量",
-      userTokenLimitsDescription:
-        "新建或导入用户时，系统会为其应用这里的每周和每月初始额度。留空表示不预设额度；已有用户不会受到影响。",
-      tokenLimitHint:
-        "请输入大于 0 的额度，可包含小数，单位为百万 Token；留空表示不预设。",
-      saveUserTokenLimits: "保存配置",
-      userTokenLimitsSaved: "用户初始 Token 用量已更新。",
       saved: "模型渠道设置已更新。",
     },
     knowledgeModels: {
@@ -4524,7 +4555,7 @@ export const zhCN = {
     runnerUnavailable: "执行服务暂不可用，请稍后重试。",
     deploymentStopped:
       "本次任务因系统更新而中止，已有内容已保留。请确认进度后手动继续。",
-    tokenLimitExceeded: "你的可用 Token 额度已用尽，暂时不能发起新任务。",
+    creditLimitExceeded: "你的可用额度已用尽，暂时不能发起新任务。",
     lastAdminRequired: "系统必须至少保留一个启用状态的管理员，无法执行此操作。",
     lastModelRequired: "至少需要保留一个“对话可选”的对话模型。",
     modelProvider: {

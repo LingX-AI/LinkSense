@@ -40,16 +40,9 @@ Use **Move channel up** or **Move channel down** under **Channel actions** to re
 
 At the end of the provider list, select the conversation default and the task auto-naming model separately. The conversation default must be available in conversations. Task auto naming can use any configured chat model and never reads a deployment-provided built-in naming model. Its input, cached-input, and output tokens are recorded under the Task auto naming workload; usage is marked as estimated when the provider does not return token counts.
 
-## Initial user token usage
+## User quotas
 
-**Initial user token usage** presets per-user usage for users created manually or imported from Excel. You can set weekly and monthly usage separately:
-
-- Values use million tokens.
-- Positive numbers with up to 6 decimal places are accepted.
-- Leave a field blank so new users receive no automatic usage setting for that period.
-- Changes affect only users created or imported later; existing users are not rewritten.
-
-Adjust existing users from **Groups & users → Users**, either individually or in batches. Usage settings control whether a user can start new tasks; already running tasks are not force-stopped after usage remaining reaches 0.
+Configure user quotas in the separate [Quota management](./quota-settings.md) page, in credits.
 
 ## Knowledge retrieval models
 

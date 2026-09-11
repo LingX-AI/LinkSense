@@ -8,7 +8,7 @@ import { NotificationCenter } from "@/components/feedback/notification-toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { BrowserNotificationCenter } from "@/features/browser-notifications/browser-notification-center"
 import { BrowserNotificationPrompt } from "@/features/browser-notifications/browser-notification-prompt"
-import { TokenQuotaRefreshCenter } from "@/features/usage/token-quota-refresh-center"
+import { CreditQuotaRefreshCenter } from "@/features/usage/credit-quota-refresh-center"
 
 export function AppProviders({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -31,7 +31,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         <BootstrapProvider>
           <AuthProvider>
             <TooltipProvider>
-              <TokenQuotaRefreshCenter />
+              <CreditQuotaRefreshCenter />
               <BrowserNotificationCenter />
               {children}
               <BrowserNotificationPrompt />

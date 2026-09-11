@@ -17,7 +17,7 @@ Select **Generate again** if the QR code expires or connection fails. Use **Reco
 
 ## Supported scope
 
-The Weixin connection processes only text and transcribable voice messages sent by the account that scanned the code. Other accounts, group chats, and unsupported message types do not start LinkSense requests. Every accepted message runs in that user's task space and remains subject to model, capability, knowledge-base, concurrency, and token limits.
+The Weixin connection processes only text and transcribable voice messages sent by the account that scanned the code. Other accounts, group chats, and unsupported message types do not start LinkSense requests. Every accepted message runs in that user's task space and remains subject to model, capability, knowledge-base, concurrency, and credit quotas.
 
 ## Disconnect
 
@@ -28,6 +28,6 @@ Select **Disconnect** and confirm to stop receiving and replying to Weixin messa
 - Make sure the QR code is valid and that you completed confirmation or the pairing-code step on the phone.
 - Check that the status is **Online**. Reconnect when it is **Connecting**, **Connection error**, or **Reconnect required**.
 - Send a supported text or voice message from the account that scanned the code.
-- Check token allowance, scheduled maintenance, and task concurrency limits.
+- Check credit quotas, scheduled maintenance, and task concurrency limits.
 - If retries continue to fail, give an administrator the visible status and time. Do not share the QR code, pairing code, or sign-in credentials.
 

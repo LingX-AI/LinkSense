@@ -4,7 +4,7 @@ export type UserRole = "user" | "admin"
 export type UserStatus = "active" | "disabled"
 export type UserLocale = "zh-CN" | "en-US"
 export type RunningMessageAction = "steer" | "queue"
-export type TokenQuotaRemainingZeroFilter = "total" | "weekly" | "monthly"
+export type CreditQuotaRemainingZeroFilter = "total" | "weekly" | "monthly"
 export type UserRegistrationSource =
   | "self_registration"
   | "organization_invitation"
@@ -27,9 +27,10 @@ export type UserRecord = {
   preferredLocale: UserLocale | null
   selfRegisteredAt: Date | null
   runningMessageAction: RunningMessageAction
-  totalTokenLimit: bigint | null
-  weeklyTokenLimit: bigint | null
-  monthlyTokenLimit: bigint | null
+  totalCreditLimitMicros: bigint | null
+  weeklyCreditLimitMicros: bigint | null
+  monthlyCreditLimitMicros: bigint | null
+  creditQuotaResetAt: Date | null
   lastLoginAt: Date | null
   lastLoginMethod: "password" | "oidc" | "teams" | null
   passwordUpdatedAt: Date | null
@@ -68,8 +69,9 @@ export type CreateUserCommand = {
   name: string
   role: UserRole
   userGroupIds: string[]
-  weeklyTokenLimit: bigint | null
-  monthlyTokenLimit: bigint | null
+  totalCreditLimitMicros: bigint | null
+  weeklyCreditLimitMicros: bigint | null
+  monthlyCreditLimitMicros: bigint | null
   actorId: string
   now: Date
   audit: AuditContext
@@ -83,19 +85,19 @@ export type UpdateUserCommand = {
   role?: UserRole
   status?: UserStatus
   userGroupIds?: string[]
-  totalTokenLimit?: bigint | null
-  weeklyTokenLimit?: bigint | null
-  monthlyTokenLimit?: bigint | null
+  totalCreditLimitMicros?: bigint | null
+  weeklyCreditLimitMicros?: bigint | null
+  monthlyCreditLimitMicros?: bigint | null
   now: Date
   audit: AuditContext
 }
 
-export type UpdateUserTokenLimitsCommand = {
+export type UpdateUserCreditLimitsCommand = {
   targetUserIds: string[]
   actorId: string
-  totalTokenLimit?: bigint | null
-  weeklyTokenLimit?: bigint | null
-  monthlyTokenLimit?: bigint | null
+  totalCreditLimitMicros?: bigint | null
+  weeklyCreditLimitMicros?: bigint | null
+  monthlyCreditLimitMicros?: bigint | null
   now: Date
   audit: AuditContext
 }
@@ -120,8 +122,9 @@ export type ImportUserCommand = {
     role: UserRole
     userGroupNames: string[]
   }>
-  weeklyTokenLimit: bigint | null
-  monthlyTokenLimit: bigint | null
+  totalCreditLimitMicros: bigint | null
+  weeklyCreditLimitMicros: bigint | null
+  monthlyCreditLimitMicros: bigint | null
   actorId: string
   now: Date
   audit: AuditContext
@@ -135,15 +138,15 @@ export interface UserPersistence {
     role?: UserRole
     registrationSource?: UserRegistrationSource
     userGroupId?: string
-    tokenQuotaRemainingZero?: TokenQuotaRemainingZeroFilter
+    creditQuotaRemainingZero?: CreditQuotaRemainingZeroFilter
     cursor?: string
     limit: number
   }): Promise<{ items: ManagedUser[]; nextCursor: string | null }>
   findManagedUser(id: string): Promise<ManagedUser | null>
   createUser(input: CreateUserCommand): Promise<ManagedUser>
   updateUser(input: UpdateUserCommand): Promise<UpdateUserResult>
-  updateUserTokenLimits(
-    input: UpdateUserTokenLimitsCommand,
+  updateUserCreditLimits(
+    input: UpdateUserCreditLimitsCommand,
   ): Promise<ManagedUser[]>
   importUsers(input: ImportUserCommand): Promise<ManagedUser[]>
   updateOwnProfile(input: {

@@ -46,8 +46,9 @@ describe("linksense-docs built-in Skill", () => {
       markdownPaths(sourceRoots["zh-CN"]),
     ])
 
-    expect(chinesePaths).toHaveLength(60)
+    expect(chinesePaths).toHaveLength(61)
     expect(chinesePaths).toEqual(expect.arrayContaining([
+      "admin-guide/quota-settings.md",
       "user-guide/tasks/task-categories.md",
       "user-guide/message-channels/wecom.md",
       "user-guide/message-channels/dingtalk.md",
@@ -117,7 +118,7 @@ describe("linksense-docs built-in Skill", () => {
       markdownPaths(path.join(outputRoot, "zh-CN")),
       markdownPaths(path.join(outputRoot, "en-US")),
     ])
-    expect(chinesePaths).toHaveLength(60)
+    expect(chinesePaths).toHaveLength(61)
     expect(englishPaths).toEqual(chinesePaths)
     await expect(
       readFile(path.join(outputRoot, "zh-CN", "introduction.md"), "utf8"),

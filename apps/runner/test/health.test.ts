@@ -992,7 +992,7 @@ describe("runner health", () => {
           },
         ],
       },
-      token_quota: { total: null, weekly: null, monthly: null },
+      credit_quota: { total: null, weekly: null, monthly: null },
     };
     const getCurrentUserInfo = vi
       .fn()

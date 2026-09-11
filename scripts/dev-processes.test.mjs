@@ -107,6 +107,7 @@ test("stopDevelopmentApplications clears registered and legacy project services"
 
     const aliveGroups = new Set([101, 202]);
     const signals = [];
+    const checkedPorts = [];
     let clock = 0;
     const result = await stopDevelopmentApplications(root, {
       gracePeriodMilliseconds: 10,
@@ -117,12 +118,14 @@ test("stopDevelopmentApplications clears registered and legacy project services"
       },
       processInspector: {
         currentProcessGroupId: () => 999,
-        listListeningProcessIds: (port) =>
-          ({
+        listListeningProcessIds: (port) => {
+          checkedPorts.push(port);
+          return ({
             4010: [1_001],
             4000: [2_001],
-            5173: [],
-          })[port] ?? [],
+            18173: [],
+          })[port] ?? [];
+        },
         readProcess: (pid) =>
           ({
             1_001: {
@@ -173,6 +176,7 @@ test("stopDevelopmentApplications clears registered and legacy project services"
       },
     });
 
+    assert.deepEqual(checkedPorts, [4010, 4000, 18173]);
     assert.deepEqual(signals, [
       { processGroupId: 101, signal: "SIGTERM" },
       { processGroupId: 202, signal: "SIGTERM" },
