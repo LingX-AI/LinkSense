@@ -155,6 +155,7 @@ test("host development starts every application with pnpm and passes the dynamic
     "--strictPort",
   ]);
   assert.deepEqual(hostPreparationCommands(), [
+    ["db:generate"],
     ["db:migrate:deploy"],
     ["db:seed"],
   ]);

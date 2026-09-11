@@ -61,9 +61,10 @@ pnpm dev:host
 ```
 
 On every start, the launcher reads `.env.host`, validates host-reachable
-dependencies and free loopback ports, runs `prisma migrate deploy` and the
-idempotent seed, then starts all four applications. Readiness is reported only
-after Runner, API, Web, and the proxied bilingual Help Center respond.
+dependencies and free loopback ports, generates Prisma Client, runs
+`prisma migrate deploy` and the idempotent seed, then starts all four
+applications. Readiness is reported only after Runner, API, Web, and the
+proxied bilingual Help Center respond.
 
 Press `Ctrl+C` to stop the active session and its child processes. Use
 `pnpm dev:host:cleanup` only when the terminal was lost, the parent process

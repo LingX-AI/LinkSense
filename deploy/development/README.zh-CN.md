@@ -52,8 +52,8 @@ pnpm dev:host
 ```
 
 每次启动时，脚本读取 `.env.host`，检查依赖地址和回环端口，执行
-`prisma migrate deploy` 与可重复运行的 seed，然后启动四个应用。只有 Runner、API、
-Web 和通过代理访问的中英文帮助中心全部响应后，才会输出就绪信息。
+Prisma Client 生成、`prisma migrate deploy` 与可重复运行的 seed，然后启动四个应用。
+只有 Runner、API、Web 和通过代理访问的中英文帮助中心全部响应后，才会输出就绪信息。
 
 正常停止直接按 `Ctrl+C`，当前会话和子进程会一并退出。只有终端丢失、父进程异常
 退出或已登记的子进程仍占用开发端口时，才需要执行 `pnpm dev:host:cleanup`。

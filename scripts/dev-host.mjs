@@ -186,6 +186,7 @@ export function hostDevelopmentCommands(environment) {
 
 export function hostPreparationCommands() {
   return [
+    ["db:generate"],
     ["db:migrate:deploy"],
     ["db:seed"],
   ];
