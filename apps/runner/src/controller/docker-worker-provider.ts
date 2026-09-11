@@ -438,6 +438,7 @@ async function releaseDockerContainer(
       throw new AggregateError(
         [stopFailure, error],
         "Docker container release failed",
+        { cause: error },
       )
     }
     throw error
