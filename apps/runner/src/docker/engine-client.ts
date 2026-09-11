@@ -144,7 +144,10 @@ export interface DockerEngine {
 }
 
 export class DockerEngineError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly statusCode?: number,
+  ) {
     super(message)
     this.name = "DockerEngineError"
   }
@@ -336,6 +339,7 @@ async function readDockerResponse(
     if (statusCode < 200 || statusCode >= 300) {
       throw new DockerEngineError(
         `Docker Engine returned ${statusCode}: ${body.slice(0, 500)}`,
+        statusCode,
       )
     }
     return { statusCode, body }

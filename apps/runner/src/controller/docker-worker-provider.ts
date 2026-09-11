@@ -7,11 +7,12 @@ import { z } from "zod"
 import { linksenseRuntimeIdentity } from "@linksense/shared"
 
 import type { RunnerConfig } from "../config.js"
-import type {
-  DockerContainerCreate,
-  DockerContainerResourceStats,
-  DockerContainerSummary,
-  DockerEngine,
+import {
+  DockerEngineError,
+  type DockerContainerCreate,
+  type DockerContainerResourceStats,
+  type DockerContainerSummary,
+  type DockerEngine,
 } from "../docker/engine-client.js"
 import {
   controllerInstanceKey,
@@ -268,10 +269,7 @@ export class DockerWorkerProvider implements WorkerProvider {
     const running = await this.docker
       .inspectContainerRunning(worker.id)
       .catch(() => worker.state === "running")
-    if (running) {
-      await this.docker.stopContainer(worker.id).catch(() => undefined)
-    }
-    await this.docker.removeContainer(worker.id).catch(() => undefined)
+    await releaseDockerContainer(this.docker, worker.id, running)
   }
 
   async hasWorkerForOwner(ownerId: string): Promise<boolean> {
@@ -293,10 +291,7 @@ export class DockerWorkerProvider implements WorkerProvider {
   async shutdown(): Promise<void> {}
 
   private async releaseContainer(id: string, state: string): Promise<void> {
-    if (state === "running") {
-      await this.docker.stopContainer(id).catch(() => undefined)
-    }
-    await this.docker.removeContainer(id).catch(() => undefined)
+    await releaseDockerContainer(this.docker, id, state === "running")
   }
 
   private async collectResourceUsage(
@@ -419,6 +414,38 @@ export class DockerWorkerProvider implements WorkerProvider {
       group.failedStatsCount += 1
     }
   }
+}
+
+async function releaseDockerContainer(
+  docker: DockerEngine,
+  id: string,
+  running: boolean,
+): Promise<void> {
+  let stopFailure: unknown
+  if (running) {
+    try {
+      await docker.stopContainer(id)
+    } catch (error) {
+      if (isAbsentContainerError(error)) return
+      stopFailure = error
+    }
+  }
+  try {
+    await docker.removeContainer(id)
+  } catch (error) {
+    if (isAbsentContainerError(error)) return
+    if (stopFailure !== undefined) {
+      throw new AggregateError(
+        [stopFailure, error],
+        "Docker container release failed",
+      )
+    }
+    throw error
+  }
+}
+
+function isAbsentContainerError(error: unknown): boolean {
+  return error instanceof DockerEngineError && error.statusCode === 404
 }
 
 function toWorkerInstance(

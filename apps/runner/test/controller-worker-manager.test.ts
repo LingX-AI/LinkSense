@@ -27,11 +27,12 @@ import {
   buildWorkerContainerSpec,
   DockerWorkerProvider,
 } from "../src/controller/docker-worker-provider.js"
-import type {
-  DockerContainerCreate,
-  DockerContainerResourceStats,
-  DockerContainerSummary,
-  DockerEngine,
+import {
+  DockerEngineError,
+  type DockerContainerCreate,
+  type DockerContainerResourceStats,
+  type DockerContainerSummary,
+  type DockerEngine,
 } from "../src/docker/engine-client.js"
 import { TURN_START_CONTRACT_VERSION } from "../src/turn-start-contract.js"
 
@@ -430,6 +431,46 @@ describe("controller worker lifecycle", () => {
     await manager.sweepIdleWorkers(firstExpiredAt + 1_100)
     expect(docker.stopContainer).toHaveBeenCalledTimes(1)
     expect(docker.removeContainer).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps an idle worker tracked when Docker cannot release its container", async () => {
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createManager(docker, transport)
+    await manager.initialize()
+    await manager.request(ownerId, "/conversations/one/runtime", "PUT")
+    docker.stopContainer.mockRejectedValueOnce(
+      new Error("Docker stop unavailable"),
+    )
+    docker.removeContainer.mockRejectedValueOnce(
+      new Error("Docker remove unavailable"),
+    )
+
+    await expect(
+      manager.sweepIdleWorkers(Date.now() + 60_000_000),
+    ).rejects.toThrow("Docker container release failed")
+
+    await manager.request(ownerId, "/conversations/two/runtime", "PUT")
+    expect(docker.createContainer).toHaveBeenCalledTimes(1)
+  })
+
+  it("forgets an idle worker only when Docker confirms its container is absent", async () => {
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createManager(docker, transport)
+    await manager.initialize()
+    await manager.request(ownerId, "/conversations/one/runtime", "PUT")
+    docker.stopContainer.mockRejectedValueOnce(
+      new DockerEngineError("Docker Engine returned 404", 404),
+    )
+
+    await expect(
+      manager.sweepIdleWorkers(Date.now() + 60_000_000),
+    ).resolves.toBeUndefined()
+
+    expect(docker.removeContainer).not.toHaveBeenCalled()
+    await manager.request(ownerId, "/conversations/two/runtime", "PUT")
+    expect(docker.createContainer).toHaveBeenCalledTimes(2)
   })
 
   it("removes all managed workers during an explicit development shutdown", async () => {
