@@ -103,6 +103,19 @@ export function ModelEditor({
   )
   const dirty =
     JSON.stringify(value) !== JSON.stringify(initial) || !context.valid
+  const otherModels = actions.settings.providers.flatMap((provider) =>
+    provider.models.filter(
+      (saved) => !(provider.id === channel.id && saved.id === initialModel?.id)
+    )
+  )
+  const modelIdConflict = otherModels.some(
+    (saved) => saved.id === model.id.trim()
+  )
+  const modelNameConflict =
+    Boolean(model.display_name.trim()) &&
+    otherModels.some(
+      (saved) => saved.display_name.trim() === model.display_name.trim()
+    )
   return (
     <ModelSettingsEditor
       title={
@@ -126,7 +139,11 @@ export function ModelEditor({
         name: model.display_name,
       })}
       dirty={dirty}
-      valid={context.valid && isSettingsDraftValid(draft, actions.settings)}
+      valid={
+        !modelIdConflict &&
+        context.valid &&
+        isSettingsDraftValid(draft, actions.settings)
+      }
       {...actions}
       onSave={() => actions.onSave(draft)}
     >
@@ -152,6 +169,14 @@ export function ModelEditor({
       )}
       <ModelSettingsFields
         model={model}
+        modelIdError={
+          modelIdConflict ? t("admin.modelProvider.modelIdConflict") : undefined
+        }
+        modelNameHint={
+          modelNameConflict
+            ? t("admin.modelProvider.modelNameConflict")
+            : undefined
+        }
         onChange={setModel}
         contextInput={contextInput}
         onContextChange={setContextInput}
@@ -355,6 +380,12 @@ export function ChannelEditor({
   })
   const dirty =
     JSON.stringify(initial) !== JSON.stringify(value) || apiKey !== ""
+  const nameConflict =
+    Boolean(value.name?.trim()) &&
+    actions.settings.providers.some(
+      (saved) =>
+        saved.id !== channel?.id && saved.name?.trim() === value.name?.trim()
+    )
   const keyRequired =
     !channel ||
     (!channel.api_key_configured &&
@@ -384,11 +415,24 @@ export function ChannelEditor({
         <FieldShell
           id={`${id}-name`}
           label={t("admin.modelProvider.providerName")}
+          hint={
+            nameConflict ? (
+              <span id={`${id}-name-hint`} className="text-destructive">
+                {t("admin.modelProvider.channelNameConflict")}
+              </span>
+            ) : undefined
+          }
         >
           <Input
             id={`${id}-name`}
             name={`${id}-name`}
             value={value.name ?? ""}
+            className={
+              nameConflict
+                ? "border-destructive dark:border-destructive/50"
+                : undefined
+            }
+            aria-describedby={nameConflict ? `${id}-name-hint` : undefined}
             maxLength={120}
             required
             onChange={(event) =>

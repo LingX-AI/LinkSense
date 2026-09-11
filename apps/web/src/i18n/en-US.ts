@@ -4107,6 +4107,12 @@ export const enUS = {
       newModelName: "Model {{index}}",
       unnamedModel: "Unnamed model",
       modelId: "Model ID",
+      modelIdConflict:
+        "This model ID already exists in the model catalog. Use a different ID.",
+      modelNameConflict:
+        "A model with this display name already exists. Consider a different name to distinguish them.",
+      channelNameConflict:
+        "A model channel with this name already exists. Consider a different name to distinguish them.",
       displayName: "Display name",
       modelKind: "Model type",
       modelKinds: {

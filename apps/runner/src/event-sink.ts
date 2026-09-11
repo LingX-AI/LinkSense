@@ -1,5 +1,10 @@
 import type { Logger } from "pino";
 
+import {
+  RUNNER_EVENT_BATCH_MAX_COUNT,
+  RUNNER_EVENT_BATCH_TARGET_BYTES,
+  runnerEventBatchReceiptSchema,
+} from "@linksense/shared";
 import type {
   ImageGenerationRequest,
   RunnerMemoryUsageCapture,
@@ -19,7 +24,7 @@ import {
   DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
   deriveKnowledgeSearchTimeouts,
 } from "./knowledge-search-timeout.js";
-import { RunnerEventOutboxStore } from "./workspace/event-outbox.js";
+import { RunnerEventOutboxStore, type RunnerEventOutboxEntry } from "./workspace/event-outbox.js";
 import { MemoryUsageOutboxStore } from "./workspace/memory-usage-outbox.js";
 import { WorkspaceManager } from "./workspace/workspace-manager.js";
 
@@ -535,36 +540,27 @@ export class HttpRunnerEventSink implements RunnerEventSink {
   private async runWorker(conversationId: string): Promise<void> {
     let attempt = 0;
     while (!this.stopController.signal.aborted) {
-      const entry = await this.outbox.peek(conversationId);
-      if (!entry) return;
-
-      let accepted = false;
       try {
-        accepted = await this.deliver(
+        const entries = await this.outbox.peekBatch(
           conversationId,
-          entry.deliveryId,
-          entry.event,
+          RUNNER_EVENT_BATCH_MAX_COUNT,
+          RUNNER_EVENT_BATCH_TARGET_BYTES,
         );
+        if (entries.length === 0) return;
+        const acceptedCount = await this.deliver(conversationId, entries);
+        await this.outbox.removeBatch(entries.slice(0, acceptedCount));
+        if (acceptedCount > 0) attempt = 0;
+        if (acceptedCount === entries.length) continue;
       } catch {
         if (attempt === 0 || isPowerOfTwo(attempt + 1)) {
           this.options.logger?.warn(
             {
               conversationId,
-              eventType:
-                "eventType" in entry.event
-                  ? entry.event.eventType
-                  : entry.event.method,
               attempt: attempt + 1,
             },
             "sanitized runner event delivery deferred",
           );
         }
-      }
-
-      if (accepted) {
-        await this.outbox.remove(entry);
-        attempt = 0;
-        continue;
       }
 
       attempt += 1;
@@ -580,17 +576,21 @@ export class HttpRunnerEventSink implements RunnerEventSink {
 
   private async deliver(
     conversationId: string,
-    deliveryId: string,
-    event: LinkSenseRunnerEvent,
-  ): Promise<boolean> {
+    entries: readonly RunnerEventOutboxEntry[],
+  ): Promise<number> {
     const response = await this.post(
       "/internal/runner/events",
-      { conversationId, deliveryId, event },
+      { conversationId, events: entries.map(({ deliveryId, event }) => ({ deliveryId, event })) },
       this.workspaceManager.ownerFor(conversationId),
     );
     const envelope = asRecord(response);
-    const data = asRecord(envelope.data);
-    return data.accepted === true;
+    const receipt = runnerEventBatchReceiptSchema.parse(envelope.data);
+    // Only an exact prefix is removable. Reject gaps, reordered ids, unknown
+    // ids and oversized receipts without deleting any durable entry.
+    if (receipt.accepted_delivery_ids.some((id, index) => entries[index]?.deliveryId !== id)) {
+      throw new Error("runner event batch acknowledgement is not an ordered prefix");
+    }
+    return receipt.accepted_delivery_ids.length;
   }
 
   private startMemoryUsageWorker(ownerId: string): void {

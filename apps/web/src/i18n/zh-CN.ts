@@ -3823,6 +3823,9 @@ export const zhCN = {
       newModelName: "模型 {{index}}",
       unnamedModel: "未命名模型",
       modelId: "模型 ID",
+      modelIdConflict: "模型列表中已存在此模型 ID，请使用其他 ID。",
+      modelNameConflict: "已存在同名模型，建议修改显示名称以便区分。",
+      channelNameConflict: "已存在同名模型渠道，建议修改名称以便区分。",
       displayName: "显示名称",
       modelKind: "模型类型",
       modelKinds: {

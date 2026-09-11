@@ -9,6 +9,7 @@ const isolatedTests = [
   "test/object-storage.test.ts",
   "test/safe-http-fetch.test.ts",
   "test/docling-extraction.test.ts",
+  "test/deployment-task-settlement.test.ts",
 ]
 
 export default defineConfig({

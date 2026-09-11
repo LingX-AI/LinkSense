@@ -356,7 +356,7 @@ describe("controller worker lifecycle", () => {
     const transport = new FakeTransport()
     transport.state = {
       ...stateHealth({}),
-      turn_start_contract_version: "legacy",
+      turn_start_contract_version: "shared-user-home-v21",
     }
     const manager = createManager(docker, transport)
     await manager.initialize()

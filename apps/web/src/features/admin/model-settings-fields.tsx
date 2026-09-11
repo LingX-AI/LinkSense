@@ -81,11 +81,15 @@ export function ModelSettingsSelect<T extends string>({
 
 export function ModelSettingsFields({
   model,
+  modelIdError,
+  modelNameHint,
   onChange,
   contextInput,
   onContextChange,
 }: {
   model: ManagedPricedModel
+  modelIdError?: string
+  modelNameHint?: string
   onChange: (model: ManagedPricedModel) => void
   contextInput: string
   onContextChange: (input: string) => void
@@ -104,6 +108,7 @@ export function ModelSettingsFields({
           <FieldShell
             id={`${id}-model-id`}
             label={t("admin.modelProvider.modelId")}
+            error={modelIdError}
           >
             <Input
               id={`${id}-model-id`}
@@ -112,8 +117,12 @@ export function ModelSettingsFields({
               required
               maxLength={240}
               aria-invalid={
-                Boolean(model.id) &&
-                !modelIdentifierSchema.safeParse(model.id).success
+                Boolean(modelIdError) ||
+                (Boolean(model.id) &&
+                  !modelIdentifierSchema.safeParse(model.id).success)
+              }
+              aria-describedby={
+                modelIdError ? `${id}-model-id-error` : undefined
               }
               onChange={(event) =>
                 onChange({ ...model, id: event.target.value })
@@ -123,11 +132,26 @@ export function ModelSettingsFields({
           <FieldShell
             id={`${id}-model-name`}
             label={t("admin.modelProvider.displayName")}
+            hint={
+              modelNameHint ? (
+                <span id={`${id}-model-name-hint`} className="text-destructive">
+                  {modelNameHint}
+                </span>
+              ) : undefined
+            }
           >
             <Input
               id={`${id}-model-name`}
               name={`${id}-model-name`}
               value={model.display_name}
+              className={
+                modelNameHint
+                  ? "border-destructive dark:border-destructive/50"
+                  : undefined
+              }
+              aria-describedby={
+                modelNameHint ? `${id}-model-name-hint` : undefined
+              }
               required
               maxLength={120}
               onChange={(event) =>

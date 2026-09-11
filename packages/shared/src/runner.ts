@@ -1,7 +1,8 @@
 import { z } from "zod";
 
+// v22 requires ordered event batches and prefix acknowledgements.
 export const RUNNER_TURN_START_CONTRACT_VERSION =
-  "shared-user-home-v21" as const;
+  "shared-user-home-v22" as const;
 
 /** Names are server-resolved display data; null means unavailable to this user. */
 export const runnerKnowledgeBaseSelectionSchema = z
