@@ -653,7 +653,7 @@ describe("task categories", () => {
       "data-side",
       "top"
     )
-    expect(search).toHaveClass("text-[length:var(--app-font-13)]")
+    expect(search).toHaveClass("pl-0!", "text-[length:var(--app-font-13)]")
     const command = search.closest('[data-slot="command"]')
     expect(command).toHaveClass(
       "[&_[data-slot=command-input-wrapper]]:p-0",
