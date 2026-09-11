@@ -84,6 +84,10 @@ Host 模式可以连接远程 PostgreSQL、Redis 和 S3 兼容的 MinIO。如需
 会强制使用开发环境和回环监听；Runner 配置会拒绝在非开发环境或非回环 Controller
 上启用 `local-process`，API 配置也会拒绝在生产或 Full 版本中使用本地文件存储。
 
+Host 模式还会关闭内置 `linksense-browser` Skill、托管浏览器 MCP 和浏览器专用提示
+上下文，因为随包提供的 Chromium 运行时只存在于 Docker Worker 中。需要托管浏览器
+的任务请使用 `pnpm dev`。
+
 常规 `pnpm dev`、生产 Compose 与发行版安装流程仍完全基于 Docker；Runner 默认
 选择 `docker` Provider，并继续创建现有的每用户 Worker 容器。`.env.host` 已被 Git
 忽略且只由 `pnpm dev:host` 读取，Docker 流程继续使用 `.env` 或明确指定的 Compose

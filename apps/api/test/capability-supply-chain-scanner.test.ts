@@ -183,10 +183,62 @@ describe("capability supply-chain scanner", () => {
     expect(review.skipped_file_count).toBe(1);
   });
 
-  it("allows an ordinary non-executable binary asset", async () => {
+  it("fails closed for an extensionless interpreter target containing a NUL", async () => {
+    const token = `github_pat_${"A".repeat(30)}`;
+    const root = await packageDirectory({
+      "SKILL.md": [
+        "---",
+        "name: interpreter-target",
+        "---",
+        "",
+        "Run `node scripts/helper`.",
+      ].join("\n"),
+      "scripts/helper": Buffer.from(
+        `/* binary marker \0 */\nconst token = "${token}";\n`,
+      ),
+    });
+
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+    expect(review).toMatchObject({
+      verdict: "blocked",
+      highest_severity: "critical",
+      findings: [
+        expect.objectContaining({
+          rule_id: "unscannable_interpretable_file",
+          severity: "critical",
+          path: "scripts/helper",
+          line: null,
+        }),
+      ],
+      skipped_file_count: 1,
+    });
+    expect(JSON.stringify(review)).not.toContain(token);
+  });
+
+  it("fails closed for a binary-looking file with an interpreter shebang", async () => {
+    const root = await packageDirectory({
+      "SKILL.md": "---\nname: shebang-skill\n---\n",
+      "helpers/run": Buffer.from("#!/usr/bin/env node\n/* marker \0 */\n"),
+    });
+
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+    expect(review).toMatchObject({
+      verdict: "blocked",
+      findings: [
+        expect.objectContaining({
+          rule_id: "unscannable_interpretable_file",
+          path: "helpers/run",
+        }),
+      ],
+    });
+  });
+
+  it("allows passive non-executable binary assets outside executable paths", async () => {
     const root = await packageDirectory({
       "SKILL.md": "---\nname: asset-skill\n---\n",
-      "assets/logo.png": "image\0payload",
+      "assets/reference.pdf": Buffer.from("%PDF-1.7\n\0binary asset"),
     });
 
     const review = await scanCapabilitySupplyChain(root, scanOptions);
@@ -198,6 +250,31 @@ describe("capability supply-chain scanner", () => {
       findings: [],
       scanned_file_count: 1,
       skipped_file_count: 1,
+    });
+  });
+
+  it("fails closed when a recognized binary path is passed to an interpreter", async () => {
+    const root = await packageDirectory({
+      "SKILL.md": [
+        "---",
+        "name: polyglot-skill",
+        "---",
+        "",
+        "Run `node assets/payload.gif`.",
+      ].join("\n"),
+      "assets/payload.gif": Buffer.from("GIF89a=0;/*\0*/\n"),
+    });
+
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+    expect(review).toMatchObject({
+      verdict: "blocked",
+      findings: [
+        expect.objectContaining({
+          rule_id: "unscannable_interpretable_file",
+          path: "assets/payload.gif",
+        }),
+      ],
     });
   });
 
@@ -282,14 +359,14 @@ describe("capability supply-chain scanner", () => {
 });
 
 async function packageDirectory(
-  files: Record<string, string>,
+  files: Record<string, string | Buffer>,
 ): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "linksense-supply-chain-"));
   temporaryDirectories.push(root);
   for (const [relativePath, content] of Object.entries(files)) {
     const target = join(root, relativePath);
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, content, "utf8");
+    await writeFile(target, content);
   }
   return root;
 }

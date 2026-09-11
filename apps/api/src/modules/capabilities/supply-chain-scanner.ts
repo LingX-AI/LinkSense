@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { basename, extname, join, posix, resolve } from "node:path";
 
 import {
   capabilitySupplyChainContentDigestAlgorithm,
@@ -84,6 +84,9 @@ const EXECUTABLE_SOURCE_EXTENSIONS = new Set([
   ".tsx",
   ".zsh",
 ]);
+const EXECUTABLE_INTENT_DIRECTORIES = new Set(["bin", "hooks", "scripts"]);
+const EXPLICIT_INTERPRETER_INVOCATION =
+  /(?:^|[\s`;&|()])(?:\/usr\/bin\/env\s+)?(?:node(?:js)?|python(?:3(?:\.\d+)*)?|bash|sh|zsh|fish|ruby|perl|php|lua|tsx|ts-node)\s+(?:--?[A-Za-z0-9][A-Za-z0-9-]*(?:=[^\s]+)?\s+)*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([A-Za-z0-9_./-]+))/gmu;
 
 type FindingRule = {
   ruleId: CapabilitySupplyChainFinding["rule_id"];
@@ -173,6 +176,10 @@ export async function scanCapabilitySupplyChain(
   const absoluteRoot = resolve(packageRoot);
   const files = await listPackageDirectoryFiles(absoluteRoot);
   const contentSha256 = await hashPackageDirectory(absoluteRoot);
+  const explicitInterpreterTargets = await findExplicitInterpreterTargets(
+    absoluteRoot,
+    files,
+  );
   const findings: CapabilitySupplyChainFinding[] = [];
   let scannedFileCount = 0;
   let skippedFileCount = 0;
@@ -182,12 +189,20 @@ export async function scanCapabilitySupplyChain(
     const info = await lstat(absolutePath);
     const executable = (info.mode & 0o111) !== 0;
     if (info.size > MAX_SCANNABLE_FILE_BYTES) {
-      if (isScannablePath(relativePath) || executable) {
+      if (
+        isScannablePath(relativePath) ||
+        executable ||
+        explicitInterpreterTargets.has(relativePath) ||
+        hasExecutablePathIntent(relativePath)
+      ) {
         findings.push(
           createFinding({
             ruleId: "oversized_scannable_file",
             severity:
-              executable || isExecutableSource(relativePath)
+              executable ||
+              isExecutableSource(relativePath) ||
+              explicitInterpreterTargets.has(relativePath) ||
+              hasExecutablePathIntent(relativePath)
                 ? "critical"
                 : "high",
             path: relativePath,
@@ -201,20 +216,25 @@ export async function scanCapabilitySupplyChain(
     }
     const bytes = await readFile(absolutePath);
     if (looksBinary(bytes)) {
-      if (isScannablePath(relativePath)) {
+      if (executable) {
         findings.push(
           createFinding({
-            ruleId: "unscannable_interpretable_file",
+            ruleId: "unscannable_executable",
             severity: "critical",
             path: relativePath,
             line: null,
             evidence: bytes,
           }),
         );
-      } else if (executable) {
+      } else if (
+        isScannablePath(relativePath) ||
+        explicitInterpreterTargets.has(relativePath) ||
+        hasExecutablePathIntent(relativePath) ||
+        hasInterpreterShebang(bytes)
+      ) {
         findings.push(
           createFinding({
-            ruleId: "unscannable_executable",
+            ruleId: "unscannable_interpretable_file",
             severity: "critical",
             path: relativePath,
             line: null,
@@ -396,6 +416,68 @@ function isExecutableSource(path: string): boolean {
 
 function looksBinary(bytes: Buffer): boolean {
   return bytes.subarray(0, Math.min(bytes.length, 8_192)).includes(0);
+}
+
+function hasExecutablePathIntent(path: string): boolean {
+  return (
+    extname(path) === "" &&
+    path
+      .split("/")
+      .some((segment) => EXECUTABLE_INTENT_DIRECTORIES.has(segment))
+  );
+}
+
+function hasInterpreterShebang(bytes: Buffer): boolean {
+  const firstLine = bytes
+    .subarray(0, Math.min(bytes.length, 256))
+    .toString("utf8");
+  return /^#![^\r\n]*(?:node(?:js)?|python|bash|sh|zsh|fish|ruby|perl|php|lua|tsx|ts-node)\b/u.test(
+    firstLine,
+  );
+}
+
+async function findExplicitInterpreterTargets(
+  packageRoot: string,
+  files: readonly string[],
+): Promise<ReadonlySet<string>> {
+  const availableFiles = new Set(files);
+  const targets = new Set<string>();
+  for (const sourcePath of files) {
+    if (!isScannablePath(sourcePath)) continue;
+    const absolutePath = join(packageRoot, sourcePath);
+    const info = await lstat(absolutePath);
+    if (info.size > MAX_SCANNABLE_FILE_BYTES) continue;
+    const bytes = await readFile(absolutePath);
+    if (looksBinary(bytes)) continue;
+    const content = bytes.toString("utf8");
+    for (const match of content.matchAll(EXPLICIT_INTERPRETER_INVOCATION)) {
+      const candidate = match[1] ?? match[2] ?? match[3];
+      if (
+        !candidate ||
+        candidate.startsWith("/") ||
+        candidate.includes("\0")
+      ) {
+        continue;
+      }
+      const normalizedFromRoot = normalizePackageRelativePath(candidate);
+      const normalizedFromSource = normalizePackageRelativePath(
+        posix.join(posix.dirname(sourcePath), candidate),
+      );
+      for (const normalized of [normalizedFromRoot, normalizedFromSource]) {
+        if (normalized && availableFiles.has(normalized)) {
+          targets.add(normalized);
+        }
+      }
+    }
+  }
+  return targets;
+}
+
+function normalizePackageRelativePath(value: string): string | null {
+  const normalized = posix.normalize(value.replace(/^\.\//u, ""));
+  return normalized === ".." || normalized.startsWith("../")
+    ? null
+    : normalized;
 }
 
 function lineNumberAt(content: string, index: number): number {

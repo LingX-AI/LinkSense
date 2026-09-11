@@ -120,6 +120,8 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   const isWorker = config.LINKSENSE_RUNNER_MODE === "worker"
   const isLocalProcessWorker =
     isWorker && config.LINKSENSE_WORKER_PROVIDER === "local-process"
+  const managedBrowserEnabled =
+    config.LINKSENSE_MANAGED_BROWSER_ENABLED && !isLocalProcessWorker
   const currentProcessIdentity = {
     uid: process.getuid?.() ?? linksenseRuntimeIdentity.taskUid,
     gid: process.getgid?.() ?? linksenseRuntimeIdentity.sharedGid,
@@ -140,11 +142,13 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
       config.LINKSENSE_PYTHON_PACKAGE_INDEX_URL,
       config.LINKSENSE_NODE_PACKAGE_REGISTRY_URL,
     )
-    await prepareManagedBrowserPolicy({
-      sessionRoot: userRuntimePaths(runtimeRootForOwner(workerOwnerId))
-        .browserSessionRoot,
-      sessionLimit: config.LINKSENSE_BROWSER_SESSION_LIMIT,
-    })
+    if (managedBrowserEnabled) {
+      await prepareManagedBrowserPolicy({
+        sessionRoot: userRuntimePaths(runtimeRootForOwner(workerOwnerId))
+          .browserSessionRoot,
+        sessionLimit: config.LINKSENSE_BROWSER_SESSION_LIMIT,
+      })
+    }
   }
   const initializeRuntime = createUserRuntimeEnsurer(runtimeRootForOwner, {
     ...((isWorker && !isLocalProcessWorker) ||
@@ -174,8 +178,11 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
         : {
             bashEnvironmentFile: MANAGED_BASH_ENVIRONMENT_FILE,
             processIdentity: containerTaskProcessIdentity,
-            resetBrowserSessions: true,
+            resetBrowserSessions: managedBrowserEnabled,
             runtimeToolBin: managedRuntimeToolBin,
+            requiredRuntimeTools: managedBrowserEnabled
+              ? ["linksense-browser", "linksense-uv", "linksense-pnpm"]
+              : ["linksense-uv", "linksense-pnpm"],
           }
       : {}),
   })
@@ -281,14 +288,22 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
         ? {
             apiIdentity: currentProcessIdentity,
             taskIdentity: currentProcessIdentity,
+            managedBrowserEnabled,
           }
-        : undefined,
+        : { managedBrowserEnabled },
     ),
     eventSink,
     logger,
     mcpCommand: process.execPath,
     mcpArgs: [...process.execArgv, mcpScript],
-    managedBrowserMcpArgs: [...process.execArgv, managedBrowserMcpScript],
+    ...(managedBrowserEnabled
+      ? {
+          managedBrowserMcpArgs: [
+            ...process.execArgv,
+            managedBrowserMcpScript,
+          ],
+        }
+      : {}),
     personalStdioLauncherCommand: process.execPath,
     personalStdioLauncherArgs: [...process.execArgv, personalStdioLauncher],
     mcpEndpointBase: `http://127.0.0.1:${config.LINKSENSE_RUNNER_PORT}/mcp-file-service`,
@@ -300,7 +315,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
       config.LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS,
     runtimeEnvironmentForOwner: async (ownerId) =>
       (await ensureUserRuntime(ownerId)).environment,
-    ...(existsSync(browserCommand)
+    ...(managedBrowserEnabled && existsSync(browserCommand)
       ? {
           browserSessionCleanup: async ({
             userHome,

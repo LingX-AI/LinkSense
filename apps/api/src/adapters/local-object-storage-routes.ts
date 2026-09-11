@@ -1,7 +1,21 @@
 import type { FastifyInstance } from "fastify";
+import { basename } from "node:path";
 import { z } from "zod";
 
+import { attachmentContentDisposition } from "../lib/content-disposition.js";
 import { LocalFilesystemObjectStorage } from "./object-storage.js";
+
+const ACTIVE_CONTENT_TYPES = new Set([
+  "application/ecmascript",
+  "application/javascript",
+  "application/xhtml+xml",
+  "application/xml",
+  "image/svg+xml",
+  "text/ecmascript",
+  "text/html",
+  "text/javascript",
+  "text/xml",
+]);
 
 const presignedObjectQuerySchema = z.object({
   key: z.string().min(1),
@@ -48,6 +62,15 @@ export async function registerLocalObjectStorageRoutes(
           range ? range.end - range.start + 1 : sizeBytes,
         )
         .header("x-content-type-options", "nosniff");
+      if (isActiveContentType(contentType)) {
+        response
+          .type("application/octet-stream")
+          .header("content-security-policy", "sandbox; default-src 'none'")
+          .header(
+            "content-disposition",
+            attachmentContentDisposition(basename(query.data.key)),
+          );
+      }
       if (range) {
         response.header(
           "content-range",
@@ -59,6 +82,11 @@ export async function registerLocalObjectStorageRoutes(
       return reply.code(404).send();
     }
   });
+}
+
+function isActiveContentType(value: string): boolean {
+  const mediaType = value.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  return ACTIVE_CONTENT_TYPES.has(mediaType);
 }
 
 function parseRange(

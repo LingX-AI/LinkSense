@@ -73,6 +73,7 @@ export function buildHostDevelopmentEnvironment(
     LINKSENSE_TRUST_PROXY: "false",
     LINKSENSE_RUNNER_MODE: "controller",
     LINKSENSE_WORKER_PROVIDER: "local-process",
+    LINKSENSE_MANAGED_BROWSER_ENABLED: "false",
     LINKSENSE_RUNNER_HOST: development.LINKSENSE_DEV_RUNNER_BIND_ADDRESS,
     LINKSENSE_RUNNER_PORT: development.LINKSENSE_DEV_RUNNER_PORT,
     LINKSENSE_RUNNER_URL: runnerOrigin,

@@ -24,11 +24,8 @@ export type SafeHttpFetchOptions = {
   accept: string
   userAgent: string
   errorCode: ErrorCode
-  headers?: HeadersInit
   signal?: AbortSignal
-  responseErrorCode?: (status: number) => ErrorCode | undefined
   allowedProtocols?: readonly HttpProtocol[]
-  allowLocalDevelopmentUrls?: boolean
   allowBenchmarkProxyAddresses?: boolean
   fetcher?: typeof fetch
   lookup?: typeof dns.lookup
@@ -58,10 +55,6 @@ export async function fetchPublicHttpResource(
     const signal = options.signal
       ? AbortSignal.any([controller.signal, options.signal])
       : controller.signal
-    const headers = new Headers(options.headers)
-    headers.set("accept", options.accept)
-    headers.set("accept-encoding", "identity")
-    headers.set("user-agent", options.userAgent)
     let response: Response | undefined
 
     try {
@@ -71,7 +64,6 @@ export async function fetchPublicHttpResource(
         allowedProtocols,
         options.errorCode,
         options.allowBenchmarkProxyAddresses ?? false,
-        options.allowLocalDevelopmentUrls ?? false,
         signal,
       )
       response =
@@ -81,14 +73,18 @@ export async function fetchPublicHttpResource(
               addresses,
               signal,
               byteLimit: options.byteLimit,
-              headers,
+              accept: options.accept,
+              userAgent: options.userAgent,
               errorCode: options.errorCode,
             })
           : await options.fetcher(current, {
               method: "GET",
               redirect: "manual",
               signal,
-              headers,
+              headers: {
+                accept: options.accept,
+                "user-agent": options.userAgent,
+              },
             })
 
       if (isRedirectStatus(response.status)) {
@@ -101,10 +97,6 @@ export async function fetchPublicHttpResource(
         continue
       }
 
-      const responseErrorCode = options.responseErrorCode?.(response.status)
-      if (responseErrorCode !== undefined) {
-        throw new AppError(responseErrorCode)
-      }
       if (!response.ok || response.body === null) {
         throw new AppError(options.errorCode)
       }
@@ -150,7 +142,6 @@ export async function assertPublicHttpUrl(
     DEFAULT_ALLOWED_PROTOCOLS,
     "IMPORT_FAILED",
     false,
-    false,
   )
 }
 
@@ -187,28 +178,18 @@ async function resolvePublicHttpAddresses(
   allowedProtocols: readonly HttpProtocol[],
   errorCode: ErrorCode,
   allowBenchmarkProxyAddresses: boolean,
-  allowLocalDevelopmentUrls: boolean,
   signal?: AbortSignal,
 ): Promise<LookupAddress[]> {
   const hostname = url.hostname.replace(/^\[|\]$/gu, "")
-  const isLocalDevelopmentTarget =
-    allowLocalDevelopmentUrls && isExplicitLocalDevelopmentHostname(hostname)
-  const isAllowedProtocol = allowedProtocols.includes(
-    url.protocol as HttpProtocol,
-  )
-  if (
-    !isAllowedProtocol &&
-    !(url.protocol === "http:" && isLocalDevelopmentTarget)
-  ) {
+  if (!allowedProtocols.includes(url.protocol as HttpProtocol)) {
     throw new AppError(errorCode)
   }
   if (url.username !== "" || url.password !== "") {
     throw new AppError(errorCode)
   }
   if (
-    !isLocalDevelopmentTarget &&
-    ((url.protocol === "http:" && url.port !== "" && url.port !== "80") ||
-      (url.protocol === "https:" && url.port !== "" && url.port !== "443"))
+    (url.protocol === "http:" && url.port !== "" && url.port !== "80") ||
+    (url.protocol === "https:" && url.port !== "" && url.port !== "443")
   ) {
     throw new AppError(errorCode)
   }
@@ -228,31 +209,15 @@ async function resolvePublicHttpAddresses(
 
   if (
     addresses.length === 0 ||
-    (isLocalDevelopmentTarget
-      ? addresses.some(({ address }) => !isLoopbackAddress(address))
-      : addresses.some(
-          ({ address }) =>
-            !isPublicAddress(address) &&
-            !(allowProxyResolution && isBenchmarkProxyAddress(address)),
-        ))
+    addresses.some(
+      ({ address }) =>
+        !isPublicAddress(address) &&
+        !(allowProxyResolution && isBenchmarkProxyAddress(address)),
+    )
   ) {
     throw new AppError(errorCode)
   }
   return addresses
-}
-
-function isExplicitLocalDevelopmentHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
-}
-
-function isLoopbackAddress(address: string): boolean {
-  if (!ipaddr.isValid(address)) return false
-  let parsed = ipaddr.parse(address)
-  if (parsed.kind() === "ipv6") {
-    const parsedV6 = parsed as ipaddr.IPv6
-    if (parsedV6.isIPv4MappedAddress()) parsed = parsedV6.toIPv4Address()
-  }
-  return parsed.range() === "loopback"
 }
 
 async function waitForLookup<T>(
@@ -311,14 +276,16 @@ function pinnedHttpFetch({
   addresses,
   signal,
   byteLimit,
-  headers,
+  accept,
+  userAgent,
   errorCode,
 }: {
   url: URL
   addresses: LookupAddress[]
   signal: AbortSignal
   byteLimit: number
-  headers: Headers
+  accept: string
+  userAgent: string
   errorCode: ErrorCode
 }): Promise<Response> {
   const lookup: LookupFunction = (_hostname, options, callback) => {
@@ -354,7 +321,11 @@ function pinnedHttpFetch({
         agent: false,
         lookup,
         signal,
-        headers: Object.fromEntries(headers.entries()),
+        headers: {
+          accept,
+          "accept-encoding": "identity",
+          "user-agent": userAgent,
+        },
       },
       (incoming) => {
         // Attach before validation or early destruction. A stream error is not

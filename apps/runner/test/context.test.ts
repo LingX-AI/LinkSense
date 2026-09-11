@@ -605,6 +605,19 @@ describe("buildTurnInput", () => {
         path: "/isolated/home/.agents/skills/linksense-file-service/SKILL.md",
       },
     ]);
+    const disabledBrowser = buildTurnAdditionalContext(
+      context,
+      [
+        {
+          name: "linksense-browser",
+          description: "inspect rendered pages",
+          path: "/isolated/home/.agents/skills/linksense-browser/SKILL.md",
+        },
+      ],
+      "default",
+      [],
+      false,
+    );
 
     const instructions =
       withBrowser?.["linksense.managed-browser-runtime"]?.value ?? "";
@@ -623,6 +636,26 @@ describe("buildTurnInput", () => {
     expect(
       withoutBrowser?.["linksense.managed-browser-runtime"],
     ).toBeUndefined();
+    expect(
+      disabledBrowser?.["linksense.managed-browser-runtime"],
+    ).toBeUndefined();
+  });
+
+  it("does not publish the Plan browser contract when the runtime is disabled", () => {
+    const output = buildTurnAdditionalContext(
+      {
+        userInput: "Inspect the current page",
+        attachments: [],
+        priorityPlugins: [],
+        prioritySkills: [],
+      },
+      [],
+      "plan",
+      [],
+      false,
+    );
+
+    expect(output).not.toHaveProperty("linksense.managed-browser-runtime");
   });
 
   it("does not retain a hand-written catalog when no Skills are available", () => {

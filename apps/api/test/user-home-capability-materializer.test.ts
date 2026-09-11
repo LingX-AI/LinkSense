@@ -48,6 +48,22 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 })
 
 describe.concurrent("UserHomeCapabilityMaterializer", () => {
+  it("omits the managed browser Skill when that runtime is disabled", async () => {
+    const root = await temporaryDirectory()
+    const materializer = new UserHomeCapabilityMaterializer({
+      userDataRoot: join(root, "users"),
+      managedBrowserEnabled: false,
+    })
+
+    const result = await materializer.reconcile({
+      ownerId: OWNER_ID,
+      conversationId: TASK_ID,
+      capabilities: [],
+    })
+
+    expect(await readdir(result.skillsRoot)).not.toContain("linksense-browser")
+  })
+
   it.sequential(
     "rolls back publication when flushing the new content fails",
     async () => {

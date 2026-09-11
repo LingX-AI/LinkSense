@@ -3735,20 +3735,6 @@ export const zhCN = {
       noModelsDescription: "点击“添加模型”，配置此渠道可使用的模型。",
       editModel: "编辑模型 {{name}}",
       modelEditorDescription: "所属渠道：{{name}}。保存只更新当前模型。",
-      remoteCatalog: "供应商模型目录",
-      remoteCatalogDescription:
-        "可以选择当前渠道返回的模型，也可以继续手动填写模型信息。",
-      remoteCatalogLabel: "从供应商选择模型（可选）",
-      remoteCatalogPlaceholder: "搜索远程模型",
-      remoteCatalogEmpty: "没有匹配的远程模型",
-      remoteCatalogAlreadyAdded: "已添加",
-      remoteCatalogManualHint:
-        "供应商返回的元数据可能不完整，保存前请确认能力和价格信息。",
-      remoteCatalogNotSupported:
-        "当前供应商暂不支持远程模型发现，请手动填写模型信息。",
-      remoteCatalogCredentialRequired:
-        "请先在渠道设置中保存 API Key，再加载远程模型；也可以直接手动填写。",
-      refreshRemoteCatalog: "刷新远程模型列表",
       basicInformation: "基本信息",
       pricing: "模型价格",
       capabilities: "能力设置",
@@ -4569,16 +4555,6 @@ export const zhCN = {
       inUseBySystemSetting:
         "该模型正在被系统设置使用，请先切换或取消相关选择后再删除。",
       managementDisabled: "模型配置已由部署环境锁定，当前只能查看。",
-      catalogNotSupported:
-        "当前模型供应商暂不支持远程模型目录，请手动填写模型信息。",
-      catalogCredentialRequired:
-        "当前模型渠道尚未配置 API Key，请先保存渠道密钥或手动填写模型信息。",
-      catalogAuthenticationFailed:
-        "模型供应商未接受当前凭据，请检查渠道 API Key 后重试。",
-      catalogUnavailable:
-        "暂时无法获取远程模型列表，请检查 Base URL、网络和供应商状态，或手动填写模型信息。",
-      catalogResponseInvalid:
-        "模型供应商返回了无法识别的模型列表，请检查接口兼容性或手动填写模型信息。",
     },
     adminSelfChangeForbidden: "管理员不能禁用自己或降低自己的角色。",
     emailExists: "该邮箱已被其他用户使用。",

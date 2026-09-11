@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest"
-import type { DiscoveredModel } from "@linksense/shared"
 
 import type { PrismaClient } from "../src/generated/prisma/client.js"
 import { encryptJson } from "../src/lib/crypto.js"
@@ -7,7 +6,6 @@ import {
   ModelProviderSettingsService,
   parseOpenAiCompatibleModelContextWindows,
 } from "../src/modules/system/model-provider-settings.js"
-import type { ModelProviderCatalogClient } from "../src/modules/system/model-provider-catalog.js"
 import { testConfig } from "./test-config.js"
 
 const ACTOR_ID = "00000000-0000-4000-8000-000000000099"
@@ -18,15 +16,15 @@ const CONVERSATION_B_ID = "00000000-0000-4000-8000-0000000000b1"
 describe("ModelProviderSettingsService", () => {
   it("persists an empty channel, returns no selectable models, and supports adding its first model later", async () => {
     const database = inMemoryDatabase()
-    const catalogClient = { listModels: vi.fn(async () => []) }
-    const service = new ModelProviderSettingsService(database.prisma, testConfig(), catalogClient)
+    const metadataClient = { readContextWindows: vi.fn(async () => new Map<string, number>()) }
+    const service = new ModelProviderSettingsService(database.prisma, testConfig(), metadataClient)
     const emptyChannel = provider("empty", "https://models.example.test/v1", [], "native_responses", "test-channel-key")
     const saved = await service.update(ACTOR_ID, {
       expected_revision: 0, providers: [emptyChannel], default_model: null, title_model: null,
     }, {})
     expect(saved).toMatchObject({ revision: 1, providers: [{ id: "empty", models: [], api_key_configured: true }], default_model: null, title_model: null })
-    expect(catalogClient.listModels).not.toHaveBeenCalled()
-    const reloaded = new ModelProviderSettingsService(database.prisma, testConfig(), catalogClient)
+    expect(metadataClient.readContextWindows).not.toHaveBeenCalled()
+    const reloaded = new ModelProviderSettingsService(database.prisma, testConfig(), metadataClient)
     await expect(reloaded.getAdminSettings()).resolves.toEqual(saved)
     await expect(reloaded.getPreference(USER_ID)).resolves.toEqual({ configured: false, models: [], default_model: null, selected_model: null, selected_reasoning_effort: null })
     await expect(reloaded.resolveRuntime(USER_ID)).rejects.toMatchObject({ code: "MODEL_PROVIDER_NOT_CONFIGURED" })
@@ -55,13 +53,13 @@ describe("ModelProviderSettingsService", () => {
 
   it("persists channel and model order and returns enabled chat models in that order without changing selections", async () => {
     const database = inMemoryDatabase()
-    const catalogClient: ModelProviderCatalogClient = {
-      listModels: vi.fn(async () => []),
+    const metadataClient = {
+      readContextWindows: vi.fn(async () => new Map<string, number>()),
     }
     const service = new ModelProviderSettingsService(
       database.prisma,
       testConfig(),
-      catalogClient,
+      metadataClient,
     )
     const alpha = pricedModel("alpha", ["medium"], "medium")
     const beta = pricedModel("beta", ["medium"], "medium")
@@ -108,7 +106,7 @@ describe("ModelProviderSettingsService", () => {
       title_model: "hidden",
     }, {})
     const reloaded = new ModelProviderSettingsService(
-      database.prisma, testConfig(), catalogClient,
+      database.prisma, testConfig(), metadataClient,
     )
     const persisted = await reloaded.getAdminSettings()
     expect(persisted.providers.map((channel) => channel.id)).toEqual([
@@ -151,87 +149,6 @@ describe("ModelProviderSettingsService", () => {
         ["max-context-length", 64_000],
       ])
     )
-  })
-
-  it("discovers models with the encrypted credential stored for a channel", async () => {
-    const database = inMemoryDatabase()
-    const discoveredModel: DiscoveredModel = {
-      id: "remote-model",
-      display_name: "Remote Model",
-      kind: "chat",
-      context_window: 128_000,
-      supports_image_input: true,
-      supported_reasoning_efforts: ["medium"],
-      default_reasoning_effort: "medium",
-    }
-    const catalogClient: ModelProviderCatalogClient = {
-      listModels: vi.fn(async () => [discoveredModel]),
-    }
-    const service = new ModelProviderSettingsService(
-      database.prisma,
-      testConfig(),
-      catalogClient
-    )
-    await service.update(
-      ACTOR_ID,
-      {
-        expected_revision: 0,
-        providers: [
-          provider(
-            "provider-a",
-            "https://models.example.test/v1",
-            [],
-            "native_responses",
-            "provider-secret"
-          ),
-        ],
-        default_model: null,
-        title_model: null,
-      },
-      {}
-    )
-
-    await expect(service.discoverModels("provider-a")).resolves.toEqual({
-      provider_id: "provider-a",
-      models: [expect.objectContaining({ id: "remote-model" })],
-    })
-    expect(catalogClient.listModels).toHaveBeenCalledWith(
-      {
-        provider: "openai_compatible",
-        baseUrl: "https://models.example.test/v1",
-        apiKey: "provider-secret",
-        providerProject: null,
-        providerLocation: null,
-      },
-      undefined
-    )
-  })
-
-  it("requires a stored channel credential before discovering models", async () => {
-    const database = inMemoryDatabase()
-    const catalogClient = { listModels: vi.fn() }
-    const service = new ModelProviderSettingsService(
-      database.prisma,
-      testConfig(),
-      catalogClient
-    )
-    await service.update(
-      ACTOR_ID,
-      {
-        expected_revision: 0,
-        providers: [
-          provider("provider-a", "https://models.example.test/v1", []),
-        ],
-        default_model: null,
-        title_model: null,
-      },
-      {}
-    )
-
-    await expect(service.discoverModels("provider-a")).rejects.toMatchObject({
-      code: "MODEL_CATALOG_CREDENTIAL_REQUIRED",
-    })
-    expect(catalogClient.listModels).not.toHaveBeenCalled()
   })
 
   it("encrypts channel keys, preserves them by provider id, and routes each model through its channel", async () => {
@@ -422,23 +339,13 @@ describe("ModelProviderSettingsService", () => {
 
   it("detects vLLM model context windows from the OpenAI-compatible model list", async () => {
     const database = inMemoryDatabase()
-    const catalogClient = {
-      listModels: vi.fn(async () => [
-        {
-          id: "model-a",
-          display_name: "Model A",
-          kind: null,
-          context_window: 150_000,
-          supports_image_input: null,
-          supported_reasoning_efforts: null,
-          default_reasoning_effort: null,
-        },
-      ]),
+    const metadataClient = {
+      readContextWindows: vi.fn(async () => new Map([["model-a", 150_000]])),
     }
     const service = new ModelProviderSettingsService(
       database.prisma,
       testConfig(),
-      catalogClient
+      metadataClient
     )
 
     const settings = await service.update(
@@ -459,12 +366,9 @@ describe("ModelProviderSettingsService", () => {
       {}
     )
 
-    expect(catalogClient.listModels).toHaveBeenCalledWith({
-      provider: "openai_compatible",
+    expect(metadataClient.readContextWindows).toHaveBeenCalledWith({
       baseUrl: "https://models.example.test/v1",
       apiKey: "provider-secret",
-      providerProject: null,
-      providerLocation: null,
     })
     expect(settings.providers[0]?.models[0]).toMatchObject({
       id: "model-a",
@@ -482,26 +386,16 @@ describe("ModelProviderSettingsService", () => {
 
   it("keeps an existing context window when metadata probing is unavailable", async () => {
     const database = inMemoryDatabase()
-    const catalogClient = {
-      listModels: vi
+    const metadataClient = {
+      readContextWindows: vi
         .fn()
-        .mockResolvedValueOnce([
-          {
-            id: "model-a",
-            display_name: "Model A",
-            kind: null,
-            context_window: 150_000,
-            supports_image_input: null,
-            supported_reasoning_efforts: null,
-            default_reasoning_effort: null,
-          },
-        ])
+        .mockResolvedValueOnce(new Map([["model-a", 150_000]]))
         .mockRejectedValueOnce(new Error("metadata unavailable")),
     }
     const service = new ModelProviderSettingsService(
       database.prisma,
       testConfig(),
-      catalogClient
+      metadataClient
     )
 
     await service.update(

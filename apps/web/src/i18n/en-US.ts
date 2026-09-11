@@ -4016,20 +4016,6 @@ export const enUS = {
       editModel: "Edit model {{name}}",
       modelEditorDescription:
         "Channel: {{name}}. Saving updates only this model.",
-      remoteCatalog: "Provider model catalog",
-      remoteCatalogDescription:
-        "Select a model reported by this channel, or continue entering the model details manually.",
-      remoteCatalogLabel: "Model from provider (optional)",
-      remoteCatalogPlaceholder: "Search remote models",
-      remoteCatalogEmpty: "No matching remote models",
-      remoteCatalogAlreadyAdded: "Already added",
-      remoteCatalogManualHint:
-        "Remote metadata may be incomplete. Review capabilities and pricing before saving.",
-      remoteCatalogNotSupported:
-        "This provider does not support remote model discovery yet. Enter the model details manually.",
-      remoteCatalogCredentialRequired:
-        "Save an API key in the channel settings to load its models, or enter the details manually.",
-      refreshRemoteCatalog: "Refresh remote model list",
       basicInformation: "Basic information",
       pricing: "Model pricing",
       capabilities: "Capabilities",
@@ -4987,16 +4973,6 @@ export const enUS = {
         "This model is used by a system setting. Change or clear that selection before deleting it.",
       managementDisabled:
         "Model configuration is locked by the deployment environment and is read-only.",
-      catalogNotSupported:
-        "This model provider does not support remote catalog discovery. Enter the model details manually.",
-      catalogCredentialRequired:
-        "This model channel has no API key. Save its credential first or enter the model details manually.",
-      catalogAuthenticationFailed:
-        "The model provider rejected the current credential. Check the channel API key and try again.",
-      catalogUnavailable:
-        "The remote model list is unavailable. Check the Base URL, network, and provider status, or enter the model details manually.",
-      catalogResponseInvalid:
-        "The provider returned an unrecognized model list. Check API compatibility or enter the model details manually.",
     },
     adminSelfChangeForbidden:
       "Administrators cannot disable or demote themselves.",

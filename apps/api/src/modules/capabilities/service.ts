@@ -58,6 +58,7 @@ export interface CapabilityServiceOptions {
   packageCleanup?: CapabilityPackageCleanup;
   materializeUserHomes?: MaterializeUserHomes;
   validateClawHubInstall?: ValidateClawHubInstall;
+  managedBrowserEnabled?: boolean;
   now?: () => Date;
 }
 
@@ -139,6 +140,7 @@ export class CapabilityService {
   readonly #validateClawHubInstall: ValidateClawHubInstall | undefined;
   readonly #now: () => Date;
   readonly #previews: CapabilityPreviewRepository;
+  readonly #managedBrowserEnabled: boolean;
 
   constructor(options: CapabilityServiceOptions) {
     this.#store = options.store;
@@ -148,6 +150,7 @@ export class CapabilityService {
     this.#packageCleanup = options.packageCleanup;
     this.#materializeUserHomes = options.materializeUserHomes;
     this.#validateClawHubInstall = options.validateClawHubInstall;
+    this.#managedBrowserEnabled = options.managedBrowserEnabled ?? true;
     this.#now = options.now ?? (() => new Date());
     this.#previews = new CapabilityPreviewRepository(
       this.#capabilityRoot,
@@ -182,7 +185,7 @@ export class CapabilityService {
           ),
         ),
     );
-    return [...builtInCapabilityViews(), ...personal];
+    return [...builtInCapabilityViews(this.#managedBrowserEnabled), ...personal];
   }
 
   async listManaged(actor: RequestActor): Promise<CapabilityView[]> {
@@ -206,7 +209,7 @@ export class CapabilityService {
           ),
         ),
     );
-    return [...builtInCapabilityViews(), ...personal];
+    return [...builtInCapabilityViews(this.#managedBrowserEnabled), ...personal];
   }
 
   async get(
@@ -1343,32 +1346,39 @@ function capabilityView(
   };
 }
 
-function builtInCapabilityViews(): CapabilityView[] {
-  return builtInCapabilityDefinitions.map((definition) => ({
-    id: builtInCapabilityId(definition.key),
-    type: definition.type,
-    name: definition.slug,
-    slug: definition.slug,
-    description: null,
-    source_type: "builtin",
-    builtin_key: definition.key,
-    is_builtin: true,
-    marketplace_listing_id: null,
-    marketplace_release_id: null,
-    status: "active",
-    has_logo: false,
-    logo_url: null,
-    manifest: null,
-    risk_summary: null,
-    preference_status: "enabled",
-    can_manage: false,
-    can_govern: false,
-    can_select: false,
-    can_delete: false,
-    is_owner: false,
-    created_at: null,
-    updated_at: null,
-  }));
+function builtInCapabilityViews(
+  managedBrowserEnabled: boolean,
+): CapabilityView[] {
+  return builtInCapabilityDefinitions
+    .filter(
+      (definition) =>
+        managedBrowserEnabled || definition.key !== "linksense-browser",
+    )
+    .map((definition) => ({
+      id: builtInCapabilityId(definition.key),
+      type: definition.type,
+      name: definition.slug,
+      slug: definition.slug,
+      description: null,
+      source_type: "builtin",
+      builtin_key: definition.key,
+      is_builtin: true,
+      marketplace_listing_id: null,
+      marketplace_release_id: null,
+      status: "active",
+      has_logo: false,
+      logo_url: null,
+      manifest: null,
+      risk_summary: null,
+      preference_status: "enabled",
+      can_manage: false,
+      can_govern: false,
+      can_select: false,
+      can_delete: false,
+      is_owner: false,
+      created_at: null,
+      updated_at: null,
+    }));
 }
 
 function requireLogoStore(

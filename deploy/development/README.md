@@ -101,6 +101,11 @@ listeners and development mode. Runner configuration rejects `local-process`
 outside development or on a non-loopback controller, and API configuration
 rejects local filesystem object storage in production or Full edition.
 
+Host mode also disables the built-in `linksense-browser` Skill, managed browser
+MCP server, and browser-specific prompt context because the bundled Chromium
+runtime is available only in Docker Workers. Use `pnpm dev` for tasks that need
+the managed browser.
+
 The normal `pnpm dev`, production Compose files, and release installation remain
 Docker-based. Their Runner configuration defaults to the `docker` provider and
 continues to create the existing per-user worker containers. `.env.host` is

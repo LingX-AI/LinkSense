@@ -276,6 +276,10 @@ const rawConfigSchema = z
       .enum(["true", "false"])
       .default("true")
       .transform((value) => value === "true"),
+    LINKSENSE_MANAGED_BROWSER_ENABLED: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((value) => value === "true"),
     LINKSENSE_PUBLIC_BASE_URL: z.url(),
     LINKSENSE_JWT_SECRET: z.string().min(32),
     LINKSENSE_INITIALIZATION_TOKEN: optionalSecret,
@@ -506,6 +510,7 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
     clawHubSyncTransactionTimeoutMs:
       raw.LINKSENSE_CLAWHUB_SYNC_TRANSACTION_TIMEOUT_MS,
     adminModelManagementEnabled: raw.LINKSENSE_ADMIN_MODEL_MANAGEMENT_ENABLED,
+    managedBrowserEnabled: raw.LINKSENSE_MANAGED_BROWSER_ENABLED,
     publicBaseUrl: raw.LINKSENSE_PUBLIC_BASE_URL,
     publicUrlUsesHttps:
       new URL(raw.LINKSENSE_PUBLIC_BASE_URL).protocol === "https:",

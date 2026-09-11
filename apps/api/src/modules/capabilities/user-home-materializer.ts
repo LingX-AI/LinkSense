@@ -21,6 +21,7 @@ import {
   capabilitySnapshotManifest,
   capabilitySnapshotSchema,
   type CapabilitySnapshot,
+  type BuiltInSkillName,
   builtInSkillNames,
   coreMcpServerKey,
   managedProjectionProbeContents,
@@ -157,6 +158,7 @@ interface AppliedMutation {
 
 export class UserHomeCapabilityMaterializer {
   readonly #userDataRoot: string
+  readonly #enabledBuiltInSkillNames: readonly BuiltInSkillName[]
   readonly #publicationGuard: UserHomeCapabilityPublicationGuard
   readonly #instrumentation:
     | UserHomeCapabilityMaterializerInstrumentation
@@ -164,6 +166,7 @@ export class UserHomeCapabilityMaterializer {
 
   constructor(options: {
     userDataRoot: string
+    managedBrowserEnabled?: boolean
     publicationGuard?: UserHomeCapabilityPublicationGuard
     instrumentation?: UserHomeCapabilityMaterializerInstrumentation
   }) {
@@ -173,6 +176,9 @@ export class UserHomeCapabilityMaterializer {
       )
     }
     this.#userDataRoot = path.resolve(options.userDataRoot)
+    this.#enabledBuiltInSkillNames = enabledBuiltInSkillNames(
+      options.managedBrowserEnabled ?? true,
+    )
     this.#publicationGuard =
       options.publicationGuard ?? (async () => true)
     this.#instrumentation = options.instrumentation
@@ -282,7 +288,10 @@ export class UserHomeCapabilityMaterializer {
     validateCapabilitySet(input.capabilities)
     await this.#prepareOwnerDirectories(paths)
     const sourceDigest = verifySource
-      ? await calculateCapabilitySourceDigest(input.capabilities)
+      ? await calculateCapabilitySourceDigest(
+          input.capabilities,
+          this.#enabledBuiltInSkillNames,
+        )
       : null
     if (sourceDigest) {
       const existing = await readMatchingRuntimeVerification(paths, input.capabilities, sourceDigest)
@@ -290,7 +299,10 @@ export class UserHomeCapabilityMaterializer {
     }
     const key = createHash("sha256").update(JSON.stringify({
       version: 1,
-      builtIns: BUILT_IN_CAPABILITY_RUNTIME_REVISION,
+      builtIns: {
+        revision: BUILT_IN_CAPABILITY_RUNTIME_REVISION,
+        skills: this.#enabledBuiltInSkillNames,
+      },
       capabilities: [...input.capabilities].sort(compareCapabilities).map((capability) => ({
         ...capabilityRuntimeDescriptor(capability), sourcePath: capability.sourcePath,
       })),
@@ -322,7 +334,11 @@ export class UserHomeCapabilityMaterializer {
         })
         if (reused) return reused
         const staged = await this.#stage(paths, input.capabilities,
-          sourceDigest ?? await calculateCapabilitySourceDigest(input.capabilities))
+          sourceDigest ??
+            (await calculateCapabilitySourceDigest(
+              input.capabilities,
+              this.#enabledBuiltInSkillNames,
+            )))
         try {
           const snapshot: CapabilitySnapshot = {
             version: 1,
@@ -583,7 +599,9 @@ export class UserHomeCapabilityMaterializer {
         writeBuiltInDocumentReaderSkill(skillsRoot),
         writeBuiltInFileServiceSkill(skillsRoot),
         writeBuiltInImageGenerationSkill(skillsRoot),
-        writeBuiltInBrowserSkill(skillsRoot),
+        ...(this.#enabledBuiltInSkillNames.includes(BUILT_IN_BROWSER_SKILL_NAME)
+          ? [writeBuiltInBrowserSkill(skillsRoot)]
+          : []),
         writeBuiltInKnowledgeBaseSkill(skillsRoot),
         writeBuiltInLinksenseDocs(skillsRoot),
         writeBuiltInSkillCreator(skillsRoot),
@@ -829,10 +847,13 @@ function pluginNamesForCapabilities(
 
 async function calculateCapabilitySourceDigest(
   capabilities: UserHomeCapabilityInput[],
+  enabledBuiltIns: readonly BuiltInSkillName[],
 ): Promise<string> {
   const hash = createHash("sha256")
   hash.update("linksense-capability-sources-v1\n")
-  hash.update(`built-ins\0${BUILT_IN_CAPABILITY_RUNTIME_REVISION}\0`)
+  hash.update(
+    `built-ins\0${BUILT_IN_CAPABILITY_RUNTIME_REVISION}\0${enabledBuiltIns.join(",")}\0`,
+  )
   for (const capability of [...capabilities].sort(compareCapabilities)) {
     hash.update(`${JSON.stringify(capabilityRuntimeDescriptor(capability))}\n`)
     await hashTree(
@@ -842,6 +863,14 @@ async function calculateCapabilitySourceDigest(
     )
   }
   return hash.digest("hex")
+}
+
+function enabledBuiltInSkillNames(
+  managedBrowserEnabled: boolean,
+): readonly BuiltInSkillName[] {
+  return managedBrowserEnabled
+    ? builtInSkillNames
+    : builtInSkillNames.filter((name) => name !== BUILT_IN_BROWSER_SKILL_NAME)
 }
 
 function verificationFromStaged(

@@ -30,6 +30,7 @@ export type WorkerContractDomain = {
   LINKSENSE_WORKER_PIDS_LIMIT: number
   LINKSENSE_WORKER_SHM_MB: number
   LINKSENSE_BROWSER_SESSION_LIMIT: number
+  LINKSENSE_MANAGED_BROWSER_ENABLED: boolean
   LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS: number
 }
 
@@ -46,6 +47,7 @@ export function workerContractKey(domain: WorkerContractDomain): string {
         domain.LINKSENSE_WORKER_PIDS_LIMIT,
         domain.LINKSENSE_WORKER_SHM_MB,
         domain.LINKSENSE_BROWSER_SESSION_LIMIT,
+        domain.LINKSENSE_MANAGED_BROWSER_ENABLED,
         domain.LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS,
       ]),
     )

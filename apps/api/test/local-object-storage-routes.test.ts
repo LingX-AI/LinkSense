@@ -33,6 +33,16 @@ describe("local object storage routes", () => {
     await storage.putObject("artifacts/example.txt", Buffer.from("hello"), {
       "content-type": "text/plain",
     })
+    await storage.putObject(
+      "artifacts/example.html",
+      Buffer.from('<script src="example.js"></script>'),
+      { "content-type": "text/html; charset=utf-8" },
+    )
+    await storage.putObject(
+      "artifacts/example.js",
+      Buffer.from("globalThis.compromised = true"),
+      { "content-type": "text/javascript" },
+    )
     const app = Fastify()
     await registerLocalObjectStorageRoutes(app, storage)
     return { app, storage }
@@ -71,4 +81,32 @@ describe("local object storage routes", () => {
     expect(response.statusCode).toBe(404)
     await app.close()
   })
+
+  it.each([
+    ["artifacts/example.html", "example.html"],
+    ["artifacts/example.js", "example.js"],
+  ])(
+    "forces active content to download with a sandbox policy",
+    async (key, filename) => {
+      const { app, storage } = await createFixture()
+      const url = new URL(await storage.presignedGetObject(key, 300))
+
+      const response = await app.inject({
+        method: "GET",
+        url: `${url.pathname}${url.search}`,
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.headers["content-disposition"]).toContain("attachment")
+      expect(response.headers["content-disposition"]).toContain(filename)
+      expect(response.headers["content-security-policy"]).toBe(
+        "sandbox; default-src 'none'",
+      )
+      expect(response.headers["content-type"]).toContain(
+        "application/octet-stream",
+      )
+      expect(response.headers["x-content-type-options"]).toBe("nosniff")
+      await app.close()
+    },
+  )
 })

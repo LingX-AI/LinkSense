@@ -279,6 +279,30 @@ describe("CapabilityService owner-only visibility", () => {
     });
   });
 
+  it("omits the managed browser Skill when its runtime is disabled", async () => {
+    const service = createService(
+      new MemoryCapabilityStore(),
+      await tempRoot(),
+      undefined,
+      async () => undefined,
+      false,
+    );
+
+    const available = await service.listAvailable(ownerActor());
+    const managed = await service.listManaged(adminActor());
+
+    for (const capabilities of [available, managed]) {
+      expect(
+        capabilities.map((capability) => capability.builtin_key),
+      ).not.toContain("linksense-browser");
+      expect(capabilities).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ builtin_key: "linksense-file-service" }),
+        ]),
+      );
+    }
+  });
+
   it("treats administrator personal capability management like a user-scoped library", async () => {
     const adminCapabilityId = "20000000-0000-4000-8000-000000000028";
     const store = new MemoryCapabilityStore();
@@ -1634,6 +1658,7 @@ function createService(
       typeof CapabilityService
     >[0]["validateClawHubInstall"]
   > = async () => undefined,
+  managedBrowserEnabled = true,
 ) {
   return new CapabilityService({
     store,
@@ -1643,6 +1668,7 @@ function createService(
     capabilityRoot: join(root, "capabilities"),
     ...(materializeUserHomes ? { materializeUserHomes } : {}),
     validateClawHubInstall,
+    managedBrowserEnabled,
     now: () => FIXED_DATE,
   });
 }

@@ -7,6 +7,7 @@ import {
   isConversationModel,
   managedPricedModelSchema,
   managedModelSchema,
+  modelContextWindowSchema,
   modelIdentifierSchema,
   modelTokenPricingSchema,
   modelProviderBaseUrlSchema,
@@ -25,7 +26,6 @@ import {
   type ManagedPricedModel,
   type DeleteModelProvider,
   type DeleteModelProviderModel,
-  type DiscoveredModelCatalog,
   type ModelPreference,
   type ModelProviderProtocolMode,
   type ModelProviderSettings,
@@ -42,11 +42,6 @@ import type { PrismaClient } from "../../generated/prisma/client.js"
 import { decryptJson, encryptJson } from "../../lib/crypto.js"
 import { AppError } from "../../lib/errors.js"
 import type { AuditContext } from "../audit/service.js"
-import {
-  HttpModelProviderCatalogClient,
-  parseOpenAiCompatibleModelCatalog,
-  type ModelProviderCatalogClient,
-} from "./model-provider-catalog.js"
 
 const SYSTEM_SETTINGS_ID = "00000000-0000-4000-8000-000000000001"
 const ENCRYPTED_SETTINGS_KEY = "model_provider_settings_encrypted"
@@ -58,11 +53,32 @@ const LEGACY_KNOWLEDGE_CONTEXT = "linksense:knowledge-model-settings:v1"
 const LEGACY_IMAGE_SETTINGS_KEY = "image_understanding_settings_encrypted"
 const LEGACY_IMAGE_KEY_ID_KEY = "image_understanding_settings_key_id"
 const LEGACY_IMAGE_CONTEXT = "linksense:image-understanding-settings:v1"
+const MODEL_METADATA_REQUEST_TIMEOUT_MS = 3_000
+
+const openAiCompatibleModelListSchema = z.object({
+  data: z.array(
+    z.object({
+      id: z.string().min(1),
+      max_model_len: modelContextWindowSchema.nullable().optional(),
+      context_window: modelContextWindowSchema.nullable().optional(),
+      context_length: modelContextWindowSchema.nullable().optional(),
+      max_context_length: modelContextWindowSchema.nullable().optional(),
+    })
+  ),
+})
+
 type ParsedModelProviderSettingsUpdate = z.infer<
   typeof updateModelProviderSettingsSchema
 >
 type ParsedManagedModelProviderUpdate =
   ParsedModelProviderSettingsUpdate["providers"][number]
+
+export interface ModelProviderMetadataClient {
+  readContextWindows(input: {
+    baseUrl: string
+    apiKey: string
+  }): Promise<ReadonlyMap<string, number>>
+}
 
 const legacyKnowledgeSettingsSchema = z.object({
   revision: z.number().int().positive(),
@@ -341,12 +357,8 @@ export class ModelProviderSettingsService
   constructor(
     private readonly prisma: PrismaClient,
     private readonly config: AppConfig,
-    private readonly modelCatalogClient: ModelProviderCatalogClient =
-      new HttpModelProviderCatalogClient(
-        undefined,
-        undefined,
-        config.nodeEnv === "development"
-      )
+    private readonly modelMetadataClient: ModelProviderMetadataClient =
+      defaultModelProviderMetadataClient
   ) {}
 
   registerReferenceReader(reader: ManagedModelReferenceReader): void {
@@ -356,30 +368,6 @@ export class ModelProviderSettingsService
   async getAdminSettings(): Promise<ModelProviderSettings> {
     const stored = await this.readStoredSettings()
     return projectAdminSettings(stored)
-  }
-
-  async discoverModels(
-    providerId: string,
-    signal?: AbortSignal
-  ): Promise<DiscoveredModelCatalog> {
-    const id = modelProviderIdentifierSchema.parse(providerId)
-    const stored = await this.readStoredSettingsForMetadata()
-    const provider = stored?.providers.find((candidate) => candidate.id === id)
-    if (!provider) throw new AppError("NOT_FOUND")
-    if (!provider.apiKey) {
-      throw new AppError("MODEL_CATALOG_CREDENTIAL_REQUIRED")
-    }
-    const models = await this.modelCatalogClient.listModels(
-      {
-        provider: provider.provider,
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-        providerProject: provider.providerProject,
-        providerLocation: provider.providerLocation,
-      },
-      signal
-    )
-    return { provider_id: provider.id, models: [...models] }
   }
 
   async update(
@@ -1075,25 +1063,15 @@ export class ModelProviderSettingsService
         const needsContextWindow = provider.models.some(
           (model) => model.kind === "chat" && model.context_window === null
         )
-        const discoveredModels =
+        const probedContextWindows =
           apiKey && needsContextWindow
-            ? await this.modelCatalogClient
-                .listModels({
-                  provider: provider.provider,
+            ? await this.modelMetadataClient
+                .readContextWindows({
                   baseUrl: provider.base_url,
                   apiKey,
-                  providerProject: provider.provider_project,
-                  providerLocation: provider.provider_location,
                 })
-                .catch(() => [])
-            : []
-        const probedContextWindows = new Map(
-          discoveredModels.flatMap((model) =>
-            model.context_window === null
-              ? []
-              : [[model.id, model.context_window] as const]
-          )
-        )
+                .catch(() => new Map<string, number>())
+            : new Map<string, number>()
         return {
           ...provider,
           models: provider.models.map((model) => {
@@ -1420,20 +1398,45 @@ function migrateVersion6Settings(
   })
 }
 
+const defaultModelProviderMetadataClient: ModelProviderMetadataClient = {
+  async readContextWindows(input) {
+    try {
+      const response = await fetch(modelListUrl(input.baseUrl), {
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${input.apiKey}`,
+          accept: "application/json",
+        },
+        signal: AbortSignal.timeout(MODEL_METADATA_REQUEST_TIMEOUT_MS),
+      })
+      if (!response.ok) return new Map()
+      return parseOpenAiCompatibleModelContextWindows(await response.json())
+    } catch {
+      return new Map()
+    }
+  },
+}
+
 export function parseOpenAiCompatibleModelContextWindows(
   payload: unknown
 ): ReadonlyMap<string, number> {
+  const parsed = openAiCompatibleModelListSchema.safeParse(payload)
+  if (!parsed.success) return new Map()
   const windows = new Map<string, number>()
-  try {
-    for (const model of parseOpenAiCompatibleModelCatalog(payload)) {
-      if (model.context_window !== null) {
-        windows.set(model.id, model.context_window)
-      }
-    }
-  } catch {
-    return new Map()
+  for (const model of parsed.data.data) {
+    const contextWindow = [
+      model.max_model_len,
+      model.context_window,
+      model.context_length,
+      model.max_context_length,
+    ].find((value): value is number => value !== undefined && value !== null)
+    if (contextWindow !== undefined) windows.set(model.id, contextWindow)
   }
   return windows
+}
+
+function modelListUrl(baseUrl: string): URL {
+  return new URL("models", `${baseUrl.replace(/\/+$/u, "")}/`)
 }
 
 function legacyV6SplitChannelId(

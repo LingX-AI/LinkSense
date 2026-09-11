@@ -1,12 +1,9 @@
 import { cleanup, render, screen } from "@testing-library/react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import userEvent from "@testing-library/user-event"
-import type { ReactElement } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ModelProviderSettings } from "@/api/contracts"
 import i18n from "@/i18n"
 import { ChannelEditor, ModelEditor } from "./model-channel-editors"
-import { modelProviderSettingsQueryKeys } from "./model-provider-settings-query"
 import { newModel } from "./model-settings-draft"
 
 const channel: ModelProviderSettings["providers"][number] = {
@@ -36,29 +33,7 @@ const settings: ModelProviderSettings = {
   title_model: "model-a",
 }
 
-const queryClients: QueryClient[] = []
-
-function renderWithQueryClient(element: ReactElement) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
-  queryClient.setQueryData(
-    modelProviderSettingsQueryKeys.discoverableModels(
-      channel.id,
-      settings.revision
-    ),
-    { provider_id: channel.id, models: [] }
-  )
-  queryClients.push(queryClient)
-  return render(
-    <QueryClientProvider client={queryClient}>{element}</QueryClientProvider>
-  )
-}
-
-afterEach(() => {
-  cleanup()
-  for (const queryClient of queryClients.splice(0)) queryClient.clear()
-})
+afterEach(cleanup)
 
 describe("model editor conflict feedback", () => {
   it.each(["zh-CN", "en-US", "fr-FR"])(
@@ -67,7 +42,7 @@ describe("model editor conflict feedback", () => {
       await i18n.changeLanguage(language)
       const user = userEvent.setup()
       const onSave = vi.fn()
-      renderWithQueryClient(
+      render(
         <ModelEditor
           channel={channel}
           initialModel={null}
@@ -127,7 +102,7 @@ describe("model editor conflict feedback", () => {
   it("excludes the edited model's own display name even when its ID changes", async () => {
     await i18n.changeLanguage("en-US")
     const user = userEvent.setup()
-    renderWithQueryClient(
+    render(
       <ModelEditor
         channel={channel}
         initialModel={channel.models[0]!}
@@ -162,7 +137,7 @@ describe("model editor conflict feedback", () => {
       await i18n.changeLanguage(language)
       const user = userEvent.setup()
       const onSave = vi.fn()
-      renderWithQueryClient(
+      render(
         <ChannelEditor
           channel={null}
           settings={settings}
@@ -217,7 +192,7 @@ describe("model editor conflict feedback", () => {
   it("does not warn about a channel's own name while editing it", async () => {
     await i18n.changeLanguage("en-US")
     const user = userEvent.setup()
-    renderWithQueryClient(
+    render(
       <ChannelEditor
         channel={channel}
         settings={settings}
@@ -245,7 +220,7 @@ describe("model editor conflict feedback", () => {
       await i18n.changeLanguage(language)
       const user = userEvent.setup()
       const onSave = vi.fn()
-      renderWithQueryClient(
+      render(
         <ModelEditor
           channel={channel}
           initialModel={null}
@@ -297,7 +272,7 @@ describe("model editor conflict feedback", () => {
   it("allows the original model ID during editing but reports a rename collision", async () => {
     await i18n.changeLanguage("en-US")
     const user = userEvent.setup()
-    renderWithQueryClient(
+    render(
       <ModelEditor
         channel={channel}
         initialModel={channel.models[0]!}

@@ -21,7 +21,6 @@ const PNG = Buffer.from(
 
 type PinnedRequestOptions = {
   agent?: unknown
-  headers?: Record<string, string>
   lookup?: unknown
 }
 
@@ -140,22 +139,6 @@ describe("fetchPublicHttpResource", () => {
   it("accepts a body exactly at the limit", async () => {
     configurePinnedRequest()
     await expect(fetchResource({ byteLimit: PNG.byteLength })).resolves.toMatchObject({ bytes: PNG })
-  })
-
-  it("forwards controlled authentication headers through the pinned transport", async () => {
-    configurePinnedRequest()
-
-    await fetchResource({ headers: { authorization: "Bearer test-secret" } })
-
-    const options = requestMock.mock.calls[0]?.[1] as
-      | PinnedRequestOptions
-      | undefined
-    expect(options?.headers).toMatchObject({
-      accept: "image/*",
-      "accept-encoding": "identity",
-      authorization: "Bearer test-secret",
-      "user-agent": "LinkSense-test",
-    })
   })
 
   it("pins the validated DNS result into the request transport", async () => {

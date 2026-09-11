@@ -186,6 +186,7 @@ const runnerConfigSchema = z
       .min(1)
       .max(20)
       .default(2),
+    LINKSENSE_MANAGED_BROWSER_ENABLED: booleanEnvironment(true),
   })
   .superRefine((config, context) => {
     if (

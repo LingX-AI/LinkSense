@@ -1919,6 +1919,44 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("keeps Plan mode available without exposing a disabled managed browser runtime", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-plan-no-browser-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool } = createStartOperationPool(
+      root,
+      controlled.factory,
+      undefined,
+      { managedBrowserEnabled: false },
+    );
+
+    await pool.startTurn({
+      ...startOperationInput(),
+      collaborationMode: "plan",
+    });
+
+    expect(controlled.args).toEqual(
+      expect.arrayContaining([
+        "features.hooks=true",
+        "features.use_legacy_landlock=true",
+      ]),
+    );
+    expect(controlled.args?.join("\n")).not.toContain(
+      "mcp_servers.linksense_managed_browser",
+    );
+    expect(controlled.environment).not.toHaveProperty(
+      "LINKSENSE_BROWSER_READ_ONLY",
+    );
+    const turnStart = controlled.requests.find(
+      (request) => request.method === "turn/start",
+    );
+    expect(turnStart?.params).not.toHaveProperty(
+      "additionalContext.linksense.managed-browser-runtime",
+    );
+
+    await pool.closeAll();
+  });
+
   it("blocks on LinkSense forms while keeping Codex approval disabled", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-mcp-form-"));
     roots.push(root);
@@ -10584,6 +10622,7 @@ function createStartOperationPool(
     modelGateway?: ReturnType<typeof createModelGatewayMock>;
     idleTtlMs?: number;
     globalFeatureOverrides?: readonly string[];
+    managedBrowserEnabled?: boolean;
     nativeTurnRegistrationTimeoutMs?: number;
     logger?: Logger;
   } = {},
@@ -10626,9 +10665,13 @@ function createStartOperationPool(
     logger: overrides.logger ?? pino({ enabled: false }),
     mcpCommand: process.execPath,
     mcpArgs: [],
-    managedBrowserMcpArgs: [
-      "/app/dist/mcp/managed-browser-service-server.js",
-    ],
+    ...(overrides.managedBrowserEnabled === false
+      ? {}
+      : {
+          managedBrowserMcpArgs: [
+            "/app/dist/mcp/managed-browser-service-server.js",
+          ],
+        }),
     personalStdioLauncherCommand: process.execPath,
     personalStdioLauncherArgs: ["/app/dist/mcp/personal-stdio-launcher.js"],
     mcpEndpointBase: "http://127.0.0.1:4010/mcp-file-service",

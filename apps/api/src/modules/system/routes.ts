@@ -5,7 +5,6 @@ import {
   applyOrganizationCreditLimitsInputSchema,
   deleteModelProviderSchema,
   deleteModelProviderModelSchema,
-  modelProviderCatalogParamsSchema,
   patchProductSettingsSchema,
   updateExecutionConcurrencySettingsSchema,
   updateKnowledgeModelSettingsSchema,
@@ -352,35 +351,6 @@ export const adminSystemRoutes: FastifyPluginAsync<{
       ok({ code: "SYSTEM_SETTINGS_UPDATED", settings }, request.id)
     )
   })
-
-  app.get(
-    "/model-provider-settings/providers/:provider_id/discoverable-models",
-    async (request, reply) => {
-      requireAdminModelManagement(services)
-      const { provider_id: providerId } = modelProviderCatalogParamsSchema.parse(
-        request.params
-      )
-      const controller = new AbortController()
-      const abortRequest = () => controller.abort()
-      const abortDisconnectedReply = () => {
-        if (!reply.raw.writableEnded) controller.abort()
-      }
-      request.raw.once("aborted", abortRequest)
-      reply.raw.once("close", abortDisconnectedReply)
-      try {
-        const catalog = await services.modelProviderSettings.discoverModels(
-          providerId,
-          controller.signal
-        )
-        return reply
-          .header("cache-control", "private, no-store")
-          .send(ok(catalog, request.id))
-      } finally {
-        request.raw.off("aborted", abortRequest)
-        reply.raw.off("close", abortDisconnectedReply)
-      }
-    }
-  )
 
   app.patch(
     "/model-provider-settings/models/availability",

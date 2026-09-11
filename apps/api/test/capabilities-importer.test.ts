@@ -322,7 +322,7 @@ describe("CapabilityPackageImporter", () => {
     await importer.cleanup(prepared);
   });
 
-  it("fails closed for an imported non-executable script that cannot be scanned", async () => {
+  it("fails closed for an imported extensionless interpreter target containing a NUL", async () => {
     const root = await temporaryDirectory();
     const importer = new CapabilityPackageImporter({
       stagingRoot: join(root, "staging"),
@@ -331,10 +331,11 @@ describe("CapabilityPackageImporter", () => {
     const archive = createStoredZip([
       {
         path: "nul-script/SKILL.md",
-        bytes: "---\nname: nul-script\n---\n\nUse the bundled helper.\n",
+        bytes:
+          "---\nname: nul-script\n---\n\nRun `node scripts/helper`.\n",
       },
       {
-        path: "nul-script/scripts/run.js",
+        path: "nul-script/scripts/helper",
         bytes: Buffer.from(`// ${token}\0\nconsole.log("ready");\n`, "utf8"),
       },
     ]);
@@ -345,14 +346,16 @@ describe("CapabilityPackageImporter", () => {
       filename: "nul-script.zip",
     });
 
-    expect((await lstat(join(prepared.packageRoot, "scripts/run.js"))).mode & 0o111).toBe(0);
+    expect(
+      (await lstat(join(prepared.packageRoot, "scripts/helper"))).mode & 0o111,
+    ).toBe(0);
     expect(prepared.riskSummary.supply_chain_review).toMatchObject({
       verdict: "blocked",
       highest_severity: "critical",
       findings: [
         expect.objectContaining({
           rule_id: "unscannable_interpretable_file",
-          path: "scripts/run.js",
+          path: "scripts/helper",
         }),
       ],
     });

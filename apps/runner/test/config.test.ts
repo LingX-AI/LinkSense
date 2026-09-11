@@ -42,6 +42,7 @@ describe("parseRunnerConfig", () => {
     expect(config.LINKSENSE_WORKER_TMPFS_MB).toBe(4096)
     expect(config.LINKSENSE_WORKER_SHM_MB).toBe(2048)
     expect(config.LINKSENSE_BROWSER_SESSION_LIMIT).toBe(2)
+    expect(config.LINKSENSE_MANAGED_BROWSER_ENABLED).toBe(true)
     expect(config.LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS).toBe(900)
     expect(config.LINKSENSE_WORKER_IDLE_TTL_SECONDS).toBe(900)
     expect(config.LINKSENSE_DOCKER_COMPOSE_PROJECT_NAME).toBe("linksense")
@@ -59,6 +60,15 @@ describe("parseRunnerConfig", () => {
         LINKSENSE_CODEX_MODEL: "legacy-model",
       }),
     ).not.toHaveProperty("LINKSENSE_CODEX_MODEL")
+  })
+
+  it("can explicitly disable the managed browser runtime", () => {
+    expect(
+      parseRunnerConfig({
+        ...baseEnvironment,
+        LINKSENSE_MANAGED_BROWSER_ENABLED: "false",
+      }).LINKSENSE_MANAGED_BROWSER_ENABLED,
+    ).toBe(false)
   })
 
   it("requires one absolute user data root", () => {

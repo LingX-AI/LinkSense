@@ -91,8 +91,8 @@ export const capabilityMcpEnvironmentReferenceSchema = z.strictObject({
   http_header: z.string().trim().min(1).max(256).nullable(),
 });
 
-export const capabilitySupplyChainScannerVersion = "1.2.0" as const;
-export const capabilitySupplyChainRulesetVersion = "2026-09-11.1" as const;
+export const capabilitySupplyChainScannerVersion = "1.3.0" as const;
+export const capabilitySupplyChainRulesetVersion = "2026-09-11.2" as const;
 export const capabilitySupplyChainContentDigestAlgorithm =
   "linksense-capability-package-v1" as const;
 

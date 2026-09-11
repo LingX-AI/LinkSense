@@ -107,6 +107,7 @@ test("host development selects the non-isolated provider and preserves the confi
 
   assert.equal(environment.NODE_ENV, "development");
   assert.equal(environment.LINKSENSE_WORKER_PROVIDER, "local-process");
+  assert.equal(environment.LINKSENSE_MANAGED_BROWSER_ENABLED, "false");
   assert.equal(environment.LINKSENSE_RUNNER_MODE, "controller");
   assert.equal(environment.LINKSENSE_RUNNER_HOST, "127.0.0.1");
   assert.equal(environment.LINKSENSE_RUNNER_URL, "http://127.0.0.1:4110");

@@ -548,6 +548,9 @@ export function buildWorkerContainerSpec(
       LINKSENSE_BROWSER_SESSION_LIMIT: String(
         config.LINKSENSE_BROWSER_SESSION_LIMIT,
       ),
+      LINKSENSE_MANAGED_BROWSER_ENABLED: String(
+        config.LINKSENSE_MANAGED_BROWSER_ENABLED,
+      ),
       CODEX_BIN: config.CODEX_BIN,
       ...allowedWorkerEnvironment(sourceEnvironment),
     }).map(([key, value]) => `${key}=${value}`),

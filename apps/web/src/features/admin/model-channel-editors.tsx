@@ -1,44 +1,22 @@
 import { ModelServiceProviderLogo } from "./model-service-provider-logo"
 import type { ModelSettingsDraft } from "./model-settings-draft"
 import { useId, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
-import { RefreshCwIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
-  modelCatalogDiscoveryProviderValues,
   modelServiceProviderValues,
   modelProviderProtocolModeValues,
-  type DiscoveredModel,
   type ManagedPricedModel,
 } from "@linksense/shared"
-import { apiRequest } from "@/api/client"
-import {
-  discoveredModelCatalogSchema,
-  type ModelProviderSettings,
-} from "@/api/contracts"
-import { getErrorMessage } from "@/api/error-message"
-import { StatusBanner } from "@/components/feedback/status-banner"
+import type { ModelProviderSettings } from "@/api/contracts"
 import { FieldShell } from "@/components/forms/form-field"
-import { Button } from "@/components/ui/button"
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-} from "@/components/ui/combobox"
-import { FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
+import { FieldGroup } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Spinner } from "@/components/ui/spinner"
 import { ModelSettingsEditor } from "./model-settings-editor"
-import { modelProviderSettingsQueryKeys } from "./model-provider-settings-query"
 import {
   ModelSettingsFields,
   ModelSettingsSelect,
 } from "./model-settings-fields"
 import {
-  changeModelKind,
   isSettingsDraftValid,
   newModel,
   parseContextWindow,
@@ -73,25 +51,6 @@ export function ModelEditor({
       ? String(initial.context_window)
       : ""
   )
-  const discoverySupported = modelCatalogDiscoveryProviderValues.some(
-    (provider) => provider === channel.provider
-  )
-  const catalog = useQuery({
-    queryKey: modelProviderSettingsQueryKeys.discoverableModels(
-      channel.id,
-      actions.settings.revision
-    ),
-    queryFn: ({ signal }) =>
-      apiRequest(
-        `/admin/model-provider-settings/providers/${encodeURIComponent(channel.id)}/discoverable-models`,
-        { schema: discoveredModelCatalogSchema, signal }
-      ),
-    enabled:
-      initialModel === null && discoverySupported && channel.api_key_configured,
-    staleTime: 60_000,
-    gcTime: 5 * 60_000,
-    retry: false,
-  })
   const context = parseContextWindow(contextInput)
   const value =
     model.kind === "chat" ? { ...model, context_window: context.value } : model
@@ -147,26 +106,6 @@ export function ModelEditor({
       {...actions}
       onSave={() => actions.onSave(draft)}
     >
-      {!initialModel && (
-        <RemoteModelCatalog
-          channel={channel}
-          settings={actions.settings}
-          models={catalog.data?.models ?? []}
-          loading={catalog.isFetching}
-          error={catalog.error}
-          discoverySupported={discoverySupported}
-          onRefresh={() => void catalog.refetch()}
-          onSelect={(discovered) => {
-            const next = applyDiscoveredModel(model, discovered)
-            setModel(next)
-            setContextInput(
-              next.kind === "chat" && next.context_window !== null
-                ? String(next.context_window)
-                : ""
-            )
-          }}
-        />
-      )}
       <ModelSettingsFields
         model={model}
         modelIdError={
@@ -183,163 +122,6 @@ export function ModelEditor({
       />
     </ModelSettingsEditor>
   )
-}
-
-function RemoteModelCatalog({
-  channel,
-  settings,
-  models,
-  loading,
-  error,
-  discoverySupported,
-  onRefresh,
-  onSelect,
-}: {
-  channel: ModelChannel
-  settings: ModelProviderSettings
-  models: readonly DiscoveredModel[]
-  loading: boolean
-  error: unknown
-  discoverySupported: boolean
-  onRefresh: () => void
-  onSelect: (model: DiscoveredModel) => void
-}) {
-  const { t } = useTranslation()
-  const id = useId()
-  const [selectedCatalogModel, setSelectedCatalogModel] =
-    useState<DiscoveredModel | null>(null)
-  const configuredIds = new Set(
-    settings.providers.flatMap((provider) =>
-      provider.models.map((model) => model.id)
-    )
-  )
-  const canDiscover = discoverySupported && channel.api_key_configured
-  return (
-    <FieldSet className="gap-3">
-      <FieldLegend className="text-sm font-medium">
-        {t("admin.modelProvider.remoteCatalog")}
-      </FieldLegend>
-      <p className="text-xs text-muted-foreground">
-        {t("admin.modelProvider.remoteCatalogDescription")}
-      </p>
-      {canDiscover ? (
-        <FieldShell id={id} label={t("admin.modelProvider.remoteCatalogLabel")}>
-          <div className="flex items-center gap-2">
-            <Combobox
-              items={[...models]}
-              value={selectedCatalogModel}
-              itemToStringLabel={(model) => model.display_name}
-              itemToStringValue={(model) => model.id}
-              isItemEqualToValue={(model, value) => model.id === value.id}
-              onValueChange={(model) => {
-                setSelectedCatalogModel(model)
-                if (model && !configuredIds.has(model.id)) onSelect(model)
-              }}
-            >
-              <ComboboxInput
-                id={id}
-                className="min-w-0 flex-1"
-                disabled={loading && models.length === 0}
-                placeholder={
-                  loading
-                    ? t("common.loading")
-                    : t("admin.modelProvider.remoteCatalogPlaceholder")
-                }
-              />
-              <ComboboxContent>
-                <ComboboxEmpty>
-                  {loading
-                    ? t("common.loading")
-                    : t("admin.modelProvider.remoteCatalogEmpty")}
-                </ComboboxEmpty>
-                <ComboboxList>
-                  {(model: DiscoveredModel) => {
-                    const configured = configuredIds.has(model.id)
-                    return (
-                      <ComboboxItem
-                        key={model.id}
-                        value={model}
-                        disabled={configured}
-                      >
-                        <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                          <span className="min-w-0">
-                            <span className="block truncate font-medium">
-                              {model.display_name}
-                            </span>
-                            <span className="block truncate text-muted-foreground">
-                              {model.id}
-                            </span>
-                          </span>
-                          {configured && (
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                              {t(
-                                "admin.modelProvider.remoteCatalogAlreadyAdded"
-                              )}
-                            </span>
-                          )}
-                        </span>
-                      </ComboboxItem>
-                    )
-                  }}
-                </ComboboxList>
-              </ComboboxContent>
-            </Combobox>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              disabled={loading}
-              aria-label={t("admin.modelProvider.refreshRemoteCatalog")}
-              onClick={onRefresh}
-            >
-              {loading ? <Spinner /> : <RefreshCwIcon aria-hidden="true" />}
-            </Button>
-          </div>
-        </FieldShell>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          {t(
-            discoverySupported
-              ? "admin.modelProvider.remoteCatalogCredentialRequired"
-              : "admin.modelProvider.remoteCatalogNotSupported"
-          )}
-        </p>
-      )}
-      {error ? (
-        <StatusBanner variant="error">{getErrorMessage(error, t)}</StatusBanner>
-      ) : null}
-      <p className="text-xs text-muted-foreground">
-        {t("admin.modelProvider.remoteCatalogManualHint")}
-      </p>
-    </FieldSet>
-  )
-}
-
-function applyDiscoveredModel(
-  current: ManagedPricedModel,
-  discovered: DiscoveredModel
-): ManagedPricedModel {
-  const selectedKind = discovered.kind ?? current.kind
-  const selected = changeModelKind(current, selectedKind)
-  const identity = {
-    id: discovered.id,
-    display_name: discovered.display_name,
-  }
-  if (selected.kind !== "chat") return { ...selected, ...identity }
-  return {
-    ...selected,
-    ...identity,
-    context_window: discovered.context_window,
-    supports_image_input:
-      discovered.supports_image_input ?? selected.supports_image_input,
-    ...(discovered.supported_reasoning_efforts &&
-    discovered.default_reasoning_effort
-      ? {
-          supported_reasoning_efforts: discovered.supported_reasoning_efforts,
-          default_reasoning_effort: discovered.default_reasoning_effort,
-        }
-      : {}),
-  }
 }
 
 export function ChannelEditor({

@@ -14,6 +14,7 @@ describe("parseConfig", () => {
     expect(config.minio.downloadTtlSeconds).toBe(7_200)
     expect(config.objectStorage.provider).toBe("minio")
     expect(config.adminModelManagementEnabled).toBe(true)
+    expect(config.managedBrowserEnabled).toBe(true)
     expect(config.releaseVersion).toBe("v0.1.1")
     expect(config.initializationToken).toBeUndefined()
     expect(config.clawHubSyncTimeZone).toBe("Asia/Shanghai")
@@ -62,6 +63,14 @@ describe("parseConfig", () => {
       localRoot: "/tmp/linksense-test/users/.object-storage",
       publicBaseUrl: "https://linksense.example.test",
     })
+  })
+
+  it("can explicitly disable the managed browser runtime", () => {
+    expect(
+      parseConfig(
+        testEnvironment({ LINKSENSE_MANAGED_BROWSER_ENABLED: "false" }),
+      ).managedBrowserEnabled,
+    ).toBe(false)
   })
 
   it("keeps local filesystem storage out of production and the Full edition", () => {

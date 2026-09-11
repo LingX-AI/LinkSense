@@ -177,6 +177,7 @@ export function buildTurnAdditionalContext(
   authorizedSkills?: AuthorizedTurnSkill[],
   collaborationMode: "default" | "plan" = "default",
   planPrioritySkills: PlanSkillReference[] = [],
+  managedBrowserEnabled = true,
 ): TurnAdditionalContext | undefined {
   const additionalContext: TurnAdditionalContext = {
     ...buildKnowledgeSelectionContext(context.selectedKnowledgeBases ?? []),
@@ -248,7 +249,11 @@ export function buildTurnAdditionalContext(
       ].join("\n"),
     };
   }
-  if (authorizedSkills !== undefined && collaborationMode !== "plan") {
+  if (
+    managedBrowserEnabled &&
+    authorizedSkills !== undefined &&
+    collaborationMode !== "plan"
+  ) {
     if (authorizedSkills.some((skill) => skill.name === "linksense-browser")) {
       additionalContext["linksense.managed-browser-runtime"] = {
         kind: "application",
@@ -257,10 +262,12 @@ export function buildTurnAdditionalContext(
     }
   }
   if (collaborationMode === "plan") {
-    additionalContext["linksense.managed-browser-runtime"] = {
-      kind: "application",
-      value: PLAN_MANAGED_BROWSER_RUNTIME_INSTRUCTIONS,
-    };
+    if (managedBrowserEnabled) {
+      additionalContext["linksense.managed-browser-runtime"] = {
+        kind: "application",
+        value: PLAN_MANAGED_BROWSER_RUNTIME_INSTRUCTIONS,
+      };
+    }
     if (planPrioritySkills.length > 0) {
       additionalContext["linksense.plan-skill-reference-content"] = {
         kind: "untrusted",

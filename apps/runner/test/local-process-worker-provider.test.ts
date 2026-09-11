@@ -91,6 +91,7 @@ describe("LocalProcessWorkerProvider", () => {
           LINKSENSE_WORKER_PROVIDER: "local-process",
           LINKSENSE_WORKER_CONTROL_ROOT: paths.control,
           LINKSENSE_RUNTIME_TOOL_BIN: runtimeToolBin,
+          LINKSENSE_MANAGED_BROWSER_ENABLED: "false",
           CODEX_HOME: path.join(paths.control, "supervisor-codex"),
         }),
       }),

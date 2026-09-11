@@ -1576,9 +1576,10 @@ export class AppServerProcessPool {
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
               LINKSENSE_CONVERSATION_ID: input.conversationId,
               LINKSENSE_COLLABORATION_MODE: input.collaborationMode,
-              ...(input.collaborationMode === "plan"
-                ? { LINKSENSE_BROWSER_READ_ONLY: "1" }
-                : {}),
+              ...managedBrowserTurnEnvironment(
+                input.collaborationMode,
+                this.options.managedBrowserMcpArgs,
+              ),
             },
           },
           capabilityRuntime,
@@ -1869,6 +1870,7 @@ export class AppServerProcessPool {
         managed.authorizedSkills,
         input.collaborationMode,
         planSkillReferences,
+        this.options.managedBrowserMcpArgs !== undefined,
       );
       const additionalContext = turnAdditionalContext
         ? prepareCodexAdditionalContext(turnAdditionalContext)
@@ -3422,9 +3424,10 @@ export class AppServerProcessPool {
               LINKSENSE_CONVERSATION_ID: input.conversationId,
               LINKSENSE_COLLABORATION_MODE:
                 recoveryStartInput.collaborationMode ?? "default",
-              ...(recoveryStartInput.collaborationMode === "plan"
-                ? { LINKSENSE_BROWSER_READ_ONLY: "1" }
-                : {}),
+              ...managedBrowserTurnEnvironment(
+                recoveryStartInput.collaborationMode ?? "default",
+                this.options.managedBrowserMcpArgs,
+              ),
             },
           },
           capabilityRuntime,
@@ -4954,7 +4957,10 @@ export class AppServerProcessPool {
                 : {}),
               knowledgeSearchTimeoutMs: this.knowledgeSearchTimeoutMs,
             }),
-            ...planRuntimeConfigOverrides(input.collaborationMode),
+            ...planRuntimeConfigOverrides(
+              input.collaborationMode,
+              this.options.managedBrowserMcpArgs !== undefined,
+            ),
             ...memoryConfigOverrides(
               {
                 memories_enabled:
@@ -5276,7 +5282,10 @@ export class AppServerProcessPool {
               "LinkSense Core MCP is unavailable",
             );
           }
-          if (input.collaborationMode === "plan") {
+          if (
+            input.collaborationMode === "plan" &&
+            this.options.managedBrowserMcpArgs !== undefined
+          ) {
             const managedBrowserService = mcpStatus.data.find(
               (server) => server.name === managedBrowserMcpServerKey,
             );
@@ -7238,15 +7247,28 @@ export function memoryConfigOverrides(
 
 export function planRuntimeConfigOverrides(
   collaborationMode: StartTurnInput["collaborationMode"],
+  managedBrowserEnabled = true,
 ): string[] {
-  return collaborationMode === "plan"
-    ? [
-        "features.hooks=true",
-        "features.use_legacy_landlock=true",
-        "mcp_servers.linksense_managed_browser.enabled=true",
-        "mcp_servers.linksense_managed_browser.required=true",
-      ]
-    : [];
+  if (collaborationMode !== "plan") return [];
+  return [
+    "features.hooks=true",
+    "features.use_legacy_landlock=true",
+    ...(managedBrowserEnabled
+      ? [
+          "mcp_servers.linksense_managed_browser.enabled=true",
+          "mcp_servers.linksense_managed_browser.required=true",
+        ]
+      : []),
+  ];
+}
+
+function managedBrowserTurnEnvironment(
+  collaborationMode: StartTurnInput["collaborationMode"],
+  managedBrowserMcpArgs: readonly string[] | undefined,
+): Record<string, string> {
+  return collaborationMode === "plan" && managedBrowserMcpArgs !== undefined
+    ? { LINKSENSE_BROWSER_READ_ONLY: "1" }
+    : {};
 }
 
 type LinkSenseThreadRuntimeOverrides = {

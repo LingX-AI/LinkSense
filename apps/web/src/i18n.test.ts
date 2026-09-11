@@ -508,9 +508,6 @@ describe("i18n resources", () => {
     expect(zhCN.admin.modelProvider.apiKeyConfiguredHint).toBe(
       "密钥已安全保存。只有需要更换时才输入新密钥。"
     )
-    expect(zhCN.admin.modelProvider.remoteCatalogLabel).toBe(
-      "从供应商选择模型（可选）"
-    )
     expect(zhCN.admin.modelProvider.titleModel).toBe("任务自动命名模型")
     expect(zhCN.admin.imageGeneration.title).toBe("图片生成模型")
     expect(zhCN.admin.imageGeneration.providers.alibaba_bailian).toBe(
@@ -541,9 +538,6 @@ describe("i18n resources", () => {
     expect(enUS.admin.modelProvider.apiKeyConfiguredHint).toBe(
       "The key is stored securely. Enter a new key only when replacing it."
     )
-    expect(enUS.admin.modelProvider.remoteCatalogLabel).toBe(
-      "Model from provider (optional)"
-    )
     expect(enUS.admin.modelProvider.titleModel).toBe("Task auto-naming model")
     expect(enUS.admin.imageGeneration.title).toBe("Image generation model")
     expect(enUS.admin.imageGeneration.providers.alibaba_bailian).toBe(
@@ -559,16 +553,6 @@ describe("i18n resources", () => {
     expect(enUS.errors.lastModelRequired).toBe(
       "At least one chat model must remain available in conversations."
     )
-  })
-
-  it("falls back to Chinese for remote model catalog guidance", () => {
-    const instance = i18n.cloneInstance({ forkResourceStore: true })
-    instance.removeResourceBundle("en-US", "translation")
-    expect(
-      instance.t("admin.modelProvider.remoteCatalogManualHint", {
-        lng: "en-US",
-      })
-    ).toBe(zhCN.admin.modelProvider.remoteCatalogManualHint)
   })
 
   it("uses an ellipsis for page-loading labels", () => {

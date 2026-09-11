@@ -335,6 +335,7 @@ function localWorkerEnvironment(
     CODEX_BIN: config.CODEX_BIN,
     LINKSENSE_RUNNER_MODE: "worker",
     LINKSENSE_WORKER_PROVIDER: "local-process",
+    LINKSENSE_MANAGED_BROWSER_ENABLED: "false",
     LINKSENSE_WORKER_OWNER_ID: ownerId,
     LINKSENSE_USER_DATA_ROOT: paths.home,
     LINKSENSE_WORKER_CONTROL_ROOT: paths.control,
