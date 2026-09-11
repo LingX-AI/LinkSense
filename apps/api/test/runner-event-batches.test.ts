@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyReply } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "../src/lib/errors.js";
+import { RUNNER_EVENT_BATCH_MAX_COUNT } from "@linksense/shared";
 import { internalRunnerRoutes } from "../src/modules/events/routes.js";
 import type { AppServices } from "../src/services.js";
 
@@ -24,21 +25,49 @@ function batch() {
 
 async function fixture(onRequest?: (reply: FastifyReply) => void) {
   const ingest = vi.fn<(...args: unknown[]) => Promise<{ accepted: boolean }>>().mockResolvedValue({ accepted: true });
+  const ingestTextDeltaBatch = vi.fn<(...args: unknown[]) => Promise<{ accepted: boolean }>>().mockResolvedValue({ accepted: true });
   const assertOwner = vi.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
   const app = Fastify();
   apps.push(app);
   app.addHook("onRequest", async (_request, reply) => { onRequest?.(reply); });
   await app.register(internalRunnerRoutes, { services: {
-    config: { runnerSharedSecret: secret }, conversations: { assertOwner }, events: { ingest },
+    config: { runnerSharedSecret: secret }, conversations: { assertOwner }, events: { ingest, ingestTextDeltaBatch },
   } as unknown as AppServices });
   const send = (payload: Record<string, unknown>, headers: Record<string, string> = {}) => app.inject({
     method: "POST", url: "/runner/events", payload,
     headers: { authorization: `Bearer ${secret}`, "x-linksense-owner-id": ownerId, ...headers },
   });
-  return { app, ingest, assertOwner, send };
+  return { app, ingest, ingestTextDeltaBatch, assertOwner, send };
 }
 
 describe("ordered runner event batches", () => {
+  it("waits for a text group commit before ingesting completion and keeps every original delivery id", async () => {
+    const { ingest, ingestTextDeltaBatch, send } = await fixture();
+    const input = textBatch();
+    let release: () => void = () => undefined;
+    const durable = new Promise<void>(resolve => { release = resolve; });
+    ingestTextDeltaBatch.mockImplementationOnce(async () => { await durable; return { accepted: true }; });
+    const response = send(input);
+    try {
+      await vi.waitFor(() => expect(ingestTextDeltaBatch).toHaveBeenCalledOnce());
+      expect(ingest).toHaveBeenCalledTimes(1);
+      expect(ingestTextDeltaBatch).toHaveBeenCalledWith(conversationId, input.events.slice(1, 3));
+      release();
+      expect((await response).json().data.accepted_delivery_ids).toEqual(input.events.map(entry => entry.deliveryId));
+      expect(ingest.mock.calls).toEqual([input.events[0], input.events[3]].map(entry => [conversationId, entry?.event, entry?.deliveryId]));
+    } finally { release(); await response; }
+  });
+
+  it.each(["pending", "failure"])("does not acknowledge a %s text group or execute its following completion", async scenario => {
+    const { ingest, ingestTextDeltaBatch, send } = await fixture();
+    const input = textBatch();
+    if (scenario === "pending") ingestTextDeltaBatch.mockResolvedValueOnce({ accepted: false });
+    else ingestTextDeltaBatch.mockRejectedValueOnce(new Error("commit failed"));
+    const response = await send(input);
+    expect(response.json().data.accepted_delivery_ids).toEqual([input.events[0]?.deliveryId]);
+    expect(ingest).toHaveBeenCalledTimes(1);
+  });
+
   it("awaits each unchanged event before processing the following event", async () => {
     const { ingest, assertOwner, send } = await fixture();
     const input = batch();
@@ -121,11 +150,30 @@ describe("ordered runner event batches", () => {
     expect(ingest).not.toHaveBeenCalled();
   });
 
-  it.each([0, 33])("rejects a batch with %s entries before ingestion", async (count) => {
+  it.each([0, RUNNER_EVENT_BATCH_MAX_COUNT + 1])("rejects a batch with %s entries before ingestion", async (count) => {
     const { ingest, send } = await fixture();
     const input = batch();
     input.events = Array.from({ length: count }, () => ({ ...input.events[0]!, deliveryId: randomUUID() }));
     expect((await send(input)).statusCode).not.toBe(200);
     expect(ingest).not.toHaveBeenCalled();
   });
+
+  it("accepts a full bounded text batch in one transaction request", async () => {
+    const { ingest, ingestTextDeltaBatch, send } = await fixture();
+    const input = textBatch();
+    const entry = input.events[1];
+    if (!entry) throw new Error("missing text fixture");
+    input.events = Array.from({ length: RUNNER_EVENT_BATCH_MAX_COUNT }, () => ({ ...entry, deliveryId: randomUUID() }));
+    expect((await send(input)).json().data.accepted_delivery_ids).toEqual(input.events.map(item => item.deliveryId));
+    expect(ingestTextDeltaBatch).toHaveBeenCalledExactlyOnceWith(conversationId, input.events);
+    expect(ingest).not.toHaveBeenCalled();
+  });
 });
+
+function textBatch() {
+  const input = batch();
+  const delta = input.events[1];
+  if (!delta) throw new Error("missing text fixture");
+  input.events.splice(2, 0, { ...delta, deliveryId: randomUUID() });
+  return input;
+}

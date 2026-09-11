@@ -16,6 +16,7 @@ import {
 } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { interruptNativeExecutionForShutdown } from "./codex/native-shutdown.js";
+import { OrderedBatchQueue } from "./ordered-batch-queue.js";
 
 import type { Logger } from "pino";
 import { z } from "zod";
@@ -47,6 +48,10 @@ import {
   modelIdentifierSchema,
   reasoningEffortSchema,
   runnerCodexPreviewLimits,
+  RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT,
+  RUNNER_EVENT_BATCH_TARGET_BYTES,
+  runnerTextDeltaBatchKey,
+  isRunnerTextDeltaEvent,
   skillCreatorArchivePathSchema,
 } from "@linksense/shared";
 
@@ -705,7 +710,7 @@ type ManagedProcess = {
   skillCreatorToken: string;
   interactiveFormToken: string;
   currentUserToken: string;
-  notificationChain: Promise<void>;
+  notificationQueue: OrderedBatchQueue<QueuedCodexNotification>;
   pendingUserInputRequests: Map<number, PendingUserInputRequest>;
   assistantMessageProjections: Map<string, string>;
   imageViewProjections: Map<string, string | null>;
@@ -726,6 +731,11 @@ type ManagedProcess = {
   modelGatewayLease: ModelGatewayLease;
   capabilityLeaseToken: TaskCapabilityLeaseToken | null;
   finalizationPromise: Promise<void> | null;
+};
+
+type QueuedCodexNotification = {
+  notification: JsonRpcNotification;
+  preparation: ManagedProcess["internalModelTransitionCompaction"];
 };
 
 type CachedSubAgentRuntime = {
@@ -4980,7 +4990,9 @@ export class AppServerProcessPool {
                 "conversation app-server is not initialized",
               );
             }
-            return this.handleServerRequest(current, request);
+            return current.notificationQueue
+              .enqueueOperation(() => this.prepareServerRequest(current, request))
+              .then(({ response }) => response);
           },
         });
       } catch (error) {
@@ -5029,7 +5041,14 @@ export class AppServerProcessPool {
         skillCreatorToken,
         interactiveFormToken,
         currentUserToken,
-        notificationChain: Promise.resolve(),
+        notificationQueue: new OrderedBatchQueue<QueuedCodexNotification>(
+          async entries => this.handleNotification(
+            managed,
+            entries.map(entry => entry.notification),
+            entries[0]?.preparation ?? null,
+          ),
+          { maxCount: RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT, maxBytes: RUNNER_EVENT_BATCH_TARGET_BYTES },
+        ),
         pendingUserInputRequests: new Map(),
         assistantMessageProjections: new Map(),
         imageViewProjections: new Map(),
@@ -5059,9 +5078,11 @@ export class AppServerProcessPool {
         this.rememberSubAgentMetadata(managed, notification);
         this.rememberSubAgentRuntime(managed, notification);
         const preparation = managed.internalModelTransitionCompaction;
-        managed.notificationChain = managed.notificationChain
-          .then(() =>
-            this.handleNotification(managed, notification, preparation),
+        void managed.notificationQueue
+          .enqueue(
+            { notification, preparation },
+            preparation ? null : runnerTextDeltaBatchKey(notification),
+            Buffer.byteLength(JSON.stringify(notification)),
           )
           .catch(() =>
             this.options.logger.error(
@@ -5494,9 +5515,11 @@ export class AppServerProcessPool {
 
   private async handleNotification(
     managed: ManagedProcess,
-    notification: JsonRpcNotification,
+    notifications: readonly JsonRpcNotification[],
     preparation: ManagedProcess["internalModelTransitionCompaction"] = null,
   ): Promise<void> {
+    const notification = notifications[0];
+    if (!notification) return;
     // Capture preparation at receipt time: the serialized delivery may run
     // after compaction finishes and the native thread has already forked.
     if (preparation) {
@@ -5651,14 +5674,21 @@ export class AppServerProcessPool {
       ...this.correlateNativeStopHook(managed, notification),
       subAgentLabelsByThreadId: managed.subAgentLabelsByThreadId,
     } satisfies CodexNotificationProjectionContext;
-    const events = mapCodexNotification(
-      notification,
+    const events = notifications.flatMap(entry => mapCodexNotification(
+      entry,
       {
         workspace: managed.workspace,
         codexHome: managed.codexHome,
       },
       projectionContext,
-    );
+    ));
+    // Only explicitly eligible, same-stream deltas can share a queue entry.
+    // They have no post-persistence lifecycle or asset-projection side effects.
+    // Every other notification remains a singleton and waits for this append.
+    if (events.length > 1 && events.every(isRunnerTextDeltaEvent)) {
+      await this.options.eventSink.publishBatch(managed.conversationId, events);
+      return;
+    }
     const imageViewSourcePath = completedImageViewSourcePath(notification);
     let persistedTerminalTurnStatus: CodexTurn["status"] | null = null;
     for (const event of events) {
@@ -6090,10 +6120,10 @@ export class AppServerProcessPool {
     return {};
   }
 
-  private async handleServerRequest(
+  private async prepareServerRequest(
     managed: ManagedProcess,
     request: JsonRpcRequest,
-  ): Promise<ToolRequestUserInputResponse> {
+  ): Promise<{ response: Promise<ToolRequestUserInputResponse> }> {
     const [mapped] = mapCodexServerRequest(request);
     if (!mapped || mapped.method !== "item/tool/requestUserInput") {
       throw new CodexProtocolError(
@@ -6159,7 +6189,7 @@ export class AppServerProcessPool {
       }
       throw error;
     }
-    return response;
+    return { response };
   }
 
   private async projectNativeAssetEvent(

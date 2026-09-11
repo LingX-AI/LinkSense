@@ -11,6 +11,7 @@ import {
   runnerConversationEventSchema,
   runnerEventBatchSchema,
   runnerEventBatchReceiptSchema,
+  RUNNER_EVENT_BATCH_MAX_COUNT,
 } from "../src/index.js";
 import type { RunnerCodexItem } from "../src/index.js";
 
@@ -39,7 +40,8 @@ describe("runner event delivery batches", () => {
   it("accepts an empty acknowledgement and rejects unbounded or malformed receipts", () => {
     expect(runnerEventBatchReceiptSchema.parse({ accepted_delivery_ids: [] })).toEqual({ accepted_delivery_ids: [] });
     expect(runnerEventBatchReceiptSchema.safeParse({ accepted_delivery_ids: ["invalid"] }).success).toBe(false);
-    expect(runnerEventBatchReceiptSchema.safeParse({ accepted_delivery_ids: Array(33).fill(entityId) }).success).toBe(false);
+    expect(runnerEventBatchReceiptSchema.safeParse({ accepted_delivery_ids: Array(RUNNER_EVENT_BATCH_MAX_COUNT).fill(entityId) }).success).toBe(true);
+    expect(runnerEventBatchReceiptSchema.safeParse({ accepted_delivery_ids: Array(RUNNER_EVENT_BATCH_MAX_COUNT + 1).fill(entityId) }).success).toBe(false);
   });
 });
 

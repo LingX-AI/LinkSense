@@ -44,6 +44,26 @@ function receipt(ids: string[]) {
 }
 
 describe("durable ordered event batches", () => {
+  it("recovers only the unacknowledged original events after publishing a batch and restarting", async () => {
+    const { outbox, createSink } = await fixture([]);
+    let requests = 0;
+    const first = createSink(async (_url, init) => {
+      requests += 1;
+      const batch = request(init);
+      return requests === 1 ? receipt(batch.events.slice(0, 1).map(entry => entry.deliveryId)) : new Response(null, { status: 503 });
+    });
+    const events = [delta("甲"), delta("乙"), delta("丙")];
+    await first.publishBatch(conversationId, events);
+    await vi.waitFor(async () => expect((await outbox.list(conversationId)).map(entry => entry.event)).toEqual(events.slice(1)));
+    await first.close(0);
+    const remaining = await outbox.list(conversationId);
+    const replay = vi.fn<typeof globalThis.fetch>(async (_url, init) => receipt(request(init).events.map(entry => entry.deliveryId)));
+    await createSink(replay).restore();
+    await vi.waitFor(async () => expect(await outbox.list(conversationId)).toEqual([]));
+    expect(replay).toHaveBeenCalledOnce();
+    expect(request(replay.mock.calls[0]![1]).events).toEqual(remaining.map(({ deliveryId, event }) => ({ deliveryId, event })));
+  });
+
   it("sends consecutive text and lifecycle events unchanged in one request", async () => {
     const events: RunnerCodexEvent[] = [
       { method: "turn/started", visibility: "user_visible", params: { threadId: "thread", turn: { id: "turn", status: "inProgress" } } },

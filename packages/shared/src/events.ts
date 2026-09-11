@@ -1690,8 +1690,35 @@ export const runnerConversationEventSchema = z.union([
   legacyRunnerConversationEventSchema,
 ]);
 
-export const RUNNER_EVENT_BATCH_MAX_COUNT = 32;
+export const RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT = 32;
+export const RUNNER_EVENT_BATCH_MAX_COUNT = 64;
 export const RUNNER_EVENT_BATCH_TARGET_BYTES = 256 * 1024;
+
+const runnerTextDeltaBatchIdentitySchema = z.object({
+  method: z.enum(["item/agentMessage/delta", "item/plan/delta", "item/reasoning/summaryTextDelta"]),
+  preparation: z.never().optional(),
+  params: z.object({
+    ...runnerCodexDeltaParamsSchema.shape,
+    summaryIndex: z.number().int().nonnegative().optional(),
+  }),
+}).refine(input => input.method !== "item/reasoning/summaryTextDelta" || input.params.summaryIndex !== undefined);
+
+/** Explicit eligibility, never a list of events that are required to flush. */
+export function runnerTextDeltaBatchKey(input: unknown): string | null {
+  const parsed = runnerTextDeltaBatchIdentitySchema.safeParse(input);
+  if (!parsed.success) return null;
+  const { method, params } = parsed.data;
+  return JSON.stringify([method, params.threadId, params.turnId, params.itemId, params.summaryIndex ?? null]);
+}
+
+export type RunnerTextDeltaEvent = Extract<RunnerCodexEvent, {
+  method: "item/agentMessage/delta" | "item/plan/delta" | "item/reasoning/summaryTextDelta";
+}>;
+
+export function isRunnerTextDeltaEvent(input: RunnerConversationEvent): input is RunnerTextDeltaEvent {
+  return runnerTextDeltaBatchKey(input) !== null;
+}
+
 export const runnerEventBatchSchema = z.strictObject({
   conversationId: z.uuid(),
   events: z.array(z.strictObject({

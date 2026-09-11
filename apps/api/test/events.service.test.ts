@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 
 import Fastify, { type FastifyRequest } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import type { ConversationEvent, Prisma } from "../src/generated/prisma/client.js";
 import { AppError } from "../src/lib/errors.js";
@@ -13,6 +14,7 @@ import {
 } from "../src/modules/events/routes.js";
 import { ConversationEventService } from "../src/modules/events/service.js";
 import type { AppServices } from "../src/services.js";
+import type { RunnerTextDeltaEvent } from "@linksense/shared";
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
 const OTHER_ID = "10000000-0000-4000-8000-000000000002";
@@ -52,6 +54,191 @@ afterEach(async () => {
 });
 
 describe("ConversationEventService sanitization and terminal semantics", () => {
+  it.each<RunnerTextDeltaEvent["method"]>(["item/agentMessage/delta", "item/plan/delta", "item/reasoning/summaryTextDelta"])("keeps batched %s equivalent to individual ingestion, including internal visibility", async method => {
+    const individual = eventFixture();
+    const batched = eventFixture();
+    individual.tx.conversationEvent.findFirst.mockImplementation(async () => {
+      const written = individual.tx.conversationEvent.create.mock.calls.length;
+      return written > 0 ? { sequenceNo: BigInt(written) } : null;
+    });
+    const entries = [textDeltaEntry("内部", 1), textDeltaEntry("正文🙂", 2), textDeltaEntry("继续", 3)].map((entry, index) => {
+      const visibility = index === 0 ? "internal_sanitized" as const : "user_visible" as const;
+      const event: RunnerTextDeltaEvent = method === "item/reasoning/summaryTextDelta"
+        ? { method, visibility, params: { ...entry.event.params, summaryIndex: 1 } }
+        : { method, visibility, params: entry.event.params };
+      return { deliveryId: entry.deliveryId, event };
+    });
+    for (const entry of entries) {
+      await individual.service.ingest(CONVERSATION_ID, entry.event, entry.deliveryId);
+    }
+    await batched.service.ingestTextDeltaBatch(CONVERSATION_ID, entries);
+    const expected = individual.redis.publishConversationEvent.mock.calls.map(([, event]) => event);
+    expect(expected).toHaveLength(2);
+    expect(batched.redis.publishConversationEvents).toHaveBeenCalledExactlyOnceWith(CONVERSATION_ID, expected);
+    expect(batched.tx.insertTextRows.mock.calls[0]?.[0]).toHaveLength(3);
+    expect(batched.tx.conversationTurn.updateMany).not.toHaveBeenCalled();
+    expect(batched.tx.conversationMessage.create).not.toHaveBeenCalled();
+    expect(batched.redis.releaseTurnSlot).not.toHaveBeenCalled();
+  });
+
+  it("commits consecutive text deltas together and publishes their unchanged payloads only after commit", async () => {
+    const fixture = eventFixture();
+    let releaseCommit: () => void = () => undefined;
+    const commit = new Promise<void>(resolve => { releaseCommit = resolve; });
+    fixture.prisma.$transaction.mockImplementationOnce(async action => {
+      const result = await action(fixture.tx);
+      await commit;
+      return result;
+    });
+    const entries = [textDeltaEntry("甲🙂", 1), textDeltaEntry("乙", 2)];
+    const ingest = fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, entries);
+    try {
+      await vi.waitFor(() => expect(fixture.tx.insertTextRows).toHaveBeenCalledOnce());
+      expect(fixture.redis.publishConversationEvent).not.toHaveBeenCalled();
+      expect(fixture.redis.publishConversationEvents).not.toHaveBeenCalled();
+      releaseCommit();
+      await expect(ingest).resolves.toEqual({ accepted: true });
+      expect(fixture.prisma.$transaction).toHaveBeenCalledOnce();
+      expect(fixture.tx.conversationEvent.create).not.toHaveBeenCalled();
+      expect(fixture.redis.publishConversationEvents).toHaveBeenCalledExactlyOnceWith(CONVERSATION_ID, entries.map((entry, index) => expect.objectContaining({
+          id: entry.deliveryId, sequence_no: index + 1, event_type: entry.event.method,
+          payload: { schema_version: 2, source: "codex_app_server", method: entry.event.method, params: entry.event.params },
+        })));
+      expect(fixture.redis.publishConversationEvent).not.toHaveBeenCalled();
+      expect(fixture.tx.conversationMessage.create).not.toHaveBeenCalled();
+      expect(fixture.tx.conversationTurn.updateMany).not.toHaveBeenCalled();
+      expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+    } finally {
+      releaseCommit();
+      await ingest.catch(() => undefined);
+    }
+  });
+
+  it("deduplicates a replayed text group and restores input order even when the database returns rows in reverse", async () => {
+    const fixture = eventFixture();
+    const entries = [textDeltaEntry("a", 1), textDeltaEntry("b", 2)];
+    const create = fixture.tx.insertTextRows.getMockImplementation();
+    if (!create) throw new Error("missing create implementation");
+    fixture.tx.insertTextRows.mockImplementation(async input => (await create(input)).reverse());
+    await fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, entries);
+    fixture.tx.conversationEvent.findMany.mockResolvedValue(textDeltaRows(entries));
+    await fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, entries);
+    expect(fixture.tx.insertTextRows).toHaveBeenCalledOnce();
+    expect(fixture.redis.publishConversationEvents).toHaveBeenNthCalledWith(2, CONVERSATION_ID, [
+      expect.objectContaining({ id: entries[0]?.deliveryId, sequence_no: 1 }),
+      expect.objectContaining({ id: entries[1]?.deliveryId, sequence_no: 2 }),
+    ]);
+  });
+
+  it("treats differently cased delivery UUIDs as the same durable event, matching PostgreSQL", async () => {
+    const fixture = eventFixture();
+    const first = textDeltaEntry("a", 1);
+    first.deliveryId = "a0000000-0000-4000-8000-00000000000b";
+    const upper = { ...first, deliveryId: first.deliveryId.toUpperCase() };
+    const second = textDeltaEntry("b", 2);
+    await fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, [upper, second, first]);
+    expect(fixture.tx.insertTextRows).toHaveBeenCalledOnce();
+    expect(fixture.tx.insertTextRows.mock.calls[0]?.[0].map(row => row.id)).toEqual([first.deliveryId, second.deliveryId]);
+    fixture.tx.conversationEvent.findMany.mockResolvedValue(textDeltaRows([first, second]));
+    await fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, [upper, second]);
+    expect(fixture.tx.insertTextRows).toHaveBeenCalledOnce();
+    expect(fixture.redis.publishConversationEvents).toHaveBeenNthCalledWith(2, CONVERSATION_ID, [
+      expect.objectContaining({ id: first.deliveryId, sequence_no: 1 }),
+      expect.objectContaining({ id: second.deliveryId, sequence_no: 2 }),
+    ]);
+  });
+
+  it("does not write or acknowledge text whose turn projection is pending", async () => {
+    const fixture = eventFixture();
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValue(null);
+    await expect(fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, [textDeltaEntry("a", 1), textDeltaEntry("b", 2)])).resolves.toMatchObject({ accepted: false, reason_code: "TURN_PROJECTION_PENDING" });
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+    expect(fixture.redis.publishConversationEvent).not.toHaveBeenCalled();
+  });
+
+  it("checks the active branch again inside the text transaction", async () => {
+    const fixture = eventFixture();
+    fixture.tx.$queryRaw.mockResolvedValueOnce([]);
+    await expect(fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, [textDeltaEntry("a", 1), textDeltaEntry("b", 2)])).resolves.toMatchObject({ accepted: true, ignored: true, reason_code: "STALE_BRANCH" });
+    expect(fixture.tx.insertTextRows).not.toHaveBeenCalled();
+    expect(fixture.redis.publishConversationEvent).not.toHaveBeenCalled();
+  });
+
+  it("propagates text insertion failure without publishing uncommitted events or applying completion effects", async () => {
+    const fixture = eventFixture();
+    fixture.tx.insertTextRows.mockRejectedValueOnce(new Error("disk write failed"));
+    await expect(fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, [textDeltaEntry("a", 1), textDeltaEntry("b", 2)])).rejects.toThrow("disk write failed");
+    expect(fixture.redis.publishConversationEvent).not.toHaveBeenCalled();
+    expect(fixture.tx.conversationTurn.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects a text group spanning native streams before starting a transaction", async () => {
+    const fixture = eventFixture();
+    const second = textDeltaEntry("b", 2);
+    second.event.params.turnId = "another-turn";
+    await expect(fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, [textDeltaEntry("a", 1), second])).rejects.toThrow();
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a delivery id belonging to another conversation without exposing or overwriting its event", async () => {
+    const fixture = eventFixture();
+    const entries = [textDeltaEntry("a", 1), textDeltaEntry("b", 2)];
+    fixture.tx.conversationEvent.findMany.mockResolvedValue([{ ...eventRow(), id: entries[0]?.deliveryId ?? "", conversationId: OTHER_ID, eventType: "item/agentMessage/delta" }]);
+    await expect(fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, entries)).rejects.toThrow("delivery id collision");
+    expect(fixture.tx.insertTextRows).not.toHaveBeenCalled();
+    expect(fixture.redis.publishConversationEvent).not.toHaveBeenCalled();
+  });
+
+  it("retries Redis notification after commit without inserting the text again", async () => {
+    const fixture = eventFixture();
+    const entries = [textDeltaEntry("a", 1), textDeltaEntry("b", 2)];
+    fixture.redis.publishConversationEvents.mockRejectedValueOnce(new Error("redis unavailable"));
+    await expect(fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, entries)).rejects.toThrow("redis unavailable");
+    fixture.tx.conversationEvent.findMany.mockResolvedValue(textDeltaRows(entries));
+    await expect(fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, entries)).resolves.toEqual({ accepted: true });
+    expect(fixture.tx.insertTextRows).toHaveBeenCalledOnce();
+    expect(fixture.redis.publishConversationEvents).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects an incomplete insert result without publishing any part of the text group", async () => {
+    const fixture = eventFixture();
+    const entries = [textDeltaEntry("a", 1), textDeltaEntry("b", 2)];
+    fixture.tx.insertTextRows.mockResolvedValueOnce([{ id: entries[0]!.deliveryId, createdAt: NOW }]);
+    await expect(fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, entries)).rejects.toThrow("did not persist every entry");
+    expect(fixture.redis.publishConversationEvents).not.toHaveBeenCalled();
+    expect(fixture.tx.conversationTurn.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("keeps internal text in storage while excluding it from Redis notifications", async () => {
+    const fixture = eventFixture();
+    const hidden = textDeltaEntry("internal", 1);
+    hidden.event.visibility = "internal_sanitized";
+    const visible = textDeltaEntry("visible", 2);
+    await fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, [hidden, visible]);
+    expect(fixture.tx.insertTextRows.mock.calls[0]?.[0]).toHaveLength(2);
+    expect(fixture.redis.publishConversationEvents).toHaveBeenCalledExactlyOnceWith(CONVERSATION_ID, [expect.objectContaining({ id: visible.deliveryId, sequence_no: 2 })]);
+  });
+
+  it("binds Unicode, quotes and SQL-like model output as data and preserves it in the published text", async () => {
+    const fixture = eventFixture();
+    const entries = [textDeltaEntry("引号'；DROP TABLE conversation_events; --", 1), textDeltaEntry('\\路径\n🙂 "正文"', 2)];
+    await fixture.service.ingestTextDeltaBatch(CONVERSATION_ID, entries);
+    const query = fixture.tx.$queryRaw.mock.calls.map(([value]) => value).find(value => "sql" in value && value.sql.includes("INSERT INTO conversation_events"));
+    if (!query || !("sql" in query)) throw new Error("missing parameterized text insert");
+    expect(query.sql).not.toContain("DROP TABLE");
+    expect(query.values.slice(0, 2)).toEqual([CONVERSATION_ID, TURN_ID]);
+    const encoded = query.values[2];
+    if (typeof encoded !== "string") throw new Error("missing bound text rows");
+    expect(JSON.parse(encoded)).toEqual(entries.map((entry, index) => ({
+      id: entry.deliveryId, sequence_no: String(index + 1), event_type: entry.event.method,
+      visibility: entry.event.visibility, sse_event_id: `${CONVERSATION_ID}:${index + 1}`,
+      payload_json: { schema_version: 2, source: "codex_app_server", method: entry.event.method, params: entry.event.params },
+    })));
+    expect(fixture.redis.publishConversationEvents).toHaveBeenCalledExactlyOnceWith(CONVERSATION_ID, entries.map(entry => expect.objectContaining({
+      id: entry.deliveryId, payload: expect.objectContaining({ params: entry.event.params }),
+    })));
+  });
+
   it.each(["item/started", "item/completed"])("publishes preparation %s before the user turn exists without changing execution state", async (method) => {
     const fixture = eventFixture();
     fixture.tx.conversationTurnStartIntent.findFirst.mockResolvedValue({ projectionTurnId: TURN_ID });
@@ -5961,6 +6148,20 @@ function memoryUsagePayload() {
   };
 }
 
+function textDeltaEntry(delta: string, index: number): { deliveryId: string; event: RunnerTextDeltaEvent } {
+  return {
+    deliveryId: `60000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    event: { method: "item/agentMessage/delta", visibility: "user_visible", params: { threadId: "codex-thread-1", turnId: "codex-turn-1", itemId: "stream-item", delta } },
+  };
+}
+
+function textDeltaRows(entries: ReturnType<typeof textDeltaEntry>[]): StoredEventFixture[] {
+  return entries.map(({ deliveryId, event }, index) => ({
+    ...eventRow(BigInt(index + 1)), id: deliveryId, eventType: event.method,
+    payloadJson: { schema_version: 2, source: "codex_app_server", method: event.method, params: event.params },
+  }));
+}
+
 function eventFixture(
   titleRefresh?: {
     schedule(conversationId: string): void;
@@ -6029,7 +6230,8 @@ function eventFixture(
     ),
   };
   const redis = {
-    publishConversationEvent: vi.fn(async () => undefined),
+    publishConversationEvent: vi.fn<(conversationId: string, event: unknown) => Promise<void>>(async () => undefined),
+    publishConversationEvents: vi.fn(async () => undefined),
     releaseTurnSlot: vi.fn(async () => undefined),
   };
   const confirmRecovery = vi.fn(async () => ({ confirmed: true as const }));
@@ -6068,11 +6270,20 @@ function transactionFixture(options?: {
         ...data,
       }) as StoredEventFixture,
   );
+  const insertTextRows = vi.fn(async (data: Array<{ id: string }>) => data.map(({ id }) => ({ id: id.toLowerCase(), createdAt: NOW })));
   return {
-    $queryRaw: vi.fn(async () => [{ id: CONVERSATION_ID }]),
+    insertTextRows,
+    $queryRaw: vi.fn(async (query: Prisma.Sql | TemplateStringsArray) => {
+      if ("sql" in query && query.sql.includes("INSERT INTO conversation_events")) {
+        const encoded = query.values[2];
+        if (typeof encoded !== "string") throw new Error("missing bound text rows");
+        return insertTextRows(z.array(z.object({ id: z.string() }).passthrough()).parse(JSON.parse(encoded)));
+      }
+      return [{ id: CONVERSATION_ID }];
+    }),
     $executeRaw: vi.fn(async () => 1),
     conversationEvent: {
-      findMany: vi.fn(async () => [] as Array<ReturnType<typeof eventRow>>),
+      findMany: vi.fn(async () => [] as StoredEventFixture[]),
       findFirst: vi.fn(
         async () =>
           null as {

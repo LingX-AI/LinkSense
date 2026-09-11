@@ -16,6 +16,9 @@ import {
   conversationEventSchema,
   runnerCodexGoalSchema,
   runnerCodexEventSchema,
+  runnerEventBatchSchema,
+  runnerTextDeltaBatchKey,
+  isRunnerTextDeltaEvent,
   runnerCodexErrorMessageSchema,
   threadGoalStatusSchema,
   type RunnerHeartbeat,
@@ -38,6 +41,8 @@ import { projectKnowledgeCitations } from "./knowledge-citations.js";
 import { createProjectedAssistantMessage } from "./knowledge-message-projection.js";
 import type { TurnKnowledgeSourceStore } from "./knowledge-source-store.js";
 import { nextConversationEventSequence } from "./sequence.js";
+import { methodEventPayload } from "./method-event-payload.js";
+import { persistTextDeltaBatch, type TextDeltaDelivery } from "./text-delta-batch.js";
 import { readConversationEventHistory } from "./history.js";
 import { isStoppedDeploymentEvent } from "./deployment-fence.js";
 import type { UsageAnalyticsService } from "../usage/service.js";
@@ -280,6 +285,34 @@ export class ConversationEventService {
       event_id: eventId,
       sequence: Number(result.event.sequenceNo),
     };
+  }
+
+  async ingestTextDeltaBatch(
+    conversationId: string,
+    input: readonly TextDeltaDelivery[],
+  ): Promise<{ accepted: boolean; ignored?: boolean; reason_code?: string }> {
+    const entries = runnerEventBatchSchema.parse({ conversationId, events: input }).events.map(entry => {
+      if (!isRunnerTextDeltaEvent(entry.event)) throw new Error("runner text batch contains a non-text event");
+      return { deliveryId: entry.deliveryId, event: entry.event };
+    });
+    const first = entries[0];
+    const key = first ? runnerTextDeltaBatchKey(first.event) : null;
+    if (!first || !key || entries.some(entry => runnerTextDeltaBatchKey(entry.event) !== key)) {
+      throw new Error("runner text batch spans native streams");
+    }
+    const { threadId, turnId } = first.event.params;
+    const projection = await this.resolveTurnProjection(conversationId, threadId, turnId);
+    if (projection.status === "pending") return { accepted: false, reason_code: "TURN_PROJECTION_PENDING" };
+    if (projection.status === "stale") return { accepted: true, ignored: true, reason_code: "STALE_BRANCH" };
+    const rows = await this.prisma.$transaction(async tx => {
+      if (!(await this.lockActiveConversationBranch(tx, conversationId, threadId))) return null;
+      return persistTextDeltaBatch(tx, conversationId, projection.turn.id, entries);
+    });
+    if (!rows) return { accepted: true, ignored: true, reason_code: "STALE_BRANCH" };
+    await this.redis.publishConversationEvents(conversationId, rows
+      .filter(row => row.visibility !== "internal_sanitized")
+      .map(row => projectEvent(row, asObject(row.payloadJson))));
+    return { accepted: true };
   }
 
   async ingest(
@@ -1170,28 +1203,19 @@ export class ConversationEventService {
         tx,
         conversationId,
       );
-      const payload = {
-        schema_version:
-          input.method === "linksense/form/request"
-            ? (1 as const)
-            : (2 as const),
-        source:
-          input.method === "linksense/form/request"
-            ? ("linksense_runner" as const)
-            : ("codex_app_server" as const),
-        method: input.method,
-        params:
-          completedMessageProjection && isCompletedAssistantOutput
-            ? {
-                ...input.params,
-                item: {
-                  ...nativeItem,
-                  text: completedMessageProjection.contentText,
-                },
-              }
-            : input.params,
-        ...(Object.keys(local).length > 0 ? { local } : {}),
-      };
+      const payload = methodEventPayload(
+        input.method,
+        completedMessageProjection && isCompletedAssistantOutput
+          ? {
+              ...input.params,
+              item: {
+                ...nativeItem,
+                text: completedMessageProjection.contentText,
+              },
+            }
+          : input.params,
+        local,
+      );
       const event = await tx.conversationEvent.create({
         data: {
           id: deliveryId,

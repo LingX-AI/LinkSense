@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { open, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
+import { open, mkdir, readFile, readdir, rename, rm, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 
 import { z } from "zod";
 
 import {
+  RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT,
   legacyRunnerConversationEventSchema,
   runnerCodexEventSchema,
   runnerLinkSenseEventSchema,
@@ -62,55 +63,79 @@ export class RunnerEventOutboxStore {
     conversationId: string,
     event: LinkSensePublishedEvent,
   ): Promise<RunnerEventOutboxEntry> {
-    return this.withAppendLock(conversationId, async () => {
+    const [entry] = await this.appendBatch(conversationId, [event]);
+    if (!entry) throw new Error("runner event append returned no entry");
+    return entry;
+  }
+
+  /**
+   * Each event keeps its own atomic file and delivery id. File syncs may overlap,
+   * but renames stay ordered and the shared directory is synced before success.
+   * A failed append may leave a recoverable prefix, just as individual appends do.
+   */
+  async appendBatch(
+    conversationId: string,
+    events: readonly LinkSensePublishedEvent[],
+  ): Promise<RunnerEventOutboxEntry[]> {
+    if (events.length === 0) return [];
+    if (events.length > RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT) {
+      throw new RangeError("runner event append batch is too large");
+    }
+    // Validate and snapshot the entire input before starting any filesystem I/O.
+    const records = events.map((event): PersistedOutboxEntry => {
       const codexEvent = runnerCodexEventSchema.safeParse(event);
-      const sanitizedEvent = codexEvent.success
-        ? codexEvent.data
-        : runnerLinkSenseEventSchema.parse(event);
+      return codexEvent.success
+        ? { schema_version: 2, delivery_id: randomUUID(), event: codexEvent.data }
+        : { schema_version: 3, delivery_id: randomUUID(), event: runnerLinkSenseEventSchema.parse(event) };
+    });
+    return this.withAppendLock(conversationId, async () => {
       const directory = this.directoryFor(conversationId);
       await mkdir(directory, { recursive: true, mode: 0o700 });
-      const sequence = await this.allocateSequence(conversationId, directory);
-      const deliveryId = randomUUID();
-      const fileName = `${String(sequence).padStart(16, "0")}-${deliveryId}.json`;
-      const finalPath = join(directory, fileName);
-      const temporaryPath = join(directory, `.pending-${deliveryId}`);
-      const persisted: PersistedOutboxEntry = codexEvent.success
-        ? {
-            schema_version: 2,
-            delivery_id: deliveryId,
-            event: codexEvent.data,
-          }
-        : {
-            schema_version: 3,
-            delivery_id: deliveryId,
-            event: runnerLinkSenseEventSchema.parse(sanitizedEvent),
-          };
-
-      const handle = await open(temporaryPath, "wx", 0o600);
-      try {
-        await handle.writeFile(JSON.stringify(persisted), "utf8");
-        await handle.sync();
-      } catch (error) {
-        await handle.close().catch(() => undefined);
-        await rm(temporaryPath, { force: true }).catch(() => undefined);
-        throw error;
+      const staged: Array<{ entry: RunnerEventOutboxEntry; temporaryPath: string; contents: string }> = [];
+      for (const record of records) {
+        const sequence = await this.allocateSequence(conversationId, directory);
+        const deliveryId = record.delivery_id;
+        staged.push({
+          entry: {
+            conversationId, deliveryId, sequence, event: record.event,
+            path: join(directory, `${String(sequence).padStart(16, "0")}-${deliveryId}.json`),
+          },
+          temporaryPath: join(directory, `.pending-${deliveryId}`),
+          contents: JSON.stringify(record),
+        });
       }
-      await handle.close();
       try {
-        await rename(temporaryPath, finalPath);
+        // Wait for every writer before cleanup, including when another fails.
+        // Otherwise a late writer could recreate an abandoned temporary file.
+        const handles: FileHandle[] = [];
+        let closeFailure: PromiseRejectedResult | undefined;
+        try {
+          const writes = await Promise.allSettled(staged.map(async ({ temporaryPath, contents }) => {
+            const handle = await open(temporaryPath, "wx", 0o600);
+            handles.push(handle);
+            await handle.writeFile(contents, "utf8");
+          }));
+          const writeFailure = writes.find(result => result.status === "rejected");
+          if (writeFailure?.status === "rejected") throw writeFailure.reason;
+          // Stage all data first so syncs can share the filesystem's journal
+          // commit. Every file is still explicitly synced before any rename.
+          const syncs = await Promise.allSettled(handles.map(handle => handle.sync()));
+          const syncFailure = syncs.find(result => result.status === "rejected");
+          if (syncFailure?.status === "rejected") throw syncFailure.reason;
+        } finally {
+          const closes = await Promise.allSettled(handles.map(handle => handle.close()));
+          closeFailure = closes.find(result => result.status === "rejected");
+        }
+        if (closeFailure) throw closeFailure.reason;
+        for (const { temporaryPath, entry } of staged) {
+          await rename(temporaryPath, entry.path);
+        }
         await syncDirectory(directory);
       } catch (error) {
-        await rm(temporaryPath, { force: true }).catch(() => undefined);
+        await Promise.allSettled(staged.map(({ temporaryPath }) => rm(temporaryPath, { force: true })));
         throw error;
       }
-
-      return {
-        conversationId,
-        deliveryId,
-        event: sanitizedEvent,
-        path: finalPath,
-        sequence,
-      };
+      return staged.map(({ entry }) => entry);
     });
   }
 
@@ -162,18 +187,21 @@ export class RunnerEventOutboxStore {
       }
       const candidates = files.filter(file => file.isFile() && outboxFilePattern.test(file.name))
         .sort((left, right) => left.name.localeCompare(right.name)).slice(0, limit);
+      // Files are immutable while this lock is held. Read the bounded window
+      // concurrently, then apply byte limits and failures in sequence order.
+      const reads = await Promise.allSettled(candidates.map(file =>
+        this.readEntry(conversationId, directory, file.name),
+      ));
       const entries: RunnerEventOutboxEntry[] = [];
       let bytes = Buffer.byteLength(JSON.stringify({ conversationId, events: [] }));
-      for (const file of candidates) {
-        let entry;
-        try {
-          entry = await this.readEntry(conversationId, directory, file.name);
-        } catch (error) {
+      for (const result of reads) {
+        if (result.status === "rejected") {
           // Do not hold valid earlier records behind a corrupt later record.
           // The corrupt head remains on disk and fails the next read explicitly.
           if (entries.length > 0) break;
-          throw error;
+          throw result.reason;
         }
+        const entry = result.value;
         if (!entry) continue;
         const entryBytes = Buffer.byteLength(JSON.stringify({ deliveryId: entry.deliveryId, event: entry.event })) + 1;
         if (entries.length > 0 && bytes + entryBytes > targetBytes) break;
