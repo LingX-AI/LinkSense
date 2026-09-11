@@ -1341,8 +1341,8 @@ describe("capabilityRoutes", () => {
           contains_mcp_server: false,
           contains_scripts: false,
           supply_chain_review: {
-            scanner_version: "1.0.0",
-            ruleset_version: "2026-09-10",
+            scanner_version: "1.1.0",
+            ruleset_version: "2026-09-11",
             verdict: "passed",
             finding_count: 0,
             findings: [],
@@ -1376,8 +1376,8 @@ describe("capabilityRoutes", () => {
       expect.objectContaining({
         action: "capability_installed",
         metadata: expect.objectContaining({
-          security_scanner_version: "1.0.0",
-          security_ruleset_version: "2026-09-10",
+          security_scanner_version: "1.1.0",
+          security_ruleset_version: "2026-09-11",
           security_content_sha256:
             body.data.risk_summary.supply_chain_review.content_sha256,
           security_verdict: "passed",
@@ -1436,8 +1436,8 @@ describe("capabilityRoutes", () => {
     expect(previewResponse.statusCode).toBe(202);
     const previewBody = previewResponse.json();
     expect(previewBody.data.risk_summary.supply_chain_review).toMatchObject({
-      scanner_version: "1.0.0",
-      ruleset_version: "2026-09-10",
+      scanner_version: "1.1.0",
+      ruleset_version: "2026-09-11",
       verdict: "blocked",
       highest_severity: "critical",
       finding_count: 1,

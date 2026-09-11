@@ -15,6 +15,7 @@ import {
   UserHomeCapabilityPublicationDeferredError,
 } from "../src/modules/capabilities/user-home-materializer.js";
 import { hashMarketplacePackage } from "../src/modules/marketplace/package.js";
+import { scanCapabilitySupplyChain } from "../src/modules/capabilities/supply-chain-scanner.js";
 
 const TASK_ID = "01900000-0000-7000-8000-000000000011";
 const USER_ID = "10000000-0000-4000-8000-000000000001";
@@ -1233,6 +1234,54 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       }),
     ).rejects.toMatchObject({ code: "CAPABILITY_NOT_FOUND" });
     expect(home.reconcile).not.toHaveBeenCalled();
+  });
+
+  it("revalidates an approved capability content hash at task admission", async () => {
+    const root = await capabilityRoot();
+    const storagePath = join(root, "primary");
+    await writeFile(join(storagePath, "SKILL.md"), "# Approved skill\n");
+    const approved = {
+      ...capability(PRIMARY_PLUGIN_ID, storagePath, false),
+      type: "skill",
+      name: "approved-skill",
+      riskSummaryJson: {
+        supply_chain_review: await scanCapabilitySupplyChain(storagePath),
+      },
+    };
+    const home = materializer();
+    const preflight = new DatabaseConversationPreflight(
+      prismaFixture([approved]) as never,
+      {
+        resolveForCapability: vi.fn(),
+        commitUsage: vi.fn(async () => undefined),
+      } as never,
+      root,
+      "credential-source-secret-for-tests-1234567890",
+      home,
+    );
+
+    await expect(
+      preflight.resolve({
+        userId: USER_ID,
+        conversationId: TASK_ID,
+        priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
+      }),
+    ).resolves.toMatchObject({
+      capabilities: [{ id: PRIMARY_PLUGIN_ID, type: "skill" }],
+    });
+
+    await writeFile(join(storagePath, "SKILL.md"), "# Changed after approval\n");
+    await expect(
+      preflight.resolve({
+        userId: USER_ID,
+        conversationId: TASK_ID,
+        priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_PACKAGE",
+      params: { reason_code: "security_review_stale" },
+    });
+    expect(home.reconcile).toHaveBeenCalledTimes(1);
   });
 
   it("accepts an intact marketplace package and fails closed after it is modified", async () => {

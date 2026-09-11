@@ -118,8 +118,9 @@ describe("CapabilityRiskSummary", () => {
           mcp_environment_references: [],
           dependency_commands: [],
           supply_chain_review: {
-            scanner_version: "1.0.0",
-            ruleset_version: "2026-09-10",
+            scanner_version: "1.1.0",
+            ruleset_version: "2026-09-11",
+            scanned_at: "2026-09-11T08:00:00.000Z",
             content_digest_algorithm: "linksense-capability-package-v1",
             content_sha256: "a".repeat(64),
             verdict: "blocked",
@@ -127,10 +128,13 @@ describe("CapabilityRiskSummary", () => {
             finding_count: 1,
             findings: [
               {
+                scanner_version: "1.1.0",
                 rule_id: "embedded_access_token",
                 severity: "critical",
                 path: "SKILL.md",
                 line: 5,
+                evidence: `sha256:${"b".repeat(64)}`,
+                remediation: "review_or_remove:embedded_access_token",
               },
             ],
             findings_truncated: false,

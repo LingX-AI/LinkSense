@@ -2943,7 +2943,8 @@ export const enUS = {
     },
     securityReview: {
       title: "Supply-chain security scan",
-      summary: "Scanner {{version}} · {{count}} findings",
+      summary_one: "Scanner {{version}} · {{count}} finding",
+      summary_other: "Scanner {{version}} · {{count}} findings",
       contentHash: "Content hash: {{hash}}",
       findingsTruncated:
         "Only the first 200 findings are shown. The full count remains in the scan result.",
@@ -2969,6 +2970,9 @@ export const enUS = {
         reverse_shell: "Contains reverse-shell behavior",
         destructive_system_command: "Contains a destructive system command",
         startup_persistence: "Configures system startup persistence",
+        fork_bomb: "Contains a process fork bomb",
+        unscannable_executable:
+          "Contains executable binary content that cannot be scanned",
         oversized_scannable_file:
           "A scannable file exceeds the security review size limit",
       },

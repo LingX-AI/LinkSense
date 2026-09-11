@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -15,6 +15,8 @@ import {
 } from "../src/modules/capabilities/supply-chain-scanner.js";
 
 const temporaryDirectories: string[] = [];
+const scanTime = new Date("2026-09-11T08:00:00.000Z");
+const scanOptions = { now: () => scanTime };
 
 afterEach(async () => {
   await Promise.all(
@@ -31,13 +33,14 @@ describe("capability supply-chain scanner", () => {
       "references/guide.md": "Use the provided source material.\n",
     });
 
-    const first = await scanCapabilitySupplyChain(root);
-    const second = await scanCapabilitySupplyChain(root);
+    const first = await scanCapabilitySupplyChain(root, scanOptions);
+    const second = await scanCapabilitySupplyChain(root, scanOptions);
 
     expect(first).toEqual(second);
     expect(first).toMatchObject({
       scanner_version: capabilitySupplyChainScannerVersion,
       ruleset_version: capabilitySupplyChainRulesetVersion,
+      scanned_at: scanTime.toISOString(),
       verdict: "passed",
       highest_severity: null,
       finding_count: 0,
@@ -59,16 +62,19 @@ describe("capability supply-chain scanner", () => {
       ].join("\n"),
     });
 
-    const review = await scanCapabilitySupplyChain(root);
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
 
     expect(review.verdict).toBe("warnings");
     expect(review.highest_severity).toBe("medium");
-    expect(review.findings).toContainEqual({
+    expect(review.findings).toContainEqual(expect.objectContaining({
+      scanner_version: capabilitySupplyChainScannerVersion,
       rule_id: "shell_command_execution",
       severity: "medium",
       path: "scripts/run.js",
       line: 1,
-    });
+      evidence: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+      remediation: "review_or_remove:shell_command_execution",
+    }));
     expect(() => assertCapabilitySupplyChainApproval(review)).not.toThrow();
   });
 
@@ -78,7 +84,7 @@ describe("capability supply-chain scanner", () => {
       "SKILL.md": `---\nname: leaked-secret\n---\n\nToken: ${token}\n`,
     });
 
-    const review = await scanCapabilitySupplyChain(root);
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
 
     expect(review).toMatchObject({
       verdict: "blocked",
@@ -109,12 +115,12 @@ describe("capability supply-chain scanner", () => {
     const root = await packageDirectory({
       "SKILL.md": "---\nname: changed-skill\n---\n\nOriginal\n",
     });
-    const review = await scanCapabilitySupplyChain(root);
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
     await writeFile(
       join(root, "SKILL.md"),
       "---\nname: changed-skill\n---\n\nChanged\n",
     );
-    const changed = await scanCapabilitySupplyChain(root);
+    const changed = await scanCapabilitySupplyChain(root, scanOptions);
 
     expect(changed.content_sha256).not.toBe(review.content_sha256);
     expect(() =>
@@ -128,6 +134,52 @@ describe("capability supply-chain scanner", () => {
         params: { reason_code: "security_review_stale" },
       }),
     );
+  });
+
+  it("blocks a fork bomb even when it is stored in an extensionless file", async () => {
+    const root = await packageDirectory({
+      "SKILL.md": "---\nname: unsafe-skill\n---\n",
+      payload: ":(){ :|:& };:\n",
+    });
+
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+    expect(review).toMatchObject({
+      verdict: "blocked",
+      highest_severity: "critical",
+      findings: [
+        expect.objectContaining({
+          rule_id: "fork_bomb",
+          severity: "critical",
+          path: "payload",
+          line: 1,
+        }),
+      ],
+    });
+  });
+
+  it("fails closed for executable binary payloads that cannot be scanned", async () => {
+    const root = await packageDirectory({
+      "SKILL.md": "---\nname: binary-skill\n---\n",
+      "bin/tool": "binary\0payload",
+    });
+    await chmod(join(root, "bin/tool"), 0o700);
+
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+    expect(review).toMatchObject({
+      verdict: "blocked",
+      highest_severity: "critical",
+      findings: [
+        expect.objectContaining({
+          rule_id: "unscannable_executable",
+          severity: "critical",
+          path: "bin/tool",
+          line: null,
+        }),
+      ],
+    });
+    expect(review.skipped_file_count).toBe(1);
   });
 });
 

@@ -105,8 +105,8 @@ describe("MarketplaceService", () => {
     expect(
       firstSubmission.latest_release.risk_summary.supply_chain_review,
     ).toMatchObject({
-      scanner_version: "1.0.0",
-      ruleset_version: "2026-09-10",
+      scanner_version: "1.1.0",
+      ruleset_version: "2026-09-11",
       verdict: "passed",
       content_sha256: firstSubmission.latest_release.content_sha256,
     });
@@ -149,8 +149,8 @@ describe("MarketplaceService", () => {
         action: "marketplace_release_reviewed",
         targetId: firstReleaseId,
         metadata: expect.objectContaining({
-          security_scanner_version: "1.0.0",
-          security_ruleset_version: "2026-09-10",
+          security_scanner_version: "1.1.0",
+          security_ruleset_version: "2026-09-11",
           security_content_sha256:
             firstSubmission.latest_release.content_sha256,
           security_verdict: "passed",

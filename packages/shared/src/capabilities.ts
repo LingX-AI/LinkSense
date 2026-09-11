@@ -91,8 +91,8 @@ export const capabilityMcpEnvironmentReferenceSchema = z.strictObject({
   http_header: z.string().trim().min(1).max(256).nullable(),
 });
 
-export const capabilitySupplyChainScannerVersion = "1.0.0" as const;
-export const capabilitySupplyChainRulesetVersion = "2026-09-10" as const;
+export const capabilitySupplyChainScannerVersion = "1.1.0" as const;
+export const capabilitySupplyChainRulesetVersion = "2026-09-11" as const;
 export const capabilitySupplyChainContentDigestAlgorithm =
   "linksense-capability-package-v1" as const;
 
@@ -114,6 +114,8 @@ export const capabilitySupplyChainRuleIds = [
   "reverse_shell",
   "destructive_system_command",
   "startup_persistence",
+  "fork_bomb",
+  "unscannable_executable",
   "oversized_scannable_file",
 ] as const;
 export const capabilitySupplyChainRuleIdSchema = z.enum(
@@ -121,15 +123,19 @@ export const capabilitySupplyChainRuleIdSchema = z.enum(
 );
 
 export const capabilitySupplyChainFindingSchema = z.strictObject({
+  scanner_version: z.literal(capabilitySupplyChainScannerVersion),
   rule_id: capabilitySupplyChainRuleIdSchema,
   severity: capabilitySupplyChainSeveritySchema,
   path: z.string().min(1).max(1_024),
   line: z.number().int().positive().nullable(),
+  evidence: z.string().min(1).max(160),
+  remediation: z.string().min(1).max(160),
 });
 
 export const capabilitySupplyChainReviewSchema = z.strictObject({
   scanner_version: z.string().regex(/^\d+\.\d+\.\d+$/u),
   ruleset_version: z.string().min(1).max(64),
+  scanned_at: timestampSchema,
   content_digest_algorithm: z.literal(
     capabilitySupplyChainContentDigestAlgorithm,
   ),

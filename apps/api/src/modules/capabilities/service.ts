@@ -5,7 +5,6 @@ import { dirname, extname, join } from "node:path";
 import {
   builtInCapabilityDefinitions,
   builtInCapabilityId,
-  capabilitySupplyChainReviewSchema,
 } from "@linksense/shared";
 import { lock } from "proper-lockfile";
 
@@ -28,6 +27,7 @@ import {
 } from "./preview.js";
 import {
   assertCapabilitySupplyChainApproval,
+  capabilitySupplyChainReviewFromRiskSummary,
   scanCapabilitySupplyChain,
 } from "./supply-chain-scanner.js";
 import {
@@ -1441,15 +1441,7 @@ function supplyChainAuditMetadata(
 function capabilityRiskSummaryReview(
   value: Record<string, unknown> | null,
 ): CapabilityRiskSummary["supply_chain_review"] {
-  const review = value?.supply_chain_review;
-  if (review === undefined) return undefined;
-  const parsed = capabilitySupplyChainReviewSchema.safeParse(review);
-  if (!parsed.success) {
-    throw new AppError("INVALID_PACKAGE", {
-      reason_code: "security_review_stale",
-    });
-  }
-  return parsed.data;
+  return capabilitySupplyChainReviewFromRiskSummary(value);
 }
 
 function assertActiveActor(actor: RequestActor): void {

@@ -1,13 +1,16 @@
+import { createHash } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 
 import {
   capabilitySupplyChainContentDigestAlgorithm,
+  capabilitySupplyChainReviewSchema,
   capabilitySupplyChainRulesetVersion,
   capabilitySupplyChainScannerVersion,
   type CapabilitySupplyChainFinding,
   type CapabilitySupplyChainReview,
 } from "@linksense/shared";
+import dayjs from "dayjs";
 
 import {
   hashPackageDirectory,
@@ -149,6 +152,11 @@ const FINDING_RULES: readonly FindingRule[] = [
     pattern:
       /(?:\/etc\/(?:cron\.|systemd\/system)|Library\/LaunchAgents|\bcrontab\s+(?:-[a-z]+\s+)*-?e\b|\bsystemctl\s+enable\b)/iu,
   },
+  {
+    ruleId: "fork_bomb",
+    severity: "critical",
+    pattern: /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/u,
+  },
 ];
 
 const SEVERITY_ORDER: Record<CapabilitySupplyChainFinding["severity"], number> = {
@@ -160,6 +168,7 @@ const SEVERITY_ORDER: Record<CapabilitySupplyChainFinding["severity"], number> =
 
 export async function scanCapabilitySupplyChain(
   packageRoot: string,
+  options: { now?: () => Date } = {},
 ): Promise<CapabilitySupplyChainReview> {
   const absoluteRoot = resolve(packageRoot);
   const files = await listPackageDirectoryFiles(absoluteRoot);
@@ -169,24 +178,40 @@ export async function scanCapabilitySupplyChain(
   let skippedFileCount = 0;
 
   for (const relativePath of files) {
-    if (!isScannablePath(relativePath)) {
-      skippedFileCount += 1;
-      continue;
-    }
     const absolutePath = join(absoluteRoot, relativePath);
     const info = await lstat(absolutePath);
+    const executable = (info.mode & 0o111) !== 0;
     if (info.size > MAX_SCANNABLE_FILE_BYTES) {
-      findings.push({
-        rule_id: "oversized_scannable_file",
-        severity: isExecutableSource(relativePath) ? "critical" : "high",
-        path: relativePath,
-        line: null,
-      });
+      if (isScannablePath(relativePath) || executable) {
+        findings.push(
+          createFinding({
+            ruleId: "oversized_scannable_file",
+            severity:
+              executable || isExecutableSource(relativePath)
+                ? "critical"
+                : "high",
+            path: relativePath,
+            line: null,
+            evidence: `size:${info.size}`,
+          }),
+        );
+      }
       skippedFileCount += 1;
       continue;
     }
     const bytes = await readFile(absolutePath);
     if (looksBinary(bytes)) {
+      if (executable) {
+        findings.push(
+          createFinding({
+            ruleId: "unscannable_executable",
+            severity: "critical",
+            path: relativePath,
+            line: null,
+            evidence: bytes,
+          }),
+        );
+      }
       skippedFileCount += 1;
       continue;
     }
@@ -195,12 +220,15 @@ export async function scanCapabilitySupplyChain(
     for (const rule of FINDING_RULES) {
       const match = rule.pattern.exec(content);
       if (match?.index === undefined) continue;
-      findings.push({
-        rule_id: rule.ruleId,
-        severity: rule.severity,
-        path: relativePath,
-        line: lineNumberAt(content, match.index),
-      });
+      findings.push(
+        createFinding({
+          ruleId: rule.ruleId,
+          severity: rule.severity,
+          path: relativePath,
+          line: lineNumberAt(content, match.index),
+          evidence: match[0],
+        }),
+      );
     }
   }
 
@@ -209,6 +237,7 @@ export async function scanCapabilitySupplyChain(
   return {
     scanner_version: capabilitySupplyChainScannerVersion,
     ruleset_version: capabilitySupplyChainRulesetVersion,
+    scanned_at: dayjs(options.now?.() ?? new Date()).toISOString(),
     content_digest_algorithm: capabilitySupplyChainContentDigestAlgorithm,
     content_sha256: contentSha256,
     verdict:
@@ -223,6 +252,24 @@ export async function scanCapabilitySupplyChain(
     findings_truncated: findings.length > MAX_FINDINGS,
     scanned_file_count: scannedFileCount,
     skipped_file_count: skippedFileCount,
+  };
+}
+
+function createFinding(input: {
+  ruleId: CapabilitySupplyChainFinding["rule_id"];
+  severity: CapabilitySupplyChainFinding["severity"];
+  path: string;
+  line: number | null;
+  evidence: string | Buffer;
+}): CapabilitySupplyChainFinding {
+  return {
+    scanner_version: capabilitySupplyChainScannerVersion,
+    rule_id: input.ruleId,
+    severity: input.severity,
+    path: input.path,
+    line: input.line,
+    evidence: `sha256:${createHash("sha256").update(input.evidence).digest("hex")}`,
+    remediation: `review_or_remove:${input.ruleId}`,
   };
 }
 
@@ -256,6 +303,23 @@ export function assertCapabilitySupplyChainReviewCurrent(
       reason_code: "security_review_stale",
     });
   }
+}
+
+export function capabilitySupplyChainReviewFromRiskSummary(
+  value: unknown,
+): CapabilitySupplyChainReview | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const review = (value as Record<string, unknown>).supply_chain_review;
+  if (review === undefined) return undefined;
+  const parsed = capabilitySupplyChainReviewSchema.safeParse(review);
+  if (!parsed.success) {
+    throw new AppError("INVALID_PACKAGE", {
+      reason_code: "security_review_stale",
+    });
+  }
+  return parsed.data;
 }
 
 function isScannablePath(path: string): boolean {

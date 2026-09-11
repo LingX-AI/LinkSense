@@ -2731,7 +2731,8 @@ export const zhCN = {
     },
     securityReview: {
       title: "供应链安全扫描",
-      summary: "扫描器 {{version}} · 共发现 {{count}} 项",
+      summary_one: "扫描器 {{version}} · 共发现 {{count}} 项",
+      summary_other: "扫描器 {{version}} · 共发现 {{count}} 项",
       contentHash: "内容哈希：{{hash}}",
       findingsTruncated: "仅显示前 200 项；完整计数已保留在扫描结果中。",
       verdict: {
@@ -2756,6 +2757,8 @@ export const zhCN = {
         reverse_shell: "包含反向 Shell 特征",
         destructive_system_command: "包含破坏性系统命令",
         startup_persistence: "尝试配置系统启动持久化",
+        fork_bomb: "包含进程 Fork Bomb",
+        unscannable_executable: "包含无法扫描的可执行二进制内容",
         oversized_scannable_file: "可扫描文件超过安全审查大小限制",
       },
     },
