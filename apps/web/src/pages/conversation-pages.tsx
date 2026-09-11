@@ -40,6 +40,7 @@ import {
 import { z } from "zod"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
+import { requestTurnStart } from "@/features/conversations/turn-start-request"
 import {
   conversationInterruptPollIntervalMs,
   conversationInterruptTimeoutMs,
@@ -2814,17 +2815,17 @@ export function ConversationPage({
         optimisticId: submission.optimisticId,
         idempotencyKey,
       }))
-      const receipt = await apiRequest(`/conversations/${id}/turns`, {
-        method: "POST",
-        body: {
+      const receipt = await requestTurnStart(
+        turnSubmitOperationRef,
+        `/conversations/${id}/turns`,
+        {
           input_text: requestedInput,
           priority_capability_ids: requestedCapabilityIds,
           knowledge_base_ids: requestedKnowledgeBaseIds,
           idempotency_key: idempotencyKey,
           collaboration_mode: submission.collaborationMode,
-        },
-        schema: turnStartReceiptSchema,
-      })
+        }
+      )
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
         (current.idempotencyKey === idempotencyKey ||
@@ -2989,13 +2990,10 @@ export function ConversationPage({
           refreshedConversation: null,
         }
       }
-      const receipt = await apiRequest(
+      const receipt = await requestTurnStart(
+        contextCompactionOperationRef,
         `/conversations/${targetConversationId}/compact`,
-        {
-          method: "POST",
-          body: { idempotency_key: idempotencyKey },
-          schema: turnStartReceiptSchema,
-        }
+        { idempotency_key: idempotencyKey }
       )
       setPendingCompaction({
         conversationId: targetConversationId,
@@ -3131,16 +3129,16 @@ export function ConversationPage({
           selected_knowledge_base_ids: knowledgeBaseIds,
         },
       })
-      const receipt = await apiRequest(`/conversations/${id}/goal`, {
-        method: "POST",
-        body: {
+      const receipt = await requestTurnStart(
+        goalStartOperationRef,
+        `/conversations/${id}/goal`,
+        {
           objective,
           priority_capability_ids: capabilityIds,
           knowledge_base_ids: knowledgeBaseIds,
           idempotency_key: idempotencyKey,
-        },
-        schema: turnStartReceiptSchema,
-      })
+        }
+      )
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
         current.idempotencyKey === idempotencyKey
@@ -3408,17 +3406,17 @@ export function ConversationPage({
           selected_knowledge_base_ids: validSelectedKnowledgeBaseIds,
         },
       })
-      const receipt = await apiRequest(`/conversations/${id}/turns`, {
-        method: "POST",
-        body: {
+      const receipt = await requestTurnStart(
+        officeTurnSubmitOperationRef,
+        `/conversations/${id}/turns`,
+        {
           priority_capability_ids: [],
           knowledge_base_ids: validSelectedKnowledgeBaseIds,
           collaboration_mode: collaborationMode,
           idempotency_key: idempotencyKey,
           message_display: messageDisplay,
-        },
-        schema: turnStartReceiptSchema,
-      })
+        }
+      )
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
         current.idempotencyKey === idempotencyKey
@@ -3484,15 +3482,12 @@ export function ConversationPage({
           ? { replacesTurnId: sourceMessage.turn_id }
           : {}),
       })
-      const receipt = await apiRequest(
+      const receipt = await requestTurnStart(
+        regenerateOperationRef,
         `/conversations/${conversationId}/messages/${sourceMessage.id}/regenerate`,
         {
-          method: "POST",
-          body: {
-            input_text: content,
-            idempotency_key: idempotencyKey,
-          },
-          schema: turnStartReceiptSchema,
+          input_text: content,
+          idempotency_key: idempotencyKey,
         }
       )
       setPendingTurnSubmission((current) =>

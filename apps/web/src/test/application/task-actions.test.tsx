@@ -20,6 +20,79 @@ import { conversationInterruptTimeoutMs } from "@/features/conversations/convers
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each([
+    ["TURN_START_CLOSED", false, false],
+    ["TURN_START_CLOSED", false, true],
+    ["RUNNER_UNAVAILABLE", true, false],
+  ])(
+    "allows manual resubmission after %s (reuse identity: %s, reload: %s)",
+    async (errorCode, reuseIdentity, reload) => {
+      let attempts = 0
+      const { requests } = installApiMock({
+        conversationOverride: {
+          execution_status: "completed",
+          running_turn: null,
+          turns: [{ id: "turn-1", status: "completed" }],
+          pending_requests: [],
+        },
+        turnStartResponse: async () => {
+          attempts += 1
+          if (attempts > 1)
+            return json(
+              {
+                success: true,
+                data: {
+                  turn_id: "00000000-0000-4000-8000-000000000002",
+                  accepted: true,
+                  status: "starting",
+                },
+              },
+              202
+            )
+          return json(
+            { success: false, error_code: errorCode },
+            errorCode === "TURN_START_CLOSED" ? 409 : 503
+          )
+        },
+      })
+      const interaction = userEvent.setup()
+      const view = renderApp()
+      let composer = await screen.findByRole("textbox", {
+        name: "任务输入框",
+      })
+      await interaction.type(composer, "请继续处理")
+      await interaction.click(screen.getByRole("button", { name: "发送" }))
+      const submissions = () =>
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/c1/turns" &&
+            request.method === "POST"
+        )
+      await waitFor(() => expect(submissions()).toHaveLength(1))
+      await waitFor(() => expect(composer).toHaveValue("请继续处理"))
+      expect(submissions()).toHaveLength(1)
+      if (errorCode === "TURN_START_CLOSED") {
+        expect(
+          await screen.findByText("上次提交已结束，本次未执行。请重新提交")
+        ).toBeVisible()
+      }
+      if (reload) {
+        view.unmount()
+        renderApp()
+        composer = await screen.findByRole("textbox", { name: "任务输入框" })
+        await waitFor(() => expect(composer).toHaveValue("请继续处理"))
+        expect(submissions()).toHaveLength(1)
+      }
+      await interaction.click(screen.getByRole("button", { name: "发送" }))
+      await waitFor(() => expect(submissions()).toHaveLength(2))
+      const ids = submissions().map(
+        (request) =>
+          (request.body as { idempotency_key: string }).idempotency_key
+      )
+      expect(ids[0] === ids[1]).toBe(reuseIdentity)
+    }
+  )
+
   it("renders the protected Codex-style shell and conversation controls", async () => {
     installApiMock()
     renderApp()

@@ -60,6 +60,7 @@ function mount(tasks: Conversation[], disabled = false) {
       onError={onError}
     >
       <SidebarTaskGroups
+        userId="first"
         pinned={tasks.filter((item) => item.pinned_at)}
         recent={tasks.filter((item) => !item.pinned_at)}
         categories={categories}
@@ -131,6 +132,7 @@ async function startDrag(node: HTMLElement, y: number) {
 
 describe("sidebar task dragging between categories", () => {
   beforeEach(async () => {
+    window.localStorage.clear()
     await i18n.changeLanguage("zh-CN")
   })
   afterEach(async () => {

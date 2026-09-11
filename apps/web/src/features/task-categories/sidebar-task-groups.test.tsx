@@ -12,10 +12,11 @@ const category = {
   updated_at: "2026-09-09T00:00:00.000Z",
 }
 
-function renderGroups() {
+function renderGroups(userId = "first") {
   const onAction = vi.fn()
   render(
     <SidebarTaskGroups
+      userId={userId}
       pinned={[]}
       recent={[]}
       categories={[category]}
@@ -30,11 +31,84 @@ function renderGroups() {
 
 describe("sidebar task category controls", () => {
   beforeEach(async () => {
+    window.localStorage.clear()
     await i18n.changeLanguage("zh-CN")
   })
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+  })
+
+  it("restores the last collapsed or expanded choice after remounting the sidebar", async () => {
+    const interaction = userEvent.setup()
+    renderGroups()
+    await interaction.click(screen.getByRole("button", { name: category.name }))
+    cleanup()
+
+    renderGroups()
+    const folder = screen.getByRole("button", { name: category.name })
+    expect(folder).toHaveAttribute("aria-expanded", "false")
+    expect(
+      screen.queryByRole("link", { name: "归属任务" })
+    ).not.toBeInTheDocument()
+
+    await interaction.click(folder)
+    cleanup()
+    renderGroups()
+    expect(screen.getByRole("button", { name: category.name })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    )
+    expect(screen.getByRole("link", { name: "归属任务" })).toBeVisible()
+  })
+
+  it("keeps a renamed category collapsed and restores the correct preference when switching users", async () => {
+    const interaction = userEvent.setup()
+    const view = (userId: string, name = category.name) => (
+      <SidebarTaskGroups
+        userId={userId}
+        pinned={[]}
+        recent={[]}
+        categories={[{ ...category, name }]}
+        loadingMore={false}
+        onAction={vi.fn()}
+      >
+        {() => <a href="/conversations/task">归属任务</a>}
+      </SidebarTaskGroups>
+    )
+    const { rerender } = render(view("first"))
+    await interaction.click(screen.getByRole("button", { name: category.name }))
+    rerender(view("first", "新名称"))
+    expect(screen.getByRole("button", { name: "新名称" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    )
+    rerender(view("second", "新名称"))
+    expect(screen.getByRole("button", { name: "新名称" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    )
+    rerender(view("first", "新名称"))
+    expect(screen.getByRole("button", { name: "新名称" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    )
+  })
+
+  it("still toggles when browser storage is unavailable", async () => {
+    vi.spyOn(window.localStorage, "getItem").mockImplementation(() => {
+      throw new Error("blocked")
+    })
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new Error("full")
+    })
+    const interaction = userEvent.setup()
+    renderGroups()
+    const folder = screen.getByRole("button", { name: category.name })
+    await interaction.click(folder)
+    expect(folder).toHaveAttribute("aria-expanded", "false")
+    await interaction.click(folder)
+    expect(folder).toHaveAttribute("aria-expanded", "true")
   })
 
   it("scopes the create action reveal to the heading row and keeps a larger square control near the right edge", async () => {

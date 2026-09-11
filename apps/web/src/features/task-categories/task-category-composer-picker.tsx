@@ -106,7 +106,7 @@ export function TaskCategoryComposerPicker({
                 ref={searchRef}
                 aria-label={t("taskCategories.search")}
                 placeholder={t("taskCategories.search")}
-                className="text-[length:var(--app-font-13)] font-medium"
+                className="pl-0! text-[length:var(--app-font-13)] font-medium"
               />
               <CommandList className="max-h-[min(15rem,calc(var(--available-height)-8rem))]">
                 <CommandEmpty className="py-4 text-[length:var(--app-font-13)] font-medium text-muted-foreground">

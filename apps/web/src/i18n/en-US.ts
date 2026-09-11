@@ -4928,6 +4928,7 @@ export const enUS = {
     artifactNotFound: "The artifact was not found.",
     downloadForbidden: "You do not have permission to download this artifact.",
     runnerUnavailable: "The execution service is unavailable. Try again later.",
+    turnStartClosed: errorCatalog.TURN_START_CLOSED.messages["en-US"],
     deploymentStopped:
       "This task was stopped for a system update. Existing content was kept. Review its progress before continuing manually.",
     creditLimitExceeded:

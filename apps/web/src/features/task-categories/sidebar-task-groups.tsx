@@ -22,6 +22,7 @@ export type SidebarTaskGroupData = {
 }
 
 export function SidebarTaskGroups({
+  userId,
   pinned,
   recent,
   categories,
@@ -29,6 +30,7 @@ export function SidebarTaskGroups({
   onAction,
   children,
 }: {
+  userId: string | undefined
   pinned: Conversation[]
   recent: Conversation[]
   categories: TaskCategory[]
@@ -116,7 +118,8 @@ export function SidebarTaskGroups({
         >
           {orderedCategories.map((category) => (
             <SidebarTaskGroup
-              key={category.id}
+              key={JSON.stringify([userId, category.id])}
+              userId={userId}
               label={category.name}
               category={category}
               onAction={onAction}
@@ -134,6 +137,7 @@ export function SidebarTaskGroups({
         {unavailableIds.map((id) => (
           <SidebarTaskGroup
             key={id}
+            userId={userId}
             label={t("taskCategories.unavailable")}
             onAction={onAction}
           >

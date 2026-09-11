@@ -441,6 +441,9 @@ export class RunnerClient {
     if (operation.status === "uncertain") {
       throw new RunnerStartOperationUncertainError();
     }
+    if (operation.errorCode === "RUNNER_TURN_START_SEALED") {
+      throw new AppError("TURN_START_CLOSED");
+    }
     throw new AppError("RUNNER_UNAVAILABLE");
   }
 
@@ -487,6 +490,9 @@ export class RunnerClient {
     if (operation.status === "succeeded") return operation.result;
     if (operation.status === "uncertain") {
       throw new RunnerStartOperationUncertainError();
+    }
+    if (operation.errorCode === "RUNNER_TURN_START_SEALED") {
+      throw new AppError("TURN_START_CLOSED");
     }
     throw new AppError("RUNNER_UNAVAILABLE");
   }

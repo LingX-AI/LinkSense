@@ -37,6 +37,31 @@ afterEach(() => {
 });
 
 describe("RunnerClient start operation", () => {
+  it.each(["acceptStartTurn", "startTurn"] as const)(
+    "%s distinguishes a sealed submission from an unavailable runner without replaying it",
+    async (method) => {
+      const fetchMock = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse(sealedOperation()));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(new RunnerClient(testConfig())[method](startInput()))
+        .rejects.toMatchObject({ code: "TURN_START_CLOSED" });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("reports a submission sealed while awaiting native startup without replaying it", async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(startingOperation(), 202))
+      .mockResolvedValueOnce(jsonResponse(sealedOperation()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new RunnerClient(testConfig()).startTurn(startInput()))
+      .rejects.toMatchObject({ code: "TURN_START_CLOSED" });
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method))
+      .toEqual(["POST", "GET"]);
+  });
+
   it("rejects a non-SHA-256 capability generation before contacting the runner", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);

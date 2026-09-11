@@ -5,6 +5,21 @@ import { getErrorMessage } from "@/api/error-message"
 import i18n from "@/i18n"
 
 describe("getErrorMessage", () => {
+  it("distinguishes a closed submission in Chinese, English, and fallback translations", () => {
+    const error = new ApiError({ status: 409, errorCode: "TURN_START_CLOSED" })
+    expect(getErrorMessage(error, i18n.getFixedT("zh-CN"))).toBe(
+      "上次提交已结束，本次未执行。请重新提交。"
+    )
+    expect(getErrorMessage(error, i18n.getFixedT("en-US"))).toBe(
+      "The previous submission has ended. This request was not run. Please submit it again."
+    )
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(getErrorMessage(error, instance.getFixedT("en-US"))).toBe(
+      "上次提交已结束，本次未执行。请重新提交。"
+    )
+  })
+
   it.each([
     ["APPLICATION_NOT_FOUND", "notFound"],
     ["APPLICATION_DISABLED", "disabled"],
