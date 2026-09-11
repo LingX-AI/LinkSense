@@ -108,6 +108,7 @@ const errorCodeToKey: Record<string, string> = {
   ARTIFACT_NOT_FOUND: "errors.artifactNotFound",
   DOWNLOAD_FORBIDDEN: "errors.downloadForbidden",
   RUNNER_UNAVAILABLE: "errors.runnerUnavailable",
+  TURN_START_CLOSED: "errors.turnStartClosed",
   DEPLOYMENT_STOPPED: "errors.deploymentStopped",
   CREDIT_LIMIT_EXCEEDED: "errors.creditLimitExceeded",
   LAST_ENABLED_ADMIN_REQUIRED: "errors.lastAdminRequired",

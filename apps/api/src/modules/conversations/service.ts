@@ -1630,8 +1630,12 @@ export class ConversationService {
             return "pending";
           }
           if (operation.status === "failed") {
-            const deleted =
-              await this.deleteUnacquiredMissingStartIntent(intent);
+            const deleted = await this.deleteUnacquiredMissingStartIntent(
+              intent,
+              operation.errorCode === "RUNNER_TURN_START_SEALED"
+                ? "TURN_START_CLOSED"
+                : "RUNNER_UNAVAILABLE",
+            );
             return deleted ? "released" : "pending";
           }
           intent = await this.markStartIntentSlotAcquired(intent);
@@ -1699,15 +1703,22 @@ export class ConversationService {
       if (sealedMissingOperation) {
         const marked = await this.markMissingStartIntentForRelease(intent);
         if (!marked) return "pending";
-        await this.finishReleasePendingStartIntent({
-          ...intent,
-          runnerStatus: "release_pending",
-        });
+        await this.finishReleasePendingStartIntent(
+          { ...intent, runnerStatus: "release_pending" },
+          operation.errorCode === "RUNNER_TURN_START_SEALED"
+            ? "TURN_START_CLOSED"
+            : "RUNNER_UNAVAILABLE",
+        );
         return "released";
       }
 
       const releasing = await this.markStartIntentForRelease(intent);
-      await this.finishReleasePendingStartIntent(releasing);
+      await this.finishReleasePendingStartIntent(
+        releasing,
+        operation.errorCode === "RUNNER_TURN_START_SEALED"
+          ? "TURN_START_CLOSED"
+          : "RUNNER_UNAVAILABLE",
+      );
       return "released";
     } finally {
       await this.redis
@@ -4293,7 +4304,12 @@ export class ConversationService {
             try {
               const releasing =
                 await this.markStartIntentForRelease(startIntent);
-              await this.finishReleasePendingStartIntent(releasing);
+              await this.finishReleasePendingStartIntent(
+                releasing,
+                error instanceof AppError && error.code === "TURN_START_CLOSED"
+                  ? "TURN_START_CLOSED"
+                  : "RUNNER_UNAVAILABLE",
+              );
             } catch {
               throw new RunnerStartOperationUncertainError();
             }
@@ -8408,6 +8424,7 @@ export class ConversationService {
 
   private async deleteUnacquiredMissingStartIntent(
     intent: TurnStartIntent,
+    failureCode: "TURN_START_CLOSED" | "RUNNER_UNAVAILABLE" = "RUNNER_UNAVAILABLE",
   ): Promise<boolean> {
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw<Array<{ id: string }>>`
@@ -8443,7 +8460,11 @@ export class ConversationService {
       ) {
         return { deleted: false, pendingEvent: null };
       }
-      const pendingEvent = await this.settleUnstartedPendingIntent(tx, intent);
+      const pendingEvent = await this.settleUnstartedPendingIntent(
+        tx,
+        intent,
+        failureCode,
+      );
       const deleted = await tx.conversationTurnStartIntent.deleteMany({
         where: {
           projectionTurnId: intent.projectionTurnId,
@@ -8471,6 +8492,7 @@ export class ConversationService {
 
   private async finishReleasePendingStartIntent(
     intent: TurnStartIntent,
+    failureCode: "TURN_START_CLOSED" | "RUNNER_UNAVAILABLE" = "RUNNER_UNAVAILABLE",
   ): Promise<void> {
     const pendingEvent = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw<Array<{ id: string }>>`
@@ -8500,6 +8522,7 @@ export class ConversationService {
       const pendingEvent = await this.settleUnstartedPendingIntent(
         tx,
         releasing,
+        failureCode,
       );
       await this.redis.releaseTurnSlot(
         releasing.conversationId,
@@ -8532,6 +8555,7 @@ export class ConversationService {
   private async settleUnstartedPendingIntent(
     tx: Prisma.TransactionClient,
     intent: TurnStartIntent,
+    failureCode: "TURN_START_CLOSED" | "RUNNER_UNAVAILABLE",
   ): Promise<Parameters<typeof projectStoredEvent>[0] | null> {
     // Preparation items can precede the local turn. If admission fails, keep
     // their sequence numbers for SSE cursors but remove the uncreated turn link
@@ -8559,8 +8583,10 @@ export class ConversationService {
           visibility: "user_visible",
           payloadJson: {
             schema_version: 1,
-            error_code: "RUNNER_UNAVAILABLE",
-            message_key: "errors.runnerUnavailable",
+            error_code: failureCode,
+            message_key: failureCode === "TURN_START_CLOSED"
+              ? "errors.turnStartClosed"
+              : "errors.runnerUnavailable",
             retryable: true,
           },
           sseEventId: `${intent.conversationId}:${sequenceNo}`,
@@ -9391,9 +9417,12 @@ export class ConversationService {
             );
             throw uncertain;
           }
-          await this.finishReleasePendingStartIntent(releasing).catch(
-            () => undefined,
-          );
+          await this.finishReleasePendingStartIntent(
+            releasing,
+            error instanceof AppError && error.code === "TURN_START_CLOSED"
+              ? "TURN_START_CLOSED"
+              : "RUNNER_UNAVAILABLE",
+          ).catch(() => undefined);
         } else {
           await this.audit
             .write({

@@ -29,6 +29,17 @@
 - 接收停止请求不等同于进程已经结束。网络不可达、外部工具取消延迟或准备阶段已有 I/O 尚未返回时，无法保证物理执行在点击瞬间结束；页面会给出可重试的失败反馈，不伪造终态。
 - 不增加整轮重试、重新发送用户输入、数据库状态替代原生终态、数据库迁移或依赖包。复用现有 Zod、TanStack Query、原生 AbortController 和启动操作持久化设施。
 
+## 已关闭提交的重发修复
+
+后续排查发现，执行服务正常时，发送消息仍可能返回“执行服务暂不可用”：原有前端用消息内容和前一轮编号确定提交编号。当对应的启动操作已经被取消或恢复流程封存，重发相同内容（包括刷新页面后重发）仍命中同一个永久关闭的操作。实际日志中的失败请求及持久化操作状态已核对，计算出的编号与该关闭操作一致。
+
+- Runner 的封存语义保持不变，旧请求无法重新启动原生轮次。API 将明确封存的结果映射为 `TURN_START_CLOSED`，不再混同服务不可用；同步请求和异步清理的实时错误通知保持一致。
+- 前端仅在收到这一明确结果后关闭当前提交编号。下一次用户手动提交生成确定的新编号，并将已关闭编号保存在本地；重载页面后仍能定位同一次新提交。网络故障、未知错误和结果不确定均保留原编号，不自动重试 POST。
+- 此处理复用于普通发送、目标启动、重新生成、上下文整理和文档批注直接发起任务。没有新增依赖或数据库迁移。
+- 对尚未被当前页面识别的旧封存请求，第一次提交会提示重新提交，下一次手动提交即可使用新编号。不会为绕过错误而删除服务端的关闭记录。
+
+回归包含明确关闭后的手动重发、页面重载、响应不确定时的去重、迟到失败不影响新提交、本地存储不可用、异步取消清理及中英文/回退文案。
+
 ## 验证
 
 回归测试使用可控的 app-server、故障注入和虚拟时钟覆盖注册竞态、启动取消、恢复锁阻塞、模型切换准备、目标续跑、显式恢复、重复点击、原生失败、权限隔离、事件落库阻塞、SSE 丢失和中英文/回退显示。
@@ -45,3 +56,18 @@ pnpm --filter @linksense/web exec vitest run --project components --project shar
 ```
 
 另外执行 API、Runner、Web 的类型检查、改动文件 ESLint 检查和生产构建。没有连接真实模型运行，也没有执行浏览器端到端验证。构建保留现有大分包体积告警，不属于本次停止功能的改动范围。
+
+后续重发问题验证：API 410 项、Runner 202 项、Web 139 项、Shared 371 项，共 1,122 项相关单元测试通过。API/Web 类型检查、改动文件 ESLint、API/Web 生产构建及 Shared 构建通过；开发容器中的修复文件与本地 SHA-256 一致，API/Web/Runner 健康。没有调用真实模型或使用浏览器验证，Web 构建仍有现有的大分包告警。复现命令：
+
+```sh
+pnpm --filter @linksense/shared build
+pnpm --filter @linksense/shared test
+pnpm --filter @linksense/api test test/conversations.service.test.ts test/conversations.routes.test.ts test/runner-adapter.test.ts test/i18n.test.ts
+pnpm --filter @linksense/runner test test/process-pool.test.ts test/runtime-isolation.test.ts
+pnpm --filter @linksense/web exec vitest run --project application src/test/application/task-actions.test.tsx src/test/application/submission.test.tsx src/test/application/editing.test.tsx src/test/application/interactive-submission.test.tsx src/test/application/planning.test.tsx src/test/application/error-notifications.test.tsx --maxWorkers=2
+pnpm --filter @linksense/web exec vitest run --project shared-components --project node src/api/error-message.test.ts src/features/conversations/operation-id.test.ts src/i18n.test.ts --maxWorkers=2
+pnpm --filter @linksense/api typecheck
+pnpm --filter @linksense/web typecheck
+pnpm --filter @linksense/api build
+pnpm --filter @linksense/web build
+```

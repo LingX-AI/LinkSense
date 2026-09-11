@@ -4517,6 +4517,7 @@ export const zhCN = {
     artifactNotFound: "未找到该产物。",
     downloadForbidden: "你无权下载该产物。",
     runnerUnavailable: "执行服务暂不可用，请稍后重试。",
+    turnStartClosed: errorCatalog.TURN_START_CLOSED.messages["zh-CN"],
     deploymentStopped:
       "本次任务因系统更新而中止，已有内容已保留。请确认进度后手动继续。",
     creditLimitExceeded: "你的可用额度已用尽，暂时不能发起新任务。",

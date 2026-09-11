@@ -6456,6 +6456,36 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
   });
 
+  it("releases a closed submission, reports its actual error over SSE, and admits a new manual submission", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
+    fixture.prisma.conversationTurn.count.mockResolvedValue(0);
+    fixture.runner.acceptStartTurn.mockRejectedValueOnce(new AppError("TURN_START_CLOSED"));
+    const input = {
+      inputText: "same message after stopping",
+      priorityCapabilityIds: [],
+      idempotencyKey: "closed-browser-submission",
+      submitMode: "normal" as const,
+    };
+    await expect(fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, input, {}))
+      .rejects.toMatchObject({ code: "TURN_START_CLOSED" });
+    expect(fixture.runner.acceptStartTurn).toHaveBeenCalledOnce();
+    expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledOnce();
+    expect(await fixture.prisma.conversationTurnStartIntent.findUnique()).toBeNull();
+    expect(fixture.defaultTransaction.conversationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: "conversation.error",
+        payloadJson: expect.objectContaining({ error_code: "TURN_START_CLOSED" }),
+      }),
+    });
+    await expect(fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, {
+      ...input, idempotencyKey: "new-manual-submission",
+    }, {})).resolves.toMatchObject({ accepted: true, status: "starting" });
+    const starts = fixture.runner.acceptStartTurn.mock.calls;
+    expect(starts).toHaveLength(2);
+    expect(starts[1]?.[0].projectionTurnId).not.toBe(starts[0]?.[0].projectionTurnId);
+  });
+
   it("keeps the concurrency slot reserved when native turn start is uncertain", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
@@ -7858,6 +7888,30 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
   });
 
+  it("reports an asynchronously cancelled startup as closed without replaying it", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow();
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce({
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "failed",
+      errorCode: "RUNNER_TURN_START_SEALED",
+      createdAt: NOW.toISOString(),
+      updatedAt: NOW.toISOString(),
+    });
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId)).resolves.toBe("released");
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+    expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: "conversation.error",
+        payloadJson: expect.objectContaining({ error_code: "TURN_START_CLOSED" }),
+      }),
+    });
+    expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledOnce();
+  });
+
   it("releases and removes an intent only after the runner deterministically reports failure", async () => {
     const fixture = await conversationFixture();
     const intent = startIntentRow();
@@ -7962,6 +8016,12 @@ describe("ConversationService pending and turn materialization", () => {
       matching.service.recoverStartIntent(intent.projectionTurnId),
     ).resolves.toBe("released");
     expect(matching.redis.releaseTurnSlot).toHaveBeenCalledOnce();
+    expect(transaction.conversationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: "conversation.error",
+        payloadJson: expect.objectContaining({ error_code: "TURN_START_CLOSED" }),
+      }),
+    });
 
     const replaced = await conversationFixture();
     await replaced.prisma.conversationTurnStartIntent.create({ data: intent });

@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest"
 import { backendI18n, translateError } from "../src/lib/i18n.js"
 
 describe("backend error translations", () => {
+  it("translates a closed submission in both languages and falls back to Chinese", () => {
+    const chinese = "上次提交已结束，本次未执行。请重新提交。"
+    expect(translateError("TURN_START_CLOSED", "zh-CN")).toBe(chinese)
+    expect(translateError("TURN_START_CLOSED", "en-US")).toBe("The previous submission has ended. This request was not run. Please submit it again.")
+    expect(backendI18n.t("errors.runner.turnStartClosed", { lng: "fr-FR" })).toBe(chinese)
+  })
   it("uses Chinese quota wording for exhausted credits and preserves English and fallback", () => {
     const chinese = "你的可用额度已用尽，暂时不能发起新任务。"
     expect(translateError("CREDIT_LIMIT_EXCEEDED", "zh-CN")).toBe(chinese)
