@@ -286,13 +286,31 @@ function createFinding(input: {
 export function assertCapabilitySupplyChainApproval(
   review: CapabilitySupplyChainReview | undefined,
   expectedContentSha256?: string,
-): void {
+): asserts review is CapabilitySupplyChainReview {
   assertCapabilitySupplyChainReviewCurrent(review, expectedContentSha256);
   if (review.verdict === "blocked") {
     throw new AppError("INVALID_PACKAGE", {
       reason_code: "security_review_blocked",
       finding_count: review.finding_count,
     });
+  }
+}
+
+export async function assertCapabilitySupplyChainExecutionAdmission(
+  packageRoot: string,
+  approvedReview: CapabilitySupplyChainReview | undefined,
+): Promise<void> {
+  const currentReview = await scanCapabilitySupplyChain(packageRoot);
+
+  // The approval is only advisory until the current scanner has inspected the
+  // exact bytes that are about to cross the materialization boundary.
+  assertCapabilitySupplyChainApproval(currentReview);
+  assertCapabilitySupplyChainApproval(
+    approvedReview,
+    currentReview.content_sha256,
+  );
+  if (!sameDeterministicReview(approvedReview, currentReview)) {
+    throw staleSupplyChainReviewError();
   }
 }
 
@@ -309,9 +327,7 @@ export function assertCapabilitySupplyChainReviewCurrent(
     (expectedContentSha256 !== undefined &&
       !packageDigestMatches(review.content_sha256, expectedContentSha256))
   ) {
-    throw new AppError("INVALID_PACKAGE", {
-      reason_code: "security_review_stale",
-    });
+    throw staleSupplyChainReviewError();
   }
 }
 
@@ -325,11 +341,43 @@ export function capabilitySupplyChainReviewFromRiskSummary(
   if (review === undefined) return undefined;
   const parsed = capabilitySupplyChainReviewSchema.safeParse(review);
   if (!parsed.success) {
-    throw new AppError("INVALID_PACKAGE", {
-      reason_code: "security_review_stale",
-    });
+    throw staleSupplyChainReviewError();
   }
   return parsed.data;
+}
+
+function sameDeterministicReview(
+  approved: CapabilitySupplyChainReview,
+  current: CapabilitySupplyChainReview,
+): boolean {
+  return (
+    approved.verdict === current.verdict &&
+    approved.highest_severity === current.highest_severity &&
+    approved.finding_count === current.finding_count &&
+    approved.findings_truncated === current.findings_truncated &&
+    approved.scanned_file_count === current.scanned_file_count &&
+    approved.skipped_file_count === current.skipped_file_count &&
+    approved.findings.length === current.findings.length &&
+    approved.findings.every((finding, index) => {
+      const currentFinding = current.findings[index];
+      return (
+        currentFinding !== undefined &&
+        finding.scanner_version === currentFinding.scanner_version &&
+        finding.rule_id === currentFinding.rule_id &&
+        finding.severity === currentFinding.severity &&
+        finding.path === currentFinding.path &&
+        finding.line === currentFinding.line &&
+        finding.evidence === currentFinding.evidence &&
+        finding.remediation === currentFinding.remediation
+      );
+    })
+  );
+}
+
+function staleSupplyChainReviewError(): AppError {
+  return new AppError("INVALID_PACKAGE", {
+    reason_code: "security_review_stale",
+  });
 }
 
 function isScannablePath(path: string): boolean {

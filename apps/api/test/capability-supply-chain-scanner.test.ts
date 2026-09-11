@@ -9,6 +9,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  assertCapabilitySupplyChainExecutionAdmission,
   assertCapabilitySupplyChainApproval,
   assertCapabilitySupplyChainReviewCurrent,
   scanCapabilitySupplyChain,
@@ -180,6 +181,103 @@ describe("capability supply-chain scanner", () => {
       ],
     });
     expect(review.skipped_file_count).toBe(1);
+  });
+
+  it("allows an ordinary non-executable binary asset", async () => {
+    const root = await packageDirectory({
+      "SKILL.md": "---\nname: asset-skill\n---\n",
+      "assets/logo.png": "image\0payload",
+    });
+
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+    expect(review).toMatchObject({
+      verdict: "passed",
+      highest_severity: null,
+      finding_count: 0,
+      findings: [],
+      scanned_file_count: 1,
+      skipped_file_count: 1,
+    });
+  });
+
+  it("rescans actual content and rejects a current blocked payload despite a forged pass", async () => {
+    const root = await packageDirectory({
+      "SKILL.md": "---\nname: forged-review\n---\n",
+      payload: ":(){ :|:& };:\n",
+    });
+    const actualReview = await scanCapabilitySupplyChain(root, scanOptions);
+    const forgedApproval = {
+      ...actualReview,
+      verdict: "passed" as const,
+      highest_severity: null,
+      finding_count: 0,
+      findings: [],
+    };
+
+    await expect(
+      assertCapabilitySupplyChainExecutionAdmission(root, forgedApproval),
+    ).rejects.toMatchObject({
+      code: "INVALID_PACKAGE",
+      params: { reason_code: "security_review_blocked" },
+    });
+  });
+
+  it("rejects an approval verdict that disagrees with the current scan", async () => {
+    const root = await packageDirectory({
+      "SKILL.md": "---\nname: warning-review\n---\n",
+      "scripts/run.js": 'import "node:child_process";\n',
+    });
+    const currentReview = await scanCapabilitySupplyChain(root, scanOptions);
+
+    await expect(
+      assertCapabilitySupplyChainExecutionAdmission(root, {
+        ...currentReview,
+        verdict: "passed",
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_PACKAGE",
+      params: { reason_code: "security_review_stale" },
+    });
+  });
+
+  it("fails closed when execution admission has no stored approval", async () => {
+    const root = await packageDirectory({
+      "SKILL.md": "---\nname: missing-review\n---\n",
+    });
+
+    await expect(
+      assertCapabilitySupplyChainExecutionAdmission(root, undefined),
+    ).rejects.toMatchObject({
+      code: "INVALID_PACKAGE",
+      params: { reason_code: "security_review_stale" },
+    });
+  });
+
+  it("rejects approvals from an older scanner or ruleset", async () => {
+    const root = await packageDirectory({
+      "SKILL.md": "---\nname: stale-review\n---\n",
+    });
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+    await expect(
+      assertCapabilitySupplyChainExecutionAdmission(root, {
+        ...review,
+        scanner_version: "0.0.0",
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_PACKAGE",
+      params: { reason_code: "security_review_stale" },
+    });
+    await expect(
+      assertCapabilitySupplyChainExecutionAdmission(root, {
+        ...review,
+        ruleset_version: "previous-ruleset",
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_PACKAGE",
+      params: { reason_code: "security_review_stale" },
+    });
   });
 });
 

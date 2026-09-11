@@ -43,7 +43,7 @@ import {
   UserHomeCapabilityMaterializationError,
   UserHomeCapabilityPublicationDeferredError,
   UserHomeCapabilityReconciler,
-  assertCapabilitySupplyChainApproval,
+  assertCapabilitySupplyChainExecutionAdmission,
   capabilitySupplyChainReviewFromRiskSummary,
   validatePluginName,
   validateSkillName,
@@ -52,7 +52,6 @@ import {
   type ReconciledUserHomeCapabilities,
   type UserHomeCapabilityPublicationGuard,
 } from "./modules/capabilities/index.js";
-import { hashPackageDirectory } from "./lib/package-directory-integrity.js";
 import {
   CredentialService,
   PrismaCredentialStore,
@@ -1151,12 +1150,10 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       const supplyChainReview = capabilitySupplyChainReviewFromRiskSummary(
         capability.riskSummaryJson,
       );
-      if (supplyChainReview !== undefined) {
-        assertCapabilitySupplyChainApproval(
-          supplyChainReview,
-          await hashPackageDirectory(storagePath),
-        );
-      }
+      await assertCapabilitySupplyChainExecutionAdmission(
+        storagePath,
+        supplyChainReview,
+      );
       const runtimeCapability = {
         id: capability.id,
         type: capability.type,
