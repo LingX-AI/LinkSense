@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto"
 import {
   conversationEventSchema,
   runnerMemoryUsageCaptureSchema,
-  runnerConversationEventSchema,
+  runnerEventBatchSchema,
   runnerHeartbeatSchema,
   type ConversationEvent,
 } from "@linksense/shared"
@@ -15,12 +15,6 @@ import { AppError } from "../../lib/errors.js"
 import { ok } from "../../lib/http.js"
 import type { AuthenticatedRequest } from "../../plugins/authentication.js"
 import type { AppServices } from "../../services.js"
-
-const runnerEventSchema = z.strictObject({
-  conversationId: z.string().uuid(),
-  deliveryId: z.string().uuid(),
-  event: runnerConversationEventSchema,
-})
 
 const interactiveApplicationCustomEventSchema = z.strictObject({
   conversationId: z.uuid(),
@@ -62,19 +56,27 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
     })
 
     app.post("/runner/events", async (request, reply) => {
-      const body = runnerEventSchema.parse(request.body)
+      const body = runnerEventBatchSchema.parse(request.body)
       const ownerId = parseRunnerOwnerId(request)
       await services.conversations.assertOwner(ownerId, body.conversationId)
-      return reply.send(
-        ok(
-          await services.events.ingest(
-            body.conversationId,
-            body.event,
-            body.deliveryId,
-          ),
-          request.id,
-        ),
-      )
+      const acceptedDeliveryIds: string[] = []
+      for (const entry of body.events) {
+        if (request.raw.aborted || reply.raw.destroyed) break
+        try {
+          const result = await services.events.ingest(body.conversationId, entry.event, entry.deliveryId)
+          if (!result.accepted) break
+          acceptedDeliveryIds.push(entry.deliveryId)
+        } catch (error) {
+          if (acceptedDeliveryIds.length === 0) throw error
+          request.log.error({
+            conversationId: body.conversationId,
+            deliveryId: entry.deliveryId,
+            errorCode: error instanceof AppError ? error.code : "INTERNAL_ERROR",
+          }, "runner event batch stopped before acknowledgement")
+          break
+        }
+      }
+      return reply.send(ok({ accepted_delivery_ids: acceptedDeliveryIds }, request.id))
     })
 
     app.post("/application-events/emit", async (request, reply) => {

@@ -12,6 +12,8 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { runnerEventBatchSchema } from "@linksense/shared";
+
 import { HttpRunnerEventSink } from "../src/event-sink.js";
 import type {
   LinkSenseCodexEvent,
@@ -43,13 +45,13 @@ describe("HttpRunnerEventSink", () => {
       params: { threadId: "source-thread", turnId: "compact-turn", item: { id: "compact", type: "contextCompaction" } },
     };
     await outbox.append(conversationId, started);
-    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({ success: true, data: { accepted: true } }));
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(acknowledgeRequest);
     const sink = new HttpRunnerEventSink("http://127.0.0.1:4000/internal", "runner-shared-secret-value", workspaceManager, { fetch: fetchMock });
     await sink.alignConversationThread(conversationId, "target-thread");
     expect(await outboxFiles(root)).toHaveLength(1);
     await sink.publish(conversationId, { ...started, method: "item/completed" });
     await sink.flushConversation(conversationId);
-    expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).event)).toEqual([
+    expect(fetchMock.mock.calls.flatMap(([, init]) => runnerEventBatchSchema.parse(JSON.parse(String(init?.body))).events.map(entry => entry.event))).toEqual([
       started, { ...started, method: "item/completed" },
     ]);
     expect(await outboxFiles(root)).toHaveLength(0);
@@ -312,7 +314,7 @@ describe("HttpRunnerEventSink", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
 
     finishEventDelivery(
-      jsonResponse({ success: true, data: { accepted: true } }),
+      acknowledgement(fetchMock.mock.calls[0]?.[1]),
     );
     await recovery;
 
@@ -486,15 +488,10 @@ describe("HttpRunnerEventSink", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           success: true,
-          data: {
-            accepted: false,
-            reason_code: "TURN_PROJECTION_PENDING",
-          },
+          data: { accepted_delivery_ids: [] },
         }),
       )
-      .mockResolvedValueOnce(
-        jsonResponse({ success: true, data: { accepted: true } }),
-      );
+      .mockImplementationOnce(acknowledgeRequest);
     const sink = new HttpRunnerEventSink(
       "http://127.0.0.1:4000/internal",
       "runner-shared-secret-value",
@@ -506,8 +503,8 @@ describe("HttpRunnerEventSink", () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await sink.flushConversation(conversationId, 500);
 
-    const firstBody = requestBody(fetchMock, 0);
-    const secondBody = requestBody(fetchMock, 1);
+    const firstBody = runnerEventBatchSchema.parse(requestBody(fetchMock, 0)).events[0]!;
+    const secondBody = runnerEventBatchSchema.parse(requestBody(fetchMock, 1)).events[0]!;
     expect(firstBody.deliveryId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
     );
@@ -532,9 +529,7 @@ describe("HttpRunnerEventSink", () => {
         markFirstRequestStarted();
         return firstResponse;
       })
-      .mockResolvedValue(
-        jsonResponse({ success: true, data: { accepted: true } }),
-      );
+      .mockImplementation(acknowledgeRequest);
     const sink = new HttpRunnerEventSink(
       "http://127.0.0.1:4000/internal",
       "runner-shared-secret-value",
@@ -555,10 +550,7 @@ describe("HttpRunnerEventSink", () => {
     finishFirstRequest(
       jsonResponse({
         success: true,
-        data: {
-          accepted: false,
-          reason_code: "TURN_PROJECTION_PENDING",
-        },
+        data: { accepted_delivery_ids: [] },
       }),
     );
 
@@ -568,14 +560,14 @@ describe("HttpRunnerEventSink", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(
       (
-        requestBody(fetchMock, 0).event as {
+        runnerEventBatchSchema.parse(requestBody(fetchMock, 0)).events[0]!.event as {
           params: { threadId: string };
         }
       ).params.threadId,
     ).toBe("thread-child-1");
     expect(
       (
-        requestBody(fetchMock, 1).event as {
+        runnerEventBatchSchema.parse(requestBody(fetchMock, 1)).events[0]!.event as {
           params: { threadId: string };
         }
       ).params.threadId,
@@ -607,9 +599,7 @@ describe("HttpRunnerEventSink", () => {
         markRequestStarted();
         return blockedResponse;
       })
-      .mockResolvedValue(
-        jsonResponse({ success: true, data: { accepted: true } }),
-      );
+      .mockImplementation(acknowledgeRequest);
     const sink = new HttpRunnerEventSink(
       "http://127.0.0.1:4000/internal",
       "runner-shared-secret-value",
@@ -649,7 +639,7 @@ describe("HttpRunnerEventSink", () => {
         expect(JSON.stringify(persisted)).not.toContain("secret-field");
       }
     } finally {
-      finishRequest(jsonResponse({ success: true, data: { accepted: true } }));
+      finishRequest(acknowledgement(fetchMock.mock.calls[0]?.[1]));
       await sink.close(500);
     }
   });
@@ -739,10 +729,8 @@ describe("HttpRunnerEventSink", () => {
     const recoveredFetch = vi
       .fn<typeof fetch>()
       .mockImplementation(async (_url, init) => {
-        recoveredBodies.push(
-          JSON.parse(String(init?.body)) as Record<string, unknown>,
-        );
-        return jsonResponse({ success: true, data: { accepted: true } });
+        recoveredBodies.push(...runnerEventBatchSchema.parse(JSON.parse(String(init?.body))).events);
+        return acknowledgement(init);
       });
     const recoveredSink = new HttpRunnerEventSink(
       "http://127.0.0.1:4000/internal",
@@ -901,4 +889,12 @@ function requestBody(
     string,
     unknown
   >;
+}
+
+function acknowledgement(init: RequestInit | undefined): Response {
+  const batch = runnerEventBatchSchema.parse(JSON.parse(String(init?.body)));
+  return jsonResponse({ success: true, data: { accepted_delivery_ids: batch.events.map(entry => entry.deliveryId) } });
+}
+async function acknowledgeRequest(_input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> {
+  return acknowledgement(init);
 }

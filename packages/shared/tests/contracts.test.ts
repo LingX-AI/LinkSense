@@ -1143,7 +1143,7 @@ describe("shared boundary contracts", () => {
 
   it("publishes one stable runner turn-start contract version", () => {
     expect(RUNNER_TURN_START_CONTRACT_VERSION).toBe(
-      "shared-user-home-v21",
+      "shared-user-home-v22",
     );
   });
 
