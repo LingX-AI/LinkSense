@@ -20,6 +20,7 @@ const PNG = Buffer.from(
 
 type PinnedRequestOptions = {
   agent?: unknown
+  headers?: Record<string, string>
   lookup?: unknown
 }
 
@@ -140,6 +141,22 @@ describe("fetchPublicHttpResource", () => {
     await expect(fetchResource({ byteLimit: PNG.byteLength })).resolves.toMatchObject({ bytes: PNG })
   })
 
+  it("forwards controlled authentication headers through the pinned transport", async () => {
+    configurePinnedRequest()
+
+    await fetchResource({ headers: { authorization: "Bearer test-secret" } })
+
+    const options = requestMock.mock.calls[0]?.[1] as
+      | PinnedRequestOptions
+      | undefined
+    expect(options?.headers).toMatchObject({
+      accept: "image/*",
+      "accept-encoding": "identity",
+      authorization: "Bearer test-secret",
+      "user-agent": "LinkSense-test",
+    })
+  })
+
   it("rejects a response stream error without leaving a pending request", async () => {
     configurePinnedRequest({ responseError: new Error("upstream reset") })
     await expect(fetchResource()).rejects.toMatchObject({ code: "NOT_FOUND" })
@@ -161,6 +178,20 @@ describe("fetchPublicHttpResource", () => {
     await checked
     expect(incoming.destroyed).toBe(true)
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("accepts caller cancellation for an in-flight request", async () => {
+    const controller = new AbortController()
+    const { incoming } = configurePinnedRequest({ end: false })
+    const checked = expect(
+      fetchResource({ signal: controller.signal })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" })
+    await vi.waitFor(() => expect(requestMock).toHaveBeenCalledOnce())
+
+    controller.abort()
+
+    await checked
+    expect(incoming.destroyed).toBe(true)
   })
 
   it("revalidates redirect destinations and never requests a private address", async () => {

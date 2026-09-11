@@ -354,7 +354,10 @@ export class ModelProviderSettingsService
     return projectAdminSettings(stored)
   }
 
-  async discoverModels(providerId: string): Promise<DiscoveredModelCatalog> {
+  async discoverModels(
+    providerId: string,
+    signal?: AbortSignal
+  ): Promise<DiscoveredModelCatalog> {
     const id = modelProviderIdentifierSchema.parse(providerId)
     const stored = await this.readStoredSettingsForMetadata()
     const provider = stored?.providers.find((candidate) => candidate.id === id)
@@ -362,13 +365,16 @@ export class ModelProviderSettingsService
     if (!provider.apiKey) {
       throw new AppError("MODEL_CATALOG_CREDENTIAL_REQUIRED")
     }
-    const models = await this.modelCatalogClient.listModels({
-      provider: provider.provider,
-      baseUrl: provider.baseUrl,
-      apiKey: provider.apiKey,
-      providerProject: provider.providerProject,
-      providerLocation: provider.providerLocation,
-    })
+    const models = await this.modelCatalogClient.listModels(
+      {
+        provider: provider.provider,
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        providerProject: provider.providerProject,
+        providerLocation: provider.providerLocation,
+      },
+      signal
+    )
     return { provider_id: provider.id, models: [...models] }
   }
 

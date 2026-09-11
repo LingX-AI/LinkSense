@@ -24,6 +24,9 @@ export type SafeHttpFetchOptions = {
   accept: string
   userAgent: string
   errorCode: ErrorCode
+  headers?: HeadersInit
+  signal?: AbortSignal
+  responseErrorCode?: (status: number) => ErrorCode | undefined
   allowedProtocols?: readonly HttpProtocol[]
   allowBenchmarkProxyAddresses?: boolean
   fetcher?: typeof fetch
@@ -58,6 +61,13 @@ export async function fetchPublicHttpResource(
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), options.requestTimeoutMs)
     timeout.unref()
+    const signal = options.signal
+      ? AbortSignal.any([controller.signal, options.signal])
+      : controller.signal
+    const headers = new Headers(options.headers)
+    headers.set("accept", options.accept)
+    headers.set("accept-encoding", "identity")
+    headers.set("user-agent", options.userAgent)
     let response: Response | undefined
 
     try {
@@ -66,20 +76,16 @@ export async function fetchPublicHttpResource(
           ? await pinnedHttpFetch({
               url: current,
               addresses,
-              signal: controller.signal,
+              signal,
               byteLimit: options.byteLimit,
-              accept: options.accept,
-              userAgent: options.userAgent,
+              headers,
               errorCode: options.errorCode,
             })
           : await options.fetcher(current, {
               method: "GET",
               redirect: "manual",
-              signal: controller.signal,
-              headers: {
-                accept: options.accept,
-                "user-agent": options.userAgent,
-              },
+              signal,
+              headers,
             })
 
       if (isRedirectStatus(response.status)) {
@@ -92,6 +98,10 @@ export async function fetchPublicHttpResource(
         continue
       }
 
+      const responseErrorCode = options.responseErrorCode?.(response.status)
+      if (responseErrorCode !== undefined) {
+        throw new AppError(responseErrorCode)
+      }
       if (!response.ok || response.body === null) {
         throw new AppError(options.errorCode)
       }
@@ -240,16 +250,14 @@ function pinnedHttpFetch({
   addresses,
   signal,
   byteLimit,
-  accept,
-  userAgent,
+  headers,
   errorCode,
 }: {
   url: URL
   addresses: LookupAddress[]
   signal: AbortSignal
   byteLimit: number
-  accept: string
-  userAgent: string
+  headers: Headers
   errorCode: ErrorCode
 }): Promise<Response> {
   const lookup: LookupFunction = (_hostname, options, callback) => {
@@ -285,11 +293,7 @@ function pinnedHttpFetch({
         agent: false,
         lookup,
         signal,
-        headers: {
-          accept,
-          "accept-encoding": "identity",
-          "user-agent": userAgent,
-        },
+        headers: Object.fromEntries(headers.entries()),
       },
       (incoming) => {
         // Attach before validation or early destruction. A stream error is not

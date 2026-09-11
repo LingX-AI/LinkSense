@@ -10,6 +10,14 @@ const baseInput = {
   providerLocation: null,
 }
 
+const publicLookup = vi.fn(async () => [
+  { address: "93.184.216.34", family: 4 as const },
+]) as unknown as typeof import("node:dns").promises.lookup
+
+function catalogClient(fetchImplementation: typeof fetch) {
+  return new HttpModelProviderCatalogClient(fetchImplementation, publicLookup)
+}
+
 describe("HttpModelProviderCatalogClient", () => {
   it("lists and normalizes OpenAI-compatible models", async () => {
     const fetchImplementation = vi.fn<typeof fetch>(async () =>
@@ -24,7 +32,7 @@ describe("HttpModelProviderCatalogClient", () => {
         ],
       })
     )
-    const client = new HttpModelProviderCatalogClient(fetchImplementation)
+    const client = catalogClient(fetchImplementation)
 
     await expect(client.listModels(baseInput)).resolves.toEqual([
       {
@@ -72,7 +80,7 @@ describe("HttpModelProviderCatalogClient", () => {
         has_more: false,
       })
     )
-    const client = new HttpModelProviderCatalogClient(fetchImplementation)
+    const client = catalogClient(fetchImplementation)
 
     await expect(
       client.listModels({ ...baseInput, provider: "anthropic" })
@@ -113,7 +121,7 @@ describe("HttpModelProviderCatalogClient", () => {
         ],
       })
     )
-    const client = new HttpModelProviderCatalogClient(fetchImplementation)
+    const client = catalogClient(fetchImplementation)
 
     await expect(
       client.listModels({ ...baseInput, provider: "google" })
@@ -131,18 +139,44 @@ describe("HttpModelProviderCatalogClient", () => {
   })
 
   it("uses provider-specific Azure and Alibaba catalog endpoints", async () => {
-    const fetchImplementation = vi.fn<typeof fetch>(async () =>
-      Response.json({ data: [] })
-    )
-    const client = new HttpModelProviderCatalogClient(fetchImplementation)
+    const fetchImplementation = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ data: [] }))
+      .mockResolvedValueOnce(
+        Response.json({
+          output: {
+            models: [
+              {
+                model: "qwen-max",
+                name: "Qwen Max",
+                inference_metadata: {
+                  request_modality: ["Text", "Image"],
+                },
+                model_info: { context_window: 32_768 },
+              },
+            ],
+          },
+        })
+      )
+    const client = catalogClient(fetchImplementation)
 
     await client.listModels({ ...baseInput, provider: "azure_openai" })
-    await client.listModels({
-      ...baseInput,
-      provider: "alibaba",
-      baseUrl:
-        "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
-    })
+    await expect(
+      client.listModels({
+        ...baseInput,
+        provider: "alibaba",
+        baseUrl:
+          "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "qwen-max",
+        display_name: "Qwen Max",
+        kind: "chat",
+        context_window: 32_768,
+        supports_image_input: true,
+      }),
+    ])
 
     const [azureUrl, azureRequest] = fetchImplementation.mock.calls[0] ?? []
     expect(String(azureUrl)).toBe("https://models.example.test/v1/models")
@@ -152,7 +186,7 @@ describe("HttpModelProviderCatalogClient", () => {
     const [alibabaUrl, alibabaRequest] =
       fetchImplementation.mock.calls[1] ?? []
     expect(String(alibabaUrl)).toBe(
-      "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1/models"
+      "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1/models?page_no=1&page_size=100"
     )
     expect((alibabaRequest?.headers as Headers).get("authorization")).toBe(
       "Bearer provider-secret"
@@ -161,10 +195,12 @@ describe("HttpModelProviderCatalogClient", () => {
 
   it("returns stable errors without exposing upstream response content", async () => {
     const authenticationClient = new HttpModelProviderCatalogClient(
-      vi.fn(async () => new Response("secret upstream body", { status: 401 }))
+      vi.fn(async () => new Response("secret upstream body", { status: 401 })),
+      publicLookup
     )
     const invalidClient = new HttpModelProviderCatalogClient(
-      vi.fn(async () => Response.json({ unexpected: true }))
+      vi.fn(async () => Response.json({ unexpected: true })),
+      publicLookup
     )
 
     await expect(authenticationClient.listModels(baseInput)).rejects.toMatchObject(
@@ -177,11 +213,36 @@ describe("HttpModelProviderCatalogClient", () => {
 
   it("keeps Google Vertex on the manual-entry path", async () => {
     const fetchImplementation = vi.fn()
-    const client = new HttpModelProviderCatalogClient(fetchImplementation)
+    const client = catalogClient(fetchImplementation)
 
     await expect(
       client.listModels({ ...baseInput, provider: "google_vertex" })
     ).rejects.toMatchObject({ code: "MODEL_CATALOG_NOT_SUPPORTED" })
+    expect(fetchImplementation).not.toHaveBeenCalled()
+  })
+
+  it("rejects insecure and private discovery targets before sending credentials", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>()
+    const privateLookup = vi.fn(async () => [
+      { address: "127.0.0.1", family: 4 as const },
+    ]) as unknown as typeof import("node:dns").promises.lookup
+    const client = new HttpModelProviderCatalogClient(
+      fetchImplementation,
+      privateLookup
+    )
+
+    await expect(
+      client.listModels({
+        ...baseInput,
+        baseUrl: "http://public.example.test/v1",
+      })
+    ).rejects.toMatchObject({ code: "MODEL_CATALOG_UNAVAILABLE" })
+    await expect(
+      client.listModels({
+        ...baseInput,
+        baseUrl: "https://private.example.test/v1",
+      })
+    ).rejects.toMatchObject({ code: "MODEL_CATALOG_UNAVAILABLE" })
     expect(fetchImplementation).not.toHaveBeenCalled()
   })
 })

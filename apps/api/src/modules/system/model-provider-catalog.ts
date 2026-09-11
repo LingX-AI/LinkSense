@@ -1,3 +1,5 @@
+import type { promises as dns } from "node:dns"
+
 import {
   discoveredModelSchema,
   modelContextWindowSchema,
@@ -9,6 +11,7 @@ import {
 import { z } from "zod"
 
 import { AppError } from "../../lib/errors.js"
+import { fetchPublicHttpResource } from "../../lib/safe-http-fetch.js"
 
 const MODEL_CATALOG_REQUEST_TIMEOUT_MS = 5_000
 const MODEL_CATALOG_RESPONSE_LIMIT_BYTES = 2 * 1024 * 1024
@@ -67,6 +70,30 @@ const googleModelListSchema = z.object({
     .max(MODEL_CATALOG_MODEL_LIMIT),
 })
 
+const alibabaModelListSchema = z.object({
+  output: z.object({
+    models: z
+      .array(
+        z.object({
+          model: z.string().min(1),
+          name: z.string().optional(),
+          inference_metadata: z
+            .object({ request_modality: z.array(z.string()).optional() })
+            .nullable()
+            .optional(),
+          model_info: z
+            .object({
+              context_window: z.number().nullable().optional(),
+              max_input_tokens: z.number().nullable().optional(),
+            })
+            .nullable()
+            .optional(),
+        })
+      )
+      .max(MODEL_CATALOG_MODEL_LIMIT),
+  }),
+})
+
 export type ModelProviderCatalogInput = {
   provider: ModelServiceProvider
   baseUrl: string
@@ -76,33 +103,49 @@ export type ModelProviderCatalogInput = {
 }
 
 export interface ModelProviderCatalogClient {
-  listModels(input: ModelProviderCatalogInput): Promise<readonly DiscoveredModel[]>
+  listModels(
+    input: ModelProviderCatalogInput,
+    signal?: AbortSignal
+  ): Promise<readonly DiscoveredModel[]>
 }
 
 export class HttpModelProviderCatalogClient
   implements ModelProviderCatalogClient
 {
-  constructor(private readonly fetchImplementation: typeof fetch = fetch) {}
+  constructor(
+    private readonly fetchImplementation?: typeof fetch,
+    private readonly lookup?: typeof dns.lookup
+  ) {}
 
   async listModels(
-    input: ModelProviderCatalogInput
+    input: ModelProviderCatalogInput,
+    signal?: AbortSignal
   ): Promise<readonly DiscoveredModel[]> {
     if (input.provider === "google_vertex") {
       throw new AppError("MODEL_CATALOG_NOT_SUPPORTED")
     }
     const request = modelCatalogRequest(input)
     try {
-      const response = await this.fetchImplementation(request.url, {
-        method: "GET",
+      const response = await fetchPublicHttpResource(request.url, {
+        byteLimit: MODEL_CATALOG_RESPONSE_LIMIT_BYTES,
+        redirectCount: 0,
+        requestTimeoutMs: MODEL_CATALOG_REQUEST_TIMEOUT_MS,
+        accept: "application/json",
+        userAgent: "LinkSense-model-catalog/1",
+        errorCode: "MODEL_CATALOG_UNAVAILABLE",
+        allowedProtocols: ["https:"],
         headers: request.headers,
-        redirect: "manual",
-        signal: AbortSignal.timeout(MODEL_CATALOG_REQUEST_TIMEOUT_MS),
+        ...(signal ? { signal } : {}),
+        responseErrorCode: (status) =>
+          status === 401 || status === 403
+            ? "MODEL_CATALOG_AUTHENTICATION_FAILED"
+            : undefined,
+        ...(this.fetchImplementation
+          ? { fetcher: this.fetchImplementation }
+          : {}),
+        ...(this.lookup ? { lookup: this.lookup } : {}),
       })
-      if (response.status === 401 || response.status === 403) {
-        throw new AppError("MODEL_CATALOG_AUTHENTICATION_FAILED")
-      }
-      if (!response.ok) throw new AppError("MODEL_CATALOG_UNAVAILABLE")
-      const payload = await readBoundedJson(response)
+      const payload = parseJson(response.bytes)
       return parseModelCatalog(input.provider, payload)
     } catch (error) {
       if (error instanceof AppError) throw error
@@ -198,6 +241,30 @@ function parseGoogleModelCatalog(payload: unknown): readonly DiscoveredModel[] {
   )
 }
 
+export function parseAlibabaModelCatalog(
+  payload: unknown
+): readonly DiscoveredModel[] {
+  const parsed = alibabaModelListSchema.safeParse(payload)
+  if (!parsed.success) throw new AppError("MODEL_CATALOG_RESPONSE_INVALID")
+  return normalizeModels(
+    parsed.data.output.models.map((model) =>
+      discoveredModel({
+        id: model.model,
+        displayName: model.name,
+        kind: "chat",
+        contextWindow: firstContextWindow(
+          model.model_info?.context_window,
+          model.model_info?.max_input_tokens
+        ),
+        supportsImageInput:
+          model.inference_metadata?.request_modality
+            ?.map((value) => value.toLocaleLowerCase("en-US"))
+            .includes("image") ?? null,
+      })
+    )
+  )
+}
+
 function parseModelCatalog(
   provider: Exclude<ModelServiceProvider, "google_vertex">,
   payload: unknown
@@ -206,7 +273,9 @@ function parseModelCatalog(
     ? parseAnthropicModelCatalog(payload)
     : provider === "google"
       ? parseGoogleModelCatalog(payload)
-      : parseOpenAiCompatibleModelCatalog(payload)
+      : provider === "alibaba"
+        ? parseAlibabaModelCatalog(payload)
+        : parseOpenAiCompatibleModelCatalog(payload)
 }
 
 function modelCatalogRequest(input: ModelProviderCatalogInput): {
@@ -231,6 +300,10 @@ function modelCatalogRequest(input: ModelProviderCatalogInput): {
     case "google_vertex":
       throw new AppError("MODEL_CATALOG_NOT_SUPPORTED")
     case "alibaba":
+      headers.set("authorization", `Bearer ${input.apiKey}`)
+      url.searchParams.set("page_no", "1")
+      url.searchParams.set("page_size", "100")
+      break
     case "deepseek":
     case "openai":
     case "openai_compatible":
@@ -312,39 +385,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null
 }
 
-async function readBoundedJson(response: Response): Promise<unknown> {
-  const contentLength = Number(response.headers.get("content-length"))
-  if (
-    Number.isFinite(contentLength) &&
-    contentLength > MODEL_CATALOG_RESPONSE_LIMIT_BYTES
-  ) {
-    throw new AppError("MODEL_CATALOG_RESPONSE_INVALID")
-  }
-  if (!response.body) throw new AppError("MODEL_CATALOG_RESPONSE_INVALID")
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
+function parseJson(bytes: Buffer): unknown {
   try {
-    while (true) {
-      const chunk = await reader.read()
-      if (chunk.done) break
-      total += chunk.value.byteLength
-      if (total > MODEL_CATALOG_RESPONSE_LIMIT_BYTES) {
-        throw new AppError("MODEL_CATALOG_RESPONSE_INVALID")
-      }
-      chunks.push(chunk.value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-  const bytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  try {
-    return JSON.parse(new TextDecoder().decode(bytes)) as unknown
+    return JSON.parse(bytes.toString("utf8")) as unknown
   } catch {
     throw new AppError("MODEL_CATALOG_RESPONSE_INVALID")
   }

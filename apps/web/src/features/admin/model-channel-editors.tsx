@@ -32,6 +32,7 @@ import { FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { ModelSettingsEditor } from "./model-settings-editor"
+import { modelProviderSettingsQueryKeys } from "./model-provider-settings-query"
 import {
   ModelSettingsFields,
   ModelSettingsSelect,
@@ -76,14 +77,10 @@ export function ModelEditor({
     (provider) => provider === channel.provider
   )
   const catalog = useQuery({
-    queryKey: [
-      "admin",
-      "model-provider-settings",
-      "providers",
+    queryKey: modelProviderSettingsQueryKeys.discoverableModels(
       channel.id,
-      "discoverable-models",
-      actions.settings.revision,
-    ],
+      actions.settings.revision
+    ),
     queryFn: ({ signal }) =>
       apiRequest(
         `/admin/model-provider-settings/providers/${encodeURIComponent(channel.id)}/discoverable-models`,

@@ -195,13 +195,16 @@ describe("ModelProviderSettingsService", () => {
       provider_id: "provider-a",
       models: [expect.objectContaining({ id: "remote-model" })],
     })
-    expect(catalogClient.listModels).toHaveBeenCalledWith({
-      provider: "openai_compatible",
-      baseUrl: "https://models.example.test/v1",
-      apiKey: "provider-secret",
-      providerProject: null,
-      providerLocation: null,
-    })
+    expect(catalogClient.listModels).toHaveBeenCalledWith(
+      {
+        provider: "openai_compatible",
+        baseUrl: "https://models.example.test/v1",
+        apiKey: "provider-secret",
+        providerProject: null,
+        providerLocation: null,
+      },
+      undefined
+    )
   })
 
   it("requires a stored channel credential before discovering models", async () => {

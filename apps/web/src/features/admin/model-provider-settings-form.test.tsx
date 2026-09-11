@@ -455,6 +455,121 @@ describe("ModelProviderSettingsForm", () => {
     })
   })
 
+  it("shows loading and empty catalog states, then refreshes the remote list", async () => {
+    let resolveInitialCatalog: ((response: Response) => void) | undefined
+    const initialCatalog = new Promise<Response>((resolve) => {
+      resolveInitialCatalog = resolve
+    })
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockReturnValueOnce(initialCatalog)
+      .mockResolvedValueOnce(
+        Response.json({
+          success: true,
+          data: {
+            provider_id: "provider-1",
+            models: [
+              {
+                id: "refreshed-model",
+                display_name: "Refreshed Model",
+                kind: "chat",
+                context_window: null,
+                supports_image_input: null,
+                supported_reasoning_efforts: null,
+                default_reasoning_effort: null,
+              },
+            ],
+          },
+        })
+      )
+    vi.stubGlobal("fetch", fetchMock)
+    renderModels()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole("button", { name: "Add model" }))
+    const catalog = screen.getByRole("combobox", {
+      name: "Model from provider (optional)",
+    })
+    const refresh = screen.getByRole("button", {
+      name: "Refresh remote model list",
+    })
+    expect(catalog).toBeDisabled()
+    expect(refresh).toBeDisabled()
+    expect(catalog).toHaveAttribute("placeholder", "Loading…")
+
+    resolveInitialCatalog?.(
+      Response.json({
+        success: true,
+        data: { provider_id: "provider-1", models: [] },
+      })
+    )
+    await waitFor(() => expect(catalog).toBeEnabled())
+    await user.click(catalog)
+    expect(await screen.findByText("No matching remote models")).toBeVisible()
+
+    await user.keyboard("{Escape}")
+    await user.click(refresh)
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(refresh).toBeEnabled()
+    })
+    await user.click(catalog)
+    expect(
+      await screen.findByRole("option", { name: /Refreshed Model/u })
+    ).toBeVisible()
+  })
+
+  it("shows catalog errors while preserving manual model entry", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { success: false, error_code: "MODEL_CATALOG_UNAVAILABLE" },
+          { status: 422 }
+        )
+      )
+    )
+    renderModels()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole("button", { name: "Add model" }))
+
+    expect(
+      await screen.findByText(
+        "The remote model list is unavailable. Check the Base URL, network, and provider status, or enter the model details manually."
+      )
+    ).toBeVisible()
+    expect(screen.getByLabelText("Model ID")).toBeEnabled()
+    expect(screen.getByLabelText("Display name")).toBeEnabled()
+  })
+
+  it("keeps discovery disabled without a stored channel credential", async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal("fetch", fetchMock)
+    renderModels({
+      ...settings,
+      providers: settings.providers.map((provider) => ({
+        ...provider,
+        api_key_configured: false,
+      })),
+    })
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole("button", { name: "Add model" }))
+
+    expect(
+      screen.getByText(
+        "Save an API key in the channel settings to load its models, or enter the details manually."
+      )
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("combobox", {
+        name: "Model from provider (optional)",
+      })
+    ).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it("opens channel connection fields in a centered shared dialog and saves only those fields", async () => {
     const requests = installSaveMock()
     renderModels()

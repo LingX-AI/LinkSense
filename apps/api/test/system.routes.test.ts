@@ -864,7 +864,10 @@ describe("admin system routes", () => {
       models: [{ id: "model-a" }],
     })
     expect(JSON.stringify(response.json())).not.toContain("secret")
-    expect(discoverModels).toHaveBeenCalledWith("provider-a")
+    expect(discoverModels).toHaveBeenCalledWith(
+      "provider-a",
+      expect.any(AbortSignal)
+    )
     await app.close()
   })
 

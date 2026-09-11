@@ -360,11 +360,25 @@ export const adminSystemRoutes: FastifyPluginAsync<{
       const { provider_id: providerId } = modelProviderCatalogParamsSchema.parse(
         request.params
       )
-      const catalog =
-        await services.modelProviderSettings.discoverModels(providerId)
-      return reply
-        .header("cache-control", "private, no-store")
-        .send(ok(catalog, request.id))
+      const controller = new AbortController()
+      const abortRequest = () => controller.abort()
+      const abortDisconnectedReply = () => {
+        if (!reply.raw.writableEnded) controller.abort()
+      }
+      request.raw.once("aborted", abortRequest)
+      reply.raw.once("close", abortDisconnectedReply)
+      try {
+        const catalog = await services.modelProviderSettings.discoverModels(
+          providerId,
+          controller.signal
+        )
+        return reply
+          .header("cache-control", "private, no-store")
+          .send(ok(catalog, request.id))
+      } finally {
+        request.raw.off("aborted", abortRequest)
+        reply.raw.off("close", abortDisconnectedReply)
+      }
     }
   )
 

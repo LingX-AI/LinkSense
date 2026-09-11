@@ -10,6 +10,7 @@ import {
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
 import { notify } from "@/components/feedback/notification"
+import { modelProviderSettingsQueryKeys } from "./model-provider-settings-query"
 
 type ModelSettingsAction =
   | { kind: "save"; draft: ModelSettingsDraft; onSaved?: () => void }
@@ -93,7 +94,7 @@ export function useModelSettings(initial: ModelProviderSettings) {
       }
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: ["admin", "model-provider-settings"],
+          queryKey: modelProviderSettingsQueryKeys.settings,
           refetchType: "none",
         }),
         queryClient.invalidateQueries({ queryKey: ["me", "model-preference"] }),

@@ -191,6 +191,7 @@ import {
   creditLimitToCreditQuotaInput,
 } from "@/lib/credit-quota"
 import { ModelProviderSettingsForm } from "@/features/admin/model-provider-settings-form"
+import { modelProviderSettingsQueryKeys } from "@/features/admin/model-provider-settings-query"
 import { ImageGenerationSettingsForm } from "@/features/admin/image-generation-settings-form"
 import { ImageUnderstandingSettingsForm } from "@/features/admin/image-understanding-settings-form"
 import { VoiceTranscriptionSettingsForm } from "@/features/admin/voice-transcription-settings-form"
@@ -4092,7 +4093,7 @@ function ModelSettingsPage() {
     imageGeneration: 0,
   })
   const modelProviderQuery = useQuery({
-    queryKey: ["admin", "model-provider-settings"],
+    queryKey: modelProviderSettingsQueryKeys.settings,
     queryFn: ({ signal }) =>
       apiRequest("/admin/model-provider-settings", {
         schema: modelProviderSettingsSchema,
