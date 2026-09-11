@@ -6,10 +6,10 @@ description: Analyze resources by time, workload, model, group, and user.
 # Usage and cost analytics
 
 :::info Administrator operation
-Open **Settings → Usage**. Analytics observe resource facts and do not configure token usage, billing, or execution admission.
+Open **Settings → Usage**. Analytics observe resource facts and do not configure user credit quotas.
 :::
 
-Token usage settings are not configured on this page. Set initial usage for new users in **Model settings → Initial user token usage**, and adjust existing users in **Groups & users → Users**.
+Configure credits in [Quota management](./quota-settings.md), and adjust existing users under Groups & users → Users.
 
 ## Time range
 

@@ -287,7 +287,6 @@ export class SystemService {
         ...current,
         self_registration: {
           enabled: settings.enabled,
-          total_token_limit: settings.total_token_limit,
         },
       }
       await tx.systemSetting.upsert({
@@ -299,15 +298,6 @@ export class SystemService {
         },
         update: { settingsJson: merged, updatedBy: actorId },
       })
-      const synchronizedUsers = settings.total_token_limit
-        ? await tx.user.updateMany({
-            where: {
-              accountType: "member",
-              selfRegisteredAt: { not: null },
-            },
-            data: { totalTokenLimit: BigInt(settings.total_token_limit) },
-          })
-        : { count: 0 }
       await tx.auditLog.create({
         data: {
           actorId,
@@ -317,8 +307,6 @@ export class SystemService {
           result: "success",
           metadataJson: {
             enabled: settings.enabled,
-            total_token_limit: settings.total_token_limit,
-            updated_user_count: synchronizedUsers.count,
           },
           ipAddress: context.ipAddress ?? null,
           userAgent: context.userAgent ?? null,
@@ -1094,24 +1082,13 @@ export function registrationSettings(
   raw: Record<string, unknown>,
 ): RegistrationSettings {
   const registration = asObject(raw.self_registration)
-  const totalTokenLimit = positiveTokenLimit(registration.total_token_limit)
   return {
-    enabled: registration.enabled === true && totalTokenLimit !== null,
-    total_token_limit: totalTokenLimit,
+    enabled: registration.enabled === true,
   }
 }
 
 function registrationAvailability(raw: Record<string, unknown>) {
   return { enabled: registrationSettings(raw).enabled }
-}
-
-function positiveTokenLimit(value: unknown): string | null {
-  if (typeof value !== "string" || !/^[1-9]\d*$/u.test(value)) return null
-  try {
-    return BigInt(value) <= 9_223_372_036_854_775_807n ? value : null
-  } catch {
-    return null
-  }
 }
 
 function productLogoMetadata(

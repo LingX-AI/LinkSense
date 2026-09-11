@@ -5,22 +5,22 @@ import { ApiError, apiRequest } from "@/api/client"
 import { completionNotificationFeedSchema } from "@/api/contracts"
 import { useAuth } from "@/app/auth-state"
 
-const TOKEN_QUOTA_REFRESH_INTERVAL_MS = 5_000
+const CREDIT_QUOTA_REFRESH_INTERVAL_MS = 5_000
 const REFRESHED_TURN_HISTORY_LIMIT = 1_000
-let nextTokenQuotaRefreshQueryInstanceId = 0
+let nextCreditQuotaRefreshQueryInstanceId = 0
 
-export function TokenQuotaRefreshCenter() {
+export function CreditQuotaRefreshCenter() {
   const { status, user, refreshUser } = useAuth()
-  const hasTokenQuota = Boolean(
-    user?.token_quota?.total ||
-    user?.token_quota?.weekly ||
-    user?.token_quota?.monthly
+  const hasCreditQuota = Boolean(
+    user?.credit_quota?.total ||
+    user?.credit_quota?.weekly ||
+    user?.credit_quota?.monthly
   )
 
-  if (status !== "authenticated" || !user || !hasTokenQuota) return null
+  if (status !== "authenticated" || !user || !hasCreditQuota) return null
 
   return (
-    <ActiveTokenQuotaRefreshCenter
+    <ActiveCreditQuotaRefreshCenter
       key={user.id}
       userId={user.id}
       refreshUser={refreshUser}
@@ -28,7 +28,7 @@ export function TokenQuotaRefreshCenter() {
   )
 }
 
-function ActiveTokenQuotaRefreshCenter({
+function ActiveCreditQuotaRefreshCenter({
   userId,
   refreshUser,
 }: {
@@ -36,12 +36,12 @@ function ActiveTokenQuotaRefreshCenter({
   refreshUser: () => Promise<void>
 }) {
   const [queryInstanceId] = useState(
-    () => ++nextTokenQuotaRefreshQueryInstanceId
+    () => ++nextCreditQuotaRefreshQueryInstanceId
   )
   const cursorRef = useRef<string | null>(null)
   const refreshedTurnIdsRef = useRef(new Set<string>())
   const completionQuery = useQuery({
-    queryKey: ["token-quota-refresh", userId, queryInstanceId],
+    queryKey: ["credit-quota-refresh", userId, queryInstanceId],
     queryFn: async ({ signal }) => {
       const requestedCursor = cursorRef.current
       try {
@@ -67,7 +67,7 @@ function ActiveTokenQuotaRefreshCenter({
       }
     },
     gcTime: 0,
-    refetchInterval: TOKEN_QUOTA_REFRESH_INTERVAL_MS,
+    refetchInterval: CREDIT_QUOTA_REFRESH_INTERVAL_MS,
     refetchIntervalInBackground: true,
   })
   const { data: completionData, refetch } = completionQuery

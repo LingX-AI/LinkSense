@@ -416,7 +416,7 @@ window.__vite_plugin_react_preamble_installed__ = true
         request,
         external,
       );
-      await services.tokenLimits.assertCanStartTask(session.ownerId);
+      await services.creditLimits.assertCanStartTask(session.ownerId);
       const body = voiceTranscriptionRequestSchema.parse(request.body);
 
       try {

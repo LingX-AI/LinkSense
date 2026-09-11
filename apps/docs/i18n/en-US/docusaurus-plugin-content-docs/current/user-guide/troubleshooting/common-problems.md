@@ -21,7 +21,7 @@ Read the preflight message:
 - Fix a missing or conflicting explicit credential binding.
 - Test the URL, authentication, and timeout of a required MCP server.
 - Select a knowledge base that is still enabled and accessible.
-- If your token usage is exhausted, wait for the next weekly or monthly reset, or ask an administrator to adjust your per-user usage.
+- If your credit quota is exhausted, wait for the weekly or monthly reset when applicable. A total quota does not reset; ask an administrator to adjust it.
 
 ## Execution disconnects
 
@@ -55,7 +55,7 @@ See [Connect and use Feishu](../message-channels/feishu.md) for connection, appr
 - Confirm that Weixin is **Online** under **Settings → Message channels**.
 - The message must come from the account that scanned the code and be supported text or transcribable voice.
 - If any QR, phone confirmation, or pairing-code step was not completed, reconnect and follow the current page.
-- Check token allowance, maintenance state, and task concurrency. Do not repeatedly send the same message.
+- Check credit quotas, maintenance state, and task concurrency. Do not repeatedly send the same message.
 
 See [Connect and use Weixin](../message-channels/weixin.md) for connection and disconnection steps.
 

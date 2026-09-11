@@ -37,6 +37,7 @@ import {
   useNavigate,
 } from "react-router-dom"
 
+import { formatRemainingCredits } from "@/lib/credit-quota"
 import { ApiError, apiRequest } from "@/api/client"
 import {
   automationCompletionNotificationSchema,
@@ -161,12 +162,6 @@ type NavItem = {
   labelKey: string
   icon: typeof SearchIcon
   activeClassName: "sidebar-link-active" | "sidebar-link-current"
-}
-
-function formatTokenQuotaRemaining(
-  period: { remaining_percentage: number } | null | undefined
-) {
-  return period ? `${period.remaining_percentage}%` : "-"
 }
 
 const userItems: NavItem[] = [
@@ -757,10 +752,19 @@ function AppSidebarContent({
       ? `${parts[0]?.[0] ?? ""}${parts.at(-1)?.[0] ?? ""}`.toUpperCase()
       : (parts[0]?.slice(0, 2) ?? "LS").toUpperCase()
   }, [user?.name])
-  const tokenQuotaRemainingLabel = t("nav.tokenQuotaRemaining", {
-    total: formatTokenQuotaRemaining(user?.token_quota?.total),
-    weekly: formatTokenQuotaRemaining(user?.token_quota?.weekly),
-    monthly: formatTokenQuotaRemaining(user?.token_quota?.monthly),
+  const creditQuotaRemainingLabel = t("nav.creditQuotaRemaining", {
+    total: formatRemainingCredits(
+      user?.credit_quota?.total?.remaining_credits,
+      language
+    ),
+    weekly: formatRemainingCredits(
+      user?.credit_quota?.weekly?.remaining_credits,
+      language
+    ),
+    monthly: formatRemainingCredits(
+      user?.credit_quota?.monthly?.remaining_credits,
+      language
+    ),
   })
   const settingsReturnState = conversationSettingsReturnState(location)
 
@@ -1314,7 +1318,12 @@ function AppSidebarContent({
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 <DropdownMenuLabel className="account-menu-quota px-2 py-1.5 text-[length:var(--app-font-11)] leading-[var(--app-line-16)] font-medium text-[var(--app-muted)]">
-                  {tokenQuotaRemainingLabel}
+                  <span className="block">
+                    {t("nav.creditQuotaRemainingTitle")}
+                  </span>
+                  <span className="block tabular-nums">
+                    {creditQuotaRemainingLabel}
+                  </span>
                 </DropdownMenuLabel>
                 <DropdownMenuItem
                   className="text-[length:var(--app-ui-font-size)]"

@@ -1376,9 +1376,12 @@ describe("LinkSense application", () => {
       "font-semibold",
       "text-[length:var(--app-ui-font-size)]"
     )
-    const quotaRemaining = within(menu).getByText(
-      "用量剩余：总 - · 周 - · 月 -"
-    )
+    const quotaTitle = within(menu).getByText("剩余额度")
+    const quotaValues = within(menu).getByText("总 - · 周 - · 月 -")
+    expect(quotaTitle).toHaveClass("block")
+    expect(quotaValues).toHaveClass("block", "tabular-nums")
+    expect(quotaTitle.nextElementSibling).toBe(quotaValues)
+    const quotaRemaining = quotaTitle.parentElement
     expect(quotaRemaining).toHaveClass(
       "account-menu-quota",
       "text-[length:var(--app-font-11)]",
@@ -1386,7 +1389,7 @@ describe("LinkSense application", () => {
     )
     expect(accountName.parentElement).not.toContainElement(quotaRemaining)
     expect(
-      quotaRemaining.compareDocumentPosition(settingsMenuItem) &
+      quotaValues.compareDocumentPosition(settingsMenuItem) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
 
@@ -1406,7 +1409,7 @@ describe("LinkSense application", () => {
     const settingsNavigationLinks = settingsSidebar.querySelectorAll(
       ".settings-navigation-link"
     )
-    expect(settingsNavigationLinks).toHaveLength(20)
+    expect(settingsNavigationLinks).toHaveLength(22)
     settingsNavigationLinks.forEach((link) => {
       expect(link.querySelectorAll(":scope > span")).toHaveLength(1)
       expect(link.querySelector(":scope > span > span")).toBeNull()

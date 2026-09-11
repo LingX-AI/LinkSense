@@ -51,7 +51,7 @@ The user message that started a Goal shows a Goal icon and **Goal** label in its
 
 While the Goal is active, a Goal card appears above the input box. It shows the current status, objective, and elapsed time. Select the time to view Goal details, including time used, tokens used, and the token budget.
 
-The token budget in Goal details belongs to that Goal. The per-user token usage set by an administrator is an account-level setting that controls whether you can start new tasks. The two settings apply independently.
+The token budget in Goal details belongs to that Goal. The per-user credit quotas set by an administrator are an account-level setting that controls whether you can start new tasks. The two settings apply independently.
 
 After the Goal is complete, the Goal card disappears and the final assistant reply shows a completion marker such as “Reached the Goal within a duration.”
 

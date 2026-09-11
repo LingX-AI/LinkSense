@@ -55,12 +55,12 @@ describe("LinkSense application", () => {
   it("opens a compact account menu with only LinkSense account actions", async () => {
     installApiMock({
       userOverride: {
-        token_quota: {
+        credit_quota: {
           total: null,
           weekly: {
-            limit_tokens: "1000",
-            used_tokens: "250",
-            remaining_tokens: "750",
+            limit_credits: "0.001",
+            used_credits: "0.00025",
+            remaining_credits: "0.00075",
             remaining_percentage: 75,
             reset_at: "2026-08-09T16:00:00.000Z",
           },
@@ -81,9 +81,8 @@ describe("LinkSense application", () => {
     expect(menu).toHaveClass("w-[calc(var(--anchor-width)+2.25rem)]")
     expect(menu).not.toHaveClass("w-[260px]")
     expect(within(menu).getAllByText("林晓").length).toBeGreaterThan(0)
-    expect(
-      within(menu).getByText("用量剩余：总 - · 周 75% · 月 -")
-    ).toBeVisible()
+    expect(within(menu).getByText("剩余额度")).toBeVisible()
+    expect(within(menu).getByText("总 - · 周 0 · 月 -")).toBeVisible()
     expect(within(menu).queryByText("lin@example.com")).not.toBeInTheDocument()
     expect(within(menu).queryByText("管理员")).not.toBeInTheDocument()
     expect(within(menu).getByRole("menuitem", { name: "设置" })).toBeVisible()

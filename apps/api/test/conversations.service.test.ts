@@ -4659,11 +4659,11 @@ describe("ConversationService ownership and draft lifecycle", () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
     fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
-    fixture.tokenLimits.assertCanStartTask.mockRejectedValueOnce(
-      new AppError("TOKEN_LIMIT_EXCEEDED", {
+    fixture.creditLimits.assertCanStartTask.mockRejectedValueOnce(
+      new AppError("CREDIT_LIMIT_EXCEEDED", {
         scope: "weekly",
-        limit_tokens: "1000",
-        used_tokens: "1000",
+        limit_credits: "0.001",
+        used_credits: "0.001",
         reset_at: "2026-08-09T16:00:00.000Z",
       }),
     );
@@ -4679,9 +4679,9 @@ describe("ConversationService ownership and draft lifecycle", () => {
         },
         {},
       ),
-    ).rejects.toMatchObject({ code: "TOKEN_LIMIT_EXCEEDED" });
+    ).rejects.toMatchObject({ code: "CREDIT_LIMIT_EXCEEDED" });
 
-    expect(fixture.tokenLimits.assertCanStartTask).toHaveBeenCalledWith(
+    expect(fixture.creditLimits.assertCanStartTask).toHaveBeenCalledWith(
       OWNER_ID,
     );
     expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
@@ -11157,7 +11157,7 @@ async function conversationFixture() {
     enqueueConversationPrewarm: vi.fn(async () => undefined),
   };
   const titleRefresh = { scheduleForUserMessage: vi.fn() };
-  const tokenLimits = {
+  const creditLimits = {
     assertCanStartTask: vi.fn(async () => undefined),
   };
   const knowledgeStore = {
@@ -11244,7 +11244,7 @@ async function conversationFixture() {
     preflight,
     cleanup,
     titleRefresh,
-    tokenLimits,
+    creditLimits,
     knowledgeStore,
     applicationResolver,
     defaultTransaction,
@@ -11374,7 +11374,7 @@ function createService(
         applicationId: string,
       ): Promise<boolean>;
     };
-    tokenLimits: {
+    creditLimits: {
       assertCanStartTask(userId: string): Promise<void>;
     };
     titleRefresh: {
@@ -11416,7 +11416,7 @@ function createService(
       })),
     } as never,
     fixture.applicationResolver as never,
-    fixture.tokenLimits,
+    fixture.creditLimits,
     undefined,
     fixture.titleRefresh,
   );

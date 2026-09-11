@@ -1,5 +1,8 @@
 import type { FastifyPluginAsync } from "fastify"
 import {
+  quotaSettingsSchema,
+  resetMemberQuotasInputSchema,
+  applyOrganizationCreditLimitsInputSchema,
   deleteModelProviderSchema,
   deleteModelProviderModelSchema,
   patchProductSettingsSchema,
@@ -220,6 +223,40 @@ export const adminSystemRoutes: FastifyPluginAsync<{
     return reply.send(
       ok({ code: "SYSTEM_SETTINGS_UPDATED", settings }, request.id)
     )
+  })
+
+  app.get("/quota-settings", async (request, reply) =>
+    reply.send(ok(await services.quotaSettings.getSettings(), request.id))
+  )
+
+  app.put("/quota-settings", async (request, reply) => {
+    const actor = (request as AuthenticatedRequest).authUser
+    const settings = await services.quotaSettings.updateSettings(
+      actor.id,
+      quotaSettingsSchema.parse(request.body),
+      { ipAddress: request.ip, userAgent: request.headers["user-agent"] ?? null },
+    )
+    return reply.send(ok({ code: "SYSTEM_SETTINGS_UPDATED", settings }, request.id))
+  })
+
+  app.post("/quota-settings/reset", async (request, reply) => {
+    const actor = (request as AuthenticatedRequest).authUser
+    const result = await services.quotaSettings.resetMemberQuotas(
+      actor.id,
+      resetMemberQuotasInputSchema.parse(request.body),
+      { ipAddress: request.ip, userAgent: request.headers["user-agent"] ?? null },
+    )
+    return reply.send(ok(result, request.id))
+  })
+
+  app.post("/quota-settings/apply-organization-limits", async (request, reply) => {
+    const actor = (request as AuthenticatedRequest).authUser
+    const result = await services.quotaSettings.applyOrganizationLimits(
+      actor.id,
+      applyOrganizationCreditLimitsInputSchema.parse(request.body),
+      { ipAddress: request.ip, userAgent: request.headers["user-agent"] ?? null },
+    )
+    return reply.send(ok(result, request.id))
   })
 
   app.get("/registration-settings", async (request, reply) =>

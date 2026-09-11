@@ -12,6 +12,12 @@ import { AppShell } from "@/components/shell/app-shell"
 import { SettingsShell } from "@/components/shell/settings-shell"
 import { EmptyState, LoadingState } from "@/components/feedback/page-state"
 
+const AdminQuotaPage = lazy(() =>
+  import("@/pages/admin-quota-page").then((module) => ({
+    default: module.AdminQuotaPage,
+  }))
+)
+
 const AdminPages = lazy(() =>
   import("@/pages/admin-pages").then((module) => ({
     default: module.AdminPages,
@@ -266,6 +272,7 @@ export function App() {
                   element={<AdminPages page="users" />}
                 />
                 <Route path="/admin/usage" element={<UsageAnalyticsPage />} />
+                <Route path="/admin/quotas" element={<AdminQuotaPage />} />
                 <Route
                   path="/admin/roles"
                   element={<AdminPages page="roles" />}
