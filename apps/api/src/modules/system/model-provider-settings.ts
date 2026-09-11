@@ -342,7 +342,11 @@ export class ModelProviderSettingsService
     private readonly prisma: PrismaClient,
     private readonly config: AppConfig,
     private readonly modelCatalogClient: ModelProviderCatalogClient =
-      new HttpModelProviderCatalogClient()
+      new HttpModelProviderCatalogClient(
+        undefined,
+        undefined,
+        config.nodeEnv === "development"
+      )
   ) {}
 
   registerReferenceReader(reader: ManagedModelReferenceReader): void {

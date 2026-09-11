@@ -28,6 +28,7 @@ export type SafeHttpFetchOptions = {
   signal?: AbortSignal
   responseErrorCode?: (status: number) => ErrorCode | undefined
   allowedProtocols?: readonly HttpProtocol[]
+  allowLocalDevelopmentUrls?: boolean
   allowBenchmarkProxyAddresses?: boolean
   fetcher?: typeof fetch
   lookup?: typeof dns.lookup
@@ -51,13 +52,6 @@ export async function fetchPublicHttpResource(
   let current = new URL(url)
 
   for (let redirects = 0; redirects <= options.redirectCount; redirects += 1) {
-    const addresses = await resolvePublicHttpAddresses(
-      current,
-      lookup,
-      allowedProtocols,
-      options.errorCode,
-      options.allowBenchmarkProxyAddresses ?? false,
-    )
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), options.requestTimeoutMs)
     timeout.unref()
@@ -71,6 +65,15 @@ export async function fetchPublicHttpResource(
     let response: Response | undefined
 
     try {
+      const addresses = await resolvePublicHttpAddresses(
+        current,
+        lookup,
+        allowedProtocols,
+        options.errorCode,
+        options.allowBenchmarkProxyAddresses ?? false,
+        options.allowLocalDevelopmentUrls ?? false,
+        signal,
+      )
       response =
         options.fetcher === undefined
           ? await pinnedHttpFetch({
@@ -147,6 +150,7 @@ export async function assertPublicHttpUrl(
     DEFAULT_ALLOWED_PROTOCOLS,
     "IMPORT_FAILED",
     false,
+    false,
   )
 }
 
@@ -183,41 +187,98 @@ async function resolvePublicHttpAddresses(
   allowedProtocols: readonly HttpProtocol[],
   errorCode: ErrorCode,
   allowBenchmarkProxyAddresses: boolean,
+  allowLocalDevelopmentUrls: boolean,
+  signal?: AbortSignal,
 ): Promise<LookupAddress[]> {
-  if (!allowedProtocols.includes(url.protocol as HttpProtocol)) {
+  const hostname = url.hostname.replace(/^\[|\]$/gu, "")
+  const isLocalDevelopmentTarget =
+    allowLocalDevelopmentUrls && isExplicitLocalDevelopmentHostname(hostname)
+  const isAllowedProtocol = allowedProtocols.includes(
+    url.protocol as HttpProtocol,
+  )
+  if (
+    !isAllowedProtocol &&
+    !(url.protocol === "http:" && isLocalDevelopmentTarget)
+  ) {
     throw new AppError(errorCode)
   }
   if (url.username !== "" || url.password !== "") {
     throw new AppError(errorCode)
   }
   if (
-    (url.protocol === "http:" && url.port !== "" && url.port !== "80") ||
-    (url.protocol === "https:" && url.port !== "" && url.port !== "443")
+    !isLocalDevelopmentTarget &&
+    ((url.protocol === "http:" && url.port !== "" && url.port !== "80") ||
+      (url.protocol === "https:" && url.port !== "" && url.port !== "443"))
   ) {
     throw new AppError(errorCode)
   }
 
-  const hostname = url.hostname.replace(/^\[|\]$/gu, "")
   const allowProxyResolution =
     allowBenchmarkProxyAddresses && isIP(hostname) === 0
   let addresses: LookupAddress[]
   try {
-    addresses = await lookup(hostname, { all: true, verbatim: true })
+    addresses = await waitForLookup(
+      lookup(hostname, { all: true, verbatim: true }),
+      signal,
+      errorCode,
+    )
   } catch {
     throw new AppError(errorCode)
   }
 
   if (
     addresses.length === 0 ||
-    addresses.some(
-      ({ address }) =>
-        !isPublicAddress(address) &&
-        !(allowProxyResolution && isBenchmarkProxyAddress(address)),
-    )
+    (isLocalDevelopmentTarget
+      ? addresses.some(({ address }) => !isLoopbackAddress(address))
+      : addresses.some(
+          ({ address }) =>
+            !isPublicAddress(address) &&
+            !(allowProxyResolution && isBenchmarkProxyAddress(address)),
+        ))
   ) {
     throw new AppError(errorCode)
   }
   return addresses
+}
+
+function isExplicitLocalDevelopmentHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+}
+
+function isLoopbackAddress(address: string): boolean {
+  if (!ipaddr.isValid(address)) return false
+  let parsed = ipaddr.parse(address)
+  if (parsed.kind() === "ipv6") {
+    const parsedV6 = parsed as ipaddr.IPv6
+    if (parsedV6.isIPv4MappedAddress()) parsed = parsedV6.toIPv4Address()
+  }
+  return parsed.range() === "loopback"
+}
+
+async function waitForLookup<T>(
+  lookupPromise: Promise<T>,
+  signal: AbortSignal | undefined,
+  errorCode: ErrorCode,
+): Promise<T> {
+  if (!signal) return lookupPromise
+  if (signal.aborted) throw new AppError(errorCode)
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => {
+      signal.removeEventListener("abort", abort)
+      reject(new AppError(errorCode))
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    void lookupPromise.then(
+      (value) => {
+        signal.removeEventListener("abort", abort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort)
+        reject(error)
+      },
+    )
+  })
 }
 
 async function readResponseWithLimit(

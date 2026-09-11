@@ -193,6 +193,34 @@ describe("HttpModelProviderCatalogClient", () => {
     )
   })
 
+  it("keeps Alibaba's OpenAI-compatible catalog response as a fallback", async () => {
+    const client = catalogClient(
+      vi.fn<typeof fetch>(async () =>
+        Response.json({
+          data: [
+            {
+              id: "qwen-compatible",
+              display_name: "Qwen Compatible",
+              context_window: 65_536,
+              capabilities: { chat_completion: true },
+            },
+          ],
+        })
+      )
+    )
+
+    await expect(
+      client.listModels({ ...baseInput, provider: "alibaba" })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "qwen-compatible",
+        display_name: "Qwen Compatible",
+        kind: "chat",
+        context_window: 65_536,
+      }),
+    ])
+  })
+
   it("returns stable errors without exposing upstream response content", async () => {
     const authenticationClient = new HttpModelProviderCatalogClient(
       vi.fn(async () => new Response("secret upstream body", { status: 401 })),
@@ -237,6 +265,77 @@ describe("HttpModelProviderCatalogClient", () => {
         baseUrl: "http://public.example.test/v1",
       })
     ).rejects.toMatchObject({ code: "MODEL_CATALOG_UNAVAILABLE" })
+    await expect(
+      client.listModels({
+        ...baseInput,
+        baseUrl: "https://private.example.test/v1",
+      })
+    ).rejects.toMatchObject({ code: "MODEL_CATALOG_UNAVAILABLE" })
+    await expect(
+      client.listModels({
+        ...baseInput,
+        baseUrl: "https://169.254.169.254/v1",
+      })
+    ).rejects.toMatchObject({ code: "MODEL_CATALOG_UNAVAILABLE" })
+    await expect(
+      client.listModels({
+        ...baseInput,
+        baseUrl: "ftp://public.example.test/v1",
+      })
+    ).rejects.toMatchObject({ code: "MODEL_CATALOG_UNAVAILABLE" })
+    expect(fetchImplementation).not.toHaveBeenCalled()
+  })
+
+  it("allows explicit loopback HTTP only for local development", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async () =>
+      Response.json({ data: [{ id: "local-model" }] })
+    )
+    const loopbackLookup = vi.fn(async () => [
+      { address: "127.0.0.1", family: 4 as const },
+    ]) as unknown as typeof import("node:dns").promises.lookup
+    const productionClient = new HttpModelProviderCatalogClient(
+      fetchImplementation,
+      loopbackLookup
+    )
+    const developmentClient = new HttpModelProviderCatalogClient(
+      fetchImplementation,
+      loopbackLookup,
+      true
+    )
+    const input = {
+      ...baseInput,
+      provider: "openai_compatible" as const,
+      baseUrl: "http://localhost:11434/v1",
+    }
+
+    await expect(productionClient.listModels(input)).rejects.toMatchObject({
+      code: "MODEL_CATALOG_UNAVAILABLE",
+    })
+    await expect(developmentClient.listModels(input)).resolves.toEqual([
+      expect.objectContaining({ id: "local-model" }),
+    ])
+    expect(fetchImplementation).toHaveBeenCalledOnce()
+    expect(String(fetchImplementation.mock.calls[0]?.[0])).toBe(
+      "http://localhost:11434/v1/models"
+    )
+
+    await expect(
+      developmentClient.listModels({ ...input, provider: "openai" })
+    ).rejects.toMatchObject({ code: "MODEL_CATALOG_UNAVAILABLE" })
+    expect(fetchImplementation).toHaveBeenCalledOnce()
+  })
+
+  it("does not extend the local-development exception to private hostnames", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>()
+    const privateLookup = vi.fn(async () => [
+      { address: "10.0.0.8", family: 4 as const },
+    ]) as unknown as typeof import("node:dns").promises.lookup
+    const client = new HttpModelProviderCatalogClient(
+      fetchImplementation,
+      privateLookup,
+      true
+    )
+
     await expect(
       client.listModels({
         ...baseInput,

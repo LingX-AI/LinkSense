@@ -114,7 +114,8 @@ export class HttpModelProviderCatalogClient
 {
   constructor(
     private readonly fetchImplementation?: typeof fetch,
-    private readonly lookup?: typeof dns.lookup
+    private readonly lookup?: typeof dns.lookup,
+    private readonly allowLocalDevelopmentUrls = false
   ) {}
 
   async listModels(
@@ -134,6 +135,9 @@ export class HttpModelProviderCatalogClient
         userAgent: "LinkSense-model-catalog/1",
         errorCode: "MODEL_CATALOG_UNAVAILABLE",
         allowedProtocols: ["https:"],
+        allowLocalDevelopmentUrls:
+          this.allowLocalDevelopmentUrls &&
+          input.provider === "openai_compatible",
         headers: request.headers,
         ...(signal ? { signal } : {}),
         responseErrorCode: (status) =>
@@ -245,7 +249,7 @@ export function parseAlibabaModelCatalog(
   payload: unknown
 ): readonly DiscoveredModel[] {
   const parsed = alibabaModelListSchema.safeParse(payload)
-  if (!parsed.success) throw new AppError("MODEL_CATALOG_RESPONSE_INVALID")
+  if (!parsed.success) return parseOpenAiCompatibleModelCatalog(payload)
   return normalizeModels(
     parsed.data.output.models.map((model) =>
       discoveredModel({
