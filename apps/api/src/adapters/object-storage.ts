@@ -13,8 +13,12 @@ import { dirname, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 
 import { Client } from "minio";
+import dayjs from "dayjs";
+import { z } from "zod";
 
 import type { AppConfig } from "../config.js";
+
+const localObjectMetadataSchema = z.record(z.string(), z.string());
 
 export interface ObjectStorage {
   ensureBucket(): Promise<void>;
@@ -208,7 +212,7 @@ export class LocalFilesystemObjectStorage implements ObjectStorage {
     expiresSeconds: number,
   ): Promise<string> {
     this.resolveObjectPath(key);
-    const expires = Math.floor(Date.now() / 1_000) + expiresSeconds;
+    const expires = dayjs().unix() + expiresSeconds;
     const url = new URL(
       "/api/v1/development/object-storage",
       this.config.objectStorage.publicBaseUrl,
@@ -223,7 +227,7 @@ export class LocalFilesystemObjectStorage implements ObjectStorage {
     if (!Number.isSafeInteger(input.expires)) {
       throw new Error("LOCAL_OBJECT_STORAGE_SIGNATURE_INVALID");
     }
-    if (input.expires < Math.floor(Date.now() / 1_000)) {
+    if (input.expires < dayjs().unix()) {
       throw new Error("LOCAL_OBJECT_STORAGE_SIGNATURE_EXPIRED");
     }
     const expected = Buffer.from(this.sign(input.key, input.expires), "hex");
@@ -236,12 +240,10 @@ export class LocalFilesystemObjectStorage implements ObjectStorage {
 
   async getObjectContentType(key: string): Promise<string> {
     try {
-      const metadata = JSON.parse(
-        await readFile(this.resolveMetadataPath(key), "utf8"),
-      ) as unknown;
-      if (isStringRecord(metadata)) {
-        return metadata["content-type"] ?? "application/octet-stream";
-      }
+      const metadata = localObjectMetadataSchema.parse(
+        JSON.parse(await readFile(this.resolveMetadataPath(key), "utf8")),
+      );
+      return metadata["content-type"] ?? "application/octet-stream";
     } catch {
       // Missing or malformed local metadata falls back to a safe binary type.
     }
@@ -300,14 +302,6 @@ function resolveStoragePath(root: string, key: string): string {
     throw new Error("LOCAL_OBJECT_STORAGE_KEY_INVALID");
   }
   return absolutePath;
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    Object.values(value).every((item) => typeof item === "string")
-  );
 }
 
 function encodeMetadataHeaderValues(
