@@ -176,7 +176,7 @@ test("stopDevelopmentApplications clears registered and legacy project services"
       },
     });
 
-    assert.deepEqual(checkedPorts, [4010, 4000, 18173]);
+    assert.deepEqual(checkedPorts, [4010, 4000, 18173, 3001]);
     assert.deepEqual(signals, [
       { processGroupId: 101, signal: "SIGTERM" },
       { processGroupId: 202, signal: "SIGTERM" },
