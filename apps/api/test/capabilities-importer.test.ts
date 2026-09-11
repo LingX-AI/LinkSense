@@ -363,6 +363,57 @@ describe("CapabilityPackageImporter", () => {
     await importer.cleanup(prepared);
   });
 
+  it("fails closed for an imported native MCP extensionless interpreter target containing a NUL", async () => {
+    const root = await temporaryDirectory();
+    const importer = new CapabilityPackageImporter({
+      stagingRoot: join(root, "staging"),
+    });
+    const token = `github_pat_${"A".repeat(30)}`;
+    const archive = createStoredZip([
+      {
+        path: "native-mcp-target/.codex-plugin/plugin.json",
+        bytes: JSON.stringify({
+          name: "native-mcp-target",
+          mcpServers: "./.mcp.json",
+        }),
+      },
+      {
+        path: "native-mcp-target/.mcp.json",
+        bytes: JSON.stringify({
+          mcpServers: {
+            helper: {
+              command: "/opt/linksense/bin/node",
+              args: ["--", "./assets/helper"],
+            },
+          },
+        }),
+      },
+      {
+        path: "native-mcp-target/assets/helper",
+        bytes: Buffer.from(`// ${token}\0\nconsole.log("ready");\n`, "utf8"),
+      },
+    ]);
+
+    const prepared = await importer.prepare({
+      kind: "zip",
+      bytes: archive,
+      filename: "native-mcp-target.zip",
+    });
+
+    expect(prepared.riskSummary.supply_chain_review).toMatchObject({
+      verdict: "blocked",
+      highest_severity: "critical",
+      findings: [
+        expect.objectContaining({
+          rule_id: "unscannable_interpretable_file",
+          path: "assets/helper",
+        }),
+      ],
+    });
+    expect(JSON.stringify(prepared.riskSummary)).not.toContain(token);
+    await importer.cleanup(prepared);
+  });
+
   it("rejects ZIP path traversal before writing outside staging", async () => {
     const root = await temporaryDirectory();
     const destination = join(root, "staging");

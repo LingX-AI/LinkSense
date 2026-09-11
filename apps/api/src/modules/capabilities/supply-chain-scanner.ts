@@ -18,6 +18,12 @@ import {
   packageDigestMatches,
 } from "../../lib/package-directory-integrity.js";
 import { AppError } from "../../lib/errors.js";
+import {
+  NativePluginMcpValidationError,
+  inspectNativePluginMcpConfigFile,
+  inspectNativePluginMcpServers,
+  type NativePluginMcpInspection,
+} from "./native-plugin-mcp.js";
 
 const MAX_SCANNABLE_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_FINDINGS = 200;
@@ -86,7 +92,7 @@ const EXECUTABLE_SOURCE_EXTENSIONS = new Set([
 ]);
 const EXECUTABLE_INTENT_DIRECTORIES = new Set(["bin", "hooks", "scripts"]);
 const EXPLICIT_INTERPRETER_INVOCATION =
-  /(?:^|[\s`;&|()])(?:\/usr\/bin\/env\s+)?(?:node(?:js)?|python(?:3(?:\.\d+)*)?|bash|sh|zsh|fish|ruby|perl|php|lua|tsx|ts-node)\s+(?:--?[A-Za-z0-9][A-Za-z0-9-]*(?:=[^\s]+)?\s+)*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([A-Za-z0-9_./-]+))/gmu;
+  /(?:^|[\s`;&|()])(?:\/usr\/bin\/env\s+)?(?:(?:\/[A-Za-z0-9._-]+)+\/)?(?:node(?:js)?|python(?:3(?:\.\d+)*)?|bash|sh|zsh|fish|ruby|perl|php|lua|tsx|ts-node)\s+(?:(?:--|--?[A-Za-z0-9][A-Za-z0-9-]*(?:=[^\s]+)?)\s+)*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([A-Za-z0-9_./-]+))/gmu;
 
 type FindingRule = {
   ruleId: CapabilitySupplyChainFinding["rule_id"];
@@ -180,6 +186,12 @@ export async function scanCapabilitySupplyChain(
     absoluteRoot,
     files,
   );
+  const nativePluginExecutionTargets =
+    await findNativePluginExecutionTargets(absoluteRoot, files);
+  const interpretedTargets = new Set([
+    ...explicitInterpreterTargets,
+    ...nativePluginExecutionTargets,
+  ]);
   const findings: CapabilitySupplyChainFinding[] = [];
   let scannedFileCount = 0;
   let skippedFileCount = 0;
@@ -192,7 +204,7 @@ export async function scanCapabilitySupplyChain(
       if (
         isScannablePath(relativePath) ||
         executable ||
-        explicitInterpreterTargets.has(relativePath) ||
+        interpretedTargets.has(relativePath) ||
         hasExecutablePathIntent(relativePath)
       ) {
         findings.push(
@@ -201,7 +213,7 @@ export async function scanCapabilitySupplyChain(
             severity:
               executable ||
               isExecutableSource(relativePath) ||
-              explicitInterpreterTargets.has(relativePath) ||
+              interpretedTargets.has(relativePath) ||
               hasExecutablePathIntent(relativePath)
                 ? "critical"
                 : "high",
@@ -228,7 +240,7 @@ export async function scanCapabilitySupplyChain(
         );
       } else if (
         isScannablePath(relativePath) ||
-        explicitInterpreterTargets.has(relativePath) ||
+        interpretedTargets.has(relativePath) ||
         hasExecutablePathIntent(relativePath) ||
         hasInterpreterShebang(bytes)
       ) {
@@ -471,6 +483,126 @@ async function findExplicitInterpreterTargets(
     }
   }
   return targets;
+}
+
+async function findNativePluginExecutionTargets(
+  packageRoot: string,
+  files: readonly string[],
+): Promise<ReadonlySet<string>> {
+  const availableFiles = new Set(files);
+  const manifestPath = ".codex-plugin/plugin.json";
+  if (!availableFiles.has(manifestPath)) return new Set();
+
+  try {
+    const manifest = await readJsonRecord(packageRoot, manifestPath);
+    const declaration = manifest.mcpServers;
+    let inspection: NativePluginMcpInspection;
+    if (typeof declaration === "string") {
+      const configPath = normalizeDeclaredPluginFile(declaration);
+      if (!configPath || !availableFiles.has(configPath)) return new Set();
+      inspection = inspectNativePluginMcpConfigFile(
+        await readJsonRecord(packageRoot, configPath),
+      );
+    } else {
+      inspection = inspectNativePluginMcpServers(declaration);
+    }
+    return collectNativePluginExecutionTargets(inspection, availableFiles);
+  } catch (error) {
+    if (
+      error instanceof SyntaxError ||
+      error instanceof NativePluginMcpValidationError
+    ) {
+      return new Set();
+    }
+    throw error;
+  }
+}
+
+async function readJsonRecord(
+  packageRoot: string,
+  relativePath: string,
+): Promise<Record<string, unknown>> {
+  const absolutePath = join(packageRoot, relativePath);
+  const info = await lstat(absolutePath);
+  if (info.size > MAX_SCANNABLE_FILE_BYTES) {
+    throw new NativePluginMcpValidationError();
+  }
+  const bytes = await readFile(absolutePath);
+  if (looksBinary(bytes)) throw new NativePluginMcpValidationError();
+  const value: unknown = JSON.parse(bytes.toString("utf8"));
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new NativePluginMcpValidationError();
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeDeclaredPluginFile(value: string): string | null {
+  if (!value.startsWith("./")) return null;
+  const normalized = normalizePackageRelativePath(value);
+  return normalized === null || normalized.length === 0 ? null : normalized;
+}
+
+function collectNativePluginExecutionTargets(
+  inspection: NativePluginMcpInspection,
+  availableFiles: ReadonlySet<string>,
+): ReadonlySet<string> {
+  const targets = new Set<string>();
+  for (const server of inspection.servers) {
+    if (server.transport !== "stdio") continue;
+    const command = server.config.command;
+    if (typeof command !== "string") continue;
+    const args = Array.isArray(server.config.args)
+      ? server.config.args.filter(
+          (argument): argument is string => typeof argument === "string",
+        )
+      : [];
+    if (isInterpreterCommand(command)) {
+      addAvailableTargets(targets, args, availableFiles);
+      continue;
+    }
+    if (isEnvironmentCommand(command)) {
+      const interpreterIndex = args.findIndex(isInterpreterCommand);
+      if (interpreterIndex >= 0) {
+        addAvailableTargets(
+          targets,
+          args.slice(interpreterIndex + 1),
+          availableFiles,
+        );
+      }
+      continue;
+    }
+    addAvailableTargets(targets, [command], availableFiles);
+  }
+  return targets;
+}
+
+function addAvailableTargets(
+  targets: Set<string>,
+  candidates: readonly string[],
+  availableFiles: ReadonlySet<string>,
+): void {
+  for (const candidate of candidates) {
+    if (candidate.startsWith("-") || candidate.includes("\0")) continue;
+    const normalized = normalizePackageRelativePath(candidate);
+    if (normalized && availableFiles.has(normalized)) targets.add(normalized);
+  }
+}
+
+function isInterpreterCommand(command: string): boolean {
+  return /^(?:node(?:js)?|python(?:3(?:\.\d+)*)?|bash|sh|zsh|fish|ruby|perl|php|lua|tsx|ts-node)$/u.test(
+    commandBasename(command),
+  );
+}
+
+function isEnvironmentCommand(command: string): boolean {
+  return commandBasename(command) === "env";
+}
+
+function commandBasename(command: string): string {
+  return posix
+    .basename(command.replaceAll("\\", "/"))
+    .replace(/\.exe$/iu, "")
+    .toLocaleLowerCase("en-US");
 }
 
 function normalizePackageRelativePath(value: string): string | null {

@@ -216,6 +216,98 @@ describe("capability supply-chain scanner", () => {
     expect(JSON.stringify(review)).not.toContain(token);
   });
 
+  it("fails closed when a bare option separator precedes an extensionless interpreter target", async () => {
+    const root = await packageDirectory({
+      "SKILL.md": [
+        "---",
+        "name: separated-interpreter-target",
+        "---",
+        "",
+        "Run `node -- assets/helper`.",
+      ].join("\n"),
+      "assets/helper": Buffer.from(
+        "/* binary marker \0 */\nconsole.log('ready');\n",
+      ),
+    });
+
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+    expect(review).toMatchObject({
+      verdict: "blocked",
+      findings: [
+        expect.objectContaining({
+          rule_id: "unscannable_interpretable_file",
+          path: "assets/helper",
+        }),
+      ],
+    });
+  });
+
+  it("fails closed when an absolute interpreter path targets an extensionless file", async () => {
+    const root = await packageDirectory({
+      "SKILL.md": [
+        "---",
+        "name: absolute-interpreter-target",
+        "---",
+        "",
+        "Run `/opt/linksense/bin/node -- assets/helper`.",
+      ].join("\n"),
+      "assets/helper": Buffer.from(
+        "/* binary marker \0 */\nconsole.log('ready');\n",
+      ),
+    });
+
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+    expect(review).toMatchObject({
+      verdict: "blocked",
+      findings: [
+        expect.objectContaining({
+          rule_id: "unscannable_interpretable_file",
+          path: "assets/helper",
+        }),
+      ],
+    });
+  });
+
+  it("rejects execution admission for a structured native MCP interpreter target containing a NUL", async () => {
+    const root = await packageDirectory({
+      ".codex-plugin/plugin.json": JSON.stringify({
+        name: "structured-interpreter-target",
+        mcpServers: "./.mcp.json",
+      }),
+      ".mcp.json": JSON.stringify({
+        mcpServers: {
+          helper: {
+            command: "node",
+            args: ["--", "./assets/helper"],
+          },
+        },
+      }),
+      "assets/helper": Buffer.from(
+        "/* binary marker \0 */\nconsole.log('ready');\n",
+      ),
+    });
+
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+    expect(review).toMatchObject({
+      verdict: "blocked",
+      findings: [
+        expect.objectContaining({
+          rule_id: "unscannable_interpretable_file",
+          path: "assets/helper",
+        }),
+      ],
+    });
+    await expect(
+      assertCapabilitySupplyChainExecutionAdmission(root, review),
+    ).rejects.toMatchObject({
+      code: "INVALID_PACKAGE",
+      params: { reason_code: "security_review_blocked" },
+    });
+  });
+
   it("fails closed for a binary-looking file with an interpreter shebang", async () => {
     const root = await packageDirectory({
       "SKILL.md": "---\nname: shebang-skill\n---\n",
