@@ -38,6 +38,7 @@ import { projectKnowledgeCitations } from "./knowledge-citations.js";
 import { createProjectedAssistantMessage } from "./knowledge-message-projection.js";
 import type { TurnKnowledgeSourceStore } from "./knowledge-source-store.js";
 import { nextConversationEventSequence } from "./sequence.js";
+import { readConversationEventHistory } from "./history.js";
 import { isStoppedDeploymentEvent } from "./deployment-fence.js";
 import type { UsageAnalyticsService } from "../usage/service.js";
 import { upsertConversationGoal } from "../conversations/goals.js";
@@ -3066,106 +3067,11 @@ export class ConversationEventService {
     input: { afterSequence: bigint; limit: number },
   ) {
     await this.conversations.assertOwner(ownerId, conversationId);
-    const snapshot = await this.prisma.$transaction(
-      async (tx) => {
-        const conversation = await tx.conversation.findUnique({
-          where: { id: conversationId },
-          select: { codexThreadId: true },
-        });
-        const currentThreadId = conversation?.codexThreadId ?? null;
-        const activeTurnIds = currentThreadId
-          ? (
-              await tx.conversationTurn.findMany({
-                where: { conversationId, codexThreadId: currentThreadId },
-                select: { id: true },
-              })
-            ).map((turn) => turn.id)
-          : [];
-        // Model-switch compaction runs before the requested local turn exists.
-        // SSE replays persisted rows rather than forwarding Pub/Sub payloads,
-        // so its visibility scope must also include admitted preparation items.
-        // Read intents in the same snapshot as turns to avoid a gap when the
-        // projection atomically replaces an intent with its native branch.
-        const preparingTurnIds = (
-          await tx.conversationTurnStartIntent.findMany({
-            where: {
-              conversationId,
-              ownerId,
-              runnerStatus: { in: ACTIVE_START_INTENT_STATUSES },
-            },
-            select: { projectionTurnId: true },
-          })
-        ).map((intent) => intent.projectionTurnId);
-        const rows = await tx.conversationEvent.findMany({
-          where: {
-            conversationId,
-            sequenceNo: { gt: input.afterSequence },
-            visibility: { in: ["user_visible", "user_collapsed"] },
-            OR: [
-              ...(activeTurnIds.length > 0
-                ? [{ turnId: { in: activeTurnIds } }]
-                : []),
-              ...(preparingTurnIds.length > 0
-                ? [{
-                    turnId: { in: preparingTurnIds },
-                    eventType: { in: ["item/started", "item/completed"] },
-                    payloadJson: {
-                      path: ["params", "item", "type"],
-                      equals: "contextCompaction",
-                    },
-                  }]
-                : []),
-              {
-                turnId: null,
-                eventType: {
-                  notIn: ["thread/name/updated", "conversation.title.updated"],
-                },
-              },
-              ...(currentThreadId
-                ? [
-                    {
-                      turnId: null,
-                      eventType: "thread/name/updated",
-                      payloadJson: {
-                        path: ["params", "threadId"],
-                        equals: currentThreadId,
-                      },
-                    },
-                    {
-                      turnId: null,
-                      eventType: "conversation.title.updated",
-                      payloadJson: {
-                        path: ["thread_id"],
-                        equals: currentThreadId,
-                      },
-                    },
-                  ]
-                : []),
-            ],
-          },
-          orderBy: { sequenceNo: "asc" },
-          take: input.limit + 1,
-        });
-        // An observed Pub/Sub event can be intentionally absent from the active
-        // branch projection. Confirm that gap in the same database snapshot.
-        const latestPersistedEvent =
-          rows.length === 0
-            ? await tx.conversationEvent.findFirst({
-                where: { conversationId },
-                orderBy: { sequenceNo: "desc" },
-                select: { sequenceNo: true },
-              })
-            : null;
-        return {
-          rows,
-          confirmedSequence:
-            latestPersistedEvent &&
-            latestPersistedEvent.sequenceNo > input.afterSequence
-              ? latestPersistedEvent.sequenceNo
-              : (rows.at(-1)?.sequenceNo ?? input.afterSequence),
-        };
-      },
-      { isolationLevel: "RepeatableRead" },
+    const snapshot = await readConversationEventHistory(
+      this.prisma,
+      ownerId,
+      conversationId,
+      { ...input, activeStartIntentStatuses: ACTIVE_START_INTENT_STATUSES },
     );
     const { rows } = snapshot;
     const hasMore = rows.length > input.limit;

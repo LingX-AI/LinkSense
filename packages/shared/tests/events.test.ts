@@ -9,6 +9,8 @@ import {
   runnerCodexEventSchema,
   runnerCodexPreviewLimits,
   runnerConversationEventSchema,
+  runnerEventBatchSchema,
+  runnerEventBatchReceiptSchema,
 } from "../src/index.js";
 import type { RunnerCodexItem } from "../src/index.js";
 
@@ -16,6 +18,30 @@ const conversationId = "20000000-0000-4000-8000-000000000001";
 const turnId = "30000000-0000-4000-8000-000000000001";
 const entityId = "40000000-0000-4000-8000-000000000001";
 const createdAt = "2026-07-11T00:00:00.000Z";
+
+describe("runner event delivery batches", () => {
+  const entry = {
+    deliveryId: entityId,
+    event: {
+      method: "item/agentMessage/delta", visibility: "user_visible",
+      params: { threadId: "thread", turnId: "turn", itemId: "item", delta: "正文" },
+    },
+  };
+  it("preserves each event and delivery id without coalescing its text", () => {
+    const body = { conversationId, events: [entry, { ...entry, deliveryId: turnId }] };
+    expect(runnerEventBatchSchema.parse(body)).toEqual(body);
+    expect(runnerEventBatchSchema.safeParse({ conversationId, ...entry }).success).toBe(false);
+  });
+  it("rejects invalid entries even when earlier entries are valid", () => {
+    expect(runnerEventBatchSchema.safeParse({ conversationId, events: [entry, { ...entry, deliveryId: "invalid" }] }).success).toBe(false);
+    expect(runnerEventBatchSchema.safeParse({ conversationId, events: [{ ...entry, event: { ...entry.event, raw_notification: "private" } }] }).success).toBe(false);
+  });
+  it("accepts an empty acknowledgement and rejects unbounded or malformed receipts", () => {
+    expect(runnerEventBatchReceiptSchema.parse({ accepted_delivery_ids: [] })).toEqual({ accepted_delivery_ids: [] });
+    expect(runnerEventBatchReceiptSchema.safeParse({ accepted_delivery_ids: ["invalid"] }).success).toBe(false);
+    expect(runnerEventBatchReceiptSchema.safeParse({ accepted_delivery_ids: Array(33).fill(entityId) }).success).toBe(false);
+  });
+});
 
 describe("native preparation compaction correlation", () => {
   it.each(["item/started", "item/completed"])("accepts %s with a local preparation turn", (method) => {

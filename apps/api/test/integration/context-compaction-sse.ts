@@ -53,7 +53,7 @@ try {
       await delay(100);
     }
   }
-  await execute("pnpm", ["exec", "prisma", "migrate", "deploy"], {
+  await execute("pnpm", ["exec", "prisma", "migrate", "deploy", "--config", "apps/api/test/integration/prisma.config.ts"], {
     cwd: root,
     env: { ...process.env, DOTENV_CONFIG_PATH: "/dev/null", DATABASE_URL: databaseUrl },
     timeout: 120_000,
@@ -175,7 +175,114 @@ try {
   assert.deepEqual((await history()).items.slice(0, 2).map((event) => event.id), [started.id, completed.id]);
   await publish("item/started", startDeliveryId);
   assert.equal(await database.conversationEvent.count({ where: { id: startDeliveryId } }), 1);
+
+  const foreignConversationId = randomUUID();
+  const foreignTurnId = randomUUID();
+  await database.conversationTurn.create({ data: {
+    id: foreignTurnId, conversationId: foreignConversationId, submittedBy: ownerId,
+    sequenceNo: 1, codexThreadId: targetThreadId, codexTurnId: randomUUID(), status: "running",
+    submitMode: "normal", capabilityGeneration: "0".repeat(64), capabilitiesJson: [], startedAt: new Date(),
+  } });
+  const deltaPayload = (delta: string) => ({
+    schema_version: 2, source: "codex_app_server", method: "item/agentMessage/delta",
+    params: { threadId: targetThreadId, turnId: targetTurnId, itemId: "test-item", delta },
+  });
+  const titlePayload = (threadId: string) => ({
+    schema_version: 2, source: "codex_app_server", method: "thread/name/updated",
+    params: { threadId, threadName: "Test title" },
+  });
+  const mixedEvents = [
+    { turnId, eventType: "item/agentMessage/delta", visibility: "user_visible", payloadJson: deltaPayload("正文"), visible: true },
+    { turnId: foreignTurnId, eventType: "item/agentMessage/delta", visibility: "user_visible", payloadJson: deltaPayload("foreign"), visible: false },
+    { turnId: null, eventType: "thread/name/updated", visibility: "user_visible", payloadJson: titlePayload(sourceThreadId), visible: false },
+    { turnId: null, eventType: "thread/name/updated", visibility: "user_visible", payloadJson: titlePayload(targetThreadId), visible: true },
+    { turnId: null, eventType: "conversation.title.updated", visibility: "user_visible", payloadJson: { schema_version: 1, title: "Test title", thread_id: targetThreadId }, visible: true },
+    { turnId: null, eventType: "conversation.title.updated", visibility: "user_visible", payloadJson: { schema_version: 1, title: "Test title", thread_id: sourceThreadId }, visible: false },
+    { turnId: null, eventType: "conversation.error", visibility: "user_visible", payloadJson: { schema_version: 1, error_code: "INTERNAL_ERROR", message_key: "errors.internal" }, visible: true },
+    { turnId, eventType: "item/agentMessage/delta", visibility: "internal_sanitized", payloadJson: deltaPayload("internal"), visible: false },
+  ];
+  const lastBeforeMixed = await database.conversationEvent.findFirst({ where: { conversationId }, orderBy: { sequenceNo: "desc" } });
+  assert.ok(lastBeforeMixed);
+  const mixedRows = mixedEvents.map((event, index) => ({
+    turnId: event.turnId, eventType: event.eventType, visibility: event.visibility, payloadJson: event.payloadJson, id: randomUUID(), conversationId,
+    sequenceNo: lastBeforeMixed.sequenceNo + BigInt(index + 1),
+    sseEventId: `${conversationId}:${lastBeforeMixed.sequenceNo + BigInt(index + 1)}`,
+  }));
+  await database.conversationEvent.createMany({ data: mixedRows });
+  const expectedIds = mixedRows.filter((_row, index) => mixedEvents[index]!.visible).map(row => row.id);
+  const actualIds: string[] = [];
+  let cursor = lastBeforeMixed.sequenceNo;
+  for (;;) {
+    const page = await events.historyPage(ownerId, conversationId, { afterSequence: cursor, limit: 2 });
+    actualIds.push(...page.items.map(event => event.id));
+    cursor = page.last_sequence;
+    if (!page.next_cursor) break;
+    assert.equal(page.next_cursor, `${conversationId}:${cursor}`);
+  }
+  assert.deepEqual(actualIds, expectedIds);
+  const emptyPage = await events.historyPage(ownerId, conversationId, { afterSequence: cursor, limit: 2 });
+  assert.deepEqual(emptyPage.items, []);
+  assert.equal(emptyPage.confirmed_sequence, mixedRows.at(-1)!.sequenceNo);
+  const aheadCursor = mixedRows.at(-1)!.sequenceNo + 10n;
+  assert.equal((await events.historyPage(ownerId, conversationId, { afterSequence: aheadCursor, limit: 2 })).confirmed_sequence, aheadCursor);
+
+  // Changing the branch changes the next read, including title visibility;
+  // global events remain visible and no projection state is cached.
+  await database.conversation.update({ where: { id: conversationId }, data: { codexThreadId: sourceThreadId } });
+  assert.deepEqual((await events.historyPage(ownerId, conversationId, { afterSequence: lastBeforeMixed.sequenceNo, limit: 20 })).items.map(event => event.id), [
+    mixedRows[2]!.id, mixedRows[5]!.id, mixedRows[6]!.id,
+  ]);
+  await database.conversation.update({ where: { id: conversationId }, data: { codexThreadId: null } });
+  assert.deepEqual((await events.historyPage(ownerId, conversationId, { afterSequence: lastBeforeMixed.sequenceNo, limit: 20 })).items.map(event => event.id), [mixedRows[6]!.id]);
   console.log("reconnect, completion, inactive-intent filtering, privacy and native branch projection: passed");
+  console.log("mixed-event pagination, cross-conversation isolation, filtered gaps and branch changes: passed");
+
+  await database.conversation.update({ where: { id: conversationId }, data: { codexThreadId: targetThreadId } });
+  const batchItemId = randomUUID();
+  const batchEntries = [
+    { method: "item/agentMessage/delta", visibility: "user_visible", params: { threadId: targetThreadId, turnId: targetTurnId, itemId: batchItemId, delta: "完整正文" } },
+    { method: "item/completed", visibility: "user_visible", params: { threadId: targetThreadId, turnId: targetTurnId, item: { id: batchItemId, type: "agentMessage", phase: "final_answer", text: "完整正文" } } },
+  ].map(event => ({ deliveryId: randomUUID(), event }));
+  const ingest = events.ingest.bind(events);
+  let failCompletion = true;
+  events.ingest = async (...args) => {
+    if (args[2] === batchEntries[1]!.deliveryId && failCompletion) throw new Error("injected completion failure");
+    return ingest(...args);
+  };
+  const deliverBatch = async (entries: typeof batchEntries) => {
+    const response = await fetch(`${origin}/internal/runner/events`, {
+      method: "POST", headers: {
+        "content-type": "application/json", authorization: `Bearer ${config.runnerSharedSecret}`,
+        "x-linksense-owner-id": ownerId,
+      },
+      body: JSON.stringify({ conversationId, events: entries }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    assert.equal(response.status, 200);
+    return await response.json() as { data: { accepted_delivery_ids: string[] } };
+  };
+  assert.deepEqual((await deliverBatch(batchEntries)).data.accepted_delivery_ids, [batchEntries[0]!.deliveryId]);
+  assert.equal(await database.conversationEvent.count({ where: { id: batchEntries[1]!.deliveryId } }), 0);
+  failCompletion = false;
+  // Retrying the whole batch also covers a lost receipt: completed message
+  // projection and durable event ids must stay unique.
+  for (let retry = 0; retry < 2; retry++) {
+    assert.deepEqual((await deliverBatch(batchEntries)).data.accepted_delivery_ids, batchEntries.map(entry => entry.deliveryId));
+  }
+  assert.equal(await database.conversationEvent.count({ where: { id: { in: batchEntries.map(entry => entry.deliveryId) } } }), 2);
+  assert.equal(await database.conversationMessage.count({ where: { conversationId, contentText: "完整正文" } }), 1);
+
+  const switchedEntries = batchEntries.map(entry => ({ ...entry, deliveryId: randomUUID() }));
+  events.ingest = async (...args) => {
+    const result = await ingest(...args);
+    if (args[2] === switchedEntries[0]!.deliveryId) {
+      await database.conversation.update({ where: { id: conversationId }, data: { codexThreadId: sourceThreadId } });
+    }
+    return result;
+  };
+  assert.deepEqual((await deliverBatch(switchedEntries)).data.accepted_delivery_ids, switchedEntries.map(entry => entry.deliveryId));
+  assert.equal(await database.conversationEvent.count({ where: { id: switchedEntries[1]!.deliveryId } }), 0);
+  console.log("partial batch failure, lost receipts, duplicate message prevention and branch revalidation: passed");
 
   async function publish(method: "item/started" | "item/completed", deliveryId: string): Promise<void> {
     const response = await fetch(`${origin}/internal/runner/events`, {
@@ -184,9 +291,9 @@ try {
         "x-linksense-owner-id": ownerId,
       },
       body: JSON.stringify({
-        conversationId, deliveryId,
+        conversationId, events: [{ deliveryId,
         event: { method, visibility: "user_collapsed", preparation: { turnId },
-          params: { threadId: sourceThreadId, turnId: compactTurnId, item } },
+          params: { threadId: sourceThreadId, turnId: compactTurnId, item } } }],
       }),
       signal: AbortSignal.timeout(5_000),
     });

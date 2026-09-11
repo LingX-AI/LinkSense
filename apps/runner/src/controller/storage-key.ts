@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto"
+import { RUNNER_TURN_START_CONTRACT_VERSION } from "@linksense/shared"
 
 export const WORKER_RUNTIME_LAYOUT =
   "task-codex-home-task-capability-projections-owner-volume-subpaths"
@@ -38,6 +39,7 @@ export function workerContractKey(domain: WorkerContractDomain): string {
       JSON.stringify([
         "linksense-runner-worker-contract",
         WORKER_RUNTIME_LAYOUT,
+        RUNNER_TURN_START_CONTRACT_VERSION,
         domain.LINKSENSE_PYTHON_PACKAGE_INDEX_URL,
         domain.LINKSENSE_NODE_PACKAGE_REGISTRY_URL,
         domain.LINKSENSE_WORKER_IMAGE_REVISION,

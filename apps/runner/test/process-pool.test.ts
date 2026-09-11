@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 
+import { runnerEventBatchSchema } from "@linksense/shared";
 import pino, { type Logger } from "pino";
 import { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6891,21 +6892,26 @@ trust_level = "trusted"
     const controlled = createControlledAppServer();
     const workspaceManager = createWorkspaceManager(root);
     controlledWorkspaceRuntimeGeneration(workspaceManager);
-    let releaseFirstRequest: ((response: Response) => void) | undefined;
+    let releaseFirstRequest: (() => void) | undefined;
+    const acknowledge = (init: RequestInit | undefined): Response => {
+      const body = runnerEventBatchSchema.parse(JSON.parse(String(init?.body)));
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: { accepted_delivery_ids: body.events.map(entry => entry.deliveryId) },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockImplementationOnce(
-        () =>
+        (_url, init) =>
           new Promise<Response>((resolve) => {
-            releaseFirstRequest = resolve;
+            releaseFirstRequest = () => resolve(acknowledge(init));
           }),
       )
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({ success: true, data: { accepted: true } }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
-      );
+      .mockImplementation(async (_url, init) => acknowledge(init));
     const eventSink = new HttpRunnerEventSink(
       "http://127.0.0.1:4000/internal",
       "runner-shared-secret-value",
@@ -6983,12 +6989,7 @@ trust_level = "trusted"
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    releaseFirstRequest?.(
-      new Response(
-        JSON.stringify({ success: true, data: { accepted: true } }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    );
+    releaseFirstRequest?.();
     await waitForFast(async () => {
       expect(
         (await readdir(outboxDirectory)).filter((file) =>

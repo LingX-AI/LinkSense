@@ -1690,6 +1690,19 @@ export const runnerConversationEventSchema = z.union([
   legacyRunnerConversationEventSchema,
 ]);
 
+export const RUNNER_EVENT_BATCH_MAX_COUNT = 32;
+export const RUNNER_EVENT_BATCH_TARGET_BYTES = 256 * 1024;
+export const runnerEventBatchSchema = z.strictObject({
+  conversationId: z.uuid(),
+  events: z.array(z.strictObject({
+    deliveryId: z.uuid(),
+    event: runnerConversationEventSchema,
+  })).min(1).max(RUNNER_EVENT_BATCH_MAX_COUNT),
+});
+export const runnerEventBatchReceiptSchema = z.strictObject({
+  accepted_delivery_ids: z.array(z.uuid()).max(RUNNER_EVENT_BATCH_MAX_COUNT),
+});
+
 export type LegacyRunnerConversationEvent = z.infer<
   typeof legacyRunnerConversationEventSchema
 >;

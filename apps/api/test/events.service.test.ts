@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import Fastify, { type FastifyRequest } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { ConversationEvent, Prisma } from "../src/generated/prisma/client.js";
 import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
 import {
@@ -3270,67 +3271,61 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
 });
 
 describe("ConversationEventService SSE replay privacy", () => {
-  it("reads only compaction lifecycle events for admitted turns before their projection exists", async () => {
+  it("bounds an authorized empty stream poll to two database reads", async () => {
     const fixture = eventFixture();
-    fixture.tx.conversationTurn.findMany.mockResolvedValue([]);
-    fixture.tx.conversationTurnStartIntent.findMany.mockResolvedValue([
-      { projectionTurnId: TURN_ID },
-    ]);
 
-    await fixture.service.historyPage(OWNER_ID, CONVERSATION_ID, {
-      afterSequence: 0n,
+    const page = await fixture.service.historyPage(OWNER_ID, CONVERSATION_ID, {
+      afterSequence: 5n,
       limit: 200,
     });
 
-    expect(fixture.tx.conversationTurnStartIntent.findMany).toHaveBeenCalledWith({
-      where: {
-        conversationId: CONVERSATION_ID,
-        ownerId: OWNER_ID,
-        runnerStatus: { in: ["prepared", "runner_succeeded"] },
-      },
-      select: { projectionTurnId: true },
-    });
-    expect(fixture.tx.conversationEvent.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          conversationId: CONVERSATION_ID,
-          visibility: { in: ["user_visible", "user_collapsed"] },
-          OR: expect.arrayContaining([
-            {
-              turnId: { in: [TURN_ID] },
-              eventType: { in: ["item/started", "item/completed"] },
-              payloadJson: {
-                path: ["params", "item", "type"],
-                equals: "contextCompaction",
-              },
-            },
-          ]),
-        }),
-      }),
-    );
+    expect(page).toMatchObject({ items: [], last_sequence: 5n, confirmed_sequence: 5n });
+    const reads = [
+      fixture.conversations.assertOwner,
+      fixture.prisma.$queryRaw,
+      fixture.tx.conversation.findUnique,
+      fixture.tx.conversationTurn.findMany,
+      fixture.tx.conversationTurnStartIntent.findMany,
+      fixture.tx.conversationEvent.findMany,
+      fixture.tx.conversationEvent.findFirst,
+    ].reduce((count, read) => count + read.mock.calls.length, 0);
+    expect(reads).toBeLessThanOrEqual(2);
   });
 
-  it("does not admit unprojected events when no active start intent remains", async () => {
+  it("rejects an unauthorized history request before reading any events", async () => {
     const fixture = eventFixture();
-    fixture.tx.conversationTurn.findMany.mockResolvedValue([]);
+    fixture.conversations.assertOwner.mockRejectedValueOnce(new AppError("CONVERSATION_NOT_FOUND"));
 
-    await fixture.service.historyPage(OWNER_ID, CONVERSATION_ID, {
+    await expect(fixture.service.historyPage(OTHER_ID, CONVERSATION_ID, {
       afterSequence: 0n,
       limit: 200,
-    });
+    })).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
 
-    expect(fixture.tx.conversationTurnStartIntent.findMany).toHaveBeenCalledOnce();
-    expect(fixture.tx.conversationEvent.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          OR: expect.not.arrayContaining([
-            expect.objectContaining({
-              eventType: { in: ["item/started", "item/completed"] },
-            }),
-          ]),
-        }),
-      }),
-    );
+    expect(fixture.prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("keeps preparation, branch and visibility restrictions in one parameterized history snapshot", async () => {
+    const fixture = eventFixture();
+    await fixture.service.historyPage(OWNER_ID, CONVERSATION_ID, { afterSequence: 0n, limit: 200 });
+
+    const query = fixture.prisma.$queryRaw.mock.calls[0]![0];
+    expect(query.values).toEqual([0n, 0n, 0n, OWNER_ID, "prepared", "runner_succeeded", 201, CONVERSATION_ID, OWNER_ID]);
+    expect(query.sql).toContain("candidate.visibility IN ('user_visible', 'user_collapsed')");
+    expect(query.sql).toContain("intent.projection_turn_id = candidate.turn_id");
+    expect(query.sql).toContain("intent.conversation_id = conversation.id");
+    expect(query.sql).toContain("intent.owner_id = ?::uuid");
+    expect(query.sql).toContain("intent.runner_status IN (?,?)");
+    expect(query.sql).toContain("candidate.event_type IN ('item/started', 'item/completed')");
+    expect(query.sql).toContain("candidate.payload_json #> '{params,item,type}' = '\"contextCompaction\"'::jsonb");
+    expect(query.sql).toContain("turn.conversation_id = conversation.id");
+    expect(query.sql).toContain("turn.codex_thread_id = NULLIF(conversation.codex_thread_id, '')");
+    expect(query.sql).toContain("candidate.event_type NOT IN ('thread/name/updated', 'conversation.title.updated')");
+    expect(query.sql).toContain("candidate.payload_json #> '{params,threadId}' = to_jsonb(NULLIF(conversation.codex_thread_id, ''))");
+    expect(query.sql).toContain("candidate.payload_json -> 'thread_id' = to_jsonb(NULLIF(conversation.codex_thread_id, ''))");
+    expect(query.sql).toContain("conversation.owner_id = ?::uuid");
+    expect(query.sql).not.toContain(OWNER_ID);
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("accepts only non-negative cursors scoped to the requested conversation", () => {
@@ -3356,9 +3351,9 @@ describe("ConversationEventService SSE replay privacy", () => {
     const firstPage = Array.from({ length: 201 }, (_, index) =>
       eventRow(BigInt(index + 1)),
     );
-    fixture.tx.conversationEvent.findMany
-      .mockResolvedValueOnce(firstPage)
-      .mockResolvedValueOnce([eventRow(201n)]);
+    fixture.prisma.$queryRaw
+      .mockResolvedValueOnce(firstPage.map(row => ({ ...row, confirmedSequence: row.sequenceNo })))
+      .mockResolvedValueOnce([{ ...eventRow(201n), confirmedSequence: 201n }]);
 
     const result = await fixture.service.historyPage(
       OWNER_ID,
@@ -3370,7 +3365,7 @@ describe("ConversationEventService SSE replay privacy", () => {
     );
 
     expect(fixture.conversations.assertOwner).toHaveBeenCalledBefore(
-      fixture.tx.conversationEvent.findMany,
+      fixture.prisma.$queryRaw,
     );
     expect(result.items).toHaveLength(200);
     expect(result.items.at(-1)?.sse_event_id).toBe(`${CONVERSATION_ID}:200`);
@@ -3383,57 +3378,18 @@ describe("ConversationEventService SSE replay privacy", () => {
     );
     expect(finalPage.items.map((event) => event.sequence_no)).toEqual([201]);
     expect(finalPage.next_cursor).toBeNull();
-    expect(fixture.tx.conversationEvent.findMany).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        where: expect.objectContaining({
-          conversationId: CONVERSATION_ID,
-          sequenceNo: { gt: 0n },
-          visibility: { in: ["user_visible", "user_collapsed"] },
-          OR: expect.arrayContaining([
-            { turnId: { in: [TURN_ID] } },
-            {
-              turnId: null,
-              eventType: {
-                notIn: ["thread/name/updated", "conversation.title.updated"],
-              },
-            },
-            {
-              turnId: null,
-              eventType: "thread/name/updated",
-              payloadJson: {
-                path: ["params", "threadId"],
-                equals: "codex-thread-1",
-              },
-            },
-            {
-              turnId: null,
-              eventType: "conversation.title.updated",
-              payloadJson: {
-                path: ["thread_id"],
-                equals: "codex-thread-1",
-              },
-            },
-          ]),
-        }),
-        take: 201,
-      }),
-    );
-    expect(fixture.tx.conversationEvent.findMany).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        where: expect.objectContaining({ sequenceNo: { gt: 200n } }),
-        take: 201,
-      }),
-    );
+    expect(fixture.prisma.$queryRaw.mock.calls[0]![0].values).toEqual([
+      0n, 0n, 0n, OWNER_ID, "prepared", "runner_succeeded", 201, CONVERSATION_ID, OWNER_ID,
+    ]);
+    expect(fixture.prisma.$queryRaw.mock.calls[1]![0].values).toEqual([
+      200n, 200n, 200n, OWNER_ID, "prepared", "runner_succeeded", 201, CONVERSATION_ID, OWNER_ID,
+    ]);
     expect(fixture.conversations.assertOwner).toHaveBeenCalledTimes(2);
   });
 
   it("reports the persisted event high-water mark when the active projection is empty", async () => {
     const fixture = eventFixture();
-    fixture.tx.conversationEvent.findFirst.mockResolvedValue({
-      sequenceNo: 12n,
-    });
+    fixture.prisma.$queryRaw.mockResolvedValue([{ id: null, confirmedSequence: 12n }]);
 
     const result = await fixture.service.historyPage(
       OWNER_ID,
@@ -5755,13 +5711,13 @@ function internalRunnerCallbackRequests() {
       url: "/runner/events",
       payload: {
         conversationId: CONVERSATION_ID,
-        deliveryId: "60000000-0000-4000-8000-000000000001",
+        events: [{ deliveryId: "60000000-0000-4000-8000-000000000001",
         event: {
           threadId: "codex-thread-1",
           eventType: "conversation.title.updated",
           visibility: "user_visible",
           payload: { schema_version: 1, title: "Safe title" },
-        },
+        } }],
       },
     },
     {
@@ -6018,6 +5974,7 @@ function eventFixture(
 ) {
   const tx = transactionFixture(options);
   const prisma = {
+    $queryRaw: vi.fn<(query: Prisma.Sql) => Promise<Array<(ConversationEvent | { id: null }) & { confirmedSequence: bigint }>>>().mockResolvedValue([]),
     auditLog: { findFirst: vi.fn<() => Promise<{ createdAt: Date } | null>>().mockResolvedValue(null) },
     conversation: {
       findFirst: vi.fn(async () => ({ id: CONVERSATION_ID })),

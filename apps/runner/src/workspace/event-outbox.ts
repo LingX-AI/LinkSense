@@ -140,29 +140,68 @@ export class RunnerEventOutboxStore {
   }
 
   async peek(conversationId: string): Promise<RunnerEventOutboxEntry | null> {
-    const directory = this.directoryFor(conversationId);
-    let entries;
-    try {
-      entries = await readdir(directory, { withFileTypes: true });
-    } catch (error) {
-      if (isMissing(error)) return null;
-      throw error;
-    }
+    return (await this.peekBatch(conversationId, 1, Number.MAX_SAFE_INTEGER))[0] ?? null;
+  }
 
-    let oldestFileName: string | null = null;
-    for (const entry of entries) {
-      if (!entry.isFile() || !outboxFilePattern.test(entry.name)) continue;
-      if (oldestFileName === null || entry.name < oldestFileName) {
-        oldestFileName = entry.name;
-      }
+  async peekBatch(
+    conversationId: string,
+    limit: number,
+    targetBytes: number,
+  ): Promise<RunnerEventOutboxEntry[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || !Number.isSafeInteger(targetBytes) || targetBytes < 1) {
+      throw new RangeError("invalid runner event batch limits");
     }
-    if (oldestFileName === null) return null;
-    return this.readEntry(conversationId, directory, oldestFileName);
+    return this.withAppendLock(conversationId, async () => {
+      const directory = this.directoryFor(conversationId);
+      let files;
+      try {
+        files = await readdir(directory, { withFileTypes: true });
+      } catch (error) {
+        if (isMissing(error)) return [];
+        throw error;
+      }
+      const candidates = files.filter(file => file.isFile() && outboxFilePattern.test(file.name))
+        .sort((left, right) => left.name.localeCompare(right.name)).slice(0, limit);
+      const entries: RunnerEventOutboxEntry[] = [];
+      let bytes = Buffer.byteLength(JSON.stringify({ conversationId, events: [] }));
+      for (const file of candidates) {
+        let entry;
+        try {
+          entry = await this.readEntry(conversationId, directory, file.name);
+        } catch (error) {
+          // Do not hold valid earlier records behind a corrupt later record.
+          // The corrupt head remains on disk and fails the next read explicitly.
+          if (entries.length > 0) break;
+          throw error;
+        }
+        if (!entry) continue;
+        const entryBytes = Buffer.byteLength(JSON.stringify({ deliveryId: entry.deliveryId, event: entry.event })) + 1;
+        if (entries.length > 0 && bytes + entryBytes > targetBytes) break;
+        entries.push(entry);
+        bytes += entryBytes;
+      }
+      return entries;
+    });
   }
 
   async remove(entry: RunnerEventOutboxEntry): Promise<void> {
-    await rm(entry.path, { force: true });
-    await syncDirectory(this.directoryFor(entry.conversationId));
+    await this.removeBatch([entry]);
+  }
+
+  async removeBatch(entries: readonly RunnerEventOutboxEntry[]): Promise<void> {
+    const conversationId = entries[0]?.conversationId;
+    if (!conversationId) return;
+    if (entries.some(entry => entry.conversationId !== conversationId)) {
+      throw new Error("runner event cleanup spans conversations");
+    }
+    await this.withAppendLock(conversationId, async () => {
+      // Every entry has already been acknowledged by the API. A crash during
+      // cleanup can only replay the same delivery ids, never lose pending data.
+      const removals = await Promise.allSettled(entries.map(entry => rm(entry.path, { force: true })));
+      await syncDirectory(this.directoryFor(conversationId));
+      const failure = removals.find(result => result.status === "rejected");
+      if (failure?.status === "rejected") throw failure.reason;
+    });
   }
 
   async removeForeignThreadEntries(
