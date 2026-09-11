@@ -834,7 +834,11 @@ export function buildRunnerServer(
     }
   });
 
-  app.get("/health/live", async () => ({ status: "available" }));
+  app.get(
+    "/health/live",
+    { logLevel: "warn" },
+    async () => ({ status: "available" }),
+  );
 
   app.get("/personalization", async (request, reply) => {
     const ownerId = parseOwnerIdHeader(request.headers["x-linksense-owner-id"]);
@@ -997,7 +1001,7 @@ export function buildRunnerServer(
     }
   });
 
-  app.get("/health/state", async (_request, reply) => {
+  app.get("/health/state", { logLevel: "warn" }, async (_request, reply) => {
     const checkedAt = new Date().toISOString();
     const [workspace, codexHome] = await Promise.all([
       probeDirectories(
@@ -1448,7 +1452,7 @@ export function buildRunnerServer(
     },
   );
 
-  app.get("/health/ready", async (_request, reply) => {
+  app.get("/health/ready", { logLevel: "warn" }, async (_request, reply) => {
     const checkedAt = new Date().toISOString();
     const [workspace, codexHome] = await Promise.all([
       probeDirectories(

@@ -66,16 +66,23 @@ export const systemRoutes: FastifyPluginAsync<{
       .send(logo.data)
   })
 
-  app.get("/health/live", async (request, reply) =>
-    reply.send(ok({ status: "available" }, request.id))
+  app.get(
+    "/health/live",
+    { logLevel: "warn" },
+    async (request, reply) =>
+      reply.send(ok({ status: "available" }, request.id))
   )
 
-  app.get("/health/ready", async (request, reply) => {
-    const health = await services.system.readiness()
-    return reply
-      .code(health.readiness === "ready" ? 200 : 503)
-      .send(ok(health, request.id))
-  })
+  app.get(
+    "/health/ready",
+    { logLevel: "warn" },
+    async (request, reply) => {
+      const health = await services.system.readiness()
+      return reply
+        .code(health.readiness === "ready" ? 200 : 503)
+        .send(ok(health, request.id))
+    }
+  )
 }
 
 export const adminSystemRoutes: FastifyPluginAsync<{

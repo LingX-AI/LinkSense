@@ -39,6 +39,18 @@ afterEach(async () => {
 })
 
 describe("controller authentication and routing", () => {
+  it("suppresses info request logs for readiness probes", async () => {
+    const { server } = await createServer()
+    const routes = server.printRoutes({
+      commonPrefix: false,
+      includeMeta: true,
+    })
+    const readinessRoute = routes.slice(routes.indexOf("/health/ready"))
+
+    expect(readinessRoute).toContain('(logLevel) "warn"')
+    await server.close()
+  })
+
   it("exposes worker cleanup only behind the authenticated development boundary", async () => {
     const disabled = await createServer()
     const unavailable = await disabled.server.inject({

@@ -53,6 +53,29 @@ describe("runner health", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
+  it("suppresses info request logs for worker health probes", async () => {
+    const workspaceManager = new WorkspaceManager(join(directory, "users"));
+    const server = buildRunnerServer(
+      parseRunnerConfig({
+        LINKSENSE_USER_DATA_ROOT: join(directory, "users"),
+        LINKSENSE_RUNNER_SHARED_SECRET:
+          "runner-555555555555555555555555555555",
+        LINKSENSE_API_INTERNAL_URL: "http://127.0.0.1:4000/internal",
+      }),
+      createPool(workspaceManager),
+      workspaceManager,
+    );
+    const routes = server.printRoutes({
+      commonPrefix: false,
+      includeMeta: true,
+    });
+
+    expect(routes).toMatch(/\/health\/live[^]*?\(logLevel\) "warn"/u);
+    expect(routes).toMatch(/\/health\/state[^]*?\(logLevel\) "warn"/u);
+    expect(routes).toMatch(/\/health\/ready[^]*?\(logLevel\) "warn"/u);
+    await server.close();
+  });
+
   it("performs the isolated health handshake with the same global feature policy", async () => {
     const messages: Array<{ method?: string }> = [];
     const spawnedArguments: string[][] = [];
