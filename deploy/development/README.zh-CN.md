@@ -8,6 +8,10 @@
 Worker 都作为宿主机 Node.js 进程运行，不会调用 Docker。适合 Docker Desktop 或
 本机 Docker Engine 负担较重时，在可信电脑上进行本地开发；不能用作生产部署模式。
 
+Controller 会在 `LINKSENSE_USER_DATA_ROOT` 下生成 Host 专用的
+`linksense-plugin-stdio` 启动器，使绑定凭据的 STDIO Plugin 与 Docker Worker 使用
+相同的凭据投影。该启动器只指向当前代码目录和 Node.js 运行时，不会安装全局命令。
+
 ### 需要提前准备
 
 - Node.js 24+，以及根目录 `package.json` 声明的 pnpm 版本。

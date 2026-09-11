@@ -257,6 +257,33 @@ describe("persistent user runtime", () => {
     ).rejects.toThrow("managed runtime tool is unavailable")
   })
 
+  it("accepts a host runtime bin containing only its explicitly required launcher", async () => {
+    const root = await temporaryRoot()
+    const runtimeToolBin = path.join(root, "host-bin")
+    await mkdir(runtimeToolBin, { recursive: true })
+    await writeFile(
+      path.join(runtimeToolBin, "linksense-plugin-stdio"),
+      "#!/bin/sh\nexit 0\n",
+    )
+    await chmod(path.join(runtimeToolBin, "linksense-plugin-stdio"), 0o700)
+
+    const result = await initializeUserRuntime(path.join(root, "runtime"), {
+      runtimeToolBin,
+      requiredRuntimeTools: ["linksense-plugin-stdio"],
+      runCommand: async (_command, args) => {
+        if (await emulateUserNodePackageCommand(args)) return
+        if (args[0] !== "-m" || args[1] !== "venv") return
+        const environment = args.at(-1)!
+        await mkdir(path.join(environment, "bin"), { recursive: true })
+        await writeFile(path.join(environment, "pyvenv.cfg"), "home = /usr/bin\n")
+      },
+    })
+
+    expect(result.environment.PATH?.split(path.delimiter)[0]).toBe(
+      runtimeToolBin,
+    )
+  })
+
   it("rejects writable and symbolic-link managed Bash bootstrap files", async () => {
     const root = await temporaryRoot()
     const runtimeRoot = path.join(root, "runtime")

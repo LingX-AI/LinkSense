@@ -25,6 +25,10 @@ import type {
   WorkerProviderCapabilities,
 } from "./worker-provider.js"
 import { isNodeError } from "./worker-provider-utils.js"
+import {
+  prepareLocalProcessRuntimeTools,
+  resolvePersonalStdioLauncher,
+} from "./local-process-runtime-tools.js"
 
 export interface LocalWorkerProcess {
   exitCode: number | null
@@ -79,6 +83,8 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
   private readonly terminateWorker: NonNullable<
     LocalProcessWorkerProviderOptions["terminateWorker"]
   >
+  private readonly runtimeToolRoot: string
+  private runtimeToolBin: string | undefined
 
   constructor(
     private readonly config: RunnerConfig,
@@ -101,6 +107,10 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
     this.runnerEntry = options.runnerEntry ?? resolveRunnerEntry(import.meta.url)
     this.spawnWorker = options.spawnWorker ?? spawnLocalWorker
     this.terminateWorker = options.terminateWorker ?? terminateLocalWorker
+    this.runtimeToolRoot = path.join(
+      config.LINKSENSE_USER_DATA_ROOT,
+      ".local-process-runtime-tools",
+    )
   }
 
   async initialize(): Promise<void> {
@@ -122,6 +132,14 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
     await mkdir(this.config.LINKSENSE_USER_DATA_ROOT, {
       recursive: true,
       mode: 0o700,
+    })
+    this.runtimeToolBin = await prepareLocalProcessRuntimeTools({
+      root: this.runtimeToolRoot,
+      launcherCommand: process.execPath,
+      launcherArgs: [
+        ...process.execArgv,
+        resolvePersonalStdioLauncher(import.meta.url),
+      ],
     })
     this.logger.warn(
       { provider: this.kind, isolation: this.capabilities.isolation },
@@ -170,6 +188,7 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
           port,
           paths,
           this.processEnvironment,
+          this.requiredRuntimeToolBin(),
         ),
         shell: false,
         stdio: ["ignore", "inherit", "inherit", "ipc"],
@@ -248,6 +267,13 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
       this.processes.delete(worker.id)
     }
   }
+
+  private requiredRuntimeToolBin(): string {
+    if (!this.runtimeToolBin) {
+      throw new Error("local-process runtime tools are not initialized")
+    }
+    return this.runtimeToolBin
+  }
 }
 
 function prepareManagedAgentsLink(paths: WorkerOwnerPaths): void {
@@ -286,6 +312,7 @@ function localWorkerEnvironment(
   port: number,
   paths: WorkerOwnerPaths,
   source: NodeJS.ProcessEnv,
+  runtimeToolBin: string,
 ): NodeJS.ProcessEnv {
   const environment = Object.fromEntries(
     [
@@ -311,6 +338,7 @@ function localWorkerEnvironment(
     LINKSENSE_WORKER_OWNER_ID: ownerId,
     LINKSENSE_USER_DATA_ROOT: paths.home,
     LINKSENSE_WORKER_CONTROL_ROOT: paths.control,
+    LINKSENSE_RUNTIME_TOOL_BIN: runtimeToolBin,
     LINKSENSE_RUNNER_SHARED_SECRET: ownerWorkerSecret(
       ownerId,
       config.LINKSENSE_RUNNER_SHARED_SECRET,

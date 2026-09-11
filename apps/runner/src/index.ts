@@ -165,13 +165,18 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     pnpmVersion: config.LINKSENSE_PNPM_VERSION,
     pythonPackageIndexUrl: config.LINKSENSE_PYTHON_PACKAGE_INDEX_URL,
     nodePackageRegistryUrl: config.LINKSENSE_NODE_PACKAGE_REGISTRY_URL,
-    ...(isWorker && !isLocalProcessWorker
-      ? {
-          bashEnvironmentFile: MANAGED_BASH_ENVIRONMENT_FILE,
-          processIdentity: containerTaskProcessIdentity,
-          resetBrowserSessions: true,
-          runtimeToolBin: managedRuntimeToolBin,
-        }
+    ...(isWorker
+      ? isLocalProcessWorker
+        ? {
+            runtimeToolBin: requiredLocalProcessRuntimeToolBin(process.env),
+            requiredRuntimeTools: ["linksense-plugin-stdio"],
+          }
+        : {
+            bashEnvironmentFile: MANAGED_BASH_ENVIRONMENT_FILE,
+            processIdentity: containerTaskProcessIdentity,
+            resetBrowserSessions: true,
+            runtimeToolBin: managedRuntimeToolBin,
+          }
       : {}),
   })
   const ensureUserRuntime = async (ownerId: string) => {
@@ -369,6 +374,16 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     ])
     throw error
   }
+}
+
+function requiredLocalProcessRuntimeToolBin(
+  environment: NodeJS.ProcessEnv,
+): string {
+  const value = environment.LINKSENSE_RUNTIME_TOOL_BIN?.trim()
+  if (!value) {
+    throw new Error("local-process runtime tool directory is required")
+  }
+  return value
 }
 
 function installSignalHandlers(

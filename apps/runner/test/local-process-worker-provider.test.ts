@@ -59,6 +59,11 @@ describe("LocalProcessWorkerProvider", () => {
     )
 
     await provider.initialize()
+    const runtimeToolBin = path.join(
+      paths.root,
+      ".local-process-runtime-tools",
+      "bin",
+    )
     await provider.prepareOwnerFilesystem(paths)
     const worker = await provider.acquire({
       ownerId,
@@ -85,6 +90,7 @@ describe("LocalProcessWorkerProvider", () => {
           LINKSENSE_RUNNER_MODE: "worker",
           LINKSENSE_WORKER_PROVIDER: "local-process",
           LINKSENSE_WORKER_CONTROL_ROOT: paths.control,
+          LINKSENSE_RUNTIME_TOOL_BIN: runtimeToolBin,
           CODEX_HOME: path.join(paths.control, "supervisor-codex"),
         }),
       }),
@@ -95,6 +101,10 @@ describe("LocalProcessWorkerProvider", () => {
     expect(await readlink(paths.homeAgentsMountpoint)).toBe(
       path.relative(path.dirname(paths.homeAgentsMountpoint), paths.managedAgents),
     )
+    expect(
+      (await lstat(path.join(runtimeToolBin, "linksense-plugin-stdio"))).mode &
+        0o777,
+    ).toBe(0o700)
   })
 
   it("releases a child process exactly once", async () => {
@@ -111,6 +121,7 @@ describe("LocalProcessWorkerProvider", () => {
         terminateWorker,
       },
     )
+    await provider.initialize()
     await provider.prepareOwnerFilesystem(paths)
     const worker = await provider.acquire({
       ownerId,
@@ -138,6 +149,7 @@ describe("LocalProcessWorkerProvider", () => {
         },
       },
     )
+    await provider.initialize()
     await provider.prepareOwnerFilesystem(paths)
 
     await expect(

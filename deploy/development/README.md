@@ -9,6 +9,11 @@ task workers as host Node.js processes. It does not invoke Docker. Use this mode
 for trusted local development when Docker Desktop or a local Docker Engine would
 be too heavy. It is not a production deployment mode.
 
+The controller provisions a host-only `linksense-plugin-stdio` launcher under
+`LINKSENSE_USER_DATA_ROOT` so credential-bound STDIO plugins use the same
+credential projection as Docker workers. The launcher points to the current
+checkout and Node.js runtime; it does not install a global command.
+
 ### Requirements
 
 - Node.js 24+ and the pnpm version declared in the root `package.json`.
