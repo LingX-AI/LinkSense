@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { chmod, chown, lstat, mkdir, realpath, rm } from "node:fs/promises"
 import path from "node:path"
 
@@ -27,6 +26,11 @@ import type {
   WorkerProvider,
   WorkerProviderCapabilities,
 } from "./worker-provider.js"
+import {
+  isNodeError,
+  safeChildPath,
+  workerName,
+} from "./worker-provider-utils.js"
 
 const MANAGED_LABEL = "com.linksense.runner.managed"
 const STORAGE_KEY_LABEL = "com.linksense.runner.storage-key"
@@ -723,35 +727,7 @@ function safeVolumeSubpath(parent: string, child: string): string {
   return candidate
 }
 
-function safeChildPath(parent: string, child: string): string {
-  const candidate = path.resolve(parent, child)
-  if (candidate === parent || !candidate.startsWith(`${parent}${path.sep}`)) {
-    throw new Error("user data path escapes its configured root")
-  }
-  return candidate
-}
-
-function workerName(storageKey: string, instanceKey: string): string {
-  return `linksense-worker-${createHash("sha256")
-    .update(
-      JSON.stringify([
-        "linksense-runner-container-name",
-        instanceKey,
-        storageKey,
-      ]),
-    )
-    .digest("hex")
-    .slice(0, 32)}`
-}
-
 function ignoreExistingDirectory(error: unknown): void {
   if (isNodeError(error, "EEXIST")) return
   throw error
-}
-
-function isNodeError(
-  error: unknown,
-  code: string,
-): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error && error.code === code
 }

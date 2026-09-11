@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import {
   chmod,
   chown,
@@ -55,6 +54,12 @@ import type {
   WorkerOwnerPaths,
   WorkerProvider,
 } from "./worker-provider.js"
+import {
+  isNodeError,
+  probeWorkerName,
+  safeChildPath,
+  workerName,
+} from "./worker-provider-utils.js"
 
 const STARTUP_PROBE_OWNER_ID = "00000000-0000-7000-8000-000000000000"
 // Docker Desktop may keep nested bind mounts busy for several seconds after
@@ -1022,14 +1027,6 @@ async function runWithConcurrency(
   await Promise.all(workers)
 }
 
-function safeChildPath(parent: string, child: string): string {
-  const candidate = path.resolve(parent, child)
-  if (candidate === parent || !candidate.startsWith(`${parent}${path.sep}`)) {
-    throw new Error("user data path escapes its configured root")
-  }
-  return candidate
-}
-
 async function assertSafeDirectory(root: string, candidate: string): Promise<void> {
   const [rootInfo, candidateInfo] = await Promise.all([
     lstat(root),
@@ -1071,29 +1068,4 @@ async function assertSafeDirectoryIfExists(
 function ignoreExistingDirectory(error: unknown): void {
   if (isNodeError(error, "EEXIST")) return
   throw error
-}
-
-function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error && error.code === code
-}
-
-function workerName(storageKey: string, instanceKey: string): string {
-  return `linksense-worker-${containerNameKey(instanceKey, storageKey)}`
-}
-
-function probeWorkerName(storageKey: string, instanceKey: string): string {
-  return `linksense-worker-probe-${containerNameKey(instanceKey, storageKey)}`
-}
-
-function containerNameKey(instanceKey: string, storageKey: string): string {
-  return createHash("sha256")
-    .update(
-      JSON.stringify([
-        "linksense-runner-container-name",
-        instanceKey,
-        storageKey,
-      ]),
-    )
-    .digest("hex")
-    .slice(0, 32)
 }

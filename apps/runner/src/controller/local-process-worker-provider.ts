@@ -24,6 +24,7 @@ import type {
   WorkerProvider,
   WorkerProviderCapabilities,
 } from "./worker-provider.js"
+import { isNodeError } from "./worker-provider-utils.js"
 
 export interface LocalWorkerProcess {
   exitCode: number | null
@@ -454,11 +455,4 @@ function signalChildProcessGroup(
     if (!isNodeError(error, "ESRCH")) throw error
     child.kill(signal)
   }
-}
-
-function isNodeError(
-  error: unknown,
-  code: string,
-): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error && error.code === code
 }
