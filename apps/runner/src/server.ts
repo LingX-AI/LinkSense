@@ -2465,7 +2465,7 @@ function resolveHealthRoots(config: RunnerConfig): {
       : path.join(config.LINKSENSE_USER_DATA_ROOT, ".runner-health", "home");
   const control =
     config.LINKSENSE_RUNNER_MODE === "worker"
-      ? "/run/linksense-control"
+      ? config.LINKSENSE_WORKER_CONTROL_ROOT ?? "/run/linksense-control"
       : path.join(config.LINKSENSE_USER_DATA_ROOT, ".runner-health", "control");
   return {
     home,

@@ -61,6 +61,16 @@ const runnerDockerResourceUsageSchema = z.strictObject({
   reason_code: z.string().nullable(),
   services: z.array(runnerDockerResourceServiceSchema),
 });
+const runnerWorkerProviderSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("docker"),
+    isolation: z.literal("container"),
+  }),
+  z.strictObject({
+    kind: z.literal("local-process"),
+    isolation: z.literal("none"),
+  }),
+]);
 
 const runnerHealthSchema = z.strictObject({
   status: z.enum(["available", "unavailable"]),
@@ -76,6 +86,7 @@ const runnerHealthSchema = z.strictObject({
   turn_start_contract_version: z.literal(RUNNER_TURN_START_CONTRACT_VERSION),
   runner_instance_id: z.uuid().optional(),
   docker_resource_usage: runnerDockerResourceUsageSchema.optional(),
+  worker_provider: runnerWorkerProviderSchema.optional(),
 });
 
 const runnerRuntimeSchema = z.strictObject({

@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { parseEnv } from "node:util";
 
 import {
   assertHostDependencyEndpoints,
   buildHostDevelopmentEnvironment,
   hostDevelopmentCommands,
   hostPreparationCommands,
+  waitForHostDevelopmentApplicationReadiness,
 } from "./dev-host.mjs";
 
 const dependencies = {
@@ -13,7 +16,53 @@ const dependencies = {
   REDIS_URL: "redis://:secret@127.0.0.1:6379/0",
   MINIO_ENDPOINT: "127.0.0.1",
   LINKSENSE_EDITION: "core",
+  LINKSENSE_RUNNER_SHARED_SECRET: "runner-secret",
 };
+
+test("host development exposes cleanup as a recovery command", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(
+    packageJson.scripts["dev:host"],
+    "LINKSENSE_ENV_FILE=.env.host node scripts/dev-host.mjs",
+  );
+  assert.equal(
+    packageJson.scripts["dev:host:cleanup"],
+    "node scripts/dev-host.mjs --cleanup",
+  );
+  assert.equal(packageJson.scripts["dev:host:stop"], undefined);
+});
+
+test("the tracked host template is a valid minimal Core configuration", async () => {
+  const template = parseEnv(
+    await readFile(
+      new URL("../deploy/development/env.host.example", import.meta.url),
+      "utf8",
+    ),
+  );
+  const environment = buildHostDevelopmentEnvironment(template);
+
+  assert.doesNotThrow(() => assertHostDependencyEndpoints(environment));
+  assert.equal(environment.LINKSENSE_EDITION, "core");
+  assert.equal(
+    environment.LINKSENSE_OBJECT_STORAGE_PROVIDER,
+    "local-filesystem",
+  );
+  assert.equal(environment.MINIO_ENDPOINT, undefined);
+  assert.equal(environment.LINKSENSE_KB_ELASTICSEARCH_URL, undefined);
+  assert.equal(environment.DOCLING_SERVE_URL, undefined);
+  const secrets = [
+    environment.LINKSENSE_JWT_SECRET,
+    environment.LINKSENSE_LOGIN_RATE_LIMIT_HMAC_SECRET,
+    environment.LINKSENSE_PASSWORD_RESET_RATE_LIMIT_HMAC_SECRET,
+    environment.LINKSENSE_CREDENTIAL_MASTER_KEY,
+    environment.LINKSENSE_RUNNER_SHARED_SECRET,
+  ];
+  assert.equal(new Set(secrets).size, secrets.length);
+  assert.ok(secrets.every((secret) => secret.length >= 32));
+});
 
 test("host development selects the non-isolated provider and preserves the configured Web port", () => {
   const environment = buildHostDevelopmentEnvironment(
@@ -40,6 +89,19 @@ test("host development selects the non-isolated provider and preserves the confi
     "/tmp/linksense/.data/host-users",
   );
   assert.equal(environment.LINKSENSE_USER_DATA_VOLUME, undefined);
+});
+
+test("host development sends browser API requests through the same-origin Vite proxy", () => {
+  const environment = buildHostDevelopmentEnvironment({
+    ...dependencies,
+    LINKSENSE_DEV_API_PORT: "4100",
+  });
+
+  assert.equal(environment.VITE_API_BASE_URL, "");
+  assert.equal(
+    environment.LINKSENSE_DEV_API_PROXY_TARGET,
+    "http://127.0.0.1:4100",
+  );
 });
 
 test("host development starts every application with pnpm and passes the dynamic Web port", () => {
@@ -74,6 +136,49 @@ test("host development starts every application with pnpm and passes the dynamic
   );
 });
 
+test("host readiness waits for Docs before probing the Vite Help Center proxy", async () => {
+  const environment = buildHostDevelopmentEnvironment({
+    ...dependencies,
+    LINKSENSE_DEV_WEB_PORT: "5273",
+  });
+  const docsUrl = "http://127.0.0.1:3001/help/";
+  const proxyUrl = "http://127.0.0.1:5273/help/";
+  const calls = [];
+  let docsAttempts = 0;
+
+  await waitForHostDevelopmentApplicationReadiness(environment, {
+    timeoutMs: 1_000,
+    intervalMs: 1,
+    requestTimeoutMs: 10,
+    sleepImplementation: async () => undefined,
+    fetchImplementation: async (url) => {
+      calls.push(url);
+      if (url === docsUrl) {
+        docsAttempts += 1;
+        return new Response('<html lang="zh-CN"></html>', {
+          status: docsAttempts >= 2 ? 200 : 503,
+        });
+      }
+      if (url.includes(".tsx")) {
+        return new Response("export default {}", {
+          headers: { "content-type": "text/javascript" },
+        });
+      }
+      if (url.includes(".css")) {
+        return new Response(":root {}", {
+          headers: { "content-type": "text/css" },
+        });
+      }
+      return new Response(
+        `<html lang="${url.includes("/en-US/") ? "en-US" : "zh-CN"}"></html>`,
+      );
+    },
+  });
+
+  assert.deepEqual(calls.slice(0, 2), [docsUrl, docsUrl]);
+  assert.ok(calls.indexOf(proxyUrl) > 1);
+});
+
 test("host development rejects container-only dependency addresses instead of falling back", () => {
   for (const [name, value] of [
     ["DATABASE_URL", "postgresql://linksense:secret@postgres:5432/linksense"],
@@ -98,6 +203,17 @@ test("host development accepts remote PostgreSQL, Redis, and MinIO services", ()
         "postgresql://linksense:secret@db.internal.example:5432/linksense",
       REDIS_URL: "rediss://:secret@redis.internal.example:6380/0",
       MINIO_ENDPOINT: "objects.internal.example",
+      LINKSENSE_EDITION: "core",
+    }),
+  );
+});
+
+test("host development does not require MinIO for local filesystem storage", () => {
+  assert.doesNotThrow(() =>
+    assertHostDependencyEndpoints({
+      DATABASE_URL: dependencies.DATABASE_URL,
+      REDIS_URL: dependencies.REDIS_URL,
+      LINKSENSE_OBJECT_STORAGE_PROVIDER: "local-filesystem",
       LINKSENSE_EDITION: "core",
     }),
   );

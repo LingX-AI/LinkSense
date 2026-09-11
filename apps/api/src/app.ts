@@ -86,6 +86,8 @@ import {
   applicationEmbedRoutes,
   applicationExternalManagementRoutes,
 } from "./modules/application-embed/index.js";
+import { LocalFilesystemObjectStorage } from "./adapters/object-storage.js";
+import { registerLocalObjectStorageRoutes } from "./adapters/local-object-storage-routes.js";
 
 export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.headers.authorization",
@@ -201,6 +203,10 @@ export async function buildApi(
         ),
       );
   });
+
+  if (services.storage instanceof LocalFilesystemObjectStorage) {
+    await registerLocalObjectStorageRoutes(app, services.storage);
+  }
 
   registerMaintenanceGuard(app, services.system);
 

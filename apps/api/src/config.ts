@@ -136,6 +136,12 @@ const minioEndpointSchema = z
     { message: "minio_endpoint_must_be_hostname_or_ip_without_port" },
   );
 
+const optionalMinioEndpointSchema = z.preprocess(
+  (value) =>
+    typeof value === "string" && value.trim() === "" ? undefined : value,
+  minioEndpointSchema.optional(),
+);
+
 const minioPublicUrlSchema = z.url().superRefine((value, context) => {
   const url = new URL(value);
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -157,6 +163,17 @@ const minioPublicUrlSchema = z.url().superRefine((value, context) => {
     });
   }
 });
+
+const optionalMinioPublicUrlSchema = z.preprocess(
+  (value) =>
+    typeof value === "string" && value.trim() === "" ? undefined : value,
+  minioPublicUrlSchema.optional(),
+);
+
+const optionalMinioCredentialSchema = z.preprocess(
+  (value) => (value === "" || value === undefined ? undefined : value),
+  z.string().min(1).optional(),
+);
 
 const smtpSchema = z
   .object({
@@ -284,16 +301,19 @@ const rawConfigSchema = z
     LINKSENSE_UPLOAD_MAX_FILES_PER_CONVERSATION: positiveInteger(100),
     LINKSENSE_UPLOAD_ALLOWED_TYPES: z.string().default(DEFAULT_FILE_MIME_TYPES),
     LINKSENSE_ARTIFACT_ALLOWED_TYPES: optionalMimeTypeList,
-    MINIO_ENDPOINT: minioEndpointSchema,
+    LINKSENSE_OBJECT_STORAGE_PROVIDER: z
+      .enum(["minio", "local-filesystem"])
+      .optional(),
+    MINIO_ENDPOINT: optionalMinioEndpointSchema,
     MINIO_PORT: z.coerce.number().int().min(1).max(65_535).default(9000),
     MINIO_USE_SSL: z
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
-    MINIO_PUBLIC_URL: minioPublicUrlSchema,
+    MINIO_PUBLIC_URL: optionalMinioPublicUrlSchema,
     MINIO_REGION: z.string().trim().min(1).max(120).default("us-east-1"),
-    MINIO_ACCESS_KEY: z.string().min(1),
-    MINIO_SECRET_KEY: z.string().min(1),
+    MINIO_ACCESS_KEY: optionalMinioCredentialSchema,
+    MINIO_SECRET_KEY: optionalMinioCredentialSchema,
     MINIO_BUCKET: z.string().min(1).default("linksense-files"),
     MINIO_KNOWLEDGE_BUCKET: z
       .string()
@@ -355,6 +375,34 @@ const rawConfigSchema = z
       .default("false"),
   })
   .superRefine((config, context) => {
+    const objectStorageProvider = resolveObjectStorageProvider(config);
+    if (objectStorageProvider === "minio") {
+      for (const [path, value] of [
+        ["MINIO_ENDPOINT", config.MINIO_ENDPOINT],
+        ["MINIO_PUBLIC_URL", config.MINIO_PUBLIC_URL],
+        ["MINIO_ACCESS_KEY", config.MINIO_ACCESS_KEY],
+        ["MINIO_SECRET_KEY", config.MINIO_SECRET_KEY],
+      ] as const) {
+        if (value === undefined) {
+          context.addIssue({
+            code: "custom",
+            path: [path],
+            message: "minio_setting_required",
+          });
+        }
+      }
+    }
+    if (
+      objectStorageProvider === "local-filesystem" &&
+      (config.NODE_ENV === "production" || config.LINKSENSE_EDITION !== "core")
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["LINKSENSE_OBJECT_STORAGE_PROVIDER"],
+        message: "local_object_storage_requires_non_production_core_edition",
+      });
+    }
+
     if (config.LINKSENSE_EDITION === "full") {
       const requiredKnowledgeSettings = [
         ["LINKSENSE_KB_HYBRID_TOKENIZER", config.LINKSENSE_KB_HYBRID_TOKENIZER],
@@ -438,7 +486,10 @@ export function requireFullAppConfig(config: AppConfig): FullAppConfig {
 export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
   const raw = rawConfigSchema.parse(env);
   const userDataRoot = resolve(raw.LINKSENSE_USER_DATA_ROOT);
-  const minioPublicUrl = new URL(raw.MINIO_PUBLIC_URL);
+  const objectStorageProvider = resolveObjectStorageProvider(raw);
+  const minioPublicUrl = new URL(
+    raw.MINIO_PUBLIC_URL ?? raw.LINKSENSE_PUBLIC_BASE_URL,
+  );
   const smtp = smtpSchema.parse(env);
   const oidc = oidcSchema.parse(env);
   const teams = teamsSchema.parse(env);
@@ -499,8 +550,14 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
           .filter(Boolean),
       ),
     },
+    objectStorage: {
+      provider: objectStorageProvider,
+      localRoot: join(userDataRoot, ".object-storage"),
+      publicBaseUrl: raw.LINKSENSE_PUBLIC_BASE_URL,
+      signingSecret: raw.LINKSENSE_RUNNER_SHARED_SECRET,
+    },
     minio: {
-      endpoint: raw.MINIO_ENDPOINT,
+      endpoint: raw.MINIO_ENDPOINT ?? "127.0.0.1",
       port: raw.MINIO_PORT,
       useSsl: raw.MINIO_USE_SSL,
       publicEndpoint: minioPublicUrl.hostname.replace(/^\[(.*)\]$/u, "$1"),
@@ -511,8 +568,8 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
       publicUseSsl: minioPublicUrl.protocol === "https:",
       publicUrl: minioPublicUrl.origin,
       region: raw.MINIO_REGION,
-      accessKey: raw.MINIO_ACCESS_KEY,
-      secretKey: raw.MINIO_SECRET_KEY,
+      accessKey: raw.MINIO_ACCESS_KEY ?? "",
+      secretKey: raw.MINIO_SECRET_KEY ?? "",
       bucket: raw.MINIO_BUCKET,
       knowledgeBucket: raw.MINIO_KNOWLEDGE_BUCKET,
       downloadTtlSeconds: raw.LINKSENSE_ARTIFACT_DOWNLOAD_TTL_SECONDS,
@@ -534,6 +591,34 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
     oidc,
     teams,
   };
+}
+
+function resolveObjectStorageProvider(config: {
+  NODE_ENV: "development" | "test" | "production";
+  LINKSENSE_EDITION: "core" | "full";
+  LINKSENSE_OBJECT_STORAGE_PROVIDER?:
+    | "minio"
+    | "local-filesystem"
+    | undefined;
+  MINIO_ENDPOINT?: string | undefined;
+  MINIO_PUBLIC_URL?: string | undefined;
+  MINIO_ACCESS_KEY?: string | undefined;
+  MINIO_SECRET_KEY?: string | undefined;
+}): "minio" | "local-filesystem" {
+  if (config.LINKSENSE_OBJECT_STORAGE_PROVIDER) {
+    return config.LINKSENSE_OBJECT_STORAGE_PROVIDER;
+  }
+  const minioConfigured = [
+    config.MINIO_ENDPOINT,
+    config.MINIO_PUBLIC_URL,
+    config.MINIO_ACCESS_KEY,
+    config.MINIO_SECRET_KEY,
+  ].some((value) => value !== undefined);
+  return config.NODE_ENV !== "production" &&
+    config.LINKSENSE_EDITION === "core" &&
+    !minioConfigured
+    ? "local-filesystem"
+    : "minio";
 }
 
 function projectKnowledgeConfig(raw: z.infer<typeof rawConfigSchema>) {

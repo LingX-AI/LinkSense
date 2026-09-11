@@ -90,6 +90,7 @@ export function buildHostDevelopmentEnvironment(
       "deploy/codex-home-template",
     ),
     LINKSENSE_WORKER_IMAGE_REVISION: "host-development",
+    VITE_API_BASE_URL: "",
     LINKSENSE_DEV_API_PROXY_TARGET: apiOrigin,
     LINKSENSE_DEV_DOCS_PROXY_TARGET: "http://127.0.0.1:3001",
   };
@@ -120,6 +121,10 @@ export function assertHostDependencyEndpoints(environment) {
     }
     assertHostReachableName(name, url.hostname);
   }
+  const objectStorageProvider =
+    environment.LINKSENSE_OBJECT_STORAGE_PROVIDER?.trim() ||
+    (environment.MINIO_ENDPOINT?.trim() ? "minio" : "local-filesystem");
+  if (objectStorageProvider === "local-filesystem") return;
   const minioEndpoint = required(environment, "MINIO_ENDPOINT");
   let minioHost = minioEndpoint;
   if (minioEndpoint.includes(":")) {
@@ -184,6 +189,30 @@ export function hostPreparationCommands() {
     ["db:migrate:deploy"],
     ["db:seed"],
   ];
+}
+
+export function hostReadinessPrerequisiteTargets(environment) {
+  return [
+    {
+      name: "Help Center upstream",
+      url: new URL(
+        "/help/",
+        required(environment, "LINKSENSE_DEV_DOCS_PROXY_TARGET"),
+      ).toString(),
+      headers: {},
+      bodyIncludes: 'lang="zh-CN"',
+    },
+  ];
+}
+
+export function waitForHostDevelopmentApplicationReadiness(
+  environment,
+  options = {},
+) {
+  return waitForDevelopmentApplicationReadiness(environment, {
+    ...options,
+    prerequisiteTargets: hostReadinessPrerequisiteTargets(environment),
+  });
 }
 
 function loadHostEnvironment(rootDirectory) {
@@ -282,13 +311,13 @@ function startHostSession(environment, rootDirectory) {
 }
 
 export async function main(argumentsList = process.argv.slice(2)) {
-  if (argumentsList.includes("--stop")) {
+  if (argumentsList.includes("--cleanup")) {
     const result = await stopDevelopmentApplications(repositoryRoot);
     for (const warning of result.warnings) console.warn(`Warning: ${warning}`);
     console.log(
       result.stoppedServices.length > 0
-        ? `Stopped local LinkSense services: ${result.stoppedServices.join(", ")}.`
-        : "No running local LinkSense services were found.",
+        ? `Cleaned up local LinkSense service processes: ${result.stoppedServices.join(", ")}.`
+        : "No residual local LinkSense service processes were found.",
     );
     return;
   }
@@ -314,7 +343,7 @@ export async function main(argumentsList = process.argv.slice(2)) {
   process.once("SIGTERM", stopFromSignal);
   try {
     await Promise.race([
-      waitForDevelopmentApplicationReadiness(environment),
+      waitForHostDevelopmentApplicationReadiness(environment),
       session.completion.then(() => {
         throw new Error("A host development service stopped during startup");
       }),

@@ -405,6 +405,45 @@ test("development reattach readiness tolerates transient unhealthy services", as
   });
 });
 
+test("readiness waits for prerequisites before probing application routes", async () => {
+  const environment = buildDevelopmentEnvironment({
+    ...containerEnvironment,
+    LINKSENSE_RUNNER_SHARED_SECRET: "runner-secret",
+  });
+  const prerequisiteUrl = "http://127.0.0.1:3001/help/";
+  const calls = [];
+  let prerequisiteAttempts = 0;
+
+  await waitForDevelopmentApplicationReadiness(environment, {
+    timeoutMs: 1_000,
+    intervalMs: 1,
+    requestTimeoutMs: 10,
+    prerequisiteTargets: [
+      {
+        name: "Help Center upstream",
+        url: prerequisiteUrl,
+        headers: {},
+        bodyIncludes: 'lang="zh-CN"',
+      },
+    ],
+    sleepImplementation: async () => undefined,
+    fetchImplementation: async (url) => {
+      calls.push(url);
+      if (url === prerequisiteUrl) {
+        prerequisiteAttempts += 1;
+        return readinessResponse(url, prerequisiteAttempts >= 2 ? 200 : 503);
+      }
+      return readinessResponse(url);
+    },
+  });
+
+  assert.deepEqual(calls.slice(0, 2), [prerequisiteUrl, prerequisiteUrl]);
+  assert.deepEqual(
+    calls.slice(2),
+    developmentReadinessTargets(environment).map((target) => target.url),
+  );
+});
+
 test("development reattach applies pending migrations without reseeding", () => {
   assert.deepEqual(developmentMigrationDeployCommand(), [
     "run",

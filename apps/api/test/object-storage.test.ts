@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const minio = vi.hoisted(() => ({
   bucketExists: vi.fn(),
@@ -21,7 +25,10 @@ vi.mock("minio", () => ({
   },
 }))
 
-import { MinioObjectStorage } from "../src/adapters/object-storage.js"
+import {
+  LocalFilesystemObjectStorage,
+  MinioObjectStorage,
+} from "../src/adapters/object-storage.js"
 import { testConfig } from "./test-config.js"
 
 describe("MinioObjectStorage deployment boundary", () => {
@@ -123,3 +130,84 @@ describe("MinioObjectStorage deployment boundary", () => {
     )
   })
 })
+
+describe("LocalFilesystemObjectStorage development boundary", () => {
+  const temporaryDirectories: string[] = []
+
+  afterEach(async () => {
+    await Promise.all(
+      temporaryDirectories.splice(0).map((directory) =>
+        rm(directory, { recursive: true, force: true }),
+      ),
+    )
+  })
+
+  async function createStorage() {
+    const directory = await mkdtemp(join(tmpdir(), "linksense-storage-"))
+    temporaryDirectories.push(directory)
+    const storage = new LocalFilesystemObjectStorage(
+      testConfig({
+        LINKSENSE_EDITION: "core",
+        LINKSENSE_OBJECT_STORAGE_PROVIDER: "local-filesystem",
+        LINKSENSE_USER_DATA_ROOT: directory,
+      }),
+    )
+    await storage.ensureBucket()
+    return storage
+  }
+
+  it("persists objects, metadata, and byte ranges", async () => {
+    const storage = await createStorage()
+    await storage.putObject("artifacts/example.txt", Buffer.from("hello"), {
+      "content-type": "text/plain",
+    })
+
+    expect(await storage.getObjectSize("artifacts/example.txt")).toBe(5)
+    expect(await storage.getObjectContentType("artifacts/example.txt")).toBe(
+      "text/plain",
+    )
+    await expect(
+      streamText(await storage.getObjectStream("artifacts/example.txt")),
+    ).resolves.toBe("hello")
+    await expect(
+      streamText(
+        await storage.getObjectRangeStream("artifacts/example.txt", 1, 3),
+      ),
+    ).resolves.toBe("ell")
+  })
+
+  it("rejects path traversal keys", async () => {
+    const storage = await createStorage()
+
+    await expect(
+      storage.putObject("../outside.txt", Buffer.from("no")),
+    ).rejects.toThrow("LOCAL_OBJECT_STORAGE_KEY_INVALID")
+  })
+
+  it("creates signed browser URLs and rejects tampering", async () => {
+    const storage = await createStorage()
+    const signedUrl = new URL(
+      await storage.presignedGetObject("artifacts/example.txt", 300),
+    )
+    const input = {
+      key: signedUrl.searchParams.get("key") ?? "",
+      expires: Number(signedUrl.searchParams.get("expires")),
+      signature: signedUrl.searchParams.get("signature") ?? "",
+    }
+
+    expect(signedUrl.origin).toBe("https://linksense.example.test")
+    expect(signedUrl.pathname).toBe("/api/v1/development/object-storage")
+    expect(() => storage.authorizePresignedGet(input)).not.toThrow()
+    expect(() =>
+      storage.authorizePresignedGet({ ...input, key: "artifacts/other.txt" }),
+    ).toThrow("LOCAL_OBJECT_STORAGE_SIGNATURE_INVALID")
+  })
+})
+
+async function streamText(stream: NodeJS.ReadableStream): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks).toString("utf8")
+}

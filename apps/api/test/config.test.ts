@@ -12,6 +12,7 @@ describe("parseConfig", () => {
     expect(config.maxConcurrentConversations).toBe(20)
     expect(config.runnerAppServerProcessLimit).toBe(20)
     expect(config.minio.downloadTtlSeconds).toBe(7_200)
+    expect(config.objectStorage.provider).toBe("minio")
     expect(config.adminModelManagementEnabled).toBe(true)
     expect(config.releaseVersion).toBe("v0.1.1")
     expect(config.initializationToken).toBeUndefined()
@@ -42,6 +43,57 @@ describe("parseConfig", () => {
         "video/x-msvideo",
       ]),
     )
+  })
+
+  it("uses local filesystem storage when non-production Core omits MinIO", () => {
+    const config = parseConfig(
+      testEnvironment({
+        LINKSENSE_EDITION: "core",
+        LINKSENSE_OBJECT_STORAGE_PROVIDER: undefined,
+        MINIO_ENDPOINT: undefined,
+        MINIO_PUBLIC_URL: undefined,
+        MINIO_ACCESS_KEY: undefined,
+        MINIO_SECRET_KEY: undefined,
+      }),
+    )
+
+    expect(config.objectStorage).toMatchObject({
+      provider: "local-filesystem",
+      localRoot: "/tmp/linksense-test/users/.object-storage",
+      publicBaseUrl: "https://linksense.example.test",
+    })
+  })
+
+  it("keeps local filesystem storage out of production and the Full edition", () => {
+    expect(() =>
+      parseConfig(
+        testEnvironment({
+          NODE_ENV: "production",
+          LINKSENSE_EDITION: "core",
+          LINKSENSE_OBJECT_STORAGE_PROVIDER: "local-filesystem",
+        }),
+      ),
+    ).toThrow("local_object_storage_requires_non_production_core_edition")
+    expect(() =>
+      parseConfig(
+        testEnvironment({
+          LINKSENSE_EDITION: "full",
+          LINKSENSE_OBJECT_STORAGE_PROVIDER: "local-filesystem",
+        }),
+      ),
+    ).toThrow("local_object_storage_requires_non_production_core_edition")
+  })
+
+  it("requires complete MinIO settings when the MinIO provider is selected", () => {
+    expect(() =>
+      parseConfig(
+        testEnvironment({
+          LINKSENSE_EDITION: "core",
+          LINKSENSE_OBJECT_STORAGE_PROVIDER: "minio",
+          MINIO_SECRET_KEY: undefined,
+        }),
+      ),
+    ).toThrow("minio_setting_required")
   })
 
   it("accepts only a stable v-prefixed deployment release version", () => {

@@ -15,8 +15,8 @@
   "packageManager": "pnpm@10.6.4",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "dev:host": "node scripts/dev-host.mjs",
-    "dev:host:stop": "node scripts/dev-host.mjs --stop",
+    "dev:host": "LINKSENSE_ENV_FILE=.env.host node scripts/dev-host.mjs",
+    "dev:host:cleanup": "node scripts/dev-host.mjs --cleanup",
     "dev:apps": "pnpm --parallel --stream --filter @linksense/api --filter @linksense/runner --filter @linksense/web --filter @linksense/docs dev",
     "dev:prepare": "node scripts/dev.mjs --prepare-only",
     "dev:benchmark": "node scripts/dev-benchmark.mjs",

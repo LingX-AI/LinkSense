@@ -102,7 +102,7 @@ pnpm dev:prepare
 pnpm dev
 ```
 
-首次准备会构建应用镜像、正式任务 Worker，以及与生产共用构建阶段的双语帮助中心，检查基础设施和数据库初始化，再启动服务并预热运行时缓存直至就绪。`pnpm dev` 也会自动补齐缺失的准备步骤；如本机不运行 Docker，可配置宿主机可访问的 PostgreSQL、Redis 和 MinIO，并使用不提供隔离且仅限开发环境的 `pnpm dev:host`，具体见[开发启动说明](./deploy/development/README.zh-CN.md)。容器日常启动目标为准备完成后 10 秒内就绪。默认地址：
+首次准备会构建应用镜像、正式任务 Worker，以及与生产共用构建阶段的双语帮助中心，检查基础设施和数据库初始化，再启动服务并预热运行时缓存直至就绪。`pnpm dev` 也会自动补齐缺失的准备步骤；如果希望本地开发不运行 Docker，Core 最小模式只需要宿主机可访问的 PostgreSQL 和 Redis，并使用开发专用的本地文件存储及无隔离子进程 Worker。复制最小环境模板并按 [`dev:host` 启动说明](./deploy/development/README.zh-CN.md#不依赖本机-docker-的-host-开发模式)操作。容器日常启动目标为准备完成后 10 秒内就绪。默认地址：
 
 - Web：`http://localhost:5173`
 - API：`http://localhost:4000`

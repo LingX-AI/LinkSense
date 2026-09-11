@@ -146,6 +146,29 @@ describe("runner health", () => {
     });
   });
 
+  it("probes the configured control root for a local-process worker", () => {
+    const workerHome = join(directory, "local-worker-home");
+    const controlRoot = join(directory, "local-worker-control");
+    const worker = parseRunnerConfig({
+      NODE_ENV: "development",
+      LINKSENSE_RUNNER_MODE: "worker",
+      LINKSENSE_WORKER_PROVIDER: "local-process",
+      LINKSENSE_WORKER_OWNER_ID: "01900000-0000-7000-8000-000000000002",
+      LINKSENSE_USER_DATA_ROOT: workerHome,
+      LINKSENSE_WORKER_CONTROL_ROOT: controlRoot,
+      LINKSENSE_RUNNER_SHARED_SECRET:
+        "runner-555555555555555555555555555555",
+      LINKSENSE_API_INTERNAL_URL: "http://127.0.0.1:4010/internal",
+    });
+
+    expect(runnerServerTesting.resolveHealthRoots(worker)).toEqual({
+      home: workerHome,
+      control: controlRoot,
+      workspace: join(workerHome, "workspaces"),
+      codexHome: join(workerHome, "task-homes"),
+    });
+  });
+
   it("rejects ambient or cross-capability credential environment sources", () => {
     const base = {
       ownerId: "01900000-0000-7000-8000-000000000002",
