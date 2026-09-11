@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify"
 import {
   deleteModelProviderSchema,
   deleteModelProviderModelSchema,
+  modelProviderCatalogParamsSchema,
   patchProductSettingsSchema,
   updateExecutionConcurrencySettingsSchema,
   updateKnowledgeModelSettingsSchema,
@@ -307,6 +308,21 @@ export const adminSystemRoutes: FastifyPluginAsync<{
       ok({ code: "SYSTEM_SETTINGS_UPDATED", settings }, request.id)
     )
   })
+
+  app.get(
+    "/model-provider-settings/providers/:provider_id/discoverable-models",
+    async (request, reply) => {
+      requireAdminModelManagement(services)
+      const { provider_id: providerId } = modelProviderCatalogParamsSchema.parse(
+        request.params
+      )
+      const catalog =
+        await services.modelProviderSettings.discoverModels(providerId)
+      return reply
+        .header("cache-control", "private, no-store")
+        .send(ok(catalog, request.id))
+    }
+  )
 
   app.patch(
     "/model-provider-settings/models/availability",

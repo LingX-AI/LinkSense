@@ -233,6 +233,66 @@ export const managedModelProviderSettingsSchema = z
   })
   .superRefine(validateProviderSpecificFields)
 
+export const modelCatalogDiscoveryProviderValues = [
+  "openai",
+  "azure_openai",
+  "anthropic",
+  "google",
+  "alibaba",
+  "deepseek",
+  "openrouter",
+  "openai_compatible",
+] as const satisfies readonly (typeof modelServiceProviderValues)[number][]
+
+export const discoveredModelSchema = z
+  .strictObject({
+    id: modelIdentifierSchema,
+    display_name: z.string().trim().min(1).max(120),
+    kind: managedModelKindSchema.nullable(),
+    context_window: modelContextWindowSchema.nullable(),
+    supports_image_input: z.boolean().nullable(),
+    supported_reasoning_efforts: z
+      .array(reasoningEffortSchema)
+      .min(1)
+      .max(reasoningEffortValues.length)
+      .nullable(),
+    default_reasoning_effort: reasoningEffortSchema.nullable(),
+  })
+  .superRefine((model, context) => {
+    if (
+      (model.supported_reasoning_efforts === null) !==
+      (model.default_reasoning_effort === null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["default_reasoning_effort"],
+        message: "discovered_reasoning_profile_must_be_complete",
+      })
+      return
+    }
+    if (
+      model.default_reasoning_effort !== null &&
+      !model.supported_reasoning_efforts?.includes(
+        model.default_reasoning_effort
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["default_reasoning_effort"],
+        message: "discovered_default_reasoning_effort_must_be_supported",
+      })
+    }
+  })
+
+export const discoveredModelCatalogSchema = z.strictObject({
+  provider_id: modelProviderIdentifierSchema,
+  models: z.array(discoveredModelSchema).max(1_000),
+})
+
+export const modelProviderCatalogParamsSchema = z.strictObject({
+  provider_id: modelProviderIdentifierSchema,
+})
+
 const modelProviderCollectionSchema = z
   .array(updateManagedModelProviderSchema)
   .min(1)
@@ -475,6 +535,10 @@ export type UpdateManagedModelProvider = z.input<
   typeof updateManagedModelProviderSchema
 >
 export type ModelProviderSettings = z.infer<typeof modelProviderSettingsSchema>
+export type DiscoveredModel = z.infer<typeof discoveredModelSchema>
+export type DiscoveredModelCatalog = z.infer<
+  typeof discoveredModelCatalogSchema
+>
 export type UpdateModelProviderSettings = z.input<
   typeof updateModelProviderSettingsSchema
 >

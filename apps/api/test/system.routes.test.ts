@@ -597,6 +597,7 @@ describe("admin system routes", () => {
     const updateModelAvailability = vi.fn()
     const deleteModel = vi.fn()
     const deleteProvider = vi.fn()
+    const discoverModels = vi.fn()
     const updateImageUnderstanding = vi.fn()
     const updateKnowledgeModels = vi.fn()
     const updateVoiceTranscription = vi.fn()
@@ -626,6 +627,7 @@ describe("admin system routes", () => {
         updateModelAvailability,
         deleteModel,
         deleteProvider,
+        discoverModels,
       },
       imageUnderstandingSettings: { update: updateImageUnderstanding },
       knowledgeModelSettings: { update: updateKnowledgeModels },
@@ -672,10 +674,19 @@ describe("admin system routes", () => {
         error_code: "MODEL_MANAGEMENT_DISABLED",
       })
     }
+    const discoveryResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/model-provider-settings/providers/provider-a/discoverable-models",
+    })
+    expect(discoveryResponse.statusCode).toBe(403)
+    expect(discoveryResponse.json()).toEqual({
+      error_code: "MODEL_MANAGEMENT_DISABLED",
+    })
     expect(update).not.toHaveBeenCalled()
     expect(updateModelAvailability).not.toHaveBeenCalled()
     expect(deleteModel).not.toHaveBeenCalled()
     expect(deleteProvider).not.toHaveBeenCalled()
+    expect(discoverModels).not.toHaveBeenCalled()
     expect(updateImageUnderstanding).not.toHaveBeenCalled()
     expect(updateKnowledgeModels).not.toHaveBeenCalled()
     expect(updateVoiceTranscription).not.toHaveBeenCalled()
@@ -771,6 +782,58 @@ describe("admin system routes", () => {
       expect.objectContaining({ client_secret: "replacement-secret" }),
       expect.objectContaining({ userAgent: "settings-page-test" })
     )
+    await app.close()
+  })
+
+  it("returns a provider model catalog without exposing its credential", async () => {
+    const discoverModels = vi.fn().mockResolvedValue({
+      provider_id: "provider-a",
+      models: [
+        {
+          id: "model-a",
+          display_name: "Model A",
+          kind: "chat",
+          context_window: 128_000,
+          supports_image_input: true,
+          supported_reasoning_efforts: ["medium"],
+          default_reasoning_effort: "medium",
+        },
+      ],
+    })
+    const app = Fastify()
+    app.decorate("requireAdmin", async (request: FastifyRequest) => {
+      request.authUser = {
+        id: "01900000-0000-7000-8000-000000000099",
+        email: "admin@example.test",
+        name: "Admin",
+        role: "admin",
+        status: "active",
+        preferredLocale: "zh-CN",
+        avatarObjectKey: null,
+        authValidAfter: new Date(0),
+      }
+    })
+    const services = {
+      modelProviderSettings: { discoverModels },
+    } as unknown as AppServices
+    await app.register(adminSystemRoutes, {
+      prefix: "/api/v1/admin",
+      services,
+    })
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/model-provider-settings/providers/provider-a/discoverable-models",
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.headers["cache-control"]).toBe("private, no-store")
+    expect(response.json().data).toMatchObject({
+      provider_id: "provider-a",
+      models: [{ id: "model-a" }],
+    })
+    expect(JSON.stringify(response.json())).not.toContain("secret")
+    expect(discoverModels).toHaveBeenCalledWith("provider-a")
     await app.close()
   })
 

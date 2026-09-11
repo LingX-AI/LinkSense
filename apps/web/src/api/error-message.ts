@@ -113,6 +113,13 @@ const errorCodeToKey: Record<string, string> = {
   LAST_ENABLED_ADMIN_REQUIRED: "errors.lastAdminRequired",
   MODEL_IN_USE_BY_SYSTEM_SETTING: "errors.modelProvider.inUseBySystemSetting",
   MODEL_MANAGEMENT_DISABLED: "errors.modelProvider.managementDisabled",
+  MODEL_CATALOG_NOT_SUPPORTED: "errors.modelProvider.catalogNotSupported",
+  MODEL_CATALOG_CREDENTIAL_REQUIRED:
+    "errors.modelProvider.catalogCredentialRequired",
+  MODEL_CATALOG_AUTHENTICATION_FAILED:
+    "errors.modelProvider.catalogAuthenticationFailed",
+  MODEL_CATALOG_UNAVAILABLE: "errors.modelProvider.catalogUnavailable",
+  MODEL_CATALOG_RESPONSE_INVALID: "errors.modelProvider.catalogResponseInvalid",
   LAST_ENABLED_MODEL_REQUIRED: "errors.lastModelRequired",
   ADMIN_SELF_PRIVILEGE_CHANGE_FORBIDDEN: "errors.adminSelfChangeForbidden",
   ADMIN_SELF_ROLE_OR_STATUS_CHANGE_FORBIDDEN: "errors.adminSelfChangeForbidden",

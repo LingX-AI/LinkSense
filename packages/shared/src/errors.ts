@@ -1766,6 +1766,51 @@ export const errorCatalog = {
       "en-US": "An administrator has not configured the model service yet.",
     },
   },
+  MODEL_CATALOG_NOT_SUPPORTED: {
+    message_key: "errors.modelProvider.catalogNotSupported",
+    http_status: 422,
+    messages: {
+      "zh-CN": "当前模型供应商暂不支持远程模型目录，请手动填写模型信息。",
+      "en-US":
+        "This model provider does not support remote catalog discovery. Enter the model details manually.",
+    },
+  },
+  MODEL_CATALOG_CREDENTIAL_REQUIRED: {
+    message_key: "errors.modelProvider.catalogCredentialRequired",
+    http_status: 422,
+    messages: {
+      "zh-CN": "当前模型渠道尚未配置 API Key，请先保存渠道密钥或手动填写模型信息。",
+      "en-US":
+        "This model channel has no API key. Save its credential first or enter the model details manually.",
+    },
+  },
+  MODEL_CATALOG_AUTHENTICATION_FAILED: {
+    message_key: "errors.modelProvider.catalogAuthenticationFailed",
+    http_status: 422,
+    messages: {
+      "zh-CN": "模型供应商未接受当前凭据，请检查渠道 API Key 后重试。",
+      "en-US":
+        "The model provider rejected the current credential. Check the channel API key and try again.",
+    },
+  },
+  MODEL_CATALOG_UNAVAILABLE: {
+    message_key: "errors.modelProvider.catalogUnavailable",
+    http_status: 422,
+    messages: {
+      "zh-CN": "暂时无法获取远程模型列表，请检查 Base URL、网络和供应商状态，或手动填写模型信息。",
+      "en-US":
+        "The remote model list is unavailable. Check the Base URL, network, and provider status, or enter the model details manually.",
+    },
+  },
+  MODEL_CATALOG_RESPONSE_INVALID: {
+    message_key: "errors.modelProvider.catalogResponseInvalid",
+    http_status: 422,
+    messages: {
+      "zh-CN": "模型供应商返回了无法识别的模型列表，请检查接口兼容性或手动填写模型信息。",
+      "en-US":
+        "The provider returned an unrecognized model list. Check API compatibility or enter the model details manually.",
+    },
+  },
   MODEL_MANAGEMENT_DISABLED: {
     message_key: "errors.modelProvider.managementDisabled",
     http_status: 403,

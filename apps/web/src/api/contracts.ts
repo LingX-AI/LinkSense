@@ -41,6 +41,7 @@ import {
   mcpServerSchema as sharedMcpServerSchema,
   mcpServerTestResultSchema as sharedMcpServerTestResultSchema,
   modelPreferenceSchema as sharedModelPreferenceSchema,
+  discoveredModelCatalogSchema as sharedDiscoveredModelCatalogSchema,
   modelProviderSettingsSchema as sharedModelProviderSettingsSchema,
   personalizationSettingsSchema as sharedPersonalizationSettingsSchema,
   personalUsageProfileSchema as sharedPersonalUsageProfileSchema,
@@ -92,6 +93,7 @@ import {
   type KnowledgeModelSettings as SharedKnowledgeModelSettings,
   type MaintenanceStatus as SharedMaintenanceStatus,
   type ModelPreference as SharedModelPreference,
+  type DiscoveredModel as SharedDiscoveredModel,
   type ModelProviderSettings as SharedModelProviderSettings,
   type ReasoningEffort as SharedReasoningEffort,
   type PersonalizationSettings as SharedPersonalizationSettings,
@@ -260,11 +262,13 @@ export type ModelPreference = SharedModelPreference
 export type ReasoningEffort = SharedReasoningEffort
 
 export const modelProviderSettingsSchema = sharedModelProviderSettingsSchema
+export const discoveredModelCatalogSchema = sharedDiscoveredModelCatalogSchema
 export const modelProviderSettingsUpdateResultSchema = z.strictObject({
   code: z.literal("SYSTEM_SETTINGS_UPDATED"),
   settings: modelProviderSettingsSchema,
 })
 export type ModelProviderSettings = SharedModelProviderSettings
+export type DiscoveredModel = SharedDiscoveredModel
 
 export const personalizationSettingsSchema = sharedPersonalizationSettingsSchema
 export const resetMemoriesResultSchema = sharedResetMemoriesResultSchema

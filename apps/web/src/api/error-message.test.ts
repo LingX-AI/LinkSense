@@ -167,4 +167,16 @@ describe("getErrorMessage", () => {
       )
     ).toBe("模型配置已由部署环境锁定，当前只能查看。")
   })
+
+  it("gives actionable guidance when provider model discovery authentication fails", () => {
+    expect(
+      getErrorMessage(
+        new ApiError({
+          status: 422,
+          errorCode: "MODEL_CATALOG_AUTHENTICATION_FAILED",
+        }),
+        i18n.t
+      )
+    ).toBe("模型供应商未接受当前凭据，请检查渠道 API Key 后重试。")
+  })
 })

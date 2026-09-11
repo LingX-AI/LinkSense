@@ -74,12 +74,25 @@ function renderModels(value = settings) {
   return queryClient
 }
 
-function installSaveMock(initial = settings, detectContext = false) {
+function installSaveMock(
+  initial = settings,
+  detectContext = false,
+  discoveredModels: unknown[] = []
+) {
   let saved = initial
   const requests: Array<Record<string, unknown>> = []
   vi.stubGlobal(
     "fetch",
     vi.fn(async (_url, init?: RequestInit) => {
+      if (String(_url).includes("/discoverable-models")) {
+        return Response.json({
+          success: true,
+          data: {
+            provider_id: "provider-1",
+            models: discoveredModels,
+          },
+        })
+      }
       const input = updateModelProviderSettingsSchema.parse(
         JSON.parse(String(init?.body))
       )
@@ -392,6 +405,61 @@ describe("ModelProviderSettingsForm", () => {
       providers: [{ models: [{ id: "model-a" }] }],
       default_model: "model-a",
       title_model: "model-a",
+    })
+  })
+
+  it("loads a searchable provider catalog and fills a selected model while keeping manual fields editable", async () => {
+    const requests = installSaveMock(settings, false, [
+      {
+        id: "remote-model",
+        display_name: "Remote Model",
+        kind: "chat",
+        context_window: 128_000,
+        supports_image_input: true,
+        supported_reasoning_efforts: ["low", "medium", "high"],
+        default_reasoning_effort: "medium",
+      },
+    ])
+    renderModels()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole("button", { name: "Add model" }))
+    const catalog = await screen.findByRole("combobox", {
+      name: "Model from provider (optional)",
+    })
+    await user.click(catalog)
+    await user.type(catalog, "Remote")
+    await user.click(
+      await screen.findByRole("option", { name: /Remote Model/u })
+    )
+
+    expect(screen.getByLabelText("Model ID")).toHaveValue("remote-model")
+    expect(screen.getByLabelText("Display name")).toHaveValue("Remote Model")
+    expect(screen.getByLabelText("Model context length")).toHaveValue("128000")
+    expect(
+      screen.getByRole("switch", { name: "Supports image understanding" })
+    ).toBeChecked()
+
+    await user.clear(screen.getByLabelText("Display name"))
+    await user.type(screen.getByLabelText("Display name"), "Custom name")
+    await user.click(
+      screen.getByRole("button", { name: "Save model Custom name" })
+    )
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(requests[0]).toMatchObject({
+      providers: [
+        {
+          models: [
+            { id: "model-a" },
+            {
+              id: "remote-model",
+              display_name: "Custom name",
+              context_window: 128_000,
+              supports_image_input: true,
+            },
+          ],
+        },
+      ],
     })
   })
 
