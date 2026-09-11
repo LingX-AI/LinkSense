@@ -12,6 +12,9 @@ be too heavy. It is not a production deployment mode.
 ### Requirements
 
 - Node.js 24+ and the pnpm version declared in the root `package.json`.
+- Python 3.12+ with the standard-library `venv` module available. Host task
+  workers create a per-user virtual environment with `python3 -m venv`; the
+  launcher does not install Python or system packages.
 - A Codex CLI compatible with `CODEX_VERSION` in `.env.example`, available as
   `codex` on `PATH` or configured with `CODEX_BIN`.
 - A running PostgreSQL database and Redis instance reachable from the host.
@@ -39,7 +42,7 @@ Edit only these values when necessary:
   supported by the client.
 - The five distinct `LINKSENSE_*_SECRET` or key values. The template values are
   safe only for a private local machine.
-- `LINKSENSE_DEV_WEB_ORIGIN` and `LINKSENSE_DEV_WEB_PORT` together if port 5173
+- `LINKSENSE_DEV_WEB_ORIGIN` and `LINKSENSE_DEV_WEB_PORT` together if port 5273
   is unavailable. API 4000 and Runner 4010 have corresponding
   `LINKSENSE_DEV_*` overrides; the Help Center currently uses port 3001.
 
@@ -68,10 +71,10 @@ exited unexpectedly, or a registered child still holds a development port.
 
 Default endpoints:
 
-- Web: `http://localhost:5173`
+- Web: `http://localhost:5273`
 - API: `http://localhost:4000`
 - Runner: `http://localhost:4010`
-- Help Center: `http://localhost:5173/help/`
+- Help Center: `http://localhost:5273/help/`
 
 ### Optional remote services and Full edition
 

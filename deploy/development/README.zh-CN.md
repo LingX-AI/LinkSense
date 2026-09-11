@@ -11,6 +11,8 @@ Worker 都作为宿主机 Node.js 进程运行，不会调用 Docker。适合 Do
 ### 需要提前准备
 
 - Node.js 24+，以及根目录 `package.json` 声明的 pnpm 版本。
+- Python 3.12+，并且标准库 `venv` 模块可用。宿主机任务 Worker 会通过
+  `python3 -m venv` 为每个用户创建虚拟环境；启动器不会安装 Python 或系统依赖。
 - 与 `.env.example` 中 `CODEX_VERSION` 兼容的 Codex CLI；确保 `codex` 在
   `PATH` 中，或通过 `CODEX_BIN` 指定。
 - 宿主机可访问且已运行的 PostgreSQL 数据库和 Redis。PostgreSQL 账号需要能够执行
@@ -33,7 +35,7 @@ cp deploy/development/env.host.example .env.host
 - `DATABASE_URL`：宿主机可访问的 PostgreSQL URL；URL 内的特殊字符需要编码。
 - `REDIS_URL`：宿主机可访问的 Redis URL，客户端支持 `redis://` 和 `rediss://`。
 - 五个互不相同的 `LINKSENSE_*_SECRET` 或密钥值；模板值只适合私人本机开发。
-- 如果 5173 被占用，同时修改 `LINKSENSE_DEV_WEB_ORIGIN` 和
+- 如果 5273 被占用，同时修改 `LINKSENSE_DEV_WEB_ORIGIN` 和
   `LINKSENSE_DEV_WEB_PORT`。API 4000 和 Runner 4010 有对应的
   `LINKSENSE_DEV_*` 覆盖项；帮助中心目前固定使用 3001。
 
@@ -58,10 +60,10 @@ Web 和通过代理访问的中英文帮助中心全部响应后，才会输出�
 
 默认地址：
 
-- Web：`http://localhost:5173`
+- Web：`http://localhost:5273`
 - API：`http://localhost:4000`
 - Runner：`http://localhost:4010`
-- 帮助中心：`http://localhost:5173/help/`
+- 帮助中心：`http://localhost:5273/help/`
 
 ### 可选远程服务与 Full 版本
 
