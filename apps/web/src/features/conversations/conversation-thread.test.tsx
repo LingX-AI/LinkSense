@@ -3927,6 +3927,50 @@ describe("conversation turn responses", () => {
     expect(within(summary).getByText("1s", { exact: true })).toBeVisible()
   })
 
+  it.each([
+    ["zh-CN", "正在中断…", "已中断"],
+    ["en-US", "Interrupting…", "Interrupted"],
+    ["fr-FR", "正在中断…", "已中断"],
+  ])(
+    "keeps the active turn pending until native interruption is confirmed in %s",
+    async (language, pendingLabel, terminalLabel) => {
+      await i18n.changeLanguage(language)
+      const runningTurn = {
+        id: "turn-stopping",
+        status: "running" as const,
+        started_at: "2026-07-11T08:00:00.000Z",
+        interrupt_requested_at: "2026-07-11T08:00:05.000Z",
+      }
+      render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            execution_status: "running",
+            turns: [runningTurn],
+            running_turn: runningTurn,
+            messages: [
+              {
+                id: "user-stopping",
+                role: "user",
+                turn_id: runningTurn.id,
+                content: "停止当前任务",
+                created_at: runningTurn.started_at,
+              },
+            ],
+          }}
+          onDownload={vi.fn()}
+        />
+      )
+      const summary = screen.getByTestId("turn-summary-turn-stopping")
+      expect(
+        within(summary).queryByText(terminalLabel, { exact: true })
+      ).toBeNull()
+      expect(
+        within(summary).getByText(pendingLabel, { exact: true })
+      ).toBeVisible()
+    }
+  )
+
   it("does not keep a stopped previous turn thinking after editing and resending", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T08:00:08.000Z"))

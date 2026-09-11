@@ -31,6 +31,7 @@ const modelRuntime = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -478,6 +479,68 @@ describe("RunnerClient model catalog", () => {
 })
 
 describe("RunnerClient health", () => {
+  it("waits through refused connections and unready responses before startup succeeds", async () => {
+    vi.useFakeTimers();
+    const health = {
+      status: "available",
+      checked_at: "2026-07-16T00:00:00.000Z",
+      workspace: componentHealth(),
+      codex_home: componentHealth(),
+      codex_app_server: { ...componentHealth(), cached: true },
+      running_turns: 0,
+      app_server_processes: 0,
+      concurrency_limit: 20,
+      app_server_process_limit: 20,
+      process_limit: 20,
+      turn_start_contract_version: RUNNER_TURN_START_CONTRACT_VERSION,
+    };
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError("connect ECONNREFUSED"))
+      .mockResolvedValueOnce(jsonResponse({ ...health, status: "unavailable" }, 503))
+      .mockResolvedValueOnce(jsonResponse(health));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = new RunnerClient(testConfig()).waitUntilReady();
+    const completed = vi.fn();
+    void result.then(completed);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(completed).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(result).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const [url, options] of fetchMock.mock.calls) {
+      expect(new URL(String(url)).pathname).toBe("/health/ready");
+      expect(new URL(String(url)).search).toBe("");
+      expect(options?.method).toBe("GET");
+      expect(options?.headers).toMatchObject({ authorization: `Bearer ${testConfig().runnerSharedSecret}` });
+    }
+  });
+
+  it("stops waiting after the readiness retry budget is exhausted", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("private connection details"));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = expect(new RunnerClient(testConfig()).waitUntilReady())
+      .rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE", message: "RUNNER_UNAVAILABLE" });
+
+    await vi.advanceTimersByTimeAsync(61_000);
+    await result;
+    const attempts = fetchMock.mock.calls.length;
+    expect(attempts).toBeGreaterThan(1);
+    expect(attempts).toBeLessThanOrEqual(61);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(attempts);
+  });
+
+  it("rejects an invalid readiness contract without retrying it", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({ status: "available" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new RunnerClient(testConfig()).waitUntilReady()).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it.each([true, false])("requests resource diagnostics only when enabled (%s)", async (includeResourceUsage) => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       status: "available",
@@ -699,6 +762,32 @@ describe("RunnerClient steer operation", () => {
 });
 
 describe("RunnerClient owner routing", () => {
+  it("includes the logical Goal projection when stopping a continuing Goal", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({ code: "TURN_INTERRUPT_REQUESTED" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await new RunnerClient(testConfig()).interrupt(conversationId, ownerId, "turn-native-1", projectionTurnId);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ turnId: "turn-native-1", goalProjectionTurnId: projectionTurnId });
+    expect(ownerHeader(fetchMock.mock.calls[0])).toBe(ownerId);
+  });
+
+  it("routes startup interruption with its owner and runtime generation and rejects invalid receipts", async () => {
+    const runtimeGeneration = "01900000-0000-7000-8000-000000000010";
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ code: "TURN_INTERRUPT_REQUESTED" }))
+      .mockResolvedValueOnce(jsonResponse({ code: "unexpected" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RunnerClient(testConfig());
+    await expect(client.interruptStartOperation(conversationId, projectionTurnId, ownerId, runtimeGeneration))
+      .resolves.toEqual({ code: "TURN_INTERRUPT_REQUESTED" });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(`/conversations/${conversationId}/turns/start/${projectionTurnId}/interrupt`);
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+    expect(ownerHeader(fetchMock.mock.calls[0])).toBe(ownerId);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ ownerId, expectedRuntimeGeneration: runtimeGeneration });
+    await expect(client.interruptStartOperation(conversationId, projectionTurnId, ownerId, runtimeGeneration))
+      .rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("validates both accepted and already-terminal interrupt receipts", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

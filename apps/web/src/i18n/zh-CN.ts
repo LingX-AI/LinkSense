@@ -2658,6 +2658,14 @@ export const zhCN = {
     zipSkillPackage: "ZIP 技能包",
     zipSkillPackageHint: "仅接受符合技能结构约定的 ZIP 文件。",
     skillMarkdown: "SKILL.md 内容",
+    skillIdentifier: "技能标识",
+    skillNameRequired: "请输入技能标识。",
+    skillNameTooLong: "技能标识不能超过 64 个字符。",
+    skillNameInvalid:
+      "技能标识只能使用小写英文字母、数字和连字符（-）；连字符不能在开头、结尾或连续出现。",
+    skillNameReserved: "该技能标识已被系统占用，请换一个标识。",
+    skillDisplayName: "展示名称（选填）",
+    skillDisplayNameHint: "自动根据技能标识生成，支持中文和空格，也可以修改或留空。",
     skillNameHint:
       "名称为 1–64 个字符，仅支持小写英文字母、数字和连字符（-）；连字符不能位于开头或结尾，也不能连续使用。请勿使用系统内置技能名称。例如：my-skill。",
     skillPreview: "Skill 内容预览",
@@ -4490,6 +4498,7 @@ export const zhCN = {
       plugin_mcp_configuration_invalid: "插件的 MCP 配置格式无效。",
       skill_frontmatter_missing:
         "SKILL.md 缺少 frontmatter，或缺少必需的 name 字段。",
+      skill_display_name_invalid: "技能的展示名称格式无效，请使用不超过 64 个字符的单行文字。",
       skill_name_invalid:
         "Skill 名称 {{value}} 无效，只能使用小写字母、数字和连字符，且长度不能超过 64。",
       plugin_unsupported_component: "插件中包含当前暂不支持的组件类型。",

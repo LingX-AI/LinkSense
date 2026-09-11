@@ -16,6 +16,7 @@ import {
   json,
   renderApp,
 } from "./fixture"
+import { conversationInterruptTimeoutMs } from "@/features/conversations/conversation-interrupt"
 
 describe("LinkSense application", () => {
   setupApplicationTests()
@@ -77,6 +78,61 @@ describe("LinkSense application", () => {
     })
     expect(screen.queryByRole("button", { name: "停止" })).toBeNull()
     expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("reconciles a stopped turn when the completion event is missing and the first refresh is stale", async () => {
+    const { requests } = installApiMock({
+      conversationGetResponse: async (callIndex) =>
+        json({
+          success: true,
+          data:
+            callIndex < 3
+              ? conversation
+              : {
+                  ...conversation,
+                  execution_status: "interrupted",
+                  running_turn: null,
+                  turns: [{ id: "turn-1", status: "interrupted" }],
+                },
+        }),
+    })
+    renderApp()
+    fireEvent.click(await screen.findByRole("button", { name: "停止" }))
+    await waitFor(
+      () => {
+        expect(screen.queryByRole("button", { name: "正在中断…" })).toBeNull()
+        expect(screen.queryByRole("button", { name: "停止" })).toBeNull()
+      },
+      { timeout: 5_000 }
+    )
+    expect(
+      requests.filter((request) => request.path.endsWith("/interrupt"))
+    ).toHaveLength(1)
+  })
+
+  it("allows stopping again after confirmation times out without pretending the turn has ended", async () => {
+    const { requests } = installApiMock()
+    renderApp()
+    const stop = await screen.findByRole("button", { name: "停止" })
+    vi.useFakeTimers()
+    await act(async () => {
+      fireEvent.click(stop)
+    })
+    expect(screen.getByRole("button", { name: "正在中断…" })).toBeDisabled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(conversationInterruptTimeoutMs)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(screen.getByRole("button", { name: "停止" })).toBeEnabled()
+    expect(screen.getByText("暂时无法中断当前执行，请稍后重试")).toBeVisible()
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "停止" }))
+    })
+    expect(
+      requests.filter((request) => request.path.endsWith("/interrupt"))
+    ).toHaveLength(2)
   })
 
   it("keeps interrupted streamed output after terminal refresh and page remount", async () => {

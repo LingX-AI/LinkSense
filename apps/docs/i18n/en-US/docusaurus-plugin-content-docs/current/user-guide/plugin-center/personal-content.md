@@ -20,6 +20,10 @@ The preview expires. Repeat the check if it does, and never install an untrusted
 
 Choose the manual Skill option and enter a complete `SKILL.md`. LinkSense previews the content and declarations before installation.
 
+Enter the Skill identifier first, followed by an optional display name. LinkSense generates a readable title from the identifier, such as “Meeting Notes” for `meeting-notes`. You can replace it with a name containing Chinese characters and spaces, or clear it. Once you edit or clear the display name, changing the identifier will not overwrite your choice. Display names support up to 64 characters and do not change the identifier used to invoke the Skill.
+
+Imported Skills retain their display names when provided. Otherwise, LinkSense shows a readable title based on the identifier. Existing Skills do not need to be imported again.
+
 A Skill generated in a task must first be validated and registered as a complete downloadable ZIP. It is installed only after your explicit confirmation.
 
 ## Manage lifecycle

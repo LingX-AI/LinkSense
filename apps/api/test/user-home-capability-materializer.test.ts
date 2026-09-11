@@ -48,6 +48,40 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 })
 
 describe.concurrent("UserHomeCapabilityMaterializer", () => {
+  it("publishes native display metadata while keeping the original Skill directory and name", async () => {
+    const root = await temporaryDirectory()
+    const source = await createSkillSource(
+      join(root, "sources"),
+      "report-writer",
+      "# Reports",
+    )
+    const metadata =
+      'interface:\n  display_name: "报告助手"\n  default_prompt: "Use $report-writer"\n'
+    await mkdir(join(source, "agents"))
+    await writeFile(join(source, "agents", "openai.yaml"), metadata)
+    const materializer = new UserHomeCapabilityMaterializer({
+      userDataRoot: join(root, "users"),
+    })
+    const published = await materializer.reconcile({
+      ownerId: OWNER_ID,
+      conversationId: TASK_ID,
+      capabilities: [skillCapability(source)],
+    })
+    expect(
+      await readFile(
+        join(published.skillsRoot, "report-writer", "agents", "openai.yaml"),
+        "utf8",
+      ),
+    ).toBe(metadata)
+    expect(
+      await readFile(
+        join(published.skillsRoot, "report-writer", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("name: report-writer")
+    expect(await readdir(published.skillsRoot)).not.toContain("报告助手")
+  })
+
   it.sequential(
     "rolls back publication when flushing the new content fails",
     async () => {

@@ -5,7 +5,15 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { coreMcpServerKey } from "@linksense/shared"
+import {
+  capabilityDisplayName,
+  capabilityPackageNameSchema,
+  CAPABILITY_PACKAGE_NAME_MAX_LENGTH,
+  formatSkillName,
+  skillDisplayNameSchema,
+  SKILL_DISPLAY_NAME_MAX_LENGTH,
+  coreMcpServerKey,
+} from "@linksense/shared"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useLocation, useNavigate } from "react-router-dom"
 import {
@@ -585,7 +593,7 @@ function MarketplaceCard({
     : t("marketplace.uninstalling")
   return (
     <CapabilityLibraryItem
-      name={item.release.name}
+      name={capabilityDisplayName({ ...item.release, type: item.listing.type })}
       type={item.listing.type}
       logoUrl={item.release.logo_url}
       logo={
@@ -629,7 +637,12 @@ function MarketplaceCard({
       }
       status={primaryAction}
       statusPlacement="bottom-right"
-      inspectLabel={t("marketplace.viewDetails", { name: item.release.name })}
+      inspectLabel={t("marketplace.viewDetails", {
+        name: capabilityDisplayName({
+          ...item.release,
+          type: item.listing.type,
+        }),
+      })}
       onInspect={onInspect}
       actions={
         <DropdownMenu>
@@ -719,7 +732,12 @@ function MarketplaceDetailDialog({
         {item && (
           <>
             <DialogHeader>
-              <DialogTitle>{item.release.name}</DialogTitle>
+              <DialogTitle>
+                {capabilityDisplayName({
+                  ...item.release,
+                  type: item.listing.type,
+                })}
+              </DialogTitle>
               <DialogDescription>
                 {item.release.description || t("marketplace.noDescription")}
               </DialogDescription>
@@ -866,6 +884,31 @@ function CapabilityImportDialog({
   const [source, setSource] = useState<ImportSource>("local")
   const [file, setFile] = useState<File | null>(null)
   const [name, setName] = useState("")
+  const [nameTouched, setNameTouched] = useState(false)
+  const [displayNameOverride, setDisplayNameOverride] = useState<string | null>(
+    null
+  )
+  const displayName = displayNameOverride ?? formatSkillName(name)
+  const nameValidation = capabilityPackageNameSchema.safeParse(name.trim())
+  const nameIssue = nameValidation.success
+    ? undefined
+    : nameValidation.error.issues[0]
+  const nameError =
+    nameTouched && nameIssue
+      ? t(
+          nameIssue.code === "too_small"
+            ? "marketplace.skillNameRequired"
+            : nameIssue.code === "too_big"
+              ? "marketplace.skillNameTooLong"
+              : nameIssue.code === "custom"
+                ? "marketplace.skillNameReserved"
+                : "marketplace.skillNameInvalid"
+        )
+      : undefined
+  const displayNameValidation = skillDisplayNameSchema.safeParse(displayName)
+  const displayNameError = displayNameValidation.success
+    ? undefined
+    : t("errors.importReasons.skill_display_name_invalid")
   const [description, setDescription] = useState("")
   const [skillMarkdown, setSkillMarkdown] = useState("")
   const [preview, setPreview] = useState<CapabilityImportPreview | null>(null)
@@ -889,6 +932,8 @@ function CapabilityImportDialog({
     setSource("local")
     setFile(null)
     setName("")
+    setNameTouched(false)
+    setDisplayNameOverride(null)
     setDescription("")
     setSkillMarkdown("")
     setPreview(null)
@@ -926,6 +971,7 @@ function CapabilityImportDialog({
           source_type: "local",
           type: "skill",
           name: name.trim(),
+          display_name: displayName.trim() || null,
           description: description.trim() || null,
           skill_markdown: skillMarkdown,
         },
@@ -952,7 +998,8 @@ function CapabilityImportDialog({
   const sourceValid =
     (source === "local" && file !== null) ||
     (source === "manual_skill" &&
-      name.trim().length > 0 &&
+      nameValidation.success &&
+      displayNameValidation.success &&
       skillMarkdown.trim().length > 0)
 
   const startConfirmImport = (nextPreview: CapabilityImportPreview) => {
@@ -1013,7 +1060,9 @@ function CapabilityImportDialog({
           <div className="space-y-5">
             <div className="rounded-xl border p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="font-medium">{preview.name}</h3>
+                <h3 className="font-medium">
+                  {capabilityDisplayName(preview)}
+                </h3>
                 <CapabilityTypeBadge type={preview.type} />
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
@@ -1127,7 +1176,8 @@ function CapabilityImportDialog({
               <>
                 <FieldShell
                   id="capability-name"
-                  label={t("common.name")}
+                  label={t("marketplace.skillIdentifier")}
+                  error={nameError}
                   hint={
                     <span id="capability-name-hint">
                       {t("marketplace.skillNameHint")}
@@ -1136,10 +1186,44 @@ function CapabilityImportDialog({
                 >
                   <Input
                     id="capability-name"
-                    aria-describedby="capability-name-hint"
+                    aria-invalid={nameError ? true : undefined}
+                    aria-describedby={
+                      nameError
+                        ? "capability-name-error"
+                        : "capability-name-hint"
+                    }
                     value={name}
-                    maxLength={64}
-                    onChange={(event) => setName(event.target.value)}
+                    maxLength={CAPABILITY_PACKAGE_NAME_MAX_LENGTH}
+                    onChange={(event) => {
+                      setName(event.target.value)
+                      setNameTouched(true)
+                    }}
+                    onBlur={() => setNameTouched(true)}
+                  />
+                </FieldShell>
+                <FieldShell
+                  id="capability-display-name"
+                  label={t("marketplace.skillDisplayName")}
+                  error={displayNameError}
+                  hint={
+                    <span id="capability-display-name-hint">
+                      {t("marketplace.skillDisplayNameHint")}
+                    </span>
+                  }
+                >
+                  <Input
+                    id="capability-display-name"
+                    aria-invalid={displayNameError ? true : undefined}
+                    aria-describedby={
+                      displayNameError
+                        ? "capability-display-name-error"
+                        : "capability-display-name-hint"
+                    }
+                    value={displayName}
+                    maxLength={SKILL_DISPLAY_NAME_MAX_LENGTH}
+                    onChange={(event) =>
+                      setDisplayNameOverride(event.target.value)
+                    }
                   />
                 </FieldShell>
                 <FieldShell
@@ -2326,7 +2410,10 @@ function MarketplaceCatalogPanel({
                   ? () =>
                       setUninstallTarget({
                         id: installState.capabilityId,
-                        name: item.release.name,
+                        name: capabilityDisplayName({
+                          ...item.release,
+                          type: item.listing.type,
+                        }),
                         category: marketplaceItemIdentitySection(item),
                         sourceType: "marketplace",
                       })
@@ -2723,7 +2810,7 @@ function PublishDialog({
       candidates.map((source) => ({
         value: source.id,
         label: [
-          source.name,
+          capabilityDisplayName(source),
           t(
             source.type === "plugin" ? "capability.plugin" : "capability.skill"
           ),
@@ -2879,7 +2966,10 @@ function PublicationCard({
 
   return (
     <CapabilityLibraryItem
-      name={publication.latest_release.name}
+      name={capabilityDisplayName({
+        ...publication.latest_release,
+        type: publication.listing.type,
+      })}
       type={publication.listing.type}
       logoUrl={publication.latest_release.logo_url}
       description={
@@ -3025,7 +3115,12 @@ function ReleaseDetailDialog({
       <DialogContent closeLabel={t("common.close")} className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            {publication?.latest_release.name ?? t("marketplace.releaseDetail")}
+            {publication
+              ? capabilityDisplayName({
+                  ...publication.latest_release,
+                  type: publication.listing.type,
+                })
+              : t("marketplace.releaseDetail")}
           </DialogTitle>
           <DialogDescription>
             {t("marketplace.releaseDetailDescription")}
@@ -3396,7 +3491,12 @@ function ReviewDialog({
         <DialogHeader>
           <DialogTitle>
             {t("marketplace.reviewRelease", {
-              name: publication?.latest_release.name ?? "",
+              name: publication
+                ? capabilityDisplayName({
+                    ...publication.latest_release,
+                    type: publication.listing.type,
+                  })
+                : "",
             })}
           </DialogTitle>
           <DialogDescription>
@@ -3600,7 +3700,14 @@ function GovernanceDialog({
               suspended
                 ? "marketplace.resumeListingTitle"
                 : "marketplace.suspendListingTitle",
-              { name: publication?.latest_release.name ?? "" }
+              {
+                name: publication
+                  ? capabilityDisplayName({
+                      ...publication.latest_release,
+                      type: publication.listing.type,
+                    })
+                  : "",
+              }
             )}
           </DialogTitle>
           <DialogDescription>
@@ -3672,7 +3779,10 @@ function MarketplaceGovernanceItem({
   return (
     <article
       className="marketplace-governance-item"
-      aria-label={publication.latest_release.name}
+      aria-label={capabilityDisplayName({
+        ...publication.latest_release,
+        type: publication.listing.type,
+      })}
     >
       <CapabilityLogo
         type={publication.listing.type}
@@ -3681,7 +3791,10 @@ function MarketplaceGovernanceItem({
       <div className="marketplace-governance-copy">
         <div className="marketplace-governance-title-row">
           <h3 className="marketplace-governance-name">
-            {publication.latest_release.name}
+            {capabilityDisplayName({
+              ...publication.latest_release,
+              type: publication.listing.type,
+            })}
           </h3>
           <MarketplaceStatusBadge status={status} />
         </div>

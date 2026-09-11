@@ -2864,6 +2864,15 @@ export const enUS = {
     zipSkillPackageHint:
       "Only ZIP files that follow the skill package convention are accepted.",
     skillMarkdown: "SKILL.md content",
+    skillIdentifier: "Skill identifier",
+    skillNameRequired: "Enter a skill identifier.",
+    skillNameTooLong: "The skill identifier cannot exceed 64 characters.",
+    skillNameInvalid:
+      "Use only lowercase English letters, numbers, and hyphens (-). Hyphens cannot appear at the start or end, or consecutively.",
+    skillNameReserved:
+      "This skill identifier is reserved by the system. Choose another one.",
+    skillDisplayName: "Display name (optional)",
+    skillDisplayNameHint: "Generated from the skill identifier. You can edit it or leave it blank; Chinese characters and spaces are welcome.",
     skillNameHint:
       "Use 1–64 characters: lowercase English letters, numbers, and hyphens (-). Hyphens cannot appear at the start or end, or consecutively. Do not use built-in skill names. Example: my-skill.",
     skillPreview: "Skill content preview",
@@ -4893,6 +4902,7 @@ export const enUS = {
         "The plugin MCP configuration is invalid.",
       skill_frontmatter_missing:
         "SKILL.md is missing frontmatter or the required name field.",
+      skill_display_name_invalid: "The skill display name is invalid. Use a single line of up to 64 characters.",
       skill_name_invalid:
         "Skill name {{value}} is invalid. Use lowercase letters, numbers, and hyphens only, with a maximum length of 64.",
       plugin_unsupported_component:

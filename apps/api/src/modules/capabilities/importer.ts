@@ -21,9 +21,15 @@ import {
   sep,
 } from "node:path";
 
+import {
+  capabilityPackageNameSchema,
+  skillDisplayNameSchema,
+} from "@linksense/shared";
+import { stringify } from "yaml";
 import { Open } from "unzipper";
 
 import { AppError } from "../../lib/errors.js";
+import { readSkillDisplayName } from "./skill-interface.js";
 import {
   assertPublicHttpUrl,
   fetchPublicHttpResource,
@@ -38,7 +44,6 @@ import type {
   PreparedLogo,
   RemoteCapabilityFile,
 } from "./types.js";
-import { capabilityPackageNameSchema } from "./package-name.js";
 import {
   SkillManifestValidationError,
   parseSkillManifest,
@@ -118,6 +123,7 @@ const INVALID_PACKAGE_REASON_CODES = {
   packageJsonInvalid: "package_json_invalid",
   skillFrontmatterMissing: "skill_frontmatter_missing",
   skillNameInvalid: "skill_name_invalid",
+  skillDisplayNameInvalid: "skill_display_name_invalid",
   pluginUnsupportedComponent: "plugin_unsupported_component",
   pluginSkillsInvalid: "plugin_skills_invalid",
   pluginDeclaredPathInvalid: "plugin_declared_path_invalid",
@@ -272,6 +278,10 @@ export class CapabilityPackageImporter {
     source: Extract<CapabilityImportSource, { kind: "manual_skill" }>,
   ): Promise<void> {
     const name = validateSkillName(source.name);
+    const displayName = skillDisplayNameSchema.safeParse(source.displayName);
+    if (!displayName.success) {
+      throw invalidPackage("skillDisplayNameInvalid");
+    }
     if (
       source.skillMarkdown.length === 0 ||
       source.skillMarkdown.length > 1_000_000
@@ -292,6 +302,14 @@ export class CapabilityPackageImporter {
         ].join("\n");
     const skillDirectory = join(stagingDirectory, name);
     await mkdir(skillDirectory, { recursive: false, mode: 0o700 });
+    if (displayName.data !== null) {
+      await mkdir(join(skillDirectory, "agents"), { mode: 0o700 });
+      await writeFile(
+        join(skillDirectory, "agents", "openai.yaml"),
+        stringify({ interface: { display_name: displayName.data } }),
+        { encoding: "utf8", mode: 0o600, flag: "wx" },
+      );
+    }
     await writeFile(join(skillDirectory, "SKILL.md"), markdown, {
       encoding: "utf8",
       mode: 0o600,
@@ -532,11 +550,13 @@ export async function inspectCapabilityPackage(
   const name = validateSkillName(metadata.name ?? "");
   await assertSkillReferencedScriptsExist(packageRoot, name, markdown);
   const description = nullableDescription(metadata.description);
+  const displayName = await readSkillDisplayName(packageRoot);
   return {
     stagingDirectory,
     packageRoot,
     type: "skill",
     name,
+    displayName,
     description,
     manifest: {
       name,

@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -1037,7 +1038,7 @@ describe("capability marketplace pages", () => {
     )
     const item = within(
       await screen.findByRole("region", { name: "个人技能" })
-    ).getByRole("article", { name: capability.name })
+    ).getByRole("article", { name: "Frontend Slides" })
 
     await interaction.click(within(item).getByRole("button", { name: "操作" }))
     await interaction.click(
@@ -2944,7 +2945,7 @@ describe("capability marketplace pages", () => {
     )
 
     const nameInput = within(dialog).getByRole("textbox", {
-      name: i18n.t("common.name"),
+      name: i18n.t("marketplace.skillIdentifier"),
     })
     const hint = within(dialog).getByText(i18n.t("marketplace.skillNameHint"))
     expect(hint).toBeVisible()
@@ -2991,13 +2992,305 @@ describe("capability marketplace pages", () => {
     }
   })
 
+  it.each(["zh-CN", "en-US"])(
+    "validates manual Skill fields immediately and shows errors below the inputs in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const fetchMock = vi.fn<typeof fetch>(() =>
+        Promise.resolve(envelope({ items: [], next_cursor: null }))
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const interaction = userEvent.setup()
+      renderUserPageWithRouter("/capabilities?section=skill&scope=personal")
+      const openManualForm = async () => {
+        await interaction.click(
+          await screen.findByRole("button", {
+            name: i18n.t("capability.addSkill"),
+          })
+        )
+        const dialog = await screen.findByRole("dialog")
+        await interaction.click(
+          within(dialog).getByLabelText(i18n.t("capability.source"))
+        )
+        await interaction.click(
+          await screen.findByRole("option", {
+            name: i18n.t("marketplace.importSources.manualSkill"),
+          })
+        )
+        return dialog
+      }
+      const dialog = await openManualForm()
+      const identifier = within(dialog).getByRole("textbox", {
+        name: i18n.t("marketplace.skillIdentifier"),
+      })
+      const display = within(dialog).getByRole("textbox", {
+        name: i18n.t("marketplace.skillDisplayName"),
+      })
+      const preview = within(dialog).getByRole("button", {
+        name: i18n.t("capability.previewSubmit"),
+      })
+      expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument()
+      await interaction.click(identifier)
+      await interaction.tab()
+      expect(identifier).toHaveAccessibleDescription(
+        i18n.t("marketplace.skillNameRequired")
+      )
+      await interaction.click(
+        within(dialog).getByRole("textbox", {
+          name: i18n.t("marketplace.skillMarkdown"),
+        })
+      )
+      await interaction.paste("# Instructions")
+
+      for (const value of [
+        "ppt-se你好",
+        "ppt se",
+        "Ppt",
+        "ppt_se",
+        "-ppt",
+        "ppt-",
+        "ppt--se",
+        "ppt/se",
+      ]) {
+        await interaction.clear(identifier)
+        await interaction.click(identifier)
+        await interaction.paste(value)
+        expect(identifier).toHaveFocus()
+        expect(identifier).toHaveAttribute("aria-invalid", "true")
+        expect(identifier).toHaveAttribute(
+          "aria-describedby",
+          "capability-name-error"
+        )
+        expect(identifier).toHaveAccessibleDescription(
+          i18n.t("marketplace.skillNameInvalid")
+        )
+        const error = within(dialog).getByRole("alert")
+        expect(error).toHaveTextContent(i18n.t("marketplace.skillNameInvalid"))
+        expect(
+          identifier.compareDocumentPosition(error) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+        expect(preview).toBeDisabled()
+        await interaction.click(preview)
+        await interaction.clear(identifier)
+        await interaction.paste("ppt-se")
+        expect(identifier).not.toHaveAttribute("aria-invalid", "true")
+        expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument()
+        expect(preview).toBeEnabled()
+      }
+
+      fireEvent.change(identifier, { target: { value: "a".repeat(65) } })
+      expect(identifier).toHaveAccessibleDescription(
+        i18n.t("marketplace.skillNameTooLong")
+      )
+      expect(preview).toBeDisabled()
+      fireEvent.change(identifier, { target: { value: "linksense-docs" } })
+      expect(identifier).toHaveAccessibleDescription(
+        i18n.t("marketplace.skillNameReserved")
+      )
+      expect(preview).toBeDisabled()
+      fireEvent.change(identifier, { target: { value: "ppt-se" } })
+
+      for (const value of ["bad\u0007name", "a".repeat(65)]) {
+        fireEvent.change(display, { target: { value } })
+        expect(display).toHaveAttribute("aria-invalid", "true")
+        expect(display).toHaveAccessibleDescription(
+          i18n.t("errors.importReasons.skill_display_name_invalid")
+        )
+        const error = within(dialog).getByRole("alert")
+        expect(
+          display.compareDocumentPosition(error) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+        expect(preview).toBeDisabled()
+      }
+      for (const value of ["中文 展示名称", "", "   "]) {
+        fireEvent.change(display, { target: { value } })
+        expect(display).not.toHaveAttribute("aria-invalid", "true")
+        expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument()
+        expect(preview).toBeEnabled()
+      }
+      await interaction.clear(identifier)
+      expect(identifier).toHaveAccessibleDescription(
+        i18n.t("marketplace.skillNameRequired")
+      )
+      expect(preview).toBeDisabled()
+      expect(
+        fetchMock.mock.calls.some(([, options]) => options?.method === "POST")
+      ).toBe(false)
+      await interaction.click(
+        within(dialog).getByRole("button", { name: i18n.t("common.cancel") })
+      )
+      const reopened = await openManualForm()
+      expect(within(reopened).queryByRole("alert")).not.toBeInTheDocument()
+      expect(
+        within(reopened).getByRole("textbox", {
+          name: i18n.t("marketplace.skillIdentifier"),
+        })
+      ).toHaveValue("")
+    }
+  )
+
   it("falls back to Chinese name rules when the English resource is missing", () => {
     const fallback = i18n.cloneInstance({ forkResourceStore: true })
     fallback.removeResourceBundle("en-US", "translation")
     expect(fallback.t("marketplace.skillNameHint", { lng: "en-US" })).toBe(
       "名称为 1–64 个字符，仅支持小写英文字母、数字和连字符（-）；连字符不能位于开头或结尾，也不能连续使用。请勿使用系统内置技能名称。例如：my-skill。"
     )
+    for (const key of [
+      "skillIdentifier",
+      "skillDisplayName",
+      "skillDisplayNameHint",
+      "skillNameRequired",
+      "skillNameTooLong",
+      "skillNameInvalid",
+      "skillNameReserved",
+    ]) {
+      expect(fallback.t(`marketplace.${key}`, { lng: "en-US" })).toBe(
+        i18n.t(`marketplace.${key}`, { lng: "zh-CN" })
+      )
+    }
   })
+
+  it.each([
+    ["zh-CN", "automatic", "Meeting Notes Daily"],
+    ["en-US", "automatic", "Meeting Notes Daily"],
+    ["zh-CN", "custom", "会议纪要助手"],
+    ["en-US", "custom", "My Meeting Notes"],
+    ["zh-CN", "blank", null],
+    ["en-US", "blank", null],
+  ])(
+    "submits %s manual display names in %s mode without changing the identifier",
+    async (language, mode, expectedName) => {
+      await i18n.changeLanguage(language ?? "zh-CN")
+      let submittedBody: unknown
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input), window.location.origin)
+          if (
+            url.pathname === "/api/v1/capabilities" &&
+            init?.method === "POST"
+          ) {
+            submittedBody = JSON.parse(String(init.body))
+            return Promise.resolve(
+              envelope({
+                preview_token: "manual-preview",
+                expires_at: NOW,
+                operation: "install",
+                capability_id: null,
+                source: {
+                  source_type: "local",
+                  import_kind: "manual_skill",
+                  source_url: null,
+                  filename: null,
+                },
+                type: "skill",
+                name: "meeting-notes-daily",
+                display_name: expectedName,
+                description: null,
+                manifest: {},
+                declared_capabilities: [],
+                declared_environment_keys: [],
+                risk_summary: riskSummary,
+                has_logo: false,
+                skill_content_preview: "# Instructions",
+                skill_content_truncated: false,
+              })
+            )
+          }
+          return Promise.resolve(envelope({ items: [], next_cursor: null }))
+        })
+      )
+      const interaction = userEvent.setup()
+      renderUserPageWithRouter("/capabilities?section=skill&scope=personal")
+      await interaction.click(
+        await screen.findByRole("button", {
+          name: i18n.t("capability.addSkill"),
+        })
+      )
+      const dialog = await screen.findByRole("dialog")
+      await interaction.click(
+        within(dialog).getByLabelText(i18n.t("capability.source"))
+      )
+      await interaction.click(
+        await screen.findByRole("option", {
+          name: i18n.t("marketplace.importSources.manualSkill"),
+        })
+      )
+      const identifier = within(dialog).getByRole("textbox", {
+        name: i18n.t("marketplace.skillIdentifier"),
+      })
+      const display = within(dialog).getByRole("textbox", {
+        name: i18n.t("marketplace.skillDisplayName"),
+      })
+      expect(
+        identifier.compareDocumentPosition(display) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(display).not.toBeRequired()
+      expect(display).toHaveAttribute("maxlength", "64")
+      await interaction.click(identifier)
+      await interaction.paste("meeting-notes")
+      expect(display).toHaveValue("Meeting Notes")
+      if (mode !== "automatic") {
+        await interaction.clear(display)
+        if (expectedName) await interaction.paste(expectedName)
+      }
+      await interaction.click(identifier)
+      await interaction.paste("-daily")
+      expect(display).toHaveValue(expectedName ?? "")
+      await interaction.click(
+        within(dialog).getByRole("textbox", {
+          name: i18n.t("marketplace.skillMarkdown"),
+        })
+      )
+      await interaction.paste("# Instructions")
+      await interaction.click(
+        within(dialog).getByRole("button", {
+          name: i18n.t("capability.previewSubmit"),
+        })
+      )
+      expect(
+        await within(dialog).findByRole("heading", {
+          name: expectedName || "Meeting Notes Daily",
+        })
+      ).toBeVisible()
+      expect(submittedBody).toMatchObject({
+        name: "meeting-notes-daily",
+        display_name: expectedName,
+        skill_markdown: "# Instructions",
+      })
+      await interaction.click(
+        within(dialog).getByRole("button", { name: i18n.t("common.cancel") })
+      )
+      await interaction.click(
+        await screen.findByRole("button", {
+          name: i18n.t("capability.addSkill"),
+        })
+      )
+      const reopened = await screen.findByRole("dialog")
+      await interaction.click(
+        within(reopened).getByLabelText(i18n.t("capability.source"))
+      )
+      await interaction.click(
+        await screen.findByRole("option", {
+          name: i18n.t("marketplace.importSources.manualSkill"),
+        })
+      )
+      const nextIdentifier = within(reopened).getByRole("textbox", {
+        name: i18n.t("marketplace.skillIdentifier"),
+      })
+      expect(nextIdentifier).toHaveValue("")
+      await interaction.click(nextIdentifier)
+      await interaction.paste("new-skill")
+      expect(
+        within(reopened).getByRole("textbox", {
+          name: i18n.t("marketplace.skillDisplayName"),
+        })
+      ).toHaveValue("New Skill")
+    }
+  )
 
   it("shows a persistent three-dot action menu with icons and submits a listing request", async () => {
     const capability = {
@@ -3127,7 +3420,7 @@ describe("capability marketplace pages", () => {
     expect(
       within(await screen.findByRole("region", { name: "个人技能" })).getByRole(
         "article",
-        { name: capability.name }
+        { name: "Frontend Slides" }
       )
     ).toBeVisible()
 
@@ -3238,7 +3531,7 @@ describe("capability marketplace pages", () => {
     ).toBeVisible()
     const publishSource = screen.getByLabelText("个人插件/技能来源")
     expect(publishSource).toHaveTextContent(
-      "frontend-slides · Skill · 本地导入"
+      "Frontend Slides · Skill · 本地导入"
     )
     expect(publishSource).not.toHaveTextContent(CAPABILITY_ID)
     await interaction.type(screen.getByLabelText("发布说明"), "首次申请上架")
@@ -3277,7 +3570,7 @@ describe("capability marketplace pages", () => {
     expect(screen.getAllByRole("status")).toHaveLength(1)
 
     const publicationCard = await screen.findByRole("article", {
-      name: capability.name,
+      name: "Frontend Slides",
     })
     expect(publicationCard).toHaveTextContent(capability.description)
     expect(publicationCard).toHaveTextContent("待审核")

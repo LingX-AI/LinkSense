@@ -121,6 +121,7 @@ import type {
   ThreadRollbackResponse,
   ThreadStartResponse,
   TurnStartParams,
+  TurnInterruptParams,
   AskForApproval,
   ToolRequestUserInputQuestion,
   ToolRequestUserInputResponse,
@@ -146,6 +147,7 @@ import {
 } from "./model-gateway/model-gateway.js";
 import {
   CorruptStartOperationError,
+  StartOperationInterruptedError,
   StartOperationStore,
   type StartOperationResult,
   type StartOperationState,
@@ -422,6 +424,7 @@ const PROCESS_EXIT_RETRY_BASE_MS = 100;
 const PROCESS_EXIT_RETRY_MAX_MS = 5_000;
 const DEFAULT_CODEX_HEALTH_PROBE_TTL_MS = 60_000;
 const NATIVE_TURN_REGISTRATION_TIMEOUT_MS = 5_000;
+const NATIVE_TURN_INTERRUPT_TIMEOUT_MS = 5_000;
 const MODEL_TRANSITION_COMPACTION_TIMEOUT_MS = 180_000;
 const SUB_AGENT_THREAD_SOURCE_KINDS = [
   "subAgent",
@@ -686,6 +689,11 @@ type ManagedProcess = {
   knownTurnIds: Set<string>;
   /** Native turn/start notifications observed for this loaded app-server. */
   nativeStartedTurnIds: Map<string, true>;
+  nativeTerminalTurnIds: Map<string, true>;
+  interruptRequest: {
+    targetKey: string;
+    result: Promise<"requested" | "not_active">;
+  } | null;
   nativeTurnStartedWaiters: Map<
     string,
     Set<(observed: boolean) => void>
@@ -1261,6 +1269,63 @@ export class AppServerProcessPool {
     });
   }
 
+  async interruptStartOperation(
+    input: SealStartOperationInput,
+  ): Promise<"requested" | "not_active"> {
+    this.assertAcceptingOperations();
+    this.options.workspaceManager.bindOwner(input.conversationId, input.ownerId);
+    const runtimeGeneration =
+      await this.options.workspaceManager.readRuntimeGeneration(input.conversationId);
+    if (runtimeGeneration !== input.expectedRuntimeGeneration) {
+      throw new StartOperationRuntimeGenerationMismatchError();
+    }
+    // Recovery can hold both the operation and lifecycle locks while making
+    // native requests. Publish cancellation independently of those locks.
+    let operation = await this.readStartOperation(
+      input.conversationId,
+      input.projectionTurnId,
+    );
+    if (operation) assertStartOperationOwner(operation, input.ownerId);
+    await this.startOperationStore.requestInterrupt(
+      input.conversationId,
+      input.projectionTurnId,
+    );
+    if (!operation) {
+      operation =
+        await this.startOperationStore.createSealed(
+          input.conversationId,
+          input.projectionTurnId,
+          input.ownerId,
+          input.expectedRuntimeGeneration,
+        ) ?? await this.readStartOperation(input.conversationId, input.projectionTurnId);
+      if (!operation) {
+        throw new CodexProtocolError("start operation state is unavailable");
+      }
+      assertStartOperationOwner(operation, input.ownerId);
+    }
+    if (operation.status === "failed") return "not_active";
+    const managed = this.processes.get(input.conversationId);
+    if (
+      managed && !managed.starting && managed.activeGoal &&
+      managed.activeProjectionTurnId === input.projectionTurnId
+    ) {
+      return this.interruptNativeGoal(managed);
+    }
+    if (
+      managed && !managed.starting && managed.activeTurnId &&
+      managed.activeProjectionTurnId === input.projectionTurnId
+    ) {
+      return this.interrupt(input.conversationId, managed.activeTurnId);
+    }
+    if (operation.status === "succeeded") {
+      if (!operation.result) {
+        throw new CodexProtocolError("start operation has no native result");
+      }
+      return this.interrupt(input.conversationId, operation.result.codexTurnId);
+    }
+    return "requested";
+  }
+
   async beginSteerOperation(
     input: SteerTurnInput,
   ): Promise<SteerOperationState> {
@@ -1389,6 +1454,10 @@ export class AppServerProcessPool {
     this.options.workspaceManager.bindOwner(
       input.conversationId,
       input.ownerId,
+    );
+    await this.startOperationStore.assertNotInterrupted(
+      input.conversationId,
+      input.projectionTurnId,
     );
     if (input.forkFromCodexTurnId && !input.codexThreadId) {
       throw new CodexProtocolError("fork source thread is required");
@@ -1795,6 +1864,10 @@ export class AppServerProcessPool {
         preparedAt: new Date().toISOString(),
         operationKind: input.goal ? "goal" : operationKind,
       });
+      await this.startOperationStore.assertNotInterrupted(
+        input.conversationId,
+        input.projectionTurnId,
+      );
 
       if (operationKind === "compact") {
         managed.activeProjectionTurnId = eventProjectionTurnIdFor(input);
@@ -1835,6 +1908,12 @@ export class AppServerProcessPool {
           managed.codexThreadId,
         );
         managed.starting = false;
+        if (await this.startOperationStore.isInterruptRequested(
+          input.conversationId,
+          input.projectionTurnId,
+        )) {
+          await this.interrupt(input.conversationId, compactTurn.id);
+        }
         return {
           codexThreadId: managed.codexThreadId,
           codexTurnId: compactTurn.id,
@@ -1936,6 +2015,10 @@ export class AppServerProcessPool {
       managed.activeProjectionTurnId = eventProjectionTurnIdFor(input);
       managed.activeCollaborationMode = input.collaborationMode;
       this.syncModelGatewayTurnCorrelation(managed);
+      await this.startOperationStore.assertNotInterrupted(
+        input.conversationId,
+        input.projectionTurnId,
+      );
       turnStartRequestIssued = true;
       const response = await managed.client.request<{ turn: CodexTurn }>(
         "turn/start",
@@ -1959,8 +2042,13 @@ export class AppServerProcessPool {
       managed.activeProjectionTurnId = eventProjectionTurnIdFor(input);
       managed.activeCollaborationMode = input.collaborationMode;
       this.syncModelGatewayTurnCorrelation(managed);
-      let activeGoal: ThreadGoal | undefined;
-      if (input.goal) {
+      let activeGoal: ThreadGoal | undefined = input.goal
+        ? managed.activeGoal ?? undefined
+        : undefined;
+      if (input.goal && !(await this.startOperationStore.isInterruptRequested(
+        input.conversationId,
+        input.projectionTurnId,
+      ))) {
         // turn/start can allocate an id before Codex exposes that turn to its
         // scheduler. Activating the Goal in that gap auto-starts a competing
         // continuation. Wait for native lifecycle/read confirmation first.
@@ -1989,6 +2077,13 @@ export class AppServerProcessPool {
         managed.codexThreadId,
       );
       managed.starting = false;
+      if (await this.startOperationStore.isInterruptRequested(
+        input.conversationId,
+        input.projectionTurnId,
+      )) {
+        await this.interrupt(input.conversationId, response.turn.id);
+        if (input.goal) activeGoal = managed.activeGoal ?? undefined;
+      }
       return {
         codexThreadId: managed.codexThreadId!,
         codexTurnId: response.turn.id,
@@ -1996,6 +2091,16 @@ export class AppServerProcessPool {
       };
     } catch (error) {
       managed.starting = false;
+      if (
+        error instanceof StartOperationInterruptedError &&
+        !turnStartRequestIssued
+      ) {
+        managed.activeProjectionTurnId = null;
+        managed.activeCollaborationMode = null;
+        this.syncModelGatewayTurnCorrelation(managed);
+        this.scheduleIdleClose(managed);
+        throw error;
+      }
       if (!nativeRequestIssued) {
         this.scheduleIdleClose(managed);
         throw error;
@@ -2028,6 +2133,7 @@ export class AppServerProcessPool {
   private async confirmNativeTurnRegistration(
     managed: ManagedProcess,
     turnId: string,
+    requestTimeoutMs?: number,
   ): Promise<void> {
     const threadId = managed.codexThreadId;
     if (!threadId) {
@@ -2039,10 +2145,11 @@ export class AppServerProcessPool {
     if (await this.waitForNativeTurnStarted(managed, turnId, timeoutMs)) return;
 
     const response: ThreadReadResponse =
-      await managed.client.request<ThreadReadResponse>("thread/read", {
-        threadId,
-        includeTurns: true,
-      } satisfies ThreadReadParams);
+      await managed.client.request<ThreadReadResponse>(
+        "thread/read",
+        { threadId, includeTurns: true } satisfies ThreadReadParams,
+        requestTimeoutMs === undefined ? {} : { timeoutMs: requestTimeoutMs },
+      );
     if (response.thread.id !== threadId) {
       throw new CodexProtocolError("Codex read an unexpected thread");
     }
@@ -2050,6 +2157,9 @@ export class AppServerProcessPool {
     for (const nativeTurn of response.thread.turns ?? []) {
       managed.knownTurnIds.add(nativeTurn.id);
       if (nativeTurn.id === turnId) {
+        if (isTerminalTurn(nativeTurn)) {
+          rememberBounded(managed.nativeTerminalTurnIds, nativeTurn.id, true, 128);
+        }
         rememberBounded(
           managed.nativeStartedTurnIds,
           nativeTurn.id,
@@ -2060,7 +2170,7 @@ export class AppServerProcessPool {
       }
     }
     throw new CodexProtocolError(
-      "Codex did not register the native turn before Goal activation",
+      "Codex did not register the native turn",
     );
   }
 
@@ -2110,6 +2220,7 @@ export class AppServerProcessPool {
       threadId,
     };
     managed.modelGatewayLease.setManualModelTransitionCompaction(true);
+    let interruptRequested = false;
     try {
       await managed.client.request<ThreadCompactStartResponse>(
         "thread/compact/start",
@@ -2151,6 +2262,10 @@ export class AppServerProcessPool {
             128,
           );
           if (isTerminalTurn(compactTurn)) {
+            await this.startOperationStore.assertNotInterrupted(
+              managed.conversationId,
+              projectionTurnId,
+            );
             if (compactTurn.status !== "completed") {
               throw new CodexProtocolError(
                 "model transition context compaction failed",
@@ -2158,6 +2273,17 @@ export class AppServerProcessPool {
               );
             }
             return turns;
+          }
+          if (!interruptRequested && await this.startOperationStore.isInterruptRequested(
+            managed.conversationId,
+            projectionTurnId,
+          )) {
+            await managed.client.request(
+              "turn/interrupt",
+              { threadId, turnId: compactTurn.id } satisfies TurnInterruptParams,
+              { timeoutMs: NATIVE_TURN_INTERRUPT_TIMEOUT_MS },
+            );
+            interruptRequested = true;
           }
         }
         if (Date.now() < deadline) {
@@ -2262,18 +2388,133 @@ export class AppServerProcessPool {
   async interrupt(
     conversationId: string,
     turnId: string,
+    goalProjectionTurnId?: string,
   ): Promise<"requested" | "not_active"> {
     this.assertAcceptingOperations();
     const managed = this.processes.get(conversationId);
-    if (!managed || managed.activeTurnId !== turnId) return "not_active";
+    if (!managed) return "not_active";
+    const goalTarget = goalProjectionTurnId !== undefined;
+    if (goalTarget) {
+      if (
+        managed.activeProjectionTurnId !== goalProjectionTurnId ||
+        !managed.activeGoal
+      ) return "not_active";
+    } else if (
+      managed.activeTurnId !== turnId ||
+      managed.nativeTerminalTurnIds.has(turnId)
+    ) {
+      return "not_active";
+    }
+    const targetKey = goalTarget ? `goal:${goalProjectionTurnId}` : turnId;
+    if (managed.interruptRequest?.targetKey === targetKey) {
+      return managed.interruptRequest.result;
+    }
+    const result = goalTarget
+      ? this.interruptNativeGoal(managed)
+      : this.interruptRegisteredTurn(managed, turnId);
+    managed.interruptRequest = { targetKey, result };
     try {
-      await managed.client.request("turn/interrupt", {
+      return await result;
+    } finally {
+      if (managed.interruptRequest?.result === result) {
+        managed.interruptRequest = null;
+      }
+    }
+  }
+
+  private async pauseActiveGoal(managed: ManagedProcess): Promise<void> {
+    if (managed.activeGoal?.status !== "active") return;
+    if (!managed.codexThreadId) {
+      throw new CodexProtocolError("conversation has no Codex thread");
+    }
+    const response = await managed.client.request<ThreadGoalSetResponse>(
+      "thread/goal/set",
+      {
         threadId: managed.codexThreadId,
+        status: "paused",
+      } satisfies ThreadGoalSetParams,
+      { timeoutMs: NATIVE_TURN_INTERRUPT_TIMEOUT_MS },
+    );
+    managed.activeGoal = response.goal;
+  }
+
+  private async interruptNativeGoal(
+    managed: ManagedProcess,
+  ): Promise<"requested" | "not_active"> {
+    await this.pauseActiveGoal(managed);
+    const threadId = managed.codexThreadId;
+    if (!threadId) {
+      throw new CodexProtocolError("conversation has no Codex thread");
+    }
+    // A Goal's first turn can already be terminal while native continuation is
+    // running or about to start. Pause first, then read the authoritative turn.
+    const response = await managed.client.request<ThreadReadResponse>(
+      "thread/read",
+      { threadId, includeTurns: true } satisfies ThreadReadParams,
+      { timeoutMs: NATIVE_TURN_INTERRUPT_TIMEOUT_MS },
+    );
+    if (response.thread.id !== threadId) {
+      throw new CodexProtocolError("Codex read an unexpected thread");
+    }
+    const running = [...(response.thread.turns ?? [])]
+      .reverse()
+      .find((turn) => turn.status === "inProgress");
+    if (running) {
+      await managed.client.request(
+        "turn/interrupt",
+        { threadId, turnId: running.id } satisfies TurnInterruptParams,
+        { timeoutMs: NATIVE_TURN_INTERRUPT_TIMEOUT_MS },
+      );
+    }
+    return "requested";
+  }
+
+  private async interruptRegisteredTurn(
+    managed: ManagedProcess,
+    turnId: string,
+  ): Promise<"requested" | "not_active"> {
+    try {
+      // turn/start allocates an id before the native scheduler registers it.
+      // Interrupting in that gap can acknowledge a cancellation without
+      // reaching the subsequently running turn.
+      await this.confirmNativeTurnRegistration(
+        managed,
         turnId,
-      });
+        NATIVE_TURN_INTERRUPT_TIMEOUT_MS,
+      );
+      if (
+        managed.activeTurnId !== turnId ||
+        managed.nativeTerminalTurnIds.has(turnId)
+      ) {
+        return "not_active";
+      }
+      if (!managed.codexThreadId) {
+        throw new CodexProtocolError("conversation has no Codex thread");
+      }
+      if (managed.activeGoal?.status === "active") {
+        // Pause native continuation before cancelling its current turn. This
+        // also works before the API has projected the initial Goal record.
+        await this.pauseActiveGoal(managed);
+      }
+      if (
+        managed.activeTurnId !== turnId ||
+        managed.nativeTerminalTurnIds.has(turnId)
+      ) {
+        return "not_active";
+      }
+      await managed.client.request(
+        "turn/interrupt",
+        { threadId: managed.codexThreadId, turnId } satisfies TurnInterruptParams,
+        { timeoutMs: NATIVE_TURN_INTERRUPT_TIMEOUT_MS },
+      );
       return "requested";
     } catch (error) {
-      if (managed.activeTurnId !== turnId) return "not_active";
+      if (
+        managed.activeTurnId !== turnId ||
+        managed.nativeTerminalTurnIds.has(turnId)
+      ) {
+        return "not_active";
+      }
       throw error;
     }
   }
@@ -2528,7 +2769,8 @@ export class AppServerProcessPool {
             input.projectionTurnId,
             input.collaborationMode,
           );
-          return { thread: recovered.thread, goal: goalResponse.goal };
+          await this.interruptCancelledStart(managed, input.projectionTurnId);
+          return { thread: recovered.thread, goal: managed.activeGoal };
         } finally {
           if (managed && this.processes.get(input.conversationId) === managed) {
             managed.starting = false;
@@ -2679,6 +2921,14 @@ export class AppServerProcessPool {
 
   async setGoal(input: GoalSetInput): Promise<ThreadGoal> {
     return this.withGoalRuntime(input, async (managed) => {
+      if (input.status === "active") {
+        // Explicit resume supersedes an earlier startup stop. Clear before
+        // activation so a new concurrent stop still remains authoritative.
+        await this.startOperationStore.clearInterruptRequest(
+          input.conversationId,
+          input.projectionTurnId,
+        );
+      }
       const response = await managed.client.request<ThreadGoalSetResponse>(
         "thread/goal/set",
         {
@@ -3553,6 +3803,12 @@ export class AppServerProcessPool {
     collaborationMode?: "default" | "plan",
   ): void {
     managed.knownTurnIds.add(nativeTurn.id);
+    // A native read is also authoritative registration evidence after a
+    // reconnect; the original turn/started notification will not be replayed.
+    rememberBounded(managed.nativeStartedTurnIds, nativeTurn.id, true, 128);
+    if (isTerminalTurn(nativeTurn)) {
+      rememberBounded(managed.nativeTerminalTurnIds, nativeTurn.id, true, 128);
+    }
     managed.activeTurnId =
       nativeTurn.status === "inProgress" ? nativeTurn.id : null;
     managed.activeProjectionTurnId =
@@ -4129,7 +4385,9 @@ export class AppServerProcessPool {
               }
             : {
                 status: "failed",
-                errorCode: "RUNNER_TURN_START_FAILED",
+                errorCode: error instanceof StartOperationInterruptedError
+                  ? "RUNNER_TURN_START_SEALED"
+                  : "RUNNER_TURN_START_FAILED",
               },
         );
       } catch {
@@ -4372,14 +4630,33 @@ export class AppServerProcessPool {
         collaborationMode,
       );
     }
+    await this.interruptCancelledStart(managed, state.projectionTurnId);
     return this.startOperationStore.update(state, {
       status: "succeeded",
       result: {
         codexThreadId: state.correlation!.codexThreadId,
         codexTurnId: startedTurn.id,
-        ...(goal ? { goal } : {}),
+        ...(goal && managed.activeGoal ? { goal: managed.activeGoal } : {}),
       },
     });
+  }
+
+  private async interruptCancelledStart(
+    managed: ManagedProcess,
+    projectionTurnId: string,
+  ): Promise<void> {
+    if (
+      await this.startOperationStore.isInterruptRequested(
+        managed.conversationId,
+        projectionTurnId,
+      )
+    ) {
+      if (managed.activeGoal) {
+        await this.interruptNativeGoal(managed);
+      } else if (managed.activeTurnId) {
+        await this.interrupt(managed.conversationId, managed.activeTurnId);
+      }
+    }
   }
 
   private markStartOperationUncertain(
@@ -5017,6 +5294,8 @@ export class AppServerProcessPool {
         internalModelTransitionCompaction: null,
         knownTurnIds: new Set(),
         nativeStartedTurnIds: new Map(),
+        nativeTerminalTurnIds: new Map(),
+        interruptRequest: null,
         nativeTurnStartedWaiters: new Map(),
         suppressedNativeTurnIds: new Map(),
         activeTurnId: null,
@@ -5077,6 +5356,28 @@ export class AppServerProcessPool {
         // the read waterline before the awaiting caller observes that response.
         this.rememberSubAgentMetadata(managed, notification);
         this.rememberSubAgentRuntime(managed, notification);
+        // Cancellation must observe native lifecycle immediately, even while
+        // earlier output is waiting for asset processing or durable storage.
+        const params = objectRecord(notification.params);
+        const turn = objectRecord(params.turn);
+        if (
+          params.threadId === managed.codexThreadId &&
+          typeof turn.id === "string" &&
+          !managed.internalModelTransitionCompaction
+        ) {
+          if (notification.method === "turn/started") {
+            rememberBounded(managed.nativeStartedTurnIds, turn.id, true, 128);
+            this.settleNativeTurnStartedWaiters(managed, turn.id, true);
+          } else if (
+            notification.method === "turn/completed" &&
+            (turn.status === "completed" ||
+              turn.status === "interrupted" ||
+              turn.status === "failed")
+          ) {
+            rememberBounded(managed.nativeTerminalTurnIds, turn.id, true, 128);
+            this.settleNativeTurnStartedWaiters(managed, turn.id, false);
+          }
+        }
         const preparation = managed.internalModelTransitionCompaction;
         void managed.notificationQueue
           .enqueue(

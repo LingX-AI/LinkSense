@@ -64,6 +64,7 @@ export interface CapabilityView {
   id: string;
   type: CapabilityType;
   name: string;
+  display_name?: string | null;
   slug: string;
   description: string | null;
   source_type: CapabilityRecord["sourceType"] | "builtin";
@@ -97,6 +98,7 @@ export interface MarketplaceReleaseInstallInput {
   packageRoot: string;
   type: CapabilityType;
   name: string;
+  displayName?: string | null;
   description: string | null;
   manifest: Record<string, unknown>;
   riskSummary: CapabilityRiskSummary;
@@ -598,6 +600,7 @@ export class CapabilityService {
           type: prepared.type,
           ownerId: actor.id,
           name: prepared.name,
+          displayName: prepared.displayName ?? null,
           slug: slugifyCapabilityName(prepared.name),
           description: prepared.description,
           sourceType,
@@ -720,6 +723,7 @@ export class CapabilityService {
         }
         const value = await store.updateCapability(capabilityId, {
           name: prepared.name,
+          displayName: prepared.displayName ?? null,
           slug: slugifyCapabilityName(prepared.name),
           description: prepared.description,
           sourceType,
@@ -1277,6 +1281,7 @@ function capabilityView(
     id: capability.id,
     type: capability.type,
     name: capability.name,
+    display_name: capability.displayName ?? null,
     slug: capability.slug,
     description: capability.description,
     source_type: capability.sourceType,
@@ -1306,6 +1311,7 @@ function builtInCapabilityViews(): CapabilityView[] {
     id: builtInCapabilityId(definition.key),
     type: definition.type,
     name: definition.slug,
+    display_name: null,
     slug: definition.slug,
     description: null,
     source_type: "builtin",
@@ -1370,6 +1376,7 @@ function marketplacePreparedPackage(
     packageRoot: input.packageRoot,
     type: input.type,
     name: input.name,
+    displayName: input.displayName ?? null,
     description: input.description,
     manifest: input.manifest,
     riskSummary: input.riskSummary,

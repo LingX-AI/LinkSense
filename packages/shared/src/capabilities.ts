@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { skillDisplayNameSchema } from "./skill-display-name.js";
 
 import {
   jsonObjectSchema,
@@ -18,6 +19,16 @@ export const builtInSkillNames = [
 ] as const;
 export const builtInSkillNameSchema = z.enum(builtInSkillNames);
 export type BuiltInSkillName = z.infer<typeof builtInSkillNameSchema>;
+
+export const CAPABILITY_PACKAGE_NAME_MAX_LENGTH = 64;
+const reservedCapabilityNames = new Set<string>(builtInSkillNames);
+
+export const capabilityPackageNameSchema = z
+  .string()
+  .min(1)
+  .max(CAPABILITY_PACKAGE_NAME_MAX_LENGTH)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)
+  .refine((name) => !reservedCapabilityNames.has(name));
 
 export const builtInPluginDefinitions = [] as const;
 
@@ -114,6 +125,7 @@ export const capabilitySchema = z
     type: capabilityTypeSchema,
     owner_id: uuidSchema,
     name: z.string().trim().min(1).max(160),
+    display_name: skillDisplayNameSchema.optional(),
     slug: z
       .string()
       .min(1)
@@ -155,6 +167,7 @@ export const manualSkillInputSchema = z.strictObject({
   source_type: z.literal("local"),
   type: z.literal("skill"),
   name: z.string().trim().min(1).max(160),
+  display_name: skillDisplayNameSchema.optional(),
   skill_markdown: z.string().min(1).max(1_000_000),
 });
 
@@ -218,6 +231,7 @@ export const marketplaceReleaseSchema = z.strictObject({
   release_number: z.number().int().positive(),
   status: marketplaceReleaseStatusSchema,
   name: z.string().trim().min(1).max(160),
+  display_name: skillDisplayNameSchema.optional(),
   description: z.string().trim().max(4_000).nullable(),
   release_notes: z.string().trim().max(8_000).nullable(),
   logo_url: z.string().url().nullable(),

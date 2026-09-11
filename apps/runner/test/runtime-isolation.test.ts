@@ -887,6 +887,26 @@ describe("Codex child identity", () => {
     await client.close()
   })
 
+  it("bounds interruption independently of the normal RPC timeout", async () => {
+    vi.useFakeTimers()
+    try {
+      const child = fakeChild()
+      const client = new CodexJsonRpcClient({
+        command: "codex", userHome: "/tmp/user-home", codexHome: "/tmp/codex-home",
+        logger: pino({ level: "silent" }), childProcessFactory: () => child,
+        requestTimeoutMs: 30_000,
+      })
+      const request = client.request("turn/interrupt", {}, { timeoutMs: 5_000 })
+      const rejection = expect(request).rejects.toThrow("app-server request timed out: turn/interrupt")
+      await vi.advanceTimersByTimeAsync(5_000)
+      await rejection
+      expect(client.isHealthy).toBe(false)
+      await client.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("escalates shutdown to SIGKILL and waits for the final child exit", async () => {
     vi.useFakeTimers()
     try {

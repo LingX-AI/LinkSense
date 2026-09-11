@@ -177,6 +177,26 @@ describe("conversation slash command resource panels", () => {
     vi.unstubAllGlobals()
   })
 
+  it.each(["meeting-notes", "会议纪要助手"])(
+    "finds a Skill by %s while displaying its custom title",
+    async (query) => {
+      const interaction = userEvent.setup()
+      const { props } = renderMenu("root", {
+        query,
+        capabilities: [
+          personalSkillFixture({
+            name: "meeting-notes",
+            display_name: "会议纪要助手",
+          }),
+        ],
+      })
+      const option = screen.getByRole("option", { name: /会议纪要助手/u })
+      expect(option).not.toHaveTextContent("meeting-notes")
+      await interaction.click(option)
+      expect(props.onSelectCapability).toHaveBeenCalledWith("skill-1")
+    }
+  )
+
   it("runs context compaction from the root menu only when it is available", async () => {
     const interaction = userEvent.setup()
     const onCompact = vi.fn()
@@ -338,7 +358,7 @@ describe("conversation slash command resource panels", () => {
         )
         .filter((name): name is string => name !== undefined)
     ).toEqual([
-      "alpha Skill",
+      "Alpha Skill",
       "Zulu Skill",
       "LinkSense 浏览器",
       "LinkSense 文件服务",

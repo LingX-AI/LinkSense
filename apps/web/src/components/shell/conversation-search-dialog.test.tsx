@@ -288,7 +288,8 @@ function createSearchFetchMock(
   const skills = overrides.skills ?? [
     capabilityFixture({
       id: "50000000-0000-4000-8000-000000000002",
-      name: "PPT 生成技能",
+      name: "ppt-generation",
+      display_name: "PPT 生成技能",
       slug: "ppt-generator",
       type: "skill",
       description: "生成可演示的 PPT 文稿",

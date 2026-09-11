@@ -25,6 +25,7 @@ import {
   type RunnerKnowledgeBaseSelection,
 } from "@linksense/shared";
 import { z } from "zod";
+import pRetry from "p-retry";
 
 const START_OPERATION_WAIT_LIMIT_MS = 60_000;
 const RUNNER_REQUEST_TIMEOUT_MS = 15_000;
@@ -703,11 +704,33 @@ export class RunnerClient {
     throw new AppError("TURN_STEER_REQUEST_FAILED");
   }
 
-  async interrupt(conversationId: string, ownerId: string, turnId: string) {
+  async interrupt(
+    conversationId: string,
+    ownerId: string,
+    turnId: string,
+    goalProjectionTurnId?: string,
+  ): Promise<RunnerTurnInterruptResult> {
     const result = await this.request<unknown>(
       `/conversations/${conversationId}/turns/interrupt`,
       "POST",
-      { turnId },
+      { turnId, ...(goalProjectionTurnId ? { goalProjectionTurnId } : {}) },
+      { ownerId },
+    );
+    const parsed = runnerTurnInterruptResultSchema.safeParse(result);
+    if (!parsed.success) throw new AppError("RUNNER_UNAVAILABLE");
+    return parsed.data;
+  }
+
+  async interruptStartOperation(
+    conversationId: string,
+    projectionTurnId: string,
+    ownerId: string,
+    expectedRuntimeGeneration: string,
+  ): Promise<RunnerTurnInterruptResult> {
+    const result = await this.request<unknown>(
+      `/conversations/${conversationId}/turns/start/${projectionTurnId}/interrupt`,
+      "POST",
+      { ownerId, expectedRuntimeGeneration },
       { ownerId },
     );
     const parsed = runnerTurnInterruptResultSchema.safeParse(result);
@@ -1022,6 +1045,21 @@ export class RunnerClient {
     return this.request<unknown>(pathname, "GET", undefined, {
       acceptErrorResponse: true,
     }).then((result) => runnerHealthSchema.parse(result));
+  }
+
+  async waitUntilReady(): Promise<void> {
+    // Startup and source reload can bring the API up before the controller.
+    // Retry only readiness probes; task recovery must still execute once.
+    await pRetry(async () => {
+      const health = await this.health({ includeResourceUsage: false });
+      if (health.status !== "available") throw new AppError("RUNNER_UNAVAILABLE");
+    }, {
+      retries: 60,
+      factor: 1,
+      minTimeout: 1_000,
+      maxRetryTime: 60_000,
+      shouldRetry: (error) => error instanceof AppError && error.code === "RUNNER_UNAVAILABLE",
+    });
   }
 
   private async queryStartOperation(

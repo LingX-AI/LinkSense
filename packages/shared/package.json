@@ -23,6 +23,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "es-toolkit": "1.50.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

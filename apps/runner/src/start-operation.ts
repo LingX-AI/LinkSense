@@ -97,8 +97,69 @@ export class CorruptStartOperationError extends Error {
   }
 }
 
+export class StartOperationInterruptedError extends Error {
+  constructor() {
+    super("start operation was interrupted")
+    this.name = "StartOperationInterruptedError"
+  }
+}
+
 export class StartOperationStore {
   constructor(private readonly workspaceManager: WorkspaceManager) {}
+
+  async requestInterrupt(
+    conversationId: string,
+    projectionTurnId: string,
+  ): Promise<void> {
+    const directory = this.operationDirectory(conversationId)
+    await mkdir(directory, { recursive: true, mode: 0o700 })
+    // Publish separately from the operation snapshot: completion must never
+    // overwrite a cancellation written concurrently with startup.
+    await publishExclusiveDurable(
+      directory,
+      `${this.operationPath(conversationId, projectionTurnId)}.interrupt`,
+      "interrupt\n",
+    )
+  }
+
+  async isInterruptRequested(
+    conversationId: string,
+    projectionTurnId: string,
+  ): Promise<boolean> {
+    try {
+      const value = await readFile(
+        `${this.operationPath(conversationId, projectionTurnId)}.interrupt`,
+        "utf8",
+      )
+      z.literal("interrupt\n").parse(value)
+      return true
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") return false
+      throw error
+    }
+  }
+
+  async assertNotInterrupted(
+    conversationId: string,
+    projectionTurnId: string,
+  ): Promise<void> {
+    if (await this.isInterruptRequested(conversationId, projectionTurnId)) {
+      throw new StartOperationInterruptedError()
+    }
+  }
+
+  async clearInterruptRequest(
+    conversationId: string,
+    projectionTurnId: string,
+  ): Promise<void> {
+    try {
+      await rm(`${this.operationPath(conversationId, projectionTurnId)}.interrupt`)
+      await syncDirectory(this.operationDirectory(conversationId))
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") return
+      throw error
+    }
+  }
 
   async read(
     conversationId: string,
@@ -198,7 +259,10 @@ export class StartOperationStore {
     current: StartOperationState,
     update:
       | { status: "succeeded"; result: StartOperationResult }
-      | { status: "failed"; errorCode: "RUNNER_TURN_START_FAILED" }
+      | {
+          status: "failed"
+          errorCode: "RUNNER_TURN_START_FAILED" | "RUNNER_TURN_START_SEALED"
+        }
       | {
           status: "uncertain"
           errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN"

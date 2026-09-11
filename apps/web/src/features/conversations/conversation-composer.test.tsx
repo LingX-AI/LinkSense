@@ -2640,6 +2640,32 @@ describe("conversation voice input", () => {
     expect(screen.queryByText("选择知识库")).not.toBeInTheDocument()
   })
 
+  it.each(["meeting-notes", "会议纪要助手"])(
+    "finds a custom Skill by %s and selects its stable identifier",
+    async (query) => {
+      const interaction = userEvent.setup()
+      const { onSelectedIdsChange } = renderStatefulComposer({
+        capabilities: [
+          capabilityFixture({
+            id: "skill-notes",
+            name: "meeting-notes",
+            display_name: "会议纪要助手",
+          }),
+        ],
+        selectedIds: [],
+      })
+      await interaction.click(screen.getByRole("button", { name: "添加" }))
+      await interaction.type(screen.getByRole("combobox"), query)
+      const option = screen.getByRole("option", { name: /会议纪要助手/u })
+      expect(option).not.toHaveTextContent("meeting-notes")
+      await interaction.click(option)
+      expect(onSelectedIdsChange).toHaveBeenCalledWith(["skill-notes"])
+      expect(
+        screen.getByText("会议纪要助手").closest(".capability-chip")
+      ).toBeVisible()
+    }
+  )
+
   it("uses a compact capability title and renders one check for a selected capability", async () => {
     const interaction = userEvent.setup()
     renderComposer({
@@ -2656,7 +2682,7 @@ describe("conversation voice input", () => {
 
     await interaction.click(screen.getByRole("button", { name: "添加" }))
 
-    const selectedItem = screen.getByRole("option", { name: /pptx/ })
+    const selectedItem = screen.getByRole("option", { name: /Pptx/ })
     expect(selectedItem.closest('[data-slot="popover-content"]')).toHaveClass(
       "capability-picker-popover",
       "gap-2"
@@ -2673,7 +2699,7 @@ describe("conversation voice input", () => {
     const labels = selectedItem.querySelector("[data-capability-labels]")
     expect(labels).toHaveClass("flex", "items-center")
     expect(labels?.querySelector("[data-capability-name]")).toHaveTextContent(
-      "pptx"
+      "Pptx"
     )
     const description = labels?.querySelector("[data-capability-description]")
     expect(description).toHaveTextContent("Create presentation files")
@@ -2716,7 +2742,7 @@ describe("conversation voice input", () => {
         )
         .filter((name): name is string => name !== undefined)
     ).toEqual([
-      "alpha Skill",
+      "Alpha Skill",
       "Zulu Skill",
       "LinkSense 浏览器",
       "LinkSense 文件服务",
@@ -2806,12 +2832,12 @@ describe("conversation voice input", () => {
     })
 
     await interaction.click(screen.getByRole("button", { name: "添加" }))
-    await interaction.click(screen.getByRole("option", { name: /pptx/ }))
+    await interaction.click(screen.getByRole("option", { name: /Pptx/ }))
 
     expect(props.onSelectedIdsChange).toHaveBeenCalledWith(["skill-pptx"])
     await waitFor(() =>
       expect(
-        screen.queryByRole("option", { name: /pptx/ })
+        screen.queryByRole("option", { name: /Pptx/ })
       ).not.toBeInTheDocument()
     )
   })
@@ -2839,12 +2865,12 @@ describe("conversation voice input", () => {
       selectedIds: ["skill-pptx"],
     })
 
-    const chip = screen.getByText("ppt-generation").closest(".capability-chip")
-    expect(chip).toHaveTextContent("ppt-generation")
+    const chip = screen.getByText("Ppt Generation").closest(".capability-chip")
+    expect(chip).toHaveTextContent("Ppt Generation")
     expect(chip).not.toHaveTextContent("本轮优先")
     expect(chip).toHaveClass("composer-context-chip")
     expect(chip?.querySelector("img.capability-chip-icon")).toBeTruthy()
-    expect(screen.getByText("ppt-generation")).toHaveClass(
+    expect(screen.getByText("Ppt Generation")).toHaveClass(
       "composer-chip-label"
     )
   })

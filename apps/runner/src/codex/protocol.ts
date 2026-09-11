@@ -96,6 +96,8 @@ export type CollaborationModeListResponse = {
 
 export type TurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
 
+export type TurnInterruptParams = { threadId: string; turnId: string };
+
 export type CodexErrorInfo =
   | "contextWindowExceeded"
   | "sessionBudgetExceeded"
