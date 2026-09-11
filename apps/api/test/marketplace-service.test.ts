@@ -58,6 +58,65 @@ afterEach(async () => {
 });
 
 describe("MarketplaceService", () => {
+  it.each([null, "团队报告助手"])(
+    "preserves display name %s through publication, search, installation and update",
+    async (displayName) => {
+      const root = await createCapabilityRoot();
+      const source = { ...sourceCapability(root), displayName };
+      const store = new MemoryMarketplaceStore([source]);
+      const installer = new MemoryMarketplaceInstaller(store);
+      const service = createService(store, installer, root);
+      const submission = await service.submit(publisherActor(), {
+        capabilityId: source.id,
+      });
+      expect(submission.latest_release).toMatchObject({
+        name: "team-reports",
+        display_name: displayName,
+      });
+      await service.review(reviewerActor(), submission.latest_release.id, {
+        decision: "approved",
+      });
+      source.displayName = "新报告助手";
+      for (const search of ["team-reports", displayName || "Team Reports"]) {
+        const catalog = await service.listCatalog(installerActor(), { search });
+        expect(catalog).toHaveLength(1);
+        expect(catalog[0]?.release.display_name).toBe(displayName);
+      }
+      expect(
+        await service.listCatalog(installerActor(), { search: "新报告助手" }),
+      ).toEqual([]);
+      const installed = await service.install(
+        installerActor(),
+        submission.listing.id,
+      );
+      expect(installed).toMatchObject({
+        name: "team-reports",
+        display_name: displayName,
+      });
+      expect(installer.install).toHaveBeenCalledWith(
+        installerActor(),
+        expect.objectContaining({ name: "team-reports", displayName }),
+      );
+
+      const update = await service.submit(publisherActor(), {
+        capabilityId: source.id,
+        listingId: submission.listing.id,
+      });
+      await service.review(reviewerActor(), update.latest_release.id, {
+        decision: "approved",
+      });
+      const updated = await service.updateInstallation(
+        installerActor(),
+        submission.listing.id,
+      );
+      expect(updated).toMatchObject({
+        name: "team-reports",
+        display_name: "新报告助手",
+      });
+      expect(store.releases[0]?.displayName).toBe(displayName);
+    },
+  );
+
   it("blocks organization marketplace access for self-registered users", async () => {
     const root = await createCapabilityRoot();
     const source = sourceCapability(root);
@@ -760,6 +819,7 @@ function installedCapability(
     type: input.type,
     ownerId: actorId,
     name: input.name,
+    displayName: input.displayName ?? null,
     slug: input.name,
     description: input.description,
     sourceType: "marketplace",
@@ -781,6 +841,7 @@ function capabilityView(capability: CapabilityRecord): CapabilityView {
     id: capability.id,
     type: capability.type,
     name: capability.name,
+    display_name: capability.displayName ?? null,
     slug: capability.slug,
     description: capability.description,
     source_type: capability.sourceType,

@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { capabilityDisplayName, skillDisplayNameSchema } from "@linksense/shared";
 
 import { AppError } from "../../lib/errors.js";
 import { ok } from "../../lib/http.js";
@@ -23,6 +24,7 @@ const manualImportSchema = z.strictObject({
   source_type: z.literal("local"),
   type: z.literal("skill"),
   name: z.string().trim().min(1).max(160),
+  display_name: skillDisplayNameSchema,
   description: z.string().trim().max(4_000).nullable().optional(),
   skill_markdown: z.string().min(1).max(1_000_000),
 });
@@ -55,6 +57,7 @@ export const capabilityRoutes: FastifyPluginAsync<
         (item) =>
           !search ||
           item.name.toLocaleLowerCase().includes(search) ||
+          capabilityDisplayName(item).toLocaleLowerCase().includes(search) ||
           item.description?.toLocaleLowerCase().includes(search),
       )
       .slice(0, query.limit);
@@ -177,6 +180,7 @@ function parseCapabilityJson(body: unknown): {
     source: {
       kind: "manual_skill",
       name: value.name,
+      displayName: value.display_name,
       ...(value.description === undefined
         ? {}
         : { description: value.description }),

@@ -1828,7 +1828,7 @@ export const ConversationComposer = forwardRef<
                               return (
                                 <CommandItem
                                   key={capability.id}
-                                  value={`${presentation.name} ${presentation.description ?? ""}`}
+                                  value={`${capability.name} ${presentation.name} ${presentation.description ?? ""}`}
                                   data-checked={
                                     selectedIds.includes(capability.id) ||
                                     undefined

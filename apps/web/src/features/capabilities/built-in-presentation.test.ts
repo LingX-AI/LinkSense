@@ -53,13 +53,41 @@ beforeAll(async () => {
 })
 
 describe("built-in capability presentation", () => {
+  it.each(["zh-CN", "en-US", "unknown"])(
+    "shows optional personal names and formatted historical names in %s",
+    (language) => {
+      const personal = {
+        ...docsCapability,
+        is_builtin: false,
+        builtin_key: null,
+        name: "meeting-notes",
+      }
+      expect(
+        capabilityPresentation(
+          { ...personal, display_name: "会议纪要助手" },
+          translations.getFixedT(language),
+          "LinkSense"
+        ).name
+      ).toBe("会议纪要助手")
+      for (const display_name of [null, undefined, "  "]) {
+        expect(
+          capabilityPresentation(
+            { ...personal, display_name },
+            translations.getFixedT(language),
+            "LinkSense"
+          ).name
+        ).toBe("Meeting Notes")
+      }
+    }
+  )
+
   it("localizes the LinkSense document reader Skill in both languages", () => {
     expect(
       capabilityPresentation(
         documentReaderCapability,
         translations.getFixedT("zh-CN"),
-        "LinkSense",
-      ),
+        "LinkSense"
+      )
     ).toEqual({
       name: "LinkSense 文档读取",
       description:
@@ -69,8 +97,8 @@ describe("built-in capability presentation", () => {
       capabilityPresentation(
         documentReaderCapability,
         translations.getFixedT("en-US"),
-        "LinkSense",
-      ),
+        "LinkSense"
+      )
     ).toEqual({
       name: "LinkSense Document Reader",
       description:
@@ -83,8 +111,8 @@ describe("built-in capability presentation", () => {
       capabilityPresentation(
         docsCapability,
         translations.getFixedT("zh-CN"),
-        "LinkSense",
-      ),
+        "LinkSense"
+      )
     ).toEqual({
       name: "LinkSense 帮助文档",
       description: "根据官方中英文帮助文档解答产品使用与管理问题。",
@@ -93,8 +121,8 @@ describe("built-in capability presentation", () => {
       capabilityPresentation(
         docsCapability,
         translations.getFixedT("en-US"),
-        "LinkSense",
-      ),
+        "LinkSense"
+      )
     ).toEqual({
       name: "LinkSense Docs",
       description:

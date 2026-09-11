@@ -1,4 +1,5 @@
 import {
+  skillDisplayNameSchema,
   currentUserCreditQuotaTotalSchema,
   creditLimitValueSchema,
   applicationUnavailableReasonSchema,
@@ -703,6 +704,7 @@ export const capabilitySummarySchema = z
   .strictObject({
     id: z.string(),
     name: z.string(),
+    display_name: skillDisplayNameSchema.optional(),
     slug: z.string(),
     type: z.enum(["plugin", "skill"]),
     description: z.string().nullable(),
@@ -806,6 +808,7 @@ export const capabilityImportPreviewSchema = z.strictObject({
   ]),
   type: z.enum(["plugin", "skill"]),
   name: z.string(),
+  display_name: skillDisplayNameSchema.optional(),
   description: z.string().nullable(),
   manifest: z.record(z.string(), z.unknown()),
   declared_capabilities: z.array(z.string()),

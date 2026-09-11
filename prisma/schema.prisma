@@ -135,6 +135,7 @@ model Capability {
   type                 String   @db.VarChar(32)
   ownerId              String   @map("owner_id") @db.Uuid
   name                 String   @db.VarChar(160)
+  displayName          String?  @map("display_name") @db.VarChar(64)
   slug                 String   @db.VarChar(180)
   description          String?  @db.Text
   sourceType           String   @map("source_type") @db.VarChar(32)
@@ -190,6 +191,7 @@ model MarketplaceRelease {
   releaseNumber      Int       @map("release_number")
   status             String    @db.VarChar(32)
   name               String    @db.VarChar(160)
+  displayName        String?   @map("display_name") @db.VarChar(64)
   description        String?   @db.Text
   releaseNotes       String?   @map("release_notes") @db.Text
   logoObjectKey      String?   @map("logo_object_key") @db.Text

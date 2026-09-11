@@ -1009,7 +1009,7 @@ describe("conversation knowledge base snapshots", () => {
     })
     expect(removeImageButton).toBeVisible()
     expect(
-      await screen.findByRole("button", { name: "移除 dashi-ppt" })
+      await screen.findByRole("button", { name: "移除 Dashi Ppt" })
     ).toBeVisible()
     const sendButton = screen.getByRole("button", { name: "发送" })
     await waitFor(() => expect(sendButton).toBeEnabled())
@@ -1021,7 +1021,7 @@ describe("conversation knowledge base snapshots", () => {
       screen.queryByRole("button", { name: "移除附件 invoice.png" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "移除 dashi-ppt" })
+      screen.queryByRole("button", { name: "移除 Dashi Ppt" })
     ).not.toBeInTheDocument()
     await waitFor(() =>
       expect(
@@ -1046,7 +1046,7 @@ describe("conversation knowledge base snapshots", () => {
       screen.queryByRole("button", { name: "移除附件 invoice.png" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "移除 dashi-ppt" })
+      screen.queryByRole("button", { name: "移除 Dashi Ppt" })
     ).not.toBeInTheDocument()
 
     turnResponse.resolve(errorEnvelope(503, "RUNTIME_TURN_FAILED"))
@@ -1056,7 +1056,7 @@ describe("conversation knowledge base snapshots", () => {
       await screen.findByRole("button", { name: "移除附件 invoice.png" })
     ).toBeVisible()
     expect(
-      await screen.findByRole("button", { name: "移除 dashi-ppt" })
+      await screen.findByRole("button", { name: "移除 Dashi Ppt" })
     ).toBeVisible()
 
     const retrySendButton = screen.getByRole("button", { name: "发送" })
@@ -1067,7 +1067,7 @@ describe("conversation knowledge base snapshots", () => {
       screen.queryByRole("button", { name: "移除附件 invoice.png" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "移除 dashi-ppt" })
+      screen.queryByRole("button", { name: "移除 Dashi Ppt" })
     ).not.toBeInTheDocument()
     await waitFor(() => expect(turnAttempts).toBe(2))
 
@@ -1096,7 +1096,7 @@ describe("conversation knowledge base snapshots", () => {
       ).not.toBeInTheDocument()
     )
     expect(
-      screen.queryByRole("button", { name: "移除 dashi-ppt" })
+      screen.queryByRole("button", { name: "移除 Dashi Ppt" })
     ).not.toBeInTheDocument()
   })
 

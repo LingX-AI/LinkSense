@@ -100,6 +100,9 @@ export class PrismaCapabilityStore implements CapabilityStore {
   ): Promise<CapabilityRecord> {
     const data: Prisma.CapabilityUpdateInput = {
       ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.displayName !== undefined
+        ? { displayName: input.displayName }
+        : {}),
       ...(input.slug !== undefined ? { slug: input.slug } : {}),
       ...(input.description !== undefined
         ? { description: input.description }
