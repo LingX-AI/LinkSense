@@ -1,5 +1,13 @@
 import { EventEmitter } from "node:events"
-import { lstat, mkdir, mkdtemp, readlink, rm } from "node:fs/promises"
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -7,13 +15,25 @@ import pino from "pino"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { parseRunnerConfig } from "../src/config.js"
-import { LocalProcessWorkerProvider } from "../src/controller/local-process-worker-provider.js"
+import {
+  LocalProcessWorkerProvider,
+  type LocalProcessWorkerProviderOptions,
+} from "../src/controller/local-process-worker-provider.js"
 import type { WorkerOwnerPaths } from "../src/controller/worker-provider.js"
 
 const ownerId = "01900000-0000-7000-8000-000000000002"
 const temporaryRoots: string[] = []
+const temporaryProcessIds = new Set<number>()
 
 afterEach(async () => {
+  for (const pid of temporaryProcessIds) {
+    try {
+      process.kill(pid, "SIGKILL")
+    } catch {
+      // The provider already cleaned up the process.
+    }
+  }
+  temporaryProcessIds.clear()
   await Promise.all(
     temporaryRoots.splice(0).map((root) =>
       rm(root, { recursive: true, force: true }),
@@ -137,6 +157,93 @@ describe("LocalProcessWorkerProvider", () => {
     await expect(provider.inspect(worker)).resolves.toBe("stopped")
   })
 
+  it("releases a surviving descendant after the local worker leader exits", async () => {
+    const paths = await createOwnerPaths()
+    const descendantPidFile = path.join(paths.root, "descendant.pid")
+    const runnerEntry = path.join(paths.root, "crashed-worker.cjs")
+    await writeFile(
+      runnerEntry,
+      [
+        'const { spawn } = require("node:child_process")',
+        'const { writeFileSync } = require("node:fs")',
+        'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60_000)"], { stdio: "ignore" })',
+        `writeFileSync(${JSON.stringify(descendantPidFile)}, String(child.pid))`,
+        "process.exit(1)",
+      ].join("\n"),
+    )
+    const provider = new LocalProcessWorkerProvider(
+      createConfig(paths.root),
+      pino({ level: "silent" }),
+      {
+        allocatePort: async () => 45126,
+        runnerEntry,
+      },
+    )
+    await provider.initialize()
+    await provider.prepareOwnerFilesystem(paths)
+    const worker = await provider.acquire({
+      ownerId,
+      storageKey: "owner-storage-key",
+      name: "linksense-worker-local",
+      probe: false,
+    })
+    await waitUntil(async () => (await provider.inspect(worker)) === "stopped")
+    const descendantPid = Number(await readFile(descendantPidFile, "utf8"))
+    temporaryProcessIds.add(descendantPid)
+    expect(isProcessAlive(descendantPid)).toBe(true)
+
+    await provider.release(worker)
+
+    await waitUntil(() => !isProcessAlive(descendantPid))
+    temporaryProcessIds.delete(descendantPid)
+    await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(false)
+  })
+
+  it("retains a local worker for retry when process-group cleanup fails", async () => {
+    const paths = await createOwnerPaths()
+    const child = fakeChild(41003)
+    const terminateWorker = vi
+      .fn<NonNullable<LocalProcessWorkerProviderOptions["terminateWorker"]>>()
+      .mockRejectedValueOnce(new Error("process group is still alive"))
+      .mockResolvedValueOnce(undefined)
+    const provider = new LocalProcessWorkerProvider(
+      createConfig(paths.root),
+      pino({ level: "silent" }),
+      {
+        allocatePort: async () => 45127,
+        runnerEntry: "/repo/apps/runner/src/index.ts",
+        spawnWorker: () => child,
+        terminateWorker,
+      },
+    )
+    await provider.initialize()
+    await provider.prepareOwnerFilesystem(paths)
+    const worker = await provider.acquire({
+      ownerId,
+      storageKey: "owner-storage-key",
+      name: "linksense-worker-local",
+      probe: false,
+    })
+
+    await expect(provider.release(worker)).rejects.toThrow(
+      "process group is still alive",
+    )
+    await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(true)
+    await expect(
+      provider.acquire({
+        ownerId,
+        storageKey: "replacement-storage-key",
+        name: "linksense-worker-local-replacement",
+        probe: false,
+      }),
+    ).rejects.toThrow("cleanup must complete before replacement")
+
+    await provider.release(worker)
+
+    expect(terminateWorker).toHaveBeenCalledTimes(2)
+    await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(false)
+  })
+
   it("fails closed when the child cannot be spawned", async () => {
     const paths = await createOwnerPaths()
     const provider = new LocalProcessWorkerProvider(
@@ -187,6 +294,27 @@ function fakeChild(pid: number) {
     signalCode: null,
     kill: vi.fn(() => true),
   })
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function waitUntil(
+  condition: () => boolean | Promise<boolean>,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await condition()) return
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10))
+  }
+  throw new Error("condition was not met before timeout")
 }
 
 async function createOwnerPaths(): Promise<WorkerOwnerPaths> {

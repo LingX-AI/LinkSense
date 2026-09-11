@@ -57,12 +57,13 @@ export type LocalProcessWorkerProviderOptions = {
       stdio: ["ignore", "inherit", "inherit", "ipc"]
     },
   ) => LocalWorkerProcess
-  terminateWorker?: (child: LocalWorkerProcess) => Promise<void>
+  terminateWorker?: (processGroupId: number) => Promise<void>
 }
 
 type ManagedLocalProcess = {
   child: LocalWorkerProcess
   error: Error | undefined
+  processGroupId: number
   worker: WorkerInstance
 }
 
@@ -166,6 +167,11 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
     if (!paths) {
       throw new Error("local-process worker filesystem was not prepared")
     }
+    if (await this.hasWorkerForOwner(input.ownerId)) {
+      throw new Error(
+        "local-process worker cleanup must complete before replacement",
+      )
+    }
     const port = await this.allocatePort()
     const id = randomUUID()
     const worker: WorkerInstance = {
@@ -194,9 +200,14 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
         stdio: ["ignore", "inherit", "inherit", "ipc"],
       },
     )
+    if (!child.pid) {
+      child.kill("SIGKILL")
+      throw new Error("local-process worker did not expose a process group ID")
+    }
     const managed: ManagedLocalProcess = {
       child,
       error: undefined,
+      processGroupId: child.pid,
       worker,
     }
     child.once("error", (error) => {
@@ -232,13 +243,16 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
     if (inFlight) return inFlight
     const release = this.releaseOnce(worker)
     this.releases.set(worker.id, release)
+    void release.then(
+      () => this.clearRelease(worker.id, release),
+      () => this.clearRelease(worker.id, release),
+    )
     return release
   }
 
   async hasWorkerForOwner(ownerId: string): Promise<boolean> {
     return [...this.processes.values()].some(
-      ({ worker }) =>
-        worker.ownerId === ownerId && worker.state === "running",
+      ({ worker }) => worker.ownerId === ownerId,
     )
   }
 
@@ -260,11 +274,14 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
   private async releaseOnce(worker: WorkerInstance): Promise<void> {
     const managed = this.processes.get(worker.id)
     if (!managed) return
-    try {
-      await this.terminateWorker(managed.child)
-    } finally {
-      managed.worker.state = "stopped"
-      this.processes.delete(worker.id)
+    await this.terminateWorker(managed.processGroupId)
+    managed.worker.state = "stopped"
+    this.processes.delete(worker.id)
+  }
+
+  private clearRelease(workerId: string, release: Promise<void>): void {
+    if (this.releases.get(workerId) === release) {
+      this.releases.delete(workerId)
     }
   }
 
@@ -434,54 +451,45 @@ async function allocateLoopbackPort(): Promise<number> {
   })
 }
 
-async function terminateLocalWorker(child: LocalWorkerProcess): Promise<void> {
-  if (
-    child.exitCode !== null ||
-    child.signalCode !== null ||
-    !child.pid
-  ) {
-    return
-  }
-  const exited = waitForExit(child)
-  signalChildProcessGroup(child, "SIGTERM")
-  if (await settleWithin(exited, 5_000)) return
-  signalChildProcessGroup(child, "SIGKILL")
-  await settleWithin(exited, 1_000)
+async function terminateLocalWorker(processGroupId: number): Promise<void> {
+  if (!isProcessGroupAlive(processGroupId)) return
+  signalProcessGroup(processGroupId, "SIGTERM")
+  if (await waitForProcessGroupExit(processGroupId, 5_000)) return
+  signalProcessGroup(processGroupId, "SIGKILL")
+  if (await waitForProcessGroupExit(processGroupId, 1_000)) return
+  throw new Error("local-process worker group did not terminate")
 }
 
-function waitForExit(child: LocalWorkerProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    return Promise.resolve()
-  }
-  return new Promise((resolveExit) => child.once("exit", () => resolveExit()))
-}
-
-async function settleWithin(
-  promise: Promise<void>,
+async function waitForProcessGroupExit(
+  processGroupId: number,
   timeoutMs: number,
 ): Promise<boolean> {
-  let timer: NodeJS.Timeout | undefined
-  try {
-    return await Promise.race([
-      promise.then(() => true),
-      new Promise<boolean>((resolveTimeout) => {
-        timer = setTimeout(() => resolveTimeout(false), timeoutMs)
-        timer.unref()
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!isProcessGroupAlive(processGroupId)) return true
+    await new Promise((resolveWait) => setTimeout(resolveWait, 25))
   }
+  return !isProcessGroupAlive(processGroupId)
 }
 
-function signalChildProcessGroup(
-  child: LocalWorkerProcess,
+function signalProcessGroup(
+  processGroupId: number,
   signal: NodeJS.Signals,
 ): void {
   try {
-    process.kill(-child.pid!, signal)
+    process.kill(-processGroupId, signal)
   } catch (error) {
     if (!isNodeError(error, "ESRCH")) throw error
-    child.kill(signal)
+  }
+}
+
+function isProcessGroupAlive(processGroupId: number): boolean {
+  try {
+    process.kill(-processGroupId, 0)
+    return true
+  } catch (error) {
+    if (isNodeError(error, "ESRCH")) return false
+    if (isNodeError(error, "EPERM")) return true
+    throw error
   }
 }
