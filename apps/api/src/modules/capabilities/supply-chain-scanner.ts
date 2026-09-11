@@ -201,7 +201,17 @@ export async function scanCapabilitySupplyChain(
     }
     const bytes = await readFile(absolutePath);
     if (looksBinary(bytes)) {
-      if (executable) {
+      if (isScannablePath(relativePath)) {
+        findings.push(
+          createFinding({
+            ruleId: "unscannable_interpretable_file",
+            severity: "critical",
+            path: relativePath,
+            line: null,
+            evidence: bytes,
+          }),
+        );
+      } else if (executable) {
         findings.push(
           createFinding({
             ruleId: "unscannable_executable",

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { LookupAddress } from "node:dns";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -319,6 +319,44 @@ describe("CapabilityPackageImporter", () => {
     expect(prepared.packageRoot).toBe(
       join(prepared.stagingDirectory, "presentations"),
     );
+    await importer.cleanup(prepared);
+  });
+
+  it("fails closed for an imported non-executable script that cannot be scanned", async () => {
+    const root = await temporaryDirectory();
+    const importer = new CapabilityPackageImporter({
+      stagingRoot: join(root, "staging"),
+    });
+    const token = `github_pat_${"A".repeat(30)}`;
+    const archive = createStoredZip([
+      {
+        path: "nul-script/SKILL.md",
+        bytes: "---\nname: nul-script\n---\n\nUse the bundled helper.\n",
+      },
+      {
+        path: "nul-script/scripts/run.js",
+        bytes: Buffer.from(`// ${token}\0\nconsole.log("ready");\n`, "utf8"),
+      },
+    ]);
+
+    const prepared = await importer.prepare({
+      kind: "zip",
+      bytes: archive,
+      filename: "nul-script.zip",
+    });
+
+    expect((await lstat(join(prepared.packageRoot, "scripts/run.js"))).mode & 0o111).toBe(0);
+    expect(prepared.riskSummary.supply_chain_review).toMatchObject({
+      verdict: "blocked",
+      highest_severity: "critical",
+      findings: [
+        expect.objectContaining({
+          rule_id: "unscannable_interpretable_file",
+          path: "scripts/run.js",
+        }),
+      ],
+    });
+    expect(JSON.stringify(prepared.riskSummary)).not.toContain(token);
     await importer.cleanup(prepared);
   });
 

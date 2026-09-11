@@ -2971,6 +2971,8 @@ export const enUS = {
         destructive_system_command: "Contains a destructive system command",
         startup_persistence: "Configures system startup persistence",
         fork_bomb: "Contains a process fork bomb",
+        unscannable_interpretable_file:
+          "Contains interpretable source content that cannot be safely scanned",
         unscannable_executable:
           "Contains executable binary content that cannot be scanned",
         oversized_scannable_file:

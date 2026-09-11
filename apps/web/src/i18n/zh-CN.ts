@@ -2758,6 +2758,7 @@ export const zhCN = {
         destructive_system_command: "包含破坏性系统命令",
         startup_persistence: "尝试配置系统启动持久化",
         fork_bomb: "包含进程 Fork Bomb",
+        unscannable_interpretable_file: "包含无法安全扫描的可解释源码内容",
         unscannable_executable: "包含无法扫描的可执行二进制内容",
         oversized_scannable_file: "可扫描文件超过安全审查大小限制",
       },

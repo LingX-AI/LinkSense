@@ -91,8 +91,8 @@ export const capabilityMcpEnvironmentReferenceSchema = z.strictObject({
   http_header: z.string().trim().min(1).max(256).nullable(),
 });
 
-export const capabilitySupplyChainScannerVersion = "1.1.0" as const;
-export const capabilitySupplyChainRulesetVersion = "2026-09-11" as const;
+export const capabilitySupplyChainScannerVersion = "1.2.0" as const;
+export const capabilitySupplyChainRulesetVersion = "2026-09-11.1" as const;
 export const capabilitySupplyChainContentDigestAlgorithm =
   "linksense-capability-package-v1" as const;
 
@@ -115,6 +115,7 @@ export const capabilitySupplyChainRuleIds = [
   "destructive_system_command",
   "startup_persistence",
   "fork_bomb",
+  "unscannable_interpretable_file",
   "unscannable_executable",
   "oversized_scannable_file",
 ] as const;
