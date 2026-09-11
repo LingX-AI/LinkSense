@@ -1337,6 +1337,7 @@ describe("dynamic worker container contract", () => {
       },
     ])
     expect(spec.Env).toContain("HOME=/home/linksense")
+    expect(spec.Env).toContain("UV_THREADPOOL_SIZE=32")
     expect(spec.Env).toContain("CODEX_HOME=/run/linksense-control/supervisor-codex")
     expect(spec.Env).toContain("LINKSENSE_USER_DATA_ROOT=/home/linksense")
     expect(spec.Env).not.toContain("LINK_SENSE_API_KEY=provider-key")

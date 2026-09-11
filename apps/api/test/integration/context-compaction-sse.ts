@@ -239,17 +239,19 @@ try {
 
   await database.conversation.update({ where: { id: conversationId }, data: { codexThreadId: targetThreadId } });
   const batchItemId = randomUUID();
+  const batchText = ["引号'；DROP TABLE conversation_events; --", '\\路径\n🙂 "正文"'];
   const batchEntries = [
-    { method: "item/agentMessage/delta", visibility: "user_visible", params: { threadId: targetThreadId, turnId: targetTurnId, itemId: batchItemId, delta: "完整正文" } },
-    { method: "item/completed", visibility: "user_visible", params: { threadId: targetThreadId, turnId: targetTurnId, item: { id: batchItemId, type: "agentMessage", phase: "final_answer", text: "完整正文" } } },
+    { method: "item/agentMessage/delta", visibility: "user_visible", params: { threadId: targetThreadId, turnId: targetTurnId, itemId: batchItemId, delta: batchText[0] } },
+    { method: "item/agentMessage/delta", visibility: "user_visible", params: { threadId: targetThreadId, turnId: targetTurnId, itemId: batchItemId, delta: batchText[1] } },
+    { method: "item/completed", visibility: "user_visible", params: { threadId: targetThreadId, turnId: targetTurnId, item: { id: batchItemId, type: "agentMessage", phase: "final_answer", text: batchText.join("") } } },
   ].map(event => ({ deliveryId: randomUUID(), event }));
   const ingest = events.ingest.bind(events);
   let failCompletion = true;
   events.ingest = async (...args) => {
-    if (args[2] === batchEntries[1]!.deliveryId && failCompletion) throw new Error("injected completion failure");
+    if (args[2] === batchEntries[2]!.deliveryId && failCompletion) throw new Error("injected completion failure");
     return ingest(...args);
   };
-  const deliverBatch = async (entries: typeof batchEntries) => {
+  const deliverBatch = async (entries: Array<{ deliveryId: string; event: (typeof batchEntries)[number]["event"] }>) => {
     const response = await fetch(`${origin}/internal/runner/events`, {
       method: "POST", headers: {
         "content-type": "application/json", authorization: `Bearer ${config.runnerSharedSecret}`,
@@ -261,28 +263,55 @@ try {
     assert.equal(response.status, 200);
     return await response.json() as { data: { accepted_delivery_ids: string[] } };
   };
-  assert.deepEqual((await deliverBatch(batchEntries)).data.accepted_delivery_ids, [batchEntries[0]!.deliveryId]);
-  assert.equal(await database.conversationEvent.count({ where: { id: batchEntries[1]!.deliveryId } }), 0);
+  assert.deepEqual((await deliverBatch(batchEntries)).data.accepted_delivery_ids, batchEntries.slice(0, 2).map(entry => entry.deliveryId));
+  assert.equal(await database.conversationEvent.count({ where: { id: batchEntries[2]!.deliveryId } }), 0);
   failCompletion = false;
   // Retrying the whole batch also covers a lost receipt: completed message
   // projection and durable event ids must stay unique.
   for (let retry = 0; retry < 2; retry++) {
     assert.deepEqual((await deliverBatch(batchEntries)).data.accepted_delivery_ids, batchEntries.map(entry => entry.deliveryId));
   }
-  assert.equal(await database.conversationEvent.count({ where: { id: { in: batchEntries.map(entry => entry.deliveryId) } } }), 2);
-  assert.equal(await database.conversationMessage.count({ where: { conversationId, contentText: "完整正文" } }), 1);
+  assert.equal(await database.conversationEvent.count({ where: { id: { in: batchEntries.map(entry => entry.deliveryId) } } }), 3);
+  assert.equal(await database.conversationMessage.count({ where: { conversationId, contentText: batchText.join("") } }), 1);
+  const storedText = await database.conversationEvent.findMany({
+    where: { id: { in: batchEntries.slice(0, 2).map(entry => entry.deliveryId) } }, orderBy: { sequenceNo: "asc" },
+  });
+  assert.deepEqual(storedText.map(row => row.payloadJson), batchEntries.slice(0, 2).map(entry => ({
+    schema_version: 2, source: "codex_app_server", method: entry.event.method, params: entry.event.params,
+  })));
 
   const switchedEntries = batchEntries.map(entry => ({ ...entry, deliveryId: randomUUID() }));
-  events.ingest = async (...args) => {
-    const result = await ingest(...args);
-    if (args[2] === switchedEntries[0]!.deliveryId) {
+  events.ingest = ingest;
+  const ingestTextDeltaBatch = events.ingestTextDeltaBatch.bind(events);
+  events.ingestTextDeltaBatch = async (...args) => {
+    const result = await ingestTextDeltaBatch(...args);
+    if (args[1][0]?.deliveryId === switchedEntries[0]!.deliveryId) {
       await database.conversation.update({ where: { id: conversationId }, data: { codexThreadId: sourceThreadId } });
     }
     return result;
   };
   assert.deepEqual((await deliverBatch(switchedEntries)).data.accepted_delivery_ids, switchedEntries.map(entry => entry.deliveryId));
-  assert.equal(await database.conversationEvent.count({ where: { id: switchedEntries[1]!.deliveryId } }), 0);
+  assert.equal(await database.conversationEvent.count({ where: { id: switchedEntries[2]!.deliveryId } }), 0);
   console.log("partial batch failure, lost receipts, duplicate message prevention and branch revalidation: passed");
+
+  events.ingestTextDeltaBatch = ingestTextDeltaBatch;
+  await database.conversation.update({ where: { id: conversationId }, data: { codexThreadId: targetThreadId } });
+  const concurrentEntries = batchEntries.slice(0, 2).map(entry => ({ ...entry, deliveryId: randomUUID().toUpperCase() }));
+  const concurrentResults = await Promise.all([
+    deliverBatch(concurrentEntries), deliverBatch(concurrentEntries), deliverBatch(concurrentEntries),
+  ]);
+  for (const result of concurrentResults) {
+    assert.deepEqual(result.data.accepted_delivery_ids, concurrentEntries.map(entry => entry.deliveryId));
+  }
+  const concurrentRows = await database.conversationEvent.findMany({
+    where: { id: { in: concurrentEntries.map(entry => entry.deliveryId) } }, orderBy: { sequenceNo: "asc" },
+  });
+  assert.deepEqual(concurrentRows.map(row => row.id), concurrentEntries.map(entry => entry.deliveryId.toLowerCase()));
+  assert.equal(concurrentRows[1]!.sequenceNo, concurrentRows[0]!.sequenceNo + 1n);
+  const resumed = await openStream(origin, concurrentRows[0]!.sseEventId);
+  assert.equal((await resumed.readEvent()).id, concurrentRows[1]!.id);
+  resumed.close();
+  console.log("concurrent text batch retries, unique consecutive sequences and SSE cursor resume: passed");
 
   async function publish(method: "item/started" | "item/completed", deliveryId: string): Promise<void> {
     const response = await fetch(`${origin}/internal/runner/events`, {
@@ -318,11 +347,12 @@ async function startContainer(kind: string, image: string, port: string, args: s
   return exposedPort;
 }
 
-async function openStream(origin: string) {
+async function openStream(origin: string, lastEventId?: string) {
   const controller = new AbortController();
   streams.push(controller);
   const response = await fetch(`${origin}/conversations/${conversationId}/events`, {
     signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]),
+    headers: lastEventId ? { "last-event-id": lastEventId } : {},
   });
   assert.equal(response.status, 200);
   const reader = response.body?.getReader();

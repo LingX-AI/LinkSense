@@ -31,6 +31,8 @@ import { WorkspaceManager } from "./workspace/workspace-manager.js";
 export interface RunnerEventSink {
   /** Atomically persists the event before returning. */
   publish(conversationId: string, event: LinkSensePublishedEvent): Promise<void>;
+  /** Persists every original event, in order, before returning. */
+  publishBatch(conversationId: string, events: readonly LinkSensePublishedEvent[]): Promise<void>;
   reportProcessExit(input: ProcessExitReport): Promise<void>;
   registerArtifact(input: {
     conversationId: string;
@@ -145,15 +147,23 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     conversationId: string,
     event: LinkSensePublishedEvent,
   ): Promise<void> {
+    await this.publishBatch(conversationId, [event]);
+  }
+
+  async publishBatch(
+    conversationId: string,
+    events: readonly LinkSensePublishedEvent[],
+  ): Promise<void> {
     if (!this.accepting) {
       throw new Error("runner event sink is closing");
     }
     const activeThreadId = this.conversationThreads.get(conversationId);
-    const eventThreadId = runnerEventThreadId(event);
-    if (activeThreadId && eventThreadId && eventThreadId !== activeThreadId) {
-      return;
-    }
-    await this.outbox.append(conversationId, event);
+    const currentEvents = events.filter(event => {
+      const eventThreadId = runnerEventThreadId(event);
+      return !activeThreadId || !eventThreadId || eventThreadId === activeThreadId;
+    });
+    if (currentEvents.length === 0) return;
+    await this.outbox.appendBatch(conversationId, currentEvents);
     this.startWorker(conversationId);
   }
 

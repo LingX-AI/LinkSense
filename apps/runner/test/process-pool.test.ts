@@ -45,6 +45,7 @@ import type {
 } from "../src/workspace/capability-runtime.js";
 import { WorkspaceManager } from "../src/workspace/workspace-manager.js";
 import { createModelGatewayMock } from "./model-gateway-mock.js";
+import { deferred } from "./deferred.js";
 
 const roots: string[] = [];
 const PNG = Buffer.from(
@@ -84,6 +85,55 @@ afterEach(async () => {
 });
 
 describe("AppServerProcessPool", () => {
+  it("keeps original text, server requests and completion ordered while a delta batch waits for durable storage", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-notification-batch-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    const durable = deferred<void>();
+    const started = deferred<void>();
+    const publishBatch = eventSink.publishBatch.getMockImplementation();
+    if (!publishBatch) throw new Error("missing test event sink implementation");
+    eventSink.publishBatch.mockImplementationOnce(async (conversationId, events) => {
+      started.resolve();
+      await durable.promise;
+      await publishBatch(conversationId, events);
+    });
+    const params = { threadId: "thread-native-1", turnId: "turn-native-1", itemId: "stream-item" };
+    const notifyDelta = (delta: string) => controlled.notify({ method: "item/agentMessage/delta", params: { ...params, delta } });
+    try {
+      await pool.startTurn(startOperationInput());
+      eventSink.publish.mockClear();
+      ["甲", "乙", "🙂"].forEach(notifyDelta);
+      await started.promise;
+      controlled.notify({ method: "a/future/notification", params });
+      ["丙", "丁"].forEach(notifyDelta);
+      controlled.notify({
+        id: 77, method: "item/tool/requestUserInput",
+        params: { ...params, itemId: "question-item", questions: [{ id: "scope", header: "Scope", question: "Choose scope", isOther: true, isSecret: false, options: null }], isBlocking: false, autoResolutionMs: 60_000 },
+      });
+      ["戊", "己"].forEach(notifyDelta);
+      controlled.notify({ method: "item/completed", params: { ...params, item: { id: params.itemId, type: "agentMessage", phase: "final_answer", text: "甲乙🙂丙丁戊己" } } });
+      controlled.notify({ method: "turn/completed", params: { threadId: params.threadId, turn: { id: params.turnId, status: "completed", items: [], error: null } } });
+      expect(eventSink.publish).not.toHaveBeenCalled();
+      expect(pool.runningCount).toBe(1);
+      durable.resolve();
+      await waitForFast(() => expect(pool.runningCount).toBe(0));
+      const events = eventSink.publish.mock.calls.map(([, event]) => event);
+      expect(events.map(event => event.method)).toEqual([
+        ...Array.from({ length: 5 }, () => "item/agentMessage/delta"),
+        "item/tool/requestUserInput",
+        "item/agentMessage/delta", "item/agentMessage/delta", "item/completed", "turn/completed",
+      ]);
+      expect(events.filter(event => event.method === "item/agentMessage/delta").map(event => event.params.delta).join("")).toBe("甲乙🙂丙丁戊己");
+      expect(eventSink.publishBatch.mock.calls.map(([, events]) => events.length)).toEqual([3, 2, 2]);
+      await waitForFast(() => expect(controlled.requests.some(request => request.id === 77 && "result" in request)).toBe(true));
+    } finally {
+      durable.resolve();
+      await pool.closeAll();
+    }
+  });
+
   it("requests a native interrupt before closing a pool with active execution", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-deploy-shutdown-"));
     roots.push(root);
@@ -6507,6 +6557,7 @@ trust_level = "trusted"
     const capabilityRuntimeManager = createCapabilityRuntimeManagerMock();
     const eventSink = {
       publish: vi.fn(async () => undefined),
+      publishBatch: vi.fn(async () => undefined),
       reportProcessExit: vi.fn(async () => undefined),
       registerArtifact: vi.fn(async () => ({})),
     } satisfies RunnerEventSink;
@@ -6612,6 +6663,7 @@ trust_level = "trusted"
       nativePluginManager: createNativePluginManagerMock(),
       eventSink: {
         publish: vi.fn(async () => undefined),
+        publishBatch: vi.fn(async () => undefined),
         reportProcessExit: vi.fn(async () => undefined),
         registerArtifact: vi.fn(async () => ({})),
       },
@@ -6846,6 +6898,7 @@ trust_level = "trusted"
       nativePluginManager: createNativePluginManagerMock(),
       eventSink: {
         publish: vi.fn(async () => undefined),
+        publishBatch: vi.fn(async () => undefined),
         reportProcessExit: vi.fn(async () => undefined),
         registerArtifact: vi.fn(async () => ({})),
       },
@@ -6986,8 +7039,8 @@ trust_level = "trusted"
           file.endsWith(".json"),
         ),
       ).toHaveLength(2);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     releaseFirstRequest?.();
     await waitForFast(async () => {
@@ -7047,7 +7100,8 @@ trust_level = "trusted"
       let replacementPromise:
         Promise<{ codexThreadId: string; codexTurnId: string }> | undefined;
       const eventSink = {
-        publish: vi.fn(async (_conversationId, event) => {
+        publishBatch: vi.fn(async () => undefined),
+        publish: vi.fn<RunnerEventSink["publish"]>(async (_conversationId, event) => {
           if (
             replacementStarted ||
             !("method" in event) ||
@@ -7194,6 +7248,7 @@ trust_level = "trusted"
       nativePluginManager: createNativePluginManagerMock(),
       eventSink: {
         publish: vi.fn(async () => undefined),
+        publishBatch: vi.fn(async () => undefined),
         reportProcessExit: vi.fn(async () => undefined),
         registerArtifact: vi.fn(async () => ({})),
         searchKnowledge: vi.fn(async () => ({})),
@@ -7238,6 +7293,7 @@ trust_level = "trusted"
     const capabilityRuntimeManager = createCapabilityRuntimeManagerMock();
     const eventSink = {
       publish: vi.fn(async () => undefined),
+      publishBatch: vi.fn(async () => undefined),
       reportProcessExit: vi.fn(async () => undefined),
       registerArtifact: vi.fn(async () => ({})),
       searchKnowledge: vi.fn(async () => ({})),
@@ -8749,6 +8805,7 @@ trust_level = "trusted"
       nativePluginManager: createNativePluginManagerMock(),
       eventSink: {
         publish: vi.fn(async () => undefined),
+        publishBatch: vi.fn(async () => undefined),
         reportProcessExit: vi.fn(async () => undefined),
         registerArtifact: vi.fn(async () => ({})),
       },
@@ -8800,6 +8857,7 @@ trust_level = "trusted"
       nativePluginManager: createNativePluginManagerMock(),
       eventSink: {
         publish: vi.fn(async () => undefined),
+        publishBatch: vi.fn(async () => undefined),
         reportProcessExit: vi.fn(async () => undefined),
         registerArtifact: vi.fn(async () => ({})),
       },
@@ -10531,8 +10589,12 @@ function createStartOperationPool(
   } = {},
 ) {
   const runtimeState = controlledWorkspaceRuntimeGeneration(workspaceManager);
+  const publish = vi.fn<RunnerEventSink["publish"]>(async () => undefined);
   const eventSink = {
-    publish: vi.fn<RunnerEventSink["publish"]>(async () => undefined),
+    publish,
+    publishBatch: vi.fn<RunnerEventSink["publishBatch"]>(async (conversationId, events) => {
+      for (const event of events) await publish(conversationId, event);
+    }),
     reportProcessExit: vi.fn(async () => undefined),
     registerArtifact: vi.fn(async () => ({})),
     previewSkillZip: vi.fn(async () => ({})),
