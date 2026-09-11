@@ -36,6 +36,7 @@ import type { ConversationTitleService } from "./title-service.js";
 import type { ConversationPrewarmInput } from "./prewarm.js";
 import {
   builtInCapabilityDefinitionForId,
+  capabilityPackageNameSchema,
   capabilitySelectionIdSchema,
   capabilitySourceTypeSchema,
   capabilityTypeSchema,
@@ -67,6 +68,7 @@ import {
   runtimeMcpServerSchema,
   RUNNER_TURN_INTERRUPT_NOT_ACTIVE,
   RUNNER_TURN_INTERRUPT_REQUESTED,
+  type RunnerTurnInterruptResult,
   userMessageDisplaySchema,
   type HtmlAnnotation,
   type ConversationCollaborationMode,
@@ -92,7 +94,6 @@ import {
   type ThreadGoal,
   workspacePermissionPolicy,
 } from "@linksense/shared";
-import { capabilityPackageNameSchema } from "../capabilities/package-name.js";
 import type { ApplicationTaskMetadata } from "../applications/service.js";
 import type { CapabilityRuntimeVerification } from "../capabilities/user-home-materializer.js";
 import { nextConversationEventSequence } from "../events/sequence.js";
@@ -5453,7 +5454,7 @@ export class ConversationService {
     conversationId: string,
     localTurnId: string,
     context: AuditContext,
-  ) {
+  ): Promise<RunnerTurnInterruptResult & { turn_id: string }> {
     await this.assertOwner(ownerId, conversationId);
     let turn = await this.prisma.conversationTurn.findFirst({
       where: { id: localTurnId, conversationId },
@@ -5481,29 +5482,23 @@ export class ConversationService {
       }
 
       if (startIntent) {
-        const deadline =
-          Date.now() + ACCEPTED_START_RECOVERY_WINDOW_MILLISECONDS;
-        while (!turn && Date.now() < deadline) {
-          const outcome = await this.recoverStartIntent(localTurnId);
-          turn = await this.prisma.conversationTurn.findFirst({
-            where: { id: localTurnId, conversationId },
-          });
-          if (turn) break;
-          if (outcome === "missing" || outcome === "released") {
-            return {
-              code: RUNNER_TURN_INTERRUPT_NOT_ACTIVE,
-              turn_id: localTurnId,
-            };
-          }
-          await new Promise<void>((resolve) => {
-            const timer = setTimeout(
-              resolve,
-              ACCEPTED_START_RECOVERY_POLL_MILLISECONDS,
-            );
-            timer.unref();
-          });
-        }
-        if (!turn) throw turnProjectionUnavailableError();
+        const intent = parseTurnStartIntent(startIntent);
+        const interrupt = await this.runner.interruptStartOperation(
+          conversationId,
+          localTurnId,
+          ownerId,
+          intent.runtimeGeneration,
+        );
+        // Reuse the durable projection/release dispatcher after acknowledging
+        // cancellation. Never wait for its conversation lock or replay startup.
+        this.trackAcceptedStartRecovery(localTurnId);
+        return this.recordTurnInterruptRequest(
+          ownerId,
+          conversationId,
+          localTurnId,
+          context,
+          interrupt,
+        );
       }
     }
     if (!turn) {
@@ -5522,38 +5517,41 @@ export class ConversationService {
     if (turn.status !== "running") {
       throw new AppError("TURN_INTERRUPT_REQUEST_FAILED");
     }
-    if (turn.interruptRequestedAt) {
-      return { code: RUNNER_TURN_INTERRUPT_REQUESTED, turn_id: turn.id };
-    }
-    if (turn.taskKind === "goal") {
-      const goal = await this.prisma.conversationGoal.findFirst({
-        where: {
-          conversationId,
-          ownerId,
-          activeTurnId: turn.id,
-          status: "active",
-        },
-        select: { conversationId: true },
-      });
-      if (goal) {
-        await this.updateGoal(
-          ownerId,
-          conversationId,
-          { status: "paused" },
-          context,
-        );
-      }
-    }
-    const interrupt = await this.runner.interrupt(
-      conversationId,
+    const interrupt =
+      turn.taskKind === "goal"
+        ? await this.runner.interrupt(
+            conversationId,
+            ownerId,
+            turn.codexTurnId,
+            turn.id,
+          )
+        : await this.runner.interrupt(conversationId, ownerId, turn.codexTurnId);
+    return this.recordTurnInterruptRequest(
       ownerId,
-      turn.codexTurnId,
+      conversationId,
+      turn.id,
+      context,
+      interrupt,
     );
+  }
+
+  private async recordTurnInterruptRequest(
+    ownerId: string,
+    conversationId: string,
+    localTurnId: string,
+    context: AuditContext,
+    interrupt: RunnerTurnInterruptResult,
+  ): Promise<RunnerTurnInterruptResult & { turn_id: string }> {
     if (interrupt.code === RUNNER_TURN_INTERRUPT_NOT_ACTIVE) {
-      return { code: RUNNER_TURN_INTERRUPT_NOT_ACTIVE, turn_id: turn.id };
+      return { code: RUNNER_TURN_INTERRUPT_NOT_ACTIVE, turn_id: localTurnId };
     }
-    await this.prisma.conversationTurn.update({
-      where: { id: turn.id },
+    await this.prisma.conversationTurn.updateMany({
+      where: {
+        id: localTurnId,
+        conversationId,
+        status: "running",
+        interruptRequestedAt: null,
+      },
       data: { interruptRequestedAt: new Date() },
     });
     await this.audit.write({
@@ -5561,11 +5559,11 @@ export class ConversationService {
       actorId: ownerId,
       action: "conversation_turn_interrupt_requested",
       targetType: "conversation_turn",
-      targetId: turn.id,
+      targetId: localTurnId,
       result: "success",
       metadata: { conversation_id: conversationId },
     });
-    return { code: RUNNER_TURN_INTERRUPT_REQUESTED, turn_id: turn.id };
+    return { code: RUNNER_TURN_INTERRUPT_REQUESTED, turn_id: localTurnId };
   }
 
   async respondToUserInputRequest(

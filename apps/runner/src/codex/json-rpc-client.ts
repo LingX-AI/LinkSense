@@ -184,7 +184,11 @@ export class CodexJsonRpcClient extends EventEmitter {
     return response;
   }
 
-  request<TResult>(method: string, params: unknown): Promise<TResult> {
+  request<TResult>(
+    method: string,
+    params: unknown,
+    options: { timeoutMs?: number } = {},
+  ): Promise<TResult> {
     if (this.closed || !this.healthy) {
       return Promise.reject(
         new CodexProtocolError(
@@ -203,7 +207,10 @@ export class CodexJsonRpcClient extends EventEmitter {
         reject(
           new CodexProtocolError(`app-server request timed out: ${method}`),
         );
-      }, this.requestTimeoutMs);
+      }, Math.min(
+        options.timeoutMs ?? this.requestTimeoutMs,
+        this.requestTimeoutMs,
+      ));
       timer.unref();
       this.pending.set(id, {
         resolve: (value) => resolve(value as TResult),

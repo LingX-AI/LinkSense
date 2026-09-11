@@ -40,6 +40,12 @@ import {
 import { z } from "zod"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
+import {
+  conversationInterruptPollIntervalMs,
+  conversationInterruptTimeoutMs,
+  interruptConversationTurn,
+  type ConversationInterruptTarget,
+} from "@/features/conversations/conversation-interrupt"
 import { useConversationPrewarm } from "@/features/conversations/use-conversation-prewarm"
 import { useConversationArchiveNotification } from "@/features/conversations/use-conversation-archive-notification"
 import {
@@ -553,9 +559,9 @@ export function ConversationPage({
     },
     [refreshUser, t]
   )
-  const [interruptingConversationId, setInterruptingConversationId] = useState<
-    string | null
-  >(null)
+  const [interruptTarget, setInterruptTarget] =
+    useState<ConversationInterruptTarget | null>(null)
+  const interruptingConversationId = interruptTarget?.conversationId
   const [terminalDetailReconciliations, setTerminalDetailReconciliations] =
     useState<
       Record<
@@ -750,10 +756,16 @@ export function ConversationPage({
     (isNewTaskPromotion &&
       interruptingConversationId === newConversationPlaceholderId)
   const clearInterruptingConversation = useCallback(
-    (targetConversationId: string | null | undefined) => {
+    (
+      targetConversationId: string | null | undefined,
+      turnId?: string | null
+    ) => {
       if (!targetConversationId) return
-      setInterruptingConversationId((current) =>
-        current === targetConversationId ? null : current
+      setInterruptTarget((current) =>
+        current?.conversationId === targetConversationId &&
+        (!turnId || !current.turnId || current.turnId === turnId)
+          ? null
+          : current
       )
     },
     []
@@ -1931,7 +1943,7 @@ export function ConversationPage({
             if (event.turn_id) {
               stopHookSupersededItemIdsByTurnRef.current.delete(event.turn_id)
             }
-            clearInterruptingConversation(conversationId)
+            clearInterruptingConversation(conversationId, event.turn_id)
             setLiveReasoningSummaries((current) =>
               removeStreamingReasoningSummariesForTurn(current, event.turn_id)
             )
@@ -2093,7 +2105,12 @@ export function ConversationPage({
           event.type === "conversation.status.changed"
         ) {
           clearNativeReconnect()
-          clearInterruptingConversation(conversationId)
+          if (
+            executionTransition &&
+            isTerminalConversationExecutionStatus(executionTransition.status)
+          ) {
+            clearInterruptingConversation(conversationId, event.turn_id)
+          }
           setLiveReasoningSummaries((current) =>
             removeStreamingReasoningSummariesForTurn(current, event.turn_id)
           )
@@ -3779,49 +3796,88 @@ export function ConversationPage({
     }: {
       targetConversationId: string
       turnId: string
-    }) =>
-      apiRequest(
-        `/conversations/${targetConversationId}/turns/${turnId}/interrupt`,
-        {
-          method: "POST",
-          schema: emptyResponseSchema,
-        }
-      ),
-    onMutate: ({ targetConversationId }) =>
-      setInterruptingConversationId(targetConversationId),
-    onSuccess: async (_result, { targetConversationId, turnId }) => {
-      try {
-        await refreshAfterMutation(targetConversationId)
-      } finally {
-        dispatchedInterruptTurnIdsRef.current.delete(turnId)
-        clearPendingConversationExecution(queryClient, targetConversationId)
-        const pending = getPendingConversationTurnSubmission(
+    }) => interruptConversationTurn(targetConversationId, turnId),
+    onMutate: ({ targetConversationId, turnId }) => {
+      setInterruptTarget({ conversationId: targetConversationId, turnId })
+      if (routeConversationIdRef.current === targetConversationId)
+        setError(null)
+    },
+    onSuccess: (_result, { targetConversationId, turnId }) => {
+      dispatchedInterruptTurnIdsRef.current.delete(turnId)
+      clearPendingConversationExecution(queryClient, targetConversationId)
+      const pending = getPendingConversationTurnSubmission(
+        queryClient,
+        targetConversationId
+      )
+      if (pending?.turnId === turnId && pending.interruptRequested) {
+        clearPendingConversationTurnSubmission(
           queryClient,
           targetConversationId
         )
-        if (pending?.turnId === turnId && pending.interruptRequested) {
-          clearPendingConversationTurnSubmission(
-            queryClient,
-            targetConversationId
-          )
-        }
-        setPendingTurnSubmission((current) =>
-          current?.turnId === turnId && current.interruptRequested
-            ? null
-            : current
-        )
       }
+      setPendingTurnSubmission((current) =>
+        current?.turnId === turnId && current.interruptRequested
+          ? null
+          : current
+      )
+      // Receipt handling must not be held open by a slow detail/list refresh.
+      void refreshAfterMutation(targetConversationId).catch(() => undefined)
     },
     onError: (nextError, { targetConversationId, turnId }) => {
       dispatchedInterruptTurnIdsRef.current.delete(turnId)
       clearPendingConversationExecution(queryClient, targetConversationId)
-      clearInterruptingConversation(targetConversationId)
+      clearInterruptingConversation(targetConversationId, turnId)
+      updatePendingConversationTurnSubmission(
+        queryClient,
+        targetConversationId,
+        (current) =>
+          current.turnId === turnId
+            ? { ...current, interruptRequested: false }
+            : current
+      )
+      setPendingTurnSubmission((current) =>
+        current?.turnId === turnId
+          ? { ...current, interruptRequested: false }
+          : current
+      )
       if (routeConversationIdRef.current === targetConversationId) {
         setError(getErrorMessage(nextError, t))
       }
     },
   })
   const requestTurnInterrupt = interruptMutation.mutate
+
+  useEffect(() => {
+    if (!interruptTarget) return
+    const { conversationId: targetConversationId, turnId } = interruptTarget
+    const poll =
+      turnId && targetConversationId !== newConversationPlaceholderId
+        ? window.setInterval(() => {
+            void queryClient
+              .invalidateQueries(
+                {
+                  queryKey: ["conversation", targetConversationId],
+                  exact: true,
+                },
+                { cancelRefetch: false }
+              )
+              .catch(() => undefined)
+          }, conversationInterruptPollIntervalMs)
+        : undefined
+    const timeout = window.setTimeout(() => {
+      clearInterruptingConversation(targetConversationId, turnId)
+      if (
+        (routeConversationIdRef.current ?? newConversationPlaceholderId) ===
+        targetConversationId
+      ) {
+        setError(t("errors.interruptFailed"))
+      }
+    }, conversationInterruptTimeoutMs)
+    return () => {
+      window.clearInterval(poll)
+      window.clearTimeout(timeout)
+    }
+  }, [interruptTarget, clearInterruptingConversation, queryClient, t])
 
   useEffect(() => {
     const pending = currentPendingTurnSubmission
@@ -5708,7 +5764,10 @@ export function ConversationPage({
             onInterrupt={() => {
               const pending = activePendingTurnSubmission
               if (pending) {
-                setInterruptingConversationId(pending.conversationId)
+                setInterruptTarget({
+                  conversationId: pending.conversationId,
+                  turnId: pending.turnId,
+                })
                 updatePendingConversationTurnSubmission(
                   queryClient,
                   pending.conversationId,
@@ -5726,6 +5785,8 @@ export function ConversationPage({
               }
               const turnId = conversation?.running_turn?.id
               if (conversationId && turnId) {
+                if (dispatchedInterruptTurnIdsRef.current.has(turnId)) return
+                dispatchedInterruptTurnIdsRef.current.add(turnId)
                 interruptMutation.mutate({
                   targetConversationId: conversationId,
                   turnId,

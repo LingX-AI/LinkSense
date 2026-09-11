@@ -32,6 +32,7 @@ type ApiStartupResources = {
     | "weixinRuntime"
   >;
   redis: Pick<LinkSenseRedis, "close">;
+  runner: Pick<RunnerClient, "waitUntilReady">;
   prisma: { $disconnect(): Promise<void> };
   host: string;
   port: number;
@@ -71,6 +72,7 @@ export function createApiLifecycle(
         await startStage("bot-channels", () => resources.services.botChannelRuntime.start());
         await startStage("feishu", () => resources.services.feishuRuntime.start());
         await startStage("weixin", () => resources.services.weixinRuntime.start());
+        await startStage("runner-readiness", () => resources.runner.waitUntilReady());
         await startStage("task-recovery", () => resources.services.events.recoverRunningTurns());
         await resources.app.listen({
           host: resources.host,
@@ -78,6 +80,10 @@ export function createApiLifecycle(
         });
         await resources.services.events.startRecoveryMonitor();
       } catch (error) {
+        resources.app.log.error({
+          error_class: error instanceof Error ? error.name : "unknown",
+          reason_code: stableReasonCode(error),
+        }, "API startup failed");
         await close().catch(() => undefined);
         throw error;
       }
@@ -155,6 +161,7 @@ export async function main(): Promise<void> {
       app,
       services: boot.services,
       redis,
+      runner,
       prisma,
       host: config.host,
       port: config.port,

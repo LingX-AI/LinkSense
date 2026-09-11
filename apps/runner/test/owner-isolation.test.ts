@@ -187,6 +187,7 @@ describe("worker owner isolation", () => {
       .fn()
       .mockResolvedValueOnce("requested")
       .mockResolvedValueOnce("not_active")
+      .mockResolvedValueOnce("requested")
       .mockRejectedValueOnce(new Error("native request failed"));
     const pool = { interrupt } as unknown as AppServerProcessPool;
     const server = buildRunnerServer(config, pool, workspaceManager);
@@ -201,6 +202,12 @@ describe("worker owner isolation", () => {
       payload: { turnId: "turn-native-1" },
     };
 
+    const invalidGoal = await server.inject({
+      ...request,
+      payload: { ...request.payload, goalProjectionTurnId: "invalid" },
+    });
+    expect(invalidGoal.statusCode).toBe(400);
+    expect(interrupt).not.toHaveBeenCalled();
     const active = await server.inject(request);
     expect(active.statusCode).toBe(200);
     expect(active.json()).toEqual({ code: "TURN_INTERRUPT_REQUESTED" });
@@ -219,11 +226,58 @@ describe("worker owner isolation", () => {
       "turn-native-1",
     );
 
+    const goalProjectionTurnId = "01900000-0000-7000-8000-000000000010";
+    const goal = await server.inject({ ...request, payload: { ...request.payload, goalProjectionTurnId } });
+    expect(goal.json()).toEqual({ code: "TURN_INTERRUPT_REQUESTED" });
+    expect(interrupt).toHaveBeenNthCalledWith(3, conversationId, "turn-native-1", goalProjectionTurnId);
     const failed = await server.inject(request);
     expect(failed.statusCode).toBe(409);
     expect(failed.json()).toEqual({
       error_code: "TURN_INTERRUPT_REQUEST_FAILED",
     });
+    await server.close();
+  });
+
+  it("validates and owner-scopes startup interruption and redacts failures", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-start-interrupt-route-"));
+    roots.push(root);
+    const config = createWorkerConfig(root);
+    const workspaceManager = createWorkspaceManager(config, root);
+    const interruptStartOperation = vi.fn()
+      .mockResolvedValueOnce("requested")
+      .mockResolvedValueOnce("not_active")
+      .mockRejectedValueOnce(new Error("private native failure"));
+    const pool = { interruptStartOperation } as unknown as AppServerProcessPool;
+    const server = buildRunnerServer(config, pool, workspaceManager);
+    const conversationId = "01900000-0000-7000-8000-000000000001";
+    const projectionTurnId = "01900000-0000-7000-8000-000000000010";
+    const expectedRuntimeGeneration = "01900000-0000-7000-8000-000000000011";
+    const request = {
+      method: "POST" as const,
+      url: `/conversations/${conversationId}/turns/start/${projectionTurnId}/interrupt`,
+      headers: {
+        authorization: `Bearer ${config.LINKSENSE_RUNNER_SHARED_SECRET}`,
+        "x-linksense-owner-id": ownerId,
+      },
+      payload: { ownerId, expectedRuntimeGeneration },
+    };
+    const unauthorized = await server.inject({ ...request, headers: {} });
+    expect(unauthorized.statusCode).toBe(401);
+    const forbidden = await server.inject({ ...request, payload: { ...request.payload, ownerId: otherOwnerId } });
+    expect(forbidden.statusCode).toBe(403);
+    const invalid = await server.inject({ ...request, payload: { ownerId, expectedRuntimeGeneration: "invalid" } });
+    expect(invalid.statusCode).toBe(400);
+    expect(interruptStartOperation).not.toHaveBeenCalled();
+    const accepted = await server.inject(request);
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json()).toEqual({ code: "TURN_INTERRUPT_REQUESTED" });
+    expect(interruptStartOperation).toHaveBeenCalledWith({ conversationId, projectionTurnId, ownerId, expectedRuntimeGeneration });
+    const inactive = await server.inject(request);
+    expect(inactive.json()).toEqual({ code: "TURN_INTERRUPT_NOT_ACTIVE" });
+    const failed = await server.inject(request);
+    expect(failed.statusCode).toBe(409);
+    expect(failed.json()).toEqual({ error_code: "TURN_INTERRUPT_REQUEST_FAILED" });
+    expect(failed.body).not.toContain("private native failure");
     await server.close();
   });
 
