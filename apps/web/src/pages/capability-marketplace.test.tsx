@@ -19,7 +19,11 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom"
-import { APPLICATION_ICON_MAX_BYTES } from "@linksense/shared"
+import {
+  APPLICATION_ICON_MAX_BYTES,
+  capabilitySupplyChainRulesetVersion,
+  capabilitySupplyChainScannerVersion,
+} from "@linksense/shared"
 
 import { setAccessToken } from "@/api/session"
 import { userSchema } from "@/api/contracts"
@@ -90,8 +94,8 @@ const riskSummary = {
 const blockedRiskSummary = {
   ...riskSummary,
   supply_chain_review: {
-    scanner_version: "1.1.0",
-    ruleset_version: "2026-09-11",
+    scanner_version: capabilitySupplyChainScannerVersion,
+    ruleset_version: capabilitySupplyChainRulesetVersion,
     scanned_at: NOW,
     content_digest_algorithm: "linksense-capability-package-v1" as const,
     content_sha256: "b".repeat(64),
@@ -100,7 +104,7 @@ const blockedRiskSummary = {
     finding_count: 1,
     findings: [
       {
-        scanner_version: "1.1.0" as const,
+        scanner_version: capabilitySupplyChainScannerVersion,
         rule_id: "fork_bomb" as const,
         severity: "critical" as const,
         path: "payload",

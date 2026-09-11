@@ -9,6 +9,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  capabilitySupplyChainRulesetVersion,
+  capabilitySupplyChainScannerVersion,
+} from "@linksense/shared";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -105,8 +109,8 @@ describe("MarketplaceService", () => {
     expect(
       firstSubmission.latest_release.risk_summary.supply_chain_review,
     ).toMatchObject({
-      scanner_version: "1.1.0",
-      ruleset_version: "2026-09-11",
+      scanner_version: capabilitySupplyChainScannerVersion,
+      ruleset_version: capabilitySupplyChainRulesetVersion,
       verdict: "passed",
       content_sha256: firstSubmission.latest_release.content_sha256,
     });
@@ -149,8 +153,8 @@ describe("MarketplaceService", () => {
         action: "marketplace_release_reviewed",
         targetId: firstReleaseId,
         metadata: expect.objectContaining({
-          security_scanner_version: "1.1.0",
-          security_ruleset_version: "2026-09-11",
+          security_scanner_version: capabilitySupplyChainScannerVersion,
+          security_ruleset_version: capabilitySupplyChainRulesetVersion,
           security_content_sha256:
             firstSubmission.latest_release.content_sha256,
           security_verdict: "passed",
