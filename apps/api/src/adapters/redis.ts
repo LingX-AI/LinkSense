@@ -1191,6 +1191,22 @@ export class LinkSenseRedis {
     }
   }
 
+  async publishConversationEvents(conversationId: string, events: readonly unknown[]): Promise<void> {
+    if (events.length === 0) return
+    try {
+      const pipeline = this.client.pipeline()
+      for (const event of events) {
+        pipeline.publish(`linksense:conversation-events:${conversationId}`, JSON.stringify(event))
+      }
+      const results = await pipeline.exec()
+      if (!results || results.length !== events.length || results.some(([error]) => error !== null)) {
+        throw new RedisUnavailableError("event_publish")
+      }
+    } catch {
+      throw new RedisUnavailableError("event_publish")
+    }
+  }
+
   async getSiteIconCache(cacheKey: string): Promise<Buffer | null> {
     try {
       return await this.client.getBuffer(SITE_ICON_CACHE_KEY_PREFIX + cacheKey)

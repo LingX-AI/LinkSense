@@ -4,7 +4,10 @@ import path from "node:path"
 import type { Logger } from "pino"
 import { z } from "zod"
 
-import { linksenseRuntimeIdentity } from "@linksense/shared"
+import {
+  linksenseRuntimeIdentity,
+  RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT,
+} from "@linksense/shared"
 
 import type { RunnerConfig } from "../config.js"
 import {
@@ -504,6 +507,9 @@ export function buildWorkerContainerSpec(
     User: "0:1000",
     Env: Object.entries({
       HOME: workerHome,
+      // Set before Node starts: each file in one durable batch must be able to
+      // sync concurrently instead of waiting behind the default four threads.
+      UV_THREADPOOL_SIZE: String(RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT),
       CODEX_HOME: `${workerControlRoot}/supervisor-codex`,
       LINKSENSE_RUNNER_MODE: "worker",
       LINKSENSE_WORKER_OWNER_ID: validatedOwnerId,
