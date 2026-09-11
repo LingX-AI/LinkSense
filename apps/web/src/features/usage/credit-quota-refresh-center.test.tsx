@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { apiRequest } from "@/api/client"
 import { userSchema, type User } from "@/api/contracts"
 import { AuthContext } from "@/app/auth-state"
-import { TokenQuotaRefreshCenter } from "@/features/usage/token-quota-refresh-center"
+import { CreditQuotaRefreshCenter } from "@/features/usage/credit-quota-refresh-center"
 
 vi.mock("@/api/client", () => ({
   ApiError: class ApiError extends Error {},
@@ -29,11 +29,11 @@ const user = userSchema.parse({
   running_message_action: "queue",
   registration_source: "organization_invitation",
   user_groups: [],
-  token_quota: {
+  credit_quota: {
     total: {
-      limit_tokens: "1000000",
-      used_tokens: "1000",
-      remaining_tokens: "999000",
+      limit_credits: "1",
+      used_credits: "0.001",
+      remaining_credits: "0.999",
       remaining_percentage: 100,
     },
     weekly: null,
@@ -57,7 +57,7 @@ function renderCenter(currentUser: User | null = user) {
           signOut: vi.fn(),
         }}
       >
-        <TokenQuotaRefreshCenter />
+        <CreditQuotaRefreshCenter />
       </AuthContext.Provider>
     </QueryClientProvider>
   )
@@ -90,7 +90,7 @@ function installCompletionFeed(
   })
 }
 
-describe("TokenQuotaRefreshCenter", () => {
+describe("CreditQuotaRefreshCenter", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -141,7 +141,7 @@ describe("TokenQuotaRefreshCenter", () => {
   it("does not poll when the current user has no token quota", async () => {
     const userWithoutQuota = userSchema.parse({
       ...user,
-      token_quota: { total: null, weekly: null, monthly: null },
+      credit_quota: { total: null, weekly: null, monthly: null },
     })
 
     renderCenter(userWithoutQuota)

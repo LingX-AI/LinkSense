@@ -162,7 +162,7 @@ export const pendingRequestBlockCodeSchema = z.enum([
   "runner_unavailable",
   "deployment_stopped",
   "execution_environment_invalid",
-  "token_limit_exceeded",
+  "credit_limit_exceeded",
 ]);
 
 export const pendingRequestSchema = z

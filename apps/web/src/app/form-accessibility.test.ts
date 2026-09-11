@@ -7,6 +7,7 @@ import modelFieldsSource from "@/features/admin/model-settings-fields.tsx?raw"
 import modelChannelEditorsSource from "@/features/admin/model-channel-editors.tsx?raw"
 import modelSettingsEditorSource from "@/features/admin/model-settings-editor.tsx?raw"
 import modelProviderSource from "@/features/admin/model-provider-settings-form.tsx?raw"
+import quotaSettingsSource from "@/pages/admin-quota-page.tsx?raw"
 import voiceTranscriptionSource from "@/features/admin/voice-transcription-settings-form.tsx?raw"
 import credentialPagesSource from "@/pages/credential-pages.tsx?raw"
 import mcpPagesSource from "@/pages/mcp-pages.tsx?raw"
@@ -36,11 +37,12 @@ describe("settings form accessibility", () => {
   })
 
   it("exposes pending saves to assistive technology", () => {
+    expect(modelProviderSource).toContain("aria-busy=")
     for (const source of [
       imageGenerationSource,
       imageUnderstandingSource,
       knowledgeModelsSource,
-      modelProviderSource,
+      quotaSettingsSource,
       modelSettingsEditorSource,
       voiceTranscriptionSource,
       credentialPagesSource,

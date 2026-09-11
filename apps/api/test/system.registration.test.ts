@@ -6,80 +6,19 @@ import {
   SystemService,
 } from "../src/modules/system/service.js"
 
-describe("system open registration settings", () => {
-  it("defaults to closed for existing installations without the setting", () => {
-    expect(registrationSettings({})).toEqual({
-      enabled: false,
-      total_token_limit: null,
-    })
-    expect(registrationSettings({ self_registration: null })).toEqual({
-      enabled: false,
-      total_token_limit: null,
-    })
+describe("system registration settings", () => {
+  it("defaults registration to closed and allows opening it independently of quotas", () => {
+    expect(registrationSettings({})).toEqual({ enabled: false })
+    expect(registrationSettings({ self_registration: { enabled: true } })).toEqual({ enabled: true })
+    expect(registrationSettings({ self_registration: { enabled: "true" } })).toEqual({ enabled: false })
   })
-
-  it("opens registration only with an explicit positive total quota", () => {
-    expect(
-      registrationSettings({
-        self_registration: {
-          enabled: true,
-          total_token_limit: "12500000",
-        },
-      }),
-    ).toEqual({ enabled: true, total_token_limit: "12500000" })
-    expect(
-      registrationSettings({ self_registration: { enabled: "true" } }),
-    ).toEqual({ enabled: false, total_token_limit: null })
-    expect(
-      registrationSettings({ self_registration: { enabled: true } }),
-    ).toEqual({ enabled: false, total_token_limit: null })
-  })
-
-  it("synchronizes a positive quota to every historical self-registered user", async () => {
-    const transaction = registrationSettingsTransaction({ updatedUserCount: 3 })
-    const service = registrationSettingsService(transaction)
-
-    await expect(
-      service.updateRegistrationSettings(
-        "01900000-0000-7000-8000-000000000099",
-        { enabled: true, total_token_limit: "12500000" },
-        { ipAddress: "192.0.2.1", userAgent: "Browser" },
-      ),
-    ).resolves.toEqual({ enabled: true, total_token_limit: "12500000" })
-
-    expect(transaction.user.updateMany).toHaveBeenCalledWith({
-      where: {
-        accountType: "member",
-        selfRegisteredAt: { not: null },
-      },
-      data: { totalTokenLimit: 12_500_000n },
-    })
-    expect(transaction.auditLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        action: "self_registration_settings_updated",
-        metadataJson: expect.objectContaining({ updated_user_count: 3 }),
-      }),
-    })
-  })
-
-  it("keeps existing user quotas when registration is closed without a quota", async () => {
-    const transaction = registrationSettingsTransaction({ updatedUserCount: 3 })
-    const service = registrationSettingsService(transaction)
-
-    await expect(
-      service.updateRegistrationSettings(
-        "01900000-0000-7000-8000-000000000099",
-        { enabled: false, total_token_limit: null },
-        {},
-      ),
-    ).resolves.toEqual({ enabled: false, total_token_limit: null })
-
-    expect(transaction.user.updateMany).not.toHaveBeenCalled()
-    expect(transaction.auditLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        metadataJson: expect.objectContaining({ updated_user_count: 0 }),
-      }),
-    })
+  it.each([true, false])("sets registration enabled=%s without altering any user quota", async (enabled) => {
+    const tx = registrationSettingsTransaction({ updatedUserCount: 3 })
+    const service = registrationSettingsService(tx)
+    await expect(service.updateRegistrationSettings("admin", { enabled }, {})).resolves.toEqual({ enabled })
+    expect(tx.user.updateMany).not.toHaveBeenCalled()
+    expect(tx.systemSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: expect.objectContaining({ settingsJson: { system_initialized: true, self_registration: { enabled } } }) }))
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "self_registration_settings_updated", metadataJson: { enabled } }) }))
   })
 })
 

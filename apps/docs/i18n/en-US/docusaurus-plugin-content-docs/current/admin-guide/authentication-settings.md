@@ -25,7 +25,7 @@ Configure SMTP host, port, STARTTLS or direct TLS, sender, optional username, an
 
 ## Open registration
 
-Enabling **Open registration** adds a registration entry to the sign-in page. You must set a positive total token allowance per registered user. Changes apply to accounts previously created by open registration too, but do not reset consumed usage or add weekly or monthly renewal.
+Enable open registration in its settings tab. Configure weekly, monthly, and total credit quotas independently in [Quota management](./quota-settings.md). Any quota can be left blank.
 
 Disabling open registration blocks new requests and invalidates activation links that were issued but not yet used. It does not delete accounts created directly by administrators, existing activated accounts, or other configured sign-in methods.
 
@@ -44,3 +44,7 @@ Enter Microsoft Entra tenant and client IDs. LinkSense settings do not replace E
 The API returns only configured flags, never SMTP passwords or OIDC secrets. In managed mode, leave an unchanged secret blank; switching from another mode requires entering it again.
 
 Corrupt or undecryptable configuration fails closed and never falls back to an unconfirmed old value.
+
+## Open registration
+
+Enable or disable self-registration in the **Open registration** settings tab. Set weekly, monthly, and total credit quotas independently in [Quota management](./quota-settings.md). Any quota can be left blank.

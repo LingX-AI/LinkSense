@@ -224,10 +224,6 @@ describe("ModelProviderSettingsService", () => {
       ],
       default_model: "model-a",
       title_model: "model-a",
-      token_limits: {
-        weekly_token_limit: null,
-        monthly_token_limit: null,
-      },
     })
     expect(JSON.stringify(first)).not.toContain("provider-a-secret")
     expect(JSON.stringify(first)).not.toContain("provider-b-secret")
@@ -310,7 +306,7 @@ describe("ModelProviderSettingsService", () => {
     })
   })
 
-  it("stores default user token limits with model provider settings", async () => {
+  it("keeps model settings independent from quota settings", async () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
@@ -331,24 +327,14 @@ describe("ModelProviderSettingsService", () => {
           ),
         ],
         default_model: "model-a",
-        token_limits: {
-          weekly_token_limit: "50000",
-          monthly_token_limit: "200000",
-        },
       },
       {}
     )
 
-    expect(settings.token_limits).toEqual({
-      weekly_token_limit: "50000",
-      monthly_token_limit: "200000",
-    })
-    await expect(service.getAdminSettings()).resolves.toMatchObject({
-      token_limits: {
-        weekly_token_limit: "50000",
-        monthly_token_limit: "200000",
-      },
-    })
+    expect(settings).not.toHaveProperty("credit_limits")
+    expect(settings).not.toHaveProperty("token_limits")
+    await expect(service.getAdminSettings()).resolves.toEqual(settings)
+
   })
 
   it("detects vLLM model context windows from the OpenAI-compatible model list", async () => {

@@ -101,8 +101,9 @@ import {
   PrismaMarketplaceStore,
   assertMarketplacePackageIntegrity,
 } from "./modules/marketplace/index.js";
+import { QuotaSettingsService } from "./modules/system/quota-settings.js";
 import { UsageAnalyticsService } from "./modules/usage/service.js";
-import { TokenLimitService } from "./modules/usage/token-limit.js";
+import { CreditLimitService } from "./modules/usage/credit-limit.js";
 import { BillingStatementService } from "./modules/usage/billing-service.js";
 import { BillingStatementScheduler } from "./modules/usage/billing-scheduler.js";
 import { ApplicationService } from "./modules/applications/index.js";
@@ -218,7 +219,8 @@ export type AppServices = {
   knowledgeGovernance: KnowledgeGovernanceRuntime | null;
   knowledgeDocumentAccess: PrismaMinioKnowledgeDocumentAccessAdapter | null;
   usageAnalytics: UsageAnalyticsService;
-  tokenLimits: TokenLimitService;
+  creditLimits: CreditLimitService;
+  quotaSettings: QuotaSettingsService;
   billingStatements: BillingStatementService;
   billingStatementScheduler: BillingStatementScheduler;
   feedback: FeedbackService;
@@ -261,7 +263,8 @@ export function createServices(input: {
     input.prisma,
     input.config,
   );
-  const tokenLimits = new TokenLimitService(input.prisma, {
+  const quotaSettings = new QuotaSettingsService(input.prisma);
+  const creditLimits = new CreditLimitService(input.prisma, {
     timeZone: input.config.billingTimeZone,
   });
   const billingStatements = new BillingStatementService(input.prisma, {
@@ -464,8 +467,8 @@ export function createServices(input: {
       scheduleObjectRemoval: (objectKey) => jobs.enqueueObjectDelete(objectKey),
     },
     lifecycleCoordinator: input.redis,
-    tokenLimitDefaults: modelProviderSettings,
-    tokenQuotaUsage: tokenLimits,
+    creditLimitDefaults: quotaSettings,
+    creditQuotaUsage: creditLimits,
     materializeUserHomes: (userIds) => materializeUserHomes({ userIds }),
   });
   const voiceTranscription = new VoiceTranscriptionService(
@@ -658,7 +661,7 @@ export function createServices(input: {
     knowledgeStore,
     modelProviderSettings,
     applications,
-    tokenLimits,
+    creditLimits,
     system,
     conversationTitles,
   );
@@ -847,7 +850,8 @@ export function createServices(input: {
     knowledgeGovernance,
     knowledgeDocumentAccess,
     usageAnalytics,
-    tokenLimits,
+    creditLimits,
+    quotaSettings,
     billingStatements,
     billingStatementScheduler,
     feedback,

@@ -10,7 +10,7 @@ describe("sidebar account bar layout", () => {
     )
     expect(appShellSource).toContain(".slice(0, 1)")
     expect(appShellSource).toContain(
-      'className="sidebar-conversation-scroll min-h-0 flex-1 space-y-3 overflow-y-auto pr-3.5"'
+      'className="sidebar-conversation-scroll min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto pr-3.5"'
     )
     expect(appShellSource).toContain(".slice(1)")
 

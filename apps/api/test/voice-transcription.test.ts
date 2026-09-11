@@ -318,7 +318,7 @@ describe("voice transcription route", () => {
       assertRateLimitAllowed,
     } = await voiceRouteFixture({
       assertCanStartTask: async () => {
-        throw new AppError("TOKEN_LIMIT_EXCEEDED")
+        throw new AppError("CREDIT_LIMIT_EXCEEDED")
       },
     })
 
@@ -330,7 +330,7 @@ describe("voice transcription route", () => {
 
     expect(response.statusCode).toBe(429)
     expect(response.json()).toMatchObject({
-      error_code: "TOKEN_LIMIT_EXCEEDED",
+      error_code: "CREDIT_LIMIT_EXCEEDED",
     })
     expect(assertCanStartTask).toHaveBeenCalledOnce()
     expect(assertCanStartTask).toHaveBeenCalledWith(USER_ID)
@@ -610,7 +610,7 @@ async function voiceRouteFixture(options: VoiceRouteFixtureOptions = {}) {
     service,
     availability: { getAvailability },
     rateLimits: { assertAllowed: assertRateLimitAllowed },
-    tokenLimits: { assertCanStartTask },
+    creditLimits: { assertCanStartTask },
     defaultLocale: options.defaultLocale ?? "zh-CN",
   })
   return {

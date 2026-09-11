@@ -617,7 +617,7 @@ describe("LinkSense application", () => {
         json(
           {
             success: false,
-            error_code: "TOKEN_LIMIT_EXCEEDED",
+            error_code: "CREDIT_LIMIT_EXCEEDED",
           },
           429
         ),
@@ -633,9 +633,7 @@ describe("LinkSense application", () => {
 
     const notice = await screen.findByRole("alert")
     expect(notice).toHaveClass("conversation-empty-notice")
-    expect(notice).toHaveTextContent(
-      "你的可用 Token 额度已用尽，暂时不能发起新任务。"
-    )
+    expect(notice).toHaveTextContent("你的可用额度已用尽，暂时不能发起新任务。")
     expect(notice.querySelector(".lucide-circle-alert")).not.toBeNull()
     expect(notice.closest(".conversation-top-overlay-stack")).toBeNull()
     expect(
@@ -643,15 +641,38 @@ describe("LinkSense application", () => {
     ).toBeNull()
   })
 
+  it("allows new tasks when a fractional credit balance displays as zero", async () => {
+    installApiMock({
+      userOverride: {
+        credit_quota: {
+          total: {
+            limit_credits: "1000",
+            used_credits: "999.5",
+            remaining_credits: "0.5",
+            remaining_percentage: 0,
+          },
+          weekly: null,
+          monthly: null,
+        },
+      },
+    })
+    const interaction = userEvent.setup()
+    renderApp("/conversations/new")
+    const composer = await screen.findByRole("textbox", { name: "任务输入框" })
+    await interaction.type(composer, "使用剩余额度")
+    expect(screen.getByRole("button", { name: "发送" })).toBeEnabled()
+    expect(screen.queryByText("额度已达上限")).not.toBeInTheDocument()
+  })
+
   it("blocks starting tasks and shows a dismissible usage card when usage is exhausted", async () => {
     const { requests } = installApiMock({
       userOverride: {
-        token_quota: {
+        credit_quota: {
           total: null,
           weekly: {
-            limit_tokens: "1000",
-            used_tokens: "1000",
-            remaining_tokens: "0",
+            limit_credits: "0.001",
+            used_credits: "0.001",
+            remaining_credits: "0",
             remaining_percentage: 0,
             reset_at: "2026-08-09T16:00:00.000Z",
           },
@@ -662,21 +683,21 @@ describe("LinkSense application", () => {
     const interaction = userEvent.setup()
     renderApp("/conversations/new")
 
-    const quotaTitle = await screen.findByText("Token 用量已达上限")
+    const quotaTitle = await screen.findByText("额度已达上限")
     const quotaCard = quotaTitle.closest<HTMLElement>(
-      ".conversation-token-quota-card"
+      ".conversation-credit-quota-card"
     )
     expect(quotaCard).not.toBeNull()
     expect(quotaCard).toHaveTextContent(
-      "可用 Token 额度已用尽，暂时不能发起新任务或补充请求；正在运行的任务不受影响。"
+      "可用额度已用尽，暂时不能发起新任务或补充请求；正在运行的任务不受影响。"
     )
     expect(
-      quotaCard?.closest(".conversation-token-quota-card-dock")?.parentElement
+      quotaCard?.closest(".conversation-credit-quota-card-dock")?.parentElement
     ).toHaveClass("conversation-bottom-stack")
     const composer = await screen.findByRole("textbox", { name: "任务输入框" })
     const composerShell = composer.closest(".composer-shell")
     expect(composerShell?.parentElement).toBe(
-      quotaCard?.closest(".conversation-token-quota-card-dock")?.parentElement
+      quotaCard?.closest(".conversation-credit-quota-card-dock")?.parentElement
     )
     expect(quotaCard?.compareDocumentPosition(composer)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
@@ -695,7 +716,7 @@ describe("LinkSense application", () => {
     await interaction.click(
       screen.getByRole("button", { name: "关闭用量提醒" })
     )
-    expect(screen.queryByText("Token 用量已达上限")).not.toBeInTheDocument()
+    expect(screen.queryByText("额度已达上限")).not.toBeInTheDocument()
     expect(sendButton).toBeDisabled()
   })
 
