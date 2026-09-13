@@ -10,6 +10,7 @@ import { linksenseRuntimeIdentity } from "@linksense/shared"
 import { prepareManagedBrowserPolicy } from "./browser/policy.js"
 import { cleanupManagedBrowserSession } from "./browser/session-cleanup.js"
 import { loadCodexTemplateFeatureOverrides } from "./codex/template-features.js"
+import { assertCodexRuntimeVersion } from "./codex/runtime-version.js"
 import { parseRunnerConfig, type RunnerConfig } from "./config.js"
 import { FetchWorkerTransport } from "./controller/worker-http-client.js"
 import { WorkerManager } from "./controller/worker-manager.js"
@@ -65,6 +66,12 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
     flushCompileCache()
     return
   }
+  await assertCodexRuntimeVersion({
+    command: config.CODEX_BIN,
+    ...(config.LINKSENSE_RUNNER_MODE === "worker"
+      ? { processIdentity: taskProcessIdentity }
+      : {}),
+  })
   await startExecutionRunner(config)
   flushCompileCache()
 }

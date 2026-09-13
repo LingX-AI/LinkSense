@@ -1,11 +1,15 @@
 /**
- * Narrow, version-pinned projection of codex-cli 0.154.0 app-server schema.
+ * Narrow projection of the app-server schema pinned in runtime-version.json.
  * Regenerate and compare with `codex app-server generate-ts --experimental`
  * whenever the deployed CLI version changes.
  */
 import type { ReasoningEffort } from "@linksense/shared";
+import { z } from "zod";
+import runtimeVersion from "./runtime-version.json" with { type: "json" };
 
-export const CODEX_SCHEMA_VERSION = "0.154.0";
+export const CODEX_SCHEMA_VERSION = z.strictObject({
+  version: z.string().regex(/^\d+\.\d+\.\d+$/u),
+}).parse(runtimeVersion).version;
 
 export type RequestId = number;
 

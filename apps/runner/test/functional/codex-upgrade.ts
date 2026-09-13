@@ -1,12 +1,10 @@
 /** Real pinned Codex, real gateway and shell execution, deterministic local provider. */
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 import pino from "pino";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
@@ -20,6 +18,7 @@ import {
   type JsonRpcNotification,
 } from "../../src/codex/protocol.js";
 import { linkSenseModelProviderConfigOverrides } from "../../src/codex/runtime-config-overrides.js";
+import { assertCodexRuntimeVersion } from "../../src/codex/runtime-version.js";
 import {
   ModelGateway,
   modelGatewayEnvironmentKey,
@@ -28,10 +27,8 @@ import {
 type Json = Record<string, unknown>;
 const object = z.record(z.string(), z.unknown());
 const command = process.env.CODEX_BIN?.trim() || "codex";
-const version = (
-  await promisify(execFile)(command, ["--version"])
-).stdout.trim();
-assert.equal(version, `codex-cli ${CODEX_SCHEMA_VERSION}`);
+await assertCodexRuntimeVersion({ command });
+const version = `codex-cli ${CODEX_SCHEMA_VERSION}`;
 const model = "gpt-6-astra";
 const answer = "> Which scope?\n\nAll features";
 const asyncQuestionItem = z.object({

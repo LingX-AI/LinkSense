@@ -12,8 +12,13 @@ const startup = vi.hoisted(() => {
     importStarted: vi.fn(),
     initialize: vi.fn(),
     listen: vi.fn(async () => undefined),
+    verifyVersion: vi.fn(),
   }
 })
+
+vi.mock("../src/codex/runtime-version.js", () => ({
+  assertCodexRuntimeVersion: startup.verifyVersion,
+}))
 
 vi.mock("../src/config.js", async (original) => ({
   ...await original<object>(),
@@ -58,6 +63,7 @@ it("overlaps controller module loading with the real worker initialization gate"
     startup.initialized.resolve()
     await running
     expect(startup.listen).toHaveBeenCalledWith({ host: "127.0.0.1", port: 4010 })
+    expect(startup.verifyVersion).not.toHaveBeenCalled()
   } finally {
     startup.imported.resolve()
     startup.initialized.resolve()
