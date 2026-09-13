@@ -617,7 +617,7 @@ describe("ModelGateway", () => {
     expect(await rejectedWebSocketStatus(gateway, lease.token)).toBe(401);
   });
 
-  it("rewrites Responses tool compatibility requests and response events over WebSocket", async () => {
+  it.each([true, false])("rewrites WebSocket additional_tools with top-level tools present: %s", async (includeTopLevelTools) => {
     let upstreamRequest: JsonObject | undefined;
     const upstream = await startWebSocketUpstream({
       onConnection(socket) {
@@ -701,7 +701,9 @@ describe("ModelGateway", () => {
           },
           { type: "message", role: "user", content: "read it" },
         ],
-        tools: [{ type: "custom", name: "apply_patch" }],
+        ...(includeTopLevelTools
+          ? { tools: [{ type: "custom", name: "apply_patch" }] }
+          : {}),
       }),
     );
 
@@ -730,10 +732,70 @@ describe("ModelGateway", () => {
           type: "function",
           description: "Read a workspace file",
         }),
-        expect.objectContaining({ type: "function", name: "apply_patch" }),
+        ...(includeTopLevelTools
+          ? [expect.objectContaining({ type: "function", name: "apply_patch" })]
+          : []),
       ]),
     );
 
+    await closeWebSocket(downstream.socket);
+  });
+
+  it("retains tool aliases for incremental WebSocket responses after a non-generating warmup, but isolates new roots and sockets", async () => {
+    const requests: JsonObject[] = [];
+    let alias = "missing_tool";
+    const upstream = await startWebSocketUpstream({
+      onConnection(socket) {
+        socket.on("message", (data) => {
+          const request = parseWebSocketJson(data.toString());
+          requests.push(request);
+          const tool = Array.isArray(request.tools) ? request.tools[0] : null;
+          if (isRecord(tool) && typeof tool.name === "string") alias = tool.name;
+          socket.send(JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: `resp-${requests.length}`,
+              status: "completed",
+              output: request.generate === false ? [] : [{
+                type: "function_call", id: "reused-item-id", call_id: "call-1",
+                name: alias, arguments: JSON.stringify({ input: "text(1)" }),
+              }],
+            },
+          }));
+        });
+      },
+    });
+    const gateway = await startGateway();
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "conversation-ws-incremental", revision: 1,
+      upstreamBaseUrl: `${upstream.baseUrl}/v1`, apiKey: "test-provider-key",
+      protocolMode: "responses_tool_compat", model: "model-a",
+    });
+    const downstream = await connectGatewayWebSocket(gateway, lease.token);
+    const send = async (socket: WebSocket, body: JsonObject) => {
+      const result = nextWebSocketJson(socket);
+      socket.send(JSON.stringify({ type: "response.create", model: "model-a", input: [], ...body }));
+      return result;
+    };
+    await send(downstream.socket, {
+      generate: false,
+      input: [{ type: "additional_tools", role: "developer", tools: [{ type: "custom", name: "exec" }] }],
+    });
+    for (const previousResponseId of ["resp-1", "resp-2", "resp-1"]) {
+      expect(await send(downstream.socket, { previous_response_id: previousResponseId })).toMatchObject({
+        response: { output: [{ type: "custom_tool_call", name: "exec", input: "text(1)" }] },
+      });
+    }
+    expect(requests[0]?.tools).toMatchObject([{ type: "function", name: "exec" }]);
+    expect(requests[1]).not.toHaveProperty("tools");
+    expect(await send(downstream.socket, {})).toMatchObject({
+      response: { output: [{ type: "function_call" }] },
+    });
+    const other = await connectGatewayWebSocket(gateway, lease.token);
+    expect(await send(other.socket, { previous_response_id: "resp-1" })).toMatchObject({
+      response: { output: [{ type: "function_call" }] },
+    });
+    await closeWebSocket(other.socket);
     await closeWebSocket(downstream.socket);
   });
 

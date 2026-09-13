@@ -6,7 +6,9 @@ import { defineConfig, env } from "prisma/config";
 export default defineConfig({
   schema: fileURLToPath(new URL("../../../../prisma/schema.prisma", import.meta.url)),
   migrations: {
-    path: fileURLToPath(new URL("../../../../prisma/migrations", import.meta.url)),
+    path:
+      process.env.LINKSENSE_TEST_MIGRATIONS_PATH ??
+      fileURLToPath(new URL("../../../../prisma/migrations", import.meta.url)),
   },
   datasource: { url: env("DATABASE_URL") },
 });

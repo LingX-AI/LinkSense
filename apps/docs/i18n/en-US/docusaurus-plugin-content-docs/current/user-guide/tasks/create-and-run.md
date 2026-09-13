@@ -24,6 +24,8 @@ The selector shows only chat models marked as available in conversations. Model 
 
 If a previous model is no longer available in conversations, select another or use the conversation default.
 
+The ring in the model card shows context-window usage for the current task. When it approaches the limit, finish the current turn and follow [Draft and context management](./context-and-drafts.md) to compact the context.
+
 ## Add capabilities
 
 Before sending, you can select enabled plugins or Skills, choose accessible knowledge bases, and review personal MCP status. These resources are fixed for the turn.
@@ -31,6 +33,8 @@ Before sending, you can select enabled plugins or Skills, choose accessible know
 Preflight blocks execution if a capability is disabled, a credential is missing, or knowledge-base access is no longer valid.
 
 When speaking is more convenient, use [voice input](./voice-input.md) to convert microphone speech into an editable draft. You still decide when to send it.
+
+When an administrator has enabled an image-generation model, you can also [generate images](./generate-images.md) directly. Successful output is registered as task artifacts.
 
 ## Use Goal mode for longer work
 
@@ -49,7 +53,7 @@ Type `/` to open shortcuts for a new task, context compaction, plugins, Skills, 
 - **Stop** requests interruption of the current turn.
 - A temporary connection loss recovers the same turn rather than creating a duplicate.
 - Refreshing the page does not erase task state.
-- The task overview summarizes live plan steps, file changes, artifacts, and sub-agents. Select an item to open the details that your account is allowed to see.
+- Activity shows plans, tool actions, and status changes. The task overview brings together subagents, artifact files, and external sources. See [View task progress, artifacts, and sources](./progress-and-sources.md).
 - After failure, resolve the visible model, capability, or input problem before retrying.
 
 :::info Tasks and turns

@@ -1290,6 +1290,7 @@ describe("API response contracts", () => {
     const result = auditRecordSchema.parse({
       id: "audit-1",
       actor_id: "user-1",
+      actor_email: "user@example.test",
       action: "conversation_created",
       target_type: null,
       target_id: null,
@@ -1300,6 +1301,7 @@ describe("API response contracts", () => {
     })
 
     expect(result.actor_name).toBe("user-1")
+    expect(result.actor_email).toBe("user@example.test")
     expect(result.target_type).toBeNull()
     expect(result.target_id).toBeNull()
     expect(result.source_ip).toBe("192.0.2.1")

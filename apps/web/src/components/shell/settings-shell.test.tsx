@@ -94,7 +94,7 @@ describe("SettingsShell administrator navigation", () => {
     ["zh-CN", "管理", "额度管理"],
     ["en-US", "Administration", "Quota management"],
   ])(
-    "places quota management immediately below model settings in %s",
+    "places quota management below model settings followed by usage statistics in %s",
     async (language, navigationLabel, quotaLabel) => {
       await i18n.changeLanguage(language)
       render(
@@ -114,6 +114,8 @@ describe("SettingsShell administrator navigation", () => {
       expect(links[modelIndex + 1]).toHaveClass(
         "settings-navigation-link-active"
       )
+      expect(links[modelIndex + 2]).toHaveAttribute("href", "/admin/usage")
+      expect(links[modelIndex + 3]).toHaveAttribute("href", "/admin/settings")
     }
   )
 

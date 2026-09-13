@@ -27,6 +27,8 @@ Read the preflight message:
 
 Refresh and reopen the same task so LinkSense can recover the original turn. Do not submit repeated copies during a network interruption. Retry only after the turn has definitively failed.
 
+When the model context window is exceeded, an ordinary task automatically attempts to continue once. If it ultimately fails, wait for the task to stop, compact its context, and state where work should continue. See [Draft and context management](../tasks/context-and-drafts.md).
+
 If a plan decision cannot be submitted, check whether the task already entered a new turn, goal, or automation state; a stale decision cannot overwrite newer state. If branching fails, confirm that the source task has stopped, has no queued request, and is not archived.
 
 ## Upload or preview fails
@@ -58,6 +60,17 @@ See [Connect and use Feishu](../message-channels/feishu.md) for connection, appr
 - Check credit quotas, maintenance state, and task concurrency. Do not repeatedly send the same message.
 
 See [Connect and use Weixin](../message-channels/weixin.md) for connection and disconnection steps.
+
+WeCom, DingTalk, and Microsoft Teams have different setup requirements. Start from the [message channel overview](../message-channels/overview.md) and open the relevant guide. Only Teams requires a public HTTPS messaging endpoint.
+
+## Image generation fails
+
+- Confirm that an administrator enabled an image-generation model.
+- If the provider rejects the request, review the prompt, model, and credential configuration. If the service is unavailable, try again later.
+- Transparent backgrounds may require native support from the current model, especially for hair, glass, smoke, or other complex edges.
+- Do not immediately repeat a request after artifact-registration or usage-recording failure. The provider may already have processed and charged for it.
+
+See [Generate images](../tasks/generate-images.md).
 
 ## Contact an administrator
 

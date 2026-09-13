@@ -43,3 +43,9 @@ The first time you enable the setting, LinkSense starts from the current termina
 LinkSense sends the system notification even when you are already viewing the task. The notification title shows the task name. Its body identifies a regular task or automation and shows the actual **Succeeded**, **Failed**, or **Interrupted** status. The task name is visible to the browser and operating system, but the notification does not include input, answers, error details, attachments, or artifact names. Clicking the notification focuses LinkSense and opens the corresponding task directly.
 
 If the browser does not support notifications, cannot save the setting, cannot reach the task-completion notification service, or permission has been denied, the settings page explains the issue. The switch is saved as enabled only after permission, the test notification, and the completion-listener baseline are all ready. If the browser resets an existing grant to **Ask**, select **Grant permission and send test**. After denying permission, allow notifications for the LinkSense site in your browser settings before turning the switch on again. If LinkSense reports that the test was sent but no system notification appears, check whether the operating system allows this browser to send notifications and whether Do Not Disturb or Focus is enabled.
+
+## Install on a desktop or home screen
+
+LinkSense publishes web-app installation metadata. In a supported browser, use **Install app**, **Add to Home Screen**, or the equivalent browser menu command to open LinkSense in a standalone window. The command name depends on the browser and operating system.
+
+Installation does not enable offline use; LinkSense still needs a connection to the deployment. Launching from the installed icon returns to the application entry point and uses the login session stored by that browser. Always sign out normally after using a shared device.

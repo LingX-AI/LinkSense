@@ -36,6 +36,8 @@ const expectedMarkdownPaths = [
   "developer-guide/embed-application.md",
   "developer-guide/interactive-application.md",
   "introduction.md",
+  "operations/cli-and-maintenance.md",
+  "operations/editions-and-installation.md",
   "user-guide/automations/create-and-manage.md",
   "user-guide/feedback.md",
   "user-guide/getting-started/first-task.md",
@@ -49,6 +51,7 @@ const expectedMarkdownPaths = [
   "user-guide/mcp/connect-and-manage.md",
   "user-guide/message-channels/dingtalk.md",
   "user-guide/message-channels/feishu.md",
+  "user-guide/message-channels/overview.md",
   "user-guide/message-channels/teams.md",
   "user-guide/message-channels/wecom.md",
   "user-guide/message-channels/weixin.md",
@@ -68,12 +71,15 @@ const expectedMarkdownPaths = [
   "user-guide/settings/profile.md",
   "user-guide/settings/security.md",
   "user-guide/tasks/branch-and-organize.md",
+  "user-guide/tasks/context-and-drafts.md",
   "user-guide/tasks/create-and-run.md",
   "user-guide/tasks/file-annotations.md",
   "user-guide/tasks/files-and-results.md",
+  "user-guide/tasks/generate-images.md",
   "user-guide/tasks/goal-tasks.md",
   "user-guide/tasks/manage-history.md",
   "user-guide/tasks/plan-mode.md",
+  "user-guide/tasks/progress-and-sources.md",
   "user-guide/tasks/running-requests.md",
   "user-guide/tasks/task-categories.md",
   "user-guide/tasks/voice-input.md",
@@ -186,6 +192,33 @@ test("the explicit sidebar includes every guide", async () => {
         "u",
       ),
       `sidebar is missing ${documentId}`,
+    );
+  }
+});
+
+test("English navigation translates every custom sidebar category", async () => {
+  const [sidebars, translations] = await Promise.all([
+    readFile(path.join(packageRoot, "sidebars.ts"), "utf8"),
+    readFile(
+      path.join(
+        packageRoot,
+        "i18n",
+        "en-US",
+        "docusaurus-plugin-content-docs",
+        "current.json",
+      ),
+      "utf8",
+    ),
+  ]);
+  const parsedTranslations = JSON.parse(translations);
+  const labels = [...sidebars.matchAll(/label:\s*"([^"]+)"/gu)].map(
+    (match) => match[1],
+  );
+
+  for (const label of labels) {
+    assert.ok(
+      parsedTranslations[`sidebar.helpSidebar.category.${label}`]?.message,
+      `English sidebar is missing a translation for ${label}`,
     );
   }
 });

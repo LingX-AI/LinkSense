@@ -481,6 +481,7 @@ function installApiMock(options?: {
   ) => Response | Promise<Response>
   turnStartResponse?: () => Promise<Response>
   pendingRequestResponse?: (body: unknown) => Response | Promise<Response>
+  userInputResponse?: (body: unknown) => Response | Promise<Response>
   interruptResponse?: () => Response | Promise<Response>
   regenerateResponse?: () => Response | Promise<Response>
   forkStart?: Promise<void>
@@ -1041,6 +1042,7 @@ function installApiMock(options?: {
         ) &&
         method === "POST"
       ) {
+        if (options?.userInputResponse) return options.userInputResponse(requestBody)
         return json({ success: true, data: null })
       }
       const planReviewActionMatch = path.match(

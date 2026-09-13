@@ -905,7 +905,7 @@ model ConversationUserInputRequest {
   codexThreadId             String    @map("codex_thread_id") @db.Text
   codexTurnId               String    @map("codex_turn_id") @db.Text
   codexItemId               String    @map("codex_item_id") @db.Text
-  nativeRequestId           BigInt    @map("native_request_id") @db.BigInt
+  nativeRequestId           BigInt?   @map("native_request_id") @db.BigInt
   requestKind               String    @default("questions") @map("request_kind") @db.VarChar(24)
   questionsJson             Json      @map("questions_json") @db.JsonB
   serverName                String?   @map("server_name") @db.Text
@@ -914,6 +914,7 @@ model ConversationUserInputRequest {
   formUiHintsJson           Json?     @map("form_ui_hints_json") @db.JsonB
   formResponseSemanticsJson Json?     @map("form_response_semantics_json") @db.JsonB
   responseContentJson       Json?     @map("response_content_json") @db.JsonB
+  responseDeliveryJson      Json?     @map("response_delivery_json") @db.JsonB
   status                    String    @db.VarChar(24)
   autoResolveAt             DateTime? @map("auto_resolve_at") @db.Timestamptz(6)
   resolvedAction            String?   @map("resolved_action") @db.VarChar(24)

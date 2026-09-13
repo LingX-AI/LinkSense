@@ -567,8 +567,8 @@ describe("LinkSense application", () => {
     const usersAndGroupsLinkIndex = links.findIndex(
       (link) => link.getAttribute("href") === "/admin/users"
     )
-    const auditLinkIndex = links.findIndex(
-      (link) => link.getAttribute("href") === "/admin/audit"
+    const quotaLinkIndex = links.findIndex(
+      (link) => link.getAttribute("href") === "/admin/quotas"
     )
     const systemUpdateLinkIndex = links.findIndex(
       (link) => link.getAttribute("href") === "/admin/system-update"
@@ -583,7 +583,8 @@ describe("LinkSense application", () => {
     expect(
       links.some((link) => link.getAttribute("href") === "/admin/groups")
     ).toBe(false)
-    expect(usageLinkIndex).toBeGreaterThan(auditLinkIndex)
+    expect(quotaLinkIndex).toBeGreaterThanOrEqual(0)
+    expect(usageLinkIndex).toBe(quotaLinkIndex + 1)
     expect(links.at(-1)).toHaveAttribute("href", "/admin/system-update")
   })
 

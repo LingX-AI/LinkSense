@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Prisma } from "../src/generated/prisma/client.js";
 import type {
   ApplicationIcon,
   ApplicationUnavailableReason,
@@ -264,7 +265,8 @@ describe("ConversationService ownership and draft lifecycle", () => {
     { name: "inherits the source task category in the fork", categoryId: "80000000-0000-4000-8000-000000000001", categoryAvailable: true },
     { name: "rejects an unavailable category without creating an orphaned fork", categoryId: "80000000-0000-4000-8000-000000000001", categoryAvailable: false },
     { name: "inherits the category on retry after the runner recovers without creating a duplicate task", categoryId: "80000000-0000-4000-8000-000000000001", categoryAvailable: true, runnerInitiallyUnavailable: true },
-  ])("$name", async ({ categoryId, categoryAvailable, runnerInitiallyUnavailable }) => {
+    { name: "preserves answered async questions and makes unresolved questions independently answerable in a fork", categoryId: null, categoryAvailable: true, includeAsyncInput: true },
+  ])("$name", async ({ categoryId, categoryAvailable, runnerInitiallyUnavailable, includeAsyncInput }) => {
     const fixture = await conversationFixture();
     const source = conversationRow({
       title: "Task",
@@ -367,6 +369,24 @@ describe("ConversationService ownership and draft lifecycle", () => {
         conversationRow(data),
     );
     fixture.defaultTransaction.$queryRaw.mockResolvedValue(categoryId && categoryAvailable ? [{ id: categoryId }] : []);
+    const asyncRequests = ["pending", "answering", "answered"].map((status, index) => userInputRequestRow({
+      id: `60000000-0000-4000-8000-00000000000${index + 1}`,
+      turnId: TURN_ID,
+      codexThreadId: source.codexThreadId,
+      codexTurnId: turn.codexTurnId,
+      codexItemId: `async-item-${index + 1}`,
+      nativeRequestId: null,
+      requestKind: "async_questions",
+      status,
+      questionsJson: [{ id: "question-1", header: "1", question: "Which scope?", is_other: true, is_secret: false, options: null }],
+      responseContentJson: { "question-1": "Historical answer" },
+      responseDeliveryJson: { method: "steer", turnId: TURN_ID, operationId: REGENERATION_ID },
+      resolvedAction: "accept",
+      resolvedAt: status === "answered" ? NOW : null,
+    }));
+    if (includeAsyncInput) {
+      fixture.prisma.conversationUserInputRequest.findMany.mockResolvedValue(asyncRequests);
+    }
 
     if (runnerInitiallyUnavailable) {
       fixture.runner.forkThread.mockRejectedValueOnce(new AppError("RUNNER_UNAVAILABLE"));
@@ -451,6 +471,26 @@ describe("ConversationService ownership and draft lifecycle", () => {
     );
     if (!clonedTurn || !clonedAssistantMessage) {
       throw new Error("missing copied context rows");
+    }
+    if (includeAsyncInput) {
+      expect(fixture.defaultTransaction.conversationUserInputRequest.createMany).toHaveBeenCalledWith({
+        data: asyncRequests.map((request) => expect.objectContaining({
+          conversationId: result.id,
+          turnId: clonedTurn.id,
+          codexThreadId: "codex-thread-forked",
+          nativeRequestId: null,
+          requestKind: "async_questions",
+          questionsJson: request.questionsJson,
+          responseDeliveryJson: Prisma.DbNull,
+          responseContentJson: request.status === "answered" ? request.responseContentJson : Prisma.DbNull,
+          status: request.status === "answered" ? "answered" : "pending",
+          resolvedAction: request.status === "answered" ? "accept" : null,
+          resolvedAt: request.status === "answered" ? NOW : null,
+        })),
+      });
+      expect(asyncRequests.map((request) => request.status)).toEqual(["pending", "answering", "answered"]);
+      expect(asyncRequests.every((request) => request.responseContentJson !== null)).toBe(true);
+      expect(fixture.prisma.conversationUserInputRequest.updateMany).not.toHaveBeenCalled();
     }
     expect(fixture.defaultTransaction.conversationFile.createMany).toHaveBeenCalledWith({
       data: [
@@ -5142,6 +5182,42 @@ describe("ConversationService turn interruption", () => {
 });
 
 describe("ConversationService native user input", () => {
+  it.each([true, false])("routes a 25-answer async submission through the durable user-message operation with active=%s", async (active) => {
+    const fixture = await conversationFixture();
+    const questions = Array.from({ length: 25 }, (_, index) => ({
+      id: `question-${index + 1}`, header: String(index + 1), question: `Scope ${index + 1}?`,
+      is_other: true, is_secret: false, options: null,
+    }));
+    const content = Object.fromEntries(questions.map((question) => [question.id, "Full upgrade"]));
+    const pending = userInputRequestRow({ requestKind: "async_questions", nativeRequestId: null, questionsJson: questions, responseDeliveryJson: null });
+    const answered = { ...pending, status: "answered", responseContentJson: content, resolvedAction: "accept", resolvedAt: NOW };
+    fixture.prisma.conversationUserInputRequest.findFirst.mockResolvedValue(pending);
+    const tx = fixture.defaultTransaction;
+    tx.conversation.findFirst.mockResolvedValue(conversationRow({ codexThreadId: pending.codexThreadId }));
+    tx.conversationUserInputRequest.findFirst.mockResolvedValue(pending);
+    tx.conversationUserInputRequest.update.mockResolvedValue({ ...answered, status: "answering" });
+    tx.conversationUserInputRequest.findUniqueOrThrow.mockResolvedValue(answered);
+    tx.conversationUserInputRequest.updateMany.mockResolvedValue({ count: 1 });
+    tx.conversationTurn.findFirst.mockResolvedValueOnce(turnRow()).mockResolvedValueOnce(active ? turnRow() : null);
+    const steer = vi.spyOn(fixture.service, "steer").mockResolvedValue({ turn_id: TURN_ID, accepted: true });
+    const start = vi.spyOn(fixture.service, "acceptTurn").mockResolvedValue({ turn_id: TURN_ID, accepted: true, status: "starting" });
+
+    const result = await fixture.service.respondToUserInputRequest(OWNER_ID, CONVERSATION_ID, USER_INPUT_REQUEST_ID, { action: "accept", content }, {});
+    expect(result).toMatchObject({ kind: "async_questions", status: "answered", response_content: content });
+    if (active) {
+      expect(steer).toHaveBeenCalledExactlyOnceWith(OWNER_ID, CONVERSATION_ID, turnRow().id, expect.stringContaining("> Scope 25?\n\nFull upgrade"), expect.any(String), {});
+      expect(start).not.toHaveBeenCalled();
+    } else {
+      expect(start).toHaveBeenCalledExactlyOnceWith(OWNER_ID, CONVERSATION_ID, expect.objectContaining({
+        idempotencyKey: `async-answer:${USER_INPUT_REQUEST_ID}`, expectedCodexThreadId: pending.codexThreadId,
+        preserveStagedAttachments: true, inputText: expect.stringContaining("> Scope 25?\n\nFull upgrade"),
+      }), {});
+      expect(steer).not.toHaveBeenCalled();
+    }
+    expect(fixture.runner.respondUserInputRequest).not.toHaveBeenCalled();
+    expect(JSON.stringify(fixture.audit.write.mock.calls)).not.toContain("Full upgrade");
+  });
+
   it("forwards the answer once while persisting only request state and safe audit metadata", async () => {
     const fixture = await conversationFixture();
     const turn = turnRow();
@@ -11738,6 +11814,7 @@ function transactionFixture() {
       findUnique: vi.fn(async () => null as Record<string, unknown> | null),
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
       create: vi.fn(async () => ({})),
+      findUniqueOrThrow: vi.fn(async () => ({} as Record<string, unknown>)),
       update: vi.fn(async () => ({})),
       updateMany: vi.fn(async () => ({ count: 0 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),

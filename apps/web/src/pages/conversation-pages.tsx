@@ -221,6 +221,7 @@ import {
   type ConversationPlanDecisionBusyAction,
 } from "@/features/conversations/conversation-plan-decision-card"
 import { ConversationGoalBar } from "@/features/conversations/conversation-goal-bar"
+import { selectActiveUserInputRequest } from "@/features/conversations/conversation-user-input-request-status"
 import { ConversationUserInputRequestCard } from "@/features/conversations/conversation-user-input-request-card"
 import {
   useKnowledgeBaseList,
@@ -4225,7 +4226,12 @@ export function ConversationPage({
     onSuccess: async () => {
       if (conversationId) await refreshAfterMutation(conversationId)
     },
-    onError: (nextError) => setError(getErrorMessage(nextError, t)),
+    onError: async (nextError, { request }) => {
+      setError(getErrorMessage(nextError, t))
+      if (request.kind === "async_questions" && conversationId) {
+        await refreshAfterMutation(conversationId)
+      }
+    },
   })
 
   const planReviewActionMutation = useMutation({
@@ -5052,21 +5058,14 @@ export function ConversationPage({
     optimisticPendingTurn ??
     optimisticCompactionTurn ??
     displayConversation.running_turn
-  const unresolvedUserInputRequests = [
-    ...displayConversation.user_input_requests,
-  ]
-    .filter(
-      (request) =>
-        request.status === "pending" || request.status === "answering"
-    )
-    .sort((left, right) => left.created_at.localeCompare(right.created_at))
-  const activeUserInputRequest =
-    unresolvedUserInputRequests.find(
-      (request) => request.turn_id === visibleRunningTurn?.id
-    ) ?? unresolvedUserInputRequests[0]
   const activePlanReview = [...(displayConversation.plan_reviews ?? [])]
     .filter((review) => review.status === "pending")
     .sort((left, right) => right.created_at.localeCompare(left.created_at))[0]
+  const activeUserInputRequest = selectActiveUserInputRequest(
+    displayConversation.user_input_requests,
+    visibleRunningTurn?.id,
+    Boolean(activePlanReview)
+  )
   const blockingPanelKey = activeUserInputRequest
     ? `user-input:${activeUserInputRequest.id}`
     : activePlanReview
@@ -5129,7 +5128,12 @@ export function ConversationPage({
       }}
     />
   ) : null
-  const blockingPanelActive = blockingPanel !== null
+  const blockingPanelActive =
+    Boolean(activePlanReview) ||
+    Boolean(
+      activeUserInputRequest &&
+      activeUserInputRequest.kind !== "async_questions"
+    )
   const taskOverviewSuppressed =
     taskOverviewSuppressedConversationId === conversationId
   const composerInstanceId = isNewTaskPromotion
@@ -5502,6 +5506,7 @@ export function ConversationPage({
         emptyNotice={emptyCreditQuotaNotice}
         blockingPanel={blockingPanel}
         blockingPanelKey={blockingPanelKey}
+        blockingPanelBlocksInput={blockingPanelActive}
         onBlockingPanelReveal={handleScrollToBottom}
         scrollContainerRef={scrollContainerRef}
         contentRef={contentRef}

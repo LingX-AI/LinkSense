@@ -19,6 +19,34 @@ const previewContext = {
 };
 
 describe("mapCodexNotification", () => {
+  it("preserves asynchronous questions, including empty message text and free-text questions", () => {
+    const item = {
+      id: "async-question", type: "agentMessage", text: "", phase: "final_answer",
+      delivery: "async", questions: [
+        { title: "Which scope?", options: ["Complete", "Minimal"] },
+        { title: "Any constraints?", options: null },
+      ],
+    };
+    const events = mapCodexNotification({ method: "item/completed", params: {
+      threadId: "thr_1", turnId: "turn_1", completedAtMs: 1, item,
+    } });
+    expect(events).toMatchObject([{ params: { item } }]);
+    expect(runnerCodexEventSchema.safeParse(events[0]).success).toBe(true);
+  });
+
+  it.each([true, false])("preserves native rateLimitExceeded with willRetry=%s", (willRetry) => {
+    expect(mapCodexNotification({
+      method: "error",
+      params: {
+        threadId: "thr_1", turnId: "turn_1", willRetry,
+        error: { message: "Rate limited", codexErrorInfo: "rateLimitExceeded", additionalDetails: null },
+      },
+    })).toMatchObject([{
+      method: "error",
+      params: { willRetry, error: { codexErrorInfo: "rateLimitExceeded" } },
+    }]);
+  });
+
   it("filters inherited parent turns by id and id-insensitive item prefix", () => {
     const parentTurn = {
       id: "parent-turn",

@@ -277,14 +277,14 @@ async function listAuditLogs(services: AppServices, query: AuditQuery) {
   const actorIds = [...new Set(selected.flatMap((row) => row.actorId ?? []))]
   const actors = await services.prisma.user.findMany({
     where: { id: { in: actorIds } },
-    select: { id: true, name: true },
+    select: { id: true, name: true, email: true },
   })
-  const actorNames = new Map(actors.map((actor) => [actor.id, actor.name]))
+  const actorsById = new Map(actors.map((actor) => [actor.id, actor]))
   return {
     items: selected.map((row) =>
       projectAuditLog(
         row,
-        row.actorId ? actorNames.get(row.actorId) : undefined,
+        row.actorId ? actorsById.get(row.actorId) : undefined,
       ),
     ),
     next_cursor:
@@ -604,13 +604,14 @@ function projectAuditLog(
     userAgent: string | null
     createdAt: Date
   },
-  actorName?: string,
+  actor?: { name: string; email: string },
 ) {
   const metadata = sanitizeAuditMetadata(row.action, asRecord(row.metadataJson))
   return {
     id: row.id,
     actor_id: row.actorId,
-    actor_name: actorName,
+    actor_name: actor?.name,
+    actor_email: actor?.email,
     action: row.action,
     target_type: row.targetType,
     target_id: row.targetId,
@@ -980,6 +981,8 @@ function auditLogExportRows(
     ? [
         "Created At",
         "Actor ID",
+        translateBackend("audit.export.actorName", locale),
+        translateBackend("audit.export.actorEmail", locale),
         "Action",
         "Action Code",
         "Target Type",
@@ -994,6 +997,8 @@ function auditLogExportRows(
     : [
         "创建时间",
         "操作人 ID",
+        translateBackend("audit.export.actorName", locale),
+        translateBackend("audit.export.actorEmail", locale),
         "操作",
         "动作代码",
         "目标类型",
@@ -1010,6 +1015,8 @@ function auditLogExportRows(
     ...items.map((item) => [
       item.created_at,
       item.actor_id ?? "",
+      item.actor_name ?? "",
+      item.actor_email ?? "",
       translateAuditExportValue("actions", item.action, locale),
       item.action,
       item.target_type

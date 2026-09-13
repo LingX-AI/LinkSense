@@ -213,12 +213,28 @@ export const conversationFormResponseContentSchema = z
     "too_many_response_fields",
   );
 
+export const conversationAsyncUserInputMaximumQuestionCount = 100;
+export const conversationAsyncUserInputResponseContentSchema = z
+  .record(
+    z.string().regex(/^question-[1-9]\d{0,2}$/),
+    z.string().min(1).max(4_000),
+  )
+  .refine(
+    (content) =>
+      Object.keys(content).length <=
+      conversationAsyncUserInputMaximumQuestionCount,
+    "too_many_response_fields",
+  );
+
 export const conversationUserInputResponseSchema = z.discriminatedUnion(
   "action",
   [
     z.strictObject({
       action: z.literal("accept"),
-      content: conversationFormResponseContentSchema,
+      content: z.union([
+        conversationFormResponseContentSchema,
+        conversationAsyncUserInputResponseContentSchema,
+      ]),
     }),
     z.strictObject({ action: z.literal("decline") }),
     z.strictObject({ action: z.literal("cancel") }),

@@ -12,6 +12,30 @@ export type ConversationUserInputDisplayStatus =
   | "expired"
   | "terminated"
 
+export function selectActiveUserInputRequest(
+  requests: readonly ConversationUserInputRequest[],
+  runningTurnId?: string,
+  hasPendingPlanReview = false
+): ConversationUserInputRequest | undefined {
+  const pending = requests
+    .filter(
+      (request) => !hasPendingPlanReview || request.kind !== "async_questions"
+    )
+    .filter(
+      (request) =>
+        request.status === "pending" || request.status === "answering"
+    )
+    .sort((left, right) => left.created_at.localeCompare(right.created_at))
+  return (
+    pending.find(
+      (request) =>
+        request.kind !== "async_questions" && request.turn_id === runningTurnId
+    ) ??
+    pending.find((request) => request.kind !== "async_questions") ??
+    pending[0]
+  )
+}
+
 export function getConversationUserInputDisplayStatus(
   request: ConversationUserInputRequest
 ): ConversationUserInputDisplayStatus {

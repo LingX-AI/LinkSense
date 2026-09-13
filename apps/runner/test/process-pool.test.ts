@@ -1056,11 +1056,13 @@ trust_level = "trusted"
     expect(
       controlled.args?.slice(
         planPluginOverrideIndex - 1,
-        planPluginOverrideIndex + 2,
+        planPluginOverrideIndex + 4,
       ),
     ).toEqual([
       "-c",
       "features.plugins=false",
+      "-c",
+      "tools.update_plan.enabled=true",
       "--stdio",
     ]);
     expect(controlled.args).toContain("features.plugins=true");
@@ -1267,6 +1269,13 @@ trust_level = "trusted"
       "final-before-freeze",
       "final_answer",
     );
+    controlled.notify({
+      method: "item/completed",
+      params: { threadId: "thread-native-1", turnId: "turn-native-1", item: {
+        type: "agentMessage", id: "async-question-is-not-final", text: "Which scope?",
+        phase: "final_answer", delivery: "async", questions: [{ title: "Which scope?", options: null }],
+      } },
+    });
     const frozenRun =
       "stop:0:/opt/linksense/runtime/node/plan-stop-hook.mjs#frozen";
     notifyHook("hook/started", "turn-native-1", frozenRun, "running");
@@ -5109,11 +5118,13 @@ trust_level = "trusted"
     expect(
       controlled.args?.slice(
         planPluginOverrideIndex - 1,
-        planPluginOverrideIndex + 2,
+        planPluginOverrideIndex + 4,
       ),
     ).toEqual([
       "-c",
       "features.plugins=false",
+      "-c",
+      "tools.update_plan.enabled=true",
       "--stdio",
     ]);
     expect(nativePluginManager.verifyAfterStart).not.toHaveBeenCalled();

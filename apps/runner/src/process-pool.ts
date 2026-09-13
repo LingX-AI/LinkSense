@@ -6005,6 +6005,7 @@ export class AppServerProcessPool {
       if (
         projectedEvent.method === "item/completed" &&
         projectedEvent.params.item.type === "agentMessage" &&
+        projectedEvent.params.item.delivery !== "async" &&
         projectedEvent.params.item.phase === "final_answer"
       ) {
         rememberBounded(

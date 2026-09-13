@@ -82,6 +82,7 @@ import {
   type StreamingReasoningSummaries,
 } from "@/features/conversations/streaming-reasoning-summaries"
 import { ConversationThread } from "@/features/conversations/conversation-thread"
+import { selectActiveUserInputRequest } from "@/features/conversations/conversation-user-input-request-status"
 import { ConversationUserInputRequestCard } from "@/features/conversations/conversation-user-input-request-card"
 import { cn } from "@/lib/utils"
 import { setAppLanguage } from "@/i18n"
@@ -1279,17 +1280,12 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
     [t]
   )
 
-  const activeUserInputRequest = useMemo(
-    () =>
-      [...(conversation?.user_input_requests ?? [])]
-        .filter(
-          (request) =>
-            request.status === "pending" || request.status === "answering"
-        )
-        .sort((left, right) =>
-          left.created_at.localeCompare(right.created_at)
-        )[0],
-    [conversation?.user_input_requests]
+  const activeUserInputRequest = selectActiveUserInputRequest(
+    conversation?.user_input_requests ?? [],
+    conversation?.running_turn?.id
+  )
+  const answerBlocksInput = Boolean(
+    activeUserInputRequest && activeUserInputRequest.kind !== "async_questions"
   )
 
   const answerPanel = activeUserInputRequest ? (
@@ -1311,7 +1307,9 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
             }
           )
           .then(() => refresh())
-          .catch((nextError: unknown) => {
+          .catch(async (nextError: unknown) => {
+            if (activeUserInputRequest.kind === "async_questions")
+              await refresh()
             setError(errorMessage(nextError, t("embed.errors.answerFailed")))
           })
           .finally(() => setAnswering(false))
@@ -1414,6 +1412,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
                 ) : undefined
               }
               blockingPanel={answerPanel}
+              blockingPanelBlocksInput={answerBlocksInput}
               blockingPanelKey={
                 activeUserInputRequest
                   ? `user-input:${activeUserInputRequest.id}`
@@ -1428,7 +1427,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
                 {error}
               </div>
             )}
-            {!answerPanel && (
+            {!answerBlocksInput && (
               <ConversationComposer
                 ref={composerRef}
                 value={input}
@@ -1446,7 +1445,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
                 attachmentOperationPending={attachmentOperationPending}
                 planModeAvailable={false}
                 interactionBlocked={
-                  running || switchingConversation || Boolean(answerPanel)
+                  running || switchingConversation || answerBlocksInput
                 }
                 modelPreference={modelPreference}
                 modelPreferencePending={

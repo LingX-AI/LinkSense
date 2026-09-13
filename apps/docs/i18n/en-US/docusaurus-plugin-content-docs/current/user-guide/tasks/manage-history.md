@@ -11,7 +11,9 @@ The sidebar lists unarchived tasks by recent activity and loads more as you scro
 
 ## Search
 
-Use **Search** in the sidebar to find your own tasks. Results never include another user's task.
+Use **Search** in the sidebar to match task titles, messages, attachments, artifacts, plugins, or Skills. Results never include another user's task.
+
+When you open a long task history, LinkSense shows recent content first and loads earlier exchanges in pages. Load the relevant history before quoting or sharing older content.
 
 ## Rename and pin
 

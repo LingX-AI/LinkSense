@@ -15,6 +15,7 @@ import {
 } from "./capabilities.js";
 import {
   conversationExecutionStatusSchema,
+  codexAsyncUserInputQuestionsSchema,
   conversationMessageRoleSchema,
   conversationPlanReviewActionSchema,
   conversationPlanReviewStatusSchema,
@@ -904,6 +905,7 @@ export const runnerCodexErrorInfoSchema = z.union([
     "contextWindowExceeded",
     "sessionBudgetExceeded",
     "usageLimitExceeded",
+    "rateLimitExceeded",
     "serverOverloaded",
     "cyberPolicy",
     "misalignmentPolicyViolation",
@@ -946,6 +948,8 @@ const runnerCodexAgentMessageItemSchema = z.strictObject({
   id: runnerNativeIdSchema,
   text: runnerNativeTextSchema,
   phase: z.enum(["commentary", "final_answer"]).nullable(),
+  delivery: z.literal("async").optional(),
+  questions: codexAsyncUserInputQuestionsSchema.optional(),
 });
 
 const runnerCodexPlanItemSchema = z.strictObject({
