@@ -117,6 +117,7 @@ try {
   })
   const materialized = await capabilityMaterializer.reconcile({
     ownerId,
+    conversationId,
     capabilities: [
       {
         id: capabilityId,
@@ -209,7 +210,7 @@ try {
   await firstClient.close()
   firstClient = undefined
 
-  await capabilityMaterializer.reconcile({ ownerId, capabilities: [] })
+  await capabilityMaterializer.reconcile({ ownerId, conversationId, capabilities: [] })
   secondClient = createClient(
     paths.home,
     paths.codexHome,

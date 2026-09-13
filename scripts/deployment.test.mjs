@@ -1651,7 +1651,7 @@ test("Codex authentication is managed at runtime rather than in deployment env",
   );
 });
 
-test("the runner image, Compose default, environment example, and adapter pin Codex 0.150.1", async () => {
+test("the runner image, Compose default, environment example, and adapter pin Codex 0.154.0", async () => {
   const [dockerfile, compose, environmentExample, protocol] = await Promise.all(
     [
       readFile(runnerDockerfilePath, "utf8"),
@@ -1661,10 +1661,10 @@ test("the runner image, Compose default, environment example, and adapter pin Co
     ],
   );
 
-  assert.match(dockerfile, /^ARG CODEX_VERSION=0\.150\.1$/mu);
-  assert.match(compose, /CODEX_VERSION: \$\{CODEX_VERSION:-0\.150\.1\}/u);
-  assert.match(environmentExample, /^CODEX_VERSION=0\.150\.1$/mu);
-  assert.match(protocol, /export const CODEX_SCHEMA_VERSION = "0\.150\.1"/u);
+  assert.match(dockerfile, /^ARG CODEX_VERSION=0\.154\.0$/mu);
+  assert.match(compose, /CODEX_VERSION: \$\{CODEX_VERSION:-0\.154\.0\}/u);
+  assert.match(environmentExample, /^CODEX_VERSION=0\.154\.0$/mu);
+  assert.match(protocol, /export const CODEX_SCHEMA_VERSION = "0\.154\.0"/u);
 });
 
 test("native plugin refresh smoke projects the current managed capability layout", async () => {

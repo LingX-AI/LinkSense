@@ -458,6 +458,10 @@ function codexAppServerArguments(
           `shell_environment_policy.set={${pinnedEnvironmentEntries.join(",")}}`,
         ]),
     ...configOverrides.flatMap((value) => ["-c", value]),
+    // LinkSense renders native plan progress; Codex 0.152+ disables this tool
+    // by default. Apply the host policy to new and already persisted homes.
+    "-c",
+    "tools.update_plan.enabled=true",
     "--stdio",
   ];
 }
