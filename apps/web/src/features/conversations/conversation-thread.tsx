@@ -4216,6 +4216,7 @@ export function ConversationThread({
   emptyNotice,
   blockingPanel,
   blockingPanelKey,
+  blockingPanelBlocksInput = true,
   onBlockingPanelReveal,
   scrollContainerRef,
   contentRef,
@@ -4260,6 +4261,7 @@ export function ConversationThread({
   emptyNotice?: ReactNode
   blockingPanel?: ReactNode
   blockingPanelKey?: string | null
+  blockingPanelBlocksInput?: boolean
   onBlockingPanelReveal?: () => void
   scrollContainerRef?: Ref<HTMLDivElement>
   contentRef?: Ref<HTMLDivElement>
@@ -4674,7 +4676,7 @@ export function ConversationThread({
     const turnTerminalFormRequests = conversation.user_input_requests.filter(
       (request) =>
         request.turn_id === turn.id &&
-        request.kind === "form" &&
+        (request.kind === "form" || request.kind === "async_questions") &&
         request.status !== "pending" &&
         request.status !== "answering"
     )
@@ -4850,6 +4852,7 @@ export function ConversationThread({
         reasoningSummary={reasoningSummary?.text}
         hasBlockingRequest={conversation.user_input_requests.some(
           (request) =>
+            request.kind !== "async_questions" &&
             request.turn_id === turn.id &&
             (request.status === "pending" || request.status === "answering")
         )}
@@ -5138,7 +5141,7 @@ export function ConversationThread({
           "conversation-column",
           embedded && "conversation-column-embedded",
           showWelcome && "conversation-column-welcome",
-          blockingPanel && "conversation-column-blocked"
+          blockingPanel && blockingPanelBlocksInput && "conversation-column-blocked"
         )}
       >
         {messages.length === 0 &&

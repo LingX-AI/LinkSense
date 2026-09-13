@@ -7,6 +7,7 @@ import {
   conversationFormResponseMatchesSchema,
   conversationUserInputRequestSchema,
   conversationUserInputResponseSchema,
+  codexAsyncUserInputQuestionsSchema,
 } from "../src/index.js";
 
 const requestedSchema = conversationFormRequestedSchema.parse({
@@ -67,6 +68,9 @@ const requestedSchema = conversationFormRequestedSchema.parse({
 });
 
 describe("conversation form contracts", () => {
+  it.each([null, []])("accepts native free-text async questions with options=%j", (options) => {
+    expect(codexAsyncUserInputQuestionsSchema.safeParse([{ title: "Constraints?", options }]).success).toBe(true);
+  });
   it("accepts a bounded LinkSense form request", () => {
     expect(
       conversationUserInputRequestSchema.parse({
@@ -142,6 +146,27 @@ describe("conversation form contracts", () => {
 
     expect(
       conversationFormResponseSemanticsMatchesSchema(approval, requestedSchema),
+    ).toBe(false);
+  });
+
+  it("accepts up to 100 native async question answers and rejects an unbounded response", () => {
+    const content = Object.fromEntries(
+      Array.from({ length: 100 }, (_, index) => [
+        `question-${index + 1}`,
+        "Answer",
+      ]),
+    );
+    expect(
+      conversationUserInputResponseSchema.safeParse({
+        action: "accept",
+        content,
+      }).success,
+    ).toBe(true);
+    expect(
+      conversationUserInputResponseSchema.safeParse({
+        action: "accept",
+        content: { ...content, "question-101": "Answer" },
+      }).success,
     ).toBe(false);
   });
 

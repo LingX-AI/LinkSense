@@ -161,9 +161,81 @@ function getStructuredField(card: HTMLElement, label: string): HTMLElement {
 }
 
 describe("ConversationUserInputRequestCard", () => {
+  it.each(["zh-CN", "en-US", "fr-FR"])(
+    "shows nonblocking questions in %s and submits only after an explicit click",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const onSubmit = vi.fn()
+      const asyncRequest: ConversationUserInputRequest = {
+        ...request,
+        kind: "async_questions",
+        response_content: null,
+        questions: [request.questions[0]!],
+      }
+      const user = userEvent.setup()
+      render(
+        <ConversationUserInputRequestCard
+          request={asyncRequest}
+          submitting={false}
+          onSubmit={onSubmit}
+        />
+      )
+      expect(screen.getByRole("radio", { name: /完整实现/ })).toBeChecked()
+      expect(
+        screen.getByText(
+          locale === "en-US"
+            ? "LinkSense can keep working while you answer. You can also reply after it finishes."
+            : "你可以稍后回答，LinkSense 会继续工作；任务结束后仍可提交回答。"
+        )
+      ).toBeInTheDocument()
+      expect(onSubmit).not.toHaveBeenCalled()
+      await user.click(
+        screen.getByRole("button", {
+          name: locale === "en-US" ? "Submit answers" : "提交回答",
+        })
+      )
+      expect(onSubmit).toHaveBeenCalledExactlyOnceWith({
+        action: "accept",
+        content: { implementation_scope: "完整实现（推荐）" },
+      })
+    }
+  )
+
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
   })
+
+  it.each(["pending", "answering"] as const)(
+    "resubmits a persisted %s async answer without allowing a different answer or cancellation",
+    async (status) => {
+      const onSubmit = vi.fn()
+      const user = userEvent.setup()
+      render(
+        <ConversationUserInputRequestCard
+          request={{
+            ...request,
+            kind: "async_questions",
+            status,
+            questions: [request.questions[0]!],
+            response_content: { implementation_scope: "仅做界面" },
+          }}
+          submitting={false}
+          onSubmit={onSubmit}
+        />
+      )
+      expect(screen.getByRole("radio", { name: /仅做界面/ })).toBeChecked()
+      expect(screen.getByRole("radio", { name: /完整实现/ })).toHaveAttribute(
+        "aria-disabled",
+        "true"
+      )
+      expect(screen.getByRole("button", { name: "取消" })).toBeDisabled()
+      await user.click(screen.getByRole("button", { name: "提交回答" }))
+      expect(onSubmit).toHaveBeenCalledExactlyOnceWith({
+        action: "accept",
+        content: { implementation_scope: "仅做界面" },
+      })
+    }
+  )
 
   afterEach(async () => {
     cleanup()

@@ -2060,6 +2060,7 @@ export const enUS = {
       exitDescription: "Exit Plan mode without starting implementation",
     },
     userInput: {
+      asyncDescription: "LinkSense can keep working while you answer. You can also reply after it finishes.",
       title: "Your answer is needed",
       formTitle: "Please confirm these details",
       formResultTitle: "Completed form",

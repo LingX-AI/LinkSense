@@ -47,6 +47,7 @@ import { readConversationEventHistory } from "./history.js";
 import { isStoppedDeploymentEvent } from "./deployment-fence.js";
 import type { UsageAnalyticsService } from "../usage/service.js";
 import { upsertConversationGoal } from "../conversations/goals.js";
+import { upsertAsyncUserInputRequest } from "./async-user-input.js";
 import type { TaskRecoveryScheduler } from "./recovery-scheduler.js";
 
 export type RunnerEventInput = {
@@ -572,6 +573,7 @@ export class ConversationEventService {
           await tx.conversationUserInputRequest.updateMany({
             where: {
               turnId: turn.id,
+              requestKind: { not: "async_questions" },
               status: { in: ["pending", "answering"] },
             },
             data: {
@@ -797,6 +799,10 @@ export class ConversationEventService {
         ? nativeTurnFailureMessage(input.params.turn)
         : null;
     const nativeItem = asObject(input.params.item);
+    const isAsyncQuestion =
+      input.method === "item/completed" &&
+      nativeItem.type === "agentMessage" && nativeItem.delivery === "async" &&
+      Array.isArray(nativeItem.questions) && nativeItem.questions.length > 0;
     const isCompletedAssistantOutput =
       input.method === "item/completed" &&
       (nativeItem.type === "agentMessage" || nativeItem.type === "plan") &&
@@ -804,7 +810,7 @@ export class ConversationEventService {
     const nativeItemId = isCompletedAssistantOutput
       ? String(nativeItem.id)
       : null;
-    const completedMessageProjection = isCompletedAssistantOutput
+    const completedMessageProjection = isCompletedAssistantOutput && !isAsyncQuestion
       ? await this.projectCompletedAssistantMessage(
           turn,
           typeof nativeItem.text === "string" ? nativeItem.text : "",
@@ -929,7 +935,13 @@ export class ConversationEventService {
           local.superseded_item_id = supersededOutput.itemId;
         }
       }
-      if (isCompletedAssistantOutput) {
+      if (isAsyncQuestion && nativeItemId) {
+        const request = await upsertAsyncUserInputRequest(tx, conversationId, turn, {
+          id: nativeItemId,
+          questions: nativeItem.questions,
+        });
+        local.user_input_request_id = request.id;
+      } else if (isCompletedAssistantOutput) {
         if (!completedMessageProjection) {
           throw new AppError("INTERNAL_ERROR");
         }
@@ -1126,6 +1138,7 @@ export class ConversationEventService {
             await tx.conversationUserInputRequest.updateMany({
               where: {
                 turnId: turn.id,
+                requestKind: { not: "async_questions" },
                 status: { in: ["pending", "answering"] },
               },
               data: {
@@ -2301,6 +2314,7 @@ export class ConversationEventService {
       await tx.conversationUserInputRequest.updateMany({
         where: {
           turnId: turn.id,
+          requestKind: { not: "async_questions" },
           status: { in: ["pending", "answering"] },
         },
         data: {

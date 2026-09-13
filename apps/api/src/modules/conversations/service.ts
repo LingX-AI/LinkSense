@@ -42,6 +42,8 @@ import {
   capabilityTypeSchema,
   capabilityAttachedEventSchema,
   buildOfficeAnnotationDisplay,
+  conversationAsyncUserInputMaximumQuestionCount,
+  conversationAsyncUserInputResponseContentSchema,
   conversationFormResponseContentSchema,
   conversationFormResponseSemanticsSchema,
   conversationFormRequestedSchema,
@@ -119,6 +121,7 @@ import {
   upsertConversationGoal,
   type ConversationGoalRow,
 } from "./goals.js";
+import { respondToAsyncUserInput } from "./async-user-input.js";
 
 export type ExecutionCapability = RunnerCapability & {
   sourcePath: string;
@@ -274,6 +277,8 @@ export interface RuntimeCleanupScheduler {
 }
 
 type TurnSubmissionBase = {
+  /** Internal response binding; never supplied by the public submission API. */
+  expectedCodexThreadId?: string;
   collaborationMode?: ConversationCollaborationMode;
   priorityCapabilityIds: string[];
   knowledgeBaseIds?: string[];
@@ -5591,6 +5596,49 @@ export class ConversationService {
   ) {
     const response = conversationUserInputResponseSchema.parse(rawResponse);
     await this.assertOwner(ownerId, conversationId);
+    const asyncRequest = await this.prisma.conversationUserInputRequest.findFirst({
+      where: { id: requestId, conversationId, ownerId, requestKind: "async_questions" },
+    });
+    if (asyncRequest?.requestKind === "async_questions") {
+      const result = await respondToAsyncUserInput({
+        prisma: this.prisma,
+        ownerId,
+        conversationId,
+        requestId,
+        response,
+        deliver: async (delivery, text, codexThreadId) => {
+          if (delivery.method === "steer") {
+            await this.steer(
+              ownerId, conversationId, delivery.turnId, text, delivery.operationId, context,
+            );
+          } else {
+            await this.acceptTurn(ownerId, conversationId, {
+              inputText: text,
+              priorityCapabilityIds: [],
+              submitMode: "normal",
+              idempotencyKey: delivery.idempotencyKey,
+              preserveStagedAttachments: true,
+              expectedCodexThreadId: codexThreadId,
+            }, context);
+          }
+        },
+      });
+      if (result.event) {
+        await this.audit.write({
+          ...context,
+          actorId: ownerId,
+          action: "conversation_user_input_request_responded",
+          targetType: "conversation_user_input_request",
+          targetId: requestId,
+          result: "success",
+          metadata: { conversation_id: conversationId, turn_id: result.request.turnId, action: response.action },
+        });
+        await this.redis
+          .publishConversationEvent(conversationId, projectStoredEvent(result.event))
+          .catch(() => undefined);
+      }
+      return projectUserInputRequest(result.request);
+    }
     const lock = await this.acquireConversationLock(conversationId);
     let request: {
       id: string;
@@ -5598,7 +5646,7 @@ export class ConversationService {
       codexThreadId: string;
       codexTurnId: string;
       codexItemId: string;
-      nativeRequestId: bigint;
+      nativeRequestId: bigint | null;
       requestKind: string;
       questionsJson: unknown;
       formSchemaJson: unknown;
@@ -5660,6 +5708,9 @@ export class ConversationService {
     }
 
     try {
+      if (request.nativeRequestId === null) {
+        throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
+      }
       await this.runner.respondUserInputRequest({
         conversationId,
         ownerId,
@@ -6769,53 +6820,63 @@ export class ConversationService {
           }
           if (userInputRequests.length > 0) {
             await tx.conversationUserInputRequest.createMany({
-              data: userInputRequests.map((request) => ({
-                id: userInputRequestIdMap.get(request.id)!,
-                conversationId: forkConversationId,
-                turnId: turnIdMap.get(request.turnId)!,
-                ownerId,
-                codexThreadId: forkedThread.codexThreadId,
-                codexTurnId: request.codexTurnId,
-                codexItemId: request.codexItemId,
-                nativeRequestId: request.nativeRequestId,
-                requestKind: request.requestKind,
-                questionsJson: remapForkedJson(
-                  request.questionsJson,
-                  replacements,
-                ) as Prisma.InputJsonValue,
-                serverName: request.serverName,
-                messageText: request.messageText,
-                formSchemaJson: request.formSchemaJson
-                  ? (remapForkedJson(
-                      request.formSchemaJson,
-                      replacements,
-                    ) as Prisma.InputJsonValue)
-                  : Prisma.DbNull,
-                formUiHintsJson: request.formUiHintsJson
-                  ? (remapForkedJson(
-                      request.formUiHintsJson,
-                      replacements,
-                    ) as Prisma.InputJsonValue)
-                  : Prisma.DbNull,
-                formResponseSemanticsJson: request.formResponseSemanticsJson
-                  ? (remapForkedJson(
-                      request.formResponseSemanticsJson,
-                      replacements,
-                    ) as Prisma.InputJsonValue)
-                  : Prisma.DbNull,
-                responseContentJson: request.responseContentJson
-                  ? (remapForkedJson(
-                      request.responseContentJson,
-                      replacements,
-                    ) as Prisma.InputJsonValue)
-                  : Prisma.DbNull,
-                status: request.status,
-                autoResolveAt: request.autoResolveAt,
-                resolvedAction: request.resolvedAction,
-                resolvedAt: request.resolvedAt,
-                createdAt: request.createdAt,
-                updatedAt: request.updatedAt,
-              })),
+              data: userInputRequests.map((request) => {
+                const unresolvedAsyncQuestion =
+                  request.requestKind === "async_questions" &&
+                  (request.status === "pending" || request.status === "answering");
+                return {
+                  id: userInputRequestIdMap.get(request.id)!,
+                  conversationId: forkConversationId,
+                  turnId: turnIdMap.get(request.turnId)!,
+                  ownerId,
+                  codexThreadId: forkedThread.codexThreadId,
+                  codexTurnId: request.codexTurnId,
+                  codexItemId: request.codexItemId,
+                  nativeRequestId: request.nativeRequestId,
+                  requestKind: request.requestKind,
+                  questionsJson: remapForkedJson(
+                    request.questionsJson,
+                    replacements,
+                  ) as Prisma.InputJsonValue,
+                  serverName: request.serverName,
+                  messageText: request.messageText,
+                  formSchemaJson: request.formSchemaJson
+                    ? (remapForkedJson(
+                        request.formSchemaJson,
+                        replacements,
+                      ) as Prisma.InputJsonValue)
+                    : Prisma.DbNull,
+                  formUiHintsJson: request.formUiHintsJson
+                    ? (remapForkedJson(
+                        request.formUiHintsJson,
+                        replacements,
+                      ) as Prisma.InputJsonValue)
+                    : Prisma.DbNull,
+                  formResponseSemanticsJson: request.formResponseSemanticsJson
+                    ? (remapForkedJson(
+                        request.formResponseSemanticsJson,
+                        replacements,
+                      ) as Prisma.InputJsonValue)
+                    : Prisma.DbNull,
+                  // A fork must not reuse an in-flight answer operation from its source.
+                  responseDeliveryJson: Prisma.DbNull,
+                  responseContentJson: unresolvedAsyncQuestion
+                    ? Prisma.DbNull
+                    : request.responseContentJson
+                      ? (remapForkedJson(
+                          request.responseContentJson,
+                          replacements,
+                        ) as Prisma.InputJsonValue)
+                      : Prisma.DbNull,
+                  status: unresolvedAsyncQuestion ? "pending" : request.status,
+                  autoResolveAt: request.autoResolveAt,
+                  resolvedAction: unresolvedAsyncQuestion
+                    ? null : request.resolvedAction,
+                  resolvedAt: unresolvedAsyncQuestion ? null : request.resolvedAt,
+                  createdAt: request.createdAt,
+                  updatedAt: request.updatedAt,
+                };
+              }),
             });
           }
           if (citations.length > 0) {
@@ -8764,6 +8825,12 @@ export class ConversationService {
       existingLock ?? (await this.acquireConversationLock(conversationId));
     try {
       const conversation = await this.assertOwner(ownerId, conversationId);
+      if (
+        submission.expectedCodexThreadId !== undefined &&
+        conversation.codexThreadId !== submission.expectedCodexThreadId
+      ) {
+        throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
+      }
       const applicationRuntime = await this.applicationRuntimeForConversation(
         ownerId,
         conversation.applicationId,
@@ -9894,6 +9961,16 @@ function projectUserInputRequest(row: {
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   };
+  if (row.requestKind === "async_questions") {
+    return {
+      ...common,
+      kind: "async_questions" as const,
+      questions: z.array(conversationUserInputQuestionSchema)
+        .min(1).max(conversationAsyncUserInputMaximumQuestionCount).parse(row.questionsJson),
+      response_content: conversationAsyncUserInputResponseContentSchema
+        .nullable().parse(row.responseContentJson),
+    };
+  }
   if (row.requestKind === "questions") {
     return {
       ...common,

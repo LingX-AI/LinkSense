@@ -1902,6 +1902,7 @@ export const zhCN = {
     },
     userInput: {
       title: "需要你的回答",
+      asyncDescription: "你可以稍后回答，LinkSense 会继续工作；任务结束后仍可提交回答。",
       formTitle: "需要你确认信息",
       formResultTitle: "已处理的表单",
       description: "回答以下问题后，LinkSense 会继续完善计划。",

@@ -55,6 +55,12 @@ export function getConversationEventQueryRefreshScope(
   }
   if (
     native?.method === "item/completed" &&
+    native.local?.user_input_request_id
+  ) {
+    return "detail"
+  }
+  if (
+    native?.method === "item/completed" &&
     native.params.item.type === "plan" &&
     native.local?.plan_review_id
   ) {

@@ -11,6 +11,8 @@ import {
 } from "./capabilities.js";
 import { timestampSchema, uniqueArraySchema, uuidSchema } from "./common.js";
 import {
+  conversationAsyncUserInputMaximumQuestionCount,
+  conversationAsyncUserInputResponseContentSchema,
   conversationFormResponseContentSchema,
   conversationFormResponseSemanticsSchema,
   conversationFormRequestedSchema,
@@ -258,6 +260,34 @@ export const conversationUserInputQuestionSchema = z.strictObject({
     .nullable(),
 });
 
+export const codexAsyncUserInputQuestionsSchema = z
+  .array(
+    z.strictObject({
+      title: z.string().trim().min(1).max(4_000),
+      options: z
+        .array(z.string().trim().min(1).max(500))
+        .max(20)
+        .nullable(),
+    }),
+  )
+  .min(1)
+  .max(conversationAsyncUserInputMaximumQuestionCount);
+
+/** Stable item-local identities; native asynchronous questions have no RPC id. */
+export function projectAsyncUserInputQuestions(
+  questions: z.infer<typeof codexAsyncUserInputQuestionsSchema>,
+): z.infer<typeof conversationUserInputQuestionSchema>[] {
+  return questions.map((question, index) => ({
+    id: `question-${index + 1}`,
+    header: String(index + 1),
+    question: question.title,
+    is_other: true,
+    is_secret: false,
+    options:
+      question.options?.map((label) => ({ label, description: "" })) ?? null,
+  }));
+}
+
 const conversationUserInputRequestBaseShape = {
   id: uuidSchema,
   conversation_id: uuidSchema,
@@ -271,26 +301,33 @@ const conversationUserInputRequestBaseShape = {
   updated_at: timestampSchema,
 };
 
-export const conversationUserInputRequestSchema = z.discriminatedUnion(
-  "kind",
-  [
-    z.strictObject({
-      ...conversationUserInputRequestBaseShape,
-      kind: z.literal("questions"),
-      questions: z.array(conversationUserInputQuestionSchema).min(1).max(3),
-    }),
-    z.strictObject({
-      ...conversationUserInputRequestBaseShape,
-      kind: z.literal("form"),
-      server_name: z.string().min(1).max(240),
-      message: z.string().min(1).max(4_000),
-      requested_schema: conversationFormRequestedSchema,
-      ui_hints: conversationFormUiHintsSchema,
-      response_semantics: conversationFormResponseSemanticsSchema,
-      response_content: conversationFormResponseContentSchema.nullable(),
-    }),
-  ],
-);
+export const conversationUserInputRequestSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    ...conversationUserInputRequestBaseShape,
+    kind: z.literal("questions"),
+    questions: z.array(conversationUserInputQuestionSchema).min(1).max(3),
+  }),
+  z.strictObject({
+    ...conversationUserInputRequestBaseShape,
+    kind: z.literal("async_questions"),
+    questions: z
+      .array(conversationUserInputQuestionSchema)
+      .min(1)
+      .max(conversationAsyncUserInputMaximumQuestionCount),
+    response_content:
+      conversationAsyncUserInputResponseContentSchema.nullable(),
+  }),
+  z.strictObject({
+    ...conversationUserInputRequestBaseShape,
+    kind: z.literal("form"),
+    server_name: z.string().min(1).max(240),
+    message: z.string().min(1).max(4_000),
+    requested_schema: conversationFormRequestedSchema,
+    ui_hints: conversationFormUiHintsSchema,
+    response_semantics: conversationFormResponseSemanticsSchema,
+    response_content: conversationFormResponseContentSchema.nullable(),
+  }),
+]);
 
 export const conversationUserInputAnswersSchema = z.record(
   z.string().min(1).max(160),

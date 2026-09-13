@@ -1225,6 +1225,7 @@ export const auditRecordSchema = z
     id: z.string(),
     action: z.string(),
     actor_name: z.string().optional(),
+    actor_email: z.string().optional(),
     actor_id: z.string().nullable().optional(),
     target_type: z.string().nullable().optional(),
     target_id: z.string().nullable().optional(),

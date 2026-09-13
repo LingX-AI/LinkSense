@@ -572,6 +572,64 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
     );
   });
 
+  it("persists asynchronous questions once without a duplicate assistant message or an RPC request id", async () => {
+    const fixture = eventFixture();
+    await fixture.service.ingest(CONVERSATION_ID, {
+      method: "item/completed", visibility: "user_visible",
+      params: {
+        threadId: "codex-thread-1", turnId: "codex-turn-1", completedAtMs: 1_789_000_000_100,
+        item: { type: "agentMessage", id: "async-question-1", text: "", phase: "final_answer", delivery: "async",
+          questions: [{ title: "Which scope?", options: ["Complete", "Minimal"] }, { title: "Constraints?", options: null }],
+        },
+      },
+    });
+    expect(fixture.tx.conversationMessage.create).not.toHaveBeenCalled();
+    expect(fixture.tx.conversationUserInputRequest.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      conversationId: CONVERSATION_ID, turnId: TURN_ID, ownerId: OWNER_ID,
+      codexItemId: "async-question-1", nativeRequestId: null, requestKind: "async_questions",
+      status: "pending", autoResolveAt: null,
+      questionsJson: [
+        { id: "question-1", header: "1", question: "Which scope?", is_other: true, is_secret: false,
+          options: [{ label: "Complete", description: "" }, { label: "Minimal", description: "" }] },
+        { id: "question-2", header: "2", question: "Constraints?", is_other: true, is_secret: false, options: null },
+      ],
+    }) });
+    expect(fixture.tx.conversationEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      payloadJson: expect.objectContaining({ local: expect.objectContaining({ user_input_request_id: expect.any(String) }) }),
+    }) });
+  });
+
+  it.each(["completed", "failed", "interrupted"])("keeps asynchronous questions pending when the source turn becomes %s", async (status) => {
+    const fixture = eventFixture();
+    fixture.tx.conversationTurn.updateMany.mockResolvedValueOnce({ count: 1 });
+    await fixture.service.ingest(CONVERSATION_ID, {
+      method: "turn/completed", visibility: "user_visible",
+      params: { threadId: "codex-thread-1", turn: { id: "codex-turn-1", status, error: null } },
+    });
+    expect(fixture.tx.conversationUserInputRequest.updateMany).toHaveBeenCalledWith({
+      where: { turnId: TURN_ID, requestKind: { not: "async_questions" }, status: { in: ["pending", "answering"] } },
+      data: expect.objectContaining({ status: "cancelled" }),
+    });
+  });
+
+  it("retains the answered state when an asynchronous item is redelivered with JSONB object key order", async () => {
+    const fixture = eventFixture();
+    fixture.tx.conversationUserInputRequest.findFirst.mockResolvedValueOnce({
+      id: "30000000-0000-4000-8000-000000000019", conversationId: CONVERSATION_ID, turnId: TURN_ID,
+      ownerId: OWNER_ID, requestKind: "async_questions", status: "answered",
+      questionsJson: [{ options: null, question: "Constraints?", is_secret: false, is_other: true, header: "1", id: "question-1" }],
+    });
+    await fixture.service.ingest(CONVERSATION_ID, {
+      method: "item/completed", visibility: "user_visible",
+      params: { threadId: "codex-thread-1", turnId: "codex-turn-1", item: {
+        type: "agentMessage", id: "async-question-1", text: "", phase: "final_answer", delivery: "async",
+        questions: [{ title: "Constraints?", options: null }],
+      } },
+    });
+    expect(fixture.tx.conversationUserInputRequest.create).not.toHaveBeenCalled();
+    expect(fixture.tx.conversationUserInputRequest.updateMany).not.toHaveBeenCalled();
+  });
+
   it("keeps the native agentMessage phase while materializing the assistant message", async () => {
     const fixture = eventFixture();
 

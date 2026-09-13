@@ -942,7 +942,11 @@ function sanitizeItem(
         item.phase === "commentary" || item.phase === "final_answer"
           ? item.phase
           : null;
-      return { type, id, text: item.text, phase };
+      return parseItem({
+        type, id, text: item.text, phase,
+        ...(item.delivery === "async" ? { delivery: "async" } : {}),
+        ...(item.questions != null ? { questions: item.questions } : {}),
+      });
     }
     case "plan":
       return typeof item.text === "string"
