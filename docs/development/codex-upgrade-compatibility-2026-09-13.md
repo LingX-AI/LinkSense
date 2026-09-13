@@ -6,18 +6,28 @@
 
 Codex 版本配置已从 `0.150.1` 更新至检查时的最新稳定版 `0.154.0`，已修复网关、计划工具、限流分类和非阻塞问答的适配问题。真实 Codex 在 macOS 和 Linux ARM64 上均通过三种网关模式的执行中回答、结束并重启后回答功能检查。
 
-用户已明确要求“保留全部历史数据”。正式前向迁移、Prisma Schema 和 Client 已完成，在隔离 PostgreSQL 16 中验证了所有历史字段、旧答案和历史迁移校验值保持不变。API 全量测试、类型检查和构建均已通过。当前工作区没有运行中的 LinkSense 服务，本次尚未对实际业务数据库执行迁移或发布服务。
+用户已明确要求“保留全部历史数据”。正式前向迁移、Prisma Schema 和 Client 已完成，在隔离 PostgreSQL 16 中验证了所有历史字段、旧答案和历史迁移校验值保持不变。API 全量测试、类型检查和构建均已通过。本次未对实际业务数据库执行迁移或发布服务。
 
 ## 版本与依据
 
-- `Dockerfile.runner`、`docker-compose.yml`、`.env.example`、生产部署脚本及 Runner 协议守卫统一固定 `0.154.0`。
-- 本地私有 `.env` 中既有的 `CODEX_VERSION` 覆盖值同步更新为 `0.154.0`，其他配置保持原值。
+- `apps/runner/src/codex/runtime-version.json` 是 Codex 版本的唯一声明，固定为已完成适配和验证的 `0.154.0`。Docker 安装和 Runner 的 `CODEX_SCHEMA_VERSION` 都读取该文件。
+- `.env.example`、Compose 和 Docker 构建参数中的 `CODEX_VERSION` 入口已移除；本地私有 `.env` 也只删除了该项。已有部署即使遗留此变量，也不能改变安装版本。
 - Codex 在 Docker 中由 pnpm 安装，不是 workspace 依赖；本次没有添加第三方依赖或修改 lockfile。
 - 系统 PATH 中的个人 Codex 为 `0.142.5`，没有升级它。所有功能检查显式使用独立安装的 `0.154.0`。
 - 版本依据：[官方更新日志](https://learn.chatgpt.com/docs/changelog)。协议依据：[官方 app-server 文档](https://learn.chatgpt.com/docs/app-server)，以及两个版本实际导出的实验性 TypeScript 和 JSON Schema。
 - 排除注释与空白后，原生 TypeScript 导出有 26 个文件变化、35 个文件新增；未删除既有客户端请求或服务端通知方法。
 
 ## 已实现的适配
+
+### 版本随 LinkSense 发行
+
+Codex 是 LinkSense 适配器的固定依赖。维护者升级时修改仓库内的版本声明，并同步完成原生 Schema 对照、适配器调整和功能验收，再发布 LinkSense 版本。安装过程不会查询上游 `latest`，也不接受用户通过环境变量或构建参数选择 Codex 版本。`CODEX_BIN` 只指定可执行文件位置，所指文件仍必须符合仓库固定版本。
+
+开发环境和源码生产部署的 Worker 指纹均覆盖该声明；生产脚本的运行时变更检查也包含此文件，因此版本变化会触发镜像重建，并阻止显式复用旧 Worker。发行工作流针对 amd64 和 arm64 候选 Worker 执行实际版本检查，然后按既有不可变 OCI 摘要发布。一键升级安装对应 LinkSense 发行的 Worker，自动获得已经适配的 Codex。
+
+两个 Worker 构建目标都在安装后检查 `codex --version`。Worker 和 standalone Runner 还会在加载执行服务、创建用户运行目录和监听请求之前检查实际二进制；版本不符、无效输出、执行失败或超时都会拒绝启动。Worker 复用现有 `setpriv` 隔离，以任务用户身份且清除继承能力后运行版本命令；controller 不运行 Codex，跳过此检查。
+
+版本固定机制不涉及数据库结构、迁移、业务记录或持久化卷。
 
 ### 工具目录和流式网关
 
@@ -94,6 +104,31 @@ Runner 保留 `agentMessage.delivery = "async"`、问题和选项；API 将其�
 初次评估还验证过：0.154.0 读取 0.150.1 创建的隔离会话，原生分叉、回滚、目标设置/读取/清除和中断。此结果覆盖最小历史恢复，不表示支持把新版写入的原生状态降级回旧版。
 
 ## 可重复执行的命令
+
+### 版本固定机制的追加验收
+
+本次追加调整基于 `42663c2`，保留已完成的 `0.154.0` 协议适配与历史数据方案，没有修改 Prisma Schema 或任何迁移。
+
+| 检查 | 结果 |
+| --- | --- |
+| Runner 单元测试 | `pnpm --filter @linksense/runner test`：56 个文件、738 项通过；1 项既有 Linux root 条件测试在 macOS 上跳过 |
+| 部署与升级脚本 | `pnpm test:deployment`：252 项通过；最终调整后 `node --test scripts/deployment.test.mjs scripts/dev.test.mjs` 的 97 项再次通过 |
+| 类型、Lint、构建 | `pnpm --filter @linksense/runner typecheck`、`lint`、`build` 全部通过；编译产物包含版本 JSON |
+| 实际 Compose 解析 | 分别传入 `CODEX_VERSION=0.150.1` 和 `999.0.0`，Worker 构建参数相同，且不含版本覆盖项 |
+| 源码升级与旧镜像复用 | 隔离 Git fixture 只改变版本声明即可改变生产指纹，且出现在运行时与重建路径检查中；开发 Worker 指纹同样变化；旧环境变量不改变生产指纹 |
+| macOS 原生功能 | 使用固定二进制运行 `pnpm test:codex:upgrade`，三种网关模式 × 两种回答时机，共 6 组通过 |
+| Linux ARM64 Worker 构建 | `worker-cached-browser` 构建通过，即使传入 `--build-arg CODEX_VERSION=999.0.0` 仍安装并验证 `0.154.0`；Python、Node、Chromium、字体和配置读取权限检查通过 |
+| 发布候选校验 | 以任务 UID 1001 执行发行工作流使用的生产版本检查，传入错误环境版本仍通过固定二进制验证 |
+| Linux ARM64 原生功能 | 新镜像中以 UID 1001 运行同一功能测试，6 组全部通过，包含真实 shell 执行、计划更新、非阻塞问题持久化和重启后回答 |
+| 实际 Worker 启动 | 在隔离容器中使用生产相同的监督进程 capabilities 与 `no-new-privileges`，旧版本在创建数据目录前被拒绝；探针实际 UID 为 1001，Inheritable、Permitted、Effective、Ambient capabilities 全为零；固定版本启动后 `/health/ready` 和原生 app-server 握手均可用 |
+
+最终测试镜像：`linksense-runner-worker:codex-pinned-test`，镜像 ID：`sha256:2b411062d604539316decae4a356c1432117c98acbb7eb037c937d7454d3ab0e`。镜像测试禁用外部网络、使用容器内临时目录和确定性本地模型服务，没有挂载业务数据。
+
+初次构建的目录权限检查发现，新增 `COPY --chmod=0444` 会让自动创建的 `/opt/linksense` 父目录也成为 `0444`，已改为先显式创建 root 所有、`0755` 的父目录，并增加回归断言。最终镜像已重新构建并通过上述验收。
+
+本机未执行 Linux AMD64 构建或远端 GitHub Actions 发布；发行工作流已对两个架构配置同一版本检查。本次没有重新部署正在运行的环境、修改业务数据库或删除持久化卷。
+
+### 原有升级功能回归
 
 ```sh
 pnpm --filter @linksense/shared build

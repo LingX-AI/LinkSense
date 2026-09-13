@@ -1216,7 +1216,6 @@ initialize_migration_target_volumes() {
 worker_source_fingerprint() {
   {
     printf '%s\n' "linksense-worker-image-inputs-v1"
-    printf 'CODEX_VERSION=%s\n' "$(environment_value CODEX_VERSION 0.154.0)"
     printf 'PNPM_VERSION=%s\n' "$(environment_value PNPM_VERSION 10.6.4)"
     printf 'LINKSENSE_NODE_PACKAGE_REGISTRY_URL=%s\n' \
       "$(environment_value LINKSENSE_NODE_PACKAGE_REGISTRY_URL https://registry.npmjs.org/)"

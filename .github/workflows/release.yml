@@ -288,7 +288,8 @@ jobs:
           set -euo pipefail
           image="ghcr.io/lingx-ai/linksense-worker@${{ steps.build.outputs.digest }}"
           docker pull --platform "${{ matrix.platform }}" "$image"
-          docker run --rm --entrypoint codex "$image" --version
+          docker run --rm --user 1001:1000 --entrypoint node "$image" --input-type=module \
+            --eval "import { assertCodexRuntimeVersion } from './dist/codex/runtime-version.js'; await assertCodexRuntimeVersion({ command: 'codex' })"
       - name: Record immutable ${{ matrix.platform }} worker candidate
         shell: bash
         run: |

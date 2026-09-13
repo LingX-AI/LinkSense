@@ -90,7 +90,6 @@ services:
       dockerfile: Dockerfile.runner
       target: ${LINKSENSE_WORKER_BUILD_TARGET:-worker}
       args:
-        CODEX_VERSION: ${CODEX_VERSION:-0.154.0}
         PNPM_VERSION: ${PNPM_VERSION:-10.6.4}
         WORKER_IMAGE_FINGERPRINT: ${LINKSENSE_WORKER_IMAGE_FINGERPRINT:-unversioned}
         DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}

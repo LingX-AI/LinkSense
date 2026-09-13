@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -339,10 +339,10 @@ test("worker images rebuild when their runtime source fingerprint is stale", () 
 });
 
 test("image reuse includes effective build arguments and ignores the fingerprint label itself", () => {
-  const base = { dockerfile: "Dockerfile.runner", target: "worker", args: { CODEX_VERSION: "1", PNPM_VERSION: "10", WORKER_IMAGE_FINGERPRINT: "previous" } };
+  const base = { dockerfile: "Dockerfile.runner", target: "worker", args: { PNPM_VERSION: "10", WORKER_IMAGE_FINGERPRINT: "previous" } };
   const fingerprint = fingerprintBuildConfiguration("source", base);
   assert.equal(fingerprintBuildConfiguration("source", { ...base, args: { ...base.args, WORKER_IMAGE_FINGERPRINT: "next" } }), fingerprint);
-  assert.notEqual(fingerprintBuildConfiguration("source", { ...base, args: { ...base.args, CODEX_VERSION: "2" } }), fingerprint);
+  assert.notEqual(fingerprintBuildConfiguration("source", { ...base, args: { ...base.args, PNPM_VERSION: "11" } }), fingerprint);
   assert.notEqual(fingerprintBuildConfiguration("source", { ...base, target: "worker-cached-browser" }), fingerprint);
 });
 
@@ -678,6 +678,40 @@ test("development fingerprints are deterministic and include dependency changes"
     "linksense-runner-controller-dev:local",
     "linksense-web-dev:local",
   ]);
+});
+
+test("changing the repository Codex pin rebuilds the development worker", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "linksense-codex-fingerprint-"));
+  try {
+    // Use real build inputs; only the repository pin changes between checks.
+    for (const input of [
+      ".dockerignore", "Dockerfile.runner", "LICENSE", "package.json",
+      "pnpm-lock.yaml", "pnpm-workspace.yaml", "tsconfig.base.json", "patches",
+      "apps/api/package.json", "apps/docs/package.json", "apps/web/package.json",
+      "apps/runner/package.json", "apps/runner/src", "apps/runner/tsconfig.json",
+      "apps/runner/tsconfig.build.json", "packages/shared/package.json",
+      "packages/shared/src", "packages/shared/tsconfig.json", "deploy/codex-home-template",
+      "deploy/codex-system", "deploy/docker/configure-debian-apt.sh",
+      "deploy/docker/runner-runtime-smoke.mjs", "deploy/runtime/browser",
+      "deploy/runtime/fonts", "deploy/runtime/node", "deploy/runtime/python", "deploy/runtime/shell",
+    ]) {
+      await cp(resolve(input), resolve(root, input), {
+        recursive: true,
+        filter: (source) => !source.split(/[\\/]/u).some((part) => ["node_modules", ".venv", "__pycache__"].includes(part)),
+      });
+    }
+    const directory = resolve(root, "apps/runner/src/codex");
+    await mkdir(directory, { recursive: true });
+    const versionPath = resolve(directory, "runtime-version.json");
+    await writeFile(versionPath, JSON.stringify({ version: "0.154.0" }));
+    const previous = workerImageFingerprint(root);
+    assert.equal(workerImageNeedsRebuild(previous, workerImageFingerprint(root)), false);
+
+    await writeFile(versionPath, JSON.stringify({ version: "0.155.0" }));
+    assert.equal(workerImageNeedsRebuild(previous, workerImageFingerprint(root)), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("development worker cleanup uses the authenticated controller endpoint", async () => {

@@ -3,7 +3,6 @@
 ARG NODE_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
 ARG UV_VERSION=0.9.13
-ARG CODEX_VERSION=0.154.0
 ARG PNPM_VERSION=10.6.4
 ARG DEBIAN_MIRROR_URL=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR_URL=http://security.debian.org/debian-security
@@ -138,13 +137,14 @@ CMD ["node", "dist/index.js"]
 # Codex and every task-side child then run as linksense-task (1001:1000) after
 # clearing inherited capabilities.
 FROM ${NODE_IMAGE} AS worker-base
-ARG CODEX_VERSION
 ARG PNPM_VERSION
 ARG DEBIAN_MIRROR_URL
 ARG DEBIAN_SECURITY_MIRROR_URL
 ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL
 ARG PLAYWRIGHT_DOWNLOAD_HOST
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
+RUN install -d -o root -g root -m 0755 /opt/linksense
+COPY --chmod=0444 apps/runner/src/codex/runtime-version.json /opt/linksense/codex-runtime-version.json
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PNPM_HOME=/pnpm
@@ -163,7 +163,6 @@ COPY --from=browser-runtime-cache /opt/linksense/runtime/browser /opt/linksense/
 COPY --from=browser-runtime-cache /opt/linksense/runtime/browser-browsers /opt/linksense/runtime/browser-browsers
 
 FROM worker-browser-build-input AS worker
-ARG CODEX_VERSION
 ARG PNPM_VERSION
 ARG DEBIAN_MIRROR_URL
 ARG DEBIAN_SECURITY_MIRROR_URL
@@ -211,9 +210,11 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
   && install -d -o linksense-task -g node -m 0770 /home/linksense \
   && corepack enable \
   && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@${PNPM_VERSION} --activate \
-  && pnpm add --global @openai/codex@${CODEX_VERSION} \
+  && codex_version="$(node -e 'const { version } = require("/opt/linksense/codex-runtime-version.json"); if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error("Invalid pinned Codex version"); process.stdout.write(version)')" \
+  && pnpm add --global "@openai/codex@${codex_version}" \
   && pnpm store prune \
-  && codex --version
+  && installed_codex_version="$(codex --version)" \
+  && test "${installed_codex_version}" = "codex-cli ${codex_version}"
 ENV LINKSENSE_PNPM_VERSION=${PNPM_VERSION}
 RUN mkdir -p /opt/linksense/tooling/pnpm \
   && cp -a "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}/." /opt/linksense/tooling/pnpm/
@@ -291,7 +292,6 @@ EXPOSE 4010
 CMD ["/usr/bin/setpriv", "--reuid=1000", "--regid=1000", "--keep-groups", "--inh-caps=+setuid,+kill,+dac_override,+fowner,+chown", "--ambient-caps=+setuid,+kill,+dac_override,+fowner,+chown", "node", "dist/index.js"]
 
 FROM worker-browser-cache-input AS worker-cached-browser
-ARG CODEX_VERSION
 ARG PNPM_VERSION
 ARG DEBIAN_MIRROR_URL
 ARG DEBIAN_SECURITY_MIRROR_URL
@@ -339,9 +339,11 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
   && install -d -o linksense-task -g node -m 0770 /home/linksense \
   && corepack enable \
   && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@${PNPM_VERSION} --activate \
-  && pnpm add --global @openai/codex@${CODEX_VERSION} \
+  && codex_version="$(node -e 'const { version } = require("/opt/linksense/codex-runtime-version.json"); if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error("Invalid pinned Codex version"); process.stdout.write(version)')" \
+  && pnpm add --global "@openai/codex@${codex_version}" \
   && pnpm store prune \
-  && codex --version
+  && installed_codex_version="$(codex --version)" \
+  && test "${installed_codex_version}" = "codex-cli ${codex_version}"
 ENV LINKSENSE_PNPM_VERSION=${PNPM_VERSION}
 RUN mkdir -p /opt/linksense/tooling/pnpm \
   && cp -a "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}/." /opt/linksense/tooling/pnpm/
