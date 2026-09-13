@@ -272,12 +272,21 @@ describe("administrator audit privacy contracts", () => {
         expect(response.body).not.toContain('"Conversation Deleted At"')
       }
       if (view === "audit_logs") {
+        expect(response.body).toContain('"Actor ID","Actor Name","Actor Email"')
+        expect(response.body).toContain(`"${ADMIN_ID}","Admin","admin@example.test"`)
+        expect(fixture.prisma.user.findMany).toHaveBeenCalledWith({
+          where: { id: { in: [ADMIN_ID] } },
+          select: { id: true, name: true, email: true },
+        })
         expect(response.body).toContain('"Action Code"')
         expect(response.body).toContain('"Artifact download link issued"')
         expect(response.body).toContain('"artifact_download_link_issued"')
         expect(response.body).toContain('"Task file"')
         expect(response.body).toContain('"conversation_file"')
         expect(response.body).toContain('"Success","success"')
+      } else {
+        expect(response.body).toContain('"Owner ID","Owner Name","Owner Email"')
+        expect(response.body).toContain(`"${OWNER_ID}","Owner","owner@example.test"`)
       }
       expect(response.body).not.toContain("PRIVATE TITLE")
       expect(response.body).not.toContain("SECRET CONTENT")
@@ -302,6 +311,8 @@ describe("administrator audit privacy contracts", () => {
     })
 
     expect(auditLogResponse.statusCode).toBe(200)
+    expect(auditLogResponse.body).toContain('"操作人 ID","操作人名称","操作人邮箱"')
+    expect(auditLogResponse.body).toContain('"Admin","admin@example.test"')
     expect(auditLogResponse.body).toContain('"动作代码"')
     expect(auditLogResponse.body).toContain('"已签发产物下载链接"')
     expect(auditLogResponse.body).toContain('"任务文件"')
@@ -335,24 +346,18 @@ describe("administrator audit privacy contracts", () => {
     expect(retainedResponse.body).not.toContain('"对话删除时间"')
   })
 
-  it("neutralizes spreadsheet formulas in every exported CSV cell without mutating source data", async () => {
+  it.each(["audit_logs", "conversations", "retained_artifacts"] as const)("neutralizes formulas in %s user names and emails without mutating source data", async (view) => {
     const fixture = await auditFixture()
+    seedExportView(fixture, view)
     const dangerousName = '=HYPERLINK("https://attacker.example","open")'
     const dangerousEmail = "+cmd@example.test"
-    fixture.prisma.conversation.findMany.mockResolvedValueOnce([
-      conversationRow(),
+    fixture.prisma.user.findMany.mockReset().mockResolvedValueOnce([
+      { id: view === "audit_logs" ? ADMIN_ID : OWNER_ID, name: dangerousName, email: dangerousEmail },
     ])
-    fixture.prisma.user.findMany.mockResolvedValueOnce([
-      { id: OWNER_ID, name: dangerousName, email: dangerousEmail },
-    ])
-    fixture.prisma.conversationTurn.findMany.mockResolvedValueOnce([])
-    fixture.prisma.pendingRequest.findMany.mockResolvedValueOnce([])
-    fixture.prisma.conversationFile.findMany.mockResolvedValueOnce([])
-    fixture.prisma.conversationEvent.findMany.mockResolvedValueOnce([])
 
     const response = await fixture.app.inject({
       method: "GET",
-      url: "/admin/audit/export.csv?view=conversations",
+      url: `/admin/audit/export.csv?view=${view}`,
     })
 
     expect(response.statusCode).toBe(200)
@@ -363,6 +368,30 @@ describe("administrator audit privacy contracts", () => {
     )
     expect(dangerousName).toBe('=HYPERLINK("https://attacker.example","open")')
     expect(dangerousEmail).toBe("+cmd@example.test")
+  })
+
+  it.each([null, ADMIN_ID])("exports blank actor details when actor %s has no user record", async (actorId) => {
+    const fixture = await auditFixture()
+    fixture.prisma.auditLog.findMany.mockResolvedValueOnce([{
+      id: "audit-missing-actor",
+      actorId,
+      action: "audit_exported",
+      targetType: null,
+      targetId: null,
+      result: "success",
+      metadataJson: {},
+      ipAddress: null,
+      userAgent: null,
+      createdAt: new Date("2026-07-11T00:00:00.000Z"),
+    }])
+
+    const response = await fixture.app.inject({
+      method: "GET",
+      url: "/admin/audit/export.csv?view=audit_logs",
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain(`"2026-07-11T00:00:00.000Z","${actorId ?? ""}","","","Audit logs exported"`)
   })
 
   it("continues error-code filtering past the first database scan page", async () => {
@@ -803,7 +832,7 @@ function seedExportView(
       },
     ])
     fixture.prisma.user.findMany.mockResolvedValueOnce([
-      { id: ADMIN_ID, name: "Admin" },
+      { id: ADMIN_ID, name: "Admin", email: "admin@example.test" },
     ])
     return
   }

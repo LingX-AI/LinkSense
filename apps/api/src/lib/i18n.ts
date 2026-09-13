@@ -359,6 +359,8 @@ await backendI18n.init({
 "botChannels.emptyResponse": "任务已完成，但没有可发送的文本回复。",
 "botChannels.longResponse": "回复内容较长，请打开 LinkSense 查看完整回答。",
         ...auditFlatTranslations("zh-CN"),
+        "audit.export.actorName": "操作人名称",
+        "audit.export.actorEmail": "操作人邮箱",
       },
     },
     "en-US": {
@@ -373,6 +375,8 @@ await backendI18n.init({
 "botChannels.emptyResponse": "The task finished without a text response.",
 "botChannels.longResponse": "The response is long. Open LinkSense to view the complete answer.",
         ...auditFlatTranslations("en-US"),
+        "audit.export.actorName": "Actor Name",
+        "audit.export.actorEmail": "Actor Email",
       },
     },
   },
