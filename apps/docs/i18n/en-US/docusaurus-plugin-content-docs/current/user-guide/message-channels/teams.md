@@ -18,7 +18,7 @@ description: Use an organization bot to send text tasks to LinkSense.
 - Text private messages and group mentions from the one configured member. Disable group messages if you only need private chats.
 - Each chat continues its own LinkSense task. Teams channel posts use separate task threads.
 - Replies are visible to other members of the same group. Complete execution details, files and very long results remain available in LinkSense.
-- Images, files, voice messages and cards are not supported. WeCom customer messages are outside this integration.
+- Images, files, voice messages and cards are not supported.
 
 ## Connection issues
 

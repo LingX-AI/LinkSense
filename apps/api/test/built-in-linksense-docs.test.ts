@@ -46,10 +46,16 @@ describe("linksense-docs built-in Skill", () => {
       markdownPaths(sourceRoots["zh-CN"]),
     ])
 
-    expect(chinesePaths).toHaveLength(61)
+    expect(chinesePaths).toHaveLength(67)
     expect(chinesePaths).toEqual(expect.arrayContaining([
       "admin-guide/quota-settings.md",
+      "operations/editions-and-installation.md",
+      "operations/cli-and-maintenance.md",
+      "user-guide/tasks/context-and-drafts.md",
+      "user-guide/tasks/progress-and-sources.md",
+      "user-guide/tasks/generate-images.md",
       "user-guide/tasks/task-categories.md",
+      "user-guide/message-channels/overview.md",
       "user-guide/message-channels/wecom.md",
       "user-guide/message-channels/dingtalk.md",
       "user-guide/message-channels/teams.md",
@@ -58,7 +64,9 @@ describe("linksense-docs built-in Skill", () => {
     expect(chinesePaths).toEqual(sourceChinesePaths)
     await expect(
       readFile(path.join(skillRoot, "SKILL.md"), "utf8"),
-    ).resolves.toMatch(/name: linksense-docs[\s\S]*references\/catalog\.md/u)
+    ).resolves.toMatch(
+      /name: linksense-docs[\s\S]*audience and intent[\s\S]*references\/catalog\.md[\s\S]*deployment locations and commands/u,
+    )
     await expect(
       readFile(path.join(skillRoot, "agents", "openai.yaml"), "utf8"),
     ).resolves.toMatch(
@@ -75,6 +83,12 @@ describe("linksense-docs built-in Skill", () => {
     )
     expect(catalog).toContain(
       "[使用计划模式](zh-CN/user-guide/tasks/plan-mode.md)",
+    )
+    expect(catalog).toContain(
+      "[版本选择与安装](zh-CN/operations/editions-and-installation.md)",
+    )
+    expect(catalog).toContain(
+      "[Generate images](en-US/user-guide/tasks/generate-images.md)",
     )
     expect(catalog).toContain(
       "[Check for and install LinkSense updates](en-US/admin-guide/system-update.md)",
@@ -118,7 +132,7 @@ describe("linksense-docs built-in Skill", () => {
       markdownPaths(path.join(outputRoot, "zh-CN")),
       markdownPaths(path.join(outputRoot, "en-US")),
     ])
-    expect(chinesePaths).toHaveLength(61)
+    expect(chinesePaths).toHaveLength(67)
     expect(englishPaths).toEqual(chinesePaths)
     await expect(
       readFile(path.join(outputRoot, "zh-CN", "introduction.md"), "utf8"),

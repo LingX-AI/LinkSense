@@ -11,9 +11,11 @@ Choose files in the composer, wait for upload to finish, and then send the reque
 
 Name the files in your prompt when several are attached.
 
+When you paste a large amount of text, LinkSense may convert it to a text attachment. Review its name and content before sending. It remains subject to the same size, permission, and security limits as a manually uploaded file.
+
 ## Preview files
 
-Supported attachments and deliverables open inside the task with format-specific page, zoom, worksheet, or slide controls. A file that cannot be safely previewed may still be downloaded when you have access.
+Supported attachments and deliverables open inside the task. Images, PDFs, Word files, spreadsheets, presentations, HTML, archives, text, and supported audio or video use appropriate page, zoom, worksheet, slide, file-list, or playback controls. A file that cannot be safely previewed may still be downloaded when you have access.
 
 Previews are read-only. HTML deliverables run in an isolated surface and cannot inherit the LinkSense page's privileges.
 
