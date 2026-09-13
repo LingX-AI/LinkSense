@@ -2241,6 +2241,21 @@ export const enUS = {
       fullscreenFailed:
         "Unable to enter or exit fullscreen preview. Try again.",
     },
+    waitingGame: {
+      playWhileWaiting: "Play while you wait",
+      title: "Snake",
+      score: "Score {{score}}",
+      controls: "Arrow keys / WASD · Swipe to steer",
+      ready: "A little fun while you wait",
+      paused: "Paused",
+      over: "So close. One more round?",
+      won: "Amazing! You filled the board!",
+      start: "Start game",
+      pause: "Pause game",
+      resume: "Resume game",
+      restart: "Play again",
+      back: "Back to waiting",
+    },
     imageGeneration: {
       loading: "Generating image…",
     },
