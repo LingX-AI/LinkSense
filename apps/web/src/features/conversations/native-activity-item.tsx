@@ -385,6 +385,7 @@ export function NativeActivityItem({
         icon: (
           <NativeActivityIcon
             item={item}
+            method={method}
             activityItems={effectiveActivityGroup?.map(
               (activity) => activity.item
             )}

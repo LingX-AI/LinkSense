@@ -113,6 +113,9 @@ export function TurnActivityItem({
     icon: thinking ? undefined : first ? (
       <NativeActivityIcon
         item={active?.item ?? first.item}
+        method={
+          isContextCompaction ? first.method : (active?.method ?? first.method)
+        }
         activityItems={(progress === "active"
           ? activeActivities
           : effectiveActivities
