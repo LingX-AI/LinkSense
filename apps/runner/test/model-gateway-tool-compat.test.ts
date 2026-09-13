@@ -6,6 +6,22 @@ import {
 } from "../src/model-gateway/tool-compat.js";
 
 describe("model gateway tool compatibility", () => {
+  it("round-trips namespaced custom code tools independently from same-named root tools", () => {
+    const input = [{ type: "custom_tool_call", namespace: "functions", name: "exec", id: "old", call_id: "old-call", input: "text(1)" }];
+    const translated = translateResponsesRequest({ input: [
+      { type: "additional_tools", role: "developer", tools: [{ type: "namespace", name: "functions", tools: [{ type: "custom", name: "exec" }] }] },
+      ...input,
+    ], tools: [{ type: "custom", name: "exec" }] });
+    expect(translated.body.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "functions__exec", parameters: expect.objectContaining({ required: ["input"] }) }),
+      expect.objectContaining({ name: "exec" }),
+    ]));
+    expect(translated.body.input).toEqual([{ type: "function_call", id: "old", call_id: "old-call", name: "functions__exec", arguments: '{"input":"text(1)"}' }]);
+    expect(rewriteResponsesPayload({ output: [{ type: "function_call", id: "new", call_id: "new-call", name: "functions__exec", arguments: '{"input":"text(2)"}' }] }, translated.context))
+      .toMatchObject({ output: [{ type: "custom_tool_call", namespace: "functions", name: "exec", input: "text(2)" }] });
+    expect(translateResponsesRequest({ input }).body.input).toEqual(translated.body.input);
+  });
+
   it("lifts additional tools and converts Codex-managed tool shapes to functions", () => {
     const translated = translateResponsesRequest({
       model: "model-a",
