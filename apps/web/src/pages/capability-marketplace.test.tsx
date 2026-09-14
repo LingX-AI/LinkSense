@@ -20,11 +20,7 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom"
-import {
-  APPLICATION_ICON_MAX_BYTES,
-  capabilitySupplyChainRulesetVersion,
-  capabilitySupplyChainScannerVersion,
-} from "@linksense/shared"
+import { APPLICATION_ICON_MAX_BYTES } from "@linksense/shared"
 
 import { setAccessToken } from "@/api/session"
 import { userSchema } from "@/api/contracts"
@@ -92,32 +88,9 @@ const riskSummary = {
   dependency_commands: [],
 }
 
-const blockedRiskSummary = {
+const retiredScanRiskSummary = {
   ...riskSummary,
-  supply_chain_review: {
-    scanner_version: capabilitySupplyChainScannerVersion,
-    ruleset_version: capabilitySupplyChainRulesetVersion,
-    scanned_at: NOW,
-    content_digest_algorithm: "linksense-capability-package-v1" as const,
-    content_sha256: "b".repeat(64),
-    verdict: "blocked" as const,
-    highest_severity: "critical" as const,
-    finding_count: 1,
-    findings: [
-      {
-        scanner_version: capabilitySupplyChainScannerVersion,
-        rule_id: "fork_bomb" as const,
-        severity: "critical" as const,
-        path: "payload",
-        line: 1,
-        evidence: `sha256:${"c".repeat(64)}`,
-        remediation: "review_or_remove:fork_bomb",
-      },
-    ],
-    findings_truncated: false,
-    scanned_file_count: 2,
-    skipped_file_count: 0,
-  },
+  supply_chain_review: { verdict: "blocked", scanner_version: "obsolete" },
 }
 
 const listing = {
@@ -3706,7 +3679,7 @@ describe("capability marketplace pages", () => {
     }
   })
 
-  it("blocks importing a package with critical deterministic scan findings", async () => {
+  it("allows confirming an import without consulting retired scan metadata", async () => {
     const importPreview = {
       preview_token: "blocked-preview-token",
       expires_at: NOW,
@@ -3719,12 +3692,12 @@ describe("capability marketplace pages", () => {
         filename: "blocked-skill.zip",
       },
       type: "skill" as const,
-      name: "Blocked Skill",
-      description: "Unsafe package",
+      name: "example-skill",
+      description: "Example package",
       manifest: {},
       declared_capabilities: [],
       declared_environment_keys: [],
-      risk_summary: blockedRiskSummary,
+      risk_summary: retiredScanRiskSummary,
       has_logo: false,
       skill_content_preview: "# Blocked Skill",
       skill_content_truncated: false,
@@ -3776,13 +3749,9 @@ describe("capability marketplace pages", () => {
     const confirm = await within(dialog).findByRole("button", {
       name: "确认安装",
     })
-    expect(within(dialog).getByText("已阻止")).toBeVisible()
-    expect(within(dialog).getByText("包含进程 Fork Bomb")).toBeVisible()
-    expect(within(dialog).getByRole("checkbox")).toHaveAttribute(
-      "aria-disabled",
-      "true"
-    )
-    expect(confirm).toBeDisabled()
+    expect(within(dialog).queryByText("已阻止")).not.toBeInTheDocument()
+    await interaction.click(within(dialog).getByRole("checkbox"))
+    expect(confirm).toBeEnabled()
     expect(
       fetchMock.mock.calls.some(([input, init]) => {
         const url = new URL(String(input), window.location.origin)
@@ -3867,11 +3836,11 @@ describe("capability marketplace pages", () => {
     }
   )
 
-  it("prevents an administrator from approving a blocked release", async () => {
+  it("allows an administrator to review a release without consulting retired scan metadata", async () => {
     const pendingRelease = {
       ...release,
       status: "pending" as const,
-      risk_summary: blockedRiskSummary,
+      risk_summary: retiredScanRiskSummary,
       reviewer_id: null,
       reviewed_at: null,
       published_at: null,
@@ -3932,8 +3901,10 @@ describe("capability marketplace pages", () => {
       within(reviewItem).getByRole("button", { name: "审核" })
     )
 
-    expect(await screen.findByText("包含进程 Fork Bomb")).toBeVisible()
-    expect(screen.getByRole("button", { name: "提交审核结论" })).toBeDisabled()
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "提交审核结论" })).toBeEnabled()
+    })
+    expect(screen.queryByText("供应链安全扫描")).not.toBeInTheDocument()
     expect(
       fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")
     ).toBe(false)

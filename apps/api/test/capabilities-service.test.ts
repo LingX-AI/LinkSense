@@ -10,11 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  builtInSkillNames,
-  capabilitySupplyChainRulesetVersion,
-  capabilitySupplyChainScannerVersion,
-} from "@linksense/shared";
+import { builtInSkillNames } from "@linksense/shared";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,7 +19,6 @@ import { sendAppError } from "../src/lib/http.js";
 import { CapabilityPackageImporter } from "../src/modules/capabilities/importer.js";
 import { capabilityRoutes } from "../src/modules/capabilities/routes.js";
 import { CapabilityService } from "../src/modules/capabilities/service.js";
-import { scanCapabilitySupplyChain } from "../src/modules/capabilities/supply-chain-scanner.js";
 import type {
   CapabilityAuditInput,
   CapabilityPreferenceRecord,
@@ -1057,7 +1052,6 @@ describe("CapabilityService owner-only visibility", () => {
           },
         ],
         dependency_commands: [],
-        supply_chain_review: await scanCapabilitySupplyChain(packageRoot),
       },
       logo: {
         bytes: ONE_PIXEL_PNG,
@@ -1492,13 +1486,6 @@ describe("capabilityRoutes", () => {
         risk_summary: {
           contains_mcp_server: false,
           contains_scripts: false,
-          supply_chain_review: {
-            scanner_version: capabilitySupplyChainScannerVersion,
-            ruleset_version: capabilitySupplyChainRulesetVersion,
-            verdict: "passed",
-            finding_count: 0,
-            findings: [],
-          },
         },
       },
     });
@@ -1528,11 +1515,8 @@ describe("capabilityRoutes", () => {
       expect.objectContaining({
         action: "capability_installed",
         metadata: expect.objectContaining({
-          security_scanner_version: capabilitySupplyChainScannerVersion,
-          security_ruleset_version: capabilitySupplyChainRulesetVersion,
-          security_content_sha256:
-            body.data.risk_summary.supply_chain_review.content_sha256,
-          security_verdict: "passed",
+          capability_type: "skill",
+          source_type: "local",
         }),
       }),
     );
@@ -1559,7 +1543,7 @@ describe("capabilityRoutes", () => {
     await app.close();
   });
 
-  it("returns deterministic findings and blocks confirmation for critical content", async () => {
+  it("imports and enables a Skill without a supply-chain scan requirement", async () => {
     const root = await tempRoot();
     const store = new MemoryCapabilityStore();
     const service = createService(store, root);
@@ -1580,30 +1564,17 @@ describe("capabilityRoutes", () => {
       payload: {
         source_type: "local",
         type: "skill",
-        name: "unsafe-skill",
+        name: "example-skill",
         skill_markdown: `# Instructions\n\nUse ${token}`,
       },
     });
 
     expect(previewResponse.statusCode).toBe(202);
     const previewBody = previewResponse.json();
-    expect(previewBody.data.risk_summary.supply_chain_review).toMatchObject({
-      scanner_version: capabilitySupplyChainScannerVersion,
-      ruleset_version: capabilitySupplyChainRulesetVersion,
-      verdict: "blocked",
-      highest_severity: "critical",
-      finding_count: 1,
-      findings: [
-        {
-          rule_id: "embedded_access_token",
-          severity: "critical",
-          path: "SKILL.md",
-        },
-      ],
-    });
-    expect(
-      JSON.stringify(previewBody.data.risk_summary.supply_chain_review),
-    ).not.toContain(token);
+    expect(previewBody.data.risk_summary).not.toHaveProperty(
+      "supply_chain_review",
+    );
+    expect(JSON.stringify(previewBody.data.risk_summary)).not.toContain(token);
 
     const confirmResponse = await app.inject({
       method: "POST",
@@ -1613,16 +1584,21 @@ describe("capabilityRoutes", () => {
         "/confirm",
     });
 
-    expect(confirmResponse.statusCode).toBe(400);
-    expect(confirmResponse.json()).toMatchObject({
-      success: false,
-      error_code: "INVALID_PACKAGE",
-      params: {
-        reason_code: "security_review_blocked",
-        finding_count: 1,
-      },
+    expect(confirmResponse.statusCode).toBe(201);
+    expect(store.capabilities).toHaveLength(1);
+    const installed = store.capabilities[0];
+    if (installed === undefined) {
+      throw new Error("Expected an installed capability");
+    }
+    installed.riskSummaryJson = { supply_chain_review: { verdict: "blocked" } };
+    await expect(
+      service.setPreference(ownerActor(), installed.id, "enabled"),
+    ).resolves.toMatchObject({ status: "enabled" });
+    const active = await service.patch(ownerActor(), installed.id, {
+      status: "active",
     });
-    expect(store.capabilities).toEqual([]);
+    expect(active.status).toBe("active");
+    expect(active.risk_summary).not.toHaveProperty("supply_chain_review");
     await app.close();
   });
 

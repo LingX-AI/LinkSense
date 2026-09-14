@@ -1,8 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react"
-import {
-  capabilitySupplyChainRulesetVersion,
-  capabilitySupplyChainScannerVersion,
-} from "@linksense/shared"
+import { capabilityRiskSummarySchema } from "@linksense/shared"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { CapabilityRiskSummary } from "@/components/capabilities/capability-risk-summary"
@@ -107,52 +104,25 @@ describe("CapabilityRiskSummary", () => {
     expect(sourceRule).not.toContain("background:")
   })
 
-  it("shows content-bound findings without exposing matched secret values", () => {
-    const secret = `github_pat_${"A".repeat(30)}`
-    render(
-      <CapabilityRiskSummary
-        value={{
-          contains_mcp_server: false,
-          contains_scripts: false,
-          contains_external_connections: false,
-          requires_environment_variables: false,
-          requires_credentials: false,
-          contains_dependency_download_commands: false,
-          declared_environment_keys: [],
-          mcp_environment_references: [],
-          dependency_commands: [],
-          supply_chain_review: {
-            scanner_version: capabilitySupplyChainScannerVersion,
-            ruleset_version: capabilitySupplyChainRulesetVersion,
-            scanned_at: "2026-09-11T08:00:00.000Z",
-            content_digest_algorithm: "linksense-capability-package-v1",
-            content_sha256: "a".repeat(64),
-            verdict: "blocked",
-            highest_severity: "critical",
-            finding_count: 1,
-            findings: [
-              {
-                scanner_version: capabilitySupplyChainScannerVersion,
-                rule_id: "embedded_access_token",
-                severity: "critical",
-                path: "SKILL.md",
-                line: 5,
-                evidence: `sha256:${"b".repeat(64)}`,
-                remediation: "review_or_remove:embedded_access_token",
-              },
-            ],
-            findings_truncated: false,
-            scanned_file_count: 1,
-            skipped_file_count: 0,
-          },
-        }}
-      />
-    )
-
-    expect(screen.getByText("供应链安全扫描")).toBeVisible()
-    expect(screen.getByText("已阻止")).toBeVisible()
-    expect(screen.getByText("包含高置信访问令牌")).toBeVisible()
-    expect(screen.getByText("SKILL.md:5")).toBeVisible()
-    expect(screen.queryByText(secret)).not.toBeInTheDocument()
-  })
+  it.each(["zh-CN", "en-US"])(
+    "shows only risk information in %s without a scanner panel",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      render(
+        <CapabilityRiskSummary
+          value={capabilityRiskSummarySchema.parse({
+            contains_scripts: true,
+            supply_chain_review: { verdict: "blocked" },
+          })}
+        />
+      )
+      expect(
+        screen.getByText(i18n.t("marketplace.risks.contains_scripts"))
+      ).toBeVisible()
+      expect(screen.queryByRole("heading")).not.toBeInTheDocument()
+      expect(
+        screen.queryByText(/供应链安全扫描|Supply-chain security scan/)
+      ).not.toBeInTheDocument()
+    }
+  )
 })

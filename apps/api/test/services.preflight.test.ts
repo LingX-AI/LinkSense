@@ -15,7 +15,6 @@ import {
   UserHomeCapabilityPublicationDeferredError,
 } from "../src/modules/capabilities/user-home-materializer.js";
 import { hashMarketplacePackage } from "../src/modules/marketplace/package.js";
-import { scanCapabilitySupplyChain } from "../src/modules/capabilities/supply-chain-scanner.js";
 
 const TASK_ID = "01900000-0000-7000-8000-000000000011";
 const USER_ID = "10000000-0000-4000-8000-000000000001";
@@ -35,16 +34,11 @@ const CAPABILITY_CONTENT_DIGEST = "c".repeat(64);
 const CAPABILITY_SOURCE_DIGEST = "d".repeat(64);
 const BUILT_IN_BROWSER_ID = "builtin:capability:linksense-browser";
 const roots: string[] = [];
-const approvedCapabilityReviews = new Map<
-  string,
-  Awaited<ReturnType<typeof scanCapabilitySupplyChain>>
->();
 
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
-  approvedCapabilityReviews.clear();
 });
 
 describe("DatabaseConversationPreflight credential isolation", () => {
@@ -316,9 +310,6 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       ...capability(PRIMARY_PLUGIN_ID, join(root, "primary"), true),
       ownerId: APPLICATION_OWNER_ID,
       riskSummaryJson: {
-        supply_chain_review: approvedCapabilityReviews.get(
-          join(root, "primary"),
-        ),
         requires_credentials: true,
         declared_environment_keys: ["API_KEY"],
       },
@@ -406,9 +397,6 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       ...capability(PRIMARY_PLUGIN_ID, join(root, "primary"), true),
       ownerId: APPLICATION_OWNER_ID,
       riskSummaryJson: {
-        supply_chain_review: approvedCapabilityReviews.get(
-          join(root, "primary"),
-        ),
         requires_credentials: true,
         declared_environment_keys: ["API_KEY"],
       },
@@ -1246,7 +1234,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     expect(home.reconcile).not.toHaveBeenCalled();
   });
 
-  it("revalidates an approved capability content hash at task admission", async () => {
+  it("starts a local capability without consulting retired scan metadata", async () => {
     const root = await capabilityRoot();
     const storagePath = join(root, "primary");
     await writeFile(join(storagePath, "SKILL.md"), "# Approved skill\n");
@@ -1255,7 +1243,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       type: "skill",
       name: "approved-skill",
       riskSummaryJson: {
-        supply_chain_review: await scanCapabilitySupplyChain(storagePath),
+        supply_chain_review: { verdict: "blocked", scanner_version: "obsolete" },
       },
     };
     const home = materializer();
@@ -1287,47 +1275,59 @@ describe("DatabaseConversationPreflight credential isolation", () => {
         conversationId: TASK_ID,
         priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
       }),
-    ).rejects.toMatchObject({
-      code: "INVALID_PACKAGE",
-      params: { reason_code: "security_review_stale" },
+    ).resolves.toMatchObject({
+      capabilities: [{ id: PRIMARY_PLUGIN_ID, type: "skill" }],
     });
-    expect(home.reconcile).toHaveBeenCalledTimes(1);
+    expect(home.reconcile).toHaveBeenCalledTimes(2);
   });
 
-  it("fails closed before materialization when a capability has no current approval", async () => {
-    const root = await capabilityRoot();
-    const storagePath = join(root, "primary");
-    await writeFile(join(storagePath, "SKILL.md"), "# Unreviewed skill\n");
-    const unreviewed = {
-      ...capability(PRIMARY_PLUGIN_ID, storagePath, false),
-      type: "skill",
-      name: "unreviewed-skill",
-      riskSummaryJson: { supply_chain_review: undefined },
-    };
-    const home = materializer();
-    const preflight = new DatabaseConversationPreflight(
-      prismaFixture([unreviewed]) as never,
-      {
-        resolveForCapability: vi.fn(),
-        commitUsage: vi.fn(async () => undefined),
-      } as never,
-      root,
-      "credential-source-secret-for-tests-1234567890",
-      home,
-    );
+  it.each([
+    { type: "plugin", riskSummaryJson: {} },
+    { type: "skill", riskSummaryJson: {} },
+    { type: "plugin", riskSummaryJson: null },
+    { type: "skill", riskSummaryJson: null },
+  ])(
+    "starts a task with an enabled $type and no scan record in $riskSummaryJson",
+    async ({ type, riskSummaryJson }) => {
+      const root = await capabilityRoot();
+      const storagePath = join(root, "primary");
+      const installed = {
+        ...capability(PRIMARY_PLUGIN_ID, storagePath, false),
+        type,
+        riskSummaryJson,
+      };
+      const home = materializer();
+      const preflight = new DatabaseConversationPreflight(
+        prismaFixture([installed]) as never,
+        {
+          resolveForCapability: vi.fn(async () => ({
+            ok: true,
+            environment: {},
+            usageReceipt: {
+              userId: USER_ID,
+              capabilityId: PRIMARY_PLUGIN_ID,
+              credentialIds: [],
+            },
+          })),
+          commitUsage: vi.fn(async () => undefined),
+        } as never,
+        root,
+        "credential-source-secret-for-tests-1234567890",
+        home,
+      );
 
-    await expect(
-      preflight.resolve({
-        userId: USER_ID,
-        conversationId: TASK_ID,
-        priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
-      }),
-    ).rejects.toMatchObject({
-      code: "INVALID_PACKAGE",
-      params: { reason_code: "security_review_stale" },
-    });
-    expect(home.reconcile).not.toHaveBeenCalled();
-  });
+      await expect(
+        preflight.resolve({
+          userId: USER_ID,
+          conversationId: TASK_ID,
+          priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
+        }),
+      ).resolves.toMatchObject({
+        capabilities: [{ id: PRIMARY_PLUGIN_ID, type }],
+      });
+      expect(home.reconcile).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("accepts an intact marketplace package and fails closed after it is modified", async () => {
     const root = await capabilityRoot();
@@ -1341,9 +1341,6 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       sourceType: "marketplace",
       marketplaceListingId: MARKETPLACE_LISTING_ID,
       marketplaceReleaseId: MARKETPLACE_RELEASE_ID,
-      riskSummaryJson: {
-        supply_chain_review: await scanCapabilitySupplyChain(storagePath),
-      },
     };
     const prisma = prismaFixture([installedSkill]);
     prisma.marketplaceListing.findMany.mockResolvedValue([
@@ -1454,10 +1451,6 @@ async function capabilityRoot(): Promise<string> {
       join(storagePath, "SKILL.md"),
       "---\nname: test-capability\n---\n\nTest fixture.\n",
     );
-    approvedCapabilityReviews.set(
-      storagePath,
-      await scanCapabilitySupplyChain(storagePath),
-    );
   }));
   return root;
 }
@@ -1534,7 +1527,12 @@ function materializerWithReconcile<
   } as unknown as MaterializerTestDouble;
 }
 
-function capability(id: string, storagePath: string, hasMcpServers: boolean) {
+function capability(
+  id: string,
+  storagePath: string,
+  hasMcpServers: boolean,
+  riskSummaryJson: Record<string, unknown> | null = {},
+) {
   return {
     id,
     type: "plugin",
@@ -1547,9 +1545,7 @@ function capability(id: string, storagePath: string, hasMcpServers: boolean) {
     marketplaceListingId: null as string | null,
     marketplaceReleaseId: null as string | null,
     manifestJson: { has_mcp_servers: hasMcpServers },
-    riskSummaryJson: {
-      supply_chain_review: approvedCapabilityReviews.get(storagePath),
-    },
+    riskSummaryJson,
     updatedAt: new Date("2026-07-19T00:00:00.000Z"),
   };
 }
