@@ -99,6 +99,7 @@ export type WorkerHealth = z.infer<typeof workerStateSchema>
 type ManagedWorker = WorkerInstance & {
   lastUsedAt: number
   activeRequests: number
+  cleanupPending: boolean
 }
 
 type TaskOwnedDirectoryPreparationDependencies = {
@@ -159,6 +160,7 @@ export class WorkerManager {
           ...discovered,
           lastUsedAt: Date.now(),
           activeRequests: 0,
+          cleanupPending: false,
         }
         try {
           if (this.options.prepareUserDirectories) {
@@ -176,7 +178,8 @@ export class WorkerManager {
           await this.waitUntilStateReady(worker)
           this.workers.set(worker.storageKey, worker)
         } catch {
-          await this.provider.release(worker).catch(() => undefined)
+          this.workers.set(worker.storageKey, worker)
+          await this.releaseManagedWorker(worker)
         }
       },
     )
@@ -214,12 +217,20 @@ export class WorkerManager {
   async stopAllWorkers(): Promise<void> {
     this.stopIdleReaper()
     const workers = [...this.workers.values()]
-    this.workers.clear()
-    await Promise.all(
+    const results = await Promise.allSettled(
       workers.map((worker) =>
-        this.provider.release(worker).catch(() => undefined),
+        this.withLock(worker.storageKey, () =>
+          this.releaseManagedWorker(worker),
+        ),
       ),
     )
+    const failures = results.filter((result) => result.status === "rejected")
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures.map((result) => result.reason),
+        "worker cleanup failed",
+      )
+    }
   }
 
   async shutdown(removeWorkers: boolean): Promise<void> {
@@ -271,7 +282,9 @@ export class WorkerManager {
     )
     const worker = await this.withLock(storageKey, async () => {
       const existing = this.workers.get(storageKey)
-      if (existing) {
+      if (existing?.cleanupPending) {
+        await this.releaseManagedWorker(existing)
+      } else if (existing) {
         existing.activeRequests += 1
         existing.lastUsedAt = Date.now()
         return existing
@@ -401,7 +414,9 @@ export class WorkerManager {
     }
     const healthResults = await Promise.all(
       [...this.workers.values()].map(async (worker) => {
-        if (!worker.ownerId) return { worker, health: undefined }
+        if (!worker.ownerId || worker.cleanupPending) {
+          return { worker, health: undefined }
+        }
         try {
           const health = workerStateSchema.parse(
             JSON.parse(
@@ -474,39 +489,61 @@ export class WorkerManager {
 
   async sweepIdleWorkers(now = Date.now()): Promise<void> {
     const ttlMs = this.config.LINKSENSE_WORKER_IDLE_TTL_SECONDS * 1000
+    const failures: unknown[] = []
     for (const worker of [...this.workers.values()]) {
-      if (now - worker.lastUsedAt < ttlMs) continue
-      if (!worker.ownerId) continue
-      let health: WorkerHealth
       try {
-        const response = await this.transport.request(
-          worker.endpoint,
-          "/health/state",
-          "GET",
-          {
-            authorization: `Bearer ${ownerWorkerSecret(worker.ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET)}`,
-          },
-        )
-        health = workerStateSchema.parse(JSON.parse(response.body.toString("utf8")))
-      } catch {
-        await this.removeStoppedWorker(worker)
-        continue
+        await this.sweepWorker(worker, now, ttlMs)
+      } catch (error) {
+        failures.push(error)
       }
-      if (
-        health.running_turns !== 0 ||
-        health.app_server_processes !== 0
-      ) {
-        worker.lastUsedAt = now
-        continue
-      }
-      await this.withLock(worker.storageKey, async () => {
-        if (this.workers.get(worker.storageKey) !== worker) return
-        if (worker.activeRequests !== 0) return
-        if (now - worker.lastUsedAt < ttlMs) return
-        await this.provider.release(worker)
-        this.workers.delete(worker.storageKey)
-      })
     }
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) {
+      throw new AggregateError(failures, "worker idle cleanup failed")
+    }
+  }
+
+  private async sweepWorker(
+    worker: ManagedWorker,
+    now: number,
+    ttlMs: number,
+  ): Promise<void> {
+    if (worker.cleanupPending) {
+      await this.withLock(worker.storageKey, () =>
+        this.releaseManagedWorker(worker),
+      )
+      return
+    }
+    if (now - worker.lastUsedAt < ttlMs) return
+    if (!worker.ownerId) return
+    let health: WorkerHealth
+    try {
+      const response = await this.transport.request(
+        worker.endpoint,
+        "/health/state",
+        "GET",
+        {
+          authorization: `Bearer ${ownerWorkerSecret(worker.ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET)}`,
+        },
+      )
+      health = workerStateSchema.parse(JSON.parse(response.body.toString("utf8")))
+    } catch {
+      await this.removeStoppedWorker(worker)
+      return
+    }
+    if (
+      health.running_turns !== 0 ||
+      health.app_server_processes !== 0
+    ) {
+      worker.lastUsedAt = now
+      return
+    }
+    await this.withLock(worker.storageKey, async () => {
+      if (this.workers.get(worker.storageKey) !== worker) return
+      if (worker.activeRequests !== 0) return
+      if (now - worker.lastUsedAt < ttlMs) return
+      await this.releaseManagedWorker(worker)
+    })
   }
 
   private async assertInfrastructure(): Promise<void> {
@@ -529,7 +566,9 @@ export class WorkerManager {
     )
     return this.withLock(storageKey, async () => {
       const existing = this.workers.get(storageKey)
-      if (existing) {
+      if (existing?.cleanupPending) {
+        await this.releaseManagedWorker(existing)
+      } else if (existing) {
         existing.ownerId = ownerId
         existing.activeRequests += 1
         existing.lastUsedAt = Date.now()
@@ -556,6 +595,7 @@ export class WorkerManager {
         ...acquired,
         lastUsedAt: Date.now(),
         activeRequests: 1,
+        cleanupPending: false,
       }
       try {
         // A newly created user worker only needs its HTTP contract and mounted
@@ -566,7 +606,9 @@ export class WorkerManager {
         this.workers.set(storageKey, worker)
         return worker
       } catch (error) {
-        await this.provider.release(worker).catch(() => undefined)
+        worker.activeRequests = 0
+        this.workers.set(storageKey, worker)
+        await this.releaseManagedWorker(worker)
         throw error
       }
     })
@@ -582,9 +624,17 @@ export class WorkerManager {
     if (state === "running") return
     await this.withLock(worker.storageKey, async () => {
       if (this.workers.get(worker.storageKey) !== worker) return
-      this.workers.delete(worker.storageKey)
-      await this.provider.release(worker).catch(() => undefined)
+      await this.releaseManagedWorker(worker)
     })
+  }
+
+  // Call under the storage-key lock once the controller is accepting requests.
+  // Preserve the only retry handle until provider cleanup is confirmed.
+  private async releaseManagedWorker(worker: ManagedWorker): Promise<void> {
+    if (this.workers.get(worker.storageKey) !== worker) return
+    worker.cleanupPending = true
+    await this.provider.release(worker)
+    this.workers.delete(worker.storageKey)
   }
 
   private async releaseWorkerRequest(worker: ManagedWorker): Promise<void> {
@@ -834,13 +884,15 @@ export class WorkerManager {
         ...acquired,
         lastUsedAt: Date.now(),
         activeRequests: 0,
+        cleanupPending: false,
       }
       workerRemoved = false
       const health = await this.waitUntilReady(worker)
       this.runtimeModelCatalog = health.model_catalog
     } finally {
       if (worker) {
-        await this.provider.release(worker)
+        this.workers.set(worker.storageKey, worker)
+        await this.releaseManagedWorker(worker)
         workerRemoved = true
       }
       if (workerRemoved) await this.removeUserDirectories(ownerId)

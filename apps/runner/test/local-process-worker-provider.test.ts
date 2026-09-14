@@ -17,9 +17,13 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { parseRunnerConfig } from "../src/config.js"
 import {
   LocalProcessWorkerProvider,
+  type LocalWorkerProcess,
   type LocalProcessWorkerProviderOptions,
 } from "../src/controller/local-process-worker-provider.js"
 import type { WorkerOwnerPaths } from "../src/controller/worker-provider.js"
+import { WorkerManager } from "../src/controller/worker-manager.js"
+import { TURN_START_CONTRACT_VERSION } from "../src/turn-start-contract.js"
+import type { WorkerTransport } from "../src/controller/worker-http-client.js"
 
 const ownerId = "01900000-0000-7000-8000-000000000002"
 const temporaryRoots: string[] = []
@@ -42,6 +46,88 @@ afterEach(async () => {
 })
 
 describe("LocalProcessWorkerProvider", () => {
+  it.each([
+    ["request", "request"],
+    ["readiness", "request"],
+    ["request", "sweep"],
+    ["shutdown", "shutdown"],
+    ["request", "conversation-cleanup"],
+  ])(
+    "recovers through the controller after %s cleanup failure using %s",
+    async (failurePath, recoveryPath) => {
+      const paths = await createOwnerPaths()
+      const child = fakeChild(41005)
+      const replacement = fakeChild(41006)
+      const spawnWorker = vi.fn().mockReturnValueOnce(child).mockReturnValueOnce(replacement)
+      const terminateWorker = vi.fn()
+        .mockRejectedValueOnce(new Error("cleanup unavailable"))
+        .mockRejectedValueOnce(new Error("cleanup unavailable"))
+        .mockResolvedValue(undefined)
+      const config = createConfig(paths.root)
+      const provider = new LocalProcessWorkerProvider(config, pino({ level: "silent" }), {
+        allocatePort: async () => 45129,
+        runnerEntry: "/repo/apps/runner/src/index.ts",
+        spawnWorker,
+        terminateWorker,
+      })
+      let failReadiness = failurePath === "readiness"
+      let failRequest = failurePath === "request"
+      const request = vi.fn<WorkerTransport["request"]>(async (_endpoint, requestPath) => {
+        if ((failReadiness && requestPath === "/health/state") || (failRequest && !requestPath.startsWith("/health/"))) {
+          failReadiness = false
+          failRequest = false
+          child.exitCode = 1
+          child.emit("exit", 1, null)
+          throw new Error("worker unavailable")
+        }
+        return {
+          statusCode: 200,
+          headers: {},
+          body: Buffer.from(JSON.stringify(requestPath.startsWith("/health/") ? {
+            turn_start_contract_version: TURN_START_CONTRACT_VERSION,
+            status: "available",
+            checked_at: "2026-09-14T00:00:00.000Z",
+            workspace: { status: "available", reason_code: null, checked_at: "2026-09-14T00:00:00.000Z" },
+            codex_home: { status: "available", reason_code: null, checked_at: "2026-09-14T00:00:00.000Z" },
+            running_turns: 0,
+            app_server_processes: 0,
+          } : { success: true })),
+        }
+      })
+      const manager = new WorkerManager(config, provider, { request }, pino({ level: "silent" }), {
+        assertUserDataRoot: async () => undefined,
+        prepareUserDirectories: async () => undefined,
+        probeWorkerRuntime: async () => undefined,
+      })
+      await manager.initialize()
+
+      if (failurePath === "shutdown") {
+        await manager.prewarm(ownerId)
+        await expect(manager.stopAllWorkers()).rejects.toThrow("worker cleanup failed")
+      } else {
+        await expect(manager.request(ownerId, "/task", "POST")).rejects.toThrow()
+      }
+      const callsAfterFailure = request.mock.calls.length
+      await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(true)
+      const retry = recoveryPath === "conversation-cleanup"
+        ? manager.cleanupConversation(ownerId, "01900000-0000-7000-8000-000000000011")
+        : manager.request(ownerId, "/task", "POST")
+      await expect(retry).rejects.toThrow("cleanup unavailable")
+      expect(request).toHaveBeenCalledTimes(callsAfterFailure)
+      expect(spawnWorker).toHaveBeenCalledOnce()
+
+      if (recoveryPath === "sweep") await manager.sweepIdleWorkers()
+      if (recoveryPath === "shutdown") await manager.stopAllWorkers()
+      await expect(manager.request(ownerId, "/task", "POST")).resolves.toMatchObject({ statusCode: 200 })
+      expect(spawnWorker).toHaveBeenCalledTimes(2)
+      expect(terminateWorker).toHaveBeenCalledTimes(3)
+      expect(request.mock.calls.filter(([, requestPath]) => requestPath === "/task"))
+        .toHaveLength(failurePath === "request" ? 2 : 1)
+      await manager.shutdown(true)
+      await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(false)
+    },
+  )
+
   it("launches a complete worker child on loopback with a sanitized environment", async () => {
     const paths = await createOwnerPaths()
     const child = fakeChild(41001)
@@ -244,6 +330,43 @@ describe("LocalProcessWorkerProvider", () => {
     await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(false)
   })
 
+  it("does not signal a missing-PID spawn and handles its asynchronous error before retry", async () => {
+    const paths = await createOwnerPaths()
+    const child = fakeChild(undefined)
+    const spawnWorker = vi.fn().mockReturnValueOnce(child).mockReturnValueOnce(fakeChild(41004))
+    const provider = new LocalProcessWorkerProvider(
+      createConfig(paths.root),
+      pino({ level: "silent" }),
+      {
+        allocatePort: async () => 45128,
+        runnerEntry: "/repo/apps/runner/src/index.ts",
+        spawnWorker,
+        terminateWorker: async () => undefined,
+      },
+    )
+    await provider.initialize()
+    await provider.prepareOwnerFilesystem(paths)
+    const input = { ownerId, storageKey: "owner-storage-key", name: "local-worker", probe: false }
+
+    await expect(provider.acquire(input)).rejects.toThrow("process group ID")
+
+    expect(child.kill).not.toHaveBeenCalled()
+    await expect(new Promise<void>((resolveError, rejectError) => {
+      setImmediate(() => {
+        try {
+          child.emit("error", Object.assign(new Error("spawn failed"), { code: "ENOENT" }))
+          resolveError()
+        } catch (error) {
+          rejectError(error)
+        }
+      })
+    })).resolves.toBeUndefined()
+    await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(false)
+    const worker = await provider.acquire(input)
+    await expect(provider.inspect(worker)).resolves.toBe("running")
+    await provider.release(worker)
+  })
+
   it("fails closed when the child cannot be spawned", async () => {
     const paths = await createOwnerPaths()
     const provider = new LocalProcessWorkerProvider(
@@ -286,12 +409,15 @@ describe("LocalProcessWorkerProvider", () => {
   })
 })
 
-function fakeChild(pid: number) {
-  return Object.assign(new EventEmitter(), {
-    exitCode: null,
-    killed: false,
+function fakeChild(pid: number | undefined) {
+  const state: Pick<LocalWorkerProcess, "pid" | "exitCode" | "signalCode"> = {
     pid,
+    exitCode: null,
     signalCode: null,
+  }
+  return Object.assign(new EventEmitter(), {
+    ...state,
+    killed: false,
     kill: vi.fn(() => true),
   })
 }

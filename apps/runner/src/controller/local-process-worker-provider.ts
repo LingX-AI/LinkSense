@@ -62,7 +62,6 @@ export type LocalProcessWorkerProviderOptions = {
 
 type ManagedLocalProcess = {
   child: LocalWorkerProcess
-  error: Error | undefined
   processGroupId: number
   worker: WorkerInstance
 }
@@ -200,23 +199,26 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
         stdio: ["ignore", "inherit", "inherit", "ipc"],
       },
     )
-    if (!child.pid) {
-      child.kill("SIGKILL")
+    // Failed spawn can return no PID and emit error on the next tick. Attach
+    // listeners immediately, and never signal a process we did not acquire.
+    child.once("error", () => {
+      worker.state = "failed"
+    })
+    child.once("exit", () => {
+      if (worker.state !== "failed") worker.state = "stopped"
+    })
+    if (
+      child.pid === undefined ||
+      !Number.isSafeInteger(child.pid) ||
+      child.pid <= 0
+    ) {
       throw new Error("local-process worker did not expose a process group ID")
     }
     const managed: ManagedLocalProcess = {
       child,
-      error: undefined,
       processGroupId: child.pid,
       worker,
     }
-    child.once("error", (error) => {
-      managed.error = error
-      managed.worker.state = "failed"
-    })
-    child.once("exit", () => {
-      if (!managed.error) managed.worker.state = "stopped"
-    })
     this.processes.set(worker.id, managed)
     return worker
   }
@@ -228,7 +230,7 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
   async inspect(worker: WorkerInstance) {
     const managed = this.processes.get(worker.id)
     if (!managed) return "stopped" as const
-    if (managed.error) return "failed" as const
+    if (managed.worker.state === "failed") return "failed" as const
     if (
       managed.child.exitCode !== null ||
       managed.child.signalCode !== null

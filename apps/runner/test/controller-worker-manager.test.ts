@@ -433,7 +433,7 @@ describe("controller worker lifecycle", () => {
     expect(docker.removeContainer).toHaveBeenCalledTimes(1)
   })
 
-  it("keeps an idle worker tracked when Docker cannot release its container", async () => {
+  it("retries idle cleanup before replacing a worker whose Docker release failed", async () => {
     const docker = new FakeDocker()
     const transport = new FakeTransport()
     const manager = createManager(docker, transport)
@@ -451,7 +451,29 @@ describe("controller worker lifecycle", () => {
     ).rejects.toThrow("Docker container release failed")
 
     await manager.request(ownerId, "/conversations/two/runtime", "PUT")
-    expect(docker.createContainer).toHaveBeenCalledTimes(1)
+    expect(docker.stopContainer).toHaveBeenCalledTimes(2)
+    expect(docker.removeContainer).toHaveBeenCalledTimes(2)
+    expect(docker.createContainer).toHaveBeenCalledTimes(2)
+  })
+
+  it("continues sweeping other owners when one worker cleanup fails", async () => {
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createManager(docker, transport)
+    await manager.initialize()
+    await manager.prewarm(ownerId)
+    await manager.prewarm("01900000-0000-7000-8000-000000000003")
+    docker.stopContainer.mockRejectedValueOnce(new Error("stop unavailable"))
+    docker.removeContainer.mockRejectedValueOnce(new Error("remove unavailable"))
+
+    await expect(manager.sweepIdleWorkers(Date.now() + 60_000_000))
+      .rejects.toThrow("Docker container release failed")
+
+    expect(docker.removeContainer).toHaveBeenCalledWith("container-2")
+    await manager.sweepIdleWorkers()
+    expect(docker.removeContainer.mock.calls).toEqual([
+      ["container-1"], ["container-2"], ["container-1"],
+    ])
   })
 
   it("forgets an idle worker only when Docker confirms its container is absent", async () => {
