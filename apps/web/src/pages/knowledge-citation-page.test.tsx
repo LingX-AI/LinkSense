@@ -91,6 +91,90 @@ describe("knowledge citation preview", () => {
     vi.unstubAllGlobals()
   })
 
+  it.each([
+    [
+      "zh-CN",
+      "来源位置：第 1 页",
+      "此文件格式暂不支持原文预览，可查看解析内容或下载原文件。",
+    ],
+    [
+      "en-US",
+      "Source location: Pages 1",
+      "Original preview is not available for this file type. View parsed content or download the original.",
+    ],
+    [
+      "fr-FR",
+      "来源位置：第 1 页",
+      "此文件格式暂不支持原文预览，可查看解析内容或下载原文件。",
+    ],
+  ])(
+    "combines location and unsupported preview guidance in one banner for %s",
+    async (language, location, guidance) => {
+      await i18n.changeLanguage(language)
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          const url = String(input)
+          if (url.endsWith("/api/v1/knowledge-bases/search-capability")) {
+            return Promise.resolve(
+              envelope({
+                status: "available",
+                reason_code: null,
+                checked_at: "2026-07-22T08:00:00.000Z",
+              })
+            )
+          }
+          if (
+            url.endsWith(`/api/v1/knowledge-citations/${citationId}/events`)
+          ) {
+            return Promise.resolve(pendingCitationEvents())
+          }
+          if (url.endsWith(`/api/v1/knowledge-citations/${citationId}`)) {
+            return Promise.resolve(
+              envelope({
+                status: "available",
+                citation_id: citationId,
+                citation_no: 1,
+                summary: {
+                  knowledge_base_name: "访客管理",
+                  document_name: "访客流程.vsdx",
+                  title_path: [],
+                  page_numbers: [1],
+                },
+                parent_excerpt: "访客登记流程。",
+                original: { supported: false, renderer: null },
+              })
+            )
+          }
+          return Promise.resolve(new Response(null, { status: 404 }))
+        })
+      )
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+
+      render(
+        <MemoryRouter initialEntries={[`/knowledge-citations/${citationId}`]}>
+          <QueryClientProvider client={queryClient}>
+            <Routes>
+              <Route
+                path="/knowledge-citations/:citationId"
+                element={<KnowledgeCitationPage />}
+              />
+            </Routes>
+          </QueryClientProvider>
+        </MemoryRouter>
+      )
+
+      expect(await screen.findByText("访客登记流程。")).toBeVisible()
+      const banner = screen.getByRole("status")
+      expect(banner).toHaveTextContent(location)
+      expect(banner).toHaveTextContent(guidance)
+      expect(banner.querySelectorAll("svg")).toHaveLength(1)
+      expect(screen.queryByRole("tablist")).not.toBeInTheDocument()
+    }
+  )
+
   it("renders only the parent excerpt with an exact page citation and downloads the original", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input)

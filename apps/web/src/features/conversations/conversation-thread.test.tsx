@@ -967,7 +967,10 @@ describe("conversation turn responses", () => {
     ).toBeNull()
     expect(container.querySelector('[data-slot="skeleton"]')).toBeNull()
 
-    fireEvent.click(screen.getByRole("button", { name: "玩着等待" }))
+    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, 0, 384, 256))
+    fireEvent.doubleClick(screen.getByRole("status", { name: "正在生成交互组件…" }))
+    bounds.mockRestore()
     const game = screen.getByRole("application", { name: "贪吃蛇" })
     expect(game).toBeVisible()
 
@@ -4158,8 +4161,10 @@ describe("conversation turn responses", () => {
     ).toBeVisible()
     expect(summary.lastElementChild).toBe(loading)
 
-    fireEvent.click(screen.getByRole("button", { name: "玩着等待" }))
-    fireEvent.click(screen.getByRole("button", { name: "开始游戏" }))
+    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, 0, 384, 256))
+    fireEvent.doubleClick(loading)
+    bounds.mockRestore()
     expect(screen.getByRole("application", { name: "贪吃蛇" })).toBeVisible()
 
     rerender(

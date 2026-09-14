@@ -187,8 +187,12 @@ describe("AssistantHtmlPreview actions", () => {
       render(
         <AssistantHtmlPreview html="<!doctype html><html><body>Preview</body></html>" />
       )
-      fireEvent.click(screen.getByRole("button", { name: "玩着等待" }))
-      fireEvent.click(screen.getByRole("button", { name: "开始游戏" }))
+      const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+        .mockReturnValue(new DOMRect(0, 0, 384, 256))
+      fireEvent.doubleClick(
+        screen.getByRole("status", { name: "正在加载交互式预览…" })
+      )
+      bounds.mockRestore()
       expect(screen.getByRole("application", { name: "贪吃蛇" })).toBeVisible()
       const frame = screen.getByTitle<HTMLIFrameElement>(
         "AI 生成的交互式 HTML 页面"

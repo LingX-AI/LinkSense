@@ -1,7 +1,6 @@
 import { useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { Button } from "@/components/ui/button"
 import { AssistantWaitingSnake } from "@/features/conversations/assistant-waiting-snake"
 import { cn } from "@/lib/utils"
 
@@ -14,16 +13,43 @@ export function AssistantHtmlPreviewLoading({
 }>) {
   const { t } = useTranslation()
   const [playing, setPlaying] = useState(false)
-  const playButtonRef = useRef<HTMLButtonElement>(null)
+  const surfaceRef = useRef<HTMLDivElement>(null)
+  const exitGame = () => {
+    setPlaying(false)
+    surfaceRef.current?.focus({ preventScroll: true })
+  }
 
   return (
     <div
+      ref={surfaceRef}
+      tabIndex={0}
+      onDoubleClick={(event) => {
+        event.preventDefault()
+        if (playing) exitGame()
+        else setPlaying(true)
+      }}
+      onKeyDown={(event) => {
+        if (
+          !playing &&
+          event.key === "Enter" &&
+          !event.repeat &&
+          !event.altKey &&
+          !event.ctrlKey &&
+          !event.metaKey
+        ) {
+          event.preventDefault()
+          setPlaying(true)
+        }
+      }}
       className={cn(
-        "assistant-html-preview-loading-surface relative min-h-80 w-full overflow-hidden rounded-2xl",
+        "assistant-html-preview-loading-surface relative min-h-80 w-full touch-manipulation overflow-hidden rounded-2xl outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset",
         className
       )}
       role={playing ? "group" : "status"}
       aria-label={label}
+      aria-description={
+        playing ? undefined : t("conversation.waitingGame.enter")
+      }
       aria-busy={playing ? undefined : true}
       aria-live={playing ? undefined : "polite"}
     >
@@ -39,7 +65,7 @@ export function AssistantHtmlPreviewLoading({
           />
         )}
       </div>
-      {playing ? (
+      {playing && (
         <>
           <span
             className="sr-only"
@@ -47,26 +73,8 @@ export function AssistantHtmlPreviewLoading({
             aria-label={label}
             aria-busy="true"
           />
-          <AssistantWaitingSnake
-            onExit={() => {
-              setPlaying(false)
-              requestAnimationFrame(() =>
-                playButtonRef.current?.focus({ preventScroll: true })
-              )
-            }}
-          />
+          <AssistantWaitingSnake onExit={exitGame} />
         </>
-      ) : (
-        <Button
-          ref={playButtonRef}
-          type="button"
-          variant="ghost"
-          size="xs"
-          className="absolute right-3 bottom-3"
-          onClick={() => setPlaying(true)}
-        >
-          {t("conversation.waitingGame.playWhileWaiting")}
-        </Button>
       )}
     </div>
   )

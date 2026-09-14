@@ -302,15 +302,16 @@ export function KnowledgeCitationPage() {
           <StatusBanner variant="error">{downloadError}</StatusBanner>
         )}
 
-        {location && (
+        {(location || !hasOriginal) && (
           <StatusBanner variant="info">
-            {t("knowledge.citation.location", { location })}
-          </StatusBanner>
-        )}
-
-        {!hasOriginal && (
-          <StatusBanner variant="info">
-            {t("knowledge.preview.unsupportedOriginal")}
+            <div className="flex flex-col gap-1">
+              {location && (
+                <span>{t("knowledge.citation.location", { location })}</span>
+              )}
+              {!hasOriginal && (
+                <span>{t("knowledge.preview.unsupportedOriginal")}</span>
+              )}
+            </div>
           </StatusBanner>
         )}
 

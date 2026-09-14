@@ -3,69 +3,96 @@ import { I18nextProvider } from "react-i18next"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { AssistantHtmlPreviewLoading } from "@/features/conversations/assistant-html-preview-loading"
-import { snakeTickMs } from "@/features/conversations/waiting-snake-engine"
+import {
+  snakeRestartMs,
+  snakeTickMs,
+} from "@/features/conversations/waiting-snake-engine"
 import i18n from "@/i18n"
 
+class SizeObserver implements ResizeObserver {
+  static instances: SizeObserver[] = []
+  observe = vi.fn()
+  unobserve = vi.fn()
+  disconnect = vi.fn()
+  readonly callback: ResizeObserverCallback
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback
+    SizeObserver.instances.push(this)
+  }
+  resize() {
+    this.callback([], this)
+  }
+}
+
+const advance = (ticks: number) =>
+  act(() => vi.advanceTimersByTime(snakeTickMs * ticks))
+const snakeLength = (board: HTMLElement) =>
+  board.querySelectorAll("svg rect").length
+
 describe("AssistantHtmlPreviewLoading", () => {
+  let originalResizeObserver: typeof ResizeObserver
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
     vi.useFakeTimers()
     vi.spyOn(Math, "random").mockReturnValue(0)
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 384, 256)
+    )
+    SizeObserver.instances = []
+    originalResizeObserver = window.ResizeObserver
+    window.ResizeObserver = SizeObserver
   })
 
   afterEach(() => {
     cleanup()
     vi.useRealTimers()
     vi.restoreAllMocks()
-  })
-
-  it("renders the interactive-generation dot canvas with accessible status", () => {
-    const { container } = render(
-      <AssistantHtmlPreviewLoading label="正在生成交互式内容" />
-    )
-
-    const status = screen.getByRole("status", {
-      name: "正在生成交互式内容",
-    })
-    expect(status).toHaveAttribute("aria-busy", "true")
-    expect(status).toHaveAttribute("aria-live", "polite")
-    const canvas = container.querySelector(
-      ".assistant-html-preview-loading-canvas"
-    )
-    expect(canvas).toHaveAttribute("aria-hidden", "true")
-    expect(canvas).toBeVisible()
-    expect(status).toHaveClass("w-full")
-    expect(screen.getByRole("button", { name: "玩着等待" })).toHaveClass(
-      "absolute",
-      "right-3",
-      "bottom-3"
-    )
-    expect(
-      container.querySelector(".assistant-html-preview-loading-dots")
-    ).toBeVisible()
-    expect(
-      container.querySelector(".assistant-html-preview-loading-glow")
-    ).toBeVisible()
-    expect(
-      container.querySelector(".assistant-html-preview-loading-meta")
-    ).toBeNull()
+    window.ResizeObserver = originalResizeObserver
   })
 
   function enterGame() {
     const rendered = render(
       <AssistantHtmlPreviewLoading label="正在生成图片…" />
     )
-    fireEvent.click(screen.getByRole("button", { name: "玩着等待" }))
+    const surface = screen.getByRole("status", { name: "正在生成图片…" })
+    fireEvent.doubleClick(surface)
     return {
       ...rendered,
+      surface,
       board: screen.getByRole("application", { name: "贪吃蛇" }),
     }
   }
 
-  it("keeps the dot background and loading status while replacing the animation with a focused game", () => {
-    const { container, board } = enterGame()
+  it("keeps loading free of text and buttons and ignores single clicks", () => {
+    const { container } = render(
+      <AssistantHtmlPreviewLoading label="正在生成图片…" />
+    )
+    const surface = screen.getByRole("status", { name: "正在生成图片…" })
+    expect(surface).toHaveAttribute("aria-busy", "true")
+    expect(surface).toHaveAttribute("aria-live", "polite")
+    expect(surface).toHaveAccessibleDescription(
+      "双击或按回车键开始贪吃蛇游戏。"
+    )
+    expect(surface.textContent).toBe("")
+    expect(screen.queryByRole("button")).toBeNull()
+    fireEvent.click(surface)
+    expect(screen.queryByRole("application")).toBeNull()
+    expect(
+      container.querySelector(".assistant-html-preview-loading-glow")
+    ).toBeVisible()
+  })
+
+  it("double-clicks straight into a moving game with no panel, text, buttons or inner border", () => {
+    const { surface, board, container } = enterGame()
     expect(board).toHaveFocus()
-    expect(board).toHaveAccessibleDescription("方向键 / WASD · 滑动控制")
+    expect(surface.textContent).toBe("")
+    expect(screen.queryByRole("button")).toBeNull()
+    expect(board).toHaveClass("absolute", "inset-0")
+    expect(board.querySelector("svg")).toHaveAttribute(
+      "preserveAspectRatio",
+      "none"
+    )
+    expect(board.querySelector("rect[stroke]")).toBeNull()
     expect(
       container.querySelector(".assistant-html-preview-loading-dots")
     ).toBeVisible()
@@ -75,34 +102,75 @@ describe("AssistantHtmlPreviewLoading", () => {
     expect(
       screen.getByRole("status", { name: "正在生成图片…" })
     ).toHaveAttribute("aria-busy", "true")
-    expect(
-      screen.getByRole("group", { name: "正在生成图片…" })
-    ).not.toHaveAttribute("aria-busy")
-    expect(screen.getByText("得分 0")).toBeVisible()
+    expect(snakeLength(board)).toBe(4)
+    advance(10)
+    expect(snakeLength(board)).toBe(5)
   })
 
-  it("starts with a direction key, scores, pauses and resumes with Space, then supports restarting", () => {
-    const { board } = enterGame()
-    fireEvent.keyDown(board, { key: "d" })
-    act(() => vi.advanceTimersByTime(snakeTickMs * 10))
-    expect(screen.getByText("得分 1")).toBeVisible()
-    fireEvent.keyDown(board, { key: " " })
-    act(() => vi.advanceTimersByTime(snakeTickMs * 50))
-    expect(screen.getByText("已暂停")).toBeVisible()
-    expect(screen.getByText("得分 1")).toBeVisible()
-    fireEvent.keyDown(board, { key: " " })
-    act(() => vi.advanceTimersByTime(snakeTickMs * 7))
-    expect(screen.getByText("差一点，再来一局？")).toBeVisible()
-    fireEvent.click(screen.getByRole("button", { name: "再玩一次" }))
-    expect(screen.getByText("得分 0")).toBeVisible()
-    expect(board).toHaveFocus()
-    expect(screen.getByRole("button", { name: "暂停游戏" })).toBeEnabled()
+  it("briefly stops on collision and restarts automatically without an overlay", () => {
+    const { board, surface } = enterGame()
+    advance(10)
+    advance(6)
+    expect(snakeLength(board)).toBe(5)
+    act(() => vi.advanceTimersByTime(snakeRestartMs - 1))
+    expect(snakeLength(board)).toBe(5)
+    act(() => vi.advanceTimersByTime(1))
+    expect(snakeLength(board)).toBe(4)
+    advance(10)
+    expect(snakeLength(board)).toBe(5)
+    expect(surface.textContent).toBe("")
+    expect(screen.queryByRole("button")).toBeNull()
   })
 
-  it("starts and turns via actual touch gestures", () => {
+  it.each(["double-click", "escape"])(
+    "exits via %s, restores loading and focus, then starts a fresh game",
+    (exit) => {
+      const { surface, board, container } = enterGame()
+      advance(10)
+      if (exit === "double-click")
+        fireEvent.doubleClick(board.querySelector("svg") ?? board)
+      else fireEvent.keyDown(board, { key: "Escape" })
+      expect(screen.queryByRole("application")).toBeNull()
+      expect(surface).toHaveFocus()
+      expect(
+        container.querySelector(".assistant-html-preview-loading-glow")
+      ).toBeVisible()
+      advance(20)
+      expect(screen.queryByRole("application")).toBeNull()
+      fireEvent.doubleClick(surface)
+      expect(snakeLength(screen.getByRole("application"))).toBe(4)
+    }
+  )
+
+  it.each([
+    [960, 320, "0 0 960 320"],
+    [320, 320, "0 0 320 320"],
+    [320, 640, "0 0 320 640"],
+  ])(
+    "fills a %s by %s surface and follows container resizing",
+    (width, height, viewBox) => {
+      vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue(
+        new DOMRect(0, 0, Number(width), Number(height))
+      )
+      const { board } = enterGame()
+      expect(board.querySelector("svg")).toHaveAttribute(
+        "viewBox",
+        String(viewBox)
+      )
+      vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue(
+        new DOMRect(0, 0, 640, 320)
+      )
+      act(() => SizeObserver.instances.forEach((observer) => observer.resize()))
+      expect(
+        screen.getByRole("application").querySelector("svg")
+      ).toHaveAttribute("viewBox", "0 0 640 320")
+    }
+  )
+
+  it("steers via touch gestures and keyboard without showing instructions", () => {
     const { board } = enterGame()
     const start = { identifier: 1, target: board, clientX: 50, clientY: 50 }
-    const end = { ...start, clientX: 90 }
+    const end = { ...start, clientY: 90 }
     fireEvent.touchStart(board, {
       touches: [start],
       targetTouches: [start],
@@ -118,74 +186,103 @@ describe("AssistantHtmlPreviewLoading", () => {
       targetTouches: [],
       changedTouches: [end],
     })
-    expect(screen.queryByText("让等待有点乐趣")).toBeNull()
-    act(() => vi.advanceTimersByTime(snakeTickMs * 10))
-    expect(screen.getByText("得分 1")).toBeVisible()
+    advance(3)
+    fireEvent.keyDown(board, { key: "d" })
+    advance(10)
+    fireEvent.keyDown(board, { key: "ArrowUp" })
+    advance(3)
+    expect(snakeLength(board)).toBe(5)
+    expect(board.textContent).toBe("")
   })
 
-  it("pauses when focus leaves the game or the tab is hidden, and never captures composer keys", () => {
+  it("pauses on leaving and resumes on returning without capturing composer keys", () => {
     const { board } = enterGame()
-    fireEvent.click(screen.getByRole("button", { name: "开始游戏" }))
     fireEvent.blur(board, { relatedTarget: document.body })
-    expect(screen.getByText("已暂停")).toBeVisible()
     fireEvent.keyDown(document.body, { key: "d" })
-    expect(screen.getByText("已暂停")).toBeVisible()
-    fireEvent.keyDown(board, { key: " " })
+    advance(10)
+    expect(snakeLength(board)).toBe(4)
+    fireEvent.focus(board)
+    advance(10)
+    expect(snakeLength(board)).toBe(5)
     fireEvent(window, new Event("blur"))
-    expect(screen.getByText("已暂停")).toBeVisible()
-    fireEvent.keyDown(board, { key: " " })
-    vi.spyOn(document, "hidden", "get").mockReturnValue(true)
-    fireEvent(document, new Event("visibilitychange"))
-    expect(screen.getByText("已暂停")).toBeVisible()
+    advance(30)
+    expect(snakeLength(board)).toBe(5)
+    fireEvent(window, new Event("focus"))
+    advance(6)
+    act(() => vi.advanceTimersByTime(snakeRestartMs))
+    expect(snakeLength(board)).toBe(4)
   })
 
-  it.each(["button", "escape"])(
-    "returns to loading via %s, restores focus, and resets the next game",
-    (exit) => {
-      const { board, container } = enterGame()
-      fireEvent.keyDown(board, { key: "d" })
-      act(() => vi.advanceTimersByTime(snakeTickMs * 10))
-      if (exit === "button")
-        fireEvent.click(screen.getByRole("button", { name: "返回等待" }))
-      else fireEvent.keyDown(board, { key: "Escape" })
-      act(() => vi.advanceTimersByTime(20))
-      expect(screen.queryByRole("application")).toBeNull()
-      expect(screen.getByRole("button", { name: "玩着等待" })).toHaveFocus()
-      expect(
-        container.querySelector(".assistant-html-preview-loading-glow")
-      ).toBeVisible()
-      fireEvent.click(screen.getByRole("button", { name: "玩着等待" }))
-      expect(screen.getByText("得分 0")).toBeVisible()
-    }
-  )
+  it("releases observers and cancels pending restart when generation ends", () => {
+    const clearTimeout = vi.spyOn(window, "clearTimeout")
+    const timeout = vi.spyOn(window, "setTimeout")
+    const { unmount } = enterGame()
+    advance(16)
+    const restartCall = timeout.mock.calls.findIndex(
+      ([, delay]) => delay === snakeRestartMs
+    )
+    expect(restartCall).toBeGreaterThanOrEqual(0)
+    unmount()
+    expect(clearTimeout).toHaveBeenCalledWith(
+      timeout.mock.results[restartCall]?.value
+    )
+    expect(SizeObserver.instances[0]?.disconnect).toHaveBeenCalled()
+  })
 
-  it("clears the game interval when the loading surface disappears", () => {
+  it("clears the movement interval when a running loading surface disappears", () => {
     const interval = vi.spyOn(window, "setInterval")
     const clearInterval = vi.spyOn(window, "clearInterval")
-    const { board, unmount } = enterGame()
-    fireEvent.keyDown(board, { key: "d" })
-    const tickCall = interval.mock.calls.findIndex(
-      ([, duration]) => duration === snakeTickMs
+    const { unmount } = enterGame()
+    const movementCall = interval.mock.calls.findIndex(
+      ([, delay]) => delay === snakeTickMs
     )
-    expect(tickCall).toBeGreaterThanOrEqual(0)
-    const timer = interval.mock.results[tickCall]?.value
+    expect(movementCall).toBeGreaterThanOrEqual(0)
     unmount()
-    expect(clearInterval).toHaveBeenCalledWith(timer)
+    expect(clearInterval).toHaveBeenCalledWith(
+      interval.mock.results[movementCall]?.value
+    )
   })
 
-  it("provides English controls and falls back to Chinese for missing game translations", async () => {
+  it("keeps an automatic restart paused while the window is inactive", () => {
+    const { board } = enterGame()
+    advance(16)
+    fireEvent(window, new Event("blur"))
+    act(() => vi.advanceTimersByTime(snakeRestartMs))
+    advance(10)
+    expect(snakeLength(board)).toBe(4)
+    fireEvent(window, new Event("focus"))
+    advance(10)
+    expect(snakeLength(board)).toBe(5)
+  })
+
+  it("resizes without taking focus from the composer or resuming in the background", () => {
+    const { board } = enterGame()
+    render(<input aria-label="composer" />)
+    const composer = screen.getByRole("textbox", { name: "composer" })
+    act(() => composer.focus())
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue(
+      new DOMRect(0, 0, 640, 320)
+    )
+    act(() => SizeObserver.instances.forEach((observer) => observer.resize()))
+    expect(composer).toHaveFocus()
+    advance(17)
+    expect(snakeLength(board)).toBe(4)
+    act(() => board.focus())
+    advance(17)
+    expect(snakeLength(board)).toBe(5)
+  })
+
+  it("offers a keyboard entry and localized screen-reader descriptions with Chinese fallback", async () => {
     await i18n.changeLanguage("en-US")
     const { unmount } = render(
       <AssistantHtmlPreviewLoading label="Generating image…" />
     )
-    fireEvent.click(screen.getByRole("button", { name: "Play while you wait" }))
+    fireEvent.keyDown(screen.getByRole("status"), { key: "Enter" })
     expect(
       screen.getByRole("application", { name: "Snake" })
-    ).toHaveAccessibleDescription("Arrow keys / WASD · Swipe to steer")
-    expect(screen.getByRole("button", { name: "Start game" })).toBeVisible()
-    expect(
-      screen.getByRole("button", { name: "Back to waiting" })
-    ).toBeVisible()
+    ).toHaveAccessibleDescription(
+      "Use arrow keys, WASD or swipe to steer. Double-click or press Escape to return to waiting."
+    )
     unmount()
     const fallback = i18n.cloneInstance({ forkResourceStore: true })
     fallback.removeResourceBundle("en-US", "translation")
@@ -194,8 +291,11 @@ describe("AssistantHtmlPreviewLoading", () => {
         <AssistantHtmlPreviewLoading label="正在生成图片…" />
       </I18nextProvider>
     )
-    fireEvent.click(screen.getByRole("button", { name: "玩着等待" }))
-    expect(screen.getByRole("application", { name: "贪吃蛇" })).toBeVisible()
-    expect(screen.getByRole("button", { name: "开始游戏" })).toBeVisible()
+    fireEvent.doubleClick(screen.getByRole("status"))
+    expect(
+      screen.getByRole("application", { name: "贪吃蛇" })
+    ).toHaveAccessibleDescription(
+      "方向键、WASD 或滑动控制；双击或按 ESC 返回等待。"
+    )
   })
 })
