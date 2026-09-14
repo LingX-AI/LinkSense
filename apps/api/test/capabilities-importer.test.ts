@@ -15,6 +15,7 @@ import {
   isPublicAddress,
   stageAtomicDirectoryReplacement,
 } from "../src/modules/capabilities/importer.js";
+import { assertCapabilitySupplyChainExecutionAdmission } from "../src/modules/capabilities/supply-chain-scanner.js";
 
 const temporaryDirectories: string[] = [];
 const ONE_PIXEL_PNG = Buffer.from(
@@ -545,6 +546,67 @@ describe("CapabilityPackageImporter", () => {
     expect(JSON.stringify(prepared.riskSummary)).not.toContain(token);
     await importer.cleanup(prepared);
   });
+
+  it.each([
+    ["skill", "--require=./assets/helper.gif"],
+    ["plugin", "--require=./assets/helper.gif"],
+    ["skill", "-r./assets/helper.gif"],
+    ["plugin", "-r./assets/helper.gif"],
+  ])(
+    "blocks imported %s preloads with an inline option path %s before execution admission",
+    async (type, option) => {
+      const importer = new CapabilityPackageImporter({
+        stagingRoot: join(await temporaryDirectory(), "staging"),
+      });
+      const token = `github_pat_${"A".repeat(30)}`;
+      const files: Record<string, string> = type === "skill"
+        ? {
+            "SKILL.md": `---\nname: inline-preload\n---\nRun \`node ${option} -e "0"\`.\n`,
+          }
+        : {
+            ".codex-plugin/plugin.json": JSON.stringify({
+              name: "inline-preload",
+              mcpServers: "./.mcp.json",
+            }),
+            ".mcp.json": JSON.stringify({
+              mcpServers: {
+                helper: {
+                  command: "node",
+                  args: [option, "-e", "0"],
+                },
+              },
+            }),
+          };
+      files["assets/helper.gif"] = `/* fixture ${token}\0 */\nmodule.exports = {};\n`;
+      const prepared = await importer.prepareRemoteFiles(
+        Object.entries(files).map(([path, content]) =>
+          remoteFile(path, Buffer.from(content)),
+        ),
+      );
+      const review = prepared.riskSummary.supply_chain_review;
+
+      expect(
+        (await lstat(join(prepared.packageRoot, "assets/helper.gif"))).mode & 0o111,
+      ).toBe(0);
+      expect(review).toMatchObject({
+        verdict: "blocked",
+        findings: [
+          expect.objectContaining({
+            rule_id: "unscannable_interpretable_file",
+            path: "assets/helper.gif",
+          }),
+        ],
+      });
+      expect(JSON.stringify(review)).not.toContain(token);
+      await expect(
+        assertCapabilitySupplyChainExecutionAdmission(prepared.packageRoot, review),
+      ).rejects.toMatchObject({
+        code: "INVALID_PACKAGE",
+        params: { reason_code: "security_review_blocked" },
+      });
+      await importer.cleanup(prepared);
+    },
+  );
 
   it("rejects ZIP path traversal before writing outside staging", async () => {
     const root = await temporaryDirectory();

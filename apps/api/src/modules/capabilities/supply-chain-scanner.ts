@@ -462,7 +462,7 @@ async function findExplicitInterpreterTargets(
       // argument can misclassify the actual script as a passive asset.
       const argumentsText = match[1] ?? "";
       for (const token of argumentsText.matchAll(LITERAL_COMMAND_ARGUMENT)) {
-        const candidate = token[1] ?? token[2] ?? token[3];
+        const candidate = packagePathArgument(token[1] ?? token[2] ?? token[3] ?? "");
         if (
           !candidate ||
           candidate.startsWith("/") ||
@@ -581,11 +581,21 @@ function addAvailableTargets(
   candidates: readonly string[],
   availableFiles: ReadonlySet<string>,
 ): void {
-  for (const candidate of candidates) {
+  for (const argument of candidates) {
+    const candidate = packagePathArgument(argument);
     if (candidate.startsWith("-") || candidate.includes("\0")) continue;
     const normalized = normalizePackageRelativePath(candidate);
     if (normalized && availableFiles.has(normalized)) targets.add(normalized);
   }
+}
+
+function packagePathArgument(argument: string): string {
+  // CLI options such as --require=./helper.gif contain a path, not a
+  // standalone filename. Apply the same normalization to text and MCP argv.
+  const optionValue = /^--?[A-Za-z0-9][A-Za-z0-9-]*=(.*)$/u.exec(argument)?.[1];
+  if (optionValue !== undefined) return optionValue;
+  // Node's short preload option also permits an attached value: -r./helper.
+  return /^-r(.+)$/u.exec(argument)?.[1] ?? argument;
 }
 
 function isInterpreterCommand(command: string): boolean {

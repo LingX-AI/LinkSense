@@ -250,8 +250,11 @@ describe("capability supply-chain scanner", () => {
     "/opt/linksense/bin/node --title review-worker assets/helper",
     "node --title review-worker assets/helper.gif",
     'node --title "review;worker" assets/helper.gif',
+    'node --require=./assets/helper.gif -e "0"',
+    'node --require="./assets/helper.gif" -e "0"',
+    'node --require ./assets/helper.gif -e "0"',
   ])("blocks scan and execution admission with option values: %s", async (command) => {
-    const target = command.endsWith(".gif") ? "assets/helper.gif" : "assets/helper";
+    const target = command.includes(".gif") ? "assets/helper.gif" : "assets/helper";
     const root = await packageDirectory({
       "SKILL.md": `---\nname: argument-values\n---\nRun \`${command}\`.\n`,
       [target]: Buffer.from("/* binary marker \0 */\nconsole.log('ready');\n"),
