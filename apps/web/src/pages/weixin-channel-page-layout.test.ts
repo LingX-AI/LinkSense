@@ -14,6 +14,21 @@ function declarationFor(selector: string) {
 }
 
 describe("weixin channel page layout", () => {
+  it("uses flat channel rows inside a single card on desktop and mobile", () => {
+    expect(declarationFor(".channel-access-list")).toMatch(/gap:\s*0;/u)
+    expect(declarationFor(".channel-access-list")).toMatch(
+      /padding-block:\s*0;/u
+    )
+    const row = declarationFor(".channel-access-card")
+    expect(row).toMatch(/border:\s*0;/u)
+    expect(row).toMatch(/border-radius:\s*0;/u)
+    const rules = Array.from(
+      appStyles.matchAll(/\.channel-access-card\s*\{([^}]*)\}/gu)
+    )
+    for (const rule of rules) {
+      expect(rule[1]).toMatch(/padding:\s*16px 0;/u)
+    }
+  })
   it("keeps connected channel actions in the top-right of the card", () => {
     expect(weixinChannelPageSource).toContain(
       'className="channel-access-card channel-access-card-manageable"'

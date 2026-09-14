@@ -105,6 +105,7 @@ export function ModelSettingsTable({
       }}
     >
       <Table
+        appearance="card"
         className="min-w-[640px]"
         aria-label={t("admin.modelProvider.models")}
       >
@@ -182,7 +183,7 @@ function ModelSettingsRow({
     <TableRow
       ref={setNodeRef}
       aria-label={model.display_name}
-      className={cn("bg-background", isDragging && "relative z-10 bg-hover")}
+      className={cn("bg-card", isDragging && "relative z-10 bg-hover")}
       // dnd-kit supplies dynamic movement; appearance stays in semantic Tailwind classes.
       style={{ transform: CSS.Transform.toString(transform), transition }}
     >

@@ -21,17 +21,69 @@ function firstCssRule(selector: string) {
 }
 
 describe("settings center layout consistency", () => {
-  it("uses one global width and centers every settings page", () => {
-    expect(firstCssRule(":root")).toContain(
-      "--app-settings-page-width: 920px;"
+  it("uses the same 16px description-to-form spacing for personal settings", () => {
+    for (const selector of [
+      ".settings-form",
+      ".personalization-instructions-form",
+    ]) {
+      expect(firstCssRule(selector)).toContain("margin-top: 16px;")
+    }
+  })
+
+  it("lets the health section grid own spacing without legacy margins or title insets", () => {
+    expect(firstCssRule(".health-summary")).not.toContain("margin-bottom")
+    expect(firstCssRule(".docker-resource-section")).not.toContain(
+      "padding-bottom"
     )
+    expect(
+      firstCssRule(".health-page .knowledge-section-heading")
+    ).toBeUndefined()
+    expect(
+      firstCssRule(".docker-resource-section + .entity-list")
+    ).toBeUndefined()
+  })
+
+  it("extends list row backgrounds through the card inset while preserving content alignment", () => {
+    const rule = firstCssRule(".list-card-content > .entity-row")
+    expect(rule).toContain("margin-inline: -16px;")
+    expect(rule).toContain("padding-inline: 16px;")
+  })
+
+  it("uses a 16px gap without extra top padding between settings cards", () => {
+    const rule = firstCssRule(
+      '.settings-section + .settings-section[data-slot="settings-card"]'
+    )
+    expect(rule).toContain("margin-top: 16px;")
+    expect(rule).toContain("padding-top: 0;")
+  })
+
+  it("excludes bordered settings cards from section divider backgrounds", () => {
+    expect(
+      firstCssRule(
+        '.settings-section + .settings-section:not([data-slot="settings-card"])'
+      )
+    ).toContain(
+      "background-image: linear-gradient(var(--app-divider), var(--app-divider));"
+    )
+    expect(
+      cssRules(".settings-section + .settings-section").join("\n")
+    ).not.toContain("background-image")
+  })
+
+  it("centers all settings pages while widening only the administration container", () => {
+    expect(firstCssRule(":root")).toContain("--app-settings-page-width: 920px;")
     for (const selector of [".settings-content", ".management-page"]) {
       expect(firstCssRule(selector)).toContain(
         "width: min(100%, var(--app-settings-page-width));"
       )
       expect(firstCssRule(selector)).toContain("margin-inline: auto;")
     }
-    expect(cssRules(".settings-content-administration")).toEqual([])
+    expect(firstCssRule(":root")).toContain(
+      "--app-administration-page-width: 1200px;"
+    )
+    expect(firstCssRule(".settings-content-administration")).toContain(
+      "--app-settings-page-width: var(--app-administration-page-width);"
+    )
   })
 
   it("lets settings sections fill their shared page instead of imposing local widths", () => {
@@ -43,7 +95,7 @@ describe("settings center layout consistency", () => {
       ".personalization-loading",
       ".appearance-theme-fieldset",
       ".channel-access-list",
-      ".role-overview-grid",
+      ".role-summary",
       ".role-permission-section",
     ]) {
       expect(firstCssRule(selector), selector).not.toMatch(/max-width:/u)

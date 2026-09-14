@@ -131,7 +131,7 @@ function FeedbackDetails({
             {feedback.replies.map((reply) => (
               <li
                 key={reply.id}
-                className="flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-muted/40 p-4"
+                className="flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-card-soft p-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium">

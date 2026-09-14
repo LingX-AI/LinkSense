@@ -10,7 +10,7 @@ describe("archived conversation list layout", () => {
       ".archived-conversation-row:hover {\n  background: transparent;\n}"
     )
     expect(appStyles).toMatch(
-      /\.archived-conversation-list \{[\s\S]*?gap: 0;[\s\S]*?border-radius: 16px;[\s\S]*?padding-block: 0;[\s\S]*?\}/u
+      /\.archived-conversation-list \{[\s\S]*?gap: 0;[\s\S]*?border-radius: var\(--app-card-radius\);[\s\S]*?padding-block: 0;[\s\S]*?\}/u
     )
     expect(appStyles).toMatch(
       /\.archived-conversation-list-content \{[\s\S]*?padding-inline: 16px;[\s\S]*?\}/u

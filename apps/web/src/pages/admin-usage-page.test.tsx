@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
+  act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -153,6 +155,27 @@ const report = {
 }
 
 describe("administrator usage analytics page", () => {
+  it("does not filter user rows while composing a Chinese name", async () => {
+    renderUsagePage()
+    await userEvent.click(await screen.findByRole("tab", { name: "按用户" }))
+    const input = screen.getByRole("textbox", { name: "搜索用户姓名或邮箱" })
+    const table = screen.getByRole("table", { name: "用户用量" })
+    fireEvent.compositionStart(input)
+    fireEvent.input(input, { target: { value: "lin" }, isComposing: true })
+    expect(input).toHaveValue("lin")
+    await act(async () => {})
+    expect(within(table).getByText("wang@example.test")).toBeVisible()
+    fireEvent.input(input, { target: { value: "林" }, isComposing: true })
+    fireEvent.compositionEnd(input, { data: "林" })
+    expect(input).toHaveValue("林")
+    await waitFor(() =>
+      expect(
+        within(table).queryByText("wang@example.test")
+      ).not.toBeInTheDocument()
+    )
+    expect(within(table).getByText("lin@example.test")).toBeVisible()
+  })
+
   beforeEach(async () => {
     downloadBlob.mockReset()
     createBillingStatementPdf.mockClear()
@@ -211,6 +234,8 @@ describe("administrator usage analytics page", () => {
     )
     expect(costAssistantLegend).toHaveAttribute("data-has-values", "true")
     const globalModels = screen.getByRole("table", { name: "模型明细" })
+    expect(globalModels.parentElement).toHaveClass("rounded-card", "border")
+    expect(globalModels.closest('[data-slot="card"]')).toBeNull()
     const modelName = within(globalModels).getByText("GPT 5.6 Sol")
     expect(modelName).toBeVisible()
     expect(modelName).toHaveClass("font-normal")
@@ -299,6 +324,9 @@ describe("administrator usage analytics page", () => {
         name: "按总 Token升序排序",
       })
     )
+    for (const button of within(modelTable).getAllByRole("button")) {
+      expect(button).toHaveClass("text-sm", "font-medium")
+    }
     expect(tableColumnText(modelTable, 2)).toEqual(["200", "1K"])
     expect(
       within(modelTable).getByRole("columnheader", {

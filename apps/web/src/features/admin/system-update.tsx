@@ -170,7 +170,7 @@ export function SystemUpdateSettings() {
         </Alert>
       )}
 
-      <Card appearance="soft">
+      <Card>
         <CardHeader>
           <CardTitle>{t("systemUpdate.overview.title")}</CardTitle>
           <CardDescription>
@@ -241,7 +241,7 @@ export function SystemUpdateSettings() {
       </Card>
 
       {release?.release_notes && (
-        <Card appearance="soft">
+        <Card>
           <CardHeader>
             <CardTitle>{release.name}</CardTitle>
             <CardDescription>{t("systemUpdate.releaseNotes")}</CardDescription>
@@ -255,7 +255,7 @@ export function SystemUpdateSettings() {
       )}
 
       {status.status === "update_available" && (
-        <Card appearance="soft">
+        <Card>
           <CardHeader>
             <CardTitle>{t("systemUpdate.tutorial.title")}</CardTitle>
             <CardDescription>

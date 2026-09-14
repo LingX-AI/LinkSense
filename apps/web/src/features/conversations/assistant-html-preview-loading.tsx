@@ -23,10 +23,12 @@ export function AssistantHtmlPreviewLoading({
     <div
       ref={surfaceRef}
       tabIndex={0}
+      onClick={() => {
+        if (!playing) setPlaying(true)
+      }}
       onDoubleClick={(event) => {
         event.preventDefault()
         if (playing) exitGame()
-        else setPlaying(true)
       }}
       onKeyDown={(event) => {
         if (

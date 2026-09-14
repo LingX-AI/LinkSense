@@ -348,6 +348,12 @@ describe("administrator audit metadata", () => {
     expect(screen.getByLabelText("开始日期")).toHaveTextContent("2026年7月1日")
     await chooseDate(interaction, "结束日期", "2026-07-31")
     expect(screen.getByLabelText("结束日期")).toHaveTextContent("2026年7月31日")
+    for (const label of ["开始日期", "结束日期"]) {
+      const date = screen.getByLabelText(label)
+      expect(date.closest(".form-field")).toHaveClass("flex-[1_1_240px]")
+      expect(date.closest(".audit-filters")).toHaveClass("flex", "flex-wrap")
+      expect(date.closest(".audit-filters")).not.toHaveClass("filter-row")
+    }
 
     await waitFor(() => {
       const lastListUrl = [...requestedUrls]

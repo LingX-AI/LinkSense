@@ -121,7 +121,7 @@ export function ModelProviderSettingsForm({
       />
       {channel ? (
         <div
-          className="flex min-w-0 flex-col gap-4 rounded-2xl border border-[color:var(--app-border)] bg-card p-4"
+          className="flex min-w-0 flex-col gap-4"
           role="group"
           aria-label={providerName(channel, channelIndex)}
         >

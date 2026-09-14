@@ -12,7 +12,7 @@ describe("administrator knowledge-base governance layout", () => {
 
   it("keeps the action column fixed to the right while the table scrolls", () => {
     expect(appStyles).toMatch(
-      /\.admin-knowledge-actions-column\s*\{[^}]*position:\s*sticky;[^}]*right:\s*0;[^}]*width:\s*72px;[^}]*min-width:\s*72px;[^}]*background:\s*var\(--app-canvas\);[^}]*box-shadow:\s*-1px 0 0 var\(--app-divider\);/u
+      /\.admin-knowledge-actions-column\s*\{[^}]*position:\s*sticky;[^}]*right:\s*0;[^}]*width:\s*72px;[^}]*min-width:\s*72px;[^}]*background:\s*var\(--card\);[^}]*box-shadow:\s*-1px 0 0 var\(--app-divider\);/u
     )
     expect(appStyles).toMatch(
       /\.admin-knowledge-table\s+\[data-slot="table-head"\]\.admin-knowledge-actions-column\s*\{[^}]*z-index:\s*2;/u
@@ -31,9 +31,9 @@ describe("administrator knowledge-base governance layout", () => {
     )
   })
 
-  it("integrates compact pagination with the table surface", () => {
+  it("places compact pagination outside the table border", () => {
     expect(appStyles).toMatch(
-      /\.admin-knowledge-pagination\s*\{[^}]*justify-content:\s*flex-end;[^}]*border-top:\s*1px solid var\(--app-divider\);[^}]*padding:\s*10px 12px;/u
+      /\.admin-knowledge-pagination\s*\{[^}]*justify-content:\s*flex-end;[^}]*padding:\s*10px 0;/u
     )
   })
 })

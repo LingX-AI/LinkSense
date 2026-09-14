@@ -107,6 +107,8 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { InputGroup } from "@/components/ui/input-group"
+import { SearchInput } from "@/components/ui/search-input"
 import {
   Select,
   SelectContent,
@@ -483,15 +485,16 @@ export function ApplicationCatalogPanel({
               </SelectContent>
             </Select>
           )}
-          <Input
-            value={search}
-            aria-label={t("applications.search")}
-            placeholder={t("applications.searchPlaceholder")}
-            className="w-full md:max-w-md"
-            onChange={(event) =>
-              updateCatalogParams({ app_search: event.target.value })
-            }
-          />
+          <InputGroup className="w-full md:max-w-md">
+            <SearchInput
+              value={search}
+              aria-label={t("applications.search")}
+              placeholder={t("applications.searchPlaceholder")}
+              onValueChange={(value) =>
+                updateCatalogParams({ app_search: value })
+              }
+            />
+          </InputGroup>
         </div>
         <Button type="button" onClick={() => setCreateChoiceOpen(true)}>
           <PlusIcon data-icon="inline-start" />

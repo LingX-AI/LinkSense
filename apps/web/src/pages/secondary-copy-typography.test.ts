@@ -54,9 +54,15 @@ describe("readable secondary copy typography", () => {
     }
   )
 
-  it("uses the readable secondary size for table headings", () => {
-    expect(cssRule("\\.data-table th")).toContain(
-      "font-size: var(--app-font-13);"
+  it.each([
+    "\\.data-table th",
+    '\\.read-only-file-preview-csv-table \\[data-slot="table-head"\\]',
+    '\\.archive-preview-table \\[data-slot="table-head"\\]',
+  ])("lets %s use the shared TableHead typography", (selector) => {
+    const rule = cssRule(selector)
+    expect(rule).toBeDefined()
+    expect(rule).not.toMatch(
+      /(?:^|\n)\s*(?:font-size|font-weight|line-height|color):/u
     )
   })
 

@@ -1030,7 +1030,7 @@ describe("task categories", () => {
     let dialog = await screen.findByRole("dialog", { name: "移动到分类" })
     expect(
       within(dialog).getByRole("combobox", { name: "任务分类" })
-    ).toHaveClass("bg-input/50")
+    ).toHaveClass("bg-field")
     await chooseCategory(interaction, "生活", dialog)
     await interaction.click(
       within(dialog).getByRole("button", { name: "保存" })

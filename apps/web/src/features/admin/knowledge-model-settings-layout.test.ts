@@ -21,7 +21,7 @@ describe("knowledge model settings layout", () => {
 
   it("keeps knowledge retrieval models in a single column", () => {
     expect(knowledgeModelSettingsSource).toContain(
-      'className="grid min-w-0 grid-cols-1 gap-4 rounded-2xl'
+      'className="grid min-w-0 grid-cols-1 gap-4 rounded-card'
     )
     expect(knowledgeModelSettingsSource).not.toContain("xl:grid-cols-2")
   })
@@ -49,7 +49,7 @@ describe("knowledge model settings layout", () => {
       imageGenerationSettingsSource,
     ]) {
       expect(source).toContain(
-        "rounded-2xl border border-[color:var(--app-border)] bg-card p-4"
+        "rounded-card border border-[color:var(--app-border)] bg-card p-4"
       )
       expect(source).not.toContain("border-border/60")
     }

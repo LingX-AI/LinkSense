@@ -123,7 +123,16 @@ describe("administrator system updates", () => {
 
     renderUpdateUi(<SystemUpdateSettings />)
 
-    expect(await screen.findByText("版本状态")).toBeVisible()
+    const overview = await screen.findByText("版本状态")
+    expect(overview).toBeVisible()
+    expect(overview.closest('[data-slot="card"]')).toHaveClass(
+      "rounded-card",
+      "border"
+    )
+    expect(overview.closest('[data-slot="card"]')).toHaveAttribute(
+      "data-appearance",
+      "default"
+    )
     expect(
       screen.getByText("Administrator update notifications.")
     ).toBeVisible()

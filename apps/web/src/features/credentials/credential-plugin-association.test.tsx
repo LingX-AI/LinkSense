@@ -43,6 +43,10 @@ describe("credential plugin associations", () => {
   it("hides technical fields until details are expanded and exposes explicit removal actions", async () => {
     const input = props()
     render(<CredentialPluginAssociation {...input} />)
+    const association = screen
+      .getByRole("heading", { name: "ManageBac" })
+      .closest('[data-slot="collapsible"]')
+    expect(association).not.toHaveClass("bg-muted/40")
     expect(screen.getByText("凭据已配置")).toBeVisible()
     expect(screen.queryByText("CLIENT_ID")).not.toBeInTheDocument()
     fireEvent.click(
@@ -50,6 +54,7 @@ describe("credential plugin associations", () => {
     )
     expect(screen.getByText("CLIENT_ID")).toHaveAttribute("translate", "no")
     expect(screen.getByText("SAVED_ID")).toBeVisible()
+    expect(association).not.toHaveClass("bg-muted/40")
     fireEvent.click(
       screen.getByRole("button", { name: "移除 CLIENT_ID 的关联" })
     )

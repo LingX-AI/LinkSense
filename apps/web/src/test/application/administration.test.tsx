@@ -6,6 +6,22 @@ import { setupApplicationTests, installApiMock, renderApp } from "./fixture"
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each([
+    ["zh-CN", "操作"],
+    ["en-US", "Actions"],
+  ] as const)(
+    "shows the user actions column title in %s",
+    async (language, title) => {
+      installApiMock({ initialLanguage: language })
+      renderApp("/admin/users")
+      const header = await screen.findByRole("columnheader", { name: title })
+      expect(header).toHaveClass("user-management-actions-column")
+      expect(header).toHaveTextContent(title)
+      expect(header).toBeVisible()
+      expect(header.querySelector(".sr-only")).toBeNull()
+    }
+  )
+
   it("shows two fixed roles without role customization controls", async () => {
     installApiMock()
     renderApp("/admin/roles")
@@ -42,6 +58,22 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "权限矩阵" })).toBeVisible()
     const permissionTable = screen.getByRole("table", { name: "权限矩阵" })
+    const permissionSection = screen.getByRole("region", { name: "权限矩阵" })
+    expect(permissionSection).toHaveClass("grid", "gap-4")
+    expect(permissionSection.firstElementChild).toBe(
+      screen.getByRole("heading", { name: "权限矩阵" })
+    )
+    expect(permissionSection.lastElementChild).toContainElement(permissionTable)
+    expect(permissionTable.parentElement).toHaveClass("rounded-card", "border")
+    const rolesCard = screen
+      .getByRole("heading", { name: "普通用户" })
+      .closest('[data-slot="card"]')
+    expect(rolesCard).toContainElement(
+      screen.getByRole("heading", { name: "管理员" })
+    )
+    expect(rolesCard?.querySelectorAll('[data-slot="separator"]')).toHaveLength(
+      1
+    )
     const expectedPermissions = [
       "管理自己的任务",
       "管理个人资料、外观与安全设置",
@@ -82,6 +114,19 @@ describe("LinkSense application", () => {
     ).toBeVisible()
     expect(await screen.findByText("14 个账号")).toBeVisible()
     expect(screen.getByText("3 个账号")).toBeVisible()
+    for (const count of ["14 个账号", "3 个账号"]) {
+      const statistics = screen.getByText(count).parentElement
+      expect(statistics).toHaveClass(
+        "items-end",
+        "sm:col-start-2",
+        "sm:row-start-2"
+      )
+      expect(statistics?.parentElement).toHaveClass(
+        "grid-cols-1",
+        "sm:grid-cols-[minmax(0,1fr)_auto]"
+      )
+      expect(statistics?.previousElementSibling?.tagName).toBe("P")
+    }
     expect(
       screen.queryByRole("button", {
         name: /新增角色|创建角色|编辑角色|删除角色/,
@@ -173,6 +218,10 @@ describe("LinkSense application", () => {
     )
     const groupRow = groupHeading.closest("article")
     expect(groupRow).not.toBeNull()
+    expect(groupRow?.closest('[data-slot="card"]')).toHaveClass(
+      "rounded-card",
+      "border"
+    )
     await interaction.click(
       within(groupRow as HTMLElement).getByRole("button", { name: "操作" })
     )
@@ -314,6 +363,10 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
     expect(await screen.findByText("lin@example.com")).toBeVisible()
     expect(screen.getByRole("table")).toHaveClass("user-management-table")
+    expect(screen.getByRole("table").parentElement).toHaveClass(
+      "rounded-card",
+      "border"
+    )
     expect(screen.getByRole("tab", { name: "用户" })).toHaveAttribute(
       "aria-selected",
       "true"

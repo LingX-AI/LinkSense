@@ -48,7 +48,7 @@ export function BrowserNotificationSettings({
 
   return (
     <section
-      className="settings-panel mt-4"
+      className="py-4 sm:py-5"
       aria-labelledby="browser-notifications-heading"
     >
       <SettingsSectionHeader

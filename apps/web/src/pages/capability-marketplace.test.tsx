@@ -335,6 +335,51 @@ function renderAdminPage() {
 }
 
 describe("capability marketplace pages", () => {
+  it.each([
+    ["plugin", "personal", "search"],
+    ["skill", "public", "search"],
+    ["skill", "clawhub", "search"],
+    ["mcp", "personal", "search"],
+    ["application", "personal", "app_search"],
+  ])(
+    "keeps Chinese composition local in the %s/%s catalog",
+    async (section, scope, parameter) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(envelope({ items: [], next_cursor: null })))
+      )
+      const { router } = renderUserPageWithRouter(
+        `/capabilities?section=${section}&scope=${scope}`
+      )
+      const input = await screen.findByRole(
+        section === "application" ? "textbox" : "searchbox"
+      )
+      const previousSearch = router.state.location.search
+      fireEvent.compositionStart(input)
+      fireEvent.input(input, { target: { value: "zhi" }, isComposing: true })
+      expect(input).toHaveValue("zhi")
+      await act(async () => {})
+      expect(router.state.location.search).toBe(previousSearch)
+      fireEvent.input(input, { target: { value: "知识" }, isComposing: true })
+      fireEvent.compositionEnd(input, { data: "知识" })
+      await waitFor(() =>
+        expect(
+          new URLSearchParams(router.state.location.search).get(parameter)
+        ).toBe("知识")
+      )
+      expect(input).toHaveValue("知识")
+      await userEvent.type(input, " report")
+      expect(input).toHaveValue("知识 report")
+      await userEvent.click(screen.getByRole("button", { name: "清除" }))
+      expect(input).toHaveFocus()
+      await waitFor(() =>
+        expect(
+          new URLSearchParams(router.state.location.search).has(parameter)
+        ).toBe(false)
+      )
+    }
+  )
+
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
     setAccessToken("marketplace-test-token")
@@ -503,7 +548,7 @@ describe("capability marketplace pages", () => {
     const searchbox = screen.getByRole("searchbox", { name: "搜索技能" })
     expect(searchbox).toBeVisible()
     const inputGroup = searchbox.closest('[data-slot="input-group"]')
-    expect(inputGroup).toHaveClass("h-8", "rounded-lg", "bg-input/50")
+    expect(inputGroup).toHaveClass("h-8", "rounded-lg", "bg-field")
     const searchRow = inputGroup?.parentElement
     const addButton = screen.getByRole("button", { name: "添加技能" })
     expect(searchRow).toHaveClass("capability-center-search-row")
@@ -1788,7 +1833,14 @@ describe("capability marketplace pages", () => {
     expect(manageMcpButton).toBeVisible()
     expect(connectionsHeader).toHaveClass("capability-center-personal-actions")
     expect(connectionsHeader?.firstElementChild).toBe(connectionsHeading)
-    expect(connectionsHeader?.lastElementChild).toBe(manageMcpButton)
+    expect(connectionsHeader).not.toContainElement(manageMcpButton)
+    const searchGroup = screen
+      .getByRole("searchbox", { name: "搜索MCP" })
+      .closest('[data-slot="input-group"]')
+    const searchRow = searchGroup?.parentElement
+    expect(searchRow).toHaveClass("capability-center-search-row")
+    expect(searchRow?.firstElementChild).toBe(searchGroup)
+    expect(searchRow?.lastElementChild).toBe(manageMcpButton)
 
     await interaction.click(manageMcpButton)
     expect(
@@ -2460,537 +2512,549 @@ describe("capability marketplace pages", () => {
     })
   })
 
-  it("creates an application with fixed runtime resources and application-scoped credential plugins", async () => {
-    const applicationId = "50000000-0000-4000-8000-000000000002"
-    const safeCapabilityId = "20000000-0000-4000-8000-000000000010"
-    const credentialCapabilityId = "20000000-0000-4000-8000-000000000011"
-    const skillCapabilityId = "20000000-0000-4000-8000-000000000012"
-    const knowledgeBaseId = "60000000-0000-4000-8000-000000000001"
-    let submittedBody: Record<string, unknown> | null = null
-    const capability = (
-      id: string,
-      name: string,
-      requiresCredentials: boolean,
-      type: "plugin" | "skill" = "plugin"
-    ) => ({
-      id,
-      name,
-      slug: name,
-      type,
-      description: null,
-      status: "active" as const,
-      source_type: "local" as const,
-      marketplace_listing_id: null,
-      marketplace_release_id: null,
-      logo_url: null,
-      is_owner: true,
-      can_manage: true,
-      can_govern: true,
-      has_logo: false,
-      preference_status: "enabled" as const,
-      manifest: {},
-      risk_summary: {
-        ...riskSummary,
-        requires_credentials: requiresCredentials,
-        declared_environment_keys: requiresCredentials ? ["API_KEY"] : [],
-      },
-      created_at: NOW,
-      updated_at: NOW,
-    })
-    const builtInSkill = {
-      ...capability(
-        "builtin:capability:linksense-file-service",
-        "linksense-file-service",
-        false,
-        "skill"
-      ),
-      source_type: "builtin" as const,
-      builtin_key: "linksense-file-service",
-      is_builtin: true,
-      is_owner: false,
-      can_manage: false,
-      can_select: false,
-      can_delete: false,
-      created_at: null,
-      updated_at: null,
-    }
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input), window.location.origin)
-      const method = init?.method ?? "GET"
-      if (url.pathname === "/api/v1/marketplace") {
-        return Promise.resolve(envelope({ items: [], next_cursor: null }))
+  it(
+    "creates an application with fixed runtime resources and application-scoped credential plugins",
+    async () => {
+      const applicationId = "50000000-0000-4000-8000-000000000002"
+      const safeCapabilityId = "20000000-0000-4000-8000-000000000010"
+      const credentialCapabilityId = "20000000-0000-4000-8000-000000000011"
+      const skillCapabilityId = "20000000-0000-4000-8000-000000000012"
+      const knowledgeBaseId = "60000000-0000-4000-8000-000000000001"
+      let submittedBody: Record<string, unknown> | null = null
+      const capability = (
+        id: string,
+        name: string,
+        requiresCredentials: boolean,
+        type: "plugin" | "skill" = "plugin"
+      ) => ({
+        id,
+        name,
+        slug: name,
+        type,
+        description: null,
+        status: "active" as const,
+        source_type: "local" as const,
+        marketplace_listing_id: null,
+        marketplace_release_id: null,
+        logo_url: null,
+        is_owner: true,
+        can_manage: true,
+        can_govern: true,
+        has_logo: false,
+        preference_status: "enabled" as const,
+        manifest: {},
+        risk_summary: {
+          ...riskSummary,
+          requires_credentials: requiresCredentials,
+          declared_environment_keys: requiresCredentials ? ["API_KEY"] : [],
+        },
+        created_at: NOW,
+        updated_at: NOW,
+      })
+      const builtInSkill = {
+        ...capability(
+          "builtin:capability:linksense-file-service",
+          "linksense-file-service",
+          false,
+          "skill"
+        ),
+        source_type: "builtin" as const,
+        builtin_key: "linksense-file-service",
+        is_builtin: true,
+        is_owner: false,
+        can_manage: false,
+        can_select: false,
+        can_delete: false,
+        created_at: null,
+        updated_at: null,
       }
-      if (url.pathname === "/api/v1/applications" && method === "GET") {
-        return Promise.resolve(envelope({ items: [], next_cursor: null }))
-      }
-      if (url.pathname === "/api/v1/capabilities") {
-        return Promise.resolve(
-          envelope({
-            items: [
-              builtInSkill,
-              capability(safeCapabilityId, "safe-plugin", false),
-              capability(credentialCapabilityId, "credential-plugin", true),
-              capability(skillCapabilityId, "dashi-ppt", false, "skill"),
-            ],
-            next_cursor: null,
-          })
-        )
-      }
-      if (url.pathname === "/api/v1/knowledge-bases") {
-        return Promise.resolve(
-          envelope({
-            items: [
-              {
-                id: knowledgeBaseId,
-                name: "AISG Policy",
-                description: "内部制度知识库",
-                source_type: "local",
-                source_sync: null,
-                lifecycle_status: "active",
-                availability_status: "enabled",
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input), window.location.origin)
+          const method = init?.method ?? "GET"
+          if (url.pathname === "/api/v1/marketplace") {
+            return Promise.resolve(envelope({ items: [], next_cursor: null }))
+          }
+          if (url.pathname === "/api/v1/applications" && method === "GET") {
+            return Promise.resolve(envelope({ items: [], next_cursor: null }))
+          }
+          if (url.pathname === "/api/v1/capabilities") {
+            return Promise.resolve(
+              envelope({
+                items: [
+                  builtInSkill,
+                  capability(safeCapabilityId, "safe-plugin", false),
+                  capability(credentialCapabilityId, "credential-plugin", true),
+                  capability(skillCapabilityId, "dashi-ppt", false, "skill"),
+                ],
+                next_cursor: null,
+              })
+            )
+          }
+          if (url.pathname === "/api/v1/knowledge-bases") {
+            return Promise.resolve(
+              envelope({
+                items: [
+                  {
+                    id: knowledgeBaseId,
+                    name: "AISG Policy",
+                    description: "内部制度知识库",
+                    source_type: "local",
+                    source_sync: null,
+                    lifecycle_status: "active",
+                    availability_status: "enabled",
+                    owner: { id: PUBLISHER_ID, name: "发布者" },
+                    is_owner: true,
+                    access_sources: [{ type: "owner" }],
+                    document_count: 1,
+                    ready_document_count: 1,
+                    storage_used_bytes: 1_024,
+                    storage_reserved_bytes: 0,
+                    storage_quota_bytes: 10_240,
+                    permissions: {
+                      view_content: true,
+                      update: true,
+                      manage_documents: true,
+                      manage_grants: true,
+                      create_grants: true,
+                      revoke_grants: true,
+                      archive: true,
+                      restore: false,
+                      delete: false,
+                      remove_direct_share: false,
+                    },
+                    archived_at: null,
+                    disabled_reason: null,
+                    created_at: NOW,
+                    updated_at: NOW,
+                  },
+                ],
+                next_cursor: null,
+              })
+            )
+          }
+          if (url.pathname === "/api/v1/me/model-preference") {
+            return Promise.resolve(
+              envelope({
+                configured: true,
+                default_model: "model-a",
+                selected_model: "model-a",
+                selected_reasoning_effort: "medium",
+                models: [
+                  {
+                    id: "model-a",
+                    display_name: "Model A",
+                    enabled: true,
+                    context_window: null,
+                    supported_reasoning_efforts: ["medium", "high"],
+                    default_reasoning_effort: "medium",
+                  },
+                ],
+              })
+            )
+          }
+          if (url.pathname === "/api/v1/applications" && method === "POST") {
+            submittedBody = JSON.parse(String(init?.body)) as Record<
+              string,
+              unknown
+            >
+            return Promise.resolve(
+              envelope({
+                id: applicationId,
                 owner: { id: PUBLISHER_ID, name: "发布者" },
+                name: "财务助手",
+                icon: { type: "preset", preset: "graduation-cap" },
+                description: null,
+                instructions: "只回答内部财务制度。",
+                model: null,
+                reasoning_effort: null,
+                status: "active",
                 is_owner: true,
-                access_sources: [{ type: "owner" }],
-                document_count: 1,
-                ready_document_count: 1,
-                storage_used_bytes: 1_024,
-                storage_reserved_bytes: 0,
-                storage_quota_bytes: 10_240,
-                permissions: {
-                  view_content: true,
-                  update: true,
-                  manage_documents: true,
-                  manage_grants: true,
-                  create_grants: true,
-                  revoke_grants: true,
-                  archive: true,
-                  restore: false,
-                  delete: false,
-                  remove_direct_share: false,
-                },
-                archived_at: null,
-                disabled_reason: null,
+                can_manage: true,
+                access_source: "owner",
+                capability_count: 0,
+                mcp_server_count: 0,
+                knowledge_base_count: 0,
+                dependencies_available: true,
+                capabilities: [],
+                mcp_servers: [],
+                knowledge_bases: [],
                 created_at: NOW,
                 updated_at: NOW,
-              },
-            ],
-            next_cursor: null,
-          })
-        )
-      }
-      if (url.pathname === "/api/v1/me/model-preference") {
-        return Promise.resolve(
-          envelope({
-            configured: true,
-            default_model: "model-a",
-            selected_model: "model-a",
-            selected_reasoning_effort: "medium",
-            models: [
-              {
-                id: "model-a",
-                display_name: "Model A",
-                enabled: true,
-                context_window: null,
-                supported_reasoning_efforts: ["medium", "high"],
-                default_reasoning_effort: "medium",
-              },
-            ],
-          })
-        )
-      }
-      if (url.pathname === "/api/v1/applications" && method === "POST") {
-        submittedBody = JSON.parse(String(init?.body)) as Record<
-          string,
-          unknown
-        >
-        return Promise.resolve(
-          envelope({
-            id: applicationId,
-            owner: { id: PUBLISHER_ID, name: "发布者" },
-            name: "财务助手",
-            icon: { type: "preset", preset: "graduation-cap" },
-            description: null,
-            instructions: "只回答内部财务制度。",
-            model: null,
-            reasoning_effort: null,
-            status: "active",
-            is_owner: true,
-            can_manage: true,
-            access_source: "owner",
-            capability_count: 0,
-            mcp_server_count: 0,
-            knowledge_base_count: 0,
-            dependencies_available: true,
-            capabilities: [],
-            mcp_servers: [],
-            knowledge_bases: [],
-            created_at: NOW,
-            updated_at: NOW,
-          })
-        )
-      }
-      return Promise.resolve(envelope({ items: [], next_cursor: null }))
-    })
-    vi.stubGlobal("fetch", fetchMock)
-    const interaction = userEvent.setup()
-    renderUserPage()
-
-    const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
-    })
-    await interaction.click(
-      within(catalogTabs).getByRole("tab", { name: "应用" })
-    )
-    const createApplicationButtons = await screen.findAllByRole("button", {
-      name: "创建应用",
-    })
-    expect(createApplicationButtons).toHaveLength(1)
-    await interaction.click(createApplicationButtons[0]!)
-
-    const typeDialog = await screen.findByRole("dialog", { name: "创建应用" })
-    const standardApplicationOption = within(typeDialog).getByRole("button", {
-      name: /创建普通应用/u,
-    })
-    const interactiveApplicationOption = within(typeDialog).getByRole(
-      "button",
-      { name: /导入交互式应用/u }
-    )
-    expect(standardApplicationOption).toHaveClass(
-      "border-[color:var(--app-border)]"
-    )
-    expect(interactiveApplicationOption).toHaveClass(
-      "border-[color:var(--app-border)]"
-    )
-    await interaction.click(standardApplicationOption)
-
-    const dialog = await screen.findByRole("dialog", { name: "创建应用" })
-    const dialogHeader = dialog.querySelector<HTMLElement>(
-      '[data-slot="dialog-header"]'
-    )
-    const dialogBody = dialog.querySelector<HTMLElement>(
-      '[data-slot="application-editor-body"]'
-    )
-    const dialogFooter = dialog.querySelector<HTMLElement>(
-      '[data-slot="dialog-footer"]'
-    )
-    expect(dialogHeader).not.toBeNull()
-    expect(dialogBody).not.toBeNull()
-    expect(dialogFooter).not.toBeNull()
-    expect(dialogBody).toHaveClass("overflow-y-auto")
-    expect(dialogBody).not.toContainElement(dialogHeader)
-    expect(dialogBody).not.toContainElement(dialogFooter)
-    const leftColumn = dialog.querySelector<HTMLElement>(
-      '[data-slot="application-editor-left"]'
-    )
-    const rightColumn = dialog.querySelector<HTMLElement>(
-      '[data-slot="application-editor-right"]'
-    )
-    expect(leftColumn).not.toBeNull()
-    expect(rightColumn).not.toBeNull()
-    expect(leftColumn).toContainElement(
-      within(dialog).getByRole("textbox", { name: "名称" })
-    )
-    expect(leftColumn).toContainElement(
-      within(dialog).getByRole("combobox", { name: "状态" })
-    )
-    expect(rightColumn).toContainElement(
-      within(dialog).getByRole("textbox", { name: "应用指令" })
-    )
-    expect(rightColumn).toContainElement(
-      within(dialog).getByRole("combobox", { name: "插件" })
-    )
-    expect(rightColumn).toContainElement(
-      within(dialog).getByRole("combobox", { name: "Skill" })
-    )
-    for (const fieldId of ["application-name", "application-instructions"]) {
-      const label = dialog.querySelector<HTMLLabelElement>(
-        `label[for="${fieldId}"]`
+              })
+            )
+          }
+          return Promise.resolve(envelope({ items: [], next_cursor: null }))
+        }
       )
-      expect(label).not.toBeNull()
-      expect(label?.querySelector('[aria-hidden="true"]')).toHaveTextContent(
-        "*"
-      )
-    }
-    expect(within(dialog).getByRole("textbox", { name: "名称" })).toBeRequired()
-    expect(
-      within(dialog).getByRole("textbox", { name: "应用指令" })
-    ).toBeRequired()
-    expect(
-      within(dialog).getByRole("textbox", { name: "应用指令" })
-    ).toHaveClass("h-48", "max-h-48", "min-h-48", "overflow-y-auto")
-    for (const fieldId of [
-      "application-model",
-      "application-reasoning-effort",
-    ]) {
-      const label = dialog.querySelector<HTMLLabelElement>(
-        `label[for="${fieldId}"]`
-      )
-      expect(label).not.toBeNull()
-      expect(label?.querySelector('[aria-hidden="true"]')).toBeNull()
-    }
-    expect(
-      within(dialog).getByRole("combobox", { name: "模型" })
-    ).not.toHaveAttribute("aria-required")
-    expect(
-      within(dialog).getByRole("combobox", { name: "推理强度" })
-    ).not.toHaveAttribute("aria-required")
-    expect(
-      within(dialog).getByText(
-        "不指定时，用户可以在聊天界面选择模型和推理强度。"
-      )
-    ).toBeVisible()
-    expect(
-      within(dialog).getByRole("textbox", { name: "说明" })
-    ).not.toBeRequired()
-    const selectedIconPreview = dialog.querySelector(
-      '[data-slot="application-editor-left"] [data-slot="avatar"]'
-    )
-    expect(selectedIconPreview).toHaveClass("[&_svg]:size-11")
-    const iconPresetGroup = within(dialog).getByLabelText("内置应用图标")
-    expect(iconPresetGroup).toHaveClass("grid", "grid-cols-10")
-    expect(within(iconPresetGroup).getAllByRole("button")).toHaveLength(20)
-    for (const label of [
-      "机器人",
-      "研究搜索",
-      "知识库",
-      "教育培训",
-      "商务办公",
-      "数据分析",
-      "代码开发",
-      "内容写作",
-      "创意设计",
-      "创新策划",
-      "客户服务",
-      "文档处理",
-      "财务金融",
-      "法律合规",
-      "医疗健康",
-      "安全风控",
-      "流程自动化",
-      "日程管理",
-      "团队协作",
-      "全球业务",
-    ]) {
-      expect(
-        within(iconPresetGroup).getByRole("button", { name: label })
-      ).toBeVisible()
-    }
-    const iconInput = within(dialog).getByLabelText("上传图片")
-    await interaction.upload(
-      iconInput,
-      new File(
-        [new Uint8Array(APPLICATION_ICON_MAX_BYTES + 1)],
-        "oversized.png",
-        { type: "image/png" }
-      )
-    )
-    expect(
-      within(dialog).getByText("请选择符合格式、体积和尺寸限制的图片。")
-    ).toHaveAttribute("role", "alert")
-    await interaction.click(
-      within(dialog).getByRole("button", { name: "数据分析" })
-    )
-    expect(within(dialog).queryByRole("alert")).toBeNull()
-    await interaction.type(
-      within(dialog).getByRole("textbox", { name: "名称" }),
-      "财务助手"
-    )
-    await interaction.type(
-      within(dialog).getByRole("textbox", { name: "应用指令" }),
-      "只回答内部财务制度。"
-    )
-    await interaction.click(
-      within(dialog).getByRole("combobox", { name: "模型" })
-    )
-    expect(
-      await screen.findByRole("option", { name: "由用户在聊天中选择" })
-    ).toBeVisible()
-    await interaction.click(
-      await screen.findByRole("option", { name: "Model A" })
-    )
-    expect(
-      within(dialog).getByRole("combobox", { name: "模型" })
-    ).toHaveTextContent("Model A")
-    expect(
-      within(dialog).getByRole("combobox", { name: "推理强度" })
-    ).toHaveTextContent("中")
-    expect(
-      within(dialog).getByRole("combobox", { name: "推理强度" })
-    ).not.toHaveTextContent("medium")
-    await interaction.click(
-      within(dialog).getByRole("combobox", { name: "模型" })
-    )
-    await interaction.click(
-      await screen.findByRole("option", { name: "由用户在聊天中选择" })
-    )
-    expect(
-      within(dialog).getByRole("combobox", { name: "推理强度" })
-    ).toBeDisabled()
+      vi.stubGlobal("fetch", fetchMock)
+      const interaction = userEvent.setup()
+      renderUserPage()
 
-    const pluginSelector = within(dialog).getByRole("combobox", {
-      name: "插件",
-    })
-    const skillSelector = within(dialog).getByRole("combobox", {
-      name: "Skill",
-    })
-    expect(pluginSelector).toHaveAttribute("placeholder", "选择插件…")
-    expect(skillSelector).toHaveAttribute("placeholder", "选择 Skill…")
-
-    await interaction.click(skillSelector)
-    await interaction.type(skillSelector, "LinkSense")
-    expect(
-      screen.queryByRole("option", { name: /LinkSense 文件服务/u })
-    ).toBeNull()
-    expect(await screen.findByText("没有匹配的选项。")).toBeVisible()
-    await interaction.keyboard("{Escape}")
-    await interaction.clear(skillSelector)
-    await interaction.click(skillSelector)
-    await interaction.type(skillSelector, "dashi")
-    const skillOption = await screen.findByRole("option", {
-      name: /dashi-ppt/u,
-    })
-    expect(screen.queryByRole("option", { name: /safe-plugin/u })).toBeNull()
-    await interaction.click(skillOption)
-    expect(
-      within(dialog).getByRole("button", { name: "移除 dashi-ppt" })
-    ).toBeVisible()
-
-    await interaction.click(pluginSelector)
-    await interaction.type(pluginSelector, "dashi")
-    expect(screen.queryByRole("option", { name: /dashi-ppt/u })).toBeNull()
-    expect(await screen.findByText("没有匹配的选项。")).toBeVisible()
-    await interaction.keyboard("{Escape}")
-    await interaction.clear(pluginSelector)
-    await interaction.click(pluginSelector)
-    await interaction.type(pluginSelector, "safe")
-    await interaction.click(
-      await screen.findByRole("option", { name: /safe-plugin/u })
-    )
-    expect(
-      within(dialog).getByRole("button", { name: "移除 safe-plugin" })
-    ).toBeVisible()
-
-    await interaction.clear(pluginSelector)
-    await interaction.type(pluginSelector, "credential")
-    const credentialPlugin = await screen.findByRole("option", {
-      name: /credential-plugin/u,
-    })
-    expect(credentialPlugin).not.toHaveAttribute("aria-disabled", "true")
-    expect(within(credentialPlugin).getByText("使用插件凭据")).toBeVisible()
-    await interaction.click(credentialPlugin)
-    expect(
-      within(dialog).getByRole("button", { name: "移除 credential-plugin" })
-    ).toBeVisible()
-
-    const knowledgeBaseSelector = within(dialog).getByRole("combobox", {
-      name: "知识库",
-    })
-    await interaction.click(knowledgeBaseSelector)
-    await interaction.type(knowledgeBaseSelector, "AISG")
-    await interaction.click(
-      await screen.findByRole("option", { name: /AISG Policy/u })
-    )
-    expect(knowledgeBaseSelector).toHaveAttribute("aria-expanded", "false")
-    expect(
-      within(dialog).getByRole("button", { name: "移除 AISG Policy" })
-    ).toBeVisible()
-
-    await interaction.click(
-      within(dialog).getByRole("button", { name: "创建" })
-    )
-
-    await waitFor(() => expect(submittedBody).not.toBeNull())
-    expect(submittedBody).toMatchObject({
-      name: "财务助手",
-      instructions: "只回答内部财务制度。",
-      model: null,
-      reasoning_effort: null,
-      capability_ids: [
-        safeCapabilityId,
-        credentialCapabilityId,
-        skillCapabilityId,
-      ],
-      mcp_server_ids: [],
-      knowledge_base_ids: [knowledgeBaseId],
-      status: "active",
-      icon: { type: "preset", preset: "chart-column" },
-    })
-    expect(submittedBody).not.toHaveProperty("public_access")
-    expect(submittedBody).not.toHaveProperty("external_link")
-  }, APPLICATION_CREATION_TEST_TIMEOUT)
-
-  it.each(["zh-CN", "en-US"])("allows manual skill fields to grow within limits and shows name rules in %s", async (language) => {
-    await i18n.changeLanguage(language)
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(envelope({ items: [], next_cursor: null }))
-      )
-    )
-    const interaction = userEvent.setup()
-    renderUserPageWithRouter("/capabilities?section=skill&scope=personal")
-
-    await interaction.click(
-      await screen.findByRole("button", { name: i18n.t("capability.addSkill") })
-    )
-    const dialog = await screen.findByRole("dialog")
-    expect(dialog).toHaveClass("max-h-[calc(100dvh-2rem)]", "overflow-y-auto")
-    await interaction.click(
-      within(dialog).getByLabelText(i18n.t("capability.source"))
-    )
-    await interaction.click(
-      await screen.findByRole("option", {
-        name: i18n.t("marketplace.importSources.manualSkill"),
+      const catalogTabs = await screen.findByRole("tablist", {
+        name: "插件中心内容分类",
       })
-    )
-
-    const nameInput = within(dialog).getByRole("textbox", {
-      name: i18n.t("marketplace.skillIdentifier"),
-    })
-    const hint = within(dialog).getByText(i18n.t("marketplace.skillNameHint"))
-    expect(hint).toBeVisible()
-    expect(nameInput).toHaveAccessibleDescription(hint.textContent ?? "")
-    expect(
-      nameInput.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-    expect(nameInput).toHaveAttribute("maxlength", "64")
-    await interaction.click(nameInput)
-    await interaction.paste("a".repeat(65))
-    expect(nameInput).toHaveValue("a".repeat(64))
-
-    const fields = [
-      {
-        label: i18n.t("common.description"),
-        minHeight: "min-h-16",
-        maxHeight: "max-h-40",
-        content: "Skill description\n".repeat(100),
-      },
-      {
-        label: i18n.t("marketplace.skillMarkdown"),
-        minHeight: "min-h-56",
-        maxHeight: "max-h-96",
-        content: "# Skill instructions\n".repeat(300),
-      },
-    ]
-    for (const { label, minHeight, maxHeight, content } of fields) {
-      const field = within(dialog).getByRole("textbox", { name: label })
-      await interaction.click(field)
-      await interaction.paste(content)
-
-      expect(field).toHaveValue(content)
-      expect(field).toHaveClass(
-        minHeight,
-        maxHeight,
-        "field-sizing-content",
-        "overflow-y-auto",
-        "resize-none"
+      await interaction.click(
+        within(catalogTabs).getByRole("tab", { name: "应用" })
       )
-      expect(field).not.toHaveClass("field-sizing-fixed", "h-16", "h-56")
-      await interaction.clear(field)
-      expect(field).toHaveValue("")
-      expect(field).toHaveClass(minHeight, maxHeight, "field-sizing-content")
+      const createApplicationButtons = await screen.findAllByRole("button", {
+        name: "创建应用",
+      })
+      expect(createApplicationButtons).toHaveLength(1)
+      await interaction.click(createApplicationButtons[0]!)
+
+      const typeDialog = await screen.findByRole("dialog", { name: "创建应用" })
+      const standardApplicationOption = within(typeDialog).getByRole("button", {
+        name: /创建普通应用/u,
+      })
+      const interactiveApplicationOption = within(typeDialog).getByRole(
+        "button",
+        { name: /导入交互式应用/u }
+      )
+      expect(standardApplicationOption).toHaveClass(
+        "border-[color:var(--app-border)]"
+      )
+      expect(interactiveApplicationOption).toHaveClass(
+        "border-[color:var(--app-border)]"
+      )
+      await interaction.click(standardApplicationOption)
+
+      const dialog = await screen.findByRole("dialog", { name: "创建应用" })
+      const dialogHeader = dialog.querySelector<HTMLElement>(
+        '[data-slot="dialog-header"]'
+      )
+      const dialogBody = dialog.querySelector<HTMLElement>(
+        '[data-slot="application-editor-body"]'
+      )
+      const dialogFooter = dialog.querySelector<HTMLElement>(
+        '[data-slot="dialog-footer"]'
+      )
+      expect(dialogHeader).not.toBeNull()
+      expect(dialogBody).not.toBeNull()
+      expect(dialogFooter).not.toBeNull()
+      expect(dialogBody).toHaveClass("overflow-y-auto")
+      expect(dialogBody).not.toContainElement(dialogHeader)
+      expect(dialogBody).not.toContainElement(dialogFooter)
+      const leftColumn = dialog.querySelector<HTMLElement>(
+        '[data-slot="application-editor-left"]'
+      )
+      const rightColumn = dialog.querySelector<HTMLElement>(
+        '[data-slot="application-editor-right"]'
+      )
+      expect(leftColumn).not.toBeNull()
+      expect(rightColumn).not.toBeNull()
+      expect(leftColumn).toContainElement(
+        within(dialog).getByRole("textbox", { name: "名称" })
+      )
+      expect(leftColumn).toContainElement(
+        within(dialog).getByRole("combobox", { name: "状态" })
+      )
+      expect(rightColumn).toContainElement(
+        within(dialog).getByRole("textbox", { name: "应用指令" })
+      )
+      expect(rightColumn).toContainElement(
+        within(dialog).getByRole("combobox", { name: "插件" })
+      )
+      expect(rightColumn).toContainElement(
+        within(dialog).getByRole("combobox", { name: "Skill" })
+      )
+      for (const fieldId of ["application-name", "application-instructions"]) {
+        const label = dialog.querySelector<HTMLLabelElement>(
+          `label[for="${fieldId}"]`
+        )
+        expect(label).not.toBeNull()
+        expect(label?.querySelector('[aria-hidden="true"]')).toHaveTextContent(
+          "*"
+        )
+      }
+      expect(
+        within(dialog).getByRole("textbox", { name: "名称" })
+      ).toBeRequired()
+      expect(
+        within(dialog).getByRole("textbox", { name: "应用指令" })
+      ).toBeRequired()
+      expect(
+        within(dialog).getByRole("textbox", { name: "应用指令" })
+      ).toHaveClass("h-48", "max-h-48", "min-h-48", "overflow-y-auto")
+      for (const fieldId of [
+        "application-model",
+        "application-reasoning-effort",
+      ]) {
+        const label = dialog.querySelector<HTMLLabelElement>(
+          `label[for="${fieldId}"]`
+        )
+        expect(label).not.toBeNull()
+        expect(label?.querySelector('[aria-hidden="true"]')).toBeNull()
+      }
+      expect(
+        within(dialog).getByRole("combobox", { name: "模型" })
+      ).not.toHaveAttribute("aria-required")
+      expect(
+        within(dialog).getByRole("combobox", { name: "推理强度" })
+      ).not.toHaveAttribute("aria-required")
+      expect(
+        within(dialog).getByText(
+          "不指定时，用户可以在聊天界面选择模型和推理强度。"
+        )
+      ).toBeVisible()
+      expect(
+        within(dialog).getByRole("textbox", { name: "说明" })
+      ).not.toBeRequired()
+      const selectedIconPreview = dialog.querySelector(
+        '[data-slot="application-editor-left"] [data-slot="avatar"]'
+      )
+      expect(selectedIconPreview).toHaveClass("[&_svg]:size-11")
+      const iconPresetGroup = within(dialog).getByLabelText("内置应用图标")
+      expect(iconPresetGroup).toHaveClass("grid", "grid-cols-10")
+      expect(within(iconPresetGroup).getAllByRole("button")).toHaveLength(20)
+      for (const label of [
+        "机器人",
+        "研究搜索",
+        "知识库",
+        "教育培训",
+        "商务办公",
+        "数据分析",
+        "代码开发",
+        "内容写作",
+        "创意设计",
+        "创新策划",
+        "客户服务",
+        "文档处理",
+        "财务金融",
+        "法律合规",
+        "医疗健康",
+        "安全风控",
+        "流程自动化",
+        "日程管理",
+        "团队协作",
+        "全球业务",
+      ]) {
+        expect(
+          within(iconPresetGroup).getByRole("button", { name: label })
+        ).toBeVisible()
+      }
+      const iconInput = within(dialog).getByLabelText("上传图片")
+      await interaction.upload(
+        iconInput,
+        new File(
+          [new Uint8Array(APPLICATION_ICON_MAX_BYTES + 1)],
+          "oversized.png",
+          { type: "image/png" }
+        )
+      )
+      expect(
+        within(dialog).getByText("请选择符合格式、体积和尺寸限制的图片。")
+      ).toHaveAttribute("role", "alert")
+      await interaction.click(
+        within(dialog).getByRole("button", { name: "数据分析" })
+      )
+      expect(within(dialog).queryByRole("alert")).toBeNull()
+      await interaction.type(
+        within(dialog).getByRole("textbox", { name: "名称" }),
+        "财务助手"
+      )
+      await interaction.type(
+        within(dialog).getByRole("textbox", { name: "应用指令" }),
+        "只回答内部财务制度。"
+      )
+      await interaction.click(
+        within(dialog).getByRole("combobox", { name: "模型" })
+      )
+      expect(
+        await screen.findByRole("option", { name: "由用户在聊天中选择" })
+      ).toBeVisible()
+      await interaction.click(
+        await screen.findByRole("option", { name: "Model A" })
+      )
+      expect(
+        within(dialog).getByRole("combobox", { name: "模型" })
+      ).toHaveTextContent("Model A")
+      expect(
+        within(dialog).getByRole("combobox", { name: "推理强度" })
+      ).toHaveTextContent("中")
+      expect(
+        within(dialog).getByRole("combobox", { name: "推理强度" })
+      ).not.toHaveTextContent("medium")
+      await interaction.click(
+        within(dialog).getByRole("combobox", { name: "模型" })
+      )
+      await interaction.click(
+        await screen.findByRole("option", { name: "由用户在聊天中选择" })
+      )
+      expect(
+        within(dialog).getByRole("combobox", { name: "推理强度" })
+      ).toBeDisabled()
+
+      const pluginSelector = within(dialog).getByRole("combobox", {
+        name: "插件",
+      })
+      const skillSelector = within(dialog).getByRole("combobox", {
+        name: "Skill",
+      })
+      expect(pluginSelector).toHaveAttribute("placeholder", "选择插件…")
+      expect(skillSelector).toHaveAttribute("placeholder", "选择 Skill…")
+
+      await interaction.click(skillSelector)
+      await interaction.type(skillSelector, "LinkSense")
+      expect(
+        screen.queryByRole("option", { name: /LinkSense 文件服务/u })
+      ).toBeNull()
+      expect(await screen.findByText("没有匹配的选项。")).toBeVisible()
+      await interaction.keyboard("{Escape}")
+      await interaction.clear(skillSelector)
+      await interaction.click(skillSelector)
+      await interaction.type(skillSelector, "dashi")
+      const skillOption = await screen.findByRole("option", {
+        name: /dashi-ppt/u,
+      })
+      expect(screen.queryByRole("option", { name: /safe-plugin/u })).toBeNull()
+      await interaction.click(skillOption)
+      expect(
+        within(dialog).getByRole("button", { name: "移除 dashi-ppt" })
+      ).toBeVisible()
+
+      await interaction.click(pluginSelector)
+      await interaction.type(pluginSelector, "dashi")
+      expect(screen.queryByRole("option", { name: /dashi-ppt/u })).toBeNull()
+      expect(await screen.findByText("没有匹配的选项。")).toBeVisible()
+      await interaction.keyboard("{Escape}")
+      await interaction.clear(pluginSelector)
+      await interaction.click(pluginSelector)
+      await interaction.type(pluginSelector, "safe")
+      await interaction.click(
+        await screen.findByRole("option", { name: /safe-plugin/u })
+      )
+      expect(
+        within(dialog).getByRole("button", { name: "移除 safe-plugin" })
+      ).toBeVisible()
+
+      await interaction.clear(pluginSelector)
+      await interaction.type(pluginSelector, "credential")
+      const credentialPlugin = await screen.findByRole("option", {
+        name: /credential-plugin/u,
+      })
+      expect(credentialPlugin).not.toHaveAttribute("aria-disabled", "true")
+      expect(within(credentialPlugin).getByText("使用插件凭据")).toBeVisible()
+      await interaction.click(credentialPlugin)
+      expect(
+        within(dialog).getByRole("button", { name: "移除 credential-plugin" })
+      ).toBeVisible()
+
+      const knowledgeBaseSelector = within(dialog).getByRole("combobox", {
+        name: "知识库",
+      })
+      await interaction.click(knowledgeBaseSelector)
+      await interaction.type(knowledgeBaseSelector, "AISG")
+      await interaction.click(
+        await screen.findByRole("option", { name: /AISG Policy/u })
+      )
+      expect(knowledgeBaseSelector).toHaveAttribute("aria-expanded", "false")
+      expect(
+        within(dialog).getByRole("button", { name: "移除 AISG Policy" })
+      ).toBeVisible()
+
+      await interaction.click(
+        within(dialog).getByRole("button", { name: "创建" })
+      )
+
+      await waitFor(() => expect(submittedBody).not.toBeNull())
+      expect(submittedBody).toMatchObject({
+        name: "财务助手",
+        instructions: "只回答内部财务制度。",
+        model: null,
+        reasoning_effort: null,
+        capability_ids: [
+          safeCapabilityId,
+          credentialCapabilityId,
+          skillCapabilityId,
+        ],
+        mcp_server_ids: [],
+        knowledge_base_ids: [knowledgeBaseId],
+        status: "active",
+        icon: { type: "preset", preset: "chart-column" },
+      })
+      expect(submittedBody).not.toHaveProperty("public_access")
+      expect(submittedBody).not.toHaveProperty("external_link")
+    },
+    APPLICATION_CREATION_TEST_TIMEOUT
+  )
+
+  it.each(["zh-CN", "en-US"])(
+    "allows manual skill fields to grow within limits and shows name rules in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(envelope({ items: [], next_cursor: null })))
+      )
+      const interaction = userEvent.setup()
+      renderUserPageWithRouter("/capabilities?section=skill&scope=personal")
+
+      await interaction.click(
+        await screen.findByRole("button", {
+          name: i18n.t("capability.addSkill"),
+        })
+      )
+      const dialog = await screen.findByRole("dialog")
+      expect(dialog).toHaveClass("max-h-[calc(100dvh-2rem)]", "overflow-y-auto")
+      await interaction.click(
+        within(dialog).getByLabelText(i18n.t("capability.source"))
+      )
+      await interaction.click(
+        await screen.findByRole("option", {
+          name: i18n.t("marketplace.importSources.manualSkill"),
+        })
+      )
+
+      const nameInput = within(dialog).getByRole("textbox", {
+        name: i18n.t("marketplace.skillIdentifier"),
+      })
+      const hint = within(dialog).getByText(i18n.t("marketplace.skillNameHint"))
+      expect(hint).toBeVisible()
+      expect(nameInput).toHaveAccessibleDescription(hint.textContent ?? "")
+      expect(
+        nameInput.compareDocumentPosition(hint) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(nameInput).toHaveAttribute("maxlength", "64")
+      await interaction.click(nameInput)
+      await interaction.paste("a".repeat(65))
+      expect(nameInput).toHaveValue("a".repeat(64))
+
+      const fields = [
+        {
+          label: i18n.t("common.description"),
+          minHeight: "min-h-16",
+          maxHeight: "max-h-40",
+          content: "Skill description\n".repeat(100),
+        },
+        {
+          label: i18n.t("marketplace.skillMarkdown"),
+          minHeight: "min-h-56",
+          maxHeight: "max-h-96",
+          content: "# Skill instructions\n".repeat(300),
+        },
+      ]
+      for (const { label, minHeight, maxHeight, content } of fields) {
+        const field = within(dialog).getByRole("textbox", { name: label })
+        await interaction.click(field)
+        await interaction.paste(content)
+
+        expect(field).toHaveValue(content)
+        expect(field).toHaveClass(
+          minHeight,
+          maxHeight,
+          "field-sizing-content",
+          "overflow-y-auto",
+          "resize-none"
+        )
+        expect(field).not.toHaveClass("field-sizing-fixed", "h-16", "h-56")
+        await interaction.clear(field)
+        expect(field).toHaveValue("")
+        expect(field).toHaveClass(minHeight, maxHeight, "field-sizing-content")
+      }
     }
-  })
+  )
 
   it.each(["zh-CN", "en-US"])(
     "validates manual Skill fields immediately and shows errors below the inputs in %s",
@@ -3610,74 +3674,78 @@ describe("capability marketplace pages", () => {
     }
   })
 
-  it("renders marketplace governance as a compact responsive item with a three-dot menu", async () => {
-    const publication = {
-      listing,
-      current_release: release,
-      latest_release: release,
-      install_count: 7,
-    }
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input), window.location.origin)
-      const method = init?.method ?? "GET"
-      if (
-        url.pathname === "/api/v1/admin/marketplace/reviews" &&
-        method === "GET"
-      ) {
-        return Promise.resolve(envelope({ items: [], next_cursor: null }))
+  it.each([false, true])(
+    "shows a direct governance action when suspended is %s",
+    async (suspended) => {
+      const actionLabel = suspended ? "恢复" : "停用"
+      const publication = {
+        listing: { ...listing, status: suspended ? "suspended" : "published" },
+        current_release: release,
+        latest_release: release,
+        install_count: 7,
       }
-      if (
-        url.pathname === "/api/v1/admin/marketplace/listings" &&
-        method === "GET"
-      ) {
-        return Promise.resolve(
-          envelope({ items: [publication], next_cursor: null })
-        )
-      }
-      return Promise.resolve(envelope(null))
-    })
-    vi.stubGlobal("fetch", fetchMock)
-    const interaction = userEvent.setup()
-    renderAdminPage()
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input), window.location.origin)
+          const method = init?.method ?? "GET"
+          if (
+            url.pathname === "/api/v1/admin/marketplace/reviews" &&
+            method === "GET"
+          ) {
+            return Promise.resolve(envelope({ items: [], next_cursor: null }))
+          }
+          if (
+            url.pathname === "/api/v1/admin/marketplace/listings" &&
+            method === "GET"
+          ) {
+            return Promise.resolve(
+              envelope({ items: [publication], next_cursor: null })
+            )
+          }
+          return Promise.resolve(envelope(null))
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const interaction = userEvent.setup()
+      renderAdminPage()
 
-    expect(
-      await screen.findByRole("heading", { name: "插件中心" })
-    ).toBeVisible()
-    await interaction.click(
-      await screen.findByRole("tab", { name: "全部上架项" })
-    )
+      expect(
+        await screen.findByRole("heading", { name: "插件中心" })
+      ).toBeVisible()
+      await interaction.click(
+        await screen.findByRole("tab", { name: "全部上架项" })
+      )
 
-    const item = await screen.findByRole("article", { name: release.name })
-    expect(item).toHaveClass("marketplace-governance-item")
-    expect(item.parentElement).toHaveClass("marketplace-governance-grid")
-    expect(item.querySelector(".capability-logo")).not.toBeNull()
-    expect(within(item).getByText(release.description)).toBeVisible()
-    expect(within(item).getByText("发布者：发布者")).toBeVisible()
-    expect(within(item).getByText("Skill")).toBeVisible()
-    expect(within(item).getByText("已安装 7 次")).toBeVisible()
-    expect(within(item).getByText("已上架")).toBeVisible()
+      const item = await screen.findByRole("article", { name: release.name })
+      expect(item).toHaveClass("marketplace-governance-item", "-mx-4", "px-4")
+      expect(item.closest('[data-slot="card"]')).toHaveClass(
+        "rounded-card",
+        "border"
+      )
+      expect(item.querySelector(".capability-logo")).not.toBeNull()
+      expect(within(item).getByText(release.description)).toBeVisible()
+      expect(within(item).getByText("发布者：发布者")).toBeVisible()
+      expect(within(item).getByText("Skill")).toBeVisible()
+      expect(within(item).getByText("已安装 7 次")).toBeVisible()
+      expect(
+        within(item).getByText(suspended ? "已停用" : "已上架")
+      ).toBeVisible()
 
-    const actionTrigger = within(item).getByRole("button", { name: "操作" })
-    expect(actionTrigger.querySelector("svg")).not.toBeNull()
-    await interaction.click(actionTrigger)
-
-    const actionMenu = await screen.findByRole("menu")
-    expect(actionMenu).toHaveClass("w-max", "min-w-32")
-    expect(
-      actionMenu.querySelector('[data-slot="dropdown-menu-group"]')
-    ).not.toBeNull()
-    const suspendItem = screen.getByRole("menuitem", { name: "停用" })
-    expect(suspendItem).toHaveClass("whitespace-nowrap")
-    expect(suspendItem.querySelector("svg")).not.toBeNull()
-
-    await interaction.click(suspendItem)
-    expect(
-      await screen.findByRole("heading", {
-        name: `停用“${release.name}”？`,
+      expect(within(item).queryByRole("button", { name: "操作" })).toBeNull()
+      const actionTrigger = within(item).getByRole("button", {
+        name: actionLabel,
       })
-    ).toBeVisible()
-    expect(screen.getByLabelText("停用原因")).toBeVisible()
-  })
+      expect(actionTrigger.querySelector("svg")).not.toBeNull()
+      await interaction.click(actionTrigger)
+      expect(screen.queryByRole("menu")).toBeNull()
+      expect(
+        await screen.findByRole("heading", {
+          name: `${actionLabel}“${release.name}”？`,
+        })
+      ).toBeVisible()
+      if (!suspended) expect(screen.getByLabelText("停用原因")).toBeVisible()
+    }
+  )
 
   it("shows immutable release evidence and submits an administrator approval", async () => {
     const pendingRelease = {
@@ -3754,7 +3822,10 @@ describe("capability marketplace pages", () => {
       name: release.name,
     })
     expect(reviewItem).toHaveClass("marketplace-governance-item")
-    expect(reviewItem.parentElement).toHaveClass("marketplace-governance-grid")
+    expect(reviewItem.closest('[data-slot="card"]')).toHaveClass(
+      "rounded-card",
+      "border"
+    )
     expect(reviewItem.querySelector(".capability-logo")).not.toBeNull()
     expect(within(reviewItem).getByText(release.description)).toBeVisible()
     expect(within(reviewItem).getByText("发布者：发布者")).toBeVisible()
@@ -3806,9 +3877,8 @@ describe("capability marketplace pages", () => {
         review_comment: null,
       })
     })
-    const reviewNotification = await screen.findByText(
-      "发布已审核通过并成为当前插件中心版本"
-    )
+    const reviewNotification =
+      await screen.findByText("发布已审核通过并成为当前插件中心版本")
     expect(reviewNotification.closest("[data-sonner-toast]")).not.toBeNull()
     expect(reviewNotification.closest('[data-slot="alert"]')).toBeNull()
   })

@@ -1,3 +1,4 @@
+import { ListCard } from "@/components/ui/list-card"
 import {
   useDeferredValue,
   useEffect,
@@ -16,6 +17,7 @@ import {
 } from "@linksense/shared"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useLocation, useNavigate } from "react-router-dom"
+import { SearchInput } from "@/components/ui/search-input"
 import {
   BanIcon,
   CheckIcon,
@@ -106,11 +108,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group"
+import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
 import { Label } from "@/components/ui/label"
 import {
   Progress,
@@ -1058,7 +1056,7 @@ function CapabilityImportDialog({
         {error && <StatusBanner variant="error">{error}</StatusBanner>}
         {preview ? (
           <div className="space-y-5">
-            <div className="rounded-xl border p-4">
+            <div className="rounded-card border p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-medium">
                   {capabilityDisplayName(preview)}
@@ -1972,11 +1970,9 @@ function mcpServerMatchesSearch(
 function PersonalMcpPanel({
   servers,
   search,
-  onManage,
 }: {
   servers: McpServer[]
   search: string
-  onManage: () => void
 }) {
   const { t } = useTranslation()
   const items = servers.filter((server) =>
@@ -1987,10 +1983,6 @@ function PersonalMcpPanel({
     <div className="capability-center-personal-panel">
       <div className="capability-center-personal-actions">
         <h2>{t("marketplace.personalMcpConnections")}</h2>
-        <Button type="button" onClick={onManage}>
-          <Settings2Icon data-icon="inline-start" />
-          {t("marketplace.manageMcp")}
-        </Button>
       </div>
       {items.length === 0 ? (
         <EmptyState
@@ -2505,11 +2497,7 @@ function MarketplaceCatalogPanel({
       />
     ) : (
       <div className="capability-center-personal-groups">
-        <PersonalMcpPanel
-          servers={servers}
-          search={deferredSearch}
-          onManage={openMcpManagement}
-        />
+        <PersonalMcpPanel servers={servers} search={deferredSearch} />
         <Separator />
         <MyCapabilitiesPanel
           capabilities={capabilities}
@@ -2562,7 +2550,7 @@ function MarketplaceCatalogPanel({
                       <InputGroupAddon>
                         <SearchIcon aria-hidden="true" />
                       </InputGroupAddon>
-                      <InputGroupInput
+                      <SearchInput
                         type="search"
                         value={search}
                         aria-label={
@@ -2583,14 +2571,20 @@ function MarketplaceCatalogPanel({
                                 ),
                               })
                         }
-                        onChange={(event) =>
+                        onValueChange={(value) =>
                           updateCatalogLocation(
-                            { search: event.target.value },
+                            { search: value },
                             { replace: true }
                           )
                         }
                       />
                     </InputGroup>
+                    {section === "mcp" && (
+                      <Button type="button" onClick={openMcpManagement}>
+                        <Settings2Icon data-icon="inline-start" />
+                        {t("marketplace.manageMcp")}
+                      </Button>
+                    )}
                     {section !== "mcp" && section !== "application" && (
                       <Button
                         type="button"
@@ -3778,7 +3772,7 @@ function MarketplaceGovernanceItem({
 
   return (
     <article
-      className="marketplace-governance-item"
+      className="marketplace-governance-item -mx-4 px-4"
       aria-label={capabilityDisplayName({
         ...publication.latest_release,
         type: publication.listing.type,
@@ -3866,41 +3860,24 @@ function GovernanceListingItem({
       }
       actions={
         publication.current_release ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="marketplace-governance-actions"
-                  aria-label={t("common.actions")}
-                />
-              }
-            >
-              <MoreHorizontalIcon aria-hidden="true" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-max min-w-32">
-              <DropdownMenuGroup>
-                <DropdownMenuItem
-                  className="whitespace-nowrap"
-                  variant={suspended ? "default" : "destructive"}
-                  onClick={onStatusChange}
-                >
-                  {suspended ? (
-                    <RefreshCwIcon aria-hidden="true" />
-                  ) : (
-                    <BanIcon aria-hidden="true" />
-                  )}
-                  {t(
-                    suspended
-                      ? "marketplace.resumeListing"
-                      : "marketplace.suspendListing"
-                  )}
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            type="button"
+            variant={suspended ? "secondary" : "destructive-ghost"}
+            size="sm"
+            className="max-sm:min-h-11"
+            onClick={onStatusChange}
+          >
+            {suspended ? (
+              <RefreshCwIcon data-icon="inline-start" />
+            ) : (
+              <BanIcon data-icon="inline-start" />
+            )}
+            {t(
+              suspended
+                ? "marketplace.resumeListing"
+                : "marketplace.suspendListing"
+            )}
+          </Button>
         ) : undefined
       }
     />
@@ -3970,7 +3947,7 @@ export function AdminCapabilityManagementPage() {
           {reviews.isLoading ? (
             <LoadingState />
           ) : reviews.data?.items.length ? (
-            <div className="marketplace-governance-grid">
+            <ListCard>
               {reviews.data.items.map((publication) => (
                 <MarketplaceGovernanceItem
                   key={publication.latest_release.id}
@@ -4008,7 +3985,7 @@ export function AdminCapabilityManagementPage() {
                   }
                 />
               ))}
-            </div>
+            </ListCard>
           ) : (
             <EmptyState title={t("marketplace.reviewsEmpty")} />
           )}
@@ -4017,7 +3994,7 @@ export function AdminCapabilityManagementPage() {
           {listings.isLoading ? (
             <LoadingState />
           ) : listings.data?.items.length ? (
-            <div className="marketplace-governance-grid">
+            <ListCard>
               {listings.data.items.map((publication) => (
                 <GovernanceListingItem
                   key={publication.listing.id}
@@ -4025,7 +4002,7 @@ export function AdminCapabilityManagementPage() {
                   onStatusChange={() => setGovernanceTarget(publication)}
                 />
               ))}
-            </div>
+            </ListCard>
           ) : (
             <EmptyState title={t("marketplace.listingsEmpty")} />
           )}

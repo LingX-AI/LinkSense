@@ -114,6 +114,7 @@ import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
 import { readUrlEnum, updateUrlSearchParams } from "@/lib/url-search-params"
+import { SearchInput } from "@/components/ui/search-input"
 import {
   getKnowledgeBaseSource,
   getSharePointSettings,
@@ -404,10 +405,10 @@ function KnowledgeBaseLibraryContent() {
             <InputGroupAddon>
               <SearchIcon aria-hidden="true" />
             </InputGroupAddon>
-            <InputGroupInput
+            <SearchInput
               value={search}
-              onChange={(event) =>
-                updateLibraryParams({ kb_search: event.currentTarget.value })
+              onValueChange={(value) =>
+                updateLibraryParams({ kb_search: value })
               }
               placeholder={t("knowledge.searchPlaceholder")}
               aria-label={t("knowledge.searchPlaceholder")}
@@ -464,7 +465,7 @@ function KnowledgeBaseListContent({
   }
   return (
     <section
-      className="knowledge-card-list rounded-[var(--radius-2xl)]"
+      className="knowledge-card-list rounded-card"
       aria-label={t("knowledge.title")}
     >
       {items.map((knowledgeBase) => (
@@ -745,7 +746,7 @@ function CreateKnowledgeBaseDialog({
                       key={item.value}
                       value={item.value}
                       disabled={item.disabled}
-                      className="group/source relative h-auto min-h-24 w-full items-start justify-start gap-3 rounded-2xl border-input bg-card p-4 text-left whitespace-normal shadow-none transition-[border-color,background-color] hover:border-foreground/20 hover:bg-hover disabled:bg-muted/20 data-pressed:border-foreground/30 data-pressed:bg-muted/60"
+                      className="group/source relative h-auto min-h-24 w-full items-start justify-start gap-3 rounded-card border-input bg-card p-4 text-left whitespace-normal shadow-none transition-[border-color,background-color] hover:border-foreground/20 hover:bg-hover disabled:bg-muted/20 data-pressed:border-foreground/30 data-pressed:bg-muted/60"
                     >
                       <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-muted/50 text-muted-foreground transition-colors group-data-[pressed]/source:border-foreground/15 group-data-[pressed]/source:bg-background group-data-[pressed]/source:text-foreground">
                         <SourceIcon className="size-4" aria-hidden="true" />
@@ -2581,7 +2582,12 @@ function RenameKnowledgeDocumentDialog({
               autoFocus={shouldAutoFocusOnDesktop()}
               onChange={(event) => setDisplayName(event.currentTarget.value)}
               onKeyDown={(event) => {
-                if (event.key !== "Enter") return
+                if (
+                  event.key !== "Enter" ||
+                  event.nativeEvent.isComposing ||
+                  event.keyCode === 229
+                )
+                  return
                 event.preventDefault()
                 submit()
               }}

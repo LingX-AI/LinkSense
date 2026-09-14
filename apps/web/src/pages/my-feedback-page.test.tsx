@@ -190,6 +190,39 @@ describe("feedback dialog scrolling", () => {
   )
 })
 
+describe("feedback table frame", () => {
+  it.each([false, true])(
+    "uses the shared rounded border and keeps pagination outside (admin: %s)",
+    async (admin) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          envelope({
+            items: [pendingFeedback, answeredFeedback].map((feedback) =>
+              admin ? { ...feedback, submitter } : feedback
+            ),
+            next_cursor: null,
+          })
+        )
+      )
+      renderPage(admin)
+
+      const table = await screen.findByRole("table")
+      const frame = table.closest('[data-slot="table-container"]')
+      expect(frame).toHaveClass(
+        "rounded-card",
+        "border",
+        "border-[color:var(--app-border)]",
+        "overflow-x-auto"
+      )
+      expect(within(table).getAllByRole("row")).toHaveLength(3)
+      expect(frame).not.toContainElement(
+        screen.getByRole("button", { name: "下一页" })
+      )
+    }
+  )
+})
+
 describe("personal feedback", () => {
   it.each([
     ["zh-CN", "我的反馈", "待回复", "已回复"],
@@ -212,11 +245,7 @@ describe("personal feedback", () => {
       expect(await screen.findByRole("heading", { name: title })).toBeVisible()
       expect(await screen.findByText(waiting)).toBeVisible()
       expect(screen.getByText(replied)).toBeVisible()
-      expect(screen.getByText(replied)).toHaveClass(
-        "bg-secondary",
-        "text-secondary-foreground"
-      )
-      expect(screen.getByText(replied)).not.toHaveClass("bg-primary")
+      expectRepliedStatus(screen.getByText(replied))
     }
   )
 
@@ -238,11 +267,7 @@ describe("personal feedback", () => {
     await interaction.click(await screen.findByRole("button", { name: "查看" }))
     const dialog = await screen.findByRole("dialog", { name: "反馈详情" })
     expect(await within(dialog).findByText(reply.content)).toBeVisible()
-    expect(within(dialog).getByText("已回复")).toHaveClass(
-      "bg-secondary",
-      "text-secondary-foreground"
-    )
-    expect(within(dialog).getByText("已回复")).not.toHaveClass("bg-primary")
+    expectRepliedStatus(within(dialog).getByText("已回复"))
     expect(
       within(dialog).queryByRole("button", { name: "发送回复" })
     ).not.toBeInTheDocument()
@@ -377,11 +402,7 @@ describe("administrator replies", () => {
         ).not.toBeInTheDocument()
       )
       expect(screen.getByText("已回复")).toBeVisible()
-      expect(screen.getByText("已回复")).toHaveClass(
-        "bg-secondary",
-        "text-secondary-foreground"
-      )
-      expect(screen.getByText("已回复")).not.toHaveClass("bg-primary")
+      expectRepliedStatus(screen.getByText("已回复"))
       const post = fetchMock.mock.calls.find(
         (call) => call[1]?.method === "POST"
       )
@@ -401,13 +422,7 @@ describe("administrator replies", () => {
       expect(
         await within(reopenedDialog).findByRole("textbox", { name: "回复用户" })
       ).toHaveValue("")
-      expect(within(reopenedDialog).getByText("已回复")).toHaveClass(
-        "bg-secondary",
-        "text-secondary-foreground"
-      )
-      expect(within(reopenedDialog).getByText("已回复")).not.toHaveClass(
-        "bg-primary"
-      )
+      expectRepliedStatus(within(reopenedDialog).getByText("已回复"))
       expect(
         within(reopenedDialog).getByRole("button", { name: "发送回复" })
       ).toBeDisabled()
@@ -497,4 +512,10 @@ function failure() {
     }),
     { status: 500, headers: { "content-type": "application/json" } }
   )
+}
+
+function expectRepliedStatus(status: HTMLElement) {
+  expect(status).toHaveClass("text-foreground")
+  expect(status.className).not.toMatch(/(?:^|\s|:)bg-/u)
+  expect(status.querySelector("svg")).toHaveClass("text-success")
 }

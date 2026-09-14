@@ -318,6 +318,56 @@ describe("administrator authentication settings", () => {
     vi.unstubAllGlobals()
   })
 
+  it.each([
+    ["认证邮件", 1],
+    ["开放注册", 1],
+    ["单点登录", 2],
+    ["任务并发", 1],
+    ["系统维护", 1],
+  ] as const)(
+    "contains %s save actions in rounded cards aligned to the right",
+    async (tab, count) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          return Promise.resolve(envelope(settingsPayload(path)))
+        })
+      )
+      const interaction = userEvent.setup()
+      renderSettings()
+      await interaction.click(await screen.findByRole("tab", { name: tab }))
+      if (tab === "系统维护") {
+        await interaction.click(
+          await screen.findByRole("switch", { name: "开启计划维护" })
+        )
+      }
+      const buttons = screen
+        .getAllByRole("button")
+        .filter((button) => button.getAttribute("type") === "submit")
+      expect(buttons).toHaveLength(count)
+      for (const button of buttons) {
+        const card = button.closest('[data-slot="card"]')
+        expect(card).toHaveClass("rounded-card", "border")
+        expect(card?.querySelector('[data-slot="card-content"]')).toHaveClass(
+          "grid",
+          "gap-4"
+        )
+        expect(button.closest("form")).not.toHaveClass("settings-form")
+        expect(card?.closest("section")).toHaveAttribute(
+          "data-slot",
+          "settings-card"
+        )
+        expect(button.parentElement).toHaveClass(
+          "flex",
+          "flex-wrap",
+          "justify-end"
+        )
+        expect(card).toContainElement(button.closest("form"))
+      }
+    }
+  )
+
   it("opens maintenance configuration directly from the indicator destination", async () => {
     vi.stubGlobal(
       "fetch",
@@ -645,6 +695,18 @@ describe("administrator authentication settings", () => {
     })
 
     const nameInput = await screen.findByLabelText("系统显示名称")
+    const card = nameInput.closest('[data-slot="card"]')
+    expect(card).toHaveClass("rounded-card", "border")
+    const saveButton = screen.getByRole("button", { name: "保存" })
+    expect(saveButton.closest('[data-slot="card"]')).toBe(card)
+    expect(saveButton.parentElement).toHaveClass(
+      "flex",
+      "flex-wrap",
+      "justify-end"
+    )
+    expect(nameInput.closest("form")?.lastElementChild).toBe(
+      saveButton.parentElement
+    )
     await interaction.clear(nameInput)
     await interaction.type(nameInput, "MOSS 工作台")
     await interaction.click(screen.getByRole("button", { name: "保存" }))
@@ -716,6 +778,40 @@ describe("administrator authentication settings", () => {
     ).toHaveAttribute("src", logoUrl)
     expect(screen.getByRole("button", { name: "恢复默认 Logo" })).toBeVisible()
   })
+
+  it.each([
+    ["知识检索模型", "保存知识库检索模型"],
+    ["知识检索模型", "保存图片理解设置"],
+    ["语音转文字模型", "保存语音转文字模型"],
+    ["图片生成模型", "保存图片生成模型"],
+  ])(
+    "places %s action %s inside the bottom-right card footer",
+    async (tab, label) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          return Promise.resolve(envelope(settingsPayload(path)))
+        })
+      )
+      const interaction = userEvent.setup()
+      renderSettings("models")
+      await interaction.click(await screen.findByRole("tab", { name: tab }))
+      const button = await screen.findByRole("button", { name: label })
+      const card = button.closest<HTMLDivElement>(
+        '[data-slot="model-settings-card"]'
+      )
+      expect(card).not.toBeNull()
+      expect(card?.lastElementChild).toBe(button.parentElement)
+      expect(button.parentElement).toHaveClass(
+        "flex",
+        "justify-end",
+        "flex-wrap"
+      )
+      expect(button).toHaveAttribute("type", "submit")
+      expect(button.closest("form")).toContainElement(card)
+    }
+  )
 
   it("renders model settings with aligned fields and an isolated request", async () => {
     const requests: string[] = []
@@ -853,7 +949,7 @@ describe("administrator authentication settings", () => {
       "grid",
       "grid-cols-1",
       "gap-4",
-      "rounded-2xl",
+      "rounded-card",
       "border",
       "border-[color:var(--app-border)]",
       "bg-card",
@@ -1842,6 +1938,56 @@ describe("administrator authentication settings", () => {
       title_model: "model-b",
     })
   })
+
+  it.each(["zh-CN", "en-US"])(
+    "shows voice provider logos in the selected value and every option in %s",
+    async (language) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          return Promise.resolve(envelope(settingsPayload(path)))
+        })
+      )
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      renderSettings("models")
+      await interaction.click(
+        await screen.findByRole("tab", {
+          name: i18n.t("admin.voiceTranscription.title"),
+        })
+      )
+      const provider = screen.getByRole("combobox", {
+        name: i18n.t("admin.voiceTranscription.provider"),
+      })
+      expect(
+        provider.querySelector(
+          '[data-voice-transcription-provider-logo="openai"]'
+        )
+      ).toBeInTheDocument()
+      for (const definition of voiceTranscriptionProviderDefinitions) {
+        await interaction.click(provider)
+        const label = i18n.t(
+          `admin.voiceTranscription.providers.${definition.key}`
+        )
+        const option = await screen.findByRole("option", {
+          name: label,
+        })
+        expect(
+          option.querySelector(
+            `[data-voice-transcription-provider-logo="${definition.key}"]`
+          )
+        ).toHaveAttribute("aria-hidden", "true")
+        await interaction.click(option)
+        expect(provider).toHaveTextContent(label)
+        expect(
+          provider.querySelector(
+            `[data-voice-transcription-provider-logo="${definition.key}"]`
+          )
+        ).toBeInTheDocument()
+      }
+    }
+  )
 
   it("shows voice transcription before image generation and saves its service settings", async () => {
     const requests: Array<{ path: string; init?: RequestInit }> = []

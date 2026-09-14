@@ -307,6 +307,7 @@ export const enUS = {
     },
   },
   quotaManagement: {
+    save: "Save settings",
     title: "Quota management",
     description:
       "Manage personal quotas for organization members and self-registered users, and the credit conversion price.",
@@ -317,7 +318,7 @@ export const enUS = {
     conversionExample:
       "For example, at CNY 0.01 per credit, a CNY 0.25 charge consumes 25 credits.",
     organization_members: {
-      reset: "Reset all organization member quotas",
+      reset: "Reset quotas for all",
       resetDescription:
         "Restore every existing organization member's weekly, monthly, and total quotas to 100% of their own current limits. Unlimited quotas stay unlimited. Unsaved limits in this form do not apply to the reset. Historical usage stays available, and subsequent consumption is deducted as usual.",
 
@@ -326,7 +327,7 @@ export const enUS = {
         "Applied to each member created or imported afterwards. Use the button below to apply these limits to all existing organization members, or adjust members individually or in bulk in user management.",
     },
     self_registered_users: {
-      reset: "Reset all self-registered user quotas",
+      reset: "Reset quotas for all",
       resetDescription:
         "Restore every existing self-registered user's weekly, monthly, and total quotas to 100% of their own current limits. Unlimited quotas stay unlimited. Unsaved limits in this form do not apply to the reset. Historical usage stays available, and subsequent consumption is deducted as usual.",
 
@@ -346,7 +347,7 @@ export const enUS = {
     unlimited: "Unlimited",
     invalidAmount:
       "Enter a positive amount with up to 6 decimal places, no greater than 9,223,372,036,854.775807.",
-    applyOrganization: "Save and apply limits to all organization members",
+    applyOrganization: "Apply limits to all",
     applyDescription:
       "Save weekly {{weekly}}, monthly {{monthly}}, and total {{total}} limits as the organization defaults and overwrite every existing organization member's limits, including individual overrides. Used credits are not reset; other form settings stay unchanged.",
     confirmReset: "Confirm quota reset",
@@ -423,11 +424,7 @@ export const enUS = {
     runningMessageActionDescription:
       "When a task is still running, new messages follow this preference automatically instead of opening a choice dialog.",
     runningMessageActionSteer: "Guide the current run",
-    runningMessageActionSteerDescription:
-      "Immediately add a text-only follow-up to the current run. Messages with attachments or selected plugins/Skills are queued automatically.",
     runningMessageActionQueue: "Queue as the next request",
-    runningMessageActionQueueDescription:
-      "Keep the current run uninterrupted and process the new message after it finishes.",
     profilePageDescription: "Update your display name and avatar.",
     taskAutoNaming: "Automatic task naming",
     taskAutoNamingDescription:
@@ -2243,7 +2240,7 @@ export const enUS = {
     },
     waitingGame: {
       title: "Snake",
-      enter: "Double-click or press Enter to play Snake.",
+      enter: "Click or press Enter to play Snake.",
       controls: "Use arrow keys, WASD or swipe to steer. Double-click or press Escape to return to waiting.",
     },
     imageGeneration: {

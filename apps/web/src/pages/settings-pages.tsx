@@ -35,6 +35,7 @@ import { PasswordInput } from "@/components/forms/password-input"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { TaskAutoNamingSettings } from "@/components/settings/task-auto-naming-settings"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,6 +67,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
@@ -151,105 +153,98 @@ export function SettingsGeneralPage() {
       description={t("settings.generalPageDescription")}
     >
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
-      <section
-        className="settings-panel settings-language-panel"
-        aria-labelledby="interface-language-heading"
-      >
-        <SettingsSectionHeader
-          id="interface-language-heading"
-          title={t("settings.interfaceLanguage")}
-          description={t("settings.interfaceLanguageDescription")}
-          descriptionId="interface-language-description"
-          actionAlignment="center"
-          action={
-            <Select
-              value={language}
-              onValueChange={changeLanguage}
-              disabled={mutation.isPending}
-            >
-              <SelectTrigger
-                id="settings-language"
-                aria-labelledby="interface-language-heading"
-                aria-describedby="interface-language-description"
-                className="w-32"
-              >
-                <SelectValue>
-                  {t(
-                    language === "zh-CN" ? "common.chinese" : "common.english"
-                  )}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="zh-CN">{t("common.chinese")}</SelectItem>
-                  <SelectItem value="en-US">{t("common.english")}</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          }
-        />
-      </section>
-      <section
-        className="settings-panel mt-4"
-        aria-labelledby="running-message-action-heading"
-      >
-        <SettingsSectionHeader
-          id="running-message-action-heading"
-          title={t("settings.runningMessageAction")}
-          description={t("settings.runningMessageActionDescription")}
-          descriptionId="running-message-action-description"
-        />
-        <RadioGroup
-          value={runningMessageAction}
-          onValueChange={(value) => {
-            if (value !== "steer" && value !== "queue") return
-            setRunningMessageAction(value)
-            setError(null)
-            runningMessageActionMutation.mutate(value)
-          }}
-          disabled={runningMessageActionMutation.isPending}
-          aria-describedby="running-message-action-description"
-          className="mt-4 grid gap-2 sm:grid-cols-2"
+      <Card className="gap-0 px-4 py-0 sm:px-5">
+        <section
+          className="py-4 sm:py-5"
+          aria-labelledby="interface-language-heading"
         >
-          <Label
-            htmlFor="running-message-action-steer"
-            className="flex cursor-pointer items-start gap-3 rounded-xl border border-[color:var(--app-border)] px-3 py-2.5 has-data-[checked]:border-[color:var(--app-text)] has-data-[checked]:bg-[color-mix(in_srgb,var(--app-text)_4%,transparent)]"
-          >
-            <RadioGroupItem
-              id="running-message-action-steer"
-              value="steer"
-              className="mt-0.5"
-            />
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-[var(--app-text)]">
-                {t("settings.runningMessageActionSteer")}
-              </span>
-              <span className="mt-0.5 block text-xs leading-5 text-[var(--app-muted)]">
-                {t("settings.runningMessageActionSteerDescription")}
-              </span>
-            </span>
-          </Label>
-          <Label
-            htmlFor="running-message-action-queue"
-            className="flex cursor-pointer items-start gap-3 rounded-xl border border-[color:var(--app-border)] px-3 py-2.5 has-data-[checked]:border-[color:var(--app-text)] has-data-[checked]:bg-[color-mix(in_srgb,var(--app-text)_4%,transparent)]"
-          >
-            <RadioGroupItem
-              id="running-message-action-queue"
-              value="queue"
-              className="mt-0.5"
-            />
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-[var(--app-text)]">
-                {t("settings.runningMessageActionQueue")}
-              </span>
-              <span className="mt-0.5 block text-xs leading-5 text-[var(--app-muted)]">
-                {t("settings.runningMessageActionQueueDescription")}
-              </span>
-            </span>
-          </Label>
-        </RadioGroup>
-      </section>
-      <BrowserNotificationSettings userId={user?.id} />
+          <SettingsSectionHeader
+            id="interface-language-heading"
+            title={t("settings.interfaceLanguage")}
+            description={t("settings.interfaceLanguageDescription")}
+            descriptionId="interface-language-description"
+            actionAlignment="center"
+            action={
+              <Select
+                value={language}
+                onValueChange={changeLanguage}
+                disabled={mutation.isPending}
+              >
+                <SelectTrigger
+                  id="settings-language"
+                  aria-labelledby="interface-language-heading"
+                  aria-describedby="interface-language-description"
+                  className="w-32"
+                >
+                  <SelectValue>
+                    {t(
+                      language === "zh-CN" ? "common.chinese" : "common.english"
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="zh-CN">{t("common.chinese")}</SelectItem>
+                    <SelectItem value="en-US">{t("common.english")}</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            }
+          />
+        </section>
+        <Separator className="bg-[var(--app-border)]" />
+        <section
+          className="py-4 sm:py-5"
+          aria-labelledby="running-message-action-heading"
+        >
+          <SettingsSectionHeader
+            id="running-message-action-heading"
+            title={t("settings.runningMessageAction")}
+            description={t("settings.runningMessageActionDescription")}
+            descriptionId="running-message-action-description"
+            actionAlignment="center"
+            action={
+              <Select
+                value={runningMessageAction}
+                onValueChange={(value) => {
+                  if (value !== "steer" && value !== "queue") return
+                  setRunningMessageAction(value)
+                  setError(null)
+                  runningMessageActionMutation.mutate(value)
+                }}
+                disabled={runningMessageActionMutation.isPending}
+              >
+                <SelectTrigger
+                  id="settings-running-message-action"
+                  aria-labelledby="running-message-action-heading"
+                  aria-describedby="running-message-action-description"
+                  className="w-44 max-w-[45vw] sm:w-56"
+                >
+                  <SelectValue className="min-w-0 truncate">
+                    {t(
+                      runningMessageAction === "steer"
+                        ? "settings.runningMessageActionSteer"
+                        : "settings.runningMessageActionQueue"
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="steer">
+                      {t("settings.runningMessageActionSteer")}
+                    </SelectItem>
+                    <SelectItem value="queue">
+                      {t("settings.runningMessageActionQueue")}
+                    </SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            }
+          />
+        </section>
+        <Separator className="bg-[var(--app-border)]" />
+        <BrowserNotificationSettings userId={user?.id} />
+      </Card>
     </SettingsPageFrame>
   )
 }
@@ -985,7 +980,7 @@ export function SettingsSecurityPage() {
               required
             />
           </FieldShell>
-          <div>
+          <div className="flex justify-end">
             <Button
               type="submit"
               size="lg"

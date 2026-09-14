@@ -61,7 +61,7 @@ export function MyFeedbackPage() {
         />
       ) : (
         <>
-          <Table>
+          <Table appearance="card">
             <TableHeader>
               <TableRow>
                 <TableHead>{t("adminFeedback.content")}</TableHead>

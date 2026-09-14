@@ -29,11 +29,8 @@ import { notify } from "@/components/feedback/notification"
 import { FileTypeIcon } from "@/components/media/file-type-icon"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group"
+import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
+import { SearchInput } from "@/components/ui/search-input"
 import {
   Select,
   SelectContent,
@@ -85,7 +82,7 @@ export function TaskArtifactLibrary({
 
   const updateSearch = (value: string) => {
     setSearchParams(
-      (current) => updateUrlSearchParams(current, { search: value.trim() }),
+      (current) => updateUrlSearchParams(current, { search: value }),
       { replace: true }
     )
   }
@@ -188,9 +185,9 @@ export function TaskArtifactLibrary({
           <InputGroupAddon>
             <SearchIcon aria-hidden="true" />
           </InputGroupAddon>
-          <InputGroupInput
+          <SearchInput
             value={search}
-            onChange={(event) => updateSearch(event.currentTarget.value)}
+            onValueChange={updateSearch}
             placeholder={t("library.artifacts.searchPlaceholder")}
             aria-label={t("library.artifacts.searchPlaceholder")}
           />

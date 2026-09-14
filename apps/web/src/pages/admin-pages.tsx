@@ -1,3 +1,4 @@
+import { ListCard } from "@/components/ui/list-card"
 import {
   useDeferredValue,
   useRef,
@@ -97,6 +98,7 @@ import { PageLayout } from "@/components/shell/page-layout"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { SettingsCard } from "@/components/settings/settings-card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Combobox,
@@ -1212,7 +1214,10 @@ function UserManagementPage() {
       )}
       {users.data && users.data.items.length > 0 && (
         <div className="data-table-scroll">
-          <Table className="data-table user-management-table [&_td]:align-middle!">
+          <Table
+            appearance="card"
+            className="data-table user-management-table [&_td]:align-middle!"
+          >
             <TableHeader>
               <TableRow>
                 <TableHead className="user-management-selection-column">
@@ -1239,7 +1244,7 @@ function UserManagementPage() {
                   {t("admin.lastLogin")}
                 </TableHead>
                 <TableHead className="user-management-actions-column">
-                  <span className="sr-only">{t("common.actions")}</span>
+                  {t("common.actions")}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -2113,12 +2118,12 @@ function RoleOverviewPage() {
           onRetry={() => void summaryQuery.refetch()}
         />
       )}
-      <div className="role-overview-grid">
+      <ListCard className="mt-5">
         <section
-          className="settings-section role-summary"
+          className="settings-section role-summary grid grid-cols-1 gap-x-6 sm:grid-cols-[minmax(0,1fr)_auto]"
           aria-labelledby="role-user-title"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:col-span-2">
             <h2 id="role-user-title">{t("common.user")}</h2>
             <Badge variant="secondary">user</Badge>
           </div>
@@ -2126,24 +2131,25 @@ function RoleOverviewPage() {
           <RoleAccountCount summary={summaryByRole.get("user")} />
         </section>
         <section
-          className="settings-section role-summary"
+          className="settings-section role-summary grid grid-cols-1 gap-x-6 sm:grid-cols-[minmax(0,1fr)_auto]"
           aria-labelledby="role-admin-title"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:col-span-2">
             <h2 id="role-admin-title">{t("common.admin")}</h2>
             <Badge variant="secondary">admin</Badge>
           </div>
           <p>{t("admin.roleAdminDescription")}</p>
           <RoleAccountCount summary={summaryByRole.get("admin")} />
         </section>
-      </div>
+      </ListCard>
       <section
-        className="settings-section role-permission-section"
+        className="settings-section role-permission-section grid gap-4"
         aria-labelledby="permission-matrix-title"
       >
         <h2 id="permission-matrix-title">{t("admin.permissionMatrix")}</h2>
         <div className="data-table-scroll">
           <Table
+            appearance="card"
             className="data-table"
             aria-label={t("admin.permissionMatrix")}
           >
@@ -2190,7 +2196,7 @@ function RoleAccountCount({
   const { t } = useTranslation()
   return (
     <div
-      className="role-account-count"
+      className="role-account-count mt-3 flex flex-col items-end justify-center gap-1 text-right sm:col-start-2 sm:row-start-2 sm:mt-0"
       aria-label={t("admin.roleAccountBreakdown")}
     >
       <strong>
@@ -2339,7 +2345,7 @@ function UserGroupManagementPage() {
       {groups.data?.items.length === 0 && (
         <EmptyState title={t("admin.groupsEmpty")} />
       )}
-      <div className="entity-list">
+      <ListCard className="entity-list">
         {groups.data?.items.map((group) => (
           <article key={group.id} className="entity-row">
             <div className="min-w-0 flex-1">
@@ -2389,7 +2395,7 @@ function UserGroupManagementPage() {
             </DropdownMenu>
           </article>
         ))}
-      </div>
+      </ListCard>
       <Dialog
         open={Boolean(memberListTarget)}
         onOpenChange={(open) => !open && setMemberListTarget(null)}
@@ -2779,8 +2785,12 @@ function AuditPage() {
 
         {surface === "events" && (
           <TabsContent value="events">
-            <div className="filter-row audit-filters">
-              <FieldShell id="audit-search" label={t("common.search")}>
+            <div className="audit-filters my-[18px] flex flex-wrap gap-2.5 max-sm:flex-col">
+              <FieldShell
+                id="audit-search"
+                label={t("common.search")}
+                className="min-w-0 flex-[2_1_240px] max-sm:basis-auto"
+              >
                 <Input
                   id="audit-search"
                   className="h-9"
@@ -2792,7 +2802,11 @@ function AuditPage() {
                   placeholder={t("admin.auditSearchPlaceholder")}
                 />
               </FieldShell>
-              <FieldShell id="audit-action" label={t("admin.action")}>
+              <FieldShell
+                id="audit-action"
+                label={t("admin.action")}
+                className="min-w-0 flex-[1_1_140px] max-sm:basis-auto"
+              >
                 <AuditActionFilter
                   id="audit-action"
                   value={action}
@@ -2802,7 +2816,11 @@ function AuditPage() {
                   }}
                 />
               </FieldShell>
-              <FieldShell id="audit-result" label={t("admin.result")}>
+              <FieldShell
+                id="audit-result"
+                label={t("admin.result")}
+                className="min-w-0 flex-[1_1_120px] max-sm:basis-auto"
+              >
                 <AdminSelect
                   id="audit-result"
                   value={result}
@@ -2818,7 +2836,11 @@ function AuditPage() {
                   ]}
                 />
               </FieldShell>
-              <FieldShell id="audit-from" label={t("admin.dateFrom")}>
+              <FieldShell
+                id="audit-from"
+                label={t("admin.dateFrom")}
+                className="min-w-0 flex-[1_1_240px] max-sm:basis-auto"
+              >
                 <DatePicker
                   id="audit-from"
                   value={dateFrom}
@@ -2831,7 +2853,11 @@ function AuditPage() {
                   }}
                 />
               </FieldShell>
-              <FieldShell id="audit-to" label={t("admin.dateTo")}>
+              <FieldShell
+                id="audit-to"
+                label={t("admin.dateTo")}
+                className="min-w-0 flex-[1_1_240px] max-sm:basis-auto"
+              >
                 <DatePicker
                   id="audit-to"
                   value={dateTo}
@@ -3252,7 +3278,10 @@ function AuditTable({
   return (
     <>
       <div className="data-table-scroll">
-        <Table className="data-table audit-log-table audit-details-table">
+        <Table
+          appearance="card"
+          className="data-table audit-log-table audit-details-table"
+        >
           <TableHeader>
             <TableRow>
               <TableHead>{t("admin.action")}</TableHead>
@@ -3394,7 +3423,10 @@ function AuditConversationTable({
   return (
     <>
       <div className="data-table-scroll">
-        <Table className="data-table audit-conversation-table audit-details-table">
+        <Table
+          appearance="card"
+          className="data-table audit-conversation-table audit-details-table"
+        >
           <TableHeader>
             <TableRow>
               <TableHead>{t("admin.conversation")}</TableHead>
@@ -3543,7 +3575,10 @@ function RetainedArtifactTable({
   return (
     <>
       <div className="data-table-scroll">
-        <Table className="data-table retained-artifact-table audit-details-table">
+        <Table
+          appearance="card"
+          className="data-table retained-artifact-table audit-details-table"
+        >
           <TableHeader>
             <TableRow>
               <TableHead>{t("admin.conversation")}</TableHead>
@@ -3848,7 +3883,7 @@ function ProductSettingsEditor({
       <TabsContent value="product" className="min-w-0" keepMounted>
         <NotificationToast id="product-settings-saved" message={message} />
         {error && <StatusBanner variant="error">{error}</StatusBanner>}
-        <section
+        <SettingsCard
           className="settings-section"
           aria-labelledby="editable-settings"
         >
@@ -3858,7 +3893,7 @@ function ProductSettingsEditor({
             description={t("admin.settingsDescription")}
           />
           <form
-            className="form-stack settings-form"
+            className="form-stack"
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
               setMessage(null)
@@ -3938,7 +3973,7 @@ function ProductSettingsEditor({
                 </div>
               </div>
             </FieldShell>
-            <div>
+            <div className="flex flex-wrap justify-end gap-2">
               <Button
                 type="submit"
                 size="lg"
@@ -3952,7 +3987,7 @@ function ProductSettingsEditor({
               </Button>
             </div>
           </form>
-        </section>
+        </SettingsCard>
       </TabsContent>
 
       <TabsContent value="concurrency" className="min-w-0" keepMounted>
@@ -4035,7 +4070,7 @@ function RegistrationSettingsForm({
   }
 
   return (
-    <section
+    <SettingsCard
       className="settings-section"
       aria-label={t("admin.settingsTabs.registration")}
     >
@@ -4068,15 +4103,15 @@ function RegistrationSettingsForm({
               }}
             />
           </Field>
-          <Field orientation="horizontal">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button type="submit" disabled={mutation.isPending}>
               {mutation.isPending && <Spinner data-icon="inline-start" />}
               {t("common.save")}
             </Button>
-          </Field>
+          </div>
         </FieldGroup>
       </form>
-    </section>
+    </SettingsCard>
   )
 }
 
@@ -4558,7 +4593,7 @@ function SmtpAuthenticationSettingsForm({
   }
 
   return (
-    <section className="settings-section" aria-labelledby="smtp-settings">
+    <SettingsCard className="settings-section" aria-labelledby="smtp-settings">
       <AuthenticationProviderHeading
         id="smtp-settings"
         title={t("admin.authSettings.smtpTitle")}
@@ -4571,7 +4606,7 @@ function SmtpAuthenticationSettingsForm({
       />
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
       <form
-        className="form-stack settings-form"
+        className="form-stack"
         noValidate
         onSubmit={(event: FormEvent) => {
           event.preventDefault()
@@ -4682,7 +4717,7 @@ function SmtpAuthenticationSettingsForm({
             </FieldShell>
           </>
         )}
-        <div>
+        <div className="flex flex-wrap justify-end gap-2">
           <Button
             type="submit"
             size="lg"
@@ -4700,7 +4735,7 @@ function SmtpAuthenticationSettingsForm({
         pending={mutation.isPending}
         onConfirm={() => pendingBody && mutation.mutate(pendingBody)}
       />
-    </section>
+    </SettingsCard>
   )
 }
 
@@ -4777,7 +4812,7 @@ function OidcAuthenticationSettingsForm({
   }
 
   return (
-    <section className="settings-section" aria-labelledby="oidc-settings">
+    <SettingsCard className="settings-section" aria-labelledby="oidc-settings">
       <AuthenticationProviderHeading
         id="oidc-settings"
         title={t("admin.authSettings.oidcTitle")}
@@ -4790,7 +4825,7 @@ function OidcAuthenticationSettingsForm({
       />
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
       <form
-        className="form-stack settings-form"
+        className="form-stack"
         noValidate
         onSubmit={(event: FormEvent) => {
           event.preventDefault()
@@ -4868,7 +4903,7 @@ function OidcAuthenticationSettingsForm({
             </FieldShell>
           </>
         )}
-        <div>
+        <div className="flex flex-wrap justify-end gap-2">
           <Button
             type="submit"
             size="lg"
@@ -4886,7 +4921,7 @@ function OidcAuthenticationSettingsForm({
         pending={mutation.isPending}
         onConfirm={() => pendingBody && mutation.mutate(pendingBody)}
       />
-    </section>
+    </SettingsCard>
   )
 }
 
@@ -4950,7 +4985,7 @@ function TeamsAuthenticationSettingsForm({
   }
 
   return (
-    <section className="settings-section" aria-labelledby="teams-settings">
+    <SettingsCard className="settings-section" aria-labelledby="teams-settings">
       <AuthenticationProviderHeading
         id="teams-settings"
         title={t("admin.authSettings.teamsTitle")}
@@ -4963,7 +4998,7 @@ function TeamsAuthenticationSettingsForm({
       />
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
       <form
-        className="form-stack settings-form"
+        className="form-stack"
         noValidate
         onSubmit={(event: FormEvent) => {
           event.preventDefault()
@@ -5006,7 +5041,7 @@ function TeamsAuthenticationSettingsForm({
             </FieldShell>
           </>
         )}
-        <div>
+        <div className="flex flex-wrap justify-end gap-2">
           <Button
             type="submit"
             size="lg"
@@ -5024,7 +5059,7 @@ function TeamsAuthenticationSettingsForm({
         pending={mutation.isPending}
         onConfirm={() => pendingBody && mutation.mutate(pendingBody)}
       />
-    </section>
+    </SettingsCard>
   )
 }
 
@@ -5135,7 +5170,7 @@ function HealthPage() {
         />
       )}
       {query.data && (
-        <>
+        <div data-slot="health-sections" className="grid min-w-0 gap-6">
           <HealthContent
             health={query.data}
             language={language}
@@ -5151,7 +5186,7 @@ function HealthPage() {
             onRetryLoad={() => void maintenance.refetch()}
             onStart={() => setRebuildOpen(true)}
           />
-        </>
+        </div>
       )}
       <Dialog
         open={rebuildOpen}
@@ -5244,30 +5279,29 @@ function KnowledgeMaintenanceSection({
 
   return (
     <section
-      className="settings-section"
+      className="grid min-w-0 gap-4"
       aria-labelledby="knowledge-maintenance-title"
     >
-      <div className="knowledge-section-heading">
-        <div>
-          <h2 id="knowledge-maintenance-title">
-            {t("health.knowledgeRebuild.title")}
-          </h2>
-          <p>{t("health.knowledgeRebuild.description")}</p>
-        </div>
-        <Button
-          type="button"
-          variant={task?.status === "failed" ? "destructive" : "secondary"}
-          disabled={running || loading}
-          onClick={onStart}
-        >
-          <DatabaseBackupIcon data-icon="inline-start" aria-hidden="true" />
-          {t(
-            task?.status === "failed"
-              ? "health.knowledgeRebuild.retry"
-              : "health.knowledgeRebuild.action"
-          )}
-        </Button>
-      </div>
+      <SettingsSectionHeader
+        id="knowledge-maintenance-title"
+        title={t("health.knowledgeRebuild.title")}
+        description={t("health.knowledgeRebuild.description")}
+        action={
+          <Button
+            type="button"
+            variant={task?.status === "failed" ? "destructive" : "secondary"}
+            disabled={running || loading}
+            onClick={onStart}
+          >
+            <DatabaseBackupIcon data-icon="inline-start" aria-hidden="true" />
+            {t(
+              task?.status === "failed"
+                ? "health.knowledgeRebuild.retry"
+                : "health.knowledgeRebuild.action"
+            )}
+          </Button>
+        }
+      />
       {loading && <LoadingState />}
       {Boolean(error) && (
         <ErrorState message={getErrorMessage(error, t)} onRetry={onRetryLoad} />
@@ -5276,7 +5310,7 @@ function KnowledgeMaintenanceSection({
         <EmptyState title={t("health.knowledgeRebuild.empty")} />
       )}
       {task && (
-        <div className="entity-list">
+        <ListCard>
           <article className="entity-row">
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -5310,7 +5344,7 @@ function KnowledgeMaintenanceSection({
               )}
             </div>
           </article>
-        </div>
+        </ListCard>
       )}
     </section>
   )
@@ -5433,7 +5467,7 @@ function HealthContent({
         usage={health.docker_resource_usage}
         language={language}
       />
-      <div className="entity-list">
+      <ListCard>
         {visibleComponents.map((component) => (
           <article key={component.key} className="entity-row">
             <div className="min-w-0 flex-1">
@@ -5463,25 +5497,29 @@ function HealthContent({
             </div>
           </article>
         ))}
-      </div>
+      </ListCard>
       {Boolean(health.cleanup_failures?.length) && (
-        <section className="settings-section">
-          <div className="knowledge-section-heading">
-            <div>
-              <h2>{t("health.cleanupFailures")}</h2>
-              <p>{t("health.cleanupDescription")}</p>
-            </div>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={retryingAllCleanup}
-              onClick={onRetryAllCleanup}
-            >
-              {retryingAllCleanup && <Spinner data-icon="inline-start" />}
-              {t("health.retryAllCleanup")}
-            </Button>
-          </div>
-          <div className="entity-list">
+        <section
+          className="grid min-w-0 gap-4"
+          aria-labelledby="health-cleanup-title"
+        >
+          <SettingsSectionHeader
+            id="health-cleanup-title"
+            title={t("health.cleanupFailures")}
+            description={t("health.cleanupDescription")}
+            action={
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={retryingAllCleanup}
+                onClick={onRetryAllCleanup}
+              >
+                {retryingAllCleanup && <Spinner data-icon="inline-start" />}
+                {t("health.retryAllCleanup")}
+              </Button>
+            }
+          />
+          <ListCard>
             {health.cleanup_failures?.map((failure) => (
               <article key={failure.id} className="entity-row">
                 <div className="min-w-0 flex-1">
@@ -5521,7 +5559,7 @@ function HealthContent({
                 </Button>
               </article>
             ))}
-          </div>
+          </ListCard>
         </section>
       )}
     </>
@@ -5576,7 +5614,7 @@ function DockerResourceUsageSection({
       {usage.services.length === 0 ? (
         <EmptyState title={t("health.resources.empty")} />
       ) : (
-        <div className="docker-resource-list">
+        <ListCard className="mt-4">
           {usage.services.map((service) => (
             <article
               key={`${service.service_type}:${service.key}`}
@@ -5626,7 +5664,7 @@ function DockerResourceUsageSection({
               />
             </article>
           ))}
-        </div>
+        </ListCard>
       )}
     </section>
   )

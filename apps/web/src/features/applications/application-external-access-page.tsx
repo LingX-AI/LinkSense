@@ -453,7 +453,7 @@ function ApplicationExternalAccessSettings({
                       required
                       value={originsText}
                       aria-invalid={!originInputValid && originsText.length > 0}
-                      className="min-h-32 border-transparent bg-input/50 text-sm leading-6 focus-visible:bg-input/50"
+                      className="min-h-32 border-transparent bg-field text-sm leading-6 focus-visible:bg-field"
                       placeholder={t(
                         "applications.externalAccess.allowedOriginsPlaceholder"
                       )}
