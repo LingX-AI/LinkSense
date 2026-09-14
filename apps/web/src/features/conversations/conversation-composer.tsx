@@ -1631,19 +1631,20 @@ export const ConversationComposer = forwardRef<
                 : undefined
           }
           placeholder={
-            unavailableMessage ??
-            t(
-              !value.trim() && hasPastedTextAttachment
-                ? "conversation.pastedTextAttachmentPlaceholder"
-                : goalMode
-                  ? "conversation.goal.placeholder"
-                  : planMode
-                    ? "conversation.plan.placeholder"
-                    : isRunning
-                      ? "conversation.followUpPlaceholder"
-                      : "conversation.placeholder",
-              { productName }
-            )
+            unavailableMessage
+              ? undefined
+              : t(
+                  !value.trim() && hasPastedTextAttachment
+                    ? "conversation.pastedTextAttachmentPlaceholder"
+                    : goalMode
+                      ? "conversation.goal.placeholder"
+                      : planMode
+                        ? "conversation.plan.placeholder"
+                        : isRunning
+                          ? "conversation.followUpPlaceholder"
+                          : "conversation.placeholder",
+                  { productName }
+                )
           }
           disabled={submitting || interactionBlocked}
           className={cn(
