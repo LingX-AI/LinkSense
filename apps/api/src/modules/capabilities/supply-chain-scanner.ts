@@ -356,6 +356,9 @@ export function assertCapabilitySupplyChainReviewCurrent(
   if (
     review === undefined ||
     review.scanner_version !== capabilitySupplyChainScannerVersion ||
+    review.findings.some(
+      (finding) => finding.scanner_version !== capabilitySupplyChainScannerVersion,
+    ) ||
     review.ruleset_version !== capabilitySupplyChainRulesetVersion ||
     review.content_digest_algorithm !==
       capabilitySupplyChainContentDigestAlgorithm ||

@@ -12,6 +12,7 @@ import {
   assertCapabilitySupplyChainExecutionAdmission,
   assertCapabilitySupplyChainApproval,
   assertCapabilitySupplyChainReviewCurrent,
+  capabilitySupplyChainReviewFromRiskSummary,
   scanCapabilitySupplyChain,
 } from "../src/modules/capabilities/supply-chain-scanner.js";
 
@@ -465,6 +466,71 @@ describe("capability supply-chain scanner", () => {
 
     await expect(
       assertCapabilitySupplyChainExecutionAdmission(root, undefined),
+    ).rejects.toMatchObject({
+      code: "INVALID_PACKAGE",
+      params: { reason_code: "security_review_stale" },
+    });
+  });
+
+  it.each(["1.4.0", "1.5.0"])(
+    "reads historical scanner %s findings without accepting their approval",
+    async (version) => {
+      const root = await packageDirectory({
+        "SKILL.md": "---\nname: historic-review\n---\n",
+        "scripts/run.js": 'import "node:child_process";\n',
+      });
+      const current = await scanCapabilitySupplyChain(root, scanOptions);
+      const historical = {
+        ...current,
+        scanner_version: version,
+        ruleset_version: "2026-09-11.3",
+        findings: current.findings.map((finding) => ({
+          ...finding,
+          scanner_version: version,
+        })),
+      };
+      const parsed = capabilitySupplyChainReviewFromRiskSummary({
+        supply_chain_review: historical,
+      });
+
+      expect(parsed).toEqual(historical);
+      expect(() => assertCapabilitySupplyChainApproval(parsed)).toThrowError(
+        expect.objectContaining({
+          code: "INVALID_PACKAGE",
+          params: { reason_code: "security_review_stale" },
+        }),
+      );
+      await expect(
+        assertCapabilitySupplyChainExecutionAdmission(root, parsed),
+      ).rejects.toMatchObject({
+        code: "INVALID_PACKAGE",
+        params: { reason_code: "security_review_stale" },
+      });
+    },
+  );
+
+  it("rejects current approvals containing findings from an older scanner", async () => {
+    const root = await packageDirectory({
+      "SKILL.md": "---\nname: mixed-review\n---\n",
+      "scripts/run.js": 'import "node:child_process";\n',
+    });
+    const current = await scanCapabilitySupplyChain(root, scanOptions);
+    const mixed = {
+      ...current,
+      findings: current.findings.map((finding) => ({
+        ...finding,
+        scanner_version: "1.5.0",
+      })),
+    };
+
+    expect(() => assertCapabilitySupplyChainApproval(mixed)).toThrowError(
+      expect.objectContaining({
+        code: "INVALID_PACKAGE",
+        params: { reason_code: "security_review_stale" },
+      }),
+    );
+    await expect(
+      assertCapabilitySupplyChainExecutionAdmission(root, mixed),
     ).rejects.toMatchObject({
       code: "INVALID_PACKAGE",
       params: { reason_code: "security_review_stale" },

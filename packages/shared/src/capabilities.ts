@@ -133,9 +133,12 @@ export const capabilitySupplyChainRuleIds = [
 export const capabilitySupplyChainRuleIdSchema = z.enum(
   capabilitySupplyChainRuleIds,
 );
+const scannerVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/u);
 
 export const capabilitySupplyChainFindingSchema = z.strictObject({
-  scanner_version: z.literal(capabilitySupplyChainScannerVersion),
+  // Historical findings remain readable; current-version checks belong at
+  // approval and execution admission, not the persisted response boundary.
+  scanner_version: scannerVersionSchema,
   rule_id: capabilitySupplyChainRuleIdSchema,
   severity: capabilitySupplyChainSeveritySchema,
   path: z.string().min(1).max(1_024),
@@ -145,7 +148,7 @@ export const capabilitySupplyChainFindingSchema = z.strictObject({
 });
 
 export const capabilitySupplyChainReviewSchema = z.strictObject({
-  scanner_version: z.string().regex(/^\d+\.\d+\.\d+$/u),
+  scanner_version: scannerVersionSchema,
   ruleset_version: z.string().min(1).max(64),
   scanned_at: timestampSchema,
   content_digest_algorithm: z.literal(

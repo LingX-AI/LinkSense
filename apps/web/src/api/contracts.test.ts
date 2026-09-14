@@ -1060,6 +1060,59 @@ describe("API response contracts", () => {
     })
   })
 
+  it.each(["1.4.0", "1.5.0"])(
+    "keeps historical scanner %s findings readable in capability responses",
+    (version) => {
+      const review = {
+        scanner_version: version,
+        ruleset_version: "2026-09-11.3",
+        scanned_at: now,
+        content_digest_algorithm: "linksense-capability-package-v1",
+        content_sha256: "a".repeat(64),
+        verdict: "warnings",
+        highest_severity: "medium",
+        finding_count: 1,
+        findings: [
+          {
+            scanner_version: version,
+            rule_id: "shell_command_execution",
+            severity: "medium",
+            path: "scripts/run.js",
+            line: 1,
+            evidence: `sha256:${"b".repeat(64)}`,
+            remediation: "review_or_remove:shell_command_execution",
+          },
+        ],
+        findings_truncated: false,
+        scanned_file_count: 2,
+        skipped_file_count: 0,
+      }
+      const capability = capabilitySummarySchema.parse({
+        id: "historical-capability",
+        name: "Historical Skill",
+        slug: "historical-skill",
+        type: "skill",
+        description: null,
+        status: "active",
+        source_type: "local",
+        marketplace_listing_id: null,
+        marketplace_release_id: null,
+        logo_url: null,
+        is_owner: true,
+        can_manage: true,
+        can_govern: false,
+        has_logo: false,
+        preference_status: "disabled",
+        manifest: {},
+        risk_summary: { supply_chain_review: review },
+        created_at: now,
+        updated_at: now,
+      })
+
+      expect(capability.risk_summary?.supply_chain_review).toEqual(review)
+    }
+  )
+
   it("normalizes built-in capabilities as non-selectable and non-deletable", () => {
     const input = {
       id: "builtin:capability:linksense-browser",
