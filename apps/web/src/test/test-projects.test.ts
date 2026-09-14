@@ -9,6 +9,16 @@ import { sharedDomTests } from "./shared-dom-files"
 const root = path.resolve(import.meta.dirname, "../..")
 
 describe("test project boundaries", () => {
+  it("isolates every project's module graph and global state between files", () => {
+    for (const project of config.test?.projects ?? []) {
+      if (typeof project !== "object" || !("test" in project)) continue
+      expect(
+        project.test?.isolate ?? config.test?.isolate ?? true,
+        JSON.stringify(project.test?.name)
+      ).toBe(true)
+    }
+  })
+
   it("runs every test file exactly once across the execution projects", () => {
     const files = globSync("src/**/*.test.{ts,tsx}", { cwd: root })
     const projects = config.test?.projects ?? []
