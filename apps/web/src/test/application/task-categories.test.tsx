@@ -510,6 +510,13 @@ describe("task categories", () => {
           await interaction.click(
             await screen.findByRole("menuitem", { name: "重命名" })
           )
+          // The exiting menu remains mounted while its focus cleanup runs.
+          // Finish that transition before typing in the new dialog.
+          await waitFor(() =>
+            expect(
+              screen.queryByRole("menu", { hidden: true })
+            ).not.toBeInTheDocument()
+          )
         }
         const dialog = await screen.findByRole("dialog", { name: "重命名" })
         const input = within(dialog).getByRole("textbox", { name: "任务" })
