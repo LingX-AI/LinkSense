@@ -522,7 +522,9 @@ describe("task categories", () => {
         const input = within(dialog).getByRole("textbox", { name: "任务" })
         await waitFor(() => expect(input).toHaveFocus())
         await interaction.clear(input)
-        await interaction.type(input, "新的生活计划")
+        // This flow verifies cache reconciliation, using a real paste event
+        // instead of making character timing part of the synchronization test.
+        await interaction.paste("新的生活计划")
         expect(input).toHaveValue("新的生活计划")
         const saveButton = within(dialog).getByRole("button", { name: "保存" })
         await waitFor(() => expect(saveButton).toBeEnabled())
