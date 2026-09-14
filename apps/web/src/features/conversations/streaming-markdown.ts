@@ -28,6 +28,7 @@ export function normalizeAssistantMarkdown(content: string): string {
   let inlineCodeLength = 0
   let inlineMathOpener: number | null = null
   let displayMathOpener: number | null = null
+  let strongClosingStart: number | null = null
   const replacements: MarkdownReplacement[] = []
   let lineStart = true
   let index = 0
@@ -118,9 +119,10 @@ export function normalizeAssistantMarkdown(content: string): string {
         continue
       }
       if (delimiter === ")" && inlineMathOpener !== null) {
+        // Double dollars avoid currency ambiguity and preserve citation offsets.
         replacements.push(
-          { start: inlineMathOpener, end: inlineMathOpener + 2, value: "$ " },
-          { start: index, end: index + 2, value: " $" }
+          { start: inlineMathOpener, end: inlineMathOpener + 2, value: "$$" },
+          { start: index, end: index + 2, value: "$$" }
         )
         inlineMathOpener = null
         index += 2
@@ -136,10 +138,18 @@ export function normalizeAssistantMarkdown(content: string): string {
       content[index + 2] !== "*" &&
       !isEscaped(content, index)
     ) {
-      const repair = findSpacedStrongDelimiters(content, index)
-      if (repair) {
-        replacements.push(...repair.replacements)
-        index = repair.closingStart + 2
+      // A valid closer must not become the opener of the next emphasis span.
+      if (index === strongClosingStart) {
+        strongClosingStart = null
+        index += 2
+        continue
+      }
+      const pair = findStrongDelimiters(content, index)
+      if (pair) {
+        replacements.push(...pair.replacements)
+        strongClosingStart = pair.closingStart
+        // Keep scanning the contents so TeX inside emphasis is normalized too.
+        index += 2
         continue
       }
     }
@@ -160,7 +170,7 @@ export function normalizeAssistantMarkdown(content: string): string {
   return output + content.slice(copiedUntil)
 }
 
-function findSpacedStrongDelimiters(
+function findStrongDelimiters(
   content: string,
   openerStart: number
 ): {
@@ -221,9 +231,7 @@ function findSpacedStrongDelimiters(
       })
     }
 
-    return replacements.length > 0
-      ? { closingStart: cursor, replacements }
-      : null
+    return { closingStart: cursor, replacements }
   }
 
   return null

@@ -100,7 +100,7 @@ describe("normalizeAssistantMarkdown", () => {
 
     expect(normalized).toBe(
       [
-        "行内公式：$ v = s / t $。",
+        "行内公式：$$v = s / t$$。",
         "",
         "$$",
         "\\mathrm{tokens}/s \\approx \\frac{\\text{有效显存带宽}}{\\text{模型权重大小}}",
@@ -108,6 +108,28 @@ describe("normalizeAssistantMarkdown", () => {
       ].join("\n")
     )
     expect(normalized).toHaveLength(markdown.length)
+  })
+
+  it("preserves currency and separate valid emphasis spans", () => {
+    const markdown = [
+      "**Policy Exception.** Exceeds the $200 nightly room limit by **$68**.",
+      "**Compliant.** The meal total is $48, within the $60 daily limit.",
+      "**The other $111** has no identified policy exception. The **$68 excess needs approval**.",
+    ].join("\n")
+
+    expect(normalizeAssistantMarkdown(markdown)).toBe(markdown)
+  })
+
+  it("normalizes TeX inside emphasis without moving following citation anchors", () => {
+    const markdown =
+      "😀 **费用 $48，公式 \\(v = s / t\\)**。引用位置。** 后续重点 **"
+    const normalized = normalizeAssistantMarkdown(markdown)
+
+    expect(normalized).toBe(
+      "😀 **费用 $48，公式 $$v = s / t$$**。引用位置。 **后续重点** "
+    )
+    expect(normalized).toHaveLength(markdown.length)
+    expect(normalized.indexOf("引用位置")).toBe(markdown.indexOf("引用位置"))
   })
 
   it("leaves unmatched and code-contained TeX delimiters unchanged", () => {

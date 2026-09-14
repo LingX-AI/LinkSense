@@ -1302,6 +1302,28 @@ describe("conversation stream render stability", () => {
     expect(loadPreview).toHaveBeenCalledTimes(1)
   })
 
+  it.each([false, true])(
+    "renders reasoning currency as text alongside explicit formulas when streaming=%s",
+    (streaming) => {
+      const { container } = render(
+        <ReasoningSummaryMarkdown
+          content={
+            "费用 $48，限额 $60。公式 \\(v = s / t\\)，另一个公式 $$x = y$$。"
+          }
+          streaming={streaming}
+        />
+      )
+
+      expect(container).toHaveTextContent("费用 $48，限额 $60。")
+      expect(
+        [...container.querySelectorAll(".katex annotation")].map(
+          (element) => element.textContent
+        )
+      ).toEqual(["v = s / t", "x = y"])
+      expect(container.querySelector(".katex-display")).toBeNull()
+    }
+  )
+
   it("keeps a completed reasoning summary stable across parent renders", () => {
     const content = "已确认页面结构\n\n正在继续处理"
     const { rerender } = render(
