@@ -1,5 +1,5 @@
-// Explicit opt-in: new component tests remain isolated by default.
-// These files use real modules; the shared setup resets DOM and global spies.
+// Tests grouped by their shared DOM setup; each file has an isolated module graph.
+// These files use real modules; the setup also resets DOM and global spies.
 export const sharedDomTests = [
   "src/api/client.test.ts",
   "src/api/contracts.test.ts",

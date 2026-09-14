@@ -122,7 +122,8 @@ export default defineConfig({
         test: {
           name: "application",
           include: applicationTests,
-          isolate: false,
+          // Real routes retain module state; do not share it across test files.
+          isolate: true,
           // These flows navigate through multiple real pages while E2E shares
           // the machine. Keep their deadline separate from small unit tests.
           testTimeout: ciApplicationTestTimeout,
@@ -147,7 +148,8 @@ export default defineConfig({
         test: {
           name: "shared-components",
           include: sharedDomTests,
-          isolate: false,
+          // DOM libraries and fake timers require a fresh module graph per file.
+          isolate: true,
           testTimeout: ciComponentTestTimeout,
           hookTimeout: ciDomHookTimeout,
           setupFiles: ["./src/test/setup.ts", "./src/test/shared-dom-setup.ts"],
@@ -160,7 +162,7 @@ export default defineConfig({
           name: "node",
           include: nodeTests,
           environment: "node",
-          isolate: false,
+          isolate: true,
         },
       },
     ],
