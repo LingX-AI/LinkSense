@@ -42,10 +42,12 @@ describe("parseRunnerConfig", () => {
     expect(config.LINKSENSE_WORKER_TMPFS_MB).toBe(4096)
     expect(config.LINKSENSE_WORKER_SHM_MB).toBe(2048)
     expect(config.LINKSENSE_BROWSER_SESSION_LIMIT).toBe(2)
+    expect(config.LINKSENSE_MANAGED_BROWSER_ENABLED).toBe(true)
     expect(config.LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS).toBe(900)
     expect(config.LINKSENSE_WORKER_IDLE_TTL_SECONDS).toBe(900)
     expect(config.LINKSENSE_DOCKER_COMPOSE_PROJECT_NAME).toBe("linksense")
     expect(config.LINKSENSE_USER_DATA_VOLUME).toBeUndefined()
+    expect(config.LINKSENSE_WORKER_PROVIDER).toBe("docker")
     expect(config.LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS).toBe(
       DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
     )
@@ -58,6 +60,15 @@ describe("parseRunnerConfig", () => {
         LINKSENSE_CODEX_MODEL: "legacy-model",
       }),
     ).not.toHaveProperty("LINKSENSE_CODEX_MODEL")
+  })
+
+  it("can explicitly disable the managed browser runtime", () => {
+    expect(
+      parseRunnerConfig({
+        ...baseEnvironment,
+        LINKSENSE_MANAGED_BROWSER_ENABLED: "false",
+      }).LINKSENSE_MANAGED_BROWSER_ENABLED,
+    ).toBe(false)
   })
 
   it("requires one absolute user data root", () => {
@@ -132,6 +143,56 @@ describe("parseRunnerConfig", () => {
         LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN: "1",
       }),
     ).toThrow()
+  })
+
+  it("accepts local-process workers only for an explicit loopback development controller", () => {
+    expect(
+      parseRunnerConfig({
+        ...baseEnvironment,
+        NODE_ENV: "development",
+        LINKSENSE_RUNNER_MODE: "controller",
+        LINKSENSE_RUNNER_HOST: "127.0.0.1",
+        LINKSENSE_WORKER_PROVIDER: "local-process",
+      }).LINKSENSE_WORKER_PROVIDER,
+    ).toBe("local-process")
+
+    for (const overrides of [
+      { NODE_ENV: "production" },
+      { LINKSENSE_RUNNER_HOST: "0.0.0.0" },
+      { LINKSENSE_RUNNER_MODE: "standalone" },
+      { LINKSENSE_USER_DATA_VOLUME: "linksense-user-data" },
+    ]) {
+      expect(() =>
+        parseRunnerConfig({
+          ...baseEnvironment,
+          NODE_ENV: "development",
+          LINKSENSE_RUNNER_MODE: "controller",
+          LINKSENSE_RUNNER_HOST: "127.0.0.1",
+          LINKSENSE_WORKER_PROVIDER: "local-process",
+          ...overrides,
+        }),
+      ).toThrow()
+    }
+  })
+
+  it("requires an explicit control root in a local worker child", () => {
+    const workerEnvironment = {
+      ...baseEnvironment,
+      NODE_ENV: "development",
+      LINKSENSE_RUNNER_MODE: "worker",
+      LINKSENSE_RUNNER_HOST: "127.0.0.1",
+      LINKSENSE_WORKER_PROVIDER: "local-process",
+      LINKSENSE_WORKER_OWNER_ID: "01900000-0000-7000-8000-000000000001",
+    }
+    expect(() => parseRunnerConfig(workerEnvironment)).toThrow()
+    expect(
+      parseRunnerConfig({
+        ...workerEnvironment,
+        LINKSENSE_WORKER_CONTROL_ROOT: "/tmp/linksense/control",
+      }),
+    ).toMatchObject({
+      LINKSENSE_WORKER_CONTROL_ROOT: "/tmp/linksense/control",
+    })
   })
 
   it("normalizes configured HTTPS package repository URLs", () => {

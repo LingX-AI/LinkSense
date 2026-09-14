@@ -43,6 +43,8 @@ import {
   UserHomeCapabilityMaterializationError,
   UserHomeCapabilityPublicationDeferredError,
   UserHomeCapabilityReconciler,
+  assertCapabilitySupplyChainExecutionAdmission,
+  capabilitySupplyChainReviewFromRiskSummary,
   validatePluginName,
   validateSkillName,
   type MaterializeUserHomes,
@@ -350,6 +352,7 @@ export function createServices(input: {
   );
   const capabilityMaterializer = new UserHomeCapabilityMaterializer({
     userDataRoot: input.config.userDataRoot,
+    managedBrowserEnabled: input.config.managedBrowserEnabled,
     publicationGuard: createRunningTurnCapabilityPublicationGuard(input.prisma),
   });
   const databasePreflight = new DatabaseConversationPreflight(
@@ -397,6 +400,7 @@ export function createServices(input: {
       stagingRoot: join(input.config.capabilityRoot, ".staging"),
     }),
     capabilityRoot: input.config.capabilityRoot,
+    managedBrowserEnabled: input.config.managedBrowserEnabled,
     logoStore: {
       put: (objectKey, bytes, contentType) =>
         input.storage.putObject(objectKey, bytes, {
@@ -1144,6 +1148,13 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       const storagePath = resolveCapabilityPath(
         this.capabilityRoot,
         capability.storagePath,
+      );
+      const supplyChainReview = capabilitySupplyChainReviewFromRiskSummary(
+        capability.riskSummaryJson,
+      );
+      await assertCapabilitySupplyChainExecutionAdmission(
+        storagePath,
+        supplyChainReview,
       );
       const runtimeCapability = {
         id: capability.id,

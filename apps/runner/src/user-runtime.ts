@@ -139,6 +139,7 @@ export async function initializeUserRuntime(
     nodeRegisterHook?: string
     bashEnvironmentFile?: string
     runtimeToolBin?: string
+    requiredRuntimeTools?: readonly string[]
     pnpmVersion?: string
     pythonPackageIndexUrl?: string
     nodePackageRegistryUrl?: string
@@ -168,7 +169,10 @@ export async function initializeUserRuntime(
   await Promise.all(userRuntimeDirectories(paths).map(ensureRuntimeDirectory))
 
   if (configuredRuntimeToolBin) {
-    await assertRuntimeTools(configuredRuntimeToolBin)
+    await assertRuntimeTools(
+      configuredRuntimeToolBin,
+      options.requiredRuntimeTools,
+    )
   }
 
   if (!(await exists(path.join(paths.pythonEnvironment, "pyvenv.cfg")))) {
@@ -334,13 +338,23 @@ function basePythonCommand(
   )
 }
 
-async function assertRuntimeTools(runtimeToolBin: string): Promise<void> {
+async function assertRuntimeTools(
+  runtimeToolBin: string,
+  requiredTools: readonly string[] = [
+    "linksense-browser",
+    "linksense-uv",
+    "linksense-pnpm",
+  ],
+): Promise<void> {
   const directory = await lstat(runtimeToolBin).catch(() => null)
   if (!directory?.isDirectory() || directory.isSymbolicLink()) {
     throw new Error("managed runtime tool directory is unavailable")
   }
+  if (requiredTools.length === 0) {
+    throw new Error("managed runtime tool requirements are unavailable")
+  }
   await Promise.all(
-    ["linksense-browser", "linksense-uv", "linksense-pnpm"].map(async (name) => {
+    requiredTools.map(async (name) => {
       const candidate = path.join(runtimeToolBin, name)
       const info = await lstat(candidate).catch(() => null)
       if (!info?.isFile() || info.isSymbolicLink()) {

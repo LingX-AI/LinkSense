@@ -9,7 +9,7 @@ import { isFullAppConfig, parseConfig } from "./config.js";
 import { createPrismaClient } from "./db.js";
 import { LinkSenseRedis } from "./adapters/redis.js";
 import { RunnerClient } from "./adapters/runner.js";
-import { MinioObjectStorage } from "./adapters/object-storage.js";
+import { createObjectStorage } from "./adapters/object-storage.js";
 import type { AppServices } from "./services.js";
 import { LocalUnoserverRuntime, type OfficeConversionRuntime } from "./modules/knowledge-processing/office-converter.js";
 
@@ -127,7 +127,7 @@ export async function main(): Promise<void> {
   const prisma = createPrismaClient(config.databaseUrl);
   const redis = new LinkSenseRedis(config);
   const runner = new RunnerClient(config);
-  const storage = new MinioObjectStorage(config);
+  const storage = createObjectStorage(config);
   let officeProcessStarted = () => {};
   const officeSpawned = new Promise<void>((resolve) => { officeProcessStarted = resolve; });
   const officeRuntime = isFullAppConfig(config)

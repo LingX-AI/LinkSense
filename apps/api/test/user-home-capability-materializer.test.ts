@@ -48,6 +48,56 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 })
 
 describe.concurrent("UserHomeCapabilityMaterializer", () => {
+  it("omits the managed browser Skill when that runtime is disabled", async () => {
+    const root = await temporaryDirectory()
+    const materializer = new UserHomeCapabilityMaterializer({
+      userDataRoot: join(root, "users"),
+      managedBrowserEnabled: false,
+    })
+
+    const result = await materializer.reconcile({
+      ownerId: OWNER_ID,
+      conversationId: TASK_ID,
+      capabilities: [],
+    })
+
+    expect(await readdir(result.skillsRoot)).not.toContain("linksense-browser")
+  })
+
+  it("republishes the hot-path runtime when the enabled built-in Skills change", async () => {
+    const root = await temporaryDirectory()
+    const userDataRoot = join(root, "users")
+    const input = {
+      ownerId: OWNER_ID,
+      conversationId: TASK_ID,
+      capabilities: [],
+    }
+    const dockerMaterializer = new UserHomeCapabilityMaterializer({
+      userDataRoot,
+    })
+    const dockerRuntime = await dockerMaterializer.reconcile(input)
+    expect(await readdir(dockerRuntime.skillsRoot)).toContain(
+      "linksense-browser",
+    )
+
+    const hostMaterializer = new UserHomeCapabilityMaterializer({
+      userDataRoot,
+      managedBrowserEnabled: false,
+    })
+    const hostRuntime = await hostMaterializer.withPublicationStartFence(
+      input,
+      () =>
+        hostMaterializer.resolvePublishedRuntimeWithinPublicationStartFence(
+          input,
+        ),
+    )
+
+    expect(hostRuntime.generation).not.toBe(dockerRuntime.generation)
+    expect(await readdir(hostRuntime.skillsRoot)).not.toContain(
+      "linksense-browser",
+    )
+  })
+
   it("publishes native display metadata while keeping the original Skill directory and name", async () => {
     const root = await temporaryDirectory()
     const source = await createSkillSource(

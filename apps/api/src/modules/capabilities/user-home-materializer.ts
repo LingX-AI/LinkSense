@@ -21,6 +21,7 @@ import {
   capabilitySnapshotManifest,
   capabilitySnapshotSchema,
   type CapabilitySnapshot,
+  type BuiltInSkillName,
   builtInSkillNames,
   coreMcpServerKey,
   managedProjectionProbeContents,
@@ -55,7 +56,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "2db13d11ac013b2966af8e2caf34636d2ef0afd37e0af2513cd63ba170383388"
+  "4f8081989133f86d0eca2f62a16f332d9a6756f24ea2a173cf1d4e74c92c1947"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"
@@ -157,6 +158,7 @@ interface AppliedMutation {
 
 export class UserHomeCapabilityMaterializer {
   readonly #userDataRoot: string
+  readonly #enabledBuiltInSkillNames: readonly BuiltInSkillName[]
   readonly #publicationGuard: UserHomeCapabilityPublicationGuard
   readonly #instrumentation:
     | UserHomeCapabilityMaterializerInstrumentation
@@ -164,6 +166,7 @@ export class UserHomeCapabilityMaterializer {
 
   constructor(options: {
     userDataRoot: string
+    managedBrowserEnabled?: boolean
     publicationGuard?: UserHomeCapabilityPublicationGuard
     instrumentation?: UserHomeCapabilityMaterializerInstrumentation
   }) {
@@ -173,6 +176,9 @@ export class UserHomeCapabilityMaterializer {
       )
     }
     this.#userDataRoot = path.resolve(options.userDataRoot)
+    this.#enabledBuiltInSkillNames = enabledBuiltInSkillNames(
+      options.managedBrowserEnabled ?? true,
+    )
     this.#publicationGuard =
       options.publicationGuard ?? (async () => true)
     this.#instrumentation = options.instrumentation
@@ -282,7 +288,10 @@ export class UserHomeCapabilityMaterializer {
     validateCapabilitySet(input.capabilities)
     await this.#prepareOwnerDirectories(paths)
     const sourceDigest = verifySource
-      ? await calculateCapabilitySourceDigest(input.capabilities)
+      ? await calculateCapabilitySourceDigest(
+          input.capabilities,
+          this.#enabledBuiltInSkillNames,
+        )
       : null
     if (sourceDigest) {
       const existing = await readMatchingRuntimeVerification(paths, input.capabilities, sourceDigest)
@@ -290,7 +299,10 @@ export class UserHomeCapabilityMaterializer {
     }
     const key = createHash("sha256").update(JSON.stringify({
       version: 1,
-      builtIns: BUILT_IN_CAPABILITY_RUNTIME_REVISION,
+      builtIns: {
+        revision: BUILT_IN_CAPABILITY_RUNTIME_REVISION,
+        skills: this.#enabledBuiltInSkillNames,
+      },
       capabilities: [...input.capabilities].sort(compareCapabilities).map((capability) => ({
         ...capabilityRuntimeDescriptor(capability), sourcePath: capability.sourcePath,
       })),
@@ -322,7 +334,11 @@ export class UserHomeCapabilityMaterializer {
         })
         if (reused) return reused
         const staged = await this.#stage(paths, input.capabilities,
-          sourceDigest ?? await calculateCapabilitySourceDigest(input.capabilities))
+          sourceDigest ??
+            (await calculateCapabilitySourceDigest(
+              input.capabilities,
+              this.#enabledBuiltInSkillNames,
+            )))
         try {
           const snapshot: CapabilitySnapshot = {
             version: 1,
@@ -374,6 +390,7 @@ export class UserHomeCapabilityMaterializer {
     const verification = await readPublishedRuntimeVerification(
       paths,
       input.capabilities,
+      this.#enabledBuiltInSkillNames,
     )
     if (verification) return reconciledRuntime(paths, verification)
     return this.#resolveSnapshot(input, false)
@@ -433,6 +450,7 @@ export class UserHomeCapabilityMaterializer {
           paths,
           input.capabilities,
           input.verification,
+          this.#enabledBuiltInSkillNames,
         ))
       ) {
         throw new UserHomeCapabilityMaterializationError(
@@ -583,7 +601,9 @@ export class UserHomeCapabilityMaterializer {
         writeBuiltInDocumentReaderSkill(skillsRoot),
         writeBuiltInFileServiceSkill(skillsRoot),
         writeBuiltInImageGenerationSkill(skillsRoot),
-        writeBuiltInBrowserSkill(skillsRoot),
+        ...(this.#enabledBuiltInSkillNames.includes(BUILT_IN_BROWSER_SKILL_NAME)
+          ? [writeBuiltInBrowserSkill(skillsRoot)]
+          : []),
         writeBuiltInKnowledgeBaseSkill(skillsRoot),
         writeBuiltInLinksenseDocs(skillsRoot),
         writeBuiltInSkillCreator(skillsRoot),
@@ -827,12 +847,27 @@ function pluginNamesForCapabilities(
     .sort()
 }
 
+function skillNamesForCapabilities(
+  capabilities: UserHomeCapabilityInput[],
+  enabledBuiltIns: readonly BuiltInSkillName[],
+): string[] {
+  return [
+    ...enabledBuiltIns,
+    ...capabilities
+      .filter((capability) => capability.type === "skill")
+      .map((capability) => capability.name),
+  ].sort()
+}
+
 async function calculateCapabilitySourceDigest(
   capabilities: UserHomeCapabilityInput[],
+  enabledBuiltIns: readonly BuiltInSkillName[],
 ): Promise<string> {
   const hash = createHash("sha256")
   hash.update("linksense-capability-sources-v1\n")
-  hash.update(`built-ins\0${BUILT_IN_CAPABILITY_RUNTIME_REVISION}\0`)
+  hash.update(
+    `built-ins\0${BUILT_IN_CAPABILITY_RUNTIME_REVISION}\0${enabledBuiltIns.join(",")}\0`,
+  )
   for (const capability of [...capabilities].sort(compareCapabilities)) {
     hash.update(`${JSON.stringify(capabilityRuntimeDescriptor(capability))}\n`)
     await hashTree(
@@ -842,6 +877,14 @@ async function calculateCapabilitySourceDigest(
     )
   }
   return hash.digest("hex")
+}
+
+function enabledBuiltInSkillNames(
+  managedBrowserEnabled: boolean,
+): readonly BuiltInSkillName[] {
+  return managedBrowserEnabled
+    ? builtInSkillNames
+    : builtInSkillNames.filter((name) => name !== BUILT_IN_BROWSER_SKILL_NAME)
 }
 
 function verificationFromStaged(
@@ -1444,6 +1487,29 @@ async function readPublishedPluginSourceNames(
   return names
 }
 
+async function readPublishedSkillSourceNames(
+  skillsRoot: string,
+): Promise<string[]> {
+  const root = await lstat(skillsRoot)
+  if (!root.isDirectory() || root.isSymbolicLink()) {
+    throw new UserHomeCapabilityMaterializationError(
+      "skill root must be a real directory",
+    )
+  }
+
+  const names: string[] = []
+  for (const name of (await readdir(skillsRoot)).sort()) {
+    const info = await lstat(path.join(skillsRoot, name))
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+      throw new UserHomeCapabilityMaterializationError(
+        "skill root entries must be real directories",
+      )
+    }
+    names.push(name)
+  }
+  return names
+}
+
 function calculateGeneration(
   capabilities: UserHomeCapabilityInput[],
   contentDigest: string,
@@ -1648,6 +1714,7 @@ async function runtimeMatches(
 async function readPublishedRuntimeVerification(
   paths: UserHomeCapabilityPaths,
   capabilities: UserHomeCapabilityInput[],
+  enabledBuiltIns: readonly BuiltInSkillName[],
 ): Promise<CapabilityRuntimeVerification | null> {
   try {
     const snapshot = await readTaskSnapshot(paths)
@@ -1662,11 +1729,12 @@ async function readPublishedRuntimeVerification(
     ) {
       return null
     }
-    const [generation, contentDigest, sourceDigest, publishedPluginNames, marketplaceNames] =
+    const [generation, contentDigest, sourceDigest, publishedSkillNames, publishedPluginNames, marketplaceNames] =
       await Promise.all([
         readGeneration(paths.generationPath),
         readDigest(paths.contentDigestPath),
         readDigest(paths.sourceDigestPath),
+        readPublishedSkillSourceNames(paths.skillsRoot),
         readPublishedPluginSourceNames(paths.pluginsRoot),
         readManagedPluginNames(paths.marketplacePath),
       ])
@@ -1680,7 +1748,9 @@ async function readPublishedRuntimeVerification(
       return null
     }
     const pluginNames = pluginNamesForCapabilities(capabilities)
+    const skillNames = skillNamesForCapabilities(capabilities, enabledBuiltIns)
     if (
+      JSON.stringify(publishedSkillNames) !== JSON.stringify(skillNames) ||
       JSON.stringify(publishedPluginNames) !== JSON.stringify(pluginNames) ||
       JSON.stringify([...marketplaceNames].sort()) !== JSON.stringify(pluginNames)
     ) {
@@ -1696,12 +1766,14 @@ async function publishedRuntimeMatchesVerification(
   paths: UserHomeCapabilityPaths,
   capabilities: UserHomeCapabilityInput[],
   verification: CapabilityRuntimeVerification,
+  enabledBuiltIns: readonly BuiltInSkillName[],
 ): Promise<boolean> {
   try {
     assertRuntimeVerification(verification, capabilities)
     const published = await readPublishedRuntimeVerification(
       paths,
       capabilities,
+      enabledBuiltIns,
     )
     return (
       published !== null &&

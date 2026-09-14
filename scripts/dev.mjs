@@ -601,50 +601,87 @@ export async function waitForDevelopmentApplicationReadiness(
   // Docker's port proxy may accept connections before the application listens.
   // Bound each local probe so those stale connections do not delay the next round.
   const requestTimeoutMs = options.requestTimeoutMs ?? 500;
-  const targets = developmentReadinessTargets(environment).map((target) => ({ ...target, lastError: "not checked yet" }));
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    options.signal?.throwIfAborted();
-    await Promise.all(
-      targets.map(async (target) => {
-        try {
-          const response = await fetchImplementation(target.url, {
-            method: target.method ?? "GET",
-            headers: target.headers,
-            signal: AbortSignal.any([
-              AbortSignal.timeout(Math.max(1, Math.min(requestTimeoutMs, deadline - Date.now()))),
-              ...(options.signal ? [options.signal] : []),
-            ]),
-          });
-          const validBody = target.bodyIncludes ? (await response.text()).includes(target.bodyIncludes) : true;
-          const validType = !target.contentTypeIncludes || (response.headers.get("content-type") ?? "").includes(target.contentTypeIncludes);
-          if (!target.bodyIncludes) await response.body?.cancel();
-          const validStatus = target.expectedStatus === undefined ? response.ok : response.status === target.expectedStatus;
-          target.lastError = !validStatus ? `HTTP ${response.status}` : !validType ? "Unexpected content type" : validBody ? null : "Unexpected page content";
-        } catch (error) {
-          target.lastError =
-            error instanceof Error ? error.message : "request failed";
-        }
-      }),
+  const targetGroups = [
+    ...(options.prerequisiteTargets?.length
+      ? [options.prerequisiteTargets]
+      : []),
+    developmentReadinessTargets(environment),
+  ];
+  for (const group of targetGroups) {
+    const targets = group.map((target) => ({
+      ...target,
+      lastError: "not checked yet",
+    }));
+    let groupReady = false;
+    while (Date.now() < deadline) {
+      options.signal?.throwIfAborted();
+      await Promise.all(
+        targets.map(async (target) => {
+          try {
+            const response = await fetchImplementation(target.url, {
+              method: target.method ?? "GET",
+              headers: target.headers,
+              signal: AbortSignal.any([
+                AbortSignal.timeout(
+                  Math.max(
+                    1,
+                    Math.min(requestTimeoutMs, deadline - Date.now()),
+                  ),
+                ),
+                ...(options.signal ? [options.signal] : []),
+              ]),
+            });
+            const validBody = target.bodyIncludes
+              ? (await response.text()).includes(target.bodyIncludes)
+              : true;
+            const validType =
+              !target.contentTypeIncludes ||
+              (response.headers.get("content-type") ?? "").includes(
+                target.contentTypeIncludes,
+              );
+            if (!target.bodyIncludes) await response.body?.cancel();
+            const validStatus =
+              target.expectedStatus === undefined
+                ? response.ok
+                : response.status === target.expectedStatus;
+            target.lastError = !validStatus
+              ? `HTTP ${response.status}`
+              : !validType
+                ? "Unexpected content type"
+                : validBody
+                  ? null
+                  : "Unexpected page content";
+          } catch (error) {
+            target.lastError =
+              error instanceof Error ? error.message : "request failed";
+          }
+        }),
+      );
+      options.signal?.throwIfAborted();
+      // A service that passed an earlier probe may have restarted after source
+      // synchronization. Require every target in this stage to pass together.
+      if (targets.every((target) => target.lastError === null)) {
+        groupReady = true;
+        break;
+      }
+      if (Date.now() >= deadline) break;
+      await sleepImplementation(Math.min(intervalMs, deadline - Date.now()));
+    }
+    if (groupReady) continue;
+    const detail = targets
+      .filter((target) => target.lastError !== null)
+      .map(
+        (target) =>
+          `${target.name} ${target.url} (${target.lastError})`,
+      )
+      .join("; ");
+    throw new Error(
+      `Development services did not become ready within ${Math.ceil(
+        timeoutMs / 1000,
+      )}s: ${detail}`,
     );
-    options.signal?.throwIfAborted();
-    // A service that passed an earlier probe may have restarted after source
-    // synchronization. Require the entire stack to pass in the same round.
-    if (targets.every((target) => target.lastError === null)) return;
-    if (Date.now() >= deadline) break;
-    await sleepImplementation(Math.min(intervalMs, deadline - Date.now()));
   }
-  const detail = targets.filter((target) => target.lastError !== null)
-    .map(
-      (target) =>
-        `${target.name} ${target.url} (${target.lastError})`,
-    )
-    .join("; ");
-  throw new Error(
-    `Development services did not become ready within ${Math.ceil(
-      timeoutMs / 1000,
-    )}s: ${detail}`,
-  );
 }
 
 export function developmentMigrationDeployCommand() {
