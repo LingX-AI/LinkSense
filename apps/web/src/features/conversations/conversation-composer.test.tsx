@@ -380,6 +380,44 @@ describe("conversation voice input", () => {
     )
   })
 
+  it.each(["zh-CN", "en-US", "fr-FR"])(
+    "shows the unavailable notice once and restores the placeholder after recovery in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const unavailableMessage = i18n.t("errors.application.notFound")
+      const { props, rerender } = renderComposer({
+        interactionBlocked: true,
+        unavailableMessage,
+      })
+      const input = screen.getByRole("textbox", {
+        name: i18n.t("conversation.messageInput"),
+      })
+
+      expect(screen.getAllByText(unavailableMessage)).toHaveLength(1)
+      expect(screen.getByRole("status")).toHaveTextContent(unavailableMessage)
+      expect(input).not.toHaveAttribute("placeholder")
+      expect(input).toBeDisabled()
+      expect(
+        screen.getByRole("button", { name: i18n.t("conversation.send") })
+      ).toBeDisabled()
+
+      rerender(
+        <ConversationComposer
+          {...props}
+          interactionBlocked={false}
+          unavailableMessage={undefined}
+        />
+      )
+
+      expect(screen.queryByText(unavailableMessage)).not.toBeInTheDocument()
+      expect(input).toBeEnabled()
+      expect(input).toHaveAttribute(
+        "placeholder",
+        i18n.t("conversation.placeholder", { productName: "LinkSense" })
+      )
+    }
+  )
+
   it("highlights a pasted URL without absorbing following Chinese prose", async () => {
     const interaction = userEvent.setup()
     const { props } = renderStatefulComposer()
