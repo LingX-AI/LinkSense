@@ -513,11 +513,13 @@ describe("task categories", () => {
         }
         const dialog = await screen.findByRole("dialog", { name: "重命名" })
         const input = within(dialog).getByRole("textbox", { name: "任务" })
+        await waitFor(() => expect(input).toHaveFocus())
         await interaction.clear(input)
         await interaction.type(input, "新的生活计划")
-        await interaction.click(
-          within(dialog).getByRole("button", { name: "保存" })
-        )
+        expect(input).toHaveValue("新的生活计划")
+        const saveButton = within(dialog).getByRole("button", { name: "保存" })
+        await waitFor(() => expect(saveButton).toBeEnabled())
+        await interaction.click(saveButton)
         await waitFor(() =>
           expect(actions).toContainEqual({
             path: "/api/v1/conversations/new-task-1",
