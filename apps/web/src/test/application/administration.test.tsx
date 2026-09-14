@@ -1,11 +1,16 @@
 import i18n from "@/i18n"
 import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { describe, expect, it, vi } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
 import { setupApplicationTests, installApiMock, renderApp } from "./fixture"
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  beforeAll(async () => {
+    // Keep cold route compilation outside interaction deadlines on hosted CI.
+    // Exercise the real page; do not replace the lazy route with a mock.
+    await import("@/pages/admin-pages")
+  })
   it.each([
     ["zh-CN", "操作"],
     ["en-US", "Actions"],
@@ -481,7 +486,9 @@ describe("LinkSense application", () => {
       name: "启用用户 张宁",
     })
     expect(enableSwitch).not.toBeChecked()
-    expect(await screen.findByText("已禁用用户 张宁")).toBeVisible()
+    await waitFor(() =>
+      expect(screen.getByText("已禁用用户 张宁")).toBeVisible()
+    )
 
     await interaction.click(enableSwitch)
     await waitFor(() =>
@@ -498,7 +505,9 @@ describe("LinkSense application", () => {
     expect(
       await within(userRow).findByRole("switch", { name: "禁用用户 张宁" })
     ).toBeChecked()
-    expect(await screen.findByText("已启用用户 张宁")).toBeVisible()
+    await waitFor(() =>
+      expect(screen.getByText("已启用用户 张宁")).toBeVisible()
+    )
   })
 
   it("keeps the last enabled administrator status switch disabled", async () => {
