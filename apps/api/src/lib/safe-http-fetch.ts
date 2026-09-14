@@ -24,6 +24,7 @@ export type SafeHttpFetchOptions = {
   accept: string
   userAgent: string
   errorCode: ErrorCode
+  signal?: AbortSignal
   allowedProtocols?: readonly HttpProtocol[]
   allowBenchmarkProxyAddresses?: boolean
   fetcher?: typeof fetch
@@ -48,25 +49,29 @@ export async function fetchPublicHttpResource(
   let current = new URL(url)
 
   for (let redirects = 0; redirects <= options.redirectCount; redirects += 1) {
-    const addresses = await resolvePublicHttpAddresses(
-      current,
-      lookup,
-      allowedProtocols,
-      options.errorCode,
-      options.allowBenchmarkProxyAddresses ?? false,
-    )
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), options.requestTimeoutMs)
     timeout.unref()
+    const signal = options.signal
+      ? AbortSignal.any([controller.signal, options.signal])
+      : controller.signal
     let response: Response | undefined
 
     try {
+      const addresses = await resolvePublicHttpAddresses(
+        current,
+        lookup,
+        allowedProtocols,
+        options.errorCode,
+        options.allowBenchmarkProxyAddresses ?? false,
+        signal,
+      )
       response =
         options.fetcher === undefined
           ? await pinnedHttpFetch({
               url: current,
               addresses,
-              signal: controller.signal,
+              signal,
               byteLimit: options.byteLimit,
               accept: options.accept,
               userAgent: options.userAgent,
@@ -75,7 +80,7 @@ export async function fetchPublicHttpResource(
           : await options.fetcher(current, {
               method: "GET",
               redirect: "manual",
-              signal: controller.signal,
+              signal,
               headers: {
                 accept: options.accept,
                 "user-agent": options.userAgent,
@@ -173,7 +178,9 @@ async function resolvePublicHttpAddresses(
   allowedProtocols: readonly HttpProtocol[],
   errorCode: ErrorCode,
   allowBenchmarkProxyAddresses: boolean,
+  signal?: AbortSignal,
 ): Promise<LookupAddress[]> {
+  const hostname = url.hostname.replace(/^\[|\]$/gu, "")
   if (!allowedProtocols.includes(url.protocol as HttpProtocol)) {
     throw new AppError(errorCode)
   }
@@ -187,12 +194,15 @@ async function resolvePublicHttpAddresses(
     throw new AppError(errorCode)
   }
 
-  const hostname = url.hostname.replace(/^\[|\]$/gu, "")
   const allowProxyResolution =
     allowBenchmarkProxyAddresses && isIP(hostname) === 0
   let addresses: LookupAddress[]
   try {
-    addresses = await lookup(hostname, { all: true, verbatim: true })
+    addresses = await waitForLookup(
+      lookup(hostname, { all: true, verbatim: true }),
+      signal,
+      errorCode,
+    )
   } catch {
     throw new AppError(errorCode)
   }
@@ -208,6 +218,32 @@ async function resolvePublicHttpAddresses(
     throw new AppError(errorCode)
   }
   return addresses
+}
+
+async function waitForLookup<T>(
+  lookupPromise: Promise<T>,
+  signal: AbortSignal | undefined,
+  errorCode: ErrorCode,
+): Promise<T> {
+  if (!signal) return lookupPromise
+  if (signal.aborted) throw new AppError(errorCode)
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => {
+      signal.removeEventListener("abort", abort)
+      reject(new AppError(errorCode))
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    void lookupPromise.then(
+      (value) => {
+        signal.removeEventListener("abort", abort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort)
+        reject(error)
+      },
+    )
+  })
 }
 
 async function readResponseWithLimit(

@@ -1,6 +1,118 @@
 # Development startup and environment consistency
 
-Development applications continue to run in Linux containers. Development, API, Runner and Web builds pin the same Node base-image digest, and Prisma Client is generated inside Linux. PostgreSQL and Redis use the base Compose configuration, while task workers use the production Dockerfile. Development retains source hot reload; production runs compiled artifacts. Before release, run `pnpm build` and validate production images with `pnpm dev:prod`.
+The default `pnpm dev` applications continue to run in Linux containers. Development, API, Runner and Web builds pin the same Node base-image digest, and Prisma Client is generated inside Linux. PostgreSQL and Redis use the base Compose configuration, while task workers use the production Dockerfile. Development retains source hot reload; production runs compiled artifacts. Before release, run `pnpm build` and validate production images with `pnpm dev:prod`.
+
+## Host development without local Docker
+
+`pnpm dev:host` runs Web, API, Help Center, the Runner controller, and per-user
+task workers as host Node.js processes. It does not invoke Docker. Use this mode
+for trusted local development when Docker Desktop or a local Docker Engine would
+be too heavy. It is not a production deployment mode.
+
+The controller provisions a host-only `linksense-plugin-stdio` launcher under
+`LINKSENSE_USER_DATA_ROOT` so credential-bound STDIO plugins use the same
+credential projection as Docker workers. The launcher points to the current
+checkout and Node.js runtime; it does not install a global command.
+
+### Requirements
+
+- Node.js 24+ and the pnpm version declared in the root `package.json`.
+- Python 3.12+ with the standard-library `venv` module available. Host task
+  workers create a per-user virtual environment with `python3 -m venv`; the
+  launcher does not install Python or system packages.
+- A Codex CLI compatible with `CODEX_VERSION` in `.env.example`, available as
+  `codex` on `PATH` or configured with `CODEX_BIN`.
+- A running PostgreSQL database and Redis instance reachable from the host.
+  PostgreSQL credentials must be allowed to run the committed Prisma migrations,
+  and the target database must already exist.
+- Repository dependencies installed with `pnpm install --frozen-lockfile`.
+
+LinkSense does not install or manage PostgreSQL, Redis, Codex, or any optional
+remote service in host mode.
+
+### Minimal Core configuration
+
+Core mode disables knowledge-base processing, so Elasticsearch and Docling are
+not required. The development-only local filesystem storage adapter removes the
+MinIO requirement. Start from the tracked minimal template:
+
+```bash
+cp deploy/development/env.host.example .env.host
+```
+
+Edit only these values when necessary:
+
+- `DATABASE_URL`: a host-reachable PostgreSQL URL. URL-encode credentials.
+- `REDIS_URL`: a host-reachable Redis URL; `redis://` and `rediss://` are
+  supported by the client.
+- The five distinct `LINKSENSE_*_SECRET` or key values. The template values are
+  safe only for a private local machine.
+- `LINKSENSE_DEV_WEB_ORIGIN` and `LINKSENSE_DEV_WEB_PORT` together if port 5273
+  is unavailable. API 4000 and Runner 4010 have corresponding
+  `LINKSENSE_DEV_*` overrides; the Help Center currently uses port 3001.
+
+Do not add MinIO, Elasticsearch, or Docling variables for the minimal setup.
+Local objects are persisted under
+`LINKSENSE_USER_DATA_ROOT/.object-storage`; the default root is
+`.data/users` inside the repository.
+
+### Start and stop
+
+```bash
+corepack enable
+corepack prepare pnpm@10.6.4 --activate
+pnpm install --frozen-lockfile
+pnpm dev:host
+```
+
+On every start, the launcher reads `.env.host`, validates host-reachable
+dependencies and free loopback ports, generates Prisma Client, runs
+`prisma migrate deploy` and the idempotent seed, then starts all four
+applications. Readiness is reported only after Runner, API, Web, and the
+proxied bilingual Help Center respond.
+
+Press `Ctrl+C` to stop the active session and its child processes. Use
+`pnpm dev:host:cleanup` only when the terminal was lost, the parent process
+exited unexpectedly, or a registered child still holds a development port.
+
+Default endpoints:
+
+- Web: `http://localhost:5273`
+- API: `http://localhost:4000`
+- Runner: `http://localhost:4010`
+- Help Center: `http://localhost:5273/help/`
+
+### Optional remote services and Full edition
+
+Host mode may use remote PostgreSQL, Redis, and S3-compatible MinIO endpoints.
+Set `LINKSENSE_OBJECT_STORAGE_PROVIDER=minio` and provide all documented
+`MINIO_*` values when remote object storage is desired. Full edition also
+requires host-reachable Elasticsearch and Docling configuration; it is not part
+of the minimal setup. Container-only names such as `postgres`, `redis`, `minio`,
+`api`, `runner`, and `host.docker.internal` are rejected instead of silently
+changing providers.
+
+### Isolation and production invariants
+
+The `local-process` Worker Provider uses child processes and the same Worker
+contract as Docker, but provides no container, cgroup, filesystem, or network
+isolation. Run only trusted tasks and plugins. The launcher forces loopback
+listeners and development mode. Runner configuration rejects `local-process`
+outside development or on a non-loopback controller, and API configuration
+rejects local filesystem object storage in production or Full edition.
+
+Host mode also disables the built-in `linksense-browser` Skill, managed browser
+MCP server, and browser-specific prompt context because the bundled Chromium
+runtime is available only in Docker Workers. Use `pnpm dev` for tasks that need
+the managed browser.
+
+The normal `pnpm dev`, production Compose files, and release installation remain
+Docker-based. Their Runner configuration defaults to the `docker` provider and
+continues to create the existing per-user worker containers. `.env.host` is
+ignored by Git and is read only by `pnpm dev:host`; Docker workflows continue to
+use `.env` or their explicit Compose environment file.
+
+## Container development and production parity
 
 Run `pnpm dev:prepare` once to build images, prepare infrastructure and the database, synchronize source, and start every application until ready, warming runtime caches. Services remain running when preparation finishes; `pnpm dev` then attaches logs and source watching. Running `pnpm dev` directly also performs any missing preparation.
 

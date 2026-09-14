@@ -30,6 +30,40 @@ describe("system routes", () => {
     expect(health).not.toHaveBeenCalled()
     await app.close()
   })
+  it("suppresses info request logs for readiness probes", async () => {
+    const logLines: string[] = []
+    const app = Fastify({
+      logger: {
+        level: "info",
+        stream: {
+          write(line: string) {
+            logLines.push(line)
+          },
+        },
+      },
+    })
+    await app.register(systemRoutes, {
+      prefix: "/api/v1/system",
+      services: {
+        system: {
+          bootstrap: vi.fn().mockResolvedValue({ initialized: true }),
+          readiness: vi.fn().mockResolvedValue({
+            status: "available",
+            readiness: "ready",
+            checked_at: "2026-09-06T00:00:00.000Z",
+          }),
+        },
+      } as unknown as AppServices,
+    })
+
+    await app.inject({ method: "GET", url: "/api/v1/system/health/ready" })
+    expect(logLines.join("")).not.toContain("/api/v1/system/health/ready")
+
+    await app.inject({ method: "GET", url: "/api/v1/system/bootstrap" })
+    expect(logLines.join("")).toContain("/api/v1/system/bootstrap")
+    await app.close()
+  })
+
   it("serves the configured system logo through a same-origin endpoint", async () => {
     const readProductLogo = vi.fn().mockResolvedValue({
       data: ONE_PIXEL_PNG,

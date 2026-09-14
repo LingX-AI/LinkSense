@@ -8,6 +8,7 @@ import { z } from "zod"
 
 import {
   builtInSkillNames,
+  type BuiltInSkillName,
   capabilitySnapshotDirectory,
   capabilitySnapshotManifest,
   capabilitySnapshotIdSchema,
@@ -82,6 +83,7 @@ export class CapabilityRuntimeManager {
   readonly #apiIdentity: RuntimeIdentity
   readonly #taskIdentity: RuntimeIdentity
   readonly #onFullVerification: (() => void) | undefined
+  readonly #enabledBuiltInSkillNames: readonly BuiltInSkillName[]
   readonly #verifiedSnapshots = new Map<string, {
     capabilityFingerprint: string
     contentDigest: string
@@ -99,6 +101,7 @@ export class CapabilityRuntimeManager {
     apiIdentity?: RuntimeIdentity
     taskIdentity?: RuntimeIdentity
     onFullVerification?: () => void
+    managedBrowserEnabled?: boolean
   }) {
     this.#onFullVerification = options?.onFullVerification
     this.#apiIdentity = options?.apiIdentity ?? {
@@ -109,6 +112,10 @@ export class CapabilityRuntimeManager {
       uid: linksenseRuntimeIdentity.taskUid,
       gid: linksenseRuntimeIdentity.sharedGid,
     }
+    this.#enabledBuiltInSkillNames =
+      options?.managedBrowserEnabled === false
+        ? builtInSkillNames.filter((name) => name !== "linksense-browser")
+        : builtInSkillNames
   }
 
   pathsFor(
@@ -444,7 +451,10 @@ export class CapabilityRuntimeManager {
     skillsRoot: string,
     authorizedSkillNames: ReadonlySet<string>,
   ): Promise<void> {
-    const expected = [...builtInSkillNames, ...authorizedSkillNames].sort()
+    const expected = [
+      ...this.#enabledBuiltInSkillNames,
+      ...authorizedSkillNames,
+    ].sort()
     const published = (await readdir(skillsRoot)).sort()
     if (!sameStrings(published, expected)) throw new CapabilityRuntimeError()
     for (const name of published) {

@@ -1,5 +1,6 @@
 import type { LookupAddress } from "node:dns"
 import { EventEmitter } from "node:events"
+import type { LookupFunction } from "node:net"
 import { PassThrough } from "node:stream"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -140,6 +141,69 @@ describe("fetchPublicHttpResource", () => {
     await expect(fetchResource({ byteLimit: PNG.byteLength })).resolves.toMatchObject({ bytes: PNG })
   })
 
+  it("pins the validated DNS result into the request transport", async () => {
+    configurePinnedRequest()
+    const lookup = vi.fn(async (): Promise<LookupAddress[]> => [
+      { address: "93.184.216.34", family: 4 },
+    ]) as unknown as typeof import("node:dns").promises.lookup
+
+    await fetchResource({ lookup })
+
+    const options = requestMock.mock.calls[0]?.[1] as
+      | PinnedRequestOptions
+      | undefined
+    const pinnedLookup = options?.lookup as LookupFunction | undefined
+    expect(pinnedLookup).toBeTypeOf("function")
+    await new Promise<void>((resolve, reject) => {
+      pinnedLookup?.(
+        "public.example",
+        { all: true },
+        (error, addresses) => {
+          if (error) reject(error)
+          else {
+            expect(addresses).toEqual([
+              { address: "93.184.216.34", family: 4 },
+            ])
+            resolve()
+          }
+        }
+      )
+    })
+  })
+
+  it("rejects mixed public and private DNS answers before opening a socket", async () => {
+    const lookup = vi.fn(async (): Promise<LookupAddress[]> => [
+      { address: "93.184.216.34", family: 4 },
+      { address: "169.254.169.254", family: 4 },
+    ]) as unknown as typeof import("node:dns").promises.lookup
+
+    await expect(fetchResource({ lookup })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    })
+    expect(requestMock).not.toHaveBeenCalled()
+  })
+
+  it("applies timeout and caller cancellation while DNS is pending", async () => {
+    vi.useFakeTimers()
+    const lookup = vi.fn(
+      () => new Promise<LookupAddress[]>(() => undefined)
+    ) as unknown as typeof import("node:dns").promises.lookup
+    const timedOut = expect(
+      fetchResource({ lookup, requestTimeoutMs: 1_000 })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" })
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    await timedOut
+
+    const controller = new AbortController()
+    const cancelled = expect(
+      fetchResource({ lookup, signal: controller.signal })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" })
+    controller.abort()
+    await cancelled
+    expect(requestMock).not.toHaveBeenCalled()
+  })
+
   it("rejects a response stream error without leaving a pending request", async () => {
     configurePinnedRequest({ responseError: new Error("upstream reset") })
     await expect(fetchResource()).rejects.toMatchObject({ code: "NOT_FOUND" })
@@ -161,6 +225,20 @@ describe("fetchPublicHttpResource", () => {
     await checked
     expect(incoming.destroyed).toBe(true)
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("accepts caller cancellation for an in-flight request", async () => {
+    const controller = new AbortController()
+    const { incoming } = configurePinnedRequest({ end: false })
+    const checked = expect(
+      fetchResource({ signal: controller.signal })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" })
+    await vi.waitFor(() => expect(requestMock).toHaveBeenCalledOnce())
+
+    controller.abort()
+
+    await checked
+    expect(incoming.destroyed).toBe(true)
   })
 
   it("revalidates redirect destinations and never requests a private address", async () => {

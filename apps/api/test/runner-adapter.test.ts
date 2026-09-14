@@ -646,6 +646,38 @@ describe("RunnerClient health", () => {
     });
   });
 
+  it("accepts local-process worker provider diagnostics", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValueOnce(
+        jsonResponse({
+          status: "available",
+          checked_at: "2026-07-16T00:00:00.000Z",
+          workspace: componentHealth(),
+          codex_home: componentHealth(),
+          codex_app_server: { ...componentHealth(), cached: true },
+          running_turns: 0,
+          app_server_processes: 0,
+          concurrency_limit: 20,
+          app_server_process_limit: 20,
+          process_limit: 20,
+          turn_start_contract_version: RUNNER_TURN_START_CONTRACT_VERSION,
+          worker_provider: {
+            kind: "local-process",
+            isolation: "none",
+          },
+        }),
+      ),
+    );
+
+    await expect(new RunnerClient(testConfig()).health()).resolves.toMatchObject({
+      worker_provider: {
+        kind: "local-process",
+        isolation: "none",
+      },
+    });
+  });
+
   it("rejects an incompatible runner turn-start contract version", async () => {
     vi.stubGlobal(
       "fetch",

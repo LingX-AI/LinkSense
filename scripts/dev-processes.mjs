@@ -39,6 +39,12 @@ const serviceTemplates = [
     relativeDirectory: "apps/web",
     port: 18173,
   },
+  {
+    label: "Docs",
+    workspace: "@linksense/docs",
+    relativeDirectory: "apps/docs",
+    port: 3001,
+  },
 ];
 
 function servicesFor(rootDirectory) {

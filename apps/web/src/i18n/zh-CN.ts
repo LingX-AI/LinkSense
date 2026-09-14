@@ -2743,6 +2743,40 @@ export const zhCN = {
         remote: "由远程环境提供",
       },
     },
+    securityReview: {
+      title: "供应链安全扫描",
+      summary_one: "扫描器 {{version}} · 共发现 {{count}} 项",
+      summary_other: "扫描器 {{version}} · 共发现 {{count}} 项",
+      contentHash: "内容哈希：{{hash}}",
+      findingsTruncated: "仅显示前 200 项；完整计数已保留在扫描结果中。",
+      verdict: {
+        passed: "通过",
+        warnings: "需要关注",
+        blocked: "已阻止",
+      },
+      severity: {
+        low: "低",
+        medium: "中",
+        high: "高",
+        critical: "严重",
+      },
+      rules: {
+        embedded_private_key: "包含私钥材料",
+        embedded_access_token: "包含高置信访问令牌",
+        dynamic_code_execution: "包含动态代码执行",
+        shell_command_execution: "包含 Shell 命令执行",
+        download_and_execute: "下载后直接执行内容",
+        sensitive_data_exfiltration: "疑似读取并外传敏感数据",
+        cloud_metadata_access: "访问云主机元数据服务",
+        reverse_shell: "包含反向 Shell 特征",
+        destructive_system_command: "包含破坏性系统命令",
+        startup_persistence: "尝试配置系统启动持久化",
+        fork_bomb: "包含进程 Fork Bomb",
+        unscannable_interpretable_file: "包含无法安全扫描的可解释源码内容",
+        unscannable_executable: "包含无法扫描的可执行二进制内容",
+        oversized_scannable_file: "可扫描文件超过安全审查大小限制",
+      },
+    },
   },
   clawHub: {
     sourceName: "ClawHub",
@@ -4513,6 +4547,10 @@ export const zhCN = {
       logo_file_invalid: "Logo 文件格式无效或超过大小限制。",
       requested_type_mismatch:
         "当前选择的类型是 {{expected}}，但压缩包实际类型是 {{actual}}。",
+      security_review_blocked:
+        "供应链扫描发现 {{finding_count}} 项风险，其中包含严重风险，已阻止安装或审核通过。",
+      security_review_stale:
+        "供应链扫描结果与当前内容或扫描器版本不一致，请重新生成预览或重新提交发布。",
     },
     importFailed: "插件/Skill 导入失败，请检查来源后重试。",
     capabilityHomeSyncFailed:

@@ -15,6 +15,7 @@ import {
   UserHomeCapabilityPublicationDeferredError,
 } from "../src/modules/capabilities/user-home-materializer.js";
 import { hashMarketplacePackage } from "../src/modules/marketplace/package.js";
+import { scanCapabilitySupplyChain } from "../src/modules/capabilities/supply-chain-scanner.js";
 
 const TASK_ID = "01900000-0000-7000-8000-000000000011";
 const USER_ID = "10000000-0000-4000-8000-000000000001";
@@ -34,11 +35,16 @@ const CAPABILITY_CONTENT_DIGEST = "c".repeat(64);
 const CAPABILITY_SOURCE_DIGEST = "d".repeat(64);
 const BUILT_IN_BROWSER_ID = "builtin:capability:linksense-browser";
 const roots: string[] = [];
+const approvedCapabilityReviews = new Map<
+  string,
+  Awaited<ReturnType<typeof scanCapabilitySupplyChain>>
+>();
 
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
+  approvedCapabilityReviews.clear();
 });
 
 describe("DatabaseConversationPreflight credential isolation", () => {
@@ -106,7 +112,6 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       ownerId: APPLICATION_OWNER_ID,
       type: "skill",
       name: "application-research",
-      riskSummaryJson: null,
     };
     const prisma = prismaFixture([applicationSkill]);
     const credentials = {
@@ -311,6 +316,9 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       ...capability(PRIMARY_PLUGIN_ID, join(root, "primary"), true),
       ownerId: APPLICATION_OWNER_ID,
       riskSummaryJson: {
+        supply_chain_review: approvedCapabilityReviews.get(
+          join(root, "primary"),
+        ),
         requires_credentials: true,
         declared_environment_keys: ["API_KEY"],
       },
@@ -398,6 +406,9 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       ...capability(PRIMARY_PLUGIN_ID, join(root, "primary"), true),
       ownerId: APPLICATION_OWNER_ID,
       riskSummaryJson: {
+        supply_chain_review: approvedCapabilityReviews.get(
+          join(root, "primary"),
+        ),
         requires_credentials: true,
         declared_environment_keys: ["API_KEY"],
       },
@@ -1235,6 +1246,89 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     expect(home.reconcile).not.toHaveBeenCalled();
   });
 
+  it("revalidates an approved capability content hash at task admission", async () => {
+    const root = await capabilityRoot();
+    const storagePath = join(root, "primary");
+    await writeFile(join(storagePath, "SKILL.md"), "# Approved skill\n");
+    const approved = {
+      ...capability(PRIMARY_PLUGIN_ID, storagePath, false),
+      type: "skill",
+      name: "approved-skill",
+      riskSummaryJson: {
+        supply_chain_review: await scanCapabilitySupplyChain(storagePath),
+      },
+    };
+    const home = materializer();
+    const preflight = new DatabaseConversationPreflight(
+      prismaFixture([approved]) as never,
+      {
+        resolveForCapability: vi.fn(),
+        commitUsage: vi.fn(async () => undefined),
+      } as never,
+      root,
+      "credential-source-secret-for-tests-1234567890",
+      home,
+    );
+
+    await expect(
+      preflight.resolve({
+        userId: USER_ID,
+        conversationId: TASK_ID,
+        priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
+      }),
+    ).resolves.toMatchObject({
+      capabilities: [{ id: PRIMARY_PLUGIN_ID, type: "skill" }],
+    });
+
+    await writeFile(join(storagePath, "SKILL.md"), "# Changed after approval\n");
+    await expect(
+      preflight.resolve({
+        userId: USER_ID,
+        conversationId: TASK_ID,
+        priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_PACKAGE",
+      params: { reason_code: "security_review_stale" },
+    });
+    expect(home.reconcile).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed before materialization when a capability has no current approval", async () => {
+    const root = await capabilityRoot();
+    const storagePath = join(root, "primary");
+    await writeFile(join(storagePath, "SKILL.md"), "# Unreviewed skill\n");
+    const unreviewed = {
+      ...capability(PRIMARY_PLUGIN_ID, storagePath, false),
+      type: "skill",
+      name: "unreviewed-skill",
+      riskSummaryJson: { supply_chain_review: undefined },
+    };
+    const home = materializer();
+    const preflight = new DatabaseConversationPreflight(
+      prismaFixture([unreviewed]) as never,
+      {
+        resolveForCapability: vi.fn(),
+        commitUsage: vi.fn(async () => undefined),
+      } as never,
+      root,
+      "credential-source-secret-for-tests-1234567890",
+      home,
+    );
+
+    await expect(
+      preflight.resolve({
+        userId: USER_ID,
+        conversationId: TASK_ID,
+        priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_PACKAGE",
+      params: { reason_code: "security_review_stale" },
+    });
+    expect(home.reconcile).not.toHaveBeenCalled();
+  });
+
   it("accepts an intact marketplace package and fails closed after it is modified", async () => {
     const root = await capabilityRoot();
     const storagePath = join(root, "primary");
@@ -1247,6 +1341,9 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       sourceType: "marketplace",
       marketplaceListingId: MARKETPLACE_LISTING_ID,
       marketplaceReleaseId: MARKETPLACE_RELEASE_ID,
+      riskSummaryJson: {
+        supply_chain_review: await scanCapabilitySupplyChain(storagePath),
+      },
     };
     const prisma = prismaFixture([installedSkill]);
     prisma.marketplaceListing.findMany.mockResolvedValue([
@@ -1350,10 +1447,18 @@ describe("running-turn capability publication guard", () => {
 async function capabilityRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "linksense-preflight-"));
   roots.push(root);
-  await Promise.all([
-    mkdir(join(root, "primary"), { recursive: true }),
-    mkdir(join(root, "secondary"), { recursive: true }),
-  ]);
+  const storagePaths = [join(root, "primary"), join(root, "secondary")];
+  await Promise.all(storagePaths.map(async (storagePath) => {
+    await mkdir(storagePath, { recursive: true });
+    await writeFile(
+      join(storagePath, "SKILL.md"),
+      "---\nname: test-capability\n---\n\nTest fixture.\n",
+    );
+    approvedCapabilityReviews.set(
+      storagePath,
+      await scanCapabilitySupplyChain(storagePath),
+    );
+  }));
   return root;
 }
 
@@ -1442,6 +1547,9 @@ function capability(id: string, storagePath: string, hasMcpServers: boolean) {
     marketplaceListingId: null as string | null,
     marketplaceReleaseId: null as string | null,
     manifestJson: { has_mcp_servers: hasMcpServers },
+    riskSummaryJson: {
+      supply_chain_review: approvedCapabilityReviews.get(storagePath),
+    },
     updatedAt: new Date("2026-07-19T00:00:00.000Z"),
   };
 }

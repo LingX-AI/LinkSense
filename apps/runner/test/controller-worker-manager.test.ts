@@ -19,16 +19,20 @@ import type {
   WorkerTransport,
 } from "../src/controller/worker-http-client.js"
 import {
-  buildWorkerContainerSpec,
   prepareTaskOwnedDirectory,
   removeUserDirectoryAfterContainerRelease,
   WorkerManager,
 } from "../src/controller/worker-manager.js"
-import type {
-  DockerContainerCreate,
-  DockerContainerResourceStats,
-  DockerContainerSummary,
-  DockerEngine,
+import {
+  buildWorkerContainerSpec,
+  DockerWorkerProvider,
+} from "../src/controller/docker-worker-provider.js"
+import {
+  DockerEngineError,
+  type DockerContainerCreate,
+  type DockerContainerResourceStats,
+  type DockerContainerSummary,
+  type DockerEngine,
 } from "../src/docker/engine-client.js"
 import { TURN_START_CONTRACT_VERSION } from "../src/turn-start-contract.js"
 
@@ -157,7 +161,7 @@ describe("controller worker lifecycle", () => {
     ])
     const docker = new FakeDocker()
     const transport = new FakeTransport()
-    const manager = new WorkerManager(
+    const manager = createDockerWorkerManager(
       createConfig({ LINKSENSE_USER_DATA_ROOT: userDataRoot }),
       docker,
       transport,
@@ -224,7 +228,7 @@ describe("controller worker lifecycle", () => {
         },
       },
     ])
-    const manager = new WorkerManager(
+    const manager = createDockerWorkerManager(
       createConfig({ LINKSENSE_USER_DATA_ROOT: userDataRoot }),
       docker,
       new FakeTransport(),
@@ -261,7 +265,7 @@ describe("controller worker lifecycle", () => {
       mkdir(path.join(outside, conversationId), { recursive: true }),
     ])
     await symlink(outside, path.join(ownerHome, "workspaces"))
-    const manager = new WorkerManager(
+    const manager = createDockerWorkerManager(
       createConfig({ LINKSENSE_USER_DATA_ROOT: userDataRoot }),
       new FakeDocker(),
       new FakeTransport(),
@@ -427,6 +431,68 @@ describe("controller worker lifecycle", () => {
     await manager.sweepIdleWorkers(firstExpiredAt + 1_100)
     expect(docker.stopContainer).toHaveBeenCalledTimes(1)
     expect(docker.removeContainer).toHaveBeenCalledTimes(1)
+  })
+
+  it("retries idle cleanup before replacing a worker whose Docker release failed", async () => {
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createManager(docker, transport)
+    await manager.initialize()
+    await manager.request(ownerId, "/conversations/one/runtime", "PUT")
+    docker.stopContainer.mockRejectedValueOnce(
+      new Error("Docker stop unavailable"),
+    )
+    docker.removeContainer.mockRejectedValueOnce(
+      new Error("Docker remove unavailable"),
+    )
+
+    await expect(
+      manager.sweepIdleWorkers(Date.now() + 60_000_000),
+    ).rejects.toThrow("Docker container release failed")
+
+    await manager.request(ownerId, "/conversations/two/runtime", "PUT")
+    expect(docker.stopContainer).toHaveBeenCalledTimes(2)
+    expect(docker.removeContainer).toHaveBeenCalledTimes(2)
+    expect(docker.createContainer).toHaveBeenCalledTimes(2)
+  })
+
+  it("continues sweeping other owners when one worker cleanup fails", async () => {
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createManager(docker, transport)
+    await manager.initialize()
+    await manager.prewarm(ownerId)
+    await manager.prewarm("01900000-0000-7000-8000-000000000003")
+    docker.stopContainer.mockRejectedValueOnce(new Error("stop unavailable"))
+    docker.removeContainer.mockRejectedValueOnce(new Error("remove unavailable"))
+
+    await expect(manager.sweepIdleWorkers(Date.now() + 60_000_000))
+      .rejects.toThrow("Docker container release failed")
+
+    expect(docker.removeContainer).toHaveBeenCalledWith("container-2")
+    await manager.sweepIdleWorkers()
+    expect(docker.removeContainer.mock.calls).toEqual([
+      ["container-1"], ["container-2"], ["container-1"],
+    ])
+  })
+
+  it("forgets an idle worker only when Docker confirms its container is absent", async () => {
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createManager(docker, transport)
+    await manager.initialize()
+    await manager.request(ownerId, "/conversations/one/runtime", "PUT")
+    docker.stopContainer.mockRejectedValueOnce(
+      new DockerEngineError("Docker Engine returned 404", 404),
+    )
+
+    await expect(
+      manager.sweepIdleWorkers(Date.now() + 60_000_000),
+    ).resolves.toBeUndefined()
+
+    expect(docker.removeContainer).not.toHaveBeenCalled()
+    await manager.request(ownerId, "/conversations/two/runtime", "PUT")
+    expect(docker.createContainer).toHaveBeenCalledTimes(2)
   })
 
   it("removes all managed workers during an explicit development shutdown", async () => {
@@ -631,7 +697,7 @@ describe("controller worker lifecycle", () => {
 
     for (const config of configs) {
       const docker = new FakeDocker()
-      const manager = new WorkerManager(
+      const manager = createDockerWorkerManager(
         config,
         docker,
         new FakeTransport(),
@@ -756,7 +822,7 @@ describe("controller worker lifecycle", () => {
       },
     ])
     const removeUserDirectories = vi.fn(async () => undefined)
-    const manager = new WorkerManager(
+    const manager = createDockerWorkerManager(
       config,
       docker,
       new FakeTransport(),
@@ -894,7 +960,7 @@ describe("controller worker lifecycle", () => {
       memoryLimitBytes: 2 * 1024 * 1024 * 1024,
       pidsCurrent: 64,
     })
-    const manager = new WorkerManager(
+    const manager = createDockerWorkerManager(
       config,
       docker,
       new FakeTransport(),
@@ -963,7 +1029,7 @@ describe("controller worker lifecycle", () => {
     const actualRoot = path.join(temporaryRoot, "actual")
     const linkedRoot = path.join(temporaryRoot, "linked")
     await symlink(actualRoot, linkedRoot, "dir")
-    const manager = new WorkerManager(
+    const manager = createDockerWorkerManager(
       createConfig({ LINKSENSE_USER_DATA_ROOT: linkedRoot }),
       docker,
       new FakeTransport(),
@@ -990,7 +1056,7 @@ describe("controller worker lifecycle", () => {
     await Promise.all([mkdir(userDataRoot), mkdir(outsideRoot)])
     await symlink(outsideRoot, path.join(userDataRoot, ownerId), "dir")
     const docker = new FakeDocker()
-    const manager = new WorkerManager(
+    const manager = createDockerWorkerManager(
       createConfig({ LINKSENSE_USER_DATA_ROOT: userDataRoot }),
       docker,
       new FakeTransport(),
@@ -1034,7 +1100,7 @@ describe("controller worker lifecycle", () => {
     const removeUserDirectories = vi.fn(async (owner: string) => {
       void owner
     })
-    const manager = new WorkerManager(
+    const manager = createDockerWorkerManager(
       createConfig(),
       docker,
       transport,
@@ -1115,7 +1181,7 @@ describe("controller worker lifecycle", () => {
     const removeUserDirectories = vi.fn(async (owner: string) => {
       void owner
     })
-    const manager = new WorkerManager(
+    const manager = createDockerWorkerManager(
       createConfig(),
       docker,
       transport,
@@ -1128,10 +1194,10 @@ describe("controller worker lifecycle", () => {
     )
 
     await expect(manager.initialize()).rejects.toThrow(
-      "worker container exited before readiness",
+      "worker exited before readiness",
     )
 
-    expect(docker.inspectContainerRunning).toHaveBeenCalledOnce()
+    expect(docker.inspectContainerRunning).toHaveBeenCalledTimes(2)
     expect(docker.removeContainer).toHaveBeenCalledWith("container-1")
     expect(removeUserDirectories).toHaveBeenCalledWith(
       "00000000-0000-7000-8000-000000000000",
@@ -1191,7 +1257,7 @@ describe("controller worker lifecycle", () => {
         State: "running",
       },
     ])
-    const manager = new WorkerManager(
+    const manager = createDockerWorkerManager(
       config,
       docker,
       new FakeTransport(),
@@ -1262,7 +1328,7 @@ describe("controller worker lifecycle", () => {
   it("fails before the startup probe when the configured managed volume is unavailable", async () => {
     const docker = new FakeDocker()
     docker.inspectVolume.mockRejectedValueOnce(new Error("volume unavailable"))
-    const manager = new WorkerManager(
+    const manager = createDockerWorkerManager(
       createConfig({ LINKSENSE_USER_DATA_VOLUME: "linksense-user-data" }),
       docker,
       new FakeTransport(),
@@ -1353,6 +1419,7 @@ describe("dynamic worker container contract", () => {
     )
     expect(spec.Env).toContain("LINKSENSE_PNPM_VERSION=10.6.4")
     expect(spec.Env).toContain("LINKSENSE_BROWSER_SESSION_LIMIT=2")
+    expect(spec.Env).toContain("LINKSENSE_MANAGED_BROWSER_ENABLED=true")
     expect(spec.Env).toContain("LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS=200000")
     expect(spec.HostConfig.Tmpfs["/tmp"]).toBe(
       "rw,nosuid,nodev,noexec,size=4096m,uid=1000,gid=1000,mode=1777",
@@ -1419,6 +1486,12 @@ describe("dynamic worker container contract", () => {
       workerContractKey({
         ...config,
         LINKSENSE_BROWSER_SESSION_LIMIT: 4,
+      }),
+    )
+    expect(workerContractKey(config)).not.toBe(
+      workerContractKey({
+        ...config,
+        LINKSENSE_MANAGED_BROWSER_ENABLED: false,
       }),
     )
     expect(workerContractKey(config)).not.toBe(
@@ -1599,7 +1672,7 @@ function createManager(
     probeWorkerRuntime?: () => Promise<void>
   } = {},
 ) {
-  return new WorkerManager(
+  return createDockerWorkerManager(
     createConfig(),
     docker,
     transport,
@@ -1611,6 +1684,24 @@ function createManager(
       probeWorkerRuntime: async () => undefined,
       ...options,
     },
+  )
+}
+
+function createDockerWorkerManager(
+  config: ReturnType<typeof createConfig>,
+  docker: DockerEngine,
+  transport: WorkerTransport,
+  logger: pino.Logger,
+  options: ConstructorParameters<typeof WorkerManager>[4] = {},
+): WorkerManager {
+  const provider = new DockerWorkerProvider(config, docker, logger)
+  provider.prepareOwnerFilesystem = async () => undefined
+  return new WorkerManager(
+    config,
+    provider,
+    transport,
+    logger,
+    options,
   )
 }
 
