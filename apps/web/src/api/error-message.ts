@@ -92,6 +92,8 @@ const errorCodeToKey: Record<string, string> = {
   INVALID_PACKAGE: "errors.invalidPackage",
   IMPORT_FAILED: "errors.importFailed",
   CAPABILITY_HOME_SYNC_FAILED: "errors.capabilityHomeSyncFailed",
+  CAPABILITY_UPDATE_CONFLICT: "errors.capabilityUpdateConflict",
+  CAPABILITY_UPDATE_UNCHANGED: "errors.capabilityUpdateUnchanged",
   CLAWHUB_SKILL_NOT_FOUND: "errors.clawhub.skillNotFound",
   CLAWHUB_SKILL_NOT_INSTALLABLE: "errors.clawhub.skillNotInstallable",
   CLAWHUB_SKILL_ALREADY_INSTALLED: "errors.clawhub.skillAlreadyInstalled",

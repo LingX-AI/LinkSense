@@ -1045,6 +1045,22 @@ export const errorCatalog = {
       "en-US": "The capability import failed. Check the source and try again.",
     },
   },
+  CAPABILITY_UPDATE_UNCHANGED: {
+    message_key: "errors.capability.updateUnchanged",
+    http_status: 409,
+    messages: {
+      "zh-CN": "内容与当前技能相同，无需更新。",
+      "en-US": "The content is identical to the current skill. No update is needed.",
+    },
+  },
+  CAPABILITY_UPDATE_CONFLICT: {
+    message_key: "errors.capability.updateConflict",
+    http_status: 409,
+    messages: {
+      "zh-CN": "此技能已发生变化，请重新打开更新窗口，核对最新内容后再提交。",
+      "en-US": "This skill has changed. Reopen the update dialog and review the latest content before submitting.",
+    },
+  },
   CAPABILITY_HOME_SYNC_FAILED: {
     message_key: "errors.capability.homeSyncFailed",
     http_status: 503,

@@ -2724,6 +2724,41 @@ export const enUS = {
         "Ask your backend for this visit's access credential. Never expose App Secret here.",
     },
   },
+  skillUpdate: {
+    description:
+      "Edit the current skill or upload a complete skill package. Review the changes before confirming the update.",
+    loading: "Loading the current skill…",
+    loadFailed: "The current skill could not be loaded. Please try again.",
+    mode: "Update method",
+    edit: "Edit skill content",
+    replace: "Replace complete skill package",
+    preserveNotice:
+      "Only the display name, description and instructions will change. Existing scripts, templates, images and other files will be preserved. To change those files, download the complete package, edit it and choose “Replace complete skill package”.",
+    replaceNotice:
+      "The new package will replace the current skill. Existing files missing from the new package will be deleted. Upload a complete package containing every file the skill needs.",
+    identifierHint: "The skill identifier stays the same during an update.",
+    content: "Skill instructions",
+    contentRequired: "Enter the skill instructions.",
+    contentTooLarge:
+      "These instructions are too long to edit online. Download the complete skill package, edit it and upload it again.",
+    noChanges: "No changes have been made yet.",
+    files: "Current skill files",
+    download: "Download complete skill package",
+    selectedFile: "Selected: {{name}}",
+    uploading: "Uploading: {{percentage}}%",
+    checking: "Checking changes and risks…",
+    check: "Review changes and risks",
+    confirm: "Confirm update",
+    changes: "File changes",
+    changeSummary:
+      "{{added}} added, {{modified}} modified, {{deleted}} deleted and {{unchanged}} unchanged files.",
+    added: "Added files",
+    modified: "Modified files",
+    deleted: "Files to delete",
+    deleteNotice:
+      "These files are missing from the new package and will be deleted when you confirm. Check whether the skill still needs them.",
+    confirmDeletions: "I confirm deleting these {{count}} files",
+  },
   marketplace: {
     title: "Plugin Center",
     description:
@@ -4920,6 +4955,10 @@ export const enUS = {
     },
     importFailed:
       "The plugin/Skill import failed. Check the source and try again.",
+    capabilityUpdateConflict:
+      "This skill has changed. Reopen the update dialog and review the latest content before submitting.",
+    capabilityUpdateUnchanged:
+      "The content is identical to the current skill. No update is needed.",
     capabilityHomeSyncFailed:
       "The plugin/Skill state was saved, but the user directory could not be synchronized. The system will retry before the next task turn.",
     attachmentInvalid:

@@ -3453,6 +3453,18 @@ describe("capability marketplace pages", () => {
       ) {
         return confirmRequest
       }
+      if (url.pathname === `/api/v1/capabilities/${CAPABILITY_ID}/skill-edit`) {
+        return Promise.resolve(
+          envelope({
+            name: capability.name,
+            display_name: null,
+            description: capability.description,
+            content: "# Current instructions",
+            revision: "a".repeat(64),
+            files: [{ path: "SKILL.md", size_bytes: 100 }],
+          })
+        )
+      }
       if (url.pathname === "/api/v1/marketplace/mine" && method === "GET") {
         return Promise.resolve(
           envelope({
@@ -3579,6 +3591,15 @@ describe("capability marketplace pages", () => {
     const updateDialog = await screen.findByRole("dialog", {
       name: "更新个人技能",
     })
+    expect(await within(updateDialog).findByLabelText("技能正文")).toHaveValue(
+      "# Current instructions"
+    )
+    expect(within(updateDialog).getByLabelText("技能标识")).toHaveValue(
+      "frontend-slides"
+    )
+    expect(within(updateDialog).getByLabelText("技能标识")).toHaveAttribute(
+      "readonly"
+    )
     expect(
       within(updateDialog).queryByLabelText("类型")
     ).not.toBeInTheDocument()

@@ -22,6 +22,25 @@ function leafStrings(value: unknown): string[] {
 }
 
 describe("i18n resources", () => {
+  it("provides matching skill update translations in both languages and Chinese fallback", () => {
+    expect(leafKeys(zhCN.skillUpdate)).toEqual(leafKeys(enUS.skillUpdate))
+    for (const key of leafKeys(zhCN.skillUpdate)) {
+      expect(i18n.t(`skillUpdate.${key}`, { lng: "zh-CN" })).not.toBe(
+        `skillUpdate.${key}`
+      )
+      expect(i18n.t(`skillUpdate.${key}`, { lng: "en-US" })).not.toBe(
+        `skillUpdate.${key}`
+      )
+    }
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(instance.t("skillUpdate.preserveNotice", { lng: "en-US" })).toBe(
+      zhCN.skillUpdate.preserveNotice
+    )
+    expect(
+      instance.t("errors.capabilityUpdateConflict", { lng: "en-US" })
+    ).toBe(zhCN.errors.capabilityUpdateConflict)
+  })
   it("uses Chinese quota wording outside quota management while preserving English and fallback", () => {
     const values = { total: "12", weekly: "0", monthly: "-" }
     const key = "nav.creditQuotaRemaining"

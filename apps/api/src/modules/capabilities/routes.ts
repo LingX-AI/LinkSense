@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { capabilityDisplayName, skillDisplayNameSchema } from "@linksense/shared";
+import { capabilityDisplayName, skillDisplayNameSchema, skillEditInputSchema, skillRevisionSchema } from "@linksense/shared";
 
 import { AppError } from "../../lib/errors.js";
 import { ok } from "../../lib/http.js";
@@ -83,6 +83,30 @@ export const capabilityRoutes: FastifyPluginAsync<
     return reply.code(201).send(ok(capability, request));
   });
 
+  app.get("/:id/skill-edit", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = capabilityIdParams.parse(request.params);
+    return reply.send(ok(await options.service.getSkillEdit(actor, id), request));
+  });
+
+  app.post("/:id/skill-edit", { bodyLimit: 8 * 1024 * 1024 }, async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = capabilityIdParams.parse(request.params);
+    const input = skillEditInputSchema.parse(request.body);
+    return reply.code(202).send(ok(await options.service.previewSkillEdit(actor, id, input), request));
+  });
+
+  app.get("/:id/package", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = capabilityIdParams.parse(request.params);
+    const result = await options.service.downloadSkillPackage(actor, id);
+    return reply.header("content-type", "application/zip")
+      .header("content-disposition", `attachment; filename="${result.filename}"`)
+      .header("cache-control", "no-store")
+      .header("x-content-type-options", "nosniff")
+      .send(result.bytes);
+  });
+
   app.get("/:id/skill-content", async (request, reply) => {
     const actor = await actorFor(request);
     const { id } = capabilityIdParams.parse(request.params);
@@ -132,9 +156,8 @@ export const capabilityRoutes: FastifyPluginAsync<
   app.post("/:id/import", async (request, reply) => {
     const actor = await actorFor(request);
     const { id } = capabilityIdParams.parse(request.params);
-    const input = isMultipartRequest(request)
-      ? await parseCapabilityMultipart(request)
-      : parseCapabilityJson(request.body);
+    if (!isMultipartRequest(request)) throw new AppError("VALIDATION_ERROR");
+    const input = await parseCapabilityMultipart(request);
     const preview = await options.service.previewUpdatePackage(
       actor,
       id,
@@ -193,6 +216,7 @@ function parseCapabilityJson(body: unknown): {
 async function parseCapabilityMultipart(request: FastifyRequest): Promise<{
   source: CapabilityImportSource;
   requestedType?: "plugin" | "skill";
+  baseRevision?: string;
 }> {
   const fields: Record<string, string> = {};
   let upload: { bytes: Buffer; filename: string } | null = null;
@@ -220,11 +244,13 @@ async function parseCapabilityMultipart(request: FastifyRequest): Promise<{
   const metadata = z
     .strictObject({
       type: z.enum(["plugin", "skill"]).optional(),
+      base_revision: skillRevisionSchema.optional(),
     })
     .parse(fields);
   return {
     source: { kind: "zip", bytes: upload.bytes, filename: upload.filename },
     ...(metadata.type === undefined ? {} : { requestedType: metadata.type }),
+    ...(metadata.base_revision === undefined ? {} : { baseRevision: metadata.base_revision }),
   };
 }
 

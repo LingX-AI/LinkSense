@@ -780,7 +780,7 @@ export type CapabilitySkillContent = z.infer<
 
 const localCapabilityImportSourceSchema = z.strictObject({
   source_type: z.literal("local"),
-  import_kind: z.enum(["manual_skill", "zip"]),
+  import_kind: z.enum(["manual_skill", "zip", "skill_edit"]),
   source_url: z.null(),
   filename: z.string().nullable(),
 })

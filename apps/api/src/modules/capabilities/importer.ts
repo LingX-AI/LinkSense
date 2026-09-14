@@ -24,12 +24,14 @@ import {
 import {
   capabilityPackageNameSchema,
   skillDisplayNameSchema,
+  type SkillEditInput,
 } from "@linksense/shared";
 import { stringify } from "yaml";
 import { Open } from "unzipper";
 
 import { AppError } from "../../lib/errors.js";
 import { readSkillDisplayName } from "./skill-interface.js";
+import { editSkillPackageFiles } from "./skill-package-edit.js";
 import {
   assertPublicHttpUrl,
   fetchPublicHttpResource,
@@ -260,6 +262,21 @@ export class CapabilityPackageImporter {
       await rm(stagingDirectory, { recursive: true, force: true });
       if (error instanceof AppError) throw error;
       throw new AppError("IMPORT_FAILED");
+    }
+  }
+
+  async prepareSkillEdit(packageRoot: string, input: SkillEditInput): Promise<PreparedCapabilityPackage> {
+    await mkdir(this.#stagingRoot, { recursive: true, mode: 0o700 });
+    const stagingDirectory = await this.#createStagingDirectory();
+    try {
+      const stagedRoot = join(stagingDirectory, "skill");
+      await copyDirectory(packageRoot, stagedRoot);
+      await editSkillPackageFiles(stagedRoot, input);
+      return await inspectCapabilityPackage(stagingDirectory, stagedRoot, this.#limits);
+    } catch (error) {
+      await rm(stagingDirectory, { recursive: true, force: true });
+      if (error instanceof AppError) throw error;
+      throw new AppError("INVALID_PACKAGE");
     }
   }
 
@@ -689,7 +706,7 @@ export function extensionMatchesImageType(
   return allowed[contentType]?.includes(extension) === true;
 }
 
-async function listRegularFiles(
+export async function listRegularFiles(
   directory: string,
   root: string,
   maxCount: number,
