@@ -2528,6 +2528,41 @@ export const zhCN = {
         "向你的后端请求本次访问凭证。不要在这里暴露 App Secret。",
     },
   },
+  skillUpdate: {
+    description:
+      "在当前技能基础上编辑，或上传完整技能包。核对变更后再确认更新。",
+    loading: "正在加载当前技能…",
+    loadFailed: "无法加载当前技能，请重试。",
+    mode: "更新方式",
+    edit: "编辑技能内容",
+    replace: "替换完整技能包",
+    preserveNotice:
+      "本次仅修改展示名称、说明和正文，原有脚本、模板、图片及其他附带文件都会保留。如需修改这些文件，请下载完整技能包，修改后选择“替换完整技能包”。",
+    replaceNotice:
+      "更新后以新技能包为准，当前技能中未包含在新包内的文件将被删除。请上传包含全部所需文件的完整技能包。",
+    identifierHint: "更新时技能标识保持不变。",
+    content: "技能正文",
+    contentRequired: "请输入技能正文。",
+    contentTooLarge:
+      "此技能正文较长，暂不支持在线编辑。请下载完整技能包，修改后重新上传。",
+    noChanges: "当前内容尚未修改。",
+    files: "当前技能文件",
+    download: "下载完整技能包",
+    selectedFile: "已选择：{{name}}",
+    uploading: "正在上传：{{percentage}}%",
+    checking: "正在检查变更与风险…",
+    check: "查看变更与风险",
+    confirm: "确认更新",
+    changes: "本次文件变更",
+    changeSummary:
+      "新增 {{added}} 个、修改 {{modified}} 个、删除 {{deleted}} 个文件，{{unchanged}} 个文件保持不变。",
+    added: "新增文件",
+    modified: "修改文件",
+    deleted: "将删除的文件",
+    deleteNotice:
+      "以上文件未包含在新技能包中，确认更新后将被删除。请核对技能是否仍需要这些文件。",
+    confirmDeletions: "我确认删除以上 {{count}} 个文件",
+  },
   marketplace: {
     title: "插件中心",
     description:
@@ -4512,6 +4547,9 @@ export const zhCN = {
         "当前选择的类型是 {{expected}}，但压缩包实际类型是 {{actual}}。",
     },
     importFailed: "插件/Skill 导入失败，请检查来源后重试。",
+    capabilityUpdateConflict:
+      "此技能已发生变化，请重新打开更新窗口，核对最新内容后再提交。",
+    capabilityUpdateUnchanged: "内容与当前技能相同，无需更新。",
     capabilityHomeSyncFailed:
       "插件/Skill 状态已保存，但用户目录同步失败。系统会在下一轮任务开始前重试。",
     attachmentInvalid: "附件上传失败，请选择可读取的文件后重试。",

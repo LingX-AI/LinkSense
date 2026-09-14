@@ -14,6 +14,8 @@ import { z } from "zod";
 import {
   capabilityRiskSummarySchema,
   skillDisplayNameSchema,
+  skillUpdatePreviewSchema,
+  type SkillUpdatePreview,
 } from "@linksense/shared";
 
 import { AppError } from "../../lib/errors.js";
@@ -25,6 +27,7 @@ import type {
   PreparedCapabilityPackage,
   PreparedLogo,
 } from "./types.js";
+import { splitSkillMarkdown } from "./skill-manifest.js";
 
 const PREVIEW_TTL_MS = 15 * 60 * 1_000;
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
@@ -34,7 +37,7 @@ const riskSummarySchema = capabilityRiskSummarySchema;
 
 const localPreviewSourceSchema = z.strictObject({
   source_type: z.literal("local"),
-  import_kind: z.enum(["manual_skill", "zip"]),
+  import_kind: z.enum(["manual_skill", "zip", "skill_edit"]),
   source_url: z.null(),
   filename: z.string().min(1).max(512).nullable(),
 });
@@ -70,6 +73,7 @@ const previewStateSchema = z.strictObject({
   expires_at: z.string().datetime({ offset: true }),
   package_root_relative: z.string(),
   package_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  skill_update: skillUpdatePreviewSchema.optional(),
   logo_sha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/u)
@@ -116,13 +120,14 @@ export interface CapabilityImportPreview {
   has_logo: boolean;
   skill_content_preview: string | null;
   skill_content_truncated: boolean;
+  skill_update?: SkillUpdatePreview;
 }
 
 export interface ClawHubPreviewSource extends ClawHubCapabilityOrigin {
   kind: "clawhub";
 }
 
-type CapabilityPreviewSource = CapabilityImportSource | ClawHubPreviewSource;
+type CapabilityPreviewSource = CapabilityImportSource | ClawHubPreviewSource | { kind: "skill_edit" };
 
 export interface StageCapabilityPreviewInput {
   actorId: string;
@@ -131,6 +136,7 @@ export interface StageCapabilityPreviewInput {
   requestedType?: CapabilityType;
   source: CapabilityPreviewSource;
   prepared: PreparedCapabilityPackage;
+  skillUpdate?: SkillUpdatePreview;
 }
 
 export interface ClaimedCapabilityPreview {
@@ -140,6 +146,7 @@ export interface ClaimedCapabilityPreview {
   sourceType: "local" | "clawhub";
   clawHubOrigin: ClawHubCapabilityOrigin | null;
   packageSha256: string;
+  skillUpdate?: SkillUpdatePreview;
   prepared: PreparedCapabilityPackage;
   commit(): Promise<void>;
   rollback(): Promise<void>;
@@ -194,6 +201,7 @@ export class CapabilityPreviewRepository {
         ).toISOString(),
         package_root_relative: packageRootRelative,
         package_sha256: packageSha256,
+        ...(input.skillUpdate === undefined ? {} : { skill_update: input.skillUpdate }),
         logo_sha256:
           input.prepared.logo === null
             ? null
@@ -335,6 +343,7 @@ export class CapabilityPreviewRepository {
             }
           : null,
       packageSha256: state.package_sha256,
+      ...(state.skill_update === undefined ? {} : { skillUpdate: state.skill_update }),
       prepared: {
         stagingDirectory: directory,
         packageRoot,
@@ -467,7 +476,7 @@ function sourceView(source: CapabilityPreviewSource): PreviewState["source"] {
   }
   return {
     source_type: "local",
-    import_kind: "manual_skill",
+    import_kind: source.kind === "skill_edit" ? "skill_edit" : "manual_skill",
     source_url: null,
     filename: null,
   };
@@ -517,6 +526,7 @@ function previewView(
     has_logo: state.prepared.logo !== null,
     skill_content_preview: skillContentPreview.content,
     skill_content_truncated: skillContentPreview.truncated,
+    ...(state.skill_update === undefined ? {} : { skill_update: state.skill_update }),
   };
 }
 
@@ -544,17 +554,11 @@ async function readSkillContentPreview(
 }
 
 export function stripSkillFrontmatter(markdown: string): string {
-  if (!markdown.startsWith("---\n")) throw new AppError("INVALID_PACKAGE");
-  const frontmatterEnd = markdown.indexOf("\n---", 4);
-  if (frontmatterEnd < 0 || frontmatterEnd > 32_000) {
+  try {
+    return splitSkillMarkdown(markdown).content.replace(/^(?:[\t ]*\r?\n)+/u, "");
+  } catch {
     throw new AppError("INVALID_PACKAGE");
   }
-  const bodyStart = frontmatterEnd + "\n---".length;
-  const content =
-    markdown[bodyStart] === "\n"
-      ? markdown.slice(bodyStart + 1)
-      : markdown.slice(bodyStart);
-  return content.replace(/^(?:[\t ]*\n)+/u, "");
 }
 
 function assertSafeRelativePath(value: string): void {

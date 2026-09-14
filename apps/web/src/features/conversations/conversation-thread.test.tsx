@@ -511,6 +511,114 @@ describe("conversation turn responses", () => {
   )
 
   it.each([false, true])(
+    "renders currency in expense tables and recommendations as text when streaming=%s",
+    (streaming) => {
+      const { container } = render(
+        <AssistantMarkdown
+          streaming={streaming}
+          content={[
+            "| Amount (USD) | Assessment |",
+            "| --- | --- |",
+            "| 268 | **Policy Exception.** Exceeds the $200 nightly room limit by **$68**. |",
+            "| 48 | **Compliant.** The submitted daily meal total is $48, within the $60 combined daily limit. |",
+            "",
+            "**Hold the room claim pending resolution; the other $111** has no identified policy exception. The **$68 excess is not automatically non-reimbursable**, because Acme permits approved exceptions.",
+          ].join("\n")}
+        />
+      )
+
+      expect(container.querySelector(".katex")).toBeNull()
+      expect(
+        screen.getByRole("cell", {
+          name: "Policy Exception. Exceeds the $200 nightly room limit by $68.",
+        })
+      ).toBeVisible()
+      expect(
+        screen.getByRole("cell", {
+          name: "Compliant. The submitted daily meal total is $48, within the $60 combined daily limit.",
+        })
+      ).toBeVisible()
+      expect(
+        [...container.querySelectorAll("strong")].map(
+          (element) => element.textContent
+        )
+      ).toEqual([
+        "Policy Exception.",
+        "$68",
+        "Compliant.",
+        "Hold the room claim pending resolution; the other $111",
+        "$68 excess is not automatically non-reimbursable",
+      ])
+      expect(
+        container.querySelector(".assistant-markdown")
+      ).not.toHaveTextContent("**")
+    }
+  )
+
+  it.each([false, true])(
+    "keeps currency, explicit formulas, code examples, and citation anchors distinct when streaming=%s",
+    (streaming) => {
+      const citedText = "😀 金额 $48，限额 $60；公式 \\(v = s / t\\)。"
+      const { container } = render(
+        <AssistantMarkdown
+          streaming={streaming}
+          content={[
+            `${citedText} 后续说明。`,
+            "",
+            "**公式 $$x + y = z$$**，费用 $200。",
+            "",
+            "$$",
+            "E = mc^2",
+            "$$",
+            "",
+            "`$48, within the $60` 和 `\\(v = s / t\\)`",
+            "",
+            "```tex",
+            "$$x + y = z$$",
+            "```",
+          ].join("\n")}
+          citations={[
+            {
+              citation_id: "10000000-0000-4000-8000-000000000031",
+              citation_no: 1,
+              summary: {
+                knowledge_base_name: "政策知识库",
+                document_name: "费用政策.pdf",
+                title_path: ["费用政策"],
+                page_numbers: [1],
+              },
+              anchors: [
+                { occurrence_no: 1, after_offset_utf16: citedText.length },
+              ],
+            },
+          ]}
+        />,
+        { wrapper: MemoryRouter }
+      )
+
+      expect(
+        [...container.querySelectorAll(".katex annotation")].map(
+          (element) => element.textContent
+        )
+      ).toEqual(["v = s / t", "x + y = z", "E = mc^2"])
+      expect(container.querySelectorAll(".katex-display")).toHaveLength(1)
+      expect(container.querySelector("strong .katex")).not.toBeNull()
+      const citation = screen.getByRole("link", { name: "打开知识库引用 1" })
+      expect(citation.closest("p")).toHaveTextContent("金额 $48，限额 $60")
+      expect(citation.closest("p")).toHaveTextContent("。1 后续说明。")
+      expect(
+        screen.getByText("$48, within the $60", { selector: "code" })
+      ).toBeVisible()
+      expect(
+        screen.getByText("\\(v = s / t\\)", { selector: "code" })
+      ).toBeVisible()
+      expect(
+        screen.getByText("$$x + y = z$$", { selector: "code" })
+      ).toBeVisible()
+    }
+  )
+
+  it.each([false, true])(
     "renders inline and block TeX formulas with KaTeX when streaming=%s",
     (streaming) => {
       const { container } = render(

@@ -208,6 +208,7 @@ Before considering a feature complete, confirm that:
 - Never use unbounded retries, external requests without timeouts, unawaited Promises, or untraceable fire-and-forget jobs.
 - Never implement custom full-turn Codex retries, input replay, extra attempts, replacement states, or other strategies that conflict with native app-server semantics unless the required capability is confirmed missing and the user has explicitly authorized the custom behavior.
 - Never conceal implementation problems with `any`, type assertions, disabled linting, reduced coverage, or skipped tests.
+- Never recommend approval or merge based only on fresh-data tests, type checks, or builds. Unresolved upgrade regressions affecting existing data or functionality must be reported as blockers unless the maintainer explicitly accepts the specific breaking impact and a verified upgrade or recovery path is provided.
 - Never use unstable indexes as React list keys, or use inline styles or plain CSS to bypass shadcn/ui and Tailwind standards.
 - Never use `git stash`, switch or reset branches, forcibly overwrite files, or revert user changes unless the user explicitly requests it.
 - Never add specific feature requirements to this file. Keep feature scope in requirements documentation.
@@ -215,6 +216,10 @@ Before considering a feature complete, confirm that:
 ## Git and Collaboration
 
 - Before Git operations, inspect the actual worktree, branch, and diff. Do not initialize a repository when the current directory is not already a Git repository.
+- Every PR review must assess compatibility for both fresh installations and upgrades from the pre-change state. Trace changes through persisted data, database JSON, installed or published resources, API contracts, shared schemas, frontend behavior, configuration, runtime dependencies, and deployment order.
+- For new required fields, validation rules, security admission checks, or version requirements, verify existing read, update, and execution flows with representative pre-change records, including absent or null fields and older formats or versions. Use regression tests or reproducible checks; fixtures populated only with the new fields do not establish upgrade compatibility. The absence of a Prisma migration does not establish the absence of a data compatibility impact.
+- Review results must explicitly state compatibility findings, affected existing resources, failure conditions, upgrade or recovery steps, and any unverified paths. Distinguish successful parsing or display of old records from their continued usability. Do not silently require users to recreate, reimport, or republish existing resources after an upgrade.
+- A preference against backward-compatibility layers does not waive compatibility review or imply acceptance of disruption to existing functionality. Identify intentional breaking changes and obtain explicit acceptance of their concrete impact; verify the agreed upgrade approach without weakening security checks.
 - When the user requests `git commit`, split all changes into multiple semantically clear commits according to their actual content. Every commit message must be written in English, including merge commits; for example: `feat: add the xxx feature`.
 - Do not include unrelated formatting, temporary files, private configuration, local environment files, or generated artifacts in a commit.
 - When the user asks for an explanation of the requirements, fully describe the scope, boundaries, assumptions, and acceptance criteria, and wait for confirmation before coding.

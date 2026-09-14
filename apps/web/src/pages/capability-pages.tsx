@@ -73,6 +73,7 @@ import {
 } from "@/components/capabilities/capability-library-item"
 import { CapabilityRiskSummary } from "@/components/capabilities/capability-risk-summary"
 import { SkillContentPreview } from "@/components/capabilities/skill-content-preview"
+import { SkillUpdateDialog } from "@/features/capabilities/skill-update-dialog"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import {
   EmptyState,
@@ -2691,22 +2692,40 @@ function MarketplaceCatalogPanel({
           </TabsContent>
         ))}
       </Tabs>
-      <CapabilityImportDialog
-        key={updateTarget?.id ?? `add-${section}`}
-        open={importOpen}
-        updateTarget={updateTarget}
-        defaultType={section === "skill" ? "skill" : "plugin"}
-        onOpenChange={(open) => {
-          setImportOpen(open)
-          if (!open) setUpdateTarget(null)
-        }}
-        onCompleted={async () => {
-          await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ["capabilities"] }),
-            queryClient.invalidateQueries({ queryKey: ["marketplace"] }),
-          ])
-        }}
-      />
+      {updateTarget?.type === "skill" ? (
+        importOpen && (
+          <SkillUpdateDialog
+            capabilityId={updateTarget.id}
+            onClose={() => {
+              setImportOpen(false)
+              setUpdateTarget(null)
+            }}
+            onCompleted={async () => {
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["capabilities"] }),
+                queryClient.invalidateQueries({ queryKey: ["marketplace"] }),
+              ])
+            }}
+          />
+        )
+      ) : (
+        <CapabilityImportDialog
+          key={updateTarget?.id ?? `add-${section}`}
+          open={importOpen}
+          updateTarget={updateTarget}
+          defaultType={section === "skill" ? "skill" : "plugin"}
+          onOpenChange={(open) => {
+            setImportOpen(open)
+            if (!open) setUpdateTarget(null)
+          }}
+          onCompleted={async () => {
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ["capabilities"] }),
+              queryClient.invalidateQueries({ queryKey: ["marketplace"] }),
+            ])
+          }}
+        />
+      )}
       <MarketplaceDetailDialog
         item={selected}
         onOpenChange={(open) => {

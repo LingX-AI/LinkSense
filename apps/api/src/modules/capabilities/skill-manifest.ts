@@ -72,6 +72,14 @@ export function parseSkillManifest(
 }
 
 function extractSkillFrontmatter(markdown: string): string {
+  return splitSkillMarkdown(markdown).frontmatter
+}
+
+export function splitSkillMarkdown(markdown: string): {
+  frontmatter: string
+  prefix: string
+  content: string
+} {
   const source = markdown.startsWith("\uFEFF")
     ? markdown.slice(1)
     : markdown
@@ -102,7 +110,12 @@ function extractSkillFrontmatter(markdown: string): string {
           "skill frontmatter is too large",
         )
       }
-      return frontmatter
+      const contentStart = lineEnd < 0 ? source.length : lineEnd + 1
+      return {
+        frontmatter,
+        prefix: (markdown.startsWith("\uFEFF") ? "\uFEFF" : "") + source.slice(0, contentStart),
+        content: source.slice(contentStart),
+      }
     }
 
     if (lineStart - frontmatterStart > FRONTMATTER_LIMIT_CHARS) {

@@ -48,3 +48,4 @@ export * from "./capability-snapshot.js";
 export * from "./task-categories.js";
 export * from "./conversation-sharing.js";
 export * from "./skill-display-name.js";
+export * from "./skill-update.js";

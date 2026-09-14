@@ -1,16 +1,20 @@
 import { createHash } from "node:crypto";
 import {
   lstat,
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { builtInSkillNames } from "@linksense/shared";
+import { builtInSkillNames, type SkillEditInput } from "@linksense/shared";
+import JSZip from "jszip";
+import multipart from "@fastify/multipart";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -57,6 +61,293 @@ afterEach(async () => {
 });
 
 describe("CapabilityService owner-only visibility", () => {
+  it("adds instructions to an existing empty Skill whose closing delimiter has no trailing newline", async () => {
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, await tempRoot());
+    const installed = await installSkillPackage(service);
+    const filename = join(store.capabilities[0]!.storagePath, "SKILL.md");
+    await writeFile(filename, "---\nname: reports\n---");
+
+    const preview = await previewContentEdit(service, installed.id, { content: "# Added instructions" });
+    await service.confirmCapabilityImport(ownerActor(), preview.preview_token);
+
+    expect(await readFile(filename, "utf8")).toBe("---\nname: reports\n---\n# Added instructions");
+  });
+
+  it("accepts the base revision from multipart ZIP updates and rejects uploads that omit it", async () => {
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, await tempRoot());
+    const installed = await installSkillPackage(service);
+    const detail = await service.getSkillEdit(ownerActor(), installed.id);
+    const zip = createStoredZip([
+      { path: "reports/SKILL.md", bytes: "---\nname: reports\n---\n# Replaced" },
+    ]);
+    const app = Fastify();
+    app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
+    await app.register(multipart);
+    await app.register(capabilityRoutes, { service, resolveActor: ownerActor });
+    try {
+      for (const includeRevision of [false, true]) {
+        const form = new FormData();
+        form.append("file", new Blob([Uint8Array.from(zip)], { type: "application/zip" }), "reports.zip");
+        form.append("type", "skill");
+        if (includeRevision) form.append("base_revision", detail.revision);
+        const request = new Request("http://localhost", { method: "POST", body: form });
+        const response = await app.inject({
+          method: "POST",
+          url: `/${installed.id}/import`,
+          headers: Object.fromEntries(request.headers),
+          payload: Buffer.from(await request.arrayBuffer()),
+        });
+        expect(response.statusCode).toBe(includeRevision ? 202 : 400);
+        if (includeRevision) {
+          expect(response.json().data.skill_update).toMatchObject({
+            mode: "replace",
+            base_revision: detail.revision,
+            changes: { deleted: ["assets/template.txt", "scripts/report.py"] },
+          });
+        }
+      }
+      expect((await service.getSkillEdit(ownerActor(), installed.id)).revision).toBe(detail.revision);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each(["null\n", "interface: null\n", "interface: {}\nother:\n  preserved: true\n", "defaults: &defaults\n  default_prompt: Keep this prompt\ninterface: *defaults\n"])("adds a display name to an existing nullable interface without dropping other settings: %s", async (yaml) => {
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, await tempRoot());
+    const installed = await installSkillPackage(service);
+    const current = store.capabilities[0]!.storagePath;
+    await mkdir(join(current, "agents"));
+    await writeFile(join(current, "agents", "openai.yaml"), yaml);
+    const markdown = await readFile(join(current, "SKILL.md"), "utf8");
+    const preview = await previewContentEdit(service, installed.id, { display_name: "报告助手" });
+    expect(preview.skill_update?.changes.modified).toEqual(["agents/openai.yaml"]);
+    await service.confirmCapabilityImport(ownerActor(), preview.preview_token);
+    expect(await readFile(join(current, "SKILL.md"), "utf8")).toBe(markdown);
+    if (yaml.includes("other:")) expect(await readFile(join(current, "agents", "openai.yaml"), "utf8")).toContain("preserved: true");
+    if (yaml.includes("default_prompt")) expect(await readFile(join(current, "agents", "openai.yaml"), "utf8")).toContain("default_prompt: Keep this prompt");
+  });
+
+  it("rechecks metadata under the database lock before activating an update", async () => {
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, await tempRoot());
+    const installed = await installSkillPackage(service);
+    const preview = await previewContentEdit(service, installed.id, { content: "# New" });
+    vi.spyOn(store, "lockCapability").mockImplementationOnce(async () => { store.capabilities[0]!.description = "Concurrent metadata edit"; });
+    await expect(service.confirmCapabilityImport(ownerActor(), preview.preview_token)).rejects.toMatchObject({ code: "CAPABILITY_UPDATE_CONFLICT" });
+    expect((await service.getSkillEdit(ownerActor(), installed.id)).content).toBe("# Original");
+    expect(store.capabilities[0]?.description).toBe("Concurrent metadata edit");
+  });
+
+  it("previews ZIP file additions, edits and deletions and activates only after confirmation", async () => {
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, await tempRoot());
+    const installed = await installSkillPackage(service);
+    const detail = await service.getSkillEdit(ownerActor(), installed.id);
+    const preview = await service.previewUpdatePackage(ownerActor(), installed.id, {
+      baseRevision: detail.revision,
+      source: { kind: "zip", filename: "reports.zip", bytes: createStoredZip([
+        { path: "reports/SKILL.md", bytes: "---\nname: reports\n---\n# Replaced" },
+        { path: "reports/assets/new.txt", bytes: "new resource" },
+      ]) },
+    });
+    expect(preview.skill_update).toMatchObject({ mode: "replace", changes: { added: ["assets/new.txt"], modified: ["SKILL.md"], deleted: ["assets/template.txt", "scripts/report.py"], unchanged_count: 0 } });
+    expect((await service.getSkillEdit(ownerActor(), installed.id)).revision).toBe(detail.revision);
+    await service.confirmCapabilityImport(ownerActor(), preview.preview_token);
+    expect((await service.getSkillEdit(ownerActor(), installed.id)).files.map((file) => file.path)).toEqual(["SKILL.md", "assets/new.txt"]);
+  });
+
+  it("rejects obsolete drafts and previews when files or metadata change", async () => {
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, await tempRoot());
+    const installed = await installSkillPackage(service);
+    const original = await service.getSkillEdit(ownerActor(), installed.id);
+    const first = await previewContentEdit(service, installed.id, { content: "# First" });
+    await service.confirmCapabilityImport(ownerActor(), first.preview_token);
+    await expect(service.previewSkillEdit(ownerActor(), installed.id, {
+      base_revision: original.revision, display_name: null, description: null, content: "# Stale",
+    })).rejects.toMatchObject({ code: "CAPABILITY_UPDATE_CONFLICT" });
+    const next = await previewContentEdit(service, installed.id, { content: "# Next" });
+    await service.patch(ownerActor(), installed.id, { description: "Metadata changed" });
+    await expect(service.confirmCapabilityImport(ownerActor(), next.preview_token)).rejects.toMatchObject({ code: "CAPABILITY_UPDATE_CONFLICT" });
+    expect((await service.getSkillEdit(ownerActor(), installed.id)).content).toBe("# First");
+  });
+
+  it("keeps the current files after an activation failure and allows confirming the same reviewed update", async () => {
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, await tempRoot());
+    const installed = await installSkillPackage(service);
+    const original = await service.getSkillEdit(ownerActor(), installed.id);
+    const preview = await previewContentEdit(service, installed.id, { content: "# New" });
+    vi.spyOn(store, "updateCapability").mockRejectedValueOnce(new Error("database unavailable"));
+    await expect(service.confirmCapabilityImport(ownerActor(), preview.preview_token)).rejects.toMatchObject({ code: "IMPORT_FAILED" });
+    expect(await service.getSkillEdit(ownerActor(), installed.id)).toEqual(original);
+    await service.confirmCapabilityImport(ownerActor(), preview.preview_token);
+    expect((await service.getSkillEdit(ownerActor(), installed.id)).content).toBe("# New");
+  });
+
+  it("edits pre-change records without a persisted display name or revision and preserves CRLF metadata and executable scripts", async () => {
+    const root = await tempRoot();
+    const current = join(root, "capabilities", CAPABILITY_ID, "current");
+    await mkdir(join(current, "scripts"), { recursive: true });
+    const prefix = "\uFEFF---\r\nname: reports\r\nmetadata:\r\n  custom: retained\r\n---\r\n";
+    await writeFile(join(current, "SKILL.md"), prefix + "\r\n# Old\r\n");
+    await writeFile(join(current, "scripts", "report.py"), "print('retained')\n", { mode: 0o700 });
+    const store = new MemoryCapabilityStore();
+    store.capabilities.push(capability({ type: "skill", storagePath: current }));
+    const service = createService(store, root);
+    expect(await service.getSkillEdit(ownerActor(), CAPABILITY_ID)).toMatchObject({ display_name: null, content: "\r\n# Old\r\n" });
+    const update = await previewContentEdit(service, CAPABILITY_ID, { content: "# New\n" });
+    await service.confirmCapabilityImport(ownerActor(), update.preview_token);
+    expect(await readFile(join(current, "SKILL.md"), "utf8")).toBe(prefix + "# New\n");
+    expect((await lstat(join(current, "scripts", "report.py"))).mode & 0o111).toBe(0o100);
+    await chmod(join(current, "scripts", "report.py"), 0o600);
+    expect((await service.getSkillEdit(ownerActor(), CAPABILITY_ID)).revision).not.toBe(update.skill_update?.base_revision);
+  });
+
+  it("downloads a complete package that can be imported again, including highly compressible resources", async () => {
+    const root = await tempRoot();
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, root);
+    const installed = await installSkillPackage(service);
+    const current = store.capabilities[0]!.storagePath;
+    const resource = "sample ".repeat(20_000);
+    await writeFile(join(current, "assets", "repeated.txt"), resource);
+    const exported = await service.downloadSkillPackage(ownerActor(), installed.id);
+    expect(exported.filename).toBe("reports.zip");
+    const archive = await JSZip.loadAsync(exported.bytes);
+    expect(await archive.file("reports/assets/repeated.txt")?.async("string")).toBe(resource);
+    expect(await archive.file("reports/scripts/report.py")?.async("string")).toBe("print('report')\n");
+    const prepared = await new CapabilityPackageImporter({ stagingRoot: join(root, "roundtrip") }).prepare({ kind: "zip", filename: exported.filename, bytes: exported.bytes });
+    expect(prepared.name).toBe("reports");
+    expect(prepared.riskSummary.contains_scripts).toBe(true);
+  });
+
+  it("keeps complete package access available for instructions exceeding the online editor limit", async () => {
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, await tempRoot());
+    const installed = await installSkillPackage(service);
+    await writeFile(join(store.capabilities[0]!.storagePath, "SKILL.md"), "---\nname: reports\n---\n" + "x".repeat(1_000_001));
+    const detail = await service.getSkillEdit(ownerActor(), installed.id);
+    expect(detail.content).toBeNull();
+    expect(detail.files).toHaveLength(3);
+    expect((await service.downloadSkillPackage(ownerActor(), installed.id)).bytes.length).toBeGreaterThan(0);
+  });
+
+  it("protects edit and package endpoints, validates input and returns localized conflict errors", async () => {
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, await tempRoot());
+    const installed = await installSkillPackage(service);
+    let actor = ownerActor();
+    const app = Fastify();
+    app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
+    await app.register(multipart);
+    await app.register(capabilityRoutes, { service, resolveActor: () => actor });
+    try {
+      const detailResponse = await app.inject({ method: "GET", url: `/${installed.id}/skill-edit` });
+      expect(detailResponse.statusCode).toBe(200);
+      expect(detailResponse.body).not.toContain("storage");
+      const detail = await service.getSkillEdit(actor, installed.id);
+      const input = { base_revision: detail.revision, display_name: null, description: null, content: "# Updated" };
+      const invalid = await app.inject({ method: "POST", url: `/${installed.id}/skill-edit`, payload: { ...input, name: "renamed" } });
+      expect(invalid.statusCode).toBe(400);
+      expect((await app.inject({ method: "POST", url: `/${installed.id}/import`, payload: { source_type: "local", type: "skill", name: "reports", skill_markdown: "# Old path" } })).statusCode).toBe(400);
+      const update = await app.inject({ method: "POST", url: `/${installed.id}/skill-edit`, payload: input });
+      expect(update.statusCode).toBe(202);
+      expect(update.json().data.skill_update.changes.deleted).toEqual([]);
+      const largeText = await app.inject({ method: "POST", url: `/${installed.id}/skill-edit`, payload: { ...input, content: "正文".repeat(200_000) } });
+      expect(largeText.statusCode).toBe(202);
+      const download = await app.inject({ method: "GET", url: `/${installed.id}/package` });
+      expect(download.statusCode).toBe(200);
+      expect(download.headers["content-type"]).toBe("application/zip");
+      expect(download.headers["content-disposition"]).toContain("reports.zip");
+      expect(download.headers["cache-control"]).toBe("no-store");
+      for (const [language, message] of [["zh-CN", "此技能已发生变化"], ["en-US", "This skill has changed"], ["fr-FR", "此技能已发生变化"]]) {
+        const conflict = await app.inject({ method: "POST", url: `/${installed.id}/skill-edit`, headers: { "accept-language": language }, payload: { ...input, base_revision: "0".repeat(64) } });
+        expect(conflict.statusCode).toBe(409);
+        expect(conflict.json().message).toContain(message);
+      }
+      for (const denied of [recipientActor(), adminActor(), { ...ownerActor(), status: "disabled" as const }]) {
+        actor = denied;
+        for (const path of ["skill-edit", "package"]) {
+          const response = await app.inject({ method: "GET", url: `/${installed.id}/${path}` });
+          expect(response.statusCode).toBe(403);
+          expect(response.body).not.toContain("scripts/report.py");
+        }
+        expect((await app.inject({ method: "POST", url: `/${installed.id}/skill-edit`, payload: input })).statusCode).toBe(403);
+      }
+    } finally { await app.close(); }
+    const anonymousApp = Fastify();
+    anonymousApp.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
+    await anonymousApp.register(capabilityRoutes, { service });
+    try {
+      for (const path of ["skill-edit", "package"]) {
+        expect((await anonymousApp.inject({ method: "GET", url: `/${installed.id}/${path}` })).statusCode).toBe(401);
+      }
+    } finally { await anonymousApp.close(); }
+  });
+
+  it("reports unchanged content without replacing any files", async () => {
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, await tempRoot());
+    const installed = await installSkillPackage(service);
+    const detail = await service.getSkillEdit(ownerActor(), installed.id);
+    await expect(previewContentEdit(service, installed.id, {})).rejects.toMatchObject({ code: "CAPABILITY_UPDATE_UNCHANGED" });
+    const exported = await service.downloadSkillPackage(ownerActor(), installed.id);
+    await expect(service.previewUpdatePackage(ownerActor(), installed.id, { baseRevision: detail.revision, source: { kind: "zip", filename: exported.filename, bytes: exported.bytes } })).rejects.toMatchObject({ code: "CAPABILITY_UPDATE_UNCHANGED" });
+    expect(await service.getSkillEdit(ownerActor(), installed.id)).toEqual(detail);
+  });
+
+  it("rejects symlink resources, marketplace skills and ZIP replacements with a different identifier", async () => {
+    const root = await tempRoot();
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, root);
+    const installed = await installSkillPackage(service);
+    const detail = await service.getSkillEdit(ownerActor(), installed.id);
+    await expect(service.previewUpdatePackage(ownerActor(), installed.id, { baseRevision: detail.revision, source: { kind: "zip", filename: "other.zip", bytes: createStoredZip([{ path: "other/SKILL.md", bytes: "---\nname: other\n---\n# Other" }]) } })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await writeFile(join(root, "outside.txt"), "private bytes");
+    await symlink(join(root, "outside.txt"), join(store.capabilities[0]!.storagePath, "assets", "outside.txt"));
+    await expect(service.getSkillEdit(ownerActor(), installed.id)).rejects.toMatchObject({ code: "INVALID_PACKAGE" });
+    await expect(service.downloadSkillPackage(ownerActor(), installed.id)).rejects.toMatchObject({ code: "INVALID_PACKAGE" });
+    store.capabilities[0]!.sourceType = "marketplace";
+    await expect(service.getSkillEdit(ownerActor(), installed.id)).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("edits an existing ZIP Skill without losing scripts, resources or unknown metadata", async () => {
+    const store = new MemoryCapabilityStore();
+    const service = createService(store, await tempRoot());
+    const script = "print('report')\n";
+    const interfaceYaml = "interface:\n  display_name: Reports\n  default_prompt: Keep this prompt\npolicy:\n  allow_implicit_invocation: false\n";
+    const preview = await service.previewImportCapability(ownerActor(), {
+      source: { kind: "zip", filename: "reports.zip", bytes: createStoredZip([
+        { path: "reports/SKILL.md", bytes: "---\nname: reports\ndescription: Original\nmetadata:\n  category: reporting\n---\n# Original\n" },
+        { path: "reports/scripts/report.py", bytes: script },
+        { path: "reports/assets/logo.png", bytes: ONE_PIXEL_PNG },
+        { path: "reports/agents/openai.yaml", bytes: interfaceYaml },
+      ]) },
+    });
+    const installed = await service.confirmCapabilityImport(ownerActor(), preview.preview_token);
+    const detail = await service.getSkillEdit(ownerActor(), installed.id);
+    expect(detail).toMatchObject({ name: "reports", display_name: "Reports", description: "Original", content: "# Original\n" });
+    expect(detail.files.map((file) => file.path)).toEqual(["SKILL.md", "agents/openai.yaml", "assets/logo.png", "scripts/report.py"]);
+    const update = await service.previewSkillEdit(ownerActor(), installed.id, {
+      base_revision: detail.revision, display_name: "报告助手", description: "Updated", content: "# Updated\nRun scripts/report.py\n",
+    });
+    expect(update.skill_update).toMatchObject({ mode: "edit", changes: { added: [], modified: ["SKILL.md", "agents/openai.yaml"], deleted: [], unchanged_count: 2 } });
+    expect(update.risk_summary.contains_scripts).toBe(true);
+    const current = store.capabilities[0]!.storagePath;
+    expect(await readFile(join(current, "SKILL.md"), "utf8")).toContain("# Original");
+    await service.confirmCapabilityImport(ownerActor(), update.preview_token);
+    expect(await readFile(join(current, "scripts/report.py"), "utf8")).toBe(script);
+    expect(await readFile(join(current, "assets/logo.png"))).toEqual(ONE_PIXEL_PNG);
+    expect(await readFile(join(current, "SKILL.md"), "utf8")).toContain("category: reporting");
+    expect(await readFile(join(current, "agents/openai.yaml"), "utf8")).toContain("default_prompt: Keep this prompt");
+    expect(await readFile(join(current, "agents/openai.yaml"), "utf8")).toContain("allow_implicit_invocation: false");
+    expect(await service.getSkillEdit(ownerActor(), installed.id)).toMatchObject({ display_name: "报告助手", description: "Updated", content: "# Updated\nRun scripts/report.py\n" });
+  });
+
   it("stages and atomically records an owner-qualified ClawHub Skill install", async () => {
     const root = await tempRoot();
     const store = new MemoryCapabilityStore();
@@ -331,18 +622,10 @@ describe("CapabilityService owner-only visibility", () => {
     store.capabilities.push(capability({ type: "skill" }));
     const service = createService(store, root);
 
-    const preview = await service.previewUpdatePackage(
-      ownerActor(),
-      CAPABILITY_ID,
-      {
-        source: {
-          kind: "manual_skill",
-          name: "reports",
-          skillMarkdown: "# Updated instructions",
-        },
-        requestedType: "skill",
-      },
-    );
+    const currentPath = join(root, "capabilities", CAPABILITY_ID, "current");
+    await mkdir(currentPath, { recursive: true });
+    await writeFile(join(currentPath, "SKILL.md"), "---\nname: reports\n---\n# Initial instructions");
+    const preview = await previewContentEdit(service, CAPABILITY_ID, { content: "# Updated instructions" });
 
     expect(store.capabilities[0]?.name).toBe("reports");
     await service.confirmCapabilityImport(ownerActor(), preview.preview_token);
@@ -353,12 +636,12 @@ describe("CapabilityService owner-only visibility", () => {
     });
   });
 
-  it("serializes concurrent updates across API service instances through HOME materialization", async () => {
+  it("serializes concurrent updates through HOME materialization and rejects the stale second preview", async () => {
     const root = await tempRoot();
     const capabilityPath = join(root, "capabilities", CAPABILITY_ID);
     const currentPath = join(capabilityPath, "current");
     await mkdir(currentPath, { recursive: true });
-    await writeFile(join(currentPath, "SKILL.md"), "# Initial instructions");
+    await writeFile(join(currentPath, "SKILL.md"), "---\nname: reports\ndescription: Initial\n---\n# Initial instructions");
     const store = new MemoryCapabilityStore();
     store.capabilities.push(
       capability({
@@ -404,32 +687,8 @@ describe("CapabilityService owner-only visibility", () => {
     });
     const firstService = createService(store, root, materializeUserHomes);
     const secondService = createService(store, root, materializeUserHomes);
-    const firstPreview = await firstService.previewUpdatePackage(
-      ownerActor(),
-      CAPABILITY_ID,
-      {
-        source: {
-          kind: "manual_skill",
-          name: "reports",
-          description: "First",
-          skillMarkdown: "# First instructions",
-        },
-        requestedType: "skill",
-      },
-    );
-    const secondPreview = await secondService.previewUpdatePackage(
-      ownerActor(),
-      CAPABILITY_ID,
-      {
-        source: {
-          kind: "manual_skill",
-          name: "reports",
-          description: "Second",
-          skillMarkdown: "# Second instructions",
-        },
-        requestedType: "skill",
-      },
-    );
+    const firstPreview = await previewContentEdit(firstService, CAPABILITY_ID, { description: "First", content: "# First instructions" });
+    const secondPreview = await previewContentEdit(secondService, CAPABILITY_ID, { description: "Second", content: "# Second instructions" });
 
     const firstConfirmation = firstService.confirmCapabilityImport(
       ownerActor(),
@@ -440,6 +699,7 @@ describe("CapabilityService owner-only visibility", () => {
       ownerActor(),
       secondPreview.preview_token,
     );
+    const staleRejection = expect(secondConfirmation).rejects.toMatchObject({ code: "CAPABILITY_UPDATE_CONFLICT" });
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
     expect(databaseLock).toHaveBeenCalledTimes(1);
 
@@ -452,12 +712,12 @@ describe("CapabilityService owner-only visibility", () => {
     );
 
     releaseFirstMaterialization?.();
-    await Promise.all([firstConfirmation, secondConfirmation]);
+    await Promise.all([firstConfirmation, staleRejection]);
 
-    expect(databaseLock).toHaveBeenCalledTimes(2);
-    expect(store.capabilities[0]?.description).toBe("Second");
+    expect(databaseLock).toHaveBeenCalledTimes(1);
+    expect(store.capabilities[0]?.description).toBe("First");
     expect(await readFile(join(currentPath, "SKILL.md"), "utf8")).toContain(
-      "# Second instructions",
+      "# First instructions",
     );
   });
 
@@ -466,7 +726,7 @@ describe("CapabilityService owner-only visibility", () => {
     const capabilityPath = join(root, "capabilities", CAPABILITY_ID);
     const currentPath = join(capabilityPath, "current");
     await mkdir(currentPath, { recursive: true });
-    await writeFile(join(currentPath, "SKILL.md"), "# Initial instructions");
+    await writeFile(join(currentPath, "SKILL.md"), "---\nname: reports\n---\n# Initial instructions");
     const store = new MemoryCapabilityStore();
     store.capabilities.push(
       capability({ type: "skill", storagePath: currentPath }),
@@ -489,18 +749,7 @@ describe("CapabilityService owner-only visibility", () => {
     });
     const updateService = createService(store, root, materializeUserHomes);
     const deleteService = createService(store, root, materializeUserHomes);
-    const preview = await updateService.previewUpdatePackage(
-      ownerActor(),
-      CAPABILITY_ID,
-      {
-        source: {
-          kind: "manual_skill",
-          name: "reports",
-          skillMarkdown: "# Updated before delete",
-        },
-        requestedType: "skill",
-      },
-    );
+    const preview = await previewContentEdit(updateService, CAPABILITY_ID, { content: "# Updated before delete" });
 
     const update = updateService.confirmCapabilityImport(
       ownerActor(),
@@ -598,18 +847,7 @@ describe("CapabilityService owner-only visibility", () => {
     if (capabilityId === undefined)
       throw new Error("capability was not installed");
 
-    const updatePreview = await service.previewUpdatePackage(
-      ownerActor(),
-      capabilityId,
-      {
-        source: {
-          kind: "manual_skill",
-          name: "home-sync",
-          skillMarkdown: "# Updated instructions",
-        },
-        requestedType: "skill",
-      },
-    );
+    const updatePreview = await previewContentEdit(service, capabilityId, { content: "# Updated instructions" });
     await service.confirmCapabilityImport(
       ownerActor(),
       updatePreview.preview_token,
@@ -720,19 +958,7 @@ describe("CapabilityService owner-only visibility", () => {
       await readFile(join(installed.storagePath, "SKILL.md"), "utf8"),
     ).toContain("# Installed source");
 
-    const updatePreview = await service.previewUpdatePackage(
-      ownerActor(),
-      installed.id,
-      {
-        source: {
-          kind: "manual_skill",
-          name: "partial-home-sync",
-          description: "Updated",
-          skillMarkdown: "# Updated source",
-        },
-        requestedType: "skill",
-      },
-    );
+    const updatePreview = await previewContentEdit(service, installed.id, { description: "Updated", content: "# Updated source" });
     await expect(
       service.confirmCapabilityImport(
         ownerActor(),
@@ -1354,19 +1580,7 @@ describe("capabilityRoutes", () => {
           });
           expect(result.json().data.items).toHaveLength(1);
         }
-        const updatedPreview = await service.previewUpdatePackage(
-          ownerActor(),
-          confirmed.json().data.id,
-          {
-            source: {
-              kind: "manual_skill",
-              name: "meeting-notes",
-              displayName: "",
-              skillMarkdown: "# Updated",
-            },
-            requestedType: "skill",
-          },
-        );
+        const updatedPreview = await previewContentEdit(service, confirmed.json().data.id, { display_name: null, content: "# Updated" });
         const updated = await service.confirmCapabilityImport(
           ownerActor(),
           updatedPreview.preview_token,
@@ -1771,6 +1985,28 @@ function createService(
     managedBrowserEnabled,
     now: () => FIXED_DATE,
   });
+}
+
+async function previewContentEdit(service: CapabilityService, id: string, changes: Partial<Omit<SkillEditInput, "base_revision">>) {
+  const detail = await service.getSkillEdit(ownerActor(), id);
+  return service.previewSkillEdit(ownerActor(), id, {
+    base_revision: detail.revision,
+    display_name: detail.display_name,
+    description: detail.description,
+    content: detail.content ?? "",
+    ...changes,
+  });
+}
+
+async function installSkillPackage(service: CapabilityService) {
+  const preview = await service.previewImportCapability(ownerActor(), {
+    source: { kind: "zip", filename: "reports.zip", bytes: createStoredZip([
+      { path: "reports/SKILL.md", bytes: "---\nname: reports\n---\n# Original" },
+      { path: "reports/scripts/report.py", bytes: "print('report')\n" },
+      { path: "reports/assets/template.txt", bytes: "template" },
+    ]) },
+  });
+  return service.confirmCapabilityImport(ownerActor(), preview.preview_token);
 }
 
 async function tempRoot(): Promise<string> {

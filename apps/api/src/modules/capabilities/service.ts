@@ -6,10 +6,23 @@ import {
   builtInCapabilityDefinitions,
   builtInCapabilityId,
   capabilityRiskSummarySchema,
+  skillEditDetailSchema,
+  skillEditInputSchema,
+  skillRevisionSchema,
+  type SkillEditDetail,
+  type SkillEditInput,
 } from "@linksense/shared";
 import { lock } from "proper-lockfile";
 
 import { AppError } from "../../lib/errors.js";
+import { splitSkillMarkdown } from "./skill-manifest.js";
+import {
+  compareSkillPackageFiles,
+  exportSkillPackage,
+  readSkillPackageFiles,
+  skillPackageRevision,
+  type SkillPackageFile,
+} from "./skill-package-files.js";
 import {
   CapabilityPackageImporter,
   capabilityDirectory,
@@ -92,6 +105,7 @@ export interface CapabilityView {
 export interface ImportCapabilityInput {
   source: CapabilityImportSource;
   requestedType?: CapabilityType;
+  baseRevision?: string;
 }
 
 export interface MarketplaceReleaseInstallInput {
@@ -254,6 +268,87 @@ export class CapabilityService {
     }
   }
 
+  async getSkillEdit(actor: RequestActor, capabilityId: string): Promise<SkillEditDetail> {
+    return this.#withEditableSkill(actor, capabilityId, async (current, root, files) => {
+      const content = splitSkillMarkdown(await readFile(join(root, "SKILL.md"), "utf8")).content;
+      return skillEditDetailSchema.parse({
+        name: current.name,
+        display_name: current.displayName ?? null,
+        description: current.description,
+        content: content.length > MAX_EDITABLE_SKILL_CONTENT_LENGTH ? null : content,
+        revision: skillPackageRevision(current, files),
+        files: files.map(({ path, size_bytes }) => ({ path, size_bytes })),
+      });
+    });
+  }
+
+  async downloadSkillPackage(actor: RequestActor, capabilityId: string): Promise<{ filename: string; bytes: Buffer }> {
+    return this.#withEditableSkill(actor, capabilityId, async (current, root, files) => ({
+      filename: `${current.name}.zip`,
+      bytes: await exportSkillPackage(root, current.name, files),
+    }));
+  }
+
+  async previewSkillEdit(actor: RequestActor, capabilityId: string, input: SkillEditInput): Promise<CapabilityImportPreview> {
+    const validated = skillEditInputSchema.parse(input);
+    return this.#withEditableSkill(actor, capabilityId, (current, root, files) =>
+      this.#stageSkillUpdate(actor, current, files, validated.base_revision, "edit", { kind: "skill_edit" },
+        () => this.#importer.prepareSkillEdit(root, validated)),
+    );
+  }
+
+  async #withEditableSkill<T>(actor: RequestActor, capabilityId: string, work: (current: CapabilityRecord, root: string, files: SkillPackageFile[]) => Promise<T>): Promise<T> {
+    assertActiveActor(actor);
+    const check = async () => {
+      const current = await this.requireCapability(capabilityId);
+      assertCanFullyManage(actor, current);
+      if (current.type !== "skill") throw new AppError("CAPABILITY_NOT_FOUND");
+      if (current.sourceType === "marketplace" || current.sourceType === "clawhub") throw new AppError("CONFLICT");
+      return current;
+    };
+    await check();
+    const directory = capabilityDirectory(this.#capabilityRoot, capabilityId);
+    return withCapabilityMutationLock(directory, async () => {
+      const current = await check();
+      const root = join(directory, "current");
+      try {
+        return await work(current, root, await readSkillPackageFiles(root));
+      } catch (error) {
+        if (error instanceof AppError) throw error;
+        throw new AppError("INVALID_PACKAGE");
+      }
+    });
+  }
+
+  async #stageSkillUpdate(
+    actor: RequestActor,
+    current: CapabilityRecord,
+    files: SkillPackageFile[],
+    baseRevision: string,
+    mode: "edit" | "replace",
+    source: CapabilityImportSource | { kind: "skill_edit" },
+    prepare: () => Promise<PreparedCapabilityPackage>,
+  ): Promise<CapabilityImportPreview> {
+    let prepared: PreparedCapabilityPackage | null = null;
+    try {
+      if (baseRevision !== skillPackageRevision(current, files)) throw new AppError("CAPABILITY_UPDATE_CONFLICT");
+      prepared = await prepare();
+      validateRequestedType(prepared.type, "skill");
+      if (prepared.name !== current.name) throw new AppError("VALIDATION_ERROR");
+      const changes = compareSkillPackageFiles(files, await readSkillPackageFiles(prepared.packageRoot));
+      if (changes.added.length + changes.modified.length + changes.deleted.length === 0) throw new AppError("CAPABILITY_UPDATE_UNCHANGED");
+      return await this.#previews.stage({
+        actorId: actor.id, operation: "update", capabilityId: current.id,
+        requestedType: "skill", source, prepared,
+        skillUpdate: { mode, base_revision: baseRevision, changes },
+      });
+    } catch (error) {
+      if (prepared !== null) await this.#cleanupPreparedPackage(prepared);
+      await this.#writeImportFailureAudit(actor, "update", current.id, "local", error);
+      throw error;
+    }
+  }
+
   async previewImportCapability(
     actor: RequestActor,
     input: ImportCapabilityInput,
@@ -361,6 +456,15 @@ export class CapabilityService {
     ) {
       throw new AppError("CONFLICT");
     }
+    if (input.source.kind !== "zip") throw new AppError("VALIDATION_ERROR");
+    if (existing.type === "skill") {
+      const baseRevision = skillRevisionSchema.parse(input.baseRevision);
+      validateRequestedType("skill", input.requestedType);
+      return this.#withEditableSkill(actor, capabilityId, (current, _root, files) =>
+        this.#stageSkillUpdate(actor, current, files, baseRevision, "replace", input.source,
+          () => this.#importer.prepare(input.source)),
+      );
+    }
     let prepared: Awaited<
       ReturnType<CapabilityPackageImporter["prepare"]>
     > | null = null;
@@ -421,6 +525,16 @@ export class CapabilityService {
         await this.#validateClawHubInstall(actor, preview.clawHubOrigin);
       }
       return await withCapabilityMutationLock(capabilityPath, async () => {
+        let skillUpdateBase: { revision: string; files: SkillPackageFile[] } | undefined;
+        if (preview.operation === "update" && preview.prepared.type === "skill") {
+          const current = await this.requireCapability(capabilityId);
+          assertCanFullyManage(actor, current);
+          const files = await readSkillPackageFiles(join(capabilityPath, "current"));
+          if (!preview.skillUpdate || preview.skillUpdate.base_revision !== skillPackageRevision(current, files)) {
+            throw new AppError("CAPABILITY_UPDATE_CONFLICT");
+          }
+          skillUpdateBase = { revision: preview.skillUpdate.base_revision, files };
+        }
         const capability =
           preview.operation === "install"
             ? await this.#activateInstall(
@@ -443,6 +557,7 @@ export class CapabilityService {
                 preview.sourceType,
                 null,
                 false,
+                skillUpdateBase,
               );
         sourceAndDatabaseCommitted = true;
         await preview.commit().catch(async () => {
@@ -671,6 +786,7 @@ export class CapabilityService {
       releaseId: string;
     } | null,
     replaceLogoFromPackage: boolean,
+    skillUpdateBase?: { revision: string; files: SkillPackageFile[] },
   ): Promise<CapabilityRecord> {
     assertActiveActor(actor);
     const capabilityPath = capabilityDirectory(
@@ -703,6 +819,10 @@ export class CapabilityService {
         const current = await store.findCapability(capabilityId);
         if (current === null) throw new AppError("CAPABILITY_NOT_FOUND");
         assertCanFullyManage(actor, current);
+        // Metadata patches use the database lock; recheck after acquiring it too.
+        if (skillUpdateBase && skillPackageRevision(current, skillUpdateBase.files) !== skillUpdateBase.revision) {
+          throw new AppError("CAPABILITY_UPDATE_CONFLICT");
+        }
         if (
           current.sourceType === "clawhub" ||
           (marketplaceOrigin === null &&
