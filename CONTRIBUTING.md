@@ -33,3 +33,17 @@ Use `uv` consistently for Python commands and dependencies.
 - Before submitting, run the affected tests, type checks, linting, and build, and record the results in the pull request.
 
 By contributing, you agree to license your contribution under this repository's [CPAL-1.0](./LICENSE).
+
+## Contributor acknowledgements / 贡献者展示
+
+The English and Chinese READMEs share an avatar section based on GitHub's repository contributor records, ordered by commit count. Bot accounts and anonymous authors are excluded; commit email addresses must be associated with a GitHub account to appear. GitHub caches this list, so newly merged contributions can take several hours to appear. We display public avatars and profile links only, never author emails or tokens. Recognition here covers code contributions; other contributions are welcome too.
+
+The **Update README contributors** workflow checks weekly on Monday at 03:23 UTC and can also be run manually from Actions on the default branch. With changes, the workflow creates or updates one documentation-only PR on `automation/readme-contributors`; without changes, no new commit or PR is created. Maintainers review and merge the PR. Do not edit that automation-managed branch by hand. The workflow uses the repository's built-in `GITHUB_TOKEN`, works with private repositories, and does not publish code, build images, or create releases. It does not run on forks or on every push. Keep `[skip ci]` in the merge commit message to avoid unnecessary CI builds.
+
+Before enabling automation, merge the workflow into the default branch and enable **Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create and approve pull requests** (the organization policy must also permit this). The workflow only creates PRs; it does not approve or merge them. No personal access token or additional Secret is required. Until this permission is enabled, the checked-in avatars remain visible but automated PR creation cannot succeed. API failures or empty contributor results preserve the existing avatars. Only content between `<!-- contributors:start -->` and `<!-- contributors:end -->` is generated; keep both markers in each README.
+
+中英文 README 共用一份基于 GitHub 仓库贡献记录的头像名单，按提交数量排序，排除机器人与匿名作者。提交邮箱需要关联 GitHub 账号；GitHub 的缓存可能导致新贡献延迟数小时显示。名单仅展示公开头像和个人主页，不包含邮箱、Token 或其他私密信息。这里展示代码贡献，我们也欢迎其他形式的贡献。
+
+**Update README contributors** 工作流每周一北京时间 11:23 检查，也可在默认分支的 Actions 页面手动运行。只有名单或顺序发生变化时，才创建或更新 `automation/readme-contributors` 分支上的文档 PR，由维护者审阅合并；请勿手动修改该自动维护分支。工作流使用仓库自带的 `GITHUB_TOKEN`，支持私有仓库，不公开源码、不构建镜像、不发布版本，也不会在 Fork 或每次推送时运行。合并时请保留 `[skip ci]`，避免触发不必要的 CI 构建。
+
+启用前需将工作流合入默认分支，并在 **Settings → Actions → General → Workflow permissions** 勾选 **Allow GitHub Actions to create and approve pull requests**，同时确保组织策略允许。工作流只创建 PR，不自动审批或合并，无需配置个人 Token 或额外 Secret。未开启权限时，已写入 README 的头像仍然可见，但无法自动创建更新 PR。接口失败或返回空名单不会清空已有头像。两份 README 中的贡献者起止标记必须保留，仅标记之间的内容由脚本生成。

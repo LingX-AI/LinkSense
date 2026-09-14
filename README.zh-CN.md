@@ -171,3 +171,14 @@ pnpm dev:prod:stop
 - 安全策略：[SECURITY.md](./SECURITY.md)
 - 支持渠道：[SUPPORT.md](./SUPPORT.md)
 - 安全问题：`developer@linksense.org`
+
+## 贡献者
+
+感谢所有为 LinkSense 作出贡献的开发者！
+
+<!-- contributors:start -->
+<p>
+  <a href="https://github.com/Metrolive"><img src="https://avatars.githubusercontent.com/u/44701445?s=128" width="64" height="64" alt="Metrolive" title="Metrolive" /></a>
+  <a href="https://github.com/guygubaby"><img src="https://avatars.githubusercontent.com/u/21158055?s=128" width="64" height="64" alt="guygubaby" title="guygubaby" /></a>
+</p>
+<!-- contributors:end -->

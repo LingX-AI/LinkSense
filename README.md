@@ -171,3 +171,14 @@ We release LinkSense under [CPAL-1.0](./LICENSE), including our completed Attrib
 - Security policy: [SECURITY.md](./SECURITY.md)
 - Support: [SUPPORT.md](./SUPPORT.md)
 - Security reports: `developer@linksense.org`
+
+## Contributors
+
+Thank you to everyone who contributes to LinkSense!
+
+<!-- contributors:start -->
+<p>
+  <a href="https://github.com/Metrolive"><img src="https://avatars.githubusercontent.com/u/44701445?s=128" width="64" height="64" alt="Metrolive" title="Metrolive" /></a>
+  <a href="https://github.com/guygubaby"><img src="https://avatars.githubusercontent.com/u/21158055?s=128" width="64" height="64" alt="guygubaby" title="guygubaby" /></a>
+</p>
+<!-- contributors:end -->

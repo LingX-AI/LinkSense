@@ -1,0 +1,83 @@
+name: Update README contributors
+
+on:
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: readme-contributors-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: >-
+      github.repository == 'LingX-AI/linksense' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.6.4
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install only root tooling dependencies without lifecycle scripts
+        run: pnpm --filter link-sense install --frozen-lockfile --ignore-scripts
+
+      - name: Test contributor rendering
+        run: node --test scripts/update-contributors.test.mjs scripts/readme.test.mjs
+
+      - name: Update both READMEs from GitHub contributors
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          retries: 2
+          script: |
+            const { pathToFileURL } = await import('node:url')
+            const { updateContributors } = await import(pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/scripts/update-contributors.mjs`
+            ).href)
+            const changed = await updateContributors({ github, ...context.repo })
+            core.info(changed.length ? `Updated ${changed.join(', ')}` : 'Contributors are unchanged.')
+
+      - name: Verify the generated READMEs
+        run: node --test scripts/readme.test.mjs
+
+      - name: Propose only the contributor documentation changes
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: automation/readme-contributors
+          base: ${{ github.event.repository.default_branch }}
+          add-paths: |
+            README.md
+            README.zh-CN.md
+          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          commit-message: "docs: update README contributors [skip ci]"
+          title: "docs: update README contributors [skip ci]"
+          body: |
+            Update the English and Chinese contributor avatars from GitHub's contributor records.
+            Only human GitHub accounts are included. No source code, images, or releases are changed.
+            Maintainers must review and merge this documentation-only PR; keep [skip ci] in the merge message.
+
+            根据 GitHub 贡献记录同步中英文 README 的贡献者头像，仅展示开发者账号。
+            本次仅更新文档，不修改源码、不构建镜像、不发布版本，请维护者审阅后合并并保留跳过 CI 标记。
