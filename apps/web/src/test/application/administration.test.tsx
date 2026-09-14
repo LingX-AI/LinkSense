@@ -472,6 +472,10 @@ describe("LinkSense application", () => {
     expect(statusSwitch).toBeEnabled()
     expect(statusSwitch).toBeChecked()
     await interaction.click(statusSwitch)
+    // Check short-lived notifications before the more expensive table queries.
+    await waitFor(() =>
+      expect(screen.getByText("已禁用用户 张宁")).toBeVisible()
+    )
 
     await waitFor(() =>
       expect(
@@ -486,11 +490,11 @@ describe("LinkSense application", () => {
       name: "启用用户 张宁",
     })
     expect(enableSwitch).not.toBeChecked()
-    await waitFor(() =>
-      expect(screen.getByText("已禁用用户 张宁")).toBeVisible()
-    )
 
     await interaction.click(enableSwitch)
+    await waitFor(() =>
+      expect(screen.getByText("已启用用户 张宁")).toBeVisible()
+    )
     await waitFor(() =>
       expect(
         requests
@@ -505,9 +509,6 @@ describe("LinkSense application", () => {
     expect(
       await within(userRow).findByRole("switch", { name: "禁用用户 张宁" })
     ).toBeChecked()
-    await waitFor(() =>
-      expect(screen.getByText("已启用用户 张宁")).toBeVisible()
-    )
   })
 
   it("keeps the last enabled administrator status switch disabled", async () => {
