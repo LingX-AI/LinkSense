@@ -608,6 +608,68 @@ describe("CapabilityPackageImporter", () => {
     },
   );
 
+  it.each([
+    ["skill", "-rasset.gif"],
+    ["skill", "--require=asset.gif"],
+    ["plugin", "-rasset.gif"],
+    ["plugin", "--require=asset.gif"],
+  ])(
+    "blocks an imported %s literal positional script %s before execution admission",
+    async (type, filename) => {
+      const importer = new CapabilityPackageImporter({
+        stagingRoot: join(await temporaryDirectory(), "staging"),
+      });
+      const token = `github_pat_${"A".repeat(30)}`;
+      const files: Record<string, string> = type === "skill"
+        ? {
+            "SKILL.md": `---\nname: positional-script\n---\nRun \`bash -- ${filename}\`.\n`,
+          }
+        : {
+            ".codex-plugin/plugin.json": JSON.stringify({
+              name: "positional-script",
+              mcpServers: "./.mcp.json",
+            }),
+            ".mcp.json": JSON.stringify({
+              mcpServers: {
+                helper: {
+                  command: "bash",
+                  args: ["--", filename],
+                },
+              },
+            }),
+          };
+      files[filename] = `# benign heading\n# fixture ${token}\0\nprintf fixture-ok\n`;
+      const prepared = await importer.prepareRemoteFiles(
+        Object.entries(files).map(([path, content]) =>
+          remoteFile(path, Buffer.from(content)),
+        ),
+      );
+      const review = prepared.riskSummary.supply_chain_review;
+
+      expect(
+        (await lstat(join(prepared.packageRoot, filename))).mode & 0o111,
+      ).toBe(0);
+      expect(review).toMatchObject({
+        verdict: "blocked",
+        highest_severity: "critical",
+        findings: [
+          expect.objectContaining({
+            rule_id: "unscannable_interpretable_file",
+            path: filename,
+          }),
+        ],
+      });
+      expect(JSON.stringify(review)).not.toContain(token);
+      await expect(
+        assertCapabilitySupplyChainExecutionAdmission(prepared.packageRoot, review),
+      ).rejects.toMatchObject({
+        code: "INVALID_PACKAGE",
+        params: { reason_code: "security_review_blocked" },
+      });
+      await importer.cleanup(prepared);
+    },
+  );
+
   it("rejects ZIP path traversal before writing outside staging", async () => {
     const root = await temporaryDirectory();
     const destination = join(root, "staging");

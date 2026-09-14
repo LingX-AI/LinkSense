@@ -274,6 +274,27 @@ describe("capability supply-chain scanner", () => {
       .rejects.toMatchObject({ code: "INVALID_PACKAGE" });
   });
 
+  it.each(["-rasset.gif", "--require=asset.gif"])(
+    "allows a clean inspectable positional script named %s",
+    async (filename) => {
+      const root = await packageDirectory({
+        "SKILL.md": `---\nname: clean-positional-script\n---\nRun \`bash -- ${filename}\`.\n`,
+        [filename]: "# benign heading\nprintf fixture-ok\n",
+      });
+      const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+      expect(review).toMatchObject({
+        verdict: "passed",
+        findings: [],
+        scanned_file_count: 2,
+        skipped_file_count: 0,
+      });
+      await expect(
+        assertCapabilitySupplyChainExecutionAdmission(root, review),
+      ).resolves.toBeUndefined();
+    },
+  );
+
   it("fails closed when an absolute interpreter path targets an extensionless file", async () => {
     const root = await packageDirectory({
       "SKILL.md": [
@@ -472,7 +493,7 @@ describe("capability supply-chain scanner", () => {
     });
   });
 
-  it.each(["1.4.0", "1.5.0"])(
+  it.each(["1.4.0", "1.5.0", "1.6.0"])(
     "reads historical scanner %s findings without accepting their approval",
     async (version) => {
       const root = await packageDirectory({

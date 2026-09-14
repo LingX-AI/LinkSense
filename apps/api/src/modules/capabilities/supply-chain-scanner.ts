@@ -465,21 +465,23 @@ async function findExplicitInterpreterTargets(
       // argument can misclassify the actual script as a passive asset.
       const argumentsText = match[1] ?? "";
       for (const token of argumentsText.matchAll(LITERAL_COMMAND_ARGUMENT)) {
-        const candidate = packagePathArgument(token[1] ?? token[2] ?? token[3] ?? "");
-        if (
-          !candidate ||
-          candidate.startsWith("/") ||
-          candidate.includes("\0")
-        ) {
-          continue;
-        }
-        const normalizedFromRoot = normalizePackageRelativePath(candidate);
-        const normalizedFromSource = normalizePackageRelativePath(
-          posix.join(posix.dirname(sourcePath), candidate),
-        );
-        for (const normalized of [normalizedFromRoot, normalizedFromSource]) {
-          if (normalized && availableFiles.has(normalized)) {
-            targets.add(normalized);
+        const argument = token[1] ?? token[2] ?? token[3] ?? "";
+        for (const candidate of packagePathCandidates(argument)) {
+          if (
+            !candidate ||
+            candidate.startsWith("/") ||
+            candidate.includes("\0")
+          ) {
+            continue;
+          }
+          const normalizedFromRoot = normalizePackageRelativePath(candidate);
+          const normalizedFromSource = normalizePackageRelativePath(
+            posix.join(posix.dirname(sourcePath), candidate),
+          );
+          for (const normalized of [normalizedFromRoot, normalizedFromSource]) {
+            if (normalized && availableFiles.has(normalized)) {
+              targets.add(normalized);
+            }
           }
         }
       }
@@ -585,20 +587,22 @@ function addAvailableTargets(
   availableFiles: ReadonlySet<string>,
 ): void {
   for (const argument of candidates) {
-    const candidate = packagePathArgument(argument);
-    if (candidate.startsWith("-") || candidate.includes("\0")) continue;
-    const normalized = normalizePackageRelativePath(candidate);
-    if (normalized && availableFiles.has(normalized)) targets.add(normalized);
+    for (const candidate of packagePathCandidates(argument)) {
+      if (candidate.includes("\0")) continue;
+      const normalized = normalizePackageRelativePath(candidate);
+      if (normalized && availableFiles.has(normalized)) targets.add(normalized);
+    }
   }
 }
 
-function packagePathArgument(argument: string): string {
-  // CLI options such as --require=./helper.gif contain a path, not a
-  // standalone filename. Apply the same normalization to text and MCP argv.
-  const optionValue = /^--?[A-Za-z0-9][A-Za-z0-9-]*=(.*)$/u.exec(argument)?.[1];
-  if (optionValue !== undefined) return optionValue;
-  // Node's short preload option also permits an attached value: -r./helper.
-  return /^-r(.+)$/u.exec(argument)?.[1] ?? argument;
+function packagePathCandidates(argument: string): readonly string[] {
+  // An option-shaped token can also be a literal filename (e.g. after --).
+  // Keep it alongside values from --require=./helper or -r./helper instead
+  // of assuming which interpretation the invoking program will use.
+  const optionValue =
+    /^--?[A-Za-z0-9][A-Za-z0-9-]*=(.*)$/u.exec(argument)?.[1] ??
+    /^-r(.+)$/u.exec(argument)?.[1];
+  return optionValue === undefined ? [argument] : [argument, optionValue];
 }
 
 function isInterpreterCommand(command: string): boolean {
