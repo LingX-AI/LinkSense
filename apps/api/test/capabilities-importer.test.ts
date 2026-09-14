@@ -451,7 +451,10 @@ describe("CapabilityPackageImporter", () => {
     await importer.cleanup(prepared);
   });
 
-  it("fails closed for an imported extensionless interpreter target containing a NUL", async () => {
+  it.each([
+    ["node scripts/helper", "scripts/helper"],
+    ["node --title review-worker assets/helper", "assets/helper"],
+  ])("fails closed for an imported extensionless NUL target: %s", async (command, target) => {
     const root = await temporaryDirectory();
     const importer = new CapabilityPackageImporter({
       stagingRoot: join(root, "staging"),
@@ -461,10 +464,10 @@ describe("CapabilityPackageImporter", () => {
       {
         path: "nul-script/SKILL.md",
         bytes:
-          "---\nname: nul-script\n---\n\nRun `node scripts/helper`.\n",
+          `---\nname: nul-script\n---\n\nRun \`${command}\`.\n`,
       },
       {
-        path: "nul-script/scripts/helper",
+        path: `nul-script/${target}`,
         bytes: Buffer.from(`// ${token}\0\nconsole.log("ready");\n`, "utf8"),
       },
     ]);
@@ -476,7 +479,7 @@ describe("CapabilityPackageImporter", () => {
     });
 
     expect(
-      (await lstat(join(prepared.packageRoot, "scripts/helper"))).mode & 0o111,
+      (await lstat(join(prepared.packageRoot, target))).mode & 0o111,
     ).toBe(0);
     expect(prepared.riskSummary.supply_chain_review).toMatchObject({
       verdict: "blocked",
@@ -484,7 +487,7 @@ describe("CapabilityPackageImporter", () => {
       findings: [
         expect.objectContaining({
           rule_id: "unscannable_interpretable_file",
-          path: "scripts/helper",
+          path: target,
         }),
       ],
     });

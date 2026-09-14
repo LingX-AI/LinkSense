@@ -90,9 +90,9 @@ const EXECUTABLE_SOURCE_EXTENSIONS = new Set([
   ".tsx",
   ".zsh",
 ]);
-const EXECUTABLE_INTENT_DIRECTORIES = new Set(["bin", "hooks", "scripts"]);
 const EXPLICIT_INTERPRETER_INVOCATION =
-  /(?:^|[\s`;&|()])(?:\/usr\/bin\/env\s+)?(?:(?:\/[A-Za-z0-9._-]+)+\/)?(?:node(?:js)?|python(?:3(?:\.\d+)*)?|bash|sh|zsh|fish|ruby|perl|php|lua|tsx|ts-node)\s+(?:(?:--|--?[A-Za-z0-9][A-Za-z0-9-]*(?:=[^\s]+)?)\s+)*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([A-Za-z0-9_./-]+))/gmu;
+  /(?:^|[\s`;&|()])(?:\/usr\/bin\/env\s+)?(?:(?:\/[A-Za-z0-9._-]+)+\/)?(?:node(?:js)?|python(?:3(?:\.\d+)*)?|bash|sh|zsh|fish|ruby|perl|php|lua|tsx|ts-node)[\t ]+((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\r\n`;&|"'])+)/gmu;
+const LITERAL_COMMAND_ARGUMENT = /"([^"\r\n]*)"|'([^'\r\n]*)'|([^\s"']+)/gu;
 
 type FindingRule = {
   ruleId: CapabilitySupplyChainFinding["rule_id"];
@@ -200,12 +200,15 @@ export async function scanCapabilitySupplyChain(
     const absolutePath = join(absoluteRoot, relativePath);
     const info = await lstat(absolutePath);
     const executable = (info.mode & 0o111) !== 0;
+    // No extension is not evidence of a passive asset. Keep this independent
+    // of command discovery, which cannot prove all possible execution paths.
+    const extensionless = extname(relativePath) === "";
     if (info.size > MAX_SCANNABLE_FILE_BYTES) {
       if (
         isScannablePath(relativePath) ||
         executable ||
         interpretedTargets.has(relativePath) ||
-        hasExecutablePathIntent(relativePath)
+        extensionless
       ) {
         findings.push(
           createFinding({
@@ -214,7 +217,7 @@ export async function scanCapabilitySupplyChain(
               executable ||
               isExecutableSource(relativePath) ||
               interpretedTargets.has(relativePath) ||
-              hasExecutablePathIntent(relativePath)
+              extensionless
                 ? "critical"
                 : "high",
             path: relativePath,
@@ -241,7 +244,7 @@ export async function scanCapabilitySupplyChain(
       } else if (
         isScannablePath(relativePath) ||
         interpretedTargets.has(relativePath) ||
-        hasExecutablePathIntent(relativePath) ||
+        extensionless ||
         hasInterpreterShebang(bytes)
       ) {
         findings.push(
@@ -430,15 +433,6 @@ function looksBinary(bytes: Buffer): boolean {
   return bytes.subarray(0, Math.min(bytes.length, 8_192)).includes(0);
 }
 
-function hasExecutablePathIntent(path: string): boolean {
-  return (
-    extname(path) === "" &&
-    path
-      .split("/")
-      .some((segment) => EXECUTABLE_INTENT_DIRECTORIES.has(segment))
-  );
-}
-
 function hasInterpreterShebang(bytes: Buffer): boolean {
   const firstLine = bytes
     .subarray(0, Math.min(bytes.length, 256))
@@ -463,21 +457,27 @@ async function findExplicitInterpreterTargets(
     if (looksBinary(bytes)) continue;
     const content = bytes.toString("utf8");
     for (const match of content.matchAll(EXPLICIT_INTERPRETER_INVOCATION)) {
-      const candidate = match[1] ?? match[2] ?? match[3];
-      if (
-        !candidate ||
-        candidate.startsWith("/") ||
-        candidate.includes("\0")
-      ) {
-        continue;
-      }
-      const normalizedFromRoot = normalizePackageRelativePath(candidate);
-      const normalizedFromSource = normalizePackageRelativePath(
-        posix.join(posix.dirname(sourcePath), candidate),
-      );
-      for (const normalized of [normalizedFromRoot, normalizedFromSource]) {
-        if (normalized && availableFiles.has(normalized)) {
-          targets.add(normalized);
+      // Collect every literal package path in the invocation. Interpreter
+      // options can take separate values; guessing the first positional
+      // argument can misclassify the actual script as a passive asset.
+      const argumentsText = match[1] ?? "";
+      for (const token of argumentsText.matchAll(LITERAL_COMMAND_ARGUMENT)) {
+        const candidate = token[1] ?? token[2] ?? token[3];
+        if (
+          !candidate ||
+          candidate.startsWith("/") ||
+          candidate.includes("\0")
+        ) {
+          continue;
+        }
+        const normalizedFromRoot = normalizePackageRelativePath(candidate);
+        const normalizedFromSource = normalizePackageRelativePath(
+          posix.join(posix.dirname(sourcePath), candidate),
+        );
+        for (const normalized of [normalizedFromRoot, normalizedFromSource]) {
+          if (normalized && availableFiles.has(normalized)) {
+            targets.add(normalized);
+          }
         }
       }
     }

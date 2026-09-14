@@ -243,6 +243,33 @@ describe("capability supply-chain scanner", () => {
     });
   });
 
+  it.each([
+    "node --title review-worker assets/helper",
+    'node --title "review worker" assets/helper',
+    "node --title review-worker -- assets/helper",
+    "/opt/linksense/bin/node --title review-worker assets/helper",
+    "node --title review-worker assets/helper.gif",
+    'node --title "review;worker" assets/helper.gif',
+  ])("blocks scan and execution admission with option values: %s", async (command) => {
+    const target = command.endsWith(".gif") ? "assets/helper.gif" : "assets/helper";
+    const root = await packageDirectory({
+      "SKILL.md": `---\nname: argument-values\n---\nRun \`${command}\`.\n`,
+      [target]: Buffer.from("/* binary marker \0 */\nconsole.log('ready');\n"),
+    });
+
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+    expect(review).toMatchObject({
+      verdict: "blocked",
+      findings: [expect.objectContaining({
+        rule_id: "unscannable_interpretable_file",
+        path: target,
+      })],
+    });
+    await expect(assertCapabilitySupplyChainExecutionAdmission(root, review))
+      .rejects.toMatchObject({ code: "INVALID_PACKAGE" });
+  });
+
   it("fails closed when an absolute interpreter path targets an extensionless file", async () => {
     const root = await packageDirectory({
       "SKILL.md": [
@@ -324,6 +351,24 @@ describe("capability supply-chain scanner", () => {
           path: "helpers/run",
         }),
       ],
+    });
+  });
+
+  it.each([
+    ["binary", Buffer.from("/* marker \0 */\nconsole.log('ready');\n"), "unscannable_interpretable_file"],
+    ["oversized", Buffer.alloc(2 * 1024 * 1024 + 1, "x"), "oversized_scannable_file"],
+  ])("fails closed for an unreferenced %s extensionless file", async (_kind, bytes, ruleId) => {
+    const root = await packageDirectory({
+      "SKILL.md": "---\nname: unknown-target\n---\n",
+      "assets/helper": bytes,
+    });
+
+    const review = await scanCapabilitySupplyChain(root, scanOptions);
+
+    expect(review).toMatchObject({
+      verdict: "blocked",
+      highest_severity: "critical",
+      findings: [expect.objectContaining({ rule_id: ruleId, path: "assets/helper" })],
     });
   });
 
