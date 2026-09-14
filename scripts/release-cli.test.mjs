@@ -14,7 +14,25 @@ import { after, before, describe, test } from "node:test"
 
 const root = path.resolve(import.meta.dirname, "..")
 const cliPath = path.join(root, "deploy/release/linksense-cli.sh")
+const unsafeDockerCommand =
+  /(?:^|\s)(?:down|-v|--volumes|volume\s+rm)(?=\s|$)/u
 let commandDirectory
+
+test("destructive command checks match arguments, not installation path substrings", () => {
+  for (const command of [
+    "compose down",
+    "compose down -v",
+    "compose rm --volumes",
+    "volume rm data",
+    "compose rm -v",
+  ]) {
+    assert.match(command, unsafeDockerCommand)
+  }
+  assert.doesNotMatch(
+    "compose --project-directory /tmp/linksense-cli-v-example/downloads up -d",
+    unsafeDockerCommand,
+  )
+})
 
 // Immutable command stubs are shared; every scenario still has independent
 // installation state and log paths supplied through its child environment.
@@ -197,7 +215,7 @@ describe("release management CLI", { concurrency: 4 }, () => {
         assert.ok(apiRecreate >= 0)
         assert.ok(apiHealth > apiRecreate)
         assert.ok(gatewayRecreate > apiHealth)
-        assert.doesNotMatch(dockerLog, /down|-v|volume rm/u)
+        assert.doesNotMatch(dockerLog, unsafeDockerCommand)
       } finally {
         await fixture.cleanup()
       }
@@ -398,7 +416,8 @@ describe("release management CLI", { concurrency: 4 }, () => {
 })
 
 async function createFixture(overrides = {}) {
-  const directory = await mkdtemp(path.join(tmpdir(), "linksense-cli-"))
+  // Keep option-like text in the path so command checks cannot match substrings.
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-cli-v-"))
   const installDir = path.join(directory, "install")
   const bin = commandDirectory
   const dockerLog = path.join(directory, "docker.log")
