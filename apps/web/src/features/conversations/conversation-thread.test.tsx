@@ -967,6 +967,10 @@ describe("conversation turn responses", () => {
     ).toBeNull()
     expect(container.querySelector('[data-slot="skeleton"]')).toBeNull()
 
+    fireEvent.click(screen.getByRole("button", { name: "玩着等待" }))
+    const game = screen.getByRole("application", { name: "贪吃蛇" })
+    expect(game).toBeVisible()
+
     rerender(<AssistantMarkdown streaming content={completeContent} />)
 
     expect(container.querySelector("iframe")).toBeNull()
@@ -976,10 +980,12 @@ describe("conversation turn responses", () => {
         name: "正在生成交互组件…",
       })
     ).toBeVisible()
+    expect(screen.getByRole("application", { name: "贪吃蛇" })).toBe(game)
 
     rerender(<AssistantMarkdown content={completeContent} />)
 
     expect(container.querySelectorAll("iframe")).toHaveLength(1)
+    expect(game).not.toBeInTheDocument()
     expect(
       screen.queryByRole("status", {
         name: "正在生成交互组件…",
@@ -3927,6 +3933,50 @@ describe("conversation turn responses", () => {
     expect(within(summary).getByText("1s", { exact: true })).toBeVisible()
   })
 
+  it.each([
+    ["zh-CN", "正在中断…", "已中断"],
+    ["en-US", "Interrupting…", "Interrupted"],
+    ["fr-FR", "正在中断…", "已中断"],
+  ])(
+    "keeps the active turn pending until native interruption is confirmed in %s",
+    async (language, pendingLabel, terminalLabel) => {
+      await i18n.changeLanguage(language)
+      const runningTurn = {
+        id: "turn-stopping",
+        status: "running" as const,
+        started_at: "2026-07-11T08:00:00.000Z",
+        interrupt_requested_at: "2026-07-11T08:00:05.000Z",
+      }
+      render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            execution_status: "running",
+            turns: [runningTurn],
+            running_turn: runningTurn,
+            messages: [
+              {
+                id: "user-stopping",
+                role: "user",
+                turn_id: runningTurn.id,
+                content: "停止当前任务",
+                created_at: runningTurn.started_at,
+              },
+            ],
+          }}
+          onDownload={vi.fn()}
+        />
+      )
+      const summary = screen.getByTestId("turn-summary-turn-stopping")
+      expect(
+        within(summary).queryByText(terminalLabel, { exact: true })
+      ).toBeNull()
+      expect(
+        within(summary).getByText(pendingLabel, { exact: true })
+      ).toBeVisible()
+    }
+  )
+
   it("does not keep a stopped previous turn thinking after editing and resending", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T08:00:08.000Z"))
@@ -4036,7 +4086,7 @@ describe("conversation turn responses", () => {
     expect(within(summary).getByText("正在运行一个命令")).toBeVisible()
   })
 
-  it("keeps the image generation loading surface last until the MCP call completes", () => {
+  it.each(["completed", "failed", "interrupted"] as const)("keeps the image generation surface last and removes its game when generation is %s", (outcome) => {
     const runningTurn = {
       id: "turn-1",
       status: "running" as const,
@@ -4108,14 +4158,18 @@ describe("conversation turn responses", () => {
     ).toBeVisible()
     expect(summary.lastElementChild).toBe(loading)
 
+    fireEvent.click(screen.getByRole("button", { name: "玩着等待" }))
+    fireEvent.click(screen.getByRole("button", { name: "开始游戏" }))
+    expect(screen.getByRole("application", { name: "贪吃蛇" })).toBeVisible()
+
     rerender(
       <ConversationThread
         conversation={{
           ...completedConversation,
           messages,
-          turns: [runningTurn],
-          running_turn: runningTurn,
-          events: [
+          turns: [outcome === "completed" ? runningTurn : { ...runningTurn, status: outcome }],
+          running_turn: outcome === "completed" ? runningTurn : null,
+          events: outcome === "completed" ? [
             startedEvent,
             nativeItemLifecycleEvent({
               id: "image-generation-completed",
@@ -4123,7 +4177,7 @@ describe("conversation turn responses", () => {
               item: imageCallCompleted,
               method: "item/completed",
             }),
-          ],
+          ] : [startedEvent],
         }}
         onDownload={vi.fn()}
       />
@@ -4133,6 +4187,7 @@ describe("conversation turn responses", () => {
       within(summary).queryByRole("status", { name: "正在生成图片…" })
     ).toBeNull()
     expect(summary.querySelector(".turn-image-generation-loading")).toBeNull()
+    expect(screen.queryByRole("application", { name: "贪吃蛇" })).toBeNull()
   })
 
   it("shows thinking without a tool disclosure while a plan is running", () => {

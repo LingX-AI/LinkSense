@@ -1297,6 +1297,130 @@ describe("CapabilityService owner-only visibility", () => {
 });
 
 describe("capabilityRoutes", () => {
+
+  it.each([null, "  会议纪要助手  "])(
+    "persists optional display name %s through preview, confirmation, search and replacement",
+    async (displayName) => {
+      const root = await tempRoot();
+      const store = new MemoryCapabilityStore();
+      const service = createService(store, root);
+      const app = Fastify();
+      app.setErrorHandler((error, request, reply) =>
+        sendAppError(reply, request, error),
+      );
+      await app.register(capabilityRoutes, {
+        prefix: "/capabilities",
+        service,
+        resolveActor: () => ownerActor(),
+      });
+      try {
+        const response = await app.inject({
+          method: "POST",
+          url: "/capabilities",
+          payload: {
+            source_type: "local",
+            type: "skill",
+            name: "meeting-notes",
+            display_name: displayName,
+            skill_markdown: "# Notes",
+          },
+        });
+        expect(response.statusCode).toBe(202);
+        const preview = response.json().data;
+        expect(preview).toMatchObject({
+          name: "meeting-notes",
+          display_name: displayName?.trim() ?? null,
+        });
+        await expect(
+          service.confirmCapabilityImport(
+            recipientActor(),
+            preview.preview_token,
+          ),
+        ).rejects.toMatchObject({ code: "CAPABILITY_NOT_FOUND" });
+        const confirmed = await app.inject({
+          method: "POST",
+          url: "/capabilities/imports/" + preview.preview_token + "/confirm",
+        });
+        expect(confirmed.statusCode).toBe(201);
+        expect(confirmed.json().data).toMatchObject({
+          name: "meeting-notes",
+          display_name: displayName?.trim() ?? null,
+        });
+        expect(store.capabilities[0]).toMatchObject({
+          name: "meeting-notes",
+          displayName: displayName?.trim() ?? null,
+        });
+        for (const search of [
+          "meeting-notes",
+          displayName?.trim() || "Meeting Notes",
+        ]) {
+          const result = await app.inject({
+            method: "GET",
+            url: "/capabilities?search=" + encodeURIComponent(search),
+          });
+          expect(result.json().data.items).toHaveLength(1);
+        }
+        const updatedPreview = await service.previewUpdatePackage(
+          ownerActor(),
+          confirmed.json().data.id,
+          {
+            source: {
+              kind: "manual_skill",
+              name: "meeting-notes",
+              displayName: "",
+              skillMarkdown: "# Updated",
+            },
+            requestedType: "skill",
+          },
+        );
+        const updated = await service.confirmCapabilityImport(
+          ownerActor(),
+          updatedPreview.preview_token,
+        );
+        expect(updated).toMatchObject({
+          name: "meeting-notes",
+          display_name: null,
+        });
+      } finally {
+        await app.close();
+      }
+    },
+  );
+
+  it.each([123, "a".repeat(65), "line\nbreak"])(
+    "rejects invalid manual display name %s before staging",
+    async (displayName) => {
+      const store = new MemoryCapabilityStore();
+      const service = createService(store, await tempRoot());
+      const app = Fastify();
+      app.setErrorHandler((error, request, reply) =>
+        sendAppError(reply, request, error),
+      );
+      await app.register(capabilityRoutes, {
+        prefix: "/capabilities",
+        service,
+        resolveActor: () => ownerActor(),
+      });
+      try {
+        const response = await app.inject({
+          method: "POST",
+          url: "/capabilities",
+          payload: {
+            source_type: "local",
+            type: "skill",
+            name: "meeting-notes",
+            display_name: displayName,
+            skill_markdown: "# Notes",
+          },
+        });
+        expect(response.statusCode).toBe(400);
+        expect(store.capabilities).toHaveLength(0);
+      } finally {
+        await app.close();
+      }
+    },
+  );
+
   it("rejects built-in list identifiers before any capability mutation", async () => {
     const root = await tempRoot();
     const store = new MemoryCapabilityStore();

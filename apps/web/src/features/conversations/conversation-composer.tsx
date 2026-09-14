@@ -1631,19 +1631,20 @@ export const ConversationComposer = forwardRef<
                 : undefined
           }
           placeholder={
-            unavailableMessage ??
-            t(
-              !value.trim() && hasPastedTextAttachment
-                ? "conversation.pastedTextAttachmentPlaceholder"
-                : goalMode
-                  ? "conversation.goal.placeholder"
-                  : planMode
-                    ? "conversation.plan.placeholder"
-                    : isRunning
-                      ? "conversation.followUpPlaceholder"
-                      : "conversation.placeholder",
-              { productName }
-            )
+            unavailableMessage
+              ? undefined
+              : t(
+                  !value.trim() && hasPastedTextAttachment
+                    ? "conversation.pastedTextAttachmentPlaceholder"
+                    : goalMode
+                      ? "conversation.goal.placeholder"
+                      : planMode
+                        ? "conversation.plan.placeholder"
+                        : isRunning
+                          ? "conversation.followUpPlaceholder"
+                          : "conversation.placeholder",
+                  { productName }
+                )
           }
           disabled={submitting || interactionBlocked}
           className={cn(
@@ -1828,7 +1829,7 @@ export const ConversationComposer = forwardRef<
                               return (
                                 <CommandItem
                                   key={capability.id}
-                                  value={`${presentation.name} ${presentation.description ?? ""}`}
+                                  value={`${capability.name} ${presentation.name} ${presentation.description ?? ""}`}
                                   data-checked={
                                     selectedIds.includes(capability.id) ||
                                     undefined

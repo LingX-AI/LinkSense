@@ -81,7 +81,7 @@ const helpRoutes: readonly HelpRoute[] = [
   },
   {
     matches: (pathname) => startsWithSegment(pathname, "/settings/weixin"),
-    documentPath: "user-guide/message-channels/weixin",
+    documentPath: "user-guide/message-channels/overview",
   },
   {
     matches: (pathname) => startsWithSegment(pathname, "/archived"),
@@ -116,6 +116,10 @@ const helpRoutes: readonly HelpRoute[] = [
   {
     matches: (pathname) => startsWithSegment(pathname, "/admin/models"),
     documentPath: "admin-guide/model-settings",
+  },
+  {
+    matches: (pathname) => startsWithSegment(pathname, "/admin/quotas"),
+    documentPath: "admin-guide/quota-settings",
   },
   {
     matches: (pathname) => startsWithSegment(pathname, "/admin/settings"),

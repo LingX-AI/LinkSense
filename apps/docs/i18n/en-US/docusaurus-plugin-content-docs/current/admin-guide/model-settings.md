@@ -1,9 +1,9 @@
 ---
-title: Model and retrieval model settings
-description: Manage model providers, prices, reasoning efforts, and knowledge retrieval models.
+title: Model and generation settings
+description: Manage chat, retrieval, transcription, image-understanding, and image-generation models.
 ---
 
-# Model and retrieval model settings
+# Model and generation settings
 
 :::info Administrator operation
 Open **Settings → Model settings**. Changes affect later turns or document processing, not running or historical work.
@@ -25,6 +25,8 @@ Model IDs are unique across channels. Configure type, display name, provider, im
 - embedding and ranker models: input price.
 
 Prices use CNY per million tokens and are snapshotted with future usage. A price change never recalculates history.
+
+Set **Model context length** to a positive token count, or leave it empty for automatic detection. LinkSense uses this value for the context-window indicator and to let the runtime compact context before approaching the model limit. Enter the provider model's real capability; a larger number does not expand the upstream model.
 
 Only chat models show the Available in conversations switch; embedding and ranker models do not. Conversation availability only controls the composer model list. It does not affect task auto naming, knowledge retrieval, reranking, or image understanding. Once chat models are configured, at least one must remain available in conversations. Hiding or deleting the default selects another conversation-available model.
 
@@ -57,3 +59,21 @@ Without a ranker, or when ranker calls fail, LinkSense uses equal-weight RRF res
 ## Image understanding
 
 Select a configured chat model marked as supporting image understanding. Conversation availability does not affect image understanding. Saving probes image input, structured output, and disabled-reasoning behavior. It affects only new processing or rebuilds.
+
+## Voice transcription model
+
+When enabled, microphone input in ordinary tasks and embedded applications uses this service. Select a provider, verify the Base URL, and enter an API key plus a model or deployment name. Azure OpenAI also requires an API version. Saved API keys are never returned; leave the field empty while editing to retain the existing key.
+
+Available providers are Alibaba Cloud Model Studio, OpenAI, OpenAI-compatible services, Azure OpenAI, Groq, Deepgram, AssemblyAI, ElevenLabs, Rev.ai, Gladia, and fal.ai. Provider defaults are connection starting points only; model availability, region, authorization, and billing come from your provider account.
+
+After saving, use [Voice input](../user-guide/tasks/voice-input.md) to test a short recording without sensitive data. Disabling this setting blocks new transcription requests but does not affect typed tasks.
+
+## Image-generation model
+
+When enabled, users can call the built-in image-generation capability from a task. Select a provider, enter the model and API key, and configure a per-image price. LinkSense records that price against the number of images actually produced for usage and credits. The provider determines the Base URL; it is not freely editable in the page.
+
+Supported providers are Alibaba Cloud Model Studio, OpenAI, Google Gemini, Stability AI, fal.ai, Replicate, and Together AI. Alibaba Cloud Model Studio also requires a Workspace ID and region. Provider and model limits vary; one request can ask for no more than 10 images, and runtime output is capped by the current model limit.
+
+Transparent output can be generated natively or handled automatically for suitable clean-edged subjects. Choose a model with native transparency for complex hair, fur, glass, smoke, glow, and translucent edges.
+
+Saved API keys are never returned; leave the field empty while editing to retain the existing key. Enter a new key and verify pricing after switching providers. Use [Generate images](../user-guide/tasks/generate-images.md) for a one-image validation after configuration.

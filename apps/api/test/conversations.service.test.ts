@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Prisma } from "../src/generated/prisma/client.js";
 import type {
   ApplicationIcon,
   ApplicationUnavailableReason,
@@ -264,7 +265,8 @@ describe("ConversationService ownership and draft lifecycle", () => {
     { name: "inherits the source task category in the fork", categoryId: "80000000-0000-4000-8000-000000000001", categoryAvailable: true },
     { name: "rejects an unavailable category without creating an orphaned fork", categoryId: "80000000-0000-4000-8000-000000000001", categoryAvailable: false },
     { name: "inherits the category on retry after the runner recovers without creating a duplicate task", categoryId: "80000000-0000-4000-8000-000000000001", categoryAvailable: true, runnerInitiallyUnavailable: true },
-  ])("$name", async ({ categoryId, categoryAvailable, runnerInitiallyUnavailable }) => {
+    { name: "preserves answered async questions and makes unresolved questions independently answerable in a fork", categoryId: null, categoryAvailable: true, includeAsyncInput: true },
+  ])("$name", async ({ categoryId, categoryAvailable, runnerInitiallyUnavailable, includeAsyncInput }) => {
     const fixture = await conversationFixture();
     const source = conversationRow({
       title: "Task",
@@ -367,6 +369,24 @@ describe("ConversationService ownership and draft lifecycle", () => {
         conversationRow(data),
     );
     fixture.defaultTransaction.$queryRaw.mockResolvedValue(categoryId && categoryAvailable ? [{ id: categoryId }] : []);
+    const asyncRequests = ["pending", "answering", "answered"].map((status, index) => userInputRequestRow({
+      id: `60000000-0000-4000-8000-00000000000${index + 1}`,
+      turnId: TURN_ID,
+      codexThreadId: source.codexThreadId,
+      codexTurnId: turn.codexTurnId,
+      codexItemId: `async-item-${index + 1}`,
+      nativeRequestId: null,
+      requestKind: "async_questions",
+      status,
+      questionsJson: [{ id: "question-1", header: "1", question: "Which scope?", is_other: true, is_secret: false, options: null }],
+      responseContentJson: { "question-1": "Historical answer" },
+      responseDeliveryJson: { method: "steer", turnId: TURN_ID, operationId: REGENERATION_ID },
+      resolvedAction: "accept",
+      resolvedAt: status === "answered" ? NOW : null,
+    }));
+    if (includeAsyncInput) {
+      fixture.prisma.conversationUserInputRequest.findMany.mockResolvedValue(asyncRequests);
+    }
 
     if (runnerInitiallyUnavailable) {
       fixture.runner.forkThread.mockRejectedValueOnce(new AppError("RUNNER_UNAVAILABLE"));
@@ -451,6 +471,26 @@ describe("ConversationService ownership and draft lifecycle", () => {
     );
     if (!clonedTurn || !clonedAssistantMessage) {
       throw new Error("missing copied context rows");
+    }
+    if (includeAsyncInput) {
+      expect(fixture.defaultTransaction.conversationUserInputRequest.createMany).toHaveBeenCalledWith({
+        data: asyncRequests.map((request) => expect.objectContaining({
+          conversationId: result.id,
+          turnId: clonedTurn.id,
+          codexThreadId: "codex-thread-forked",
+          nativeRequestId: null,
+          requestKind: "async_questions",
+          questionsJson: request.questionsJson,
+          responseDeliveryJson: Prisma.DbNull,
+          responseContentJson: request.status === "answered" ? request.responseContentJson : Prisma.DbNull,
+          status: request.status === "answered" ? "answered" : "pending",
+          resolvedAction: request.status === "answered" ? "accept" : null,
+          resolvedAt: request.status === "answered" ? NOW : null,
+        })),
+      });
+      expect(asyncRequests.map((request) => request.status)).toEqual(["pending", "answering", "answered"]);
+      expect(asyncRequests.every((request) => request.responseContentJson !== null)).toBe(true);
+      expect(fixture.prisma.conversationUserInputRequest.updateMany).not.toHaveBeenCalled();
     }
     expect(fixture.defaultTransaction.conversationFile.createMany).toHaveBeenCalledWith({
       data: [
@@ -4921,6 +4961,36 @@ describe("ConversationService ownership and draft lifecycle", () => {
 });
 
 describe("ConversationService turn interruption", () => {
+  it("does not contact the runner for another owner's conversation", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(null);
+    await expect(fixture.service.interrupt(OWNER_ID, CONVERSATION_ID, TURN_ID, {})).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.runner.interrupt).not.toHaveBeenCalled();
+  });
+
+  it("does not record a successful interruption when the runner rejects it", async () => {
+    const fixture = await conversationFixture();
+    const turn = turnRow();
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValue(turn);
+    fixture.runner.interrupt.mockRejectedValueOnce(new AppError("RUNNER_UNAVAILABLE"));
+    await expect(fixture.service.interrupt(OWNER_ID, CONVERSATION_ID, turn.id, {})).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(fixture.prisma.conversationTurn.updateMany).not.toHaveBeenCalled();
+    expect(fixture.audit.write).not.toHaveBeenCalled();
+  });
+
+  it("interrupts an accepted native turn even while its database projection is blocked", async () => {
+    const fixture = await conversationFixture();
+    const startIntent = startIntentRow();
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValue(null);
+    fixture.prisma.conversationTurnStartIntent.findUnique.mockResolvedValueOnce(startIntent);
+    const recover = vi.spyOn(fixture.service, "recoverStartIntent").mockRejectedValue(new Error("projection lock unavailable"));
+    await expect(fixture.service.interrupt(OWNER_ID, CONVERSATION_ID, startIntent.projectionTurnId, {})).resolves.toEqual({
+      code: "TURN_INTERRUPT_REQUESTED", turn_id: startIntent.projectionTurnId,
+    });
+    expect(fixture.runner.interruptStartOperation).toHaveBeenCalledWith(CONVERSATION_ID, startIntent.projectionTurnId, OWNER_ID, startIntent.runtimeGeneration);
+    expect(recover).not.toHaveBeenCalled();
+  });
+
   it("requests the native running turn interruption and records the request", async () => {
     const fixture = await conversationFixture();
     const turn = turnRow();
@@ -4942,13 +5012,23 @@ describe("ConversationService turn interruption", () => {
       OWNER_ID,
       turn.codexTurnId,
     );
-    expect(fixture.prisma.conversationTurn.update).toHaveBeenCalledWith({
-      where: { id: turn.id },
+    expect(fixture.prisma.conversationTurn.updateMany).toHaveBeenCalledWith({
+      where: { id: turn.id, conversationId: CONVERSATION_ID, status: "running", interruptRequestedAt: null },
       data: { interruptRequestedAt: expect.any(Date) },
     });
   });
 
-  it("waits for an accepted start intent to project before requesting the native interruption", async () => {
+  it("targets the logical Goal without waiting for the conversation mutation lock", async () => {
+    const fixture = await conversationFixture();
+    const turn = turnRow({ taskKind: "goal" });
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValueOnce(turn);
+    const updateGoal = vi.spyOn(fixture.service, "updateGoal").mockRejectedValue(new Error("conversation lock unavailable"));
+    await expect(fixture.service.interrupt(OWNER_ID, CONVERSATION_ID, turn.id, {})).resolves.toMatchObject({ code: "TURN_INTERRUPT_REQUESTED" });
+    expect(fixture.runner.interrupt).toHaveBeenCalledWith(CONVERSATION_ID, OWNER_ID, turn.codexTurnId, turn.id);
+    expect(updateGoal).not.toHaveBeenCalled();
+  });
+
+  it("records a durable startup cancellation without waiting for projection", async () => {
     const fixture = await conversationFixture();
     const startIntent = startIntentRow();
     const turn = turnRow({ id: startIntent.projectionTurnId });
@@ -4974,16 +5054,15 @@ describe("ConversationService turn interruption", () => {
       turn_id: startIntent.projectionTurnId,
     });
 
-    expect(recoverStartIntent).toHaveBeenCalledWith(
-      startIntent.projectionTurnId,
-    );
-    expect(fixture.runner.interrupt).toHaveBeenCalledWith(
+    expect(recoverStartIntent).not.toHaveBeenCalled();
+    expect(fixture.runner.interruptStartOperation).toHaveBeenCalledWith(
       CONVERSATION_ID,
+      startIntent.projectionTurnId,
       OWNER_ID,
-      turn.codexTurnId,
+      startIntent.runtimeGeneration,
     );
-    expect(fixture.prisma.conversationTurn.update).toHaveBeenCalledWith({
-      where: { id: startIntent.projectionTurnId },
+    expect(fixture.prisma.conversationTurn.updateMany).toHaveBeenCalledWith({
+      where: { id: startIntent.projectionTurnId, conversationId: CONVERSATION_ID, status: "running", interruptRequestedAt: null },
       data: { interruptRequestedAt: expect.any(Date) },
     });
   });
@@ -5017,7 +5096,7 @@ describe("ConversationService turn interruption", () => {
     );
   });
 
-  it("treats a start intent released during immediate interruption as inactive", async () => {
+  it("treats an already sealed startup as inactive", async () => {
     const fixture = await conversationFixture();
     const startIntent = startIntentRow();
     fixture.prisma.conversationTurn.findFirst
@@ -5026,9 +5105,7 @@ describe("ConversationService turn interruption", () => {
     fixture.prisma.conversationTurnStartIntent.findUnique.mockResolvedValueOnce(
       startIntent,
     );
-    vi.spyOn(fixture.service, "recoverStartIntent").mockResolvedValueOnce(
-      "released",
-    );
+    fixture.runner.interruptStartOperation.mockResolvedValueOnce({ code: "TURN_INTERRUPT_NOT_ACTIVE" });
 
     await expect(
       fixture.service.interrupt(
@@ -5046,7 +5123,7 @@ describe("ConversationService turn interruption", () => {
     expect(fixture.prisma.conversationTurn.update).not.toHaveBeenCalled();
   });
 
-  it("returns the accepted result without replaying an existing interrupt request", async () => {
+  it("forwards an explicit retry when a previously requested turn is still running", async () => {
     const fixture = await conversationFixture();
     const turn = turnRow({ interruptRequestedAt: NOW });
     fixture.prisma.conversationTurn.findFirst.mockResolvedValueOnce(turn);
@@ -5058,9 +5135,7 @@ describe("ConversationService turn interruption", () => {
       turn_id: turn.id,
     });
 
-    expect(fixture.runner.interrupt).not.toHaveBeenCalled();
-    expect(fixture.prisma.conversationTurn.update).not.toHaveBeenCalled();
-    expect(fixture.audit.write).not.toHaveBeenCalled();
+    expect(fixture.runner.interrupt).toHaveBeenCalledWith(CONVERSATION_ID, OWNER_ID, turn.codexTurnId);
   });
 
   it.each(["completed", "failed", "interrupted"])(
@@ -5107,6 +5182,42 @@ describe("ConversationService turn interruption", () => {
 });
 
 describe("ConversationService native user input", () => {
+  it.each([true, false])("routes a 25-answer async submission through the durable user-message operation with active=%s", async (active) => {
+    const fixture = await conversationFixture();
+    const questions = Array.from({ length: 25 }, (_, index) => ({
+      id: `question-${index + 1}`, header: String(index + 1), question: `Scope ${index + 1}?`,
+      is_other: true, is_secret: false, options: null,
+    }));
+    const content = Object.fromEntries(questions.map((question) => [question.id, "Full upgrade"]));
+    const pending = userInputRequestRow({ requestKind: "async_questions", nativeRequestId: null, questionsJson: questions, responseDeliveryJson: null });
+    const answered = { ...pending, status: "answered", responseContentJson: content, resolvedAction: "accept", resolvedAt: NOW };
+    fixture.prisma.conversationUserInputRequest.findFirst.mockResolvedValue(pending);
+    const tx = fixture.defaultTransaction;
+    tx.conversation.findFirst.mockResolvedValue(conversationRow({ codexThreadId: pending.codexThreadId }));
+    tx.conversationUserInputRequest.findFirst.mockResolvedValue(pending);
+    tx.conversationUserInputRequest.update.mockResolvedValue({ ...answered, status: "answering" });
+    tx.conversationUserInputRequest.findUniqueOrThrow.mockResolvedValue(answered);
+    tx.conversationUserInputRequest.updateMany.mockResolvedValue({ count: 1 });
+    tx.conversationTurn.findFirst.mockResolvedValueOnce(turnRow()).mockResolvedValueOnce(active ? turnRow() : null);
+    const steer = vi.spyOn(fixture.service, "steer").mockResolvedValue({ turn_id: TURN_ID, accepted: true });
+    const start = vi.spyOn(fixture.service, "acceptTurn").mockResolvedValue({ turn_id: TURN_ID, accepted: true, status: "starting" });
+
+    const result = await fixture.service.respondToUserInputRequest(OWNER_ID, CONVERSATION_ID, USER_INPUT_REQUEST_ID, { action: "accept", content }, {});
+    expect(result).toMatchObject({ kind: "async_questions", status: "answered", response_content: content });
+    if (active) {
+      expect(steer).toHaveBeenCalledExactlyOnceWith(OWNER_ID, CONVERSATION_ID, turnRow().id, expect.stringContaining("> Scope 25?\n\nFull upgrade"), expect.any(String), {});
+      expect(start).not.toHaveBeenCalled();
+    } else {
+      expect(start).toHaveBeenCalledExactlyOnceWith(OWNER_ID, CONVERSATION_ID, expect.objectContaining({
+        idempotencyKey: `async-answer:${USER_INPUT_REQUEST_ID}`, expectedCodexThreadId: pending.codexThreadId,
+        preserveStagedAttachments: true, inputText: expect.stringContaining("> Scope 25?\n\nFull upgrade"),
+      }), {});
+      expect(steer).not.toHaveBeenCalled();
+    }
+    expect(fixture.runner.respondUserInputRequest).not.toHaveBeenCalled();
+    expect(JSON.stringify(fixture.audit.write.mock.calls)).not.toContain("Full upgrade");
+  });
+
   it("forwards the answer once while persisting only request state and safe audit metadata", async () => {
     const fixture = await conversationFixture();
     const turn = turnRow();
@@ -6419,6 +6530,36 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.redis.acquireTurnSlot).toHaveBeenCalledOnce();
     expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("releases a closed submission, reports its actual error over SSE, and admits a new manual submission", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
+    fixture.prisma.conversationTurn.count.mockResolvedValue(0);
+    fixture.runner.acceptStartTurn.mockRejectedValueOnce(new AppError("TURN_START_CLOSED"));
+    const input = {
+      inputText: "same message after stopping",
+      priorityCapabilityIds: [],
+      idempotencyKey: "closed-browser-submission",
+      submitMode: "normal" as const,
+    };
+    await expect(fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, input, {}))
+      .rejects.toMatchObject({ code: "TURN_START_CLOSED" });
+    expect(fixture.runner.acceptStartTurn).toHaveBeenCalledOnce();
+    expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledOnce();
+    expect(await fixture.prisma.conversationTurnStartIntent.findUnique()).toBeNull();
+    expect(fixture.defaultTransaction.conversationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: "conversation.error",
+        payloadJson: expect.objectContaining({ error_code: "TURN_START_CLOSED" }),
+      }),
+    });
+    await expect(fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, {
+      ...input, idempotencyKey: "new-manual-submission",
+    }, {})).resolves.toMatchObject({ accepted: true, status: "starting" });
+    const starts = fixture.runner.acceptStartTurn.mock.calls;
+    expect(starts).toHaveLength(2);
+    expect(starts[1]?.[0].projectionTurnId).not.toBe(starts[0]?.[0].projectionTurnId);
   });
 
   it("keeps the concurrency slot reserved when native turn start is uncertain", async () => {
@@ -7823,6 +7964,30 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
   });
 
+  it("reports an asynchronously cancelled startup as closed without replaying it", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow();
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce({
+      conversationId: CONVERSATION_ID,
+      projectionTurnId: intent.projectionTurnId,
+      status: "failed",
+      errorCode: "RUNNER_TURN_START_SEALED",
+      createdAt: NOW.toISOString(),
+      updatedAt: NOW.toISOString(),
+    });
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId)).resolves.toBe("released");
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+    expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: "conversation.error",
+        payloadJson: expect.objectContaining({ error_code: "TURN_START_CLOSED" }),
+      }),
+    });
+    expect(fixture.redis.releaseTurnSlot).toHaveBeenCalledOnce();
+  });
+
   it("releases and removes an intent only after the runner deterministically reports failure", async () => {
     const fixture = await conversationFixture();
     const intent = startIntentRow();
@@ -7927,6 +8092,12 @@ describe("ConversationService pending and turn materialization", () => {
       matching.service.recoverStartIntent(intent.projectionTurnId),
     ).resolves.toBe("released");
     expect(matching.redis.releaseTurnSlot).toHaveBeenCalledOnce();
+    expect(transaction.conversationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: "conversation.error",
+        payloadJson: expect.objectContaining({ error_code: "TURN_START_CLOSED" }),
+      }),
+    });
 
     const replaced = await conversationFixture();
     await replaced.prisma.conversationTurnStartIntent.create({ data: intent });
@@ -10846,6 +11017,7 @@ async function conversationFixture() {
       create: vi.fn(async () => ({})),
       createMany: vi.fn(async () => ({ count: 0 })),
       update: vi.fn(async () => ({})),
+      updateMany: vi.fn(async () => ({ count: 1 })),
     },
     conversationTurnAttempt: {
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
@@ -11083,6 +11255,9 @@ async function conversationFixture() {
     reconcile: vi.fn(async () => ({ thread: {}, goal: null })),
     inspectStartOperation: vi.fn<() => Promise<RunnerStartOperation | null>>(
       async () => null,
+    ),
+    interruptStartOperation: vi.fn<() => Promise<RunnerInterruptResult>>(
+      async () => ({ code: "TURN_INTERRUPT_REQUESTED" }),
     ),
     sealStartOperation: vi.fn<() => Promise<RunnerStartOperation>>(
       async () => ({
@@ -11639,6 +11814,7 @@ function transactionFixture() {
       findUnique: vi.fn(async () => null as Record<string, unknown> | null),
       findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
       create: vi.fn(async () => ({})),
+      findUniqueOrThrow: vi.fn(async () => ({} as Record<string, unknown>)),
       update: vi.fn(async () => ({})),
       updateMany: vi.fn(async () => ({ count: 0 })),
       deleteMany: vi.fn(async () => ({ count: 0 })),

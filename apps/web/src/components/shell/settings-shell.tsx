@@ -149,6 +149,12 @@ const administratorItems: SettingsNavigationItem[] = [
     icon: CoinsIcon,
   },
   {
+    to: "/admin/usage",
+    labelKey: "nav.usage",
+    descriptionKey: "settings.usageDescription",
+    icon: ChartNoAxesCombinedIcon,
+  },
+  {
     to: "/admin/settings",
     labelKey: "settings.systemSettings",
     descriptionKey: "settings.systemSettingsDescription",
@@ -171,12 +177,6 @@ const administratorItems: SettingsNavigationItem[] = [
     labelKey: "nav.audit",
     descriptionKey: "settings.auditDescription",
     icon: UserRoundCogIcon,
-  },
-  {
-    to: "/admin/usage",
-    labelKey: "nav.usage",
-    descriptionKey: "settings.usageDescription",
-    icon: ChartNoAxesCombinedIcon,
   },
   {
     to: "/admin/system-update",

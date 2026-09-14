@@ -20,7 +20,7 @@ Administration appears under the **Management** group in Settings. The server va
 | Plugin Center | Review releases and suspend or restore risky listings |
 | Knowledge bases | Govern metadata, state, access, and ownership |
 | Knowledge sources | Configure external sources such as SharePoint |
-| Model settings | Manage providers, models, prices, and retrieval models |
+| Model settings | Manage chat, retrieval, transcription, image-understanding, and image-generation models and prices |
 | System settings | Manage supported product and authentication settings |
 | System health | Inspect dependencies, execution runtime, container resources, and failed cleanup |
 | User feedback | Review text and issue screenshots submitted by users |

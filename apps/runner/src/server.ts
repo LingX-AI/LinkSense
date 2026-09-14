@@ -1859,10 +1859,20 @@ export function buildRunnerServer(
   app.post<{ Params: { conversationId: string } }>(
     "/conversations/:conversationId/turns/interrupt",
     async (request, reply) => {
-      const conversationId = uuid.parse(request.params.conversationId);
-      const body = z.object({ turnId: z.string().min(1) }).parse(request.body);
+      const parsedId = uuid.safeParse(request.params.conversationId);
+      const parsedBody = z.strictObject({
+        turnId: z.string().min(1),
+        goalProjectionTurnId: uuid.optional(),
+      }).safeParse(request.body);
+      if (!parsedId.success || !parsedBody.success) {
+        return reply.code(400).send({ error_code: "TURN_INTERRUPT_REQUEST_FAILED" });
+      }
+      const conversationId = parsedId.data;
+      const body = parsedBody.data;
       try {
-        const outcome = await pool.interrupt(conversationId, body.turnId);
+        const outcome = body.goalProjectionTurnId
+          ? await pool.interrupt(conversationId, body.turnId, body.goalProjectionTurnId)
+          : await pool.interrupt(conversationId, body.turnId);
         return {
           code:
             outcome === "requested"
@@ -1880,6 +1890,45 @@ export function buildRunnerServer(
         return reply
           .code(409)
           .send({ error_code: "TURN_INTERRUPT_REQUEST_FAILED" });
+      }
+    },
+  );
+
+  app.post<{ Params: { conversationId: string; projectionTurnId: string } }>(
+    "/conversations/:conversationId/turns/start/:projectionTurnId/interrupt",
+    async (request, reply) => {
+      const params = z.strictObject({
+        conversationId: uuid,
+        projectionTurnId: uuid,
+      }).safeParse(request.params);
+      const parsedBody = sealStartOperationBodySchema.safeParse(request.body);
+      if (!params.success || !parsedBody.success) {
+        return reply.code(400).send({ error_code: "TURN_INTERRUPT_REQUEST_FAILED" });
+      }
+      const { conversationId, projectionTurnId } = params.data;
+      const body = parsedBody.data;
+      try {
+        const outcome = await pool.interruptStartOperation({
+          conversationId,
+          projectionTurnId,
+          ownerId: body.ownerId,
+          expectedRuntimeGeneration: body.expectedRuntimeGeneration,
+        });
+        return {
+          code:
+            outcome === "requested"
+              ? RUNNER_TURN_INTERRUPT_REQUESTED
+              : RUNNER_TURN_INTERRUPT_NOT_ACTIVE,
+        };
+      } catch (error) {
+        request.log.warn(
+          {
+            conversationId,
+            errorClass: error instanceof Error ? error.name : "unknown",
+          },
+          "runner startup interrupt request failed",
+        );
+        return reply.code(409).send({ error_code: "TURN_INTERRUPT_REQUEST_FAILED" });
       }
     },
   );

@@ -16,6 +16,8 @@ Use categories to organize tasks by work, project, or personal activity. Categor
 
 Select a category name in the sidebar to expand or collapse it. Categories and task assignments are saved across refreshes and devices.
 
+Each category's open or collapsed state is stored for the current account in the current browser. It survives a refresh but does not sync to other browsers or devices. Categories default to open when browser storage is unavailable.
+
 Drag a category name up or down to change its position. Its tasks move with it and keep their category assignments. The order is saved across refreshes, and newly created categories appear at the end. If saving fails, the previous order is restored.
 
 When you select **Branch to new chat** on an assistant reply, the new task inherits the source task's category. If the source is unclassified, the new task is also unclassified. After branching, you can change each task's category independently.

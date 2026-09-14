@@ -58,11 +58,12 @@ describe("TurnActivityItem", () => {
   it.each([
     ["item/started", false, "正在压缩上下文"],
     ["item/completed", false, "上下文已压缩"],
+    ["item/completed", true, "上下文已压缩"],
     ["item/started", true, "上下文压缩未完成"],
   ] as const)(
     "preserves compaction %s (stopped=%s) when given generic thinking progress",
     (method, stopped, label) => {
-      const { rerender } = render(
+      const { container, rerender } = render(
         <TurnActivityItem source={completedTools} progress="thinking" />
       )
       expect(screen.getByText("正在思考")).toBeVisible()
@@ -81,6 +82,13 @@ describe("TurnActivityItem", () => {
         />
       )
       expect(screen.getByText(label)).toBeVisible()
+      expect(
+        container.querySelector('[data-native-activity-icon="compact"]')
+      ).toHaveClass(
+        method === "item/completed"
+          ? "lucide-context-compacted"
+          : "lucide-context-compaction"
+      )
       expect(screen.queryByText("正在思考")).not.toBeInTheDocument()
       expect(screen.queryByText("分析下一步")).not.toBeInTheDocument()
       act(() => vi.advanceTimersByTime(15_000))

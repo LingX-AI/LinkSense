@@ -2060,6 +2060,7 @@ export const enUS = {
       exitDescription: "Exit Plan mode without starting implementation",
     },
     userInput: {
+      asyncDescription: "LinkSense can keep working while you answer. You can also reply after it finishes.",
       title: "Your answer is needed",
       formTitle: "Please confirm these details",
       formResultTitle: "Completed form",
@@ -2239,6 +2240,21 @@ export const enUS = {
       copyImageFailed: "Unable to copy the preview as an image. Try again.",
       fullscreenFailed:
         "Unable to enter or exit fullscreen preview. Try again.",
+    },
+    waitingGame: {
+      playWhileWaiting: "Play while you wait",
+      title: "Snake",
+      score: "Score {{score}}",
+      controls: "Arrow keys / WASD · Swipe to steer",
+      ready: "A little fun while you wait",
+      paused: "Paused",
+      over: "So close. One more round?",
+      won: "Amazing! You filled the board!",
+      start: "Start game",
+      pause: "Pause game",
+      resume: "Resume game",
+      restart: "Play again",
+      back: "Back to waiting",
     },
     imageGeneration: {
       loading: "Generating image…",
@@ -2864,6 +2880,15 @@ export const enUS = {
     zipSkillPackageHint:
       "Only ZIP files that follow the skill package convention are accepted.",
     skillMarkdown: "SKILL.md content",
+    skillIdentifier: "Skill identifier",
+    skillNameRequired: "Enter a skill identifier.",
+    skillNameTooLong: "The skill identifier cannot exceed 64 characters.",
+    skillNameInvalid:
+      "Use only lowercase English letters, numbers, and hyphens (-). Hyphens cannot appear at the start or end, or consecutively.",
+    skillNameReserved:
+      "This skill identifier is reserved by the system. Choose another one.",
+    skillDisplayName: "Display name (optional)",
+    skillDisplayNameHint: "Generated from the skill identifier. You can edit it or leave it blank; Chinese characters and spaces are welcome.",
     skillNameHint:
       "Use 1–64 characters: lowercase English letters, numbers, and hyphens (-). Hyphens cannot appear at the start or end, or consecutively. Do not use built-in skill names. Example: my-skill.",
     skillPreview: "Skill content preview",
@@ -4931,6 +4956,7 @@ export const enUS = {
         "The plugin MCP configuration is invalid.",
       skill_frontmatter_missing:
         "SKILL.md is missing frontmatter or the required name field.",
+      skill_display_name_invalid: "The skill display name is invalid. Use a single line of up to 64 characters.",
       skill_name_invalid:
         "Skill name {{value}} is invalid. Use lowercase letters, numbers, and hyphens only, with a maximum length of 64.",
       plugin_unsupported_component:
@@ -4960,6 +4986,7 @@ export const enUS = {
     artifactNotFound: "The artifact was not found.",
     downloadForbidden: "You do not have permission to download this artifact.",
     runnerUnavailable: "The execution service is unavailable. Try again later.",
+    turnStartClosed: errorCatalog.TURN_START_CLOSED.messages["en-US"],
     deploymentStopped:
       "This task was stopped for a system update. Existing content was kept. Review its progress before continuing manually.",
     creditLimitExceeded:

@@ -40,6 +40,13 @@ import {
 import { z } from "zod"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
+import { requestTurnStart } from "@/features/conversations/turn-start-request"
+import {
+  conversationInterruptPollIntervalMs,
+  conversationInterruptTimeoutMs,
+  interruptConversationTurn,
+  type ConversationInterruptTarget,
+} from "@/features/conversations/conversation-interrupt"
 import { useConversationPrewarm } from "@/features/conversations/use-conversation-prewarm"
 import { useConversationArchiveNotification } from "@/features/conversations/use-conversation-archive-notification"
 import {
@@ -214,6 +221,7 @@ import {
   type ConversationPlanDecisionBusyAction,
 } from "@/features/conversations/conversation-plan-decision-card"
 import { ConversationGoalBar } from "@/features/conversations/conversation-goal-bar"
+import { selectActiveUserInputRequest } from "@/features/conversations/conversation-user-input-request-status"
 import { ConversationUserInputRequestCard } from "@/features/conversations/conversation-user-input-request-card"
 import {
   useKnowledgeBaseList,
@@ -553,9 +561,9 @@ export function ConversationPage({
     },
     [refreshUser, t]
   )
-  const [interruptingConversationId, setInterruptingConversationId] = useState<
-    string | null
-  >(null)
+  const [interruptTarget, setInterruptTarget] =
+    useState<ConversationInterruptTarget | null>(null)
+  const interruptingConversationId = interruptTarget?.conversationId
   const [terminalDetailReconciliations, setTerminalDetailReconciliations] =
     useState<
       Record<
@@ -750,10 +758,16 @@ export function ConversationPage({
     (isNewTaskPromotion &&
       interruptingConversationId === newConversationPlaceholderId)
   const clearInterruptingConversation = useCallback(
-    (targetConversationId: string | null | undefined) => {
+    (
+      targetConversationId: string | null | undefined,
+      turnId?: string | null
+    ) => {
       if (!targetConversationId) return
-      setInterruptingConversationId((current) =>
-        current === targetConversationId ? null : current
+      setInterruptTarget((current) =>
+        current?.conversationId === targetConversationId &&
+        (!turnId || !current.turnId || current.turnId === turnId)
+          ? null
+          : current
       )
     },
     []
@@ -1931,7 +1945,7 @@ export function ConversationPage({
             if (event.turn_id) {
               stopHookSupersededItemIdsByTurnRef.current.delete(event.turn_id)
             }
-            clearInterruptingConversation(conversationId)
+            clearInterruptingConversation(conversationId, event.turn_id)
             setLiveReasoningSummaries((current) =>
               removeStreamingReasoningSummariesForTurn(current, event.turn_id)
             )
@@ -2093,7 +2107,12 @@ export function ConversationPage({
           event.type === "conversation.status.changed"
         ) {
           clearNativeReconnect()
-          clearInterruptingConversation(conversationId)
+          if (
+            executionTransition &&
+            isTerminalConversationExecutionStatus(executionTransition.status)
+          ) {
+            clearInterruptingConversation(conversationId, event.turn_id)
+          }
           setLiveReasoningSummaries((current) =>
             removeStreamingReasoningSummariesForTurn(current, event.turn_id)
           )
@@ -2797,17 +2816,17 @@ export function ConversationPage({
         optimisticId: submission.optimisticId,
         idempotencyKey,
       }))
-      const receipt = await apiRequest(`/conversations/${id}/turns`, {
-        method: "POST",
-        body: {
+      const receipt = await requestTurnStart(
+        turnSubmitOperationRef,
+        `/conversations/${id}/turns`,
+        {
           input_text: requestedInput,
           priority_capability_ids: requestedCapabilityIds,
           knowledge_base_ids: requestedKnowledgeBaseIds,
           idempotency_key: idempotencyKey,
           collaboration_mode: submission.collaborationMode,
-        },
-        schema: turnStartReceiptSchema,
-      })
+        }
+      )
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
         (current.idempotencyKey === idempotencyKey ||
@@ -2972,13 +2991,10 @@ export function ConversationPage({
           refreshedConversation: null,
         }
       }
-      const receipt = await apiRequest(
+      const receipt = await requestTurnStart(
+        contextCompactionOperationRef,
         `/conversations/${targetConversationId}/compact`,
-        {
-          method: "POST",
-          body: { idempotency_key: idempotencyKey },
-          schema: turnStartReceiptSchema,
-        }
+        { idempotency_key: idempotencyKey }
       )
       setPendingCompaction({
         conversationId: targetConversationId,
@@ -3114,16 +3130,16 @@ export function ConversationPage({
           selected_knowledge_base_ids: knowledgeBaseIds,
         },
       })
-      const receipt = await apiRequest(`/conversations/${id}/goal`, {
-        method: "POST",
-        body: {
+      const receipt = await requestTurnStart(
+        goalStartOperationRef,
+        `/conversations/${id}/goal`,
+        {
           objective,
           priority_capability_ids: capabilityIds,
           knowledge_base_ids: knowledgeBaseIds,
           idempotency_key: idempotencyKey,
-        },
-        schema: turnStartReceiptSchema,
-      })
+        }
+      )
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
         current.idempotencyKey === idempotencyKey
@@ -3391,17 +3407,17 @@ export function ConversationPage({
           selected_knowledge_base_ids: validSelectedKnowledgeBaseIds,
         },
       })
-      const receipt = await apiRequest(`/conversations/${id}/turns`, {
-        method: "POST",
-        body: {
+      const receipt = await requestTurnStart(
+        officeTurnSubmitOperationRef,
+        `/conversations/${id}/turns`,
+        {
           priority_capability_ids: [],
           knowledge_base_ids: validSelectedKnowledgeBaseIds,
           collaboration_mode: collaborationMode,
           idempotency_key: idempotencyKey,
           message_display: messageDisplay,
-        },
-        schema: turnStartReceiptSchema,
-      })
+        }
+      )
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
         current.idempotencyKey === idempotencyKey
@@ -3467,15 +3483,12 @@ export function ConversationPage({
           ? { replacesTurnId: sourceMessage.turn_id }
           : {}),
       })
-      const receipt = await apiRequest(
+      const receipt = await requestTurnStart(
+        regenerateOperationRef,
         `/conversations/${conversationId}/messages/${sourceMessage.id}/regenerate`,
         {
-          method: "POST",
-          body: {
-            input_text: content,
-            idempotency_key: idempotencyKey,
-          },
-          schema: turnStartReceiptSchema,
+          input_text: content,
+          idempotency_key: idempotencyKey,
         }
       )
       setPendingTurnSubmission((current) =>
@@ -3779,49 +3792,88 @@ export function ConversationPage({
     }: {
       targetConversationId: string
       turnId: string
-    }) =>
-      apiRequest(
-        `/conversations/${targetConversationId}/turns/${turnId}/interrupt`,
-        {
-          method: "POST",
-          schema: emptyResponseSchema,
-        }
-      ),
-    onMutate: ({ targetConversationId }) =>
-      setInterruptingConversationId(targetConversationId),
-    onSuccess: async (_result, { targetConversationId, turnId }) => {
-      try {
-        await refreshAfterMutation(targetConversationId)
-      } finally {
-        dispatchedInterruptTurnIdsRef.current.delete(turnId)
-        clearPendingConversationExecution(queryClient, targetConversationId)
-        const pending = getPendingConversationTurnSubmission(
+    }) => interruptConversationTurn(targetConversationId, turnId),
+    onMutate: ({ targetConversationId, turnId }) => {
+      setInterruptTarget({ conversationId: targetConversationId, turnId })
+      if (routeConversationIdRef.current === targetConversationId)
+        setError(null)
+    },
+    onSuccess: (_result, { targetConversationId, turnId }) => {
+      dispatchedInterruptTurnIdsRef.current.delete(turnId)
+      clearPendingConversationExecution(queryClient, targetConversationId)
+      const pending = getPendingConversationTurnSubmission(
+        queryClient,
+        targetConversationId
+      )
+      if (pending?.turnId === turnId && pending.interruptRequested) {
+        clearPendingConversationTurnSubmission(
           queryClient,
           targetConversationId
         )
-        if (pending?.turnId === turnId && pending.interruptRequested) {
-          clearPendingConversationTurnSubmission(
-            queryClient,
-            targetConversationId
-          )
-        }
-        setPendingTurnSubmission((current) =>
-          current?.turnId === turnId && current.interruptRequested
-            ? null
-            : current
-        )
       }
+      setPendingTurnSubmission((current) =>
+        current?.turnId === turnId && current.interruptRequested
+          ? null
+          : current
+      )
+      // Receipt handling must not be held open by a slow detail/list refresh.
+      void refreshAfterMutation(targetConversationId).catch(() => undefined)
     },
     onError: (nextError, { targetConversationId, turnId }) => {
       dispatchedInterruptTurnIdsRef.current.delete(turnId)
       clearPendingConversationExecution(queryClient, targetConversationId)
-      clearInterruptingConversation(targetConversationId)
+      clearInterruptingConversation(targetConversationId, turnId)
+      updatePendingConversationTurnSubmission(
+        queryClient,
+        targetConversationId,
+        (current) =>
+          current.turnId === turnId
+            ? { ...current, interruptRequested: false }
+            : current
+      )
+      setPendingTurnSubmission((current) =>
+        current?.turnId === turnId
+          ? { ...current, interruptRequested: false }
+          : current
+      )
       if (routeConversationIdRef.current === targetConversationId) {
         setError(getErrorMessage(nextError, t))
       }
     },
   })
   const requestTurnInterrupt = interruptMutation.mutate
+
+  useEffect(() => {
+    if (!interruptTarget) return
+    const { conversationId: targetConversationId, turnId } = interruptTarget
+    const poll =
+      turnId && targetConversationId !== newConversationPlaceholderId
+        ? window.setInterval(() => {
+            void queryClient
+              .invalidateQueries(
+                {
+                  queryKey: ["conversation", targetConversationId],
+                  exact: true,
+                },
+                { cancelRefetch: false }
+              )
+              .catch(() => undefined)
+          }, conversationInterruptPollIntervalMs)
+        : undefined
+    const timeout = window.setTimeout(() => {
+      clearInterruptingConversation(targetConversationId, turnId)
+      if (
+        (routeConversationIdRef.current ?? newConversationPlaceholderId) ===
+        targetConversationId
+      ) {
+        setError(t("errors.interruptFailed"))
+      }
+    }, conversationInterruptTimeoutMs)
+    return () => {
+      window.clearInterval(poll)
+      window.clearTimeout(timeout)
+    }
+  }, [interruptTarget, clearInterruptingConversation, queryClient, t])
 
   useEffect(() => {
     const pending = currentPendingTurnSubmission
@@ -4174,7 +4226,12 @@ export function ConversationPage({
     onSuccess: async () => {
       if (conversationId) await refreshAfterMutation(conversationId)
     },
-    onError: (nextError) => setError(getErrorMessage(nextError, t)),
+    onError: async (nextError, { request }) => {
+      setError(getErrorMessage(nextError, t))
+      if (request.kind === "async_questions" && conversationId) {
+        await refreshAfterMutation(conversationId)
+      }
+    },
   })
 
   const planReviewActionMutation = useMutation({
@@ -5001,21 +5058,14 @@ export function ConversationPage({
     optimisticPendingTurn ??
     optimisticCompactionTurn ??
     displayConversation.running_turn
-  const unresolvedUserInputRequests = [
-    ...displayConversation.user_input_requests,
-  ]
-    .filter(
-      (request) =>
-        request.status === "pending" || request.status === "answering"
-    )
-    .sort((left, right) => left.created_at.localeCompare(right.created_at))
-  const activeUserInputRequest =
-    unresolvedUserInputRequests.find(
-      (request) => request.turn_id === visibleRunningTurn?.id
-    ) ?? unresolvedUserInputRequests[0]
   const activePlanReview = [...(displayConversation.plan_reviews ?? [])]
     .filter((review) => review.status === "pending")
     .sort((left, right) => right.created_at.localeCompare(left.created_at))[0]
+  const activeUserInputRequest = selectActiveUserInputRequest(
+    displayConversation.user_input_requests,
+    visibleRunningTurn?.id,
+    Boolean(activePlanReview)
+  )
   const blockingPanelKey = activeUserInputRequest
     ? `user-input:${activeUserInputRequest.id}`
     : activePlanReview
@@ -5078,7 +5128,12 @@ export function ConversationPage({
       }}
     />
   ) : null
-  const blockingPanelActive = blockingPanel !== null
+  const blockingPanelActive =
+    Boolean(activePlanReview) ||
+    Boolean(
+      activeUserInputRequest &&
+      activeUserInputRequest.kind !== "async_questions"
+    )
   const taskOverviewSuppressed =
     taskOverviewSuppressedConversationId === conversationId
   const composerInstanceId = isNewTaskPromotion
@@ -5451,6 +5506,7 @@ export function ConversationPage({
         emptyNotice={emptyCreditQuotaNotice}
         blockingPanel={blockingPanel}
         blockingPanelKey={blockingPanelKey}
+        blockingPanelBlocksInput={blockingPanelActive}
         onBlockingPanelReveal={handleScrollToBottom}
         scrollContainerRef={scrollContainerRef}
         contentRef={contentRef}
@@ -5708,7 +5764,10 @@ export function ConversationPage({
             onInterrupt={() => {
               const pending = activePendingTurnSubmission
               if (pending) {
-                setInterruptingConversationId(pending.conversationId)
+                setInterruptTarget({
+                  conversationId: pending.conversationId,
+                  turnId: pending.turnId,
+                })
                 updatePendingConversationTurnSubmission(
                   queryClient,
                   pending.conversationId,
@@ -5726,6 +5785,8 @@ export function ConversationPage({
               }
               const turnId = conversation?.running_turn?.id
               if (conversationId && turnId) {
+                if (dispatchedInterruptTurnIdsRef.current.has(turnId)) return
+                dispatchedInterruptTurnIdsRef.current.add(turnId)
                 interruptMutation.mutate({
                   targetConversationId: conversationId,
                   turnId,

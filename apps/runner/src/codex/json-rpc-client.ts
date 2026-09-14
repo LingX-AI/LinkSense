@@ -184,7 +184,11 @@ export class CodexJsonRpcClient extends EventEmitter {
     return response;
   }
 
-  request<TResult>(method: string, params: unknown): Promise<TResult> {
+  request<TResult>(
+    method: string,
+    params: unknown,
+    options: { timeoutMs?: number } = {},
+  ): Promise<TResult> {
     if (this.closed || !this.healthy) {
       return Promise.reject(
         new CodexProtocolError(
@@ -203,7 +207,10 @@ export class CodexJsonRpcClient extends EventEmitter {
         reject(
           new CodexProtocolError(`app-server request timed out: ${method}`),
         );
-      }, this.requestTimeoutMs);
+      }, Math.min(
+        options.timeoutMs ?? this.requestTimeoutMs,
+        this.requestTimeoutMs,
+      ));
       timer.unref();
       this.pending.set(id, {
         resolve: (value) => resolve(value as TResult),
@@ -451,6 +458,10 @@ function codexAppServerArguments(
           `shell_environment_policy.set={${pinnedEnvironmentEntries.join(",")}}`,
         ]),
     ...configOverrides.flatMap((value) => ["-c", value]),
+    // LinkSense renders native plan progress; Codex 0.152+ disables this tool
+    // by default. Apply the host policy to new and already persisted homes.
+    "-c",
+    "tools.update_plan.enabled=true",
     "--stdio",
   ];
 }

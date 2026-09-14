@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config"
 // These tests evaluate initialization under different globals or module mocks.
 const isolatedTests = [
   "test/controller-startup.test.ts",
+  "test/execution-startup.test.ts",
   "test/browser-init-page.test.ts",
   "test/controller-worker-contract.test.ts",
   "test/http-egress-proxy.test.ts",

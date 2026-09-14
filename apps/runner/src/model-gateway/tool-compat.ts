@@ -6,6 +6,15 @@ const DEFAULT_PARAMETERS = {
   additionalProperties: false,
 } as const;
 
+const CUSTOM_TOOL_PARAMETERS = {
+  type: "object",
+  properties: {
+    input: { type: "string", description: "Freeform input for this tool." },
+  },
+  required: ["input"],
+  additionalProperties: false,
+} as const;
+
 const TOOL_SEARCH_PARAMETERS = {
   type: "object",
   properties: {
@@ -30,6 +39,7 @@ type ToolMapping =
       kind: "custom";
       alias: string;
       name: string;
+      namespace?: string;
     }
   | {
       kind: "tool_search";
@@ -52,6 +62,7 @@ export type TranslatedResponsesRequest = {
 
 export function translateResponsesRequest(
   source: JsonObject,
+  previousContext?: ToolCompatibilityContext,
 ): TranslatedResponsesRequest {
   const body = { ...source };
   const originalInput = Array.isArray(source.input) ? source.input : [];
@@ -68,7 +79,7 @@ export function translateResponsesRequest(
       : [],
   );
   const allToolDefinitions = [...declaredTools, ...discoveredTools];
-  const context = createContext(allToolDefinitions);
+  const context = createContext(allToolDefinitions, previousContext);
   registerHistoricalMappings(input, context);
   const translatedTools = allToolDefinitions.flatMap((tool) =>
     translateToolDefinition(tool, context),
@@ -114,21 +125,25 @@ export function rewriteResponsesPayload(
   return result;
 }
 
-function createContext(tools: unknown[]): ToolCompatibilityContext {
-  const usedFunctionNames = new Set(
-    tools.flatMap((tool) =>
+function createContext(
+  tools: unknown[],
+  previous?: ToolCompatibilityContext,
+): ToolCompatibilityContext {
+  const usedFunctionNames = new Set([
+    ...(previous?.usedFunctionNames ?? []),
+    ...tools.flatMap((tool) =>
       isRecord(tool) &&
       tool.type === "function" &&
       typeof tool.name === "string"
         ? [tool.name]
         : [],
     ),
-  );
+  ]);
   const context: ToolCompatibilityContext = {
-    mappingsByAlias: new Map(),
-    namespaceAliases: new Map(),
-    customAliases: new Map(),
-    toolSearchAlias: null,
+    mappingsByAlias: new Map(previous?.mappingsByAlias),
+    namespaceAliases: new Map(previous?.namespaceAliases),
+    customAliases: new Map(previous?.customAliases),
+    toolSearchAlias: previous?.toolSearchAlias ?? null,
     rewrittenItemIds: new Set(),
     usedFunctionNames,
   };
@@ -148,6 +163,10 @@ function registerToolDefinition(
   ) {
     for (const child of source.tools) {
       if (!isRecord(child) || typeof child.name !== "string") continue;
+      if (child.type === "custom") {
+        registerCustomTool(child.name, context, source.name);
+        continue;
+      }
       const key = namespaceKey(source.name, child.name);
       if (context.namespaceAliases.has(key)) continue;
       const alias = reserveAlias(
@@ -170,18 +189,7 @@ function registerToolDefinition(
     return;
   }
   if (source.type === "custom" && typeof source.name === "string") {
-    if (context.customAliases.has(source.name)) return;
-    const alias = reserveAlias(
-      source.name,
-      `custom:${source.name}`,
-      context,
-    );
-    context.customAliases.set(source.name, alias);
-    context.mappingsByAlias.set(alias, {
-      kind: "custom",
-      alias,
-      name: source.name,
-    });
+    registerCustomTool(source.name, context);
     return;
   }
   if (source.type === "tool_search" && context.toolSearchAlias === null) {
@@ -192,6 +200,27 @@ function registerToolDefinition(
       alias,
     });
   }
+}
+
+function registerCustomTool(
+  name: string,
+  context: ToolCompatibilityContext,
+  namespace?: string,
+): void {
+  const key = namespace === undefined ? name : namespaceKey(namespace, name);
+  if (context.customAliases.has(key)) return;
+  const alias = reserveAlias(
+    namespace === undefined ? name : `${namespace}__${name}`,
+    `custom:${key}`,
+    context,
+  );
+  context.customAliases.set(key, alias);
+  context.mappingsByAlias.set(alias, {
+    kind: "custom",
+    alias,
+    name,
+    ...(namespace === undefined ? {} : { namespace }),
+  });
 }
 
 function registerHistoricalMappings(
@@ -216,20 +245,13 @@ function registerHistoricalMappings(
     if (
       (item.type === "custom_tool_call" ||
         item.type === "custom_tool_call_output") &&
-      typeof item.name === "string" &&
-      !context.customAliases.has(item.name)
+      typeof item.name === "string"
     ) {
-      const alias = reserveAlias(
+      registerCustomTool(
         item.name,
-        `custom:${item.name}`,
         context,
+        typeof item.namespace === "string" ? item.namespace : undefined,
       );
-      context.customAliases.set(item.name, alias);
-      context.mappingsByAlias.set(alias, {
-        kind: "custom",
-        alias,
-        name: item.name,
-      });
       continue;
     }
     if (
@@ -268,9 +290,11 @@ function translateToolDefinition(
   ) {
     return source.tools.flatMap((child) => {
       if (!isRecord(child) || typeof child.name !== "string") return [];
-      const alias = context.namespaceAliases.get(
-        namespaceKey(source.name as string, child.name),
-      );
+      const alias = (
+        child.type === "custom"
+          ? context.customAliases
+          : context.namespaceAliases
+      ).get(namespaceKey(source.name as string, child.name));
       if (!alias) return [];
       return [
         {
@@ -278,9 +302,12 @@ function translateToolDefinition(
           name: alias,
           description: stringValue(child.description),
           strict: child.strict === true,
-          parameters: isRecord(child.parameters)
-            ? child.parameters
-            : DEFAULT_PARAMETERS,
+          parameters:
+            child.type === "custom"
+              ? CUSTOM_TOOL_PARAMETERS
+              : isRecord(child.parameters)
+                ? child.parameters
+                : DEFAULT_PARAMETERS,
         },
       ];
     });
@@ -294,17 +321,7 @@ function translateToolDefinition(
         name: alias,
         description: stringValue(source.description),
         strict: false,
-        parameters: {
-          type: "object",
-          properties: {
-            input: {
-              type: "string",
-              description: "Freeform input for this tool.",
-            },
-          },
-          required: ["input"],
-          additionalProperties: false,
-        },
+        parameters: CUSTOM_TOOL_PARAMETERS,
       },
     ];
   }
@@ -366,18 +383,22 @@ function translateInputItem(
       output: JSON.stringify(Array.isArray(source.tools) ? source.tools : []),
     };
   }
-  if (
-    source.type === "custom_tool_call" &&
-    typeof source.name === "string"
-  ) {
-    const alias = context.customAliases.get(source.name);
+  if (source.type === "custom_tool_call" && typeof source.name === "string") {
+    const alias = context.customAliases.get(
+      typeof source.namespace === "string"
+        ? namespaceKey(source.namespace, source.name)
+        : source.name,
+    );
     if (!alias) return source;
     return {
       ...copyItemMetadata(source),
       type: "function_call",
       name: alias,
       arguments: JSON.stringify({
-        input: typeof source.input === "string" ? source.input : asText(source.input),
+        input:
+          typeof source.input === "string"
+            ? source.input
+            : asText(source.input),
       }),
     };
   }
@@ -423,6 +444,9 @@ function rewriteOutputItem(
       ...metadata,
       type: "custom_tool_call",
       name: mapping.name,
+      ...(mapping.namespace === undefined
+        ? {}
+        : { namespace: mapping.namespace }),
       input: customToolInput(source.arguments),
     };
   }
@@ -435,8 +459,7 @@ function rewriteOutputItem(
     type: "function_call",
     namespace: mapping.namespace,
     name: mapping.name,
-    arguments:
-      source.arguments === "" ? "" : JSON.stringify(args),
+    arguments: source.arguments === "" ? "" : JSON.stringify(args),
   };
 }
 
@@ -560,10 +583,7 @@ function asText(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function coerceArguments(
-  value: JsonObject,
-  schema: JsonObject,
-): JsonObject {
+function coerceArguments(value: JsonObject, schema: JsonObject): JsonObject {
   const properties = isRecord(schema.properties) ? schema.properties : {};
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
@@ -602,7 +622,5 @@ function stringValue(value: unknown): string {
 }
 
 function isRecord(value: unknown): value is JsonObject {
-  return (
-    typeof value === "object" && value !== null && !Array.isArray(value)
-  );
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

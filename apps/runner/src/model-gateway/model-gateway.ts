@@ -140,6 +140,7 @@ type ModelGatewayWebSocketSession = {
   upstream: WebSocket | null;
   closed: boolean;
   pendingRequest: PendingWebSocketRequest | null;
+  toolContextsByResponseId: Map<string, ToolCompatibilityContext>;
   downstreamQueuedBytes: number;
   upstreamQueuedBytes: number;
   downstreamQueuedMessages: number;
@@ -464,6 +465,7 @@ export class ModelGateway implements ModelGatewayRuntime {
       upstream: null,
       closed: false,
       pendingRequest: null,
+      toolContextsByResponseId: new Map(),
       downstreamQueuedBytes: 0,
       upstreamQueuedBytes: 0,
       downstreamQueuedMessages: 0,
@@ -1020,10 +1022,16 @@ export class ModelGateway implements ModelGatewayRuntime {
     let body = source;
     let compatibilityContext: ToolCompatibilityContext | null = null;
     if (lease.protocolMode === "responses_tool_compat") {
-      const translated = translateResponsesRequest(source);
+      const previousResponseId = stringValue(source.previous_response_id);
+      const previousContext = previousResponseId && !Object.hasOwn(source, "tools")
+        ? session.toolContextsByResponseId.get(previousResponseId)
+        : undefined;
+      const translated = translateResponsesRequest(source, previousContext);
       body = translated.body;
       compatibilityContext = translated.context;
-      if (!Object.hasOwn(source, "tools")) delete body.tools;
+      if (!Object.hasOwn(source, "tools") && Array.isArray(body.tools) && body.tools.length === 0) {
+        delete body.tools;
+      }
     }
     session.pendingRequest = {
       body: source,
@@ -1056,6 +1064,17 @@ export class ModelGateway implements ModelGatewayRuntime {
       ? rewriteResponsesPayload(source, pending.compatibilityContext)
       : source;
     const terminal = isTerminalWebSocketEvent(source);
+    if (source.type === "response.completed" && isRecord(source.response) &&
+      typeof source.response.id === "string" && pending?.compatibilityContext) {
+      // A native generate:false warmup can be the parent of later incremental
+      // requests. Keep its aliases within this connection, bounded by history.
+      session.toolContextsByResponseId.set(source.response.id, pending.compatibilityContext);
+      while (session.toolContextsByResponseId.size > 32) {
+        const oldestId = session.toolContextsByResponseId.keys().next().value;
+        if (oldestId === undefined) break;
+        session.toolContextsByResponseId.delete(oldestId);
+      }
+    }
     if (terminal) session.pendingRequest = null;
     if (rewritten !== null) {
       await sendWebSocketJson(

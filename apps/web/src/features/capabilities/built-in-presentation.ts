@@ -1,3 +1,4 @@
+import { capabilityDisplayName } from "@linksense/shared"
 import type { TFunction } from "i18next"
 
 import type { CapabilitySummary } from "@/api/contracts"
@@ -18,14 +19,20 @@ export function capabilityPresentation(
   productName: string
 ): { name: string; description: string | null } {
   if (!capability.is_builtin || capability.builtin_key === null) {
-    return { name: capability.name, description: capability.description }
+    return {
+      name: capabilityDisplayName(capability),
+      description: capability.description,
+    }
   }
   const key =
     capabilityTranslationKeys[
       capability.builtin_key as keyof typeof capabilityTranslationKeys
     ]
   if (!key)
-    return { name: capability.name, description: capability.description }
+    return {
+      name: capabilityDisplayName(capability),
+      description: capability.description,
+    }
   return {
     name: t(`capability.builtIns.${key}.name`, { productName }),
     description: t(`capability.builtIns.${key}.description`, { productName }),

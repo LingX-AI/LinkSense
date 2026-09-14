@@ -1337,6 +1337,14 @@ export const errorCatalog = {
         "The external image could not be downloaded. Check the image URL and try again.",
     },
   },
+  TURN_START_CLOSED: {
+    message_key: "errors.runner.turnStartClosed",
+    http_status: 409,
+    messages: {
+      "zh-CN": "上次提交已结束，本次未执行。请重新提交。",
+      "en-US": "The previous submission has ended. This request was not run. Please submit it again.",
+    },
+  },
   RUNNER_UNAVAILABLE: {
     message_key: "errors.runner.unavailable",
     http_status: 503,

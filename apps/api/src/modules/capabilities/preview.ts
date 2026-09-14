@@ -11,7 +11,10 @@ import {
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { z } from "zod";
-import { capabilityRiskSummarySchema } from "@linksense/shared";
+import {
+  capabilityRiskSummarySchema,
+  skillDisplayNameSchema,
+} from "@linksense/shared";
 
 import { AppError } from "../../lib/errors.js";
 import { hashPackageDirectory } from "../../lib/package-directory-integrity.js";
@@ -76,6 +79,7 @@ const previewStateSchema = z.strictObject({
   prepared: z.strictObject({
     type: z.enum(["plugin", "skill"]),
     name: z.string().min(1).max(160),
+    display_name: skillDisplayNameSchema.optional(),
     description: z.string().max(4_000).nullable(),
     manifest: z.record(z.string(), z.unknown()),
     risk_summary: riskSummarySchema,
@@ -105,6 +109,7 @@ export interface CapabilityImportPreview {
     | z.infer<typeof clawHubPreviewSourceSchema>;
   type: CapabilityType;
   name: string;
+  display_name?: string | null;
   description: string | null;
   manifest: Record<string, unknown>;
   declared_capabilities: string[];
@@ -202,6 +207,7 @@ export class CapabilityPreviewRepository {
         prepared: {
           type: input.prepared.type,
           name: input.prepared.name,
+          display_name: input.prepared.displayName ?? null,
           description: input.prepared.description,
           manifest: input.prepared.manifest,
           risk_summary: input.prepared.riskSummary,
@@ -345,6 +351,7 @@ export class CapabilityPreviewRepository {
         packageRoot,
         type: state.prepared.type,
         name: state.prepared.name,
+        displayName: state.prepared.display_name ?? null,
         description: state.prepared.description,
         manifest: state.prepared.manifest,
         riskSummary: state.prepared.risk_summary,
@@ -511,6 +518,7 @@ function previewView(
     source: state.source,
     type: state.prepared.type,
     name: state.prepared.name,
+    display_name: state.prepared.display_name ?? null,
     description: state.prepared.description,
     manifest: state.prepared.manifest,
     declared_capabilities: declaredCapabilities,

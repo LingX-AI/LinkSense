@@ -25,6 +25,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { TaskCategoryAction } from "./task-category-dialog"
+import {
+  readSidebarCategoryOpen,
+  rememberSidebarCategoryOpen,
+} from "./sidebar-category-preference"
 import { SidebarDropIndicator } from "@/features/conversations/sidebar-drop-indicator"
 import {
   SidebarConversationDragState,
@@ -32,18 +36,22 @@ import {
 } from "@/features/conversations/sidebar-conversation-drag-state"
 
 export function SidebarTaskGroup({
+  userId,
   category,
   label,
   children,
   onAction,
 }: {
+  userId: string | undefined
   category?: TaskCategory
   label: string
   children: ReactNode
   onAction: (action: TaskCategoryAction) => void
 }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(() =>
+    userId && category ? readSidebarCategoryOpen(userId, category.id) : true
+  )
   const { disabled, categoriesDisabled } = useContext(
     SidebarConversationDragState
   )
@@ -80,7 +88,10 @@ export function SidebarTaskGroup({
   return (
     <Collapsible
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        if (userId) rememberSidebarCategoryOpen(userId, category.id, nextOpen)
+      }}
       // Label offset: 10px padding + 14px icon + 6px gap + 1px border.
       // Task rows already provide 8px of padding; inherit the remaining offset.
       render={

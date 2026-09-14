@@ -13,7 +13,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
-import { modelProviderProtocolModeSchema } from "@linksense/shared"
+import { modelProviderProtocolModeSchema } from "../packages/shared/src/index.ts"
 
 import { CodexJsonRpcClient } from "../apps/runner/src/codex/json-rpc-client.ts"
 import { serializePromptLink } from "../apps/runner/src/codex/prompt.ts"
@@ -117,6 +117,7 @@ When this Skill is supplied explicitly, reply with exactly this marker and nothi
       userDataRoot,
     }).reconcile({
       ownerId,
+      conversationId,
       capabilities: [
         {
           id: capabilityId,

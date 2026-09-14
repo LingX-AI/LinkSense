@@ -296,6 +296,11 @@ describe("conversation event discriminated union", () => {
 });
 
 describe("runner Codex event contract", () => {
+  it("accepts native rate limiting while rejecting unknown classifications", () => {
+    expect(runnerCodexErrorInfoSchema.safeParse("rateLimitExceeded").success).toBe(true);
+    expect(runnerCodexErrorInfoSchema.safeParse("inventedRetryState").success).toBe(false);
+  });
+
   it("accepts the Codex 0.150.1 misalignment policy error", () => {
     expect(
       runnerCodexErrorInfoSchema.safeParse("misalignmentPolicyViolation")

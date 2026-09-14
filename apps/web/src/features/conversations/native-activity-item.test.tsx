@@ -1083,16 +1083,33 @@ describe("NativeActivityItem", () => {
       id: "compact-exact-label",
       type: "contextCompaction" as const,
     }
-    const { rerender } = render(
+    const { container, rerender } = render(
       <NativeActivityItem method="item/started" item={item} />
     )
 
     expect(screen.getByText("正在压缩上下文")).toBeVisible()
+    expect(
+      container.querySelector('[data-native-activity-icon="compact"]')
+    ).toHaveClass("lucide-context-compaction")
+    expect(
+      container.querySelectorAll(
+        '.lucide-context-compaction circle[fill="currentColor"]'
+      )
+    ).toHaveLength(2)
     expect(screen.queryByRole("button")).toBeNull()
 
     rerender(<NativeActivityItem method="item/completed" item={item} />)
 
     expect(screen.getByText("上下文已压缩")).toBeVisible()
+    expect(
+      container.querySelector('[data-native-activity-icon="compact"]')
+    ).toHaveClass("lucide-context-compacted")
+    expect(
+      container.querySelectorAll(
+        '.lucide-context-compacted circle[fill="currentColor"]'
+      )
+    ).toHaveLength(2)
+    expect(container.querySelector(".lucide-context-compaction")).toBeNull()
     expect(screen.queryByText("正在压缩上下文")).toBeNull()
     expect(screen.queryByRole("button")).toBeNull()
   })
@@ -1102,11 +1119,15 @@ describe("NativeActivityItem", () => {
       id: "compact-stopped-before-completion",
       type: "contextCompaction" as const,
     }
-    const { rerender } = render(
+    const { container, rerender } = render(
       <NativeActivityItem method="item/started" item={item} stopped />
     )
 
     expect(screen.getByText("上下文压缩未完成")).toBeVisible()
+    expect(
+      container.querySelector('[data-native-activity-icon="compact"]')
+    ).toHaveClass("lucide-context-compaction")
+    expect(container.querySelector(".lucide-context-compacted")).toBeNull()
     expect(screen.queryByText("正在压缩上下文")).toBeNull()
     expect(screen.queryByText("上下文已压缩")).toBeNull()
 

@@ -72,6 +72,8 @@ describe("Codex child environment", () => {
       "skills.bundled.enabled=false",
       "-c",
       'shell_environment_policy.exclude=["AZURE_OPENAI_API_KEY","CODEX_API_KEY","LINKSENSE_FILE_SERVICE_TOKEN","LINKSENSE_MODEL_GATEWAY_TOKEN","LINK_SENSE_API_KEY","OPENAI_API_KEY","PERSONAL_API_TOKEN","SERVICE_API_TOKEN"]',
+      "-c",
+      "tools.update_plan.enabled=true",
       "--stdio",
     ])
     expect(JSON.stringify(argumentsList)).not.toContain("service-secret")
@@ -88,6 +90,8 @@ describe("Codex child environment", () => {
       "skills.bundled.enabled=false",
       "-c",
       'shell_environment_policy.exclude=["AZURE_OPENAI_API_KEY","CODEX_API_KEY","LINKSENSE_MODEL_GATEWAY_TOKEN","LINK_SENSE_API_KEY","OPENAI_API_KEY"]',
+      "-c",
+      "tools.update_plan.enabled=true",
       "--stdio",
     ])
   })
@@ -116,6 +120,8 @@ describe("Codex child environment", () => {
       'shell_environment_policy.exclude=["AZURE_OPENAI_API_KEY","CODEX_API_KEY","LINKSENSE_MODEL_GATEWAY_TOKEN","LINK_SENSE_API_KEY","OPENAI_API_KEY"]',
       "-c",
       'shell_environment_policy.set={BASH_ENV="/opt/linksense/runtime/shell/linksense-bash-env.sh",PATH="/opt/linksense/bin:/usr/bin",LINKSENSE_PYTHON_PACKAGE_INDEX_URL="https://pypi.example.test/simple/",LINKSENSE_NODE_PACKAGE_REGISTRY_URL="https://npm.example.test/",UV_DEFAULT_INDEX="https://pypi.example.test/simple/",UV_INDEX_STRATEGY="first-index",PIP_INDEX_URL="https://pypi.example.test/simple/",NPM_CONFIG_REGISTRY="https://npm.example.test/"}',
+      "-c",
+      "tools.update_plan.enabled=true",
       "--stdio",
     ])
   })

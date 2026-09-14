@@ -1651,20 +1651,84 @@ test("Codex authentication is managed at runtime rather than in deployment env",
   );
 });
 
-test("the runner image, Compose default, environment example, and adapter pin Codex 0.150.1", async () => {
-  const [dockerfile, compose, environmentExample, protocol] = await Promise.all(
+test("Codex installation and its adapter share a repository pin with no deployment override", async () => {
+  const [dockerfile, compose, environmentExample, protocol, deployment, release] = await Promise.all(
     [
       readFile(runnerDockerfilePath, "utf8"),
       readFile(composePath, "utf8"),
       readFile(environmentExamplePath, "utf8"),
       readFile(runnerCodexProtocolPath, "utf8"),
+      readFile(productionDeployPath, "utf8"),
+      readFile(resolve(".github/workflows/release.yml"), "utf8"),
     ],
   );
 
-  assert.match(dockerfile, /^ARG CODEX_VERSION=0\.150\.1$/mu);
-  assert.match(compose, /CODEX_VERSION: \$\{CODEX_VERSION:-0\.150\.1\}/u);
-  assert.match(environmentExample, /^CODEX_VERSION=0\.150\.1$/mu);
-  assert.match(protocol, /export const CODEX_SCHEMA_VERSION = "0\.150\.1"/u);
+  for (const source of [dockerfile, compose, environmentExample, deployment]) {
+    assert.doesNotMatch(source, /CODEX_VERSION/u);
+  }
+  assert.match(dockerfile, /COPY --chmod=0444 apps\/runner\/src\/codex\/runtime-version\.json \/opt\/linksense\/codex-runtime-version\.json/u);
+  const workerBase = section(dockerfile, " AS worker-base\n", "\nFROM ");
+  assert.match(workerBase, /RUN install -d -o root -g root -m 0755 \/opt\/linksense\nCOPY --chmod=0444 apps\/runner\/src\/codex\/runtime-version\.json/u);
+  assert.match(protocol, /import runtimeVersion from "\.\/runtime-version\.json" with \{ type: "json" \}/u);
+  assert.doesNotMatch(protocol, /CODEX_SCHEMA_VERSION\s*=\s*["']/u);
+  for (const target of ["worker", "worker-cached-browser"]) {
+    const stage = section(dockerfile, ` AS ${target}\n`, "\nFROM ");
+    assert.match(stage, /require\("\/opt\/linksense\/codex-runtime-version\.json"\)/u);
+    assert.match(stage, /pnpm add --global "@openai\/codex@\$\{codex_version\}"/u);
+    assert.match(stage, /test "\$\{installed_codex_version\}" = "codex-cli \$\{codex_version\}"/u);
+  }
+  assert.match(release, /await assertCodexRuntimeVersion\(\{ command: 'codex' \}\)/u);
+});
+
+test("production worker reuse follows the committed Codex pin and ignores old environment versions", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "linksense-production-codex-pin-"));
+  const pinPath = "apps/runner/src/codex/runtime-version.json";
+  const source = await readFile(productionDeployPath, "utf8");
+  const git = (...args) => execFileAsync("git", args, { cwd: root });
+  try {
+    await mkdir(resolve(root, "apps/runner/src/codex"), { recursive: true });
+    await writeFile(resolve(root, pinPath), JSON.stringify({ version: "0.154.0" }));
+    await git("init", "--quiet");
+    await git("add", pinPath);
+    const commit = () => git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixture");
+    await commit();
+    const previous = (await git("rev-parse", "HEAD")).stdout.trim();
+    await writeFile(resolve(root, pinPath), JSON.stringify({ version: "0.155.0" }));
+    await git("add", pinPath);
+    await commit();
+    const next = (await git("rev-parse", "HEAD")).stdout.trim();
+    const fixture = resolve(root, "fingerprint.sh");
+    await writeFile(fixture, `set -eu
+environment_value() {
+  if [ "$1" = "CODEX_VERSION" ]; then
+    printf '%s\\n' "$CODEX_VERSION"
+  else
+    printf '%s\\n' "$2"
+  fi
+}
+sha256sum() { shasum -a 256; }
+${extractShellFunction(source, "worker_source_fingerprint")}
+${extractShellFunction(source, "worker_runtime_changed_paths")}
+${extractShellFunction(source, "worker_rebuild_changed_paths")}
+target_revision="$1"
+worker_source_fingerprint
+worker_runtime_changed_paths "$2"
+worker_rebuild_changed_paths "$2"
+`);
+    const probe = async (revision, override) => (await execFileAsync("sh", [fixture, revision, previous], {
+      cwd: root,
+      env: { ...process.env, CODEX_VERSION: override },
+    })).stdout.trim().split("\n");
+
+    const before = await probe(previous, "0.150.1");
+    assert.equal(before.length, 1);
+    assert.deepEqual(await probe(previous, "999.0.0"), before);
+    const after = await probe(next, "999.0.0");
+    assert.notEqual(after[0], before[0]);
+    assert.deepEqual(after.slice(1), [pinPath, pinPath]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("native plugin refresh smoke projects the current managed capability layout", async () => {
@@ -1735,7 +1799,7 @@ test("runner image separates the trusted controller from unprivileged task worke
   assert.match(worker, /useradd --uid 1001 --gid node .* linksense-task/u);
   assert.match(worker, /libreoffice-writer/u);
   assert.match(worker, /poppler-utils/u);
-  assert.match(worker, /pnpm add --global @openai\/codex@\$\{CODEX_VERSION\}/u);
+  assert.match(worker, /pnpm add --global "@openai\/codex@\$\{codex_version\}"/u);
   assert.match(worker, /pnpm add --global[\s\S]*pnpm store prune/u);
   assert.match(
     worker,

@@ -1902,6 +1902,7 @@ export const zhCN = {
     },
     userInput: {
       title: "需要你的回答",
+      asyncDescription: "你可以稍后回答，LinkSense 会继续工作；任务结束后仍可提交回答。",
       formTitle: "需要你确认信息",
       formResultTitle: "已处理的表单",
       description: "回答以下问题后，LinkSense 会继续完善计划。",
@@ -2071,6 +2072,21 @@ export const zhCN = {
       imageCopied: "已复制为图像",
       copyImageFailed: "无法复制图像，请重试。",
       fullscreenFailed: "无法进入或退出全屏预览，请重试。",
+    },
+    waitingGame: {
+      playWhileWaiting: "玩着等待",
+      title: "贪吃蛇",
+      score: "得分 {{score}}",
+      controls: "方向键 / WASD · 滑动控制",
+      ready: "让等待有点乐趣",
+      paused: "已暂停",
+      over: "差一点，再来一局？",
+      won: "太棒了，你填满了棋盘！",
+      start: "开始游戏",
+      pause: "暂停游戏",
+      resume: "继续游戏",
+      restart: "再玩一次",
+      back: "返回等待",
     },
     imageGeneration: {
       loading: "正在生成图片…",
@@ -2658,6 +2674,14 @@ export const zhCN = {
     zipSkillPackage: "ZIP 技能包",
     zipSkillPackageHint: "仅接受符合技能结构约定的 ZIP 文件。",
     skillMarkdown: "SKILL.md 内容",
+    skillIdentifier: "技能标识",
+    skillNameRequired: "请输入技能标识。",
+    skillNameTooLong: "技能标识不能超过 64 个字符。",
+    skillNameInvalid:
+      "技能标识只能使用小写英文字母、数字和连字符（-）；连字符不能在开头、结尾或连续出现。",
+    skillNameReserved: "该技能标识已被系统占用，请换一个标识。",
+    skillDisplayName: "展示名称（选填）",
+    skillDisplayNameHint: "自动根据技能标识生成，支持中文和空格，也可以修改或留空。",
     skillNameHint:
       "名称为 1–64 个字符，仅支持小写英文字母、数字和连字符（-）；连字符不能位于开头或结尾，也不能连续使用。请勿使用系统内置技能名称。例如：my-skill。",
     skillPreview: "Skill 内容预览",
@@ -4524,6 +4548,7 @@ export const zhCN = {
       plugin_mcp_configuration_invalid: "插件的 MCP 配置格式无效。",
       skill_frontmatter_missing:
         "SKILL.md 缺少 frontmatter，或缺少必需的 name 字段。",
+      skill_display_name_invalid: "技能的展示名称格式无效，请使用不超过 64 个字符的单行文字。",
       skill_name_invalid:
         "Skill 名称 {{value}} 无效，只能使用小写字母、数字和连字符，且长度不能超过 64。",
       plugin_unsupported_component: "插件中包含当前暂不支持的组件类型。",
@@ -4546,6 +4571,7 @@ export const zhCN = {
     artifactNotFound: "未找到该产物。",
     downloadForbidden: "你无权下载该产物。",
     runnerUnavailable: "执行服务暂不可用，请稍后重试。",
+    turnStartClosed: errorCatalog.TURN_START_CLOSED.messages["zh-CN"],
     deploymentStopped:
       "本次任务因系统更新而中止，已有内容已保留。请确认进度后手动继续。",
     creditLimitExceeded: "你的可用额度已用尽，暂时不能发起新任务。",

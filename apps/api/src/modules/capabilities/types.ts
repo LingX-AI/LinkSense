@@ -31,6 +31,7 @@ export interface CapabilityRecord {
   type: CapabilityType;
   ownerId: string;
   name: string;
+  displayName?: string | null;
   slug: string;
   description: string | null;
   sourceType: CapabilitySourceType;
@@ -69,6 +70,7 @@ export interface PreparedCapabilityPackage {
   packageRoot: string;
   type: CapabilityType;
   name: string;
+  displayName?: string | null;
   description: string | null;
   manifest: Record<string, unknown>;
   riskSummary: CapabilityRiskSummary;
@@ -96,6 +98,7 @@ export type CapabilityImportSource =
   | {
       kind: "manual_skill";
       name: string;
+      displayName?: string | null;
       description?: string | null;
       skillMarkdown: string;
     }
@@ -117,6 +120,7 @@ export interface CreateCapabilityRecordInput {
   type: CapabilityType;
   ownerId: string;
   name: string;
+  displayName?: string | null;
   slug: string;
   description: string | null;
   sourceType: CapabilitySourceType;
@@ -132,6 +136,7 @@ export interface CreateCapabilityRecordInput {
 
 export interface UpdateCapabilityRecordInput {
   name?: string;
+  displayName?: string | null;
   slug?: string;
   description?: string | null;
   status?: CapabilityStatus;

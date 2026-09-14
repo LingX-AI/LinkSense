@@ -36,11 +36,14 @@ import type { ConversationTitleService } from "./title-service.js";
 import type { ConversationPrewarmInput } from "./prewarm.js";
 import {
   builtInCapabilityDefinitionForId,
+  capabilityPackageNameSchema,
   capabilitySelectionIdSchema,
   capabilitySourceTypeSchema,
   capabilityTypeSchema,
   capabilityAttachedEventSchema,
   buildOfficeAnnotationDisplay,
+  conversationAsyncUserInputMaximumQuestionCount,
+  conversationAsyncUserInputResponseContentSchema,
   conversationFormResponseContentSchema,
   conversationFormResponseSemanticsSchema,
   conversationFormRequestedSchema,
@@ -67,6 +70,7 @@ import {
   runtimeMcpServerSchema,
   RUNNER_TURN_INTERRUPT_NOT_ACTIVE,
   RUNNER_TURN_INTERRUPT_REQUESTED,
+  type RunnerTurnInterruptResult,
   userMessageDisplaySchema,
   type HtmlAnnotation,
   type ConversationCollaborationMode,
@@ -92,7 +96,6 @@ import {
   type ThreadGoal,
   workspacePermissionPolicy,
 } from "@linksense/shared";
-import { capabilityPackageNameSchema } from "../capabilities/package-name.js";
 import type { ApplicationTaskMetadata } from "../applications/service.js";
 import type { CapabilityRuntimeVerification } from "../capabilities/user-home-materializer.js";
 import { nextConversationEventSequence } from "../events/sequence.js";
@@ -118,6 +121,7 @@ import {
   upsertConversationGoal,
   type ConversationGoalRow,
 } from "./goals.js";
+import { respondToAsyncUserInput } from "./async-user-input.js";
 
 export type ExecutionCapability = RunnerCapability & {
   sourcePath: string;
@@ -273,6 +277,8 @@ export interface RuntimeCleanupScheduler {
 }
 
 type TurnSubmissionBase = {
+  /** Internal response binding; never supplied by the public submission API. */
+  expectedCodexThreadId?: string;
   collaborationMode?: ConversationCollaborationMode;
   priorityCapabilityIds: string[];
   knowledgeBaseIds?: string[];
@@ -1629,8 +1635,12 @@ export class ConversationService {
             return "pending";
           }
           if (operation.status === "failed") {
-            const deleted =
-              await this.deleteUnacquiredMissingStartIntent(intent);
+            const deleted = await this.deleteUnacquiredMissingStartIntent(
+              intent,
+              operation.errorCode === "RUNNER_TURN_START_SEALED"
+                ? "TURN_START_CLOSED"
+                : "RUNNER_UNAVAILABLE",
+            );
             return deleted ? "released" : "pending";
           }
           intent = await this.markStartIntentSlotAcquired(intent);
@@ -1698,15 +1708,22 @@ export class ConversationService {
       if (sealedMissingOperation) {
         const marked = await this.markMissingStartIntentForRelease(intent);
         if (!marked) return "pending";
-        await this.finishReleasePendingStartIntent({
-          ...intent,
-          runnerStatus: "release_pending",
-        });
+        await this.finishReleasePendingStartIntent(
+          { ...intent, runnerStatus: "release_pending" },
+          operation.errorCode === "RUNNER_TURN_START_SEALED"
+            ? "TURN_START_CLOSED"
+            : "RUNNER_UNAVAILABLE",
+        );
         return "released";
       }
 
       const releasing = await this.markStartIntentForRelease(intent);
-      await this.finishReleasePendingStartIntent(releasing);
+      await this.finishReleasePendingStartIntent(
+        releasing,
+        operation.errorCode === "RUNNER_TURN_START_SEALED"
+          ? "TURN_START_CLOSED"
+          : "RUNNER_UNAVAILABLE",
+      );
       return "released";
     } finally {
       await this.redis
@@ -4292,7 +4309,12 @@ export class ConversationService {
             try {
               const releasing =
                 await this.markStartIntentForRelease(startIntent);
-              await this.finishReleasePendingStartIntent(releasing);
+              await this.finishReleasePendingStartIntent(
+                releasing,
+                error instanceof AppError && error.code === "TURN_START_CLOSED"
+                  ? "TURN_START_CLOSED"
+                  : "RUNNER_UNAVAILABLE",
+              );
             } catch {
               throw new RunnerStartOperationUncertainError();
             }
@@ -5453,7 +5475,7 @@ export class ConversationService {
     conversationId: string,
     localTurnId: string,
     context: AuditContext,
-  ) {
+  ): Promise<RunnerTurnInterruptResult & { turn_id: string }> {
     await this.assertOwner(ownerId, conversationId);
     let turn = await this.prisma.conversationTurn.findFirst({
       where: { id: localTurnId, conversationId },
@@ -5481,29 +5503,23 @@ export class ConversationService {
       }
 
       if (startIntent) {
-        const deadline =
-          Date.now() + ACCEPTED_START_RECOVERY_WINDOW_MILLISECONDS;
-        while (!turn && Date.now() < deadline) {
-          const outcome = await this.recoverStartIntent(localTurnId);
-          turn = await this.prisma.conversationTurn.findFirst({
-            where: { id: localTurnId, conversationId },
-          });
-          if (turn) break;
-          if (outcome === "missing" || outcome === "released") {
-            return {
-              code: RUNNER_TURN_INTERRUPT_NOT_ACTIVE,
-              turn_id: localTurnId,
-            };
-          }
-          await new Promise<void>((resolve) => {
-            const timer = setTimeout(
-              resolve,
-              ACCEPTED_START_RECOVERY_POLL_MILLISECONDS,
-            );
-            timer.unref();
-          });
-        }
-        if (!turn) throw turnProjectionUnavailableError();
+        const intent = parseTurnStartIntent(startIntent);
+        const interrupt = await this.runner.interruptStartOperation(
+          conversationId,
+          localTurnId,
+          ownerId,
+          intent.runtimeGeneration,
+        );
+        // Reuse the durable projection/release dispatcher after acknowledging
+        // cancellation. Never wait for its conversation lock or replay startup.
+        this.trackAcceptedStartRecovery(localTurnId);
+        return this.recordTurnInterruptRequest(
+          ownerId,
+          conversationId,
+          localTurnId,
+          context,
+          interrupt,
+        );
       }
     }
     if (!turn) {
@@ -5522,38 +5538,41 @@ export class ConversationService {
     if (turn.status !== "running") {
       throw new AppError("TURN_INTERRUPT_REQUEST_FAILED");
     }
-    if (turn.interruptRequestedAt) {
-      return { code: RUNNER_TURN_INTERRUPT_REQUESTED, turn_id: turn.id };
-    }
-    if (turn.taskKind === "goal") {
-      const goal = await this.prisma.conversationGoal.findFirst({
-        where: {
-          conversationId,
-          ownerId,
-          activeTurnId: turn.id,
-          status: "active",
-        },
-        select: { conversationId: true },
-      });
-      if (goal) {
-        await this.updateGoal(
-          ownerId,
-          conversationId,
-          { status: "paused" },
-          context,
-        );
-      }
-    }
-    const interrupt = await this.runner.interrupt(
-      conversationId,
+    const interrupt =
+      turn.taskKind === "goal"
+        ? await this.runner.interrupt(
+            conversationId,
+            ownerId,
+            turn.codexTurnId,
+            turn.id,
+          )
+        : await this.runner.interrupt(conversationId, ownerId, turn.codexTurnId);
+    return this.recordTurnInterruptRequest(
       ownerId,
-      turn.codexTurnId,
+      conversationId,
+      turn.id,
+      context,
+      interrupt,
     );
+  }
+
+  private async recordTurnInterruptRequest(
+    ownerId: string,
+    conversationId: string,
+    localTurnId: string,
+    context: AuditContext,
+    interrupt: RunnerTurnInterruptResult,
+  ): Promise<RunnerTurnInterruptResult & { turn_id: string }> {
     if (interrupt.code === RUNNER_TURN_INTERRUPT_NOT_ACTIVE) {
-      return { code: RUNNER_TURN_INTERRUPT_NOT_ACTIVE, turn_id: turn.id };
+      return { code: RUNNER_TURN_INTERRUPT_NOT_ACTIVE, turn_id: localTurnId };
     }
-    await this.prisma.conversationTurn.update({
-      where: { id: turn.id },
+    await this.prisma.conversationTurn.updateMany({
+      where: {
+        id: localTurnId,
+        conversationId,
+        status: "running",
+        interruptRequestedAt: null,
+      },
       data: { interruptRequestedAt: new Date() },
     });
     await this.audit.write({
@@ -5561,11 +5580,11 @@ export class ConversationService {
       actorId: ownerId,
       action: "conversation_turn_interrupt_requested",
       targetType: "conversation_turn",
-      targetId: turn.id,
+      targetId: localTurnId,
       result: "success",
       metadata: { conversation_id: conversationId },
     });
-    return { code: RUNNER_TURN_INTERRUPT_REQUESTED, turn_id: turn.id };
+    return { code: RUNNER_TURN_INTERRUPT_REQUESTED, turn_id: localTurnId };
   }
 
   async respondToUserInputRequest(
@@ -5577,6 +5596,49 @@ export class ConversationService {
   ) {
     const response = conversationUserInputResponseSchema.parse(rawResponse);
     await this.assertOwner(ownerId, conversationId);
+    const asyncRequest = await this.prisma.conversationUserInputRequest.findFirst({
+      where: { id: requestId, conversationId, ownerId, requestKind: "async_questions" },
+    });
+    if (asyncRequest?.requestKind === "async_questions") {
+      const result = await respondToAsyncUserInput({
+        prisma: this.prisma,
+        ownerId,
+        conversationId,
+        requestId,
+        response,
+        deliver: async (delivery, text, codexThreadId) => {
+          if (delivery.method === "steer") {
+            await this.steer(
+              ownerId, conversationId, delivery.turnId, text, delivery.operationId, context,
+            );
+          } else {
+            await this.acceptTurn(ownerId, conversationId, {
+              inputText: text,
+              priorityCapabilityIds: [],
+              submitMode: "normal",
+              idempotencyKey: delivery.idempotencyKey,
+              preserveStagedAttachments: true,
+              expectedCodexThreadId: codexThreadId,
+            }, context);
+          }
+        },
+      });
+      if (result.event) {
+        await this.audit.write({
+          ...context,
+          actorId: ownerId,
+          action: "conversation_user_input_request_responded",
+          targetType: "conversation_user_input_request",
+          targetId: requestId,
+          result: "success",
+          metadata: { conversation_id: conversationId, turn_id: result.request.turnId, action: response.action },
+        });
+        await this.redis
+          .publishConversationEvent(conversationId, projectStoredEvent(result.event))
+          .catch(() => undefined);
+      }
+      return projectUserInputRequest(result.request);
+    }
     const lock = await this.acquireConversationLock(conversationId);
     let request: {
       id: string;
@@ -5584,7 +5646,7 @@ export class ConversationService {
       codexThreadId: string;
       codexTurnId: string;
       codexItemId: string;
-      nativeRequestId: bigint;
+      nativeRequestId: bigint | null;
       requestKind: string;
       questionsJson: unknown;
       formSchemaJson: unknown;
@@ -5646,6 +5708,9 @@ export class ConversationService {
     }
 
     try {
+      if (request.nativeRequestId === null) {
+        throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
+      }
       await this.runner.respondUserInputRequest({
         conversationId,
         ownerId,
@@ -6755,53 +6820,63 @@ export class ConversationService {
           }
           if (userInputRequests.length > 0) {
             await tx.conversationUserInputRequest.createMany({
-              data: userInputRequests.map((request) => ({
-                id: userInputRequestIdMap.get(request.id)!,
-                conversationId: forkConversationId,
-                turnId: turnIdMap.get(request.turnId)!,
-                ownerId,
-                codexThreadId: forkedThread.codexThreadId,
-                codexTurnId: request.codexTurnId,
-                codexItemId: request.codexItemId,
-                nativeRequestId: request.nativeRequestId,
-                requestKind: request.requestKind,
-                questionsJson: remapForkedJson(
-                  request.questionsJson,
-                  replacements,
-                ) as Prisma.InputJsonValue,
-                serverName: request.serverName,
-                messageText: request.messageText,
-                formSchemaJson: request.formSchemaJson
-                  ? (remapForkedJson(
-                      request.formSchemaJson,
-                      replacements,
-                    ) as Prisma.InputJsonValue)
-                  : Prisma.DbNull,
-                formUiHintsJson: request.formUiHintsJson
-                  ? (remapForkedJson(
-                      request.formUiHintsJson,
-                      replacements,
-                    ) as Prisma.InputJsonValue)
-                  : Prisma.DbNull,
-                formResponseSemanticsJson: request.formResponseSemanticsJson
-                  ? (remapForkedJson(
-                      request.formResponseSemanticsJson,
-                      replacements,
-                    ) as Prisma.InputJsonValue)
-                  : Prisma.DbNull,
-                responseContentJson: request.responseContentJson
-                  ? (remapForkedJson(
-                      request.responseContentJson,
-                      replacements,
-                    ) as Prisma.InputJsonValue)
-                  : Prisma.DbNull,
-                status: request.status,
-                autoResolveAt: request.autoResolveAt,
-                resolvedAction: request.resolvedAction,
-                resolvedAt: request.resolvedAt,
-                createdAt: request.createdAt,
-                updatedAt: request.updatedAt,
-              })),
+              data: userInputRequests.map((request) => {
+                const unresolvedAsyncQuestion =
+                  request.requestKind === "async_questions" &&
+                  (request.status === "pending" || request.status === "answering");
+                return {
+                  id: userInputRequestIdMap.get(request.id)!,
+                  conversationId: forkConversationId,
+                  turnId: turnIdMap.get(request.turnId)!,
+                  ownerId,
+                  codexThreadId: forkedThread.codexThreadId,
+                  codexTurnId: request.codexTurnId,
+                  codexItemId: request.codexItemId,
+                  nativeRequestId: request.nativeRequestId,
+                  requestKind: request.requestKind,
+                  questionsJson: remapForkedJson(
+                    request.questionsJson,
+                    replacements,
+                  ) as Prisma.InputJsonValue,
+                  serverName: request.serverName,
+                  messageText: request.messageText,
+                  formSchemaJson: request.formSchemaJson
+                    ? (remapForkedJson(
+                        request.formSchemaJson,
+                        replacements,
+                      ) as Prisma.InputJsonValue)
+                    : Prisma.DbNull,
+                  formUiHintsJson: request.formUiHintsJson
+                    ? (remapForkedJson(
+                        request.formUiHintsJson,
+                        replacements,
+                      ) as Prisma.InputJsonValue)
+                    : Prisma.DbNull,
+                  formResponseSemanticsJson: request.formResponseSemanticsJson
+                    ? (remapForkedJson(
+                        request.formResponseSemanticsJson,
+                        replacements,
+                      ) as Prisma.InputJsonValue)
+                    : Prisma.DbNull,
+                  // A fork must not reuse an in-flight answer operation from its source.
+                  responseDeliveryJson: Prisma.DbNull,
+                  responseContentJson: unresolvedAsyncQuestion
+                    ? Prisma.DbNull
+                    : request.responseContentJson
+                      ? (remapForkedJson(
+                          request.responseContentJson,
+                          replacements,
+                        ) as Prisma.InputJsonValue)
+                      : Prisma.DbNull,
+                  status: unresolvedAsyncQuestion ? "pending" : request.status,
+                  autoResolveAt: request.autoResolveAt,
+                  resolvedAction: unresolvedAsyncQuestion
+                    ? null : request.resolvedAction,
+                  resolvedAt: unresolvedAsyncQuestion ? null : request.resolvedAt,
+                  createdAt: request.createdAt,
+                  updatedAt: request.updatedAt,
+                };
+              }),
             });
           }
           if (citations.length > 0) {
@@ -8410,6 +8485,7 @@ export class ConversationService {
 
   private async deleteUnacquiredMissingStartIntent(
     intent: TurnStartIntent,
+    failureCode: "TURN_START_CLOSED" | "RUNNER_UNAVAILABLE" = "RUNNER_UNAVAILABLE",
   ): Promise<boolean> {
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw<Array<{ id: string }>>`
@@ -8445,7 +8521,11 @@ export class ConversationService {
       ) {
         return { deleted: false, pendingEvent: null };
       }
-      const pendingEvent = await this.settleUnstartedPendingIntent(tx, intent);
+      const pendingEvent = await this.settleUnstartedPendingIntent(
+        tx,
+        intent,
+        failureCode,
+      );
       const deleted = await tx.conversationTurnStartIntent.deleteMany({
         where: {
           projectionTurnId: intent.projectionTurnId,
@@ -8473,6 +8553,7 @@ export class ConversationService {
 
   private async finishReleasePendingStartIntent(
     intent: TurnStartIntent,
+    failureCode: "TURN_START_CLOSED" | "RUNNER_UNAVAILABLE" = "RUNNER_UNAVAILABLE",
   ): Promise<void> {
     const pendingEvent = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw<Array<{ id: string }>>`
@@ -8502,6 +8583,7 @@ export class ConversationService {
       const pendingEvent = await this.settleUnstartedPendingIntent(
         tx,
         releasing,
+        failureCode,
       );
       await this.redis.releaseTurnSlot(
         releasing.conversationId,
@@ -8534,6 +8616,7 @@ export class ConversationService {
   private async settleUnstartedPendingIntent(
     tx: Prisma.TransactionClient,
     intent: TurnStartIntent,
+    failureCode: "TURN_START_CLOSED" | "RUNNER_UNAVAILABLE",
   ): Promise<Parameters<typeof projectStoredEvent>[0] | null> {
     // Preparation items can precede the local turn. If admission fails, keep
     // their sequence numbers for SSE cursors but remove the uncreated turn link
@@ -8561,8 +8644,10 @@ export class ConversationService {
           visibility: "user_visible",
           payloadJson: {
             schema_version: 1,
-            error_code: "RUNNER_UNAVAILABLE",
-            message_key: "errors.runnerUnavailable",
+            error_code: failureCode,
+            message_key: failureCode === "TURN_START_CLOSED"
+              ? "errors.turnStartClosed"
+              : "errors.runnerUnavailable",
             retryable: true,
           },
           sseEventId: `${intent.conversationId}:${sequenceNo}`,
@@ -8740,6 +8825,12 @@ export class ConversationService {
       existingLock ?? (await this.acquireConversationLock(conversationId));
     try {
       const conversation = await this.assertOwner(ownerId, conversationId);
+      if (
+        submission.expectedCodexThreadId !== undefined &&
+        conversation.codexThreadId !== submission.expectedCodexThreadId
+      ) {
+        throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
+      }
       const applicationRuntime = await this.applicationRuntimeForConversation(
         ownerId,
         conversation.applicationId,
@@ -9393,9 +9484,12 @@ export class ConversationService {
             );
             throw uncertain;
           }
-          await this.finishReleasePendingStartIntent(releasing).catch(
-            () => undefined,
-          );
+          await this.finishReleasePendingStartIntent(
+            releasing,
+            error instanceof AppError && error.code === "TURN_START_CLOSED"
+              ? "TURN_START_CLOSED"
+              : "RUNNER_UNAVAILABLE",
+          ).catch(() => undefined);
         } else {
           await this.audit
             .write({
@@ -9867,6 +9961,16 @@ function projectUserInputRequest(row: {
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   };
+  if (row.requestKind === "async_questions") {
+    return {
+      ...common,
+      kind: "async_questions" as const,
+      questions: z.array(conversationUserInputQuestionSchema)
+        .min(1).max(conversationAsyncUserInputMaximumQuestionCount).parse(row.questionsJson),
+      response_content: conversationAsyncUserInputResponseContentSchema
+        .nullable().parse(row.responseContentJson),
+    };
+  }
   if (row.requestKind === "questions") {
     return {
       ...common,

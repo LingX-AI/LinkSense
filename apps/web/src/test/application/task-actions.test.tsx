@@ -16,9 +16,83 @@ import {
   json,
   renderApp,
 } from "./fixture"
+import { conversationInterruptTimeoutMs } from "@/features/conversations/conversation-interrupt"
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each([
+    ["TURN_START_CLOSED", false, false],
+    ["TURN_START_CLOSED", false, true],
+    ["RUNNER_UNAVAILABLE", true, false],
+  ])(
+    "allows manual resubmission after %s (reuse identity: %s, reload: %s)",
+    async (errorCode, reuseIdentity, reload) => {
+      let attempts = 0
+      const { requests } = installApiMock({
+        conversationOverride: {
+          execution_status: "completed",
+          running_turn: null,
+          turns: [{ id: "turn-1", status: "completed" }],
+          pending_requests: [],
+        },
+        turnStartResponse: async () => {
+          attempts += 1
+          if (attempts > 1)
+            return json(
+              {
+                success: true,
+                data: {
+                  turn_id: "00000000-0000-4000-8000-000000000002",
+                  accepted: true,
+                  status: "starting",
+                },
+              },
+              202
+            )
+          return json(
+            { success: false, error_code: errorCode },
+            errorCode === "TURN_START_CLOSED" ? 409 : 503
+          )
+        },
+      })
+      const interaction = userEvent.setup()
+      const view = renderApp()
+      let composer = await screen.findByRole("textbox", {
+        name: "任务输入框",
+      })
+      await interaction.type(composer, "请继续处理")
+      await interaction.click(screen.getByRole("button", { name: "发送" }))
+      const submissions = () =>
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations/c1/turns" &&
+            request.method === "POST"
+        )
+      await waitFor(() => expect(submissions()).toHaveLength(1))
+      await waitFor(() => expect(composer).toHaveValue("请继续处理"))
+      expect(submissions()).toHaveLength(1)
+      if (errorCode === "TURN_START_CLOSED") {
+        expect(
+          await screen.findByText("上次提交已结束，本次未执行。请重新提交")
+        ).toBeVisible()
+      }
+      if (reload) {
+        view.unmount()
+        renderApp()
+        composer = await screen.findByRole("textbox", { name: "任务输入框" })
+        await waitFor(() => expect(composer).toHaveValue("请继续处理"))
+        expect(submissions()).toHaveLength(1)
+      }
+      await interaction.click(screen.getByRole("button", { name: "发送" }))
+      await waitFor(() => expect(submissions()).toHaveLength(2))
+      const ids = submissions().map(
+        (request) =>
+          (request.body as { idempotency_key: string }).idempotency_key
+      )
+      expect(ids[0] === ids[1]).toBe(reuseIdentity)
+    }
+  )
+
   it("renders the protected Codex-style shell and conversation controls", async () => {
     installApiMock()
     renderApp()
@@ -77,6 +151,61 @@ describe("LinkSense application", () => {
     })
     expect(screen.queryByRole("button", { name: "停止" })).toBeNull()
     expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("reconciles a stopped turn when the completion event is missing and the first refresh is stale", async () => {
+    const { requests } = installApiMock({
+      conversationGetResponse: async (callIndex) =>
+        json({
+          success: true,
+          data:
+            callIndex < 3
+              ? conversation
+              : {
+                  ...conversation,
+                  execution_status: "interrupted",
+                  running_turn: null,
+                  turns: [{ id: "turn-1", status: "interrupted" }],
+                },
+        }),
+    })
+    renderApp()
+    fireEvent.click(await screen.findByRole("button", { name: "停止" }))
+    await waitFor(
+      () => {
+        expect(screen.queryByRole("button", { name: "正在中断…" })).toBeNull()
+        expect(screen.queryByRole("button", { name: "停止" })).toBeNull()
+      },
+      { timeout: 5_000 }
+    )
+    expect(
+      requests.filter((request) => request.path.endsWith("/interrupt"))
+    ).toHaveLength(1)
+  })
+
+  it("allows stopping again after confirmation times out without pretending the turn has ended", async () => {
+    const { requests } = installApiMock()
+    renderApp()
+    const stop = await screen.findByRole("button", { name: "停止" })
+    vi.useFakeTimers()
+    await act(async () => {
+      fireEvent.click(stop)
+    })
+    expect(screen.getByRole("button", { name: "正在中断…" })).toBeDisabled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(conversationInterruptTimeoutMs)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(screen.getByRole("button", { name: "停止" })).toBeEnabled()
+    expect(screen.getByText("暂时无法中断当前执行，请稍后重试")).toBeVisible()
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "停止" }))
+    })
+    expect(
+      requests.filter((request) => request.path.endsWith("/interrupt"))
+    ).toHaveLength(2)
   })
 
   it("keeps interrupted streamed output after terminal refresh and page remount", async () => {

@@ -1,11 +1,15 @@
 /**
- * Narrow, version-pinned projection of codex-cli 0.150.1 app-server schema.
+ * Narrow projection of the app-server schema pinned in runtime-version.json.
  * Regenerate and compare with `codex app-server generate-ts --experimental`
  * whenever the deployed CLI version changes.
  */
 import type { ReasoningEffort } from "@linksense/shared";
+import { z } from "zod";
+import runtimeVersion from "./runtime-version.json" with { type: "json" };
 
-export const CODEX_SCHEMA_VERSION = "0.150.1";
+export const CODEX_SCHEMA_VERSION = z.strictObject({
+  version: z.string().regex(/^\d+\.\d+\.\d+$/u),
+}).parse(runtimeVersion).version;
 
 export type RequestId = number;
 
@@ -96,10 +100,13 @@ export type CollaborationModeListResponse = {
 
 export type TurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
 
+export type TurnInterruptParams = { threadId: string; turnId: string };
+
 export type CodexErrorInfo =
   | "contextWindowExceeded"
   | "sessionBudgetExceeded"
   | "usageLimitExceeded"
+  | "rateLimitExceeded"
   | "serverOverloaded"
   | "cyberPolicy"
   | "misalignmentPolicyViolation"
@@ -132,7 +139,7 @@ export type CodexTurn = {
   durationMs?: number | null;
 };
 
-/** Runtime status returned by thread/read and thread/list in app-server 0.150.1. */
+/** Runtime status returned by thread/read and thread/list in app-server 0.154.0. */
 export type CodexThreadStatus =
   | { type: "notLoaded" }
   | { type: "idle" }
@@ -145,7 +152,7 @@ export type CodexThread = {
   modelProvider: string;
   /** Present only when Codex created this thread as a collaboration subagent. */
   parentThreadId?: string | null;
-  /** Native subagent metadata exposed by codex app-server 0.150.1. */
+  /** Native subagent metadata exposed by codex app-server 0.154.0. */
   source?: unknown;
   agentNickname?: string | null;
   agentRole?: string | null;
@@ -298,7 +305,7 @@ export type HookRunStatus =
   | "stopped";
 
 /**
- * Deliberately narrow projection of the 0.150.1 HookRunSummary. The native id
+ * Deliberately narrow projection of the 0.154.0 HookRunSummary. The native id
  * embeds sourcePath, so it stays private alongside hook output entries,
  * commands, and status text.
  */
@@ -351,7 +358,7 @@ export type TurnStartParams = {
   clientUserMessageId: string;
   input: CodexUserInput[];
   /**
-   * Version-pinned codex 0.150.1 metadata flattened into
+   * Version-pinned codex 0.154.0 metadata flattened into
    * client_metadata["x-codex-turn-metadata"] for Responses requests.
    */
   responsesapiClientMetadata?: Record<string, string>;
@@ -392,7 +399,7 @@ export type ToolRequestUserInputParams = {
   itemId: string;
   questions: ToolRequestUserInputQuestion[];
   isBlocking: boolean;
-  /** @deprecated Retained by app-server 0.150.1 as the host timeout policy. */
+  /** @deprecated Retained by app-server 0.154.0 as the host timeout policy. */
   autoResolutionMs: number | null;
 };
 
@@ -454,6 +461,7 @@ export type CodexThreadItem =
       text: string;
       phase: "commentary" | "final_answer" | null;
       delivery?: "async" | null;
+      questions?: Array<{ title: string; options: string[] | null }> | null;
       [key: string]: unknown;
     }
   | {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
+import { capabilityDisplayName } from "@linksense/shared";
 
 import { capabilityMcpEnvironmentReferenceSchema } from "@linksense/shared";
 
@@ -84,6 +85,9 @@ export class MarketplaceService {
       (item) =>
         search === undefined ||
         item.release.name.toLocaleLowerCase().includes(search) ||
+        capabilityDisplayName({ ...item.release, type: item.listing.type })
+          .toLocaleLowerCase()
+          .includes(search) ||
         item.release.description?.toLocaleLowerCase().includes(search) ||
         item.listing.publisher_name.toLocaleLowerCase().includes(search),
     );
@@ -304,6 +308,7 @@ export class MarketplaceService {
           sourceCapabilityId: source.id,
           releaseNumber: await store.nextReleaseNumber(listing.id),
           name: source.name,
+          displayName: source.displayName ?? null,
           description: source.description,
           releaseNotes,
           logoObjectKey: releaseLogoKey,
@@ -661,6 +666,7 @@ export class MarketplaceService {
       packageRoot: release.packagePath,
       type: listing.type,
       name: release.name,
+      displayName: release.displayName ?? null,
       description: release.description,
       manifest: release.manifestJson,
       riskSummary: release.riskSummaryJson,
@@ -709,6 +715,7 @@ export class MarketplaceService {
         packageRoot: release.packagePath,
         type: listing.type,
         name: release.name,
+        displayName: release.displayName ?? null,
         description: release.description,
         manifest: release.manifestJson,
         riskSummary: release.riskSummaryJson,
@@ -856,6 +863,7 @@ export class MarketplaceService {
       release_number: release.releaseNumber,
       status: release.status,
       name: release.name,
+      display_name: release.displayName ?? null,
       description: release.description,
       release_notes: release.releaseNotes,
       logo_url:

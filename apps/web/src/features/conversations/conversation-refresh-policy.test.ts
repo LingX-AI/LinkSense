@@ -8,6 +8,38 @@ import {
 } from "@/features/conversations/conversation-refresh-policy"
 
 describe("conversation query refresh policy", () => {
+  it("refreshes newly persisted asynchronous questions before the turn finishes", () => {
+    expect(
+      getConversationEventQueryRefreshScope({
+        id: "conversation:47",
+        type: "item/completed",
+        turn_id: "10000000-0000-4000-8000-000000000001",
+        created_at: "2026-09-13T00:00:00.000Z",
+        sequence_no: 47,
+        payload: {
+          schema_version: 2,
+          source: "codex_app_server",
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              type: "agentMessage",
+              id: "async-question",
+              text: "",
+              phase: "final_answer",
+              delivery: "async",
+              questions: [{ title: "Which scope?", options: null }],
+            },
+          },
+          local: {
+            user_input_request_id: "10000000-0000-4000-8000-000000000002",
+          },
+        },
+      })
+    ).toBe("detail")
+  })
+
   it.each([
     "thread/name/updated",
     "turn/started",

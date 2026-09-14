@@ -26,11 +26,14 @@ const sidebars: SidebarsConfig = {
           label: "任务",
           items: [
             "user-guide/tasks/create-and-run",
+            "user-guide/tasks/context-and-drafts",
             "user-guide/tasks/plan-mode",
             "user-guide/tasks/goal-tasks",
             "user-guide/tasks/task-categories",
+            "user-guide/tasks/progress-and-sources",
             "user-guide/tasks/files-and-results",
             "user-guide/tasks/file-annotations",
+            "user-guide/tasks/generate-images",
             "user-guide/tasks/voice-input",
             "user-guide/tasks/running-requests",
             "user-guide/tasks/manage-history",
@@ -42,6 +45,7 @@ const sidebars: SidebarsConfig = {
           type: "category",
           label: "消息渠道",
           items: [
+            "user-guide/message-channels/overview",
             "user-guide/message-channels/weixin",
             "user-guide/message-channels/feishu",
             "user-guide/message-channels/wecom",
@@ -133,6 +137,14 @@ const sidebars: SidebarsConfig = {
       items: [
         "developer-guide/interactive-application",
         "developer-guide/embed-application",
+      ],
+    },
+    {
+      type: "category",
+      label: "部署与运维",
+      items: [
+        "operations/editions-and-installation",
+        "operations/cli-and-maintenance",
       ],
     },
   ],

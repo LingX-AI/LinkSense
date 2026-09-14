@@ -181,6 +181,38 @@ describe("AssistantHtmlPreview actions", () => {
     restoreProperty(document, "exitFullscreen", originalExitFullscreen)
   })
 
+  it.each(["ready", "error"] as const)(
+    "unmounts the waiting game when the interactive preview becomes %s",
+    (status) => {
+      render(
+        <AssistantHtmlPreview html="<!doctype html><html><body>Preview</body></html>" />
+      )
+      fireEvent.click(screen.getByRole("button", { name: "玩着等待" }))
+      fireEvent.click(screen.getByRole("button", { name: "开始游戏" }))
+      expect(screen.getByRole("application", { name: "贪吃蛇" })).toBeVisible()
+      const frame = screen.getByTitle<HTMLIFrameElement>(
+        "AI 生成的交互式 HTML 页面"
+      )
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: frame.contentWindow,
+            data: {
+              type:
+                status === "ready"
+                  ? assistantHtmlPreviewReadyMessageType
+                  : assistantHtmlPreviewErrorMessageType,
+              previewId: frame.dataset.assistantHtmlPreviewId,
+            },
+          })
+        )
+      })
+      expect(screen.queryByRole("application", { name: "贪吃蛇" })).toBeNull()
+      if (status === "ready") expect(frame).not.toHaveClass("invisible")
+      else expect(screen.getByRole("alert")).toBeVisible()
+    }
+  )
+
   it("shows three preview actions after the iframe becomes ready", async () => {
     const user = userEvent.setup()
     const { card } = renderReadyPreview()

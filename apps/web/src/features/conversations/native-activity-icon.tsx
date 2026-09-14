@@ -21,7 +21,6 @@ import {
   MailIcon,
   MapPinIcon,
   MessageCircleQuestionIcon,
-  Minimize2Icon,
   PanelsTopLeftIcon,
   PresentationIcon,
   ScanSearchIcon,
@@ -37,9 +36,14 @@ import {
 
 import type { NativeCodexItem } from "@/api/contracts"
 import {
+  ContextCompactedIcon,
+  ContextCompactionIcon,
+} from "@/features/conversations/context-compaction-icons"
+import {
   resolveNativeActivityIconKind,
   type NativeActivityIconKind,
 } from "@/features/conversations/native-activity-icon-kind"
+import type { NativeLifecycleMethod } from "@/features/conversations/native-activity-view-model"
 
 const nativeActivityIcons = {
   agents: UsersIcon,
@@ -49,7 +53,7 @@ const nativeActivityIcons = {
   calendar: CalendarDaysIcon,
   cloud: CloudIcon,
   code: FileCode2Icon,
-  compact: Minimize2Icon,
+  compact: ContextCompactionIcon,
   database: DatabaseIcon,
   document: FileTextIcon,
   "file-edit": FilePenLineIcon,
@@ -80,13 +84,18 @@ const nativeActivityIcons = {
 
 export function NativeActivityIcon({
   item,
+  method,
   activityItems,
 }: {
   item: NativeCodexItem
+  method: NativeLifecycleMethod
   activityItems?: readonly NativeCodexItem[]
 }) {
   const kind = resolveNativeActivityIconKind(item, activityItems)
-  const Icon = nativeActivityIcons[kind]
+  const Icon =
+    kind === "compact" && method === "item/completed"
+      ? ContextCompactedIcon
+      : nativeActivityIcons[kind]
 
   return (
     <Icon

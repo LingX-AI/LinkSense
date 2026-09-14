@@ -3555,7 +3555,7 @@ function TurnSummary({
     visuallyRunning && nativeActivities.some(isRunningImageGenerationActivity)
   const interruptedForDisplay =
     nativeReconnectFailed ||
-    Boolean(interruptRequestedAt) ||
+    (Boolean(interruptRequestedAt) && !running) ||
     turn.status === "interrupted"
   const contextCompactionRunning =
     visuallyRunning &&
@@ -3782,21 +3782,24 @@ function TurnSummary({
     !rawRunning && turn.status === "completed"
       ? t("conversation.elapsed")
       : null
-  const statusLabel = contextCompactionRunning
-    ? t("conversation.processing")
-    : initialThinking || thinkingAfterCompaction
-      ? t("conversation.thinking")
-      : interruptedForDisplay
-        ? t("statuses.interrupted")
-        : turn.status === "failed" ||
-            completedWithoutOutput ||
-            Boolean(terminalErrorActivity)
-          ? t("statuses.failed")
-          : rawRunning
-            ? t("conversation.processing")
-            : turn.status === "completed"
-              ? completedDurationLabel
-              : t(`statuses.${turn.status}`)
+  const statusLabel =
+    running && interruptRequestedAt
+      ? t("conversation.interrupting")
+      : contextCompactionRunning
+        ? t("conversation.processing")
+        : initialThinking || thinkingAfterCompaction
+          ? t("conversation.thinking")
+          : interruptedForDisplay
+            ? t("statuses.interrupted")
+            : turn.status === "failed" ||
+                completedWithoutOutput ||
+                Boolean(terminalErrorActivity)
+              ? t("statuses.failed")
+              : rawRunning
+                ? t("conversation.processing")
+                : turn.status === "completed"
+                  ? completedDurationLabel
+                  : t(`statuses.${turn.status}`)
   const activityLabel = (activity: ConversationActivity) => {
     const fallbackKey = `conversation.activities.${activity.type}`
     const fallback = t(fallbackKey)
@@ -4213,6 +4216,7 @@ export function ConversationThread({
   emptyNotice,
   blockingPanel,
   blockingPanelKey,
+  blockingPanelBlocksInput = true,
   onBlockingPanelReveal,
   scrollContainerRef,
   contentRef,
@@ -4257,6 +4261,7 @@ export function ConversationThread({
   emptyNotice?: ReactNode
   blockingPanel?: ReactNode
   blockingPanelKey?: string | null
+  blockingPanelBlocksInput?: boolean
   onBlockingPanelReveal?: () => void
   scrollContainerRef?: Ref<HTMLDivElement>
   contentRef?: Ref<HTMLDivElement>
@@ -4334,14 +4339,9 @@ export function ConversationThread({
   }
   const latestTurn = turns.at(-1)
   const activeRunningTurn =
-    conversation.running_turn?.status === "running" &&
-    !conversation.running_turn.interrupt_requested_at
+    conversation.running_turn?.status === "running"
       ? conversation.running_turn
-      : [...turns]
-          .reverse()
-          .find(
-            (turn) => turn.status === "running" && !turn.interrupt_requested_at
-          )
+      : [...turns].reverse().find((turn) => turn.status === "running")
   const activeRunningTurnId = activeRunningTurn?.id
   const isTurnActiveRunning = (turn: ConversationTurn) =>
     turn.status === "running" && turn.id === activeRunningTurnId
@@ -4676,7 +4676,7 @@ export function ConversationThread({
     const turnTerminalFormRequests = conversation.user_input_requests.filter(
       (request) =>
         request.turn_id === turn.id &&
-        request.kind === "form" &&
+        (request.kind === "form" || request.kind === "async_questions") &&
         request.status !== "pending" &&
         request.status !== "answering"
     )
@@ -4852,6 +4852,7 @@ export function ConversationThread({
         reasoningSummary={reasoningSummary?.text}
         hasBlockingRequest={conversation.user_input_requests.some(
           (request) =>
+            request.kind !== "async_questions" &&
             request.turn_id === turn.id &&
             (request.status === "pending" || request.status === "answering")
         )}
@@ -5140,7 +5141,7 @@ export function ConversationThread({
           "conversation-column",
           embedded && "conversation-column-embedded",
           showWelcome && "conversation-column-welcome",
-          blockingPanel && "conversation-column-blocked"
+          blockingPanel && blockingPanelBlocksInput && "conversation-column-blocked"
         )}
       >
         {messages.length === 0 &&

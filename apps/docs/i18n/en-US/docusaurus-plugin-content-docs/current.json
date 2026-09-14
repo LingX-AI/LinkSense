@@ -15,6 +15,10 @@
     "message": "Tasks",
     "description": "The label for category '任务' in sidebar 'helpSidebar'"
   },
+  "sidebar.helpSidebar.category.消息渠道": {
+    "message": "Message channels",
+    "description": "The label for category '消息渠道' in sidebar 'helpSidebar'"
+  },
   "sidebar.helpSidebar.category.插件中心": {
     "message": "Plugin Center",
     "description": "The label for category '插件中心' in sidebar 'helpSidebar'"
@@ -42,5 +46,9 @@
   "sidebar.helpSidebar.category.知识库治理": {
     "message": "Knowledge governance",
     "description": "The label for category '知识库治理' in sidebar 'helpSidebar'"
+  },
+  "sidebar.helpSidebar.category.部署与运维": {
+    "message": "Deployment and operations",
+    "description": "The label for category '部署与运维' in sidebar 'helpSidebar'"
   }
 }

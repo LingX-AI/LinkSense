@@ -987,6 +987,7 @@ function AppSidebarContent({
               onError={(error) => setActionError(getErrorMessage(error, t))}
             >
               <SidebarTaskGroups
+                userId={user?.id}
                 pinned={pinnedConversations}
                 recent={recentConversations}
                 categories={categoriesQuery.data ?? []}

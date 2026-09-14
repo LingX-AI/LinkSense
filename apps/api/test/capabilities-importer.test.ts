@@ -31,6 +31,135 @@ afterEach(async () => {
 });
 
 describe("CapabilityPackageImporter", () => {
+
+  it.each([undefined, null, "", "   ", "会议纪要助手", "Meeting Notes"])(
+    "keeps a manual Skill identifier separate from optional display name %s",
+    async (displayName) => {
+      const importer = new CapabilityPackageImporter({
+        stagingRoot: join(await temporaryDirectory(), "staging"),
+      });
+      const prepared = await importer.prepare({
+        kind: "manual_skill",
+        name: "meeting-notes",
+        ...(displayName === undefined ? {} : { displayName }),
+        skillMarkdown: "# Instructions",
+      });
+      expect(prepared.name).toBe("meeting-notes");
+      expect(prepared.displayName).toBe(displayName?.trim() || null);
+      expect(
+        await readFile(join(prepared.packageRoot, "SKILL.md"), "utf8"),
+      ).toContain('name: "meeting-notes"');
+      if (displayName?.trim()) {
+        expect(
+          await readFile(
+            join(prepared.packageRoot, "agents/openai.yaml"),
+            "utf8",
+          ),
+        ).toContain(displayName);
+      } else {
+        await expect(
+          readFile(join(prepared.packageRoot, "agents/openai.yaml")),
+        ).rejects.toMatchObject({ code: "ENOENT" });
+      }
+    },
+  );
+
+  it.each(["zip", "remote"])(
+    "reads native display metadata from %s without changing package bytes",
+    async (source) => {
+      const importer = new CapabilityPackageImporter({
+        stagingRoot: join(await temporaryDirectory(), "staging"),
+      });
+      const entries = [
+        {
+          path: "meeting-notes/SKILL.md",
+          bytes:
+            "---\nname: meeting-notes\ndescription: Notes\n---\nInstructions",
+        },
+        {
+          path: "meeting-notes/agents/openai.yaml",
+          bytes:
+            'interface:\n  display_name: "  会议纪要助手  "\n  default_prompt: "Use $meeting-notes"\npolicy:\n  allow_implicit_invocation: false\n',
+        },
+      ];
+      const prepared =
+        source === "zip"
+          ? await importer.prepare({
+              kind: "zip",
+              bytes: createStoredZip(entries),
+              filename: "skill.zip",
+            })
+          : await importer.prepareRemoteFiles(
+              entries.map((entry) =>
+                remoteFile(entry.path, Buffer.from(entry.bytes)),
+              ),
+            );
+      expect(prepared.displayName).toBe("会议纪要助手");
+      expect(prepared.name).toBe("meeting-notes");
+      expect(
+        await readFile(
+          join(prepared.packageRoot, "agents/openai.yaml"),
+          "utf8",
+        ),
+      ).toBe(entries[1]!.bytes);
+    },
+  );
+
+  it.each([
+    "interface: {}",
+    'interface:\n  display_name: "   "',
+    "policy:\n  allow_implicit_invocation: false",
+  ])(
+    "accepts optional metadata without a display name: %s",
+    async (metadata) => {
+      const importer = new CapabilityPackageImporter({
+        stagingRoot: join(await temporaryDirectory(), "staging"),
+      });
+      const prepared = await importer.prepare({
+        kind: "zip",
+        filename: "skill.zip",
+        bytes: createStoredZip([
+          {
+            path: "SKILL.md",
+            bytes: "---\nname: meeting-notes\n---\nInstructions",
+          },
+          { path: "agents/openai.yaml", bytes: metadata },
+        ]),
+      });
+      expect(prepared.displayName).toBeNull();
+    },
+  );
+
+  it.each([
+    "interface:\n  display_name: 42",
+    "interface:\n  display_name: [",
+    'interface:\n  display_name: "' + "a".repeat(65) + '"',
+    "a".repeat(32_001),
+  ])(
+    "rejects invalid display metadata without exposing parser details",
+    async (metadata) => {
+      const importer = new CapabilityPackageImporter({
+        stagingRoot: join(await temporaryDirectory(), "staging"),
+      });
+      await expect(
+        importer.prepare({
+          kind: "zip",
+          filename: "skill.zip",
+          bytes: createStoredZip([
+            {
+              path: "SKILL.md",
+              bytes: "---\nname: meeting-notes\n---\nInstructions",
+            },
+            { path: "agents/openai.yaml", bytes: metadata },
+          ]),
+        }),
+      ).rejects.toMatchObject({
+        code: "INVALID_PACKAGE",
+        params: { reason_code: "skill_display_name_invalid" },
+      });
+    },
+  );
+
   it("prepares exact remote files only after path, size, and SHA-256 verification", async () => {
     const root = await temporaryDirectory();
     const importer = new CapabilityPackageImporter({

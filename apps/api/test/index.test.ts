@@ -66,6 +66,7 @@ describe("API startup lifecycle", () => {
     "clawhub",
     "feishu",
     "weixin",
+    "runner",
     "recover",
     "listen",
     "monitor",
@@ -92,6 +93,8 @@ describe("API startup lifecycle", () => {
         fixture.startFeishuRuntime.mockRejectedValueOnce(startupError);
       } else if (failureStage === "weixin") {
         fixture.startWeixinRuntime.mockRejectedValueOnce(startupError);
+      } else if (failureStage === "runner") {
+        fixture.waitForRunner.mockRejectedValueOnce(startupError);
       } else if (failureStage === "recover") {
         fixture.recoverRunningTurns.mockRejectedValueOnce(startupError);
       } else if (failureStage === "listen") {
@@ -132,6 +135,7 @@ describe("API startup lifecycle", () => {
           failureStage === "clawhub" ||
           failureStage === "feishu" ||
           failureStage === "weixin" ||
+          failureStage === "runner" ||
           failureStage === "recover"
           ? 0
           : 1,
@@ -141,6 +145,49 @@ describe("API startup lifecycle", () => {
       );
     },
   );
+
+  it("waits for Runner readiness before recovering persisted tasks or listening", async () => {
+    const fixture = apiLifecycleFixture();
+    let ready = () => {};
+    fixture.waitForRunner.mockReturnValueOnce(new Promise<void>((resolve) => { ready = resolve; }));
+    const startup = fixture.lifecycle.start();
+
+    try {
+      await vi.waitFor(() => expect(fixture.waitForRunner).toHaveBeenCalledOnce());
+      expect(fixture.recoverRunningTurns).not.toHaveBeenCalled();
+      expect(fixture.listen).not.toHaveBeenCalled();
+    } finally {
+      ready();
+      await startup;
+    }
+
+    expect(fixture.recoverRunningTurns).toHaveBeenCalledOnce();
+    expect(fixture.listen).toHaveBeenCalledOnce();
+    expect(fixture.startRecoveryMonitor).toHaveBeenCalledOnce();
+  });
+
+  it("reports a sanitized startup failure before waiting for resource cleanup", async () => {
+    const fixture = apiLifecycleFixture();
+    const failure = Object.assign(new Error("private connection details"), {
+      reasonCode: "RUNNING_TURN_RECOVERY_RUNNER_UNAVAILABLE",
+    });
+    fixture.recoverRunningTurns.mockRejectedValueOnce(failure);
+    let closed = () => {};
+    fixture.closeApp.mockReturnValueOnce(new Promise<void>((resolve) => { closed = resolve; }));
+    const startup = expect(fixture.lifecycle.start()).rejects.toBe(failure);
+
+    try {
+      await vi.waitFor(() => expect(fixture.closeApp).toHaveBeenCalledOnce());
+      expect(fixture.startupErrorLog).toHaveBeenCalledExactlyOnceWith({
+        error_class: "Error",
+        reason_code: "RUNNING_TURN_RECOVERY_RUNNER_UNAVAILABLE",
+      }, "API startup failed");
+      expect(JSON.stringify(fixture.startupErrorLog.mock.calls)).not.toContain("private connection details");
+    } finally {
+      closed();
+      await startup;
+    }
+  });
 
   it("starts recovery before listening and closes successfully only once", async () => {
     const fixture = apiLifecycleFixture();
@@ -276,18 +323,21 @@ function apiLifecycleFixture() {
   const startWeixinRuntime = vi.fn().mockResolvedValue(undefined);
   const closeWeixinRuntime = vi.fn().mockResolvedValue(undefined);
   const recoverRunningTurns = vi.fn().mockResolvedValue(undefined);
+  const waitForRunner = vi.fn().mockResolvedValue(undefined);
   const startRecoveryMonitor = vi.fn();
   const stopRecoveryMonitor = vi.fn();
   const listen = vi.fn().mockResolvedValue("http://127.0.0.1:4000");
   const closeApp = vi.fn().mockResolvedValue(undefined);
   const startupLog = vi.fn();
+  const startupErrorLog = vi.fn();
   const closeJobs = vi.fn().mockResolvedValue(undefined);
   const closePasswordResetMail = vi.fn().mockResolvedValue(undefined);
   const closeRedis = vi.fn().mockResolvedValue(undefined);
   const disconnectPrisma = vi.fn().mockResolvedValue(undefined);
   return {
     lifecycle: createApiLifecycle({
-      app: { listen, close: closeApp, log: { info: startupLog } },
+      app: { listen, close: closeApp, log: { info: startupLog, error: startupErrorLog } },
+      runner: { waitUntilReady: waitForRunner },
       services: {
         events: {
           recoverRunningTurns,
@@ -337,7 +387,9 @@ function apiLifecycleFixture() {
       port: 4000,
     } as never),
     recoverRunningTurns,
+    waitForRunner,
     startupLog,
+    startupErrorLog,
     startKnowledgeGovernance,
     closeKnowledgeGovernance,
     startKnowledgeRuntime,

@@ -64,7 +64,10 @@ export function ConversationUserInputRequestCard({
 }: ConversationUserInputRequestCardProps) {
   const { t } = useTranslation()
   const formId = useId()
-  const disabled = submitting || request.status !== "pending"
+  const disabled =
+    submitting ||
+    (request.status !== "pending" &&
+      !(request.kind === "async_questions" && request.status === "answering"))
   const displayStatus = submitting
     ? "submitting"
     : getConversationUserInputDisplayStatus(request)
@@ -112,9 +115,11 @@ export function ConversationUserInputRequestCard({
             <UserInputRequestMarkdownDescription content={request.message} />
           ) : (
             t(
-              request.auto_resolve_at
-                ? "conversation.userInput.autoResolveDescription"
-                : "conversation.userInput.description"
+              request.kind === "async_questions"
+                ? "conversation.userInput.asyncDescription"
+                : request.auto_resolve_at
+                  ? "conversation.userInput.autoResolveDescription"
+                  : "conversation.userInput.description"
             )
           )}
         </CardDescription>
@@ -131,6 +136,7 @@ export function ConversationUserInputRequestCard({
         />
       ) : (
         <QuestionUserInputForm
+          key={`${request.id}:${request.status}:${request.updated_at}`}
           request={request}
           formId={formId}
           disabled={disabled}
@@ -217,17 +223,44 @@ function QuestionUserInputForm({
   submitting,
   onSubmit,
 }: {
-  request: Extract<ConversationUserInputRequest, { kind: "questions" }>
+  request: Extract<
+    ConversationUserInputRequest,
+    { kind: "questions" | "async_questions" }
+  >
   formId: string
   disabled: boolean
   submitting: boolean
   onSubmit: (response: ConversationUserInputResponse) => void
 }) {
   const { t } = useTranslation()
-  const [selections, setSelections] = useState<Record<string, string>>({})
+  const savedAnswers =
+    request.kind === "async_questions" ? request.response_content : null
+  const fieldsDisabled = disabled || savedAnswers !== null
+  const [selections, setSelections] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      request.questions.flatMap((question) => {
+        const saved = savedAnswers?.[question.id]
+        if (typeof saved === "string") {
+          const index =
+            question.options?.findIndex((option) => option.label === saved) ??
+            -1
+          return [[question.id, index >= 0 ? optionChoice(index) : otherChoice]]
+        }
+        return request.kind === "async_questions" && question.options?.length
+          ? [[question.id, optionChoice(0)]]
+          : []
+      })
+    )
+  )
   const [freeformAnswers, setFreeformAnswers] = useState<
     Record<string, string>
-  >({})
+  >(() =>
+    Object.fromEntries(
+      Object.entries(savedAnswers ?? {}).flatMap(([id, value]) =>
+        typeof value === "string" ? [[id, value]] : []
+      )
+    )
+  )
 
   const answers = useMemo(
     () =>
@@ -279,12 +312,14 @@ function QuestionUserInputForm({
               <FieldSet
                 key={question.id}
                 className="min-w-0 gap-2.5"
-                disabled={disabled}
+                disabled={fieldsDisabled}
               >
                 <FieldLegend variant="label" className="mb-1.5 w-full">
-                  <span className="block text-xs font-semibold text-[var(--app-muted)]">
-                    {question.header}
-                  </span>
+                  {request.kind !== "async_questions" && (
+                    <span className="block text-xs font-semibold text-[var(--app-muted)]">
+                      {question.header}
+                    </span>
+                  )}
                   <span className="mt-0.5 block text-sm leading-5 text-[var(--app-text)]">
                     {question.question}
                   </span>
@@ -292,7 +327,7 @@ function QuestionUserInputForm({
 
                 {options.length > 0 && (
                   <RadioGroup
-                    disabled={disabled}
+                    disabled={fieldsDisabled}
                     value={selection ?? ""}
                     onValueChange={(value) =>
                       setSelections((current) => ({
@@ -313,7 +348,7 @@ function QuestionUserInputForm({
                           <RadioGroupItem
                             id={optionId}
                             value={optionChoice(optionIndex)}
-                            disabled={disabled}
+                            disabled={fieldsDisabled}
                             className="mt-0.5"
                           />
                           <span className="min-w-0">
@@ -337,7 +372,7 @@ function QuestionUserInputForm({
                         <RadioGroupItem
                           id={`${inputId}-other`}
                           value={otherChoice}
-                          disabled={disabled}
+                          disabled={fieldsDisabled}
                         />
                         <span className="text-sm font-medium text-[var(--app-text)]">
                           {t("conversation.userInput.other")}
@@ -350,7 +385,7 @@ function QuestionUserInputForm({
                 {needsFreeform && (
                   <Field
                     className="gap-1.5"
-                    data-disabled={disabled || undefined}
+                    data-disabled={fieldsDisabled || undefined}
                   >
                     <FieldLabel
                       htmlFor={`${inputId}-answer`}
@@ -362,7 +397,7 @@ function QuestionUserInputForm({
                       id={`${inputId}-answer`}
                       type={question.is_secret ? "password" : "text"}
                       autoComplete="off"
-                      disabled={disabled}
+                      disabled={fieldsDisabled}
                       value={freeformAnswers[question.id] ?? ""}
                       onChange={(event) =>
                         setFreeformAnswers((current) => ({
@@ -389,6 +424,7 @@ function QuestionUserInputForm({
       </CardContent>
       <ConversationUserInputRequestFooter
         disabled={disabled}
+        cancelDisabled={fieldsDisabled}
         complete={complete}
         submitting={submitting}
         onCancel={() => onSubmit({ action: "cancel" })}

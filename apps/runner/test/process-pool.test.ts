@@ -496,6 +496,23 @@ describe("AppServerProcessPool", () => {
     await pool.closeAll();
   });
 
+  it("honors an explicit Goal resume after a persisted startup cancellation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-goal-resume-after-stop-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, workspaceManager } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    workspaceManager.bindOwner(input.conversationId, input.ownerId);
+    await workspaceManager.ensureConversation(input.conversationId, "test");
+    const store = new StartOperationStore(workspaceManager);
+    await store.requestInterrupt(input.conversationId, input.projectionTurnId);
+    await expect(pool.setGoal({
+      ...input, codexThreadId: "thread-native-1", status: "active",
+    })).resolves.toMatchObject({ status: "active" });
+    expect(await store.isInterruptRequested(input.conversationId, input.projectionTurnId)).toBe(false);
+    await pool.closeAll();
+  });
+
   it("recovers a lost Goal process before reactivating the same native thread", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-goal-reactivate-"));
     roots.push(root);
@@ -1039,11 +1056,13 @@ trust_level = "trusted"
     expect(
       controlled.args?.slice(
         planPluginOverrideIndex - 1,
-        planPluginOverrideIndex + 2,
+        planPluginOverrideIndex + 4,
       ),
     ).toEqual([
       "-c",
       "features.plugins=false",
+      "-c",
+      "tools.update_plan.enabled=true",
       "--stdio",
     ]);
     expect(controlled.args).toContain("features.plugins=true");
@@ -1250,6 +1269,13 @@ trust_level = "trusted"
       "final-before-freeze",
       "final_answer",
     );
+    controlled.notify({
+      method: "item/completed",
+      params: { threadId: "thread-native-1", turnId: "turn-native-1", item: {
+        type: "agentMessage", id: "async-question-is-not-final", text: "Which scope?",
+        phase: "final_answer", delivery: "async", questions: [{ title: "Which scope?", options: null }],
+      } },
+    });
     const frozenRun =
       "stop:0:/opt/linksense/runtime/node/plan-stop-hook.mjs#frozen";
     notifyHook("hook/started", "turn-native-1", frozenRun, "running");
@@ -2620,10 +2646,124 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("waits for native registration before interrupting an allocated turn", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-interrupt-registration-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    await pool.startTurn(input);
+
+    const interrupt = pool.interrupt(input.conversationId, "turn-native-1");
+    expect(controlled.methods).not.toContain("turn/interrupt");
+    controlled.notify({
+      method: "turn/started",
+      params: {
+        threadId: "thread-native-1",
+        turn: { id: "turn-native-1", status: "inProgress" },
+      },
+    });
+    await expect(interrupt).resolves.toBe("requested");
+    expect(controlled.methods.filter((method) => method === "turn/interrupt")).toHaveLength(1);
+    await pool.closeAll();
+  });
+
+  it("pauses a native Goal before interrupting its turn so it cannot continue", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-interrupt-goal-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = { ...startOperationInput(), goal: { objective: "完成当前目标" } };
+    await pool.startTurn(input);
+    const before = controlled.timeline.length;
+    await expect(pool.interrupt(input.conversationId, "turn-native-1")).resolves.toBe("requested");
+    expect(controlled.timeline.slice(before).filter((entry) => entry.startsWith("request:"))).toEqual([
+      "request:thread/goal/set:paused", "request:turn/interrupt",
+    ]);
+    await pool.closeAll();
+  });
+
+  it.each([true, false])("stops the native Goal even after its initial turn finished (continuation: %s)", async (continuing) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-interrupt-goal-continuation-"));
+    roots.push(root);
+    const turns: CodexTurn[] = [];
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response", threadReadTurns: turns });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = { ...startOperationInput(), goal: { objective: "完成当前目标" } };
+    await pool.startTurn(input);
+    const terminal: CodexTurn = { id: "turn-native-1", status: "completed", items: [], error: null };
+    turns.push(terminal);
+    controlled.notify({ method: "turn/completed", params: { threadId: "thread-native-1", turn: terminal } });
+    if (continuing) {
+      const next: CodexTurn = { id: "turn-goal-continuation", status: "inProgress", items: [], error: null };
+      turns.push(next);
+    }
+    const before = controlled.timeline.length;
+    await expect(pool.interrupt(input.conversationId, "turn-native-1", input.projectionTurnId)).resolves.toBe("requested");
+    const requests = controlled.timeline.slice(before).filter((entry) => entry.startsWith("request:"));
+    expect(requests).toContain("request:thread/goal/set:paused");
+    if (continuing) {
+      expect(controlled.requests).toContainEqual(expect.objectContaining({ method: "turn/interrupt", params: { threadId: "thread-native-1", turnId: "turn-goal-continuation" } }));
+    } else {
+      expect(requests).not.toContain("request:turn/interrupt");
+    }
+    await expect(pool.interrupt(input.conversationId, "turn-native-1", "01900000-0000-7000-8000-000000000999")).resolves.toBe("not_active");
+    await pool.closeAll();
+  });
+
+  it("coalesces simultaneous interrupts but permits a retry after a native failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-interrupt-coalesce-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response", turnInterrupt: "manual" });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    await pool.startTurn(input);
+    const first = pool.interrupt(input.conversationId, "turn-native-1");
+    const second = pool.interrupt(input.conversationId, "turn-native-1");
+    const results = Promise.allSettled([first, second]);
+    await waitForFast(() => expect(controlled.requests.filter((request) => request.method === "turn/interrupt")).toHaveLength(1));
+    const nativeRequest = controlled.requests.find((request) => request.method === "turn/interrupt")!;
+    controlled.notify({ id: nativeRequest.id, error: { code: -32000, message: "not ready" } });
+    expect((await results).map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    const retried = pool.interrupt(input.conversationId, "turn-native-1");
+    await waitForFast(() => expect(controlled.requests.filter((request) => request.method === "turn/interrupt")).toHaveLength(2));
+    const retryRequest = controlled.requests.filter((request) => request.method === "turn/interrupt").at(-1)!;
+    controlled.notify({ id: retryRequest.id, result: {} });
+    await expect(retried).resolves.toBe("requested");
+    controlled.notify({ method: "turn/completed", params: { threadId: "thread-native-1", turn: { id: "turn-native-1", status: "interrupted" } } });
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
+    await pool.closeAll();
+  });
+
+  it("interrupts a registered turn without waiting for event persistence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-interrupt-outbox-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    await pool.startTurn(input);
+    let release!: () => void;
+    eventSink.publish.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
+    controlled.notify({
+      method: "turn/started",
+      params: {
+        threadId: "thread-native-1",
+        turn: { id: "turn-native-1", status: "inProgress" },
+      },
+    });
+    await waitForFast(() => expect(release).toBeDefined());
+    try {
+      await expect(pool.interrupt(input.conversationId, "turn-native-1")).resolves.toBe("requested");
+    } finally {
+      release();
+      await pool.closeAll();
+    }
+  });
+
   it("treats a repeated interrupt after terminal completion as an idempotent no-op", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-interrupt-race-"));
     roots.push(root);
-    const controlled = createControlledAppServer();
+    const controlled = createControlledAppServer({ turnStartNotification: "before-response" });
     const { pool } = createStartOperationPool(root, controlled.factory);
     const input = startOperationInput();
 
@@ -3989,6 +4129,45 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("interrupts model-switch preparation and never starts the cancelled user turn", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-stop-model-preparation-"));
+    roots.push(root);
+    const compactTurn: CodexTurn = {
+      id: "prepare-compact-turn", status: "inProgress",
+      items: [{ id: "prepare-compact-item", type: "contextCompaction" }], error: null,
+    };
+    const controlled = createControlledAppServer({
+      threadResumeModel: "source-model",
+      threadReadTurns: [{ id: "previous-turn", status: "completed", items: [], error: null }],
+      compactTurn,
+    });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = {
+      ...startOperationInput(), model: "target-model", codexThreadId: "source-thread",
+      modelTransitionSource: {
+        model: "source-model",
+        provider: { revision: 1, baseUrl: "https://source.example.test/v1", protocolMode: "native_responses" as const, apiKey: "test-source-key" },
+      },
+    };
+    await pool.beginStartOperation(input);
+    await waitForFast(() => expect(controlled.methods).toContain("thread/compact/start"));
+    await pool.interruptStartOperation({
+      conversationId: input.conversationId, projectionTurnId: input.projectionTurnId,
+      ownerId: input.ownerId, expectedRuntimeGeneration: input.expectedRuntimeGeneration,
+    });
+    try {
+      await waitForFast(() => expect(controlled.requests).toContainEqual(expect.objectContaining({
+        method: "turn/interrupt", params: { threadId: "source-thread", turnId: compactTurn.id },
+      })));
+    } finally {
+      compactTurn.status = "interrupted";
+    }
+    await waitForFast(async () => expect(await pool.getStartOperation(input.conversationId, input.projectionTurnId)).toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_SEALED" }));
+    expect(controlled.methods).not.toContain("turn/start");
+    expect(controlled.methods).not.toContain("thread/fork");
+    await pool.closeAll();
+  });
+
   it("forks the persisted GPT-5.5 thread before starting a GPT-5.6 Luna turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-model-rebuild-"));
     roots.push(root);
@@ -4977,11 +5156,13 @@ trust_level = "trusted"
     expect(
       controlled.args?.slice(
         planPluginOverrideIndex - 1,
-        planPluginOverrideIndex + 2,
+        planPluginOverrideIndex + 4,
       ),
     ).toEqual([
       "-c",
       "features.plugins=false",
+      "-c",
+      "tools.update_plan.enabled=true",
       "--stdio",
     ]);
     expect(nativePluginManager.verifyAfterStart).not.toHaveBeenCalled();
@@ -9612,6 +9793,120 @@ trust_level = "trusted"
     expect(controlled.kill).toHaveBeenCalledOnce();
   });
 
+  it("durably stops preparation without issuing turn/start and blocks a later resubmission", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-stop-preparing-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ skillsList: "manual", mcpStatus: "manual" });
+    const { pool, workspaceManager } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    await pool.beginStartOperation(input);
+    await waitForFast(() => {
+      expect(controlled.methods).toContain("skills/list");
+      expect(controlled.methods).toContain("mcpServerStatus/list");
+    });
+    const runtimeGeneration = await workspaceManager.readRuntimeGeneration(input.conversationId);
+    if (!runtimeGeneration) throw new Error("missing runtime generation");
+    await expect(pool.interruptStartOperation({
+      conversationId: input.conversationId, projectionTurnId: input.projectionTurnId,
+      ownerId: input.ownerId, expectedRuntimeGeneration: runtimeGeneration,
+    })).resolves.toBe("requested");
+    expect(controlled.methods).not.toContain("turn/start");
+    controlled.completeInitializationChecks();
+    await waitForFast(async () => expect(await pool.getStartOperation(input.conversationId, input.projectionTurnId)).toMatchObject({
+      status: "failed", errorCode: "RUNNER_TURN_START_SEALED",
+    }));
+    await pool.closeAll();
+    const restarted = createStartOperationPool(root, controlled.factory).pool;
+    await expect(restarted.beginStartOperation(input)).resolves.toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_SEALED" });
+    expect(controlled.methods).not.toContain("turn/start");
+    await restarted.closeAll();
+  });
+
+  it("interrupts a native turn allocated concurrently with a startup stop", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-stop-start-race-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStart: "manual" });
+    const { pool, workspaceManager } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    await pool.beginStartOperation(input);
+    await waitForFast(() => expect(controlled.methods).toContain("turn/start"));
+    const runtimeGeneration = await workspaceManager.readRuntimeGeneration(input.conversationId);
+    if (!runtimeGeneration) throw new Error("missing runtime generation");
+    await expect(pool.interruptStartOperation({
+      conversationId: input.conversationId, projectionTurnId: input.projectionTurnId,
+      ownerId: input.ownerId, expectedRuntimeGeneration: runtimeGeneration,
+    })).resolves.toBe("requested");
+    controlled.completeTurnStart();
+    controlled.notify({ method: "turn/started", params: { threadId: "thread-native-1", turn: { id: "turn-native-1", status: "inProgress" } } });
+    await waitForFast(() => expect(controlled.methods.filter((method) => method === "turn/interrupt")).toHaveLength(1));
+    expect(controlled.methods.filter((method) => method === "turn/start")).toHaveLength(1);
+    await waitForFast(async () => expect(await pool.getStartOperation(input.conversationId, input.projectionTurnId)).toMatchObject({ status: "succeeded" }));
+    await pool.closeAll();
+  });
+
+  it.each(["startup", "reconcile", "locked-startup"])("honors a persisted startup stop during %s recovery of a native turn", async (recovery) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-stop-start-recovery-"));
+    roots.push(root);
+    const workspaceManager = createWorkspaceManager(root);
+    const input = startOperationInput();
+    const crashed = createControlledAppServer({ turnStart: "exit", threadReadTurns: [] });
+    const first = createStartOperationPool(root, crashed.factory, workspaceManager).pool;
+    await first.beginStartOperation(input);
+    const store = new StartOperationStore(workspaceManager);
+    await waitForFast(async () => {
+      expect(await store.read(input.conversationId, input.projectionTurnId)).toMatchObject({ status: "uncertain" });
+    });
+    await first.interruptStartOperation({
+      conversationId: input.conversationId,
+      projectionTurnId: input.projectionTurnId,
+      ownerId: input.ownerId,
+      expectedRuntimeGeneration: input.expectedRuntimeGeneration,
+    });
+    await first.closeAll();
+    const recovered = createControlledAppServer({
+      ...(recovery === "locked-startup" ? { skillsList: "manual" as const, mcpStatus: "manual" as const } : {}),
+      threadReadTurns: [{
+        id: "turn-native-after-stop",
+        status: "inProgress",
+        items: [{ type: "userMessage", id: "native-user-item", clientId: input.projectionTurnId, content: [] }],
+        error: null,
+      }],
+    });
+    const second = createStartOperationPool(root, recovered.factory, workspaceManager).pool;
+    if (recovery !== "reconcile") {
+      const recovering = second.beginStartOperation(input);
+      if (recovery === "locked-startup") {
+        await waitForFast(() => {
+          expect(recovered.methods).toContain("skills/list");
+          expect(recovered.methods).toContain("mcpServerStatus/list");
+        });
+        await expect(second.interruptStartOperation({
+          conversationId: input.conversationId,
+          projectionTurnId: input.projectionTurnId,
+          ownerId: input.ownerId,
+          expectedRuntimeGeneration: input.expectedRuntimeGeneration,
+        })).resolves.toBe("requested");
+        recovered.completeInitializationChecks();
+      }
+      await expect(recovering).resolves.toMatchObject({
+        status: "succeeded", result: { codexTurnId: "turn-native-after-stop" },
+      });
+    } else {
+      await second.reconcile({
+        ...input,
+        codexThreadId: "thread-native-1",
+        codexTurnId: "turn-native-after-stop",
+        taskKind: "turn",
+      });
+    }
+    expect(recovered.requests).toContainEqual(expect.objectContaining({
+      method: "turn/interrupt",
+      params: { threadId: "thread-native-1", turnId: "turn-native-after-stop" },
+    }));
+    expect(recovered.methods).not.toContain("turn/start");
+    await second.closeAll();
+  });
+
   it("seals a missing operation durably and blocks every later start payload", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-start-sealed-"));
     roots.push(root);
@@ -10896,6 +11191,7 @@ function createControlledAppServer(
     >;
     skillErrors?: Array<{ path: string; message: string }>;
     turnStart?: "immediate" | "manual" | "exit";
+    turnInterrupt?: "manual";
     turnStartNotification?: "before-response" | "after-response";
     turnStartError?: { code: number; message: string };
     turnStartIds?: string[];
@@ -11309,6 +11605,7 @@ function createControlledAppServer(
             message.method === "thread/memoryMode/set" ||
             message.method === "memory/reset"
           ) {
+            if (message.method === "turn/interrupt" && options.turnInterrupt === "manual") continue;
             stdout.write(`${JSON.stringify({ id: message.id, result: {} })}\n`);
           }
         }

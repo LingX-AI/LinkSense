@@ -42,6 +42,7 @@ export interface MarketplaceReleaseRecord {
   releaseNumber: number
   status: MarketplaceReleaseStatus
   name: string
+  displayName?: string | null
   description: string | null
   releaseNotes: string | null
   logoObjectKey: string | null
@@ -81,6 +82,7 @@ export interface MarketplaceReleaseView {
   release_number: number
   status: MarketplaceReleaseStatus
   name: string
+  display_name?: string | null
   description: string | null
   release_notes: string | null
   logo_url: string | null
@@ -134,6 +136,7 @@ export interface CreateMarketplaceReleaseInput {
   sourceCapabilityId: string
   releaseNumber: number
   name: string
+  displayName?: string | null
   description: string | null
   releaseNotes: string | null
   logoObjectKey: string | null
@@ -229,6 +232,7 @@ export interface MarketplaceCapabilityInstaller {
       packageRoot: string
       type: CapabilityType
       name: string
+      displayName?: string | null
       description: string | null
       manifest: Record<string, unknown>
       riskSummary: CapabilityRiskSummary
@@ -244,6 +248,7 @@ export interface MarketplaceCapabilityInstaller {
       packageRoot: string
       type: CapabilityType
       name: string
+      displayName?: string | null
       description: string | null
       manifest: Record<string, unknown>
       riskSummary: CapabilityRiskSummary
