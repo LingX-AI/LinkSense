@@ -1,22 +1,42 @@
-export const snakeColumns = 24
-export const snakeRows = 16
+export const snakeCellSize = 16
 export const snakeTickMs = 160
+export const snakeRestartMs = 650
+
+export type SnakeBoard = Readonly<{ columns: number; rows: number }>
+
+export function measureSnakeBoard(
+  width: number,
+  height: number
+): SnakeBoard | null {
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  )
+    return null
+  return {
+    columns: Math.max(8, Math.floor(width / snakeCellSize)),
+    rows: Math.max(6, Math.floor(height / snakeCellSize)),
+  }
+}
 
 export type SnakeDirection = "up" | "right" | "down" | "left"
 export type SnakePoint = Readonly<{ x: number; y: number }>
 export type SnakeSegment = SnakePoint & Readonly<{ id: number }>
 export type SnakeState = Readonly<{
-  phase: "ready" | "running" | "paused" | "over" | "won"
+  phase: "running" | "paused" | "over" | "won"
+  board: SnakeBoard
   snake: readonly SnakeSegment[]
   direction: SnakeDirection
   nextDirection: SnakeDirection
   food: SnakePoint | null
-  score: number
 }>
 export type SnakeAction =
+  | Readonly<{ type: "resize"; board: SnakeBoard }>
   | Readonly<{ type: "turn"; direction: SnakeDirection }>
   | Readonly<{ type: "tick"; random: number }>
-  | Readonly<{ type: "start" | "pause" | "restart" }>
+  | Readonly<{ type: "resume" | "pause" | "restart" }>
 
 const vectors: Record<SnakeDirection, SnakePoint> = {
   up: { x: 0, y: -1 },
@@ -25,19 +45,21 @@ const vectors: Record<SnakeDirection, SnakePoint> = {
   left: { x: -1, y: 0 },
 }
 
-export function createSnakeGame(): SnakeState {
+export function createSnakeGame(board: SnakeBoard): SnakeState {
+  const x = Math.max(3, Math.floor(board.columns / 3))
+  const y = Math.floor(board.rows / 2)
   return {
-    phase: "ready",
+    phase: "running",
+    board,
     snake: [
-      { id: 0, x: 7, y: 8 },
-      { id: 1, x: 6, y: 8 },
-      { id: 2, x: 5, y: 8 },
-      { id: 3, x: 4, y: 8 },
+      { id: 0, x, y },
+      { id: 1, x: x - 1, y },
+      { id: 2, x: x - 2, y },
+      { id: 3, x: x - 3, y },
     ],
     direction: "right",
     nextDirection: "right",
-    food: { x: 17, y: 8 },
-    score: 0,
+    food: { x: Math.floor(board.columns * 0.75), y },
   }
 }
 
@@ -47,13 +69,14 @@ function samePoint(a: SnakePoint, b: SnakePoint): boolean {
 
 export function placeSnakeFood(
   snake: readonly SnakePoint[],
-  random: number
+  random: number,
+  { columns, rows }: SnakeBoard
 ): SnakePoint | null {
-  const occupied = new Set(snake.map(({ x, y }) => y * snakeColumns + x))
+  const occupied = new Set(snake.map(({ x, y }) => y * columns + x))
   const available: SnakePoint[] = []
-  for (let y = 0; y < snakeRows; y += 1) {
-    for (let x = 0; x < snakeColumns; x += 1) {
-      if (!occupied.has(y * snakeColumns + x)) available.push({ x, y })
+  for (let y = 0; y < rows; y += 1) {
+    for (let x = 0; x < columns; x += 1) {
+      if (!occupied.has(y * columns + x)) available.push({ x, y })
     }
   }
   const fraction = Number.isFinite(random)
@@ -104,16 +127,24 @@ export function snakeReducer(
   action: SnakeAction
 ): SnakeState {
   switch (action.type) {
+    case "resize":
+      if (
+        state.board.columns === action.board.columns &&
+        state.board.rows === action.board.rows
+      )
+        return state
+      return {
+        ...createSnakeGame(action.board),
+        phase: state.phase === "paused" ? "paused" : "running",
+      }
     case "restart":
-      return { ...createSnakeGame(), phase: "running" }
-    case "start":
-      return state.phase === "ready" || state.phase === "paused"
-        ? { ...state, phase: "running" }
-        : state
+      return createSnakeGame(state.board)
+    case "resume":
+      return state.phase === "paused" ? { ...state, phase: "running" } : state
     case "pause":
       return state.phase === "running" ? { ...state, phase: "paused" } : state
     case "turn": {
-      if (state.phase !== "ready" && state.phase !== "running") return state
+      if (state.phase !== "running") return state
       const current = vectors[state.direction]
       const next = vectors[action.direction]
       // Accept one turn per tick so rapid inputs cannot reverse into the body.
@@ -134,9 +165,9 @@ export function snakeReducer(
       const occupied = eating ? state.snake : state.snake.slice(0, -1)
       if (
         nextHead.x < 0 ||
-        nextHead.x >= snakeColumns ||
+        nextHead.x >= state.board.columns ||
         nextHead.y < 0 ||
-        nextHead.y >= snakeRows ||
+        nextHead.y >= state.board.rows ||
         occupied.some((point) => samePoint(point, nextHead))
       ) {
         return { ...state, phase: "over" }
@@ -147,13 +178,14 @@ export function snakeReducer(
       }))
       const tail = state.snake.at(-1)
       if (eating && tail) snake.push({ ...tail, id: state.snake.length })
-      const food = eating ? placeSnakeFood(snake, action.random) : state.food
+      const food = eating
+        ? placeSnakeFood(snake, action.random, state.board)
+        : state.food
       return {
         ...state,
         snake,
         direction: state.nextDirection,
         food,
-        score: state.score + Number(eating),
         phase: food === null ? "won" : "running",
       }
     }
