@@ -1060,33 +1060,13 @@ describe("API response contracts", () => {
     })
   })
 
-  it.each(["1.4.0", "1.5.0", "1.6.0"])(
-    "keeps historical scanner %s findings readable in capability responses",
-    (version) => {
-      const review = {
-        scanner_version: version,
-        ruleset_version: "2026-09-11.3",
-        scanned_at: now,
-        content_digest_algorithm: "linksense-capability-package-v1",
-        content_sha256: "a".repeat(64),
-        verdict: "warnings",
-        highest_severity: "medium",
-        finding_count: 1,
-        findings: [
-          {
-            scanner_version: version,
-            rule_id: "shell_command_execution",
-            severity: "medium",
-            path: "scripts/run.js",
-            line: 1,
-            evidence: `sha256:${"b".repeat(64)}`,
-            remediation: "review_or_remove:shell_command_execution",
-          },
-        ],
-        findings_truncated: false,
-        scanned_file_count: 2,
-        skipped_file_count: 0,
-      }
+  it.each([
+    undefined,
+    { verdict: "blocked", scanner_version: "obsolete" },
+    "invalid",
+  ])(
+    "omits removed scan metadata %j from capability responses",
+    (review) => {
       const capability = capabilitySummarySchema.parse({
         id: "historical-capability",
         name: "Historical Skill",
@@ -1109,7 +1089,7 @@ describe("API response contracts", () => {
         updated_at: now,
       })
 
-      expect(capability.risk_summary?.supply_chain_review).toEqual(review)
+      expect(capability.risk_summary).not.toHaveProperty("supply_chain_review")
     }
   )
 

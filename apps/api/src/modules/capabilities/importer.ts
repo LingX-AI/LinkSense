@@ -53,7 +53,6 @@ import {
   inspectNativePluginMcpConfigFile,
   inspectNativePluginMcpServers,
 } from "./native-plugin-mcp.js";
-import { scanCapabilitySupplyChain } from "./supply-chain-scanner.js";
 
 export { assertPublicHttpUrl, isPublicAddress };
 export { detectSafeRasterImage };
@@ -955,7 +954,6 @@ async function scanRiskSummary(
     [],
 ): Promise<CapabilityRiskSummary> {
   const files = await listRegularFiles(packageRoot, packageRoot, 1_000);
-  const supplyChainReview = await scanCapabilitySupplyChain(packageRoot);
   let containsMcp = false;
   let containsScripts = false;
   let containsExternal = false;
@@ -996,7 +994,6 @@ async function scanRiskSummary(
     declared_environment_keys: declaredEnvironmentKeys,
     mcp_environment_references: mcpEnvironmentReferences,
     dependency_commands: commands,
-    supply_chain_review: supplyChainReview,
   };
 }
 

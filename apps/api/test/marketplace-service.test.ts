@@ -9,10 +9,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  capabilitySupplyChainRulesetVersion,
-  capabilitySupplyChainScannerVersion,
-} from "@linksense/shared";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -165,14 +161,9 @@ describe("MarketplaceService", () => {
 
     expect(firstSubmission.listing.status).toBe("draft");
     expect(firstSubmission.latest_release.status).toBe("pending");
-    expect(
-      firstSubmission.latest_release.risk_summary.supply_chain_review,
-    ).toMatchObject({
-      scanner_version: capabilitySupplyChainScannerVersion,
-      ruleset_version: capabilitySupplyChainRulesetVersion,
-      verdict: "passed",
-      content_sha256: firstSubmission.latest_release.content_sha256,
-    });
+    expect(firstSubmission.latest_release.risk_summary).not.toHaveProperty(
+      "supply_chain_review",
+    );
     expect(await service.listCatalog(installerActor())).toEqual([]);
     await expect(
       service.review(publisherActor(), firstReleaseId, {
@@ -212,11 +203,7 @@ describe("MarketplaceService", () => {
         action: "marketplace_release_reviewed",
         targetId: firstReleaseId,
         metadata: expect.objectContaining({
-          security_scanner_version: capabilitySupplyChainScannerVersion,
-          security_ruleset_version: capabilitySupplyChainRulesetVersion,
-          security_content_sha256:
-            firstSubmission.latest_release.content_sha256,
-          security_verdict: "passed",
+          decision: "approved",
         }),
       }),
     );
@@ -343,7 +330,7 @@ describe("MarketplaceService", () => {
     ]);
   });
 
-  it("binds marketplace approval to the deterministic scan and blocks critical findings", async () => {
+  it("submits and approves a release without requiring a supply-chain scan", async () => {
     const root = await createCapabilityRoot();
     const source = sourceCapability(root);
     const store = new MemoryMarketplaceStore([source]);
@@ -358,16 +345,27 @@ describe("MarketplaceService", () => {
       skillMarkdown("team-reports", `Use ${token}`),
     );
 
-    await expect(
-      service.submit(publisherActor(), { capabilityId: source.id }),
-    ).rejects.toMatchObject({
-      code: "INVALID_PACKAGE",
-      params: {
-        reason_code: "security_review_blocked",
-        finding_count: 1,
-      },
+    const submission = await service.submit(publisherActor(), {
+      capabilityId: source.id,
     });
-    expect(store.releases).toEqual([]);
+    expect(submission.latest_release.risk_summary).not.toHaveProperty(
+      "supply_chain_review",
+    );
+    expect(store.releases).toHaveLength(1);
+    const storedRelease = store.releases[0];
+    if (storedRelease === undefined) {
+      throw new Error("Expected a submitted release");
+    }
+    Object.assign(storedRelease.riskSummaryJson, {
+      supply_chain_review: { verdict: "blocked", scanner_version: "obsolete" },
+    });
+    const reviewed = await service.review(reviewerActor(), storedRelease.id, {
+      decision: "approved",
+    });
+    expect(reviewed.latest_release.status).toBe("approved");
+    expect(reviewed.latest_release.risk_summary).not.toHaveProperty(
+      "supply_chain_review",
+    );
   });
 
   it("allows an administrator publisher to reject their own submission and still requires a comment", async () => {

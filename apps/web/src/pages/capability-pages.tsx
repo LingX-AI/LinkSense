@@ -999,8 +999,6 @@ function CapabilityImportDialog({
       nameValidation.success &&
       displayNameValidation.success &&
       skillMarkdown.trim().length > 0)
-  const previewSecurityBlocked =
-    preview?.risk_summary.supply_chain_review?.verdict === "blocked"
 
   const startConfirmImport = (nextPreview: CapabilityImportPreview) => {
     const toastId = capabilityImportActionToastId(nextPreview)
@@ -1088,7 +1086,6 @@ function CapabilityImportDialog({
             <Label className="flex items-start gap-3 text-sm">
               <Checkbox
                 checked={riskConfirmed}
-                disabled={previewSecurityBlocked}
                 onCheckedChange={(checked) =>
                   setRiskConfirmed(Boolean(checked))
                 }
@@ -1279,9 +1276,7 @@ function CapabilityImportDialog({
             }
             disabled={
               preview
-                ? previewSecurityBlocked ||
-                  !riskConfirmed ||
-                  confirmMutation.isPending
+                ? !riskConfirmed || confirmMutation.isPending
                 : !sourceValid || previewMutation.isPending
             }
             onClick={() =>
@@ -3448,9 +3443,6 @@ function ReviewDialog({
       }),
     enabled: releaseId !== undefined,
   })
-  const securityApprovalBlocked =
-    detail.data?.release.risk_summary.supply_chain_review?.verdict ===
-    "blocked"
   const reviewMutation = useMutation({
     mutationFn: () =>
       apiRequest(`/admin/marketplace/releases/${releaseId}/review`, {
@@ -3635,7 +3627,6 @@ function ReviewDialog({
             disabled={
               !detail.data ||
               reviewMutation.isPending ||
-              (decision === "approved" && securityApprovalBlocked) ||
               (decision === "rejected" && comment.trim().length === 0)
             }
             onClick={() => reviewMutation.mutate()}

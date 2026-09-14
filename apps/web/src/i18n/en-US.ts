@@ -2953,44 +2953,6 @@ export const enUS = {
         remote: "Provided by the remote environment",
       },
     },
-    securityReview: {
-      title: "Supply-chain security scan",
-      summary_one: "Scanner {{version}} · {{count}} finding",
-      summary_other: "Scanner {{version}} · {{count}} findings",
-      contentHash: "Content hash: {{hash}}",
-      findingsTruncated:
-        "Only the first 200 findings are shown. The full count remains in the scan result.",
-      verdict: {
-        passed: "Passed",
-        warnings: "Needs attention",
-        blocked: "Blocked",
-      },
-      severity: {
-        low: "Low",
-        medium: "Medium",
-        high: "High",
-        critical: "Critical",
-      },
-      rules: {
-        embedded_private_key: "Contains private key material",
-        embedded_access_token: "Contains a high-confidence access token",
-        dynamic_code_execution: "Uses dynamic code execution",
-        shell_command_execution: "Executes shell commands",
-        download_and_execute: "Downloads and immediately executes content",
-        sensitive_data_exfiltration: "May read and exfiltrate sensitive data",
-        cloud_metadata_access: "Accesses a cloud metadata service",
-        reverse_shell: "Contains reverse-shell behavior",
-        destructive_system_command: "Contains a destructive system command",
-        startup_persistence: "Configures system startup persistence",
-        fork_bomb: "Contains a process fork bomb",
-        unscannable_interpretable_file:
-          "Contains interpretable source content that cannot be safely scanned",
-        unscannable_executable:
-          "Contains executable binary content that cannot be scanned",
-        oversized_scannable_file:
-          "A scannable file exceeds the security review size limit",
-      },
-    },
   },
   clawHub: {
     sourceName: "ClawHub",
@@ -4955,10 +4917,6 @@ export const enUS = {
       logo_file_invalid: "The logo file is invalid or exceeds the size limit.",
       requested_type_mismatch:
         "The selected type is {{expected}}, but the archive contains {{actual}}.",
-      security_review_blocked:
-        "The supply-chain scan found {{finding_count}} risks, including critical findings. Installation or approval was blocked.",
-      security_review_stale:
-        "The supply-chain scan no longer matches the content or scanner version. Create a new preview or resubmit the release.",
     },
     importFailed:
       "The plugin/Skill import failed. Check the source and try again.",

@@ -43,8 +43,6 @@ import {
   UserHomeCapabilityMaterializationError,
   UserHomeCapabilityPublicationDeferredError,
   UserHomeCapabilityReconciler,
-  assertCapabilitySupplyChainExecutionAdmission,
-  capabilitySupplyChainReviewFromRiskSummary,
   validatePluginName,
   validateSkillName,
   type MaterializeUserHomes,
@@ -1148,13 +1146,6 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       const storagePath = resolveCapabilityPath(
         this.capabilityRoot,
         capability.storagePath,
-      );
-      const supplyChainReview = capabilitySupplyChainReviewFromRiskSummary(
-        capability.riskSummaryJson,
-      );
-      await assertCapabilitySupplyChainExecutionAdmission(
-        storagePath,
-        supplyChainReview,
       );
       const runtimeCapability = {
         id: capability.id,
