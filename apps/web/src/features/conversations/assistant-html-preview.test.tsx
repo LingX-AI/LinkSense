@@ -189,7 +189,7 @@ describe("AssistantHtmlPreview actions", () => {
       )
       const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
         .mockReturnValue(new DOMRect(0, 0, 384, 256))
-      fireEvent.doubleClick(
+      fireEvent.click(
         screen.getByRole("status", { name: "正在加载交互式预览…" })
       )
       bounds.mockRestore()

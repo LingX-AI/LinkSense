@@ -2,6 +2,7 @@ import { useState } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -88,6 +89,31 @@ function renderSearchDialog() {
 }
 
 describe("conversation search dialog", () => {
+  it("preserves Chinese text and does not select a result with the IME confirmation Enter", async () => {
+    renderSearchDialog()
+    const input = await screen.findByRole("combobox")
+    await screen.findByText("活动风险评估")
+    fireEvent.compositionStart(input)
+    fireEvent.input(input, { target: { value: "hui" }, isComposing: true })
+    expect(input).toHaveValue("hui")
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true, keyCode: 229 })
+    expect(screen.getByRole("dialog", { name: "搜索" })).toBeVisible()
+    fireEvent.input(input, { target: { value: "会议" }, isComposing: true })
+    fireEvent.compositionEnd(input, { data: "会议" })
+    expect(input).toHaveValue("会议")
+    await waitFor(() =>
+      expect(
+        vi.mocked(fetch).mock.calls.some(([url]) => {
+          return (
+            new URL(String(url), window.location.origin).searchParams.get(
+              "search"
+            ) === "会议"
+          )
+        })
+      ).toBe(true)
+    )
+  })
+
   beforeEach(async () => {
     setAccessToken("conversation-search-access-token")
     await i18n.changeLanguage("zh-CN")
@@ -131,7 +157,7 @@ describe("conversation search dialog", () => {
     const input = within(dialog).getByPlaceholderText(
       "搜索标题、消息、附件、产物、插件或 Skill…"
     )
-    expect(input).toHaveFocus()
+    await waitFor(() => expect(input).toHaveFocus())
     for (const heading of ["任务", "知识库", "任务产物", "插件", "技能"]) {
       expect(
         await within(dialog).findByText(heading, {

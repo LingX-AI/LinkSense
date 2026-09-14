@@ -50,7 +50,7 @@ describe("SettingsShell administrator navigation", () => {
     "/admin/audit",
     "/admin/usage",
     "/admin/system-update",
-  ])("uses the same content container at %s", (path) => {
+  ])("widens only administration content at %s", (path) => {
     render(
       <MemoryRouter initialEntries={[path]}>
         <Routes>
@@ -63,9 +63,13 @@ describe("SettingsShell administrator navigation", () => {
         </Routes>
       </MemoryRouter>
     )
-    expect(
-      screen.getByTestId("settings-page-content").closest(".settings-content")
-    ).toHaveAttribute("class", "settings-content")
+    const content = screen
+      .getByTestId("settings-page-content")
+      .closest(".settings-content")
+    expect(content).toHaveClass("settings-content")
+    expect(content?.classList.contains("settings-content-administration")).toBe(
+      path.startsWith("/admin/")
+    )
   })
 
   it("places personal feedback immediately after archived tasks", () => {
@@ -88,6 +92,22 @@ describe("SettingsShell administrator navigation", () => {
     expect(links[archivedIndex + 1]).toHaveClass(
       "settings-navigation-link-active"
     )
+  })
+
+  it("restores personal width when navigating out of administration", async () => {
+    const interaction = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={["/admin/users"]}>
+        <SettingsShell />
+      </MemoryRouter>
+    )
+    const main = screen.getByRole("main")
+    const content = main.querySelector(".settings-content")
+    expect(content).toHaveClass("settings-content-administration")
+    await interaction.click(screen.getByRole("link", { name: "常规" }))
+    expect(content).not.toHaveClass("settings-content-administration")
+    await interaction.click(screen.getByRole("link", { name: "用户与用户组" }))
+    expect(content).toHaveClass("settings-content-administration")
   })
 
   it.each([

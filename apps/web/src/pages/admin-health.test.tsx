@@ -284,6 +284,25 @@ describe("administrator health page", () => {
       expect(refreshButton.querySelector("svg")).toBeInTheDocument()
       const apiHeading = await screen.findByRole("heading", { name: api })
       expect(apiHeading).toBeVisible()
+      const componentCard = apiHeading.closest('[data-slot="card"]')
+      expect(componentCard).toHaveClass("rounded-card", "border")
+      const healthSections = componentCard?.parentElement
+      expect(healthSections).toHaveAttribute("data-slot", "health-sections")
+      expect(healthSections).toHaveClass("grid", "gap-6")
+      const rebuildSection = healthSections?.querySelector(
+        'section[aria-labelledby="knowledge-maintenance-title"]'
+      )
+      expect(rebuildSection).toHaveClass("grid", "gap-4")
+      expect(
+        rebuildSection?.querySelector('[data-slot="settings-section-header"]')
+      ).not.toBeNull()
+      expect(rebuildSection?.previousElementSibling).toBe(componentCard)
+      expect(componentCard).toContainElement(
+        screen.getByRole("heading", { name: database })
+      )
+      expect(
+        componentCard?.querySelectorAll('[data-slot="separator"]').length
+      ).toBeGreaterThan(0)
       expect(
         within(apiHeading.parentElement!).getByText(componentHealthy)
       ).toBeVisible()
@@ -576,6 +595,15 @@ describe("administrator health page", () => {
     renderHealth()
 
     expect(await screen.findByText("已尝试 8 / 8 次")).toBeVisible()
+    const cleanupSection = screen
+      .getByRole("button", { name: "全部重试" })
+      .closest("section")
+    expect(cleanupSection).toHaveClass("grid", "gap-4")
+    expect(cleanupSection?.parentElement).toHaveClass("grid", "gap-6")
+    expect(cleanupSection?.nextElementSibling).toHaveAttribute(
+      "aria-labelledby",
+      "knowledge-maintenance-title"
+    )
     expect(
       screen.getByText(
         (_, element) =>

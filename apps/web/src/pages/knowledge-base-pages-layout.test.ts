@@ -114,7 +114,7 @@ describe("knowledge-base detail page layout", () => {
 
     expect(excerptRule).toMatch(/border:\s*1px solid var\(--app-divider\);/u)
     expect(excerptRule).toMatch(/border-radius:\s*var\(--radius-xl\);/u)
-    expect(excerptRule).toMatch(/background:\s*var\(--app-canvas\);/u)
+    expect(excerptRule).toMatch(/background:\s*var\(--card\);/u)
     expect(excerptRule).toMatch(/padding:\s*16px 18px;/u)
     expect(excerptRule).not.toMatch(/border-left/u)
     expect(excerptRule).not.toMatch(/box-shadow/u)
@@ -270,7 +270,7 @@ describe("knowledge-base detail page layout", () => {
     expect(actionsColumnRule).toMatch(/right:\s*0;/u)
     expect(actionsColumnRule).toMatch(/width:\s*136px;/u)
     expect(actionsColumnRule).toMatch(/min-width:\s*136px;/u)
-    expect(actionsColumnRule).toMatch(/background:\s*var\(--app-canvas\);/u)
+    expect(actionsColumnRule).toMatch(/background:\s*var\(--card\);/u)
     expect(actionsColumnRule).toMatch(
       /box-shadow:\s*-1px 0 0 var\(--app-divider\);/u
     )

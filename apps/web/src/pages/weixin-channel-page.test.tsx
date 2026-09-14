@@ -45,6 +45,40 @@ describe("WeixinChannelPage", () => {
     vi.restoreAllMocks()
   })
 
+  it("groups all five channels in one rounded card with separators only between rows", async () => {
+    vi.mocked(apiRequest).mockImplementation(async (path) => {
+      if (["/weixin", "/feishu", "/bot-channels"].includes(path)) {
+        return { items: [] }
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    const { container } = renderPage()
+    await waitFor(async () => {
+      expect(await findChannelButton("企业微信", "连接")).toBeEnabled()
+    })
+
+    const cards = container.querySelectorAll('[data-slot="card"]')
+    expect(cards).toHaveLength(1)
+    const card = cards[0]
+    expect(card).toHaveClass("rounded-card", "border", "channel-access-list")
+    const rows = card.querySelectorAll("article")
+    expect(rows).toHaveLength(5)
+    for (const row of rows) {
+      const connect = within(row).getByRole("button", { name: "连接" })
+      expect(connect).toHaveClass("bg-secondary", "text-secondary-foreground")
+      expect(connect).not.toHaveClass("bg-primary")
+    }
+    expect(card.querySelectorAll('[data-slot="separator"]')).toHaveLength(4)
+    expect(rows[0].previousElementSibling).toBeNull()
+    for (const row of Array.from(rows).slice(1)) {
+      expect(row.previousElementSibling).toHaveAttribute(
+        "data-slot",
+        "separator"
+      )
+    }
+    expect(rows[4].nextElementSibling).toBeNull()
+  })
+
   it("starts QR login and submits a pairing code without handling protocol credentials", async () => {
     let loginPolls = 0
     vi.mocked(apiRequest).mockImplementation(async (path, options) => {

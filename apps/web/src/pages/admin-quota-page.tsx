@@ -123,14 +123,20 @@ export function QuotaSettingsForm({
   const [error, setError] = useState<string | null>(null)
   const [action, setAction] = useState<QuotaAction | null>(null)
   const mutation = useMutation({
-    mutationFn: (input: QuotaSettings) =>
+    mutationFn: (input: {
+      scope: keyof QuotaSettings
+      settings: QuotaSettings
+    }) =>
       apiRequest("/admin/quota-settings", {
         method: "PUT",
-        body: input,
+        body: input.settings,
         schema: updateResultSchema,
       }),
-    onSuccess: async (result) => {
-      setDraft(quotaDraft(result.settings))
+    onSuccess: async (result, input) => {
+      setDraft((current) => ({
+        ...current,
+        [input.scope]: quotaDraft(result.settings)[input.scope],
+      }))
       queryClient.setQueryData(quotaSettingsQueryKey, result.settings)
       notify.success(t("quotaManagement.saved"))
       await queryClient.invalidateQueries({ queryKey: ["admin", "users"] })
@@ -219,14 +225,20 @@ export function QuotaSettingsForm({
     setAction({ kind: "apply", limits: parsed.data })
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(
+    event: FormEvent<HTMLFormElement>,
+    scope: keyof QuotaSettings
+  ) {
     event.preventDefault()
     if (pending) return
     setError(null)
     const parsed = quotaSettingsSchema.safeParse({
-      credit_price_cny: draft.credit_price_cny.trim(),
-      organization_members: draftLimits(draft.organization_members),
-      self_registered_users: draftLimits(draft.self_registered_users),
+      ...(queryClient.getQueryData<QuotaSettings>(quotaSettingsQueryKey) ??
+        settings),
+      [scope]:
+        scope === "credit_price_cny"
+          ? draft.credit_price_cny.trim()
+          : draftLimits(draft[scope]),
     })
     if (!parsed.success) {
       setErrors(
@@ -240,147 +252,186 @@ export function QuotaSettingsForm({
       return
     }
     setErrors({})
-    mutation.mutate(parsed.data)
+    mutation.mutate({ scope, settings: parsed.data })
   }
 
   return (
-    <form onSubmit={submit} noValidate className="flex min-w-0 flex-col gap-5">
+    <div className="flex min-w-0 flex-col gap-5">
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("quotaManagement.conversionTitle")}</CardTitle>
-          <CardDescription>
-            {t("quotaManagement.conversionDescription")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FieldGroup>
-            <Field
-              data-invalid={Boolean(errors.credit_price_cny)}
-              data-disabled={pending}
-            >
-              <FieldLabel htmlFor={`${prefix}-price`}>
-                {t("quotaManagement.creditPrice")}
-              </FieldLabel>
-              <Input
-                id={`${prefix}-price`}
-                name="credit_price_cny"
-                className="max-w-sm"
-                inputMode="decimal"
-                pattern={CREDIT_INPUT_PATTERN}
-                value={draft.credit_price_cny}
-                disabled={pending}
-                aria-invalid={Boolean(errors.credit_price_cny)}
-                aria-describedby={`${prefix}-price-hint ${prefix}-price-error`}
-                onChange={(event) =>
-                  setDraft({ ...draft, credit_price_cny: event.target.value })
-                }
-              />
-              <FieldDescription id={`${prefix}-price-hint`}>
-                {t("quotaManagement.conversionExample")}
-              </FieldDescription>
-              <FieldError id={`${prefix}-price-error`}>
-                {errors.credit_price_cny}
-              </FieldError>
-            </Field>
-          </FieldGroup>
-        </CardContent>
-      </Card>
-      {memberGroups.map((group) => (
-        <Card key={group}>
+      <form
+        onSubmit={(event) => submit(event, "credit_price_cny")}
+        noValidate
+        aria-label={t("quotaManagement.conversionTitle")}
+      >
+        <Card>
           <CardHeader>
-            <CardTitle>{t(`quotaManagement.${group}.title`)}</CardTitle>
+            <CardTitle>{t("quotaManagement.conversionTitle")}</CardTitle>
             <CardDescription>
-              {t(`quotaManagement.${group}.description`)}
+              {t("quotaManagement.conversionDescription")}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-3">
-              {quotaPeriods.map((period) => {
-                const key = `${group}.${period}`
-                const id = `${prefix}-${group}-${period}`
-                return (
-                  <Field
-                    key={period}
-                    data-invalid={Boolean(errors[key])}
-                    data-disabled={pending}
-                  >
-                    <FieldLabel htmlFor={id}>
-                      {t(`quotaManagement.${period}`)}
-                    </FieldLabel>
-                    <Input
-                      id={id}
-                      name={key}
-                      inputMode="decimal"
-                      pattern={CREDIT_INPUT_PATTERN}
-                      value={draft[group][period]}
-                      disabled={pending}
-                      aria-invalid={Boolean(errors[key])}
-                      aria-describedby={`${id}-hint ${id}-error`}
-                      placeholder={t("quotaManagement.unlimited")}
-                      onChange={(event) =>
-                        setDraft({
-                          ...draft,
-                          [group]: {
-                            ...draft[group],
-                            [period]: event.target.value,
-                          },
-                        })
-                      }
-                    />
-                    <FieldDescription id={`${id}-hint`}>
-                      {t(`quotaManagement.${period}_hint`)}
-                    </FieldDescription>
-                    <FieldError id={`${id}-error`}>{errors[key]}</FieldError>
-                  </Field>
-                )
-              })}
+            <FieldGroup>
+              <Field
+                data-invalid={Boolean(errors.credit_price_cny)}
+                data-disabled={pending}
+              >
+                <FieldLabel htmlFor={`${prefix}-price`}>
+                  {t("quotaManagement.creditPrice")}
+                </FieldLabel>
+                <Input
+                  id={`${prefix}-price`}
+                  name="credit_price_cny"
+                  className="max-w-sm"
+                  inputMode="decimal"
+                  pattern={CREDIT_INPUT_PATTERN}
+                  value={draft.credit_price_cny}
+                  disabled={pending}
+                  aria-invalid={Boolean(errors.credit_price_cny)}
+                  aria-describedby={`${prefix}-price-hint ${prefix}-price-error`}
+                  onChange={(event) =>
+                    setDraft({ ...draft, credit_price_cny: event.target.value })
+                  }
+                />
+                <FieldDescription id={`${prefix}-price-hint`}>
+                  {t("quotaManagement.conversionExample")}
+                </FieldDescription>
+                <FieldError id={`${prefix}-price-error`}>
+                  {errors.credit_price_cny}
+                </FieldError>
+              </Field>
             </FieldGroup>
           </CardContent>
-          <CardFooter className="flex flex-col items-start gap-3">
-            <p className="text-sm text-muted-foreground">
-              {t("quotaManagement.resetHint")}
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={pending}
-                onClick={() => {
-                  setError(null)
-                  setAction({ kind: "reset", scope: group })
-                }}
-              >
-                <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
-                {t(`quotaManagement.${group}.reset`)}
-              </Button>
-              {group === "organization_members" && (
+          <CardFooter className="justify-end">
+            <Button
+              type="submit"
+              disabled={pending}
+              aria-busy={
+                (mutation.isPending &&
+                  mutation.variables?.scope === "credit_price_cny") ||
+                undefined
+              }
+            >
+              {mutation.isPending &&
+                mutation.variables?.scope === "credit_price_cny" && (
+                  <Spinner data-icon="inline-start" />
+                )}
+              {t("quotaManagement.save")}
+            </Button>
+          </CardFooter>
+        </Card>
+      </form>
+      {memberGroups.map((group) => (
+        <form
+          key={group}
+          onSubmit={(event) => submit(event, group)}
+          noValidate
+          aria-label={t(`quotaManagement.${group}.title`)}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle>{t(`quotaManagement.${group}.title`)}</CardTitle>
+              <CardDescription>
+                {t(`quotaManagement.${group}.description`)}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-3">
+                {quotaPeriods.map((period) => {
+                  const key = `${group}.${period}`
+                  const id = `${prefix}-${group}-${period}`
+                  return (
+                    <Field
+                      key={period}
+                      data-invalid={Boolean(errors[key])}
+                      data-disabled={pending}
+                    >
+                      <FieldLabel htmlFor={id}>
+                        {t(`quotaManagement.${period}`)}
+                      </FieldLabel>
+                      <Input
+                        id={id}
+                        name={key}
+                        inputMode="decimal"
+                        pattern={CREDIT_INPUT_PATTERN}
+                        value={draft[group][period]}
+                        disabled={pending}
+                        aria-invalid={Boolean(errors[key])}
+                        aria-describedby={`${id}-hint ${id}-error`}
+                        placeholder={t("quotaManagement.unlimited")}
+                        onChange={(event) =>
+                          setDraft({
+                            ...draft,
+                            [group]: {
+                              ...draft[group],
+                              [period]: event.target.value,
+                            },
+                          })
+                        }
+                      />
+                      <FieldDescription id={`${id}-hint`}>
+                        {t(`quotaManagement.${period}_hint`)}
+                      </FieldDescription>
+                      <FieldError id={`${id}-error`}>{errors[key]}</FieldError>
+                    </Field>
+                  )
+                })}
+              </FieldGroup>
+            </CardContent>
+            <CardFooter className="flex flex-col items-stretch gap-3">
+              <p className="text-sm text-muted-foreground">
+                {t("quotaManagement.resetHint")}
+              </p>
+              <div className="flex flex-wrap justify-end gap-3">
                 <Button
                   type="button"
                   variant="secondary"
                   disabled={pending}
-                  onClick={stageApply}
+                  onClick={() => {
+                    setError(null)
+                    setAction({ kind: "reset", scope: group })
+                  }}
                 >
-                  <ListChecksIcon data-icon="inline-start" aria-hidden="true" />
-                  {t("quotaManagement.applyOrganization")}
+                  <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
+                  {t(`quotaManagement.${group}.reset`)}
                 </Button>
-              )}
-            </div>
-          </CardFooter>
-        </Card>
+                {group === "organization_members" && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={pending}
+                    onClick={stageApply}
+                  >
+                    <ListChecksIcon
+                      data-icon="inline-start"
+                      aria-hidden="true"
+                    />
+                    {t("quotaManagement.applyOrganization")}
+                  </Button>
+                )}
+                <Button
+                  type="submit"
+                  disabled={pending}
+                  aria-busy={
+                    (mutation.isPending &&
+                      mutation.variables?.scope === group) ||
+                    undefined
+                  }
+                >
+                  {mutation.isPending &&
+                    mutation.variables?.scope === group && (
+                      <Spinner data-icon="inline-start" />
+                    )}
+                  {t("quotaManagement.save")}
+                </Button>
+              </div>
+            </CardFooter>
+          </Card>
+        </form>
       ))}
       <p className="text-sm text-muted-foreground">
         {t("quotaManagement.enforcementHint")}
       </p>
-      <Button
-        className="self-start"
-        type="submit"
-        disabled={pending}
-        aria-busy={pending || undefined}
-      >
-        {pending && <Spinner data-icon="inline-start" />}
-        {t("common.save")}
-      </Button>
       <ConfirmDialog
         open={action !== null}
         onOpenChange={(open) => {
@@ -416,6 +467,6 @@ export function QuotaSettingsForm({
           if (action && !pending) batchMutation.mutate(action)
         }}
       />
-    </form>
+    </div>
   )
 }

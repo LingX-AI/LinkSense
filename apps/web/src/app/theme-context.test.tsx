@@ -141,7 +141,7 @@ describe("theme preferences", () => {
     expect(document.documentElement.dataset.themePreference).toBe("system")
     expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute(
       "content",
-      "#000000"
+      "#141414"
     )
 
     applyThemePreference("light", true)

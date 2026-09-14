@@ -188,15 +188,11 @@ describe("LinkSense application", () => {
     await interaction.keyboard("{Escape}")
     expect(mobileNavigation).toHaveAttribute("aria-expanded", "false")
 
-    const queueAction = screen.getByRole("radio", {
-      name: /排队为下一条请求/,
+    const runningAction = screen.getByRole("combobox", {
+      name: "执行中发送新消息",
     })
-    const steerAction = screen.getByRole("radio", {
-      name: /引导当前执行/,
-    })
-    expect(screen.getByRole("radiogroup")).toHaveClass("sm:grid-cols-2")
-    expect(queueAction).toBeChecked()
-    await interaction.click(steerAction)
+    expect(runningAction).toHaveTextContent("排队为下一条请求")
+    await chooseSelectOption(interaction, "执行中发送新消息", "引导当前执行")
     await waitFor(() =>
       expect(
         requests.find(
@@ -208,7 +204,7 @@ describe("LinkSense application", () => {
         )
       ).toBeDefined()
     )
-    expect(steerAction).toBeChecked()
+    expect(runningAction).toHaveTextContent("引导当前执行")
 
     const languageSelector = screen.getByRole("combobox", { name: "界面语言" })
     expect(screen.queryByText("语言", { exact: true })).not.toBeInTheDocument()
@@ -222,6 +218,9 @@ describe("LinkSense application", () => {
       screen.getByRole("combobox", { name: "Interface language" })
     ).toHaveAccessibleDescription("App UI language")
     expect(screen.getByRole("heading", { name: /^General$/u })).toBeVisible()
+    expect(
+      screen.getByRole("combobox", { name: "New messages during a run" })
+    ).toHaveTextContent("Guide the current run")
     expect(
       screen.getByRole("complementary", {
         name: "LinkSense settings navigation",

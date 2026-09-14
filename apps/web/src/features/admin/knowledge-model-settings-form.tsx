@@ -151,7 +151,7 @@ export function KnowledgeModelSettingsForm({
       >
         <div
           data-slot="model-settings-card"
-          className="grid min-w-0 grid-cols-1 gap-4 rounded-2xl border border-[color:var(--app-border)] bg-card p-4"
+          className="grid min-w-0 grid-cols-1 gap-4 rounded-card border border-[color:var(--app-border)] bg-card p-4"
         >
           <fieldset className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
             <legend className="p-0 text-sm leading-5 font-semibold">
@@ -271,20 +271,19 @@ export function KnowledgeModelSettingsForm({
               </Label>
             </div>
           </fieldset>
-        </div>
-
-        <p className="form-hint">{t("admin.knowledgeModels.rebuildHint")}</p>
-        <div>
-          <Button
-            type="submit"
-            disabled={readOnly || !valid || mutation.isPending}
-            aria-busy={mutation.isPending || undefined}
-          >
-            {mutation.isPending && <Spinner data-icon="inline-start" />}
-            {mutation.isPending
-              ? t("admin.knowledgeModels.validating")
-              : t("admin.knowledgeModels.save")}
-          </Button>
+          <p className="form-hint">{t("admin.knowledgeModels.rebuildHint")}</p>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="submit"
+              disabled={readOnly || !valid || mutation.isPending}
+              aria-busy={mutation.isPending || undefined}
+            >
+              {mutation.isPending && <Spinner data-icon="inline-start" />}
+              {mutation.isPending
+                ? t("admin.knowledgeModels.validating")
+                : t("admin.knowledgeModels.save")}
+            </Button>
+          </div>
         </div>
       </form>
 

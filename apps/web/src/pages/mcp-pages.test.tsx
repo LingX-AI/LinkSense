@@ -33,6 +33,58 @@ afterEach(() => {
 })
 
 describe("McpManagementPage", () => {
+  it.each([0, 1, 3])(
+    "groups %i MCP servers in one rounded card with separators only between rows",
+    async (count) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          envelope({
+            items: Array.from({ length: count }, (_, index) =>
+              serverFixture({
+                id: `01900000-0000-7000-8000-00000000009${index}`,
+                name: `Server ${index + 1}`,
+              })
+            ),
+          })
+        )
+      )
+      renderPage()
+
+      if (count === 0) {
+        await screen.findByText(i18n.t("mcp.empty"))
+        expect(
+          screen.queryByRole("region", { name: "MCP 服务器" })
+        ).not.toBeInTheDocument()
+        return
+      }
+
+      await screen.findByText("Server 1")
+      const card = screen.getByRole("region", { name: "MCP 服务器" })
+      expect(card).toHaveAttribute("data-slot", "card")
+      expect(card).toHaveClass(
+        "rounded-card",
+        "border",
+        "gap-0",
+        "px-4",
+        "py-0"
+      )
+      expect(within(card).getAllByRole("article")).toHaveLength(count)
+      expect(card.querySelectorAll('[data-slot="separator"]')).toHaveLength(
+        count - 1
+      )
+      expect(
+        Array.from(card.children, (child) =>
+          child.matches("article") ? "row" : child.getAttribute("data-slot")
+        )
+      ).toEqual(
+        Array.from({ length: count * 2 - 1 }, (_, index) =>
+          index % 2 === 0 ? "row" : "separator"
+        )
+      )
+    }
+  )
+
   it("shows personal MCP servers with management controls", async () => {
     vi.stubGlobal(
       "fetch",

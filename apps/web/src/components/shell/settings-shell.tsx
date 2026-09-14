@@ -307,7 +307,13 @@ export function SettingsShell() {
         </div>
       </aside>
       <main className="settings-main" id="main-content">
-        <div className="settings-content">
+        <div
+          className={cn(
+            "settings-content",
+            location.pathname.startsWith("/admin/") &&
+              "settings-content-administration"
+          )}
+        >
           {location.pathname !== "/admin/system-update" && (
             <SystemUpdateNotice placement="settings" />
           )}

@@ -1,3 +1,4 @@
+import { SettingsCard } from "@/components/settings/settings-card"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState, type FormEvent } from "react"
 import { useTranslation } from "react-i18next"
@@ -108,7 +109,7 @@ export function ExecutionConcurrencySettingsForm({
   }
 
   return (
-    <section
+    <SettingsCard
       className="settings-section"
       aria-labelledby="execution-concurrency-settings-title"
     >
@@ -217,7 +218,7 @@ export function ExecutionConcurrencySettingsForm({
           <FieldDescription>
             {t("admin.concurrency.loweringBehavior")}
           </FieldDescription>
-          <div>
+          <div className="flex flex-wrap justify-end gap-2">
             <Button
               type="submit"
               size="lg"
@@ -230,7 +231,7 @@ export function ExecutionConcurrencySettingsForm({
           </div>
         </FieldGroup>
       </form>
-    </section>
+    </SettingsCard>
   )
 }
 

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react"
+import { Fragment, useState, type FormEvent } from "react"
 import {
   mcpDefaultStartupTimeoutSeconds,
   mcpDefaultToolTimeoutSeconds,
@@ -35,6 +35,7 @@ import { PageLayout } from "@/components/shell/page-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -61,6 +62,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
@@ -475,108 +477,117 @@ export function McpManagementPage() {
           />
         )}
 
-      <div className="entity-list mcp-server-list">
-        {servers.map((server) => {
-          const isTesting =
-            testMutation.isPending && testMutation.variables?.id === server.id
-          return (
-            <article key={server.id} className="entity-row entity-row-top">
-              <McpLogo />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2>{server.name}</h2>
-                  <Badge
-                    variant={
-                      server.transport === "stdio" ||
-                      server.url?.startsWith("https:")
-                        ? "secondary"
-                        : "outline"
-                    }
-                  >
-                    {t(`mcp.transport.${server.transport}`)}
-                  </Badge>
-                  {server.transport === "streamable_http" ? (
-                    <Badge variant="outline">
-                      {t(`mcp.auth.${server.auth_type}`)}
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">
-                      {t("mcp.environmentCount", {
-                        count: server.environment_keys.length,
-                      })}
-                    </Badge>
-                  )}
-                  <McpTestStatusIndicator
-                    name={server.name}
-                    status={server.last_test_status}
-                  />
-                </div>
-                <p className="mt-1 truncate text-sm text-muted-foreground">
-                  {server.transport === "stdio"
-                    ? [server.command, ...server.args].join(" ")
-                    : server.url}
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {isTesting && (
-                  <LoaderCircleIcon
-                    className="size-4 animate-spin text-muted-foreground"
-                    aria-label={t("mcp.testing", { name: server.name })}
-                  />
-                )}
-                <Switch
-                  name={`mcp-server-${server.id}-enabled`}
-                  checked={server.status === "active"}
-                  disabled={statusMutation.isPending}
-                  aria-label={t("mcp.toggle", { name: server.name })}
-                  onCheckedChange={() => statusMutation.mutate(server)}
-                />
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={t("common.more")}
-                      />
-                    }
-                  >
-                    <MoreHorizontalIcon aria-hidden="true" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      disabled={isTesting}
-                      onClick={() => testMutation.mutate(server)}
-                    >
-                      {isTesting ? (
-                        <LoaderCircleIcon
-                          className="animate-spin"
-                          aria-hidden="true"
-                        />
+      {servers.length > 0 && (
+        <Card
+          role="region"
+          aria-label={t("mcp.title")}
+          className="entity-list mcp-server-list gap-0 px-4 py-0"
+        >
+          {servers.map((server, index) => {
+            const isTesting =
+              testMutation.isPending && testMutation.variables?.id === server.id
+            return (
+              <Fragment key={server.id}>
+                {index > 0 && <Separator className="bg-[var(--app-border)]" />}
+                <article className="entity-row entity-row-top">
+                  <McpLogo />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2>{server.name}</h2>
+                      <Badge
+                        variant={
+                          server.transport === "stdio" ||
+                          server.url?.startsWith("https:")
+                            ? "secondary"
+                            : "outline"
+                        }
+                      >
+                        {t(`mcp.transport.${server.transport}`)}
+                      </Badge>
+                      {server.transport === "streamable_http" ? (
+                        <Badge variant="outline">
+                          {t(`mcp.auth.${server.auth_type}`)}
+                        </Badge>
                       ) : (
-                        <FlaskConicalIcon aria-hidden="true" />
+                        <Badge variant="outline">
+                          {t("mcp.environmentCount", {
+                            count: server.environment_keys.length,
+                          })}
+                        </Badge>
                       )}
-                      {t("mcp.testConnection")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => openEdit(server)}>
-                      <PencilIcon aria-hidden="true" />
-                      {t("common.edit")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onClick={() => setDeleteTarget(server)}
-                    >
-                      <Trash2Icon aria-hidden="true" />
-                      {t("common.delete")}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </article>
-          )
-        })}
-      </div>
+                      <McpTestStatusIndicator
+                        name={server.name}
+                        status={server.last_test_status}
+                      />
+                    </div>
+                    <p className="mt-1 truncate text-sm text-muted-foreground">
+                      {server.transport === "stdio"
+                        ? [server.command, ...server.args].join(" ")
+                        : server.url}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {isTesting && (
+                      <LoaderCircleIcon
+                        className="size-4 animate-spin text-muted-foreground"
+                        aria-label={t("mcp.testing", { name: server.name })}
+                      />
+                    )}
+                    <Switch
+                      name={`mcp-server-${server.id}-enabled`}
+                      checked={server.status === "active"}
+                      disabled={statusMutation.isPending}
+                      aria-label={t("mcp.toggle", { name: server.name })}
+                      onCheckedChange={() => statusMutation.mutate(server)}
+                    />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={t("common.more")}
+                          />
+                        }
+                      >
+                        <MoreHorizontalIcon aria-hidden="true" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          disabled={isTesting}
+                          onClick={() => testMutation.mutate(server)}
+                        >
+                          {isTesting ? (
+                            <LoaderCircleIcon
+                              className="animate-spin"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <FlaskConicalIcon aria-hidden="true" />
+                          )}
+                          {t("mcp.testConnection")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEdit(server)}>
+                          <PencilIcon aria-hidden="true" />
+                          {t("common.edit")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => setDeleteTarget(server)}
+                        >
+                          <Trash2Icon aria-hidden="true" />
+                          {t("common.delete")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </article>
+              </Fragment>
+            )
+          })}
+        </Card>
+      )}
 
       <Dialog
         open={editorOpen}

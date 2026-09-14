@@ -71,9 +71,18 @@ describe("quota management", () => {
         )
       ).toBeVisible()
       expect(screen.getAllByRole("textbox")).toHaveLength(7)
-      const save = screen.getByRole("button", {
-        name: language === "en-US" ? "Save" : "保存",
+      const saves = screen.getAllByRole("button", {
+        name: language === "en-US" ? "Save settings" : "保存设置",
       })
+      expect(saves).toHaveLength(3)
+      for (const save of saves) {
+        const footer = save.closest('[data-slot="card-footer"]')
+        expect(footer).not.toBeNull()
+        expect(save.parentElement?.lastElementChild).toBe(save)
+        expect(save.parentElement).toHaveClass("justify-end")
+        expect(footer?.parentElement?.lastElementChild).toBe(footer)
+      }
+      const save = saves[0]!
       const sharedButtonClasses = [
         "h-8",
         "gap-1.5",
@@ -85,18 +94,14 @@ describe("quota management", () => {
       ]
       expect(save).toBeEnabled()
       expect(save).toHaveClass(...sharedButtonClasses)
-      for (const name of language === "en-US"
-        ? [
-            "Reset all organization member quotas",
-            "Reset all self-registered user quotas",
-            "Save and apply limits to all organization members",
-          ]
-        : [
-            "重置全部组织成员额度",
-            "重置全部注册成员额度",
-            "保存并应用限额到全部组织成员",
-          ]) {
-        const button = screen.getByRole("button", { name })
+      const resetButtons = screen.getAllByRole("button", {
+        name: language === "en-US" ? "Reset quotas for all" : "重置全员额度",
+      })
+      expect(resetButtons).toHaveLength(2)
+      const applyButton = screen.getByRole("button", {
+        name: language === "en-US" ? "Apply limits to all" : "应用限额到全员",
+      })
+      for (const button of [...resetButtons, applyButton]) {
         expect(button).toBeEnabled()
         expect(button).toHaveClass("bg-secondary", "text-secondary-foreground")
         expect(button).toHaveClass(...sharedButtonClasses)
@@ -107,7 +112,7 @@ describe("quota management", () => {
     }
   )
 
-  it("saves a price and partial quotas for both populations with blank fields unlimited", async () => {
+  it("saves each card independently, preserves other drafts, and retains previously saved settings", async () => {
     const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) =>
       envelope({
         code: "SYSTEM_SETTINGS_UPDATED",
@@ -127,9 +132,30 @@ describe("quota management", () => {
     await user.type(weekly[0]!, "100")
     await user.type(total[0]!, "1000")
     await user.type(monthly[1]!, "20.5")
-    await user.click(screen.getByRole("button", { name: "保存" }))
-    await waitFor(() => expect(saved).toHaveBeenCalledWith("额度设置已保存。"))
+    const saves = screen.getAllByRole("button", { name: "保存设置" })
+    await user.click(saves[0]!)
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(1))
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      ...defaultQuotaSettings(),
+      credit_price_cny: "0.02",
+    })
+    expect(weekly[0]).toHaveValue("100")
+    expect(monthly[1]).toHaveValue("20.5")
+    await user.click(saves[1]!)
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toEqual({
+      ...defaultQuotaSettings(),
+      credit_price_cny: "0.02",
+      organization_members: {
+        weekly_credit_limit: "100",
+        monthly_credit_limit: null,
+        total_credit_limit: "1000",
+      },
+    })
+    await user.click(saves[2]!)
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(saved).toHaveBeenCalledWith("额度设置已保存。"))
+    expect(JSON.parse(String(fetch.mock.calls[2]?.[1]?.body))).toEqual({
       credit_price_cny: "0.02",
       organization_members: {
         weekly_credit_limit: "100",
@@ -144,6 +170,35 @@ describe("quota management", () => {
     })
   })
 
+  it("submits only the focused card on Enter even when another card is invalid", async () => {
+    const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) =>
+      envelope({
+        code: "SYSTEM_SETTINGS_UPDATED",
+        settings: JSON.parse(String(init?.body)),
+      })
+    )
+    vi.stubGlobal("fetch", fetch)
+    const user = userEvent.setup()
+    renderPage(true)
+    const price = screen.getByLabelText("1 credit 对应金额（人民币元）")
+    await user.clear(price)
+    await user.type(price, "0")
+    const weekly = screen.getAllByLabelText("周额度（credits）")[1]!
+    await user.type(weekly, "25{Enter}")
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      ...defaultQuotaSettings(),
+      self_registered_users: {
+        weekly_credit_limit: "25",
+        monthly_credit_limit: null,
+        total_credit_limit: null,
+      },
+    })
+    await waitFor(() => expect(weekly).toBeEnabled())
+    expect(price).toHaveValue("0")
+    expect(price).toHaveAttribute("aria-invalid", "false")
+  })
+
   it("validates price and quota precision without submitting invalid values", async () => {
     const fetch = vi.fn()
     vi.stubGlobal("fetch", fetch)
@@ -156,9 +211,14 @@ describe("quota management", () => {
       screen.getAllByLabelText("总额度（credits）")[1]!,
       "0.0000001"
     )
-    await user.click(screen.getByRole("button", { name: "保存" }))
+    await user.click(screen.getAllByRole("button", { name: "保存设置" })[0]!)
     expect(price).toHaveAttribute("aria-invalid", "true")
-    expect(screen.getAllByText(/请输入大于 0、最多 6 位小数/u)).toHaveLength(2)
+    expect(screen.getAllByText(/请输入大于 0、最多 6 位小数/u)).toHaveLength(1)
+    await user.click(screen.getAllByRole("button", { name: "保存设置" })[2]!)
+    expect(screen.getAllByLabelText("总额度（credits）")[1]).toHaveAttribute(
+      "aria-invalid",
+      "true"
+    )
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -177,9 +237,14 @@ describe("quota management", () => {
     renderPage(true)
     const total = screen.getAllByLabelText("总额度（credits）")[0]!
     await user.type(total, "123")
-    const save = screen.getByRole("button", { name: "保存" })
+    const save = screen.getAllByRole("button", { name: "保存设置" })[1]!
     await user.dblClick(save)
     expect(save).toBeDisabled()
+    expect(save).toHaveAttribute("aria-busy", "true")
+    for (const other of screen.getAllByRole("button", { name: "保存设置" })) {
+      expect(other).toBeDisabled()
+      if (other !== save) expect(other).not.toHaveAttribute("aria-busy")
+    }
     expect(total).toBeDisabled()
     expect(fetch).toHaveBeenCalledTimes(1)
     rejectRequest(new Error("Request failed"))
@@ -199,16 +264,17 @@ describe("quota management", () => {
     const retry = await screen.findByRole("button", { name: "重试" })
     expect(retry).toBeVisible()
     expect(
-      within(document.body).queryByRole("button", { name: "保存" })
+      within(document.body).queryByRole("button", { name: "保存设置" })
     ).not.toBeInTheDocument()
   })
 
   it.each([
-    ["organization_members", "重置全部组织成员额度"],
-    ["self_registered_users", "重置全部注册成员额度"],
+    ["organization_members", "组织成员初始额度"],
+    ["self_registered_users", "开放注册用户额度"],
   ])(
     "confirms %s reset before posting immediately, supports cancellation, and prevents duplicate submissions",
-    async (scope, label) => {
+    async (scope, formName) => {
+      const label = "重置全员额度"
       let finish: (response: Response) => void = () => {
         throw new Error("request not started")
       }
@@ -226,7 +292,9 @@ describe("quota management", () => {
       renderPage(true)
       const weekly = screen.getAllByLabelText("周额度（credits）")[0]!
       await user.type(weekly, "123")
-      const trigger = screen.getByRole("button", { name: label })
+      const trigger = within(
+        screen.getByRole("form", { name: formName })
+      ).getByRole("button", { name: label })
       await user.click(trigger)
       let dialog = screen.getByRole("dialog", { name: label })
       expect(dialog).toHaveTextContent("100%")
@@ -294,11 +362,11 @@ describe("quota management", () => {
     const selfWeekly = screen.getAllByLabelText("周额度（credits）")[1]!
     await user.type(selfWeekly, "200")
     const apply = screen.getByRole("button", {
-      name: "保存并应用限额到全部组织成员",
+      name: "应用限额到全员",
     })
     await user.click(apply)
     let dialog = screen.getByRole("dialog", {
-      name: "保存并应用限额到全部组织成员",
+      name: "应用限额到全员",
     })
     expect(dialog).toHaveTextContent("150.5")
     expect(dialog).toHaveTextContent("1000")
@@ -311,7 +379,7 @@ describe("quota management", () => {
     expect(fetch).not.toHaveBeenCalled()
     await user.click(apply)
     dialog = screen.getByRole("dialog", {
-      name: "保存并应用限额到全部组织成员",
+      name: "应用限额到全员",
     })
     await user.click(
       within(dialog).getByRole("button", { name: "确认保存并应用" })
@@ -341,9 +409,7 @@ describe("quota management", () => {
     renderPage(true)
     const weekly = screen.getAllByLabelText("周额度（credits）")[0]!
     await user.type(weekly, "-1")
-    await user.click(
-      screen.getByRole("button", { name: "保存并应用限额到全部组织成员" })
-    )
+    await user.click(screen.getByRole("button", { name: "应用限额到全员" }))
     expect(weekly).toHaveAttribute("aria-invalid", "true")
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(fetch).not.toHaveBeenCalled()
@@ -360,7 +426,9 @@ describe("quota management", () => {
     renderPage(true)
     const weekly = screen.getAllByLabelText("周额度（credits）")[0]!
     await user.type(weekly, "99")
-    const trigger = screen.getByRole("button", { name: "重置全部组织成员额度" })
+    const trigger = within(
+      screen.getByRole("form", { name: "组织成员初始额度" })
+    ).getByRole("button", { name: "重置全员额度" })
     await user.click(trigger)
     await user.click(
       within(screen.getByRole("dialog")).getByRole("button", {

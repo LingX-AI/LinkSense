@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react"
+import { Fragment, useState, type FormEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { AiFillDingtalkCircle, AiFillWechatWork } from "react-icons/ai"
 import { BiLogoMicrosoftTeams } from "react-icons/bi"
@@ -28,6 +28,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { useBotChannels } from "./use-bot-channels"
 
@@ -56,18 +57,20 @@ export function BotChannelCards() {
           </AlertDescription>
         </Alert>
       )}
-      {channels.map(({ provider, icon: Icon }) => (
-        <BotChannelCard
-          key={provider}
-          provider={provider}
-          connection={
-            controls.query.data?.items.find(
-              (item) => item.provider === provider
-            ) ?? null
-          }
-          controls={controls}
-          icon={<Icon />}
-        />
+      {channels.map(({ provider, icon: Icon }, index) => (
+        <Fragment key={provider}>
+          {index > 0 && <Separator />}
+          <BotChannelCard
+            provider={provider}
+            connection={
+              controls.query.data?.items.find(
+                (item) => item.provider === provider
+              ) ?? null
+            }
+            controls={controls}
+            icon={<Icon />}
+          />
+        </Fragment>
       ))}
     </>
   )
@@ -161,7 +164,7 @@ function BotChannelCard({
         </div>
         <div className="channel-access-actions">
           <Button
-            variant={connection ? "outline" : "default"}
+            variant={connection ? "outline" : "secondary"}
             disabled={busy || !controls.query.isSuccess}
             onClick={openSettings}
           >

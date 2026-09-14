@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
+  act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -103,6 +105,31 @@ function createFetchMock() {
 }
 
 describe("administrator knowledge-base governance", () => {
+  it("waits for Chinese composition before searching knowledge bases", async () => {
+    const fetchMock = createFetchMock()
+    vi.stubGlobal("fetch", fetchMock)
+    renderPage()
+    await screen.findByText(activeKnowledgeBase.name)
+    const input = screen.getByRole("textbox", {
+      name: i18n.t("adminKnowledge.search"),
+    })
+    fetchMock.mockClear()
+    fireEvent.compositionStart(input)
+    fireEvent.input(input, { target: { value: "zhi" }, isComposing: true })
+    expect(input).toHaveValue("zhi")
+    await act(async () => {})
+    expect(fetchMock).not.toHaveBeenCalled()
+    fireEvent.input(input, { target: { value: "知识" }, isComposing: true })
+    fireEvent.compositionEnd(input, { data: "知识" })
+    expect(input).toHaveValue("知识")
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("search=%E7%9F%A5%E8%AF%86"),
+        expect.anything()
+      )
+    )
+  })
+
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
     setAccessToken("knowledge-governance-token")
@@ -374,6 +401,11 @@ describe("administrator knowledge-base governance", () => {
     renderPage()
 
     expect(await screen.findByText("活跃知识库")).toBeVisible()
+    const tableContainer = screen.getByRole("table").parentElement
+    expect(tableContainer).toHaveClass("rounded-card", "border")
+    expect(tableContainer).not.toContainElement(
+      screen.getByRole("navigation", { name: "知识库列表分页" })
+    )
     expect(
       screen.getByRole("navigation", { name: "知识库列表分页" })
     ).toBeVisible()

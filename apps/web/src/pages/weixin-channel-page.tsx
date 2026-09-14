@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -60,6 +61,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import {
   Tooltip,
@@ -389,162 +391,169 @@ export function WeixinChannelPage() {
           }}
         />
       ) : (
-        <section
+        <Card
           className="channel-access-list"
+          role="region"
           aria-label={t("channelAccess.channelsLabel")}
         >
-          <article className="channel-access-card channel-access-card-manageable">
-            <div className="channel-access-card-header">
-              <div className="channel-access-heading">
-                <span
-                  className="channel-access-icon channel-access-icon-weixin"
-                  aria-label={t("channelAccess.weixin.iconLabel")}
-                  data-testid="weixin-channel-brand-icon"
-                  role="img"
-                >
-                  <SiWechat aria-hidden="true" />
-                </span>
-                <div>
-                  <div className="channel-access-title-row">
-                    <h2>{t("channelAccess.weixin.name")}</h2>
-                    {connection ? (
-                      <ConnectionStatusBadge
-                        status={connection.runtime_status}
-                      />
-                    ) : (
-                      <Badge variant="outline">
-                        {t("channelAccess.status.available")}
-                      </Badge>
+          <CardContent className="px-4">
+            <article className="channel-access-card channel-access-card-manageable">
+              <div className="channel-access-card-header">
+                <div className="channel-access-heading">
+                  <span
+                    className="channel-access-icon channel-access-icon-weixin"
+                    aria-label={t("channelAccess.weixin.iconLabel")}
+                    data-testid="weixin-channel-brand-icon"
+                    role="img"
+                  >
+                    <SiWechat aria-hidden="true" />
+                  </span>
+                  <div>
+                    <div className="channel-access-title-row">
+                      <h2>{t("channelAccess.weixin.name")}</h2>
+                      {connection ? (
+                        <ConnectionStatusBadge
+                          status={connection.runtime_status}
+                        />
+                      ) : (
+                        <Badge variant="outline">
+                          {t("channelAccess.status.available")}
+                        </Badge>
+                      )}
+                    </div>
+                    {!connection && (
+                      <p>{t("channelAccess.weixin.notConnected")}</p>
                     )}
                   </div>
-                  {!connection && (
-                    <p>{t("channelAccess.weixin.notConnected")}</p>
-                  )}
                 </div>
+                <p className="channel-access-description">
+                  {t("channelAccess.weixin.description")}
+                </p>
               </div>
-              <p className="channel-access-description">
-                {t("channelAccess.weixin.description")}
-              </p>
-            </div>
 
-            <div className="channel-access-actions">
-              {connection ? (
-                <>
-                  <ChannelAccessActionButton
+              <div className="channel-access-actions">
+                {connection ? (
+                  <>
+                    <ChannelAccessActionButton
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      label={t("channelAccess.weixin.reconnect")}
+                      onClick={openLogin}
+                      disabled={startLoginMutation.isPending}
+                    >
+                      <ScanQrCodeIcon aria-hidden="true" />
+                    </ChannelAccessActionButton>
+                    <ChannelAccessActionButton
+                      type="button"
+                      size="icon-sm"
+                      variant="destructive-ghost"
+                      className="channel-access-action-destructive"
+                      label={t("channelAccess.weixin.disconnect")}
+                      onClick={() => setDisconnectOpen(true)}
+                    >
+                      <Unlink2Icon aria-hidden="true" />
+                    </ChannelAccessActionButton>
+                  </>
+                ) : (
+                  <Button
                     type="button"
-                    size="icon-sm"
-                    variant="ghost"
-                    label={t("channelAccess.weixin.reconnect")}
+                    variant="secondary"
                     onClick={openLogin}
                     disabled={startLoginMutation.isPending}
                   >
-                    <ScanQrCodeIcon aria-hidden="true" />
-                  </ChannelAccessActionButton>
-                  <ChannelAccessActionButton
-                    type="button"
-                    size="icon-sm"
-                    variant="destructive-ghost"
-                    className="channel-access-action-destructive"
-                    label={t("channelAccess.weixin.disconnect")}
-                    onClick={() => setDisconnectOpen(true)}
-                  >
-                    <Unlink2Icon aria-hidden="true" />
-                  </ChannelAccessActionButton>
-                </>
-              ) : (
-                <Button
-                  type="button"
-                  onClick={openLogin}
-                  disabled={startLoginMutation.isPending}
-                >
-                  {startLoginMutation.isPending ? (
-                    <Spinner data-icon="inline-start" />
-                  ) : (
-                    <LinkIcon data-icon="inline-start" aria-hidden="true" />
-                  )}
-                  {t("channelAccess.weixin.connect")}
-                </Button>
-              )}
-            </div>
-          </article>
-
-          <article className="channel-access-card channel-access-card-manageable">
-            <div className="channel-access-card-header">
-              <div className="channel-access-heading">
-                <span
-                  className="channel-access-icon channel-access-icon-feishu"
-                  aria-label={t("channelAccess.feishu.iconLabel")}
-                  data-testid="feishu-channel-brand-icon"
-                  role="img"
-                >
-                  <FeishuLogo />
-                </span>
-                <div>
-                  <div className="channel-access-title-row">
-                    <h2>{t("channelAccess.feishu.name")}</h2>
-                    {feishuConnection ? (
-                      <ConnectionStatusBadge
-                        status={feishuConnection.runtime_status}
-                      />
+                    {startLoginMutation.isPending ? (
+                      <Spinner data-icon="inline-start" />
                     ) : (
-                      <Badge variant="outline">
-                        {t("channelAccess.status.available")}
-                      </Badge>
+                      <LinkIcon data-icon="inline-start" aria-hidden="true" />
+                    )}
+                    {t("channelAccess.weixin.connect")}
+                  </Button>
+                )}
+              </div>
+            </article>
+
+            <Separator />
+            <article className="channel-access-card channel-access-card-manageable">
+              <div className="channel-access-card-header">
+                <div className="channel-access-heading">
+                  <span
+                    className="channel-access-icon channel-access-icon-feishu"
+                    aria-label={t("channelAccess.feishu.iconLabel")}
+                    data-testid="feishu-channel-brand-icon"
+                    role="img"
+                  >
+                    <FeishuLogo />
+                  </span>
+                  <div>
+                    <div className="channel-access-title-row">
+                      <h2>{t("channelAccess.feishu.name")}</h2>
+                      {feishuConnection ? (
+                        <ConnectionStatusBadge
+                          status={feishuConnection.runtime_status}
+                        />
+                      ) : (
+                        <Badge variant="outline">
+                          {t("channelAccess.status.available")}
+                        </Badge>
+                      )}
+                    </div>
+                    {!feishuConnection && (
+                      <p>{t("channelAccess.feishu.notConnected")}</p>
                     )}
                   </div>
-                  {!feishuConnection && (
-                    <p>{t("channelAccess.feishu.notConnected")}</p>
-                  )}
                 </div>
+                <p className="channel-access-description">
+                  {t("channelAccess.feishu.description")}
+                </p>
               </div>
-              <p className="channel-access-description">
-                {t("channelAccess.feishu.description")}
-              </p>
-            </div>
 
-            <div className="channel-access-actions">
-              {feishuConnection ? (
-                <>
-                  <ChannelAccessActionButton
+              <div className="channel-access-actions">
+                {feishuConnection ? (
+                  <>
+                    <ChannelAccessActionButton
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      label={t("channelAccess.feishu.reconnect")}
+                      onClick={openFeishuRegistration}
+                      disabled={startFeishuRegistrationMutation.isPending}
+                    >
+                      <ScanQrCodeIcon aria-hidden="true" />
+                    </ChannelAccessActionButton>
+                    <ChannelAccessActionButton
+                      type="button"
+                      size="icon-sm"
+                      variant="destructive-ghost"
+                      className="channel-access-action-destructive"
+                      label={t("channelAccess.feishu.disconnect")}
+                      onClick={() => setFeishuDisconnectOpen(true)}
+                    >
+                      <Unlink2Icon aria-hidden="true" />
+                    </ChannelAccessActionButton>
+                  </>
+                ) : (
+                  <Button
                     type="button"
-                    size="icon-sm"
-                    variant="ghost"
-                    label={t("channelAccess.feishu.reconnect")}
+                    variant="secondary"
                     onClick={openFeishuRegistration}
                     disabled={startFeishuRegistrationMutation.isPending}
                   >
-                    <ScanQrCodeIcon aria-hidden="true" />
-                  </ChannelAccessActionButton>
-                  <ChannelAccessActionButton
-                    type="button"
-                    size="icon-sm"
-                    variant="destructive-ghost"
-                    className="channel-access-action-destructive"
-                    label={t("channelAccess.feishu.disconnect")}
-                    onClick={() => setFeishuDisconnectOpen(true)}
-                  >
-                    <Unlink2Icon aria-hidden="true" />
-                  </ChannelAccessActionButton>
-                </>
-              ) : (
-                <Button
-                  type="button"
-                  onClick={openFeishuRegistration}
-                  disabled={startFeishuRegistrationMutation.isPending}
-                >
-                  {startFeishuRegistrationMutation.isPending ? (
-                    <Spinner data-icon="inline-start" />
-                  ) : (
-                    <LinkIcon data-icon="inline-start" aria-hidden="true" />
-                  )}
-                  {t("channelAccess.feishu.connect")}
-                </Button>
-              )}
-            </div>
-          </article>
+                    {startFeishuRegistrationMutation.isPending ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <LinkIcon data-icon="inline-start" aria-hidden="true" />
+                    )}
+                    {t("channelAccess.feishu.connect")}
+                  </Button>
+                )}
+              </div>
+            </article>
 
-          <BotChannelCards />
-        </section>
+            <Separator />
+            <BotChannelCards />
+          </CardContent>
+        </Card>
       )}
 
       <Dialog

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import dayjs from "dayjs"
 import "dayjs/locale/en"
 import "dayjs/locale/zh-cn"
@@ -57,7 +57,9 @@ export function DatePicker({
   const { i18n } = useTranslation()
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
   const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const selectedDate = useMemo(() => parseDateValue(value), [value])
+  const showClear = Boolean(selectedDate && clearable)
   const minDate = useMemo(() => parseDateValue(min), [min])
   const maxDate = useMemo(() => parseDateValue(max), [max])
   const disabledDays = useMemo(
@@ -74,11 +76,12 @@ export function DatePicker({
     : placeholder
 
   return (
-    <div className={cn("flex min-w-0 items-center gap-1", className)}>
+    <div className={cn("relative flex min-w-0 items-center", className)}>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           render={
             <Button
+              ref={triggerRef}
               id={id}
               type="button"
               variant="input"
@@ -91,7 +94,14 @@ export function DatePicker({
             />
           }
         >
-          <span className="truncate">{displayValue}</span>
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-left",
+              showClear && "pr-8"
+            )}
+          >
+            {displayValue}
+          </span>
           <CalendarIcon aria-hidden="true" />
         </PopoverTrigger>
         <PopoverContent align="start" className="w-auto p-0">
@@ -109,14 +119,19 @@ export function DatePicker({
           />
         </PopoverContent>
       </Popover>
-      {selectedDate && clearable && (
+      {showClear && (
         <Button
           type="button"
           variant="ghost"
-          size={size === "sm" ? "icon" : "icon-lg"}
+          size="icon-xs"
+          className="absolute top-1/2 right-9 -translate-y-1/2"
           aria-label={clearLabel}
           disabled={disabled}
-          onClick={() => onValueChange("")}
+          onClick={() => {
+            setOpen(false)
+            onValueChange("")
+            triggerRef.current?.focus()
+          }}
         >
           <XIcon aria-hidden="true" />
         </Button>

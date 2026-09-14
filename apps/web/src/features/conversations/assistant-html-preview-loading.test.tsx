@@ -55,7 +55,7 @@ describe("AssistantHtmlPreviewLoading", () => {
       <AssistantHtmlPreviewLoading label="正在生成图片…" />
     )
     const surface = screen.getByRole("status", { name: "正在生成图片…" })
-    fireEvent.doubleClick(surface)
+    fireEvent.click(surface)
     return {
       ...rendered,
       surface,
@@ -63,7 +63,7 @@ describe("AssistantHtmlPreviewLoading", () => {
     }
   }
 
-  it("keeps loading free of text and buttons and ignores single clicks", () => {
+  it("keeps loading free of text and buttons", () => {
     const { container } = render(
       <AssistantHtmlPreviewLoading label="正在生成图片…" />
     )
@@ -71,18 +71,17 @@ describe("AssistantHtmlPreviewLoading", () => {
     expect(surface).toHaveAttribute("aria-busy", "true")
     expect(surface).toHaveAttribute("aria-live", "polite")
     expect(surface).toHaveAccessibleDescription(
-      "双击或按回车键开始贪吃蛇游戏。"
+      "单击或按回车键开始贪吃蛇游戏。"
     )
     expect(surface.textContent).toBe("")
     expect(screen.queryByRole("button")).toBeNull()
-    fireEvent.click(surface)
     expect(screen.queryByRole("application")).toBeNull()
     expect(
       container.querySelector(".assistant-html-preview-loading-glow")
     ).toBeVisible()
   })
 
-  it("double-clicks straight into a moving game with no panel, text, buttons or inner border", () => {
+  it("clicks straight into a moving game with no panel, text, buttons or inner border", () => {
     const { surface, board, container } = enterGame()
     expect(board).toHaveFocus()
     expect(surface.textContent).toBe("")
@@ -105,6 +104,18 @@ describe("AssistantHtmlPreviewLoading", () => {
     expect(snakeLength(board)).toBe(4)
     advance(10)
     expect(snakeLength(board)).toBe(5)
+  })
+
+  it("does not reset the game on a single click and exits after the full double-click sequence", () => {
+    const { board } = enterGame()
+    advance(10)
+    fireEvent.click(board)
+    expect(screen.getByRole("application")).toBe(board)
+    expect(snakeLength(board)).toBe(5)
+    fireEvent.click(board, { detail: 1 })
+    fireEvent.click(board, { detail: 2 })
+    fireEvent.doubleClick(board)
+    expect(screen.queryByRole("application")).toBeNull()
   })
 
   it("briefly stops on collision and restarts automatically without an overlay", () => {
@@ -137,7 +148,7 @@ describe("AssistantHtmlPreviewLoading", () => {
       ).toBeVisible()
       advance(20)
       expect(screen.queryByRole("application")).toBeNull()
-      fireEvent.doubleClick(surface)
+      fireEvent.click(surface)
       expect(snakeLength(screen.getByRole("application"))).toBe(4)
     }
   )
@@ -277,6 +288,9 @@ describe("AssistantHtmlPreviewLoading", () => {
     const { unmount } = render(
       <AssistantHtmlPreviewLoading label="Generating image…" />
     )
+    expect(screen.getByRole("status")).toHaveAccessibleDescription(
+      "Click or press Enter to play Snake."
+    )
     fireEvent.keyDown(screen.getByRole("status"), { key: "Enter" })
     expect(
       screen.getByRole("application", { name: "Snake" })
@@ -291,7 +305,10 @@ describe("AssistantHtmlPreviewLoading", () => {
         <AssistantHtmlPreviewLoading label="正在生成图片…" />
       </I18nextProvider>
     )
-    fireEvent.doubleClick(screen.getByRole("status"))
+    expect(screen.getByRole("status")).toHaveAccessibleDescription(
+      "单击或按回车键开始贪吃蛇游戏。"
+    )
+    fireEvent.click(screen.getByRole("status"))
     expect(
       screen.getByRole("application", { name: "贪吃蛇" })
     ).toHaveAccessibleDescription(

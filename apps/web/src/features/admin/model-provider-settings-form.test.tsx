@@ -181,12 +181,11 @@ describe("ModelProviderSettingsForm", () => {
         })),
       })
       const catalog = screen.getByRole("table", { name: table })
-      expect(catalog.closest('[role="group"]')).toHaveClass(
-        "rounded-2xl",
+      expect(catalog.parentElement).toHaveClass(
+        "rounded-card",
         "border",
         "border-[color:var(--app-border)]",
-        "bg-card",
-        "p-4"
+        "bg-card"
       )
       expect(
         within(catalog).getByRole("columnheader", { name: priceHeader })

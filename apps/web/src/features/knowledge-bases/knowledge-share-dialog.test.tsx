@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -92,6 +99,26 @@ function renderDialog(
 }
 
 describe("knowledge share dialog", () => {
+  it("keeps Chinese share-target composition local until selection is committed", async () => {
+    renderDialog({ canCreateGrant: true })
+    const input = screen.getByRole("combobox")
+    await waitFor(() => expect(listKnowledgeShareTargets).toHaveBeenCalled())
+    listKnowledgeShareTargets.mockClear()
+    fireEvent.compositionStart(input)
+    fireEvent.input(input, { target: { value: "lin" }, isComposing: true })
+    expect(input).toHaveValue("lin")
+    await act(async () => {})
+    expect(listKnowledgeShareTargets).not.toHaveBeenCalled()
+    fireEvent.input(input, { target: { value: "林青" }, isComposing: true })
+    fireEvent.compositionEnd(input, { data: "林青" })
+    expect(input).toHaveValue("林青")
+    await waitFor(() =>
+      expect(listKnowledgeShareTargets).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "林青" })
+      )
+    )
+  })
+
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
     listKnowledgeGrants

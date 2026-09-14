@@ -113,12 +113,12 @@ describe("sidebar theme", () => {
     expect(sidebarStyles).toContain("--color-hover: var(--app-hover);")
   })
 
-  it("uses the documented dark canvas and elevated surfaces", () => {
+  it("uses a soft charcoal dark canvas with matching topbar and elevated surfaces", () => {
     const darkTheme = cssRule(".dark")
 
-    expect(darkTheme).toContain("--background: #000000;")
-    expect(darkTheme).toContain("--app-canvas: #000000;")
-    expect(darkTheme).toContain("--app-topbar: rgb(0 0 0 / 94%);")
+    expect(darkTheme).toContain("--background: #141414;")
+    expect(darkTheme).toContain("--app-canvas: #141414;")
+    expect(darkTheme).toContain("--app-topbar: rgb(20 20 20 / 94%);")
     expect(darkTheme).toContain("--card: #252525;")
     expect(darkTheme).toContain("--app-composer: #252525;")
     expect(darkTheme).toContain("--app-popover: #252525;")

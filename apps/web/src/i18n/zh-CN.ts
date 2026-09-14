@@ -289,6 +289,7 @@ export const zhCN = {
     },
   },
   quotaManagement: {
+    save: "保存设置",
     title: "额度管理",
     description: "设置组织成员、开放注册用户的个人额度及 credits 换算价格。",
     conversionTitle: "Credits 换算",
@@ -298,7 +299,7 @@ export const zhCN = {
     conversionExample:
       "例如：1 credit = 0.01 元，消费 0.25 元会消耗 25 credits。",
     organization_members: {
-      reset: "重置全部组织成员额度",
+      reset: "重置全员额度",
       resetDescription:
         "将全部已有组织成员的周、月、总额度恢复到各自现有限额的 100%，不限额的项目保持不限额。当前表单中未保存的限额不参与重置。历史消费记录保留，重置后发生的消费会继续扣减。",
 
@@ -307,7 +308,7 @@ export const zhCN = {
         "应用于之后新建或导入的每位组织成员。点击下方按钮可应用到全部已有组织成员，也可在用户管理中单独或批量调整。",
     },
     self_registered_users: {
-      reset: "重置全部注册成员额度",
+      reset: "重置全员额度",
       resetDescription:
         "将全部已有自助注册成员的周、月、总额度恢复到各自现有限额的 100%，不限额的项目保持不限额。当前表单中未保存的限额不参与重置。历史消费记录保留，重置后发生的消费会继续扣减。",
 
@@ -324,7 +325,7 @@ export const zhCN = {
     unlimited: "不限额",
     invalidAmount:
       "请输入大于 0、最多 6 位小数且不超过 9,223,372,036,854.775807 的金额或额度。",
-    applyOrganization: "保存并应用限额到全部组织成员",
+    applyOrganization: "应用限额到全员",
     applyDescription:
       "将周限额 {{weekly}}、月限额 {{monthly}}、总限额 {{total}} 保存为组织成员初始额度，并覆盖所有已有组织成员的限额，包括单独调整过的限额。不会清零已用额度；其他表单设置不受影响。",
     confirmReset: "确认重置额度",
@@ -388,11 +389,7 @@ export const zhCN = {
     runningMessageActionDescription:
       "当前任务仍在执行时，新消息会按此偏好自动处理，不再弹出选择窗口。",
     runningMessageActionSteer: "引导当前执行",
-    runningMessageActionSteerDescription:
-      "将纯文本补充要求立即追加到当前执行。含附件或指定插件/Skill 时会自动排队。",
     runningMessageActionQueue: "排队为下一条请求",
-    runningMessageActionQueueDescription:
-      "保留当前执行，待它结束后再自动处理新消息。",
     profilePageDescription: "更新你的显示姓名和头像。",
     taskAutoNaming: "自动命名任务名称",
     taskAutoNamingDescription:
@@ -2075,7 +2072,7 @@ export const zhCN = {
     },
     waitingGame: {
       title: "贪吃蛇",
-      enter: "双击或按回车键开始贪吃蛇游戏。",
+      enter: "单击或按回车键开始贪吃蛇游戏。",
       controls: "方向键、WASD 或滑动控制；双击或按 ESC 返回等待。",
     },
     imageGeneration: {

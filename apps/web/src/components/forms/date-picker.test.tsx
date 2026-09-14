@@ -12,9 +12,13 @@ import i18n from "@/i18n"
 function DatePickerHarness({
   initialValue = "",
   clearable = true,
+  size = "default",
+  disabled = false,
 }: {
   initialValue?: string
   clearable?: boolean
+  size?: "default" | "sm"
+  disabled?: boolean
 }) {
   const [value, setValue] = useState(initialValue)
   return (
@@ -28,6 +32,8 @@ function DatePickerHarness({
           placeholder="请选择"
           clearLabel="清除日期"
           clearable={clearable}
+          size={size}
+          disabled={disabled}
           onValueChange={setValue}
         />
       </FieldShell>
@@ -46,6 +52,45 @@ function findCalendarDay(value: string) {
 }
 
 describe("DatePicker", () => {
+  it.each(["default", "sm"] as const)(
+    "places a small clear action before the calendar icon without nesting buttons for %s",
+    async (size) => {
+      const interaction = userEvent.setup()
+      render(<DatePickerHarness initialValue="2026-07-11" size={size} />)
+      const trigger = screen.getByLabelText("测试日期")
+      const clear = screen.getByRole("button", { name: "清除日期" })
+      expect(trigger.parentElement).toHaveClass("relative")
+      expect(clear).toHaveClass("absolute", "right-9", "size-6")
+      expect(trigger).not.toContainElement(clear)
+      expect(trigger.querySelector("span")).toHaveClass("pr-8")
+      await interaction.click(clear)
+      expect(trigger).toHaveTextContent("请选择")
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "清除日期" })
+      ).not.toBeInTheDocument()
+      expect(trigger).toHaveFocus()
+    }
+  )
+
+  it("supports clearing with the keyboard and prevents clearing a disabled picker", async () => {
+    const interaction = userEvent.setup()
+    const { rerender } = render(
+      <DatePickerHarness initialValue="2026-07-11" disabled />
+    )
+    const clear = screen.getByRole("button", { name: "清除日期" })
+    expect(clear).toBeDisabled()
+    await interaction.click(clear)
+    expect(screen.getByLabelText("测试日期")).toHaveTextContent("2026年7月11日")
+    rerender(<DatePickerHarness initialValue="2026-07-11" />)
+    screen.getByLabelText("测试日期").focus()
+    await interaction.tab()
+    expect(clear).toHaveFocus()
+    await interaction.keyboard("{Enter}")
+    expect(screen.getByLabelText("测试日期")).toHaveTextContent("请选择")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
   })
@@ -92,7 +137,7 @@ describe("DatePicker", () => {
     render(<DatePickerHarness initialValue="2026-07-11" />)
 
     const trigger = screen.getByLabelText("测试日期")
-    expect(trigger).toHaveClass("bg-input/50")
+    expect(trigger).toHaveClass("bg-field")
     expect(trigger).not.toHaveClass("bg-secondary")
   })
 

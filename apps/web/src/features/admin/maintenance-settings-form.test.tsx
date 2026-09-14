@@ -95,6 +95,16 @@ describe("maintenance settings form", () => {
     const maintenanceSwitch = await screen.findByRole("switch", {
       name: "开启计划维护",
     })
+    const toggleRow = maintenanceSwitch.parentElement
+    expect(toggleRow).toHaveClass("flex", "items-center", "justify-between")
+    expect(toggleRow).not.toHaveClass("border")
+    expect(toggleRow).not.toHaveClass("rounded-card")
+    expect(toggleRow).not.toHaveClass("px-4")
+    expect(toggleRow).not.toHaveClass("py-3")
+    expect(toggleRow?.closest('[data-slot="card"]')).toHaveClass(
+      "rounded-card",
+      "border"
+    )
     const maintenanceHeading = screen.getByRole("heading", {
       name: "系统维护",
     })
@@ -334,7 +344,8 @@ describe("maintenance settings form", () => {
 
     const alert = screen.getByRole("alert")
     expect(alert).toHaveTextContent("结束时间必须晚于开始时间。")
-    expect(alert).toHaveClass("mt-3")
+    expect(alert.parentElement).toHaveClass("grid", "gap-4")
+    expect(alert).not.toHaveClass("mt-3")
     expect(requests.filter((request) => request.method === "PUT")).toHaveLength(
       0
     )

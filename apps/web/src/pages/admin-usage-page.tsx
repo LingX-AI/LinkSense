@@ -45,7 +45,8 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { FieldGroup } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
+import { SearchInput } from "@/components/ui/search-input"
 import {
   Select,
   SelectContent,
@@ -521,50 +522,50 @@ export function UsageAnalyticsPage() {
             </TabsList>
 
             <TabsContent value="models">
-              <Card>
-                <CardHeader>
+              <section className="flex min-w-0 flex-col gap-4">
+                <div className="flex flex-col gap-1">
                   <CardTitle>{t("usage.modelsTitle")}</CardTitle>
                   <CardDescription>
                     {t("usage.modelsDescription")} {t("usage.tableCostUnit")}
                   </CardDescription>
-                </CardHeader>
-                <CardContent>
+                </div>
+                <div className="flex min-w-0 flex-col gap-3">
                   <ModelUsageTable
                     models={report.models}
                     totalCost={report.totals.cost.total_cost}
                   />
-                </CardContent>
-              </Card>
+                </div>
+              </section>
             </TabsContent>
 
             <TabsContent value="workloads">
-              <Card>
-                <CardHeader>
+              <section className="flex min-w-0 flex-col gap-4">
+                <div className="flex flex-col gap-1">
                   <CardTitle>{t("usage.workloadsTitle")}</CardTitle>
                   <CardDescription>
                     {t("usage.workloadsDescription")} {t("usage.tableCostUnit")}
                   </CardDescription>
-                </CardHeader>
-                <CardContent>
+                </div>
+                <div className="flex min-w-0 flex-col gap-3">
                   <WorkloadUsageTable
                     workloads={report.workloads}
                     totalCost={report.totals.cost.total_cost}
                   />
-                </CardContent>
-              </Card>
+                </div>
+              </section>
             </TabsContent>
 
             <TabsContent value="applications">
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(24rem,0.85fr)]">
-                <Card>
-                  <CardHeader>
+                <section className="flex min-w-0 flex-col gap-4">
+                  <div className="flex flex-col gap-1">
                     <CardTitle>{t("usage.applicationsTitle")}</CardTitle>
                     <CardDescription>
                       {t("usage.applicationsDescription")}{" "}
                       {t("usage.tableCostUnit")}
                     </CardDescription>
-                  </CardHeader>
-                  <CardContent>
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-3">
                     <ApplicationUsageTable
                       applications={report.applications}
                       selectedKey={applicationSelectionKey(selectedApplication)}
@@ -574,8 +575,8 @@ export function UsageAnalyticsPage() {
                         })
                       }
                     />
-                  </CardContent>
-                </Card>
+                  </div>
+                </section>
                 <UsageDetailCard
                   title={
                     selectedApplication
@@ -595,8 +596,8 @@ export function UsageAnalyticsPage() {
 
             <TabsContent value="groups">
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(24rem,0.85fr)]">
-                <Card>
-                  <CardHeader>
+                <section className="flex min-w-0 flex-col gap-4">
+                  <div className="flex flex-col gap-1">
                     <CardTitle className="flex flex-wrap items-center gap-2">
                       {t("usage.groupsTitle")}
                       <Badge variant="outline">
@@ -606,8 +607,8 @@ export function UsageAnalyticsPage() {
                     <CardDescription>
                       {t("usage.groupsDescription")} {t("usage.tableCostUnit")}
                     </CardDescription>
-                  </CardHeader>
-                  <CardContent>
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-3">
                     <GroupUsageTable
                       groups={report.groups}
                       selectedKey={groupSelectionKey(selectedGroup)}
@@ -615,8 +616,8 @@ export function UsageAnalyticsPage() {
                         updateUsageParams({ group: groupSelectionKey(group) })
                       }
                     />
-                  </CardContent>
-                </Card>
+                  </div>
+                </section>
                 <UsageDetailCard
                   title={
                     selectedGroup
@@ -638,31 +639,29 @@ export function UsageAnalyticsPage() {
 
             <TabsContent value="users">
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(24rem,0.8fr)]">
-                <Card>
-                  <CardHeader>
+                <section className="flex min-w-0 flex-col gap-4">
+                  <div className="flex flex-col gap-1">
                     <CardTitle>{t("usage.usersTitle")}</CardTitle>
                     <CardDescription>
                       {t("usage.usersDescription")} {t("usage.tableCostUnit")}
                     </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="relative max-w-sm">
-                      <SearchIcon
-                        aria-hidden="true"
-                        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                      />
-                      <Input
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-3">
+                    <InputGroup className="max-w-sm">
+                      <InputGroupAddon>
+                        <SearchIcon aria-hidden="true" />
+                      </InputGroupAddon>
+                      <SearchInput
                         value={userSearch}
-                        onChange={(event) =>
+                        onValueChange={(value) =>
                           updateUsageParams({
-                            user_search: event.target.value,
+                            user_search: value,
                           })
                         }
                         aria-label={t("usage.searchUsers")}
                         placeholder={t("usage.searchUsers")}
-                        className="pl-9"
                       />
-                    </div>
+                    </InputGroup>
                     <UserUsageTable
                       users={visibleUsers}
                       selectedUserId={selectedUser?.user_id ?? null}
@@ -671,8 +670,8 @@ export function UsageAnalyticsPage() {
                         updateUsageParams({ user: user.user_id })
                       }
                     />
-                  </CardContent>
-                </Card>
+                  </div>
+                </section>
                 <UsageDetailCard
                   title={selectedUser?.name ?? t("usage.noSelection")}
                   description={
@@ -1117,7 +1116,7 @@ function UsageDetailCard({
       </CardHeader>
       <CardContent className="space-y-4">
         {metrics && (
-          <dl className="grid grid-cols-2 gap-3 rounded-xl bg-muted/40 p-3 sm:grid-cols-3">
+          <dl className="grid grid-cols-2 gap-3 rounded-card bg-card-soft p-3 sm:grid-cols-3">
             <CompactMetric
               label={t("usage.tasks")}
               value={formatIntegerCount(metrics.task_count, language)}
@@ -1217,7 +1216,10 @@ function ModelUsageTable({
   }
   return (
     <div className="data-table-scroll">
-      <Table aria-label={t("usage.modelBreakdown")}>
+      <Table
+        appearance={compact ? "plain" : "card"}
+        aria-label={t("usage.modelBreakdown")}
+      >
         <TableHeader>
           <TableRow>
             <SortableTableHead
@@ -1469,7 +1471,7 @@ function GroupUsageTable({
   )
   return (
     <div className="data-table-scroll">
-      <Table aria-label={t("usage.groupsTitle")}>
+      <Table appearance="card" aria-label={t("usage.groupsTitle")}>
         <TableHeader>
           <TableRow>
             <SortableTableHead
@@ -1602,7 +1604,7 @@ function ApplicationUsageTable({
   }
   return (
     <div className="data-table-scroll">
-      <Table aria-label={t("usage.applicationsTitle")}>
+      <Table appearance="card" aria-label={t("usage.applicationsTitle")}>
         <TableHeader>
           <TableRow>
             <SortableTableHead
@@ -1741,7 +1743,7 @@ function UserUsageTable({
   }
   return (
     <div className="data-table-scroll">
-      <Table aria-label={t("usage.usersTitle")}>
+      <Table appearance="card" aria-label={t("usage.usersTitle")}>
         <TableHeader>
           <TableRow>
             <SortableTableHead
@@ -1878,7 +1880,7 @@ function WorkloadUsageTable({
   }
   return (
     <div className="data-table-scroll">
-      <Table aria-label={t("usage.workloadsTitle")}>
+      <Table appearance="card" aria-label={t("usage.workloadsTitle")}>
         <TableHeader>
           <TableRow>
             <SortableTableHead
@@ -2036,7 +2038,7 @@ function SortableTableHead<Key extends string>({
         variant="ghost"
         size="xs"
         className={cn(
-          "-mx-2 h-7 px-2 font-medium",
+          "-mx-2 h-7 px-2 text-sm font-medium",
           align === "right" && "-mr-2 ml-auto"
         )}
         aria-label={t(`usage.sort.${nextDirection}`, { field: label })}

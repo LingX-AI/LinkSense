@@ -68,6 +68,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { readUrlEnum, updateUrlSearchParams } from "@/lib/url-search-params"
+import { SearchInput } from "@/components/ui/search-input"
 import {
   Table,
   TableBody,
@@ -337,13 +338,13 @@ export function AdminKnowledgeBasePage() {
             <InputGroupAddon>
               <SearchIcon aria-hidden="true" />
             </InputGroupAddon>
-            <InputGroupInput
+            <SearchInput
               value={search}
               aria-label={t("adminKnowledge.search")}
               placeholder={t("adminKnowledge.search")}
-              onChange={(event) => {
+              onValueChange={(value) => {
                 updateListParams({
-                  search: event.currentTarget.value,
+                  search: value,
                   cursor: null,
                 })
                 setCursorStack([])
@@ -390,7 +391,7 @@ export function AdminKnowledgeBasePage() {
         )}
         {items.length > 0 && (
           <div className="admin-knowledge-table" aria-busy={list.isFetching}>
-            <Table>
+            <Table appearance="card">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[300px]">

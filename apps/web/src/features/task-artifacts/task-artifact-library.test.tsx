@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -39,6 +40,52 @@ const taskId = "20000000-0000-4000-8000-000000000001"
 const archivedTaskId = "20000000-0000-4000-8000-000000000002"
 
 describe("task artifact library", () => {
+  it("commits Chinese search only after composition and preserves spaces between words", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          success: true,
+          data: { items: [], next_cursor: null },
+        })
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    renderLibrary("/knowledge-bases?tab=artifacts&file_type=pdf&kb_scope=owned")
+    const input = screen.getByRole("textbox", { name: "搜索任务标题或文件名…" })
+    await screen.findByText("没有匹配的任务产物")
+    fetchMock.mockClear()
+    fireEvent.compositionStart(input)
+    fireEvent.input(input, { target: { value: "ji" }, isComposing: true })
+    expect(input).toHaveValue("ji")
+    await act(async () => {})
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId("library-location")).not.toHaveTextContent(
+      "search="
+    )
+    fireEvent.input(input, { target: { value: "季度" }, isComposing: true })
+    fireEvent.compositionEnd(input, { data: "季度" })
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("search=%E5%AD%A3%E5%BA%A6"),
+        expect.anything()
+      )
+    )
+    await userEvent.type(input, " report")
+    expect(input).toHaveValue("季度 report")
+    const params = new URLSearchParams(
+      screen.getByTestId("library-location").textContent ?? ""
+    )
+    expect(params.get("search")).toBe("季度 report")
+    expect(params.get("file_type")).toBe("pdf")
+    expect(params.get("kb_scope")).toBe("owned")
+    await userEvent.click(screen.getByRole("button", { name: "清除" }))
+    expect(input).toHaveValue("")
+    expect(input).toHaveFocus()
+    expect(screen.getByTestId("library-location")).not.toHaveTextContent(
+      "search="
+    )
+  })
+
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
   })

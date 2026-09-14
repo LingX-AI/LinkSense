@@ -6,7 +6,7 @@ export type ResolvedTheme = Exclude<ThemePreference, "system">
 const THEME_STORAGE_KEY = "linksense.theme"
 const THEME_COLORS: Record<ResolvedTheme, string> = {
   light: "#ffffff",
-  dark: "#000000",
+  dark: "#141414",
 }
 export const SYSTEM_THEME_QUERY = "(prefers-color-scheme: dark)"
 

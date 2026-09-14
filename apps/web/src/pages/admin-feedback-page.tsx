@@ -116,7 +116,7 @@ export function AdminFeedbackPage() {
         <EmptyState title={t("adminFeedback.empty")} />
       ) : (
         <>
-          <Table>
+          <Table appearance="card">
             <TableHeader>
               <TableRow>
                 <TableHead>{t("adminFeedback.submitter")}</TableHead>

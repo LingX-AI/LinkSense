@@ -9,7 +9,7 @@ describe("administrator user-management table layout", () => {
       /\.user-management-table\s*\{[^}]*min-width:\s*1600px;[^}]*border-spacing:\s*0;[^}]*border-collapse:\s*separate;[^}]*isolation:\s*isolate;/u
     )
     expect(appStyles).toMatch(
-      /\.user-management-selection-column,\s*\.user-management-name-column,\s*\.user-management-actions-column\s*\{[^}]*--user-management-sticky-overlay:\s*transparent;[^}]*position:\s*sticky;[^}]*z-index:\s*10;[^}]*background:\s*linear-gradient\(\s*var\(--user-management-sticky-overlay\),\s*var\(--user-management-sticky-overlay\)\s*\),\s*var\(--app-canvas\)\s*!important;/u
+      /\.user-management-selection-column,\s*\.user-management-name-column,\s*\.user-management-actions-column\s*\{[^}]*--user-management-sticky-overlay:\s*transparent;[^}]*position:\s*sticky;[^}]*z-index:\s*10;[^}]*background:\s*linear-gradient\(\s*var\(--user-management-sticky-overlay\),\s*var\(--user-management-sticky-overlay\)\s*\),\s*var\(--card\)\s*!important;/u
     )
     expect(appStyles).toMatch(
       /\.user-management-table\s+\[data-slot="table-row"\]:hover\s+\.user-management-selection-column,\s*\.user-management-table\s+\[data-slot="table-row"\]:hover\s+\.user-management-name-column,\s*\.user-management-table\s+\[data-slot="table-row"\]:hover\s+\.user-management-actions-column\s*\{[^}]*--user-management-sticky-overlay:\s*color-mix\(\s*in srgb,\s*var\(--app-hover\) 72%,\s*transparent\s*\);/u

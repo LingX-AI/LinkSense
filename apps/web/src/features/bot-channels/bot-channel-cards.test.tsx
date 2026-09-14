@@ -172,7 +172,8 @@ it("uses brand-colored channel icons and the shared right-side connect action la
     )
     expect(card).toHaveClass("channel-access-card-manageable")
     expect(actions).toContainElement(connect)
-    expect(connect).toHaveClass("bg-primary")
+    expect(connect).toHaveClass("bg-secondary", "text-secondary-foreground")
+    expect(connect).not.toHaveClass("bg-primary")
     expect(connect.querySelector('[data-icon="inline-start"]')).toBeVisible()
   }
 })

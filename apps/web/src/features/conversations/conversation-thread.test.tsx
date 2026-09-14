@@ -969,7 +969,7 @@ describe("conversation turn responses", () => {
 
     const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
       .mockReturnValue(new DOMRect(0, 0, 384, 256))
-    fireEvent.doubleClick(screen.getByRole("status", { name: "正在生成交互组件…" }))
+    fireEvent.click(screen.getByRole("status", { name: "正在生成交互组件…" }))
     bounds.mockRestore()
     const game = screen.getByRole("application", { name: "贪吃蛇" })
     expect(game).toBeVisible()
@@ -4163,7 +4163,7 @@ describe("conversation turn responses", () => {
 
     const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
       .mockReturnValue(new DOMRect(0, 0, 384, 256))
-    fireEvent.doubleClick(loading)
+    fireEvent.click(loading)
     bounds.mockRestore()
     expect(screen.getByRole("application", { name: "贪吃蛇" })).toBeVisible()
 

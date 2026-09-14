@@ -146,20 +146,20 @@ describe("form control radius", () => {
 
     expect(
       screen.getByRole("textbox", { name: "Subdued focus input" })
-    ).toHaveClass("focus-visible:bg-input/65")
+    ).toHaveClass("focus-visible:bg-field-focus")
     expect(
       screen.getByRole("textbox", { name: "Subdued focus textarea" })
-    ).toHaveClass("focus-visible:bg-input/65")
+    ).toHaveClass("focus-visible:bg-field-focus")
     expect(
       screen.getByRole("group", { name: "Subdued focus group" })
     ).toHaveClass(
-      "has-[[data-slot=input-group-control]:focus-visible]:bg-input/65"
+      "has-[[data-slot=input-group-control]:focus-visible]:bg-field-focus"
     )
     expect(
       screen.getByRole("combobox", { name: "Subdued focus select" })
-    ).toHaveClass("focus-visible:bg-input/65")
+    ).toHaveClass("focus-visible:bg-field-focus")
     expect(screen.getByLabelText("Subdued focus combobox chips")).toHaveClass(
-      "focus-within:bg-input/65"
+      "focus-within:bg-field-focus"
     )
 
     for (const control of [

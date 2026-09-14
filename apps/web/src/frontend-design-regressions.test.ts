@@ -17,6 +17,13 @@ import { enUS } from "@/i18n/en-US"
 import { zhCN } from "@/i18n/zh-CN"
 
 describe("frontend design regressions", () => {
+  it("suppresses browser clear controls for all inputs", () => {
+    expect(appStyles).toMatch(
+      /input::-webkit-search-cancel-button\s*\{[^}]*appearance:\s*none;[^}]*display:\s*none;/u
+    )
+    expect(appStyles).toMatch(/input::-ms-clear\s*\{[^}]*display:\s*none;/u)
+  })
+
   it("contains scroll chaining in every modal surface", () => {
     expect(dialogSource).toContain("overscroll-contain")
     expect(alertDialogSource).toContain("overscroll-contain")
@@ -62,7 +69,7 @@ describe("frontend design regressions", () => {
       /:root\s*\{[\s\S]*?--sidebar:\s*#f5f5f5;[\s\S]*?--app-sidebar:\s*#f5f5f5;/u
     )
     expect(appStyles).toMatch(
-      /\.dark\s*\{[\s\S]*?--app-canvas:\s*#000000;[\s\S]*?--app-sidebar:\s*#202020;/u
+      /\.dark\s*\{[\s\S]*?--app-canvas:\s*#141414;[\s\S]*?--app-sidebar:\s*#202020;/u
     )
   })
 

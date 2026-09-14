@@ -13,8 +13,14 @@ test("the concise bilingual READMEs expose the same public entry points", async 
     readFile(englishPath, "utf8"),
   ])
 
-  assert.ok(chinese.split("\n").length <= 175)
-  assert.ok(english.split("\n").length <= 175)
+  // Count editorial content separately so new contributors cannot break this limit.
+  for (const source of [chinese, english]) {
+    const editorial = source.replace(
+      /<!-- contributors:start -->[\s\S]*?<!-- contributors:end -->/u,
+      "<!-- contributors -->",
+    )
+    assert.ok(editorial.split("\n").length <= 185)
+  }
   assert.match(chinese, /\[English\]\(\.\/README\.md\)/u)
   assert.match(english, /\[简体中文\]\(\.\/README\.zh-CN\.md\)/u)
   assert.match(chinese, /我们/u)
@@ -36,6 +42,7 @@ test("the concise bilingual READMEs expose the same public entry points", async 
     "### AI 开发指南",
     "## 源码构建（Docker）",
     "## 开源协议",
+    "## 贡献者",
   ]) {
     assert.match(chinese, new RegExp(`^${escapeRegExp(heading)}$`, "mu"))
   }
@@ -49,6 +56,7 @@ test("the concise bilingual READMEs expose the same public entry points", async 
     "### AI development guide",
     "## Building from source with Docker",
     "## License",
+    "## Contributors",
   ]) {
     assert.match(english, new RegExp(`^${escapeRegExp(heading)}$`, "mu"))
   }
@@ -95,6 +103,26 @@ test("every relative README link resolves to a repository file", async () => {
       await access(path.resolve(path.dirname(readmePath), target))
     }
   }
+})
+
+test("both READMEs end with the same accessible contributor avatars after the license", async () => {
+  const [english, chinese] = await Promise.all([
+    readFile(englishPath, "utf8"),
+    readFile(chinesePath, "utf8"),
+  ])
+  const blocks = [english, chinese].map((source) => {
+    assert.equal(source.split("<!-- contributors:start -->").length, 2)
+    assert.equal(source.split("<!-- contributors:end -->").length, 2)
+    assert.match(source, /<!-- contributors:end -->\s*$/u)
+    const block = source.match(/<!-- contributors:start -->([\s\S]*?)<!-- contributors:end -->/u)?.[1]
+    assert.ok(block)
+    assert.match(block, /<a href="https:\/\/github\.com\/[A-Za-z0-9-]+"><img src="https:\/\/avatars\.githubusercontent\.com\/u\/\d+\?s=128" width="64" height="64" alt="[A-Za-z0-9-]+" title="[A-Za-z0-9-]+" \/><\/a>/u)
+    assert.doesNotMatch(block, /contrib\.rocks|token=|access_token|\[bot\]/iu)
+    return block
+  })
+  assert.equal(blocks[0], blocks[1])
+  assert.ok(english.indexOf("## Contributors") > english.indexOf("## License"))
+  assert.ok(chinese.indexOf("## 贡献者") > chinese.indexOf("## 开源协议"))
 })
 
 function escapeRegExp(value) {

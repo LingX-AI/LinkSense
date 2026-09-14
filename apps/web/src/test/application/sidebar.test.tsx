@@ -370,7 +370,7 @@ describe("LinkSense application", () => {
     const titleInput = within(dialog).getByRole("textbox", { name: "任务" })
     expect(titleInput).toHaveValue(conversations[0]!.title)
     expect(titleInput).toHaveClass("font-medium")
-    expect(titleInput).toHaveClass("focus-visible:bg-input/65")
+    expect(titleInput).toHaveClass("focus-visible:bg-field-focus")
     expect(titleInput).not.toHaveClass(
       "focus-visible:border-input-focus-border"
     )

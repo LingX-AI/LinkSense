@@ -1,3 +1,4 @@
+import { SettingsCard } from "@/components/settings/settings-card"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import dayjs from "dayjs"
 import { useCallback, useState, type FormEvent } from "react"
@@ -225,7 +226,7 @@ function MaintenanceSettingsEditor({
     enabled && settings.active ? "active" : enabled ? "scheduled" : "disabled"
 
   return (
-    <section
+    <SettingsCard
       className="settings-section"
       aria-labelledby="maintenance-settings-title"
     >
@@ -239,13 +240,9 @@ function MaintenanceSettingsEditor({
           </Badge>
         }
       />
-      {error && (
-        <StatusBanner className="mt-3" variant="error">
-          {error}
-        </StatusBanner>
-      )}
+      {error && <StatusBanner variant="error">{error}</StatusBanner>}
       <form
-        className="form-stack settings-form"
+        className="form-stack"
         onSubmit={(event: FormEvent) => {
           event.preventDefault()
           onUpdateStart()
@@ -254,7 +251,7 @@ function MaintenanceSettingsEditor({
           if (!validationError) mutation.mutate(createPayload())
         }}
       >
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-muted-foreground/20 bg-background px-4 py-3">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <Label htmlFor="maintenance-enabled" className="font-medium">
               {t("admin.maintenance.enabled")}
@@ -414,7 +411,7 @@ function MaintenanceSettingsEditor({
             <p className="text-sm text-muted-foreground">
               {t("admin.maintenance.timezoneHint")}
             </p>
-            <div>
+            <div className="flex flex-wrap justify-end gap-2">
               <Button
                 type="submit"
                 size="lg"
@@ -428,7 +425,7 @@ function MaintenanceSettingsEditor({
           </>
         )}
       </form>
-    </section>
+    </SettingsCard>
   )
 }
 

@@ -40,7 +40,6 @@ describe("archive preview layout", () => {
       ".archive-preview-safety-note",
       ".archive-preview-tree-button",
       ".archive-preview-table",
-      '.archive-preview-table [data-slot="table-head"]',
       ".archive-preview-item-type",
       ".archive-preview-encrypted-badge",
       ".archive-preview-empty-state",
@@ -61,9 +60,7 @@ describe("archive preview layout", () => {
       /\.archive-preview-item-name,\s*\.archive-preview-item-button\s*\{(?<body>[^}]*)\}/u
     )?.groups?.body
 
-    expect(itemNameRule).toMatch(
-      /font-size:\s*var\(--app-ui-font-size\);/u
-    )
+    expect(itemNameRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
     expect(itemNameRule).toMatch(
       /line-height:\s*var\(--app-ui-compact-line-height\);/u
     )
@@ -77,36 +74,28 @@ describe("archive preview layout", () => {
       /min-height:\s*calc\(var\(--app-ui-compact-line-height\) \+ 24px\);/u
     )
     expect(
-      declarationFor(".archive-preview-table [data-slot=\"table-head\"]")
-    ).toMatch(
-      /height:\s*calc\(var\(--app-ui-compact-line-height\) \+ 14px\);/u
-    )
+      declarationFor('.archive-preview-table [data-slot="table-head"]')
+    ).toMatch(/height:\s*calc\(var\(--app-ui-compact-line-height\) \+ 14px\);/u)
     expect(
-      declarationFor(".archive-preview-table [data-slot=\"table-cell\"]")
-    ).toMatch(
-      /height:\s*calc\(var\(--app-ui-compact-line-height\) \+ 20px\);/u
-    )
+      declarationFor('.archive-preview-table [data-slot="table-cell"]')
+    ).toMatch(/height:\s*calc\(var\(--app-ui-compact-line-height\) \+ 20px\);/u)
     expect(declarationFor(".archive-preview-breadcrumb-separator")).toMatch(
       /width:\s*var\(--app-ui-font-size\);/u
     )
     expect(declarationFor(".archive-preview-encrypted-badge")).toMatch(
       /height:\s*var\(--app-ui-compact-line-height\);/u
     )
-    expect(declarationFor(".archive-preview-entry-file > .file-type-icon")).toMatch(
-      /width:\s*var\(--app-ui-font-size\);/u
-    )
+    expect(
+      declarationFor(".archive-preview-entry-file > .file-type-icon")
+    ).toMatch(/width:\s*var\(--app-ui-font-size\);/u)
   })
 
   it("places the code wrapping control in the entry toolbar at the UI text size", () => {
     expect(declarationFor(".archive-preview-entry-actions")).toMatch(
       /margin-left:\s*auto;/u
     )
-    const wrapButtonRule = declarationFor(
-      ".read-only-file-preview-wrap-button"
-    )
-    expect(wrapButtonRule).toMatch(
-      /font-size:\s*var\(--app-ui-font-size\);/u
-    )
+    const wrapButtonRule = declarationFor(".read-only-file-preview-wrap-button")
+    expect(wrapButtonRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
     expect(wrapButtonRule).toMatch(
       /line-height:\s*var\(--app-ui-compact-line-height\);/u
     )

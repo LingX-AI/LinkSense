@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -479,6 +480,37 @@ function createFetchMock(options: {
 }
 
 describe("knowledge-base document and access management", () => {
+  it.each(["active", "archived"])(
+    "keeps Chinese composition in the %s library input until the candidate is committed",
+    async (lifecycle) => {
+      const fetchMock = createFetchMock({ knowledgeBases: [] })
+      vi.stubGlobal("fetch", fetchMock)
+      renderListPage()
+      if (lifecycle === "archived") {
+        await userEvent.click(screen.getByRole("tab", { name: "已归档" }))
+      }
+      const input = screen.getByRole("textbox", {
+        name: i18n.t("knowledge.searchPlaceholder"),
+      })
+      await screen.findByText("暂无知识库")
+      fetchMock.mockClear()
+      fireEvent.compositionStart(input)
+      fireEvent.input(input, { target: { value: "zhi" }, isComposing: true })
+      expect(input).toHaveValue("zhi")
+      await act(async () => {})
+      expect(fetchMock).not.toHaveBeenCalled()
+      fireEvent.input(input, { target: { value: "知识" }, isComposing: true })
+      fireEvent.compositionEnd(input, { data: "知识" })
+      expect(input).toHaveValue("知识")
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.stringContaining("search=%E7%9F%A5%E8%AF%86"),
+          expect.anything()
+        )
+      })
+    }
+  )
+
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
     setAccessToken("knowledge-management-token")
@@ -828,7 +860,7 @@ describe("knowledge-base document and access management", () => {
     })
     expect(knowledgeBaseLink.closest("section")).toHaveClass(
       "knowledge-card-list",
-      "rounded-[var(--radius-2xl)]"
+      "rounded-card"
     )
     const card = knowledgeBaseLink.querySelector('[data-slot="card"]')
     expect(knowledgeBaseLink).toHaveClass("knowledge-card-link")
@@ -1394,6 +1426,43 @@ describe("knowledge-base document and access management", () => {
     )
     expect(screen.getByText("84%")).toBeVisible()
   })
+
+  it.each([
+    { isComposing: true, keyCode: 13 },
+    { isComposing: false, keyCode: 229 },
+  ])(
+    "does not submit document renaming when Enter commits an IME candidate ($isComposing/$keyCode)",
+    async (keyboardEvent) => {
+      const fetchMock = createFetchMock({})
+      vi.stubGlobal("fetch", fetchMock)
+      renderDetailPage()
+      await userEvent.click(
+        await screen.findByRole("button", { name: "管理文档 方案 A.pdf" })
+      )
+      await userEvent.click(
+        await screen.findByRole("menuitem", { name: "重命名" })
+      )
+      const dialog = await screen.findByRole("dialog", { name: "重命名文档" })
+      const input = within(dialog).getByRole("textbox", { name: "文档名称" })
+      fireEvent.change(input, { target: { value: "新方案.pdf" } })
+      fireEvent.keyDown(input, { key: "Enter", ...keyboardEvent })
+      await act(async () => {})
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")
+      ).toHaveLength(0)
+      expect(dialog).toBeVisible()
+      fireEvent.keyDown(input, {
+        key: "Enter",
+        isComposing: false,
+        keyCode: 13,
+      })
+      await waitFor(() =>
+        expect(
+          fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")
+        ).toHaveLength(1)
+      )
+    }
+  )
 
   it("submits selected rebuilds and renames through explicit controls", async () => {
     const fetchMock = createFetchMock({})

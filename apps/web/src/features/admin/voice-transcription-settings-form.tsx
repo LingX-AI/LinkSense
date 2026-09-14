@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
+import { VoiceTranscriptionProviderLogo } from "./voice-transcription-provider-logo"
 
 const MASKED_API_KEY = "••••••••••••"
 type ProviderOptionKey = VoiceTranscriptionProvider | ""
@@ -121,6 +122,9 @@ export function VoiceTranscriptionSettingsForm({
     value: candidate.key,
     label: t(`admin.voiceTranscription.providers.${candidate.key}`),
   }))
+  const selectedProviderItem = providerItems.find(
+    (item) => item.value === provider
+  )
 
   return (
     <section
@@ -138,7 +142,7 @@ export function VoiceTranscriptionSettingsForm({
       >
         <div
           data-slot="model-settings-card"
-          className="grid min-w-0 gap-4 rounded-2xl border border-[color:var(--app-border)] bg-card p-4"
+          className="grid min-w-0 gap-4 rounded-card border border-[color:var(--app-border)] bg-card p-4"
         >
           <SettingsSectionHeader
             id={`${idPrefix}-title`}
@@ -174,16 +178,24 @@ export function VoiceTranscriptionSettingsForm({
                 }}
               >
                 <SelectTrigger id={`${idPrefix}-provider`} className="w-full">
-                  <SelectValue
-                    placeholder={t(
-                      "admin.voiceTranscription.providerPlaceholder"
-                    )}
-                  />
+                  {provider && selectedProviderItem ? (
+                    <SelectValue>
+                      <VoiceTranscriptionProviderLogo provider={provider} />
+                      {selectedProviderItem.label}
+                    </SelectValue>
+                  ) : (
+                    <SelectValue
+                      placeholder={t(
+                        "admin.voiceTranscription.providerPlaceholder"
+                      )}
+                    />
+                  )}
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
                     {providerItems.map((item) => (
                       <SelectItem key={item.value} value={item.value}>
+                        <VoiceTranscriptionProviderLogo provider={item.value} />
                         {item.label}
                       </SelectItem>
                     ))}
@@ -281,19 +293,18 @@ export function VoiceTranscriptionSettingsForm({
               {t("admin.voiceTranscription.enabled")}
             </Label>
           </div>
-        </div>
-
-        <div>
-          <Button
-            type="submit"
-            disabled={readOnly || !formValid || mutation.isPending}
-            aria-busy={mutation.isPending || undefined}
-          >
-            {mutation.isPending && <Spinner data-icon="inline-start" />}
-            {mutation.isPending
-              ? t("admin.voiceTranscription.saving")
-              : t("admin.voiceTranscription.save")}
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="submit"
+              disabled={readOnly || !formValid || mutation.isPending}
+              aria-busy={mutation.isPending || undefined}
+            >
+              {mutation.isPending && <Spinner data-icon="inline-start" />}
+              {mutation.isPending
+                ? t("admin.voiceTranscription.saving")
+                : t("admin.voiceTranscription.save")}
+            </Button>
+          </div>
         </div>
       </form>
     </section>

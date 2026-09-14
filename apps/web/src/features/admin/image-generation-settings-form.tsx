@@ -215,7 +215,7 @@ export function ImageGenerationSettingsForm({
       >
         <div
           data-slot="model-settings-card"
-          className="grid min-w-0 gap-4 rounded-2xl border border-[color:var(--app-border)] bg-card p-4"
+          className="grid min-w-0 gap-4 rounded-card border border-[color:var(--app-border)] bg-card p-4"
         >
           <SettingsSectionHeader
             id={`${idPrefix}-title`}
@@ -401,19 +401,18 @@ export function ImageGenerationSettingsForm({
               {t("admin.imageGeneration.enabled")}
             </Label>
           </div>
-        </div>
-
-        <div>
-          <Button
-            type="submit"
-            disabled={readOnly || !formValid || mutation.isPending}
-            aria-busy={mutation.isPending || undefined}
-          >
-            {mutation.isPending && <Spinner data-icon="inline-start" />}
-            {mutation.isPending
-              ? t("admin.imageGeneration.saving")
-              : t("admin.imageGeneration.save")}
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="submit"
+              disabled={readOnly || !formValid || mutation.isPending}
+              aria-busy={mutation.isPending || undefined}
+            >
+              {mutation.isPending && <Spinner data-icon="inline-start" />}
+              {mutation.isPending
+                ? t("admin.imageGeneration.saving")
+                : t("admin.imageGeneration.save")}
+            </Button>
+          </div>
         </div>
       </form>
     </section>
