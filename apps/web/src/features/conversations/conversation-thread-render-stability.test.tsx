@@ -56,7 +56,7 @@ function createConversation(
     id: "conversation-render-stability",
     title: "消息流渲染稳定性",
     archived: false,
-    category_id: null,
+    project_id: null,
     collaboration_mode: "default",
     user_input_requests: [],
     updated_at: "2026-08-02T08:00:02.000Z",

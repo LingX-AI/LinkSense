@@ -132,14 +132,14 @@ export class PrismaAuthRepository implements AuthPersistence {
 
   async findUserByEmail(email: string): Promise<AuthUserRecord | null> {
     const user = await this.prisma.user.findFirst({
-      where: { email, accountType: "member" },
+      where: { email },
     })
     return user ? mapUser(user) : null
   }
 
   async findUserById(id: string): Promise<AuthUserRecord | null> {
     const user = await this.prisma.user.findFirst({
-      where: { id, accountType: "member" },
+      where: { id },
     })
     return user ? mapUser(user) : null
   }

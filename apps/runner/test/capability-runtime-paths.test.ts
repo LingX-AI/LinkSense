@@ -2,24 +2,24 @@ import { describe, expect, it } from "vitest"
 
 import { CapabilityRuntimeManager } from "../src/workspace/capability-runtime.js"
 
-describe("CapabilityRuntimeManager task projection", () => {
-  it("derives capability paths from the isolated task home", () => {
+describe("CapabilityRuntimeManager user projection", () => {
+  it("derives capability paths from the shared user home", () => {
     const manager = new CapabilityRuntimeManager()
 
     expect(
       manager.pathsFor(
-        "/srv/linksense/users/owner/home/task-homes/01900000-0000-7000-8000-000000000001",
-        "/srv/linksense/users/owner/control/workspaces/01900000-0000-7000-8000-000000000001",
+        "/srv/linksense/users/owner/home",
+        "/srv/linksense/users/owner/control",
       ),
     ).toEqual({
       skillsRoot:
-        "/srv/linksense/users/owner/home/task-homes/01900000-0000-7000-8000-000000000001/.agents/skills",
+        "/srv/linksense/users/owner/home/.agents/current/skills",
       pluginSourceRoot:
-        "/srv/linksense/users/owner/home/task-homes/01900000-0000-7000-8000-000000000001/.agents/plugin-sources",
+        "/srv/linksense/users/owner/home/.agents/current/plugin-sources",
       marketplacePath:
-        "/srv/linksense/users/owner/home/task-homes/01900000-0000-7000-8000-000000000001/.agents/plugins/marketplace.json",
+        "/srv/linksense/users/owner/home/.agents/current/plugins/marketplace.json",
       capabilityControl:
-        "/srv/linksense/users/owner/control/workspaces/01900000-0000-7000-8000-000000000001/capabilities",
+        "/srv/linksense/users/owner/control/capabilities",
     })
   })
 })

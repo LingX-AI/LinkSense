@@ -1033,7 +1033,6 @@ export class AppServerProcessPool {
       if (managed) await this.closeManagedProcess(managed);
       return this.options.workspaceManager.ensureConversation(
         conversationId,
-        this.options.templateVersion,
       );
     });
   }
@@ -1521,7 +1520,6 @@ export class AppServerProcessPool {
               })
           : this.options.workspaceManager.ensureConversation(
               input.conversationId,
-              this.options.templateVersion,
             ),
         this.options.runtimeEnvironmentForOwner?.(input.ownerId) ??
           Promise.resolve({}),
@@ -1603,7 +1601,6 @@ export class AppServerProcessPool {
         if (!runtimeWasEnsured) {
           paths = await this.options.workspaceManager.ensureConversation(
             input.conversationId,
-            this.options.templateVersion,
           );
           runtimeWasEnsured = true;
           if (paths.runtimeGeneration !== input.expectedRuntimeGeneration) {
@@ -1950,6 +1947,7 @@ export class AppServerProcessPool {
         input.collaborationMode,
         planSkillReferences,
         this.options.managedBrowserMcpArgs !== undefined,
+        (await this.options.workspaceManager.getPersonalization(input.ownerId)).custom_instructions,
       );
       const additionalContext = turnAdditionalContext
         ? prepareCodexAdditionalContext(turnAdditionalContext)
@@ -3553,7 +3551,6 @@ export class AppServerProcessPool {
             })
         : await this.options.workspaceManager.ensureConversation(
             input.conversationId,
-            this.options.templateVersion,
           );
       if (paths.runtimeGeneration !== input.expectedRuntimeGeneration) {
         throw new StartOperationRuntimeGenerationMismatchError();
@@ -3634,7 +3631,6 @@ export class AppServerProcessPool {
         if (!runtimeWasEnsured) {
           paths = await this.options.workspaceManager.ensureConversation(
             input.conversationId,
-            this.options.templateVersion,
           );
           if (paths.runtimeGeneration !== input.expectedRuntimeGeneration) {
             throw new StartOperationRuntimeGenerationMismatchError();
@@ -4854,21 +4850,22 @@ export class AppServerProcessPool {
     conversationId: string,
     operation: () => Promise<T>,
   ): Promise<T> {
+    const ownerId = this.options.workspaceManager.ownerFor(conversationId);
     const previous =
-      this.taskCapabilityLocks.get(conversationId) ?? Promise.resolve();
+      this.taskCapabilityLocks.get(ownerId) ?? Promise.resolve();
     let release: () => void = () => undefined;
     const current = new Promise<void>((resolve) => {
       release = resolve;
     });
     const tail = previous.then(() => current);
-    this.taskCapabilityLocks.set(conversationId, tail);
+    this.taskCapabilityLocks.set(ownerId, tail);
     await previous;
     try {
       return await operation();
     } finally {
       release();
-      if (this.taskCapabilityLocks.get(conversationId) === tail) {
-        this.taskCapabilityLocks.delete(conversationId);
+      if (this.taskCapabilityLocks.get(ownerId) === tail) {
+        this.taskCapabilityLocks.delete(ownerId);
       }
     }
   }
@@ -4880,7 +4877,7 @@ export class AppServerProcessPool {
     controlRoot: string;
     generation: string;
   }): Promise<TaskCapabilityLeaseToken> {
-    let lease = this.taskCapabilityLeases.get(input.conversationId);
+    let lease = this.taskCapabilityLeases.get(input.ownerId);
     if (lease) {
       if (
         lease.generation !== input.generation ||
@@ -4903,7 +4900,7 @@ export class AppServerProcessPool {
         holders: new Set(),
         release: acquired.release,
       };
-      this.taskCapabilityLeases.set(input.conversationId, lease);
+      this.taskCapabilityLeases.set(input.ownerId, lease);
     }
     const token: TaskCapabilityLeaseToken = {
       ownerId: input.ownerId,
@@ -4925,8 +4922,8 @@ export class AppServerProcessPool {
     token.managed = null;
     const { lease } = token;
     if (!lease.holders.delete(token) || lease.holders.size > 0) return;
-    if (this.taskCapabilityLeases.get(token.conversationId) === lease) {
-      this.taskCapabilityLeases.delete(token.conversationId);
+    if (this.taskCapabilityLeases.get(token.ownerId) === lease) {
+      this.taskCapabilityLeases.delete(token.ownerId);
     }
     await lease.release();
   }
@@ -5000,14 +4997,14 @@ export class AppServerProcessPool {
       ownerId: input.ownerId,
       conversationId: input.conversationId,
       projectionTurnId: eventProjectionTurnIdFor(input),
-      controlRoot: paths.control,
+      controlRoot: paths.ownerControl,
       generation: input.capabilityGeneration,
     });
     try {
       const capabilityRuntime =
         await this.options.capabilityRuntimeManager.resolvePublished({
-          taskHome: paths.taskHome,
-          controlRoot: paths.control,
+          userHome: paths.home,
+          controlRoot: paths.ownerControl,
           expectedGeneration: input.capabilityGeneration,
           capabilities: input.capabilities,
           lockHeld: true,
@@ -5038,7 +5035,7 @@ export class AppServerProcessPool {
       userHome: paths.home,
       codexHome: paths.codexHome,
       workspace: paths.workspace,
-      capabilityControl: join(paths.control, "capabilities"),
+      capabilityControl: join(paths.ownerControl, "capabilities"),
       expectedGeneration: input.capabilityGeneration,
       pluginContentDigest: capabilityRuntime.pluginContentDigest,
       pluginNames: input.capabilities
@@ -5126,7 +5123,6 @@ export class AppServerProcessPool {
         preparedPaths ??
         (await this.options.workspaceManager.ensureConversation(
           input.conversationId,
-          this.options.templateVersion,
         ));
       const personalization =
         await this.options.workspaceManager.getPersonalization(input.ownerId);
@@ -5204,7 +5200,7 @@ export class AppServerProcessPool {
             ...preparedMcpProxy.childEnvironment,
             [modelGatewayEnvironmentKey]: modelGatewayLease.token,
           },
-          // Keep task-scoped runtime settings out of the task-scoped
+          // Keep per-process runtime settings out of the shared user
           // config.toml. Codex alone persists native plugin selections there.
           configOverrides: [
             ...this.globalFeatureOverrides,
@@ -5262,7 +5258,7 @@ export class AppServerProcessPool {
               ? ["features.plugins=false"]
               : []),
           ],
-          ...(runtimeEnvironment ? { runtimeEnvironment } : {}),
+          runtimeEnvironment: { ...runtimeEnvironment, LINKSENSE_CONVERSATION_ID: input.conversationId, LINKSENSE_WORKSPACE_PATH: paths.workspace },
           ...(this.options.codexProcessIdentity
             ? { processIdentity: this.options.codexProcessIdentity }
             : {}),
@@ -5616,6 +5612,7 @@ export class AppServerProcessPool {
             this.authorizedSkillCatalog(
               client,
               paths.workspace,
+              paths.home,
               capabilityRuntime,
               managed.authorizedPlugins,
               new Set(
@@ -5691,6 +5688,7 @@ export class AppServerProcessPool {
   private async authorizedSkillCatalog(
     client: CodexJsonRpcClient,
     workspace: string,
+    userHome: string,
     capabilityRuntime: PreparedCapabilityRuntime | null,
     authorizedPlugins: NativePluginActivation[],
     authorizedStandaloneSkillNames: ReadonlySet<string>,
@@ -5714,8 +5712,7 @@ export class AppServerProcessPool {
     if (
       response.data.data.length !== 1 ||
       !catalog ||
-      !hasExpectedWorkspace ||
-      catalog.skills.some((skill) => skill.scope === "system")
+      !hasExpectedWorkspace
     ) {
       throw new CodexProtocolError("Codex skill catalog is invalid");
     }
@@ -5726,7 +5723,6 @@ export class AppServerProcessPool {
       );
     }
     const enabledSkills = catalog.skills.filter((skill) => skill.enabled);
-    const enabledNames = new Set<string>();
     const enabledStandaloneSkillNames = new Set<string>();
     const authorizedSkills: AuthorizedTurnSkill[] = [];
     const canonicalSkillsRoot = capabilityRuntime
@@ -5765,15 +5761,16 @@ export class AppServerProcessPool {
         owningPluginSkill !== undefined &&
         ((await isSamePath(owningPluginSkill.sourcePath, skill.path)) ||
           cachedRelativePath === owningPluginSkill.relativePath);
+      const isPersonalSkillPath = await isPathInside(userHome, skill.path);
       if (
-        enabledNames.has(skill.name) ||
-        (!isStandaloneSkillPath && !isPluginSkillPath)
+        (owningPluginSkill !== undefined && !isPluginSkillPath) ||
+        (!isStandaloneSkillPath && !isPluginSkillPath && !isPersonalSkillPath && skill.scope !== "system")
       ) {
         throw new CodexProtocolError(
           "Codex skill catalog violates the LinkSense capability runtime",
         );
       }
-      enabledNames.add(skill.name);
+      // Codex resolves project/user precedence; do not invent per-task skill isolation.
       let stablePath: string;
       if (isStandaloneSkillPath) {
         if (!capabilityRuntime || !canonicalSkillsRoot) {
@@ -6968,6 +6965,7 @@ export class AppServerProcessPool {
           left.name.localeCompare(right.name, "en-US"),
       );
     const canonical = canonicalValue({
+      workspace: this.options.workspaceManager.pathsFor(input.conversationId).workspace,
       ownerId: input.ownerId,
       codexThreadId,
       runtimePurpose: input.runtimePurpose ?? "execution",

@@ -939,6 +939,7 @@ describe("FileService workspace and MIME boundaries", () => {
       kind: "attachment",
       status: "staged",
       workspaceRelativePath: relativePath,
+        workspaceRootRelPath: `${OWNER_ID}/home/workspace`,
     });
     fixture.prisma.$transaction.mockResolvedValueOnce({
       files: [{
@@ -947,6 +948,7 @@ describe("FileService workspace and MIME boundaries", () => {
         kind: "attachment",
         status: "staged",
         workspaceRelativePath: relativePath,
+        workspaceRootRelPath: `${OWNER_ID}/home/workspace`,
       }],
       events: [fileEvent()],
     });
@@ -1311,6 +1313,7 @@ describe("FileService attachment previews", () => {
         sizeBytes: true,
         checksumSha256: true,
         workspaceRelativePath: true,
+        workspaceRootRelPath: true,
       },
     });
   });
@@ -2494,8 +2497,7 @@ async function fileFixture(
     root,
     OWNER_ID,
     "home",
-    "workspaces",
-    CONVERSATION_ID,
+    "workspace",
   );
   await mkdir(conversationRoot, { recursive: true });
   const prisma = {
@@ -2522,6 +2524,7 @@ async function fileFixture(
     assertOwner: vi.fn(async () => ({
       id: CONVERSATION_ID,
       ownerId: OWNER_ID,
+      workspaceRelPath: `${OWNER_ID}/home/workspace`,
     })),
   };
   const storage = {
@@ -2740,6 +2743,7 @@ function attachmentImageRow(overrides: Record<string, unknown> = {}) {
     sizeBytes: BigInt(PNG.byteLength),
     checksumSha256: checksum(PNG),
     workspaceRelativePath: "attachments/file-1/preview.png",
+    workspaceRootRelPath: `${OWNER_ID}/home/workspace`,
     ...overrides,
   };
 }

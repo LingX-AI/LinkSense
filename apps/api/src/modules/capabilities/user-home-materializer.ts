@@ -17,6 +17,7 @@ import path from "node:path"
 
 import {
   capabilitySnapshotDirectory,
+  runtimeEnvironmentPath,
   capabilitySnapshotIdSchema,
   capabilitySnapshotManifest,
   capabilitySnapshotSchema,
@@ -56,7 +57,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "0a69a5ac1e69cd51a3f5a7c80dc8c3f0ec12ea458b383896512b785b9f854558"
+  "f0e7d4832369c9b61fe5b2c13fd40b1a45ab452f322b96dca97e66cf6cd2019b"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"
@@ -80,6 +81,7 @@ export interface UserHomeCapabilityInput {
 }
 
 export interface UserHomeCapabilityReconcileInput {
+  serviceSessionId?: string
   ownerId: string
   conversationId: string
   capabilities: UserHomeCapabilityInput[]
@@ -112,8 +114,8 @@ export interface ReconciledUserHomeCapabilities
 }
 
 export type UserHomeCapabilityPublicationGuard = (input: {
+  serviceSessionId?: string
   ownerId: string
-  conversationId: string
   currentGeneration: string | null
   nextGeneration: string
 }) => Promise<boolean>
@@ -184,59 +186,35 @@ export class UserHomeCapabilityMaterializer {
     this.#instrumentation = options.instrumentation
   }
 
-  async ensureOwner(ownerId: string): Promise<void> {
+  async ensureOwner(ownerId: string, serviceSessionId?: string): Promise<void> {
     assertOwnerId(ownerId)
-    const ownerRoot = path.join(this.#userDataRoot, ownerId)
+    const ownerRoot = path.join(this.#userDataRoot, runtimeEnvironmentPath(ownerId, serviceSessionId))
     await ensureDirectory(this.#userDataRoot, 0o770)
-    await ensureManagedDirectory(ownerRoot, 0o770)
+    let parent = this.#userDataRoot
+    for (const segment of path.relative(parent, ownerRoot).split(path.sep)) {
+      parent = path.join(parent, segment)
+      await ensureManagedDirectory(parent, 0o770)
+    }
     const managed = path.join(ownerRoot, "managed")
     const agents = path.join(managed, "agents")
     await ensureManagedDirectory(managed, 0o750)
     await ensureManagedDirectory(agents, 0o750)
     await ensureManagedProjectionMarker(agents)
-    await ensureManagedDirectory(path.join(agents, "tasks"), 0o750)
+    await ensureSharedCapabilityLinks(agents)
     await ensureManagedDirectory(path.join(ownerRoot, "control"), 0o700)
     await ensureManagedDirectory(path.join(ownerRoot, "control", "workspaces"), 0o700)
   }
 
-  async removeConversation(ownerId: string, conversationId: string): Promise<void> {
-    const paths = this.pathsFor(ownerId, conversationId)
-    for (const directory of [
-      this.#userDataRoot,
-      paths.ownerRoot,
-      path.join(paths.ownerRoot, "managed"),
-      path.join(paths.ownerRoot, "managed", "agents"),
-      paths.managedRoot,
-    ]) {
-      const info = await lstat(directory).catch((error: unknown) => {
-        if (isMissingPathError(error)) return null
-        throw error
-      })
-      if (!info) return
-      if (!info.isDirectory() || info.isSymbolicLink()) {
-        throw new UserHomeCapabilityMaterializationError("task capability cleanup boundary is invalid")
-      }
-    }
-    const store = new CapabilitySnapshotStore(paths.ownerRoot)
-    await store.withCatalogLock(async () => {
-      await readTaskSnapshot(paths)
-      await rm(paths.managedAgentsRoot, { recursive: true, force: true })
-      await store.prune()
-    })
-  }
-
-  pathsFor(ownerId: string, conversationId: string): UserHomeCapabilityPaths {
+  pathsFor(ownerId: string, conversationId: string, serviceSessionId?: string): UserHomeCapabilityPaths {
     assertOwnerId(ownerId)
     assertOwnerId(conversationId)
-    const ownerRoot = path.resolve(this.#userDataRoot, ownerId)
+    const ownerRoot = path.resolve(this.#userDataRoot, runtimeEnvironmentPath(ownerId, serviceSessionId))
     assertPathWithin(this.#userDataRoot, ownerRoot)
-    const managedRoot = path.join(ownerRoot, "managed", "agents", "tasks")
-    const managedAgentsRoot = path.join(managedRoot, conversationId)
+    const managedRoot = path.join(ownerRoot, "managed", "agents")
+    const managedAgentsRoot = path.join(managedRoot, "current")
     const controlCapabilitiesRoot = path.join(
       ownerRoot,
       "control",
-      "workspaces",
-      conversationId,
       "capabilities",
     )
     return {
@@ -284,7 +262,7 @@ export class UserHomeCapabilityMaterializer {
     input: UserHomeCapabilityReconcileInput,
     verifySource: boolean,
   ): Promise<ReconciledUserHomeCapabilities> {
-    const paths = this.pathsFor(input.ownerId, input.conversationId)
+    const paths = this.pathsFor(input.ownerId, input.conversationId, input.serviceSessionId)
     validateCapabilitySet(input.capabilities)
     await this.#prepareOwnerDirectories(paths)
     const sourceDigest = verifySource
@@ -308,8 +286,7 @@ export class UserHomeCapabilityMaterializer {
       })),
     })).digest("hex")
     const store = new CapabilitySnapshotStore(paths.ownerRoot)
-    // Wait for this task's native lease before taking any shared cache lock.
-    // Another task must remain free to bind/build its own snapshot meanwhile.
+    // Publish one capability set per execution user after active native leases finish.
     const release = await this.#acquireReconcileLock(paths)
     try {
       return await store.withBuildLock(key, async () => {
@@ -385,7 +362,7 @@ export class UserHomeCapabilityMaterializer {
   async resolvePublishedRuntimeWithinPublicationStartFence(
     input: UserHomeCapabilityReconcileInput,
   ): Promise<ReconciledUserHomeCapabilities> {
-    const paths = this.pathsFor(input.ownerId, input.conversationId)
+    const paths = this.pathsFor(input.ownerId, input.conversationId, input.serviceSessionId)
     validateCapabilitySet(input.capabilities)
     const verification = await readPublishedRuntimeVerification(
       paths,
@@ -405,7 +382,7 @@ export class UserHomeCapabilityMaterializer {
     // A running worker holds reconcile.lock for its full lifetime. The
     // publication/start fence is deliberately separate and short-lived.
     return this.withPublicationStartFence(input, async () => {
-      const paths = this.pathsFor(input.ownerId, input.conversationId)
+      const paths = this.pathsFor(input.ownerId, input.conversationId, input.serviceSessionId)
       validateCapabilitySet(input.capabilities)
       assertRuntimeVerification(input.verification, input.capabilities)
       // Resolve already proved that the source set maps to this published
@@ -441,7 +418,7 @@ export class UserHomeCapabilityMaterializer {
     action: () => Promise<T>,
   ): Promise<T> {
     return this.withPublicationStartFence(input, async () => {
-      const paths = this.pathsFor(input.ownerId, input.conversationId)
+      const paths = this.pathsFor(input.ownerId, input.conversationId, input.serviceSessionId)
       validateCapabilitySet(input.capabilities)
       assertRuntimeVerification(input.verification, input.capabilities)
       await this.#assertManagedParents(paths)
@@ -462,11 +439,11 @@ export class UserHomeCapabilityMaterializer {
   }
 
   async withPublicationStartFence<T>(
-    input: Pick<UserHomeCapabilityReconcileInput, "ownerId" | "conversationId">,
+    input: Pick<UserHomeCapabilityReconcileInput, "ownerId" | "conversationId" | "serviceSessionId">,
     action: () => Promise<T>,
   ): Promise<T> {
-    await this.ensureOwner(input.ownerId)
-    const paths = this.pathsFor(input.ownerId, input.conversationId)
+    await this.ensureOwner(input.ownerId, input.serviceSessionId)
+    const paths = this.pathsFor(input.ownerId, input.conversationId, input.serviceSessionId)
     await this.#prepareOwnerDirectories(paths)
     const release = await this.#acquirePublicationStartLock(paths)
     try {
@@ -512,7 +489,7 @@ export class UserHomeCapabilityMaterializer {
       if (!(error instanceof Error && "code" in error && error.code === "ELOCKED")) throw error
       const currentGeneration = await readGeneration(paths.generationPath)
       if (currentGeneration !== null && !(await this.#publicationGuard({
-        ownerId: path.basename(paths.ownerRoot), conversationId: path.basename(paths.managedAgentsRoot),
+        ...this.#publicationIdentity(paths),
         currentGeneration, nextGeneration: currentGeneration,
       }))) throw new UserHomeCapabilityPublicationDeferredError()
     }
@@ -534,6 +511,12 @@ export class UserHomeCapabilityMaterializer {
     })
   }
 
+  #publicationIdentity(paths: UserHomeCapabilityPaths): { ownerId: string; serviceSessionId?: string } {
+    const [ownerId, , serviceSessionId] = path.relative(this.#userDataRoot, paths.ownerRoot).split(path.sep)
+    if (!ownerId) throw new UserHomeCapabilityMaterializationError("missing publication owner")
+    return { ownerId, ...(serviceSessionId ? { serviceSessionId } : {}) }
+  }
+
   async #prepareOwnerDirectories(
     paths: UserHomeCapabilityPaths,
   ): Promise<void> {
@@ -544,12 +527,13 @@ export class UserHomeCapabilityMaterializer {
     // an independent uid-1000 storage domain that the worker projects
     // read-only at $HOME/.agents.
     await ensureManagedDirectory(paths.managedRoot, 0o750)
+    await ensureSharedCapabilityLinks(paths.managedRoot)
     const projection = await lstat(paths.managedAgentsRoot).catch((error: unknown) => {
       if (isMissingPathError(error)) return null
       throw error
     })
     if (projection?.isSymbolicLink()) {
-      await readTaskSnapshot(paths)
+      await readUserSnapshot(paths)
     } else {
       await ensureManagedDirectory(paths.managedAgentsRoot, 0o750)
       await ensureManagedProjectionMarker(paths.managedAgentsRoot)
@@ -564,7 +548,7 @@ export class UserHomeCapabilityMaterializer {
 
   async #assertManagedParents(paths: UserHomeCapabilityPaths): Promise<void> {
     await ensureManagedDirectory(paths.managedRoot, 0o750)
-    const snapshot = await readTaskSnapshot(paths)
+    const snapshot = await readUserSnapshot(paths)
     if (snapshot) return
     await ensureManagedDirectory(paths.managedAgentsRoot, 0o750)
     await ensureManagedDirectory(
@@ -677,8 +661,7 @@ export class UserHomeCapabilityMaterializer {
   async #bindSnapshot(paths: UserHomeCapabilityPaths, snapshot: CapabilitySnapshot): Promise<void> {
     const currentGeneration = await readGeneration(paths.generationPath)
     if (!(await this.#publicationGuard({
-      ownerId: path.basename(paths.ownerRoot),
-      conversationId: path.basename(paths.managedAgentsRoot),
+      ...this.#publicationIdentity(paths),
       currentGeneration,
       nextGeneration: snapshot.generation,
     }))) throw new UserHomeCapabilityPublicationDeferredError()
@@ -697,7 +680,7 @@ export class UserHomeCapabilityMaterializer {
       }
       await mkdir(temporaryRoot, { mode: 0o700 })
       const projection = path.join(temporaryRoot, "projection")
-      await symlink(`../${capabilitySnapshotDirectory}/${snapshot.id}`, projection)
+      await symlink(`${capabilitySnapshotDirectory}/${snapshot.id}`, projection)
       await applyMutation({ destination: paths.managedAgentsRoot, staged: projection,
         backup: path.join(temporaryRoot, "previous-projection"), expectedType: "projection", mutations })
       await syncDirectory(paths.managedRoot)
@@ -935,7 +918,7 @@ async function readMatchingRuntimeVerification(
   expectedSourceDigest: string,
 ): Promise<CapabilityRuntimeVerification | null> {
   try {
-    if (!(await readTaskSnapshot(paths))) return null
+    if (!(await readUserSnapshot(paths))) return null
     const [generation, contentDigest, sourceDigest] = await Promise.all([
       readGeneration(paths.generationPath),
       readDigest(paths.contentDigestPath),
@@ -1717,7 +1700,7 @@ async function readPublishedRuntimeVerification(
   enabledBuiltIns: readonly BuiltInSkillName[],
 ): Promise<CapabilityRuntimeVerification | null> {
   try {
-    const snapshot = await readTaskSnapshot(paths)
+    const snapshot = await readUserSnapshot(paths)
     if (!snapshot) return null
     const skillsRoot = await lstat(paths.skillsRoot)
     const marketplace = await lstat(paths.marketplacePath)
@@ -2260,7 +2243,7 @@ reliably.
   )
 }
 
-async function readTaskSnapshot(paths: UserHomeCapabilityPaths): Promise<CapabilitySnapshot | null> {
+async function readUserSnapshot(paths: UserHomeCapabilityPaths): Promise<CapabilitySnapshot | null> {
   const info = await lstat(paths.managedAgentsRoot).catch((error: unknown) => {
     if (isMissingPathError(error)) return null
     throw error
@@ -2271,7 +2254,7 @@ async function readTaskSnapshot(paths: UserHomeCapabilityPaths): Promise<Capabil
   }
   const target = await readlink(paths.managedAgentsRoot)
   const id = path.basename(target)
-  if (!capabilitySnapshotIdSchema.safeParse(id).success || target !== `../${capabilitySnapshotDirectory}/${id}`) {
+  if (!capabilitySnapshotIdSchema.safeParse(id).success || target !== `${capabilitySnapshotDirectory}/${id}`) {
     throw new UserHomeCapabilityMaterializationError("task snapshot target is invalid")
   }
   const snapshots = path.join(paths.ownerRoot, "managed", "agents", capabilitySnapshotDirectory)
@@ -2290,4 +2273,24 @@ async function readTaskSnapshot(paths: UserHomeCapabilityPaths): Promise<Capabil
   const snapshot = capabilitySnapshotSchema.parse(JSON.parse(await readFile(manifestPath, "utf8")))
   if (snapshot.id !== id) throw new UserHomeCapabilityMaterializationError("snapshot identity mismatch")
   return snapshot
+}
+
+async function ensureSharedCapabilityLinks(agents: string): Promise<void> {
+  for (const name of ["skills", "plugin-sources", "plugins"]) {
+    const destination = path.join(agents, name)
+    const target = `current/${name}`
+    const existing = await lstat(destination).catch((error: unknown) => {
+      if (isMissingPathError(error)) return null
+      throw error
+    })
+    if (existing) {
+      if (!existing.isSymbolicLink() || await readlink(destination) !== target) {
+        throw new UserHomeCapabilityMaterializationError("shared capability projection is invalid")
+      }
+    } else {
+      try { await symlink(target, destination) } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "EEXIST" && await readlink(destination) === target)) throw error
+      }
+    }
+  }
 }

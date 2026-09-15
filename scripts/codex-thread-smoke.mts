@@ -70,7 +70,7 @@ const manager = new WorkspaceManager(
   { codexModel }
 )
 manager.bindOwner(conversationId, ownerId)
-const paths = await manager.ensureConversation(conversationId, "smoke")
+const paths = await manager.ensureConversation(conversationId)
 const capabilitySource = path.join(root, "structured-smoke")
 await mkdir(capabilitySource, { recursive: true })
 await writeFile(

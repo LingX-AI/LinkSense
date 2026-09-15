@@ -88,7 +88,7 @@ export class QuotaSettingsService {
       const resetAt = this.options.now?.() ?? new Date();
       const result = await tx.user.updateMany({
         where: {
-          accountType: "member",
+
           selfRegisteredAt:
             scope === "organization_members" ? null : { not: null },
         },
@@ -139,7 +139,7 @@ export class QuotaSettingsService {
         update: { settingsJson: merged, updatedBy: actorId },
       });
       const result = await tx.user.updateMany({
-        where: { accountType: "member", selfRegisteredAt: null },
+        where: { selfRegisteredAt: null },
         data: storedCreditLimits(limits),
       });
       await tx.auditLog.create({
@@ -195,7 +195,7 @@ export class QuotaSettingsService {
         previous.monthly_credit_limit !== next.monthly_credit_limit;
       const synchronized = registrationChanged
         ? await tx.user.updateMany({
-            where: { accountType: "member", selfRegisteredAt: { not: null } },
+            where: { selfRegisteredAt: { not: null } },
             data: storedCreditLimits(next),
           })
         : { count: 0 };

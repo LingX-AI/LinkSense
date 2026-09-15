@@ -3,26 +3,26 @@ import type { Conversation } from "@/api/contracts"
 import type { ConversationInsertionEdge } from "./conversation-order"
 
 export type SidebarConversationDropTarget =
-  | { kind: "category"; id: string; edge: "after" }
+  | { kind: "project"; id: string; edge: "after" }
   | { kind: "reorder"; id: string; edge: ConversationInsertionEdge }
-  | { kind: "category-reorder"; id: string; edge: ConversationInsertionEdge }
+  | { kind: "project-reorder"; id: string; edge: ConversationInsertionEdge }
 
 export const SidebarConversationDropTargetContext =
   createContext<SidebarConversationDropTarget | null>(null)
 
 export const SidebarConversationDragState = createContext<{
   disabled: boolean
-  categoriesDisabled: boolean
+  projectsDisabled: boolean
   pendingOrder: string[] | null
-  pendingCategoryOrder: string[] | null
+  pendingProjectOrder: string[] | null
 }>({
   disabled: true,
-  categoriesDisabled: true,
+  projectsDisabled: true,
   pendingOrder: null,
-  pendingCategoryOrder: null,
+  pendingProjectOrder: null,
 })
 
-export const taskCategoryDropId = (id: string): string => `task-category:${id}`
+export const projectDropId = (id: string): string => `project:${id}`
 
 export function inSameConversationOrderGroup(
   left: Conversation,
@@ -30,5 +30,5 @@ export function inSameConversationOrderGroup(
 ): boolean {
   if (left.pinned_at || right.pinned_at)
     return Boolean(left.pinned_at && right.pinned_at)
-  return left.category_id === right.category_id
+  return left.project_id === right.project_id
 }

@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto"
 
 import Fastify, { type FastifyReply } from "fastify"
 import { z } from "zod"
+import { userEnvironmentSettingsSchema, runtimeWorkspaceHeader, runtimeServiceSessionHeader, userWorkspacePathSchema } from "@linksense/shared"
 
 import type { RunnerConfig } from "../config.js"
 import { deriveKnowledgeSearchTimeouts } from "../knowledge-search-timeout.js"
@@ -37,12 +38,13 @@ export function buildControllerServer(
     const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "")
     if (request.url.startsWith("/internal/")) {
       const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
+      const service = uuid.optional().safeParse(request.headers[runtimeServiceSessionHeader])
       if (
-        !ownerId ||
+        !ownerId || !service.success ||
         !token ||
         !safeEqual(
           token,
-          ownerWorkerSecret(ownerId, config.LINKSENSE_RUNNER_SHARED_SECRET),
+          ownerWorkerSecret(ownerId, config.LINKSENSE_RUNNER_SHARED_SECRET, service.data),
         )
       ) {
         return reply.code(401).send({ error_code: "RUNNER_UNAUTHORIZED" })
@@ -51,6 +53,15 @@ export function buildControllerServer(
     }
     if (!token || !safeEqual(token, config.LINKSENSE_RUNNER_SHARED_SECRET)) {
       return reply.code(401).send({ error_code: "RUNNER_UNAUTHORIZED" })
+    }
+  })
+
+  app.addHook("preHandler", async (request, reply) => {
+    const scope = uuid.optional().safeParse(request.headers[runtimeServiceSessionHeader])
+    if (!scope.success) return reply.code(400).send({ error_code: "RUNNER_SERVICE_SCOPE_INVALID" })
+    if (!scope.data) return
+    if (request.url.startsWith("/internal/skill-creator/")) {
+      return reply.code(403).send({ error_code: "RUNNER_SERVICE_SCOPE_MISMATCH" })
     }
   })
 
@@ -90,6 +101,19 @@ export function buildControllerServer(
       return reply.code(204).send()
     })
   }
+
+  app.get("/environment", async (request, reply) => {
+    const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
+    if (!ownerId) return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" })
+    return workers.getEnvironmentSettings(ownerId)
+  })
+  app.put("/environment", async (request, reply) => {
+    const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
+    const input = userEnvironmentSettingsSchema.safeParse(request.body)
+    if (!ownerId) return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" })
+    if (!input.success) return reply.code(400).send({ error_code: "INVALID_INPUT" })
+    return workers.updateEnvironmentSettings(ownerId, input.data)
+  })
 
   app.post("/workers/prewarm", async (request, reply) => {
     const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
@@ -166,6 +190,7 @@ export function buildControllerServer(
               ? 130_000
             : 15_000,
           controller.signal,
+          uuid.optional().parse(request.headers[runtimeServiceSessionHeader]),
         )
       } finally {
         request.raw.off("aborted", abortRequest)
@@ -227,7 +252,7 @@ export function buildControllerServer(
       try {
         return sendWorkerResponse(
           reply,
-          await workers.cleanupConversation(ownerId, conversationId.data),
+          await workers.cleanupConversation(ownerId, conversationId.data, uuid.optional().parse(request.headers[runtimeServiceSessionHeader])),
         )
       } catch (error) {
         if (error instanceof RuntimeCleanupError) {
@@ -310,6 +335,8 @@ export function buildControllerServer(
       }
       body = recovery
     }
+    const workspace = userWorkspacePathSchema.optional().safeParse(request.headers[runtimeWorkspaceHeader])
+    if (!workspace.success) return reply.code(400).send({ error_code: "RUNNER_WORKSPACE_INVALID" })
     const serialized = body === undefined ? undefined : Buffer.from(JSON.stringify(body))
     try {
       const response = await workers.request(
@@ -318,6 +345,8 @@ export function buildControllerServer(
         request.method,
         serialized,
         request.url.endsWith("/reconcile") ? 110_000 : undefined,
+        workspace.data,
+        uuid.optional().parse(request.headers[runtimeServiceSessionHeader]),
       )
       return sendWorkerResponse(reply, response)
     } catch (error) {
@@ -336,6 +365,7 @@ async function proxyToApi(
   reply: FastifyReply,
   timeoutMs: number,
   callerSignal?: AbortSignal,
+  serviceSessionId?: string,
 ) {
   let response: Response
   try {
@@ -344,6 +374,7 @@ async function proxyToApi(
       headers: {
         authorization: `Bearer ${config.LINKSENSE_RUNNER_SHARED_SECRET}`,
         "content-type": "application/json",
+        ...(serviceSessionId ? { [runtimeServiceSessionHeader]: serviceSessionId } : {}),
         "x-linksense-owner-id": ownerId,
       },
       body: JSON.stringify(body ?? {}),

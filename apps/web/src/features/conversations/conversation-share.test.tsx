@@ -277,7 +277,7 @@ function conversation(): Conversation {
     has_automation: false,
     collaboration_mode: "default",
     archived: false,
-    category_id: null,
+    project_id: null,
     messages: [
       {
         id: "40000000-0000-4000-8000-000000000001",

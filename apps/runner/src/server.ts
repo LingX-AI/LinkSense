@@ -7,6 +7,8 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import {
+  runtimeWorkspaceHeader,
+  userWorkspacePathSchema,
   builtInCapabilityDefinitionForId,
   capabilitySelectionIdSchema,
   conversationFormRequestedSchema,
@@ -276,7 +278,7 @@ export const startTurnBodySchema = z
       attachments: z.array(
         z.strictObject({
           filename: z.string().min(1),
-          relativePath: z.string().min(1),
+          homeRelativePath: z.string().min(1).refine(value => !path.isAbsolute(value) && !value.includes("\0") && value.split("/").every(part => part !== "..")),
         }),
       ),
       priorityPlugins: z.array(turnStartPriorityCapabilitySchema),
@@ -776,6 +778,7 @@ export function buildRunnerServer(
       : undefined,
   ),
   ensureUserRuntime?: (ownerId: string) => Promise<void>,
+  userProcessCount: () => Promise<number> = async () => 0,
 ) {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
   const healthRoots = resolveHealthRoots(config);
@@ -811,6 +814,8 @@ export function buildRunnerServer(
     if (!conversationId.success || !ownerId.success) {
       return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" });
     }
+    const workspace = userWorkspacePathSchema.optional().safeParse(request.headers[runtimeWorkspaceHeader]);
+    if (!workspace.success) return reply.code(400).send({ error_code: "RUNNER_WORKSPACE_INVALID" });
     const bodyOwner =
       request.body &&
       typeof request.body === "object" &&
@@ -823,6 +828,7 @@ export function buildRunnerServer(
     try {
       ownerRegistry.assertAndBind(conversationId.data, ownerId.data);
       workspaceManager.bindOwner(conversationId.data, ownerId.data);
+      if (workspace.data !== undefined) workspaceManager.bindWorkspace(conversationId.data, workspace.data);
     } catch (error) {
       if (
         error instanceof ConversationOwnerMismatchError ||
@@ -1018,6 +1024,7 @@ export function buildRunnerServer(
       workspace: { ...workspace, checked_at: checkedAt },
       codex_home: { ...codexHome, checked_at: checkedAt },
       turn_start_contract_version: TURN_START_CONTRACT_VERSION,
+      user_processes: await userProcessCount(),
       running_turns: pool.runningCount,
       app_server_processes: pool.size,
     };
@@ -1486,6 +1493,7 @@ export function buildRunnerServer(
       codex_app_server: codexAppServer,
       ...(modelCatalog ? { model_catalog: modelCatalog } : {}),
       turn_start_contract_version: TURN_START_CONTRACT_VERSION,
+      user_processes: await userProcessCount(),
       running_turns: pool.runningCount,
       app_server_processes: pool.size,
       concurrency_limit: config.LINKSENSE_MAX_CONCURRENT_CONVERSATIONS,
@@ -2523,8 +2531,8 @@ function resolveHealthRoots(config: RunnerConfig): {
   return {
     home,
     control,
-    workspace: path.join(home, "workspaces"),
-    codexHome: path.join(home, "task-homes"),
+    workspace: path.join(home, "workspace"),
+    codexHome: path.join(home, ".codex"),
   };
 }
 

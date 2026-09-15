@@ -181,7 +181,7 @@ export class FileService {
     context: AuditContext,
   ) {
     return this.withConversationLock(conversationId, async () => {
-      await this.conversations.assertOwner(ownerId, conversationId);
+      const conversation = await this.conversations.assertOwner(ownerId, conversationId);
       const count = await this.prisma.conversationFile.count({
         where: { conversationId, kind: "attachment" },
       });
@@ -213,14 +213,14 @@ export class FileService {
       const destination = workspaceEntry(
         this.config.workspaceRoot,
         ownerId,
-        conversationId,
+        conversation.workspaceRelPath,
         relPath,
       );
       await ensureSharedWorkspaceDirectory(
         workspaceRoot(
           this.config.workspaceRoot,
           ownerId,
-          conversationId,
+          conversation.workspaceRelPath,
         ),
         dirname(destination),
       );
@@ -254,6 +254,7 @@ export class FileService {
               checksumSha256: sha256(input.data),
               storageBackend: "workspace",
               workspaceRelativePath: relPath,
+              workspaceRootRelPath: conversation.workspaceRelPath,
               downloadable: false,
               createdBy: ownerId,
             },
@@ -441,16 +442,16 @@ export class FileService {
     });
 
     for (const file of result.files) {
-      if (file.workspaceRelativePath) {
+      if (file.workspaceRelativePath && file.workspaceRootRelPath) {
         const root = workspaceRoot(
           this.config.workspaceRoot,
           ownerId,
-          conversationId,
+          file.workspaceRootRelPath,
         );
         const target = workspaceEntry(
           this.config.workspaceRoot,
           ownerId,
-          conversationId,
+          file.workspaceRootRelPath,
           file.workspaceRelativePath,
         );
         const attachmentDirectory = dirname(target);
@@ -498,6 +499,7 @@ export class FileService {
         sizeBytes: true,
         checksumSha256: true,
         workspaceRelativePath: true,
+        workspaceRootRelPath: true,
       },
     });
     const previewMimeType = resolveAttachmentPreviewMimeType(
@@ -512,6 +514,7 @@ export class FileService {
       (file.status !== "staged" && file.status !== "bound") ||
       !previewMimeType ||
       !file.workspaceRelativePath ||
+      !file.workspaceRootRelPath ||
       !file.checksumSha256 ||
       file.sizeBytes <= 0n ||
       file.sizeBytes > BigInt(maximumPreviewSize)
@@ -520,7 +523,7 @@ export class FileService {
     }
 
     const root = await realpath(
-      workspaceRoot(this.config.workspaceRoot, ownerId, conversationId),
+      workspaceRoot(this.config.workspaceRoot, ownerId, file.workspaceRootRelPath),
     ).catch(throwAttachmentPreviewUnavailable);
     const candidate = resolve(root, file.workspaceRelativePath);
     assertAttachmentPreviewDescendant(root, candidate);
@@ -587,11 +590,12 @@ export class FileService {
         },
       });
       if (!turn) throw new AppError("FORBIDDEN");
+      const conversation = await this.conversations.assertOwner(input.ownerId, input.conversationId);
       const root = await realpath(
         workspaceRoot(
           this.config.workspaceRoot,
           input.ownerId,
-          input.conversationId,
+          conversation.workspaceRelPath,
         ),
       );
       const candidate = resolve(root, input.workspaceRelativePath);
@@ -1288,13 +1292,13 @@ function assertDescendant(root: string, candidate: string): void {
 function workspaceRoot(
   configuredRoot: string,
   ownerId: string,
-  conversationId: string,
+  workspaceRootRelPath: string,
 ): string {
   try {
     return resolveConversationWorkspaceRoot(
       configuredRoot,
       ownerId,
-      conversationId,
+      workspaceRootRelPath,
     );
   } catch {
     throw new AppError("FORBIDDEN");
@@ -1304,14 +1308,14 @@ function workspaceRoot(
 function workspaceEntry(
   configuredRoot: string,
   ownerId: string,
-  conversationId: string,
+  workspaceRootRelPath: string,
   workspaceRelativePath: string,
 ): string {
   try {
     return resolveConversationWorkspaceEntry(
       configuredRoot,
       ownerId,
-      conversationId,
+      workspaceRootRelPath,
       workspaceRelativePath,
     );
   } catch {

@@ -15,7 +15,7 @@ import {
 } from "@dnd-kit/core"
 import type { Coordinates } from "@dnd-kit/utilities"
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
-import type { TaskCategory } from "@linksense/shared"
+import type { Project } from "@linksense/shared"
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
@@ -30,13 +30,13 @@ import {
   SidebarConversationDropTargetContext,
   type SidebarConversationDropTarget,
   inSameConversationOrderGroup,
-  taskCategoryDropId,
+  projectDropId,
 } from "./sidebar-conversation-drag-state"
 import { useSuppressClickAfterDrag } from "./use-suppress-click-after-drag"
 
 type ReorderRequest = {
   group: "pinned" | "recent"
-  categoryId: string | null
+  projectId: string | null
   conversationIds: string[]
 }
 
@@ -44,22 +44,22 @@ const pointerSensorOptions = { activationConstraint: { distance: 4 } }
 
 export function SidebarConversationDnd({
   conversations,
-  categories,
+  projects,
   disabled,
-  categorySortingDisabled = disabled,
+  projectSortingDisabled = disabled,
   onMove,
   onReorder,
-  onReorderCategories,
+  onReorderProjects,
   onError,
   children,
 }: {
   conversations: readonly Conversation[]
-  categories: readonly TaskCategory[]
+  projects: readonly Project[]
   disabled: boolean
-  categorySortingDisabled?: boolean
-  onMove: (conversationId: string, categoryId: string) => Promise<unknown>
+  projectSortingDisabled?: boolean
+  onMove: (conversationId: string, projectId: string) => Promise<unknown>
   onReorder: (request: ReorderRequest) => Promise<unknown>
-  onReorderCategories: (categoryIds: string[]) => Promise<unknown>
+  onReorderProjects: (projectIds: string[]) => Promise<unknown>
   onError: (error: unknown) => void
   children: ReactNode
 }) {
@@ -69,10 +69,10 @@ export function SidebarConversationDnd({
     useState<SidebarConversationDropTarget | null>(null)
   const pointerPosition = useRef<Coordinates | null>(null)
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null)
-  const [pendingCategoryOrder, setPendingCategoryOrder] = useState<
+  const [pendingProjectOrder, setPendingProjectOrder] = useState<
     string[] | null
   >(null)
-  const [categoryOpen, setCategoryOpen] = useState(false)
+  const [projectOpen, setProjectOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const savingRef = useRef(false)
   const [announcement, setAnnouncement] = useState("")
@@ -84,19 +84,19 @@ export function SidebarConversationDnd({
   const destinations = useMemo(
     () =>
       new Map(
-        categories.map((category) => [
-          taskCategoryDropId(category.id),
-          category,
+        projects.map((project) => [
+          projectDropId(project.id),
+          project,
         ])
       ),
-    [categories]
+    [projects]
   )
   const orders = useMemo(() => {
     const groups = new Map<string, Conversation[]>()
     for (const task of conversations) {
       const key = task.pinned_at
         ? "pinned"
-        : `category:${task.category_id ?? ""}`
+        : `project:${task.project_id ?? ""}`
       const group = groups.get(key) ?? []
       group.push(task)
       groups.set(key, group)
@@ -115,39 +115,39 @@ export function SidebarConversationDnd({
     }
     return { byTaskId, positions }
   }, [conversations])
-  const categoryOrder = useMemo(() => [...destinations.keys()], [destinations])
+  const projectOrder = useMemo(() => [...destinations.keys()], [destinations])
   const dragState = useMemo(
     () => ({
       disabled: disabled || saving,
-      categoriesDisabled: categorySortingDisabled || saving,
+      projectsDisabled: projectSortingDisabled || saving,
       pendingOrder,
-      pendingCategoryOrder,
+      pendingProjectOrder,
     }),
     [
       disabled,
-      categorySortingDisabled,
+      projectSortingDisabled,
       saving,
       pendingOrder,
-      pendingCategoryOrder,
+      pendingProjectOrder,
     ]
   )
   const activeTask = activeId ? tasks.get(activeId) : undefined
-  const activeCategory = activeId ? destinations.get(activeId) : undefined
-  const CategoryIcon = categoryOpen ? FolderOpenIcon : FolderClosedIcon
+  const activeProject = activeId ? destinations.get(activeId) : undefined
+  const ProjectIcon = projectOpen ? FolderOpenIcon : FolderClosedIcon
 
   const isEligibleTarget = useCallback(
     (sourceId: UniqueIdentifier, targetId: UniqueIdentifier) => {
       if (savingRef.current) return false
       if (destinations.has(String(sourceId)))
-        return !categorySortingDisabled && destinations.has(String(targetId))
+        return !projectSortingDisabled && destinations.has(String(targetId))
       const source = tasks.get(String(sourceId))
       if (!source || disabled || savingRef.current) return false
-      const category = destinations.get(String(targetId))
-      if (category) return source.category_id !== category.id
+      const project = destinations.get(String(targetId))
+      if (project) return source.project_id !== project.id
       const target = tasks.get(String(targetId))
       return Boolean(target && inSameConversationOrderGroup(source, target))
     },
-    [disabled, categorySortingDisabled, tasks, destinations]
+    [disabled, projectSortingDisabled, tasks, destinations]
   )
   const collisionDetection: CollisionDetection = useCallback(
     (args) => {
@@ -156,7 +156,7 @@ export function SidebarConversationDnd({
         isEligibleTarget(args.active.id, target.id)
       )
       // A pointer must actually enter a row/header. Releasing outside the sidebar
-      // must not move a task to whichever category happens to be closest.
+      // must not move a task to whichever project happens to be closest.
       return args.pointerCoordinates
         ? pointerWithin({ ...args, droppableContainers })
         : closestCenter({ ...args, droppableContainers })
@@ -192,10 +192,10 @@ export function SidebarConversationDnd({
     t("conversation.untitled")
   const position = (id: UniqueIdentifier) =>
     destinations.has(String(id))
-      ? categoryOrder.indexOf(String(id)) + 1
+      ? projectOrder.indexOf(String(id)) + 1
       : (orders.positions.get(String(id)) ?? 0)
   const reorderNamespace = (id: UniqueIdentifier) =>
-    destinations.has(String(id)) ? "taskCategories" : "conversation"
+    destinations.has(String(id)) ? "projects" : "conversation"
   const resolveDropTarget = ({
     active,
     over,
@@ -205,9 +205,9 @@ export function SidebarConversationDnd({
   >): SidebarConversationDropTarget | null => {
     if (!over || active.id === over.id || !isEligibleTarget(active.id, over.id))
       return null
-    const sortingCategory = destinations.has(String(active.id))
-    if (!sortingCategory && destinations.has(String(over.id)))
-      return { kind: "category", id: String(over.id), edge: "after" }
+    const sortingProject = destinations.has(String(active.id))
+    if (!sortingProject && destinations.has(String(over.id)))
+      return { kind: "project", id: String(over.id), edge: "after" }
     const point = pointerPosition.current
     const edge = point
       ? point.y < over.rect.top + over.rect.height / 2
@@ -217,7 +217,7 @@ export function SidebarConversationDnd({
         ? "before"
         : "after"
     return {
-      kind: sortingCategory ? "category-reorder" : "reorder",
+      kind: sortingProject ? "project-reorder" : "reorder",
       id: String(over.id),
       edge,
     }
@@ -238,7 +238,7 @@ export function SidebarConversationDnd({
   ) =>
     reorderConversationIds(
       destinations.has(sourceId)
-        ? categoryOrder
+        ? projectOrder
         : (orders.byTaskId.get(sourceId) ?? []),
       sourceId,
       target.id,
@@ -252,30 +252,30 @@ export function SidebarConversationDnd({
     setActiveId(null)
     setDropTarget(null)
     if (!target) return
-    const sourceCategory = destinations.get(String(active.id))
-    if (sourceCategory && target.kind === "category-reorder") {
+    const sourceProject = destinations.get(String(active.id))
+    if (sourceProject && target.kind === "project-reorder") {
       const nextOrder = orderAtTarget(String(active.id), target)
-      if (nextOrder.every((id, index) => id === categoryOrder[index])) return
+      if (nextOrder.every((id, index) => id === projectOrder[index])) return
       const ids = nextOrder.flatMap((id) => {
-        const category = destinations.get(id)
-        return category ? [category.id] : []
+        const project = destinations.get(id)
+        return project ? [project.id] : []
       })
       savingRef.current = true
       setSaving(true)
-      setPendingCategoryOrder(ids)
+      setPendingProjectOrder(ids)
       try {
-        await onReorderCategories(ids)
+        await onReorderProjects(ids)
         setAnnouncement(
-          t("taskCategories.reorderCompleted", {
-            title: sourceCategory.name,
-            position: ids.indexOf(sourceCategory.id) + 1,
+          t("projects.reorderCompleted", {
+            title: sourceProject.name,
+            position: ids.indexOf(sourceProject.id) + 1,
           })
         )
       } catch (error) {
-        setAnnouncement(t("taskCategories.dragSaveFailed"))
+        setAnnouncement(t("projects.dragSaveFailed"))
         onError(error)
       } finally {
-        setPendingCategoryOrder(null)
+        setPendingProjectOrder(null)
         savingRef.current = false
         setSaving(false)
       }
@@ -283,8 +283,8 @@ export function SidebarConversationDnd({
     }
     const task = tasks.get(String(active.id))
     if (!task) return
-    const category =
-      target.kind === "category" ? destinations.get(target.id) : undefined
+    const project =
+      target.kind === "project" ? destinations.get(target.id) : undefined
     const ids =
       target.kind === "reorder" ? orderAtTarget(task.id, target) : null
     if (ids?.every((id, index) => id === orders.byTaskId.get(task.id)?.[index]))
@@ -292,19 +292,19 @@ export function SidebarConversationDnd({
     savingRef.current = true
     setSaving(true)
     try {
-      if (category) {
-        await onMove(task.id, category.id)
+      if (project) {
+        await onMove(task.id, project.id)
         setAnnouncement(
-          t("conversation.dragCategoryCompleted", {
+          t("conversation.dragProjectCompleted", {
             title: title(task.id),
-            category: category.name,
+            project: project.name,
           })
         )
       } else if (ids) {
         setPendingOrder(ids)
         await onReorder({
           group: task.pinned_at ? "pinned" : "recent",
-          categoryId: task.pinned_at ? null : task.category_id,
+          projectId: task.pinned_at ? null : task.project_id,
           conversationIds: ids,
         })
         setAnnouncement(
@@ -332,7 +332,7 @@ export function SidebarConversationDnd({
           collisionDetection={collisionDetection}
           accessibility={{
             screenReaderInstructions: {
-              draggable: t("taskCategories.sidebarDragInstructions"),
+              draggable: t("projects.sidebarDragInstructions"),
             },
             announcements: {
               onDragStart: ({ active }) =>
@@ -344,11 +344,11 @@ export function SidebarConversationDnd({
                 const { active } = event
                 const target = resolveDropTarget(event)
                 if (!target) return undefined
-                const category = destinations.get(target.id)
-                return category && target.kind === "category"
-                  ? t("conversation.dragCategoryOver", {
+                const project = destinations.get(target.id)
+                return project && target.kind === "project"
+                  ? t("conversation.dragProjectOver", {
                       title: title(active.id),
-                      category: category.name,
+                      project: project.name,
                     })
                   : t(`${reorderNamespace(active.id)}.reorderOver`, {
                       title: title(active.id),
@@ -363,12 +363,12 @@ export function SidebarConversationDnd({
                 if (!dropTarget) return t(`${namespace}.reorderCancelled`)
                 const sourceId = String(active.id)
                 if (
-                  dropTarget.kind !== "category" &&
+                  dropTarget.kind !== "project" &&
                   orderAtTarget(sourceId, dropTarget).every(
                     (id, index) =>
                       id ===
                       (destinations.has(sourceId)
-                        ? categoryOrder
+                        ? projectOrder
                         : orders.byTaskId.get(sourceId))?.[index]
                   )
                 )
@@ -384,7 +384,7 @@ export function SidebarConversationDnd({
             setAnnouncement("")
             setDropTarget(null)
             setActiveId(String(active.id))
-            setCategoryOpen(active.data.current?.categoryOpen === true)
+            setProjectOpen(active.data.current?.projectOpen === true)
           }}
           onDragMove={updateDropTarget}
           onDragOver={updateDropTarget}
@@ -398,16 +398,16 @@ export function SidebarConversationDnd({
           {children}
           {createPortal(
             <DragOverlay dropAnimation={null}>
-              {(activeTask || activeCategory) && (
+              {(activeTask || activeProject) && (
                 <div
                   aria-hidden="true"
                   className="pointer-events-none flex h-8 items-center rounded-[10px] bg-popover px-2.5 text-[length:var(--app-ui-font-size)] text-popover-foreground opacity-80 shadow-sm"
                 >
-                  {activeCategory && (
-                    <CategoryIcon className="mr-1.5 size-3.5 shrink-0" />
+                  {activeProject && (
+                    <ProjectIcon className="mr-1.5 size-3.5 shrink-0" />
                   )}
                   <span className="min-w-0 flex-1 truncate font-medium">
-                    {activeCategory?.name ||
+                    {activeProject?.name ||
                       activeTask?.title ||
                       t("conversation.untitled")}
                   </span>

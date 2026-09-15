@@ -15,11 +15,11 @@ import {
 export class CapabilitySnapshotStore {
   readonly root: string
   private readonly control: string
-  private readonly tasks: string
+  private readonly projection: string
 
   constructor(ownerRoot: string) {
     this.root = path.join(ownerRoot, "managed", "agents", capabilitySnapshotDirectory)
-    this.tasks = path.join(ownerRoot, "managed", "agents", "tasks")
+    this.projection = path.join(ownerRoot, "managed", "agents", "current")
     this.control = path.join(ownerRoot, "control", "capability-snapshots")
   }
 
@@ -86,11 +86,12 @@ export class CapabilitySnapshotStore {
   /** Publication and cleanup serialize only metadata, never a full build. */
   async prune(): Promise<void> {
     const referenced = new Set<string>()
-    for (const task of await readdir(this.tasks, { withFileTypes: true })) {
-      if (!task.isSymbolicLink()) continue
-      const target = await readlink(path.join(this.tasks, task.name))
+    const projection = await maybeStat(this.projection)
+    if (projection?.isSymbolicLink()) {
+      const target = await readlink(this.projection)
       const id = path.basename(target)
-      if (target === `../${capabilitySnapshotDirectory}/${id}` && capabilitySnapshotIdSchema.safeParse(id).success) referenced.add(id)
+      if (target !== `${capabilitySnapshotDirectory}/${id}` || !capabilitySnapshotIdSchema.safeParse(id).success) throw new Error("snapshot projection is invalid")
+      referenced.add(id)
     }
     const candidates: Array<{ id: string; time: number }> = []
     for (const entry of await readdir(this.root, { withFileTypes: true })) {

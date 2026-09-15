@@ -4,6 +4,8 @@ type AuditMessages = Readonly<Record<string, readonly [string, string]>>
 
 const actionMessages = {
   application_created: ["已创建应用", "Application created"],
+  application_copied: ["已复制应用", "Application copied"],
+  application_published: ["已发布应用版本", "Application version published"],
   application_deleted: ["已删除应用", "Application deleted"],
   application_embed_ticket_issued: ["已签发应用嵌入票据", "Application embed ticket issued"],
   application_external_access_created: ["已创建应用外部访问", "Application external access created"],

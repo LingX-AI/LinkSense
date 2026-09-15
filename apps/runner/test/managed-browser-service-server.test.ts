@@ -23,7 +23,7 @@ describe("managed browser MCP server", () => {
     const root = await mkdtemp(path.join(tmpdir(), "linksense-browser-mcp-"))
     roots.push(root)
     const home = path.join(root, "home")
-    const codexHome = path.join(home, "task-homes", conversationId, ".codex")
+    const codexHome = path.join(home, ".codex")
     const workspace = path.join(root, "home", "workspaces", conversationId)
     await Promise.all([
       mkdir(codexHome, { recursive: true }),
@@ -31,7 +31,7 @@ describe("managed browser MCP server", () => {
         mkdir(path.join(workspace, directory), { recursive: true }),
       ),
     ])
-    const child = startMcpServer(home, codexHome)
+    const child = startMcpServer(home, codexHome, workspace)
     const rpc = rpcClient(child)
 
     await expect(
@@ -97,6 +97,7 @@ describe("managed browser MCP server", () => {
 function startMcpServer(
   home: string,
   codexHome: string,
+  workspace: string,
 ): ChildProcessWithoutNullStreams {
   const tsxCli = fileURLToPath(import.meta.resolve("tsx/cli"))
   const script = fileURLToPath(
@@ -107,6 +108,7 @@ function startMcpServer(
       PATH: process.env.PATH,
       HOME: home,
       CODEX_HOME: codexHome,
+      LINKSENSE_WORKSPACE_PATH: workspace,
       LINKSENSE_CONVERSATION_ID: conversationId,
       LINKSENSE_BROWSER_READ_ONLY: "1",
     },

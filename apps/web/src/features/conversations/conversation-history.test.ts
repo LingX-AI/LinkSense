@@ -5,7 +5,7 @@ import { mergeConversationHistory } from "@/features/conversations/conversation-
 
 function page(turnIds: number[], allIds = [1, 2, 3, 4]): Conversation {
   return conversationSchema.parse({
-    category_id: null,
+    project_id: null,
     id: "task",
     title: "History",
     updated_at: "2026-09-07T00:00:00Z",

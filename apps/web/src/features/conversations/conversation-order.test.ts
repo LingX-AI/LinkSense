@@ -224,7 +224,7 @@ describe("sidebar conversation ordering", () => {
   it("applies repeated manual renames immediately while retaining category and ordering metadata", () => {
     const task = {
       ...conversation("task", "2026-08-12T10:00:00.000Z"),
-      category_id: "work",
+      project_id: "work",
       sort_order: 2,
       title_source: "manual",
     }

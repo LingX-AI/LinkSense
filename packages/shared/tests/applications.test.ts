@@ -23,7 +23,7 @@ describe("internal application contracts", () => {
       archive_status: "active",
       archived_at: null,
       pinned_at: null,
-      category_id: null,
+      project_id: null,
       sort_order: null,
       codex_thread_id: null,
       agents_template_version: null,

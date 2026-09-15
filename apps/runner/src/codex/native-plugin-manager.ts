@@ -376,6 +376,7 @@ export class NativePluginManager {
       }
       const desiredSet = new Set(desiredNames)
       const activePluginIds = installed.marketplaces
+        .filter((entry) => entry.name === NATIVE_PLUGIN_MARKETPLACE_NAME)
         .flatMap((entry) =>
           entry.plugins
             .filter((plugin) => plugin.installed && plugin.enabled)

@@ -119,22 +119,24 @@ export class CapabilityRuntimeManager {
   }
 
   pathsFor(
-    taskHome: string,
+    userHome: string,
     controlRoot: string,
   ): Omit<
     PreparedCapabilityRuntime,
     "contentDigest" | "pluginContentDigest" | "generation"
   > {
     return {
-      skillsRoot: path.join(taskHome, ".agents", "skills"),
+      skillsRoot: path.join(userHome, ".agents", "current", "skills"),
       pluginSourceRoot: path.join(
-        taskHome,
+        userHome,
         ".agents",
+        "current",
         "plugin-sources",
       ),
       marketplacePath: path.join(
-        taskHome,
+        userHome,
         ".agents",
+        "current",
         "plugins",
         "marketplace.json",
       ),
@@ -195,10 +197,10 @@ export class CapabilityRuntimeManager {
   }
 
   async existing(
-    taskHome: string,
+    userHome: string,
     controlRoot: string,
   ): Promise<PreparedCapabilityRuntime | null> {
-    const paths = this.pathsFor(taskHome, controlRoot)
+    const paths = this.pathsFor(userHome, controlRoot)
     try {
       const generation = await this.readControlDigest(
         path.join(paths.capabilityControl, "capability-generation"),
@@ -237,7 +239,7 @@ export class CapabilityRuntimeManager {
   }
 
   async resolvePublished(input: {
-    taskHome: string
+    userHome: string
     controlRoot: string
     expectedGeneration: string
     capabilities: CapabilityRuntimeInput[]
@@ -262,12 +264,12 @@ export class CapabilityRuntimeManager {
       )
       // Snapshot IDs are never reused, including after repair. Validate the
       // task binding on every lookup; only immutable file bytes are cached.
-      const snapshot = await this.assertAgentsProjection(input.taskHome)
+      const snapshot = await this.assertAgentsProjection(input.userHome)
       if (snapshot) {
-        const paths = this.pathsFor(input.taskHome, input.controlRoot)
+        const paths = this.pathsFor(input.userHome, input.controlRoot)
         await Promise.all([
-          this.assertDirectory(input.taskHome, 0o770, this.#taskIdentity),
-          this.assertDirectory(path.join(input.taskHome, ".codex"), 0o770, this.#taskIdentity),
+          this.assertDirectory(input.userHome, 0o770, this.#taskIdentity),
+          this.assertDirectory(path.join(input.userHome, ".codex"), 0o770, this.#taskIdentity),
           this.assertDirectory(paths.capabilityControl, 0o700, this.#apiIdentity),
         ])
         const markers = await Promise.all([
@@ -323,28 +325,28 @@ export class CapabilityRuntimeManager {
   }
 
   private async resolveLocked(input: {
-    taskHome: string
+    userHome: string
     controlRoot: string
     expectedGeneration: string
     capabilities: CapabilityRuntimeInput[]
   }): Promise<PreparedCapabilityRuntime> {
     this.#onFullVerification?.()
-    const paths = this.pathsFor(input.taskHome, input.controlRoot)
+    const paths = this.pathsFor(input.userHome, input.controlRoot)
     await Promise.all([
       this.assertDirectory(
         paths.capabilityControl,
         0o700,
         this.#apiIdentity,
       ),
-      this.assertDirectory(input.taskHome, 0o770, this.#taskIdentity),
-      this.assertAgentsProjection(input.taskHome),
+      this.assertDirectory(input.userHome, 0o770, this.#taskIdentity),
+      this.assertAgentsProjection(input.userHome),
       this.assertDirectory(
-        path.join(input.taskHome, ".agents", "plugins"),
+        path.join(input.userHome, ".agents", "current", "plugins"),
         0o750,
         this.#apiIdentity,
       ),
       this.assertDirectory(
-        path.join(input.taskHome, ".codex"),
+        path.join(input.userHome, ".codex"),
         0o770,
         this.#taskIdentity,
       ),
@@ -503,31 +505,23 @@ export class CapabilityRuntimeManager {
     )
   }
 
-  private async assertAgentsProjection(taskHome: string): Promise<{ root: string; manifest: CapabilitySnapshot } | null> {
-    const agents = path.join(taskHome, ".agents")
-    const info = await lstat(agents)
-    if (!info.isSymbolicLink()) {
-      await this.assertDirectory(agents, 0o750, this.#apiIdentity)
-      return null
-    }
-    const homes = path.dirname(taskHome)
-    const conversationId = path.basename(taskHome)
-    if (path.basename(homes) !== "task-homes" || !z.uuid().safeParse(conversationId).success) {
-      throw new CapabilityRuntimeError()
-    }
-    const projection = path.join(path.dirname(homes), ".agents", "tasks", conversationId)
-    if (path.resolve(taskHome, await readlink(agents)) !== projection) {
-      throw new CapabilityRuntimeError()
-    }
-    const taskProjection = await lstat(projection)
-    if (!taskProjection.isSymbolicLink()) throw new CapabilityRuntimeError()
+  private async assertAgentsProjection(userHome: string): Promise<{ root: string; manifest: CapabilitySnapshot } | null> {
+    const agents = path.join(userHome, ".agents")
+    const agentsInfo = await lstat(agents)
+    if (agentsInfo.isSymbolicLink()) {
+      const expected = path.join(path.dirname(userHome), "managed", "agents")
+      if (path.resolve(userHome, await readlink(agents)) !== expected) throw new CapabilityRuntimeError()
+      await this.assertDirectory(expected, 0o750, this.#apiIdentity)
+    } else await this.assertDirectory(agents, 0o750, this.#apiIdentity)
+    const projection = path.join(agents, "current")
+    const current = await lstat(projection)
+    if (!current.isSymbolicLink()) throw new CapabilityRuntimeError()
     const target = await readlink(projection)
     const id = path.basename(target)
-    if (!capabilitySnapshotIdSchema.safeParse(id).success || target !== `../${capabilitySnapshotDirectory}/${id}`) throw new CapabilityRuntimeError()
-    const snapshotParent = path.join(path.dirname(homes), ".agents", capabilitySnapshotDirectory)
+    if (!capabilitySnapshotIdSchema.safeParse(id).success || target !== `${capabilitySnapshotDirectory}/${id}`) throw new CapabilityRuntimeError()
+    const snapshotParent = path.join(agents, capabilitySnapshotDirectory)
     const root = path.join(snapshotParent, id)
     await Promise.all([
-      this.assertDirectory(path.dirname(projection), 0o750, this.#apiIdentity),
       this.assertDirectory(snapshotParent, 0o750, this.#apiIdentity),
       this.assertDirectory(root, 0o750, this.#apiIdentity),
       this.assertRegularFile(path.join(root, capabilitySnapshotManifest), 0o640, this.#apiIdentity),
@@ -586,10 +580,10 @@ export class CapabilityRuntimeManager {
 }
 
 function verifiedPublicationKey(input: {
-  taskHome: string
+  userHome: string
   controlRoot: string
 }): string {
-  return [input.taskHome, input.controlRoot].join("\u0000")
+  return [input.userHome, input.controlRoot].join("\u0000")
 }
 
 function capabilityRuntimeFingerprint(

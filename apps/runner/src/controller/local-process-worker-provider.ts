@@ -1,3 +1,4 @@
+import { runtimeEnvironmentPath } from "@linksense/shared"
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import {
@@ -161,12 +162,12 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
 
   async acquire(input: WorkerAcquireInput): Promise<WorkerInstance> {
     const paths = this.preparedPaths.get(
-      path.join(this.config.LINKSENSE_USER_DATA_ROOT, input.ownerId),
+      path.join(this.config.LINKSENSE_USER_DATA_ROOT, runtimeEnvironmentPath(input.ownerId, input.serviceSessionId)),
     )
     if (!paths) {
       throw new Error("local-process worker filesystem was not prepared")
     }
-    if (await this.hasWorkerForOwner(input.ownerId)) {
+    if ([...this.processes.values()].some(({ worker }) => worker.ownerId === input.ownerId && worker.serviceSessionId === input.serviceSessionId)) {
       throw new Error(
         "local-process worker cleanup must complete before replacement",
       )
@@ -179,6 +180,7 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
       endpoint: `http://127.0.0.1:${port}`,
       storageKey: input.storageKey,
       ownerId: input.ownerId,
+      ...(input.serviceSessionId ? { serviceSessionId: input.serviceSessionId } : {}),
       state: "running",
     }
     const child = this.spawnWorker(
@@ -194,6 +196,7 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
           paths,
           this.processEnvironment,
           this.requiredRuntimeToolBin(),
+          input.serviceSessionId,
         ),
         shell: false,
         stdio: ["ignore", "inherit", "inherit", "ipc"],
@@ -252,9 +255,9 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
     return release
   }
 
-  async hasWorkerForOwner(ownerId: string): Promise<boolean> {
+  async hasWorkerForEnvironment(ownerId: string, serviceSessionId?: string): Promise<boolean> {
     return [...this.processes.values()].some(
-      ({ worker }) => worker.ownerId === ownerId,
+      ({ worker }) => worker.ownerId === ownerId && worker.serviceSessionId === serviceSessionId,
     )
   }
 
@@ -332,6 +335,7 @@ function localWorkerEnvironment(
   paths: WorkerOwnerPaths,
   source: NodeJS.ProcessEnv,
   runtimeToolBin: string,
+  serviceSessionId?: string,
 ): NodeJS.ProcessEnv {
   const environment = Object.fromEntries(
     [
@@ -356,12 +360,14 @@ function localWorkerEnvironment(
     LINKSENSE_WORKER_PROVIDER: "local-process",
     LINKSENSE_MANAGED_BROWSER_ENABLED: "false",
     LINKSENSE_WORKER_OWNER_ID: ownerId,
+    ...(serviceSessionId ? { LINKSENSE_SERVICE_SESSION_ID: serviceSessionId } : {}),
     LINKSENSE_USER_DATA_ROOT: paths.home,
     LINKSENSE_WORKER_CONTROL_ROOT: paths.control,
     LINKSENSE_RUNTIME_TOOL_BIN: runtimeToolBin,
     LINKSENSE_RUNNER_SHARED_SECRET: ownerWorkerSecret(
       ownerId,
       config.LINKSENSE_RUNNER_SHARED_SECRET,
+      serviceSessionId,
     ),
     LINKSENSE_API_INTERNAL_URL: config.LINKSENSE_CONTROLLER_INTERNAL_URL,
     LINKSENSE_CONTROLLER_INTERNAL_URL:

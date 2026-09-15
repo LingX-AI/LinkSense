@@ -1,3 +1,4 @@
+import { UserEnvironmentSettingsStore } from "./user-environment-settings.js";
 import {
   chmod,
   chown,
@@ -15,11 +16,15 @@ import { z } from "zod"
 
 import {
   codexModelReasoningCatalogSchema,
+  runtimeWorkspaceHeader,
+  runtimeEnvironmentPath,
+  userWorkspacePathSchema,
   linksenseRuntimeIdentity,
   managedProjectionProbeContents,
   managedProjectionProbeFileName,
   workspacePermissionPolicy,
   type CodexModelReasoningCatalog,
+  type UserEnvironmentSettings,
 } from "@linksense/shared"
 
 import type { RunnerConfig } from "../config.js"
@@ -89,6 +94,7 @@ const workerStateSchema = z
       checked_at: z.string(),
     }),
     running_turns: z.number().int().nonnegative(),
+    user_processes: z.number().int().nonnegative(),
     app_server_processes: z.number().int().nonnegative(),
     model_catalog: codexModelReasoningCatalogSchema.optional(),
   })
@@ -166,11 +172,11 @@ export class WorkerManager {
           if (this.options.prepareUserDirectories) {
             await this.options.prepareUserDirectories(worker.ownerId)
           } else {
-            await this.prepareUserDirectories(worker.ownerId)
+            await this.prepareUserDirectories(worker.ownerId, worker.serviceSessionId)
           }
-          await this.assertUserManagedProjection(worker.ownerId)
+          await this.assertUserManagedProjection(worker.ownerId, worker.serviceSessionId)
           await this.provider.prepareOwnerFilesystem(
-            this.userDirectories(worker.ownerId),
+            this.userDirectories(worker.ownerId, worker.serviceSessionId),
           )
           if (worker.state !== "running") {
             Object.assign(worker, await this.provider.resume(worker))
@@ -247,16 +253,19 @@ export class WorkerManager {
     method: string,
     body?: Buffer,
     timeoutMs?: number,
+    workspacePath?: string,
+    serviceSessionId?: string,
   ): Promise<WorkerHttpResponse> {
-    const worker = await this.ensureWorker(ownerId)
+    const worker = await this.ensureWorker(ownerId, serviceSessionId)
     try {
       return await this.transport.request(
         worker.endpoint,
         requestPath,
         method,
         {
-          authorization: `Bearer ${ownerWorkerSecret(ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET)}`,
+          authorization: `Bearer ${ownerWorkerSecret(ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, serviceSessionId)}`,
           "x-linksense-owner-id": ownerId,
+          ...(workspacePath === undefined ? {} : { [runtimeWorkspaceHeader]: userWorkspacePathSchema.parse(workspacePath) }),
           ...(body ? { "content-type": "application/json" } : {}),
         },
         body,
@@ -273,12 +282,14 @@ export class WorkerManager {
   async cleanupConversation(
     ownerId: string,
     conversationId: string,
+    serviceSessionId?: string,
   ): Promise<WorkerHttpResponse> {
     const validatedOwnerId = ownerIdSchema.parse(ownerId)
     const validatedConversationId = ownerIdSchema.parse(conversationId)
     const storageKey = ownerStorageKey(
       validatedOwnerId,
       this.config.LINKSENSE_RUNNER_SHARED_SECRET,
+      serviceSessionId,
     )
     const worker = await this.withLock(storageKey, async () => {
       const existing = this.workers.get(storageKey)
@@ -292,7 +303,7 @@ export class WorkerManager {
       let hasProviderWorker: boolean
       try {
         hasProviderWorker =
-          await this.provider.hasWorkerForOwner(validatedOwnerId)
+          await this.provider.hasWorkerForEnvironment(validatedOwnerId, serviceSessionId)
       } catch {
         throw new RuntimeCleanupError(
           "reconcile",
@@ -310,7 +321,7 @@ export class WorkerManager {
           "CLEANUP_RUNTIME_STATE_UNCERTAIN",
         )
       }
-      const directories = this.userDirectories(validatedOwnerId)
+      const directories = this.userDirectories(validatedOwnerId, serviceSessionId)
       try {
         await assertSafeDirectory(directories.root, directories.root)
         const ownerExists = await assertSafeDirectoryIfExists(
@@ -318,20 +329,6 @@ export class WorkerManager {
           directories.owner,
         )
         if (ownerExists) {
-          const homeExists = await assertSafeDirectoryIfExists(
-            directories.root,
-            directories.home,
-          )
-          if (homeExists) {
-            await assertSafeDirectoryIfExists(
-              directories.root,
-              safeChildPath(directories.home, "task-homes"),
-            )
-            await assertSafeDirectoryIfExists(
-              directories.root,
-              directories.workspaces,
-            )
-          }
           const controlExists = await assertSafeDirectoryIfExists(
             directories.root,
             directories.control,
@@ -344,11 +341,6 @@ export class WorkerManager {
           }
         }
         const result = await removeConversationRuntimeDirectories({
-          taskHome: safeChildPath(safeChildPath(directories.home, "task-homes"), validatedConversationId),
-          workspace: safeChildPath(
-            directories.workspaces,
-            validatedConversationId,
-          ),
           taskControl: safeChildPath(
             safeChildPath(directories.control, "workspaces"),
             validatedConversationId,
@@ -380,7 +372,7 @@ export class WorkerManager {
         `/conversations/${validatedConversationId}/runtime`,
         "DELETE",
         {
-          authorization: `Bearer ${ownerWorkerSecret(validatedOwnerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET)}`,
+          authorization: `Bearer ${ownerWorkerSecret(validatedOwnerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, serviceSessionId)}`,
           "x-linksense-owner-id": validatedOwnerId,
         },
       )
@@ -426,7 +418,7 @@ export class WorkerManager {
                   "/health/state",
                   "GET",
                   {
-                    authorization: `Bearer ${ownerWorkerSecret(worker.ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET)}`,
+                    authorization: `Bearer ${ownerWorkerSecret(worker.ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, worker.serviceSessionId)}`,
                   },
                 )
               ).body.toString("utf8"),
@@ -487,6 +479,16 @@ export class WorkerManager {
     return { statusCode: available ? 200 : 503, body }
   }
 
+  async getEnvironmentSettings(ownerId: string): Promise<UserEnvironmentSettings> {
+    return new UserEnvironmentSettingsStore(this.config.LINKSENSE_USER_DATA_ROOT).get(ownerId)
+  }
+
+  async updateEnvironmentSettings(ownerId: string, input: UserEnvironmentSettings): Promise<UserEnvironmentSettings> {
+    const settings = await new UserEnvironmentSettingsStore(this.config.LINKSENSE_USER_DATA_ROOT).set(ownerId, input)
+    if (settings.keep_running) await this.prewarm(ownerId)
+    return settings
+  }
+
   async sweepIdleWorkers(now = Date.now()): Promise<void> {
     const ttlMs = this.config.LINKSENSE_WORKER_IDLE_TTL_SECONDS * 1000
     const failures: unknown[] = []
@@ -516,6 +518,7 @@ export class WorkerManager {
     }
     if (now - worker.lastUsedAt < ttlMs) return
     if (!worker.ownerId) return
+    if (!worker.serviceSessionId && (await this.getEnvironmentSettings(worker.ownerId)).keep_running) return
     let health: WorkerHealth
     try {
       const response = await this.transport.request(
@@ -523,7 +526,7 @@ export class WorkerManager {
         "/health/state",
         "GET",
         {
-          authorization: `Bearer ${ownerWorkerSecret(worker.ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET)}`,
+          authorization: `Bearer ${ownerWorkerSecret(worker.ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, worker.serviceSessionId)}`,
         },
       )
       health = workerStateSchema.parse(JSON.parse(response.body.toString("utf8")))
@@ -532,6 +535,7 @@ export class WorkerManager {
       return
     }
     if (
+      health.user_processes !== 0 ||
       health.running_turns !== 0 ||
       health.app_server_processes !== 0
     ) {
@@ -558,11 +562,13 @@ export class WorkerManager {
     await this.provider.initialize()
   }
 
-  private async ensureWorker(ownerId: string): Promise<ManagedWorker> {
+  private async ensureWorker(ownerId: string, serviceSessionId?: string): Promise<ManagedWorker> {
     ownerIdSchema.parse(ownerId)
+    if (serviceSessionId) ownerIdSchema.parse(serviceSessionId)
     const storageKey = ownerStorageKey(
       ownerId,
       this.config.LINKSENSE_RUNNER_SHARED_SECRET,
+      serviceSessionId,
     )
     return this.withLock(storageKey, async () => {
       const existing = this.workers.get(storageKey)
@@ -577,16 +583,17 @@ export class WorkerManager {
       if (this.options.prepareUserDirectories) {
         await this.options.prepareUserDirectories(ownerId)
       } else {
-        await this.prepareUserDirectories(ownerId)
+        await this.prepareUserDirectories(ownerId, serviceSessionId)
       }
-      await this.assertUserManagedProjection(ownerId)
+      await this.assertUserManagedProjection(ownerId, serviceSessionId)
       const name = workerName(
         storageKey,
         controllerInstanceKey(this.config),
       )
-      await this.provider.prepareOwnerFilesystem(this.userDirectories(ownerId))
+      await this.provider.prepareOwnerFilesystem(this.userDirectories(ownerId, serviceSessionId))
       const acquired = await this.provider.acquire({
         ownerId,
+        ...(serviceSessionId ? { serviceSessionId } : {}),
         storageKey,
         name,
         probe: false,
@@ -645,13 +652,16 @@ export class WorkerManager {
     })
   }
 
-  private async prepareUserDirectories(ownerId: string): Promise<void> {
-    const directories = this.userDirectories(ownerId)
+  private async prepareUserDirectories(ownerId: string, serviceSessionId?: string): Promise<void> {
+    const directories = this.userDirectories(ownerId, serviceSessionId)
     const identities = this.provider.capabilities.workspaceIdentity
     await assertSafeDirectory(directories.root, directories.root)
-    await mkdir(directories.owner, { mode: 0o770 }).catch(
-      ignoreExistingDirectory,
-    )
+    let parent = directories.root
+    for (const segment of path.relative(directories.root, directories.owner).split(path.sep)) {
+      parent = safeChildPath(parent, segment)
+      await mkdir(parent, { mode: 0o770 }).catch(ignoreExistingDirectory)
+      await assertSafeDirectory(directories.root, parent)
+    }
     await assertSafeDirectory(directories.root, directories.owner)
     await chown(directories.owner, identities.apiUid, identities.sharedGid)
     await chmod(directories.owner, 0o770)
@@ -688,14 +698,6 @@ export class WorkerManager {
         identities,
       )
     }
-
-    await prepareTaskOwnedDirectory(
-      directories.root,
-      directories.taskHomes,
-      taskOwnedDirectoryPreparationDependencies,
-      0o770,
-      identities,
-    )
 
     await mkdir(directories.control, { mode: 0o700 }).catch(
       ignoreExistingDirectory,
@@ -741,7 +743,7 @@ export class WorkerManager {
     )
   }
 
-  private async assertUserManagedProjection(ownerId: string): Promise<void> {
+  private async assertUserManagedProjection(ownerId: string, serviceSessionId?: string): Promise<void> {
     if (this.options.assertManagedProjection) {
       await this.options.assertManagedProjection(ownerId)
       return
@@ -750,7 +752,7 @@ export class WorkerManager {
     // production the controller never receives that override and always
     // validates the API-owned projection without changing it.
     if (this.options.prepareUserDirectories) return
-    const managedAgentsRoot = this.userDirectories(ownerId).managedAgents
+    const managedAgentsRoot = this.userDirectories(ownerId, serviceSessionId).managedAgents
     const apiIdentity = {
       uid: this.provider.capabilities.workspaceIdentity.apiUid,
       gid: this.provider.capabilities.workspaceIdentity.sharedGid,
@@ -823,10 +825,10 @@ export class WorkerManager {
     await removeUserDirectoryAfterContainerRelease(directories.owner)
   }
 
-  private userDirectories(ownerId: string): WorkerOwnerPaths {
+  private userDirectories(ownerId: string, serviceSessionId?: string): WorkerOwnerPaths {
     const validatedOwnerId = ownerIdSchema.parse(ownerId)
     const root = path.resolve(this.config.LINKSENSE_USER_DATA_ROOT)
-    const owner = safeChildPath(root, validatedOwnerId)
+    const owner = safeChildPath(root, runtimeEnvironmentPath(validatedOwnerId, serviceSessionId))
     const home = safeChildPath(owner, "home")
     const managed = safeChildPath(owner, "managed")
     const managedAgents = safeChildPath(managed, "agents")
@@ -835,7 +837,6 @@ export class WorkerManager {
       owner,
       home,
       homeAgentsMountpoint: safeChildPath(home, ".agents"),
-      taskHomes: safeChildPath(home, "task-homes"),
       managed,
       managedAgents,
       managedSkills: safeChildPath(managedAgents, "skills"),
@@ -845,7 +846,7 @@ export class WorkerManager {
       ),
       managedPlugins: safeChildPath(managedAgents, "plugins"),
       control: safeChildPath(owner, "control"),
-      workspaces: safeChildPath(home, "workspaces"),
+      workspaces: safeChildPath(home, "projects"),
     }
   }
 
@@ -920,7 +921,7 @@ export class WorkerManager {
           healthPath,
           "GET",
           {
-            authorization: `Bearer ${ownerWorkerSecret(worker.ownerId!, this.config.LINKSENSE_RUNNER_SHARED_SECRET)}`,
+            authorization: `Bearer ${ownerWorkerSecret(worker.ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, worker.serviceSessionId)}`,
           },
         )
         if (response.statusCode === 200) {

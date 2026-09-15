@@ -402,7 +402,7 @@ test("light theme uses a neutral sidebar with translucent interaction colors wit
   await expect(appSidebar).toHaveCSS("background-color", "rgb(245, 245, 245)")
   await expect(
     appSidebar.locator(".sidebar-conversation-item.sidebar-link-active")
-  ).toHaveCSS("background-color", "rgba(32, 32, 32, 0.08)")
+  ).toHaveCSS("background-color", "color(srgb 0.12549 0.12549 0.12549 / 0.0509804)")
   const capabilitiesLink = appSidebar.getByRole("link", { name: "插件中心" })
   await capabilitiesLink.hover()
   await expect(capabilitiesLink).toHaveCSS(
@@ -832,6 +832,7 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
           id: "20000000-0000-4000-8000-000000000001",
           title: longTaskTitle,
           archive_status: "active",
+          project_id: null,
           execution_status: "running",
           updated_at: updatedAt,
         },
@@ -886,7 +887,7 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
       (element) => element.scrollWidth > element.clientWidth
     )
   ).toBe(true)
-  await expect(recentTaskLink).toHaveCSS("min-height", "36px")
+  await expect(recentTaskLink).toHaveCSS("min-height", "32px")
   await expect(recentTask.locator("time")).toHaveCount(0)
   await expect(taskStatus).toBeVisible()
   await expect(taskStatus).toHaveCSS("opacity", "1")
@@ -933,7 +934,7 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
   const settingsNavigationLabels = settingsSidebar.locator(
     ".settings-navigation-link > span"
   )
-  await expect(settingsNavigationLabels).toHaveCount(20)
+  await expect(settingsNavigationLabels).toHaveCount(22)
   await expect(
     settingsSidebar.locator(".settings-navigation-link > span > span")
   ).toHaveCount(0)
@@ -1175,6 +1176,7 @@ for (const viewport of [
             id: conversationId,
             title: "100 条历史消息滚动测试",
             archive_status: "active",
+            project_id: null,
             execution_status: "completed",
             updated_at: NOW,
           },
@@ -1469,6 +1471,7 @@ test("long task follows new content without interrupting historical reading", as
   await expect(scrollToBottom).toBeHidden()
 
   await page.setViewportSize({ width: 320, height: 568 })
+  await page.getByRole("button", { name: "关闭任务概览" }).click()
   await expect.poll(distanceFromBottom).toBeLessThanOrEqual(2)
   await wheelUp()
   await expect.poll(distanceFromBottom).toBeGreaterThan(500)
@@ -1610,6 +1613,7 @@ test("assistant artifact cards use a transparent surface with hover feedback", a
         id: conversationId,
         title: "学生数据生成",
         archive_status: "active",
+        project_id: null,
         execution_status: "completed",
         updated_at: NOW,
       },
@@ -1717,6 +1721,7 @@ test("read-only code artifacts open in the preview pane without annotation contr
         id: conversationId,
         title: "代码文件预览",
         archive_status: "active",
+        project_id: null,
         execution_status: "completed",
         updated_at: NOW,
       },
@@ -1827,6 +1832,7 @@ test("audio artifacts use a short-lived source preview without annotation contro
         id: conversationId,
         title: "音频文件预览",
         archive_status: "active",
+        project_id: null,
         execution_status: "completed",
         updated_at: NOW,
       },
@@ -1928,6 +1934,7 @@ test("ZIP artifacts open a safe, navigable directory preview", async ({
         id: conversationId,
         title: "压缩包预览",
         archive_status: "active",
+        project_id: null,
         execution_status: "completed",
         updated_at: NOW,
       },
@@ -2053,6 +2060,7 @@ test("assistant image artifacts show a thumbnail and open the shared preview", a
         id: conversationId,
         title: "图片产物预览",
         archive_status: "active",
+        project_id: null,
         execution_status: "completed",
         updated_at: NOW,
       },
@@ -2231,6 +2239,7 @@ test("assistant inline images use authenticated previews and never request serve
         id: conversationId,
         title: "消息内图片预览",
         archive_status: "active",
+        project_id: null,
         execution_status: "completed",
         updated_at: NOW,
       },
@@ -2308,15 +2317,15 @@ test("expanded activity labels use compact medium typography", async ({
   await summary.getByRole("button", { name: "展开中间过程" }).click()
   const activityLabel = summary.getByText("工具调用已完成")
   await expect(activityLabel).toBeVisible()
-  await expect(activityLabel).toHaveCSS("font-size", "13px")
+  await expect(activityLabel).toHaveCSS("font-size", "14px")
   await expect(activityLabel).toHaveCSS("font-weight", "500")
-  await expect(activityLabel).toHaveCSS("line-height", "22px")
+  await expect(activityLabel).toHaveCSS("line-height", "20px")
   await expect(
     summary
       .locator(".activity-item-main")
       .filter({ hasText: "工具调用已完成" })
       .locator("svg")
-  ).toHaveCount(0)
+  ).toHaveClass(/size-3\.5/)
 })
 
 test("expanded command detail wraps long commands safely", async ({ page }) => {
@@ -2532,7 +2541,7 @@ test("personal credential management remains inside the settings shell", async (
   ).toHaveCount(0)
   await expect(page).toHaveURL(/\/settings\/credentials$/u)
   await expect(
-    page.getByRole("heading", { name: "插件凭据生效来源" })
+    page.getByRole("heading", { name: "插件凭据", exact: true })
   ).toBeVisible()
   await expect(settingsSidebar).toBeVisible()
   await expect(credentialLink).toHaveAttribute("aria-current", "page")
@@ -2562,7 +2571,7 @@ test("credential editor uses a wider aligned desktop grid", async ({
     .click()
 
   const dialog = page.getByRole("dialog", { name: "新增凭据" })
-  await dialog.getByRole("button", { name: "添加环境变量" }).click()
+  await dialog.getByRole("button", { name: "添加配置项" }).click()
   const metrics = await dialog.evaluate((element) => {
     const dialogRect = element.getBoundingClientRect()
     const rows = Array.from(
@@ -2620,7 +2629,7 @@ test("credential editor uses a wider aligned desktop grid", async ({
     expect(Math.abs(row.key.y - row.remove.y)).toBeLessThanOrEqual(1)
     expect(row.remove.x).toBeGreaterThan(row.secret.x + row.secret.width)
     expect(Math.abs(row.remove.right - row.rowRight)).toBeLessThanOrEqual(1)
-    expect(row.remove.ariaLabel).toBe("移除此环境变量")
+    expect(row.remove.ariaLabel).toBe("移除此配置项")
     expect(row.remove.text).toBe("")
     expect(row.remove.iconCount).toBe(1)
   }
@@ -2643,7 +2652,7 @@ test("credential editor stacks secret fields safely on a narrow viewport", async
     .click()
 
   const dialog = page.getByRole("dialog", { name: "新增凭据" })
-  await dialog.getByRole("button", { name: "添加环境变量" }).click()
+  await dialog.getByRole("button", { name: "添加配置项" }).click()
   const metrics = await dialog.evaluate((element) => {
     const dialogRect = element.getBoundingClientRect()
     const rows = Array.from(
@@ -2738,7 +2747,7 @@ test("user editor protects the current administrator's group membership", async 
   await expect(dialog.getByRole("combobox", { name: "状态" })).toBeDisabled()
 })
 
-test("role cards stay equal and aligned without the fixed-role notice", async ({
+test("role summaries use aligned responsive rows without the fixed-role notice", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1024 })
@@ -2757,7 +2766,7 @@ test("role cards stay equal and aligned without the fixed-role notice", async ({
     cards.evaluateAll((items) =>
       items.map((item) => {
         const box = item.getBoundingClientRect()
-        return { top: box.top, height: box.height }
+        return { top: box.top, bottom: box.bottom, left: box.left, right: box.right, height: box.height }
       })
     ),
     cards.evaluateAll((items) =>
@@ -2772,21 +2781,22 @@ test("role cards stay equal and aligned without the fixed-role notice", async ({
     accountCounts.evaluateAll((items) =>
       items.map((item) => {
         const box = item.getBoundingClientRect()
-        return { top: box.top, height: box.height }
+        return { top: box.top, bottom: box.bottom, left: box.left, right: box.right, height: box.height }
       })
     ),
   ])
-  expect(Math.abs(cardBoxes[0].top - cardBoxes[1].top)).toBeLessThanOrEqual(1)
+  expect(cardBoxes[0].bottom).toBeLessThanOrEqual(cardBoxes[1].top)
   expect(
-    Math.abs(cardBoxes[0].height - cardBoxes[1].height)
+    Math.abs(cardBoxes[0].left - cardBoxes[1].left)
   ).toBeLessThanOrEqual(1)
   expect(
     Math.abs(contentTopInsets[0] - contentTopInsets[1])
   ).toBeLessThanOrEqual(1)
-  expect(Math.abs(countBoxes[0].top - countBoxes[1].top)).toBeLessThanOrEqual(1)
-  expect(
-    Math.abs(countBoxes[0].height - countBoxes[1].height)
-  ).toBeLessThanOrEqual(1)
+  expect(Math.abs(countBoxes[0].right - countBoxes[1].right)).toBeLessThanOrEqual(1)
+  for (const [index, count] of countBoxes.entries()) {
+    expect(count.top).toBeGreaterThanOrEqual(cardBoxes[index].top)
+    expect(count.bottom).toBeLessThanOrEqual(cardBoxes[index].bottom)
+  }
 
   await page.setViewportSize({ width: 390, height: 844 })
   const mobileCardMetrics = await cards.evaluateAll((items) =>
@@ -2801,9 +2811,11 @@ test("role cards stay equal and aligned without the fixed-role notice", async ({
       }
     })
   )
-  expect(
-    Math.abs(mobileCardMetrics[0].height - mobileCardMetrics[1].height)
-  ).toBeLessThanOrEqual(1)
+  for (const card of mobileCardMetrics) {
+    expect(card.height).toBeGreaterThan(0)
+    expect(card.countBottomInset).toBeGreaterThanOrEqual(0)
+  }
+  await expectNoHorizontalOverflow(page)
   expect(
     Math.abs(
       mobileCardMetrics[0].countBottomInset -
@@ -3003,6 +3015,7 @@ async function mockEditableConversation(page: Page, conversationId: string) {
         id: conversationId,
         title: "消息编辑样式",
         archive_status: "active",
+        project_id: null,
         execution_status: "completed",
         updated_at: NOW,
       },
@@ -3062,6 +3075,7 @@ async function mockCommentaryConversation(
         id: conversationId,
         title: "演示文稿检查",
         archive_status: "active",
+        project_id: null,
         execution_status: "running",
         updated_at: NOW,
       },
@@ -3146,6 +3160,7 @@ async function mockNativeCommandConversation(
         id: conversationId,
         title: "命令详情对齐",
         archive_status: "active",
+        project_id: null,
         execution_status: "completed",
         updated_at: NOW,
       },
@@ -3310,6 +3325,8 @@ async function mockApi(page: Page) {
         next_cursor: null,
       })
     }
+    if (path === "/projects") return ok(route, { items: [], next_cursor: null })
+    if (path === "/me/environment") return ok(route, { keep_running: false })
     if (path === "/admin/health") return ok(route, HEALTH_STATUS)
     if (path === "/credentials" || path === "/credentials/bindings") {
       return ok(route, { items: [], next_cursor: null })
@@ -3327,6 +3344,7 @@ async function mockApi(page: Page) {
           id: "20000000-0000-4000-8000-000000000001",
           title: "项目数据分析",
           archive_status: "active",
+          project_id: null,
           execution_status: "completed",
           updated_at: NOW,
         },
@@ -3374,6 +3392,7 @@ async function mockApi(page: Page) {
             id: "20000000-0000-4000-8000-000000000001",
             title: "项目数据分析",
             archive_status: "active",
+            project_id: null,
             execution_status: "completed",
             updated_at: NOW,
           },

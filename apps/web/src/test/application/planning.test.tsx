@@ -23,7 +23,7 @@ describe("LinkSense application", () => {
         json({
           success: true,
           data: {
-            category_id: null,
+            project_id: null,
             id: "new-task-1",
             title: "未命名任务",
             archived: false,
@@ -73,7 +73,7 @@ describe("LinkSense application", () => {
       ).toEqual({
         collaboration_mode: "plan",
         prewarmed_conversation_id: "71000000-0000-4000-8000-000000000001",
-        category_id: null,
+        project_id: null,
       })
       expect(
         requests.find(

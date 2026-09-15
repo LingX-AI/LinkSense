@@ -14,6 +14,7 @@ import path from "node:path"
 import { promisify } from "node:util"
 
 import { UserHomeCapabilityMaterializer } from "../apps/api/src/modules/capabilities/user-home-materializer.ts"
+import { prepareNativeHomeFiles } from "../apps/api/src/operations/native-home-files.ts"
 import { CodexJsonRpcClient } from "../apps/runner/src/codex/json-rpc-client.ts"
 import {
   NATIVE_PLUGIN_MARKETPLACE_NAME,
@@ -41,7 +42,6 @@ type SmokeRuntimePaths = ReturnType<
   UserHomeCapabilityMaterializer["pathsFor"]
 > & {
   homeRoot: string
-  taskHome: string
   codexHome: string
 }
 
@@ -92,16 +92,26 @@ async function runSmoke(): Promise<void> {
     workspaceManager.bindOwner(conversationId, ownerId)
     const conversationPaths = await workspaceManager.ensureConversation(
       conversationId,
-      "native-plugin-refresh-smoke",
     )
     const paths: SmokeRuntimePaths = {
       ...materializer.pathsFor(ownerId, conversationId),
       homeRoot: conversationPaths.home,
-      taskHome: conversationPaths.taskHome,
       codexHome: conversationPaths.codexHome,
     }
-    const controlRoot = conversationPaths.control
+    const controlRoot = conversationPaths.ownerControl
     const workspace = conversationPaths.workspace
+    // Exercise the actual CLI against a converted HOME: unlike app-server,
+    // plugin commands receive no process-scoped model provider overrides.
+    const legacyNative = path.join(temporaryRoot, "legacy-native")
+    await mkdir(legacyNative)
+    await writeFile(path.join(legacyNative, "config.toml"), [
+      'model_provider="link-sense"',
+      '[model_providers.link-sense]',
+      'base_url="http://127.0.0.1:43123/expired-gateway"',
+      'experimental_bearer_token="expired-process-token"',
+    ].join("\n"))
+    await prepareNativeHomeFiles(legacyNative, paths.codexHome)
+    completedPhase = "legacy-config-converted"
     const localUid = process.getuid?.()
     const localGid = process.getgid?.()
     if (localUid === undefined || localGid === undefined) {
@@ -314,7 +324,7 @@ async function reconcileNativePlugin(input: {
   })
   try {
     const runtime = await input.capabilityRuntimeManager.resolvePublished({
-      taskHome: input.paths.taskHome,
+      userHome: input.paths.homeRoot,
       controlRoot: input.controlRoot,
       expectedGeneration: input.generation,
       capabilities: runtimeCapabilities,

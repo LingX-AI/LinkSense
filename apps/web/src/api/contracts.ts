@@ -873,7 +873,7 @@ export const conversationSchema = z
     archived: z.boolean().optional(),
     archive_status: z.enum(["active", "archived"]).optional(),
     pinned_at: z.string().nullable().optional(),
-    category_id: z.string().uuid().nullable(),
+    project_id: z.string().uuid().nullable(),
     sort_order: z.number().int().nonnegative().nullable().optional(),
     updated_at: z.string(),
     created_at: z.string().optional(),

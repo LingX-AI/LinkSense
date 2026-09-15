@@ -1,3 +1,4 @@
+import { assertExecutionPrincipalActive } from "../../lib/execution-principal.js";
 import type {
   ConversationFile,
   PrismaClient,
@@ -47,12 +48,12 @@ export class ConversationAssetRepository {
       // finish after deletion, but must never recreate its attachment records.
       const conversations = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT c.id FROM conversations c
-        JOIN users u ON u.id = c.owner_id
         WHERE c.id = ${input.conversationId}::uuid
-          AND c.owner_id = ${input.actorId}::uuid AND u.status = 'active'
+          AND c.owner_id = ${input.actorId}::uuid
         FOR UPDATE OF c
       `;
       if (conversations.length === 0) throw new AppError("NOT_FOUND");
+      await assertExecutionPrincipalActive(tx, input.actorId);
       const [turn, intent] = await Promise.all([
         tx.conversationTurn.findFirst({
           where: {

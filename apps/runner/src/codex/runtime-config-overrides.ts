@@ -52,6 +52,7 @@ const coreMcpEnvironmentVariables = [
 const managedBrowserEnvironmentVariables = [
   "HOME",
   "CODEX_HOME",
+  "LINKSENSE_WORKSPACE_PATH",
   "LINKSENSE_CONVERSATION_ID",
   "LINKSENSE_BROWSER_READ_ONLY",
 ] as const;

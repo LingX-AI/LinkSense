@@ -90,6 +90,7 @@ describe("LocalProcessWorkerProvider", () => {
             workspace: { status: "available", reason_code: null, checked_at: "2026-09-14T00:00:00.000Z" },
             codex_home: { status: "available", reason_code: null, checked_at: "2026-09-14T00:00:00.000Z" },
             running_turns: 0,
+            user_processes: 0,
             app_server_processes: 0,
           } : { success: true })),
         }
@@ -108,7 +109,7 @@ describe("LocalProcessWorkerProvider", () => {
         await expect(manager.request(ownerId, "/task", "POST")).rejects.toThrow()
       }
       const callsAfterFailure = request.mock.calls.length
-      await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(true)
+      await expect(provider.hasWorkerForEnvironment(ownerId)).resolves.toBe(true)
       const retry = recoveryPath === "conversation-cleanup"
         ? manager.cleanupConversation(ownerId, "01900000-0000-7000-8000-000000000011")
         : manager.request(ownerId, "/task", "POST")
@@ -124,7 +125,7 @@ describe("LocalProcessWorkerProvider", () => {
       expect(request.mock.calls.filter(([, requestPath]) => requestPath === "/task"))
         .toHaveLength(failurePath === "request" ? 2 : 1)
       await manager.shutdown(true)
-      await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(false)
+      await expect(provider.hasWorkerForEnvironment(ownerId)).resolves.toBe(false)
     },
   )
 
@@ -282,7 +283,7 @@ describe("LocalProcessWorkerProvider", () => {
 
     await waitUntil(() => !isProcessAlive(descendantPid))
     temporaryProcessIds.delete(descendantPid)
-    await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(false)
+    await expect(provider.hasWorkerForEnvironment(ownerId)).resolves.toBe(false)
   })
 
   it("retains a local worker for retry when process-group cleanup fails", async () => {
@@ -314,7 +315,7 @@ describe("LocalProcessWorkerProvider", () => {
     await expect(provider.release(worker)).rejects.toThrow(
       "process group is still alive",
     )
-    await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(true)
+    await expect(provider.hasWorkerForEnvironment(ownerId)).resolves.toBe(true)
     await expect(
       provider.acquire({
         ownerId,
@@ -327,7 +328,7 @@ describe("LocalProcessWorkerProvider", () => {
     await provider.release(worker)
 
     expect(terminateWorker).toHaveBeenCalledTimes(2)
-    await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(false)
+    await expect(provider.hasWorkerForEnvironment(ownerId)).resolves.toBe(false)
   })
 
   it("does not signal a missing-PID spawn and handles its asynchronous error before retry", async () => {
@@ -361,7 +362,7 @@ describe("LocalProcessWorkerProvider", () => {
         }
       })
     })).resolves.toBeUndefined()
-    await expect(provider.hasWorkerForOwner(ownerId)).resolves.toBe(false)
+    await expect(provider.hasWorkerForEnvironment(ownerId)).resolves.toBe(false)
     const worker = await provider.acquire(input)
     await expect(provider.inspect(worker)).resolves.toBe("running")
     await provider.release(worker)
@@ -457,7 +458,6 @@ async function createOwnerPaths(): Promise<WorkerOwnerPaths> {
     owner,
     home,
     homeAgentsMountpoint: path.join(home, ".agents"),
-    taskHomes: path.join(home, "task-homes"),
     managed,
     managedAgents,
     managedSkills: path.join(managedAgents, "skills"),
@@ -468,7 +468,6 @@ async function createOwnerPaths(): Promise<WorkerOwnerPaths> {
   } satisfies WorkerOwnerPaths
   await Promise.all([
     mkdir(paths.homeAgentsMountpoint, { recursive: true }),
-    mkdir(paths.taskHomes, { recursive: true }),
     mkdir(paths.managedSkills, { recursive: true }),
     mkdir(paths.managedPluginSources, { recursive: true }),
     mkdir(paths.managedPlugins, { recursive: true }),

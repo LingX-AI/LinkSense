@@ -166,8 +166,7 @@ async function createFixture() {
     root,
     OWNER_ID,
     "home",
-    "workspaces",
-    CONVERSATION_ID,
+    "workspace",
     "artifacts",
   )
   await mkdir(artifactsRoot, { recursive: true })
@@ -187,6 +186,7 @@ async function createFixture() {
   const service = new ConversationSkillCreatorService({
     prisma: {
       user: { findUnique: findUser },
+      conversation: { findFirst: vi.fn(async () => ({ workspaceRelPath: `${OWNER_ID}/home/workspace` })) },
       conversationTurn: { findFirst: findTurn },
     } as never,
     capabilities: {

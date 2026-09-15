@@ -768,3 +768,24 @@ function multipartWorkbook(
     ]),
   };
 }
+
+
+describe("personal environment routes", () => {
+  it("authenticates requests and never accepts an owner supplied in the body", async () => {
+    const getEnvironmentSettings = vi.fn(async () => ({ keep_running: false }));
+    const updateEnvironmentSettings = vi.fn(async () => ({ keep_running: true }));
+    const app = Fastify(); apps.push(app);
+    app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
+    await app.register(meRoutes, { prefix: "/me", service: {} as never, runner: { getEnvironmentSettings, updateEnvironmentSettings } as never,
+      authentication: { authenticate: async request => { if (request.headers.authorization !== "Bearer member") throw new AppError("AUTH_REQUIRED"); }, requireAdmin: async () => {}, getActor: async () => ({ id: "user-1", role: "user", status: "active" }) } });
+    expect((await app.inject({ method: "GET", url: "/me/environment" })).statusCode).toBe(401);
+    expect(getEnvironmentSettings).not.toHaveBeenCalled();
+    const headers = { authorization: "Bearer member" };
+    expect((await app.inject({ method: "GET", url: "/me/environment", headers })).json().data).toEqual({ keep_running: false });
+    expect(getEnvironmentSettings).toHaveBeenCalledWith("user-1");
+    expect((await app.inject({ method: "PUT", url: "/me/environment", headers, payload: { keep_running: true, owner_id: "other" } })).statusCode).toBe(400);
+    expect(updateEnvironmentSettings).not.toHaveBeenCalled();
+    expect((await app.inject({ method: "PUT", url: "/me/environment", headers, payload: { keep_running: true } })).statusCode).toBe(200);
+    expect(updateEnvironmentSettings).toHaveBeenCalledWith("user-1", { keep_running: true });
+  });
+});

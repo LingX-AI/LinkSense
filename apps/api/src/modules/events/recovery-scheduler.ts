@@ -24,6 +24,7 @@ const jobSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("owner"),
     ownerId: z.uuid(),
+    serviceSessionId: z.uuid().optional(),
     trigger: z.string().regex(/^[a-z0-9-]{1,80}$/u),
     deadline: z.number().int().nonnegative().optional(),
     after: z.uuid().optional(),
@@ -188,7 +189,7 @@ export class TaskRecoveryScheduler {
     await this.queue.close();
   }
 
-  async heartbeat(ownerId: string, rawInput: RunnerHeartbeat): Promise<void> {
+  async heartbeat(ownerId: string, rawInput: RunnerHeartbeat, serviceSessionId?: string): Promise<void> {
     z.uuid().parse(ownerId);
     const input = runnerHeartbeatSchema.parse(rawInput);
     if (input.startup) {
@@ -196,9 +197,10 @@ export class TaskRecoveryScheduler {
         type: "owner",
         ownerId,
         trigger: `boot-${input.bootId}`,
+        serviceSessionId,
       });
     }
-    await this.redis.recordRunnerHeartbeat(ownerId);
+    await this.redis.recordRunnerHeartbeat(ownerId, serviceSessionId);
   }
 
   async enqueueTurn(
@@ -269,13 +271,13 @@ export class TaskRecoveryScheduler {
       await this.enqueueOwner({
         type: "owner",
         ownerId: entry.ownerId,
-        deadline: entry.deadline,
+        serviceSessionId: entry.serviceSessionId,        deadline: entry.deadline,
         trigger: `expired-${entry.deadline}`,
       });
       await this.redis.acknowledgeExpiredRunnerOwner(
         entry.ownerId,
         entry.deadline,
-      );
+        entry.serviceSessionId,      );
     }
     await this.dispatchPendingStarts();
     await this.dispatchPendingContexts();
@@ -285,14 +287,14 @@ export class TaskRecoveryScheduler {
     data: Extract<RecoveryJob, { type: "owner" }>,
   ): Promise<void> {
     await this.queue.add("owner", data, {
-      jobId: `owner-${data.ownerId}-${data.trigger}-${data.after ?? "first"}`,
+      jobId: `owner-${data.ownerId}-${data.serviceSessionId ?? "personal"}-${data.trigger}-${data.after ?? "first"}`,
     });
   }
 
   private async dispatchOwner(
     data: Extract<RecoveryJob, { type: "owner" }>,
   ): Promise<void> {
-    const deadline = await this.redis.runnerOwnerDeadline(data.ownerId);
+    const deadline = await this.redis.runnerOwnerDeadline(data.ownerId, data.serviceSessionId);
     if (
       data.deadline !== undefined &&
       deadline !== null &&

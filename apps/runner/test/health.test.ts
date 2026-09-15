@@ -150,8 +150,8 @@ describe("runner health", () => {
     expect(runnerServerTesting.resolveHealthRoots(standalone)).toEqual({
       home: join(standaloneRoot, ".runner-health", "home"),
       control: join(standaloneRoot, ".runner-health", "control"),
-      workspace: join(standaloneRoot, ".runner-health", "home", "workspaces"),
-      codexHome: join(standaloneRoot, ".runner-health", "home", "task-homes"),
+      workspace: join(standaloneRoot, ".runner-health", "home", "workspace"),
+      codexHome: join(standaloneRoot, ".runner-health", "home", ".codex"),
     });
 
     const workerHome = join(directory, "worker-home");
@@ -164,8 +164,8 @@ describe("runner health", () => {
     expect(runnerServerTesting.resolveHealthRoots(worker)).toEqual({
       home: workerHome,
       control: "/run/linksense-control",
-      workspace: join(workerHome, "workspaces"),
-      codexHome: join(workerHome, "task-homes"),
+      workspace: join(workerHome, "workspace"),
+      codexHome: join(workerHome, ".codex"),
     });
   });
 
@@ -187,8 +187,8 @@ describe("runner health", () => {
     expect(runnerServerTesting.resolveHealthRoots(worker)).toEqual({
       home: workerHome,
       control: controlRoot,
-      workspace: join(workerHome, "workspaces"),
-      codexHome: join(workerHome, "task-homes"),
+      workspace: join(workerHome, "workspace"),
+      codexHome: join(workerHome, ".codex"),
     });
   });
 
@@ -903,6 +903,7 @@ describe("runner health", () => {
         reason_code: "CODEX_APP_SERVER_HANDSHAKE_FAILED",
       },
       running_turns: 0,
+      user_processes: 0,
       app_server_processes: 0,
       concurrency_limit: 9,
       app_server_process_limit: 9,

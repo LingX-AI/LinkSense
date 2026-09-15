@@ -36,8 +36,10 @@
     "test": "pnpm --filter @linksense/shared build && pnpm run '/^test:(deployment|packages)$/' && pnpm --filter @linksense/web test",
     "test:deployment": "node --test --test-concurrency=2 scripts/*.test.mjs",
     "test:runtime:standalone": "pnpm --filter @linksense/runner exec tsx ../../scripts/runtime-standalone-smoke.mts",
+    "test:runtime:docker-shared-home": "pnpm --filter @linksense/runner build && tsx scripts/docker-shared-home-smoke.mts",
     "benchmark:latency": "node scripts/latency-smoke.mjs",
     "benchmark:prompt-cache": "pnpm --filter @linksense/runner exec tsx test/fixtures/prompt-cache-benchmark/run.ts",
+    "test:codex:shared-home": "tsx scripts/codex-shared-home-smoke.mts",
     "test:codex:integration": "tsx scripts/codex-thread-smoke.mts",
     "test:codex:upgrade": "pnpm --filter @linksense/runner exec tsx test/functional/codex-upgrade.ts",
     "test:codex:upgrade:postgres": "pnpm --filter @linksense/api exec tsx test/integration/async-user-input-postgres.ts",
@@ -46,7 +48,8 @@
     "test:codex:native-plugin-refresh": "tsx scripts/codex-native-plugin-refresh-smoke.mts",
     "test:codex:skill-discovery": "tsx scripts/codex-skill-discovery-smoke.mts",
     "typecheck": "pnpm -r --filter './apps/**' --filter './packages/**' --if-present typecheck",
-    "test:packages": "pnpm -r --parallel --filter './apps/**' --filter './packages/**' --filter '!@linksense/web' --if-present test"
+    "test:packages": "pnpm -r --parallel --filter './apps/**' --filter './packages/**' --filter '!@linksense/web' --if-present test",
+    "test:runtime:projects:postgres": "pnpm --filter @linksense/api exec tsx test/integration/user-project-runtime-postgres.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.8.0",

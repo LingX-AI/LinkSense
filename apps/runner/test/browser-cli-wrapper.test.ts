@@ -250,10 +250,10 @@ describe("managed browser CLI", () => {
     const root = await temporaryRoot()
     const runtimeRoot = path.join(root, "runtime")
     const userHome = path.join(root, "home")
-    const codexHome = path.join(userHome, "task-homes", firstConversationId, ".codex")
+    const codexHome = path.join(userHome, ".codex")
     const workspace = path.join(
       path.join(root, "home"),
-      "workspaces",
+      "projects",
       firstConversationId,
     )
     const sessionRoot = path.join(root, "sessions")
@@ -272,6 +272,8 @@ describe("managed browser CLI", () => {
     const environment = {
       HOME: userHome,
       CODEX_HOME: codexHome,
+      LINKSENSE_WORKSPACE_PATH: workspace,
+      LINKSENSE_CONVERSATION_ID: firstConversationId,
       LINKSENSE_BROWSER_SESSION_ROOT: path.join(root, "attacker-sessions"),
       LINKSENSE_BROWSER_SESSION_LIMIT: "20",
     }
@@ -447,26 +449,28 @@ describe("managed browser CLI", () => {
     expect(calls.every((call) => call.cwd === canonicalWorkspace)).toBe(true)
   })
 
-  it("rejects another task's workspace even when both tasks belong to the same owner", async () => {
+  it("allows another project of the same user and rejects a different user's directory", async () => {
     const root = await temporaryRoot()
     const userHome = path.join(root, "home")
-    const codexHome = path.join(userHome, "task-homes", firstConversationId, ".codex")
-    const other = path.join(root, "home", "workspaces", secondConversationId)
-    await mkdir(codexHome, { recursive: true })
-    for (const name of ["artifacts", "attachments", "temp"]) await mkdir(path.join(other, name), { recursive: true })
+    const codexHome = path.join(userHome, ".codex")
+    const workspace = path.join(userHome, "projects", firstConversationId)
+    const other = path.join(userHome, "projects", secondConversationId)
+    const outside = path.join(root, "another-user")
+    await Promise.all([mkdir(codexHome, { recursive: true }), mkdir(workspace, { recursive: true }), mkdir(other, { recursive: true }), mkdir(outside)])
     const runCli = vi.fn<BrowserCliRunner>(async () => 0)
-    await expect(browserCliMain(["__cleanup"], { HOME: userHome, CODEX_HOME: codexHome }, other, { runCli })).rejects.toThrow("inside the current task workspace")
-    expect(runCli).not.toHaveBeenCalled()
+    const environment = { HOME: userHome, CODEX_HOME: codexHome, LINKSENSE_WORKSPACE_PATH: workspace, LINKSENSE_CONVERSATION_ID: firstConversationId }
+    await expect(browserCliMain(["__cleanup"], environment, other, { runCli, policy: { sessionRoot: path.join(root, "sessions"), sessionLimit: 2 } })).resolves.toBe(0)
+    await expect(browserCliMain(["__cleanup"], environment, outside, { runCli, policy: { sessionRoot: path.join(root, "sessions"), sessionLimit: 2 } })).rejects.toThrow("inside the user HOME")
   })
 
   it("opens a bounded self-contained workspace HTML through the managed browser", async () => {
     const root = await temporaryRoot()
     const runtimeRoot = path.join(root, "runtime")
     const userHome = path.join(root, "home")
-    const codexHome = path.join(userHome, "task-homes", firstConversationId, ".codex")
+    const codexHome = path.join(userHome, ".codex")
     const workspace = path.join(
       path.join(root, "home"),
-      "workspaces",
+      "projects",
       firstConversationId,
     )
     const sessionRoot = path.join(root, "sessions")
@@ -492,7 +496,7 @@ describe("managed browser CLI", () => {
     await expect(
       browserCliMain(
         ["--help"],
-        { HOME: userHome, CODEX_HOME: codexHome },
+        { HOME: userHome, CODEX_HOME: codexHome, LINKSENSE_WORKSPACE_PATH: workspace, LINKSENSE_CONVERSATION_ID: firstConversationId },
         workspace,
         dependencies,
       ),
@@ -507,7 +511,7 @@ describe("managed browser CLI", () => {
     await expect(
       browserCliMain(
         ["open-workspace-html", "artifacts/deck.html"],
-        { HOME: userHome, CODEX_HOME: codexHome },
+        { HOME: userHome, CODEX_HOME: codexHome, LINKSENSE_WORKSPACE_PATH: workspace, LINKSENSE_CONVERSATION_ID: firstConversationId },
         workspace,
         dependencies,
       ),
@@ -530,10 +534,10 @@ describe("managed browser CLI", () => {
     const root = await temporaryRoot()
     const runtimeRoot = path.join(root, "runtime")
     const userHome = path.join(root, "home")
-    const codexHome = path.join(userHome, "task-homes", firstConversationId, ".codex")
+    const codexHome = path.join(userHome, ".codex")
     const workspace = path.join(
       path.join(root, "home"),
-      "workspaces",
+      "projects",
       firstConversationId,
     )
     const sessionRoot = path.join(root, "sessions")
@@ -550,7 +554,7 @@ describe("managed browser CLI", () => {
     ])
     await symlink(outsideHtml, linkedHtml)
     await writeFile(oversizedHtml, "x".repeat(MAX_WORKSPACE_HTML_BYTES + 1))
-    const environment = { HOME: userHome, CODEX_HOME: codexHome }
+    const environment = { HOME: userHome, CODEX_HOME: codexHome, LINKSENSE_WORKSPACE_PATH: workspace, LINKSENSE_CONVERSATION_ID: firstConversationId }
     const dependencies = {
       runtimeRoot,
       runCli: vi.fn<BrowserCliRunner>(async () => 0),
@@ -591,10 +595,10 @@ describe("managed browser CLI", () => {
   it("runs supervisor cleanup with only the scoped browser environment", async () => {
     const root = await temporaryRoot()
     const userHome = path.join(root, "home")
-    const codexHome = path.join(userHome, "task-homes", firstConversationId, ".codex")
+    const codexHome = path.join(userHome, ".codex")
     const workspace = path.join(
       path.join(root, "home"),
-      "workspaces",
+      "projects",
       firstConversationId,
     )
     const log = path.join(root, "cleanup.log")

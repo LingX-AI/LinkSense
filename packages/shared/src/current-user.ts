@@ -26,8 +26,8 @@ export const currentUserCreditQuotaPeriodSchema =
 export const currentUserInfoSuccessSchema = z.strictObject({
   success: z.literal(true),
   user: z.strictObject({
-    name: userNameSchema,
-    email: emailSchema,
+    name: userNameSchema.nullable(),
+    email: emailSchema.nullable(),
     user_groups: z.array(currentUserGroupSchema).max(10_000),
   }),
   credit_quota: z.strictObject({

@@ -39,6 +39,23 @@ import { TURN_START_CONTRACT_VERSION } from "../src/turn-start-contract.js"
 const ownerId = "01900000-0000-7000-8000-000000000002"
 const secret = "runner-555555555555555555555555555555"
 
+describe("service worker storage and authentication", () => {
+  it("mounts a service session outside personal HOME and derives a different worker identity", () => {
+    const session = "01900000-0000-7000-8000-000000000011"
+    const otherSession = "01900000-0000-7000-8000-000000000012"
+    const config = createConfig({ LINKSENSE_USER_DATA_VOLUME: "linksense-user-data" })
+    const service = buildWorkerContainerSpec(config, ownerId, ownerStorageKey(ownerId, secret, session), undefined, {}, false, session)
+    expect(service.HostConfig.Mounts.map(mount => mount.Type === "volume" ? mount.VolumeOptions?.Subpath : undefined)).toEqual([
+      `${ownerId}/services/${session}/home`, `${ownerId}/services/${session}/managed/agents`, `${ownerId}/services/${session}/control`,
+    ])
+    expect(service.Env).toContain(`LINKSENSE_SERVICE_SESSION_ID=${session}`)
+    expect(service.Env).toContain(`LINKSENSE_WORKER_OWNER_ID=${ownerId}`)
+    expect(service.Env).toContain(`LINKSENSE_RUNNER_SHARED_SECRET=${ownerWorkerSecret(ownerId, secret, session)}`)
+    expect(new Set([ownerStorageKey(ownerId, secret), ownerStorageKey(ownerId, secret, session), ownerStorageKey(ownerId, secret, otherSession)]).size).toBe(3)
+    expect(new Set([ownerWorkerSecret(ownerId, secret), ownerWorkerSecret(ownerId, secret, session), ownerWorkerSecret(ownerId, secret, otherSession)]).size).toBe(3)
+    expect(() => buildWorkerContainerSpec(config, ownerId, "unused", undefined, {}, false, "../../home")).toThrow()
+  })
+})
 describe("controller user-directory cleanup", () => {
   it("retries a transient bind-mount release failure with bounded delays", async () => {
     const transient = Object.assign(new Error("mount is releasing"), {
@@ -180,7 +197,7 @@ describe("controller worker lifecycle", () => {
     ).resolves.toMatchObject({ statusCode: 200 })
     expect(docker.createContainer).not.toHaveBeenCalled()
     expect(transport.calls).toEqual([])
-    await expect(lstat(workspace)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(lstat(workspace)).resolves.toMatchObject({})
     await expect(lstat(taskControl)).rejects.toMatchObject({ code: "ENOENT" })
     await rm(root, { recursive: true })
   })
@@ -253,7 +270,7 @@ describe("controller worker lifecycle", () => {
     await rm(root, { recursive: true })
   })
 
-  it("rejects a symlinked task parent without touching its destination", async () => {
+  it("rejects a symlinked control parent without touching its destination", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "linksense-cleanup-boundary-"))
     const userDataRoot = path.join(root, "users")
     const ownerHome = path.join(userDataRoot, ownerId, "home")
@@ -264,7 +281,7 @@ describe("controller worker lifecycle", () => {
       mkdir(path.join(userDataRoot, ownerId, "control"), { recursive: true }),
       mkdir(path.join(outside, conversationId), { recursive: true }),
     ])
-    await symlink(outside, path.join(ownerHome, "workspaces"))
+    await symlink(outside, path.join(userDataRoot, ownerId, "control", "workspaces"))
     const manager = createDockerWorkerManager(
       createConfig({ LINKSENSE_USER_DATA_ROOT: userDataRoot }),
       new FakeDocker(),
@@ -431,6 +448,37 @@ describe("controller worker lifecycle", () => {
     await manager.sweepIdleWorkers(firstExpiredAt + 1_100)
     expect(docker.stopContainer).toHaveBeenCalledTimes(1)
     expect(docker.removeContainer).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps a detached user process alive after native turns and app-server processes finish", async () => {
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createManager(docker, transport)
+    await manager.initialize()
+    await manager.prewarm(ownerId)
+    const idleAt = Date.now() + 60_000
+    transport.state = { ...stateHealth({}), user_processes: 1 }
+    await manager.sweepIdleWorkers(idleAt)
+    expect(docker.stopContainer).not.toHaveBeenCalled()
+    transport.state = stateHealth({})
+    await manager.sweepIdleWorkers(idleAt + 500)
+    expect(docker.stopContainer).not.toHaveBeenCalled()
+    await manager.sweepIdleWorkers(idleAt + 1_100)
+    expect(docker.stopContainer).toHaveBeenCalledOnce()
+  })
+
+  it("honors keep-running and reclaims the container after the preference is disabled", async () => {
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createManager(docker, transport)
+    const settings = vi.spyOn(manager, "getEnvironmentSettings").mockResolvedValue({ keep_running: true })
+    await manager.initialize()
+    await manager.prewarm(ownerId)
+    await manager.sweepIdleWorkers(Date.now() + 60_000)
+    expect(docker.stopContainer).not.toHaveBeenCalled()
+    settings.mockResolvedValue({ keep_running: false })
+    await manager.sweepIdleWorkers(Date.now() + 60_000)
+    expect(docker.stopContainer).toHaveBeenCalledOnce()
   })
 
   it("retries idle cleanup before replacing a worker whose Docker release failed", async () => {
@@ -869,7 +917,7 @@ describe("controller worker lifecycle", () => {
     await manager.initialize()
 
     expect(WORKER_RUNTIME_LAYOUT).toBe(
-      "task-codex-home-task-capability-projections-owner-volume-subpaths",
+      "shared-user-home-projects-service-sessions",
     )
     expect(workerContractKey(config)).not.toBe(
       contractWithoutRuntimeLayout(config),
@@ -1765,6 +1813,7 @@ function stateHealth(
       checked_at: checkedAt,
     },
     running_turns: options.runningTurns ?? 0,
+    user_processes: 0,
     app_server_processes:
       options.appServerProcesses ?? options.runningTurns ?? 0,
     ...(options.modelCatalog ? { model_catalog: options.modelCatalog } : {}),

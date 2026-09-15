@@ -54,6 +54,7 @@ function harness() {
   const lockConversation = vi.fn().mockResolvedValue([{ id: CONVERSATION }]);
   const turn = vi.fn().mockResolvedValue({ id: TURN, sequenceNo: 2 });
   const tx = {
+    user: { findUnique: vi.fn(async () => ({ status: "active" })) },
     $queryRaw: lockConversation,
     conversationFile: { upsert, findUnique },
     conversationTurn: { findFirst: turn },

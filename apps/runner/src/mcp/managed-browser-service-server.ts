@@ -14,7 +14,7 @@ import {
 const conversationId = z.uuid().parse(process.env.LINKSENSE_CONVERSATION_ID)
 const userHome = z.string().min(1).parse(process.env.HOME)
 const codexHome = z.string().min(1).parse(process.env.CODEX_HOME)
-const workspace = browserWorkspaceForCodexHome(userHome, codexHome, conversationId)
+const workspace = browserWorkspaceForCodexHome(userHome, codexHome, z.string().min(1).parse(process.env.LINKSENSE_WORKSPACE_PATH))
 const environment: NodeJS.ProcessEnv = {
   ...process.env,
   HOME: userHome,

@@ -4004,7 +4004,7 @@ describe("ConversationEventService SSE replay privacy", () => {
     expect(missingOwner.statusCode).toBe(400);
     const response = await app.inject({ method: "POST", url: "/runner/heartbeat", headers, payload });
     expect(response.statusCode).toBe(200);
-    expect(recordRunnerHeartbeat).toHaveBeenCalledExactlyOnceWith(OWNER_ID, payload);
+    expect(recordRunnerHeartbeat).toHaveBeenCalledExactlyOnceWith(OWNER_ID, payload, undefined);
     expect(assertOwner).not.toHaveBeenCalled();
   });
 

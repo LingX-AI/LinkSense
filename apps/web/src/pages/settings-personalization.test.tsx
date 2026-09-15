@@ -58,7 +58,7 @@ describe("personalization settings", () => {
         return envelope({ error_code: "NOT_FOUND" }, 404)
       }
     )
-    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("fetch", withEnvironmentSettings(fetchMock))
     const user = userEvent.setup()
 
     renderPage()
@@ -163,7 +163,7 @@ describe("personalization settings", () => {
         return errorEnvelope("RUNNER_UNAVAILABLE", 503)
       }
     )
-    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("fetch", withEnvironmentSettings(fetchMock))
     const user = userEvent.setup()
 
     renderPage()
@@ -259,7 +259,7 @@ describe("personalization settings", () => {
           return envelope(settings)
         }
       )
-      vi.stubGlobal("fetch", fetchMock)
+      vi.stubGlobal("fetch", withEnvironmentSettings(fetchMock))
       const user = userEvent.setup()
       const { unmount } = renderPage()
       const select = await screen.findByRole("combobox")
@@ -268,7 +268,7 @@ describe("personalization settings", () => {
       )
       expect(select).toHaveTextContent(first)
       const namingSection = select.closest("section")
-      const memorySection = screen.getByRole("switch").closest("section")
+      const memorySection = screen.getByRole("switch", { name: i18n.t("settings.enableMemories") }).closest("section")
       if (!namingSection || !memorySection) {
         throw new Error("Expected naming and memory settings sections")
       }
@@ -307,7 +307,7 @@ describe("personalization settings", () => {
   it("preserves the saved naming preference and permits retry when saving fails", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      withEnvironmentSettings(vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
         init?.method === "PATCH"
           ? errorEnvelope("RUNNER_UNAVAILABLE", 503)
           : envelope({
@@ -315,7 +315,7 @@ describe("personalization settings", () => {
               memories_enabled: true,
               task_auto_naming: "first_message",
             })
-      )
+      ))
     )
     const user = userEvent.setup()
     renderPage()
@@ -386,4 +386,10 @@ function findRequest(
       JSON.stringify(expectedBody)
     )
   })
+}
+
+function withEnvironmentSettings(fetchMock: typeof fetch): typeof fetch {
+  return (input, init) => new URL(String(input), window.location.origin).pathname === "/api/v1/me/environment"
+    ? Promise.resolve(envelope({ keep_running: false }))
+    : fetchMock(input, init)
 }

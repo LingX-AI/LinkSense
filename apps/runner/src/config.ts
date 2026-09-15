@@ -82,6 +82,7 @@ const runnerConfigSchema = z
       .enum(["docker", "local-process"])
       .default("docker"),
     LINKSENSE_WORKER_OWNER_ID: uuid.optional(),
+    LINKSENSE_SERVICE_SESSION_ID: uuid.optional(),
     LINKSENSE_USER_DATA_ROOT: absoluteDirectory,
     LINKSENSE_USER_DATA_VOLUME: dockerVolumeName.optional(),
     LINKSENSE_PYTHON_BASE_SITE_PACKAGES: z

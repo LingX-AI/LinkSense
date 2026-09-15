@@ -42,7 +42,7 @@ const authenticationPluginImplementation: FastifyPluginAsync<{
         throw new AppError("AUTH_REQUIRED")
       }
       const user = await prisma.user.findUnique({ where: { id: claims.sub } })
-      if (!user || user.status !== "active" || user.accountType !== "member") {
+      if (!user || user.status !== "active") {
         throw new AppError("AUTH_SESSION_EXPIRED")
       }
       if (

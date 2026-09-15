@@ -15,7 +15,6 @@ export type WorkerOwnerPaths = {
   owner: string
   home: string
   homeAgentsMountpoint: string
-  taskHomes: string
   managed: string
   managedAgents: string
   managedSkills: string
@@ -28,6 +27,7 @@ export type WorkerOwnerPaths = {
 export type WorkerInstanceState = "running" | "stopped" | "failed"
 
 export type WorkerInstance = {
+  serviceSessionId?: string
   id: string
   name: string
   endpoint: string
@@ -37,6 +37,7 @@ export type WorkerInstance = {
 }
 
 export type WorkerAcquireInput = {
+  serviceSessionId?: string
   ownerId: string
   storageKey: string
   name: string
@@ -59,7 +60,7 @@ export interface WorkerProvider {
   resume(worker: WorkerInstance): Promise<WorkerInstance>
   inspect(worker: WorkerInstance): Promise<WorkerInstanceState>
   release(worker: WorkerInstance): Promise<void>
-  hasWorkerForOwner(ownerId: string): Promise<boolean>
+  hasWorkerForEnvironment(ownerId: string, serviceSessionId?: string): Promise<boolean>
   healthDetails(
     checkedAt: string,
     options?: { includeResourceUsage?: boolean },

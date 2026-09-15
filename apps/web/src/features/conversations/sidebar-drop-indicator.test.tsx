@@ -12,7 +12,7 @@ describe("sidebar insertion marker", () => {
   it.each([
     { kind: "reorder", id: "task", edge: "before" },
     { kind: "reorder", id: "task", edge: "after" },
-    { kind: "category", id: "category", edge: "after" },
+    { kind: "project", id: "project", edge: "after" },
   ] satisfies SidebarConversationDropTarget[])(
     "draws a blue hollow dot and thicker line for $kind $edge without changing row height",
     (target) => {
@@ -57,14 +57,14 @@ describe("sidebar insertion marker", () => {
   })
 
   it.each(["before", "after"] as const)(
-    "places a category-order marker %s the whole group without indenting it into task content",
+    "places a project-order marker %s the whole group without indenting it into task content",
     (edge) => {
       const { container } = render(
         <SidebarConversationDropTargetContext.Provider
-          value={{ kind: "category-reorder", id: "category", edge }}
+          value={{ kind: "project-reorder", id: "project", edge }}
         >
-          <SidebarDropIndicator targetId="category" />
-          <SidebarDropIndicator targetId="category" scope="category" />
+          <SidebarDropIndicator targetId="project" />
+          <SidebarDropIndicator targetId="project" scope="project" />
         </SidebarConversationDropTargetContext.Provider>
       )
       expect(

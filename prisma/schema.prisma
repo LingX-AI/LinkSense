@@ -20,7 +20,6 @@ model User {
   id                       String    @id @default(uuid()) @db.Uuid
   email                    String    @unique(map: "users_email_key") @db.Citext
   name                     String    @db.VarChar(120)
-  accountType              String    @default("member") @map("account_type") @db.VarChar(32)
   avatarObjectKey          String?   @map("avatar_object_key") @db.Text
   role                     String    @db.VarChar(32)
   status                   String    @db.VarChar(32)
@@ -42,7 +41,6 @@ model User {
   updatedAt                DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([status, role], map: "users_status_role_idx")
-  @@index([accountType, status], map: "users_account_type_status_idx")
   @@index([lastLoginAt], map: "users_last_login_at_idx")
   @@index([selfRegisteredAt], map: "users_self_registered_at_idx")
   @@map("users")
@@ -450,6 +448,9 @@ model Application {
   iconObjectKey        String?   @map("icon_object_key") @db.Text
   description          String?   @db.Text
   instructions         String    @db.Text
+  usageInstructions    String    @default("") @map("usage_instructions") @db.Text
+  publishedVersionId   String?   @map("published_version_id") @db.Uuid
+  allowCopy            Boolean   @default(false) @map("allow_copy")
   model                String?   @db.VarChar(240)
   reasoningEffort      String?   @map("reasoning_effort") @db.VarChar(32)
   interactivePackageId String?   @map("interactive_package_id") @db.Uuid
@@ -466,6 +467,20 @@ model Application {
   @@index([name], map: "applications_name_idx")
   @@index([deletedBy], map: "applications_deleted_by_idx")
   @@map("applications")
+}
+
+model ApplicationVersion {
+  id             String   @id @default(uuid()) @db.Uuid
+  applicationId  String   @map("application_id") @db.Uuid
+  versionNumber  Int      @map("version_number")
+  definitionJson Json     @map("definition_json") @db.JsonB
+  assetsReady    Boolean  @default(false) @map("assets_ready")
+  createdBy      String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([applicationId, versionNumber], map: "application_versions_application_number_key")
+  @@index([createdBy], map: "application_versions_created_by_idx")
+  @@map("application_versions")
 }
 
 model InteractiveApplicationPackage {
@@ -611,6 +626,13 @@ model ApplicationExternalSession {
   externalSubject                             String?   @map("external_subject") @db.VarChar(320)
   externalTenant                              String?   @map("external_tenant") @db.VarChar(240)
   displayName                                 String?   @map("display_name") @db.VarChar(120)
+  preferredLocale          String?   @map("preferred_locale") @db.VarChar(16)
+  preferredModel           String?   @map("preferred_model") @db.VarChar(240)
+  preferredReasoningEffort String?   @map("preferred_reasoning_effort") @db.VarChar(32)
+  totalCreditLimitMicros   BigInt?   @map("total_credit_limit_micros") @db.BigInt
+  weeklyCreditLimitMicros  BigInt?   @map("weekly_credit_limit_micros") @db.BigInt
+  monthlyCreditLimitMicros BigInt?   @map("monthly_credit_limit_micros") @db.BigInt
+  creditQuotaResetAt       DateTime? @map("credit_quota_reset_at") @db.Timestamptz(6)
   origin                                      String    @db.Text
   status                                      String    @default("active") @db.VarChar(32)
   credentialVersion                           Int       @map("credential_version")
@@ -675,7 +697,7 @@ model ApplicationGrant {
   @@map("application_grants")
 }
 
-model TaskCategory {
+model Project {
   id        String   @id @default(uuid()) @db.Uuid
   ownerId   String   @map("owner_id") @db.Uuid
   name      String   @db.VarChar(80)
@@ -683,9 +705,9 @@ model TaskCategory {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  @@unique([ownerId, name], map: "task_categories_owner_name_key")
-  @@index([ownerId, sortOrder, createdAt, id], map: "task_categories_owner_order_idx")
-  @@map("task_categories")
+  @@unique([ownerId, name], map: "projects_owner_name_key")
+  @@index([ownerId, sortOrder, createdAt, id], map: "projects_owner_order_idx")
+  @@map("projects")
 }
 
 model Conversation {
@@ -696,9 +718,9 @@ model Conversation {
   archiveStatus                   String    @map("archive_status") @db.VarChar(32)
   archivedAt                      DateTime? @map("archived_at") @db.Timestamptz(6)
   pinnedAt                        DateTime? @map("pinned_at") @db.Timestamptz(6)
-  categoryId                      String?   @map("category_id") @db.Uuid
+  projectId                       String?   @map("project_id") @db.Uuid
   sortOrder                       Int?      @map("sort_order")
-  workspaceRelPath                String    @unique(map: "conversations_workspace_rel_path_key") @map("workspace_rel_path") @db.Text
+  workspaceRelPath                String    @map("workspace_rel_path") @db.Text
   codexThreadId                   String?   @unique(map: "conversations_codex_thread_id_key") @map("codex_thread_id") @db.Text
   agentsTemplateVersion           String?   @map("agents_template_version") @db.VarChar(80)
   collaborationMode               String    @default("default") @map("collaboration_mode") @db.VarChar(24)
@@ -709,6 +731,7 @@ model Conversation {
   completionUnread                Boolean   @default(false) @map("completion_unread")
   selectedKnowledgeBaseIdsJson    Json      @default("[]") @map("selected_knowledge_base_ids_json") @db.JsonB
   applicationId                   String?   @map("application_id") @db.Uuid
+  applicationVersionId            String?   @map("application_version_id") @db.Uuid
   applicationNameSnapshot         String?   @map("application_name_snapshot") @db.VarChar(160)
   interactiveApplicationPackageId String?   @map("interactive_application_package_id") @db.Uuid
   forkRootId                      String?   @map("fork_root_id") @db.Uuid
@@ -724,7 +747,7 @@ model Conversation {
   @@index([ownerId, archiveStatus, updatedAt(sort: Desc)], map: "conversations_owner_archive_updated_idx")
   @@index([ownerId, archiveStatus, pinnedAt(sort: Desc)], map: "conversations_owner_archive_pinned_idx")
   @@index([ownerId, archiveStatus, pinnedAt, sortOrder], map: "conversations_owner_archive_pin_order_idx")
-  @@index([ownerId, categoryId, archiveStatus, pinnedAt, sortOrder], map: "conversations_owner_category_archive_pin_order_idx")
+  @@index([ownerId, projectId, archiveStatus, pinnedAt, sortOrder], map: "conversations_owner_project_archive_pin_order_idx")
   @@index([createdAt(sort: Desc)], map: "conversations_created_at_idx")
   @@index([lastRunAt], map: "conversations_last_run_at_idx")
   @@index([applicationId, ownerId, updatedAt(sort: Desc)], map: "conversations_application_owner_updated_idx")
@@ -1212,6 +1235,7 @@ model ConversationFile {
   checksumSha256        String?  @map("checksum_sha256") @db.VarChar(64)
   storageBackend        String   @map("storage_backend") @db.VarChar(32)
   workspaceRelativePath String?  @map("workspace_relative_path") @db.Text
+  workspaceRootRelPath  String?  @map("workspace_root_rel_path") @db.Text
   minioObjectKey        String?  @map("minio_object_key") @db.Text
   downloadable          Boolean
   downloadCardEventId   String?  @map("download_card_event_id") @db.Uuid
@@ -1253,6 +1277,7 @@ model RuntimeCleanupOutbox {
   id             String    @id @default(uuid()) @db.Uuid
   ownerId        String    @map("owner_id") @db.Uuid
   conversationId String    @unique(map: "runtime_cleanup_outbox_conversation_id_key") @map("conversation_id") @db.Uuid
+  serviceSessionId String?  @map("service_session_id") @db.Uuid
   status         String    @default("pending") @db.VarChar(32)
   stage          String    @default("reconcile") @db.VarChar(32)
   attemptCount   Int       @default(0) @map("attempt_count")

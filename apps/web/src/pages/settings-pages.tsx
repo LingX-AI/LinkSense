@@ -1,3 +1,4 @@
+import { UserEnvironmentSettings } from "@/features/environment/user-environment-settings"
 import { useCallback, useMemo, useRef, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
@@ -680,6 +681,8 @@ export function SettingsPersonalizationPage() {
               </div>
             </div>
           </section>
+
+          <UserEnvironmentSettings />
 
           {personalizationQuery.data && (
             <TaskAutoNamingSettings

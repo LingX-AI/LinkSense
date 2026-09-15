@@ -27,7 +27,6 @@ const RENEWAL_TOKEN_PREFIX = "lsr_";
 const TICKET_PREFIX = "lst_";
 const EXTERNAL_APPLICATION_SESSION_ID_CONTEXT_PREFIX =
   "linksense:external-application-session-id:v1:";
-const DEFAULT_EXTERNAL_USER_DISPLAY_NAME = "外部用户";
 const RATE_LIMIT_SCRIPT = `
 local count = redis.call('INCR', KEYS[1])
 if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end
@@ -82,6 +81,7 @@ export class ApplicationExternalAccessService {
     private readonly createConversation: (
       ownerId: string,
       application: { id: string; name: string },
+      conversationId?: string,
     ) => Promise<{ id: string }>,
     private readonly cleanupConversation: (
       ownerId: string,
@@ -92,6 +92,7 @@ export class ApplicationExternalAccessService {
       conversationId: string,
     ) => void = () => undefined,
     private readonly now: () => Date = () => new Date(),
+    private readonly reserveConversationId: () => string = randomUUID,
   ) {}
 
   async getManagement(
@@ -243,17 +244,6 @@ export class ApplicationExternalAccessService {
             revokeReason: "external_access_configuration_changed",
           },
         });
-        await tx.user.updateMany({
-          where: {
-            id: {
-              in: sessionsToRevoke.map(
-                (session) => session.runtimePrincipalId,
-              ),
-            },
-            accountType: "application_external",
-          },
-          data: { status: "disabled", updatedAt: now },
-        });
       }
       return updated;
     });
@@ -340,17 +330,6 @@ export class ApplicationExternalAccessService {
           revokedAt: null,
         },
         data: { revokedAt: now, revokeReason: "app_secret_rotated" },
-      });
-      const sessions = await tx.applicationExternalSession.findMany({
-        where: { externalAccessId: current.id },
-        select: { runtimePrincipalId: true },
-      });
-      await tx.user.updateMany({
-        where: {
-          id: { in: sessions.map((session) => session.runtimePrincipalId) },
-          accountType: "application_external",
-        },
-        data: { status: "disabled", updatedAt: now },
       });
       return access;
     });
@@ -575,10 +554,6 @@ export class ApplicationExternalAccessService {
         where: { id: session.applicationId },
         select: { status: true },
       });
-      const principal = await tx.user.findUnique({
-        where: { id: session.runtimePrincipalId },
-        select: { status: true, accountType: true },
-      });
       if (
         token.expiresAt <= now ||
         session.absoluteExpiresAt <= now ||
@@ -589,20 +564,11 @@ export class ApplicationExternalAccessService {
         access.applicationId !== session.applicationId ||
         access.credentialVersion !== session.credentialVersion ||
         !allowedOrigins(access).includes(origin) ||
-        application?.status !== "active" ||
-        principal?.status !== "active" ||
-        principal.accountType !== "application_external"
+        application?.status !== "active"
       ) {
         await tx.applicationExternalSession.updateMany({
           where: { id: session.id, status: "active" },
           data: { status: "expired", revokedAt: now, revokeReason: "expired" },
-        });
-        await tx.user.updateMany({
-          where: {
-            id: session.runtimePrincipalId,
-            accountType: "application_external",
-          },
-          data: { status: "disabled", updatedAt: now },
         });
         return { status: "expired" as const };
       }
@@ -658,13 +624,6 @@ export class ApplicationExternalAccessService {
             revokedAt: now,
             revokeReason: "renewal_token_reuse",
           },
-        });
-        await tx.user.updateMany({
-          where: {
-            id: session.runtimePrincipalId,
-            accountType: "application_external",
-          },
-          data: { status: "disabled", updatedAt: now },
         });
         return { status: "reused" as const };
       }
@@ -736,7 +695,7 @@ export class ApplicationExternalAccessService {
     claims: ApplicationEmbedAccessTokenClaims,
   ): Promise<VerifiedApplicationEmbedSession> {
     const now = this.now();
-    const [session, access, application, principal] = await Promise.all([
+    const [session, access, application] = await Promise.all([
       this.prisma.applicationExternalSession.findUnique({
         where: { id: claims.session_id },
       }),
@@ -746,10 +705,6 @@ export class ApplicationExternalAccessService {
       this.prisma.application.findUnique({
         where: { id: claims.application_id },
         select: { status: true },
-      }),
-      this.prisma.user.findUnique({
-        where: { id: claims.sub },
-        select: { status: true, accountType: true },
       }),
     ]);
     if (
@@ -768,9 +723,7 @@ export class ApplicationExternalAccessService {
       access.applicationId !== session.applicationId ||
       access.credentialVersion !== claims.credential_version ||
       !allowedOrigins(access).includes(claims.origin) ||
-      application?.status !== "active" ||
-      principal?.status !== "active" ||
-      principal.accountType !== "application_external"
+      application?.status !== "active"
     ) {
       throw new AppError("APPLICATION_EMBED_SESSION_EXPIRED");
     }
@@ -802,14 +755,10 @@ export class ApplicationExternalAccessService {
     if (!session || !access) {
       throw new AppError("APPLICATION_EMBED_SESSION_EXPIRED");
     }
-    const [application, principal] = await Promise.all([
+    const [application] = await Promise.all([
       this.prisma.application.findUnique({
         where: { id: session.applicationId },
         select: { status: true },
-      }),
-      this.prisma.user.findUnique({
-        where: { id: session.runtimePrincipalId },
-        select: { status: true, accountType: true },
       }),
     ]);
     if (
@@ -822,9 +771,7 @@ export class ApplicationExternalAccessService {
       session.credentialVersion !== access.credentialVersion ||
       !access.enabled ||
       !allowedOrigins(access).includes(origin) ||
-      application?.status !== "active" ||
-      principal?.status !== "active" ||
-      principal.accountType !== "application_external"
+      application?.status !== "active"
     ) {
       throw new AppError("APPLICATION_EMBED_SESSION_EXPIRED");
     }
@@ -912,13 +859,6 @@ export class ApplicationExternalAccessService {
       await tx.applicationExternalRefreshToken.updateMany({
         where: { sessionId: session.sessionId, revokedAt: null },
         data: { revokedAt: now, revokeReason: "client_logout" },
-      });
-      await tx.user.updateMany({
-        where: {
-          id: session.ownerId,
-          accountType: "application_external",
-        },
-        data: { status: "disabled", updatedAt: now },
       });
     });
     await this.audit.write({
@@ -1142,59 +1082,20 @@ export class ApplicationExternalAccessService {
     const resumed = session !== null;
     if (!session) {
       const runtimePrincipalId = randomUUID();
-      await this.prisma.user.create({
+      const conversationId = this.reserveConversationId();
+      session = await this.prisma.applicationExternalSession.create({
         data: {
-          id: runtimePrincipalId,
-          email: `embed-${runtimePrincipalId}@service.linksense.invalid`,
-          name: (
-            identity.displayName ?? DEFAULT_EXTERNAL_USER_DISPLAY_NAME
-          ).slice(0, 120),
-          accountType: "application_external",
-          role: "user",
-          status: "active",
-          passwordHash: null,
-          preferredLocale: null,
+          externalAccessId: access.id, applicationId: application.id, runtimePrincipalId, conversationId,
+          externalSubject: identity.externalSubject, externalTenant: identity.externalTenant,
+          displayName: identity.displayName, origin, status: "active", credentialVersion: access.credentialVersion,
+          absoluteExpiresAt: addSeconds(now, APPLICATION_EMBED_SESSION_ABSOLUTE_TTL_SECONDS), lastSeenAt: now,
         },
       });
-      let conversation: { id: string };
       try {
-        conversation = await this.createConversation(
-          runtimePrincipalId,
-          application,
-        );
+        const conversation = await this.createConversation(runtimePrincipalId, application, conversationId);
+        if (conversation.id !== conversationId) throw new AppError("CONFLICT");
       } catch (error) {
-        await this.prisma.user
-          .delete({ where: { id: runtimePrincipalId } })
-          .catch(() => undefined);
-        throw error;
-      }
-      try {
-        session = await this.prisma.applicationExternalSession.create({
-          data: {
-            externalAccessId: access.id,
-            applicationId: application.id,
-            runtimePrincipalId,
-            conversationId: conversation.id,
-            externalSubject: identity.externalSubject,
-            externalTenant: identity.externalTenant,
-            displayName: identity.displayName,
-            origin,
-            status: "active",
-            credentialVersion: access.credentialVersion,
-            absoluteExpiresAt: addSeconds(
-              now,
-              APPLICATION_EMBED_SESSION_ABSOLUTE_TTL_SECONDS,
-            ),
-            lastSeenAt: now,
-          },
-        });
-      } catch (error) {
-        await this.cleanupConversation(runtimePrincipalId, conversation.id).catch(
-          () => undefined,
-        );
-        await this.prisma.user
-          .delete({ where: { id: runtimePrincipalId } })
-          .catch(() => undefined);
+        await this.prisma.applicationExternalSession.delete({ where: { id: session.id } });
         throw error;
       }
     }
@@ -1265,21 +1166,11 @@ export class ApplicationExternalAccessService {
       orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
     });
     if (!existing) return null;
-    const principal = await this.prisma.user.findUnique({
-      where: { id: existing.runtimePrincipalId },
-      select: { accountType: true },
-    });
-    if (principal?.accountType !== "application_external") return null;
-    await this.prisma.user.update({
-      where: { id: existing.runtimePrincipalId },
-      data: {
-        status: "active",
-        ...(identity.displayName
-          ? { name: identity.displayName.slice(0, 120) }
-          : {}),
-        updatedAt: now,
-      },
-    });
+    await this.prisma.applicationExternalSession.update({ where: { id: existing.id }, data: {
+      status: "active", origin, credentialVersion: access.credentialVersion,
+      absoluteExpiresAt: addSeconds(now, APPLICATION_EMBED_SESSION_ABSOLUTE_TTL_SECONDS),
+      revokedAt: null, revokeReason: null,
+    } });
     const conversation =
       (await this.prisma.conversation.findFirst({
         where: {

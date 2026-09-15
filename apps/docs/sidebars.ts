@@ -29,7 +29,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/tasks/context-and-drafts",
             "user-guide/tasks/plan-mode",
             "user-guide/tasks/goal-tasks",
-            "user-guide/tasks/task-categories",
+            "user-guide/tasks/projects",
             "user-guide/tasks/progress-and-sources",
             "user-guide/tasks/files-and-results",
             "user-guide/tasks/file-annotations",

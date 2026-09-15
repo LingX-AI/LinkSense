@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import { parseRunnerConfig } from "../src/config.js"
 import type {
   WorkerAcquireInput,
+  WorkerOwnerPaths,
   WorkerInstance,
   WorkerProvider,
 } from "../src/controller/worker-provider.js"
@@ -12,6 +13,27 @@ import { TURN_START_CONTRACT_VERSION } from "../src/turn-start-contract.js"
 
 const ownerId = "01900000-0000-7000-8000-000000000002"
 
+describe("user and service worker reuse", () => {
+  it("reuses a personal worker while keeping two service workers independent", async () => {
+    const provider = fakeProvider()
+    const transport = { request: vi.fn(async () => ({ statusCode: 200, headers: {}, body: Buffer.from(JSON.stringify(workerHealth())) })) }
+    const manager = new WorkerManager(createConfig(), provider, transport, pino({ level: "silent" }), testManagerOptions())
+    const session = "01900000-0000-7000-8000-000000000011", other = "01900000-0000-7000-8000-000000000012"
+    await manager.initialize()
+    try {
+      await manager.request(ownerId, `/conversations/${session}/runtime`, "PUT", undefined, undefined, "workspace")
+      await manager.request(ownerId, `/conversations/${other}/runtime`, "PUT", undefined, undefined, "workspace")
+      await manager.request(ownerId, `/conversations/${session}/runtime`, "PUT", undefined, undefined, "workspace", session)
+      await manager.request(ownerId, `/conversations/${other}/runtime`, "PUT", undefined, undefined, "workspace", other)
+      await manager.request(ownerId, `/conversations/${session}/runtime`, "GET", undefined, undefined, "workspace", session)
+      expect(provider.acquire).toHaveBeenCalledTimes(3)
+      expect(new Set(provider.acquire.mock.calls.map(([input]) => input.storageKey)).size).toBe(3)
+      expect(provider.prepareOwnerFilesystem.mock.calls.map(([paths]) => paths.owner)).toEqual([
+        `/tmp/linksense/users/${ownerId}`, `/tmp/linksense/users/${ownerId}/services/${session}`, `/tmp/linksense/users/${ownerId}/services/${other}`,
+      ])
+    } finally { await manager.shutdown(false) }
+  })
+})
 describe("WorkerProvider contract", () => {
   it("routes through the acquired endpoint and releases non-persistent workers on shutdown", async () => {
     const provider = fakeProvider()
@@ -77,6 +99,7 @@ function fakeProvider() {
     endpoint: "http://127.0.0.1:45123",
     storageKey: input.storageKey,
     ownerId: input.ownerId,
+    ...(input.serviceSessionId ? { serviceSessionId: input.serviceSessionId } : {}),
     state: "running" as const,
   }))
   return {
@@ -92,12 +115,12 @@ function fakeProvider() {
     },
     initialize: vi.fn(async () => undefined),
     discover: vi.fn(async () => []),
-    prepareOwnerFilesystem: vi.fn(async () => undefined),
+    prepareOwnerFilesystem: vi.fn(async (paths: WorkerOwnerPaths) => { void paths }),
     acquire,
     resume: vi.fn(async (worker: WorkerInstance) => worker),
     inspect: vi.fn(async () => "running" as const),
     release: vi.fn(async () => undefined),
-    hasWorkerForOwner: vi.fn(async () => false),
+    hasWorkerForEnvironment: vi.fn(async () => false),
     healthDetails: vi.fn(async () => ({})),
     shutdown: vi.fn(async () => undefined),
   } satisfies WorkerProvider & { acquire: typeof acquire }
@@ -143,6 +166,7 @@ function workerHealth() {
       checked_at: checkedAt,
     },
     running_turns: 0,
+    user_processes: 0,
     app_server_processes: 0,
   }
 }

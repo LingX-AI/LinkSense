@@ -54,7 +54,7 @@ describe("linksense-docs built-in Skill", () => {
       "user-guide/tasks/context-and-drafts.md",
       "user-guide/tasks/progress-and-sources.md",
       "user-guide/tasks/generate-images.md",
-      "user-guide/tasks/task-categories.md",
+      "user-guide/tasks/projects.md",
       "user-guide/message-channels/overview.md",
       "user-guide/message-channels/wecom.md",
       "user-guide/message-channels/dingtalk.md",

@@ -1,3 +1,4 @@
+import { assertRuntimeLayoutReady } from "./operations/runtime-layout-readiness.js";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,7 @@ import { isFullAppConfig, parseConfig } from "./config.js";
 import { createPrismaClient } from "./db.js";
 import { LinkSenseRedis } from "./adapters/redis.js";
 import { RunnerClient } from "./adapters/runner.js";
+import { runtimePlacementForWorkspace } from "./lib/user-runtime-paths.js";
 import { createObjectStorage } from "./adapters/object-storage.js";
 import type { AppServices } from "./services.js";
 import { LocalUnoserverRuntime, type OfficeConversionRuntime } from "./modules/knowledge-processing/office-converter.js";
@@ -126,7 +128,13 @@ export async function main(): Promise<void> {
   const config = parseConfig();
   const prisma = createPrismaClient(config.databaseUrl);
   const redis = new LinkSenseRedis(config);
-  const runner = new RunnerClient(config);
+  const runner = new RunnerClient(config, async (ownerId, conversationId) => {
+    const conversation = await prisma.conversation.findFirst({
+      where: { id: conversationId, ownerId },
+      select: { workspaceRelPath: true },
+    });
+    return conversation ? runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath) : null;
+  });
   const storage = createObjectStorage(config);
   let officeProcessStarted = () => {};
   const officeSpawned = new Promise<void>((resolve) => { officeProcessStarted = resolve; });
@@ -142,6 +150,7 @@ export async function main(): Promise<void> {
       mkdir(config.capabilityRoot, { recursive: true }),
       redis.connect(),
     ]);
+    await assertRuntimeLayoutReady(prisma, config.userDataRoot);
     await storage.ensureBucket();
 
     const boot = await loadApiWithOfficeWarmup(async () => {

@@ -173,7 +173,7 @@ const conversations = [
     id: "c1",
     title: "活动风险评估",
     archived: false,
-    category_id: null as string | null,
+    project_id: null as string | null,
     pinned_at: null as string | null,
     sort_order: null as number | null,
     updated_at: new Date().toISOString(),
@@ -185,7 +185,7 @@ const conversations = [
     id: "c2",
     title: "整理项目会议纪要",
     archived: false,
-    category_id: null as string | null,
+    project_id: null as string | null,
     pinned_at: null as string | null,
     sort_order: null as number | null,
     updated_at: new Date(Date.now() - 86_400_000).toISOString(),
@@ -197,7 +197,7 @@ const conversations = [
     id: "c3",
     title: "比较三份项目方案",
     archived: false,
-    category_id: null as string | null,
+    project_id: null as string | null,
     pinned_at: null as string | null,
     sort_order: null as number | null,
     updated_at: new Date(Date.now() - 4 * 86_400_000).toISOString(),
@@ -317,7 +317,7 @@ function planReviewConversationFixture(
     id: "c1",
     title: "计划确认测试",
     archived: false,
-    category_id: null as string | null,
+    project_id: null as string | null,
     has_unread_completion: false,
     collaboration_mode:
       decision === "implement" || decision === "exit" ? "default" : "plan",
@@ -558,7 +558,7 @@ function installApiMock(options?: {
     id: newTaskId,
     title: "未命名任务",
     archived: false,
-    category_id: null as string | null,
+    project_id: null as string | null,
     updated_at: "2026-07-18T08:00:00.000Z",
     draft_input: "",
     draft_capability_ids: [],
@@ -806,7 +806,7 @@ function installApiMock(options?: {
           },
         })
       }
-      if (path === "/api/v1/task-categories" && method === "GET")
+      if (path === "/api/v1/projects" && method === "GET")
         return json({ success: true, data: [] })
       if (path === "/api/v1/conversations/prewarm" && method === "POST") {
         return json(

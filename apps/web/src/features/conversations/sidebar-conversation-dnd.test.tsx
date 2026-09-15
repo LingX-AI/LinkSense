@@ -9,27 +9,27 @@ import {
 } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Conversation } from "@/api/contracts"
-import { SidebarTaskGroups } from "@/features/task-categories/sidebar-task-groups"
+import { SidebarTaskGroups } from "@/features/projects/sidebar-task-groups"
 import { SidebarConversationDnd } from "./sidebar-conversation-dnd"
 import { SortableConversationGroup } from "./sortable-conversation-group"
 import i18n from "@/i18n"
 
 const now = "2026-09-09T00:00:00.000Z"
-const categories = ["工作", "生活"].map((name, index) => ({
-  id: `category-${index}`,
+const projects = ["工作", "生活"].map((name, index) => ({
+  id: `project-${index}`,
   name,
   created_at: now,
   updated_at: now,
 }))
 function task(
   id: string,
-  category_id: string | null = null,
+  project_id: string | null = null,
   pinned = false
 ): Conversation {
   return {
     id,
     title: id,
-    category_id,
+    project_id,
     archived: false,
     updated_at: now,
     pinned_at: pinned ? now : null,
@@ -44,7 +44,7 @@ function task(
 function mount(tasks: Conversation[], disabled = false) {
   const onMove = vi.fn(async (): Promise<void> => undefined)
   const onReorder = vi.fn(async (): Promise<void> => undefined)
-  const onReorderCategories = vi
+  const onReorderProjects = vi
     .fn<(ids: string[]) => Promise<void>>()
     .mockResolvedValue(undefined)
   const onError = vi.fn()
@@ -52,18 +52,18 @@ function mount(tasks: Conversation[], disabled = false) {
   render(
     <SidebarConversationDnd
       conversations={tasks}
-      categories={categories}
+      projects={projects}
       disabled={disabled}
       onMove={onMove}
       onReorder={onReorder}
-      onReorderCategories={onReorderCategories}
+      onReorderProjects={onReorderProjects}
       onError={onError}
     >
       <SidebarTaskGroups
         userId="first"
         pinned={tasks.filter((item) => item.pinned_at)}
         recent={tasks.filter((item) => !item.pinned_at)}
-        categories={categories}
+        projects={projects}
         loadingMore={false}
         onAction={vi.fn()}
       >
@@ -89,10 +89,10 @@ function mount(tasks: Conversation[], disabled = false) {
       </SidebarTaskGroups>
     </SidebarConversationDnd>
   )
-  return { onMove, onReorder, onReorderCategories, onError, renderTask }
+  return { onMove, onReorder, onReorderProjects, onError, renderTask }
 }
 
-function categoryHeader(name: string) {
+function projectHeader(name: string) {
   return screen.getByRole("button", { name }).parentElement!
 }
 
@@ -130,7 +130,7 @@ async function startDrag(node: HTMLElement, y: number) {
   await waitFor(() => expect(node).toHaveAttribute("data-dragging", "true"))
 }
 
-describe("sidebar task dragging between categories", () => {
+describe("sidebar task dragging between projects", () => {
   beforeEach(async () => {
     window.localStorage.clear()
     await i18n.changeLanguage("zh-CN")
@@ -144,13 +144,13 @@ describe("sidebar task dragging between categories", () => {
   })
 
   it.each([false, true])(
-    "reorders a category as a whole and preserves its collapsed state, collapsed=%s",
+    "reorders a project as a whole and preserves its collapsed state, collapsed=%s",
     async (collapsed) => {
-      const { onReorderCategories, onReorder, onMove, renderTask } = mount([
-        task("nested", "category-1"),
+      const { onReorderProjects, onReorder, onMove, renderTask } = mount([
+        task("nested", "project-1"),
       ])
-      const source = categoryHeader("工作")
-      const destination = categoryHeader("生活")
+      const source = projectHeader("工作")
+      const destination = projectHeader("生活")
       const sourceButton = within(source).getByRole("button", { name: "工作" })
       if (collapsed) fireEvent.click(sourceButton)
       layout([source, destination])
@@ -194,9 +194,9 @@ describe("sidebar task dragging between categories", () => {
       expect(renderTask).not.toHaveBeenCalled()
       fireEvent.pointerUp(document)
       await waitFor(() =>
-        expect(onReorderCategories).toHaveBeenCalledWith([
-          "category-1",
-          "category-0",
+        expect(onReorderProjects).toHaveBeenCalledWith([
+          "project-1",
+          "project-0",
         ])
       )
       expect(onReorder).not.toHaveBeenCalled()
@@ -206,12 +206,12 @@ describe("sidebar task dragging between categories", () => {
     }
   )
 
-  it("supports keyboard category ordering without collapsing the source", async () => {
-    const { onReorderCategories } = mount([])
-    const source = categoryHeader("工作")
-    layout([source, categoryHeader("生活")])
+  it("supports keyboard project ordering without collapsing the source", async () => {
+    const { onReorderProjects } = mount([])
+    const source = projectHeader("工作")
+    layout([source, projectHeader("生活")])
     const handle = within(source).getByRole("button", {
-      name: /使用键盘调整分类/u,
+      name: /使用键盘调整项目/u,
     })
     handle.focus()
     fireEvent.keyDown(handle, { key: " ", code: "Space" })
@@ -226,9 +226,9 @@ describe("sidebar task dragging between categories", () => {
     )
     fireEvent.keyDown(document, { key: " ", code: "Space" })
     await waitFor(() =>
-      expect(onReorderCategories).toHaveBeenCalledWith([
-        "category-1",
-        "category-0",
+      expect(onReorderProjects).toHaveBeenCalledWith([
+        "project-1",
+        "project-0",
       ])
     )
     expect(
@@ -237,11 +237,11 @@ describe("sidebar task dragging between categories", () => {
   })
 
   it.each(["same-boundary", "task", "outside", "escape"])(
-    "does not save category ordering for %s",
+    "does not save project ordering for %s",
     async (target) => {
-      const { onReorderCategories, onReorder, onMove } = mount([task("plain")])
-      const source = categoryHeader("工作")
-      layout([source, categoryHeader("生活"), screen.getByTestId("plain")])
+      const { onReorderProjects, onReorder, onMove } = mount([task("plain")])
+      const source = projectHeader("工作")
+      layout([source, projectHeader("生活"), screen.getByTestId("plain")])
       fireEvent.pointerDown(
         within(source).getByRole("button", { name: "工作" }),
         { button: 0, clientX: 20, clientY: 10, isPrimary: true }
@@ -257,7 +257,7 @@ describe("sidebar task dragging between categories", () => {
       if (target === "escape")
         fireEvent.keyDown(document, { key: "Escape", code: "Escape" })
       else fireEvent.pointerUp(document)
-      expect(onReorderCategories).not.toHaveBeenCalled()
+      expect(onReorderProjects).not.toHaveBeenCalled()
       expect(onReorder).not.toHaveBeenCalled()
       expect(onMove).not.toHaveBeenCalled()
       expect(
@@ -266,12 +266,12 @@ describe("sidebar task dragging between categories", () => {
     }
   )
 
-  it("restores category order and reports a failed save", async () => {
-    const { onReorderCategories, onError } = mount([])
+  it("restores project order and reports a failed save", async () => {
+    const { onReorderProjects, onError } = mount([])
     const error = new Error("offline")
-    onReorderCategories.mockRejectedValue(error)
-    const source = categoryHeader("工作")
-    layout([source, categoryHeader("生活")])
+    onReorderProjects.mockRejectedValue(error)
+    const source = projectHeader("工作")
+    layout([source, projectHeader("生活")])
     fireEvent.pointerDown(
       within(source).getByRole("button", { name: "工作" }),
       { button: 0, clientX: 20, clientY: 10, isPrimary: true }
@@ -286,7 +286,7 @@ describe("sidebar task dragging between categories", () => {
         .getAllByRole("region", { name: /工作|生活/u })
         .map((node) => node.getAttribute("aria-label"))
     ).toEqual(["工作", "生活"])
-    expect(screen.getByText("分类顺序保存失败，请重试。")).toHaveAttribute(
+    expect(screen.getByText("项目顺序保存失败，请重试。")).toHaveAttribute(
       "role",
       "status"
     )
@@ -358,7 +358,7 @@ describe("sidebar task dragging between categories", () => {
       await waitFor(() =>
         expect(onReorder).toHaveBeenCalledWith({
           group: "recent",
-          categoryId: null,
+          projectId: null,
           conversationIds: ["second", "first"],
         })
       )
@@ -366,12 +366,12 @@ describe("sidebar task dragging between categories", () => {
   )
 
   it.each([false, true])(
-    "moves a single task onto an empty category, collapsed=%s",
+    "moves a single task onto an empty project, collapsed=%s",
     async (collapsed) => {
       const { onMove, onReorder } = mount([task("task")])
       if (collapsed)
         fireEvent.click(screen.getByRole("button", { name: "生活" }))
-      const header = categoryHeader("生活")
+      const header = projectHeader("生活")
       const row = screen.getByTestId("task")
       layout([header, row])
       await startDrag(row, 50)
@@ -400,7 +400,7 @@ describe("sidebar task dragging between categories", () => {
       )
       fireEvent.pointerUp(document)
       await waitFor(() =>
-        expect(onMove).toHaveBeenCalledWith("task", "category-1")
+        expect(onMove).toHaveBeenCalledWith("task", "project-1")
       )
       expect(onReorder).not.toHaveBeenCalled()
       expect(header).not.toHaveAttribute("data-drop-target")
@@ -413,9 +413,9 @@ describe("sidebar task dragging between categories", () => {
 
   it("keeps every row stationary and shows the exact insertion boundary", async () => {
     const { onReorder } = mount([
-      task("first", "category-0"),
-      task("second", "category-0"),
-      { ...task("third", "category-0"), sort_order: 2 },
+      task("first", "project-0"),
+      task("second", "project-0"),
+      { ...task("third", "project-0"), sort_order: 2 },
     ])
     const first = screen.getByTestId("first")
     const second = screen.getByTestId("second")
@@ -449,7 +449,7 @@ describe("sidebar task dragging between categories", () => {
     await waitFor(() =>
       expect(onReorder).toHaveBeenCalledWith({
         group: "recent",
-        categoryId: "category-0",
+        projectId: "project-0",
         conversationIds: ["second", "third", "first"],
       })
     )
@@ -487,32 +487,32 @@ describe("sidebar task dragging between categories", () => {
   it.each([false, true])(
     "moves a categorized task without changing its pinned state, pinned=%s",
     async (pinned) => {
-      const { onMove, onReorder } = mount([task("task", "category-0", pinned)])
+      const { onMove, onReorder } = mount([task("task", "project-0", pinned)])
       const row = screen.getByTestId("task")
-      const header = categoryHeader("生活")
+      const header = projectHeader("生活")
       layout([header, row])
       await startDrag(row, 50)
       fireEvent.pointerMove(document, { clientX: 20, clientY: 10 })
       fireEvent.pointerUp(document)
       await waitFor(() =>
-        expect(onMove).toHaveBeenCalledWith("task", "category-1")
+        expect(onMove).toHaveBeenCalledWith("task", "project-1")
       )
       expect(onReorder).not.toHaveBeenCalled()
     }
   )
 
-  it.each(["same-category", "outside", "cancel", "other-group-row"])(
+  it.each(["same-project", "outside", "cancel", "other-group-row"])(
     "leaves the task unchanged after %s",
     async (destination) => {
       const { onMove, onReorder } = mount([
-        task("task", "category-0"),
-        task("other", "category-1"),
+        task("task", "project-0"),
+        task("other", "project-1"),
       ])
       const row = screen.getByTestId("task")
       const target =
         destination === "other-group-row"
           ? screen.getByTestId("other")
-          : categoryHeader(destination === "same-category" ? "工作" : "生活")
+          : projectHeader(destination === "same-project" ? "工作" : "生活")
       layout([target, row])
       await startDrag(row, 50)
       fireEvent.pointerMove(document, {
@@ -529,15 +529,15 @@ describe("sidebar task dragging between categories", () => {
   )
 
   it.each([
-    { categoryId: "category-0", pinned: false },
-    { categoryId: null, pinned: false },
-    { categoryId: "category-0", pinned: true },
+    { projectId: "project-0", pinned: false },
+    { projectId: null, pinned: false },
+    { projectId: "project-0", pinned: true },
   ])(
     "continues to reorder within the source group: %j",
-    async ({ categoryId, pinned }) => {
+    async ({ projectId, pinned }) => {
       const { onMove, onReorder } = mount([
-        task("first", categoryId, pinned),
-        task("second", pinned ? "category-1" : categoryId, pinned),
+        task("first", projectId, pinned),
+        task("second", pinned ? "project-1" : projectId, pinned),
       ])
       const first = screen.getByTestId("first")
       layout([first, screen.getByTestId("second")])
@@ -547,7 +547,7 @@ describe("sidebar task dragging between categories", () => {
       await waitFor(() =>
         expect(onReorder).toHaveBeenCalledWith({
           group: pinned ? "pinned" : "recent",
-          categoryId: pinned ? null : categoryId,
+          projectId: pinned ? null : projectId,
           conversationIds: ["second", "first"],
         })
       )
@@ -556,11 +556,11 @@ describe("sidebar task dragging between categories", () => {
   )
 
   it("reports a failed move and retains the source task", async () => {
-    const { onMove, onError } = mount([task("task", "category-0")])
+    const { onMove, onError } = mount([task("task", "project-0")])
     const error = new Error("move failed")
     onMove.mockRejectedValueOnce(error)
     const row = screen.getByTestId("task")
-    layout([categoryHeader("生活"), row])
+    layout([projectHeader("生活"), row])
     await startDrag(row, 50)
     fireEvent.pointerMove(document, { clientX: 20, clientY: 10 })
     fireEvent.pointerUp(document)
@@ -590,12 +590,12 @@ describe("sidebar task dragging between categories", () => {
   })
 
   it.each(["zh-CN", "en-US", "fr-FR"])(
-    "supports keyboard category drops and localized feedback in %s",
+    "supports keyboard project drops and localized feedback in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
       const { onMove } = mount([task("task")])
       const row = screen.getByTestId("task")
-      const header = categoryHeader("生活")
+      const header = projectHeader("生活")
       layout([header, row])
       const handle = within(row).getByRole("button")
       handle.focus()
@@ -608,14 +608,14 @@ describe("sidebar task dragging between categories", () => {
       )
       fireEvent.keyDown(document, { code: "Space", key: " " })
       await waitFor(() =>
-        expect(onMove).toHaveBeenCalledWith("task", "category-1")
+        expect(onMove).toHaveBeenCalledWith("task", "project-1")
       )
       await waitFor(() =>
         expect(
           screen.getByText(
             locale === "en-US"
-              ? "Moved task “task” into category “生活”."
-              : "已将任务“task”移入分类“生活”。"
+              ? "Moved task “task” into project “生活”."
+              : "已将任务“task”移入项目“生活”。"
           )
         ).toHaveAttribute("role", "status")
       )
@@ -632,7 +632,7 @@ describe("sidebar task dragging between categories", () => {
         })
     )
     const row = screen.getByTestId("task")
-    layout([categoryHeader("生活"), row])
+    layout([projectHeader("生活"), row])
     await startDrag(row, 50)
     fireEvent.pointerMove(document, { clientX: 20, clientY: 10 })
     fireEvent.pointerUp(document)
@@ -652,8 +652,8 @@ describe("sidebar task dragging between categories", () => {
 
   it("restores the original order when saving the new order fails", async () => {
     const { onReorder, onError } = mount([
-      task("first", "category-0"),
-      task("second", "category-0"),
+      task("first", "project-0"),
+      task("second", "project-0"),
     ])
     const error = new Error("order failed")
     onReorder.mockRejectedValueOnce(error)

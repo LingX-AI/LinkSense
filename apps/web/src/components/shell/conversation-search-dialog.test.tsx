@@ -32,7 +32,7 @@ const ownerPermissions = {
 
 const searchResults = [
   {
-    category_id: null,
+    project_id: null,
     id: "conversation-1",
     title: "活动风险评估",
     archived: false,
@@ -40,7 +40,7 @@ const searchResults = [
     execution_status: "running",
   },
   {
-    category_id: null,
+    project_id: null,
     id: "conversation-2",
     title: "整理项目会议纪要",
     archived: false,

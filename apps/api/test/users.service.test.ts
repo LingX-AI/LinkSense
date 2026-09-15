@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   UserService,
   type UserCreditQuotaUsage,
+  type UserServiceOptions,
 } from "../src/modules/users/service.js";
 import type {
   AvatarStorage,
@@ -23,6 +24,14 @@ const ADMIN = {
 };
 
 describe("UserService", () => {
+  it("returns only an external visitor's own profile and quota without exposing a member account", async () => {
+    const visitorProfile = vi.fn(async () => ({ id: "visitor-id", displayName: null, totalCreditLimitMicros: 1000000n, weeklyCreditLimitMicros: null, monthlyCreditLimitMicros: null, creditQuotaResetAt: null }));
+    const fixture = userFixture(undefined, visitorProfile);
+    expect((await fixture.service.getCurrentUserInfo("visitor-id")).user).toEqual({ name: null, email: null, user_groups: [] });
+    expect(fixture.persistence.findManagedUser).not.toHaveBeenCalled();
+    expect(fixture.creditQuotaUsage.currentUsageForLimits).toHaveBeenCalledWith("visitor-id", { totalCreditLimitMicros: 1000000n, weeklyCreditLimitMicros: null, monthlyCreditLimitMicros: null, creditQuotaResetAt: null });
+  });
+
   it("passes validated group and registration-source filters to the paginated user query", async () => {
     const fixture = userFixture();
     const userGroupId = "00000000-0000-4000-8000-000000000020";
@@ -536,6 +545,7 @@ function userFixture(
   materializeUserHomes = vi.fn(async (userIds: readonly string[]) => {
     void userIds;
   }),
+  visitorProfile?: UserServiceOptions["visitorProfile"],
 ) {
   const user = makeManagedUser();
   const group = makeGroup();
@@ -588,6 +598,7 @@ function userFixture(
     })),
   };
   const service = new UserService({
+    ...(visitorProfile ? { visitorProfile } : {}),
     persistence,
     avatarStorage,
     avatarCleanup,

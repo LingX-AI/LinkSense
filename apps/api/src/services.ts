@@ -1,3 +1,6 @@
+import { assertExecutionPrincipalActive } from "./lib/execution-principal.js";
+import { ApplicationCopyService } from "./modules/applications/copy-service.js";
+import { serviceWorkspaceRelativePath } from "./lib/user-runtime-paths.js";
 import { createHmac } from "node:crypto";
 import { join, relative, resolve, sep } from "node:path";
 
@@ -68,8 +71,8 @@ import {
   VoiceTranscriptionService,
 } from "./modules/voice/service.js";
 import { ManagedTaskTitleGenerator } from "./adapters/dashscope-title.js";
-import { TaskCategoryService } from "./modules/task-categories/service.js";
-import { TaskCategoryRepository } from "./modules/task-categories/repository.js";
+import { ProjectService } from "./modules/projects/service.js";
+import { ProjectRepository } from "./modules/projects/repository.js";
 import { ConversationTitleService } from "./modules/conversations/title-service.js";
 import { SiteIconService } from "./modules/site-icons/service.js";
 import { ExternalImageService } from "./modules/external-images/service.js";
@@ -107,6 +110,7 @@ import { CreditLimitService } from "./modules/usage/credit-limit.js";
 import { BillingStatementService } from "./modules/usage/billing-service.js";
 import { BillingStatementScheduler } from "./modules/usage/billing-scheduler.js";
 import { ApplicationService } from "./modules/applications/index.js";
+import { ApplicationPublicationService } from "./modules/applications/publication-service.js";
 import { SharePointSettingsService } from "./modules/knowledge-sources/sharepoint-settings.js";
 import { MicrosoftGraphSharePointClient } from "./modules/knowledge-sources/sharepoint-graph.js";
 import { KnowledgeSourceService } from "./modules/knowledge-sources/service.js";
@@ -184,7 +188,7 @@ export type AppServices = {
   knowledgeModelSettings: KnowledgeModelSettingsService | null;
   sharePointSettings: SharePointSettingsService | null;
   audit: AuditService;
-  taskCategories: TaskCategoryService;
+  projects: ProjectService;
   conversations: ConversationService;
   conversationShares: ConversationShareService;
   automations: AutomationService;
@@ -472,6 +476,12 @@ export function createServices(input: {
     creditLimitDefaults: quotaSettings,
     creditQuotaUsage: creditLimits,
     materializeUserHomes: (userIds) => materializeUserHomes({ userIds }),
+    visitorProfile: async userId => {
+      const session = await input.prisma.applicationExternalSession.findUnique({ where: { runtimePrincipalId: userId } });
+      if (!session) return null;
+      await assertExecutionPrincipalActive(input.prisma, userId);
+      return { ...session, id: userId };
+    },
   });
   const voiceTranscription = new VoiceTranscriptionService(
     voiceTranscriptionSettings,
@@ -488,6 +498,15 @@ export function createServices(input: {
       input.config.safeHttp.allowBenchmarkProxyAddresses,
   });
   const knowledgeStore = new PrismaKnowledgeStore(input.prisma);
+  const applicationPublications = new ApplicationPublicationService(input.prisma, input.config.capabilityRoot);
+  const applicationAssets: import("./modules/applications/service.js").InteractiveApplicationAssetStore = {
+      put: (objectKey, bytes, contentType) =>
+        input.storage.putObject(objectKey, bytes, {
+          "content-type": contentType,
+        }),
+      get: (objectKey) => input.storage.getObjectStream(objectKey),
+      remove: (objectKey) => input.storage.removeObject(objectKey),
+    };
   const applications = new ApplicationService(
     input.prisma,
     modelProviderSettings,
@@ -503,14 +522,9 @@ export function createServices(input: {
         input.storage.presignedGetObject(objectKey, expiresSeconds),
       enqueueRemoval: (objectKey) => jobs.enqueueObjectDelete(objectKey),
     },
-    {
-      put: (objectKey, bytes, contentType) =>
-        input.storage.putObject(objectKey, bytes, {
-          "content-type": contentType,
-        }),
-      get: (objectKey) => input.storage.getObjectStream(objectKey),
-      remove: (objectKey) => input.storage.removeObject(objectKey),
-    },
+    applicationAssets,
+    applicationPublications,
+    new ApplicationCopyService(input.prisma, input.config.capabilityRoot, applicationPublications, applicationAssets),
   );
   const knowledgeSources = new TurnKnowledgeSourceStore(input.redis.client);
   const knowledgeDocumentReferences = new TurnKnowledgeDocumentReferenceStore(
@@ -682,12 +696,12 @@ export function createServices(input: {
     input.config.publicBaseUrl,
     input.config.credentialMasterKey,
     input.config.credentialKeyId,
-    (ownerId, application) =>
+    (ownerId, application, conversationId) =>
       conversations.createExternalApplicationConversation(ownerId, {
         ...application,
         kind: "standard",
         interactivePackageId: null,
-      }),
+      }, conversationId),
     (ownerId, conversationId, context = {}) =>
       conversations.delete(ownerId, conversationId, context),
     (conversationId) => conversationTitles.schedule(conversationId),
@@ -808,7 +822,7 @@ export function createServices(input: {
   );
   return {
     ...input,
-    taskCategories: new TaskCategoryService(new TaskCategoryRepository(input.prisma)),
+    projects: new ProjectService(new ProjectRepository(input.prisma)),
     mailer,
     authenticationSettings,
     modelProviderSettings,
@@ -892,8 +906,8 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       null,
   ) {}
 
-  async ensureUserHome(userId: string): Promise<void> {
-    await this.capabilityMaterializer.ensureOwner(userId);
+  async ensureUserHome(userId: string, serviceSessionId?: string): Promise<void> {
+    await this.capabilityMaterializer.ensureOwner(userId, serviceSessionId);
   }
 
   async resolve(input: {
@@ -922,7 +936,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     capabilityScope?: CapabilityResolutionScope;
   }, preferPublishedRuntime = false) {
     return this.capabilityMaterializer.withPublicationStartFence(
-      { ownerId: input.userId, conversationId: input.conversationId },
+      { ownerId: input.userId, conversationId: input.conversationId, ...(input.capabilityScope?.serviceSessionId ? { serviceSessionId: input.capabilityScope.serviceSessionId } : {}) },
       async () => {
         const [catalog, mcpRuntime] = await Promise.all([
           this.#resolveCatalog(input),
@@ -938,6 +952,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
           const materializationInput = {
             ownerId: input.userId,
             conversationId: input.conversationId,
+            ...(input.capabilityScope?.serviceSessionId ? { serviceSessionId: input.capabilityScope.serviceSessionId } : {}),
             capabilities: catalog.materializationCapabilities,
           };
           materialized = preferPublishedRuntime
@@ -981,7 +996,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     priorityCapabilityIds: string[];
     capabilityScope?: CapabilityResolutionScope;
   }) {
-    const capabilities = await this.prisma.capability.findMany({
+    const activeCapabilities = await this.prisma.capability.findMany({
       where: {
         status: "active",
         ownerId: input.capabilityScope?.sourceOwnerId ?? input.userId,
@@ -989,6 +1004,16 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
           ? { id: { in: input.capabilityScope.capabilityIds } }
           : {}),
       },
+    });
+    const capabilities = activeCapabilities.map(capability => {
+      const frozen = input.capabilityScope?.publishedCapabilities?.find(snapshot => snapshot.id === capability.id);
+      if (input.capabilityScope?.serviceSessionId && !frozen) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+      if (frozen?.sourceType === "marketplace" && (!frozen.marketplaceListingId || !frozen.marketplaceReleaseId)) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+      return frozen ? { ...capability, name: frozen.name, description: frozen.description, type: frozen.type, sourceType: frozen.sourceType,
+        marketplaceListingId: frozen.marketplaceListingId ?? null, marketplaceReleaseId: frozen.marketplaceReleaseId ?? null,
+        storagePath: frozen.storagePath, updatedAt: new Date(frozen.revision),
+        manifestJson: frozen.manifestJson, riskSummaryJson: frozen.riskSummaryJson,
+      } : capability;
     });
     const preferences = input.capabilityScope
       ? []
@@ -1198,6 +1223,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
         {
           ownerId: input.userId,
           conversationId: input.conversationId,
+          ...(input.capabilityScope?.serviceSessionId ? { serviceSessionId: input.capabilityScope.serviceSessionId } : {}),
           verification: input.capabilityVerification,
           capabilities: input.capabilities.map((capability) => ({
             id: capability.id,
@@ -1570,14 +1596,9 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     userId: string;
     mcpServers?: RuntimeMcpServer[];
   }) {
-    const bindings = await this.prisma.applicationMcpServer.findMany({
-      where: { applicationId: input.applicationId },
-      orderBy: { selectionOrder: "asc" },
-      select: { mcpServerId: true },
-    });
     return this.mcpServers.resolveApplicationRecovery(
       input.applicationOwnerId,
-      bindings.map((binding) => binding.mcpServerId),
+      (input.mcpServers ?? []).map(server => server.id),
       input.mcpServers ?? [],
       await this.#resolveApplicationMcpRequestHeaders(
         input.userId,
@@ -1611,17 +1632,20 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
 export function createRunningTurnCapabilityPublicationGuard(
   prisma: Pick<
     PrismaClient,
-    "conversationTurn" | "conversationTurnStartIntent"
+    "conversation" | "conversationTurn" | "conversationTurnStartIntent"
   >,
 ): UserHomeCapabilityPublicationGuard {
-  return async ({ ownerId, conversationId }) => {
+  return async ({ ownerId, serviceSessionId }) => {
+    const conversations = serviceSessionId ? await prisma.conversation.findMany({
+      where: { ownerId, workspaceRelPath: serviceWorkspaceRelativePath(ownerId, serviceSessionId) }, select: { id: true },
+    }) : null;
     const [runningTurn, startIntent] = await Promise.all([
       prisma.conversationTurn.findFirst({
-        where: { submittedBy: ownerId, conversationId, status: "running" },
+        where: { submittedBy: ownerId, status: "running", ...(conversations ? { conversationId: { in: conversations.map(conversation => conversation.id) } } : {}) },
         select: { id: true },
       }),
       prisma.conversationTurnStartIntent.findFirst({
-        where: { ownerId, conversationId },
+        where: { ownerId, ...(conversations ? { conversationId: { in: conversations.map(conversation => conversation.id) } } : {}) },
         select: { projectionTurnId: true },
       }),
     ]);

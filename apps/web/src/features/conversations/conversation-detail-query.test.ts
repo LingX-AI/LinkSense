@@ -27,7 +27,7 @@ describe("conversation detail event subscription", () => {
       defaultOptions: { queries: { retry: false } },
     })
     queryClient.setQueryData(["conversation", conversationId], {
-      category_id: null,
+      project_id: null,
       id: conversationId,
       title: "任务 B",
       archived: false,
@@ -74,7 +74,7 @@ describe("conversation detail event subscription", () => {
         JSON.stringify({
           success: true,
           data: {
-            category_id: null,
+            project_id: null,
             id: conversationId,
             title: "任务 B",
             archived: false,

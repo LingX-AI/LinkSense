@@ -1,3 +1,4 @@
+import type { ApplicationCopyService } from "./copy-service.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 
@@ -17,6 +18,9 @@ import {
 } from "@linksense/shared";
 
 import type { PrismaClient } from "../../generated/prisma/client.js";
+import type { ApplicationPublication, PublishApplicationInput, CopyApplicationInput } from "@linksense/shared";
+import type { ApplicationPublicationService } from "./publication-service.js";
+import { publishedApplicationDefinitionSchema, type PublishedCapability } from "./published-definition.js";
 import { AppError } from "../../lib/errors.js";
 import { detectSafeRasterImage } from "../../lib/safe-raster-image.js";
 import type { AuditContext, AuditService } from "../audit/service.js";
@@ -28,6 +32,9 @@ import {
 } from "./interactive-package.js";
 
 export type ApplicationRuntimeConfiguration = {
+  applicationVersionId: string | null;
+  publishedCapabilities: PublishedCapability[];
+  interactivePackageId: string | null;
   kind: "standard" | "interactive";
   applicationId: string;
   applicationOwnerId: string;
@@ -90,7 +97,35 @@ export class ApplicationService {
     private readonly credentials: Pick<CredentialService, "resolveForCapability">,
     private readonly iconStore?: ApplicationIconStore,
     private readonly interactiveAssetStore?: InteractiveApplicationAssetStore,
+    private readonly publications?: ApplicationPublicationService,
+    private readonly copies?: ApplicationCopyService,
   ) {}
+
+  async copy(actor: RequestActor, applicationId: string, input: CopyApplicationInput, context: AuditContext): Promise<Application> {
+    assertActiveActor(actor);
+    await this.#requireCurrentAccess(actor.id, applicationId);
+    if (!this.copies) throw new AppError("INTERNAL_ERROR");
+    const copyId = await this.copies.copy(actor.id, applicationId, input);
+    await this.audit.write({ ...context, actorId: actor.id, action: "application_copied", targetType: "application", targetId: copyId, result: "success" });
+    return this.get(actor, copyId);
+  }
+
+  async getPublication(actor: RequestActor, applicationId: string): Promise<ApplicationPublication> {
+    await this.get(actor, applicationId);
+    if (!this.publications) throw new AppError("INTERNAL_ERROR");
+    return this.publications.get(applicationId);
+  }
+
+  async publish(actor: RequestActor, applicationId: string, input: PublishApplicationInput, context: AuditContext): Promise<ApplicationPublication> {
+    assertActiveActor(actor);
+    await this.#requireOwned(actor.id, applicationId);
+    if (!this.publications) throw new AppError("INTERNAL_ERROR");
+    const runtime = await this.resolveRuntime(actor.id, applicationId, undefined, null);
+    const published = await this.publications.publish(actor.id, applicationId, input, runtime.instructions);
+    await this.audit.write({ ...context, actorId: actor.id, action: "application_published", targetType: "application", targetId: applicationId,
+      result: "success", metadata: { version_number: published.version_number, allow_copy: published.allow_copy } });
+    return published;
+  }
 
   async list(
     actor: RequestActor,
@@ -561,9 +596,18 @@ export class ApplicationService {
       actor.id,
       applicationId,
     );
-    const packageId = requestedPackageId ?? application.interactivePackageId;
+    const published = application.publishedVersionId && this.publications
+      ? await this.publications.readVersion(applicationId, application.publishedVersionId) : null;
+    const packageId = requestedPackageId ?? published?.interactivePackageId ?? application.interactivePackageId;
     if (application.kind !== "interactive" || !packageId) {
       throw new AppError("APPLICATION_NOT_FOUND");
+    }
+    if (application.ownerId !== actor.id) {
+      const publishedPackage = await this.prisma.applicationVersion.findFirst({
+        where: { applicationId, assetsReady: true, definitionJson: { path: ["interactivePackageId"], equals: packageId } },
+        select: { id: true },
+      });
+      if (!publishedPackage) throw new AppError("APPLICATION_NOT_FOUND");
     }
     const package_ = await this.prisma.interactiveApplicationPackage.findFirst({
       where: { id: packageId, applicationId },
@@ -805,17 +849,6 @@ export class ApplicationService {
             where: { sessionId: { in: sessionIds }, revokedAt: null },
             data: { revokedAt: now, revokeReason: "application_disabled" },
           });
-          await tx.user.updateMany({
-            where: {
-              id: {
-                in: externalSessions.map(
-                  (session) => session.runtimePrincipalId,
-                ),
-              },
-              accountType: "application_external",
-            },
-            data: { status: "disabled", updatedAt: now },
-          });
         }
       });
     } catch (error) {
@@ -901,15 +934,6 @@ export class ApplicationService {
       await tx.applicationExternalRefreshToken.updateMany({
         where: { sessionId: { in: sessionIds }, revokedAt: null },
         data: { revokedAt: now, revokeReason: "application_deleted" },
-      });
-      await tx.user.updateMany({
-        where: {
-          id: {
-            in: externalSessions.map((session) => session.runtimePrincipalId),
-          },
-          accountType: "application_external",
-        },
-        data: { status: "disabled", updatedAt: now },
       });
     });
     if (current.iconObjectKey !== null) {
@@ -1114,7 +1138,7 @@ export class ApplicationService {
             where: {
               id: { not: actor.id },
               status: "active",
-              accountType: "member",
+
               selfRegisteredAt: null,
               ...(input.search
                 ? {
@@ -1177,11 +1201,31 @@ export class ApplicationService {
     actorId: string,
     applicationId: string,
     interactivePackageId?: string | null,
+    applicationVersionId?: string | null,
   ): Promise<ApplicationRuntimeConfiguration> {
     const application = await this.#requireCurrentAccess(
       actorId,
       applicationId,
     );
+    const versionId = applicationVersionId === undefined ? application.publishedVersionId : applicationVersionId;
+    if (versionId) {
+      if (!this.publications) throw new AppError("INTERNAL_ERROR");
+      const definition = await this.publications.readVersion(applicationId, versionId);
+      await this.#validateDependencies(application.ownerId, {
+        capabilityIds: definition.capabilities.map(capability => capability.id),
+        knowledgeBaseIds: definition.knowledgeBaseIds, mcpServerIds: definition.mcpServerIds,
+      });
+      if (definition.model && definition.reasoningEffort) await this.models.resolveRuntimeForSelection(definition.model, definition.reasoningEffort);
+      return {
+        applicationVersionId: versionId, publishedCapabilities: definition.capabilities, interactivePackageId: definition.interactivePackageId,
+        kind: definition.kind, applicationId, applicationOwnerId: application.ownerId,
+        applicationName: definition.name, applicationUpdatedAt: application.updatedAt,
+        instructions: definition.instructions, model: definition.model, reasoningEffort: definition.reasoningEffort,
+        capabilityIds: definition.capabilities.map(capability => capability.id),
+        knowledgeBaseIds: definition.knowledgeBaseIds, mcpServerIds: definition.mcpServerIds,
+      };
+    }
+    if (application.ownerId !== actorId) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
     const [capabilityBindings, knowledgeBindings, mcpBindings, package_] =
       await Promise.all([
         this.prisma.applicationCapability.findMany({
@@ -1226,6 +1270,7 @@ export class ApplicationService {
       );
     }
     return {
+      applicationVersionId: null, publishedCapabilities: [], interactivePackageId: package_?.id ?? null,
       kind:
         application.kind === "interactive" ? "interactive" : "standard",
       applicationId: application.id,
@@ -1269,24 +1314,20 @@ export class ApplicationService {
     await this.#requireCurrentAccess(actorId, applicationId);
   }
 
-  async allowsUserModelSelection(
-    actorId: string,
-    applicationId: string,
-  ): Promise<boolean> {
-    const application = await this.#requireCurrentAccess(
-      actorId,
-      applicationId,
-    );
-    return application.model === null;
+  async allowsUserModelSelection(actorId: string, applicationId: string, applicationVersionId?: string | null): Promise<boolean> {
+    const application = await this.#requireCurrentAccess(actorId, applicationId);
+    const versionId = applicationVersionId === undefined ? application.publishedVersionId : applicationVersionId;
+    if (!versionId) return application.ownerId === actorId && application.model === null;
+    if (!this.publications) throw new AppError("INTERNAL_ERROR");
+    return (await this.publications.readVersion(applicationId, versionId)).model === null;
   }
 
   async #requireCurrentAccess(actorId: string, applicationId: string) {
     const actor = await this.prisma.user.findFirst({
       where: { id: actorId, status: "active" },
-      select: { id: true, accountType: true, selfRegisteredAt: true },
+      select: { id: true, selfRegisteredAt: true },
     });
-    if (!actor) throw new AppError("USER_DISABLED");
-    if (actor.accountType === "application_external") {
+    if (!actor) {
       const externalSession =
         await this.prisma.applicationExternalSession.findFirst({
           where: {
@@ -1373,7 +1414,7 @@ export class ApplicationService {
     const [actor, application] = await Promise.all([
       this.prisma.user.findFirst({
         where: { id: actorId, status: "active" },
-        select: { id: true, accountType: true, selfRegisteredAt: true },
+        select: { id: true, selfRegisteredAt: true },
       }),
       this.prisma.application.findFirst({
         where: {
@@ -1383,8 +1424,8 @@ export class ApplicationService {
         select: { id: true },
       }),
     ]);
-    if (!actor || !application) return [];
-    if (actor.accountType === "application_external") {
+    if (!application) return [];
+    if (!actor) {
       const externalSession =
         await this.prisma.applicationExternalSession.findFirst({
           where: {
@@ -1570,6 +1611,7 @@ export class ApplicationService {
     rows: Array<{
       id: string;
       ownerId: string;
+      publishedVersionId: string | null;
       name: string;
       kind: string;
       description: string | null;
@@ -1586,6 +1628,9 @@ export class ApplicationService {
     access: AccessibleApplications,
     includeOrganizationSharing: boolean,
   ): Promise<Application[]> {
+    const versionIds = rows.flatMap(row => row.publishedVersionId ? [row.publishedVersionId] : []);
+    const versions = versionIds.length ? await this.prisma.applicationVersion.findMany({ where: { id: { in: versionIds }, assetsReady: true } }) : [];
+    const definitionByVersion = new Map(versions.map(version => [version.id, publishedApplicationDefinitionSchema.parse(version.definitionJson)]));
     const applicationIds = rows.map((row) => row.id);
     const ownedApplicationIds = includeOrganizationSharing
       ? rows.filter((row) => row.ownerId === actorId).map((row) => row.id)
@@ -1629,25 +1674,20 @@ export class ApplicationService {
               ],
             })
           : Promise.resolve([]),
-        rows.some((row) => row.interactivePackageId)
+        rows.some((row) => row.interactivePackageId) || [...definitionByVersion.values()].some(definition => definition.interactivePackageId)
           ? this.prisma.interactiveApplicationPackage.findMany({
               where: {
                 id: {
-                  in: rows.flatMap((row) =>
-                    row.interactivePackageId ? [row.interactivePackageId] : [],
-                  ),
+                  in: [...rows.flatMap(row => row.interactivePackageId ? [row.interactivePackageId] : []), ...[...definitionByVersion.values()].flatMap(definition => definition.interactivePackageId ? [definition.interactivePackageId] : [])],
                 },
               },
             })
           : Promise.resolve([]),
       ]);
-    const capabilityIds = capabilityBindings.map(
-      (binding) => binding.capabilityId,
-    );
-    const knowledgeBaseIds = knowledgeBindings.map(
-      (binding) => binding.knowledgeBaseId,
-    );
-    const mcpServerIds = mcpBindings.map((binding) => binding.mcpServerId);
+    const definitions = [...definitionByVersion.values()];
+    const capabilityIds = [...new Set([...capabilityBindings.map(binding => binding.capabilityId), ...definitions.flatMap(definition => definition.capabilities.map(capability => capability.id))])];
+    const knowledgeBaseIds = [...new Set([...knowledgeBindings.map(binding => binding.knowledgeBaseId), ...definitions.flatMap(definition => definition.knowledgeBaseIds)])];
+    const mcpServerIds = [...new Set([...mcpBindings.map(binding => binding.mcpServerId), ...definitions.flatMap(definition => definition.mcpServerIds)])];
     const userShareTargetIds = grants.flatMap((grant) =>
       grant.userId === null ? [] : [grant.userId],
     );
@@ -1734,10 +1774,14 @@ export class ApplicationService {
     return Promise.all(
       rows.map(async (row) => {
         const isOwner = row.ownerId === actorId;
+        const published = row.publishedVersionId ? definitionByVersion.get(row.publishedVersionId) : undefined;
+        const frozen = isOwner ? undefined : published;
         const projectedCapabilities = await Promise.all(
-          (capabilityBindingsByApplication.get(row.id) ?? []).map(
+          (frozen ? frozen.capabilities.map(capability => ({ capabilityId: capability.id, capabilityNameSnapshot: capability.name, capabilityTypeSnapshot: capability.type, createdAt: new Date(capability.revision) })) : capabilityBindingsByApplication.get(row.id) ?? []).map(
             async (binding) => {
-              const capability = capabilityById.get(binding.capabilityId);
+              const liveCapability = capabilityById.get(binding.capabilityId);
+              const snapshot = frozen?.capabilities.find(capability => capability.id === binding.capabilityId);
+              const capability = liveCapability && snapshot ? { ...liveCapability, name: snapshot.name, type: snapshot.type, description: snapshot.description, riskSummaryJson: snapshot.riskSummaryJson, updatedAt: new Date(snapshot.revision) } : liveCapability;
               const dependencyAvailable =
                 capability?.ownerId === row.ownerId &&
                 capability.status === "active";
@@ -1770,7 +1814,7 @@ export class ApplicationService {
           ),
         );
         const projectedKnowledgeBases = (
-          knowledgeBindingsByApplication.get(row.id) ?? []
+          frozen ? frozen.knowledgeBaseIds.map(knowledgeBaseId => ({ knowledgeBaseId, knowledgeBaseNameSnapshot: "", createdAt: row.createdAt })) : knowledgeBindingsByApplication.get(row.id) ?? []
         ).map((binding) => {
           const knowledgeBase = knowledgeBaseById.get(binding.knowledgeBaseId);
           return {
@@ -1789,7 +1833,7 @@ export class ApplicationService {
           };
         });
         const projectedMcpServers = (
-          mcpBindingsByApplication.get(row.id) ?? []
+          frozen ? frozen.mcpServerIds.map(mcpServerId => ({ mcpServerId, mcpServerNameSnapshot: "", updatedAt: row.updatedAt })) : mcpBindingsByApplication.get(row.id) ?? []
         ).map((binding) => {
           const server = mcpServerById.get(binding.mcpServerId);
           return {
@@ -1818,19 +1862,35 @@ export class ApplicationService {
             })
           : [];
         const icon = await this.#projectIcon(row);
+        // The editor shows draft bindings; launch readiness always describes the
+        // published version used by both its author and its recipients.
+        const publishedDependenciesAvailable = published && (
+          await Promise.all(published.capabilities.map(async snapshot => {
+            const capability = capabilityById.get(snapshot.id);
+            if (capability?.ownerId !== row.ownerId || capability.status !== "active") return false;
+            const keys = snapshot.type === "plugin" ? declaredApplicationCredentialKeys(snapshot.riskSummaryJson) : [];
+            return keys.length === 0 || hasAvailablePluginCredentials(row.ownerId, snapshot.id, keys);
+          }))
+        ).every(Boolean) && published.knowledgeBaseIds.every(id => {
+          const knowledge = knowledgeBaseById.get(id);
+          return knowledge?.ownerId === row.ownerId && knowledge.lifecycleStatus === "active" && knowledge.availabilityStatus === "enabled";
+        }) && published.mcpServerIds.every(id => {
+          const server = mcpServerById.get(id);
+          return server?.ownerId === row.ownerId && server.status === "active";
+        });
         return applicationSchema.parse({
           id: row.id,
           owner: {
             id: row.ownerId,
             name: ownerById.get(row.ownerId)?.name ?? "-",
           },
-          name: row.name,
+          name: frozen?.name ?? row.name,
           icon,
           description: row.description,
-          kind: row.kind === "interactive" ? "interactive" : "standard",
+          kind: frozen?.kind ?? (row.kind === "interactive" ? "interactive" : "standard"),
           instructions: isOwner ? row.instructions : null,
-          model: row.model,
-          reasoning_effort: row.reasoningEffort,
+          model: frozen ? frozen.model : row.model,
+          reasoning_effort: frozen ? frozen.reasoningEffort : row.reasoningEffort,
           status: row.status,
           is_owner: isOwner,
           can_manage: isOwner,
@@ -1842,6 +1902,7 @@ export class ApplicationService {
           mcp_server_count: projectedMcpServers.length,
           share_targets: shareTargets,
           dependencies_available:
+            published ? publishedDependenciesAvailable : isOwner && !row.publishedVersionId &&
             projectedCapabilities.every((item) => item.available) &&
             projectedKnowledgeBases.every((item) => item.available) &&
             projectedMcpServers.every((item) => item.available),
@@ -1849,10 +1910,8 @@ export class ApplicationService {
           knowledge_bases: isOwner ? projectedKnowledgeBases : [],
           mcp_servers: isOwner ? projectedMcpServers : [],
           interactive_package:
-            row.kind === "interactive" && row.interactivePackageId
-              ? projectInteractivePackage(
-                  interactivePackageById.get(row.interactivePackageId),
-                )
+            (frozen?.kind ?? row.kind) === "interactive" && (frozen?.interactivePackageId ?? row.interactivePackageId)
+              ? projectInteractivePackage(interactivePackageById.get((frozen?.interactivePackageId ?? row.interactivePackageId)!))
               : null,
           created_at: row.createdAt.toISOString(),
           updated_at: row.updatedAt.toISOString(),
@@ -2031,11 +2090,11 @@ function interactiveAssetObjectKey(
   return `applications/${ownerId}/${applicationId}/packages/${packageId}/${path}`;
 }
 
-function interactiveApplicationBaseInstructions(name: string) {
+export function interactiveApplicationBaseInstructions(name: string) {
   return `This task is presented through the LinkSense interactive application ${JSON.stringify(name)}. Follow the user's submitted prompt and use only resources authorized for the current LinkSense user.`;
 }
 
-function interactiveApplicationRuntimeInstructions(
+export function interactiveApplicationRuntimeInstructions(
   instructions: string,
   manifest: import("@linksense/shared").InteractiveApplicationManifest,
 ) {
