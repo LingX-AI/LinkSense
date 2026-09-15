@@ -31,9 +31,11 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import {
   Table,
@@ -211,10 +213,10 @@ export function BillingStatementsPanel(props: {
         }}
       >
         <DialogContent
-          className="max-h-[88vh] overflow-y-auto sm:max-w-5xl"
+          className="flex max-h-[88dvh] flex-col overflow-hidden sm:max-w-5xl"
           closeLabel={t("common.close")}
         >
-          <DialogHeader>
+          <DialogHeader className="shrink-0 pr-8">
             <DialogTitle>{t("usage.billing.detail.title")}</DialogTitle>
             <DialogDescription>
               {detailQuery.data
@@ -225,20 +227,51 @@ export function BillingStatementsPanel(props: {
                 : t("usage.billing.detail.description")}
             </DialogDescription>
           </DialogHeader>
-          {detailQuery.isLoading && <LoadingState />}
-          {detailQuery.isError && (
-            <ErrorState
-              message={getErrorMessage(detailQuery.error, t)}
-              onRetry={() => void detailQuery.refetch()}
-            />
-          )}
+          <div
+            role="region"
+            aria-label={t("usage.billing.detail.title")}
+            tabIndex={0}
+            className="min-h-0 overflow-y-auto overscroll-contain rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {detailQuery.isLoading && <LoadingState />}
+            {detailQuery.isError && (
+              <ErrorState
+                message={getErrorMessage(detailQuery.error, t)}
+                onRetry={() => void detailQuery.refetch()}
+              />
+            )}
+            {detailQuery.data && (
+              <StatementDetail
+                statement={detailQuery.data}
+                language={props.language}
+              />
+            )}
+          </div>
           {detailQuery.data && (
-            <StatementDetail
-              statement={detailQuery.data}
-              language={props.language}
-              exporting={exportingId === detailQuery.data.id}
-              onExport={() => void exportStatement(detailQuery.data)}
-            />
+            <DialogFooter className="shrink-0 flex-col gap-4 sm:flex-col">
+              <Separator />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs text-muted-foreground">
+                    {t("usage.billing.total")}
+                  </div>
+                  <div className="text-xl font-semibold tabular-nums">
+                    {formatCnyCost(detailQuery.data.total_cost, props.language)}
+                  </div>
+                </div>
+                <Button
+                  disabled={exportingId !== null}
+                  onClick={() => void exportStatement(detailQuery.data)}
+                >
+                  {exportingId === detailQuery.data.id ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <DownloadIcon data-icon="inline-start" />
+                  )}
+                  {t("usage.billing.export.action")}
+                </Button>
+              </div>
+            </DialogFooter>
           )}
         </DialogContent>
       </Dialog>
@@ -287,8 +320,6 @@ function CurrentPeriodCard(props: {
 function StatementDetail(props: {
   statement: BillingStatementDetail
   language: UsageNumberLanguage
-  exporting: boolean
-  onExport: () => void
 }) {
   const { t } = useTranslation()
   return (
@@ -406,25 +437,6 @@ function StatementDetail(props: {
             </CardContent>
           </Card>
         ))}
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-        <div>
-          <div className="text-xs text-muted-foreground">
-            {t("usage.billing.total")}
-          </div>
-          <div className="text-xl font-semibold tabular-nums">
-            {formatCnyCost(props.statement.total_cost, props.language)}
-          </div>
-        </div>
-        <Button disabled={props.exporting} onClick={props.onExport}>
-          {props.exporting ? (
-            <Spinner data-icon="inline-start" />
-          ) : (
-            <DownloadIcon data-icon="inline-start" />
-          )}
-          {t("usage.billing.export.action")}
-        </Button>
       </div>
     </div>
   )
