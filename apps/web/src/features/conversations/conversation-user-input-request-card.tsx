@@ -31,8 +31,11 @@ import {
   FieldSet,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import {
+  RadioGroup,
+  RadioGroupItem,
+  RadioGroupOption,
+} from "@/components/ui/radio-group"
 import { ConversationStructuredUserInputForm } from "@/features/conversations/conversation-structured-user-input-form"
 import { ConversationUserInputRequestFooter } from "@/features/conversations/conversation-user-input-request-footer"
 import {
@@ -335,15 +338,14 @@ function QuestionUserInputForm({
                         [question.id]: value,
                       }))
                     }
-                    className="gap-2"
                   >
                     {options.map((option, optionIndex) => {
                       const optionId = `${inputId}-option-${optionIndex}`
                       return (
-                        <Label
+                        <RadioGroupOption
                           key={`${option.label}:${optionIndex}`}
                           htmlFor={optionId}
-                          className="flex cursor-pointer items-start gap-3 rounded-xl bg-background/30 px-3 py-2.5 transition-colors has-data-[checked]:bg-muted/50"
+                          className="items-start"
                         >
                           <RadioGroupItem
                             id={optionId}
@@ -361,14 +363,11 @@ function QuestionUserInputForm({
                               </span>
                             )}
                           </span>
-                        </Label>
+                        </RadioGroupOption>
                       )
                     })}
                     {question.is_other && (
-                      <Label
-                        htmlFor={`${inputId}-other`}
-                        className="flex cursor-pointer items-center gap-3 rounded-xl bg-background/30 px-3 py-2.5 transition-colors has-data-[checked]:bg-muted/50"
-                      >
+                      <RadioGroupOption htmlFor={`${inputId}-other`}>
                         <RadioGroupItem
                           id={`${inputId}-other`}
                           value={otherChoice}
@@ -377,7 +376,7 @@ function QuestionUserInputForm({
                         <span className="text-sm font-medium text-[var(--app-text)]">
                           {t("conversation.userInput.other")}
                         </span>
-                      </Label>
+                      </RadioGroupOption>
                     )}
                   </RadioGroup>
                 )}

@@ -306,7 +306,7 @@ export function SettingsShell() {
             )}
         </div>
       </aside>
-      <main className="settings-main" id="main-content">
+      <main className="settings-main" id="main-content" tabIndex={0}>
         <div
           className={cn(
             "settings-content",

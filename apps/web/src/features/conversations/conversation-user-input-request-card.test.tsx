@@ -181,6 +181,18 @@ describe("ConversationUserInputRequestCard", () => {
         />
       )
       expect(screen.getByRole("radio", { name: /完整实现/ })).toBeChecked()
+      expect(screen.getByRole("radiogroup")).toHaveClass(
+        "flex",
+        "flex-wrap",
+        "gap-2"
+      )
+      for (const option of screen.getAllByRole("radio")) {
+        expect(option.closest('[data-slot="radio-group-option"]')).toHaveClass(
+          "rounded-xl",
+          "border",
+          "border-[var(--app-border)]"
+        )
+      }
       expect(
         screen.getByText(
           locale === "en-US"
@@ -268,10 +280,12 @@ describe("ConversationUserInputRequestCard", () => {
     })
     await interaction.click(scopeOption)
     const scopeOptionLabel = scopeOption.closest("label")
-    expect(scopeOptionLabel).toHaveClass("has-data-[checked]:bg-muted/50")
-    expect(scopeOptionLabel).not.toHaveClass(
+    expect(scopeOptionLabel).toHaveAttribute("data-slot", "radio-group-option")
+    expect(scopeOptionLabel).toHaveClass(
+      "rounded-xl",
       "border",
-      "border-[color:var(--app-border)]"
+      "border-[var(--app-border)]",
+      "has-[[aria-checked=true]]:bg-field"
     )
     expect(scopeOptionLabel?.className).not.toContain(
       "has-data-[checked]:border"

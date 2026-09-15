@@ -33,7 +33,7 @@ A Skill generated in a task must first be validated and registered as a complete
 - Deleting permanently removes the capability, configuration, and credential bindings.
 - Historical records retain only the version and source facts needed for traceability.
 
-When updating a personal Skill, the dialog loads its current display name, description, complete instructions and file list. The identifier stays the same. Whether you originally created the Skill manually or imported a ZIP, the **Update method** dropdown offers:
+When updating a personal Skill, the dialog loads its current display name, description, complete instructions and file list. The identifier stays the same. Whether you originally created the Skill manually or imported a ZIP, choose one of the **Update method** radio options:
 
 - **Edit skill content**: Update the display name, description and instructions. Existing scripts, templates, images, other files and settings you did not edit are preserved.
 - **Replace complete skill package**: Upload a ZIP containing every required file. The new package replaces the current Skill, deleting existing files missing from the new package. To change scripts or resources, use **Download complete skill package**, edit the files locally and upload the updated package.

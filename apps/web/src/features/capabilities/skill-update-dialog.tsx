@@ -23,19 +23,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { FieldGroup } from "@/components/ui/field"
+import { FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  RadioGroup,
+  RadioGroupItem,
+  RadioGroupOption,
+} from "@/components/ui/radio-group"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { downloadBlob } from "@/lib/download-blob"
 import {
   useSkillEditDetail,
@@ -210,36 +207,33 @@ function SkillUpdateForm({
             }}
           >
             <FieldGroup>
-              <FieldShell id="skill-update-mode" label={t("skillUpdate.mode")}>
-                <Select
-                  items={[
-                    { value: "edit", label: t("skillUpdate.edit") },
-                    { value: "replace", label: t("skillUpdate.replace") },
-                  ]}
+              <FieldSet>
+                <FieldLegend id="skill-update-mode-label" variant="label">
+                  {t("skillUpdate.mode")}
+                </FieldLegend>
+                <RadioGroup
+                  name="skill-update-mode"
+                  aria-labelledby="skill-update-mode-label"
                   value={mode}
                   disabled={pending}
                   onValueChange={(next) => {
                     if (next === "edit" || next === "replace") setMode(next)
                   }}
                 >
-                  <SelectTrigger id="skill-update-mode" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem
-                        value="edit"
-                        disabled={detail.content === null}
-                      >
-                        {t("skillUpdate.edit")}
-                      </SelectItem>
-                      <SelectItem value="replace">
-                        {t("skillUpdate.replace")}
-                      </SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </FieldShell>
+                  <RadioGroupOption htmlFor="skill-update-edit">
+                    <RadioGroupItem
+                      id="skill-update-edit"
+                      value="edit"
+                      disabled={detail.content === null}
+                    />
+                    <span>{t("skillUpdate.edit")}</span>
+                  </RadioGroupOption>
+                  <RadioGroupOption htmlFor="skill-update-replace">
+                    <RadioGroupItem id="skill-update-replace" value="replace" />
+                    <span>{t("skillUpdate.replace")}</span>
+                  </RadioGroupOption>
+                </RadioGroup>
+              </FieldSet>
               {detail.content === null && (
                 <StatusBanner variant="warning">
                   {t("skillUpdate.contentTooLarge")}

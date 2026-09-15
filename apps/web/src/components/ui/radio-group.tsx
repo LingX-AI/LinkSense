@@ -1,13 +1,31 @@
 import { Radio as RadioPrimitive } from "@base-ui/react/radio"
 import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group"
+import type { ComponentProps } from "react"
 
+import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 
 function RadioGroup({ className, ...props }: RadioGroupPrimitive.Props) {
   return (
     <RadioGroupPrimitive
       data-slot="radio-group"
-      className={cn("grid w-full gap-3", className)}
+      className={cn("flex w-full flex-wrap gap-2", className)}
+      {...props}
+    />
+  )
+}
+
+function RadioGroupOption({
+  className,
+  ...props
+}: ComponentProps<typeof Label>) {
+  return (
+    <Label
+      data-slot="radio-group-option"
+      className={cn(
+        "w-auto max-w-full cursor-pointer gap-2 rounded-xl border border-[var(--app-border)] px-3 py-2.5 transition-colors has-[:focus-visible]:border-ring has-[[aria-checked=true]]:bg-field has-[[aria-disabled=true]]:cursor-not-allowed has-[[aria-disabled=true]]:opacity-50",
+        className
+      )}
       {...props}
     />
   )
@@ -33,4 +51,4 @@ function RadioGroupItem({ className, ...props }: RadioPrimitive.Root.Props) {
   )
 }
 
-export { RadioGroup, RadioGroupItem }
+export { RadioGroup, RadioGroupItem, RadioGroupOption }

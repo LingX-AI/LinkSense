@@ -108,6 +108,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { FieldLegend, FieldSet } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
 import { Label } from "@/components/ui/label"
@@ -116,6 +117,11 @@ import {
   ProgressLabel,
   ProgressValue,
 } from "@/components/ui/progress"
+import {
+  RadioGroup,
+  RadioGroupItem,
+  RadioGroupOption,
+} from "@/components/ui/radio-group"
 import {
   Select,
   SelectContent,
@@ -1102,29 +1108,34 @@ function CapabilityImportDialog({
               previewMutation.mutate()
             }}
           >
-            <FieldShell
-              id="capability-import-source"
-              label={t("capability.source")}
-            >
-              <Select
-                items={importSourceItems}
+            <FieldSet>
+              <FieldLegend id="capability-import-source-label" variant="label">
+                {t("capability.source")}
+              </FieldLegend>
+              <RadioGroup
+                name="capability-import-source"
+                aria-labelledby="capability-import-source-label"
                 value={source}
-                onValueChange={(value) => setSource(value as ImportSource)}
+                disabled={previewMutation.isPending}
+                onValueChange={(value) => {
+                  if (value === "local" || value === "manual_skill")
+                    setSource(value)
+                }}
               >
-                <SelectTrigger id="capability-import-source" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {importSourceItems.map((item) => (
-                      <SelectItem key={item.value} value={item.value}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </FieldShell>
+                {importSourceItems.map((item) => (
+                  <RadioGroupOption
+                    key={item.value}
+                    htmlFor={`capability-import-source-${item.value}`}
+                  >
+                    <RadioGroupItem
+                      id={`capability-import-source-${item.value}`}
+                      value={item.value}
+                    />
+                    <span>{item.label}</span>
+                  </RadioGroupOption>
+                ))}
+              </RadioGroup>
+            </FieldSet>
             {source === "local" && (
               <>
                 <FieldShell
