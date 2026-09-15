@@ -858,9 +858,6 @@ export const zhCN = {
         "知识库索引与当前部署配置不一致，需要管理员核对配置并手动执行全量重建。",
     },
     creationCapability: {
-      checkingTitle: "正在检测知识库创建条件",
-      checkingDescription:
-        "正在确认文件存储、文档解析、嵌入模型和知识索引服务是否可用。",
       unreadyTitle: "暂时无法创建知识库",
       unreadyDescription: "以下条件恢复后才能创建知识库：",
       requestFailedTitle: "无法确认知识库创建条件",
@@ -869,7 +866,6 @@ export const zhCN = {
       notInstalledTitle: "当前版本不包含知识库功能",
       notInstalledDescription: "请安装包含知识库功能的版本后再创建知识库。",
       retry: "重新检测",
-      rechecking: "检测中",
       checks: {
         objectStorageUnavailable: "文件存储服务暂不可用",
         documentParsingUnavailable: "文档解析服务暂不可用",

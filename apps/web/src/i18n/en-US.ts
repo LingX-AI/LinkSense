@@ -940,9 +940,6 @@ export const enUS = {
         "The knowledge index does not match the current deployment configuration. An administrator must check the configuration and run a manual full rebuild.",
     },
     creationCapability: {
-      checkingTitle: "Checking knowledge-base requirements",
-      checkingDescription:
-        "Checking file storage, document parsing, the embedding model, and knowledge indexing services.",
       unreadyTitle: "A knowledge base cannot be created yet",
       unreadyDescription:
         "The following requirements must recover before you can create a knowledge base:",
@@ -953,7 +950,6 @@ export const enUS = {
       notInstalledDescription:
         "Install an edition that includes knowledge bases before creating one.",
       retry: "Check again",
-      rechecking: "Checking",
       checks: {
         objectStorageUnavailable: "File storage is temporarily unavailable",
         documentParsingUnavailable:
