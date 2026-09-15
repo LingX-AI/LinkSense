@@ -1,3 +1,4 @@
+import { AssistantMermaid } from "@/features/conversations/assistant-mermaid"
 import {
   Children,
   createContext,
@@ -790,6 +791,17 @@ function MarkdownCodeBlock({
   const htmlCodeMode =
     htmlCodeView.source === htmlCodeSource ? htmlCodeView.mode : "code"
   const showHtmlCodePreview = canPreviewHtmlCode && htmlCodeMode === "preview"
+
+  const mermaidSource = getMarkdownCodeTextForLanguages(children, ["mermaid"])
+  if (mermaidSource !== null) {
+    return (
+      <AssistantMermaid
+        source={mermaidSource}
+        streaming={streaming ?? false}
+        copySource={copyTextToClipboard}
+      />
+    )
+  }
 
   const codeBlock = (
     <div

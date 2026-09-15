@@ -13,7 +13,7 @@ describe("image display containment", () => {
       /\.image-preview-image\s*\{[^}]*object-fit:\s*contain;/u
     )
     expect(appStyles).toMatch(
-      /\.assistant-markdown img:not\(\.conversation-image-thumbnail-image\)\s*\{[^}]*object-fit:\s*contain;/u
+      /\.assistant-markdown\s+img:not\(\.conversation-image-thumbnail-image\):not\(\[data-diagram-image\]\)\s*\{[^}]*object-fit:\s*contain;/u
     )
     expect(appStyles).toMatch(
       /\.conversation-image-thumbnail-image,\s*\.native-activity-image-preview-image\s*\{[^}]*object-fit:\s*cover;/u

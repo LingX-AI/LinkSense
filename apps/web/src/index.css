@@ -6340,7 +6340,8 @@ button.annotation-hover-file:focus-visible {
   object-fit: contain;
 }
 
-.assistant-markdown img:not(.conversation-image-thumbnail-image) {
+.assistant-markdown
+  img:not(.conversation-image-thumbnail-image):not([data-diagram-image]) {
   display: block;
   width: auto;
   max-width: min(100%, 760px);
