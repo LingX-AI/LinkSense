@@ -44,7 +44,7 @@ const safePathSegments = new Set([
   "selectedKnowledgeBases",
   "attachments",
   "filename",
-  "relativePath",
+  "homeRelativePath",
   "priorityPlugins",
   "prioritySkills",
   "id",

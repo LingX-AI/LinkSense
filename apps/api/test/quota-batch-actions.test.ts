@@ -12,25 +12,21 @@ function fixture() {
   const users = [
     {
       id: "org",
-      accountType: "member",
       status: "active",
       selfRegisteredAt: null,
     },
     {
       id: "disabled-org",
-      accountType: "member",
       status: "disabled",
       selfRegisteredAt: null,
     },
     {
       id: "registered",
-      accountType: "member",
       status: "active",
       selfRegisteredAt: BEFORE,
     },
     {
       id: "external",
-      accountType: "external",
       status: "active",
       selfRegisteredAt: null,
     },
@@ -67,7 +63,7 @@ function fixture() {
     user: {
       findUnique: vi.fn(
         async ({ where }: { where: { id: string } }) =>
-          users.find((user) => user.id === where.id) ?? null,
+          users.find((user) => user.id === where.id && user.id !== "external") ?? null,
       ),
       updateMany: vi.fn(
         async ({
@@ -75,7 +71,6 @@ function fixture() {
           data,
         }: {
           where: {
-            accountType: string;
             selfRegisteredAt: null | { not: null };
           };
           data: Partial<
@@ -90,7 +85,7 @@ function fixture() {
         }) => {
           const selected = users.filter(
             (user) =>
-              user.accountType === where.accountType &&
+              user.id !== "external" &&
               (where.selfRegisteredAt === null
                 ? user.selfRegisteredAt === null
                 : user.selfRegisteredAt !== null),

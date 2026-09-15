@@ -104,20 +104,20 @@ import { ApplicationIconDisplay } from "@/features/applications/application-icon
 import { defaultApplicationIcon } from "@/features/applications/application-icon-default"
 import { SystemUpdateNotice } from "@/features/admin/system-update"
 import {
-  useTaskCategories,
-  moveTaskToCategory,
-  refreshTaskCategories,
-  reorderTaskCategories,
-  taskCategoryKeys,
-} from "@/features/task-categories/task-category-api"
+  useProjects,
+  moveTaskToProject,
+  refreshProjects,
+  reorderProjects,
+  projectKeys,
+} from "@/features/projects/project-api"
 import { SidebarConversationDnd } from "@/features/conversations/sidebar-conversation-dnd"
 import { useConversationArchiveNotification } from "@/features/conversations/use-conversation-archive-notification"
 import {
-  TaskCategoryDialog,
-  type TaskCategoryAction,
-} from "@/features/task-categories/task-category-dialog"
-import { SidebarTaskGroups } from "@/features/task-categories/sidebar-task-groups"
-import { newTaskCategoryNavigationState } from "@/features/task-categories/new-task-category-preference"
+  ProjectDialog,
+  type ProjectAction,
+} from "@/features/projects/project-dialog"
+import { SidebarTaskGroups } from "@/features/projects/sidebar-task-groups"
+import { newProjectNavigationState } from "@/features/projects/new-project-preference"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import {
   applySidebarConversationOrder,
@@ -389,7 +389,7 @@ function AppSidebarContent({
   const applicationTaskRoute = useMatch(
     "/applications/:applicationId/run/:conversationId"
   )
-  const newTaskNavigationState = newTaskCategoryNavigationState(
+  const newTaskNavigationState = newProjectNavigationState(
     user?.id,
     taskRoute?.params.conversationId ??
       applicationTaskRoute?.params.conversationId
@@ -403,9 +403,9 @@ function AppSidebarContent({
     () => new Set<string>()
   )
   const completionReadInFlightIdsRef = useRef(new Set<string>())
-  const categoriesQuery = useTaskCategories()
-  const [categoryAction, setCategoryAction] =
-    useState<TaskCategoryAction | null>(null)
+  const projectsQuery = useProjects()
+  const [projectAction, setProjectAction] =
+    useState<ProjectAction | null>(null)
   const [renameTarget, setRenameTarget] = useState<Conversation>()
   const [renameValue, setRenameValue] = useState("")
   const [actionError, setActionError] = useState<string>()
@@ -611,18 +611,18 @@ function AppSidebarContent({
   const reorderMutation = useMutation({
     mutationFn: async ({
       group,
-      categoryId,
+      projectId,
       conversationIds,
     }: {
       group: ConversationOrderGroup
-      categoryId?: string | null
+      projectId?: string | null
       conversationIds: string[]
     }) => {
       const result = await apiRequest("/conversations/order", {
         method: "PUT",
         body: {
           group,
-          category_id: categoryId,
+          project_id: projectId,
           conversation_ids: conversationIds,
         },
         schema: conversationOrderResultSchema,
@@ -644,25 +644,25 @@ function AppSidebarContent({
     onError: (error) => setActionError(getErrorMessage(error, t)),
   })
 
-  const moveCategoryMutation = useMutation({
+  const moveProjectMutation = useMutation({
     mutationFn: ({
       conversationId,
-      categoryId,
+      projectId,
     }: {
       conversationId: string
-      categoryId: string
-    }) => moveTaskToCategory(conversationId, categoryId),
+      projectId: string
+    }) => moveTaskToProject(conversationId, projectId),
     onMutate: () => setActionError(undefined),
-    onSuccess: () => refreshTaskCategories(queryClient),
+    onSuccess: () => refreshProjects(queryClient),
   })
 
-  const reorderCategoryMutation = useMutation({
-    mutationFn: reorderTaskCategories,
+  const reorderProjectMutation = useMutation({
+    mutationFn: reorderProjects,
     onMutate: () => setActionError(undefined),
-    onSuccess: (categories) =>
-      queryClient.setQueryData(taskCategoryKeys.all, categories),
+    onSuccess: (projects) =>
+      queryClient.setQueryData(projectKeys.all, projects),
     onError: () =>
-      queryClient.invalidateQueries({ queryKey: taskCategoryKeys.all }),
+      queryClient.invalidateQueries({ queryKey: projectKeys.all }),
   })
 
   const { mutate: persistCompletionRead } = useMutation({
@@ -966,23 +966,23 @@ function AppSidebarContent({
             )}
             <SidebarConversationDnd
               conversations={conversations}
-              categories={categoriesQuery.data ?? []}
-              categorySortingDisabled={
-                categoriesQuery.isPending || categoriesQuery.isError
+              projects={projectsQuery.data ?? []}
+              projectSortingDisabled={
+                projectsQuery.isPending || projectsQuery.isError
               }
               disabled={
                 Boolean(hasNextPage) ||
                 isFetchingNextPage ||
                 conversationsQuery.isLoading ||
                 reorderMutation.isPending ||
-                moveCategoryMutation.isPending
+                moveProjectMutation.isPending
               }
               onReorder={(request) => reorderMutation.mutateAsync(request)}
-              onReorderCategories={(ids) =>
-                reorderCategoryMutation.mutateAsync(ids)
+              onReorderProjects={(ids) =>
+                reorderProjectMutation.mutateAsync(ids)
               }
-              onMove={(conversationId, categoryId) =>
-                moveCategoryMutation.mutateAsync({ conversationId, categoryId })
+              onMove={(conversationId, projectId) =>
+                moveProjectMutation.mutateAsync({ conversationId, projectId })
               }
               onError={(error) => setActionError(getErrorMessage(error, t))}
             >
@@ -990,13 +990,13 @@ function AppSidebarContent({
                 userId={user?.id}
                 pinned={pinnedConversations}
                 recent={recentConversations}
-                categories={categoriesQuery.data ?? []}
+                projects={projectsQuery.data ?? []}
                 loadingMore={
                   Boolean(hasNextPage) ||
                   isFetchingNextPage ||
                   conversationsQuery.isLoading
                 }
-                onAction={setCategoryAction}
+                onAction={setProjectAction}
               >
                 {(group) => (
                   <SortableConversationGroup
@@ -1216,8 +1216,8 @@ function AppSidebarContent({
                           )}
                           <SidebarConversationActions
                             title={title}
-                            onMoveToCategory={() =>
-                              setCategoryAction({ mode: "move", conversation })
+                            onMoveToProject={() =>
+                              setProjectAction({ mode: "move", conversation })
                             }
                             pinned={pinned}
                             pinDisabled={pinMutation.isPending}
@@ -1236,24 +1236,24 @@ function AppSidebarContent({
                 )}
               </SidebarTaskGroups>
             </SidebarConversationDnd>
-            {categoriesQuery.isError && (
+            {projectsQuery.isError && (
               <div role="alert" className="px-2.5 text-sm text-destructive">
-                {t("taskCategories.loadError")}
+                {t("projects.loadError")}
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  disabled={categoriesQuery.isFetching}
-                  onClick={() => void categoriesQuery.refetch()}
+                  disabled={projectsQuery.isFetching}
+                  onClick={() => void projectsQuery.refetch()}
                 >
                   {t("common.retry")}
                 </Button>
               </div>
             )}
-            {categoryAction && (
-              <TaskCategoryDialog
-                action={categoryAction}
-                onClose={() => setCategoryAction(null)}
+            {projectAction && (
+              <ProjectDialog
+                action={projectAction}
+                onClose={() => setProjectAction(null)}
               />
             )}
             {isFetchingNextPage && (

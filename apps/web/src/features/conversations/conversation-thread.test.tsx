@@ -92,7 +92,7 @@ const completedConversation: Conversation = {
   id: "conversation-1",
   title: "回归测试",
   archived: false,
-  category_id: null,
+  project_id: null,
   collaboration_mode: "default",
   user_input_requests: [],
   plan_reviews: [],

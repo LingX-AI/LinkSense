@@ -100,7 +100,7 @@ async function runSmoke(): Promise<void> {
       { ...(codexModel ? { codexModel } : {}) }
     )
     manager.bindOwner(conversationId, ownerId)
-    const paths = await manager.ensureConversation(conversationId, "smoke")
+    const paths = await manager.ensureConversation(conversationId)
     const capabilitySource = path.join(root, "capability-source", skillName)
     await mkdir(capabilitySource, { recursive: true })
     await writeFile(
@@ -129,7 +129,7 @@ When this Skill is supplied explicitly, reply with exactly this marker and nothi
       ],
     })
     await symlink(
-      materializedCapabilities.managedAgentsRoot,
+      path.dirname(materializedCapabilities.managedAgentsRoot),
       path.join(paths.home, ".agents"),
       "dir"
     )

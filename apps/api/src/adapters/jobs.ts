@@ -16,7 +16,6 @@ import {
 } from "./runner.js"
 import type { AuditService } from "../modules/audit/service.js"
 import { pruneExpiredCapabilityPreviews } from "../modules/capabilities/preview.js"
-import { UserHomeCapabilityMaterializer } from "../modules/capabilities/user-home-materializer.js"
 import { assertConversationWorkspacePath } from "../lib/user-runtime-paths.js"
 import {
   conversationPrewarmInputSchema,
@@ -42,6 +41,7 @@ const maintenanceJobSchema = z.discriminatedUnion("type", [
     ownerId: z.uuid(),
     conversationId: z.uuid(),
     outboxId: z.uuid().optional(),
+    serviceSessionId: z.uuid().optional(),
   }),
   z.strictObject({ type: z.literal("runtime-cleanup-outbox-dispatch") }),
   conversationPrewarmInputSchema.extend({
@@ -258,12 +258,13 @@ export class BackgroundJobs {
   async enqueueRuntimeCleanup(
     ownerId: string,
     conversationId: string,
+    serviceSessionId?: string,
   ): Promise<void> {
     const prisma = this.prisma
     if (!prisma) {
       await this.queue.add(
         "runtime-cleanup",
-        { type: "runtime-cleanup", ownerId, conversationId },
+        { type: "runtime-cleanup", ownerId, conversationId, ...(serviceSessionId ? { serviceSessionId } : {}) },
         { jobId: `runtime-${digest(conversationId)}` },
       )
       return
@@ -273,6 +274,7 @@ export class BackgroundJobs {
       create: {
         ownerId,
         conversationId,
+        serviceSessionId: serviceSessionId ?? null,
         status: "pending",
         stage: "reconcile",
         maxAttempts: runtimeCleanupMaxAttempts,
@@ -416,13 +418,11 @@ export class BackgroundJobs {
     if (data.type === "runtime-cleanup") {
       const result = await executeRuntimeCleanupJob({
         runner: this.runner,
-        removeCapabilityProjection: () => new UserHomeCapabilityMaterializer({
-          userDataRoot: this.workspaceRoot,
-        }).removeConversation(data.ownerId, data.conversationId),
         ...(this.prisma ? { prisma: this.prisma } : {}),
         ownerId: data.ownerId,
         conversationId: data.conversationId,
         ...(data.outboxId ? { outboxId: data.outboxId } : {}),
+        ...(data.serviceSessionId ? { serviceSessionId: data.serviceSessionId } : {}),
       })
       if ("discarded" in result) {
         await this.audit.write({
@@ -639,11 +639,11 @@ export class BackgroundJobs {
 
 export async function executeRuntimeCleanupJob(input: {
   runner: Pick<RunnerClient, "cleanupRuntime">
-  removeCapabilityProjection: () => Promise<void>
   prisma?: Pick<PrismaClient, "runtimeCleanupOutbox">
   ownerId: string
   conversationId: string
   outboxId?: string
+  serviceSessionId?: string
   now?: () => Date
 }): Promise<
   | { cleaned: true }
@@ -653,6 +653,7 @@ export async function executeRuntimeCleanupJob(input: {
     }
 > {
   const now = input.now ?? (() => new Date())
+  let serviceSessionId = input.serviceSessionId
   let claim:
     | {
         token: string
@@ -672,6 +673,7 @@ export async function executeRuntimeCleanupJob(input: {
       select: {
         ownerId: true,
         conversationId: true,
+        serviceSessionId: true,
         status: true,
         attemptCount: true,
         maxAttempts: true,
@@ -723,19 +725,11 @@ export async function executeRuntimeCleanupJob(input: {
         reasonCode: "RUNTIME_CLEANUP_OUTBOX_BINDING_MISMATCH",
       }
     }
+    serviceSessionId = outbox.serviceSessionId ?? undefined
     claim = { token, attemptCount, maxAttempts: outbox.maxAttempts }
   }
   try {
-    await input.runner.cleanupRuntime(input.conversationId, input.ownerId)
-    try {
-      await input.removeCapabilityProjection()
-    } catch (error) {
-      const denied = error instanceof Error && "code" in error && (error.code === "EACCES" || error.code === "EPERM")
-      throw new RunnerRuntimeCleanupError(
-        denied ? "CLEANUP_PERMISSION_DENIED" : "CLEANUP_DIRECTORY_REMOVE_FAILED",
-        "delete_control",
-      )
-    }
+    await input.runner.cleanupRuntime(input.conversationId, input.ownerId, serviceSessionId)
     if (input.outboxId && input.prisma && claim) {
       await input.prisma.runtimeCleanupOutbox.deleteMany({
         where: {
@@ -912,14 +906,23 @@ function assertWorkspaceCleanupPath(
   candidate: string,
 ): void {
   try {
+    z.uuid().parse(conversationId)
+    const segments = relative(resolve(workspaceRoot), resolve(candidate)).split(sep)
+    if (segments[0] !== z.uuid().parse(ownerId)) throw new Error("different owner")
+    const serviceSessionId = segments[1] === "services" ? z.uuid().parse(segments[2]) : undefined
+    const prefix = serviceSessionId ? `${ownerId}/services/${serviceSessionId}/home/` : `${ownerId}/home/`
+    const insideHome = relative(resolve(workspaceRoot, prefix), resolve(candidate)).split(sep)
+    const workspaceSegments = insideHome[0] === "workspace" ? 1 : 2
+    if (insideHome.length !== workspaceSegments + 2 || insideHome[workspaceSegments] !== "attachments") throw new Error("invalid attachment directory")
+    z.uuid().parse(insideHome[workspaceSegments + 1])
     assertConversationWorkspacePath(
       workspaceRoot,
       ownerId,
-      conversationId,
+      prefix + insideHome.slice(0, workspaceSegments).join("/"),
       candidate,
     )
   } catch {
-    throw new Error("workspace cleanup path is outside its conversation root")
+    throw new Error("workspace cleanup path is outside its attachment root")
   }
 }
 

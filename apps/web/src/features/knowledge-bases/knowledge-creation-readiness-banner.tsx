@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next"
 
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { Button } from "@/components/ui/button"
-import { Spinner } from "@/components/ui/spinner"
 import type { KnowledgeBaseCreationCapability } from "@/features/knowledge-bases/knowledge-base-contracts"
 
 const knowledgeCreationChecks = [
@@ -28,7 +27,9 @@ export function KnowledgeCreationReadinessBanner({
   className?: string
 }>) {
   const { t } = useTranslation()
-  if (capability?.status === "ready" && !checking && !requestFailed) return null
+  if (!requestFailed && (!capability || capability.status === "ready")) {
+    return null
+  }
 
   const failedChecks =
     capability?.status === "unready"
@@ -39,11 +40,9 @@ export function KnowledgeCreationReadinessBanner({
       : []
   const title = requestFailed
     ? t("knowledge.creationCapability.requestFailedTitle")
-    : !capability || checking
-      ? t("knowledge.creationCapability.checkingTitle")
-      : capability.status === "not_installed"
-        ? t("knowledge.creationCapability.notInstalledTitle")
-        : t("knowledge.creationCapability.unreadyTitle")
+    : capability?.status === "not_installed"
+      ? t("knowledge.creationCapability.notInstalledTitle")
+      : t("knowledge.creationCapability.unreadyTitle")
 
   return (
     <StatusBanner
@@ -53,7 +52,7 @@ export function KnowledgeCreationReadinessBanner({
       title={title}
       className={className}
       actions={
-        capability?.status !== "not_installed" && !(!capability && checking) ? (
+        capability?.status !== "not_installed" ? (
           <Button
             type="button"
             variant="secondary"
@@ -61,25 +60,15 @@ export function KnowledgeCreationReadinessBanner({
             disabled={checking}
             onClick={onRetry}
           >
-            {checking ? (
-              <Spinner data-icon="inline-start" />
-            ) : (
-              <RefreshCcwIcon data-icon="inline-start" aria-hidden="true" />
-            )}
-            {t(
-              checking
-                ? "knowledge.creationCapability.rechecking"
-                : "knowledge.creationCapability.retry"
-            )}
+            <RefreshCcwIcon data-icon="inline-start" aria-hidden="true" />
+            {t("knowledge.creationCapability.retry")}
           </Button>
         ) : undefined
       }
     >
       {requestFailed ? (
         t("knowledge.creationCapability.requestFailedDescription")
-      ) : !capability || checking ? (
-        t("knowledge.creationCapability.checkingDescription")
-      ) : capability.status === "not_installed" ? (
+      ) : capability?.status === "not_installed" ? (
         t("knowledge.creationCapability.notInstalledDescription")
       ) : (
         <div className="flex flex-col gap-1">

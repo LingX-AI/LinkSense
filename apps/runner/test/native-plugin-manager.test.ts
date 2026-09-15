@@ -717,7 +717,7 @@ describe("NativePluginManager", () => {
     ).rejects.toBeInstanceOf(NativePluginRefreshError);
   });
 
-  it("rejects an installed enabled plugin from any other marketplace", async () => {
+  it("preserves a user-installed enabled plugin from another marketplace", async () => {
     const fixture = await createFixture();
     const request = vi.fn(async (): Promise<unknown> => ({
       marketplaces: [
@@ -743,7 +743,7 @@ describe("NativePluginManager", () => {
         codexHome: fixture.codexHome,
         pluginNames: [],
       }),
-    ).rejects.toBeInstanceOf(NativePluginRefreshError);
+    ).resolves.toEqual([]);
     expect(request).toHaveBeenCalledOnce();
   });
 

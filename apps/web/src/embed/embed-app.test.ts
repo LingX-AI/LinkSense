@@ -177,7 +177,7 @@ function conversation(overrides: Partial<Conversation> = {}): Conversation {
     id: "conversation-id",
     title: "Embedded app",
     archived: false,
-    category_id: null,
+    project_id: null,
     updated_at: "2026-08-14T00:00:00.000Z",
     execution_status: "idle",
     has_unread_completion: false,

@@ -7,11 +7,11 @@ export function SidebarDropIndicator({
   scope = "task",
 }: {
   targetId: string
-  scope?: "task" | "category"
+  scope?: "task" | "project"
 }) {
   const target = useContext(SidebarConversationDropTargetContext)
   if (target?.id !== targetId) return null
-  if ((target.kind === "category-reorder") !== (scope === "category"))
+  if ((target.kind === "project-reorder") !== (scope === "project"))
     return null
   return (
     <span
@@ -20,7 +20,7 @@ export function SidebarDropIndicator({
       data-edge={target.edge}
       className={cn(
         "pointer-events-none absolute right-2 flex h-1.5 items-center text-[var(--app-brand)]",
-        scope === "category"
+        scope === "project"
           ? "left-2"
           : "left-[calc(8px+var(--sidebar-conversation-indent,0px))]",
         target.edge === "before" ? "top-0" : "bottom-0"

@@ -154,6 +154,23 @@ describe("SkillUpdateDialog", () => {
     setup()
     const user = userEvent.setup()
     const name = await screen.findByRole("textbox", { name: "技能标识" })
+    const updateMethod = screen.getByRole("radiogroup", { name: "更新方式" })
+    expect(updateMethod).toHaveClass("flex", "flex-wrap", "gap-2")
+    for (const option of within(updateMethod).getAllByRole("radio")) {
+      expect(option.closest('[data-slot="radio-group-option"]')).toHaveClass(
+        "w-auto",
+        "rounded-xl",
+        "border",
+        "border-[var(--app-border)]"
+      )
+    }
+    expect(within(updateMethod).getAllByRole("radio")).toHaveLength(2)
+    expect(
+      within(updateMethod).getByRole("radio", { name: "编辑技能内容" })
+    ).toBeChecked()
+    expect(
+      screen.queryByRole("combobox", { name: "更新方式" })
+    ).not.toBeInTheDocument()
     expect(name).toHaveValue("reports")
     expect(name).toHaveAttribute("readonly")
     expect(screen.getByLabelText("展示名称（选填）")).toHaveValue("报告助手")
@@ -169,7 +186,10 @@ describe("SkillUpdateDialog", () => {
     await user.paste("Additional instructions")
     await chooseUpdateMode(user, "替换完整技能包")
     expect(screen.getByText(/未包含在新包内的文件将被删除/)).toBeVisible()
-    await chooseUpdateMode(user, "编辑技能内容")
+    await user.keyboard("{ArrowLeft}")
+    expect(
+      within(updateMethod).getByRole("radio", { name: "编辑技能内容" })
+    ).toBeChecked()
     expect(screen.getByLabelText("技能正文")).toHaveValue(
       "# Original\nAdditional instructions"
     )
@@ -348,11 +368,12 @@ describe("SkillUpdateDialog", () => {
     )
     setup()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole("combobox", { name: "更新方式" }))
-    expect(
-      await screen.findByRole("option", { name: "编辑技能内容" })
-    ).toHaveAttribute("aria-disabled", "true")
-    await user.keyboard("{Escape}")
+    const editOption = await screen.findByRole("radio", {
+      name: "编辑技能内容",
+    })
+    expect(editOption).toHaveAttribute("aria-disabled", "true")
+    await user.click(editOption)
+    expect(screen.getByRole("radio", { name: "替换完整技能包" })).toBeChecked()
     expect(screen.queryByLabelText("技能正文")).not.toBeInTheDocument()
     expect(screen.getByLabelText("ZIP 技能包")).toBeVisible()
     expect(screen.getByRole("button", { name: "下载完整技能包" })).toBeEnabled()
@@ -364,14 +385,18 @@ describe("SkillUpdateDialog", () => {
     expect(
       await screen.findByRole("textbox", { name: "Skill instructions" })
     ).toHaveValue(detail.content)
-    const selector = screen.getByRole("combobox", { name: "Update method" })
-    expect(selector).toHaveTextContent("Edit skill content")
-    await userEvent.setup().click(selector)
+    const selector = screen.getByRole("radiogroup", { name: "Update method" })
     expect(
-      await screen.findByRole("option", {
-        name: "Replace complete skill package",
-      })
-    ).toBeVisible()
+      within(selector).getByRole("radio", { name: "Edit skill content" })
+    ).toBeChecked()
+    const replacement = within(selector).getByRole("radio", {
+      name: "Replace complete skill package",
+    })
+    await userEvent.setup().click(replacement)
+    expect(replacement).toBeChecked()
+    expect(
+      screen.queryByLabelText("Skill instructions")
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -379,6 +404,8 @@ async function chooseUpdateMode(
   user: ReturnType<typeof userEvent.setup>,
   label: string
 ) {
-  await user.click(await screen.findByRole("combobox", { name: "更新方式" }))
-  await user.click(await screen.findByRole("option", { name: label }))
+  const group = await screen.findByRole("radiogroup", { name: "更新方式" })
+  const option = within(group).getByRole("radio", { name: label })
+  await user.click(option)
+  expect(option).toBeChecked()
 }

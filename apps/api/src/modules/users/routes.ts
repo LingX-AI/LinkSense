@@ -5,6 +5,7 @@ import type {
 } from "fastify";
 import {
   creditMicrosToDecimal,
+  userEnvironmentSettingsSchema,
   updateModelPreferenceSchema,
   updatePersonalizationSettingsSchema,
 } from "@linksense/shared";
@@ -95,6 +96,14 @@ export const meRoutes: FastifyPluginAsync<{
   }
 
   if (runner) {
+    app.get("/environment", async (request, reply) => {
+      const actor = await authentication.getActor(request);
+      return reply.send(ok(await runner.getEnvironmentSettings(actor.id), request));
+    });
+    app.put("/environment", async (request, reply) => {
+      const actor = await authentication.getActor(request);
+      return reply.send(ok(await runner.updateEnvironmentSettings(actor.id, userEnvironmentSettingsSchema.parse(request.body)), request));
+    });
     app.get("/personalization", async (request, reply) => {
       const actor = await authentication.getActor(request);
       return reply.send(

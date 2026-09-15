@@ -414,6 +414,18 @@ describe("LinkSense application", () => {
     const darkTheme = screen.getByRole("radio", { name: "深色" })
     expect(screen.getAllByRole("radio")).toHaveLength(3)
     expect(systemTheme).toBeChecked()
+    expect(systemTheme.closest('[role="radiogroup"]')).toHaveClass(
+      "flex",
+      "flex-wrap",
+      "gap-2"
+    )
+    for (const option of [systemTheme, lightTheme, darkTheme]) {
+      expect(option.closest('[data-slot="radio-group-option"]')).toHaveClass(
+        "rounded-xl",
+        "border",
+        "border-[var(--app-border)]"
+      )
+    }
     expect(
       container.querySelectorAll(
         '.appearance-theme-preview[aria-hidden="true"]'

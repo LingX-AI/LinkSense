@@ -38,6 +38,34 @@ afterEach(async () => {
   )
 })
 
+describe("published service routing", () => {
+  it("routes tasks and their branches to the explicitly authorized service environment", async () => {
+    const { server, request } = await createServer()
+    const session = "01900000-0000-7000-8000-000000000011"
+    const headers = { authorization: `Bearer ${secret}`, "x-linksense-owner-id": ownerId, "x-linksense-service-session": session, "x-linksense-workspace": "workspace" }
+    expect((await server.inject({ method: "PUT", url: `/conversations/${session}/runtime`, headers, payload: {} })).statusCode).toBe(200)
+    expect(request).toHaveBeenCalledWith(ownerId, `/conversations/${session}/runtime`, "PUT", expect.any(Buffer), undefined, "workspace", session)
+    expect((await server.inject({ method: "PUT", url: `/conversations/${otherOwnerId}/runtime`, headers, payload: {} })).statusCode).toBe(200)
+    expect(request).toHaveBeenLastCalledWith(ownerId, `/conversations/${otherOwnerId}/runtime`, "PUT", expect.any(Buffer), undefined, "workspace", session)
+    expect(request).toHaveBeenCalledTimes(2)
+    await server.close()
+  })
+
+  it("binds callback credentials to the service session and refuses personal installation callbacks", async () => {
+    const { server } = await createServer()
+    const session = "01900000-0000-7000-8000-000000000011"
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ success: true })))
+    vi.stubGlobal("fetch", fetchMock)
+    const headers = { authorization: `Bearer ${ownerWorkerSecret(ownerId, secret, session)}`, "x-linksense-owner-id": ownerId, "x-linksense-service-session": session }
+    expect((await server.inject({ method: "POST", url: "/internal/skill-creator/confirm", headers, payload: { conversationId: session } })).statusCode).toBe(403)
+    expect((await server.inject({ method: "POST", url: "/internal/runner/events", headers: { ...headers, "x-linksense-service-session": otherOwnerId }, payload: { conversationId: otherOwnerId } })).statusCode).toBe(401)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect((await server.inject({ method: "POST", url: "/internal/runner/events", headers, payload: { conversationId: session, events: [] } })).statusCode).toBe(200)
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("x-linksense-service-session")).toBe(session)
+    await server.close()
+  })
+})
 describe("controller authentication and routing", () => {
   it("suppresses info request logs for readiness probes", async () => {
     const { server } = await createServer()
@@ -296,7 +324,7 @@ describe("controller authentication and routing", () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({ success: true })
-    expect(cleanupConversation).toHaveBeenCalledWith(ownerId, conversationId)
+    expect(cleanupConversation).toHaveBeenCalledWith(ownerId, conversationId, undefined)
     expect(request).not.toHaveBeenCalled()
     await server.close()
   })

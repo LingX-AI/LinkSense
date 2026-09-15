@@ -1,3 +1,4 @@
+import { serviceWorkspaceRelativePath } from "../src/lib/user-runtime-paths.js";
 import { createHash } from "node:crypto";
 import {
   mkdir,
@@ -261,17 +262,17 @@ describe("ConversationService ownership and draft lifecycle", () => {
   });
 
   it.each([
-    { name: "keeps an uncategorized fork uncategorized", categoryId: null, categoryAvailable: true },
-    { name: "inherits the source task category in the fork", categoryId: "80000000-0000-4000-8000-000000000001", categoryAvailable: true },
-    { name: "rejects an unavailable category without creating an orphaned fork", categoryId: "80000000-0000-4000-8000-000000000001", categoryAvailable: false },
-    { name: "inherits the category on retry after the runner recovers without creating a duplicate task", categoryId: "80000000-0000-4000-8000-000000000001", categoryAvailable: true, runnerInitiallyUnavailable: true },
-    { name: "preserves answered async questions and makes unresolved questions independently answerable in a fork", categoryId: null, categoryAvailable: true, includeAsyncInput: true },
-  ])("$name", async ({ categoryId, categoryAvailable, runnerInitiallyUnavailable, includeAsyncInput }) => {
+    { name: "keeps an uncategorized fork uncategorized", projectId: null, categoryAvailable: true },
+    { name: "inherits the source task category in the fork", projectId: "80000000-0000-4000-8000-000000000001", categoryAvailable: true },
+    { name: "rejects an unavailable category without creating an orphaned fork", projectId: "80000000-0000-4000-8000-000000000001", categoryAvailable: false },
+    { name: "inherits the category on retry after the runner recovers without creating a duplicate task", projectId: "80000000-0000-4000-8000-000000000001", categoryAvailable: true, runnerInitiallyUnavailable: true },
+    { name: "preserves answered async questions and makes unresolved questions independently answerable in a fork", projectId: null, categoryAvailable: true, includeAsyncInput: true },
+  ])("$name", async ({ projectId, categoryAvailable, runnerInitiallyUnavailable, includeAsyncInput }) => {
     const fixture = await conversationFixture();
     const source = conversationRow({
       title: "Task",
       titleSource: "manual",
-      categoryId,
+      projectId,
       codexThreadId: "codex-thread-source",
       forkRootId: null,
       forkSequence: null,
@@ -312,6 +313,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       filename: "image.png",
       mimeType: "image/png",
       storageBackend: "minio",
+      workspaceRootRelPath: null,
       workspaceRelativePath: null,
       minioObjectKey: "snapshot/image.png",
       downloadable: false,
@@ -320,8 +322,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       fixture.root,
       OWNER_ID,
       "home",
-      "workspaces",
-      CONVERSATION_ID,
+      "workspace",
       attachment.workspaceRelativePath,
     );
     await mkdir(dirname(sourceAttachmentPath), { recursive: true });
@@ -368,7 +369,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       async ({ data }: { data: Record<string, unknown> }) =>
         conversationRow(data),
     );
-    fixture.defaultTransaction.$queryRaw.mockResolvedValue(categoryId && categoryAvailable ? [{ id: categoryId }] : []);
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue(projectId && categoryAvailable ? [{ id: projectId }] : []);
     const asyncRequests = ["pending", "answering", "answered"].map((status, index) => userInputRequestRow({
       id: `60000000-0000-4000-8000-00000000000${index + 1}`,
       turnId: TURN_ID,
@@ -405,7 +406,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       {},
     );
     if (!categoryAvailable) {
-      await expect(fork).rejects.toMatchObject({ code: "TASK_CATEGORY_NOT_FOUND" });
+      await expect(fork).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND" });
       expect(fixture.defaultTransaction.conversation.create).not.toHaveBeenCalled();
       expect(fixture.cleanup.enqueueRuntimeCleanup).toHaveBeenCalled();
       return;
@@ -417,7 +418,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       title: "Task(2)",
       codex_thread_id: "codex-thread-forked",
       last_turn_status: "completed",
-      category_id: categoryId,
+      project_id: projectId,
     });
     expect(fixture.runner.forkThread).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -430,7 +431,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     ).toHaveBeenCalledWith({
       data: expect.objectContaining({
         title: "Task(2)",
-        categoryId,
+        projectId,
         forkRootId: CONVERSATION_ID,
         forkSequence: 2,
         forkSourceConversationId: CONVERSATION_ID,
@@ -524,8 +525,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
           fixture.root,
           OWNER_ID,
           "home",
-          "workspaces",
-          result.id,
+          "workspace",
           attachment.workspaceRelativePath,
         ),
         "utf8",
@@ -602,6 +602,8 @@ describe("ConversationService ownership and draft lifecycle", () => {
       expect(fixture.applicationResolver.resolveRuntime).toHaveBeenCalledWith(
         OWNER_ID,
         APPLICATION_ID,
+        undefined,
+        null,
       );
       expect(
         fixture.defaultTransaction.conversationTurnStartIntent.create,
@@ -874,9 +876,10 @@ describe("ConversationService ownership and draft lifecycle", () => {
 
   it("prewarms an application with its creator's authorized scope instead of the user's personal catalog", async () => {
     const fixture = await conversationFixture();
-    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(conversationRow({ applicationId: APPLICATION_ID, codexThreadId: null }));
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(conversationRow({ applicationId: APPLICATION_ID, applicationVersionId: APPLICATION_ID, workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID), codexThreadId: null }));
     const capabilityIds = ["60000000-0000-4000-8000-000000000006"];
     fixture.applicationResolver.resolveRuntime.mockResolvedValueOnce({
+      applicationVersionId: APPLICATION_ID, publishedCapabilities: [], interactivePackageId: null,
       kind: "standard", applicationId: APPLICATION_ID, applicationOwnerId: APPLICATION_OWNER_ID,
       applicationName: "Application", applicationUpdatedAt: NOW, instructions: "Application instructions",
       model: null, reasoningEffort: null, capabilityIds, knowledgeBaseIds: [], mcpServerIds: [],
@@ -884,7 +887,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     await fixture.service.executePrewarm({ ownerId: OWNER_ID, conversationId: CONVERSATION_ID, collaborationMode: "default" });
     expect(fixture.preflight.resolve).toHaveBeenCalledWith(expect.objectContaining({
       userId: OWNER_ID, conversationId: CONVERSATION_ID,
-      capabilityScope: { applicationId: APPLICATION_ID, sourceOwnerId: APPLICATION_OWNER_ID, capabilityIds, mcpServerIds: [] },
+      capabilityScope: { applicationId: APPLICATION_ID, serviceSessionId: CONVERSATION_ID, publishedCapabilities: [], sourceOwnerId: APPLICATION_OWNER_ID, capabilityIds, mcpServerIds: [] },
     }));
     expect(fixture.runner.prewarmConversation).toHaveBeenCalledTimes(1);
   });
@@ -938,7 +941,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
     expect(fixture.runner.inspectRuntime).toHaveBeenCalledTimes(1);
     expect(fixture.preflight.resolve).not.toHaveBeenCalled();
-    expect(fixture.preflight.ensureUserHome).toHaveBeenCalledWith(OWNER_ID);
+    expect(fixture.preflight.ensureUserHome).toHaveBeenCalledWith(OWNER_ID, undefined);
     expect(fixture.prisma.conversation.create).toHaveBeenCalledOnce();
   });
 
@@ -1239,8 +1242,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
             fixture.root,
             OWNER_ID,
             "home",
-            "workspaces",
-            reservationId,
+            "workspace",
           ),
           { recursive: true },
         );
@@ -1458,7 +1460,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       }),
     });
     expect(fixture.preflight.resolve).not.toHaveBeenCalled();
-    expect(fixture.preflight.ensureUserHome).toHaveBeenCalledWith(OWNER_ID);
+    expect(fixture.preflight.ensureUserHome).toHaveBeenCalledWith(OWNER_ID, undefined);
     const createdId = fixture.runner.prepareRuntime.mock.calls[0]?.[0];
     expect(
       fixture.preflight.ensureUserHome.mock.invocationCallOrder[0],
@@ -1468,7 +1470,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       expect(
         (
           await stat(
-            join(fixture.root, OWNER_ID, "home", "workspaces", createdId!, directory),
+            join(fixture.root, OWNER_ID, "home", "workspace", directory),
           )
         ).mode & 0o7777,
       ).toBe(0o2770);
@@ -1509,6 +1511,16 @@ describe("ConversationService ownership and draft lifecycle", () => {
         applicationNameSnapshot: "Finance assistant",
       }),
     });
+  });
+
+  it("pins a new interactive task to the resolved published page even when its caller supplies the draft", async () => {
+    const fixture = await conversationFixture();
+    const runtime = await fixture.applicationResolver.resolveRuntime(OWNER_ID, APPLICATION_ID);
+    const packageId = "92000000-0000-4000-8000-000000000001";
+    fixture.applicationResolver.resolveRuntime.mockResolvedValueOnce({ ...runtime, kind: "interactive", applicationVersionId: APPLICATION_ID, interactivePackageId: packageId });
+    fixture.prisma.conversation.create.mockImplementationOnce(async ({ data }) => conversationRow(data));
+    await fixture.service.createApplicationConversation(OWNER_ID, { id: APPLICATION_ID, name: "Page", kind: "interactive", interactivePackageId: "92000000-0000-4000-8000-000000000002" });
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ applicationVersionId: APPLICATION_ID, interactiveApplicationPackageId: packageId }) });
   });
 
   it("reuses an existing scheduled idempotency result", async () => {
@@ -2101,7 +2113,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
           title: expectedTitle,
           titleSource: "fallback",
           workspaceRelPath: expect.stringMatching(
-            new RegExp(`^${OWNER_ID}/home/workspaces/[0-9a-f-]{36}$`, "u"),
+            new RegExp(`^${OWNER_ID}/home/workspace$`, "u"),
           ),
         }),
       });
@@ -3396,6 +3408,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
   it("persists interactive source metadata with the user message and forwards the full prompt to the runner", async () => {
     const fixture = await conversationFixture();
     const runtime: ApplicationTurnConfiguration = {
+      applicationVersionId: null, publishedCapabilities: [], interactivePackageId: null,
       kind: "interactive",
       applicationId: APPLICATION_ID,
       applicationOwnerId: OWNER_ID,
@@ -4109,10 +4122,14 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.runner.prepareRuntime).toHaveBeenCalledWith(
       preparedConversationId,
       OWNER_ID,
+      "workspace",
+      undefined,
     );
     expect(fixture.cleanup.enqueueRuntimeCleanup).toHaveBeenCalledWith(
       OWNER_ID,
       preparedConversationId,
+      undefined,
+
     );
     expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
   });
@@ -4134,6 +4151,8 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.cleanup.enqueueRuntimeCleanup).toHaveBeenCalledWith(
       OWNER_ID,
       preparedConversationId,
+      undefined,
+
     );
   });
 
@@ -4158,6 +4177,8 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.cleanup.enqueueRuntimeCleanup).toHaveBeenCalledWith(
       OWNER_ID,
       preparedConversationId,
+      undefined,
+
     );
   });
 
@@ -4185,10 +4206,12 @@ describe("ConversationService ownership and draft lifecycle", () => {
       create: {
         ownerId: OWNER_ID,
         conversationId: CONVERSATION_ID,
+        serviceSessionId: null,
         status: "pending",
         stage: "reconcile",
       },
       update: {
+        serviceSessionId: null,
         status: "pending",
         stage: "reconcile",
         attemptCount: 0,
@@ -5697,8 +5720,7 @@ describe("ConversationService pending and turn materialization", () => {
       fixture.root,
       OWNER_ID,
       "home",
-      "workspaces",
-      CONVERSATION_ID,
+      "workspace",
       attachment.workspaceRelativePath,
     );
     await mkdir(join(attachmentPath, ".."), { recursive: true });
@@ -5773,7 +5795,7 @@ describe("ConversationService pending and turn materialization", () => {
           attachments: [
             {
               filename: attachment.filename,
-              relativePath: attachment.workspaceRelativePath,
+              homeRelativePath: `workspace/${attachment.workspaceRelativePath}`,
             },
           ],
         }),
@@ -5798,13 +5820,14 @@ describe("ConversationService pending and turn materialization", () => {
       reasoningEffort: null,
     },
   ])(
-    "uses the latest application configuration with $name and ignores per-request resource selections",
+    "uses the pinned application configuration with $name and ignores per-request resource selections",
     async ({ model, reasoningEffort }) => {
       const fixture = await conversationFixture();
       const applicationCapabilityId = "60000000-0000-4000-8000-000000000006";
       const ignoredCapabilityId = "60000000-0000-4000-8000-000000000007";
       const ignoredKnowledgeBaseId = "30000000-0000-4000-8000-000000000008";
       const applicationRuntime = {
+      applicationVersionId: APPLICATION_ID, publishedCapabilities: [] as ApplicationTurnConfiguration["publishedCapabilities"], interactivePackageId: null,
         kind: "standard" as const,
         applicationId: APPLICATION_ID,
         applicationOwnerId: APPLICATION_OWNER_ID,
@@ -5817,6 +5840,10 @@ describe("ConversationService pending and turn materialization", () => {
         knowledgeBaseIds: [KNOWLEDGE_BASE_ID],
         mcpServerIds: [],
       };
+      applicationRuntime.publishedCapabilities.push({ id: applicationCapabilityId, type: "skill", name: "financial-analysis", description: "Analyze internal financial data", sourceType: "local", storagePath: "application-versions/skill", revision: NOW.toISOString(), contentSha256: "a".repeat(64), manifestJson: null, riskSummaryJson: null });
+      fixture.defaultTransaction.applicationVersion.findFirst.mockResolvedValue({
+        definitionJson: { schemaVersion: 1, name: applicationRuntime.applicationName, kind: "standard", instructions: applicationRuntime.instructions, usageInstructions: "Read the guide.", model, reasoningEffort, interactivePackageId: null, capabilities: applicationRuntime.publishedCapabilities, knowledgeBaseIds: applicationRuntime.knowledgeBaseIds, mcpServerIds: [] },
+      });
       const applicationCapability: ExecutionCapability = {
         id: applicationCapabilityId,
         type: "skill",
@@ -5830,6 +5857,8 @@ describe("ConversationService pending and turn materialization", () => {
       fixture.prisma.conversation.findFirst.mockResolvedValue(
         conversationRow({
           applicationId: APPLICATION_ID,
+          applicationVersionId: APPLICATION_ID,
+          workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
           applicationNameSnapshot: applicationRuntime.applicationName,
         }),
       );
@@ -5888,6 +5917,8 @@ describe("ConversationService pending and turn materialization", () => {
       expect(fixture.applicationResolver.resolveRuntime).toHaveBeenCalledWith(
         OWNER_ID,
         APPLICATION_ID,
+        undefined,
+        APPLICATION_ID,
       );
       expect(fixture.preflight.resolve).toHaveBeenCalledWith({
         conversationId: CONVERSATION_ID,
@@ -5895,6 +5926,8 @@ describe("ConversationService pending and turn materialization", () => {
         priorityCapabilityIds: [applicationCapabilityId],
         capabilityScope: {
           applicationId: APPLICATION_ID,
+          serviceSessionId: CONVERSATION_ID,
+          publishedCapabilities: applicationRuntime.publishedCapabilities,
           sourceOwnerId: APPLICATION_OWNER_ID,
           capabilityIds: [applicationCapabilityId],
           mcpServerIds: [],
@@ -5908,6 +5941,8 @@ describe("ConversationService pending and turn materialization", () => {
           capabilityVerification: CAPABILITY_VERIFICATION,
           capabilityScope: {
             applicationId: APPLICATION_ID,
+            serviceSessionId: CONVERSATION_ID,
+            publishedCapabilities: applicationRuntime.publishedCapabilities,
             sourceOwnerId: APPLICATION_OWNER_ID,
             capabilityIds: [applicationCapabilityId],
             mcpServerIds: [],
@@ -5995,7 +6030,11 @@ describe("ConversationService pending and turn materialization", () => {
     ).resolves.toBeUndefined();
     expect(
       fixture.applicationResolver.allowsUserModelSelection,
-    ).toHaveBeenCalledWith(OWNER_ID, APPLICATION_ID);
+    ).toHaveBeenCalledWith(
+      OWNER_ID,
+      APPLICATION_ID,
+      null,
+    );
 
     fixture.applicationResolver.allowsUserModelSelection.mockResolvedValueOnce(
       false,
@@ -6236,8 +6275,7 @@ describe("ConversationService pending and turn materialization", () => {
       fixture.root,
       OWNER_ID,
       "home",
-      "workspaces",
-      CONVERSATION_ID,
+      "workspace",
       attachment.workspaceRelativePath,
     );
     await mkdir(join(attachmentPath, ".."), { recursive: true });
@@ -8850,8 +8888,7 @@ describe("ConversationService pending and turn materialization", () => {
       fixture.root,
       OWNER_ID,
       "home",
-      "workspaces",
-      CONVERSATION_ID,
+      "workspace",
       "attachments",
       "file-1",
       "notes.txt",
@@ -8895,7 +8932,7 @@ describe("ConversationService pending and turn materialization", () => {
           attachments: [
             {
               filename: "notes.txt",
-              relativePath: "attachments/file-1/notes.txt",
+              homeRelativePath: "workspace/attachments/file-1/notes.txt",
             },
           ],
         }),
@@ -10027,8 +10064,7 @@ describe("ConversationService pending and turn materialization", () => {
       fixture.root,
       OWNER_ID,
       "home",
-      "workspaces",
-      CONVERSATION_ID,
+      "workspace",
       "attachments",
       "file-1",
       "notes.txt",
@@ -10198,8 +10234,7 @@ describe("ConversationService pending and turn materialization", () => {
       fixture.root,
       OWNER_ID,
       "home",
-      "workspaces",
-      CONVERSATION_ID,
+      "workspace",
       sourceAttachment.workspaceRelativePath,
     );
     await mkdir(join(attachmentPath, ".."), { recursive: true });
@@ -10355,7 +10390,7 @@ describe("ConversationService pending and turn materialization", () => {
           attachments: [
             {
               filename: "notes.txt",
-              relativePath: sourceAttachment.workspaceRelativePath,
+              homeRelativePath: `workspace/${sourceAttachment.workspaceRelativePath}`,
             },
           ],
           prioritySkills: [
@@ -11205,7 +11240,7 @@ async function conversationFixture() {
     inspectPrewarmedConversation: vi.fn(
       async (conversationId: string, ownerId: string) => {
         await mkdir(
-          join(root, ownerId, "home", "workspaces", conversationId),
+          join(root, ownerId, "home", "workspace"),
           { recursive: true },
         );
         return {
@@ -11219,13 +11254,15 @@ async function conversationFixture() {
       (
         conversationId: string,
         ownerId: string,
+        workspacePath?: string,
+        serviceSessionId?: string,
       ) => Promise<{
         agentsTemplateVersion: string;
         runtimeGeneration: string;
       }>
-    >(async (conversationId, ownerId) => {
+    >(async (_conversationId, ownerId, workspacePath = "workspace", serviceSessionId) => {
       await mkdir(
-        join(root, ownerId, "home", "workspaces", conversationId),
+        serviceSessionId ? join(root, ownerId, "services", serviceSessionId, "home", workspacePath) : join(root, ownerId, "home", workspacePath),
         { recursive: true },
       );
       return {
@@ -11347,6 +11384,7 @@ async function conversationFixture() {
         applicationId: string,
       ) => Promise<ApplicationTurnConfiguration>
     >(async () => ({
+      applicationVersionId: null, publishedCapabilities: [], interactivePackageId: null,
       kind: "standard",
       applicationId: APPLICATION_ID,
       applicationOwnerId: APPLICATION_OWNER_ID,
@@ -11746,7 +11784,10 @@ function transactionFixture() {
   return {
     $queryRaw: vi.fn<
       (...input: unknown[]) => Promise<Array<Record<string, unknown>>>
-    >(async () => []),
+    >(async (...input) => {
+      const query = input[0] as { sql?: string } | undefined;
+      return query?.sql?.includes("AS busy") ? [{ busy: false }] : [];
+    }),
     $executeRaw: vi.fn<(...input: unknown[]) => Promise<number>>(async () => 1),
     conversationTurn: {
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
@@ -11964,6 +12005,7 @@ function transactionFixture() {
     codexThreadTokenUsageCursor: {
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
     },
+    applicationVersion: { findFirst: vi.fn(async () => null as { definitionJson: unknown } | null) },
     application: {
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
     },
@@ -12012,7 +12054,8 @@ function conversationRow(overrides: Record<string, unknown> = {}) {
     archiveStatus: "active",
     archivedAt: null,
     pinnedAt: null,
-    categoryId: null,
+    projectId: null,
+    workspaceRelPath: `${OWNER_ID}/home/workspace`,
     sortOrder: null,
     codexThreadId: null,
     agentsTemplateVersion: "v1",
@@ -12023,6 +12066,7 @@ function conversationRow(overrides: Record<string, unknown> = {}) {
     completionUnread: false,
     selectedKnowledgeBaseIdsJson: [],
     applicationId: null,
+    applicationVersionId: null,
     applicationNameSnapshot: null,
     forkRootId: null,
     forkSequence: null,
@@ -12289,6 +12333,7 @@ function attachmentRow(overrides: Record<string, unknown> = {}) {
     sizeBytes: 10n,
     checksumSha256: "a".repeat(64),
     storageBackend: "workspace",
+    workspaceRootRelPath: `${OWNER_ID}/home/workspace`,
     workspaceRelativePath:
       "attachments/70000000-0000-4000-8000-000000000001/notes.txt",
     minioObjectKey: null,
@@ -12437,59 +12482,78 @@ function nativeSubAgentEventRow(
 }
 
 describe("task category assignment", () => {
-  const categoryId = "60000000-0000-4000-8000-000000000099";
+  const projectId = "60000000-0000-4000-8000-000000000099";
 
   it("creates a task in its owned category in the same database transaction", async () => {
     const fixture = await conversationFixture();
-    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: categoryId }]);
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: projectId }]);
     fixture.prisma.conversation.create.mockImplementationOnce(async ({ data }) => conversationRow(data));
-    const result = await fixture.service.create(OWNER_ID, { collaborationMode: "default", categoryId });
-    expect(result.category_id).toBe(categoryId);
-    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ ownerId: OWNER_ID, categoryId }) });
+    const result = await fixture.service.create(OWNER_ID, { collaborationMode: "default", projectId });
+    expect(result.project_id).toBe(projectId);
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ ownerId: OWNER_ID, projectId }) });
   });
 
   it("rejects unavailable creation categories without persisting a task", async () => {
     const fixture = await conversationFixture();
     fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([]);
-    await expect(fixture.service.create(OWNER_ID, { collaborationMode: "default", categoryId })).rejects.toMatchObject({ code: "TASK_CATEGORY_NOT_FOUND" });
+    await expect(fixture.service.create(OWNER_ID, { collaborationMode: "default", projectId })).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND" });
     expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a project move when a turn, queued request, review or Goal is active", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input) => {
+      const query = input[0] as { sql?: string } | undefined;
+      return query?.sql?.includes("AS busy") ? [{ busy: true }] : [{ id: projectId }];
+    });
+    await expect(fixture.service.patch(OWNER_ID, CONVERSATION_ID, { projectId })).rejects.toMatchObject({ code: "PROJECT_TASK_ACTIVE" });
+    expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
   });
 
   it("moves an owned task and clears its old category order", async () => {
     const fixture = await conversationFixture();
-    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: categoryId }]);
-    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { categoryId });
-    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { categoryId, sortOrder: null } });
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: projectId }]);
+    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { projectId });
+    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { projectId, workspaceRelPath: `${OWNER_ID}/home/projects/${projectId}`, sortOrder: null } });
   });
 
   it("preserves global pin order when changing a pinned task's category", async () => {
     const fixture = await conversationFixture();
-    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: categoryId }]);
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: projectId }]);
     fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversationRow({ pinnedAt: NOW, sortOrder: 3 }));
-    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { categoryId });
-    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { categoryId } });
+    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { projectId });
+    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { projectId, workspaceRelPath: `${OWNER_ID}/home/projects/${projectId}` } });
+  });
+
+  it("keeps a historical application service in its environment when assigning a project", async () => {
+    const fixture = await conversationFixture();
+    const workspaceRelPath = `${OWNER_ID}/services/${CONVERSATION_ID}/home/workspace`;
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: projectId }]);
+    fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversationRow({ workspaceRelPath, applicationVersionId: null }));
+    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { projectId });
+    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { projectId, workspaceRelPath, sortOrder: null } });
   });
 
   it("can remove category membership without deleting the task or its content", async () => {
     const fixture = await conversationFixture();
-    fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversationRow({ categoryId }));
-    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { categoryId: null });
-    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { categoryId: null, sortOrder: null } });
+    fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversationRow({ projectId }));
+    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { projectId: null });
+    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { projectId: null, workspaceRelPath: `${OWNER_ID}/home/workspace`, sortOrder: null } });
     expect(fixture.defaultTransaction.conversationMessage.deleteMany).not.toHaveBeenCalled();
   });
 
   it("keeps task order when the requested category is already assigned", async () => {
     const fixture = await conversationFixture();
-    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: categoryId }]);
-    fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversationRow({ categoryId, sortOrder: 3 }));
-    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { categoryId });
-    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { categoryId } });
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: projectId }]);
+    fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversationRow({ projectId, sortOrder: 3 }));
+    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { projectId });
+    expect(fixture.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: { projectId, workspaceRelPath: `${OWNER_ID}/home/projects/${projectId}` } });
   });
 
   it("rejects another owner's task before checking the destination", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValueOnce(null);
-    await expect(fixture.service.patch(OWNER_ID, CONVERSATION_ID, { categoryId })).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    await expect(fixture.service.patch(OWNER_ID, CONVERSATION_ID, { projectId })).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
     expect(fixture.defaultTransaction.$queryRaw).not.toHaveBeenCalled();
     expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
   });
@@ -12497,16 +12561,16 @@ describe("task category assignment", () => {
   it("rejects an unavailable destination without changing the task", async () => {
     const fixture = await conversationFixture();
     fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([]);
-    await expect(fixture.service.patch(OWNER_ID, CONVERSATION_ID, { categoryId })).rejects.toMatchObject({ code: "TASK_CATEGORY_NOT_FOUND" });
+    await expect(fixture.service.patch(OWNER_ID, CONVERSATION_ID, { projectId })).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND" });
     expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
   });
 
   it("reorders only active unpinned tasks in the requested category", async () => {
     const fixture = await conversationFixture();
     fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: CONVERSATION_ID }, { id: SECOND_CONVERSATION_ID }]);
-    const result = await fixture.service.reorder(OWNER_ID, { group: "recent", categoryId, conversationIds: [SECOND_CONVERSATION_ID, CONVERSATION_ID] });
-    expect(result.category_id).toBe(categoryId);
+    const result = await fixture.service.reorder(OWNER_ID, { group: "recent", projectId, conversationIds: [SECOND_CONVERSATION_ID, CONVERSATION_ID] });
+    expect(result.project_id).toBe(projectId);
     const query = fixture.defaultTransaction.$queryRaw.mock.calls[0]?.[0];
-    expect(query).toMatchObject({ sql: expect.stringContaining("pinned_at IS NULL AND category_id ="), values: [OWNER_ID, categoryId] });
+    expect(query).toMatchObject({ sql: expect.stringContaining("pinned_at IS NULL AND project_id ="), values: [OWNER_ID, projectId] });
   });
 });

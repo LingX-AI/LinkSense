@@ -63,6 +63,7 @@ describe("SettingsShell administrator navigation", () => {
         </Routes>
       </MemoryRouter>
     )
+    expect(screen.getByRole("main")).toHaveAttribute("tabindex", "0")
     const content = screen
       .getByTestId("settings-page-content")
       .closest(".settings-content")

@@ -373,6 +373,8 @@ const CODEX_SHELL_EXCLUDED_ENVIRONMENT = [
 ] as const;
 
 const CODEX_SHELL_PINNED_ENVIRONMENT = [
+  "LINKSENSE_CONVERSATION_ID",
+  "LINKSENSE_WORKSPACE_PATH",
   "BASH_ENV",
   "PATH",
   "LINKSENSE_PYTHON_PACKAGE_INDEX_URL",
@@ -415,7 +417,7 @@ function codexChildEnvironment(
     // protected shell bootstrap even if an upstream validation regresses.
     ...runtimeEnvironment,
     // Tools share the execution user's persistent HOME. Native Codex state
-    // remains in the task's CODEX_HOME, independently of its workspace cwd.
+    // uses the same user CODEX_HOME, independently of each project cwd.
     HOME: userHome,
     CODEX_HOME: codexHome,
     [CODEX_REMOTE_CONTROL_DISABLED_ENV]: "1",

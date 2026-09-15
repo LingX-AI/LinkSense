@@ -1,8 +1,8 @@
 import { z } from "zod";
 
-// v23 requires durable text group commits and up to 64-event HTTP batches.
+// v24 uses shared user HOME, project cwd, HOME-relative attachments and user-process health.
 export const RUNNER_TURN_START_CONTRACT_VERSION =
-  "shared-user-home-v23" as const;
+  "user-project-runtime-v24" as const;
 
 /** Names are server-resolved display data; null means unavailable to this user. */
 export const runnerKnowledgeBaseSelectionSchema = z

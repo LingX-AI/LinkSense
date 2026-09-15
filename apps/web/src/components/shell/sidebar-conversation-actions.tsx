@@ -28,7 +28,7 @@ type SidebarConversationActionsProps = {
   archiveDisabled: boolean
   onTogglePinned: () => void
   onArchive: () => void
-  onMoveToCategory?: () => void
+  onMoveToProject?: () => void
 }
 
 export function SidebarConversationActions({
@@ -38,7 +38,7 @@ export function SidebarConversationActions({
   archiveDisabled,
   onTogglePinned,
   onArchive,
-  onMoveToCategory,
+  onMoveToProject,
 }: SidebarConversationActionsProps) {
   const { t } = useTranslation()
   const pinLabel = t(pinned ? "conversation.unpin" : "conversation.pin")
@@ -93,14 +93,14 @@ export function SidebarConversationActions({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-max min-w-40">
             <DropdownMenuGroup>
-              {onMoveToCategory && (
-                <DropdownMenuItem onClick={onMoveToCategory}>
+              {onMoveToProject && (
+                <DropdownMenuItem onClick={onMoveToProject}>
                   <FolderInputIcon
                     className="size-4"
                     strokeWidth={2}
                     aria-hidden="true"
                   />
-                  {t("taskCategories.move")}
+                  {t("projects.move")}
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem disabled={pinDisabled} onClick={onTogglePinned}>

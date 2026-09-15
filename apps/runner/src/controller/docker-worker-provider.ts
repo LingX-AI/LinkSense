@@ -1,3 +1,4 @@
+import { runtimeEnvironmentPath } from "@linksense/shared"
 import { chmod, chown, lstat, mkdir, realpath, rm } from "node:fs/promises"
 import path from "node:path"
 
@@ -38,6 +39,7 @@ import {
 
 const MANAGED_LABEL = "com.linksense.runner.managed"
 const STORAGE_KEY_LABEL = "com.linksense.runner.storage-key"
+const SERVICE_SESSION_LABEL = "com.linksense.runner.service-session"
 const OWNER_ID_LABEL = "com.linksense.runner.owner-id"
 const CONTRACT_LABEL = "com.linksense.runner.contract"
 const INSTANCE_LABEL = "com.linksense.runner.instance"
@@ -176,15 +178,17 @@ export class DockerWorkerProvider implements WorkerProvider {
       if (container.Labels[INSTANCE_LABEL] !== instanceKey) continue
       const storageKey = container.Labels[STORAGE_KEY_LABEL]
       const ownerId = ownerIdSchema.safeParse(container.Labels[OWNER_ID_LABEL])
+      const serviceSession = ownerIdSchema.optional().safeParse(container.Labels[SERVICE_SESSION_LABEL])
       const probe = container.Labels[PROBE_LABEL] === "true"
       const compatible =
         storageKey !== undefined &&
-        ownerId.success &&
+        ownerId.success && serviceSession.success &&
         container.Labels[CONTRACT_LABEL] === workerContractKey(this.config) &&
         storageKey ===
           ownerStorageKey(
             ownerId.data,
             this.config.LINKSENSE_RUNNER_SHARED_SECRET,
+            serviceSession.data,
           ) &&
         !seenStorageKeys.has(storageKey)
       if (probe || !compatible) {
@@ -239,6 +243,7 @@ export class DockerWorkerProvider implements WorkerProvider {
         input.name,
         process.env,
         input.probe,
+        input.serviceSessionId,
       ),
     )
     try {
@@ -249,6 +254,7 @@ export class DockerWorkerProvider implements WorkerProvider {
         endpoint: `http://${input.name}:${this.config.LINKSENSE_WORKER_PORT}`,
         storageKey: input.storageKey,
         ownerId: input.ownerId,
+        ...(input.serviceSessionId ? { serviceSessionId: input.serviceSessionId } : {}),
         state: "running",
       }
     } catch (error) {
@@ -275,10 +281,11 @@ export class DockerWorkerProvider implements WorkerProvider {
     await releaseDockerContainer(this.docker, worker.id, running)
   }
 
-  async hasWorkerForOwner(ownerId: string): Promise<boolean> {
+  async hasWorkerForEnvironment(ownerId: string, serviceSessionId?: string): Promise<boolean> {
     return (await this.docker.listManagedContainers()).some(
       (container) =>
         container.Labels[OWNER_ID_LABEL] === ownerId &&
+        container.Labels[SERVICE_SESSION_LABEL] === serviceSessionId &&
         container.Labels[PROBE_LABEL] !== "true",
     )
   }
@@ -466,6 +473,7 @@ function toWorkerInstance(
     endpoint: `http://${name}:${config.LINKSENSE_WORKER_PORT}`,
     storageKey,
     ownerId,
+    ...(container.Labels[SERVICE_SESSION_LABEL] ? { serviceSessionId: container.Labels[SERVICE_SESSION_LABEL] } : {}),
     state: container.State === "running" ? "running" : "stopped",
   }
 }
@@ -477,13 +485,15 @@ export function buildWorkerContainerSpec(
   containerName = workerName(storageKey, controllerInstanceKey(config)),
   sourceEnvironment: NodeJS.ProcessEnv = process.env,
   probe = false,
+  serviceSessionId?: string,
 ): DockerContainerCreate {
   const validatedOwnerId = ownerIdSchema.parse(ownerId)
   const userDataRoot = path.resolve(config.LINKSENSE_USER_DATA_ROOT)
   if (!path.isAbsolute(config.LINKSENSE_USER_DATA_ROOT)) {
     throw new Error("LINKSENSE_USER_DATA_ROOT must be absolute")
   }
-  const ownerRoot = safeChildPath(userDataRoot, validatedOwnerId)
+  const environmentPath = runtimeEnvironmentPath(validatedOwnerId, serviceSessionId)
+  const ownerRoot = safeChildPath(userDataRoot, environmentPath)
   const workerHome = "/home/linksense"
   const workerControlRoot = "/run/linksense-control"
   const ownerMount = (
@@ -494,7 +504,7 @@ export function buildWorkerContainerSpec(
     config.LINKSENSE_USER_DATA_VOLUME
       ? volumeMount(
           config.LINKSENSE_USER_DATA_VOLUME,
-          safeVolumeSubpath(validatedOwnerId, relativePath),
+          safeVolumeSubpath(environmentPath, relativePath),
           target,
           readOnly,
         )
@@ -513,10 +523,12 @@ export function buildWorkerContainerSpec(
       CODEX_HOME: `${workerControlRoot}/supervisor-codex`,
       LINKSENSE_RUNNER_MODE: "worker",
       LINKSENSE_WORKER_OWNER_ID: validatedOwnerId,
+      ...(serviceSessionId ? { LINKSENSE_SERVICE_SESSION_ID: serviceSessionId } : {}),
       LINKSENSE_USER_DATA_ROOT: workerHome,
       LINKSENSE_RUNNER_SHARED_SECRET: ownerWorkerSecret(
         ownerId,
         config.LINKSENSE_RUNNER_SHARED_SECRET,
+        serviceSessionId,
       ),
       LINKSENSE_API_INTERNAL_URL: config.LINKSENSE_CONTROLLER_INTERNAL_URL,
       LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS: String(
@@ -558,6 +570,7 @@ export function buildWorkerContainerSpec(
       [MANAGED_LABEL]: "true",
       [STORAGE_KEY_LABEL]: storageKey,
       [OWNER_ID_LABEL]: ownerId,
+      ...(serviceSessionId ? { [SERVICE_SESSION_LABEL]: serviceSessionId } : {}),
       [CONTRACT_LABEL]: workerContractKey(config),
       [INSTANCE_LABEL]: controllerInstanceKey(config),
       ...(probe ? { [PROBE_LABEL]: "true" } : {}),

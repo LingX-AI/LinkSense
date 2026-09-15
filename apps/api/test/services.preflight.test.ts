@@ -1424,17 +1424,16 @@ describe("running-turn capability publication guard", () => {
       await expect(
         guard({
           ownerId: USER_ID,
-      conversationId: TASK_ID,
           currentGeneration: CAPABILITY_GENERATION,
           nextGeneration: "c".repeat(64),
         }),
       ).resolves.toBe(allowed);
       expect(conversationTurnFindFirst).toHaveBeenCalledWith({
-        where: { submittedBy: USER_ID, conversationId: TASK_ID, status: "running" },
+        where: { submittedBy: USER_ID, status: "running" },
         select: { id: true },
       });
       expect(startIntentFindFirst).toHaveBeenCalledWith({
-        where: { ownerId: USER_ID, conversationId: TASK_ID },
+        where: { ownerId: USER_ID },
         select: { projectionTurnId: true },
       });
     },

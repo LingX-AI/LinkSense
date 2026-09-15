@@ -57,7 +57,6 @@ describe("runtime cleanup isolation", () => {
     workspaceManager.bindOwner(conversationId, ownerId);
     const runtime = await workspaceManager.ensureConversation(
       conversationId,
-      "current",
     );
     const pool = {
       closeConversation: vi.fn(async () => {
@@ -396,7 +395,6 @@ describe("worker owner isolation", () => {
       prepareRuntime: vi.fn((conversationId: string) =>
         workspaceManager.ensureConversation(
           conversationId,
-          config.LINKSENSE_AGENTS_TEMPLATE_VERSION,
         ),
       ),
     } as unknown as AppServerProcessPool;
@@ -532,7 +530,6 @@ describe("worker owner isolation", () => {
       prepareRuntime: vi.fn((conversationId: string) =>
         workspaceManager.ensureConversation(
           conversationId,
-          config.LINKSENSE_AGENTS_TEMPLATE_VERSION,
         ),
       ),
     } as unknown as AppServerProcessPool;

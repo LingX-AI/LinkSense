@@ -1,12 +1,21 @@
 // @vitest-environment node
 
 import composerStyles from "@/index.css?raw"
+import projectPickerSource from "@/features/projects/project-composer-picker.tsx?raw"
 import { describe, expect, it } from "vitest"
 
+const projectDockClass = projectPickerSource.match(
+  /className="(conversation-[\w-]+-dock)\s/u
+)?.[1]
+
 describe("conversation composer capability chips", () => {
-  it("uses one flat borderless surface for category, queued request, and goal bars", () => {
+  it("uses one flat borderless surface for project, queued request, and goal bars", () => {
+    expect(projectDockClass).toBeDefined()
     const sharedSurface = composerStyles.match(
-      /:is\(\s*\.conversation-category-dock,\s*\.pending-requests,\s*\.conversation-goal-bar\s*\)\s*\{([^}]*)\}/u
+      new RegExp(
+        String.raw`:is\(\s*\.${projectDockClass},\s*\.pending-requests,\s*\.conversation-goal-bar\s*\)\s*\{([^}]*)\}`,
+        "u"
+      )
     )?.[1]
     expect(sharedSurface).toMatch(/border:\s*0;/u)
     expect(sharedSurface).toMatch(/box-shadow:\s*none;/u)
@@ -24,7 +33,10 @@ describe("conversation composer capability chips", () => {
       const theme = composerStyles.match(selector)?.[1]
       expect(theme).toContain(`--app-activity-surface: ${background};`)
       const barRules = [
-        /\.conversation-category-dock,\s*\.pending-requests\s*\{([^}]*)\}/u,
+        new RegExp(
+          String.raw`\.${projectDockClass},\s*\.pending-requests\s*\{([^}]*)\}`,
+          "u"
+        ),
         /(?:^|\n)\.conversation-goal-bar\s*\{([^}]*)\}/u,
       ]
       for (const rule of barRules) {
@@ -35,17 +47,24 @@ describe("conversation composer capability chips", () => {
     }
   )
 
-  it("shares the queued follow-up surface with the category bar above the composer", () => {
+  it("centers the actual project bar above the composer with a shared responsive width and no gap", () => {
     const surface = composerStyles.match(
-      /\.conversation-category-dock,\s*\.pending-requests\s*\{([^}]*)\}/u
+      new RegExp(
+        String.raw`\.${projectDockClass},\s*\.pending-requests\s*\{([^}]*)\}`,
+        "u"
+      )
     )?.[1]
     expect(surface).toMatch(
       /width:\s*min\(calc\(100% - 28px\),\s*calc\(var\(--app-composer-width\) - 28px\)\);/u
     )
     expect(surface).toMatch(/border-radius:\s*20px 20px 0 0;/u)
+    expect(surface).toMatch(/margin-inline:\s*auto;/u)
     expect(surface).toMatch(/margin-bottom:\s*-1px;/u)
     expect(composerStyles).toMatch(
-      /\.conversation-bottom-stack:has\(\.conversation-category-dock\),\s*\.conversation-bottom-stack:has\(\.pending-requests\)\s*\{\s*gap:\s*0;/u
+      new RegExp(
+        String.raw`\.conversation-bottom-stack:has\(\.${projectDockClass}\),\s*\.conversation-bottom-stack:has\(\.pending-requests\)\s*\{\s*gap:\s*0;`,
+        "u"
+      )
     )
   })
 

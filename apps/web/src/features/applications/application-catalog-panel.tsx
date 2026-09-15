@@ -1,3 +1,4 @@
+import { ApplicationPublicationDialog } from "./application-publication-dialog"
 import {
   useDeferredValue,
   useEffect,
@@ -373,6 +374,7 @@ export function ApplicationCatalogPanel({
     open: boolean
     application: Application | null
   }>({ open: false, application: null })
+  const [publicationTarget, setPublicationTarget] = useState<Application | null>(null)
   const [shareTarget, setShareTarget] = useState<Application | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null)
   const [createChoiceOpen, setCreateChoiceOpen] = useState(false)
@@ -720,7 +722,8 @@ export function ApplicationCatalogPanel({
                     </StatusBanner>
                   )}
                 </CardContent>
-                <CardFooter className="flex-nowrap justify-end gap-2">
+                <CardFooter className="flex-wrap justify-end gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => setPublicationTarget(application)}>{t("applications.publication.title")}</Button>
                   <Button
                     type="button"
                     size="sm"
@@ -740,6 +743,11 @@ export function ApplicationCatalogPanel({
         </div>
       )}
 
+      {publicationTarget && <ApplicationPublicationDialog key={publicationTarget.id} application={publicationTarget} onClose={() => setPublicationTarget(null)} onCopied={application => {
+        setPublicationTarget(null)
+        if (application.kind === "standard") setEditor({ open: true, application })
+        notify.success(t("applications.publication.copied"))
+      }} />}
       <ApplicationEditorDialog
         key={`${editor.open}:${editor.application?.id ?? "new"}:${editor.application?.updated_at ?? ""}`}
         open={editor.open}

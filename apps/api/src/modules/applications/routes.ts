@@ -12,6 +12,8 @@ import {
   createApplicationGrantInputSchema,
   createApplicationInputSchema,
   updateApplicationInputSchema,
+  publishApplicationInputSchema,
+  copyApplicationInputSchema,
   interactiveApplicationRuntimeTokenResultSchema,
   usageAnalyticsReportQuerySchema,
 } from "@linksense/shared";
@@ -137,6 +139,26 @@ export const applicationRoutes: FastifyPluginAsync<
     return reply.send(ok(await options.service.get(actor, id), request));
   });
 
+  app.get("/:id/publication", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    return reply.send(ok(await options.service.getPublication(actor, id), request));
+  });
+
+  app.post("/:id/publish", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    const input = publishApplicationInputSchema.parse(request.body);
+    return reply.send(ok(await options.service.publish(actor, id, input, auditContext(request)), request));
+  });
+
+  app.post("/:id/copy", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    const input = copyApplicationInputSchema.parse(request.body);
+    return reply.code(201).send(ok(await options.service.copy(actor, id, input, auditContext(request)), request));
+  });
+
   app.get("/:id/usage", async (request, reply) => {
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
@@ -249,11 +271,7 @@ export const applicationRoutes: FastifyPluginAsync<
       name: runtime.applicationName,
       kind: runtime.kind === "interactive" ? "interactive" : "standard",
       interactivePackageId:
-        runtime.kind === "interactive"
-          ? (
-              await options.service.get(actor, id)
-            ).interactive_package?.id ?? null
-          : null,
+        runtime.interactivePackageId,
     });
     return reply
       .code(201)

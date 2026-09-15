@@ -1,3 +1,4 @@
+import { registerRunnerRuntimeScope } from "./modules/events/runtime-scope.js";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
@@ -18,7 +19,7 @@ import { errorEnvelope, ok } from "./lib/http.js";
 import { AppError, errorDetails, normalizeError } from "./lib/errors.js";
 import { authenticationPlugin } from "./plugins/authentication.js";
 import { systemRoutes, adminSystemRoutes } from "./modules/system/routes.js";
-import { taskCategoryRoutes } from "./modules/task-categories/routes.js";
+import { projectRoutes } from "./modules/projects/routes.js";
 import { conversationRoutes } from "./modules/conversations/routes.js";
 import { publicConversationShareRoutes } from "./modules/conversations/share-routes.js";
 import { fileRoutes } from "./modules/files/routes.js";
@@ -154,6 +155,7 @@ export async function buildApi(
   await services.jobs.start(authService);
   await services.passwordResetMail.start();
 
+  registerRunnerRuntimeScope(app, services.prisma, services.config.runnerSharedSecret);
   const defaultContentSecurityPolicy = createContentSecurityPolicy();
   app.addHook("onSend", async (request, reply, payload) => {
     reply
@@ -446,9 +448,9 @@ export async function buildApi(
       { prefix: "/api/v1/knowledge-bases" },
     );
   }
-  await app.register(taskCategoryRoutes, {
-    prefix: "/api/v1/task-categories",
-    service: services.taskCategories,
+  await app.register(projectRoutes, {
+    prefix: "/api/v1/projects",
+    service: services.projects,
   });
   await app.register(conversationRoutes, {
     prefix: "/api/v1/conversations",

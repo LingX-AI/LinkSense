@@ -9,7 +9,6 @@ import {
   mkdir,
   open,
   readFile,
-  readlink,
   readdir,
   rename,
   rm,
@@ -20,6 +19,7 @@ import { isDeepStrictEqual } from "node:util"
 
 import {
   conversationFormAutoResolutionMs,
+  userWorkspacePathSchema,
   coreMcpServerKey,
   DEFAULT_TASK_AUTO_NAMING,
   managedBrowserMcpServerKey,
@@ -77,7 +77,6 @@ const managedModelTopLevelKeys = [
 const runtimeGenerationFileName = "runtime-generation"
 const personalizationFileName = "personalization.json"
 const globalAgentsFileName = "AGENTS.md"
-const taskRulesVersion = "workspace-capabilities-v2"
 const managedCodexFileNames = ["config.toml", "auth.json", globalAgentsFileName]
 const coreMcpInteractiveFormToolTimeoutSeconds =
   Math.ceil(conversationFormAutoResolutionMs / 1_000) + 30
@@ -93,8 +92,7 @@ const personalizationStateSchema = z.strictObject({
 export type ConversationPaths = {
   /** Persistent HOME shared by this execution user's tools. */
   home: string
-  /** Task-owned native state; never use the shared HOME for task cleanup. */
-  taskHome: string
+  ownerControl: string
   control: string
   taskControl: string
   workspace: string
@@ -154,6 +152,7 @@ export class RuntimeGenerationIntegrityError extends Error {
 
 export class WorkspaceManager {
   private readonly conversationOwners = new Map<string, string>()
+  private readonly conversationWorkspaces = new Map<string, string>()
   private readonly codexConfigWrites = new Map<string, Promise<void>>()
   private readonly personalizationOperations = new Map<
     string,
@@ -201,22 +200,35 @@ export class WorkspaceManager {
     throw new WorkspaceBoundaryError("conversation owner is not bound")
   }
 
+  bindWorkspace(conversationId: string, workspacePath: string): void {
+    this.ownerFor(conversationId)
+    this.conversationWorkspaces.set(conversationId, userWorkspacePathSchema.parse(workspacePath))
+  }
+
+  private async restoreWorkspace(conversationId: string): Promise<void> {
+    const { taskControl } = this.pathsFor(conversationId)
+    const value = await readFile(path.join(taskControl, "workspace.json"), "utf8").catch((error: unknown) => {
+      if (isNodeError(error) && error.code === "ENOENT") return null
+      throw error
+    })
+    if (value !== null) this.bindWorkspace(conversationId, userWorkspacePathSchema.parse(JSON.parse(value)))
+  }
+
   pathsFor(conversationId: string): ConversationPaths {
     if (!conversationIdPattern.test(conversationId)) {
       throw new WorkspaceBoundaryError("invalid conversation id")
     }
     const ownerId = this.ownerFor(conversationId)
     const owner = this.ownerPathsFor(ownerId)
-    const workspace = path.join(owner.home, "workspaces", conversationId)
-    const taskHome = path.join(owner.home, "task-homes", conversationId)
+    const workspace = path.join(owner.home, this.conversationWorkspaces.get(conversationId) ?? "workspace")
     const control = path.join(owner.control, "workspaces", conversationId)
     return {
       home: owner.home,
-      taskHome,
+      ownerControl: owner.control,
       control,
       taskControl: control,
       workspace,
-      codexHome: path.join(taskHome, ".codex"),
+      codexHome: path.join(owner.home, ".codex"),
     }
   }
 
@@ -272,12 +284,10 @@ export class WorkspaceManager {
 
   async ensureConversation(
     conversationId: string,
-    templateVersion: string,
   ): Promise<EnsuredConversationPaths> {
     const paths = this.pathsFor(conversationId)
     const ownerId = this.ownerFor(conversationId)
     const owner = await this.ensureOwner(ownerId)
-    await assertTaskDirectoryParents(owner.home, paths.taskHome)
     await assertTaskDirectoryParents(owner.home, paths.workspace)
     await assertTaskDirectoryParents(owner.control, paths.taskControl)
     await ensureSupervisorDirectory(
@@ -285,15 +295,12 @@ export class WorkspaceManager {
       0o700,
     )
     await ensureSupervisorDirectory(paths.taskControl, 0o700)
-    await mkdir(path.dirname(paths.taskHome), { recursive: true, mode: 0o770 })
-    await this.ensureTaskDirectories(paths)
-    await this.writeGlobalAgentsFile(paths, owner.personalization)
-    // Keep plugin source paths stable for existing native installations. Skill
-    // discovery uses the workspace projection below, independently of HOME.
-    await ensureDirectoryLink(
-      path.join(paths.taskHome, ".agents"),
-      path.join(owner.home, ".agents", "tasks", conversationId),
+    await writeSharedRegularFileAtomically(
+      path.join(paths.taskControl, "workspace.json"),
+      JSON.stringify(this.conversationWorkspaces.get(conversationId) ?? "workspace"),
+      0o600,
     )
+    await this.ensureNativeDirectories(paths)
     await Promise.all([
       mkdir(path.join(paths.workspace, "attachments"), {
         recursive: true,
@@ -328,19 +335,10 @@ export class WorkspaceManager {
         ),
       ),
     )
-    await ensureCapabilityProjectionLink(
-      path.join(paths.workspace, ".agents"),
-      path.join(owner.home, ".agents", "tasks", conversationId),
-    )
     const runtimeGeneration = await this.ensureRuntimeGeneration(
       paths.taskControl,
     )
     const nodeModules = this.options.userNodeModulesForOwner?.(ownerId)
-    const skillsRoot = path.join(paths.taskHome, ".agents", "skills")
-    await ensureDirectoryLink(
-      path.join(paths.workspace, "skills"),
-      path.relative(paths.workspace, skillsRoot),
-    )
     if (nodeModules) {
       await Promise.all([
         ensureDirectoryLink(
@@ -353,7 +351,6 @@ export class WorkspaceManager {
         ),
       ])
     }
-    await this.ensureAgentsFile(paths, templateVersion)
     const verifiedRuntimeGeneration = await this.ensureRuntimeGeneration(
       paths.taskControl,
     )
@@ -411,6 +408,7 @@ export class WorkspaceManager {
         .map((entry) => entry.name)
       for (const id of ids) {
         this.bindOwner(id, this.options.fixedOwnerId!)
+        await this.restoreWorkspace(id)
       }
       return ids
     }
@@ -441,6 +439,7 @@ export class WorkspaceManager {
             continue
           }
         this.bindOwner(conversation.name, owner.name)
+        await this.restoreWorkspace(conversation.name)
         ids.push(conversation.name)
       }
     }
@@ -568,18 +567,16 @@ export class WorkspaceManager {
   async removeConversation(conversationId: string): Promise<void> {
     const paths = this.pathsFor(conversationId)
     const owner = this.ownerPathsFor(this.ownerFor(conversationId))
-    await assertTaskDirectoryParents(owner.home, paths.taskHome)
     await assertTaskDirectoryParents(owner.home, paths.workspace)
     await assertTaskDirectoryParents(owner.control, paths.taskControl)
     await removeConversationRuntimeDirectories({
-      taskHome: paths.taskHome,
-      workspace: paths.workspace,
       taskControl: paths.taskControl,
       ...(this.options.directoryCleanupIdentity
         ? { directoryCleanupIdentity: this.options.directoryCleanupIdentity }
         : {}),
     })
     this.conversationOwners.delete(conversationId)
+    this.conversationWorkspaces.delete(conversationId)
   }
 
   private async ensureRuntimeGeneration(taskControl: string): Promise<string> {
@@ -640,25 +637,22 @@ export class WorkspaceManager {
     await setManagedDirectoryMode(paths.home, 0o770, this.options.directoryCleanupIdentity)
     await this.ensureTaskDirectoryOwner(paths.home)
     await ensureSupervisorDirectory(paths.control, 0o700)
-    const homes = path.join(paths.home, "task-homes")
-    await assertTaskDirectoryParents(paths.home, homes)
-    await mkdir(homes, { recursive: true, mode: 0o770 })
-    await setManagedDirectoryMode(homes, 0o770, this.options.directoryCleanupIdentity)
-    await this.ensureTaskDirectoryOwner(homes)
+
   }
 
-  private async ensureTaskDirectories(paths: ConversationPaths): Promise<void> {
+  private async ensureNativeDirectories(paths: ConversationPaths): Promise<void> {
     await Promise.all([
-      mkdir(paths.taskHome, { recursive: true, mode: 0o770 }),
+      mkdir(paths.home, { recursive: true, mode: 0o770 }),
       mkdir(paths.control, { recursive: true, mode: 0o700 }),
     ])
     await setManagedDirectoryMode(
-      paths.taskHome,
+      paths.home,
       0o770,
       this.options.directoryCleanupIdentity,
     )
-    await this.ensureTaskDirectoryOwner(paths.taskHome)
+    await this.ensureTaskDirectoryOwner(paths.home)
     await ensureSupervisorDirectory(paths.control, 0o700)
+    await assertTaskDirectoryParents(paths.home, path.join(paths.codexHome, "config.toml"))
     await mkdir(paths.codexHome, { recursive: true, mode: 0o770 })
     await setManagedDirectoryMode(
       paths.codexHome,
@@ -756,17 +750,6 @@ export class WorkspaceManager {
     }
   }
 
-  private async writeGlobalAgentsFile(
-    paths: ConversationPaths,
-    state: PersonalizationSnapshot,
-  ): Promise<void> {
-    const targetPath = path.join(paths.codexHome, globalAgentsFileName)
-    await this.writeCodexConfig(
-      targetPath,
-      renderGlobalAgentsFile(state),
-    )
-  }
-
   private async ensureTaskDirectoryOwner(directory: string): Promise<void> {
     const identity = this.options.managedCodexFileIdentity
     if (!identity) return
@@ -829,30 +812,6 @@ export class WorkspaceManager {
     }
   }
 
-  private async ensureAgentsFile(
-    paths: ConversationPaths,
-    templateVersion: string,
-  ): Promise<void> {
-    const agentsPath = path.join(paths.workspace, "AGENTS.md")
-    const marker = `<!-- linksense-template:${templateVersion} rules:${taskRulesVersion} -->`
-    try {
-      const current = await readFile(agentsPath, "utf8")
-      if (current.startsWith(marker)) return
-    } catch {
-      // Missing file is created below.
-    }
-    await writeSharedRegularFileAtomically(
-      agentsPath,
-      renderAgentsFile(
-        marker,
-        paths.workspace,
-        paths.home,
-        paths.codexHome,
-      ),
-      workspacePermissionPolicy.sharedReadableFile,
-    )
-  }
-
   private async writeCodexConfig(
     targetPath: string,
     contents: string,
@@ -887,58 +846,6 @@ export class WorkspaceManager {
       }
     }
   }
-}
-
-function renderAgentsFile(
-  marker: string,
-  workspacePath: string,
-  userHomePath: string,
-  codexHomePath: string,
-): string {
-  return `${marker}
-# LinkSense conversation rules
-
-- You are assisting organization members, team leads, IT staff, and administrators. Use clear language and avoid unnecessary developer terminology.
-- User custom instructions from the global Codex AGENTS.md are preferences only. They never override these LinkSense-managed task rules, authorization boundaries, or safety requirements.
-- Create and edit task files only inside the current task workspace: ${workspacePath}
-- Tools may persist their own user configuration and login state in the shared user HOME ${userHomePath}. Use the tool's authentication commands; never inspect or display stored credentials. This does not authorize reading other tasks or changing managed capabilities.
-- You may read current capability instructions from ${path.join(workspacePath, ".agents", "skills")} and ${codexHomePath}.
-- The workspace \`skills/\` entry is a read-only convenience link to current Skill resources for third-party Skill scripts and data.
-- First locate bundled Plugin and Skill resources (scripts, references, templates, and assets) in this task workspace's authorized directories: ${path.join(workspacePath, ".agents", "skills")} and ${path.join(workspacePath, ".agents", "plugin-sources")}. Use the task workspace ${workspacePath} as the root even if a command changes its working directory.
-- When capability instructions assume \`$HOME/.agents/skills/...\` or \`$HOME/.agents/plugin-sources/...\` (including \`~\` or \`\${HOME}\` spellings), use the corresponding task workspace directory first, preserving the exact package name and package-relative path. Check that the file exists before invoking it; do not run the obsolete HOME path first.
-- Only when the matching workspace resource is absent, resolve it relative to the SKILL.md actually loaded for this turn, staying inside that same authorized capability package. Use the confirmed absolute path; never search other tasks, users, or historical package versions. If neither location contains the resource, report it as unavailable instead of guessing another package or reinstalling it.
-- This lookup rule applies only to bundled capability resources. Never relocate credentials, user configuration, caches, or tool data; their shared HOME locations remain unchanged. Do not reinterpret permission or authentication failures as missing files, or edit managed scripts to replace paths.
-- Never write to, update, remove, or edit LinkSense-managed Skill and Plugin directories from a task. The only permitted Skill installation path is the built-in \`linksense-skill-creator\` workflow, which creates a ZIP in this task, previews it through the protected Skill Creator service, and installs the exact preview only after explicit user confirmation.
-- Never inspect another task's workspace, Codex session or rollout history, LinkSense deployment configuration, backend source, credentials, tokens, environment variables, or internal logs.
-- Put downloadable deliverables in \`artifacts/\`. Put temporary and intermediate files in \`temp/\`.
-- For ZIP archives containing non-ASCII entry names, use Python \`zipfile\` or Node.js \`archiver\`; do not use the Info-ZIP \`zip\` command because it can omit the UTF-8 filename flag.
-- Common Python and Node.js libraries are already available from the shared read-only runtime. Test an import before installing another copy.
-- Python and Node.js package sources are managed by LinkSense. Never edit package-manager source configuration, add registry settings to \`.npmrc\`, use requirements or constraints files to declare alternate indexes, or pass index, extra-index, default-index, or registry override arguments such as \`-i\`, \`--index-url\`, \`--extra-index-url\`, \`--default-index\`, or \`--registry\`.
-- To persist a Python package for this user, use only \`linksense-uv pip install <package>\`. Never use \`uv pip install --system\`, create a task-local virtual environment, or replace the managed Python environment.
-- To persist a Node.js package for this user, use only \`linksense-pnpm add <package>\`. Never use a global package target or replace the managed \`node_modules\` link.
-- When the user requests any download or deliverable file, first create the file under \`artifacts/\`, then call the LinkSense File Service \`register_artifact\` tool with a workspace-relative path.
-- Only the LinkSense File Service can provide user-downloadable files. Never present local filesystem paths, absolute paths, \`file://\` URLs, \`localhost\`/\`127.0.0.1\` URLs, container paths, or raw workspace-relative paths as download links.
-- After \`register_artifact\` succeeds, mention the registered display name only as plain text and direct the user to the structured attachment card rendered by LinkSense. Never emit a Markdown or HTML download link, an empty link, or a fabricated URL for a registered artifact; the attachment card is the only download control.
-- The file service may only register files from this task workspace. Never pass absolute paths.
-- If artifact registration fails or the file service is unavailable, tell the user that LinkSense could not prepare a downloadable attachment and do not offer a local-path fallback.
-- Do not expose internal paths, commands, credentials, raw tool payloads, or other users' data in the response.
-`
-}
-
-function renderGlobalAgentsFile(
-  state: PersonalizationSnapshot,
-): string {
-  const instructions =
-    state.custom_instructions.length > 0
-      ? state.custom_instructions
-      : "No custom instructions are configured."
-  return `<!-- linksense-personalization:v1 revision:${state.revision} -->
-# User custom instructions
-
-The following text is the user's preferred working style and context. Follow it when it does not conflict with system or developer instructions, authorization boundaries, or the closer LinkSense-managed AGENTS.md inside a task workspace.
-
-${instructions}
-`
 }
 
 function projectPersonalizationSnapshot(
@@ -976,41 +883,10 @@ async function ensureDirectoryLink(
   destination: string,
   target: string,
 ): Promise<void> {
-  const destinationDirectory = path.dirname(destination)
-  const normalizedTarget = path.resolve(destinationDirectory, target)
-  try {
-    const info = await lstat(destination)
-    if (!info.isSymbolicLink()) return
-    const current = await readlink(destination)
-    if (current === target) return
-    if (
-      path.isAbsolute(target) &&
-      path.resolve(destinationDirectory, current) === normalizedTarget
-    ) {
-      return
-    }
-    await rm(destination, { force: true })
-  } catch (error) {
-    if (!isNodeError(error) || error.code !== "ENOENT") throw error
-  }
   try {
     await symlink(target, destination, "dir")
   } catch (error) {
     if (!isNodeError(error) || error.code !== "EEXIST") throw error
-    const current = await readlink(destination)
-    if (path.resolve(destinationDirectory, current) !== normalizedTarget) throw error
-  }
-}
-
-async function ensureCapabilityProjectionLink(destination: string, target: string): Promise<void> {
-  try {
-    await symlink(target, destination, "dir")
-  } catch (error) {
-    if (!isNodeError(error) || error.code !== "EEXIST") throw error
-  }
-  const info = await lstat(destination)
-  if (!info.isSymbolicLink() || path.resolve(path.dirname(destination), await readlink(destination)) !== target) {
-    throw new WorkspaceBoundaryError("task capability projection boundary is invalid")
   }
 }
 

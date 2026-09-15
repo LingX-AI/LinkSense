@@ -12,8 +12,9 @@ const errorCodeToKey: Record<string, string> = {
   APPLICATION_DISABLED: errorCatalog.APPLICATION_DISABLED.message_key,
   APPLICATION_DEPENDENCY_UNAVAILABLE:
     errorCatalog.APPLICATION_DEPENDENCY_UNAVAILABLE.message_key,
-  TASK_CATEGORY_NAME_EXISTS: errorCatalog.TASK_CATEGORY_NAME_EXISTS.message_key,
-  TASK_CATEGORY_NOT_FOUND: errorCatalog.TASK_CATEGORY_NOT_FOUND.message_key,
+  PROJECT_NAME_EXISTS: errorCatalog.PROJECT_NAME_EXISTS.message_key,
+  PROJECT_TASK_ACTIVE: "projects.taskActive",
+  PROJECT_NOT_FOUND: errorCatalog.PROJECT_NOT_FOUND.message_key,
   NETWORK_UNAVAILABLE: "errors.networkUnavailable",
   API_RESPONSE_INVALID: "errors.invalidResponse",
   AUTH_INVALID_CREDENTIALS: "errors.authInvalidCredentials",

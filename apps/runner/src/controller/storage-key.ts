@@ -2,18 +2,18 @@ import { createHash, createHmac } from "node:crypto"
 import { RUNNER_TURN_START_CONTRACT_VERSION } from "@linksense/shared"
 
 export const WORKER_RUNTIME_LAYOUT =
-  "task-codex-home-task-capability-projections-owner-volume-subpaths"
+  "shared-user-home-projects-service-sessions"
 
-export function ownerStorageKey(ownerId: string, secret: string): string {
+export function ownerStorageKey(ownerId: string, secret: string, serviceSessionId?: string): string {
   return createHmac("sha256", secret)
-    .update(`linksense-worker:${ownerId}`)
+    .update(`linksense-worker:${ownerId}${serviceSessionId ? `:service:${serviceSessionId}` : ""}`)
     .digest("hex")
     .slice(0, 32)
 }
 
-export function ownerWorkerSecret(ownerId: string, secret: string): string {
+export function ownerWorkerSecret(ownerId: string, secret: string, serviceSessionId?: string): string {
   return createHmac("sha256", secret)
-    .update(`linksense-worker-auth:${ownerId}`)
+    .update(`linksense-worker-auth:${ownerId}${serviceSessionId ? `:service:${serviceSessionId}` : ""}`)
     .digest("base64url")
 }
 

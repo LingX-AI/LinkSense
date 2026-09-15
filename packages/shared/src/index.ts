@@ -45,7 +45,11 @@ export * from "./voice-transcription-settings.js";
 export * from "./weixin.js";
 export * from "./workspace-permissions.js";
 export * from "./capability-snapshot.js";
-export * from "./task-categories.js";
+export * from "./projects.js";
+export * from "./runtime-workspace.js";
 export * from "./conversation-sharing.js";
 export * from "./skill-display-name.js";
 export * from "./skill-update.js";
+
+export * from "./user-environment.js";
+export * from "./application-publication.js";

@@ -274,7 +274,7 @@ describe("conversation message spacing", () => {
     expect(iconMediaRule).toMatch(/margin:\s*0;/u)
     expect(iconMediaRule).toMatch(/border:\s*0;/u)
     expect(conversationStyles).toMatch(
-      /\.assistant-markdown img:not\(\.conversation-image-thumbnail-image\)\s*\{/u
+      /\.assistant-markdown\s+img:not\(\.conversation-image-thumbnail-image\):not\(\[data-diagram-image\]\)\s*\{/u
     )
   })
 

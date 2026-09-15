@@ -1,8 +1,12 @@
+import { runtimePlacementSchema, runtimeServiceSessionHeader, type RuntimePlacement } from "@linksense/shared";
 import type { AppConfig } from "../config.js";
 import { AppError } from "../lib/errors.js";
 import {
+  runtimeWorkspaceHeader,
   codexModelReasoningCatalogSchema,
   personalizationSettingsSchema,
+  userEnvironmentSettingsSchema,
+  type UserEnvironmentSettings,
   resetMemoriesResultSchema,
   runnerTurnInterruptResultSchema,
   RUNNER_TURN_START_CONTRACT_VERSION,
@@ -250,7 +254,7 @@ export type RunnerStartInput = {
     applicationInstructions?: string;
     selectedKnowledgeBases?: RunnerKnowledgeBaseSelection;
     officeSelectionContext?: string;
-    attachments: Array<{ filename: string; relativePath: string }>;
+    attachments: Array<{ filename: string; homeRelativePath: string }>;
     priorityPlugins: Array<{
       id: string;
       name: string;
@@ -385,7 +389,19 @@ class RunnerTransportError extends Error {
 }
 
 export class RunnerClient {
-  constructor(private readonly config: AppConfig) {}
+  constructor(
+    private readonly config: AppConfig,
+    private readonly resolveWorkspace?: (ownerId: string, conversationId: string) => Promise<RuntimePlacement | null>,
+  ) {}
+
+  private async workspaceHeaders(pathname: string, ownerId?: string, workspacePath?: string, serviceSessionId?: string): Promise<Record<string, string>> {
+    const conversationId = /^\/conversations\/([0-9a-f-]{36})(?:\/|$)/iu.exec(pathname)?.[1];
+    if (!ownerId || !conversationId) return {};
+    const selected = workspacePath === undefined ? await this.resolveWorkspace?.(ownerId, conversationId) : { workspacePath, ...(serviceSessionId ? { serviceSessionId } : {}) };
+    if (selected == null) return {};
+    const placement = runtimePlacementSchema.parse(selected);
+    return { [runtimeWorkspaceHeader]: placement.workspacePath, ...(placement.serviceSessionId ? { [runtimeServiceSessionHeader]: placement.serviceSessionId } : {}) };
+  }
 
   /**
    * Submits one durable runner start operation and returns as soon as the
@@ -540,25 +556,25 @@ export class RunnerClient {
     }
   }
 
-  prepareRuntime(conversationId: string, ownerId: string) {
+  prepareRuntime(conversationId: string, ownerId: string, workspacePath?: string, serviceSessionId?: string) {
     return this.request<unknown>(
       `/conversations/${conversationId}/runtime`,
       "PUT",
       {},
-      { ownerId },
+      { ownerId, ...(workspacePath ? { workspacePath } : {}), ...(serviceSessionId ? { serviceSessionId } : {}) },
     ).then((result) => runnerRuntimeSchema.parse(result));
   }
 
-  async forkThread(input: RunnerForkInput): Promise<{
+  async forkThread(input: RunnerForkInput & { serviceSessionId?: string }): Promise<{
     codexThreadId: string;
     codexTurnIds: string[];
   }> {
-    const { conversationId, ...body } = input;
+    const { conversationId, serviceSessionId, ...body } = input;
     const result = await this.request<unknown>(
       `/conversations/${conversationId}/fork`,
       "POST",
       body,
-      { ownerId: input.ownerId, timeoutMs: RUNNER_RECONCILE_TIMEOUT_MS },
+      { ownerId: input.ownerId, timeoutMs: RUNNER_RECONCILE_TIMEOUT_MS, ...(serviceSessionId ? { serviceSessionId } : {}) },
     );
     return runnerForkResponseSchema.parse(result);
   }
@@ -606,6 +622,7 @@ export class RunnerClient {
           headers: {
             authorization: `Bearer ${this.config.runnerSharedSecret}`,
             [OWNER_ID_HEADER]: ownerId,
+            ...await this.workspaceHeaders(`/conversations/${conversationId}`, ownerId),
           },
           signal: AbortSignal.timeout(15_000),
         },
@@ -631,6 +648,7 @@ export class RunnerClient {
           headers: {
             authorization: `Bearer ${this.config.runnerSharedSecret}`,
             [OWNER_ID_HEADER]: ownerId,
+            ...await this.workspaceHeaders(`/conversations/${conversationId}`, ownerId),
           },
           signal: AbortSignal.timeout(15_000),
         },
@@ -776,6 +794,7 @@ export class RunnerClient {
           headers: {
             authorization: `Bearer ${this.config.runnerSharedSecret}`,
             [OWNER_ID_HEADER]: input.ownerId,
+            ...await this.workspaceHeaders(`/conversations/${input.conversationId}`, input.ownerId),
             "content-type": "application/json",
           },
           body: JSON.stringify({
@@ -852,6 +871,14 @@ export class RunnerClient {
     return runnerGoalClearResponseSchema.parse(result).cleared;
   }
 
+  async getEnvironmentSettings(ownerId: string): Promise<UserEnvironmentSettings> {
+    return userEnvironmentSettingsSchema.parse(await this.request("/environment", "GET", undefined, { ownerId }));
+  }
+
+  async updateEnvironmentSettings(ownerId: string, input: UserEnvironmentSettings): Promise<UserEnvironmentSettings> {
+    return userEnvironmentSettingsSchema.parse(await this.request("/environment", "PUT", userEnvironmentSettingsSchema.parse(input), { ownerId }));
+  }
+
   async getPersonalization(ownerId: string): Promise<PersonalizationSettings> {
     const result = await this.request<unknown>(
       "/personalization",
@@ -925,6 +952,7 @@ export class RunnerClient {
           headers: {
             authorization: `Bearer ${this.config.runnerSharedSecret}`,
             [OWNER_ID_HEADER]: input.ownerId,
+            ...await this.workspaceHeaders(`/conversations/${input.conversationId}`, input.ownerId),
             "content-type": "application/json",
           },
           body: JSON.stringify(
@@ -960,6 +988,7 @@ export class RunnerClient {
           headers: {
             authorization: `Bearer ${this.config.runnerSharedSecret}`,
             [OWNER_ID_HEADER]: input.ownerId,
+            ...await this.workspaceHeaders(`/conversations/${input.conversationId}`, input.ownerId),
             "content-type": "application/json",
           },
           body: JSON.stringify(subAgentReadRequestBody(input)),
@@ -978,7 +1007,7 @@ export class RunnerClient {
     }
   }
 
-  async cleanupRuntime(conversationId: string, ownerId: string) {
+  async cleanupRuntime(conversationId: string, ownerId: string, serviceSessionId?: string) {
     let response: Response;
     try {
       response = await fetch(
@@ -991,6 +1020,7 @@ export class RunnerClient {
           headers: {
             authorization: `Bearer ${this.config.runnerSharedSecret}`,
             [OWNER_ID_HEADER]: ownerId,
+            ...await this.workspaceHeaders(`/conversations/${conversationId}`, ownerId, serviceSessionId ? "workspace" : undefined, serviceSessionId),
           },
           signal: AbortSignal.timeout(30_000),
         },
@@ -1097,6 +1127,7 @@ export class RunnerClient {
     ownerId: string,
     body?: unknown,
   ): Promise<RunnerStartOperation> {
+    const workspaceHeaders = await this.workspaceHeaders(pathname, ownerId);
     let response: Response;
     try {
       response = await fetch(new URL(pathname, this.config.runnerUrl), {
@@ -1104,6 +1135,7 @@ export class RunnerClient {
         headers: {
           authorization: `Bearer ${this.config.runnerSharedSecret}`,
           [OWNER_ID_HEADER]: ownerId,
+          ...workspaceHeaders,
           ...(body === undefined ? {} : { "content-type": "application/json" }),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -1138,6 +1170,7 @@ export class RunnerClient {
     ownerId: string,
     body?: unknown,
   ): Promise<RunnerSteerOperation> {
+    const workspaceHeaders = await this.workspaceHeaders(pathname, ownerId);
     let response: Response;
     try {
       response = await fetch(new URL(pathname, this.config.runnerUrl), {
@@ -1145,6 +1178,7 @@ export class RunnerClient {
         headers: {
           authorization: `Bearer ${this.config.runnerSharedSecret}`,
           [OWNER_ID_HEADER]: ownerId,
+          ...workspaceHeaders,
           ...(body === undefined ? {} : { "content-type": "application/json" }),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -1167,16 +1201,20 @@ export class RunnerClient {
     body?: unknown,
     options: {
       ownerId?: string;
+      workspacePath?: string;
+      serviceSessionId?: string;
       acceptErrorResponse?: boolean;
       timeoutMs?: number;
     } = {},
   ): Promise<T> {
+    const workspaceHeaders = await this.workspaceHeaders(pathname, options.ownerId, options.workspacePath, options.serviceSessionId);
     try {
       const response = await fetch(new URL(pathname, this.config.runnerUrl), {
         method,
         headers: {
           authorization: `Bearer ${this.config.runnerSharedSecret}`,
           ...(options.ownerId ? { [OWNER_ID_HEADER]: options.ownerId } : {}),
+          ...workspaceHeaders,
           ...(body === undefined ? {} : { "content-type": "application/json" }),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),

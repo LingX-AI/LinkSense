@@ -26,8 +26,7 @@ export type BillingPdfLabels = {
 }
 
 type Language = "zh-CN" | "en-US"
-const rowsPerFullPage = 11
-const rowsPerSummaryPage = 9
+const footerContentGap = 24
 
 export async function createBillingStatementPdf(input: {
   statement: BillingStatementDetail
@@ -39,7 +38,36 @@ export async function createBillingStatementPdf(input: {
     import("html2canvas-pro"),
     import("jspdf"),
   ])
-  const pages = paginateRows(input.statement.models)
+  const measurement = buildPage({
+    ...input,
+    rows: input.statement.models,
+    pageIndex: 0,
+    pageCount: 1,
+  })
+  document.body.append(measurement.page)
+  let pages: BillingStatementDetail["models"][]
+  try {
+    // Measure after fonts load: translated labels and model names can wrap.
+    await document.fonts?.ready
+    const contentHeight =
+      measurement.footer.getBoundingClientRect().top -
+      footerContentGap -
+      measurement.body.getBoundingClientRect().top
+    const summaryHeight =
+      measurement.summary.getBoundingClientRect().bottom -
+      measurement.table.getBoundingClientRect().bottom
+    pages = paginateRows(
+      input.statement.models,
+      Array.from(
+        measurement.body.rows,
+        (row) => row.getBoundingClientRect().height
+      ),
+      contentHeight,
+      summaryHeight
+    )
+  } finally {
+    measurement.page.remove()
+  }
   const pdf = new jsPDF({
     orientation: "landscape",
     unit: "mm",
@@ -48,7 +76,7 @@ export async function createBillingStatementPdf(input: {
   })
 
   for (const [index, rows] of pages.entries()) {
-    const page = buildPage({
+    const { page } = buildPage({
       ...input,
       rows,
       pageIndex: index,
@@ -237,6 +265,7 @@ function buildPage(input: {
   table.append(body)
   page.append(table)
 
+  const summary = element("div", { display: "flow-root" })
   const isLastPage = input.pageIndex === input.pageCount - 1
   if (isLastPage) {
     const total = element("div", {
@@ -261,9 +290,9 @@ function buildPage(input: {
         { fontSize: "25px", fontWeight: "700" }
       )
     )
-    page.append(total)
+    summary.append(total)
     if (input.statement.unpriced_tokens !== "0") {
-      page.append(
+      summary.append(
         textElement(
           "p",
           input.labels.unpricedNote.replace(
@@ -275,6 +304,7 @@ function buildPage(input: {
       )
     }
   }
+  if (isLastPage) page.append(summary)
   const footer = element("footer", {
     position: "absolute",
     left: "58px",
@@ -282,6 +312,9 @@ function buildPage(input: {
     bottom: "30px",
     display: "flex",
     justifyContent: "space-between",
+    alignItems: "flex-end",
+    gap: "24px",
+    lineHeight: "1.4",
     color: "#8a8a8a",
     fontSize: "9px",
   })
@@ -291,11 +324,12 @@ function buildPage(input: {
       "span",
       input.labels.page
         .replace("{{current}}", String(input.pageIndex + 1))
-        .replace("{{total}}", String(input.pageCount))
+        .replace("{{total}}", String(input.pageCount)),
+      { flexShrink: "0", whiteSpace: "nowrap" }
     )
   )
   page.append(footer)
-  return page
+  return { page, table, body, summary, footer }
 }
 
 function fact(label: string, value: string) {
@@ -333,18 +367,43 @@ function formatPrice(value: string | null, language: Language) {
     : `¥${Number(value).toLocaleString(language, { maximumFractionDigits: 6 })}`
 }
 
-function paginateRows<T>(rows: T[]): T[][] {
-  if (rows.length === 0) return [[]]
-
+function paginateRows<T>(
+  rows: T[],
+  rowHeights: number[],
+  contentHeight: number,
+  summaryHeight: number
+): T[][] {
   const pages: T[][] = []
-  let offset = 0
-  while (rows.length - offset > rowsPerSummaryPage) {
-    const remaining = rows.length - offset
-    const pageSize = Math.min(rowsPerFullPage, remaining - 1)
-    pages.push(rows.slice(offset, offset + pageSize))
-    offset += pageSize
+  let page: T[] = []
+  let usedHeight = 0
+  for (const [index, row] of rows.entries()) {
+    const height = rowHeights[index]
+    if (height === undefined || height > contentHeight) {
+      throw new Error("Billing statement row exceeds the printable page area")
+    }
+    if (usedHeight + height > contentHeight && page.length > 0) {
+      pages.push(page)
+      page = []
+      usedHeight = 0
+    }
+    page.push(row)
+    usedHeight += height
   }
-  pages.push(rows.slice(offset))
+
+  // Keep the total and the optional unpriced note together on the last page.
+  if (usedHeight + summaryHeight > contentHeight) {
+    const lastRow = page.pop()
+    const lastHeight = rowHeights.at(-1) ?? 0
+    if (lastRow !== undefined && lastHeight + summaryHeight <= contentHeight) {
+      if (page.length > 0) pages.push(page)
+      page = [lastRow]
+    } else {
+      if (lastRow !== undefined) page.push(lastRow)
+      if (page.length > 0) pages.push(page)
+      page = []
+    }
+  }
+  pages.push(page)
   return pages
 }
 

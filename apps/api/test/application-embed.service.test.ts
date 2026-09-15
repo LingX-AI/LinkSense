@@ -282,7 +282,7 @@ describe("ApplicationExternalAccessService", () => {
     });
   });
 
-  it("removes the private conversation and principal when session persistence fails", async () => {
+  it("does not create a task or account when session persistence fails", async () => {
     const fixture = lifecycleFixture();
     const ticket = await fixture.service.issueAuthenticatedTicket(
       {
@@ -305,14 +305,10 @@ describe("ApplicationExternalAccessService", () => {
       ),
     ).rejects.toThrow("session persistence failed");
 
-    const principalId = fixture.userCreate.mock.calls[0]?.[0].data.id;
-    expect(fixture.cleanupConversation).toHaveBeenCalledWith(
-      principalId,
-      CONVERSATION_ID,
-    );
-    expect(fixture.userDelete).toHaveBeenCalledWith({
-      where: { id: principalId },
-    });
+    expect(fixture.conversationCreate).not.toHaveBeenCalled();
+    expect(fixture.cleanupConversation).not.toHaveBeenCalled();
+    expect(fixture.userCreate).not.toHaveBeenCalled();
+    expect(fixture.userDelete).not.toHaveBeenCalled();
   });
 
   it("creates a public session directly without issuing tickets or tokens", async () => {
@@ -469,11 +465,11 @@ describe("ApplicationExternalAccessService", () => {
       ),
     ).rejects.toMatchObject({ code: "APPLICATION_EMBED_RENEWAL_REUSED" });
     expect(fixture.session?.status).toBe("revoked");
-    expect(fixture.principal?.status).toBe("disabled");
+    expect(fixture.userCreate).not.toHaveBeenCalled();
     expect(fixture.refreshTokens.every((token) => token.revokedAt)).toBe(true);
   });
 
-  it("uses a generic external user name when the host does not provide a display name", async () => {
+  it("keeps an anonymous visitor in its session without inventing an account or name", async () => {
     const fixture = lifecycleFixture();
     const ticket = await fixture.service.issueAuthenticatedTicket(
       {
@@ -493,9 +489,8 @@ describe("ApplicationExternalAccessService", () => {
       {},
     );
 
-    expect(fixture.userCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({ name: "外部用户" }),
-    });
+    expect(fixture.userCreate).not.toHaveBeenCalled();
+    expect(fixture.session?.displayName).toBeNull();
   });
 
   it("rejects renewal at 8 hours and access at the 7-day absolute boundary", async () => {
@@ -525,7 +520,7 @@ describe("ApplicationExternalAccessService", () => {
       ),
     ).rejects.toMatchObject({ code: "APPLICATION_EMBED_SESSION_EXPIRED" });
     expect(renewalFixture.session?.status).toBe("expired");
-    expect(renewalFixture.principal?.status).toBe("disabled");
+    expect(renewalFixture.userCreate).not.toHaveBeenCalled();
 
     const absoluteFixture = lifecycleFixture();
     const absoluteTicket =
@@ -600,14 +595,8 @@ describe("ApplicationExternalAccessService", () => {
       {},
     );
 
-    expect(fixture.userCreate).toHaveBeenCalledTimes(1);
-    expect(fixture.userUpdate).toHaveBeenCalledWith({
-      where: { id: originalPrincipalId },
-      data: expect.objectContaining({
-        status: "active",
-        name: "Returning user",
-      }),
-    });
+    expect(fixture.userCreate).not.toHaveBeenCalled();
+    expect(fixture.userUpdate).not.toHaveBeenCalled();
     expect(fixture.session).toMatchObject({
       id: SESSION_ID,
       runtimePrincipalId: originalPrincipalId,
@@ -615,6 +604,7 @@ describe("ApplicationExternalAccessService", () => {
       status: "active",
       externalSubject: "partner-user-42",
       externalTenant: "partner-tenant",
+      displayName: "Returning user",
       origin: ORIGIN,
     });
     expect(restored.session_id).toBe(SESSION_ID);
@@ -875,8 +865,9 @@ function lifecycleFixture() {
     async (
       ownerId: string,
       applicationInput: { id: string; name: string },
+      reservedId?: string,
     ) => {
-      const id =
+      const id = reservedId ??
         [CONVERSATION_ID, SECOND_CONVERSATION_ID, THIRD_CONVERSATION_ID][
           conversations.length
         ] ?? crypto.randomUUID();
@@ -966,6 +957,7 @@ function lifecycleFixture() {
       ),
     },
     applicationExternalSession: {
+      delete: vi.fn(async () => { const previous = session; session = null; return previous; }),
       findUnique: vi.fn(async () => session),
       findFirst: vi.fn(
         async ({
@@ -1234,7 +1226,8 @@ function createService(
   createConversation: (
     ownerId: string,
     application: { id: string; name: string },
-  ) => Promise<{ id: string }> = async () => ({ id: CONVERSATION_ID }),
+    conversationId?: string,
+  ) => Promise<{ id: string }> = async (_owner, _application, conversationId) => ({ id: conversationId ?? CONVERSATION_ID }),
   cleanupConversation: (
     ownerId: string,
     conversationId: string,
@@ -1255,6 +1248,7 @@ function createService(
     cleanupConversation,
     scheduleConversationTitle,
     now,
+    () => CONVERSATION_ID,
   );
 }
 

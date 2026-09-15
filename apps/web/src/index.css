@@ -3964,7 +3964,7 @@
   pointer-events: auto;
 }
 
-.conversation-bottom-stack:has(.conversation-category-dock),
+.conversation-bottom-stack:has(.conversation-project-dock),
 .conversation-bottom-stack:has(.pending-requests) {
   gap: 0;
 }
@@ -3978,7 +3978,7 @@
   z-index: 1;
 }
 
-:is(.conversation-category-dock, .pending-requests, .conversation-goal-bar) {
+:is(.conversation-project-dock, .pending-requests, .conversation-goal-bar) {
   border: 0;
   background: var(--app-activity-surface);
   box-shadow: none;
@@ -6340,7 +6340,8 @@ button.annotation-hover-file:focus-visible {
   object-fit: contain;
 }
 
-.assistant-markdown img:not(.conversation-image-thumbnail-image) {
+.assistant-markdown
+  img:not(.conversation-image-thumbnail-image):not([data-diagram-image]) {
   display: block;
   width: auto;
   max-width: min(100%, 760px);
@@ -7445,7 +7446,7 @@ button.annotation-hover-file:focus-visible {
   margin-top: var(--conversation-assistant-block-gap, 8px);
 }
 
-.conversation-category-dock,
+.conversation-project-dock,
 .pending-requests {
   position: relative;
   z-index: 0;
@@ -9515,11 +9516,6 @@ button.annotation-hover-file:focus-visible {
 }
 
 .appearance-theme-fieldset {
-  gap: 12px;
-}
-
-.appearance-theme-grid {
-  grid-template-columns: 1fr;
   gap: 12px;
 }
 
@@ -12218,12 +12214,6 @@ button.annotation-hover-file:focus-visible {
   .public-panel {
     margin-top: 5vh;
     padding: 18px 10px;
-  }
-}
-
-@media (min-width: 520px) {
-  .appearance-theme-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

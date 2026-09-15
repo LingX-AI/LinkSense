@@ -56,7 +56,7 @@ export function projectConversationShareSnapshot(
 ): Conversation {
   const projected = conversationDetailSchema.parse({
     ...snapshot,
-    conversation: { ...snapshot.conversation, category_id: null },
+    conversation: { ...snapshot.conversation, project_id: null },
   })
   return {
     ...projected,

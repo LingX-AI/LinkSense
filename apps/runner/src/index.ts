@@ -1,3 +1,4 @@
+import { countUserProcesses } from "./user-process-activity.js"
 import { existsSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -230,7 +231,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   if (isWorker && !isLocalProcessWorker) {
     await Promise.all([
       verifySharedWorkspaceAccess(
-        path.join(config.LINKSENSE_USER_DATA_ROOT, "workspaces"),
+        path.join(config.LINKSENSE_USER_DATA_ROOT, "projects"),
       ),
       verifyManagedProjectionAccess(
         path.join(config.LINKSENSE_USER_DATA_ROOT, ".agents"),
@@ -242,6 +243,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     config.LINKSENSE_RUNNER_SHARED_SECRET,
     workspaceManager,
     {
+      ...(config.LINKSENSE_SERVICE_SESSION_ID ? { serviceSessionId: config.LINKSENSE_SERVICE_SESSION_ID } : {}),
       logger,
       knowledgeSearchTimeoutMs:
         config.LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS,
@@ -371,6 +373,9 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     async (ownerId) => {
       await ensureUserRuntime(ownerId)
     },
+    async () => process.platform === "linux" && config.LINKSENSE_RUNNER_MODE === "worker" && config.LINKSENSE_WORKER_PROVIDER === "docker"
+      ? countUserProcesses(containerTaskProcessIdentity.uid)
+      : 0,
   )
   installSignalHandlers(logger, async () => {
     // Trigger native cancellation immediately, including blocked HTTP starts.

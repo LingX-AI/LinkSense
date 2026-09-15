@@ -37,6 +37,38 @@ afterEach(() => {
 });
 
 describe("RunnerClient start operation", () => {
+  it("resolves each task's current project cwd and forwards it without changing the caller identity", async () => {
+    const resolveWorkspace = vi.fn(async (): Promise<import("@linksense/shared").RuntimePlacement> => ({ workspacePath: `projects/${projectionTurnId}` }));
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({ agentsTemplateVersion: "v1", runtimeGeneration }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RunnerClient(testConfig(), resolveWorkspace);
+    await client.prepareRuntime(conversationId, ownerId);
+    expect(resolveWorkspace).toHaveBeenCalledWith(ownerId, conversationId);
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("x-linksense-workspace")).toBe(`projects/${projectionTurnId}`);
+    expect(headers.get("x-linksense-owner-id")).toBe(ownerId);
+    resolveWorkspace.mockResolvedValue({ workspacePath: "workspace" });
+    await client.prepareRuntime(conversationId, ownerId);
+    expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("x-linksense-workspace")).toBe("workspace");
+  });
+
+  it("rejects an invalid cwd before making a runner request", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(new RunnerClient(testConfig()).prepareRuntime(conversationId, ownerId, "../another-user")).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reads and writes environment settings with the authenticated owner header", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({ keep_running: false })).mockResolvedValueOnce(jsonResponse({ keep_running: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RunnerClient(testConfig());
+    expect(await client.getEnvironmentSettings(ownerId)).toEqual({ keep_running: false });
+    expect(await client.updateEnvironmentSettings(ownerId, { keep_running: true })).toEqual({ keep_running: true });
+    expect(fetchMock.mock.calls.map(ownerHeader)).toEqual([ownerId, ownerId]);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({ keep_running: true });
+  });
+
   it.each(["acceptStartTurn", "startTurn"] as const)(
     "%s distinguishes a sealed submission from an unavailable runner without replaying it",
     async (method) => {

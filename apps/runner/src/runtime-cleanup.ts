@@ -39,7 +39,7 @@ export class RuntimeCleanupError extends Error {
 }
 
 export type RuntimeCleanupDirectoryResult = {
-  workspace: "absent" | "deleted"
+  workspace: "preserved"
   control: "absent" | "deleted"
 }
 
@@ -51,8 +51,6 @@ type RuntimeCleanupDependencies = {
 
 export async function removeConversationRuntimeDirectories(
   input: {
-    taskHome: string
-    workspace: string
     taskControl: string
     directoryCleanupIdentity?: DirectoryCleanupIdentity
   },
@@ -63,22 +61,6 @@ export async function removeConversationRuntimeDirectories(
   const remove = dependencies.remove ?? rm
   const inspect = dependencies.inspect ?? lstat
 
-  await removeDirectory(
-    input.taskHome,
-    "delete_workspace",
-    input.directoryCleanupIdentity,
-    makeRemovable,
-    remove,
-    inspect,
-  )
-  const workspace = await removeDirectory(
-    input.workspace,
-    "delete_workspace",
-    input.directoryCleanupIdentity,
-    makeRemovable,
-    remove,
-    inspect,
-  )
   const control = await removeDirectory(
     input.taskControl,
     "delete_control",
@@ -87,7 +69,7 @@ export async function removeConversationRuntimeDirectories(
     remove,
     inspect,
   )
-  return { workspace, control }
+  return { workspace: "preserved", control }
 }
 
 async function removeDirectory(

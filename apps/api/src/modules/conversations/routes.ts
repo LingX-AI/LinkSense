@@ -193,12 +193,12 @@ export const conversationRoutes: FastifyPluginAsync<{
           "default",
         ),
         prewarmed_conversation_id: z.string().uuid().optional(),
-        category_id: z.string().uuid().nullable().optional(),
+        project_id: z.string().uuid().nullable().optional(),
       })
       .parse(request.body);
     const result = await services.conversations.create(user.id, {
       collaborationMode: body.collaboration_mode,
-      ...(body.category_id !== undefined ? { categoryId: body.category_id } : {}),
+      ...(body.project_id !== undefined ? { projectId: body.project_id } : {}),
       ...(body.prewarmed_conversation_id
         ? { prewarmedConversationId: body.prewarmed_conversation_id }
         : {}),
@@ -231,7 +231,7 @@ export const conversationRoutes: FastifyPluginAsync<{
       ok(
         await services.conversations.reorder(user.id, {
           group: body.group,
-          ...(body.category_id !== undefined ? { categoryId: body.category_id } : {}),
+          ...(body.project_id !== undefined ? { projectId: body.project_id } : {}),
           conversationIds: body.conversation_ids,
         }),
         request.id,
@@ -307,7 +307,7 @@ export const conversationRoutes: FastifyPluginAsync<{
         archive_status: z.enum(["active", "archived"]).optional(),
         pinned: z.boolean().optional(),
         completion_read: z.literal(true).optional(),
-        category_id: z.string().uuid().nullable().optional(),
+        project_id: z.string().uuid().nullable().optional(),
         collaboration_mode: conversationCollaborationModeSchema.optional(),
       })
       .refine((value) => Object.keys(value).length > 0)
@@ -320,7 +320,7 @@ export const conversationRoutes: FastifyPluginAsync<{
             ? { archiveStatus: body.archive_status }
             : {}),
           ...(body.pinned !== undefined ? { pinned: body.pinned } : {}),
-          ...(body.category_id !== undefined ? { categoryId: body.category_id } : {}),
+          ...(body.project_id !== undefined ? { projectId: body.project_id } : {}),
           ...(body.completion_read ? { completionRead: true } : {}),
           ...(body.collaboration_mode
             ? { collaborationMode: body.collaboration_mode }

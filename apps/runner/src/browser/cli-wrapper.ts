@@ -279,9 +279,10 @@ export async function browserCliMain(
   }
   const canonicalHome = await realpath(userHome)
   const canonicalCodexHome = await realpath(codexHome)
-  const expectedWorkspace = browserWorkspaceForCodexHome(canonicalHome, canonicalCodexHome)
-  const workspace = await resolveTaskWorkspace(cwd, expectedWorkspace)
-  const conversationId = path.basename(workspace)
+  const expectedWorkspace = browserWorkspaceForCodexHome(canonicalHome, canonicalCodexHome, await realpath(environment.LINKSENSE_WORKSPACE_PATH ?? ""))
+  const workspace = await resolveUserWorkspace(cwd, canonicalHome, expectedWorkspace)
+  const conversationId = environment.LINKSENSE_CONVERSATION_ID ?? ""
+  if (!conversationIdPattern.test(conversationId)) throw new Error("browser requires a conversation id")
   const runtimeRoot =
     dependencies.runtimeRoot ?? DEFAULT_BROWSER_RUNTIME_ROOT
   const stateRoot = path.join(
@@ -673,53 +674,29 @@ async function writeBrowserConfig(
   await rename(temporaryPath, destination)
 }
 
-export function browserWorkspaceForCodexHome(userHome: string, codexHome: string, expectedTaskId?: string): string {
-  const taskHome = path.dirname(codexHome)
-  const taskId = path.basename(taskHome)
+export function browserWorkspaceForCodexHome(userHome: string, codexHome: string, workspace: string): string {
   if (!path.isAbsolute(userHome) || path.normalize(userHome) !== userHome ||
-    !path.isAbsolute(codexHome) || path.normalize(codexHome) !== codexHome ||
-    path.basename(codexHome) !== ".codex" ||
-    path.dirname(taskHome) !== path.join(userHome, "task-homes") || !conversationIdPattern.test(taskId) ||
-    (expectedTaskId !== undefined && taskId !== expectedTaskId)) {
-    throw new Error("browser requires a task CODEX_HOME inside the user HOME")
+    codexHome !== path.join(userHome, ".codex") || !path.isAbsolute(workspace)) {
+    throw new Error("browser requires the user's shared CODEX_HOME")
   }
-  return path.join(userHome, "workspaces", taskId)
+  const relative = path.relative(userHome, workspace)
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error("browser workspace must be inside the user HOME")
+  }
+  return path.resolve(workspace)
 }
 
-async function resolveTaskWorkspace(
-  cwd: string,
-  expectedWorkspace: string,
-): Promise<string> {
-  const taskId = path.basename(expectedWorkspace)
-  const workspaceRoot = path.dirname(expectedWorkspace)
-  const rootInfo = await lstat(workspaceRoot)
-  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
-    throw new Error("browser workspace root boundary is invalid")
+async function resolveUserWorkspace(cwd: string, userHome: string, expectedWorkspace: string): Promise<string> {
+  const candidate = await realpath(cwd)
+  const relative = path.relative(userHome, candidate)
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error("browser command must run inside the user HOME")
   }
-  let candidate = await realpath(cwd)
-  while (true) {
-    if (
-      path.basename(candidate) === taskId &&
-      path.dirname(candidate) === workspaceRoot &&
-      (await hasTaskWorkspaceDirectories(candidate))
-    ) {
-      return candidate
-    }
-    const parent = path.dirname(candidate)
-    if (parent === candidate) break
-    candidate = parent
-  }
-  throw new Error("browser command must run inside the current task workspace")
-}
-
-async function hasTaskWorkspaceDirectories(candidate: string): Promise<boolean> {
-  const entries = await Promise.all(
-    ["artifacts", "attachments", "temp"].map(async (name) => {
-      const info = await lstat(path.join(candidate, name)).catch(() => null)
-      return info?.isDirectory() === true && !info.isSymbolicLink()
-    }),
-  )
-  return entries.every(Boolean)
+  const fromProject = path.relative(expectedWorkspace, candidate)
+  // Commands run from a project's subdirectory retain its artifact directory.
+  return fromProject === "" || (!fromProject.startsWith(`..${path.sep}`) && fromProject !== ".." && !path.isAbsolute(fromProject))
+    ? expectedWorkspace
+    : candidate
 }
 
 async function defaultRunBrowserCli(input: {

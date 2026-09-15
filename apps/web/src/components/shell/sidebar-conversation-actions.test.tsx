@@ -9,7 +9,7 @@ function renderActions(pinned = false, disabled = false, movable = true) {
   const callbacks = {
     onTogglePinned: vi.fn(),
     onArchive: vi.fn(),
-    onMoveToCategory: movable ? vi.fn() : undefined,
+    onMoveToProject: movable ? vi.fn() : undefined,
   }
   return {
     ...callbacks,
@@ -36,7 +36,7 @@ describe("SidebarConversationActions", () => {
     vi.restoreAllMocks()
   })
 
-  it("moves category and pin actions into a menu while keeping archive inline", async () => {
+  it("moves project and pin actions into a menu while keeping archive inline", async () => {
     const interaction = userEvent.setup()
     const callbacks = renderActions()
     const more = screen.getByRole("button", { name: moreLabel })
@@ -64,9 +64,9 @@ describe("SidebarConversationActions", () => {
       screen.queryByRole("menuitem", { name: "归档任务" })
     ).not.toBeInTheDocument()
     await interaction.click(
-      await screen.findByRole("menuitem", { name: "移动到分类" })
+      await screen.findByRole("menuitem", { name: "移动到项目" })
     )
-    expect(callbacks.onMoveToCategory).toHaveBeenCalledOnce()
+    expect(callbacks.onMoveToProject).toHaveBeenCalledOnce()
     await waitFor(() =>
       expect(screen.queryByRole("menu")).not.toBeInTheDocument()
     )
@@ -101,7 +101,7 @@ describe("SidebarConversationActions", () => {
     expect(more).toHaveFocus()
   })
 
-  it("keeps pending pin and archive actions disabled and omits unavailable category actions", async () => {
+  it("keeps pending pin and archive actions disabled and omits unavailable project actions", async () => {
     const interaction = userEvent.setup()
     const callbacks = renderActions(false, true, false)
     const archive = screen.getByRole("button", {
@@ -113,7 +113,7 @@ describe("SidebarConversationActions", () => {
     const pin = await screen.findByRole("menuitem", { name: "置顶任务" })
     expect(pin).toHaveAttribute("aria-disabled", "true")
     expect(
-      screen.queryByRole("menuitem", { name: "移动到分类" })
+      screen.queryByRole("menuitem", { name: "移动到项目" })
     ).not.toBeInTheDocument()
     await interaction.keyboard("{Enter}")
     expect(callbacks.onTogglePinned).not.toHaveBeenCalled()

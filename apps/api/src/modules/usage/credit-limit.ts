@@ -1,3 +1,4 @@
+import { assertExecutionPrincipalActive } from "../../lib/execution-principal.js";
 import { creditMicrosToDecimal } from "@linksense/shared";
 import dayjs from "dayjs";
 import isoWeek from "dayjs/plugin/isoWeek.js";
@@ -61,7 +62,7 @@ export class CreditLimitService {
   }
 
   async assertCanStartTask(userId: string): Promise<void> {
-    const user = await this.prisma.user.findUnique({
+    let user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         totalCreditLimitMicros: true,
@@ -71,6 +72,12 @@ export class CreditLimitService {
         status: true,
       },
     });
+    if (!user) {
+      await assertExecutionPrincipalActive(this.prisma, userId);
+      user = await this.prisma.applicationExternalSession.findUnique({ where: { runtimePrincipalId: userId }, select: {
+        totalCreditLimitMicros: true, weeklyCreditLimitMicros: true, monthlyCreditLimitMicros: true, creditQuotaResetAt: true, status: true,
+      } });
+    }
     if (!user || user.status !== "active") throw new AppError("AUTH_REQUIRED");
 
     if (

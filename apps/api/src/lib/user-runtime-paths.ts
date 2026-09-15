@@ -1,6 +1,7 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import { z } from "zod";
+import { projectWorkspacePath, userWorkspacePathSchema, runtimeEnvironmentPath, type RuntimePlacement } from "@linksense/shared";
 
 const uuidSchema = z.uuid();
 
@@ -11,25 +12,43 @@ export class UserRuntimePathError extends Error {
   }
 }
 
-export function conversationWorkspaceRelativePath(
+export function projectWorkspaceRelativePath(
   ownerId: string,
-  conversationId: string,
+  projectId: string | null,
 ): string {
-  return `${normalizeUuid(ownerId, "ownerId")}/home/workspaces/${normalizeUuid(
-    conversationId,
-    "conversationId",
-  )}`;
+  return `${normalizeUuid(ownerId, "ownerId")}/home/${projectWorkspacePath(projectId)}`;
+}
+
+export function userWorkspacePath(ownerId: string, workspaceRelPath: string): string {
+  return runtimePlacementForWorkspace(ownerId, workspaceRelPath).workspacePath;
+}
+
+export function serviceWorkspaceRelativePath(ownerId: string, conversationId: string): string {
+  return `${runtimeEnvironmentPath(ownerId, conversationId)}/home/workspace`;
+}
+
+export function runtimePlacementForWorkspace(ownerId: string, workspaceRelPath: string): RuntimePlacement {
+  const owner = normalizeUuid(ownerId, "ownerId");
+  const service = workspaceRelPath.startsWith(`${owner}/services/`)
+    ? workspaceRelPath.split("/")[2] : undefined;
+  const prefix = `${runtimeEnvironmentPath(owner, service)}/home/`;
+  if (!workspaceRelPath.startsWith(prefix)) throw new UserRuntimePathError("workspace belongs to another user");
+  const parsed = userWorkspacePathSchema.safeParse(workspaceRelPath.slice(prefix.length));
+  if (!parsed.success) throw new UserRuntimePathError("invalid project workspace");
+  if (service && parsed.data !== "workspace") throw new UserRuntimePathError("service workspace must be session scoped");
+  return { workspacePath: parsed.data, ...(service ? { serviceSessionId: service } : {}) };
 }
 
 export function resolveConversationWorkspaceRoot(
   workspaceRoot: string,
   ownerId: string,
-  conversationId: string,
+  workspaceRelPath: string,
 ): string {
   const root = resolve(workspaceRoot);
   const candidate = resolve(
     root,
-    conversationWorkspaceRelativePath(ownerId, conversationId),
+    runtimeEnvironmentPath(ownerId, runtimePlacementForWorkspace(ownerId, workspaceRelPath).serviceSessionId),
+    "home", userWorkspacePath(ownerId, workspaceRelPath),
   );
   assertDescendant(root, candidate, false);
   return candidate;
@@ -38,7 +57,7 @@ export function resolveConversationWorkspaceRoot(
 export function resolveConversationWorkspaceEntry(
   workspaceRoot: string,
   ownerId: string,
-  conversationId: string,
+  workspaceRelPath: string,
   workspaceRelativePath: string,
 ): string {
   if (!workspaceRelativePath || isAbsolute(workspaceRelativePath)) {
@@ -49,7 +68,7 @@ export function resolveConversationWorkspaceEntry(
   const root = resolveConversationWorkspaceRoot(
     workspaceRoot,
     ownerId,
-    conversationId,
+    workspaceRelPath,
   );
   const candidate = resolve(root, workspaceRelativePath);
   assertDescendant(root, candidate, false);
@@ -59,7 +78,7 @@ export function resolveConversationWorkspaceEntry(
 export function assertConversationWorkspacePath(
   workspaceRoot: string,
   ownerId: string,
-  conversationId: string,
+  workspaceRelPath: string,
   candidate: string,
   options: { allowRoot?: boolean } = {},
 ): string {
@@ -69,7 +88,7 @@ export function assertConversationWorkspacePath(
   const root = resolveConversationWorkspaceRoot(
     workspaceRoot,
     ownerId,
-    conversationId,
+    workspaceRelPath,
   );
   const normalized = resolve(candidate);
   assertDescendant(root, normalized, options.allowRoot ?? false);
@@ -96,7 +115,14 @@ function assertDescendant(
     pathFromRoot.startsWith(`..${sep}`)
   ) {
     throw new UserRuntimePathError(
-      "workspace path is outside its conversation root",
+      "workspace path is outside its project root",
     );
   }
+}
+
+export function serviceSessionForWorkspace(ownerId: string, workspaceRelPath: string | undefined): string {
+  if (!workspaceRelPath) throw new UserRuntimePathError("missing service workspace");
+  const serviceSessionId = runtimePlacementForWorkspace(ownerId, workspaceRelPath).serviceSessionId;
+  if (!serviceSessionId) throw new UserRuntimePathError("application service requires a service environment");
+  return serviceSessionId;
 }

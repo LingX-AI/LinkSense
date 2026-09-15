@@ -91,6 +91,11 @@ export type UserServiceOptions = {
   creditLimitDefaults?: UserCreditLimitDefaultsReader;
   creditQuotaUsage?: UserCreditQuotaUsageReader;
   materializeUserHomes?: (userIds: readonly string[]) => Promise<void>;
+  visitorProfile?: (userId: string) => Promise<{
+    id: string; displayName: string | null;
+    totalCreditLimitMicros: bigint | null; weeklyCreditLimitMicros: bigint | null;
+    monthlyCreditLimitMicros: bigint | null; creditQuotaResetAt: Date | null;
+  } | null>;
   avatarMaxBytes?: number;
   now?: () => Date;
   createId?: () => string;
@@ -367,6 +372,11 @@ export class UserService {
   }
 
   async getCurrentUserInfo(userId: string): Promise<CurrentUserInfoSuccess> {
+    const visitor = await this.options.visitorProfile?.(userId);
+    if (visitor) return {
+      success: true, user: { name: visitor.displayName, email: null, user_groups: [] },
+      credit_quota: projectCurrentUserCreditQuota(await this.getCurrentCreditQuotaUsage(visitor)),
+    };
     const user = await this.getOwnProfile(userId);
     const creditQuota = await this.getCurrentCreditQuotaUsage(user);
     return {

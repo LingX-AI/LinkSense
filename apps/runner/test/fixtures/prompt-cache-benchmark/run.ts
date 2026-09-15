@@ -154,7 +154,7 @@ try {
 async function captureNativeRequest(arm: CacheBenchmarkArm, round: number): Promise<void> {
   const conversationId = randomUUID();
   manager.bindOwner(conversationId, ownerId);
-  const paths = await manager.ensureConversation(conversationId, "prompt-cache-experiment");
+  const paths = await manager.ensureConversation(conversationId);
   const context: TurnContextInput = {
     userInput: "Reply with exactly OK. Do not call tools.",
     applicationInstructions: `Synthetic task ${conversationId}. No external action is authorized.`,

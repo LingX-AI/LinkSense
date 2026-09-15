@@ -495,72 +495,115 @@ describe("administrator usage analytics page", () => {
     expect(tableColumnText(userTable, 5)).toEqual(["0.01"])
   })
 
-  it("shows natural-month bills and a compact detail table without horizontal scrolling", async () => {
-    const interaction = userEvent.setup()
-    const statement = billingStatementFixture()
-    const statementSummary = structuredClone(statement)
-    delete (statementSummary as { models?: unknown }).models
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((request: RequestInfo | URL) => {
-        const url = String(request)
-        const data = url.includes("/bills/00000000-")
-          ? statement
-          : url.includes("/bills")
-            ? {
-                generated_at: "2026-08-01T00:05:00.000Z",
-                current_period: {
-                  period: {
-                    month: "2026-08",
-                    from: "2026-07-31T16:00:00.000Z",
-                    to_exclusive: "2026-08-31T16:00:00.000Z",
-                    time_zone: "Asia/Shanghai",
+  it.each([0, 1, 30])(
+    "keeps the preview header and footer outside the scroll area with %i model rows",
+    async (modelCount) => {
+      const interaction = userEvent.setup()
+      const statement = billingStatementFixture()
+      const model = statement.models[0]
+      if (!model) throw new Error("Expected a billing model fixture")
+      statement.models = Array.from({ length: modelCount }, (_, index) => ({
+        ...model,
+        model_id: `model-${index}`,
+      }))
+      const statementSummary = structuredClone(statement)
+      delete (statementSummary as { models?: unknown }).models
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((request: RequestInfo | URL) => {
+          const url = String(request)
+          const data = url.includes("/bills/00000000-")
+            ? statement
+            : url.includes("/bills")
+              ? {
+                  generated_at: "2026-08-01T00:05:00.000Z",
+                  current_period: {
+                    period: {
+                      month: "2026-08",
+                      from: "2026-07-31T16:00:00.000Z",
+                      to_exclusive: "2026-08-31T16:00:00.000Z",
+                      time_zone: "Asia/Shanghai",
+                    },
+                    expected_generation_at: "2026-08-31T16:05:00.000Z",
                   },
-                  expected_generation_at: "2026-08-31T16:05:00.000Z",
-                },
-                statements: [statementSummary],
-              }
-            : report
-        return Promise.resolve(
-          new Response(JSON.stringify({ success: true, data }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          })
-        )
+                  statements: [statementSummary],
+                }
+              : report
+          return Promise.resolve(
+            new Response(JSON.stringify({ success: true, data }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            })
+          )
+        })
+      )
+
+      const { container } = renderUsagePage()
+      await screen.findByRole("heading", { name: "用量统计" })
+      await interaction.click(screen.getByRole("tab", { name: "账单" }))
+
+      expect(await screen.findByText("月度账单")).toBeVisible()
+      expect(screen.getByText("账单将在自然月结束后自动生成。")).toBeVisible()
+      expect(screen.getByText("2026年7月")).toBeVisible()
+      expect(screen.getByText("¥1.23")).toBeVisible()
+      expect(screen.queryByText("已生成")).not.toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "在线预览" })).toBeVisible()
+      await interaction.click(screen.getByRole("button", { name: "在线预览" }))
+      expect(
+        await screen.findByRole("heading", { name: "账单明细" })
+      ).toBeVisible()
+      if (modelCount > 0)
+        expect(screen.getAllByText("GPT 5.6 Sol")[0]).toBeVisible()
+      const dialog = container.ownerDocument.querySelector(
+        '[data-slot="dialog-content"]'
+      )
+      expect(dialog?.querySelector("table")).toHaveClass("table-fixed")
+      expect(dialog?.querySelector("table")).toHaveClass("text-[13px]")
+      expect(dialog?.querySelector('[class*="overflow-x-auto"]')).toBeNull()
+      if (!(dialog instanceof HTMLElement))
+        throw new Error("Expected billing dialog")
+      const dialogElement = dialog
+      const scrollArea = within(dialogElement).getByRole("region", {
+        name: "账单明细",
       })
-    )
-
-    const { container } = renderUsagePage()
-    await screen.findByRole("heading", { name: "用量统计" })
-    await interaction.click(screen.getByRole("tab", { name: "账单" }))
-
-    expect(await screen.findByText("月度账单")).toBeVisible()
-    expect(screen.getByText("账单将在自然月结束后自动生成。")).toBeVisible()
-    expect(screen.getByText("2026年7月")).toBeVisible()
-    expect(screen.getByText("¥1.23")).toBeVisible()
-    expect(screen.queryByText("已生成")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "在线预览" })).toBeVisible()
-    await interaction.click(screen.getByRole("button", { name: "在线预览" }))
-    expect(
-      await screen.findByRole("heading", { name: "账单明细" })
-    ).toBeVisible()
-    expect(screen.getAllByText("GPT 5.6 Sol")[0]).toBeVisible()
-    const dialog = container.ownerDocument.querySelector(
-      '[data-slot="dialog-content"]'
-    )
-    expect(dialog?.querySelector("table")).toHaveClass("table-fixed")
-    expect(dialog?.querySelector("table")).toHaveClass("text-[13px]")
-    expect(dialog?.querySelector('[class*="overflow-x-auto"]')).toBeNull()
-    const dialogElement = dialog as HTMLElement
-    await interaction.click(
-      within(dialogElement).getByRole("button", { name: "导出 PDF" })
-    )
-    await waitFor(() => expect(createBillingStatementPdf).toHaveBeenCalled())
-    expect(downloadBlob).toHaveBeenCalledWith(
-      expect.any(Blob),
-      "LS-202607-账单.pdf"
-    )
-  })
+      const header = dialog.querySelector('[data-slot="dialog-header"]')
+      const footer = dialog.querySelector('[data-slot="dialog-footer"]')
+      if (
+        !(header instanceof HTMLElement) ||
+        !(footer instanceof HTMLElement)
+      ) {
+        throw new Error("Expected billing dialog header and footer")
+      }
+      expect(dialog).toHaveClass(
+        "flex",
+        "flex-col",
+        "overflow-hidden",
+        "max-h-[88dvh]"
+      )
+      expect(dialog).not.toHaveClass("overflow-y-auto")
+      expect(scrollArea).toHaveClass("min-h-0", "overflow-y-auto")
+      expect(scrollArea).toHaveAttribute("tabindex", "0")
+      expect(header?.parentElement).toBe(dialog)
+      expect(footer?.parentElement).toBe(dialog)
+      expect(header).toHaveClass("shrink-0")
+      expect(footer).toHaveClass("shrink-0")
+      expect(scrollArea).not.toContainElement(header)
+      expect(scrollArea).not.toContainElement(footer)
+      expect(scrollArea.querySelectorAll("tbody tr")).toHaveLength(modelCount)
+      expect(footer).toContainElement(
+        within(dialogElement).getByRole("button", { name: "导出 PDF" })
+      )
+      expect(footer).toHaveTextContent("¥1.23")
+      await interaction.click(
+        within(dialogElement).getByRole("button", { name: "导出 PDF" })
+      )
+      await waitFor(() => expect(createBillingStatementPdf).toHaveBeenCalled())
+      expect(downloadBlob).toHaveBeenCalledWith(
+        expect.any(Blob),
+        "LS-202607-账单.pdf"
+      )
+    }
+  )
 
   it("provides English billing and PDF labels", async () => {
     await i18n.changeLanguage("en-US")

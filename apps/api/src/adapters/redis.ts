@@ -892,7 +892,7 @@ export class LinkSenseRedis {
     }
   }
 
-  async recordRunnerHeartbeat(ownerId: string): Promise<void> {
+  async recordRunnerHeartbeat(ownerId: string, serviceSessionId?: string): Promise<void> {
     try {
       await this.client.eval(
         `
@@ -901,7 +901,7 @@ export class LinkSenseRedis {
       `,
         1,
         RUNNER_OWNER_DEADLINES_KEY,
-        ownerId,
+        runnerEnvironmentKey(ownerId, serviceSessionId),
         runnerHeartbeatLeaseMs,
       )
     } catch {
@@ -910,7 +910,7 @@ export class LinkSenseRedis {
   }
 
   async expiredRunnerOwners(): Promise<
-    Array<{ ownerId: string; deadline: number }>
+    Array<{ ownerId: string; serviceSessionId?: string; deadline: number }>
   > {
     try {
       const rows = z.array(z.string()).parse(
@@ -923,10 +923,10 @@ export class LinkSenseRedis {
           RUNNER_OWNER_DEADLINES_KEY,
         ),
       )
-      const result: Array<{ ownerId: string; deadline: number }> = []
+      const result: Array<{ ownerId: string; serviceSessionId?: string; deadline: number }> = []
       for (let i = 0; i < rows.length; i += 2) {
         result.push({
-          ownerId: z.uuid().parse(rows[i]),
+          ...parseRunnerEnvironmentKey(rows[i]),
           deadline: z.coerce
             .number()
             .int()
@@ -940,11 +940,11 @@ export class LinkSenseRedis {
     }
   }
 
-  async runnerOwnerDeadline(ownerId: string): Promise<number | null> {
+  async runnerOwnerDeadline(ownerId: string, serviceSessionId?: string): Promise<number | null> {
     try {
       const value = await this.client.zscore(
         RUNNER_OWNER_DEADLINES_KEY,
-        ownerId,
+        runnerEnvironmentKey(ownerId, serviceSessionId),
       )
       return value === null
         ? null
@@ -957,6 +957,7 @@ export class LinkSenseRedis {
   async acknowledgeExpiredRunnerOwner(
     ownerId: string,
     deadline: number,
+    serviceSessionId?: string,
   ): Promise<void> {
     try {
       // Enqueue first, then remove only the observed lease. A concurrent beat
@@ -969,7 +970,7 @@ export class LinkSenseRedis {
       `,
         1,
         RUNNER_OWNER_DEADLINES_KEY,
-        ownerId,
+        runnerEnvironmentKey(ownerId, serviceSessionId),
         deadline,
       )
     } catch {
@@ -1459,4 +1460,15 @@ export const redisScriptsForTesting = {
   ACQUIRE_CONCURRENCY_SCRIPT,
   BEGIN_RUNNING_TURN_RECOVERY_SCRIPT,
   COMPLETE_RUNNING_TURN_RECOVERY_SCRIPT,
+}
+
+function runnerEnvironmentKey(ownerId: string, serviceSessionId?: string): string {
+  const owner = z.uuid().parse(ownerId);
+  return serviceSessionId ? `${owner}:${z.uuid().parse(serviceSessionId)}` : owner;
+}
+
+function parseRunnerEnvironmentKey(value: unknown): { ownerId: string; serviceSessionId?: string } {
+  const parts = z.string().parse(value).split(":");
+  if (parts.length > 2) throw new Error("Invalid runtime identity");
+  return { ownerId: z.uuid().parse(parts[0]), ...(parts[1] ? { serviceSessionId: z.uuid().parse(parts[1]) } : {}) };
 }

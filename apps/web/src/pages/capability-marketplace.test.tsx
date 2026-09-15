@@ -2192,7 +2192,7 @@ describe("capability marketplace pages", () => {
     expect(cardAction).toHaveClass("col-start-2", "justify-self-end")
     expect(cardAction).toHaveClass("flex", "items-center", "gap-1")
     expect(footer).not.toBeNull()
-    expect(footer).toHaveClass("flex-nowrap")
+    expect(footer).toHaveClass("flex-wrap")
     expect(applicationIcon).toHaveClass(
       "rounded-[calc(var(--radius)*0.7)]",
       "after:rounded-[calc(var(--radius)*0.7)]"
@@ -2239,7 +2239,7 @@ describe("capability marketplace pages", () => {
       within(footer!)
         .getAllByRole("button")
         .map((button) => button.textContent)
-    ).toEqual(["立即试用"])
+    ).toEqual(["使用与分享", "立即试用"])
     expect(
       within(footer!).queryByRole("button", { name: "共享" })
     ).not.toBeInTheDocument()
@@ -2985,6 +2985,68 @@ describe("capability marketplace pages", () => {
   )
 
   it.each(["zh-CN", "en-US"])(
+    "shows source radio choices and preserves a manual draft when switching sources in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(envelope({ items: [], next_cursor: null })))
+      )
+      const interaction = userEvent.setup()
+      renderUserPageWithRouter("/capabilities?section=skill&scope=personal")
+      await interaction.click(
+        await screen.findByRole("button", {
+          name: i18n.t("capability.addSkill"),
+        })
+      )
+      const dialog = await screen.findByRole("dialog")
+      const source = within(dialog).getByRole("radiogroup", {
+        name: i18n.t("capability.source"),
+      })
+      expect(source).toHaveClass("flex", "flex-wrap", "gap-2")
+      for (const option of within(source).getAllByRole("radio")) {
+        expect(option.closest('[data-slot="radio-group-option"]')).toHaveClass(
+          "w-auto",
+          "rounded-xl",
+          "border",
+          "border-[var(--app-border)]"
+        )
+      }
+      expect(within(source).getAllByRole("radio")).toHaveLength(2)
+      expect(
+        within(dialog).queryByRole("combobox", {
+          name: i18n.t("capability.source"),
+        })
+      ).not.toBeInTheDocument()
+      const local = within(source).getByRole("radio", {
+        name: i18n.t("marketplace.importSources.local"),
+      })
+      const manual = within(source).getByRole("radio", {
+        name: i18n.t("marketplace.importSources.manualSkill"),
+      })
+      expect(local).toBeChecked()
+      expect(manual).not.toBeChecked()
+      await interaction.click(manual)
+      expect(manual).toBeChecked()
+      expect(local).not.toBeChecked()
+      const instructions = within(dialog).getByLabelText(
+        i18n.t("marketplace.skillMarkdown")
+      )
+      await interaction.click(instructions)
+      await interaction.paste("# Saved draft")
+      await interaction.click(local)
+      expect(
+        within(dialog).getByLabelText(i18n.t("marketplace.zipSkillPackage"))
+      ).toBeVisible()
+      await interaction.keyboard("{ArrowRight}")
+      expect(manual).toBeChecked()
+      expect(
+        within(dialog).getByLabelText(i18n.t("marketplace.skillMarkdown"))
+      ).toHaveValue("# Saved draft")
+    }
+  )
+
+  it.each(["zh-CN", "en-US"])(
     "allows manual skill fields to grow within limits and shows name rules in %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -3003,10 +3065,7 @@ describe("capability marketplace pages", () => {
       const dialog = await screen.findByRole("dialog")
       expect(dialog).toHaveClass("max-h-[calc(100dvh-2rem)]", "overflow-y-auto")
       await interaction.click(
-        within(dialog).getByLabelText(i18n.t("capability.source"))
-      )
-      await interaction.click(
-        await screen.findByRole("option", {
+        within(dialog).getByRole("radio", {
           name: i18n.t("marketplace.importSources.manualSkill"),
         })
       )
@@ -3079,10 +3138,7 @@ describe("capability marketplace pages", () => {
         )
         const dialog = await screen.findByRole("dialog")
         await interaction.click(
-          within(dialog).getByLabelText(i18n.t("capability.source"))
-        )
-        await interaction.click(
-          await screen.findByRole("option", {
+          within(dialog).getByRole("radio", {
             name: i18n.t("marketplace.importSources.manualSkill"),
           })
         )
@@ -3280,10 +3336,7 @@ describe("capability marketplace pages", () => {
       )
       const dialog = await screen.findByRole("dialog")
       await interaction.click(
-        within(dialog).getByLabelText(i18n.t("capability.source"))
-      )
-      await interaction.click(
-        await screen.findByRole("option", {
+        within(dialog).getByRole("radio", {
           name: i18n.t("marketplace.importSources.manualSkill"),
         })
       )
@@ -3340,10 +3393,7 @@ describe("capability marketplace pages", () => {
       )
       const reopened = await screen.findByRole("dialog")
       await interaction.click(
-        within(reopened).getByLabelText(i18n.t("capability.source"))
-      )
-      await interaction.click(
-        await screen.findByRole("option", {
+        within(reopened).getByRole("radio", {
           name: i18n.t("marketplace.importSources.manualSkill"),
         })
       )
@@ -3509,7 +3559,9 @@ describe("capability marketplace pages", () => {
     const importDialog = await screen.findByRole("dialog", {
       name: "添加技能",
     })
-    const importSource = within(importDialog).getByLabelText("来源")
+    const importSource = within(importDialog).getByRole("radiogroup", {
+      name: "来源",
+    })
     expect(importSource).toHaveTextContent("本地 ZIP 包")
     expect(
       within(importDialog).queryByLabelText("类型")
@@ -3517,16 +3569,16 @@ describe("capability marketplace pages", () => {
     expect(within(importDialog).queryByText("插件")).not.toBeInTheDocument()
     expect(within(importDialog).queryByText(/^local$/u)).not.toBeInTheDocument()
     expect(within(importDialog).queryByText(/^skill$/u)).not.toBeInTheDocument()
-    await interaction.click(importSource)
     expect(
-      await screen.findByRole("option", { name: "本地 ZIP 包" })
+      within(importSource).getByRole("radio", { name: "本地 ZIP 包" })
+    ).toBeChecked()
+    expect(
+      within(importSource).getByRole("radio", { name: "手动创建 Skill" })
     ).toBeVisible()
-    expect(screen.getByRole("option", { name: "手动创建 Skill" })).toBeVisible()
     expect(
-      screen.queryByRole("option", { name: "URL 插件/Skill 包" })
+      within(importSource).queryByRole("radio", { name: "URL 插件/Skill 包" })
     ).not.toBeInTheDocument()
-    expect(screen.getAllByRole("option")).toHaveLength(2)
-    await interaction.keyboard("{Escape}")
+    expect(within(importSource).getAllByRole("radio")).toHaveLength(2)
 
     await interaction.upload(
       within(importDialog).getByLabelText("ZIP 技能包"),
@@ -3541,6 +3593,16 @@ describe("capability marketplace pages", () => {
     expect(previewButton).toBeDisabled()
     expect(previewButton).toHaveAttribute("aria-busy", "true")
     expect(previewButton.querySelector('[data-slot="spinner"]')).not.toBeNull()
+    for (const option of within(importSource).getAllByRole("radio")) {
+      expect(option).toHaveAttribute("aria-disabled", "true")
+    }
+    await interaction.click(
+      within(importSource).getByRole("radio", { name: "手动创建 Skill" })
+    )
+    expect(
+      within(importSource).getByRole("radio", { name: "本地 ZIP 包" })
+    ).toBeChecked()
+    expect(within(importDialog).getByLabelText("ZIP 技能包")).toBeVisible()
 
     const uploadRequest = ControllableUploadRequest.latest
     expect(uploadRequest).not.toBeNull()

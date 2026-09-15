@@ -67,7 +67,7 @@ describe("quota settings", () => {
     expect(await service.updateSettings("admin", input, {})).toEqual(input);
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
     expect(tx.user.updateMany).toHaveBeenCalledWith({
-      where: { accountType: "member", selfRegisteredAt: { not: null } },
+      where: { selfRegisteredAt: { not: null } },
       data: {
         totalCreditLimitMicros: 50_000_000n,
         weeklyCreditLimitMicros: 2_500_000n,

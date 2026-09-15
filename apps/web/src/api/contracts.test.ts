@@ -61,7 +61,7 @@ describe("API response contracts", () => {
 
   it("accepts current application icon metadata on conversation summaries", () => {
     const result = conversationSchema.parse({
-      category_id: null,
+      project_id: null,
       id: "conversation-application-icon",
       title: "AISG学校政策问答助手",
       updated_at: now,
@@ -305,7 +305,7 @@ describe("API response contracts", () => {
   it("flattens a conversation detail projection and keeps only staged attachments in the composer", () => {
     const result = conversationDetailSchema.parse({
       conversation: {
-        category_id: null,
+        project_id: null,
         id: "conversation-1",
         title: "测试对话",
         archive_status: "active",
@@ -455,7 +455,7 @@ describe("API response contracts", () => {
     const knowledgeBaseId = "10000000-0000-4000-8000-000000000001"
     const result = conversationDetailSchema.parse({
       conversation: {
-        category_id: null,
+        project_id: null,
         id: "conversation-knowledge",
         title: "知识库问答",
         updated_at: now,
@@ -515,7 +515,7 @@ describe("API response contracts", () => {
   it("defaults missing turn file-change counts in a conversation detail", () => {
     const result = conversationDetailSchema.parse({
       conversation: {
-        category_id: null,
+        project_id: null,
         id: "conversation-without-file-counts",
         title: "没有文件统计",
         archive_status: "active",
@@ -529,7 +529,7 @@ describe("API response contracts", () => {
   it("preserves fork-source metadata and copied message sequence numbers", () => {
     const result = conversationDetailSchema.parse({
       conversation: {
-        category_id: null,
+        project_id: null,
         id: "forked-conversation",
         title: "源任务(2)",
         archive_status: "active",
@@ -570,7 +570,7 @@ describe("API response contracts", () => {
     const messageId = "40000000-0000-4000-8000-000000000001"
     const result = conversationDetailSchema.parse({
       conversation: {
-        category_id: null,
+        project_id: null,
         id: conversationId,
         title: "运行中的任务",
         archive_status: "active",
@@ -622,7 +622,7 @@ describe("API response contracts", () => {
   it("prefers the explicit latest SSE cursor over the filtered detail events", () => {
     const result = conversationDetailSchema.parse({
       conversation: {
-        category_id: null,
+        project_id: null,
         id: "conversation-with-explicit-cursor",
         title: "长任务",
         archive_status: "active",
@@ -638,7 +638,7 @@ describe("API response contracts", () => {
   it("joins native message phases and assigns turn artifacts only to the final answer", () => {
     const result = conversationDetailSchema.parse({
       conversation: {
-        category_id: null,
+        project_id: null,
         id: "conversation-native",
         title: "原生事件",
         archive_status: "active",
@@ -1000,7 +1000,7 @@ describe("API response contracts", () => {
 
   it("normalizes conversation, capability preference, and SSE fields", () => {
     const conversation = conversationSchema.parse({
-      category_id: null,
+      project_id: null,
       id: "conversation-1",
       title: "未命名对话",
       title_source: "fallback",
@@ -1224,14 +1224,14 @@ describe("API response contracts", () => {
 
   it("normalizes legacy fallback task titles without changing manual titles", () => {
     const legacyEnglishFallback = conversationSchema.parse({
-      category_id: null,
+      project_id: null,
       id: "conversation-legacy-en",
       title: "Untitled conversation",
       title_source: "fallback",
       updated_at: now,
     })
     const manualLegacyText = conversationSchema.parse({
-      category_id: null,
+      project_id: null,
       id: "conversation-manual",
       title: "未命名对话",
       title_source: "manual",

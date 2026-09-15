@@ -366,7 +366,7 @@ describe("turn-start contract diagnostics", () => {
         attachments: [
           {
             filename,
-            relativePath: "",
+            homeRelativePath: "",
           },
         ],
         priorityPlugins: [],
@@ -386,7 +386,7 @@ describe("turn-start contract diagnostics", () => {
     expect(issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: ["context", "attachments", "[]", "relativePath"],
+          path: ["context", "attachments", "[]", "homeRelativePath"],
           code: "too_small",
         }),
         expect.objectContaining({

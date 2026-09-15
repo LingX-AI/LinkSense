@@ -11,7 +11,7 @@ const conversations = [
     id: "task-first",
     title: "第一项任务",
     archived: false,
-    category_id: null,
+    project_id: null,
     updated_at: "2026-08-12T08:00:00.000Z",
     pinned_at: null,
     sort_order: 0,
@@ -24,7 +24,7 @@ const conversations = [
     id: "task-second",
     title: "第二项任务",
     archived: false,
-    category_id: null,
+    project_id: null,
     updated_at: "2026-08-12T07:00:00.000Z",
     pinned_at: null,
     sort_order: 1,
@@ -46,10 +46,10 @@ describe("sortable conversation group", () => {
     render(
       <SidebarConversationDnd
         conversations={conversations}
-        categories={[]}
+        projects={[]}
         disabled={false}
         onReorder={vi.fn(async () => undefined)}
-        onReorderCategories={vi.fn(async () => undefined)}
+        onReorderProjects={vi.fn(async () => undefined)}
         onMove={vi.fn(async () => undefined)}
         onError={vi.fn()}
       >
@@ -100,10 +100,10 @@ describe("sortable conversation group", () => {
     render(
       <SidebarConversationDnd
         conversations={conversations}
-        categories={[]}
+        projects={[]}
         disabled={false}
         onReorder={vi.fn(async () => undefined)}
-        onReorderCategories={vi.fn(async () => undefined)}
+        onReorderProjects={vi.fn(async () => undefined)}
         onMove={vi.fn(async () => undefined)}
         onError={vi.fn()}
       >

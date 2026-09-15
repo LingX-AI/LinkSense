@@ -20,7 +20,7 @@ async function tempRoot(): Promise<string> {
 }
 
 describe("runtime cleanup directories", () => {
-  it("removes the task HOME, workspace and control directories", async () => {
+  it("removes task control state and preserves shared HOME and project files", async () => {
     const root = await tempRoot()
     const home = path.join(root, "task-home")
     await mkdir(home)
@@ -34,10 +34,10 @@ describe("runtime cleanup directories", () => {
     await writeFile(path.join(workspace, "attachment.txt"), "content")
 
     await expect(
-      removeConversationRuntimeDirectories({ taskHome: home, workspace, taskControl }),
-    ).resolves.toEqual({ workspace: "deleted", control: "deleted" })
-    await expect(lstat(home)).rejects.toMatchObject({ code: "ENOENT" })
-    await expect(lstat(workspace)).rejects.toMatchObject({ code: "ENOENT" })
+      removeConversationRuntimeDirectories({ taskControl }),
+    ).resolves.toEqual({ workspace: "preserved", control: "deleted" })
+    expect((await lstat(home)).isDirectory()).toBe(true)
+    expect((await lstat(workspace)).isDirectory()).toBe(true)
     await expect(lstat(taskControl)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
@@ -46,11 +46,9 @@ describe("runtime cleanup directories", () => {
 
     await expect(
       removeConversationRuntimeDirectories({
-        taskHome: path.join(root, "task-home"),
-        workspace: path.join(root, "home", "workspaces", "missing"),
         taskControl: path.join(root, "control", "workspaces", "missing"),
       }),
-    ).resolves.toEqual({ workspace: "absent", control: "absent" })
+    ).resolves.toEqual({ workspace: "preserved", control: "absent" })
   })
 
   it("returns a stable stage and reason without exposing the path", async () => {
@@ -61,7 +59,7 @@ describe("runtime cleanup directories", () => {
 
     await expect(
       removeConversationRuntimeDirectories(
-        { taskHome: "/private/task-home", workspace: "/private/workspace", taskControl: "/private/control" },
+        { taskControl: "/private/control" },
         {
           inspect: vi.fn(async () => ({}) as never),
           makeRemovable: vi.fn(async () => undefined),
@@ -69,7 +67,7 @@ describe("runtime cleanup directories", () => {
         },
       ),
     ).rejects.toMatchObject({
-      stage: "delete_workspace",
+      stage: "delete_control",
       reasonCode: "CLEANUP_PERMISSION_DENIED",
       message: "CLEANUP_PERMISSION_DENIED",
     })

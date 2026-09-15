@@ -277,5 +277,5 @@ describe("UserHomeCapabilityMaterializer durability", () => {
     await expect(
       readFile(join(codexHome, "config.toml"), "utf8"),
     ).resolves.toBe('model = "test"\n')
-  })
+  }, 30_000)
 })

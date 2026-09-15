@@ -42,7 +42,6 @@ describe("PrismaUserRepository administrator lifecycle", () => {
     expect(userFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          accountType: "member",
           id: { in: [member.id] },
           selfRegisteredAt: { not: null },
         },
@@ -73,7 +72,6 @@ describe("PrismaUserRepository administrator lifecycle", () => {
     expect(userFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          accountType: "member",
           selfRegisteredAt: null,
         },
       }),

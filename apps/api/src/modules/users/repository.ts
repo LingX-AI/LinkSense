@@ -80,7 +80,7 @@ export class PrismaUserRepository implements UserPersistence {
     }
     const users = await this.prisma.user.findMany({
       where: {
-        accountType: "member",
+
         ...(groupMemberIds ? { id: { in: groupMemberIds } } : {}),
         ...(input.search
           ? {
@@ -122,7 +122,7 @@ export class PrismaUserRepository implements UserPersistence {
 
   async findManagedUser(id: string): Promise<ManagedUser | null> {
     const user = await this.prisma.user.findFirst({
-      where: { id, accountType: "member" },
+      where: { id },
     });
     if (!user) return null;
     return (await enrichUsers(this.prisma, [user]))[0] ?? null;

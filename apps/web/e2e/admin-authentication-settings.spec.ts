@@ -77,7 +77,7 @@ for (const viewport of [
     await smtpSection.locator("#smtp-password").fill("browser-smtp-secret")
     await smtpSection.getByRole("button", { name: "保存" }).click()
 
-    await expect(page.getByText("认证配置已更新并立即生效。")).toBeVisible()
+    await expect(page.getByText("认证配置已更新并立即生效")).toBeVisible()
     await expect(smtpSection.locator("#smtp-password")).toHaveValue("")
     expect(requests).toContainEqual({
       mode: "managed",

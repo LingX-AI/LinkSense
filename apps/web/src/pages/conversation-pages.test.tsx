@@ -132,7 +132,7 @@ function createDeferred<T>() {
 
 function conversation(id: string, title: string) {
   return {
-    category_id: null,
+    project_id: null,
     id,
     title,
     archived: true,
@@ -222,7 +222,7 @@ describe("archived conversation pagination", () => {
         {
           collaboration_mode: "default",
           prewarmed_conversation_id: current,
-          category_id: null,
+          project_id: null,
         },
       ])
     )
@@ -432,7 +432,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith(`/conversations/${conversationId}`)) {
         return Promise.resolve(
           envelope({
-            category_id: null,
+            project_id: null,
             id: conversationId,
             title: "原生目标",
             archived: false,
@@ -580,7 +580,7 @@ describe("conversation knowledge base snapshots", () => {
       updated_at: now,
     })
     const detail = (status: "active" | "paused") => ({
-      category_id: null,
+      project_id: null,
       id: conversationId,
       title: "重复暂停目标",
       archived: false,
@@ -760,7 +760,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith(`/conversations/${conversationId}`)) {
         return Promise.resolve(
           envelope({
-            category_id: null,
+            project_id: null,
             id: conversationId,
             title: "原生目标完成态",
             archived: false,
@@ -948,7 +948,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith("/conversations/conversation-immediate-clear")) {
         return Promise.resolve(
           envelope({
-            category_id: null,
+            project_id: null,
             id: "conversation-immediate-clear",
             title: "立即清空输入框",
             archived: false,
@@ -1155,7 +1155,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith(`/conversations/${conversationId}`)) {
         return Promise.resolve(
           envelope({
-            category_id: null,
+            project_id: null,
             id: conversationId,
             title: "快速切换任务",
             archived: false,
@@ -1251,7 +1251,7 @@ describe("conversation knowledge base snapshots", () => {
     let turnStartAttempts = 0
     let pendingRequestBody: unknown = null
     const detail = () => ({
-      category_id: null,
+      project_id: null,
       id: conversationId,
       title: "启动阶段连续发送",
       archived: false,
@@ -1493,7 +1493,7 @@ describe("conversation knowledge base snapshots", () => {
     const followUpInput = "第二条快速追问"
     let pendingRequestBody: unknown = null
     const detail = () => ({
-      category_id: null,
+      project_id: null,
       id: conversationId,
       title: "连续发送任务",
       archived: false,
@@ -1662,7 +1662,7 @@ describe("conversation knowledge base snapshots", () => {
         download_available: false,
       }
       const detail = () => ({
-        category_id: null,
+        project_id: null,
         id: conversationId,
         title: "上传附件可见",
         archived: false,
@@ -1847,7 +1847,7 @@ describe("conversation knowledge base snapshots", () => {
       })
     )
     const detail = () => ({
-      category_id: null,
+      project_id: null,
       id: conversationId,
       title: "批量清理附件",
       archived: false,
@@ -2078,7 +2078,7 @@ describe("conversation knowledge base snapshots", () => {
               envelope({
                 id: conversationId,
                 title: "应用任务",
-                category_id: null,
+                project_id: null,
                 updated_at: "2026-07-28T00:00:00.000Z",
                 application: { id: applicationId, name: "测试应用" },
                 messages: [],
@@ -2376,7 +2376,7 @@ describe("conversation knowledge base snapshots", () => {
       if (url.includes("/api/v1/conversations/conversation-knowledge")) {
         return Promise.resolve(
           envelope({
-            category_id: null,
+            project_id: null,
             id: "conversation-knowledge",
             title: "知识库问答",
             archived: false,
@@ -2546,7 +2546,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith("/conversations/conversation-list-failure")) {
         return Promise.resolve(
           envelope({
-            category_id: null,
+            project_id: null,
             id: "conversation-list-failure",
             title: "知识库列表故障",
             archived: false,
@@ -2783,7 +2783,7 @@ describe("conversation knowledge base snapshots", () => {
       if (path.endsWith("/conversations/conversation-valid-intersection")) {
         return Promise.resolve(
           envelope({
-            category_id: null,
+            project_id: null,
             id: "conversation-valid-intersection",
             title: "权限变化测试",
             archived: false,
@@ -2958,7 +2958,7 @@ describe("conversation knowledge base snapshots", () => {
         if (path.endsWith(`/conversations/${conversationId}`)) {
           return Promise.resolve(
             envelope({
-              category_id: null,
+              project_id: null,
               id: conversationId,
               title: "应用知识库问答",
               archived: false,
@@ -3187,7 +3187,7 @@ function renderPrewarmPage() {
       if (path.endsWith("/conversations/existing-prewarm-task"))
         return Promise.resolve(
           envelope({
-            category_id: null,
+            project_id: null,
             id: "existing-prewarm-task",
             title: "已有任务",
             archived: false,

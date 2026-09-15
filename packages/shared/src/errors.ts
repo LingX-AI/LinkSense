@@ -12,20 +12,28 @@ type ErrorCatalogEntry = {
 };
 
 export const errorCatalog = {
-  TASK_CATEGORY_NOT_FOUND: {
-    message_key: "taskCategories.notFound",
+  PROJECT_NOT_FOUND: {
+    message_key: "projects.notFound",
     http_status: 404,
     messages: {
-      "zh-CN": "该任务分类不存在或你无权访问，请重新选择分类",
-      "en-US": "This task category is unavailable. Please choose another category",
+      "zh-CN": "该项目不存在或你无权访问，请重新选择项目",
+      "en-US": "This project is unavailable. Please choose another project",
     },
   },
-  TASK_CATEGORY_NAME_EXISTS: {
-    message_key: "taskCategories.nameExists",
+  PROJECT_NAME_EXISTS: {
+    message_key: "projects.nameExists",
     http_status: 409,
     messages: {
-      "zh-CN": "已存在同名任务分类，请使用其他名称",
-      "en-US": "A task category with this name already exists. Choose another name",
+      "zh-CN": "已存在同名项目，请使用其他名称",
+      "en-US": "A project with this name already exists. Choose another name",
+    },
+  },
+  PROJECT_TASK_ACTIVE: {
+    message_key: "projects.taskActive",
+    http_status: 409,
+    messages: {
+      "zh-CN": "项目中有任务尚未结束，请先结束任务再调整项目",
+      "en-US": "Finish active tasks before moving them or removing their project",
     },
   },
   BOT_CHANNEL_CONNECTION_CONFLICT: {

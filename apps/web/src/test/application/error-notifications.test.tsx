@@ -21,10 +21,10 @@ describe("conversation error notifications", () => {
 
   it.each([null, "80000000-0000-4000-8000-000000000001"])(
     "waits for task detail when its read receipt arrives first without replaying an old runner error, category=%s",
-    async (categoryId) => {
+    async (projectId) => {
       const target = {
         ...conversations[0],
-        category_id: categoryId,
+        project_id: projectId,
         execution_status: "completed",
         has_unread_completion: true,
       }
@@ -97,12 +97,12 @@ describe("conversation error notifications", () => {
         "fetch",
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = new URL(String(input), window.location.origin)
-          if (url.pathname === "/api/v1/task-categories" && categoryId)
+          if (url.pathname === "/api/v1/projects" && projectId)
             return json({
               success: true,
               data: [
                 {
-                  id: categoryId,
+                  id: projectId,
                   name: "日常工作",
                   sort_order: 0,
                   created_at: "2026-09-09T00:00:00.000Z",

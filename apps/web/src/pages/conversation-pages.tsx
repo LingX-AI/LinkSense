@@ -187,9 +187,9 @@ import {
   replaceSidebarConversation,
   upsertSidebarConversation,
 } from "@/features/conversations/conversation-order"
-import { TaskCategoryComposerPicker } from "@/features/task-categories/task-category-composer-picker"
-import { useNewTaskCategory } from "@/features/task-categories/use-new-task-category"
-import { newTaskCategoryNavigationState } from "@/features/task-categories/new-task-category-preference"
+import { ProjectComposerPicker } from "@/features/projects/project-composer-picker"
+import { useNewProject } from "@/features/projects/use-new-project"
+import { newProjectNavigationState } from "@/features/projects/new-project-preference"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import { ConversationTaskOverviewPanel } from "@/features/conversations/conversation-task-overview-panel"
 import {
@@ -506,11 +506,11 @@ export function ConversationPage({
   const queryClient = useQueryClient()
   const [value, setValue] = useState("")
   const {
-    categoryId: newTaskCategoryId,
-    isResolving: newTaskCategoryResolving,
-    chooseCategory: chooseNewTaskCategory,
-    resetCategory: resetNewTaskCategory,
-  } = useNewTaskCategory({ userId: user?.id, isNew })
+    projectId: newProjectId,
+    isResolving: newProjectResolving,
+    chooseProject: chooseNewProject,
+    resetProject: resetNewProject,
+  } = useNewProject({ userId: user?.id, isNew })
   const [taskOverviewOpen, setTaskOverviewOpen] = useState(
     readTaskOverviewOpenPreference
   )
@@ -1277,7 +1277,7 @@ export function ConversationPage({
     setError(null)
     if (!isNew) {
       navigate("/conversations/new", {
-        state: newTaskCategoryNavigationState(user?.id, conversationId),
+        state: newProjectNavigationState(user?.id, conversationId),
       })
       return
     }
@@ -1288,7 +1288,7 @@ export function ConversationPage({
     if (user) clearLocalConversationDraft(window.localStorage, user.id, "new")
     hydratedDraftScopeRef.current = null
     setValue("")
-    resetNewTaskCategory()
+    resetNewProject()
     setGoalMode(false)
     setNewTaskCollaborationMode("default")
     setSelectedCapabilityIds([])
@@ -1304,7 +1304,7 @@ export function ConversationPage({
     isNew,
     navigate,
     resetPrewarm,
-    resetNewTaskCategory,
+    resetNewProject,
     setGoalMode,
     user,
     conversationId,
@@ -2383,7 +2383,7 @@ export function ConversationPage({
         method: "POST",
         body: {
           collaboration_mode: initialCollaborationMode,
-          category_id: newTaskCategoryId,
+          project_id: newProjectId,
           ...(prewarmedConversationId
             ? {
                 prewarmed_conversation_id: prewarmedConversationId,
@@ -2602,7 +2602,7 @@ export function ConversationPage({
         title: t("conversation.untitled"),
         archived: false,
         pinned_at: null,
-        category_id: newTaskCategoryId,
+        project_id: newProjectId,
         sort_order: null,
         updated_at: new Date().toISOString(),
         execution_status: "running",
@@ -2645,7 +2645,7 @@ export function ConversationPage({
     collaborationMode,
     conversationId,
     isNew,
-    newTaskCategoryId,
+    newProjectId,
     queryClient,
     t,
   ])
@@ -4835,7 +4835,7 @@ export function ConversationPage({
     id: newConversationPlaceholderId,
     title: t("conversation.untitled"),
     archived: false,
-    category_id: newTaskCategoryId,
+    project_id: newProjectId,
     updated_at: new Date(0).toISOString(),
     has_unread_completion: false,
     has_automation: false,
@@ -5619,14 +5619,14 @@ export function ConversationPage({
         {!blockingPanelActive &&
           (isNew || !isApplicationConversation) &&
           visibleMessages.length === 0 && (
-            <TaskCategoryComposerPicker
+            <ProjectComposerPicker
               value={
-                isNew ? newTaskCategoryId : displayConversation.category_id
+                isNew ? newProjectId : displayConversation.project_id
               }
-              onChange={(categoryId) => {
-                chooseNewTaskCategory(categoryId)
+              onChange={(projectId) => {
+                chooseNewProject(projectId)
                 if (!isNew)
-                  patchConversationMutation.mutate({ category_id: categoryId })
+                  patchConversationMutation.mutate({ project_id: projectId })
               }}
               disabled={
                 sendMutation.isPending ||
@@ -5744,7 +5744,7 @@ export function ConversationPage({
             compactAvailable={compactionAvailable}
             compacting={contextCompactionMutation.isPending}
             taskStartDisabled={
-              taskStartDisabledByCreditQuota || newTaskCategoryResolving
+              taskStartDisabledByCreditQuota || newProjectResolving
             }
             onStartNewTask={startNewTaskFromComposer}
             onStartApplication={(application) => {

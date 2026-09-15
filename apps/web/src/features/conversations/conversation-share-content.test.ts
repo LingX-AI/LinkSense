@@ -16,7 +16,7 @@ function conversation(): Conversation {
     id,
     title: "Task",
     updated_at: "2026-09-09T00:00:00.000Z",
-    category_id: null,
+    project_id: null,
     has_unread_completion: false,
     has_automation: false,
     collaboration_mode: "default",
@@ -101,7 +101,7 @@ describe("sharing preview projection", () => {
 
   it("uses the same projection for the preview and the public response without exposing task classification", () => {
     const source = conversation()
-    source.category_id = "50000000-0000-4000-8000-000000000001"
+    source.project_id = "50000000-0000-4000-8000-000000000001"
     const snapshot = captureConversationShareSnapshot(source)
     const result = publicConversationShareSchema.parse({
       id: fileId,
@@ -113,7 +113,7 @@ describe("sharing preview projection", () => {
       snapshot,
     })
     expect(result.snapshot).toEqual(projectConversationShareSnapshot(snapshot))
-    expect(result.snapshot.category_id).toBeNull()
-    expect(JSON.stringify(snapshot)).not.toContain(source.category_id)
+    expect(result.snapshot.project_id).toBeNull()
+    expect(JSON.stringify(snapshot)).not.toContain(source.project_id)
   })
 })

@@ -1638,18 +1638,18 @@ async function conversationRouteFixture(
 }
 
 describe("task category request boundaries", () => {
-  const categoryId = "60000000-0000-4000-8000-000000000099";
-  it.each([null, categoryId])("passes category %s when creating and moving a task", async (category_id) => {
+  const projectId = "60000000-0000-4000-8000-000000000099";
+  it.each([null, projectId])("passes category %s when creating and moving a task", async (project_id) => {
     const { app, create, patch } = await conversationRouteFixture();
-    expect((await app.inject({ method: "POST", url: "/conversations", payload: { category_id } })).statusCode).toBe(201);
-    expect(create).toHaveBeenCalledWith(OWNER_ID, expect.objectContaining({ categoryId: category_id }));
-    expect((await app.inject({ method: "PATCH", url: `/conversations/${CONVERSATION_ID}`, payload: { category_id } })).statusCode).toBe(200);
-    expect(patch).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, { categoryId: category_id });
+    expect((await app.inject({ method: "POST", url: "/conversations", payload: { project_id } })).statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(OWNER_ID, expect.objectContaining({ projectId: project_id }));
+    expect((await app.inject({ method: "PATCH", url: `/conversations/${CONVERSATION_ID}`, payload: { project_id } })).statusCode).toBe(200);
+    expect(patch).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, { projectId: project_id });
   });
   it("rejects invalid category IDs before task creation and assignment", async () => {
     const { app, create, patch } = await conversationRouteFixture();
-    expect((await app.inject({ method: "POST", url: "/conversations", payload: { category_id: "bad" } })).statusCode).toBe(400);
-    expect((await app.inject({ method: "PATCH", url: `/conversations/${CONVERSATION_ID}`, payload: { category_id: "bad" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: "/conversations", payload: { project_id: "bad" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PATCH", url: `/conversations/${CONVERSATION_ID}`, payload: { project_id: "bad" } })).statusCode).toBe(400);
     expect(create).not.toHaveBeenCalled();
     expect(patch).not.toHaveBeenCalled();
   });

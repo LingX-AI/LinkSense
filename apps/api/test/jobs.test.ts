@@ -133,12 +133,12 @@ describe("maintenance cleanup failures", () => {
     ).rejects.toBeInstanceOf(CleanupJobNotRetryableError)
   })
 
-  it("queues only conversation-scoped workspace directories for retryable cleanup", async () => {
+  it("queues only attachment directories inside the owning user project for cleanup", async () => {
     const queue = queueControl({ failedJobs: [] })
     const jobs = createBackgroundJobs(queue)
     const conversationId = "01900000-0000-7000-8000-000000000001"
     const attachmentDirectory =
-      `/tmp/linksense-test/users/${OWNER_ID}/home/workspaces/${conversationId}/attachments/file-1`
+      `/tmp/linksense-test/users/${OWNER_ID}/home/projects/${conversationId}/attachments/30000000-0000-4000-8000-000000000001`
 
     await jobs.enqueueWorkspaceDirectoryRemoval(
       OWNER_ID,
@@ -162,7 +162,7 @@ describe("maintenance cleanup failures", () => {
         conversationId,
         "/tmp/linksense-test/workspaces/another-conversation/attachments/file-1",
       ),
-    ).rejects.toThrow("outside its conversation root")
+    ).rejects.toThrow("outside its attachment root")
   })
 
   it("discards stale persisted prewarms before preparing a runtime", async () => {
@@ -250,6 +250,7 @@ describe("maintenance cleanup failures", () => {
       where: { conversationId: outbox.conversationId },
       create: {
         ownerId: outbox.ownerId,
+        serviceSessionId: null,
         conversationId: outbox.conversationId,
         status: "pending",
         stage: "reconcile",
@@ -397,7 +398,6 @@ describe("maintenance cleanup failures", () => {
   })
 
   it("clears the durable row only after runner cleanup succeeds", async () => {
-    const removeCapabilityProjection = vi.fn(async () => undefined)
     const cleanupRuntime = vi.fn().mockResolvedValue({ success: true })
     const deleteMany = vi.fn().mockResolvedValue({ count: 1 })
     const outbox = runtimeCleanupOutboxRow()
@@ -408,7 +408,6 @@ describe("maintenance cleanup failures", () => {
 
     await expect(
       executeRuntimeCleanupJob({
-        removeCapabilityProjection,
         runner: { cleanupRuntime },
         prisma: {
           runtimeCleanupOutbox: { findUnique, updateMany, deleteMany } as never,
@@ -418,8 +417,7 @@ describe("maintenance cleanup failures", () => {
         outboxId: outbox.id,
       }),
     ).resolves.toEqual({ cleaned: true })
-    expect(removeCapabilityProjection.mock.invocationCallOrder[0]).toBeGreaterThan(cleanupRuntime.mock.invocationCallOrder[0]!)
-    expect(deleteMany.mock.invocationCallOrder[0]).toBeGreaterThan(removeCapabilityProjection.mock.invocationCallOrder[0]!)
+    expect(deleteMany.mock.invocationCallOrder[0]).toBeGreaterThan(cleanupRuntime.mock.invocationCallOrder[0]!)
     expect(deleteMany).toHaveBeenCalledWith({
       where: {
         id: outbox.id,
@@ -432,16 +430,17 @@ describe("maintenance cleanup failures", () => {
     expect(cleanupRuntime).toHaveBeenCalledWith(
       outbox.conversationId,
       outbox.ownerId,
+      undefined,
+
     )
   })
 
-  it("retains a retryable cleanup if API projection removal fails after the runtime is gone", async () => {
+  it("retains a retryable cleanup when task control removal is denied", async () => {
     const outbox = runtimeCleanupOutboxRow({ status: "queued" })
     const updateMany = vi.fn().mockResolvedValue({ count: 1 })
     const deleteMany = vi.fn()
     await expect(executeRuntimeCleanupJob({
-      runner: { cleanupRuntime: vi.fn().mockResolvedValue({ success: true }) },
-      removeCapabilityProjection: vi.fn().mockRejectedValue(Object.assign(new Error("private path"), { code: "EACCES" })),
+      runner: { cleanupRuntime: vi.fn().mockRejectedValue(new RunnerRuntimeCleanupError("CLEANUP_PERMISSION_DENIED", "delete_control")) },
       prisma: { runtimeCleanupOutbox: { findUnique: vi.fn().mockResolvedValue(outbox), updateMany, deleteMany } as never },
       ownerId: outbox.ownerId, conversationId: outbox.conversationId, outboxId: outbox.id,
     })).rejects.toThrow("CLEANUP_PERMISSION_DENIED")
@@ -456,7 +455,6 @@ describe("maintenance cleanup failures", () => {
 
     await expect(
       executeRuntimeCleanupJob({
-        removeCapabilityProjection: vi.fn(async () => undefined),
         runner: { cleanupRuntime },
         prisma: {
           runtimeCleanupOutbox: { findUnique } as never,
@@ -490,7 +488,6 @@ describe("maintenance cleanup failures", () => {
 
     await expect(
       executeRuntimeCleanupJob({
-        removeCapabilityProjection: vi.fn(async () => undefined),
         runner: { cleanupRuntime },
         prisma: {
           runtimeCleanupOutbox: { findUnique, updateMany } as never,

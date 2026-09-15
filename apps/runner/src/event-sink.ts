@@ -107,6 +107,7 @@ export type ProcessExitReport = {
 };
 
 type HttpRunnerEventSinkOptions = {
+  serviceSessionId?: string;
   logger?: Pick<Logger, "warn" | "error">;
   fetch?: typeof fetch;
   requestTimeoutMs?: number;
@@ -723,6 +724,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
           authorization: `Bearer ${this.sharedSecret}`,
           "content-type": "application/json",
           "x-linksense-owner-id": ownerId,
+          ...(this.options.serviceSessionId ? { "x-linksense-service-session": this.options.serviceSessionId } : {}),
         },
         body: JSON.stringify(body),
         signal,

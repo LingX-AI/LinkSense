@@ -59,7 +59,6 @@ export const sharedDomTests = [
   "src/features/browser-notifications/browser-notification-preference.test.ts",
   "src/features/capabilities/built-in-presentation.test.ts",
   "src/features/capabilities/clawhub-skill-repository-panel.test.tsx",
-  "src/features/capabilities/skill-update-dialog.test.tsx",
   "src/features/conversations/assistant-html-preview-document.test.ts",
   "src/features/conversations/assistant-html-preview-loading.test.tsx",
   "src/features/conversations/assistant-markdown-image.test.tsx",

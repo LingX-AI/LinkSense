@@ -8,6 +8,7 @@ import {
   isRunnerTextDeltaEvent,
   type RunnerTextDeltaEvent,
   runnerHeartbeatSchema,
+  runtimeServiceSessionHeader,
   type ConversationEvent,
 } from "@linksense/shared"
 import type { FastifyPluginAsync, FastifyRequest } from "fastify"
@@ -54,7 +55,7 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
     app.post("/runner/heartbeat", async (request, reply) => {
       const ownerId = parseRunnerOwnerId(request)
       const body = runnerHeartbeatSchema.parse(request.body)
-      await services.events.recordRunnerHeartbeat(ownerId, body)
+      await services.events.recordRunnerHeartbeat(ownerId, body, z.uuid().optional().parse(request.headers[runtimeServiceSessionHeader]))
       return reply.send(ok({ confirmed: true }, request.id))
     })
 

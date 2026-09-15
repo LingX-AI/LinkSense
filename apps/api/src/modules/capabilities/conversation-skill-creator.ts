@@ -35,7 +35,7 @@ const installTokenClaimsSchema = z.strictObject({
   expires_at: z.iso.datetime({ offset: true }),
 });
 
-type SkillCreatorPrisma = Pick<PrismaClient, "conversationTurn" | "user">;
+type SkillCreatorPrisma = Pick<PrismaClient, "conversationTurn" | "conversation" | "user">;
 
 export interface ConversationSkillCreatorServiceOptions {
   prisma: SkillCreatorPrisma;
@@ -79,10 +79,16 @@ export class ConversationSkillCreatorService {
     const actor = await this.#activeActor(ownerId);
     await this.#assertRunningTurn(actor.id, input.conversationId, input.turnId);
 
+    const conversation = await this.#prisma.conversation.findFirst({
+      where: { id: input.conversationId, ownerId: actor.id },
+      select: { workspaceRelPath: true },
+    });
+    if (!conversation) throw new AppError("FORBIDDEN");
+
     const archivePath = resolveConversationWorkspaceEntry(
       this.#workspaceRoot,
       actor.id,
-      input.conversationId,
+      conversation.workspaceRelPath,
       input.workspaceRelativePath,
     );
     const archiveStats = await lstat(archivePath).catch(() => {
@@ -98,7 +104,7 @@ export class ConversationSkillCreatorService {
       resolveConversationWorkspaceRoot(
         this.#workspaceRoot,
         actor.id,
-        input.conversationId,
+        conversation.workspaceRelPath,
       ),
     ).catch(() => {
       throw invalidArchive("archive_outside_workspace");

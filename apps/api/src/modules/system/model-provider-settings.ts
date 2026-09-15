@@ -1,3 +1,4 @@
+import { assertExecutionPrincipalActive, lockExecutionPrincipal } from "../../lib/execution-principal.js";
 import { createHash } from "node:crypto"
 
 import {
@@ -894,9 +895,7 @@ export class ModelProviderSettingsService
       await tx.$executeRaw`
         SELECT pg_advisory_xact_lock(hashtextextended('linksense-system-settings', 0))
       `
-      await tx.$queryRaw`
-        SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE
-      `
+      await lockExecutionPrincipal(tx, userId)
       if (conversationId) {
         await tx.$queryRaw`
           SELECT id
@@ -921,7 +920,7 @@ export class ModelProviderSettingsService
             })
           : Promise.resolve(null),
       ])
-      if (!user) throw new AppError("AUTH_REQUIRED")
+      if (!user) await assertExecutionPrincipalActive(tx, userId)
       if (conversationId && !conversation) {
         throw new AppError("CONVERSATION_NOT_FOUND")
       }
@@ -937,13 +936,9 @@ export class ModelProviderSettingsService
         input.selected_model,
         input.selected_reasoning_effort
       )
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          preferredModel: input.selected_model,
-          preferredReasoningEffort: input.selected_reasoning_effort,
-        },
-      })
+      const preferences = { preferredModel: input.selected_model, preferredReasoningEffort: input.selected_reasoning_effort }
+      if (user) await tx.user.update({ where: { id: userId }, data: preferences })
+      else await tx.applicationExternalSession.update({ where: { runtimePrincipalId: userId }, data: preferences })
       if (conversationId) {
         await tx.conversation.update({
           where: { id: conversationId },
@@ -1206,7 +1201,10 @@ export class ModelProviderSettingsService
           })
         : Promise.resolve(null),
     ])
-    return { user, conversation, latestTurn }
+    const preferences = user ?? await this.prisma.applicationExternalSession.findFirst({ where: {
+      runtimePrincipalId: userId, status: "active", absoluteExpiresAt: { gt: new Date() },
+    }, select: { preferredModel: true, preferredReasoningEffort: true } });
+    return { user: preferences, conversation, latestTurn }
   }
 }
 

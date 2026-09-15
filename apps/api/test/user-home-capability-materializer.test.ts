@@ -561,7 +561,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
       name: "UserHomeCapabilityPublicationDeferredError",
     })
     expect(publicationGuard).toHaveBeenCalledWith({
-      ownerId: OWNER_ID, conversationId: TASK_ID,
+      ownerId: OWNER_ID,
       currentGeneration: initial.generation,
       nextGeneration: expect.not.stringMatching(
         new RegExp(`^${initial.generation}$`, "u"),
@@ -619,7 +619,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     })
     await release()
     expect(publicationGuard).toHaveBeenCalledWith({
-      ownerId: OWNER_ID, conversationId: TASK_ID,
+      ownerId: OWNER_ID,
       currentGeneration: initial.generation,
       nextGeneration: initial.generation,
     })

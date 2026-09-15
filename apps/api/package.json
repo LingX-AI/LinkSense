@@ -8,12 +8,11 @@
     "dev": "tsx watch --include ../../packages/shared/src/**/*.ts src/index.ts",
     "build": "tsc -p tsconfig.build.json && node dist/commands/bundle-linksense-docs.js",
     "start": "node dist/index.js",
-    "runtime:migrate-task-homes": "tsx --env-file-if-exists=../../.env src/commands/migrate-task-codex-homes.ts",
-    "runtime:consolidate-tool-homes": "tsx --env-file-if-exists=../../.env src/commands/consolidate-user-tool-homes.ts",
     "knowledge:reset-storage": "tsx --env-file-if-exists=../../.env src/commands/reset-knowledge-storage.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --pool=threads --maxWorkers=4 --maxConcurrency=2",
-    "lint": "eslint src test --max-warnings=0"
+    "lint": "eslint src test --max-warnings=0",
+    "runtime:convert-projects": "tsx --env-file-if-exists=../../.env src/commands/convert-project-runtime.ts"
   },
   "dependencies": {
     "@ai-sdk/alibaba": "2.0.16",
@@ -80,6 +79,7 @@
     "saxes": "6.0.0",
     "semver": "7.8.5",
     "sharp": "^0.35.4",
+    "smol-toml": "1.7.1",
     "undici": "7.29.0",
     "unzipper": "^0.12.3",
     "uuid": "^14.0.1",

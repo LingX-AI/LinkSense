@@ -3080,9 +3080,9 @@ export class ConversationEventService {
     this.recoveryScheduler = scheduler;
   }
 
-  async recordRunnerHeartbeat(ownerId: string, input: RunnerHeartbeat): Promise<void> {
+  async recordRunnerHeartbeat(ownerId: string, input: RunnerHeartbeat, serviceSessionId?: string): Promise<void> {
     if (!this.recoveryScheduler) throw new AppError("RUNNER_UNAVAILABLE");
-    await this.recoveryScheduler.heartbeat(ownerId, input);
+    await this.recoveryScheduler.heartbeat(ownerId, input, serviceSessionId);
   }
 
   async scheduleProcessExitRecovery(input: Parameters<TaskRecoveryScheduler["enqueueTurn"]>[0]): Promise<void> {

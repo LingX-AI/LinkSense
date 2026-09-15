@@ -80,8 +80,8 @@ const expectedMarkdownPaths = [
   "user-guide/tasks/manage-history.md",
   "user-guide/tasks/plan-mode.md",
   "user-guide/tasks/progress-and-sources.md",
+  "user-guide/tasks/projects.md",
   "user-guide/tasks/running-requests.md",
-  "user-guide/tasks/task-categories.md",
   "user-guide/tasks/voice-input.md",
   "user-guide/troubleshooting/common-problems.md",
 ];

@@ -1,3 +1,4 @@
+import { UserEnvironmentSettings } from "@/features/environment/user-environment-settings"
 import { useCallback, useMemo, useRef, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
@@ -57,8 +58,11 @@ import {
 } from "@/components/ui/dialog"
 import { FieldLegend, FieldSet } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import {
+  RadioGroup,
+  RadioGroupItem,
+  RadioGroupOption,
+} from "@/components/ui/radio-group"
 import {
   Select,
   SelectContent,
@@ -678,6 +682,8 @@ export function SettingsPersonalizationPage() {
             </div>
           </section>
 
+          <UserEnvironmentSettings />
+
           {personalizationQuery.data && (
             <TaskAutoNamingSettings
               value={personalizationQuery.data.task_auto_naming}
@@ -806,13 +812,12 @@ export function SettingsAppearancePage() {
               setTheme(value)
             }
           }}
-          className="appearance-theme-grid"
         >
           {themePreferences.map((preference) => (
-            <Label
+            <RadioGroupOption
               key={preference}
               htmlFor={`appearance-theme-${preference}`}
-              className="appearance-theme-option"
+              className="appearance-theme-option w-40"
             >
               <RadioGroupItem
                 id={`appearance-theme-${preference}`}
@@ -823,7 +828,7 @@ export function SettingsAppearancePage() {
               <span className="appearance-theme-label">
                 {t(themeLabelKeys[preference])}
               </span>
-            </Label>
+            </RadioGroupOption>
           ))}
         </RadioGroup>
       </FieldSet>
