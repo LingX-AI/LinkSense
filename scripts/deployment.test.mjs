@@ -1072,7 +1072,7 @@ test("Web image builds and serves the bilingual Help Center with the application
     "COPY apps/docs/package.json apps/docs/package.json",
   );
   const installIndex = dockerfile.indexOf(
-    "RUN pnpm install --frozen-lockfile",
+    "pnpm install --frozen-lockfile",
   );
   const copyDocsSourceIndex = dockerfile.indexOf("COPY apps/docs apps/docs");
   const buildDocsIndex = dockerfile.indexOf(
@@ -1197,7 +1197,7 @@ test("workspace image installs receive every manifest and pnpm patch before depe
     .sort();
 
   for (const { path, source } of dockerfiles) {
-    const installIndex = source.indexOf("RUN pnpm install --frozen-lockfile");
+    const installIndex = source.indexOf("pnpm install --frozen-lockfile");
     assert.notEqual(installIndex, -1);
 
     for (const manifestPath of workspaceManifestPaths) {
@@ -1290,7 +1290,7 @@ test("Docker builds configure a fast Debian mirror with bounded network retries"
   }
 
   const installIndex = developmentDockerfile.indexOf(
-    "RUN pnpm install --frozen-lockfile",
+    "pnpm install --frozen-lockfile",
   );
   const fingerprintLabelIndex = developmentDockerfile.indexOf(
     "LABEL com.linksense.development.fingerprint",
@@ -1811,7 +1811,7 @@ test("runner image separates the trusted controller from unprivileged task worke
   );
   assert.match(
     build,
-    /pnpm --filter @linksense\/runner deploy --prod --legacy \/opt\/linksense-runner[\s\S]*chmod -R u=rwX,go=rX \/opt\/linksense-runner[\s\S]*setpriv --reuid=1001 --regid=1000 --clear-groups[\s\S]*runner-runtime-smoke\.mjs \/opt\/linksense-runner/u,
+    /pnpm --filter @linksense\/runner deploy --prod --legacy(?: --\S+)* \/opt\/linksense-runner[\s\S]*chmod -R u=rwX,go=rX \/opt\/linksense-runner[\s\S]*setpriv --reuid=1001 --regid=1000 --clear-groups[\s\S]*runner-runtime-smoke\.mjs \/opt\/linksense-runner/u,
   );
   assert.doesNotMatch(worker, /chmod -R a-w/u);
   assert.match(

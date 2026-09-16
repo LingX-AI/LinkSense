@@ -428,6 +428,56 @@ function readinessResponse(url, status = 200) {
   return new Response(`<html lang="${url.includes("/en-US/") ? "en-US" : "zh-CN"}"></html>`, { status });
 }
 
+test("readiness gates API proxy probes on current upstream health during startup and restarts", async () => {
+  const environment = buildDevelopmentEnvironment({ LINKSENSE_RUNNER_SHARED_SECRET: "test" });
+  let round = 1;
+  const proxyRounds = [];
+  const moduleRounds = [];
+
+  await waitForDevelopmentApplicationReadiness(environment, {
+    timeoutMs: 1_000,
+    sleepImplementation: async () => { round += 1; },
+    fetchImplementation: async (url) => {
+      if (url.includes(":4000/")) {
+        // Health is asynchronous; invoking the probe is not evidence of readiness.
+        await Promise.resolve();
+        if (round === 1 || round === 4) throw new Error("connect ECONNREFUSED");
+        return readinessResponse(url, round === 2 ? 503 : 200);
+      }
+      if (url.includes(":18173/api/")) {
+        proxyRounds.push(round);
+        return readinessResponse(url, round === 3 ? 503 : 200);
+      }
+      if (url.endsWith("/src/main.tsx")) moduleRounds.push(round);
+      return readinessResponse(url);
+    },
+  });
+
+  assert.deepEqual(proxyRounds, [3, 3, 5, 5]);
+  assert.deepEqual(moduleRounds, [1, 2, 3, 4, 5]);
+});
+
+test("readiness reports an unavailable API without sending requests through its Web proxy", async (context) => {
+  context.mock.timers.enable({ apis: ["Date"] });
+  const proxyRequests = [];
+
+  await assert.rejects(waitForDevelopmentApplicationReadiness(
+    buildDevelopmentEnvironment({ LINKSENSE_RUNNER_SHARED_SECRET: "test" }),
+    {
+      timeoutMs: 100,
+      intervalMs: 25,
+      sleepImplementation: async (milliseconds) => { context.mock.timers.tick(milliseconds); },
+      fetchImplementation: async (url) => {
+        if (url.includes(":4000/")) throw new Error("connect ECONNREFUSED");
+        if (url.includes(":18173/api/")) proxyRequests.push(url);
+        return readinessResponse(url);
+      },
+    },
+  ), /API .*connect ECONNREFUSED/u);
+
+  assert.deepEqual(proxyRequests, []);
+});
+
 test("development reattach readiness tolerates transient unhealthy services", async () => {
   const environment = buildDevelopmentEnvironment({
     ...containerEnvironment,
@@ -455,6 +505,7 @@ test("development reattach readiness tolerates transient unhealthy services", as
   assert.deepEqual(
     calls.map((call) => call.url),
     [
+      ...targets.filter((target) => !target.upstream).map((target) => target.url),
       ...targets.map((target) => target.url),
       ...targets.map((target) => target.url),
     ],
@@ -569,7 +620,8 @@ test("readiness rechecks previously healthy services until every service passes 
       return readinessResponse(url, unhealthy ? 503 : 200);
     },
   });
-  assert.deepEqual([...attempts.values()], Array(10).fill(3));
+  // The first round cannot reach API proxy routes while the API is unhealthy.
+  assert.deepEqual([...attempts.values()], [...Array(8).fill(3), 2, 2]);
 });
 
 test("readiness cancellation aborts active probes without another retry", async () => {
@@ -586,7 +638,7 @@ test("readiness cancellation aborts active probes without another retry", async 
   });
   controller.abort(new Error("watch stopped"));
   await assert.rejects(ready, /watch stopped/u);
-  assert.equal(calls, 10);
+  assert.equal(calls, 8);
 });
 
 test("watch startup waits for initial synchronization and rejects early exit or timeout", async () => {

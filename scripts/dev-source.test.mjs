@@ -25,6 +25,12 @@ test("source synchronization mirrors offline edits and deletions while preservin
     write(targetRoot, "apps/api/src/removed.ts", "old");
     write(targetRoot, "apps/api/src/generated/client.ts", "Linux client");
     write(targetRoot, "apps/docs/docs/removed.md", "obsolete docs");
+    const preserved = [
+      "apps/api/package.json", "apps/api/node_modules/local-package/index.js",
+      "apps/web/src/index.ts", "apps/runner/src/index.ts", "packages/shared/package.json",
+      "apps/docs/i18n/en-US/docusaurus-theme-classic/navbar.json", "prisma/schema.prisma",
+    ];
+    for (const file of preserved) write(targetRoot, file, "image-owned file");
     assert.deepEqual(synchronizeDevelopmentSource("api", { sourceRoot, targetRoot }), { changed: true });
     assert.equal(readFileSync(resolve(targetRoot, "apps/api/src/index.ts"), "utf8"), "new");
     assert.throws(() => readFileSync(resolve(targetRoot, "apps/api/src/removed.ts")), { code: "ENOENT" });
@@ -33,8 +39,36 @@ test("source synchronization mirrors offline edits and deletions while preservin
     assert.equal(readFileSync(resolve(targetRoot, "apps/docs/i18n/en-US/docusaurus-plugin-content-docs/current/channels.md"), "utf8"), "current English docs");
     assert.throws(() => readFileSync(resolve(targetRoot, "apps/docs/docs/removed.md")), { code: "ENOENT" });
     assert.deepEqual(synchronizeDevelopmentSource("api", { sourceRoot, targetRoot }), { changed: false });
+    for (const file of preserved) {
+      assert.equal(readFileSync(resolve(targetRoot, file), "utf8"), "image-owned file");
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("each service synchronizes all source roots through one bounded Docker transport", () => {
+  for (const service of Object.keys(developmentSourcePaths)) {
+    const calls = [];
+    const result = synchronizeDevelopmentSource(service, {
+      sourceRoot: "/host/source with spaces", targetRoot: "/workspace", container: "abcdef123456",
+      execute: (command, args, options) => {
+        calls.push({ command, args, options });
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+    assert.deepEqual(result, { changed: false });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].command, "rsync");
+    assert.ok(calls[0].args.includes("--rsh=docker exec -i"));
+    assert.ok(calls[0].args.includes("--exclude=*"));
+    assert.equal(calls[0].args.at(-2), "./");
+    assert.equal(calls[0].args.at(-1), "abcdef123456:/workspace/");
+    assert.equal(calls[0].options.timeout, 30_000);
+    assert.equal(calls[0].options.cwd, "/host/source with spaces");
+    for (const path of developmentSourcePaths[service]) {
+      assert.ok(calls[0].args.some((arg) => arg === `--include=/${path}` || arg === `--include=/${path}/***`));
+    }
   }
 });
 
@@ -50,6 +84,22 @@ test("source synchronization rejects unknown services and failed transfers", () 
     rmSync(root, { recursive: true, force: true });
   }
   assert.ok(Object.values(developmentSourcePaths).flat().every((path) => !path.includes("node_modules")));
+});
+
+test("timestamp-only rsync reports do not restart unchanged services", () => {
+  for (const [stdout, changed] of [
+    [".f..T.... apps/api/src/index.ts\n", false],
+    [".f..t...... apps/api/tsconfig.json\n.d..t...... apps/api/src/\n", false],
+    [">fcsT.... apps/api/src/index.ts\n", true],
+    ["cd+++++++ apps/api/src/new/\n", true],
+    ["cL+++++++ apps/api/src/link.ts\n", true],
+    ["*deleting apps/api/src/removed.ts\n", true],
+  ]) {
+    assert.deepEqual(synchronizeDevelopmentSource("api", {
+      container: "abcdef123456",
+      execute: () => ({ status: 0, stdout, stderr: "" }),
+    }), { changed });
+  }
 });
 
 test("viewer-generated metadata stays in Linux without causing an unchanged Web restart", () => {

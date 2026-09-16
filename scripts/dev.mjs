@@ -570,9 +570,10 @@ export function developmentReadinessTargets(environment) {
     { name: "Web entry module", url: `${webOrigin}/src/main.tsx`, headers: {}, contentTypeIncludes: "javascript" },
     { name: "Web application module", url: `${webOrigin}/src/App.tsx`, headers: {}, contentTypeIncludes: "javascript" },
     { name: "Web stylesheet", url: `${webOrigin}/src/index.css?direct`, headers: {}, contentTypeIncludes: "text/css" },
-    { name: "Web bootstrap", url: `${webOrigin}/api/v1/system/bootstrap`, headers: {}, contentTypeIncludes: "application/json", bodyIncludes: '"success":true' },
+    { name: "Web bootstrap", url: `${webOrigin}/api/v1/system/bootstrap`, headers: {}, contentTypeIncludes: "application/json", bodyIncludes: '"success":true', upstream: "API" },
     {
       name: "Web session restore",
+      upstream: "API",
       url: `${webOrigin}/api/v1/auth/refresh`,
       method: "POST",
       headers: { origin: webOrigin, "sec-fetch-site": "same-origin" },
@@ -613,51 +614,68 @@ export async function waitForDevelopmentApplicationReadiness(
       ...target,
       lastError: "not checked yet",
     }));
+    // Probe upstreams before their Web proxies on every round, including after
+    // a source-sync restart. Keep module warmup and other direct probes parallel.
+    const batches = [
+      targets.filter((target) => !target.upstream),
+      targets.filter((target) => target.upstream),
+    ];
     let groupReady = false;
     while (Date.now() < deadline) {
       options.signal?.throwIfAborted();
-      await Promise.all(
-        targets.map(async (target) => {
-          try {
-            const response = await fetchImplementation(target.url, {
-              method: target.method ?? "GET",
-              headers: target.headers,
-              signal: AbortSignal.any([
-                AbortSignal.timeout(
-                  Math.max(
-                    1,
-                    Math.min(requestTimeoutMs, deadline - Date.now()),
+      for (const batch of batches) {
+        options.signal?.throwIfAborted();
+        await Promise.all(
+          batch.map(async (target) => {
+            if (
+              target.upstream &&
+              targets.find((upstream) => upstream.name === target.upstream)
+                ?.lastError !== null
+            ) {
+              target.lastError = `Waiting for ${target.upstream} readiness`;
+              return;
+            }
+            try {
+              const response = await fetchImplementation(target.url, {
+                method: target.method ?? "GET",
+                headers: target.headers,
+                signal: AbortSignal.any([
+                  AbortSignal.timeout(
+                    Math.max(
+                      1,
+                      Math.min(requestTimeoutMs, deadline - Date.now()),
+                    ),
                   ),
-                ),
-                ...(options.signal ? [options.signal] : []),
-              ]),
-            });
-            const validBody = target.bodyIncludes
-              ? (await response.text()).includes(target.bodyIncludes)
-              : true;
-            const validType =
-              !target.contentTypeIncludes ||
-              (response.headers.get("content-type") ?? "").includes(
-                target.contentTypeIncludes,
-              );
-            if (!target.bodyIncludes) await response.body?.cancel();
-            const validStatus =
-              target.expectedStatus === undefined
-                ? response.ok
-                : response.status === target.expectedStatus;
-            target.lastError = !validStatus
-              ? `HTTP ${response.status}`
-              : !validType
-                ? "Unexpected content type"
-                : validBody
-                  ? null
-                  : "Unexpected page content";
-          } catch (error) {
-            target.lastError =
-              error instanceof Error ? error.message : "request failed";
-          }
-        }),
-      );
+                  ...(options.signal ? [options.signal] : []),
+                ]),
+              });
+              const validBody = target.bodyIncludes
+                ? (await response.text()).includes(target.bodyIncludes)
+                : true;
+              const validType =
+                !target.contentTypeIncludes ||
+                (response.headers.get("content-type") ?? "").includes(
+                  target.contentTypeIncludes,
+                );
+              if (!target.bodyIncludes) await response.body?.cancel();
+              const validStatus =
+                target.expectedStatus === undefined
+                  ? response.ok
+                  : response.status === target.expectedStatus;
+              target.lastError = !validStatus
+                ? `HTTP ${response.status}`
+                : !validType
+                  ? "Unexpected content type"
+                  : validBody
+                    ? null
+                    : "Unexpected page content";
+            } catch (error) {
+              target.lastError =
+                error instanceof Error ? error.message : "request failed";
+            }
+          }),
+        );
+      }
       options.signal?.throwIfAborted();
       // A service that passed an earlier probe may have restarted after source
       // synchronization. Require every target in this stage to pass together.
