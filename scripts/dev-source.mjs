@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // Rsync uses Docker exec as its transport. Dependencies and generated Prisma
@@ -19,29 +19,36 @@ export function synchronizeDevelopmentSource(service, options = {}) {
   const container = options.container;
   if (container && !/^[a-f0-9]{12,64}$/u.test(container)) throw new Error("Invalid development container ID");
   const execute = options.execute ?? spawnSync;
-  let changed = false;
+  if (!container) mkdirSync(targetRoot, { recursive: true });
+  const includes = new Set();
   for (const path of paths) {
     const directory = !path.endsWith(".json") && !path.endsWith(".ts") && !path.endsWith(".html");
-    const target = resolve(targetRoot, path);
-    if (!container) mkdirSync(directory ? target : dirname(target), { recursive: true });
-    const result = execute("rsync", [
-      ...(container ? ["--rsh=docker exec -i", "--blocking-io"] : []),
-      "--recursive", "--links", "--safe-links", "--checksum", "--delete",
-      "--itemize-changes", "--omit-dir-times", "--no-perms", "--no-owner", "--no-group",
-      // Excludes also protect the receiver from --delete. Prisma is generated
-      // in the image and must survive synchronizing apps/api/src.
-      ...(path === "apps/api/src" ? ["--exclude=/generated/"] : []),
-      // The viewer plugin regenerates this manifest with Linux paths and a
-      // timestamp on every Vite start. Host metadata must not trigger a restart.
-      ...(path === "apps/web/public" ? ["--exclude=/flyfish-viewer-assets.json"] : []),
-      "--exclude=node_modules/", "--exclude=.DS_Store",
-      `${resolve(sourceRoot, path)}${directory ? "/" : ""}`,
-      `${container ? `${container}:` : ""}${target}${directory ? "/" : ""}`,
-    ], { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
-    if (result.error || result.status !== 0) throw new Error(`Development source synchronization failed for ${service}`);
-    changed ||= Boolean(result.stdout.trim());
+    const segments = path.split("/");
+    for (let depth = 1; depth < segments.length; depth += 1) {
+      includes.add(`--include=/${segments.slice(0, depth).join("/")}/`);
+    }
+    includes.add(`--include=/${path}${directory ? "/***" : ""}`);
   }
-  return { changed };
+  const result = execute("rsync", [
+    ...(container ? ["--rsh=docker exec -i", "--blocking-io"] : []),
+    "--recursive", "--links", "--safe-links", "--checksum", "--delete",
+    "--itemize-changes", "--omit-dir-times", "--no-perms", "--no-owner", "--no-group",
+    // Filters are anchored at the shared transfer root, and also protect the
+    // receiver from deletion. Generated Linux files must remain image-owned.
+    "--exclude=/apps/api/src/generated/",
+    "--exclude=/apps/web/public/flyfish-viewer-assets.json",
+    "--exclude=node_modules/", "--exclude=.DS_Store",
+    // Traverse only selected roots. Excluded siblings are also protected from
+    // deletion, including dependencies and other applications in the image.
+    ...includes, "--exclude=*",
+    "./",
+    `${container ? `${container}:` : ""}${resolve(targetRoot)}/`,
+  ], { cwd: resolve(sourceRoot), encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
+  if (result.error || result.status !== 0) throw new Error(`Development source synchronization failed for ${service}`);
+  // macOS openrsync can report .f..T.... for equal contents with different
+  // mtimes even without --times. Only transfers, creations and deletions
+  // require restarting the service; metadata-only reports do not.
+  return { changed: /^(?:[<>ch][fdLDS]|\*deleting\b)/mu.test(result.stdout) };
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

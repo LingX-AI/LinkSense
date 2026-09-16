@@ -11,6 +11,7 @@ import {
   getPendingConversationExecution,
   markConversationExecutionPending,
 } from "@/features/conversations/conversation-pending-execution"
+import { interactiveApplicationFilesKey } from "./interactive-application-files"
 import { createInteractiveApplicationSubmitter } from "./interactive-application-submission"
 
 vi.mock("@/api/client", async (importOriginal) => ({
@@ -35,6 +36,47 @@ afterEach(() => {
 })
 
 describe("interactive application submission", () => {
+  it("includes only explicitly selected application files in the message and request", async () => {
+    const queryClient = new QueryClient()
+    const selected = {
+      id: "60000000-0000-4000-8000-000000000001",
+      filename: "selected.txt",
+      size_bytes: 4,
+      mime_type: "text/plain",
+      status: "staged",
+      turn_id: null,
+    }
+    queryClient.setQueryData(interactiveApplicationFilesKey(conversationId), {
+      items: [
+        selected,
+        {
+          ...selected,
+          id: "60000000-0000-4000-8000-000000000002",
+          filename: "unselected.txt",
+        },
+      ],
+    })
+    vi.mocked(apiRequest).mockResolvedValueOnce(receipt)
+    const promise = createInteractiveApplicationSubmitter({
+      queryClient,
+      applicationId,
+      conversationId,
+    })({ ...input, file_ids: [selected.id] })
+    expect(
+      getPendingConversationTurnSubmission(queryClient, conversationId)?.message
+        .attachments
+    ).toEqual([
+      expect.objectContaining({ id: selected.id, name: selected.filename }),
+    ])
+    await promise
+    expect(apiRequest).toHaveBeenCalledWith(
+      `/conversations/${conversationId}/turns`,
+      expect.objectContaining({
+        body: expect.objectContaining({ file_ids: [selected.id] }),
+      })
+    )
+  })
+
   it("does not let a late receipt overwrite a newer native submission", async () => {
     const queryClient = new QueryClient()
     vi.mocked(apiRequest).mockResolvedValueOnce(receipt)

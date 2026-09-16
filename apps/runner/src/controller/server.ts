@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto"
 
 import Fastify, { type FastifyReply } from "fastify"
 import { z } from "zod"
-import { userEnvironmentSettingsSchema, runtimeWorkspaceHeader, runtimeServiceSessionHeader, userWorkspacePathSchema } from "@linksense/shared"
+import { userEnvironmentSettingsSchema, runtimeWorkspaceHeader, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, userWorkspacePathSchema } from "@linksense/shared"
 
 import type { RunnerConfig } from "../config.js"
 import { deriveKnowledgeSearchTimeouts } from "../knowledge-search-timeout.js"
@@ -252,7 +252,7 @@ export function buildControllerServer(
       try {
         return sendWorkerResponse(
           reply,
-          await workers.cleanupConversation(ownerId, conversationId.data, uuid.optional().parse(request.headers[runtimeServiceSessionHeader])),
+          await workers.cleanupConversation(ownerId, conversationId.data, uuid.optional().parse(request.headers[runtimeServiceSessionHeader]), z.literal("true").optional().parse(request.headers[runtimeCleanupEnvironmentHeader]) === "true"),
         )
       } catch (error) {
         if (error instanceof RuntimeCleanupError) {

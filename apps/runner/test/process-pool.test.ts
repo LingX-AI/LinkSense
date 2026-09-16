@@ -43,6 +43,7 @@ import type {
   CapabilityRuntimeInput,
   CapabilityRuntimeManager,
 } from "../src/workspace/capability-runtime.js";
+import { CapabilityRuntimeError } from "../src/workspace/capability-runtime.js";
 import { WorkspaceManager } from "../src/workspace/workspace-manager.js";
 import { createModelGatewayMock } from "./model-gateway-mock.js";
 import { deferred } from "./deferred.js";
@@ -5606,18 +5607,22 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("defers a shared capability generation change until all active tasks release it", async () => {
+  it("starts with updated shared capabilities while the previous task continues without interruption", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-capability-generation-rebuild-"),
     );
     roots.push(root);
     const controlled = createControlledAppServer({
-      turnStartIds: ["turn-native-1", "turn-native-2"],
+      turnStartIds: ["turn-native-1"],
     });
+    const updated = createControlledAppServer({ turnStartIds: ["turn-native-2"] });
+    let processCount = 0;
+    const factory: ChildProcessFactory = (...args) =>
+      (processCount++ === 0 ? controlled : updated).factory(...args);
     const nativePluginManager = createNativePluginManagerMock();
     const { pool, capabilityRuntimeManager } = createStartOperationPool(
       root,
-      controlled.factory,
+      factory,
       createWorkspaceManager(root),
       { nativePluginManager },
     );
@@ -5634,13 +5639,14 @@ trust_level = "trusted"
       },
     };
 
-    await expect(pool.startTurn(secondInput)).rejects.toThrow("capability generation is still in use");
-    expect(pool.runningCount).toBe(1);
-    expect(controlled.kill).not.toHaveBeenCalled();
-    controlled.notify({ method: "turn/completed", params: { threadId: first.codexThreadId, turn: { id: first.codexTurnId, status: "completed" } } });
-    await waitForFast(() => expect(pool.runningCount).toBe(0));
-    await confirmRecoveryProjection(pool, firstInput);
     await expect(pool.startTurn(secondInput)).resolves.toMatchObject({ codexTurnId: "turn-native-2" });
+    expect(pool.runningCount).toBe(2);
+    expect(controlled.kill).not.toHaveBeenCalled();
+    expect(updated.kill).not.toHaveBeenCalled();
+    expect(capabilityRuntimeManager.releasePublicationLock).toHaveBeenCalledTimes(2);
+    controlled.notify({ method: "turn/completed", params: { threadId: first.codexThreadId, turn: { id: first.codexTurnId, status: "completed" } } });
+    await waitForFast(() => expect(pool.runningCount).toBe(1));
+    await confirmRecoveryProjection(pool, firstInput);
     expect(pool.runningCount).toBe(1);
     expect(first.codexTurnId).toBe("turn-native-1");
     expect(nativePluginManager.reconcileBeforeStart).toHaveBeenCalledTimes(2);
@@ -5652,7 +5658,7 @@ trust_level = "trusted"
     });
     expect(capabilityRuntimeManager.resolvePublished).toHaveBeenCalledTimes(2);
     expect(
-      controlled.methods.filter((method) => method === "initialize"),
+      [...controlled.methods, ...updated.methods].filter((method) => method === "initialize"),
     ).toHaveLength(2);
     expect(controlled.kill).not.toHaveBeenCalled();
     expect(pool.size).toBe(2);
@@ -5723,7 +5729,7 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("retains one shared capability lease until both tasks confirm completion", async () => {
+  it("tracks completion independently for tasks sharing the same capability generation", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-shared-capability-lease-"),
     );
@@ -5752,7 +5758,7 @@ trust_level = "trusted"
       projectionTurnId: "01900000-0000-7000-8000-000000000123",
     };
     const second = await pool.startTurn(secondInput);
-    expect(capabilityRuntimeManager.acquireLease).toHaveBeenCalledOnce();
+    expect(capabilityRuntimeManager.acquireLease).toHaveBeenCalledTimes(2);
     controlled.notify({
       method: "turn/completed",
       params: {
@@ -5763,9 +5769,9 @@ trust_level = "trusted"
     await waitForFast(() => expect(pool.runningCount).toBe(0));
 
     await confirmRecoveryProjection(pool, firstInput);
-    expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
-    await confirmRecoveryProjection(pool, secondInput);
     expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce();
+    await confirmRecoveryProjection(pool, secondInput);
+    expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledTimes(2);
     await pool.closeAll();
   });
 
@@ -6081,7 +6087,8 @@ trust_level = "trusted"
 
     confirmOldExit();
     await new Promise((resolve) => setImmediate(resolve));
-    expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
+    expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce();
+    expect(pool.runningCount).toBe(1);
 
     controlled.notify({
       method: "turn/completed",
@@ -6096,7 +6103,7 @@ trust_level = "trusted"
       projectionTurnId: "01900000-0000-7000-8000-000000000120",
     });
     await waitForFast(() =>
-      expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce(),
+      expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledTimes(2),
     );
     await pool.closeAll();
   });
@@ -8000,6 +8007,28 @@ trust_level = "trusted"
     }
   });
 
+  it.each(["completed", "interrupted", "inProgress"] as const)("observes a cold %s turn after the shared application configuration advances without replaying it", async status => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-updated-recovery-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ threadReadTurns: [{ id: "turn-native-1", status, items: [], error: null }] });
+    const { pool, capabilityRuntimeManager, nativePluginManager, modelGateway } = createStartOperationPool(root, controlled.factory);
+    capabilityRuntimeManager.acquireLease.mockRejectedValue(new CapabilityRuntimeError());
+    const recovery = { ...startOperationInput(), codexThreadId: "thread-native-1", codexTurnId: "turn-native-1", taskKind: "turn" as const };
+    try {
+      if (status === "inProgress") await expect(pool.reconcile(recovery)).rejects.toBeInstanceOf(CapabilityRuntimeError);
+      else {
+        await expect(pool.reconcile(recovery)).resolves.toMatchObject({ thread: { turns: [{ id: "turn-native-1", status }] }, goal: null });
+        await expect(pool.confirmRecoveryProjection(recovery)).resolves.toBeUndefined();
+      }
+      expect(controlled.methods).toContain("thread/read");
+      expect(controlled.methods).not.toContain("thread/resume");
+      expect(controlled.methods).not.toContain("turn/start");
+      expect(nativePluginManager.reconcileBeforeStart).not.toHaveBeenCalled();
+      expect(modelGateway.issueLease).not.toHaveBeenCalled();
+      expect(pool.runningCount).toBe(0);
+    } finally { await pool.closeAll(); }
+  });
+
   it("uses current plugin credentials for cold recovery and rebuilds only when they change", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-authorized-recovery-"),
@@ -8069,7 +8098,7 @@ trust_level = "trusted"
     expect(controlled.environment?.[credentialSource]).toBe(
       "credential-version-two",
     );
-    expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
+    expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledTimes(2);
     await pool.closeAll();
   });
 
@@ -11021,8 +11050,10 @@ function controlledWorkspaceRuntimeGeneration(
 
 function createCapabilityRuntimeManagerMock() {
   const releaseLease = vi.fn(async () => undefined);
+  const releasePublicationLock = vi.fn(async () => undefined);
   return {
     releaseLease,
+    releasePublicationLock,
     acquireLease: vi.fn(
       async ({
         controlRoot,
@@ -11033,6 +11064,7 @@ function createCapabilityRuntimeManagerMock() {
       }) => ({
         capabilityControl: join(controlRoot, "capabilities"),
         generation: expectedGeneration,
+        releasePublicationLock,
         release: releaseLease,
       }),
     ),

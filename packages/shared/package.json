@@ -24,9 +24,11 @@
   },
   "dependencies": {
     "es-toolkit": "1.50.0",
+    "semver": "7.8.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/semver": "7.8.0",
     "typescript": "~6",
     "vitest": "^4.1.10"
   }

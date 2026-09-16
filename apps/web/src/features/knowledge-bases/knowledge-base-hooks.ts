@@ -21,13 +21,13 @@ import {
   listKnowledgeDocuments,
   listKnowledgeGrants,
   listKnowledgeShareTargets,
+  type KnowledgeBaseListLifecycle,
   type KnowledgeBaseScope,
 } from "@/features/knowledge-bases/knowledge-base-api"
 import {
   type KnowledgeBaseEvent,
   type KnowledgeBaseCreationCapability,
   type KnowledgeBaseEntryPage,
-  type KnowledgeBaseLifecycle,
   type KnowledgeDocument,
   type KnowledgeSearchCapability,
   type KnowledgeShareTarget,
@@ -44,7 +44,7 @@ const reconnectingDocumentRefetchIntervalMs = 5_000
 
 export function useKnowledgeBaseList(
   filters: {
-    lifecycle: KnowledgeBaseLifecycle
+    lifecycle: KnowledgeBaseListLifecycle
     scope: KnowledgeBaseScope
     search: string
   },

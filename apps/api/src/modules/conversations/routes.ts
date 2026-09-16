@@ -11,6 +11,7 @@ import {
   knowledgeBaseIdsSchema,
   officeAnnotationInputSchema,
   interactiveApplicationMessageSourceSchema,
+  interactiveApplicationFileIdsSchema,
   priorityCapabilityIdsSchema,
   updateModelPreferenceSchema,
 } from "@linksense/shared";
@@ -82,6 +83,7 @@ const turnSubmissionBodySchema = z.union([
   z.strictObject({
     input_text: inputText,
     message_source: interactiveApplicationMessageSourceSchema.optional(),
+    file_ids: interactiveApplicationFileIdsSchema.optional(),
     ...turnSubmissionFields,
   }),
   z.strictObject({
@@ -358,6 +360,7 @@ export const conversationRoutes: FastifyPluginAsync<{
             : { officeAnnotation: body.message_display }
           : {
               inputText: body.input_text,
+              ...(body.file_ids !== undefined ? { attachmentIds: body.file_ids } : {}),
               ...(body.message_source
                 ? { messageSource: body.message_source }
                 : {}),

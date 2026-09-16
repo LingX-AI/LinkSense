@@ -1,7 +1,7 @@
 import adminKnowledgeSource from "@/pages/admin-knowledge-base-page.tsx?raw"
 import adminUsageSource from "@/pages/admin-usage-page.tsx?raw"
 import alertDialogSource from "@/components/ui/alert-dialog.tsx?raw"
-import applicationCatalogSource from "@/features/applications/application-catalog-panel.tsx?raw"
+import applicationsWorkspaceSource from "@/features/applications/application-center-panel.tsx?raw"
 import applicationExternalAccessSource from "@/features/applications/application-external-access-page.tsx?raw"
 import authSource from "@/pages/auth-pages.tsx?raw"
 import automationSource from "@/pages/automation-pages.tsx?raw"
@@ -44,8 +44,8 @@ describe("frontend design regressions", () => {
     expect(adminUsageSource).toContain('searchParams.get("user_search")')
     expect(adminUsageSource).toContain('"tab",')
     expect(automationSource).toContain('"status",')
-    expect(knowledgeBaseSource).toContain('"kb_lifecycle",')
-    expect(applicationCatalogSource).toContain('"app_scope",')
+    expect(knowledgeBaseSource).toContain('"kb_filter",')
+    expect(applicationsWorkspaceSource).toContain('"app_scope",')
   })
 
   it("provides stable authentication field names and email input hints", () => {

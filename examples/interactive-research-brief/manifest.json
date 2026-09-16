@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "interactive-research-brief",
   "name": "交互式研究简报",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "通过结构化表单配置研究任务，并在应用内接收洞察、风险和行动建议等业务事件。",
   "instructions": "这是一个交互式研究简报应用。用户会在应用中选择技能、插件和知识库，并提交研究主题、受众、交付形式及约束。执行任务时，应在原生聊天中持续与用户沟通并给出完整最终答复；同时使用 emit_application_event 按照本清单定义的事件契约，将适合结构化展示的洞察、风险和行动建议发送给应用。不要把普通聊天消息或工具调用进度包装成自定义事件。",
   "icon": null,
@@ -13,7 +13,8 @@
     "capabilities:read",
     "knowledge_bases:read",
     "mcp_servers:read",
-    "tasks:write"
+    "tasks:write",
+    "files:write"
   ],
   "custom_events": [
     {

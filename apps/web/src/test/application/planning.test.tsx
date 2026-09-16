@@ -702,6 +702,9 @@ describe("LinkSense application", () => {
     expect(quotaCard?.compareDocumentPosition(composer)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     )
+    expect(
+      screen.queryByRole("combobox", { name: "项目" })
+    ).not.toBeInTheDocument()
     await interaction.type(composer, "尝试发起任务")
     const sendButton = screen.getByRole("button", { name: "发送" })
     expect(sendButton).toBeDisabled()
@@ -717,6 +720,9 @@ describe("LinkSense application", () => {
       screen.getByRole("button", { name: "关闭用量提醒" })
     )
     expect(screen.queryByText("额度已达上限")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("combobox", { name: "项目" })
+    ).not.toBeInTheDocument()
     expect(sendButton).toBeDisabled()
   })
 

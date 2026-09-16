@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { lstat, mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -154,6 +154,122 @@ describe("controller task-owned directory preparation", () => {
 })
 
 describe("controller worker lifecycle", () => {
+  async function serviceCleanupFixture() {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-service-cleanup-"))
+    const userDataRoot = path.join(root, "users")
+    const sessionId = "01900000-0000-7000-8000-000000000001"
+    const environment = path.join(userDataRoot, ownerId, "services", sessionId)
+    const personal = path.join(userDataRoot, ownerId, "home")
+    const sibling = path.join(userDataRoot, ownerId, "services", "01900000-0000-7000-8000-000000000002", "home")
+    for (const directory of [personal, sibling, path.join(environment, "home/.codex"), path.join(environment, "control/workspaces", sessionId)]) {
+      await mkdir(directory, { recursive: true })
+    }
+    await writeFile(path.join(personal, "keep"), "personal-project")
+    await writeFile(path.join(sibling, "keep"), "other-application")
+    await writeFile(path.join(environment, "home/.codex/history"), "deleted-application-history")
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createDockerWorkerManager(createConfig({ LINKSENSE_USER_DATA_ROOT: userDataRoot }), docker, transport, pino({ level: "silent" }), {
+      assertUserDataRoot: async () => undefined,
+      prepareUserDirectories: async () => undefined,
+      repairExistingUserDirectories: async () => undefined,
+      probeWorkerRuntime: async () => undefined,
+    })
+    await manager.initialize()
+    return { root, environment, personal, sibling, sessionId, docker, transport, manager }
+  }
+
+  it("reclaims an authorized absent service environment without touching personal or sibling data", async () => {
+    const f = await serviceCleanupFixture()
+    try {
+      const response = await f.manager.cleanupConversation(ownerId, f.sessionId, f.sessionId, true)
+      expect(JSON.parse(response.body.toString())).toMatchObject({ success: true, environment: "deleted" })
+      await expect(lstat(f.environment)).rejects.toMatchObject({ code: "ENOENT" })
+      expect(await readFile(path.join(f.personal, "keep"), "utf8")).toBe("personal-project")
+      expect(await readFile(path.join(f.sibling, "keep"), "utf8")).toBe("other-application")
+      expect(f.docker.createContainer).not.toHaveBeenCalled()
+      const repeated = await f.manager.cleanupConversation(ownerId, f.sessionId, f.sessionId, true)
+      expect(JSON.parse(repeated.body.toString())).toMatchObject({ environment: "absent" })
+    } finally { await rm(f.root, { recursive: true, force: true }) }
+  })
+
+  it("stops the dedicated service worker before removing its persistent environment", async () => {
+    const f = await serviceCleanupFixture()
+    try {
+      await f.manager.request(ownerId, `/conversations/${f.sessionId}/runtime`, "PUT", undefined, undefined, "workspace", f.sessionId)
+      f.docker.stopContainer.mockImplementation(async () => {
+        expect(await readFile(path.join(f.environment, "home/.codex/history"), "utf8")).toBe("deleted-application-history")
+      })
+      await f.manager.cleanupConversation(ownerId, f.sessionId, f.sessionId, true)
+      expect(f.docker.stopContainer).toHaveBeenCalledOnce()
+      expect(f.docker.removeContainer).toHaveBeenCalledOnce()
+      await expect(lstat(f.environment)).rejects.toMatchObject({ code: "ENOENT" })
+    } finally { await rm(f.root, { recursive: true, force: true }) }
+  })
+
+  it("preserves service files for an existing task-only cleanup intent", async () => {
+    const f = await serviceCleanupFixture()
+    try {
+      await f.manager.cleanupConversation(ownerId, f.sessionId, f.sessionId)
+      expect(await readFile(path.join(f.environment, "home/.codex/history"), "utf8")).toBe("deleted-application-history")
+      await expect(lstat(path.join(f.environment, "control/workspaces", f.sessionId))).rejects.toMatchObject({ code: "ENOENT" })
+    } finally { await rm(f.root, { recursive: true, force: true }) }
+  })
+
+  it("rejects whole-environment cleanup when the target is a personal HOME", async () => {
+    const f = await serviceCleanupFixture()
+    try {
+      await expect(f.manager.cleanupConversation(ownerId, f.sessionId, undefined, true)).rejects.toMatchObject({ reasonCode: "CLEANUP_PATH_BOUNDARY_INVALID" })
+      expect(await readFile(path.join(f.personal, "keep"), "utf8")).toBe("personal-project")
+    } finally { await rm(f.root, { recursive: true, force: true }) }
+  })
+
+  it("keeps the environment when the service container cannot be removed", async () => {
+    const f = await serviceCleanupFixture()
+    try {
+      await f.manager.request(ownerId, `/conversations/${f.sessionId}/runtime`, "PUT", undefined, undefined, "workspace", f.sessionId)
+      f.docker.removeContainer.mockRejectedValueOnce(new Error("container removal unavailable"))
+      await expect(f.manager.cleanupConversation(ownerId, f.sessionId, f.sessionId, true)).rejects.toThrow()
+      expect(await readFile(path.join(f.environment, "home/.codex/history"), "utf8")).toBe("deleted-application-history")
+      await f.manager.cleanupConversation(ownerId, f.sessionId, f.sessionId, true)
+      await expect(lstat(f.environment)).rejects.toMatchObject({ code: "ENOENT" })
+    } finally { await rm(f.root, { recursive: true, force: true }) }
+  })
+
+  it("preserves the service environment while a worker request is in flight", async () => {
+    const f = await serviceCleanupFixture()
+    const started = deferred<void>(), finish = deferred<void>()
+    let request: Promise<WorkerHttpResponse> | undefined
+    try {
+      f.transport.nextApplicationRequestStarted = () => started.resolve()
+      f.transport.nextApplicationRequestGate = finish.promise
+      request = f.manager.request(ownerId, `/conversations/${f.sessionId}/runtime`, "PUT", undefined, undefined, "workspace", f.sessionId)
+      await started.promise
+      await expect(f.manager.cleanupConversation(ownerId, f.sessionId, f.sessionId, true)).rejects.toMatchObject({ reasonCode: "CLEANUP_RUNTIME_ACTIVE" })
+      expect(f.docker.removeContainer).not.toHaveBeenCalled()
+      expect(await readFile(path.join(f.environment, "home/.codex/history"), "utf8")).toBe("deleted-application-history")
+    } finally { finish.resolve(); await request; await rm(f.root, { recursive: true, force: true }) }
+  })
+
+  it("refuses a symlinked service environment without following it", async () => {
+    const f = await serviceCleanupFixture()
+    try {
+      await rm(f.environment, { recursive: true })
+      await symlink(f.personal, f.environment)
+      await expect(f.manager.cleanupConversation(ownerId, f.sessionId, f.sessionId, true)).rejects.toMatchObject({ reasonCode: "CLEANUP_PATH_BOUNDARY_INVALID" })
+      expect(await readFile(path.join(f.personal, "keep"), "utf8")).toBe("personal-project")
+    } finally { await rm(f.root, { recursive: true, force: true }) }
+  })
+
+  it("keeps service files when container absence cannot be confirmed", async () => {
+    const f = await serviceCleanupFixture()
+    try {
+      f.docker.listManagedContainers.mockRejectedValueOnce(new Error("Docker is unavailable"))
+      await expect(f.manager.cleanupConversation(ownerId, f.sessionId, f.sessionId, true)).rejects.toMatchObject({ reasonCode: "CLEANUP_RUNTIME_STATE_UNCERTAIN" })
+      expect(await readFile(path.join(f.environment, "home/.codex/history"), "utf8")).toBe("deleted-application-history")
+    } finally { await rm(f.root, { recursive: true, force: true }) }
+  })
+
   it("cleans an absent worker task directly without starting a worker", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "linksense-cleanup-controller-"))
     const userDataRoot = path.join(root, "users")

@@ -39,6 +39,25 @@ describe("published service capability storage", () => {
   }, 30_000)
 })
 describe("shared user capability installation", () => {
+  it("publishes updates while a task is running and retains its files until reclamation is allowed", async () => {
+    const root = await temporaryDirectory();
+    const source = await createPluginSource(join(root, "sources"), "calendar-tools", "v1");
+    const snapshotPruneGuard = vi.fn(async () => false);
+    const materializer = new UserHomeCapabilityMaterializer({ userDataRoot: join(root, "users"), snapshotPruneGuard });
+    const input = { ownerId: OWNER_ID, conversationId: firstTask, capabilities: [pluginCapability(source)] };
+    const original = await materializer.reconcile(input);
+    const originalRoot = await realpath(original.managedAgentsRoot);
+    for (let version = 2; version <= 5; version++) {
+      await writeFile(join(source, "README.md"), `v${version}`);
+      await materializer.reconcile({ ...input, conversationId: secondTask });
+    }
+    await expect(readFile(join(originalRoot, "plugin-sources/calendar-tools/README.md"), "utf8")).resolves.toBe("v1");
+    await expect(readFile(join(original.pluginsRoot, "calendar-tools/README.md"), "utf8")).resolves.toBe("v5");
+    snapshotPruneGuard.mockResolvedValue(true);
+    await writeFile(join(source, "README.md"), "v6");
+    await materializer.reconcile(input);
+    expect(await readdir(join(original.ownerRoot, "managed/agents/snapshots"))).toHaveLength(3);
+  }, 20_000);
   it("reuses immutable capability files across cold tasks and API instances without staging them again", async () => {
     const root = await temporaryDirectory()
     const source = await createPluginSource(join(root, "sources"), "calendar-tools", "shared")

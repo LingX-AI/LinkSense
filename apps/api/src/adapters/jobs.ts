@@ -8,6 +8,7 @@ import { z } from "zod"
 import type { AppConfig } from "../config.js"
 import type { PrismaClient } from "../generated/prisma/client.js"
 import type { ObjectStorage } from "./object-storage.js"
+import type { LinkSenseRedis } from "./redis.js"
 import {
   RunnerRuntimeCleanupError,
   type RunnerClient,
@@ -96,6 +97,7 @@ export type CleanupFailure = {
 
 const runtimeCleanupLeaseMs = 2 * 60_000
 const runtimeCleanupMaxAttempts = 8
+type RuntimeCleanupLifecycle = Pick<LinkSenseRedis, "acquireUserLifecycleLock" | "releaseUserLifecycleLock">
 
 export class CleanupJobNotFoundError extends Error {
   constructor() {
@@ -132,6 +134,7 @@ export class BackgroundJobs {
     private readonly capabilityRoot = resolve(config.capabilityRoot),
     queueOverride?: MaintenanceQueueControl,
     private readonly prisma?: PrismaClient,
+    private readonly lifecycleCoordinator?: RuntimeCleanupLifecycle,
   ) {
     this.workspaceRoot = resolve(config.workspaceRoot)
     this.connection = bullMqConnection(config.redisUrl)
@@ -419,6 +422,7 @@ export class BackgroundJobs {
       const result = await executeRuntimeCleanupJob({
         runner: this.runner,
         ...(this.prisma ? { prisma: this.prisma } : {}),
+        ...(this.lifecycleCoordinator ? { lifecycleCoordinator: this.lifecycleCoordinator } : {}),
         ownerId: data.ownerId,
         conversationId: data.conversationId,
         ...(data.outboxId ? { outboxId: data.outboxId } : {}),
@@ -639,7 +643,8 @@ export class BackgroundJobs {
 
 export async function executeRuntimeCleanupJob(input: {
   runner: Pick<RunnerClient, "cleanupRuntime">
-  prisma?: Pick<PrismaClient, "runtimeCleanupOutbox">
+  prisma?: Pick<PrismaClient, "runtimeCleanupOutbox"> & Partial<Pick<PrismaClient, "conversation">>
+  lifecycleCoordinator?: RuntimeCleanupLifecycle
   ownerId: string
   conversationId: string
   outboxId?: string
@@ -654,6 +659,7 @@ export async function executeRuntimeCleanupJob(input: {
 > {
   const now = input.now ?? (() => new Date())
   let serviceSessionId = input.serviceSessionId
+  let removeServiceEnvironment = false
   let claim:
     | {
         token: string
@@ -674,6 +680,7 @@ export async function executeRuntimeCleanupJob(input: {
         ownerId: true,
         conversationId: true,
         serviceSessionId: true,
+        removeServiceEnvironment: true,
         status: true,
         attemptCount: true,
         maxAttempts: true,
@@ -726,10 +733,35 @@ export async function executeRuntimeCleanupJob(input: {
       }
     }
     serviceSessionId = outbox.serviceSessionId ?? undefined
+    removeServiceEnvironment = outbox.removeServiceEnvironment
     claim = { token, attemptCount, maxAttempts: outbox.maxAttempts }
   }
   try {
-    await input.runner.cleanupRuntime(input.conversationId, input.ownerId, serviceSessionId)
+    if (removeServiceEnvironment) {
+      const lifecycle = input.lifecycleCoordinator
+      const conversations = input.prisma?.conversation
+      if (!serviceSessionId || !lifecycle || !conversations) throw new RunnerRuntimeCleanupError("CLEANUP_RUNTIME_STATE_UNCERTAIN", "reconcile")
+      const lease = await lifecycle.acquireUserLifecycleLock(input.ownerId, runtimeCleanupLeaseMs)
+      if (!lease) throw new RunnerRuntimeCleanupError("CLEANUP_RUNTIME_ACTIVE", "reconcile")
+      try {
+        // Forks deliberately share a service HOME. Serialize this check with
+        // creation/forking and preserve the environment until its last reference.
+        const references = await conversations.findMany({
+          where: { ownerId: input.ownerId, OR: [
+            { id: input.conversationId },
+            { workspaceRelPath: { startsWith: `${input.ownerId}/services/${serviceSessionId}/home/` } },
+          ] },
+          select: { id: true },
+        })
+        if (references.some(reference => reference.id === input.conversationId)) throw new RunnerRuntimeCleanupError("CLEANUP_RUNTIME_STATE_UNCERTAIN", "reconcile")
+        if (references.length === 0) await input.runner.cleanupRuntime(input.conversationId, input.ownerId, serviceSessionId, true)
+        else await input.runner.cleanupRuntime(input.conversationId, input.ownerId, serviceSessionId)
+      } finally {
+        await lifecycle.releaseUserLifecycleLock(input.ownerId, lease)
+      }
+    } else {
+      await input.runner.cleanupRuntime(input.conversationId, input.ownerId, serviceSessionId)
+    }
     if (input.outboxId && input.prisma && claim) {
       await input.prisma.runtimeCleanupOutbox.deleteMany({
         where: {

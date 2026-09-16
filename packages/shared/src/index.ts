@@ -53,3 +53,5 @@ export * from "./skill-update.js";
 
 export * from "./user-environment.js";
 export * from "./application-publication.js";
+export * from "./application-version.js";
+export * from "./application-distribution.js";

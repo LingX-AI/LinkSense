@@ -1,4 +1,8 @@
 import { execFile } from "node:child_process"
+import assert from "node:assert/strict"
+import { createRequire } from "node:module"
+import { pathToFileURL } from "node:url"
+import { setTimeout as delay } from "node:timers/promises"
 import {
   chmod,
   mkdir,
@@ -77,6 +81,8 @@ async function runSmoke(): Promise<void> {
     path.join(tmpdir(), "linksense-native-plugin-refresh-"),
   )
   let client: CodexJsonRpcClient | undefined
+  let previousClient: CodexJsonRpcClient | undefined
+  let runningCall: Awaited<ReturnType<typeof startBlockingMcpCall>> | undefined
   try {
     const userDataRoot = path.join(temporaryRoot, "users")
     const sourceRoot = path.join(
@@ -175,7 +181,10 @@ async function runSmoke(): Promise<void> {
     )
     completedPhase = "first-app-server-verified"
 
-    await client.close()
+    // Keep a real native MCP call in flight while another app-server updates
+    // the same HOME and CODEX_HOME. No model or external service is contacted.
+    runningCall = await startBlockingMcpCall(client, temporaryRoot, workspace)
+    previousClient = client
     client = undefined
 
     // Keep both the plugin manifest version and API revision unchanged. Only
@@ -230,6 +239,13 @@ async function runSmoke(): Promise<void> {
     }
     completedPhase = "updated-app-server-verified"
 
+    assert(previousClient.isHealthy)
+    assert.equal(runningCall.settled(), false, "updating plugins must not finish or cancel the active call")
+    await runningCall.complete()
+    assert(previousClient.isHealthy)
+    await previousClient.close()
+    previousClient = undefined
+
     await client.close()
     client = undefined
 
@@ -269,6 +285,8 @@ async function runSmoke(): Promise<void> {
         actualCodexVersion,
         isolatedHome: true,
         modelTurnStarted: false,
+        inFlightMcpCallPreserved: true,
+        sharedHomeClients: 2,
         manifestVersionUnchanged: pluginVersion,
         capabilityRevisionUnchanged: stableRevision,
         generations: {
@@ -287,6 +305,8 @@ async function runSmoke(): Promise<void> {
       }),
     )
   } finally {
+    await runningCall?.release()
+    await previousClient?.close().catch(() => undefined)
     await client?.close().catch(() => undefined)
     await rm(temporaryRoot, { recursive: true, force: true })
   }
@@ -403,7 +423,58 @@ function createClient(userHome: string, codexHome: string): CodexJsonRpcClient {
       error: () => undefined,
     } as never,
     requestTimeoutMs: 60_000,
+    configOverrides: [
+      'model="gpt-5.4"', 'model_provider="offline-probe"',
+      'model_providers.offline-probe.name="Offline probe"',
+      'model_providers.offline-probe.wire_api="responses"',
+      'model_providers.offline-probe.base_url="http://127.0.0.1:1/v1"',
+      'model_providers.offline-probe.requires_openai_auth=false',
+      "features.memories=false", "features.multi_agent=false", "features.hooks=false",
+    ],
   })
+}
+
+async function startBlockingMcpCall(client: CodexJsonRpcClient, root: string, workspace: string) {
+  const require = createRequire(path.join(repositoryRoot, "apps/runner/package.json"))
+  const sdk = pathToFileURL(require.resolve("@modelcontextprotocol/sdk/server/mcp.js")).href
+  const transport = pathToFileURL(require.resolve("@modelcontextprotocol/sdk/server/stdio.js")).href
+  const serverFile = path.join(root, "mcp-probe.mjs"), started = path.join(root, "mcp-started"), released = path.join(root, "mcp-released")
+  await writeFile(serverFile, `
+    import {McpServer} from ${JSON.stringify(sdk)};
+    import {StdioServerTransport} from ${JSON.stringify(transport)};
+    import {writeFile,access} from 'node:fs/promises';
+    import {setTimeout as delay} from 'node:timers/promises';
+    const server = new McpServer({name:'update-probe',version:'1.0.0'});
+    server.registerTool('wait_for_update',{description:'Offline update probe'},async()=>{
+      await writeFile(${JSON.stringify(started)},'started');
+      for(let i=0;i<600;i++) {
+        if(await access(${JSON.stringify(released)}).then(()=>true,()=>false)) return {content:[{type:'text',text:'CALL_COMPLETED_WITHOUT_INTERRUPTION'}]};
+        await delay(100);
+      }
+      throw new Error('probe timed out');
+    });
+    await server.connect(new StdioServerTransport());
+  `)
+  const thread = await client.request<{ thread: { id: string } }>("thread/start", {
+    cwd: workspace, approvalPolicy: "never", sandbox: "danger-full-access",
+    config: { mcp_servers: { update_probe: { command: process.execPath, args: [serverFile] } } },
+  })
+  let done = false
+  const result = client.request("mcpServer/tool/call", { threadId: thread.thread.id, server: "update_probe", tool: "wait_for_update", arguments: {} })
+    .then(value => { done = true; return { value } }, error => { done = true; return { error } })
+  for (let i = 0; ; i++) {
+    if (await readFile(started, "utf8").then(() => true, () => false)) break
+    if (done) throw new Error(`native MCP call failed before starting: ${JSON.stringify(await result)}`)
+    if (i >= 150) throw new Error("native MCP call did not start")
+    await delay(100)
+  }
+  const release = async () => { await writeFile(released, "released") }
+  return { settled: () => done, release, complete: async () => {
+    await release()
+    const completed = await result
+    if ("error" in completed) throw completed.error
+    assert(JSON.stringify(completed.value).includes("CALL_COMPLETED_WITHOUT_INTERRUPTION"))
+  } }
 }
 
 async function initializeAndAssertIsolated(

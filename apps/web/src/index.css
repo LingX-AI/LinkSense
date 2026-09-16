@@ -253,8 +253,8 @@
   --app-artifact-icon-foreground: #555555;
   --app-media-backdrop: rgb(255 255 255 / 48%);
   --app-media-backdrop-filter: blur(32px) saturate(1.12);
-  --app-media-control: rgb(32 32 32 / 8%);
-  --app-media-control-hover: rgb(32 32 32 / 10%);
+  --app-media-control: #ededed;
+  --app-media-control-hover: #e9e9e9;
   --app-media-foreground: #242424;
   --app-shadow: 0 12px 34px rgb(0 0 0 / 9%), 0 1px 5px rgb(0 0 0 / 5%);
   --app-task-overview-shadow: 0 0 28px rgb(0 0 0 / 8%);
@@ -375,8 +375,8 @@
   --app-artifact-icon-foreground: #c6c6c6;
   --app-media-backdrop: rgb(0 0 0 / 92%);
   --app-media-backdrop-filter: none;
-  --app-media-control: rgb(255 255 255 / 12%);
-  --app-media-control-hover: rgb(255 255 255 / 16%);
+  --app-media-control: #303030;
+  --app-media-control-hover: #393939;
   --app-media-foreground: #ffffff;
   --app-shadow: 0 14px 38px rgb(0 0 0 / 36%), 0 1px 6px rgb(0 0 0 / 24%);
   --app-task-overview-shadow: 0 0 28px rgb(0 0 0 / 24%);
@@ -648,9 +648,9 @@
 .conversation-welcome h2 {
   max-width: 680px;
   color: var(--app-text);
-  font-size: var(--app-font-16);
-  font-weight: 600;
-  line-height: var(--app-line-24);
+  font-size: var(--app-font-24);
+  font-weight: 500;
+  line-height: var(--app-line-32);
   text-wrap: balance;
 }
 
@@ -4635,6 +4635,7 @@
 }
 
 .image-preview-viewer {
+  isolation: isolate;
   position: absolute;
   inset: 0;
   min-width: 0;
@@ -4643,8 +4644,9 @@
 }
 
 .image-preview-stage {
+  z-index: 0;
   position: absolute;
-  inset: 60px 64px 72px;
+  inset: 0 64px;
   display: flex;
   overflow: hidden;
   align-items: center;
@@ -4804,8 +4806,6 @@
 
 .conversation-image-preview-viewer .image-preview-zoom-controls,
 .read-only-file-preview-image-viewer .image-preview-zoom-controls {
-  @apply bg-background/50 backdrop-blur-xl;
-
   bottom: 18px;
   gap: 0;
   padding: 2px;
@@ -6341,7 +6341,7 @@ button.annotation-hover-file:focus-visible {
 }
 
 .assistant-markdown
-  img:not(.conversation-image-thumbnail-image):not([data-diagram-image]) {
+  img:not(.conversation-image-thumbnail-image):not(.image-preview-image):not([data-diagram-image]) {
   display: block;
   width: auto;
   max-width: min(100%, 760px);
@@ -10614,18 +10614,27 @@ button.annotation-hover-file:focus-visible {
   font-size: var(--app-font-12);
 }
 
-.knowledge-library-controls {
+.knowledge-library-toolbar {
   display: flex;
   min-width: 0;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   margin-top: 32px;
 }
 
 .knowledge-library-search {
-  width: min(100%, 520px);
-  margin-top: 16px;
+  min-width: 240px;
+  flex: 1;
+}
+
+.knowledge-library-filters {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.knowledge-library-filter {
+  width: 136px;
 }
 
 .knowledge-card-list {
@@ -11758,7 +11767,7 @@ button.annotation-hover-file:focus-visible {
   }
 
   .image-preview-stage {
-    inset: 58px 42px 70px;
+    inset: 0 42px;
   }
 
   .image-preview-toolbar {
@@ -11919,21 +11928,26 @@ button.annotation-hover-file:focus-visible {
     width: 100%;
   }
 
-  .knowledge-library-controls {
+  .knowledge-library-toolbar {
+    flex-wrap: wrap;
     align-items: stretch;
-    flex-direction: column;
   }
 
-  .knowledge-library-controls [data-slot="toggle-group"] {
+  .knowledge-library-search {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .knowledge-library-filters {
     width: 100%;
   }
 
-  .knowledge-library-controls [data-slot="toggle-group-item"] {
+  .knowledge-library-filters [data-slot="select-trigger"] {
     min-width: 0;
     flex: 1;
   }
 
-  .knowledge-library-search {
+  .knowledge-library-toolbar > [data-slot="button"] {
     width: 100%;
   }
 

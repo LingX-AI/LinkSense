@@ -60,6 +60,102 @@ afterEach(() => {
 })
 
 describe("AutomationPage", () => {
+  it.each([
+    {
+      buttonName: "使用“每日简报”模板",
+      title: "每日简报",
+      instruction:
+        "查看我的日历、未读电子邮件和优先事项，整理今天的安排、需要回复的消息和最重要的待办，并生成简明的每日简报。",
+      weekdays: "周一、周二、周三、周四、周五",
+      time: "08:00",
+    },
+    {
+      buttonName: "使用“每周回顾”模板",
+      title: "每周回顾",
+      instruction:
+        "回顾本周的工作进展、已完成事项、未完成事项和下周重点，并整理成简明的状态更新。",
+      weekdays: "周五",
+      time: "16:00",
+    },
+    {
+      buttonName: "使用“跟进监控”模板",
+      title: "跟进监控",
+      instruction:
+        "查看最近的电子邮箱和日历活动，识别需要跟进、即将到期或值得关注的事项，并按优先级汇总。",
+      weekdays: "周一、周二、周三、周四、周五",
+      time: "09:00",
+    },
+  ])(
+    "prefills the $title suggested automation",
+    async ({ buttonName, title, instruction, weekdays, time }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          const method = init?.method ?? "GET"
+          if (path === "/api/v1/automations" && method === "GET") {
+            return envelope({ items: [] })
+          }
+          if (path === "/api/v1/automations/pinned-tasks" && method === "GET") {
+            return envelope({ items: [] })
+          }
+          if (path === "/api/v1/me/model-preference" && method === "GET") {
+            return envelope({
+              configured: false,
+              models: [],
+              default_model: null,
+              selected_model: null,
+              selected_reasoning_effort: null,
+            })
+          }
+          throw new Error(`Unexpected request: ${method} ${path}`)
+        })
+      )
+      const interaction = userEvent.setup()
+      renderPage()
+
+      expect(
+        await screen.findByText("安排定期任务、设置提醒并持续跟进重要事项。")
+      ).toBeVisible()
+      expect(await screen.findByRole("heading", { name: "建议" })).toBeVisible()
+      expect(screen.getByRole("region", { name: "建议" })).not.toHaveClass(
+        "mx-auto"
+      )
+      expect(
+        screen.getByRole("button", { name: "使用“每日简报”模板" })
+      ).toBeVisible()
+      expect(
+        screen.getByRole("button", { name: "使用“每周回顾”模板" })
+      ).toBeVisible()
+      expect(
+        screen.getByRole("button", { name: "使用“跟进监控”模板" })
+      ).toBeVisible()
+      expect(screen.queryByText("还没有自动化")).not.toBeInTheDocument()
+
+      await interaction.click(screen.getByRole("button", { name: buttonName }))
+
+      const editor = await screen.findByRole("complementary", {
+        name: "新建自动化",
+      })
+      expect(within(editor).getByLabelText("自动化标题")).toHaveValue(title)
+      expect(within(editor).getByLabelText("自动化指令")).toHaveValue(
+        instruction
+      )
+      expect(
+        within(editor).getByRole("button", { name: "新建任务" })
+      ).toHaveAttribute("aria-pressed", "true")
+      expect(
+        within(editor).getByRole("combobox", { name: "重复" })
+      ).toHaveTextContent("每周")
+      expect(
+        within(editor).getByRole("button", { name: "开启于" })
+      ).toHaveTextContent(weekdays)
+      expect(
+        within(editor).getByRole("button", { name: `时间 ${time}` })
+      ).toBeVisible()
+    }
+  )
+
   it("shows an empty-result failure instead of presenting the last run as successful", async () => {
     vi.stubGlobal(
       "fetch",
@@ -391,6 +487,27 @@ describe("AutomationPage", () => {
 
     expect(await screen.findByText("运行中的自动化")).toBeVisible()
     expect(screen.getByText("已暂停自动化")).toBeVisible()
+    expect(screen.getByRole("region", { name: "建议" })).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "使用“每日简报”模板" })
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "使用“每周回顾”模板" })
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "使用“跟进监控”模板" })
+    ).toBeVisible()
+    const automationRow = screen
+      .getByText("已暂停自动化")
+      .closest('[role="listitem"]')
+    const suggestions = screen.getByRole("region", { name: "建议" })
+    expect(automationRow).not.toBeNull()
+    expect(
+      Boolean(
+        automationRow!.compareDocumentPosition(suggestions) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+      )
+    ).toBe(true)
     expect(
       screen.queryByText("按设定周期在同一个置顶任务中自动执行指令。")
     ).not.toBeInTheDocument()

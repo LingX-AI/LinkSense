@@ -55,7 +55,7 @@ export function capabilityCenterLocationFromSearch(
   const sectionParameter = parameters.get("section")
   const section = isCapabilityCenterSection(sectionParameter)
     ? sectionParameter
-    : "plugin"
+    : "application"
   const scopeParameter = parameters.get("scope")
   const scope = isCapabilityCenterScope(scopeParameter)
     ? scopeParameter

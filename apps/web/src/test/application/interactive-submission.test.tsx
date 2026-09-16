@@ -33,7 +33,12 @@ function ApplicationSubmissionTrigger() {
   return (
     <button
       onClick={() =>
-        void submit({ prompt, capability_ids: [], knowledge_base_ids: [] })
+        void submit({
+          prompt,
+          capability_ids: [],
+          knowledge_base_ids: [],
+          file_ids: [],
+        })
       }
     >
       应用提交

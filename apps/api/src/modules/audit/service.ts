@@ -20,6 +20,10 @@ const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
     "auth_mode",
     "authenticated_subject",
   ],
+  application_installed: ["source_application_id", "channel", "version_id"],
+  application_installation_updated: ["version_id"],
+  application_share_modes_updated: ["can_install", "can_use_service"],
+  application_published: ["version_number"],
   application_external_access_created: [
     "application_id",
     "enabled",

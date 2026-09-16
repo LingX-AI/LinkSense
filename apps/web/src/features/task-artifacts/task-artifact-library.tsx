@@ -165,21 +165,7 @@ export function TaskArtifactLibrary({
   }
 
   return (
-    <section aria-labelledby="task-artifacts-title">
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2
-            id="task-artifacts-title"
-            className="text-[length:var(--app-font-15)] leading-[var(--app-line-24)] font-semibold"
-          >
-            {t("library.artifacts.title")}
-          </h2>
-          <p className="mt-1 max-w-[70ch] text-[length:var(--app-font-13)] leading-[var(--app-line-20)] text-[var(--app-muted)]">
-            {t("library.artifacts.description")}
-          </p>
-        </div>
-      </div>
-
+    <section aria-label={t("library.artifacts.title")}>
       <div className="mt-5 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
         <InputGroup className="w-full max-w-[520px]">
           <InputGroupAddon>

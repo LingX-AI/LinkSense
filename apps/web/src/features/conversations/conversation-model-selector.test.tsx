@@ -144,24 +144,24 @@ describe("ConversationModelSelector", () => {
     })
     expect(within(popup).getByText("背景信息窗口：")).toBeVisible()
     expect(within(popup).getByText("60% 已用")).toBeVisible()
-    expect(within(popup).getByText("已用 151.4k tokens，共 252k")).toBeVisible()
+    expect(within(popup).getByText("已用 151.4k，共 252k")).toBeVisible()
   })
 
   it.each([
     {
       language: "zh-CN",
       badge: "背景信息窗口：50% 已用",
-      detail: "已用 128k tokens，共 256k",
+      detail: "已用 128k，共 256k",
     },
     {
       language: "en-US",
       badge: "Background context window: 50% used",
-      detail: "128k tokens used, 256k total",
+      detail: "128k used, 256k total",
     },
     {
       language: "fr-FR",
       badge: "背景信息窗口：50% 已用",
-      detail: "已用 128k tokens，共 256k",
+      detail: "已用 128k，共 256k",
     },
   ])(
     "shows runtime context counts in units of 1024 with $language translations or fallback",
@@ -191,7 +191,7 @@ describe("ConversationModelSelector", () => {
   )
 
   it.each(["zh-CN", "en-US", "fr-FR"])(
-    "uses lowercase token for one and tokens for zero, many, and compact counts in %s",
+    "omits the token unit for zero, one, many, and compact counts in %s",
     async (language) => {
       await i18n.changeLanguage(language)
       const interaction = userEvent.setup()
@@ -217,10 +217,10 @@ describe("ConversationModelSelector", () => {
         })
       )
       for (const [usedTokens, used] of [
-        [0, "0 tokens"],
-        [1, "1 token"],
-        [2, "2 tokens"],
-        [1_024, "1k tokens"],
+        [0, "0"],
+        [1, "1"],
+        [2, "2"],
+        [1_024, "1k"],
       ] as const) {
         rerender(renderSelector(usedTokens))
         expect(

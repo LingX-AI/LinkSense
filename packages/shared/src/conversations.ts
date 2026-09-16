@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { INTERACTIVE_APPLICATION_FILE_SOURCE } from "./interactive-applications.js";
 
 import {
   applicationIconSchema,
@@ -733,6 +734,7 @@ export const conversationMessageSchema = z.strictObject({
 export const conversationFileKindSchema = z.enum(["attachment", "artifact"]);
 export const conversationFileSourceSchema = z.enum([
   "user_upload",
+  INTERACTIVE_APPLICATION_FILE_SOURCE,
   "agent_generated",
   "system_generated",
 ]);

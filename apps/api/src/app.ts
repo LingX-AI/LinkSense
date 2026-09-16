@@ -1,3 +1,4 @@
+import { applicationCenterRoutes, adminApplicationCenterRoutes } from "./modules/applications/center-routes.js";
 import { registerRunnerRuntimeScope } from "./modules/events/runtime-scope.js";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
@@ -156,25 +157,7 @@ export async function buildApi(
   await services.passwordResetMail.start();
 
   registerRunnerRuntimeScope(app, services.prisma, services.config.runnerSharedSecret);
-  const defaultContentSecurityPolicy = createContentSecurityPolicy();
-  app.addHook("onSend", async (request, reply, payload) => {
-    reply
-      .header("x-content-type-options", "nosniff")
-      .header("referrer-policy", "no-referrer");
-    if (!reply.hasHeader("permissions-policy")) {
-      reply.header(
-        "permissions-policy",
-        "camera=(), microphone=(self), geolocation=()",
-      );
-    }
-    if (!requestPathname(request.url).startsWith("/api/v1/embed/frame/")) {
-      reply.header("x-frame-options", "SAMEORIGIN");
-    }
-    if (!reply.hasHeader("content-security-policy")) {
-      reply.header("content-security-policy", defaultContentSecurityPolicy);
-    }
-    return payload;
-  });
+  registerResponseSecurityHeaders(app);
 
   app.setErrorHandler((error, request, reply) => {
     const normalized = normalizeError(error);
@@ -329,6 +312,14 @@ export async function buildApi(
     },
     { prefix: "/api/v1/applications" },
   );
+  await app.register(async centerApp => {
+    centerApp.addHook("preHandler", app.authenticate);
+    await centerApp.register(applicationCenterRoutes, { service: services.applicationCenter });
+  }, { prefix: "/api/v1/application-center" });
+  await app.register(async centerApp => {
+    centerApp.addHook("preHandler", app.requireAdmin);
+    await centerApp.register(adminApplicationCenterRoutes, { service: services.applicationCenter });
+  }, { prefix: "/api/v1/admin/application-center" });
   await app.register(interactiveApplicationRuntimeRoutes, {
     prefix: "/api/v1/interactive-app-runtime",
     service: services.applications,
@@ -587,6 +578,28 @@ export function shouldBlockForMaintenance(
   role: "user" | "admin" | undefined,
 ): boolean {
   return maintenance.active && role !== "admin";
+}
+
+export function registerResponseSecurityHeaders(app: FastifyInstance): void {
+  const defaultContentSecurityPolicy = createContentSecurityPolicy();
+  app.addHook("onSend", async (request, reply, payload) => {
+    reply
+      .header("x-content-type-options", "nosniff")
+      .header("referrer-policy", "no-referrer");
+    if (!reply.hasHeader("permissions-policy")) {
+      reply.header(
+        "permissions-policy",
+        "camera=(), microphone=(self), geolocation=()",
+      );
+    }
+    if (!requestPathname(request.url).startsWith("/api/v1/embed/frame/")) {
+      reply.header("x-frame-options", "SAMEORIGIN");
+    }
+    if (!reply.hasHeader("content-security-policy")) {
+      reply.header("content-security-policy", defaultContentSecurityPolicy);
+    }
+    return payload;
+  });
 }
 
 export function createContentSecurityPolicy(): string {

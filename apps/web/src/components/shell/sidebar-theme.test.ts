@@ -102,14 +102,10 @@ describe("sidebar theme", () => {
 
     expect(lightTheme).toContain("--accent: #e9e9e9;")
     expect(lightTheme).toContain("--app-hover: rgb(32 32 32 / 4%);")
-    expect(lightTheme).toContain(
-      "--app-media-control-hover: rgb(32 32 32 / 10%);"
-    )
+    expect(lightTheme).toContain("--app-media-control-hover: #e9e9e9;")
     expect(darkTheme).toContain("--accent: #2c2c2c;")
     expect(darkTheme).toContain("--app-hover: rgb(255 255 255 / 6%);")
-    expect(darkTheme).toContain(
-      "--app-media-control-hover: rgb(255 255 255 / 16%);"
-    )
+    expect(darkTheme).toContain("--app-media-control-hover: #393939;")
     expect(sidebarStyles).toContain("--color-hover: var(--app-hover);")
   })
 

@@ -709,6 +709,7 @@ describe("ApplicationExternalAccessService", () => {
       firstSession.ownerId,
       CONVERSATION_ID,
       { ipAddress: "192.0.2.10" },
+      "user",
     );
     expect(fixture.session?.conversationId).toBe(THIRD_CONVERSATION_ID);
   });

@@ -1,4 +1,4 @@
-import { runtimePlacementSchema, runtimeServiceSessionHeader, type RuntimePlacement } from "@linksense/shared";
+import { runtimePlacementSchema, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, type RuntimePlacement } from "@linksense/shared";
 import type { AppConfig } from "../config.js";
 import { AppError } from "../lib/errors.js";
 import {
@@ -1007,7 +1007,8 @@ export class RunnerClient {
     }
   }
 
-  async cleanupRuntime(conversationId: string, ownerId: string, serviceSessionId?: string) {
+  async cleanupRuntime(conversationId: string, ownerId: string, serviceSessionId?: string, removeServiceEnvironment = false) {
+    if (removeServiceEnvironment && !serviceSessionId) throw new RunnerRuntimeCleanupError("CLEANUP_PATH_BOUNDARY_INVALID", "reconcile");
     let response: Response;
     try {
       response = await fetch(
@@ -1021,6 +1022,7 @@ export class RunnerClient {
             authorization: `Bearer ${this.config.runnerSharedSecret}`,
             [OWNER_ID_HEADER]: ownerId,
             ...await this.workspaceHeaders(`/conversations/${conversationId}`, ownerId, serviceSessionId ? "workspace" : undefined, serviceSessionId),
+            ...(removeServiceEnvironment ? { [runtimeCleanupEnvironmentHeader]: "true" } : {}),
           },
           signal: AbortSignal.timeout(30_000),
         },
@@ -1045,7 +1047,9 @@ export class RunnerClient {
             "reconcile",
           );
     }
-    const result = runtimeCleanupSuccessSchema.safeParse(
+    const result = (removeServiceEnvironment
+      ? runtimeCleanupSuccessSchema.extend({ environment: z.enum(["deleted", "absent"]) })
+      : runtimeCleanupSuccessSchema).safeParse(
       await response.json().catch(() => null),
     );
     if (!result.success) {

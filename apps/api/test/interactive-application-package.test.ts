@@ -106,10 +106,11 @@ describe("interactive application package inspection", () => {
 
     expect(prepared.manifest).toMatchObject({
       id: "interactive-research-brief",
-      version: "1.1.0",
+      version: "1.2.0",
       entry: "index.html",
       sdk_version: 1,
     });
+    expect(prepared.manifest.permissions).toContain("files:write");
     expect(prepared.assets.map((asset) => asset.path)).toEqual([
       "app.js",
       "index.html",
@@ -118,7 +119,7 @@ describe("interactive application package inspection", () => {
       "styles.css",
     ]);
     expect(indexDocument).toContain(
-      '<script src="/api/v1/interactive-app-runtime/sdk/v1.js" defer></script>',
+      '<script src="/api/v1/interactive-app-runtime/sdk/v1.js?v=1.1.0" defer></script>',
     );
     expect(indexDocument).toContain('class="builder-panel"');
     expect(indexDocument).toContain('class="results-panel"');

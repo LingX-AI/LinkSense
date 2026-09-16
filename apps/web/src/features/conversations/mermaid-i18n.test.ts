@@ -4,6 +4,14 @@ import { zhCN } from "@/i18n/zh-CN"
 import { enUS } from "@/i18n/en-US"
 
 describe("diagram translations", () => {
+  it("uses concise copy labels in both languages", () => {
+    expect(i18n.t("conversation.diagram.copy", { lng: "zh-CN" })).toBe(
+      "复制代码"
+    )
+    expect(i18n.t("conversation.diagram.copy", { lng: "en-US" })).toBe(
+      "Copy code"
+    )
+  })
   it("provides matching Chinese and English keys and Chinese fallback", () => {
     expect(Object.keys(zhCN.conversation.diagram)).toEqual(
       Object.keys(enUS.conversation.diagram)

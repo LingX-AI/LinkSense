@@ -10,7 +10,6 @@ import {
   CloudCogIcon,
   FileIcon,
   FileCogIcon,
-  FolderArchiveIcon,
   FolderIcon,
   LoaderCircleIcon,
   MoreHorizontalIcon,
@@ -95,6 +94,14 @@ import {
 } from "@/components/ui/progress"
 import { Label } from "@/components/ui/label"
 import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Table,
   TableBody,
   TableCell,
@@ -140,7 +147,6 @@ import type {
   KnowledgeBase,
   KnowledgeBaseCreationCapability,
   KnowledgeBaseEntry,
-  KnowledgeBaseLifecycle,
   KnowledgeDocument,
 } from "@/features/knowledge-bases/knowledge-base-contracts"
 import {
@@ -211,51 +217,62 @@ export function KnowledgeBaseListPage() {
         ) : undefined
       }
     >
-      <div className="management-scroll">
-        <div className="knowledge-library-page">
-          <header className="knowledge-library-header" role="banner">
-            <div>
-              <h1>{t("library.title")}</h1>
-              <p>{t("library.description")}</p>
-            </div>
-          </header>
-
-          <Tabs
-            value={activeTab}
-            onValueChange={(value) => {
-              const next = new URLSearchParams(searchParams)
-              if (value === "artifacts") next.set("tab", "artifacts")
-              else {
-                next.delete("tab")
-                setPreviewFile(undefined)
-              }
-              setSearchParams(next, { replace: true })
-            }}
-            className="mt-5"
-          >
-            <TabsList aria-label={t("library.tabsLabel")}>
-              <TabsTrigger value="knowledge">
-                <BookOpenIcon aria-hidden="true" />
-                {t("library.tabs.knowledge")}
-              </TabsTrigger>
-              <TabsTrigger value="artifacts">
-                <FileIcon aria-hidden="true" />
-                {t("library.tabs.artifacts")}
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="knowledge" className="pt-3">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          const next = new URLSearchParams(searchParams)
+          if (value === "artifacts") next.set("tab", "artifacts")
+          else {
+            next.delete("tab")
+            setPreviewFile(undefined)
+          }
+          setSearchParams(next, { replace: true })
+        }}
+        className="h-full min-h-0 min-w-0 gap-0"
+      >
+        <div className="shrink-0 pt-4 pr-4 pl-14 sm:pr-6">
+          <TabsList aria-label={t("library.tabsLabel")}>
+            <TabsTrigger value="knowledge">
+              {t("library.tabs.knowledge")}
+            </TabsTrigger>
+            <TabsTrigger value="artifacts">
+              {t("library.tabs.artifacts")}
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        <div className="management-scroll">
+          <div className="knowledge-library-page">
+            <header className="knowledge-library-header" role="banner">
+              <div>
+                <h1>
+                  {t(
+                    activeTab === "knowledge"
+                      ? "knowledge.title"
+                      : "library.artifacts.title"
+                  )}
+                </h1>
+                <p>
+                  {t(
+                    activeTab === "knowledge"
+                      ? "knowledge.description"
+                      : "library.artifacts.description"
+                  )}
+                </p>
+              </div>
+            </header>
+            <TabsContent value="knowledge">
               {activeTab === "knowledge" ? (
                 <KnowledgeBaseLibraryContent />
               ) : null}
             </TabsContent>
-            <TabsContent value="artifacts" className="pt-3">
+            <TabsContent value="artifacts">
               {activeTab === "artifacts" ? (
                 <TaskArtifactLibrary onPreview={setPreviewFile} />
               ) : null}
             </TabsContent>
-          </Tabs>
+          </div>
         </div>
-      </div>
+      </Tabs>
     </ConversationOfficeLayout>
   )
 }
@@ -264,18 +281,18 @@ function KnowledgeBaseLibraryContent() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const lifecycle = readUrlEnum<KnowledgeBaseLifecycle>(
+  const filter = readUrlEnum<
+    "all" | "active" | "archived" | "owned" | "shared"
+  >(
     searchParams,
-    "kb_lifecycle",
-    ["active", "archived"],
-    "active"
-  )
-  const scope = readUrlEnum<KnowledgeBaseScope>(
-    searchParams,
-    "kb_scope",
-    ["all", "owned", "shared"],
+    "kb_filter",
+    ["all", "active", "archived", "owned", "shared"],
     "all"
   )
+  const lifecycle =
+    filter === "active" || filter === "archived" ? filter : "all"
+  const scope: KnowledgeBaseScope =
+    filter === "owned" || filter === "shared" ? filter : "all"
   const search = searchParams.get("kb_search") ?? ""
   const updateLibraryParams = (
     updates: Readonly<Record<string, string | null>>
@@ -301,6 +318,19 @@ function KnowledgeBaseLibraryContent() {
     () => query.data?.pages.flatMap((page) => page.items) ?? [],
     [query.data]
   )
+  const filterItems = [
+    { value: "all" as const, label: t("knowledge.filter.all") },
+    {
+      value: "active" as const,
+      label: t("knowledge.lifecycle.current"),
+    },
+    {
+      value: "archived" as const,
+      label: t("knowledge.lifecycle.archived"),
+    },
+    { value: "owned" as const, label: t("knowledge.scope.owned") },
+    { value: "shared" as const, label: t("knowledge.scope.shared") },
+  ]
 
   const content = (
     <KnowledgeBaseListContent
@@ -316,27 +346,7 @@ function KnowledgeBaseLibraryContent() {
 
   return (
     <>
-      <section aria-labelledby="knowledge-library-title">
-        <header className="knowledge-library-header">
-          <div>
-            <h2
-              id="knowledge-library-title"
-              className="text-[length:var(--app-font-15)] leading-[var(--app-line-24)] font-semibold"
-            >
-              {t("knowledge.title")}
-            </h2>
-            <p>{t("knowledge.description")}</p>
-          </div>
-          <Button
-            type="button"
-            disabled={!creationReady}
-            onClick={() => setCreateOpen(true)}
-          >
-            <PlusIcon data-icon="inline-start" aria-hidden="true" />
-            {t("knowledge.create.action")}
-          </Button>
-        </header>
-
+      <section aria-label={t("knowledge.title")}>
         <KnowledgeCreationReadinessBanner
           capability={creationCapability.capability}
           checking={creationCapability.isFetching}
@@ -350,57 +360,7 @@ function KnowledgeBaseLibraryContent() {
           className="mt-3"
         />
 
-        <Tabs
-          value={lifecycle}
-          onValueChange={(value) => {
-            if (value === "active" || value === "archived") {
-              updateLibraryParams({
-                kb_lifecycle: value === "active" ? null : value,
-              })
-            }
-          }}
-        >
-          <div className="knowledge-library-controls">
-            <TabsList aria-label={t("knowledge.lifecycle.label")}>
-              <TabsTrigger value="active">
-                <BookOpenIcon aria-hidden="true" />
-                {t("knowledge.lifecycle.current")}
-              </TabsTrigger>
-              <TabsTrigger value="archived">
-                <FolderArchiveIcon aria-hidden="true" />
-                {t("knowledge.lifecycle.archived")}
-              </TabsTrigger>
-            </TabsList>
-            <ToggleGroup
-              value={[scope]}
-              onValueChange={(values) => {
-                const value = values[0]
-                if (
-                  value === "all" ||
-                  value === "owned" ||
-                  value === "shared"
-                ) {
-                  updateLibraryParams({
-                    kb_scope: value === "all" ? null : value,
-                  })
-                }
-              }}
-              variant="outline"
-              spacing={0}
-              aria-label={t("knowledge.scope.label")}
-            >
-              <ToggleGroupItem value="all">
-                {t("knowledge.scope.all")}
-              </ToggleGroupItem>
-              <ToggleGroupItem value="owned">
-                {t("knowledge.scope.owned")}
-              </ToggleGroupItem>
-              <ToggleGroupItem value="shared">
-                {t("knowledge.scope.shared")}
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </div>
-
+        <div className="knowledge-library-toolbar">
           <InputGroup className="knowledge-library-search">
             <InputGroupAddon>
               <SearchIcon aria-hidden="true" />
@@ -414,14 +374,52 @@ function KnowledgeBaseLibraryContent() {
               aria-label={t("knowledge.searchPlaceholder")}
             />
           </InputGroup>
+          <div className="knowledge-library-filters">
+            <Select
+              items={filterItems}
+              value={filter}
+              onValueChange={(value) => {
+                if (
+                  value === "all" ||
+                  value === "active" ||
+                  value === "archived" ||
+                  value === "owned" ||
+                  value === "shared"
+                ) {
+                  updateLibraryParams({
+                    kb_filter: value === "all" ? null : value,
+                  })
+                }
+              }}
+            >
+              <SelectTrigger
+                className="knowledge-library-filter"
+                aria-label={t("knowledge.filter.label")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start" alignItemWithTrigger={false}>
+                <SelectGroup>
+                  {filterItems.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            type="button"
+            disabled={!creationReady}
+            onClick={() => setCreateOpen(true)}
+          >
+            <PlusIcon data-icon="inline-start" aria-hidden="true" />
+            {t("knowledge.create.action")}
+          </Button>
+        </div>
 
-          <TabsContent value="active">
-            {lifecycle === "active" ? content : null}
-          </TabsContent>
-          <TabsContent value="archived">
-            {lifecycle === "archived" ? content : null}
-          </TabsContent>
-        </Tabs>
+        {content}
       </section>
       <CreateKnowledgeBaseDialog
         open={createOpen}
@@ -1546,7 +1544,7 @@ function KnowledgeBaseDetailContent({
                   {deletionBlock.usages.map((usage) => (
                     <li
                       key={`${usage.type}:${usage.resource_id}`}
-                      className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                      className="flex items-center justify-between gap-3 rounded-lg border border-divider px-3 py-2"
                     >
                       <span className="min-w-0 truncate font-medium">
                         {usage.name}

@@ -1,6 +1,10 @@
 import type { QueryClient } from "@tanstack/react-query"
 import dayjs from "dayjs"
-import type { InteractiveApplicationTaskInput } from "@linksense/shared"
+import type {
+  InteractiveApplicationTaskInput,
+  InteractiveApplicationFile,
+} from "@linksense/shared"
+import { interactiveApplicationFilesKey } from "./interactive-application-files"
 
 import { ApiError, apiRequest } from "@/api/client"
 import {
@@ -89,6 +93,10 @@ export function createInteractiveApplicationSubmitter({
     const capabilities = new Map(
       conversation?.available_capabilities?.map((item) => [item.id, item])
     )
+    const files =
+      queryClient.getQueryData<{ items: InteractiveApplicationFile[] }>(
+        interactiveApplicationFilesKey(conversationId)
+      )?.items ?? []
     setPendingConversationTurnSubmission(queryClient, conversationId, {
       conversationId,
       idempotencyKey,
@@ -111,6 +119,14 @@ export function createInteractiveApplicationSubmitter({
             : []
         }),
         selected_knowledge_base_ids: input.knowledge_base_ids,
+        attachments: files
+          .filter((file) => input.file_ids.includes(file.id))
+          .map((file) => ({
+            ...file,
+            name: file.filename,
+            size: file.size_bytes,
+            download_available: false,
+          })),
       },
     })
     markConversationExecutionPending(queryClient, conversationId)
@@ -120,6 +136,7 @@ export function createInteractiveApplicationSubmitter({
       body: {
         input_text: input.prompt,
         message_source: "interactive_application",
+        file_ids: input.file_ids,
         priority_capability_ids: input.capability_ids,
         knowledge_base_ids: input.knowledge_base_ids,
         idempotency_key: idempotencyKey,

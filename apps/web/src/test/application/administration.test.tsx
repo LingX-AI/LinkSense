@@ -651,6 +651,97 @@ describe("LinkSense application", () => {
     expect(links.at(-1)).toHaveAttribute("href", "/admin/system-update")
   })
 
+  it.each([
+    { language: "zh-CN", editing: true },
+    { language: "en-US", editing: true },
+    { language: "zh-CN", editing: false },
+    { language: "en-US", editing: false },
+  ] as const)(
+    "keeps the user editor header and actions outside the scrolling fields ($language, editing=$editing)",
+    async ({ language, editing }) => {
+      const { requests } = installApiMock({ initialLanguage: language })
+      const interaction = userEvent.setup()
+      renderApp("/admin/users")
+      await screen.findByText("lin@example.com")
+      await interaction.click(
+        screen.getByRole("button", {
+          name: i18n.t(editing ? "common.edit" : "admin.createUser"),
+        })
+      )
+      const title = i18n.t(editing ? "admin.editUser" : "admin.createUser")
+      const dialog = await screen.findByRole("dialog", { name: title })
+      const header = dialog.querySelector('[data-slot="dialog-header"]')
+      const footer = dialog.querySelector('[data-slot="dialog-footer"]')
+      const form = dialog.querySelector("form")
+      const content = within(dialog).getByRole("region", { name: title })
+      if (
+        !(header instanceof HTMLElement) ||
+        !(footer instanceof HTMLElement) ||
+        !form
+      ) {
+        throw new Error("Expected user editor header, footer and form")
+      }
+      expect(dialog).toHaveClass(
+        "flex",
+        "flex-col",
+        "max-h-[90dvh]",
+        "overflow-hidden"
+      )
+      expect(dialog).not.toHaveClass("overflow-y-auto")
+      expect(header).toHaveClass("shrink-0")
+      expect(header.parentElement).toBe(dialog)
+      expect(form).toHaveClass("flex", "min-h-0", "flex-col", "overflow-hidden")
+      expect(content).toHaveClass(
+        "min-h-0",
+        "overflow-y-auto",
+        "overscroll-contain"
+      )
+      expect(content).toContainElement(
+        within(dialog).getByLabelText(i18n.t("common.name"))
+      )
+      expect(content).toContainElement(
+        within(dialog).getByLabelText(i18n.t("common.email"))
+      )
+      if (editing) {
+        expect(content).toContainElement(
+          within(dialog).getByRole("region", {
+            name: i18n.t("admin.accountMetadata"),
+          })
+        )
+        expect(content).toContainElement(
+          within(dialog).getByLabelText(i18n.t("admin.monthlyCreditLimit"))
+        )
+      }
+      expect(content).not.toContainElement(header)
+      expect(content).not.toContainElement(footer)
+      expect(footer).toHaveClass("shrink-0")
+      expect(footer.parentElement).toBe(form)
+      const save = within(footer).getByRole("button", {
+        name: i18n.t("common.save"),
+      })
+      expect(save).toHaveAttribute("type", "submit")
+      expect(form).toContainElement(save)
+      expect(
+        within(dialog).getByRole("button", { name: i18n.t("common.close") })
+      ).toBeVisible()
+      await interaction.click(
+        within(footer).getByRole("button", { name: i18n.t("common.cancel") })
+      )
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("dialog", { name: title })
+        ).not.toBeInTheDocument()
+      )
+      expect(
+        requests.some(
+          (request) =>
+            request.path.startsWith("/api/v1/admin/users") &&
+            ["POST", "PATCH"].includes(request.method)
+        )
+      ).toBe(false)
+    }
+  )
+
   it("disables the user group combobox when no groups are available", async () => {
     installApiMock({ userGroupsOverride: [] })
     const interaction = userEvent.setup()

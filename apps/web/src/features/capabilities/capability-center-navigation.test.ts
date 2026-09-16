@@ -9,6 +9,26 @@ import {
 } from "@/features/capabilities/capability-center-navigation"
 
 describe("capability center navigation", () => {
+  it.each(["", "?section=", "?section=unknown"])(
+    "defaults to applications when the category is missing or invalid: %s",
+    (search) => {
+      expect(capabilityCenterLocationFromSearch(search)).toEqual({
+        section: "application",
+        scope: "personal",
+        search: "",
+      })
+    }
+  )
+
+  it.each(["application", "plugin", "skill", "mcp"])(
+    "preserves the explicitly selected %s category",
+    (section) => {
+      expect(
+        capabilityCenterLocationFromSearch(`?section=${section}`).section
+      ).toBe(section)
+    }
+  )
+
   it("round-trips the active MCP catalog context through settings", () => {
     const state = capabilityCenterSettingsState({
       section: "mcp",

@@ -1,5 +1,7 @@
 import { assertExecutionPrincipalActive } from "./lib/execution-principal.js";
-import { ApplicationCopyService } from "./modules/applications/copy-service.js";
+import { ApplicationInstallationService } from "./modules/applications/installation-service.js";
+import { ApplicationCenterService } from "./modules/applications/center-service.js";
+import { ApplicationDistributionRepository } from "./modules/applications/distribution-repository.js";
 import { serviceWorkspaceRelativePath } from "./lib/user-runtime-paths.js";
 import { createHmac } from "node:crypto";
 import { join, relative, resolve, sep } from "node:path";
@@ -206,6 +208,7 @@ export type AppServices = {
   skillCreator: ConversationSkillCreatorService;
   marketplace: MarketplaceService;
   applications: ApplicationService;
+  applicationCenter: ApplicationCenterService;
   applicationExternalAccess: ApplicationExternalAccessService;
   credentials: CredentialService;
   mcpServers: McpServerService;
@@ -314,6 +317,7 @@ export function createServices(input: {
     undefined,
     undefined,
     input.prisma,
+    input.redis,
   );
   const passwordResetMail = new PasswordResetMailDeliveryQueue(
     input.config,
@@ -355,7 +359,8 @@ export function createServices(input: {
   const capabilityMaterializer = new UserHomeCapabilityMaterializer({
     userDataRoot: input.config.userDataRoot,
     managedBrowserEnabled: input.config.managedBrowserEnabled,
-    publicationGuard: createRunningTurnCapabilityPublicationGuard(input.prisma),
+    publicationGuard: createStartingTurnCapabilityPublicationGuard(input.prisma),
+    snapshotPruneGuard: createRunningTurnCapabilityPublicationGuard(input.prisma),
   });
   const databasePreflight = new DatabaseConversationPreflight(
     input.prisma,
@@ -498,7 +503,6 @@ export function createServices(input: {
       input.config.safeHttp.allowBenchmarkProxyAddresses,
   });
   const knowledgeStore = new PrismaKnowledgeStore(input.prisma);
-  const applicationPublications = new ApplicationPublicationService(input.prisma, input.config.capabilityRoot);
   const applicationAssets: import("./modules/applications/service.js").InteractiveApplicationAssetStore = {
       put: (objectKey, bytes, contentType) =>
         input.storage.putObject(objectKey, bytes, {
@@ -507,6 +511,7 @@ export function createServices(input: {
       get: (objectKey) => input.storage.getObjectStream(objectKey),
       remove: (objectKey) => input.storage.removeObject(objectKey),
     };
+  const applicationPublications = new ApplicationPublicationService(input.prisma, input.config.capabilityRoot, applicationAssets);
   const applications = new ApplicationService(
     input.prisma,
     modelProviderSettings,
@@ -524,8 +529,9 @@ export function createServices(input: {
     },
     applicationAssets,
     applicationPublications,
-    new ApplicationCopyService(input.prisma, input.config.capabilityRoot, applicationPublications, applicationAssets),
+    new ApplicationInstallationService(input.prisma, input.config.capabilityRoot, applicationPublications, applicationAssets),
   );
+  const applicationCenter = new ApplicationCenterService(new ApplicationDistributionRepository(input.prisma), applicationPublications, audit, applications);
   const knowledgeSources = new TurnKnowledgeSourceStore(input.redis.client);
   const knowledgeDocumentReferences = new TurnKnowledgeDocumentReferenceStore(
     input.redis.client,
@@ -702,8 +708,8 @@ export function createServices(input: {
         kind: "standard",
         interactivePackageId: null,
       }, conversationId),
-    (ownerId, conversationId, context = {}) =>
-      conversations.delete(ownerId, conversationId, context),
+    (ownerId, conversationId, context = {}, deletionReason = "creation-failed") =>
+      conversations.delete(ownerId, conversationId, context, deletionReason),
     (conversationId) => conversationTitles.schedule(conversationId),
   );
   const botChannelRepository = new PrismaBotChannelRepository(input.prisma);
@@ -849,6 +855,7 @@ export function createServices(input: {
     skillCreator,
     marketplace,
     applications,
+    applicationCenter,
     applicationExternalAccess,
     credentials,
     mcpServers,
@@ -1629,6 +1636,23 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
   }
 }
 
+export function createStartingTurnCapabilityPublicationGuard(
+  prisma: Pick<PrismaClient, "conversation" | "conversationTurnStartIntent">,
+): UserHomeCapabilityPublicationGuard {
+  return async ({ ownerId, serviceSessionId }) => {
+    const conversations = await prisma.conversation.findMany({
+      where: { ownerId, workspaceRelPath: serviceSessionId
+        ? serviceWorkspaceRelativePath(ownerId, serviceSessionId)
+        : { startsWith: `${ownerId}/home/` } },
+      select: { id: true },
+    });
+    return await prisma.conversationTurnStartIntent.findFirst({
+      where: { ownerId, conversationId: { in: conversations.map(conversation => conversation.id) } },
+      select: { projectionTurnId: true },
+    }) === null;
+  };
+}
+
 export function createRunningTurnCapabilityPublicationGuard(
   prisma: Pick<
     PrismaClient,
@@ -1846,7 +1870,8 @@ function isReservedExecutionEnvironmentKey(key: string): boolean {
 
 function resolveCapabilityPath(root: string, candidate: string): string {
   const normalizedRoot = resolve(root);
-  const normalizedCandidate = resolve(candidate);
+  // Published application snapshots store paths relative to capabilityRoot.
+  const normalizedCandidate = resolve(normalizedRoot, candidate);
   const fromRoot = relative(normalizedRoot, normalizedCandidate);
   if (fromRoot && fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`)) {
     return normalizedCandidate;

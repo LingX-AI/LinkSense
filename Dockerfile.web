@@ -20,7 +20,11 @@ COPY apps/docs/package.json apps/docs/package.json
 COPY apps/runner/package.json apps/runner/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
-RUN pnpm install --frozen-lockfile
+# Share downloaded packages across root-owned builds even after a lockfile edit.
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
+  pnpm install --frozen-lockfile --prefer-offline --store-dir=/pnpm/store --package-import-method=copy
 
 FROM dependencies AS docs-build
 COPY apps/docs apps/docs

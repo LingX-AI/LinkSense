@@ -79,10 +79,11 @@ export function projectKnowledgeCitations(
       ? turnSources.get(sourceRef)
       : undefined
     if (source) {
+      // Match the persisted citation identity. Repeated searches may match
+      // different children of the same parent; they still cite one source.
       const sourceKey = [
         source.documentVersionId,
         source.parentId,
-        source.matchedChildIds.join(","),
       ].join("\u0000")
       let citation = citationBySource.get(sourceKey)
       if (!citation) {
@@ -93,6 +94,15 @@ export function projectKnowledgeCitations(
         }
         citationBySource.set(sourceKey, citation)
         citations.push(citation)
+      } else {
+        citation.matchedChildIds = [...new Set([
+          ...citation.matchedChildIds,
+          ...source.matchedChildIds,
+        ])]
+        citation.pageNumbers = [...new Set([
+          ...citation.pageNumbers,
+          ...source.pageNumbers,
+        ])].sort((left, right) => left - right)
       }
 
       const duplicateAtSameOffset = citation.anchors.some(

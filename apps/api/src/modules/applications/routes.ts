@@ -9,11 +9,14 @@ import {
   INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES,
   applicationGranteeTypeSchema,
   applicationListQuerySchema,
-  createApplicationGrantInputSchema,
+  applicationShareInputSchema,
   createApplicationInputSchema,
   updateApplicationInputSchema,
-  publishApplicationInputSchema,
-  copyApplicationInputSchema,
+  applicationInstallInputSchema,
+  applicationUpdateInstallationInputSchema,
+  applicationDistributionChannelSchema,
+  applicationUsageModesSchema,
+  type ApplicationDistributionChannel,
   interactiveApplicationRuntimeTokenResultSchema,
   usageAnalyticsReportQuerySchema,
 } from "@linksense/shared";
@@ -39,6 +42,7 @@ export interface ApplicationRoutesOptions {
       name: string;
       kind: "standard" | "interactive";
       interactivePackageId: string | null;
+      channel?: ApplicationDistributionChannel;
     },
   ) => Promise<{ id: string }>;
   resolveActor?: ResolveRequestActor;
@@ -57,6 +61,11 @@ export const applicationRoutes: FastifyPluginAsync<
   ApplicationRoutesOptions
 > = async (app, options) => {
   const actorFor = options.resolveActor ?? defaultActorResolver;
+
+  app.get("/distribution", async (request, reply) => {
+    const actor = await actorFor(request);
+    return reply.send(ok({ items: await options.service.distributionSummaries(actor) }, request));
+  });
 
   app.get("/share-targets", async (request, reply) => {
     const actor = await actorFor(request);
@@ -103,13 +112,14 @@ export const applicationRoutes: FastifyPluginAsync<
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
     const body = z
-      .strictObject({ package_id: uuid.optional() })
+      .strictObject({ package_id: uuid.optional(), conversation_id: uuid.optional() })
       .default({})
       .parse(request.body);
     const ticket = await options.service.createInteractiveRuntimeTicket(
       actor,
       id,
       body.package_id,
+      body.conversation_id,
     );
     return reply.send(
       ok(
@@ -145,18 +155,30 @@ export const applicationRoutes: FastifyPluginAsync<
     return reply.send(ok(await options.service.getPublication(actor, id), request));
   });
 
-  app.post("/:id/publish", async (request, reply) => {
+  app.get("/:id/distribution/settings", async (request, reply) => {
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
-    const input = publishApplicationInputSchema.parse(request.body);
-    return reply.send(ok(await options.service.publish(actor, id, input, auditContext(request)), request));
+    return reply.send(ok(await options.service.distributionSettings(actor, id), request));
   });
 
-  app.post("/:id/copy", async (request, reply) => {
+  app.post("/:id/install", async (request, reply) => {
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
-    const input = copyApplicationInputSchema.parse(request.body);
-    return reply.code(201).send(ok(await options.service.copy(actor, id, input, auditContext(request)), request));
+    const input = applicationInstallInputSchema.parse(request.body);
+    return reply.code(201).send(ok(await options.service.install(actor, id, input, auditContext(request)), request));
+  });
+
+  app.get("/:id/installation/update", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    return reply.send(ok(await options.service.previewInstallationUpdate(actor, id), request));
+  });
+
+  app.post("/:id/installation/update", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    const input = applicationUpdateInstallationInputSchema.parse(request.body);
+    return reply.send(ok(await options.service.updateInstallation(actor, id, input.version_id, auditContext(request)), request));
   });
 
   app.get("/:id/usage", async (request, reply) => {
@@ -228,22 +250,11 @@ export const applicationRoutes: FastifyPluginAsync<
     return reply.send(ok({ items, next_cursor: null }, request));
   });
 
-  app.post("/:id/grants", async (request, reply) => {
+  app.post("/:id/share", async (request, reply) => {
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
-    const body = createApplicationGrantInputSchema.parse(request.body);
-    const created = await options.service.grant(
-      actor,
-      id,
-      body.grantee_type === "user"
-        ? { granteeType: "user", userId: body.user_id }
-        : {
-            granteeType: "user_group",
-            userGroupId: body.user_group_id,
-          },
-      auditContext(request),
-    );
-    return reply.code(201).send(ok(created, request));
+    const input = applicationShareInputSchema.parse(request.body);
+    return reply.send(ok(await options.service.share(actor, id, input, auditContext(request)), request));
   });
 
   app.delete("/:id/grants/:grantId", async (request, reply) => {
@@ -262,16 +273,26 @@ export const applicationRoutes: FastifyPluginAsync<
     );
   });
 
+  app.patch("/:id/grants/:grantId", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id, grantId } = grantParams.parse(request.params);
+    const body = z.strictObject({ usage_modes: applicationUsageModesSchema }).parse(request.body);
+    await options.service.updateGrantModes(actor, id, grantId, body.usage_modes, auditContext(request));
+    return reply.code(204).send();
+  });
+
   app.post("/:id/conversations", async (request, reply) => {
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
-    const runtime = await options.service.resolveRuntime(actor.id, id);
+    const { channel } = z.strictObject({ channel: applicationDistributionChannelSchema.default("direct") }).default({ channel: "direct" }).parse(request.body);
+    const runtime = await options.service.resolveRuntime(actor.id, id, undefined, channel);
     const conversation = await options.createConversation(actor.id, {
       id: runtime.applicationId,
       name: runtime.applicationName,
       kind: runtime.kind === "interactive" ? "interactive" : "standard",
       interactivePackageId:
         runtime.interactivePackageId,
+      channel,
     });
     return reply
       .code(201)
@@ -282,11 +303,19 @@ export const applicationRoutes: FastifyPluginAsync<
 export const interactiveApplicationRuntimeRoutes: FastifyPluginAsync<{
   service: ApplicationService;
 }> = async (app, { service }) => {
+  // Run after the host's onSend hook so its default policies are not reapplied.
+  // Interactive packages run as trusted web applications, without a sandbox.
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.removeHeader("content-security-policy");
+    reply.removeHeader("permissions-policy");
+    reply.removeHeader("x-frame-options");
+    return payload;
+  });
+
   app.get("/sdk/v1.js", async (_request, reply) =>
     reply
       .header("content-type", "text/javascript; charset=utf-8")
-      .header("cache-control", "public, max-age=31536000, immutable")
-      .header("content-security-policy", "default-src 'none'")
+      .header("cache-control", "no-cache")
       .send(interactiveApplicationSdkV1),
   );
 
@@ -325,21 +354,6 @@ function sendInteractiveAsset(
     )
     .header("x-content-type-options", "nosniff")
     .header("referrer-policy", "no-referrer")
-    .header(
-      "content-security-policy",
-      [
-        "default-src 'self'",
-        "base-uri 'none'",
-        "connect-src 'none'",
-        "font-src 'self' data:",
-        "form-action 'none'",
-        "frame-ancestors 'self'",
-        "img-src 'self' data: blob:",
-        "object-src 'none'",
-        "script-src 'self'",
-        "style-src 'self' 'unsafe-inline'",
-      ].join("; "),
-    )
     .send(asset.data);
 }
 
@@ -352,7 +366,7 @@ interface AuthenticatedRequestCarrier {
   };
 }
 
-function defaultActorResolver(request: FastifyRequest): RequestActor {
+export function defaultActorResolver(request: FastifyRequest): RequestActor {
   const user = (request as unknown as AuthenticatedRequestCarrier).authUser;
   if (
     user === undefined ||

@@ -650,10 +650,11 @@ function AppSidebarContent({
       projectId,
     }: {
       conversationId: string
-      projectId: string
+      projectId: string | null
     }) => moveTaskToProject(conversationId, projectId),
     onMutate: () => setActionError(undefined),
     onSuccess: () => refreshProjects(queryClient),
+    onError: (error) => setActionError(getErrorMessage(error, t)),
   })
 
   const reorderProjectMutation = useMutation({
@@ -1216,8 +1217,18 @@ function AppSidebarContent({
                           )}
                           <SidebarConversationActions
                             title={title}
-                            onMoveToProject={() =>
-                              setProjectAction({ mode: "move", conversation })
+                            projects={projectsQuery.data ?? []}
+                            currentProjectId={conversation.project_id}
+                            moveDisabled={
+                              projectsQuery.isPending ||
+                              projectsQuery.isError ||
+                              moveProjectMutation.isPending
+                            }
+                            onMoveToProject={(projectId) =>
+                              moveProjectMutation.mutate({
+                                conversationId: conversation.id,
+                                projectId,
+                              })
                             }
                             pinned={pinned}
                             pinDisabled={pinMutation.isPending}

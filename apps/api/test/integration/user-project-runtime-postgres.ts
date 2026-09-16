@@ -12,6 +12,7 @@ import { convertProjectRuntime } from "../../src/operations/project-runtime-conv
 import { assertRuntimeLayoutReady } from "../../src/operations/runtime-layout-readiness.js";
 import { executionPrincipalStatus } from "../../src/lib/execution-principal.js";
 import { ProjectRepository } from "../../src/modules/projects/repository.js";
+import { convertApplicationEnvironments, recoverApplicationEnvironments } from "../../src/operations/application-environment-conversion.js";
 
 // This test owns a disposable database and never reads application .env files.
 const execute = promisify(execFile);
@@ -78,18 +79,22 @@ try {
   await db.$executeRaw`INSERT INTO application_external_sessions (id, external_access_id, application_id, runtime_principal_id, conversation_id, origin, credential_version, absolute_expires_at, updated_at)
     VALUES (${session}::uuid, ${externalAccess}::uuid, ${appId}::uuid, ${visitor}::uuid, ${externalTask}::uuid, 'https://embed.example.test', 3, now() + interval '1 day', now())`;
   const grant = randomUUID();
-  await db.applicationGrant.create({ data: { id: grant, applicationId: appId, granteeType: 'user', userId: owner, status: 'active', grantedBy: owner } });
+  await db.$executeRaw`INSERT INTO application_grants (id, application_id, grantee_type, user_id, status, granted_by, updated_at) VALUES (${grant}::uuid, ${appId}::uuid, 'user', ${owner}::uuid, 'active', ${owner}::uuid, now())`;
   const accessBefore = await db.applicationExternalAccess.findUniqueOrThrow({ where: { id: externalAccess } });
   const before = await db.$queryRaw<Array<{ row: Record<string, unknown> }>>`SELECT to_jsonb(c) AS row FROM conversations c WHERE id = ${task}::uuid`;
   const checksums = await db.$queryRaw`SELECT migration_name, checksum FROM _prisma_migrations ORDER BY migration_name`;
+  const historicalCleanup = randomUUID();
+  await db.$executeRaw`INSERT INTO runtime_cleanup_outbox (id, owner_id, conversation_id, updated_at)
+    VALUES (${historicalCleanup}::uuid, ${owner}::uuid, ${randomUUID()}::uuid, now())`;
   await migrate(migrations);
+  assert.equal((await db.runtimeCleanupOutbox.findUniqueOrThrow({ where: { id: historicalCleanup } })).removeServiceEnvironment, false);
   const converted = await db.conversation.findUniqueOrThrow({ where: { id: task } });
   assert.equal(converted.projectId, project);
   assert.equal(converted.codexThreadId, nativeThread);
   assert.equal(converted.sortOrder, 9);
   assert.equal(converted.workspaceRelPath, oldWorkspace);
   const after = await db.$queryRaw<Array<{ row: Record<string, unknown> }>>`SELECT to_jsonb(c) AS row FROM conversations c WHERE id = ${task}::uuid`;
-  const expectedRow: Record<string, unknown> = { ...before[0]!.row, project_id: project, application_version_id: null };
+  const expectedRow: Record<string, unknown> = { ...before[0]!.row, project_id: project, application_version_id: null, application_channel: null };
   delete expectedRow.category_id;
   assert.deepEqual(after[0]?.row, expectedRow);
   assert.deepEqual(await db.$queryRaw`SELECT migration_name, checksum FROM _prisma_migrations WHERE migration_name < ${migrationName} ORDER BY migration_name`, checksums);
@@ -152,6 +157,27 @@ try {
   assert.equal((await db.applicationVersion.findUniqueOrThrow({ where: { id: pinnedVersion } })).assetsReady, true);
   assert.equal(await executionPrincipalStatus(db, visitor), 'active');
   await assertRuntimeLayoutReady(db, usersRoot);
+  const extraServiceId = randomUUID(), extraFileId = randomUUID();
+  const oldServiceWorkspace = `${visitor}/services/${extraServiceId}/home/workspace`;
+  await db.conversation.create({ data: { id: extraServiceId, ownerId: visitor, applicationId: appId, applicationNameSnapshot: "Existing app", applicationVersionId: pinnedVersion, title: "Another application task", titleSource: "manual", archiveStatus: "active", workspaceRelPath: oldServiceWorkspace, runtimeGeneration: randomUUID() } });
+  await mkdir(join(usersRoot, oldServiceWorkspace, "artifacts"), { recursive: true });
+  await writeFile(join(usersRoot, oldServiceWorkspace, "artifacts/result.txt"), "retained result");
+  await db.conversationFile.create({ data: { id: extraFileId, conversationId: extraServiceId, kind: "artifact", source: "agent_generated", status: "registered", filename: "result.txt", sizeBytes: 15n, storageBackend: "workspace", workspaceRootRelPath: oldServiceWorkspace, workspaceRelativePath: "artifacts/result.txt", downloadable: false } });
+  const appDryRun = await convertApplicationEnvironments({ prisma: db, userDataRoot: usersRoot, outputRoot: join(root, "application-dry-run"), apply: false });
+  assert.equal(appDryRun.applied, false);
+  assert.equal((await db.conversation.findUniqueOrThrow({ where: { id: extraServiceId } })).workspaceRelPath, oldServiceWorkspace);
+  const appOutput = join(root, "application-conversion");
+  await convertApplicationEnvironments({ prisma: db, userDataRoot: usersRoot, outputRoot: appOutput, apply: true });
+  const appWorkspace = `${visitor}/services/${appId}/home/workspace`;
+  assert.equal((await db.conversation.findUniqueOrThrow({ where: { id: externalTask } })).workspaceRelPath, appWorkspace);
+  assert.equal((await db.conversation.findUniqueOrThrow({ where: { id: extraServiceId } })).workspaceRelPath, appWorkspace);
+  const importedFile = await db.conversationFile.findUniqueOrThrow({ where: { id: extraFileId } });
+  assert.equal(importedFile.workspaceRootRelPath, appWorkspace);
+  assert.equal(await readFile(join(usersRoot, appWorkspace, importedFile.workspaceRelativePath!), "utf8"), "retained result");
+  assert.equal(await readFile(join(appOutput, "originals", oldServiceWorkspace, "artifacts/result.txt"), "utf8"), "retained result");
+  assert.deepEqual(await db.applicationExternalAccess.findUniqueOrThrow({ where: { id: externalAccess } }), accessBefore);
+  await recoverApplicationEnvironments(db, appOutput);
+  assert.equal((await convertApplicationEnvironments({ prisma: db, userDataRoot: usersRoot, outputRoot: join(root, "already-shared"), apply: true })).applications, 0);
   const repository = new ProjectRepository(db);
   await db.conversationTurnStartIntent.create({ data: { projectionTurnId: intent, conversationId: task, ownerId: owner, runtimeGeneration: generation,
     capabilityGeneration: 'a'.repeat(64), submitMode: 'normal', inputText: 'New pending input', attachmentsJson: [] } });

@@ -1,5 +1,14 @@
 allow_managed_hooks_only = true
 
+# Codex also syncs its curated Git catalog when remote_plugin is disabled.
+# Both personal and application workers mount their authorized local market here.
+[marketplaces]
+restrict_to_allowed_sources = true
+
+[marketplaces.allowed_sources.linksense]
+source = "local"
+path = "/home/linksense"
+
 [hooks]
 managed_dir = "/opt/linksense/runtime/node"
 

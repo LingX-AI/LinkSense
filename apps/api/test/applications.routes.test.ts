@@ -3,6 +3,10 @@ import { Readable } from "node:stream";
 import Fastify, { type FastifyRequest } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  createContentSecurityPolicy,
+  registerResponseSecurityHeaders,
+} from "../src/app.js";
 import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
 import {
@@ -24,9 +28,21 @@ afterEach(async () => {
 });
 
 describe("internal application routes", () => {
-  it("authenticates publication and copy routes and rejects credential fields", async () => {
+  it("accepts an omitted usage guide without relaxing version or length validation", async () => {
     const { app, service } = await applicationRouteFixture();
-    for (const [method, suffix] of [["GET", "publication"], ["POST", "publish"], ["POST", "copy"]] as const) {
+    const headers = { authorization: "Bearer internal-user" };
+    const response = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/share`, headers, payload: { version_number: "1.0.0", target: null } });
+    expect(response.statusCode).toBe(200);
+    expect(service.share).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID, { version_number: "1.0.0", usage_instructions: "", target: null }, expect.any(Object));
+    for (const payload of [{ target: null }, { version_number: "1.0.0", target: null, usage_instructions: "x".repeat(20_001) }]) {
+      const invalid = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/share`, headers, payload });
+      expect(invalid.statusCode).toBe(400);
+    }
+    expect(service.share).toHaveBeenCalledOnce();
+  });
+  it("authenticates publication and installation routes and rejects credential fields", async () => {
+    const { app, service } = await applicationRouteFixture();
+    for (const [method, suffix] of [["GET", "publication"], ["GET", "distribution/settings"], ["POST", "share"], ["POST", "install"]] as const) {
       const response = await app.inject({ method, url: `/api/v1/applications/${APPLICATION_ID}/${suffix}` });
       expect(response.statusCode).toBe(401);
     }
@@ -34,14 +50,19 @@ describe("internal application routes", () => {
     const read = await app.inject({ method: "GET", url: `/api/v1/applications/${APPLICATION_ID}/publication`, headers });
     expect(read.statusCode).toBe(200);
     expect(service.getPublication).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID);
-    const published = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/publish`, headers, payload: { usage_instructions: "Configure your account.", allow_copy: false } });
-    expect(published.statusCode).toBe(200);
-    expect(service.publish).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID, { usage_instructions: "Configure your account.", allow_copy: false }, expect.any(Object));
-    const denied = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/copy`, headers, payload: { name: "Copy", credential_id: GRANT_ID } });
-    expect(denied.statusCode).toBe(400); expect(service.copy).not.toHaveBeenCalled();
-    const copied = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/copy`, headers, payload: { name: "Copy" } });
+    const settings = await app.inject({ method: "GET", url: `/api/v1/applications/${APPLICATION_ID}/distribution/settings`, headers });
+    expect(settings.statusCode).toBe(200);
+    expect(service.distributionSettings).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID);
+    const obsolete = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/publish`, headers, payload: { usage_instructions: "Configure your account." } });
+    expect(obsolete.statusCode).toBe(404);
+    const shared = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/share`, headers, payload: { version_number: "1.0.0", usage_instructions: "Configure your account.", target: null } });
+    expect(shared.statusCode).toBe(200);
+    expect(service.share).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID, { version_number: "1.0.0", usage_instructions: "Configure your account.", target: null }, expect.any(Object));
+    const denied = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/install`, headers, payload: { name: "Copy", credential_id: GRANT_ID } });
+    expect(denied.statusCode).toBe(400); expect(service.install).not.toHaveBeenCalled();
+    const copied = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/install`, headers, payload: { name: "Copy", channel: "direct", version_id: APPLICATION_ID } });
     expect(copied.statusCode).toBe(201);
-    expect(service.copy).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID, { name: "Copy" }, expect.any(Object));
+    expect(service.install).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID, { name: "Copy", channel: "direct", version_id: APPLICATION_ID }, expect.any(Object));
   });
 
   it("returns an owner-scoped application usage report", async () => {
@@ -120,12 +141,15 @@ describe("internal application routes", () => {
     expect(service.resolveRuntime).toHaveBeenCalledWith(
       USER_ID,
       APPLICATION_ID,
+      undefined,
+      "direct",
     );
     expect(createConversation).toHaveBeenCalledWith(USER_ID, {
       id: APPLICATION_ID,
       name: "Finance assistant",
       kind: "standard",
       interactivePackageId: null,
+      channel: "direct",
     });
     expect(response.json()).toMatchObject({
       success: true,
@@ -171,9 +195,11 @@ describe("internal application routes", () => {
     });
   });
 
-  it("serves a runtime asset only from a valid package-bound token", async () => {
+  it("serves a package-bound runtime without inherited browser restrictions while protecting other routes", async () => {
     const app = Fastify();
     apps.push(app);
+    registerResponseSecurityHeaders(app);
+    app.get("/ordinary-page", async () => "<!doctype html><title>Host</title>");
     app.setErrorHandler((error, request, reply) =>
       sendAppError(reply, request, error),
     );
@@ -197,22 +223,55 @@ describe("internal application routes", () => {
     });
 
     expect(response.statusCode, response.body).toBe(200);
-    expect(response.headers["content-security-policy"]).toContain(
-      "connect-src 'none'",
-    );
+    expect(response.headers["content-security-policy"]).toBeUndefined();
+    expect(response.headers["x-frame-options"]).toBeUndefined();
+    expect(response.headers["permissions-policy"]).toBeUndefined();
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
     expect(service.getInteractiveAssetForTicket).toHaveBeenCalledWith(
       token,
       "index.html",
     );
+
+    const sdk = await app.inject("/api/v1/interactive-app-runtime/sdk/v1.js");
+    expect(sdk.statusCode).toBe(200);
+    expect(sdk.headers["cache-control"]).toBe("no-cache");
+    const freshSdk = await app.inject("/api/v1/interactive-app-runtime/sdk/v1.js?v=1.1.0");
+    expect(freshSdk.statusCode).toBe(200);
+    expect(freshSdk.body).toContain('version: "1.1.0"');
+    expect(freshSdk.body).toContain('request("files.upload", { file })');
+    expect(sdk.headers["content-security-policy"]).toBeUndefined();
+
+    const ordinary = await app.inject("/ordinary-page");
+    expect(ordinary.headers["content-security-policy"]).toBe(
+      createContentSecurityPolicy(),
+    );
+    expect(ordinary.headers["x-frame-options"]).toBe("SAMEORIGIN");
+    expect(ordinary.headers["permissions-policy"]).toBe(
+      "camera=(), microphone=(self), geolocation=()",
+    );
+
+    service.getInteractiveAssetForTicket.mockRejectedValueOnce(
+      new AppError("FORBIDDEN"),
+    );
+    const denied = await app.inject(
+      `/api/v1/interactive-app-runtime/${token}/index.html`,
+    );
+    expect(denied.statusCode).toBe(403);
+    expect(denied.body).not.toContain("<!doctype html>");
+
+    service.getInteractiveAssetForTicket.mockClear();
+    const invalid = await app.inject(
+      "/api/v1/interactive-app-runtime/invalid/index.html",
+    );
+    expect(invalid.statusCode).toBe(400);
+    expect(service.getInteractiveAssetForTicket).not.toHaveBeenCalled();
   });
 
   it("validates and wires the complete owner management lifecycle", async () => {
     const { app, service } = await applicationRouteFixture();
     service.create.mockResolvedValueOnce({ id: APPLICATION_ID });
     service.update.mockResolvedValueOnce({ id: APPLICATION_ID });
-    service.grant
-      .mockResolvedValueOnce({ id: GRANT_ID, grantee_type: "user" })
-      .mockResolvedValueOnce({ id: GRANT_ID, grantee_type: "user_group" });
     service.revokeGrant.mockResolvedValueOnce({
       code: "APPLICATION_GRANT_REVOKED",
     });
@@ -265,34 +324,37 @@ describe("internal application routes", () => {
 
     const directGrantResponse = await app.inject({
       method: "POST",
-      url: `/api/v1/applications/${APPLICATION_ID}/grants`,
+      url: `/api/v1/applications/${APPLICATION_ID}/share`,
       headers: { authorization: "Bearer internal-user" },
-      payload: { grantee_type: "user", user_id: TARGET_USER_ID },
+      payload: { version_number: "1.0.0", usage_instructions: "Use this application.", target: { grantee_type: "user", user_id: TARGET_USER_ID, usage_modes: ["service"] } },
     });
-    expect(directGrantResponse.statusCode, directGrantResponse.body).toBe(201);
-    expect(service.grant).toHaveBeenNthCalledWith(
+    expect(directGrantResponse.statusCode, directGrantResponse.body).toBe(200);
+    expect(service.share).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({ id: USER_ID }),
       APPLICATION_ID,
-      { granteeType: "user", userId: TARGET_USER_ID },
+      { version_number: "1.0.0", usage_instructions: "Use this application.", target: { grantee_type: "user", user_id: TARGET_USER_ID, usage_modes: ["service"] } },
       expect.any(Object),
     );
 
     const groupGrantResponse = await app.inject({
       method: "POST",
-      url: `/api/v1/applications/${APPLICATION_ID}/grants`,
+      url: `/api/v1/applications/${APPLICATION_ID}/share`,
       headers: { authorization: "Bearer internal-user" },
       payload: {
+        version_number: "1.0.0", usage_instructions: "Use this application.", target: {
         grantee_type: "user_group",
         user_group_id: TARGET_GROUP_ID,
+        usage_modes: ["install", "service"],
+        },
       },
     });
-    expect(groupGrantResponse.statusCode, groupGrantResponse.body).toBe(201);
-    expect(service.grant).toHaveBeenNthCalledWith(
+    expect(groupGrantResponse.statusCode, groupGrantResponse.body).toBe(200);
+    expect(service.share).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ id: USER_ID }),
       APPLICATION_ID,
-      { granteeType: "user_group", userGroupId: TARGET_GROUP_ID },
+      { version_number: "1.0.0", usage_instructions: "Use this application.", target: { grantee_type: "user_group", user_group_id: TARGET_GROUP_ID, usage_modes: ["install", "service"] } },
       expect.any(Object),
     );
 
@@ -345,16 +407,16 @@ async function applicationRouteFixture() {
     sendAppError(reply, request, error),
   );
   const service = {
-    getPublication: vi.fn(async () => ({ version_id: null, version_number: null, usage_instructions: "", allow_copy: false })),
-    publish: vi.fn(async () => ({ version_id: APPLICATION_ID, version_number: 1, usage_instructions: "Configure your account.", allow_copy: false })),
-    copy: vi.fn(async () => ({ id: APPLICATION_ID })),
+    getPublication: vi.fn(async () => ({ version_id: null, version_number: null, usage_instructions: "" })),
+    distributionSettings: vi.fn(async () => ({ version_number: "1.0.0", highest_version_number: null, usage_instructions: "" })),
+    share: vi.fn(async () => ({ version_id: APPLICATION_ID, version_number: "1.0.0", usage_instructions: "Configure your account." })),
+    install: vi.fn(async () => ({ id: APPLICATION_ID })),
     list: vi.fn(async () => []),
     get: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
     listGrants: vi.fn(async () => []),
-    grant: vi.fn(),
     revokeGrant: vi.fn(),
     searchShareTargets: vi.fn(async () => []),
     resolveRuntime: vi.fn(async () => ({

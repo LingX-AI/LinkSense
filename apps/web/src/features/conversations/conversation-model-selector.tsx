@@ -339,8 +339,6 @@ function ModelContextUsageIndicator({
           <p className="text-xs font-semibold">
             {usedTokens !== null && totalTokens !== null
               ? t("conversation.modelContextUsageDetail", {
-                  // The English unit needs singular/plural forms even in Chinese.
-                  context: usedTokens === 1 ? "singular" : "plural",
                   used: formatContextTokenCount(usedTokens, language),
                   total: formatContextTokenCount(totalTokens, language),
                 })

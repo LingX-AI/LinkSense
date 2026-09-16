@@ -1,4 +1,5 @@
 import {
+  INTERACTIVE_APPLICATION_FILE_SOURCE,
   skillDisplayNameSchema,
   currentUserCreditQuotaTotalSchema,
   creditLimitValueSchema,
@@ -403,6 +404,7 @@ export const conversationFileSchema = z
     size: z.number().optional(),
     size_bytes: z.number().optional(),
     kind: z.enum(["attachment", "artifact"]).optional(),
+    source: z.string().optional(),
     pending_request_id: z.string().nullable().optional(),
     turn_id: z.string().nullable().optional(),
     status: z.string().optional(),
@@ -1104,7 +1106,10 @@ const conversationDetailPayloadSchema = z
       user_input_requests: value.user_input_requests,
       plan_reviews: value.plan_reviews,
       attachments: value.files.filter(
-        (file) => file.kind !== "artifact" && file.status === "staged"
+        (file) =>
+          file.kind !== "artifact" &&
+          file.status === "staged" &&
+          file.source !== INTERACTIVE_APPLICATION_FILE_SOURCE
       ),
       artifacts: value.files.filter(
         (file) => file.kind === "artifact" && !attachedArtifactIds.has(file.id)

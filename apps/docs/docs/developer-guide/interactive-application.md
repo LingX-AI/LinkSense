@@ -5,7 +5,7 @@ description: 了解交互式应用 Manifest 各字段的含义、作用、限制
 
 # 开发交互式应用
 
-交互式应用把你的业务表单、可视化和流程界面放入 LinkSense。应用在隔离的 iframe 中运行，右侧由 LinkSense 以独立分栏显示完整原生聊天区，因此用户既能操作你的界面，也能查看任务进度、填写 LinkSense 表单、处理审批、上传附件和查看产物。用户可以拖动分隔线调整两个区域的宽度，聊天区不会覆盖应用内容。
+交互式应用把你的业务表单、可视化和流程界面放入 LinkSense。应用在不启用沙箱的 iframe 中运行，右侧由 LinkSense 以独立分栏显示完整原生聊天区，因此用户既能操作你的界面，也能查看任务进度、填写 LinkSense 表单、处理审批、上传附件和查看产物。用户可以拖动分隔线调整两个区域的宽度，聊天区不会覆盖应用内容。
 
 ## 应用包结构
 
@@ -22,7 +22,7 @@ assets/
 
 应用包最大 10 MiB，解压后最大 30 MiB，单个文件最大 5 MiB，最多 200 个文件。不要包含依赖目录、源码缓存、符号链接、服务端代码或凭据；隐藏文件和隐藏目录（例如 `.DS_Store`、`.git`）会导致导入失败，文件路径也不能仅大小写不同。
 
-支持的文件扩展名为 `.html`、`.css`、`.js`、`.mjs`、`.json`、`.map`、`.txt`、`.png`、`.jpg`、`.jpeg`、`.webp`、`.gif`、`.svg`、`.ico`、`.woff`、`.woff2`。使用构建工具时，只打包构建后的静态文件，并把资源引用配置为 `./app.js`、`./assets/logo.png` 等相对路径。字体、脚本、样式和图片应随包提供，避免依赖外部 CDN。
+支持的文件扩展名为 `.html`、`.css`、`.js`、`.mjs`、`.json`、`.map`、`.txt`、`.png`、`.jpg`、`.jpeg`、`.webp`、`.gif`、`.svg`、`.ico`、`.woff`、`.woff2`。使用构建工具时，只打包构建后的静态文件，并把包内资源引用配置为 `./app.js`、`./assets/logo.png` 等相对路径。字体、脚本、样式和图片可以随包提供，也可以从外部 CDN 加载。
 
 ## Manifest
 
@@ -60,7 +60,7 @@ assets/
 | `icon` | 字符串或 `null`；路径 1–500 字符 | 可选，默认 `null` | 指向包内图片，用作应用图标；不是外部图片 URL。 | 使用 `assets/logo.png` 等相对路径；支持 PNG、JPEG、WebP，最大 512 KiB，宽高各不超过 8,192 像素。建议压缩为清晰的方形图标。路径不能以 `/` 开头或包含 `..`。更新时省略或设为 `null` 会保留原图标，不表示删除。 |
 | `entry` | 字符串，当前只支持 `"index.html"` | 可选，默认 `"index.html"` | iframe 打开的入口文件；文件必须位于 ZIP 根目录。 | 保持默认值。不要填完整 URL、子目录入口或前端路由。 |
 | `sdk_version` | 整数，当前只支持 `1` | 必填 | 声明页面使用的 LinkSense SDK 协议版本。 | 使用本页的 `/sdk/v1.js` 加载地址；不要填写 SDK 的字符串版本 `"1.0.0"`。 |
-| `permissions` | 权限字符串数组，最多 5 项，不可重复 | 可选，默认包含下表全部五项 | 控制页面能调用哪些 SDK 能力；不扩大当前用户对资源的访问权限。 | 显式声明所需权限。只启动任务就写 `["tasks:write"]`；`[]` 表示不申请这五项能力，省略字段则是全部五项。 |
+| `permissions` | 权限字符串数组，最多 6 项，不可重复 | 可选，默认包含原有五项，文件权限需显式声明 | 控制页面能调用哪些 SDK 能力；不扩大当前用户对资源的访问权限。 | 显式声明所需权限。只启动任务就写 `["tasks:write"]`；`[]` 表示不申请这些能力，省略字段则是原有五项，不包含 `files:write`。 |
 | `custom_events` | 事件定义数组，最多 50 项，名称不可重复 | 可选，默认 `[]` | 声明任务可向应用投递的结构化业务数据，供界面展示和重建。 | 从少量有明确业务含义的事件开始，例如“章节已完成”，不要按聊天增量或工具日志设计事件。 |
 
 ### 权限的作用与选择
@@ -74,6 +74,7 @@ assets/
 | `knowledge_bases:read` | `resources.listKnowledgeBases()` | 知识库摘要：`id`、`name`、`description`、`lifecycle_status`、`availability_status`。 | 需要知识库选择器时；根据可用状态展示选项，将 ID 放入 `knowledge_base_ids`。 |
 | `mcp_servers:read` | `resources.listMcpServers()` | MCP 服务摘要：`id`、`name`、`status`、`transport`；不返回地址和凭据。 | 需要展示连接信息时；此权限不提供直接调用 MCP 的接口，`tasks.run()` 也不接受 `mcp_server_ids`。 |
 | `tasks:write` | `tasks.run(input)`、`tasks.interrupt(turnId)` | 在当前应用任务中提交请求或请求中断指定轮次。 | 页面有生成、提交或停止操作时；需要处理受理失败和运行中的冲突。 |
+| `files:write` | `files.upload(file)`、`files.list()`、`files.remove(fileId)` | 上传、列出当前应用任务的附件，移除尚未提交的附件。 | 应用需要上传参考文件时，必须显式声明；不会自动授予旧应用。 |
 
 `ready()`、`events.on(...)` 和 `chat.show()/hide()/toggle()` 不需要额外的权限项。不要把方法名当成新的权限字符串加入 Manifest。资源列表方法返回 `{ items: [...] }`；资料读取接口只返回摘要，不返回密码、Token、MCP 凭据、能力正文或知识库正文。
 
@@ -189,7 +190,7 @@ LinkSense 使用现有的 Ajv 2020 校验器解析事件契约。常用关键字
 在 `index.html` 中引入 LinkSense 托管的 SDK：
 
 ```html
-<script src="/api/v1/interactive-app-runtime/sdk/v1.js"></script>
+<script src="/api/v1/interactive-app-runtime/sdk/v1.js?v=1.1.0"></script>
 <script type="module" src="./app.js"></script>
 ```
 
@@ -210,7 +211,7 @@ await LinkSense.ready()
 
 需要读取上下文或资源时，先在 Manifest 中加入权限，再在 `ready()` 之后调用对应方法。例如添加 `knowledge_bases:read` 后，使用 `const { items } = await LinkSense.resources.listKnowledgeBases()` 获取选项。
 
-不要把业务 JavaScript 写成内联 `<script>` 或 `onclick` 属性；运行环境只允许加载同源脚本。SDK 使用上面的平台地址，应用脚本使用相对路径。脱离 LinkSense 单独打开 HTML 时没有宿主握手，`ready()` 不会完成；本地可以开发纯 UI，SDK 联调需要导入应用后进行。
+运行环境支持内联 `<script>`、事件处理属性、包内脚本和外部脚本。SDK 使用上面的平台地址，包内应用脚本使用相对路径。脱离 LinkSense 单独打开 HTML 时没有宿主握手，`ready()` 不会完成；本地可以开发纯 UI，SDK 联调需要导入应用后进行。
 
 ## 启动任务
 
@@ -225,6 +226,7 @@ const receipt = await LinkSense.tasks.run({
 | `prompt` | 必填；去除首尾空白后 1–200,000 字符，是本次任务请求。 | 从已校验的表单值构造，明确主题、约束和交付要求；不要只提交没有上下文的字段值。 |
 | `capability_ids` | 可选，默认 `[]`；最多 50 个技能或插件 ID。 | 来自用户本次选择；读取列表不等于已经选中，服务端仍会检查资源权限和状态。 |
 | `knowledge_base_ids` | 可选，默认 `[]`；最多 20 个知识库 UUID。 | 只提交需要用于本次任务的知识库。 |
+| `file_ids` | 可选，默认 `[]`；最多 100 个不重复的文件 UUID。 | 来自 `files.upload()` 或 `files.list()` 的待提交附件 ID；只绑定本次明确选择的文件，不收集聊天区草稿。 |
 | `idempotency_key` | 可选；去除首尾空白后 1–120 字符。 | 通常由宿主管理即可；若自行设置，应标识同一次逻辑提交，不要让不同请求共用固定值。 |
 
 提交后，LinkSense 会立即打开右侧聊天区并显示正在发送的消息；服务端受理后，待发送消息与正式消息合并。`tasks.run()` 返回服务端的受理回执，不等待聊天历史刷新或研究结果生成。同一次提交尚未完成时的重复调用会合并；应用仍应在提交期间禁用生成按钮，并处理调用失败。
@@ -263,10 +265,13 @@ await LinkSense.chat.toggle()
 
 隐藏聊天区不会停止任务。需要处理 LinkSense 表单、审批或错误时，应引导用户重新打开聊天区。
 
-## 安全限制
+## 网络、下载与信任边界
 
-- 应用 iframe 不能直接调用 LinkSense API，也不能读取登录 Cookie 或 Token。
-- 应用默认不能访问外网、提交 HTML 表单、打开 object 或修改 base URL。
+- 交互式应用不启用 iframe `sandbox`，运行资源不下发 CSP、Permissions-Policy 或 X-Frame-Options；可以直接使用 `fetch`、`XMLHttpRequest`、`WebSocket`、`EventSource`，加载外部资源、提交 HTML 表单、打开新窗口和下载文件，不需要新增 Manifest 权限。
+- 下载可以使用普通文件链接、`download` 属性或 `fetch` 获取文件后生成 Blob URL。跨域 `download` 属性、弹窗和自动下载仍受浏览器规则约束；第三方服务器可以通过 `Content-Disposition: attachment` 提供下载。
+- 浏览器的 CORS、HTTPS 混合内容规则和权限提示仍然有效，外层宿主或部署网关的 Permissions-Policy 也可能约束设备能力。第三方接口应允许 LinkSense 页面来源；HTTPS 页面应使用 HTTPS API 和 WSS 连接。服务端网络可达不代表用户浏览器可达。
+- 只导入可信的应用包及外部脚本。应用与宿主同源，不再构成安全隔离边界，可以访问父页面、同源存储和非 HttpOnly Cookie，并可能以当前用户身份请求 LinkSense API；HttpOnly Cookie 仍不能由 JavaScript 读取。不要把长期 Token 或第三方服务密钥打包到前端。
+- 已导入的应用在部署新版 API 和 Web、重新加载页面后使用新策略，不需要重新导入或修改历史 Manifest。应用自己声明的 CSP 或外部代理额外添加的策略仍会生效。
 - 所有 SDK 请求都受 Manifest 权限和服务端资源授权约束。
 - 自定义事件 payload 必须符合 Manifest JSON Schema；无效事件不会投递。
 - 自定义事件不要用于传输聊天消息、推理过程、工具日志、凭据或大文件。文件应通过 LinkSense 产物能力交付。
@@ -293,7 +298,42 @@ await LinkSense.chat.toggle()
 | 事件 Schema 导致导入失败 | `payload_schema.type`、Schema 方言、引用是否可解析。 | 使用 2020-12 和顶层对象；让 Schema 自包含，不依赖运行时下载外部 `$ref`。 |
 | 更新提示版本冲突 | 新包的 `version` 是否已经在此应用中导入过。 | 使用从未发布过的版本，修改文件内容不会绕过版本唯一性检查。 |
 | 图标无法导入 | 是否把 SVG、GIF 或外部 URL 用作 `icon`。 | 换成包内合规的 PNG、JPEG 或 WebP；普通页面资源允许 SVG，不代表应用图标也支持 SVG。 |
-| 页面脚本、请求或资源不工作 | 是否使用内联脚本、CDN、绝对资源路径或直接 `fetch`。 | 使用外置脚本和包内相对资源路径；通过 SDK 获取平台数据，普通网络连接被禁止。 |
+| 页面脚本、请求或资源不工作 | 检查浏览器报错、CORS、HTTPS 混合内容、资源路径和用户网络连通性。 | 平台允许直接连接和外部脚本；配置第三方服务允许页面来源，使用 HTTPS/WSS 和正确的资源路径，并排查应用自身或代理附加的 CSP。 |
 | SDK 报未就绪或权限不足 | 是否完成 `ready()`，Manifest 是否包含对应权限。 | 等待初始化后启用按钮；按实际调用添加所需权限，重新发布并在新任务中验证。 |
 | 任务有聊天结果但应用没有业务数据 | 声明、指令和监听器的事件名是否一致，任务是否调用发送工具，payload 是否满足 Schema。 | 明确事件触发条件；检查必填字段、类型、长度和未声明字段，尽早注册监听。 |
 | 重进页面后出现重复数据或草稿丢失 | 是否把每个事件都追加为新记录，是否把未提交草稿当成已保存结果。 | 按事件 ID 去重、按业务 ID 更新记录；从持久化事件重建界面，不依赖页面内存恢复草稿。 |
+
+
+## 上传参考文件
+
+文件能力从 SDK `1.1.0` 开始提供，协议 `sdk_version` 仍为 `1`。更新应用包时请使用上面的 `v1.js?v=1.1.0` 地址，避免浏览器继续使用旧版 SDK 的长期缓存。
+
+在 Manifest 的 `permissions` 中显式加入 `files:write`，提交任务还需要 `tasks:write`。页面自行提供文件选择、拖拽、文件列表和上传状态；SDK 不创建上传界面。使用浏览器 `File` 对象，宿主负责上传，不要将文件转成 Base64、直接请求平台 API 或放入自定义事件。
+
+```js
+await LinkSense.ready()
+const file = document.querySelector('input[type="file"]').files[0]
+const uploaded = await LinkSense.files.upload(file)
+const receipt = await LinkSense.tasks.run({
+  prompt: "分析这份参考资料，归纳主要发现。",
+  file_ids: [uploaded.id],
+})
+```
+
+| 方法 | 返回值与行为 |
+| --- | --- |
+| `files.upload(file)` | 上传单个 `File`，成功后返回文件信息；可对多个文件逐个调用。上传本身不启动任务。 |
+| `files.list()` | 返回 `{ items }`，包含当前应用任务已上传的 `staged` 和已提交的 `bound` 文件，用于页面重进后恢复列表。 |
+| `files.remove(fileId)` | 移除尚未提交的应用附件，成功返回 `{ removed: true }`。已提交或正在受理的附件不能移除。 |
+
+文件信息只包含 `id`、`filename`、`mime_type`、`size_bytes`、`status` 和 `turn_id`。`staged` 表示可供本次提交选择，`bound` 表示已属于某个轮次。页面恢复时可展示全部文件，但只能将 `staged` 文件用于下一次提交；不会自动恢复表单字段与文件的业务对应关系。
+
+上传采用平台现有文件大小和会话文件数量限制；应用可用 `accept` 和自身校验进一步限定类型。多文件上传分别成功或失败，页面应保留成功项，允许失败项重试或移除，并在所有所选文件就绪后启用提交。SDK Promise 拒绝时应展示本地化提示，不能忽略错误继续提交。宿主在上传或移除请求进行中拒绝任务提交；任务提交失败时保留附件供用户重试。
+
+`file_ids: []` 或省略该字段表示此次不带文件。应用附件和普通聊天待发送附件分开管理：应用只能提交本应用任务的待提交附件，聊天也不会自动带走应用附件。成功受理后文件归属本轮任务，聊天记录显示对应附件，执行器使用现有附件上下文读取文件。不得把已提交附件当成新附件再次提交；重复的同一次请求应使用相同 `idempotency_key`，变更文件选择应使用新的 key。
+
+新增能力不要求旧应用重新导入；旧应用仍能提交纯文本任务。要使用上传能力，需更新应用包声明权限，并创建使用新包的任务；既有任务仍使用创建时固定的包和权限。
+
+`examples/interactive-research-brief/` 演示了多文件选择、失败重试、移除、重进恢复及按 ID 提交。
+
+部署此能力时，需要先运行 `pnpm db:migrate:deploy`，扩展附件来源的数据库约束，再部署同版本的 API 和前端。迁移保留原有来源值、历史附件和字段结构。开始写入新的附件来源后，不应将服务回退到不识别该来源的旧版本；不要混用新旧 API 实例。

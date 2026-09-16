@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -102,7 +102,30 @@ try {
   const denied = await fetch(`http://127.0.0.1:${Number((await docker('port', hosted.container, '4010/tcp')).split(':').at(-1))}/health/state`, { headers: { authorization: `Bearer ${ownerWorkerSecret(owner, secret)}` }, signal: AbortSignal.timeout(5_000) });
   assert.equal(denied.status, 401);
   assert.equal(await readFile(path.join(users, owner, "home/.codex/persisted-state"), "utf8"), "retained-state");
-  process.stdout.write(JSON.stringify({ status: "passed", sharedProject: true, deletionKeepsFiles: true, restartKeepsHomeAndCodex: true, backgroundProcessDetected: true, serviceHomeAndAuthenticationSeparate: true, linuxPermissionRegression: true }) + "\n");
+  await hosted.exec("import{writeFile}from'node:fs/promises';await writeFile('/home/linksense/delete-with-service','temporary-service-data');");
+  // Run the actual controller inside Linux: host macOS cannot chown to the
+  // container identities during discovery and must not replace that boundary.
+  const cleanup = JSON.parse(await docker("run", "--rm", "--user", "0:1000", "--network", controlNetwork,
+    "--volume", `${socket}:/var/run/docker.sock`, "--volume", `${users}:${users}`, "--entrypoint", "node", image,
+    "--input-type=module", "-e", `
+      import pino from 'pino';
+      import {WorkerManager} from '/app/dist/controller/worker-manager.js';
+      import {DockerWorkerProvider} from '/app/dist/controller/docker-worker-provider.js';
+      import {FetchWorkerTransport} from '/app/dist/controller/worker-http-client.js';
+      import {DockerEngineClient} from '/app/dist/docker/engine-client.js';
+      const config=JSON.parse(process.argv[1]), logger=pino({level:'silent'});
+      const manager=new WorkerManager(config,new DockerWorkerProvider(config,new DockerEngineClient('/var/run/docker.sock','1.45'),logger),new FetchWorkerTransport(),logger,{probeWorkerRuntime:async()=>undefined});
+      await manager.initialize();
+      const response=await manager.cleanupConversation(process.argv[2],process.argv[3],process.argv[3],true);
+      console.log(JSON.stringify({status:response.statusCode,...JSON.parse(response.body.toString())}));
+    `, JSON.stringify(config), owner, service));
+  assert.equal(cleanup.status, 200);
+  assert.equal(cleanup.environment, "deleted");
+  containers.splice(containers.indexOf(hosted.container), 1);
+  await assert.rejects(lstat(hosted.environment), { code: "ENOENT" });
+  assert.equal(await readFile(path.join(users, owner, "home/.codex/persisted-state"), "utf8"), "retained-state");
+  assert.equal((await restarted.request("/health/state")).status, 200);
+  process.stdout.write(JSON.stringify({ status: "passed", sharedProject: true, deletionKeepsFiles: true, restartKeepsHomeAndCodex: true, backgroundProcessDetected: true, serviceHomeAndAuthenticationSeparate: true, serviceEnvironmentReclaimed: true, personalWorkerUnaffected: true, linuxPermissionRegression: true }) + "\n");
 } finally {
   for (const container of containers.reverse()) await docker("rm", "--force", container);
   for (const network of networks.reverse()) await docker("network", "rm", network);

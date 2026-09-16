@@ -1,4 +1,4 @@
-import { ApplicationCopyService } from "../src/modules/applications/copy-service.js";
+import { ApplicationInstallationService } from "../src/modules/applications/installation-service.js";
 import { createHash, randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -18,7 +18,7 @@ async function fixture() {
   const ownerId = randomUUID(), applicationId = randomUUID(), capabilityId = randomUUID();
   const application = {
     id: applicationId, ownerId, status: 'active', name: 'Published reports', kind: 'standard',
-    iconPreset: 'bot', description: 'Reports', instructions: 'Create a report.', usageInstructions: '', publishedVersionId: null as string | null, allowCopy: false,
+    iconPreset: 'bot', description: 'Reports', instructions: 'Create a report.', usageInstructions: '', publishedVersionId: null as string | null,
     model: null, reasoningEffort: null, interactivePackageId: null as string | null, updatedAt: new Date('2026-09-15T00:00:00Z'),
   };
   const knowledgeBaseId = randomUUID(), mcpServerId = randomUUID();
@@ -28,7 +28,7 @@ async function fixture() {
   };
   await mkdir(join(root, 'source'));
   await writeFile(join(root, 'source', 'SKILL.md'), '---\nname: report\ndescription: Write reports\n---\nOriginal skill.');
-  type Version = { id: string; applicationId: string; versionNumber: number; definitionJson: Prisma.InputJsonValue; assetsReady: boolean; createdBy: string };
+  type Version = { id: string; applicationId: string; versionNumber: number; versionLabel: string; definitionJson: Prisma.InputJsonValue; assetsReady: boolean; createdBy: string };
   const versions: Version[] = [];
   const createdApplications: Prisma.ApplicationCreateInput[] = [];
   const createdCapabilities: Prisma.CapabilityCreateManyInput[] = [];
@@ -36,19 +36,23 @@ async function fixture() {
   const database = {
     user: { findFirst: vi.fn(async () => ({ selfRegisteredAt: null })) },
     userGroupMember: { findMany: vi.fn(async () => []) },
-    applicationGrant: { findFirst: vi.fn(async () => ({ id: randomUUID() }) as { id: string } | null) },
+    applicationGrant: { findMany: vi.fn(async () => [{ usageModes: ["install", "service"] }]) },
+    applicationListing: { findUnique: vi.fn(async () => null) },
+    applicationInstallation: { findFirst: vi.fn(async () => null), create: vi.fn() },
     application: {
       findFirst: vi.fn(async ({ where }: { where: { ownerId?: string } }) => (!where.ownerId || where.ownerId === ownerId) ? application : null),
       create: vi.fn(async ({ data }: { data: Prisma.ApplicationCreateInput }) => { createdApplications.push(data); return data; }),
       findUniqueOrThrow: vi.fn(async () => application),
-      update: vi.fn(async ({ data }: { data: { publishedVersionId: string; usageInstructions: string; allowCopy: boolean } }) => Object.assign(application, data)),
+      update: vi.fn(async ({ data }: { data: { publishedVersionId: string; usageInstructions: string; } }) => Object.assign(application, data)),
     },
-    applicationCapability: { findMany: vi.fn(async () => [{ capabilityId }]), createMany: vi.fn(async ({ data }: { data: Prisma.ApplicationCapabilityCreateManyInput[] }) => { bindingsCreated.push(...data); return { count: data.length }; }) },
+    applicationCapability: { findMany: vi.fn(async ({ where }: { where: { applicationId: string } }) => where.applicationId === applicationId ? [{ capabilityId }] : []), deleteMany: vi.fn(), createMany: vi.fn(async ({ data }: { data: Prisma.ApplicationCapabilityCreateManyInput[] }) => { bindingsCreated.push(...data); return { count: data.length }; }) },
     applicationKnowledgeBase: { findMany: vi.fn(async () => [{ knowledgeBaseId }]) },
     applicationMcpServer: { findMany: vi.fn(async () => [{ mcpServerId }]) },
     capability: { findMany: vi.fn(async ({ where }: { where: { ownerId: string } }) => where.ownerId === ownerId ? [capability] : []),
       createMany: vi.fn(async ({ data }: { data: Prisma.CapabilityCreateManyInput[] }) => { createdCapabilities.push(...data); return { count: data.length }; }) },
     applicationVersion: {
+      findMany: vi.fn(async () => [...versions].sort((a, b) => b.versionNumber - a.versionNumber)),
+      findUniqueOrThrow: vi.fn(async ({ where }: { where: { id: string } }) => { const version = versions.find(item => item.id === where.id); if (!version) throw new Error("missing version"); return version }),
       updateMany: vi.fn(async ({ where, data }: { where: { id: string }; data: Pick<Version, "definitionJson" | "assetsReady"> }) => {
         const version = versions.find(version => version.id === where.id && !version.assetsReady);
         if (!version) return { count: 0 };
@@ -62,16 +66,72 @@ async function fixture() {
   };
   const prisma = { ...database, $transaction: vi.fn(async <T>(action: (tx: typeof database) => Promise<T>) => action(database)) };
   const service = new ApplicationPublicationService(prisma as never, root);
-  return { root, ownerId, applicationId, application, capability, versions, prisma, service, createdApplications, createdCapabilities, bindingsCreated };
+  const capture = (userId: string, appId: string, input: { usage_instructions: string; version_number?: string }, runtimeInstructions?: string, conversionVersionId?: string) => service.capture(userId, appId, { version_number: "1.0.0", ...input }, { ...(runtimeInstructions === undefined ? {} : { runtimeInstructions }), ...(conversionVersionId === undefined ? {} : { conversionVersionId }), complete: async (tx, version) => { await tx.application.update({ where: { id: appId }, data: { publishedVersionId: version.id, usageInstructions: input.usage_instructions } }); } });
+  return { capture, root, ownerId, applicationId, application, capability, versions, prisma, service, createdApplications, createdCapabilities, bindingsCreated };
 }
 
 describe('application publication', () => {
+  it("prefills historical usage instructions before a version is available", async () => {
+    const f = await fixture();
+    f.application.usageInstructions = "Existing usage guide";
+    expect((await f.service.settings(f.applicationId)).usage_instructions).toBe("Existing usage guide");
+    f.versions.push({ id: randomUUID(), applicationId: f.applicationId, versionNumber: 1, versionLabel: "1.0.0", definitionJson: { conversionRequired: true }, assetsReady: false, createdBy: f.ownerId });
+    expect((await f.service.settings(f.applicationId)).usage_instructions).toBe("Existing usage guide");
+  });
+
+  it("prefills the latest saved guide across channels and preserves an explicitly cleared guide", async () => {
+    const f = await fixture();
+    await f.capture(f.ownerId, f.applicationId, { usage_instructions: "Direct guide" });
+    expect((await f.service.settings(f.applicationId)).usage_instructions).toBe("Direct guide");
+    for (const usage_instructions of ["Revised center guide", ""]) {
+      await f.service.capture(f.ownerId, f.applicationId, { version_number: "1.0.0", usage_instructions }, { complete: async () => undefined });
+      expect((await f.service.settings(f.applicationId)).usage_instructions).toBe(usage_instructions);
+      expect(f.application.usageInstructions).toBe("Direct guide");
+    }
+  });
+  it("compares semantic versions against the highest version and rejects lower submissions before writing", async () => {
+    const f = await fixture();
+    const input = { usage_instructions: "Use your own account", version_number: "1.10.0" };
+    const first = await f.capture(f.ownerId, f.applicationId, input);
+    await expect(f.capture(f.ownerId, f.applicationId, { ...input, version_number: "1.9.0" })).rejects.toMatchObject({ code: "APPLICATION_VERSION_TOO_LOW", params: { version: "1.10.0" } });
+    expect(f.versions).toHaveLength(1);
+    expect(f.application.publishedVersionId).toBe(first.version_id);
+    expect(await f.service.settings(f.applicationId)).toMatchObject({ version_number: "1.10.0", highest_version_number: "1.10.0" });
+  });
+
+  it("reuses an unchanged same-number submission without reporting a new update", async () => {
+    const f = await fixture();
+    const input = { usage_instructions: "Use your own account", version_number: "1.0.0" };
+    const first = await f.capture(f.ownerId, f.applicationId, input);
+    const second = await f.capture(f.ownerId, f.applicationId, input);
+    expect(second).toEqual(first);
+    expect(f.versions).toHaveLength(1);
+    await f.service.verifyVersion(f.applicationId, first.version_id!);
+  });
+
+  it("rechecks the highest version inside the transaction after a concurrent submission", async () => {
+    const f = await fixture();
+    await f.capture(f.ownerId, f.applicationId, { usage_instructions: "Use your own account", version_number: "2.0.0" });
+    f.prisma.applicationVersion.findMany.mockResolvedValueOnce([]);
+    await expect(f.capture(f.ownerId, f.applicationId, { usage_instructions: "Use your own account", version_number: "1.0.0" })).rejects.toMatchObject({ code: "APPLICATION_VERSION_TOO_LOW" });
+    expect(f.versions).toHaveLength(1);
+  });
+
+  it("captures a center submission without changing the active direct service", async () => {
+    const f = await fixture();
+    const complete = vi.fn(async () => undefined);
+    const version = await f.service.capture(f.ownerId, f.applicationId, { usage_instructions: "Use your own account", version_number: "1.0.0" }, { complete });
+    expect(version.version_number).toBe("1.0.0");
+    expect(f.application.publishedVersionId).toBeNull();
+    expect(complete).toHaveBeenCalledOnce();
+  });
+
   it("converts a disabled historical application without enabling its dependencies or changing its version ID", async () => {
     const f = await fixture(), versionId = randomUUID();
     f.application.status = "disabled";
     f.application.publishedVersionId = versionId;
-    f.versions.push({ id: versionId, applicationId: f.applicationId, versionNumber: 1, definitionJson: { conversionRequired: true }, assetsReady: false, createdBy: f.ownerId });
-    const converted = await f.service.publish(f.ownerId, f.applicationId, { allow_copy: false, usage_instructions: "Set up before enabling." }, undefined, versionId);
+    f.versions.push({ id: versionId, applicationId: f.applicationId, versionNumber: 1, versionLabel: "1.0.0", definitionJson: { conversionRequired: true }, assetsReady: false, createdBy: f.ownerId });
+    const converted = await f.capture(f.ownerId, f.applicationId, { usage_instructions: "Set up before enabling." }, undefined, versionId);
     expect(converted.version_id).toBe(versionId);
     expect(f.versions).toHaveLength(1);
     expect(f.versions[0]?.assetsReady).toBe(true);
@@ -82,14 +142,14 @@ describe('application publication', () => {
 
   it('freezes instructions and package bytes while later publications get a new version', async () => {
     const f = await fixture();
-    const first = await f.service.publish(f.ownerId, f.applicationId, { allow_copy: false, usage_instructions: 'Configure your service connection.' });
-    expect(first.version_number).toBe(1);
-    expect(first.allow_copy).toBe(false);
+    const first = await f.capture(f.ownerId, f.applicationId, { usage_instructions: 'Configure your service connection.' });
+    expect(first.version_number).toBe('1.0.0');
+    expect(first).not.toHaveProperty("allow_copy");
     const original = await f.service.readVersion(f.applicationId, first.version_id!);
     f.application.instructions = 'Changed draft.';
     await writeFile(join(f.root, 'source', 'SKILL.md'), '---\nname: report\ndescription: Write reports\n---\nUpdated skill.');
-    const second = await f.service.publish(f.ownerId, f.applicationId, { allow_copy: true, usage_instructions: 'Use your own credentials.' });
-    expect(second.version_number).toBe(2);
+    const second = await f.capture(f.ownerId, f.applicationId, { usage_instructions: 'Use your own credentials.' });
+    expect(second.version_number).toBe('1.0.0');
     expect(second.version_id).not.toBe(first.version_id);
     expect(await f.service.readVersion(f.applicationId, first.version_id!)).toEqual(original);
     expect(original.instructions).toBe('Create a report.');
@@ -101,11 +161,11 @@ describe('application publication', () => {
 
   it('requires ownership and leaves no published version after a concurrent draft change', async () => {
     const f = await fixture();
-    const input = { allow_copy: false, usage_instructions: 'Set up the connections.' };
-    await expect(f.service.publish(randomUUID(), f.applicationId, input)).rejects.toMatchObject({ code: 'APPLICATION_NOT_FOUND' });
+    const input = { usage_instructions: 'Set up the connections.' };
+    await expect(f.capture(randomUUID(), f.applicationId, input)).rejects.toMatchObject({ code: 'APPLICATION_NOT_FOUND' });
     expect(f.prisma.$transaction).not.toHaveBeenCalled();
     f.prisma.$queryRaw.mockResolvedValue([]);
-    await expect(f.service.publish(f.ownerId, f.applicationId, input)).rejects.toMatchObject({ code: 'CONFLICT' });
+    await expect(f.capture(f.ownerId, f.applicationId, input)).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(f.versions).toHaveLength(0);
     expect(f.application.publishedVersionId).toBeNull();
     await expect(readFile(join(f.root, 'source', 'SKILL.md'), 'utf8')).resolves.toContain('Original skill.');
@@ -126,7 +186,7 @@ describe("independent application copies", () => {
     const f = await fixture(), recipient = randomUUID(), sourcePackageId = randomUUID();
     f.application.kind = "interactive";
     f.application.interactivePackageId = sourcePackageId;
-    await f.service.publish(f.ownerId, f.applicationId, { allow_copy: true, usage_instructions: "Connect your own services." });
+    await f.capture(f.ownerId, f.applicationId, { usage_instructions: "Connect your own services." });
     const files = [
       { path: "index.html", contentType: "text/html", bytes: Buffer.from("<main>Reports</main>") },
       { path: "style.css", contentType: "text/css", bytes: Buffer.from("main { color: black }") },
@@ -148,15 +208,15 @@ describe("independent application copies", () => {
       const asset = sourceAssets.find(asset => asset.objectKey === key)!;
       return Readable.from([corrupt && asset.path === "style.css" ? Buffer.from("corrupt") : asset.bytes]);
     }), put: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) };
-    const copy = new ApplicationCopyService(prisma as never, f.root, f.service, assets);
+    const copy = new ApplicationInstallationService(prisma as never, f.root, f.service, assets);
     if (corrupt) {
-      await expect(copy.copy(recipient, f.applicationId, { name: "My page" })).rejects.toMatchObject({ code: "APPLICATION_DEPENDENCY_UNAVAILABLE" });
+      await expect(copy.install(recipient, f.applicationId, { name: "My page", channel: "direct", version_id: f.application.publishedVersionId! })).rejects.toMatchObject({ code: "APPLICATION_DEPENDENCY_UNAVAILABLE" });
       expect(f.createdApplications).toHaveLength(0);
       expect(f.createdCapabilities).toHaveLength(0);
       expect(assets.remove).toHaveBeenCalledOnce();
       expect(database.interactiveApplicationPackage.create).not.toHaveBeenCalled();
     } else {
-      const id = await copy.copy(recipient, f.applicationId, { name: "My page" });
+      const id = await copy.install(recipient, f.applicationId, { name: "My page", channel: "direct", version_id: f.application.publishedVersionId! });
       const packageId = f.createdApplications[0]!.interactivePackageId;
       expect(packageId).not.toBe(sourcePackageId);
       expect(database.interactiveApplicationPackage.create).toHaveBeenCalledWith({ data: expect.objectContaining({ id: packageId, applicationId: id, createdBy: recipient, manifestJson: sourcePackage.manifestJson }) });
@@ -168,10 +228,10 @@ describe("independent application copies", () => {
 
   it("creates recipient-owned files and bindings, leaving external connections for the recipient to configure", async () => {
     const f = await fixture(), recipient = randomUUID();
-    await f.service.publish(f.ownerId, f.applicationId, { allow_copy: true, usage_instructions: "Connect your own handbook and MCP service." });
+    await f.capture(f.ownerId, f.applicationId, { usage_instructions: "Connect your own handbook and MCP service." });
     const assets = { get: vi.fn(), put: vi.fn(), remove: vi.fn() };
-    const copy = new ApplicationCopyService(f.prisma as never, f.root, f.service, assets);
-    const id = await copy.copy(recipient, f.applicationId, { name: "My reports" });
+    const copy = new ApplicationInstallationService(f.prisma as never, f.root, f.service, assets);
+    const id = await copy.install(recipient, f.applicationId, { name: "My reports", channel: "direct", version_id: f.application.publishedVersionId! });
     expect(f.createdApplications).toEqual([expect.objectContaining({ id, ownerId: recipient, status: "disabled", name: "My reports", usageInstructions: "Connect your own handbook and MCP service." })]);
     expect(f.createdApplications[0]).not.toHaveProperty("publishedVersionId");
     expect(f.createdCapabilities).toHaveLength(1);
@@ -185,13 +245,13 @@ describe("independent application copies", () => {
 
   it("requires separate copy permission and rechecks revocation before saving", async () => {
     const f = await fixture(), recipient = randomUUID();
-    const copy = new ApplicationCopyService(f.prisma as never, f.root, f.service, { get: vi.fn(), put: vi.fn(), remove: vi.fn() });
-    await f.service.publish(f.ownerId, f.applicationId, { allow_copy: false, usage_instructions: "Use the service." });
-    await expect(copy.copy(recipient, f.applicationId, { name: "Private copy" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const copy = new ApplicationInstallationService(f.prisma as never, f.root, f.service, { get: vi.fn(), put: vi.fn(), remove: vi.fn() });
+    await f.capture(f.ownerId, f.applicationId, { usage_instructions: "Use the service." });
+    f.prisma.applicationGrant.findMany.mockResolvedValue([{ usageModes: ["service"] }]);
+    await expect(copy.install(recipient, f.applicationId, { name: "Private copy", channel: "direct", version_id: f.application.publishedVersionId! })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(f.createdApplications).toHaveLength(0);
-    f.application.allowCopy = true;
-    f.prisma.applicationGrant.findFirst.mockResolvedValue(null);
-    await expect(copy.copy(recipient, f.applicationId, { name: "Revoked copy" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    f.prisma.applicationGrant.findMany.mockResolvedValueOnce([{ usageModes: ["install"] }]).mockResolvedValue([]);
+    await expect(copy.install(recipient, f.applicationId, { name: "Revoked copy", channel: "direct", version_id: f.application.publishedVersionId! })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(f.createdCapabilities).toHaveLength(0);
     expect(f.createdApplications).toHaveLength(0);
   });

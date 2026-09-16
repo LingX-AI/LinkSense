@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light" />
     <title>交互式研究简报</title>
     <link rel="stylesheet" href="./styles.css" />
-    <script src="/api/v1/interactive-app-runtime/sdk/v1.js" defer></script>
+    <script src="/api/v1/interactive-app-runtime/sdk/v1.js?v=1.1.0" defer></script>
     <script src="./app.js" defer></script>
   </head>
   <body>
@@ -115,6 +115,13 @@
               </fieldset>
 
               <div class="field">
+                <label for="research-files" data-i18n="filesLabel"></label>
+                <input id="research-files" type="file" multiple disabled />
+                <p data-i18n="filesHint"></p>
+                <ul id="research-file-list" aria-live="polite"></ul>
+              </div>
+
+              <div class="field">
                 <label for="constraints"><span data-i18n="constraintsLabel">补充要求</span><span class="optional" data-i18n="optional">可选</span></label>
                 <textarea id="constraints" name="constraints" rows="3" maxlength="2000" data-i18n-placeholder="constraintsPlaceholder" placeholder="例如：优先使用近两年的资料；避免过度技术化；预算上限为 50 万元"></textarea>
               </div>
@@ -150,7 +157,7 @@
                 <p class="submit-title" data-i18n="readyTitle">配置完成后即可开始</p>
                 <p class="submit-note" data-i18n="readyHint">任务过程和最终结果会显示在 LinkSense 原生对话中</p>
               </div>
-              <button class="button button-primary" id="run-task" type="submit">
+              <button class="button button-primary" id="run-task" type="submit" disabled>
                 <span data-i18n="runTask">生成研究简报</span>
                 <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg>
               </button>

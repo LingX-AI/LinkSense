@@ -287,7 +287,7 @@ export class PrismaKnowledgeStore implements KnowledgeStore {
   async listAccessibleKnowledgeBases(input: {
     actorId: string;
     scope: "all" | "mine" | "shared";
-    lifecycleStatus: "active" | "archived";
+    lifecycleStatus: "all" | "active" | "archived";
     search?: string;
     cursor?: string;
     limit: number;
@@ -337,7 +337,10 @@ export class PrismaKnowledgeStore implements KnowledgeStore {
             select: { id: true, updatedAt: true },
           });
     const where: Prisma.KnowledgeBaseWhereInput = {
-      lifecycleStatus: input.lifecycleStatus,
+      lifecycleStatus:
+        input.lifecycleStatus === "all"
+          ? { in: ["active", "archived"] }
+          : input.lifecycleStatus,
       AND: [
         visibility,
         ...(input.search === undefined || input.search.length === 0

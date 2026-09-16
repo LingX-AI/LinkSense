@@ -178,6 +178,23 @@ describe("ClawHubSkillRepositoryPanel", () => {
     })
     expect(within(detail).getByText("ClawHub")).toBeVisible()
     expect(within(detail).getByText("安装时检查")).toBeVisible()
+    for (const label of [
+      "Skill",
+      "ClawHub",
+      "安装时检查",
+      "browser",
+      "automation",
+    ]) {
+      expect(within(detail).getByText(label)).toHaveClass(
+        "rounded-2xl",
+        "border",
+        "border-divider"
+      )
+      expect(within(detail).getByText(label)).not.toHaveClass(
+        "border-transparent",
+        "border-border"
+      )
+    }
     const canonicalLink = within(detail).getByRole("link", {
       name: "在 ClawHub 查看",
     })
@@ -337,6 +354,9 @@ describe("ClawHubSkillRepositoryPanel", () => {
       name: "Alice Browser Skill",
     })
     expect(within(detail).getByText("暂不可安装")).toBeVisible()
+    expect(
+      within(detail).queryByRole("button", { name: "安装" })
+    ).not.toBeInTheDocument()
     expect(within(detail).queryByText("安全提示")).not.toBeInTheDocument()
   })
 
@@ -387,6 +407,9 @@ describe("ClawHubSkillRepositoryPanel", () => {
       name: "Alice Browser Skill",
     })
     expect(within(detail).getByText("有更新")).toBeVisible()
+    expect(
+      within(detail).queryByRole("button", { name: "安装" })
+    ).not.toBeInTheDocument()
     expect(within(detail).queryByText("安全提示")).not.toBeInTheDocument()
     expect(
       fetchMock.mock.calls.some(([input]) =>
@@ -444,175 +467,276 @@ describe("ClawHubSkillRepositoryPanel", () => {
     expect(requestedCursors).toEqual([null, "page-two", null])
   })
 
-  it("uses the local catalog id for preview and requires risk confirmation before install", async () => {
-    let catalogInstalled = false
-    let resolveConfirm: ((response: Response) => void) | undefined
-    const confirmResponse = new Promise<Response>((resolve) => {
-      resolveConfirm = resolve
-    })
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input), window.location.origin)
-      const method = init?.method ?? "GET"
-      if (url.pathname === "/api/v1/clawhub/skills" && method === "GET") {
+  it.each(["menu", "detail"])(
+    "installs through the %s using the catalog id and risk confirmation",
+    async (entry) => {
+      let catalogInstalled = false
+      let resolveConfirm: ((response: Response) => void) | undefined
+      const confirmResponse = new Promise<Response>((resolve) => {
+        resolveConfirm = resolve
+      })
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input), window.location.origin)
+          const method = init?.method ?? "GET"
+          if (url.pathname === "/api/v1/clawhub/skills" && method === "GET") {
+            return Promise.resolve(
+              envelope({
+                items: [
+                  catalogItem({
+                    installed_capability_id: catalogInstalled
+                      ? CAPABILITY_ID
+                      : null,
+                    installable: !catalogInstalled,
+                    installability_reason: catalogInstalled
+                      ? "already_installed"
+                      : null,
+                  }),
+                ],
+                next_cursor: null,
+                total_count: 1,
+              })
+            )
+          }
+          if (
+            url.pathname ===
+              `/api/v1/clawhub/skills/${FIRST_SKILL_ID}/install-preview` &&
+            method === "POST"
+          ) {
+            return Promise.resolve(
+              envelope({
+                preview_token: "clawhub-preview-token",
+                expires_at: NOW,
+                operation: "install",
+                capability_id: null,
+                source: {
+                  source_type: "clawhub",
+                  import_kind: "remote_files",
+                  skill_id: FIRST_SKILL_ID,
+                  owner_handle: "alice",
+                  slug: "shared-browser-slug",
+                  version: "1.2.3",
+                  security_status: "clean",
+                  security_has_warnings: true,
+                  canonical_url: "https://clawhub.ai/alice/shared-browser-slug",
+                },
+                type: "skill",
+                name: "Alice Browser Skill",
+                description: "Automates browser workflows",
+                manifest: {},
+                declared_capabilities: ["network"],
+                declared_environment_keys: [],
+                risk_summary: { contains_scripts: true },
+                has_logo: false,
+                skill_content_preview: "# Alice Browser Skill",
+                skill_content_truncated: false,
+              })
+            )
+          }
+          if (
+            url.pathname ===
+              "/api/v1/capabilities/imports/clawhub-preview-token/confirm" &&
+            method === "POST"
+          ) {
+            catalogInstalled = true
+            return confirmResponse
+          }
+          throw new Error(`Unexpected request: ${method} ${url.pathname}`)
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const interaction = userEvent.setup()
+      renderPanel()
+
+      const item = await screen.findByRole("article", {
+        name: "Alice Browser Skill",
+      })
+      if (entry === "menu") {
+        await interaction.click(
+          within(item).getByRole("button", { name: "操作" })
+        )
+        await interaction.click(
+          await screen.findByRole("menuitem", { name: "安装" })
+        )
+      } else {
+        await interaction.click(
+          within(item).getByRole("button", {
+            name: "查看Alice Browser Skill详情",
+          })
+        )
+        const detail = await screen.findByRole("dialog", {
+          name: "Alice Browser Skill",
+        })
+        await interaction.click(
+          within(detail).getByRole("button", { name: "安装" })
+        )
+      }
+
+      const dialog = await screen.findByRole("dialog", {
+        name: "安装“Alice Browser Skill”？",
+      })
+      expect(
+        screen.queryByRole("dialog", { name: "Alice Browser Skill" })
+      ).not.toBeInTheDocument()
+      expect(within(dialog).getByText("技能来源")).toBeVisible()
+      expect(
+        within(dialog).getByText("@alice/shared-browser-slug")
+      ).toBeVisible()
+      expect(within(dialog).getByText("安装版本")).toBeVisible()
+      expect(within(dialog).getByText("1.2.3")).toBeVisible()
+      expect(within(dialog).getByText("包含可执行脚本")).toBeVisible()
+      const securityWarning = within(dialog)
+        .getByText("存在安全警告")
+        .closest('[data-slot="alert"]')
+      expect(securityWarning).toHaveClass("border-[color:var(--app-border)]")
+      expect(within(dialog).getByText("# Alice Browser Skill")).toBeVisible()
+      const confirm = within(dialog).getByRole("button", { name: "确认安装" })
+      expect(confirm).toBeDisabled()
+      await interaction.click(
+        within(dialog).getByRole("checkbox", {
+          name: "我已阅读来源与风险提示",
+        })
+      )
+      expect(confirm).toBeEnabled()
+      await interaction.click(confirm)
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("dialog", {
+            name: "安装“Alice Browser Skill”？",
+          })
+        ).not.toBeInTheDocument()
+      })
+      const loadingToast = await screen.findByText("正在安装技能…")
+      expect(loadingToast.closest("[data-sonner-toast]")).not.toBeNull()
+      await interaction.click(
+        within(item).getByRole("button", {
+          name: "查看Alice Browser Skill详情",
+        })
+      )
+      const detail = await screen.findByRole("dialog", {
+        name: "Alice Browser Skill",
+      })
+      expect(
+        within(detail).getByRole("button", { name: "安装" })
+      ).toBeDisabled()
+      expect(
+        fetchMock.mock.calls.some(([input, init]) => {
+          const url = new URL(String(input), window.location.origin)
+          return (
+            url.pathname ===
+              `/api/v1/clawhub/skills/${FIRST_SKILL_ID}/install-preview` &&
+            init?.method === "POST"
+          )
+        })
+      ).toBe(true)
+      expect(
+        fetchMock.mock.calls.some(([input, init]) => {
+          const url = new URL(String(input), window.location.origin)
+          return (
+            url.pathname ===
+              "/api/v1/capabilities/imports/clawhub-preview-token/confirm" &&
+            init?.method === "POST"
+          )
+        })
+      ).toBe(true)
+      resolveConfirm?.(
+        envelope({
+          id: CAPABILITY_ID,
+          name: "Alice Browser Skill",
+          slug: "shared-browser-slug",
+          type: "skill",
+          description: "Automates browser workflows",
+          status: "active",
+          source_type: "clawhub",
+          builtin_key: null,
+          is_builtin: false,
+          marketplace_listing_id: null,
+          marketplace_release_id: null,
+          logo_url: null,
+          is_owner: true,
+          can_manage: true,
+          can_govern: false,
+          can_select: true,
+          can_delete: true,
+          has_logo: false,
+          preference_status: "enabled",
+          manifest: {},
+          risk_summary: { contains_scripts: true },
+          created_at: NOW,
+          updated_at: NOW,
+        })
+      )
+      const installedToast =
+        await screen.findByText("已从技能仓库安装到你的个人技能")
+      expect(installedToast.closest("[data-sonner-toast]")).not.toBeNull()
+      expect(await within(detail).findByText("已安装")).toBeVisible()
+      expect(
+        within(detail).queryByRole("button", { name: "安装" })
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  it.each(["zh-CN", "en-US"])(
+    "prevents duplicate detail installation requests and allows retry after failure in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      let rejectPreview: ((error: Error) => void) | undefined
+      const previewResponse = new Promise<Response>((_, reject) => {
+        rejectPreview = reject
+      })
+      const fetchMock = vi.fn((input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin)
+        if (url.pathname.endsWith("/install-preview")) return previewResponse
         return Promise.resolve(
           envelope({
-            items: [
-              catalogItem({
-                installed_capability_id: catalogInstalled
-                  ? CAPABILITY_ID
-                  : null,
-                installable: !catalogInstalled,
-                installability_reason: catalogInstalled
-                  ? "already_installed"
-                  : null,
-              }),
-            ],
+            items: [catalogItem()],
             next_cursor: null,
             total_count: 1,
           })
         )
-      }
-      if (
-        url.pathname ===
-          `/api/v1/clawhub/skills/${FIRST_SKILL_ID}/install-preview` &&
-        method === "POST"
-      ) {
-        return Promise.resolve(
-          envelope({
-            preview_token: "clawhub-preview-token",
-            expires_at: NOW,
-            operation: "install",
-            capability_id: null,
-            source: {
-              source_type: "clawhub",
-              import_kind: "remote_files",
-              skill_id: FIRST_SKILL_ID,
-              owner_handle: "alice",
-              slug: "shared-browser-slug",
-              version: "1.2.3",
-              security_status: "clean",
-              security_has_warnings: true,
-              canonical_url: "https://clawhub.ai/alice/shared-browser-slug",
-            },
-            type: "skill",
-            name: "Alice Browser Skill",
-            description: "Automates browser workflows",
-            manifest: {},
-            declared_capabilities: ["network"],
-            declared_environment_keys: [],
-            risk_summary: { contains_scripts: true },
-            has_logo: false,
-            skill_content_preview: "# Alice Browser Skill",
-            skill_content_truncated: false,
-          })
-        )
-      }
-      if (
-        url.pathname ===
-          "/api/v1/capabilities/imports/clawhub-preview-token/confirm" &&
-        method === "POST"
-      ) {
-        catalogInstalled = true
-        return confirmResponse
-      }
-      throw new Error(`Unexpected request: ${method} ${url.pathname}`)
-    })
-    vi.stubGlobal("fetch", fetchMock)
-    const interaction = userEvent.setup()
-    renderPanel()
-
-    const item = await screen.findByRole("article", {
-      name: "Alice Browser Skill",
-    })
-    await interaction.click(within(item).getByRole("button", { name: "操作" }))
-    await interaction.click(
-      await screen.findByRole("menuitem", { name: "安装" })
-    )
-
-    const dialog = await screen.findByRole("dialog", {
-      name: "安装“Alice Browser Skill”？",
-    })
-    expect(within(dialog).getByText("技能来源")).toBeVisible()
-    expect(within(dialog).getByText("@alice/shared-browser-slug")).toBeVisible()
-    expect(within(dialog).getByText("安装版本")).toBeVisible()
-    expect(within(dialog).getByText("1.2.3")).toBeVisible()
-    expect(within(dialog).getByText("包含可执行脚本")).toBeVisible()
-    const securityWarning = within(dialog)
-      .getByText("存在安全警告")
-      .closest('[data-slot="alert"]')
-    expect(securityWarning).toHaveClass("border-[color:var(--app-border)]")
-    expect(within(dialog).getByText("# Alice Browser Skill")).toBeVisible()
-    const confirm = within(dialog).getByRole("button", { name: "确认安装" })
-    expect(confirm).toBeDisabled()
-    await interaction.click(
-      within(dialog).getByRole("checkbox", {
-        name: "我已阅读来源与风险提示",
       })
-    )
-    expect(confirm).toBeEnabled()
-    await interaction.click(confirm)
-
-    await waitFor(() => {
-      expect(
-        screen.queryByRole("dialog", {
-          name: "安装“Alice Browser Skill”？",
+      vi.stubGlobal("fetch", fetchMock)
+      const interaction = userEvent.setup()
+      const { onFeedback } = renderPanel()
+      await interaction.click(
+        await screen.findByRole("button", {
+          name: i18n.t("clawHub.viewDetails", { name: "Alice Browser Skill" }),
         })
-      ).not.toBeInTheDocument()
-    })
-    const loadingToast = await screen.findByText("正在安装技能…")
-    expect(loadingToast.closest("[data-sonner-toast]")).not.toBeNull()
-    expect(
-      fetchMock.mock.calls.some(([input, init]) => {
-        const url = new URL(String(input), window.location.origin)
-        return (
-          url.pathname ===
-            `/api/v1/clawhub/skills/${FIRST_SKILL_ID}/install-preview` &&
-          init?.method === "POST"
-        )
-      })
-    ).toBe(true)
-    expect(
-      fetchMock.mock.calls.some(([input, init]) => {
-        const url = new URL(String(input), window.location.origin)
-        return (
-          url.pathname ===
-            "/api/v1/capabilities/imports/clawhub-preview-token/confirm" &&
-          init?.method === "POST"
-        )
-      })
-    ).toBe(true)
-    resolveConfirm?.(
-      envelope({
-        id: CAPABILITY_ID,
+      )
+      const detail = await screen.findByRole("dialog", {
         name: "Alice Browser Skill",
-        slug: "shared-browser-slug",
-        type: "skill",
-        description: "Automates browser workflows",
-        status: "active",
-        source_type: "clawhub",
-        builtin_key: null,
-        is_builtin: false,
-        marketplace_listing_id: null,
-        marketplace_release_id: null,
-        logo_url: null,
-        is_owner: true,
-        can_manage: true,
-        can_govern: false,
-        can_select: true,
-        can_delete: true,
-        has_logo: false,
-        preference_status: "enabled",
-        manifest: {},
-        risk_summary: { contains_scripts: true },
-        created_at: NOW,
-        updated_at: NOW,
       })
-    )
-    const installedToast =
-      await screen.findByText("已从技能仓库安装到你的个人技能")
-    expect(installedToast.closest("[data-sonner-toast]")).not.toBeNull()
-    expect(await screen.findByText("已安装")).toBeVisible()
-  })
+      await interaction.click(
+        within(detail).getByRole("button", {
+          name: language === "en-US" ? "Install" : "安装",
+        })
+      )
+      const preparing = within(detail).getByRole("button", {
+        name: i18n.t("clawHub.preparing"),
+      })
+      expect(preparing).toBeDisabled()
+      expect(preparing).toHaveAttribute("aria-busy", "true")
+      await interaction.click(preparing)
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          String(input).endsWith("/install-preview")
+        )
+      ).toHaveLength(1)
+      await act(async () => rejectPreview?.(new Error("Network unavailable")))
+      await waitFor(() =>
+        expect(onFeedback).toHaveBeenCalledWith(
+          i18n.t("errors.networkUnavailable"),
+          true
+        )
+      )
+      expect(
+        within(detail).getByRole("button", {
+          name: i18n.t("marketplace.install"),
+        })
+      ).toBeEnabled()
+    }
+  )
 
   it("shows local empty and error states and supports retry", async () => {
     let attempt = 0

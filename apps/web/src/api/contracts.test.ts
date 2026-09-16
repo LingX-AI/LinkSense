@@ -389,6 +389,14 @@ describe("API response contracts", () => {
       turn_file_change_counts: { "turn-1": 3 },
       files: [
         {
+          id: "application-draft",
+          filename: "application.txt",
+          kind: "attachment",
+          source: "interactive_application_upload",
+          status: "staged",
+        },
+
+        {
           id: "draft-file",
           filename: "draft.pdf",
           kind: "attachment",
@@ -396,6 +404,7 @@ describe("API response contracts", () => {
         },
         {
           id: "used-file",
+          source: "interactive_application_upload",
           filename: "used.pdf",
           kind: "attachment",
           status: "bound",
@@ -1064,34 +1073,31 @@ describe("API response contracts", () => {
     undefined,
     { verdict: "blocked", scanner_version: "obsolete" },
     "invalid",
-  ])(
-    "omits removed scan metadata %j from capability responses",
-    (review) => {
-      const capability = capabilitySummarySchema.parse({
-        id: "historical-capability",
-        name: "Historical Skill",
-        slug: "historical-skill",
-        type: "skill",
-        description: null,
-        status: "active",
-        source_type: "local",
-        marketplace_listing_id: null,
-        marketplace_release_id: null,
-        logo_url: null,
-        is_owner: true,
-        can_manage: true,
-        can_govern: false,
-        has_logo: false,
-        preference_status: "disabled",
-        manifest: {},
-        risk_summary: { supply_chain_review: review },
-        created_at: now,
-        updated_at: now,
-      })
+  ])("omits removed scan metadata %j from capability responses", (review) => {
+    const capability = capabilitySummarySchema.parse({
+      id: "historical-capability",
+      name: "Historical Skill",
+      slug: "historical-skill",
+      type: "skill",
+      description: null,
+      status: "active",
+      source_type: "local",
+      marketplace_listing_id: null,
+      marketplace_release_id: null,
+      logo_url: null,
+      is_owner: true,
+      can_manage: true,
+      can_govern: false,
+      has_logo: false,
+      preference_status: "disabled",
+      manifest: {},
+      risk_summary: { supply_chain_review: review },
+      created_at: now,
+      updated_at: now,
+    })
 
-      expect(capability.risk_summary).not.toHaveProperty("supply_chain_review")
-    }
-  )
+    expect(capability.risk_summary).not.toHaveProperty("supply_chain_review")
+  })
 
   it("normalizes built-in capabilities as non-selectable and non-deletable", () => {
     const input = {

@@ -23,6 +23,37 @@ pnpm --filter <package-name> <script>
 
 Use `uv` consistently for Python commands and dependencies.
 
+### Development image caching / 开发镜像缓存
+
+`pnpm dev` reuses images when their tracked build inputs are unchanged. A changed
+manifest, lockfile, or worker source can require an image rebuild. The Dockerfiles
+use persistent BuildKit pnpm stores, so rebuilding a dependency layer reuses cached
+packages and downloads only missing packages. Stores are separated by target
+architecture and build user; installed dependencies remain in the image without
+requiring the cache at runtime. The first build with these stores, a new Docker
+builder, or a cleared build cache must download packages again. Keep the same
+builder between development runs to retain this benefit.
+
+Production-package assembly also keeps pnpm registry metadata and prefers cached
+responses. Worker browser downloads use a separate BuildKit cache and are copied
+into the final image; an interrupted build retains completed browser downloads.
+The `[dev]` stage timings distinguish image preparation from application startup.
+Use `pnpm dev:benchmark --runs=3 --mode=restart --budget-ms=10000` to measure warm
+restart time after preparation, or `--mode=reattach` to measure an already-running
+stack. The command reports preparation separately; a cold build is not a 10-second
+restart and should be allowed to complete once.
+
+`pnpm dev` 会在构建输入未变化时复用镜像。依赖清单、锁文件或 Worker 源码变化可能触发重建；
+Dockerfile 中的 BuildKit pnpm 缓存会复用已下载的包，只下载缓存缺失的依赖。缓存按目标架构和
+构建用户隔离，安装后的依赖保存在镜像内，运行时不需要挂载缓存。首次使用这些缓存、更换 Docker
+构建器或清理构建缓存后，需要重新下载。日常开发保持使用同一个构建器即可持续复用缓存。
+
+生产依赖打包还会缓存包仓库元数据并优先复用；Worker 浏览器下载使用独立缓存，再复制到最终
+镜像，中断构建也会保留已完成的浏览器下载。`[dev]` 分阶段耗时会区分镜像准备与服务启动。
+执行 `pnpm dev:benchmark --runs=3 --mode=restart --budget-ms=10000` 可验证准备完成后的重启耗时；
+`--mode=reattach` 则测量连接到已运行服务的耗时。首次构建需要先完整结束，不能与后续热启动
+的 10 秒目标混为一谈。
+
 ## Pull requests
 
 - Keep changes focused and do not include unrelated refactoring or generated artifacts.

@@ -5617,6 +5617,7 @@ export function ConversationPage({
             />
           )}
         {!blockingPanelActive &&
+          !taskStartDisabledByCreditQuota &&
           (isNew || !isApplicationConversation) &&
           visibleMessages.length === 0 && (
             <ProjectComposerPicker

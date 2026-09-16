@@ -31,15 +31,22 @@ COPY apps/docs/package.json apps/docs/package.json
 COPY apps/runner/package.json apps/runner/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
-RUN pnpm install --frozen-lockfile
+# Share downloaded packages across root-owned builds even after a lockfile edit.
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
+  pnpm install --frozen-lockfile --prefer-offline --store-dir=/pnpm/store --package-import-method=copy
 
 FROM dependencies AS build
 COPY apps/runner apps/runner
 COPY packages/shared packages/shared
 COPY --chmod=0644 deploy/docker/runner-runtime-smoke.mjs /tmp/runner-runtime-smoke.mjs
 RUN pnpm --filter @linksense/shared build \
-  && pnpm --filter @linksense/runner build \
-  && pnpm --filter @linksense/runner deploy --prod --legacy /opt/linksense-runner \
+  && pnpm --filter @linksense/runner build
+# Legacy deploy also installs packages; keep access to the same download store.
+RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
+  --mount=type=cache,id=linksense-pnpm-metadata-root,target=/pnpm/metadata,sharing=locked \
+  pnpm --filter @linksense/runner deploy --prod --legacy --prefer-offline --cache-dir=/pnpm/metadata /opt/linksense-runner \
   && chmod -R u=rwX,go=rX /opt/linksense-runner \
   && cd /opt/linksense-runner \
   && setpriv --reuid=1001 --regid=1000 --clear-groups \
@@ -65,22 +72,30 @@ RUN uv sync --frozen --no-dev --no-install-project --compile-bytecode \
 FROM toolchain AS node-runtime-build
 WORKDIR /opt/linksense/runtime/node
 COPY deploy/runtime/node/package.json deploy/runtime/node/pnpm-lock.yaml ./
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
+  pnpm install --prod --frozen-lockfile --ignore-workspace --prefer-offline --store-dir=/pnpm/store --package-import-method=copy
 COPY --chmod=0644 deploy/runtime/node/register-hooks.mjs deploy/runtime/node/plan-stop-hook.mjs deploy/runtime/node/smoke.mjs ./
 COPY --chmod=0644 deploy/runtime/node/user-package.json ./user-package.json
-RUN pnpm install --prod --frozen-lockfile --ignore-workspace \
-  && NODE_OPTIONS=--import=/opt/linksense/runtime/node/register-hooks.mjs \
+RUN NODE_OPTIONS=--import=/opt/linksense/runtime/node/register-hooks.mjs \
     node /opt/linksense/runtime/node/smoke.mjs \
-  && node --check /opt/linksense/runtime/node/plan-stop-hook.mjs \
-  && pnpm store prune
+  && node --check /opt/linksense/runtime/node/plan-stop-hook.mjs
 
 FROM toolchain AS browser-runtime-build
-ARG PLAYWRIGHT_DOWNLOAD_HOST
 WORKDIR /opt/linksense/runtime/browser
 COPY deploy/runtime/browser/package.json deploy/runtime/browser/pnpm-lock.yaml ./
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
+  pnpm install --prod --frozen-lockfile --ignore-workspace --prefer-offline --store-dir=/pnpm/store --package-import-method=copy
+# Browser downloads must not hold the package-store lock needed by other builds.
+ARG PLAYWRIGHT_DOWNLOAD_HOST
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/linksense/runtime/browser-browsers
 ENV PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
-RUN pnpm install --prod --frozen-lockfile --ignore-workspace \
-  && if ! pnpm exec playwright-cli install-browser chromium; then \
+RUN --mount=type=cache,id=linksense-playwright-${TARGETARCH}${TARGETVARIANT},target=/var/cache/linksense-playwright,sharing=locked \
+    export PLAYWRIGHT_BROWSERS_PATH=/var/cache/linksense-playwright \
+    && if ! pnpm exec playwright-cli install-browser chromium; then \
       if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then \
         echo "Playwright mirror download failed; retrying with the default upstream." >&2; \
         PLAYWRIGHT_DOWNLOAD_HOST= pnpm exec playwright-cli install-browser chromium; \
@@ -88,7 +103,8 @@ RUN pnpm install --prod --frozen-lockfile --ignore-workspace \
         exit 1; \
       fi; \
     fi \
-  && pnpm store prune
+    && mkdir -p /opt/linksense/runtime/browser-browsers \
+    && cp -a "${PLAYWRIGHT_BROWSERS_PATH}/." /opt/linksense/runtime/browser-browsers/
 
 FROM ${LINKSENSE_BROWSER_RUNTIME_CACHE_IMAGE} AS browser-runtime-cache
 

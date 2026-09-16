@@ -16,6 +16,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -1072,7 +1073,7 @@ test("Web image builds and serves the bilingual Help Center with the application
     "COPY apps/docs/package.json apps/docs/package.json",
   );
   const installIndex = dockerfile.indexOf(
-    "RUN pnpm install --frozen-lockfile",
+    "pnpm install --frozen-lockfile",
   );
   const copyDocsSourceIndex = dockerfile.indexOf("COPY apps/docs apps/docs");
   const buildDocsIndex = dockerfile.indexOf(
@@ -1197,7 +1198,7 @@ test("workspace image installs receive every manifest and pnpm patch before depe
     .sort();
 
   for (const { path, source } of dockerfiles) {
-    const installIndex = source.indexOf("RUN pnpm install --frozen-lockfile");
+    const installIndex = source.indexOf("pnpm install --frozen-lockfile");
     assert.notEqual(installIndex, -1);
 
     for (const manifestPath of workspaceManifestPaths) {
@@ -1290,7 +1291,7 @@ test("Docker builds configure a fast Debian mirror with bounded network retries"
   }
 
   const installIndex = developmentDockerfile.indexOf(
-    "RUN pnpm install --frozen-lockfile",
+    "pnpm install --frozen-lockfile",
   );
   const fingerprintLabelIndex = developmentDockerfile.indexOf(
     "LABEL com.linksense.development.fingerprint",
@@ -1811,7 +1812,7 @@ test("runner image separates the trusted controller from unprivileged task worke
   );
   assert.match(
     build,
-    /pnpm --filter @linksense\/runner deploy --prod --legacy \/opt\/linksense-runner[\s\S]*chmod -R u=rwX,go=rX \/opt\/linksense-runner[\s\S]*setpriv --reuid=1001 --regid=1000 --clear-groups[\s\S]*runner-runtime-smoke\.mjs \/opt\/linksense-runner/u,
+    /pnpm --filter @linksense\/runner deploy --prod --legacy(?: --\S+)* \/opt\/linksense-runner[\s\S]*chmod -R u=rwX,go=rX \/opt\/linksense-runner[\s\S]*setpriv --reuid=1001 --regid=1000 --clear-groups[\s\S]*runner-runtime-smoke\.mjs \/opt\/linksense-runner/u,
   );
   assert.doesNotMatch(worker, /chmod -R a-w/u);
   assert.match(
@@ -1972,6 +1973,23 @@ test("shared Python and Node runtimes are lockfile-driven and smoke tested", asy
   assert.match(dockerfile, /pnpm install --prod --frozen-lockfile/u);
   assert.match(dockerfile, /python \/runtime-python\/smoke\.py/u);
   assert.match(dockerfile, /node \/opt\/linksense\/runtime\/node\/smoke\.mjs/u);
+});
+
+test("worker restricts native marketplaces to the mounted LinkSense source while keeping plugins enabled", async () => {
+  const require = createRequire(resolve("apps/runner/package.json"));
+  const { parse } = require("smol-toml");
+  const [requirements, config] = await Promise.all([
+    readFile(codexSystemRequirementsPath, "utf8").then(parse),
+    readFile(codexConfigPath, "utf8").then(parse),
+  ]);
+
+  assert.deepEqual(requirements.marketplaces, {
+    restrict_to_allowed_sources: true,
+    allowed_sources: {
+      linksense: { source: "local", path: "/home/linksense" },
+    },
+  });
+  assert.equal(config.features.plugins, true);
 });
 
 test("worker enables only the managed Plan output Stop hook", async () => {

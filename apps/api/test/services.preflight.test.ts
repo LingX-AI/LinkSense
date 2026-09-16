@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createRunningTurnCapabilityPublicationGuard,
+  createStartingTurnCapabilityPublicationGuard,
   DatabaseConversationPreflight,
 } from "../src/services.js";
 import { encryptJson } from "../src/lib/crypto.js";
@@ -15,6 +16,7 @@ import {
   UserHomeCapabilityPublicationDeferredError,
 } from "../src/modules/capabilities/user-home-materializer.js";
 import { hashMarketplacePackage } from "../src/modules/marketplace/package.js";
+import { publishedCapabilitySchema } from "../src/modules/applications/published-definition.js";
 
 const TASK_ID = "01900000-0000-7000-8000-000000000011";
 const USER_ID = "10000000-0000-4000-8000-000000000001";
@@ -97,6 +99,81 @@ describe("DatabaseConversationPreflight credential isolation", () => {
         },
       }),
     ).rejects.toMatchObject({ code: "APPLICATION_DEPENDENCY_UNAVAILABLE" });
+  });
+
+  it.each(["skill", "plugin"] as const)("resolves a published %s snapshot relative to the capability root before starting an application task", async (type) => {
+    const root = await capabilityRoot();
+    const source = {
+      ...capability(PRIMARY_PLUGIN_ID, join(root, "primary"), false),
+      type,
+      ownerId: APPLICATION_OWNER_ID,
+    };
+    const storedPath = `application-versions/${TASK_ID}/${PRIMARY_PLUGIN_ID}`;
+    const published = publishedCapabilitySchema.parse({
+      id: source.id,
+      type,
+      name: source.name,
+      description: source.description,
+      sourceType: source.sourceType,
+      storagePath: storedPath,
+      revision: source.updatedAt.toISOString(),
+      contentSha256: "a".repeat(64),
+      manifestJson: source.manifestJson,
+      riskSummaryJson: source.riskSummaryJson,
+    });
+    const reconcile = vi.fn(async () => ({ generation: CAPABILITY_GENERATION }));
+    const preflight = new DatabaseConversationPreflight(
+      prismaFixture([source]) as never,
+      {
+        resolveForCapability: vi.fn(async () => ({
+          ok: true,
+          environment: {},
+          usageReceipt: { userId: APPLICATION_OWNER_ID, capabilityId: source.id, credentialIds: [] },
+        })),
+        commitUsage: vi.fn(),
+      } as never,
+      root,
+      "credential-source-secret-for-tests-1234567890",
+      materializerWithReconcile(reconcile),
+    );
+
+    const result = await preflight.resolve({
+      userId: USER_ID,
+      conversationId: TASK_ID,
+      priorityCapabilityIds: [],
+      capabilityScope: {
+        applicationId: APPLICATION_ID,
+        serviceSessionId: APPLICATION_ID,
+        sourceOwnerId: APPLICATION_OWNER_ID,
+        capabilityIds: [source.id],
+        publishedCapabilities: [published],
+        mcpServerIds: [],
+      },
+    });
+
+    expect(result.capabilities).toEqual([
+      expect.objectContaining({ id: source.id, sourcePath: join(root, storedPath) }),
+    ]);
+    expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({
+      serviceSessionId: APPLICATION_ID,
+      capabilities: [expect.objectContaining({ sourcePath: join(root, storedPath) })],
+    }));
+  });
+
+  it.each(["../outside/current", "application-versions/../../outside", "."])("rejects a relative capability path that escapes or names the storage root: %s", async (storagePath) => {
+    const root = await capabilityRoot();
+    const reconcile = vi.fn();
+    const preflight = new DatabaseConversationPreflight(
+      prismaFixture([{ ...capability(PRIMARY_PLUGIN_ID, storagePath, false), type: "skill" }]) as never,
+      { resolveForCapability: vi.fn(), commitUsage: vi.fn() } as never,
+      root,
+      "credential-source-secret-for-tests-1234567890",
+      materializerWithReconcile(reconcile),
+    );
+
+    await expect(preflight.resolve({ userId: USER_ID, conversationId: TASK_ID, priorityCapabilityIds: [] }))
+      .rejects.toMatchObject({ code: "CAPABILITY_NOT_FOUND" });
+    expect(reconcile).not.toHaveBeenCalled();
   });
 
   it("projects the application owner's live capability into the recipient runtime without resolving owner credentials", async () => {
@@ -1389,7 +1466,20 @@ describe("DatabaseConversationPreflight credential isolation", () => {
   });
 });
 
-describe("running-turn capability publication guard", () => {
+describe("capability publication and reclamation guards", () => {
+  it.each([undefined, TASK_ID])("allows publication during running turns and fences only starts in environment %s", async (serviceSessionId) => {
+    const conversation = { findMany: vi.fn(async () => [{ id: TASK_ID }]) };
+    const conversationTurn = { findFirst: vi.fn(async () => ({ id: TASK_ID })) };
+    const conversationTurnStartIntent = { findFirst: vi.fn(async (): Promise<{ projectionTurnId: string } | null> => null) };
+    const guard = createStartingTurnCapabilityPublicationGuard({ conversation, conversationTurnStartIntent } as never);
+    const input = { ownerId: USER_ID, ...(serviceSessionId ? { serviceSessionId } : {}), currentGeneration: CAPABILITY_GENERATION, nextGeneration: "c".repeat(64) };
+    await expect(guard(input)).resolves.toBe(true);
+    expect(conversationTurn.findFirst).not.toHaveBeenCalled();
+    expect(conversation.findMany).toHaveBeenCalledWith({ where: { ownerId: USER_ID, workspaceRelPath: serviceSessionId ? `${USER_ID}/services/${serviceSessionId}/home/workspace` : { startsWith: `${USER_ID}/home/` } }, select: { id: true } });
+    conversationTurnStartIntent.findFirst.mockResolvedValue({ projectionTurnId: TASK_ID });
+    await expect(guard(input)).resolves.toBe(false);
+    expect(conversationTurnStartIntent.findFirst).toHaveBeenCalledWith({ where: { ownerId: USER_ID, conversationId: { in: [TASK_ID] } }, select: { projectionTurnId: true } });
+  });
   it.each([
     {
       name: "running turn",

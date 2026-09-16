@@ -87,6 +87,7 @@ export class ApplicationExternalAccessService {
       ownerId: string,
       conversationId: string,
       context?: AuditContext,
+      deletionReason?: "user" | "creation-failed",
     ) => Promise<void>,
     private readonly scheduleConversationTitle: (
       conversationId: string,
@@ -1003,6 +1004,7 @@ export class ApplicationExternalAccessService {
         session.ownerId,
         conversation.id,
         context,
+        "user",
       );
       return this.#setSessionConversation(
         session,
@@ -1039,6 +1041,7 @@ export class ApplicationExternalAccessService {
         session.ownerId,
         conversation.id,
         context,
+        "user",
       );
     } catch (error) {
       await this.#setSessionConversation(

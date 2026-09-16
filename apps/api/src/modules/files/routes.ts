@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { taskArtifactFileTypeSchema } from "@linksense/shared";
+import { interactiveApplicationFileSchema, taskArtifactFileTypeSchema } from "@linksense/shared";
 
 import {
   attachmentContentDisposition,
@@ -65,6 +65,38 @@ export const fileRoutes: FastifyPluginAsync<{ services: AppServices }> = async (
       );
     },
   );
+
+  app.get("/:id/interactive-attachments", { preHandler: app.authenticate }, async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id } = conversationParams.parse(request.params);
+    return reply.send(ok(await services.files.listInteractiveAttachments(user.id, id), request.id));
+  });
+
+  app.post("/:id/interactive-attachments", { preHandler: app.authenticate }, async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id } = conversationParams.parse(request.params);
+    // Check access before reading a potentially large upload; the service rechecks under its lock.
+    await services.conversations.assertInteractiveFileAccess(user.id, id);
+    const part = await request.file({ throwFileSizeLimit: false, limits: { fileSize: services.config.upload.maxFileSizeBytes, files: 1 } });
+    if (!part) throw new AppError("ATTACHMENT_UPLOAD_INVALID");
+    const data = await part.toBuffer();
+    if (part.file.truncated) throw new AppError("FILE_LIMIT_EXCEEDED");
+    const file = await services.files.uploadAttachment(user.id, id, {
+      filename: part.filename, reportedMimeType: part.mimetype, data, interactive: true,
+    }, auditContext(request));
+    const result = interactiveApplicationFileSchema.parse({
+      id: file.id, filename: file.filename, mime_type: file.mime_type, size_bytes: file.size_bytes,
+      status: file.status, turn_id: file.turn_id,
+    });
+    return reply.code(201).send(ok(result, request.id));
+  });
+
+  app.delete("/:id/interactive-attachments/:fileId", { preHandler: app.authenticate }, async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id, fileId } = fileParams.parse(request.params);
+    await services.files.deleteStagedAttachments(user.id, id, [fileId], auditContext(request), true);
+    return reply.code(204).send();
+  });
 
   app.post(
     "/:id/attachments",

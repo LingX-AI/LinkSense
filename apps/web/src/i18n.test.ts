@@ -22,6 +22,55 @@ function leafStrings(value: unknown): string[] {
 }
 
 describe("i18n resources", () => {
+  it("localizes the unified publications page in both languages with a Chinese fallback", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    for (const key of [
+      "publicationsDescription",
+      "publicationsEmpty",
+      "backToCenter",
+      "manageApplicationListing",
+      "selectApplication",
+      "selectApplicationDescription",
+      "noPublishableApplication",
+    ] as const) {
+      expect(i18n.t(`marketplace.${key}`, { lng: "zh-CN" })).toBe(
+        zhCN.marketplace[key]
+      )
+      expect(i18n.t(`marketplace.${key}`, { lng: "en-US" })).toBe(
+        enUS.marketplace[key]
+      )
+      expect(fallback.t(`marketplace.${key}`, { lng: "en-US" })).toBe(
+        zhCN.marketplace[key]
+      )
+    }
+  })
+  it("localizes category descriptions in both languages with a Chinese fallback", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    for (const section of ["application", "plugin", "skill", "mcp"] as const) {
+      const key = `marketplace.catalogDescriptions.${section}`
+      expect(i18n.t(key, { lng: "zh-CN" })).toBe(
+        zhCN.marketplace.catalogDescriptions[section]
+      )
+      expect(i18n.t(key, { lng: "en-US" })).toBe(
+        enUS.marketplace.catalogDescriptions[section]
+      )
+      expect(fallback.t(key, { lng: "en-US" })).toBe(
+        zhCN.marketplace.catalogDescriptions[section]
+      )
+    }
+  })
+
+  it("localizes marketplace rejection status with a Chinese fallback", () => {
+    const key = "marketplace.status.rejected"
+    expect(i18n.t(key, { lng: "zh-CN" })).toBe("未通过")
+    expect(i18n.t(key, { lng: "en-US" })).toBe("Not approved")
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(instance.t(key, { lng: "en-US" })).toBe("未通过")
+  })
+
   it("provides matching skill update translations in both languages and Chinese fallback", () => {
     expect(leafKeys(zhCN.skillUpdate)).toEqual(leafKeys(enUS.skillUpdate))
     for (const key of leafKeys(zhCN.skillUpdate)) {

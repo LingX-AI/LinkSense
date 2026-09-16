@@ -10,6 +10,9 @@ import type { Readable } from "node:stream";
 
 import {
   conversationEventSchema,
+  INTERACTIVE_APPLICATION_FILE_SOURCE,
+  interactiveApplicationFileSchema,
+  type InteractiveApplicationFile,
   isMeaninglessTemporaryUploadFilename,
   workspacePermissionPolicy,
   type TaskArtifactFileType,
@@ -174,14 +177,48 @@ export class FileService {
     };
   }
 
+  async listInteractiveAttachments(
+    ownerId: string,
+    conversationId: string,
+  ): Promise<{ items: InteractiveApplicationFile[] }> {
+    await this.conversations.assertInteractiveFileAccess(ownerId, conversationId);
+    const files = await this.prisma.conversationFile.findMany({
+      where: {
+        conversationId,
+        kind: "attachment",
+        source: INTERACTIVE_APPLICATION_FILE_SOURCE,
+        status: { in: ["staged", "bound"] },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    return {
+      items: files.map((file) => interactiveApplicationFileSchema.parse({
+        id: file.id,
+        filename: file.filename,
+        mime_type: file.mimeType,
+        size_bytes: Number(file.sizeBytes),
+        status: file.status,
+        turn_id: file.turnId,
+      })),
+    };
+  }
+
   async uploadAttachment(
     ownerId: string,
     conversationId: string,
-    input: { filename: string; reportedMimeType?: string; data: Buffer },
+    input: {
+      filename: string;
+      reportedMimeType?: string;
+      data: Buffer;
+      interactive?: boolean;
+    },
     context: AuditContext,
   ) {
     return this.withConversationLock(conversationId, async () => {
       const conversation = await this.conversations.assertOwner(ownerId, conversationId);
+      if (input.interactive) {
+        await this.conversations.assertInteractiveFileAccess(ownerId, conversationId);
+      }
       const count = await this.prisma.conversationFile.count({
         where: { conversationId, kind: "attachment" },
       });
@@ -246,7 +283,9 @@ export class FileService {
               id,
               conversationId,
               kind: "attachment",
-              source: "user_upload",
+              source: input.interactive
+                ? INTERACTIVE_APPLICATION_FILE_SOURCE
+                : "user_upload",
               status: "staged",
               filename,
               mimeType,
@@ -337,12 +376,16 @@ export class FileService {
     conversationId: string,
     fileIds: readonly string[],
     context: AuditContext,
+    interactive = false,
   ): Promise<void> {
     const requestedFileIds = [...new Set(fileIds)];
     if (requestedFileIds.length === 0) return;
 
     const result = await this.withConversationLock(conversationId, async () => {
       await this.conversations.assertOwner(ownerId, conversationId);
+      if (interactive) {
+        await this.conversations.assertInteractiveFileAccess(ownerId, conversationId);
+      }
       return this.prisma.$transaction(async (tx) => {
         const locked = await tx.$queryRaw<Array<{ id: string }>>`
           SELECT id
@@ -356,6 +399,9 @@ export class FileService {
           ORDER BY id
           FOR UPDATE
         `;
+        if (interactive && locked.length !== requestedFileIds.length) {
+          throw new AppError("CONFLICT");
+        }
         if (locked.length === 0) return { files: [], events: [] };
 
         const lockedIds = locked.map((file) => file.id);
@@ -382,17 +428,24 @@ export class FileService {
         `;
         const protectedIds = new Set(protectedRows.map((row) => row.id));
         const deletableIds = lockedIds.filter((id) => !protectedIds.has(id));
+        if (interactive && deletableIds.length !== requestedFileIds.length) {
+          throw new AppError("CONFLICT");
+        }
         if (deletableIds.length === 0) return { files: [], events: [] };
 
         const files = await tx.conversationFile.findMany({
           where: {
             id: { in: deletableIds },
+            ...(interactive ? { source: INTERACTIVE_APPLICATION_FILE_SOURCE } : {}),
             conversationId,
             kind: "attachment",
             status: "staged",
           },
           orderBy: { id: "asc" },
         });
+        if (interactive && files.length !== requestedFileIds.length) {
+          throw new AppError("NOT_FOUND");
+        }
         if (files.length === 0) return { files: [], events: [] };
         await tx.conversationFile.deleteMany({
           where: { id: { in: files.map((file) => file.id) } },

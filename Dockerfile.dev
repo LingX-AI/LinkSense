@@ -66,7 +66,12 @@ COPY --chown=node:node apps/docs/package.json apps/docs/package.json
 COPY --chown=node:node apps/runner/package.json apps/runner/package.json
 COPY --chown=node:node apps/web/package.json apps/web/package.json
 COPY --chown=node:node packages/shared/package.json packages/shared/package.json
-RUN pnpm install --frozen-lockfile
+# Keep downloads when a manifest invalidates this layer. The dev image installs
+# as node, so its writable store is separate from root-owned production builds.
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-node,target=/pnpm/store,sharing=locked,uid=1000,gid=1000 \
+  pnpm install --frozen-lockfile --prefer-offline --store-dir=/pnpm/store --package-import-method=copy
 
 COPY --chown=node:node prisma prisma
 COPY --chown=node:node apps/api apps/api

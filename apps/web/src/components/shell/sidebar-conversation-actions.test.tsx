@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -19,6 +25,12 @@ function renderActions(pinned = false, disabled = false, movable = true) {
         pinned={pinned}
         pinDisabled={disabled}
         archiveDisabled={disabled}
+        moveDisabled={disabled}
+        currentProjectId="project-work"
+        projects={[
+          { id: "project-work", name: "工作" },
+          { id: "project-personal", name: "生活" },
+        ]}
         {...callbacks}
       />
     ),
@@ -36,7 +48,7 @@ describe("SidebarConversationActions", () => {
     vi.restoreAllMocks()
   })
 
-  it("moves project and pin actions into a menu while keeping archive inline", async () => {
+  it("opens project destinations on hover and moves directly from the submenu", async () => {
     const interaction = userEvent.setup()
     const callbacks = renderActions()
     const more = screen.getByRole("button", { name: moreLabel })
@@ -63,10 +75,22 @@ describe("SidebarConversationActions", () => {
     expect(
       screen.queryByRole("menuitem", { name: "归档任务" })
     ).not.toBeInTheDocument()
-    await interaction.click(
-      await screen.findByRole("menuitem", { name: "移动到项目" })
-    )
+    const move = await screen.findByRole("menuitem", { name: "移动到项目" })
+    await interaction.hover(move)
+    const commonWorkspace = await screen.findByRole("menuitem", {
+      name: "公共空间",
+    })
+    expect(commonWorkspace).toBeVisible()
+    expect(
+      commonWorkspace.closest('[data-slot="dropdown-menu-sub-content"]')
+    ).toHaveAttribute("data-side", "right")
+    expect(
+      await screen.findByRole("menuitem", { name: "工作" })
+    ).toHaveAttribute("aria-disabled", "true")
+    expect(screen.getAllByRole("menu")).toHaveLength(2)
+    fireEvent.click(screen.getByRole("menuitem", { name: "生活" }))
     expect(callbacks.onMoveToProject).toHaveBeenCalledOnce()
+    expect(callbacks.onMoveToProject).toHaveBeenCalledWith("project-personal")
     await waitFor(() =>
       expect(screen.queryByRole("menu")).not.toBeInTheDocument()
     )

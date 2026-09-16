@@ -12,6 +12,14 @@ type ErrorCatalogEntry = {
 };
 
 export const errorCatalog = {
+  APPLICATION_VERSION_TOO_LOW: {
+    message_key: "errors.application.versionTooLow",
+    http_status: 409,
+    messages: {
+      "zh-CN": "版本号不能低于已有最高版本 v{{version}}。请修改版本号后重试。",
+      "en-US": "The version cannot be lower than the highest existing version, v{{version}}. Choose that version or a higher one.",
+    },
+  },
   PROJECT_NOT_FOUND: {
     message_key: "projects.notFound",
     http_status: 404,
@@ -1333,6 +1341,14 @@ export const errorCatalog = {
     messages: {
       "zh-CN": "未找到该产物。",
       "en-US": "The artifact was not found.",
+    },
+  },
+  ARTIFACT_RETENTION_INCOMPLETE: {
+    message_key: "errors.file.artifactRetentionIncomplete",
+    http_status: 409,
+    messages: {
+      "zh-CN": "任务成果尚未保存完成，暂时无法删除任务。请稍后重试。",
+      "en-US": "Task results have not finished saving. Please try deleting the task again later.",
     },
   },
   ARTIFACT_REGISTRATION_INVALID: {
