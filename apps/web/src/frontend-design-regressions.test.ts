@@ -44,7 +44,7 @@ describe("frontend design regressions", () => {
     expect(adminUsageSource).toContain('searchParams.get("user_search")')
     expect(adminUsageSource).toContain('"tab",')
     expect(automationSource).toContain('"status",')
-    expect(knowledgeBaseSource).toContain('"kb_lifecycle",')
+    expect(knowledgeBaseSource).toContain('"kb_filter",')
     expect(applicationsWorkspaceSource).toContain('"app_scope",')
   })
 
