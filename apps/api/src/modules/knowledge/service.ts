@@ -253,7 +253,7 @@ export class KnowledgeService {
     actor: KnowledgeActor,
     input: {
       scope: "all" | "mine" | "shared";
-      lifecycleStatus?: "active" | "archived";
+      lifecycleStatus?: "all" | "active" | "archived";
       search?: string;
       cursor?: string;
       limit: number;

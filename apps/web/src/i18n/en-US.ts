@@ -1039,6 +1039,10 @@ export const enUS = {
       current: "Current",
       archived: "Archived",
     },
+    filter: {
+      label: "Filter knowledge bases",
+      all: "All",
+    },
     scope: {
       label: "Knowledge base scope",
       all: "All",

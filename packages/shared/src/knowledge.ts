@@ -212,7 +212,7 @@ export const updateKnowledgeBaseInputSchema = z
 
 export const knowledgeBaseListQuerySchema = z.strictObject({
   scope: z.enum(["all", "owned", "shared"]).default("all"),
-  lifecycle_status: z.enum(["active", "archived"]).optional(),
+  lifecycle_status: z.enum(["all", "active", "archived"]).optional(),
   search: z.string().trim().max(160).optional(),
   cursor: uuidSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),

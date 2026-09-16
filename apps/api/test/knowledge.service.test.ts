@@ -193,6 +193,35 @@ describe("KnowledgeService", () => {
     });
   });
 
+  it("limits the all-states repository filter to visible lifecycle states", async () => {
+    const queries: unknown[] = [];
+    const findMany = vi.fn(async (args: unknown) => {
+      queries.push(args);
+      return [];
+    });
+    const store = new PrismaKnowledgeStore({
+      userGroupMember: { findMany: vi.fn(async () => []) },
+      knowledgeBaseGrant: { findMany: vi.fn(async () => []) },
+      knowledgeBase: { findMany },
+      user: { findMany: vi.fn(async () => []) },
+      userGroup: { findMany: vi.fn(async () => []) },
+      knowledgeBaseDocument: { groupBy: vi.fn(async () => []) },
+    } as never);
+
+    await store.listAccessibleKnowledgeBases({
+      actorId: ACTOR.id,
+      scope: "all",
+      lifecycleStatus: "all",
+      limit: 30,
+    });
+
+    expect(findMany).toHaveBeenCalledOnce();
+    const query = queries[0] as { where?: unknown } | undefined;
+    expect(query?.where).toMatchObject({
+      lifecycleStatus: { in: ["active", "archived"] },
+    });
+  });
+
   it("uses the same retrieval-compatible count for knowledge-base details", async () => {
     const currentEmbeddingProfileHash = "b".repeat(64);
     const count = vi.fn().mockResolvedValueOnce(3).mockResolvedValueOnce(1);
@@ -1780,6 +1809,28 @@ describe("KnowledgeService", () => {
       searchability: {
         currentEmbeddingProfileHash,
       },
+    });
+  });
+
+  it("forwards the all-lifecycle selection to the repository", async () => {
+    const listAccessibleKnowledgeBases = vi.fn(async () => ({
+      items: [],
+      nextCursor: null,
+    }));
+    const store = fakeStore({ listAccessibleKnowledgeBases });
+
+    await service(store).listKnowledgeBases(ACTOR, {
+      scope: "all",
+      lifecycleStatus: "all",
+      limit: 30,
+    });
+
+    expect(listAccessibleKnowledgeBases).toHaveBeenCalledWith({
+      actorId: ACTOR.id,
+      scope: "all",
+      lifecycleStatus: "all",
+      limit: 30,
+      searchability: {},
     });
   });
 

@@ -487,7 +487,16 @@ describe("knowledge-base document and access management", () => {
       vi.stubGlobal("fetch", fetchMock)
       renderListPage()
       if (lifecycle === "archived") {
-        await userEvent.click(screen.getByRole("tab", { name: "已归档" }))
+        await userEvent.click(
+          screen.getByRole("combobox", {
+            name: i18n.t("knowledge.filter.label"),
+          })
+        )
+        await userEvent.click(
+          await screen.findByRole("option", {
+            name: i18n.t("knowledge.lifecycle.archived"),
+          })
+        )
       }
       const input = screen.getByRole("textbox", {
         name: i18n.t("knowledge.searchPlaceholder"),
@@ -522,6 +531,101 @@ describe("knowledge-base document and access management", () => {
     setAccessToken(null)
     vi.unstubAllGlobals()
   })
+
+  it.each(["zh-CN", "en-US"])(
+    "keeps library tabs at the upper left and switches the page heading and description in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const knowledgeFetch = createFetchMock({ knowledgeBases: [] })
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          if (
+            new URL(String(input), window.location.origin).pathname ===
+            "/api/v1/task-artifacts"
+          ) {
+            return Promise.resolve(envelope({ items: [], next_cursor: null }))
+          }
+          return knowledgeFetch(input, init)
+        })
+      )
+      renderListPage(adminUser)
+      const tabs = screen.getByRole("tablist", {
+        name: i18n.t("library.tabsLabel"),
+      })
+      expect(tabs.querySelector("svg")).not.toBeInTheDocument()
+      const header = screen.getByRole("banner")
+      expect(header.closest(".knowledge-library-page")).not.toContainElement(
+        tabs
+      )
+      expect(
+        tabs.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(tabs.closest('[data-slot="tabs"]')).toContainElement(header)
+      expect(
+        within(header).getByRole("heading", {
+          name: i18n.t("knowledge.title"),
+          level: 1,
+        })
+      ).toBeVisible()
+      expect(screen.getAllByText(i18n.t("knowledge.description"))).toHaveLength(
+        1
+      )
+      expect(
+        screen.queryByRole("heading", {
+          level: 2,
+          name: i18n.t("knowledge.title"),
+        })
+      ).not.toBeInTheDocument()
+      await userEvent.type(
+        screen.getByRole("textbox", {
+          name: i18n.t("knowledge.searchPlaceholder"),
+        }),
+        "policy"
+      )
+      await userEvent.click(
+        within(tabs).getByRole("tab", {
+          name: i18n.t("library.tabs.artifacts"),
+        })
+      )
+      expect(
+        within(header).getByRole("heading", {
+          name: i18n.t("library.artifacts.title"),
+          level: 1,
+        })
+      ).toBeVisible()
+      expect(
+        screen.getAllByText(i18n.t("library.artifacts.description"))
+      ).toHaveLength(1)
+      expect(
+        screen.queryByRole("heading", {
+          level: 2,
+          name: i18n.t("library.artifacts.title"),
+        })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", {
+          name: i18n.t("knowledge.create.action"),
+        })
+      ).not.toBeInTheDocument()
+      await userEvent.click(
+        within(tabs).getByRole("tab", {
+          name: i18n.t("library.tabs.knowledge"),
+        })
+      )
+      expect(
+        within(header).getByRole("heading", {
+          name: i18n.t("knowledge.title"),
+          level: 1,
+        })
+      ).toBeVisible()
+      expect(
+        screen.getByRole("textbox", {
+          name: i18n.t("knowledge.searchPlaceholder"),
+        })
+      ).toHaveValue("policy")
+    }
+  )
 
   it("uses only the flat tree and toggles a folder without directory requests", async () => {
     const folderId = "00000000-0000-4000-8000-000000000051"
@@ -920,7 +1024,7 @@ describe("knowledge-base document and access management", () => {
     expect(await screen.findByText("知识库详情")).toBeInTheDocument()
   })
 
-  it("keeps only the header create action when the knowledge-base list is empty", async () => {
+  it("keeps a single create action beside search when the knowledge-base list is empty", async () => {
     vi.stubGlobal("fetch", createFetchMock({ knowledgeBases: [] }))
     renderListPage(adminUser)
 
@@ -928,6 +1032,69 @@ describe("knowledge-base document and access management", () => {
     expect(screen.getAllByRole("button", { name: "创建知识库" })).toHaveLength(
       1
     )
+    expect(
+      screen.getByRole("button", { name: "创建知识库" }).parentElement
+    ).toContainElement(
+      screen.getByRole("textbox", {
+        name: i18n.t("knowledge.searchPlaceholder"),
+      })
+    )
+  })
+
+  it("places one combined filter after search with an all option and the created-by-me label", async () => {
+    const interaction = userEvent.setup()
+    const fetchMock = createFetchMock({ knowledgeBases: [] })
+    vi.stubGlobal("fetch", fetchMock)
+    renderListPage(adminUser)
+
+    await screen.findByText("暂无知识库")
+    const search = screen.getByRole("textbox", {
+      name: i18n.t("knowledge.searchPlaceholder"),
+    })
+    const filter = screen.getByRole("combobox", {
+      name: i18n.t("knowledge.filter.label"),
+    })
+    const toolbar = search.closest(".knowledge-library-toolbar")
+
+    expect(filter).toHaveTextContent(i18n.t("knowledge.filter.all"))
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("lifecycle_status=all"),
+      expect.anything()
+    )
+    expect(toolbar).toContainElement(filter)
+    expect(
+      screen.getAllByRole("combobox", {
+        name: i18n.t("knowledge.filter.label"),
+      })
+    ).toHaveLength(1)
+    expect(
+      search.compareDocumentPosition(filter) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+
+    await interaction.click(filter)
+    expect(
+      await screen.findByRole("option", {
+        name: i18n.t("knowledge.filter.all"),
+      })
+    ).toBeVisible()
+    expect(
+      await screen.findByRole("option", {
+        name: i18n.t("knowledge.scope.owned"),
+      })
+    ).toHaveTextContent("我创建的")
+    expect(screen.queryByText("我的应用")).not.toBeInTheDocument()
+    await interaction.click(
+      await screen.findByRole("option", {
+        name: i18n.t("knowledge.scope.owned"),
+      })
+    )
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("scope=owned"),
+        expect.anything()
+      )
+    })
   })
 
   it("disables creation and explains every unmet service requirement", async () => {
@@ -2048,6 +2215,11 @@ describe("knowledge-base document and access management", () => {
     expect(blockedDialog).toHaveTextContent("启用")
     expect(blockedDialog).toHaveTextContent("归档资料助手")
     expect(blockedDialog).toHaveTextContent("停用")
+    const applicationItems = within(blockedDialog).getAllByRole("listitem")
+    expect(applicationItems).toHaveLength(2)
+    for (const item of applicationItems) {
+      expect(item).toHaveClass("border", "border-divider", "rounded-lg")
+    }
 
     await interaction.click(
       within(blockedDialog).getByRole("button", { name: "前往应用中心" })

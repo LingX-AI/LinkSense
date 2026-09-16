@@ -10614,18 +10614,27 @@ button.annotation-hover-file:focus-visible {
   font-size: var(--app-font-12);
 }
 
-.knowledge-library-controls {
+.knowledge-library-toolbar {
   display: flex;
   min-width: 0;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   margin-top: 32px;
 }
 
 .knowledge-library-search {
-  width: min(100%, 520px);
-  margin-top: 16px;
+  min-width: 240px;
+  flex: 1;
+}
+
+.knowledge-library-filters {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.knowledge-library-filter {
+  width: 136px;
 }
 
 .knowledge-card-list {
@@ -11919,21 +11928,26 @@ button.annotation-hover-file:focus-visible {
     width: 100%;
   }
 
-  .knowledge-library-controls {
+  .knowledge-library-toolbar {
+    flex-wrap: wrap;
     align-items: stretch;
-    flex-direction: column;
   }
 
-  .knowledge-library-controls [data-slot="toggle-group"] {
+  .knowledge-library-search {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .knowledge-library-filters {
     width: 100%;
   }
 
-  .knowledge-library-controls [data-slot="toggle-group-item"] {
+  .knowledge-library-filters [data-slot="select-trigger"] {
     min-width: 0;
     flex: 1;
   }
 
-  .knowledge-library-search {
+  .knowledge-library-toolbar > [data-slot="button"] {
     width: 100%;
   }
 

@@ -945,6 +945,10 @@ export const zhCN = {
       current: "使用中",
       archived: "已归档",
     },
+    filter: {
+      label: "筛选知识库",
+      all: "全部",
+    },
     scope: {
       label: "知识库范围",
       all: "全部",

@@ -520,7 +520,7 @@ export interface KnowledgeStore {
   listAccessibleKnowledgeBases(input: {
     actorId: string;
     scope: "all" | "mine" | "shared";
-    lifecycleStatus: "active" | "archived";
+    lifecycleStatus: "all" | "active" | "archived";
     search?: string;
     cursor?: string;
     limit: number;

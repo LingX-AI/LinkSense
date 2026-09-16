@@ -38,6 +38,7 @@ import {
 const emptyResponseSchema = z.unknown()
 
 export type KnowledgeBaseScope = "all" | "owned" | "shared"
+export type KnowledgeBaseListLifecycle = KnowledgeBaseLifecycle | "all"
 
 export const knowledgeBaseQueryKeys = {
   all: ["knowledge-bases"] as const,
@@ -46,7 +47,7 @@ export const knowledgeBaseQueryKeys = {
   searchCapability: () => ["knowledge-bases", "search-capability"] as const,
   lists: () => ["knowledge-bases", "list"] as const,
   list: (filters: {
-    lifecycle: KnowledgeBaseLifecycle
+    lifecycle: KnowledgeBaseListLifecycle
     scope: KnowledgeBaseScope
     search: string
   }) => ["knowledge-bases", "list", filters] as const,
@@ -172,7 +173,7 @@ export function loadKnowledgeTurnAsset(
 }
 
 export function listKnowledgeBases(options: {
-  lifecycle: KnowledgeBaseLifecycle
+  lifecycle: KnowledgeBaseListLifecycle
   scope: KnowledgeBaseScope
   search?: string
   cursor?: string

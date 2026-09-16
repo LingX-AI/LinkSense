@@ -397,6 +397,26 @@ describe("knowledge routes", () => {
     });
   });
 
+  it("forwards the explicit all-lifecycle filter", async () => {
+    const listKnowledgeBases = vi.fn(async () => ({
+      items: [],
+      next_cursor: null,
+    }));
+    const app = await createApp({ listKnowledgeBases });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/knowledge-bases?scope=all&lifecycle_status=all&limit=20",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(listKnowledgeBases).toHaveBeenCalledWith(ACTOR, {
+      scope: "all",
+      lifecycleStatus: "all",
+      limit: 20,
+    });
+  });
+
   it("forwards grant keyset pagination and preserves the real next cursor", async () => {
     const listGrants = vi.fn(async () => ({
       items: [],
