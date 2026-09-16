@@ -174,7 +174,7 @@ export const zhCN = {
   },
   automation: {
     title: "自动化",
-    description: "按设定周期在同一个置顶任务中自动执行指令。",
+    description: "安排定期任务、设置提醒并持续跟进重要事项。",
     create: "新建自动化",
     createTitle: "新建自动化",
     editTitle: "编辑自动化",
@@ -182,6 +182,31 @@ export const zhCN = {
     resizeEditor: "调整自动化编辑区域宽度",
     empty: "还没有自动化",
     emptyDescription: "创建自动化后，系统会按周期在固定任务中发起新一轮执行。",
+    suggestions: {
+      title: "建议",
+      useTemplateNamed: "使用“{{name}}”模板",
+      dailyBrief: {
+        title: "每日简报",
+        schedule: "工作日 08:00",
+        description: "以日历、未读电子邮件和优先事项摘要开启每个工作日",
+        instruction:
+          "查看我的日历、未读电子邮件和优先事项，整理今天的安排、需要回复的消息和最重要的待办，并生成简明的每日简报。",
+      },
+      weeklyReview: {
+        title: "每周回顾",
+        schedule: "星期五 16:00",
+        description: "每周五将最近的工作整理成简明的状态更新",
+        instruction:
+          "回顾本周的工作进展、已完成事项、未完成事项和下周重点，并整理成简明的状态更新。",
+      },
+      followUpMonitor: {
+        title: "跟进监控",
+        schedule: "工作日 09:00",
+        description: "查看最近的电子邮箱和日历活动，并标记需要关注的事项",
+        instruction:
+          "查看最近的电子邮箱和日历活动，识别需要跟进、即将到期或值得关注的事项，并按优先级汇总。",
+      },
+    },
     filterLabel: "筛选自动化",
     filter: {
       all: "全部",

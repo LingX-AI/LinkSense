@@ -8,10 +8,13 @@ import {
 } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  BellRingIcon,
   ChevronDownIcon,
   Edit3Icon,
   ExternalLinkIcon,
+  FileSearchIcon,
   MoreHorizontalIcon,
+  NotebookPenIcon,
   PlayIcon,
   PlusIcon,
   Trash2Icon,
@@ -117,6 +120,8 @@ type AutomationForm = {
 
 type AutomationFilter = "all" | Automation["status"]
 
+type AutomationTemplateId = "dailyBrief" | "weeklyReview" | "followUpMonitor"
+
 type AutomationEditorState =
   { mode: "create" } | { mode: "edit"; automation: Automation }
 
@@ -150,6 +155,35 @@ const monthValues = [
   "11",
   "12",
 ] as const
+const automationTemplates = [
+  {
+    id: "dailyBrief",
+    icon: BellRingIcon,
+    iconClassName: "text-[var(--app-brand)]",
+    time: "08:00",
+    weekdays: ["1", "2", "3", "4", "5"],
+  },
+  {
+    id: "weeklyReview",
+    icon: NotebookPenIcon,
+    iconClassName: "text-provider-vllm",
+    time: "16:00",
+    weekdays: ["5"],
+  },
+  {
+    id: "followUpMonitor",
+    icon: FileSearchIcon,
+    iconClassName: "text-success",
+    time: "09:00",
+    weekdays: ["1", "2", "3", "4", "5"],
+  },
+] as const satisfies ReadonlyArray<{
+  id: AutomationTemplateId
+  icon: typeof BellRingIcon
+  iconClassName: string
+  time: string
+  weekdays: readonly (typeof weekdayValues)[number][]
+}>
 
 function automationRunNowNotificationId(automationId: string) {
   return `automation-run-now-${automationId}`
@@ -384,8 +418,10 @@ export function AutomationPage() {
     onError: (error) => setPageError(getErrorMessage(error, t)),
   })
 
-  const openCreate = () => {
-    setForm(createDefaultForm())
+  const openCreate = (templateId?: AutomationTemplateId) => {
+    setForm(
+      templateId ? createFormFromTemplate(templateId, t) : createDefaultForm()
+    )
     setFormError(null)
     setEditor({ mode: "create" })
   }
@@ -450,8 +486,9 @@ export function AutomationPage() {
     >
       <PageLayout
         title={t("automation.title")}
+        description={t("automation.description")}
         actions={
-          <Button type="button" onClick={openCreate}>
+          <Button type="button" onClick={() => openCreate()}>
             <PlusIcon data-icon="inline-start" aria-hidden="true" />
             {t("automation.create")}
           </Button>
@@ -472,10 +509,6 @@ export function AutomationPage() {
               onRetry={() => void automationsQuery.refetch()}
             />
           )}
-          {automationsQuery.data?.items.length === 0 && (
-            <EmptyState title={t("automation.empty")} />
-          )}
-
           {(automationsQuery.data?.items.length ?? 0) > 0 && (
             <Tabs
               value={filter}
@@ -687,6 +720,11 @@ export function AutomationPage() {
               ))}
             </Tabs>
           )}
+
+          <AutomationSuggestions
+            onSelect={(templateId) => openCreate(templateId)}
+            t={t}
+          />
         </div>
 
         <ConfirmDialog
@@ -705,6 +743,80 @@ export function AutomationPage() {
         />
       </PageLayout>
     </ConversationOfficeLayout>
+  )
+}
+
+function AutomationSuggestions({
+  onSelect,
+  t,
+}: {
+  onSelect: (templateId: AutomationTemplateId) => void
+  t: TFunction
+}) {
+  return (
+    <section
+      className="flex w-full max-w-2xl flex-col gap-3 py-4 sm:py-8"
+      aria-labelledby="automation-suggestions-title"
+    >
+      <h2
+        id="automation-suggestions-title"
+        className="px-3 text-sm font-semibold text-muted-foreground sm:px-4"
+      >
+        {t("automation.suggestions.title")}
+      </h2>
+      <ul className="flex flex-col gap-1">
+        {automationTemplates.map((template) => {
+          const Icon = template.icon
+          const title = t(`automation.suggestions.${template.id}.title`)
+          const scheduleId = `automation-template-${template.id}-schedule`
+          const descriptionId = `automation-template-${template.id}-description`
+
+          return (
+            <li key={template.id}>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-auto w-full items-start justify-start gap-4 rounded-2xl px-3 py-3 text-left whitespace-normal sm:px-4 sm:py-4"
+                aria-label={t("automation.suggestions.useTemplateNamed", {
+                  name: title,
+                })}
+                aria-describedby={`${scheduleId} ${descriptionId}`}
+                onClick={() => onSelect(template.id)}
+              >
+                <span
+                  className={cn(
+                    "flex size-7 shrink-0 items-center justify-center",
+                    template.iconClassName
+                  )}
+                  aria-hidden="true"
+                >
+                  <Icon />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <span className="text-sm font-semibold text-foreground">
+                      {title}
+                    </span>
+                    <span
+                      id={scheduleId}
+                      className="text-sm font-normal text-muted-foreground"
+                    >
+                      {t(`automation.suggestions.${template.id}.schedule`)}
+                    </span>
+                  </span>
+                  <span
+                    id={descriptionId}
+                    className="text-xs leading-5 font-normal text-muted-foreground"
+                  >
+                    {t(`automation.suggestions.${template.id}.description`)}
+                  </span>
+                </span>
+              </Button>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }
 
@@ -1440,6 +1552,26 @@ function createDefaultForm(): AutomationForm {
     modelPreferenceEnabled: false,
     modelId: "",
     reasoningEffort: "medium",
+  }
+}
+
+function createFormFromTemplate(
+  templateId: AutomationTemplateId,
+  t: TFunction
+): AutomationForm {
+  const template = automationTemplates.find(
+    (candidate) => candidate.id === templateId
+  )
+  if (!template) return createDefaultForm()
+
+  return {
+    ...createDefaultForm(),
+    title: t(`automation.suggestions.${template.id}.title`),
+    instruction: t(`automation.suggestions.${template.id}.instruction`),
+    targetMode: "new_task",
+    frequency: "weekly",
+    time: template.time,
+    weekdays: [...template.weekdays],
   }
 }
 

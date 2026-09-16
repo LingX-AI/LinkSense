@@ -182,7 +182,8 @@ export const enUS = {
   },
   automation: {
     title: "Automations",
-    description: "Run instructions on a schedule in the same pinned task.",
+    description:
+      "Schedule recurring tasks, set reminders, and keep track of what matters.",
     create: "New automation",
     createTitle: "New automation",
     editTitle: "Edit automation",
@@ -192,6 +193,34 @@ export const enUS = {
     empty: "No automations yet",
     emptyDescription:
       "Create an automation to start a new run in a fixed task on schedule.",
+    suggestions: {
+      title: "Suggestions",
+      useTemplateNamed: "Use the {{name}} template",
+      dailyBrief: {
+        title: "Daily brief",
+        schedule: "Weekdays 08:00",
+        description:
+          "Start each workday with a summary of your calendar, unread email, and priorities",
+        instruction:
+          "Review my calendar, unread email, and priorities. Summarize today's schedule, messages that need a reply, and the most important tasks in a concise daily brief.",
+      },
+      weeklyReview: {
+        title: "Weekly review",
+        schedule: "Friday 16:00",
+        description:
+          "Turn the week's recent work into a concise status update every Friday",
+        instruction:
+          "Review this week's progress, completed work, unfinished items, and next week's priorities, then organize them into a concise status update.",
+      },
+      followUpMonitor: {
+        title: "Follow-up monitor",
+        schedule: "Weekdays 09:00",
+        description:
+          "Review recent email and calendar activity and flag items that need attention",
+        instruction:
+          "Review recent email and calendar activity. Identify items that need follow-up, are approaching a deadline, or deserve attention, and summarize them by priority.",
+      },
+    },
     filterLabel: "Filter automations",
     filter: {
       all: "All",
