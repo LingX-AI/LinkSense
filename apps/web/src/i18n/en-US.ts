@@ -2089,7 +2089,8 @@ export const enUS = {
       exitDescription: "Exit Plan mode without starting implementation",
     },
     userInput: {
-      asyncDescription: "LinkSense can keep working while you answer. You can also reply after it finishes.",
+      asyncDescription:
+        "LinkSense can keep working while you answer. You can also reply after it finishes.",
       title: "Your answer is needed",
       formTitle: "Please confirm these details",
       formResultTitle: "Completed form",
@@ -2290,7 +2291,8 @@ export const enUS = {
     waitingGame: {
       title: "Snake",
       enter: "Click or press Enter to play Snake.",
-      controls: "Use arrow keys, WASD or swipe to steer. Double-click or press Escape to return to waiting.",
+      controls:
+        "Use arrow keys, WASD or swipe to steer. Double-click or press Escape to return to waiting.",
     },
     imageGeneration: {
       loading: "Generating image…",
@@ -2525,23 +2527,101 @@ export const enUS = {
     },
   },
   applications: {
+    distribution: {
+      versionNumber: "Version number",
+      versionHint: "Enter a version such as 1.0.0.",
+      versionInvalid: "Enter a valid version such as 1.0.0.",
+      versionSame:
+        "Version v{{version}} already exists. You can submit using the same version.",
+      versionLower:
+        "The version cannot be lower than the highest existing version, v{{version}}.",
+      saveSharing: "Save sharing",
+      applyListing: "Apply for listing",
+      completeSetup: "Complete setup",
+      installedVersion: "Installed · v{{version}}",
+      editModes: "Edit usage modes",
+      direct: "Share with organization",
+      center: "Application center",
+      myApplications: "My applications",
+      sharedApplications: "Applications shared with me",
+      usageModes: "Usage options",
+      usageModesHint: "Choose at least one option. You can offer both.",
+      modes: { install: "Application package", service: "Application service" },
+      modeDescriptions: {
+        install:
+          "Users install their own application, configure their credentials and maintain it independently.",
+        service:
+          "Users run your application with your configured credentials, without installing it.",
+      },
+      install: "Install application",
+      useService: "Use",
+      installationName: "Installed application name",
+      installationHint:
+        "The application and included plugins and skills will be saved to your account. Configure your own credentials, knowledge bases and external connections.",
+      installed:
+        "Application installed. Review and complete the required setup.",
+      installedLabel: "Installed",
+      openInstalled: "Open my application",
+      configure: "Configure application",
+      guide: "Usage guide",
+      version: "v{{version}}",
+      submit: "Submit for approval",
+      submitHint:
+        "An administrator will review this version and its usage options. Later changes require another submission and do not replace the approved version automatically.",
+      releaseNotes: "Release notes",
+      submitted: "Submitted for administrator approval.",
+      withdraw: "Withdraw submission",
+      withdrawn: "Submission withdrawn.",
+      unlist: "Unlist",
+      relist: "Relist",
+      statusSaved: "Listing status updated.",
+      noReleases: "No versions have been submitted yet.",
+      noCenterApplications: "No applications in the center yet",
+      centerSearch: "Search application center",
+      centerUnavailable:
+        "This application is currently unavailable for use or installation.",
+      updateAvailable: "Update available",
+      checkUpdate: "Check for updates",
+      updateTitle: "Update installed application",
+      update: "Update application",
+      updateHint:
+        "Update application content you have not customized while keeping your credentials, resource settings and personal changes.",
+      upToDate: "You have the latest available version.",
+      updateUnavailable:
+        "Updates are currently unavailable. Your installed application is retained.",
+      updated:
+        "Application updated. Your personal settings have been preserved.",
+      setupRequired: "Setup required",
+      preserved: "These personal changes will be kept: {{fields}}",
+      fields: {
+        name: "Application name",
+        instructions: "Application instructions",
+        model: "Model",
+        reasoning_effort: "Reasoning effort",
+        capabilities: "Plugins and skills",
+        resources: "Knowledge bases and external connections",
+      },
+      adminTitle: "Application approvals",
+      adminHint:
+        "Review application versions and usage options, and manage application listings.",
+      review: "Review application",
+      approve: "Approve",
+      reject: "Reject",
+      reviewComment: "Review comment",
+      reviewed: "Review decision saved.",
+      reviewInstructions: "Application instructions",
+      noReviews: "No application submissions yet",
+      suspend: "Suspend listing",
+      resume: "Restore listing",
+      governanceReason: "Reason",
+      revokeHint:
+        "Revoking access prevents new installations or service use. Existing independent installations and history are retained.",
+      saveModes: "Save usage options",
+      modesSaved: "Usage options updated.",
+    },
     publication: {
-      "title": "Use and share",
-      "description": "Read the guide, manage published versions, or save your own copy.",
-      "version": "Published version: {{version}}",
-      "unpublished": "Unpublished. Publish to let people with access run this application.",
-      "guide": "Usage guide",
-      "allowCopy": "Allow users to copy this application",
-      "allowCopyDescription": "Copies include application instructions, plugins, and skill files. Check that these can be shared.",
-      "fixedVersion": "Publishing saves the current version. Later edits do not change published versions or existing tasks.",
-      "noGuide": "The creator has not provided a usage guide.",
-      "copyDescription": "The copy belongs to you. Configure your own credentials, external services, and knowledge bases. Copies that need setup start disabled.",
-      "copyName": "Copy name",
-      "copy": "Save independent copy",
-      "publish": "Publish current version",
-      "published": "The current version is published.",
-      "copied": "Copy saved. Follow the usage guide to finish setup."
-},
+      noGuide: "The creator has not provided a usage guide.",
+    },
     scopeLabel: "Application scope",
     scope: {
       all: "All applications",
@@ -2849,6 +2929,15 @@ export const enUS = {
       mcp: "MCP",
       application: "Applications",
     },
+    catalogDescriptions: {
+      application:
+        "Create and manage applications, and find available apps to use.",
+      plugin:
+        "Browse and manage plugins to add tools and connections to your tasks.",
+      skill:
+        "Browse the Skill repository, and install and manage Skills for different tasks.",
+      mcp: "Manage MCP connections and plugins to give tasks access to the tools and data they need.",
+    },
     catalogScopesLabel: "Content scope",
     scopes: {
       public: "Public",
@@ -2875,7 +2964,7 @@ export const enUS = {
       suspended: "Suspended",
       pending: "Pending review",
       approved: "Approved",
-      rejected: "Rejected",
+      rejected: "Not approved",
       withdrawn: "Withdrawn",
     },
     search: "Search the Plugin Center",
@@ -2942,7 +3031,6 @@ export const enUS = {
     personalCapabilityDeleted:
       "The personal plugin/Skill was permanently deleted.",
     personalPluginDeleted: "The personal plugin was permanently deleted.",
-    personalSkillDeleted: "The personal skill was permanently deleted.",
     personalMcpDeleted: "The personal MCP was permanently deleted.",
     updatePersonalCapability: "Update personal plugin/Skill",
     updatePersonalPlugin: "Update personal plugin",
@@ -2976,7 +3064,8 @@ export const enUS = {
     skillNameReserved:
       "This skill identifier is reserved by the system. Choose another one.",
     skillDisplayName: "Display name (optional)",
-    skillDisplayNameHint: "Generated from the skill identifier. You can edit it or leave it blank; Chinese characters and spaces are welcome.",
+    skillDisplayNameHint:
+      "Generated from the skill identifier. You can edit it or leave it blank; Chinese characters and spaces are welcome.",
     skillNameHint:
       "Use 1–64 characters: lowercase English letters, numbers, and hyphens (-). Hyphens cannot appear at the start or end, or consecutively. Do not use built-in skill names. Example: my-skill.",
     skillPreview: "Skill content preview",
@@ -2997,7 +3086,16 @@ export const enUS = {
     reviewPolicyNotice:
       "Every new release is reviewed again. Approved releases never auto-update existing installations.",
     publicationsEmpty:
-      "You have not submitted any plugins or skills to the Plugin Center.",
+      "You have not submitted any applications, plugins, or skills yet.",
+    publicationsDescription:
+      "Manage your submitted applications, plugins, and skills, track reviews, and publish updates.",
+    backToCenter: "Back to plugin center",
+    manageApplicationListing: "Manage listing",
+    selectApplication: "Select an application to list",
+    selectApplicationDescription:
+      "Choose your application, set its version and usage modes, and submit it for administrator review.",
+    noPublishableApplication:
+      "No eligible applications found. Adjust your search, or create and enable an application in My applications first.",
     withdraw: "Withdraw review",
     withdrawn: "The pending release was withdrawn.",
     unlist: "Unlist from Plugin Center",
@@ -3229,7 +3327,7 @@ export const enUS = {
     updatingPluginStatus: "Updating plugin…",
     updatingSkillStatus: "Updating skill…",
     deletingPluginStatus: "Deleting plugin…",
-    deletingSkillStatus: "Deleting skill…",
+    uninstallingSkillStatus: "Uninstalling skill…",
     previewConfirmDescription:
       "Review the parsed results below. The plugin or skill is installed or updated only after you check the confirmation and submit.",
     previewExpires: "Preview expires",
@@ -3281,13 +3379,18 @@ export const enUS = {
     personallyDisabledMessage:
       "This plugin or skill has been disabled for you.",
     personallyEnabledMessage: "This plugin or skill has been enabled for you.",
+    uninstall: "Uninstall",
+    uninstalling: "Uninstalling",
+    skillUninstalled: "Skill uninstalled.",
     logo: "Replace logo",
     deleteTitle: "Permanently delete this plugin/Skill?",
     deletePluginTitle: "Permanently delete this plugin?",
-    deleteSkillTitle: "Permanently delete this skill?",
     deleteMcpTitle: "Permanently delete this MCP?",
     deleteDescription:
       "Related personal configuration and credential bindings will be permanently deleted. This action cannot be undone.",
+    uninstallSkillTitle: "Uninstall this skill?",
+    uninstallSkillDescription:
+      "This skill and its related personal configuration and credential bindings will be removed. This action cannot be undone.",
     updatePlugin: "Update plugin",
     updateSkill: "Update skill",
     updateSubmit: "Confirm update",
@@ -5006,7 +5109,8 @@ export const enUS = {
         "The plugin MCP configuration is invalid.",
       skill_frontmatter_missing:
         "SKILL.md is missing frontmatter or the required name field.",
-      skill_display_name_invalid: "The skill display name is invalid. Use a single line of up to 64 characters.",
+      skill_display_name_invalid:
+        "The skill display name is invalid. Use a single line of up to 64 characters.",
       skill_name_invalid:
         "Skill name {{value}} is invalid. Use lowercase letters, numbers, and hyphens only, with a maximum length of 64.",
       plugin_unsupported_component:

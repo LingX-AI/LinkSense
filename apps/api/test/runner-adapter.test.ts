@@ -1080,6 +1080,21 @@ describe("RunnerClient owner routing", () => {
     expect(fetchMock.mock.calls[3]?.[1]?.method).toBe("POST");
   });
 
+  it("requires an explicit environment removal acknowledgement from the controller", async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(jsonResponse({ success: true, environment: "deleted" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RunnerClient(testConfig());
+    await expect(client.cleanupRuntime(conversationId, ownerId, conversationId, true)).rejects.toThrow();
+    await expect(client.cleanupRuntime(conversationId, ownerId, conversationId, true)).resolves.toEqual({ success: true, environment: "deleted" });
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("x-linksense-cleanup-environment")).toBe("true");
+    expect(headers.get("x-linksense-service-session")).toBe(conversationId);
+    await expect(client.cleanupRuntime(conversationId, ownerId, undefined, true)).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("preserves the cleanup stage and stable reason returned by the runner", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
       jsonResponse(

@@ -16,7 +16,8 @@ import {
   mcpServerSchema,
   paginatedSchema,
 } from "@/api/contracts"
-import { apiRequest } from "@/api/client"
+import { ApiError, apiRequest } from "@/api/client"
+import { createInteractiveApplicationFiles } from "./interactive-application-files"
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
 import { interactiveCustomEvent } from "@/features/applications/interactive-application-event"
@@ -43,6 +44,9 @@ const sdkRequestSchema = z.strictObject({
     "resources.listMcpServers",
     "tasks.run",
     "tasks.interrupt",
+    "files.upload",
+    "files.list",
+    "files.remove",
     "chat.show",
     "chat.hide",
     "chat.toggle",
@@ -80,6 +84,10 @@ function InteractiveApplicationRuntime({
   )
   const [frameReady, setFrameReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const applicationFiles = useMemo(
+    () => createInteractiveApplicationFiles({ queryClient, conversationId }),
+    [queryClient, conversationId]
+  )
   const submitApplicationTurn = useMemo(
     () =>
       createInteractiveApplicationSubmitter({
@@ -124,7 +132,7 @@ function InteractiveApplicationRuntime({
     queryFn: () =>
       apiRequest(`/applications/${applicationId}/interactive-runtime-token`, {
         method: "POST",
-        body: { package_id: runtimePackageId },
+        body: { package_id: runtimePackageId, conversation_id: conversationId },
         schema: interactiveApplicationRuntimeTokenResultSchema,
       }),
     enabled: Boolean(
@@ -183,9 +191,11 @@ function InteractiveApplicationRuntime({
             requestId: request.data.requestId,
             ok: false,
             error:
-              nextError instanceof Error
-                ? nextError.message
-                : "LINKSENSE_SDK_REQUEST_FAILED",
+              nextError instanceof ApiError
+                ? nextError.errorCode
+                : nextError instanceof Error
+                  ? nextError.message
+                  : "LINKSENSE_SDK_REQUEST_FAILED",
           })
         )
     }
@@ -245,11 +255,23 @@ function InteractiveApplicationRuntime({
               })),
             })
           )
+        case "files.upload":
+          requirePermission("files:write")
+          return applicationFiles.upload(request.params)
+        case "files.list":
+          requirePermission("files:write")
+          return applicationFiles.list()
+        case "files.remove":
+          requirePermission("files:write")
+          return applicationFiles.remove(request.params)
         case "tasks.run": {
           requirePermission("tasks:write")
           const input = interactiveApplicationTaskInputSchema.parse(
             request.params
           )
+          if (input.file_ids.length > 0) requirePermission("files:write")
+          if (applicationFiles.busy)
+            throw new ApiError({ status: 409, errorCode: "CONFLICT" })
           setError(null)
           setChatOpen(true)
           try {
@@ -288,6 +310,7 @@ function InteractiveApplicationRuntime({
         | "knowledge_bases:read"
         | "mcp_servers:read"
         | "tasks:write"
+        | "files:write"
     ) => {
       if (!permissions.has(permission)) {
         throw new Error("LINKSENSE_SDK_PERMISSION_DENIED")
@@ -298,6 +321,7 @@ function InteractiveApplicationRuntime({
     return () => window.removeEventListener("message", handleMessage)
   }, [
     chatOpen,
+    applicationFiles,
     conversationId,
     instanceId,
     permissions,
@@ -365,7 +389,6 @@ function InteractiveApplicationRuntime({
               ref={frameRef}
               src={frameSource}
               title={application.data?.name ?? t("applications.interactiveApp")}
-              sandbox="allow-scripts allow-forms allow-downloads"
               className="absolute inset-0 size-full border-0 bg-background"
               onLoad={() => setError(null)}
             />

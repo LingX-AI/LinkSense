@@ -94,6 +94,103 @@ describe("interactive application runtime page", () => {
     vi.clearAllMocks()
   })
 
+  it.each([false, true])(
+    "enforces manifest file permission and refuses task submission during upload (allowed=%s)",
+    async (allowed) => {
+      const original = apiRequest.getMockImplementation()!
+      let finish: (value: unknown) => void = () => undefined
+      apiRequest.mockImplementation(async (path: string, options?: unknown) => {
+        if (path.endsWith("/interactive-runtime-token")) {
+          const result = await original(path, options)
+          return {
+            ...result,
+            manifest: {
+              ...result.manifest,
+              permissions: allowed
+                ? ["tasks:write", "files:write"]
+                : ["tasks:write"],
+            },
+          }
+        }
+        if (path.endsWith("/interactive-attachments"))
+          return new Promise((resolve) => {
+            finish = resolve
+          })
+        return original(path, options)
+      })
+      renderPage(
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      )
+      const frame = await screen.findByTitle("研究工作台")
+      const frameWindow = (frame as HTMLIFrameElement).contentWindow!
+      const postMessage = vi.spyOn(frameWindow, "postMessage")
+      act(() => dispatchFrameMessage(frameWindow, { type: "ready" }))
+      const initialize = postMessage.mock.calls
+        .map(([value]) => value as Record<string, unknown>)
+        .find((value) => value.type === "initialize")!
+      const request = {
+        type: "request",
+        instanceId: initialize.instanceId,
+        requestId: "upload",
+        method: "files.upload",
+        params: { file: new File(["notes"], "notes.txt") },
+      }
+      act(() => dispatchFrameMessage(frameWindow, request))
+      if (!allowed) {
+        await waitFor(() =>
+          expect(postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+              requestId: "upload",
+              ok: false,
+              error: "LINKSENSE_SDK_PERMISSION_DENIED",
+            }),
+            "*"
+          )
+        )
+        expect(
+          apiRequest.mock.calls.some(([path]) =>
+            path.endsWith("/interactive-attachments")
+          )
+        ).toBe(false)
+        return
+      }
+      act(() =>
+        dispatchFrameMessage(frameWindow, {
+          ...request,
+          requestId: "run",
+          method: "tasks.run",
+          params: { prompt: "Analyze", file_ids: [] },
+        })
+      )
+      await waitFor(() =>
+        expect(postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            requestId: "run",
+            ok: false,
+            error: "CONFLICT",
+          }),
+          "*"
+        )
+      )
+      await act(async () =>
+        finish({
+          id: "60000000-0000-4000-8000-000000000001",
+          filename: "notes.txt",
+          size_bytes: 5,
+          mime_type: "text/plain",
+          status: "staged",
+          turn_id: null,
+        })
+      )
+      await waitFor(() =>
+        expect(postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ requestId: "upload", ok: true }),
+          "*"
+        )
+      )
+    }
+  )
+
   it("shows the submitted message and opens chat before the slow request finishes, then acknowledges without waiting for refresh", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -243,10 +340,8 @@ describe("interactive application runtime page", () => {
     renderPage()
 
     const frame = await screen.findByTitle("研究工作台")
-    expect(frame).toHaveAttribute(
-      "sandbox",
-      "allow-scripts allow-forms allow-downloads"
-    )
+    expect(frame).not.toHaveAttribute("sandbox")
+    expect(frame).not.toHaveAttribute("csp")
     expect(frame.parentElement).toHaveClass("interactive-application-workspace")
     expect(screen.queryByText("研究工作台")).not.toBeInTheDocument()
     expect(screen.queryByText("正在连接…")).not.toBeInTheDocument()

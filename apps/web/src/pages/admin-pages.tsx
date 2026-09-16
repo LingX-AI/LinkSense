@@ -1446,16 +1446,16 @@ function UserManagementPage() {
       >
         <DialogContent
           closeLabel={t("common.close")}
-          className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"
+          className="flex max-h-[90dvh] flex-col overflow-hidden sm:max-w-2xl"
         >
-          <DialogHeader>
+          <DialogHeader className="shrink-0 pr-8">
             <DialogTitle>
               {t(editing ? "admin.editUser" : "admin.createUser")}
             </DialogTitle>
             <DialogDescription>{t("admin.noPasswordNotice")}</DialogDescription>
           </DialogHeader>
           <form
-            className="form-stack"
+            className="flex min-h-0 flex-col gap-4 overflow-hidden"
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
               if (editing) {
@@ -1483,182 +1483,190 @@ function UserManagementPage() {
               saveMutation.mutate(undefined)
             }}
           >
-            <div className="form-grid">
-              <FieldShell id="user-name" label={t("common.name")}>
-                <Input
-                  id="user-name"
-                  className="h-9"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  required
-                />
-              </FieldShell>
-              <FieldShell id="user-email" label={t("common.email")}>
-                <Input
-                  id="user-email"
-                  className="h-9"
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  required
-                />
-              </FieldShell>
-              <FieldShell id="user-role" label={t("admin.role")}>
-                <AdminSelect
-                  id="user-role"
-                  value={role}
-                  onValueChange={(nextRole) => setRole(nextRole as typeof role)}
-                  options={[
-                    { value: "user", label: t("common.user") },
-                    { value: "admin", label: t("common.admin") },
-                  ]}
-                />
-              </FieldShell>
-              {editing && (
-                <FieldShell id="user-status" label={t("common.status")}>
+            <div
+              role="region"
+              aria-label={t(editing ? "admin.editUser" : "admin.createUser")}
+              className="flex min-h-0 flex-col gap-3.5 overflow-y-auto overscroll-contain px-1 py-1"
+            >
+              <div className="form-grid">
+                <FieldShell id="user-name" label={t("common.name")}>
+                  <Input
+                    id="user-name"
+                    className="h-9"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    required
+                  />
+                </FieldShell>
+                <FieldShell id="user-email" label={t("common.email")}>
+                  <Input
+                    id="user-email"
+                    className="h-9"
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    required
+                  />
+                </FieldShell>
+                <FieldShell id="user-role" label={t("admin.role")}>
                   <AdminSelect
-                    id="user-status"
-                    value={status}
-                    disabled={getStatusRestriction(editing) !== null}
-                    onValueChange={(nextStatus) =>
-                      setStatus(nextStatus as typeof status)
+                    id="user-role"
+                    value={role}
+                    onValueChange={(nextRole) =>
+                      setRole(nextRole as typeof role)
                     }
                     options={[
-                      { value: "active", label: t("statuses.active") },
-                      { value: "disabled", label: t("statuses.disabled") },
+                      { value: "user", label: t("common.user") },
+                      { value: "admin", label: t("common.admin") },
                     ]}
                   />
-                  {getStatusRestriction(editing) !== null && (
-                    <p className="text-xs text-muted-foreground">
-                      {getStatusRestrictionMessage(
-                        getStatusRestriction(editing)
-                      )}
-                    </p>
-                  )}
                 </FieldShell>
-              )}
-            </div>
-            <MultiSelectList
-              label={t("admin.groups")}
-              values={groupIds}
-              onChange={setGroupIds}
-              options={(groups.data?.items ?? []).map((group) => ({
-                id: group.id,
-                name: group.name,
-                secondary: group.description,
-              }))}
-            />
-            {editing && (
-              <section
-                className="grid gap-3"
-                aria-labelledby="user-credit-quota-title"
-              >
-                <div className="grid gap-1">
-                  <h3 id="user-credit-quota-title" className="form-label">
-                    {t("admin.userCreditLimits")}
-                  </h3>
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t("admin.userCreditLimitsDescription")}
-                  </p>
-                </div>
-                <div className="form-grid">
-                  <FieldShell
-                    id="user-total-credit-limit"
-                    label={t("admin.totalCreditLimit")}
-                    hint={t("admin.creditLimitHint")}
-                  >
-                    <Input
+                {editing && (
+                  <FieldShell id="user-status" label={t("common.status")}>
+                    <AdminSelect
+                      id="user-status"
+                      value={status}
+                      disabled={getStatusRestriction(editing) !== null}
+                      onValueChange={(nextStatus) =>
+                        setStatus(nextStatus as typeof status)
+                      }
+                      options={[
+                        { value: "active", label: t("statuses.active") },
+                        { value: "disabled", label: t("statuses.disabled") },
+                      ]}
+                    />
+                    {getStatusRestriction(editing) !== null && (
+                      <p className="text-xs text-muted-foreground">
+                        {getStatusRestrictionMessage(
+                          getStatusRestriction(editing)
+                        )}
+                      </p>
+                    )}
+                  </FieldShell>
+                )}
+              </div>
+              <MultiSelectList
+                label={t("admin.groups")}
+                values={groupIds}
+                onChange={setGroupIds}
+                options={(groups.data?.items ?? []).map((group) => ({
+                  id: group.id,
+                  name: group.name,
+                  secondary: group.description,
+                }))}
+              />
+              {editing && (
+                <section
+                  className="grid gap-3"
+                  aria-labelledby="user-credit-quota-title"
+                >
+                  <div className="grid gap-1">
+                    <h3 id="user-credit-quota-title" className="form-label">
+                      {t("admin.userCreditLimits")}
+                    </h3>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {t("admin.userCreditLimitsDescription")}
+                    </p>
+                  </div>
+                  <div className="form-grid">
+                    <FieldShell
                       id="user-total-credit-limit"
-                      className="h-9"
-                      inputMode="decimal"
-                      pattern={CREDIT_QUOTA_INPUT_PATTERN}
-                      value={totalCreditLimit}
-                      onChange={(event) =>
-                        setTotalCreditLimit(event.target.value)
-                      }
-                      placeholder={t("admin.inheritCreditLimit")}
-                    />
-                  </FieldShell>
-                  <FieldShell
-                    id="user-weekly-credit-limit"
-                    label={t("admin.weeklyCreditLimit")}
-                    hint={t("admin.creditLimitHint")}
-                  >
-                    <Input
+                      label={t("admin.totalCreditLimit")}
+                      hint={t("admin.creditLimitHint")}
+                    >
+                      <Input
+                        id="user-total-credit-limit"
+                        className="h-9"
+                        inputMode="decimal"
+                        pattern={CREDIT_QUOTA_INPUT_PATTERN}
+                        value={totalCreditLimit}
+                        onChange={(event) =>
+                          setTotalCreditLimit(event.target.value)
+                        }
+                        placeholder={t("admin.inheritCreditLimit")}
+                      />
+                    </FieldShell>
+                    <FieldShell
                       id="user-weekly-credit-limit"
-                      className="h-9"
-                      inputMode="decimal"
-                      pattern={CREDIT_QUOTA_INPUT_PATTERN}
-                      value={weeklyCreditLimit}
-                      onChange={(event) =>
-                        setWeeklyCreditLimit(event.target.value)
-                      }
-                      placeholder={t("admin.inheritCreditLimit")}
-                    />
-                  </FieldShell>
-                  <FieldShell
-                    id="user-monthly-credit-limit"
-                    label={t("admin.monthlyCreditLimit")}
-                    hint={t("admin.creditLimitHint")}
-                  >
-                    <Input
+                      label={t("admin.weeklyCreditLimit")}
+                      hint={t("admin.creditLimitHint")}
+                    >
+                      <Input
+                        id="user-weekly-credit-limit"
+                        className="h-9"
+                        inputMode="decimal"
+                        pattern={CREDIT_QUOTA_INPUT_PATTERN}
+                        value={weeklyCreditLimit}
+                        onChange={(event) =>
+                          setWeeklyCreditLimit(event.target.value)
+                        }
+                        placeholder={t("admin.inheritCreditLimit")}
+                      />
+                    </FieldShell>
+                    <FieldShell
                       id="user-monthly-credit-limit"
-                      className="h-9"
-                      inputMode="decimal"
-                      pattern={CREDIT_QUOTA_INPUT_PATTERN}
-                      value={monthlyCreditLimit}
-                      onChange={(event) =>
-                        setMonthlyCreditLimit(event.target.value)
-                      }
-                      placeholder={t("admin.inheritCreditLimit")}
-                    />
-                  </FieldShell>
-                </div>
-              </section>
-            )}
-            {editing && (
-              <section
-                className="settings-section"
-                aria-labelledby="user-metadata-title"
-              >
-                <h3 id="user-metadata-title">{t("admin.accountMetadata")}</h3>
-                <dl className="definition-list">
-                  <div>
-                    <dt>{t("common.createdAt")}</dt>
-                    <dd>{formatDateTime(editing.created_at, language)}</dd>
+                      label={t("admin.monthlyCreditLimit")}
+                      hint={t("admin.creditLimitHint")}
+                    >
+                      <Input
+                        id="user-monthly-credit-limit"
+                        className="h-9"
+                        inputMode="decimal"
+                        pattern={CREDIT_QUOTA_INPUT_PATTERN}
+                        value={monthlyCreditLimit}
+                        onChange={(event) =>
+                          setMonthlyCreditLimit(event.target.value)
+                        }
+                        placeholder={t("admin.inheritCreditLimit")}
+                      />
+                    </FieldShell>
                   </div>
-                  <div>
-                    <dt>{t("admin.passwordUpdated")}</dt>
-                    <dd>
-                      {formatDateTime(
-                        editing.password_updated_at ?? undefined,
-                        language
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{t("admin.personalPlugins")}</dt>
-                    <dd>{editing.personal_plugin_count ?? 0}</dd>
-                  </div>
-                  <div>
-                    <dt>{t("admin.personalSkills")}</dt>
-                    <dd>{editing.personal_skill_count ?? 0}</dd>
-                  </div>
-                  <div>
-                    <dt>{t("admin.personalCredentials")}</dt>
-                    <dd>{editing.personal_credential_count ?? 0}</dd>
-                  </div>
-                </dl>
-              </section>
-            )}
-            {editing &&
-              ((editing.status === "active" && status === "disabled") ||
-                (editing.role === "admin" && role === "user")) && (
-                <StatusBanner variant="warning">
-                  {t("admin.userPrivilegeChangeWarning")}
-                </StatusBanner>
+                </section>
               )}
-            <DialogFooter>
+              {editing && (
+                <section
+                  className="settings-section"
+                  aria-labelledby="user-metadata-title"
+                >
+                  <h3 id="user-metadata-title">{t("admin.accountMetadata")}</h3>
+                  <dl className="definition-list">
+                    <div>
+                      <dt>{t("common.createdAt")}</dt>
+                      <dd>{formatDateTime(editing.created_at, language)}</dd>
+                    </div>
+                    <div>
+                      <dt>{t("admin.passwordUpdated")}</dt>
+                      <dd>
+                        {formatDateTime(
+                          editing.password_updated_at ?? undefined,
+                          language
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t("admin.personalPlugins")}</dt>
+                      <dd>{editing.personal_plugin_count ?? 0}</dd>
+                    </div>
+                    <div>
+                      <dt>{t("admin.personalSkills")}</dt>
+                      <dd>{editing.personal_skill_count ?? 0}</dd>
+                    </div>
+                    <div>
+                      <dt>{t("admin.personalCredentials")}</dt>
+                      <dd>{editing.personal_credential_count ?? 0}</dd>
+                    </div>
+                  </dl>
+                </section>
+              )}
+              {editing &&
+                ((editing.status === "active" && status === "disabled") ||
+                  (editing.role === "admin" && role === "user")) && (
+                  <StatusBanner variant="warning">
+                    {t("admin.userPrivilegeChangeWarning")}
+                  </StatusBanner>
+                )}
+            </div>
+            <DialogFooter className="shrink-0">
               <DialogClose render={<Button type="button" variant="ghost" />}>
                 {t("common.cancel")}
               </DialogClose>

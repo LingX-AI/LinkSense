@@ -19,6 +19,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useLocation, useNavigate } from "react-router-dom"
 import { SearchInput } from "@/components/ui/search-input"
 import {
+  ArrowLeftIcon,
   BanIcon,
   CheckIcon,
   CheckCircle2Icon,
@@ -138,7 +139,15 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
 import { cn } from "@/lib/utils"
-import { ApplicationCatalogPanel } from "@/features/applications/application-catalog-panel"
+import { ApplicationsWorkspacePanel } from "@/features/applications/application-center-panel"
+import { ApplicationCenterAdminPanel } from "@/features/applications/application-center-admin-panel"
+import { ApplicationDistributionDialog } from "@/features/applications/application-distribution-dialog"
+import { ApplicationPublicationCard } from "@/features/applications/application-publication-card"
+import { ApplicationPublicationPicker } from "@/features/applications/application-publication-picker"
+import {
+  applicationCenterPageSchema,
+  applicationDistributionKeys,
+} from "@/features/applications/application-distribution-queries"
 import {
   capabilityPresentation,
   coreMcpPresentation,
@@ -157,11 +166,11 @@ type CapabilityImportProgress =
 type UserCapabilityView = "store" | "publishing"
 type MarketplaceCatalogSection = "plugin" | "skill" | "mcp" | "application"
 type MarketplaceCatalogScope = "public" | "personal" | "clawhub"
-type AdminMarketplaceTab = "reviews" | "listings"
+type AdminMarketplaceTab = "reviews" | "listings" | "applications"
 type CapabilityUninstallTarget = {
   id: string
   name: string
-  sourceType: "marketplace" | "clawhub"
+  sourceType: CapabilitySummary["source_type"]
   category: Exclude<MarketplaceCatalogSection, "application">
 }
 
@@ -215,10 +224,10 @@ function isRepositoryCapability(capability: CapabilitySummary) {
   )
 }
 const marketplaceCatalogSections = [
+  "application",
   "plugin",
   "skill",
   "mcp",
-  "application",
 ] as const satisfies readonly MarketplaceCatalogSection[]
 
 function matchesMarketplaceCatalogSection(
@@ -312,7 +321,7 @@ function personalDeleteTitleKey(
 ) {
   if (section === "mcp") return "capability.deleteMcpTitle"
   return section === "skill"
-    ? "capability.deleteSkillTitle"
+    ? "capability.uninstallSkillTitle"
     : "capability.deletePluginTitle"
 }
 
@@ -337,7 +346,7 @@ function capabilityImportStatusKey(preview: CapabilityImportPreview) {
 
 function capabilityDeleteStatusKey(type: CapabilityType) {
   return type === "skill"
-    ? "capability.deletingSkillStatus"
+    ? "capability.uninstallingSkillStatus"
     : "capability.deletingPluginStatus"
 }
 
@@ -446,7 +455,7 @@ function CapabilityTypeBadge({
   if (compact) {
     return <span className="capability-library-type">{label}</span>
   }
-  return <Badge variant="outline">{label}</Badge>
+  return <Badge variant="tag">{label}</Badge>
 }
 
 function CapabilityStatusBadge({ disabled }: { disabled: boolean }) {
@@ -751,7 +760,7 @@ function MarketplaceDetailDialog({
               <div className="flex flex-wrap gap-2">
                 <CapabilityTypeBadge type={item.listing.type} />
                 <MarketplaceStatusBadge status={item.listing.status} />
-                <Badge variant="outline">
+                <Badge variant="tag">
                   {t("marketplace.releaseNumber", {
                     number: item.release.release_number,
                   })}
@@ -794,9 +803,13 @@ function MarketplaceDetailDialog({
 
 function CapabilityDetailDialog({
   capability,
+  uninstallDisabled,
+  onUninstall,
   onOpenChange,
 }: {
   capability: CapabilitySummary | null
+  uninstallDisabled: boolean
+  onUninstall?: (capability: CapabilitySummary) => void
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
@@ -828,15 +841,15 @@ function CapabilityDetailDialog({
           <div className="flex flex-wrap gap-2">
             <CapabilityTypeBadge type={capability.type} />
             {capability.is_builtin && (
-              <Badge className="capability-built-in-badge" variant="secondary">
+              <Badge className="capability-built-in-badge" variant="tag">
                 {t("capability.builtIn")}
               </Badge>
             )}
             {capability.source_type === "marketplace" && (
-              <Badge variant="secondary">{t("marketplace.storeOrigin")}</Badge>
+              <Badge variant="tag">{t("marketplace.storeOrigin")}</Badge>
             )}
             {capability.source_type === "clawhub" && (
-              <Badge variant="secondary">{t("clawHub.origin")}</Badge>
+              <Badge variant="tag">{t("clawHub.origin")}</Badge>
             )}
             <CapabilityStatusBadge disabled={disabled} />
           </div>
@@ -866,6 +879,25 @@ function CapabilityDetailDialog({
             </section>
           )}
         </div>
+        {onUninstall && (
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={uninstallDisabled}
+              onClick={() => onUninstall(capability)}
+            >
+              <Trash2Icon data-icon="inline-start" />
+              {t(
+                capability.source_type === "clawhub"
+                  ? "clawHub.uninstall"
+                  : capability.source_type === "marketplace"
+                    ? "marketplace.uninstall"
+                    : "capability.uninstall"
+              )}
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -1434,7 +1466,7 @@ function MyCapabilitiesPanel({
             : capability.source_type === "marketplace"
               ? marketplaceUninstalledKey(capabilityIdentitySection(capability))
               : capability.type === "skill"
-                ? "marketplace.personalSkillDeleted"
+                ? "capability.skillUninstalled"
                 : "marketplace.personalPluginDeleted"
         ),
         { id: capabilityActionToastId("delete", capability.id) }
@@ -1655,7 +1687,9 @@ function MyCapabilitiesPanel({
                                 ? "clawHub.uninstall"
                                 : capability.source_type === "marketplace"
                                   ? "marketplace.uninstall"
-                                  : "common.delete"
+                                  : capability.type === "skill"
+                                    ? "capability.uninstall"
+                                    : "common.delete"
                             )}
                           </DropdownMenuItem>
                         </DropdownMenuGroup>
@@ -1706,21 +1740,27 @@ function MyCapabilitiesPanel({
             ? "clawHub.uninstallDescription"
             : deleteTarget?.source_type === "marketplace"
               ? "marketplace.uninstallDescription"
-              : "capability.deleteDescription"
+              : deleteTarget?.type === "skill"
+                ? "capability.uninstallSkillDescription"
+                : "capability.deleteDescription"
         )}
         confirmLabel={t(
           deleteTarget?.source_type === "clawhub"
             ? "clawHub.uninstall"
             : deleteTarget?.source_type === "marketplace"
               ? "marketplace.uninstall"
-              : "common.delete"
+              : deleteTarget?.type === "skill"
+                ? "capability.uninstall"
+                : "common.delete"
         )}
         pendingLabel={
           deleteTarget?.source_type === "clawhub"
             ? t("clawHub.uninstalling")
             : deleteTarget?.source_type === "marketplace"
               ? t("marketplace.uninstalling")
-              : undefined
+              : deleteTarget?.type === "skill"
+                ? t("capability.uninstalling")
+                : undefined
         }
         destructive
         pending={deleteMutation.isPending}
@@ -1836,7 +1876,8 @@ function InstalledCatalogSection({
                 const capability = item.capability
                 const uninstallableCapability =
                   capability !== undefined &&
-                  isRepositoryCapability(capability) &&
+                  (capability.type === "skill" ||
+                    isRepositoryCapability(capability)) &&
                   capability.can_delete === true
                     ? capability
                     : null
@@ -1845,11 +1886,15 @@ function InstalledCatalogSection({
                 const uninstallKey =
                   uninstallableCapability?.source_type === "clawhub"
                     ? "clawHub.uninstall"
-                    : "marketplace.uninstall"
+                    : uninstallableCapability?.source_type === "marketplace"
+                      ? "marketplace.uninstall"
+                      : "capability.uninstall"
                 const uninstallingKey =
                   uninstallableCapability?.source_type === "clawhub"
                     ? "clawHub.uninstalling"
-                    : "marketplace.uninstalling"
+                    : uninstallableCapability?.source_type === "marketplace"
+                      ? "marketplace.uninstalling"
+                      : "capability.uninstalling"
                 return (
                   <li key={item.id} className="min-w-0">
                     <CapabilityLibraryItem
@@ -2223,16 +2268,27 @@ function MarketplaceCatalogPanel({
         schema: z.unknown(),
       }),
     onMutate: (target) => {
-      notify.loading(t(marketplaceUninstallStatusKey(target.category)), {
-        id: capabilityActionToastId("marketplace-uninstall", target.id),
-      })
+      notify.loading(
+        t(
+          target.sourceType === "clawhub"
+            ? "clawHub.uninstallingStatus"
+            : target.sourceType === "marketplace"
+              ? marketplaceUninstallStatusKey(target.category)
+              : "capability.uninstallingSkillStatus"
+        ),
+        {
+          id: capabilityActionToastId("marketplace-uninstall", target.id),
+        }
+      )
     },
     onSuccess: async (_, target) => {
       notify.success(
         t(
           target.sourceType === "clawhub"
             ? "clawHub.uninstalled"
-            : marketplaceUninstalledKey(target.category)
+            : target.sourceType === "marketplace"
+              ? marketplaceUninstalledKey(target.category)
+              : "capability.skillUninstalled"
         ),
         { id: capabilityActionToastId("marketplace-uninstall", target.id) }
       )
@@ -2381,6 +2437,15 @@ function MarketplaceCatalogPanel({
     setUpdateTarget(target)
     setImportOpen(true)
   }
+  const openCapabilityUninstall = (capability: CapabilitySummary) => {
+    setSelectedCapability(null)
+    setUninstallTarget({
+      id: capability.id,
+      name: capabilityPresentation(capability, t, productName).name,
+      category: capabilityIdentitySection(capability),
+      sourceType: capability.source_type,
+    })
+  }
 
   const publicCatalog = (
     <>
@@ -2526,183 +2591,154 @@ function MarketplaceCatalogPanel({
 
   return (
     <>
-      <Tabs
-        value={section}
-        onValueChange={(value) => {
-          updateCatalogLocation({
-            section: value as MarketplaceCatalogSection,
-            scope: "personal",
-            search: "",
-          })
-        }}
-      >
-        <TabsList aria-label={t("marketplace.catalogTabsLabel")}>
-          {marketplaceCatalogSections.map((value) => (
-            <TabsTrigger key={value} value={value}>
-              {t(marketplaceCatalogSectionKeys[value])}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        {marketplaceCatalogSections.map((value) => (
-          <TabsContent
-            key={value}
-            value={value}
-            className="capability-center-tab-content"
-          >
-            {section === value ? (
-              value === "application" ? (
-                <ApplicationCatalogPanel
-                  onFeedback={onFeedback}
-                  organizationSharingEnabled={organizationMarketplaceEnabled}
-                />
-              ) : (
-                <div className="capability-center-catalog">
-                  <div className="capability-center-search-row">
-                    <InputGroup className="flex-1">
-                      <InputGroupAddon>
-                        <SearchIcon aria-hidden="true" />
-                      </InputGroupAddon>
-                      <SearchInput
-                        type="search"
-                        value={search}
-                        aria-label={
-                          scope === "clawhub"
-                            ? t("clawHub.search")
-                            : t("marketplace.searchCategory", {
-                                category: t(
-                                  marketplaceCatalogSectionKeys[section]
-                                ),
-                              })
-                        }
-                        placeholder={
-                          scope === "clawhub"
-                            ? t("clawHub.search")
-                            : t("marketplace.searchCategory", {
-                                category: t(
-                                  marketplaceCatalogSectionKeys[section]
-                                ),
-                              })
-                        }
-                        onValueChange={(value) =>
-                          updateCatalogLocation(
-                            { search: value },
-                            { replace: true }
-                          )
-                        }
-                      />
-                    </InputGroup>
-                    {section === "mcp" && (
-                      <Button type="button" onClick={openMcpManagement}>
-                        <Settings2Icon data-icon="inline-start" />
-                        {t("marketplace.manageMcp")}
-                      </Button>
-                    )}
-                    {section !== "mcp" && section !== "application" && (
-                      <Button
-                        type="button"
-                        onClick={() => openCapabilityImport()}
-                      >
-                        <PackagePlusIcon data-icon="inline-start" />
-                        {t(addCatalogItemKey(section))}
-                      </Button>
-                    )}
-                  </div>
-                  <InstalledCatalogSection
-                    category={section}
-                    items={installedItems}
-                    isLoading={installedLoading}
-                    error={installedError}
-                    onRetry={retryInstalled}
-                    onInspect={setSelectedCapability}
-                    onUninstall={(capability) =>
-                      setUninstallTarget({
-                        id: capability.id,
-                        name: capabilityPresentation(capability, t, productName)
-                          .name,
-                        category: capabilityIdentitySection(capability),
-                        sourceType:
-                          capability.source_type === "clawhub"
-                            ? "clawhub"
-                            : "marketplace",
-                      })
-                    }
-                    uninstallPendingId={
-                      uninstallMutation.isPending
-                        ? uninstallMutation.variables?.id
-                        : undefined
-                    }
-                    uninstallDisabled={uninstallMutation.isPending}
-                    open={installedSectionOpen[section]}
-                    onOpenChange={(open) =>
-                      setInstalledSectionOpen((current) => ({
-                        ...current,
-                        [section]: open,
-                      }))
-                    }
-                  />
-                  <Separator />
-                  <div className="capability-center-scope-row">
-                    <ToggleGroup
-                      value={[scope]}
-                      variant="default"
-                      spacing={2}
-                      aria-label={t("marketplace.catalogScopesLabel")}
-                      onValueChange={(values) => {
-                        const value = values[0]
-                        if (
-                          (value === "public" && publicScopeAvailable) ||
-                          value === "personal" ||
-                          (value === "clawhub" && section === "skill")
-                        ) {
-                          updateCatalogLocation({ scope: value })
-                        }
-                      }}
-                    >
-                      <ToggleGroupItem value="personal">
-                        {t("marketplace.scopes.personal")}
-                      </ToggleGroupItem>
-                      {publicScopeAvailable && (
-                        <ToggleGroupItem value="public">
-                          {t("marketplace.scopes.public")}
-                        </ToggleGroupItem>
-                      )}
-                      {section === "skill" && (
-                        <ToggleGroupItem value="clawhub">
-                          {t("clawHub.repository")}
-                        </ToggleGroupItem>
-                      )}
-                    </ToggleGroup>
-                  </div>
-                  <section
-                    className="capability-center-directory"
-                    aria-label={t(
-                      scope === "public" && publicScopeAvailable
-                        ? "marketplace.publicCatalogLabel"
-                        : scope === "clawhub"
-                          ? "clawHub.catalogLabel"
-                          : "marketplace.personalCatalogLabel",
-                      {
-                        category: t(marketplaceCatalogSectionKeys[section]),
+      {marketplaceCatalogSections.map((value) => (
+        <TabsContent
+          key={value}
+          value={value}
+          className="capability-center-tab-content"
+        >
+          {section === value ? (
+            value === "application" ? (
+              <ApplicationsWorkspacePanel
+                onFeedback={onFeedback}
+                organizationSharingEnabled={organizationMarketplaceEnabled}
+              />
+            ) : (
+              <div className="capability-center-catalog">
+                <div className="capability-center-search-row">
+                  <InputGroup className="flex-1">
+                    <InputGroupAddon>
+                      <SearchIcon aria-hidden="true" />
+                    </InputGroupAddon>
+                    <SearchInput
+                      type="search"
+                      value={search}
+                      aria-label={
+                        scope === "clawhub"
+                          ? t("clawHub.search")
+                          : t("marketplace.searchCategory", {
+                              category: t(
+                                marketplaceCatalogSectionKeys[section]
+                              ),
+                            })
                       }
-                    )}
-                  >
-                    {scope === "public" && publicScopeAvailable ? (
-                      publicCatalog
-                    ) : scope === "clawhub" ? (
-                      <ClawHubSkillRepositoryPanel
-                        search={deferredSearch}
-                        onFeedback={onFeedback}
-                      />
-                    ) : (
-                      personalCatalog
-                    )}
-                  </section>
+                      placeholder={
+                        scope === "clawhub"
+                          ? t("clawHub.search")
+                          : t("marketplace.searchCategory", {
+                              category: t(
+                                marketplaceCatalogSectionKeys[section]
+                              ),
+                            })
+                      }
+                      onValueChange={(value) =>
+                        updateCatalogLocation(
+                          { search: value },
+                          { replace: true }
+                        )
+                      }
+                    />
+                  </InputGroup>
+                  {section === "mcp" && (
+                    <Button type="button" onClick={openMcpManagement}>
+                      <Settings2Icon data-icon="inline-start" />
+                      {t("marketplace.manageMcp")}
+                    </Button>
+                  )}
+                  {section !== "mcp" && section !== "application" && (
+                    <Button
+                      type="button"
+                      onClick={() => openCapabilityImport()}
+                    >
+                      <PackagePlusIcon data-icon="inline-start" />
+                      {t(addCatalogItemKey(section))}
+                    </Button>
+                  )}
                 </div>
-              )
-            ) : null}
-          </TabsContent>
-        ))}
-      </Tabs>
+                <InstalledCatalogSection
+                  category={section}
+                  items={installedItems}
+                  isLoading={installedLoading}
+                  error={installedError}
+                  onRetry={retryInstalled}
+                  onInspect={setSelectedCapability}
+                  onUninstall={openCapabilityUninstall}
+                  uninstallPendingId={
+                    uninstallMutation.isPending
+                      ? uninstallMutation.variables?.id
+                      : undefined
+                  }
+                  uninstallDisabled={uninstallMutation.isPending}
+                  open={installedSectionOpen[section]}
+                  onOpenChange={(open) =>
+                    setInstalledSectionOpen((current) => ({
+                      ...current,
+                      [section]: open,
+                    }))
+                  }
+                />
+                <Separator />
+                <div className="capability-center-scope-row">
+                  <ToggleGroup
+                    value={[scope]}
+                    variant="default"
+                    spacing={2}
+                    aria-label={t("marketplace.catalogScopesLabel")}
+                    onValueChange={(values) => {
+                      const value = values[0]
+                      if (
+                        (value === "public" && publicScopeAvailable) ||
+                        value === "personal" ||
+                        (value === "clawhub" && section === "skill")
+                      ) {
+                        updateCatalogLocation({ scope: value })
+                      }
+                    }}
+                  >
+                    <ToggleGroupItem value="personal">
+                      {t("marketplace.scopes.personal")}
+                    </ToggleGroupItem>
+                    {publicScopeAvailable && (
+                      <ToggleGroupItem value="public">
+                        {t("marketplace.scopes.public")}
+                      </ToggleGroupItem>
+                    )}
+                    {section === "skill" && (
+                      <ToggleGroupItem value="clawhub">
+                        {t("clawHub.repository")}
+                      </ToggleGroupItem>
+                    )}
+                  </ToggleGroup>
+                </div>
+                <section
+                  className="capability-center-directory"
+                  aria-label={t(
+                    scope === "public" && publicScopeAvailable
+                      ? "marketplace.publicCatalogLabel"
+                      : scope === "clawhub"
+                        ? "clawHub.catalogLabel"
+                        : "marketplace.personalCatalogLabel",
+                    {
+                      category: t(marketplaceCatalogSectionKeys[section]),
+                    }
+                  )}
+                >
+                  {scope === "public" && publicScopeAvailable ? (
+                    publicCatalog
+                  ) : scope === "clawhub" ? (
+                    <ClawHubSkillRepositoryPanel
+                      search={deferredSearch}
+                      onFeedback={onFeedback}
+                    />
+                  ) : (
+                    personalCatalog
+                  )}
+                </section>
+              </div>
+            )
+          ) : null}
+        </TabsContent>
+      ))}
       {updateTarget?.type === "skill" ? (
         importOpen && (
           <SkillUpdateDialog
@@ -2745,6 +2781,13 @@ function MarketplaceCatalogPanel({
       />
       <CapabilityDetailDialog
         capability={selectedCapability}
+        uninstallDisabled={uninstallMutation.isPending}
+        onUninstall={
+          selectedCapability?.type === "skill" &&
+          selectedCapability.can_delete === true
+            ? openCapabilityUninstall
+            : undefined
+        }
         onOpenChange={(open) => {
           if (!open) setSelectedCapability(null)
         }}
@@ -2757,24 +2800,32 @@ function MarketplaceCatalogPanel({
         title={t(
           uninstallTarget?.sourceType === "clawhub"
             ? "clawHub.uninstallTitle"
-            : marketplaceUninstallTitleKey(
-                uninstallTarget?.category ?? "plugin"
-              )
+            : uninstallTarget?.sourceType === "marketplace"
+              ? marketplaceUninstallTitleKey(
+                  uninstallTarget?.category ?? "plugin"
+                )
+              : "capability.uninstallSkillTitle"
         )}
         description={t(
           uninstallTarget?.sourceType === "clawhub"
             ? "clawHub.uninstallDescription"
-            : "marketplace.uninstallDescription"
+            : uninstallTarget?.sourceType === "marketplace"
+              ? "marketplace.uninstallDescription"
+              : "capability.uninstallSkillDescription"
         )}
         confirmLabel={t(
           uninstallTarget?.sourceType === "clawhub"
             ? "clawHub.uninstall"
-            : "marketplace.uninstall"
+            : uninstallTarget?.sourceType === "marketplace"
+              ? "marketplace.uninstall"
+              : "capability.uninstall"
         )}
         pendingLabel={t(
           uninstallTarget?.sourceType === "clawhub"
             ? "clawHub.uninstalling"
-            : "marketplace.uninstalling"
+            : uninstallTarget?.sourceType === "marketplace"
+              ? "marketplace.uninstalling"
+              : "capability.uninstalling"
         )}
         destructive
         pending={uninstallMutation.isPending}
@@ -2849,6 +2900,9 @@ function PublishDialog({
       })),
     [candidates, t]
   )
+  const selectedSourceLabel =
+    candidateItems.find((item) => item.value === selectedCapabilityId)?.label ??
+    t("common.select")
 
   const submitMutation = useMutation({
     mutationFn: () =>
@@ -2900,14 +2954,22 @@ function PublishDialog({
         <FieldShell
           id="marketplace-publish-source"
           label={t("marketplace.sourceCapability")}
+          className="min-w-0"
         >
           <Select
             items={candidateItems}
             value={selectedCapabilityId}
             onValueChange={(value) => setCapabilityId(value ?? "")}
           >
-            <SelectTrigger id="marketplace-publish-source" className="w-full">
-              <SelectValue placeholder={t("common.select")} />
+            <SelectTrigger
+              id="marketplace-publish-source"
+              className="w-full min-w-0"
+            >
+              <SelectValue className="min-w-0">
+                <span className="truncate" title={selectedSourceLabel}>
+                  {selectedSourceLabel}
+                </span>
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -3162,7 +3224,7 @@ function ReleaseDetailDialog({
             <div className="flex flex-wrap gap-2">
               <MarketplaceStatusBadge status={detail.data.release.status} />
               <CapabilityTypeBadge type={detail.data.listing.type} />
-              <Badge variant="outline">
+              <Badge variant="tag">
                 {t("marketplace.releaseNumber", {
                   number: detail.data.release.release_number,
                 })}
@@ -3234,6 +3296,12 @@ function MyPublicationsPanel({
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [publishOpen, setPublishOpen] = useState(false)
+  const [applicationPickerOpen, setApplicationPickerOpen] = useState(false)
+  const [publishType, setPublishType] = useState<CapabilityType>("plugin")
+  const [applicationTarget, setApplicationTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
   const [publicationTarget, setPublicationTarget] =
     useState<MarketplacePublication | null>(null)
   const [detailTarget, setDetailTarget] =
@@ -3252,6 +3320,14 @@ function MyPublicationsPanel({
     queryFn: () =>
       apiRequest("/marketplace/mine", {
         schema: marketplacePublicationPageSchema,
+      }),
+  })
+  const applicationPublications = useQuery({
+    queryKey: applicationDistributionKeys.mine,
+    queryFn: ({ signal }) =>
+      apiRequest("/application-center/mine", {
+        schema: applicationCenterPageSchema,
+        signal,
       }),
   })
 
@@ -3297,7 +3373,12 @@ function MyPublicationsPanel({
     onError: (error) => onFeedback(getErrorMessage(error, t), true),
   })
 
-  if (sources.isLoading || publications.isLoading) return <LoadingState />
+  if (
+    sources.isLoading ||
+    publications.isLoading ||
+    applicationPublications.isLoading
+  )
+    return <LoadingState />
   if (sources.isError) {
     return (
       <ErrorState
@@ -3314,6 +3395,14 @@ function MyPublicationsPanel({
       />
     )
   }
+  if (applicationPublications.isError) {
+    return (
+      <ErrorState
+        message={getErrorMessage(applicationPublications.error, t)}
+        onRetry={() => void applicationPublications.refetch()}
+      />
+    )
+  }
 
   const publishableSources = (sources.data?.items ?? []).filter(
     (capability) =>
@@ -3322,27 +3411,59 @@ function MyPublicationsPanel({
       !isRepositoryCapability(capability)
   )
   const items = publications.data?.items ?? []
+  const applicationItems = applicationPublications.data?.items ?? []
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         <PublicationFeedback error={error} />
-        <Button
-          type="button"
-          className="shrink-0"
-          disabled={publishableSources.length === 0}
-          onClick={() => {
-            setPublicationTarget(null)
-            setPublishOpen(true)
-          }}
-        >
-          <UploadIcon data-icon="inline-start" />
-          {t("marketplace.publishNew")}
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button type="button" className="shrink-0" />}
+          >
+            <UploadIcon data-icon="inline-start" />
+            {t("marketplace.applyForListing")}
+            <ChevronDownIcon data-icon="inline-end" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={() => setApplicationPickerOpen(true)}>
+                {t("marketplace.catalogTabs.application")}
+              </DropdownMenuItem>
+              {(["plugin", "skill"] as const).map((type) => (
+                <DropdownMenuItem
+                  key={type}
+                  disabled={
+                    !publishableSources.some((source) => source.type === type)
+                  }
+                  onClick={() => {
+                    setPublicationTarget(null)
+                    setPublishType(type)
+                    setPublishOpen(true)
+                  }}
+                >
+                  {t(marketplaceCatalogSectionKeys[type])}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      {items.length === 0 ? (
+      {items.length === 0 && applicationItems.length === 0 ? (
         <EmptyState title={t("marketplace.publicationsEmpty")} />
       ) : (
         <div className="capability-library-grid">
+          {applicationItems.map((release) => (
+            <ApplicationPublicationCard
+              key={release.application_id}
+              release={release}
+              onManage={() =>
+                setApplicationTarget({
+                  id: release.application_id,
+                  name: release.name,
+                })
+              }
+            />
+          ))}
           {items.map((publication) => (
             <PublicationCard
               key={publication.listing.id}
@@ -3361,13 +3482,33 @@ function MyPublicationsPanel({
       <PublishDialog
         open={publishOpen}
         publication={publicationTarget}
-        sources={publishableSources}
+        sources={
+          publicationTarget
+            ? publishableSources
+            : publishableSources.filter((source) => source.type === publishType)
+        }
         onOpenChange={setPublishOpen}
         onCompleted={async (message) => {
           onFeedback(message)
           await invalidate()
         }}
       />
+      {applicationPickerOpen && (
+        <ApplicationPublicationPicker
+          onClose={() => setApplicationPickerOpen(false)}
+          onSelect={(application) => {
+            setApplicationPickerOpen(false)
+            setApplicationTarget(application)
+          }}
+        />
+      )}
+      {applicationTarget && (
+        <ApplicationDistributionDialog
+          application={applicationTarget}
+          mode="center"
+          onClose={() => setApplicationTarget(null)}
+        />
+      )}
       <ReleaseDetailDialog
         publication={detailTarget}
         admin={false}
@@ -3382,6 +3523,9 @@ function MyPublicationsPanel({
 export function CapabilityManagementPage() {
   const { t } = useTranslation()
   const { user } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const { section } = capabilityCenterLocationFromSearch(location.search)
   const organizationMarketplaceEnabled =
     user?.registration_source === "organization_invitation"
   const [view, setView] = useState<UserCapabilityView>("store")
@@ -3396,54 +3540,83 @@ export function CapabilityManagementPage() {
   }
 
   return (
-    <PageLayout
-      title={t("marketplace.title")}
-      description={t(
-        organizationMarketplaceEnabled
-          ? "marketplace.description"
-          : "marketplace.personalAccountDescription"
-      )}
-      actions={
-        <>
-          {view !== "store" && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setView("store")}
-            >
-              <StoreIcon data-icon="inline-start" />
-              {t("marketplace.tabs.store")}
-            </Button>
-          )}
-          {organizationMarketplaceEnabled && (
-            <Button
-              type="button"
-              variant={view === "publishing" ? "secondary" : "ghost"}
-              size="sm"
-              aria-pressed={view === "publishing"}
-              onClick={() => setView("publishing")}
-            >
-              <UploadIcon data-icon="inline-start" />
-              {t("marketplace.tabs.publishing")}
-            </Button>
-          )}
-        </>
-      }
-      afterHeader={
-        view !== "publishing" && error ? <Feedback error={error} /> : null
-      }
+    <Tabs
+      className="h-full min-h-0 min-w-0 gap-0"
+      value={section}
+      onValueChange={(value) => {
+        const nextSection = marketplaceCatalogSections.find(
+          (item) => item === value
+        )
+        if (!nextSection) return
+        navigate(
+          capabilityCenterPath({
+            section: nextSection,
+            scope: "personal",
+            search: "",
+          })
+        )
+      }}
     >
-      {view === "store" && (
-        <MarketplaceCatalogPanel
-          onFeedback={feedback}
-          organizationMarketplaceEnabled={organizationMarketplaceEnabled}
-        />
-      )}
-      {view === "publishing" && organizationMarketplaceEnabled && (
-        <MyPublicationsPanel onFeedback={feedback} error={error} />
-      )}
-    </PageLayout>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 pt-4 pr-4 pl-14 sm:pr-6">
+        {view === "store" && (
+          <TabsList
+            className="max-w-full overflow-x-auto"
+            aria-label={t("marketplace.catalogTabsLabel")}
+          >
+            {marketplaceCatalogSections.map((value) => (
+              <TabsTrigger key={value} value={value}>
+                {t(marketplaceCatalogSectionKeys[value])}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        )}
+        {organizationMarketplaceEnabled && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn("shrink-0", view === "store" && "ml-auto")}
+            onClick={() => setView(view === "store" ? "publishing" : "store")}
+          >
+            {view === "store" ? (
+              <UploadIcon data-icon="inline-start" />
+            ) : (
+              <ArrowLeftIcon data-icon="inline-start" />
+            )}
+            {t(
+              view === "store"
+                ? "marketplace.tabs.publishing"
+                : "marketplace.backToCenter"
+            )}
+          </Button>
+        )}
+      </div>
+      <PageLayout
+        title={t(
+          view === "store"
+            ? marketplaceCatalogSectionKeys[section]
+            : "marketplace.tabs.publishing"
+        )}
+        description={t(
+          view === "store"
+            ? `marketplace.catalogDescriptions.${section}`
+            : "marketplace.publicationsDescription"
+        )}
+        afterHeader={
+          view !== "publishing" && error ? <Feedback error={error} /> : null
+        }
+      >
+        {view === "store" && (
+          <MarketplaceCatalogPanel
+            onFeedback={feedback}
+            organizationMarketplaceEnabled={organizationMarketplaceEnabled}
+          />
+        )}
+        {view === "publishing" && organizationMarketplaceEnabled && (
+          <MyPublicationsPanel onFeedback={feedback} error={error} />
+        )}
+      </PageLayout>
+    </Tabs>
   )
 }
 
@@ -3869,7 +4042,11 @@ function GovernanceListingItem({
   return (
     <MarketplaceGovernanceItem
       publication={publication}
-      status={publication.listing.status}
+      status={
+        publication.listing.status === "draft"
+          ? publication.latest_release.status
+          : publication.listing.status
+      }
       metadata={
         <span>
           {t("marketplace.installCount", {
@@ -3972,7 +4149,13 @@ export function AdminCapabilityManagementPage() {
             <StoreIcon data-icon="inline-start" />
             {t("marketplace.tabs.listings")}
           </TabsTrigger>
+          <TabsTrigger value="applications">
+            {t("applications.distribution.adminTitle")}
+          </TabsTrigger>
         </TabsList>
+        <TabsContent value="applications">
+          <ApplicationCenterAdminPanel />
+        </TabsContent>
         <TabsContent value="reviews">
           {reviews.isLoading ? (
             <LoadingState />

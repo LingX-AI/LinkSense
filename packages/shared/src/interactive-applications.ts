@@ -2,10 +2,32 @@ import { z } from "zod";
 
 import { timestampSchema, uuidSchema } from "./common.js";
 
+export const INTERACTIVE_APPLICATION_FILE_SOURCE =
+  "interactive_application_upload";
+export const interactiveApplicationFileIdsSchema = z
+  .array(uuidSchema)
+  .max(100)
+  .refine((ids) => new Set(ids).size === ids.length, "duplicate_file_id");
+export const interactiveApplicationFileSchema = z.strictObject({
+  id: uuidSchema,
+  filename: z.string().min(1).max(260),
+  mime_type: z.string().nullable(),
+  size_bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  status: z.enum(["staged", "bound"]),
+  turn_id: uuidSchema.nullable(),
+});
+export const interactiveApplicationFilesResultSchema = z.strictObject({
+  items: z.array(interactiveApplicationFileSchema),
+});
+export type InteractiveApplicationFile = z.infer<
+  typeof interactiveApplicationFileSchema
+>;
+
 export const interactiveApplicationTaskInputSchema = z.strictObject({
   prompt: z.string().trim().min(1).max(200_000),
   capability_ids: z.array(z.string()).max(50).default([]),
   knowledge_base_ids: z.array(uuidSchema).max(20).default([]),
+  file_ids: interactiveApplicationFileIdsSchema.default([]),
   idempotency_key: z.string().trim().min(1).max(120).optional(),
 });
 export type InteractiveApplicationTaskInput = z.infer<
@@ -45,6 +67,7 @@ export const interactiveApplicationPermissionSchema = z.enum([
   "knowledge_bases:read",
   "mcp_servers:read",
   "tasks:write",
+  "files:write",
 ]);
 
 export const interactiveApplicationManifestSchema = z
@@ -70,7 +93,7 @@ export const interactiveApplicationManifestSchema = z
     sdk_version: z.literal(1),
     permissions: z
       .array(interactiveApplicationPermissionSchema)
-      .max(5)
+      .max(interactiveApplicationPermissionSchema.options.length)
       .default([
         "user.profile:read",
         "capabilities:read",

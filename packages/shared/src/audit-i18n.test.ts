@@ -10,6 +10,17 @@ import {
 } from "./audit-i18n.js"
 
 describe("audit i18n catalog", () => {
+  it.each(["zh-CN", "en-US"] as const)("localizes all application distribution actions and their target in %s", (locale) => {
+    const translations = auditFlatTranslations(locale)
+    const actions = ["application_installed", "application_installation_updated", "application_share_modes_updated",
+      "application_center_submitted", "application_center_approved", "application_center_rejected",
+      "application_center_withdrawn", "application_center_published", "application_center_unlisted", "application_center_suspended"]
+    for (const action of actions) expect(translations[auditTranslationKey("actions", action)]).toBeTruthy()
+    expect(translations[auditTranslationKey("targetTypes", "application_distribution")]).toBe(
+      locale === "zh-CN" ? "应用分享与上架" : "Application sharing and listing"
+    )
+  })
+
   it("uses quota wording in Chinese credit audit actions and retains the English label", () => {
     const key = auditTranslationKey("actions", "users_credit_limits_updated")
     expect(auditFlatTranslations("zh-CN")[key]).toBe("已更新用户额度")

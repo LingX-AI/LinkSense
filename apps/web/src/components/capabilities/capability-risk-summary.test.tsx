@@ -112,6 +112,8 @@ describe("CapabilityRiskSummary", () => {
         <CapabilityRiskSummary
           value={capabilityRiskSummarySchema.parse({
             contains_scripts: true,
+            contains_external_connections: true,
+            declared_environment_keys: ["SERVICE_URL"],
             supply_chain_review: { verdict: "blocked" },
           })}
         />
@@ -119,6 +121,23 @@ describe("CapabilityRiskSummary", () => {
       expect(
         screen.getByText(i18n.t("marketplace.risks.contains_scripts"))
       ).toBeVisible()
+      for (const label of [
+        i18n.t("marketplace.risks.contains_scripts"),
+        i18n.t("marketplace.risks.contains_external_connections"),
+        i18n.t("marketplace.risks.declaredEnvironmentKeys", {
+          values: "SERVICE_URL",
+        }),
+      ]) {
+        expect(screen.getByText(label)).toHaveClass(
+          "rounded-2xl",
+          "border",
+          "border-divider"
+        )
+        expect(screen.getByText(label)).not.toHaveClass(
+          "border-transparent",
+          "border-border"
+        )
+      }
       expect(screen.queryByRole("heading")).not.toBeInTheDocument()
       expect(
         screen.queryByText(/供应链安全扫描|Supply-chain security scan/)

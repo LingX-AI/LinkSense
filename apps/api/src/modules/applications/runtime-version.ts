@@ -7,13 +7,15 @@ import { publishedApplicationDefinitionSchema } from "./published-definition.js"
 export async function assertApplicationRuntimeCurrent(
   tx: Prisma.TransactionClient,
   ownerId: string,
-  conversationVersionId: string | null,
   runtime: ApplicationRuntimeConfiguration,
 ): Promise<Application> {
   await tx.$queryRaw(Prisma.sql`SELECT id FROM applications WHERE id = ${runtime.applicationId}::uuid FOR SHARE`);
   const application = await tx.application.findFirst({ where: { id: runtime.applicationId, ownerId: runtime.applicationOwnerId, status: "active" } });
-  if (!application || conversationVersionId !== runtime.applicationVersionId) throw new AppError("CONFLICT");
+  if (!application) throw new AppError("CONFLICT");
   if (runtime.applicationVersionId !== null) {
+    // A publication arriving during admission does not invalidate this start.
+    // Its immutable resources were resolved when the request began; the next
+    // execution resolves the latest release instead of reusing a task pin.
     const version = await tx.applicationVersion.findFirst({ where: { id: runtime.applicationVersionId, applicationId: application.id, assetsReady: true } });
     if (!version) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
     const definition = publishedApplicationDefinitionSchema.parse(version.definitionJson);

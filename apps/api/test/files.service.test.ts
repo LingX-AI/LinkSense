@@ -441,6 +441,40 @@ describe("FileService workspace and MIME boundaries", () => {
     expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it("uploads application files through the existing workspace pipeline with a separate source", async () => {
+    const fixture = await fileFixture();
+    const tx = attachmentUploadTransactionFixture();
+    fixture.prisma.$transaction.mockImplementationOnce(async (operation: (transaction: typeof tx) => Promise<unknown>) => operation(tx));
+    await expect(fixture.service.uploadAttachment(OWNER_ID, CONVERSATION_ID, { filename: "notes.txt", data: Buffer.from("notes"), interactive: true }, {})).resolves.toMatchObject({ source: "interactive_application_upload", status: "staged" });
+    expect(fixture.conversations.assertInteractiveFileAccess).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID);
+    expect(tx.conversationFile.create).toHaveBeenCalledWith({ data: expect.objectContaining({ source: "interactive_application_upload", status: "staged", createdBy: OWNER_ID }) });
+  });
+
+  it("returns only safe application file metadata and restores staged and bound files", async () => {
+    const fixture = await fileFixture();
+    fixture.prisma.conversationFile.findMany.mockResolvedValue([{ id: FILE_ID, filename: "notes.txt", mimeType: "text/plain", sizeBytes: 5n, status: "bound", turnId: CONVERSATION_ID, workspaceRelativePath: "private/path", checksumSha256: "secret" }]);
+    await expect(fixture.service.listInteractiveAttachments(OWNER_ID, CONVERSATION_ID)).resolves.toEqual({ items: [{ id: FILE_ID, filename: "notes.txt", mime_type: "text/plain", size_bytes: 5, status: "bound", turn_id: CONVERSATION_ID }] });
+    expect(fixture.prisma.conversationFile.findMany).toHaveBeenCalledWith({ where: { conversationId: CONVERSATION_ID, kind: "attachment", source: "interactive_application_upload", status: { in: ["staged", "bound"] } }, orderBy: { createdAt: "asc" } });
+  });
+
+  it("denies application file upload, listing and removal without permission", async () => {
+    const fixture = await fileFixture();
+    fixture.conversations.assertInteractiveFileAccess.mockRejectedValue(new AppError("FORBIDDEN"));
+    await expect(fixture.service.uploadAttachment(OWNER_ID, CONVERSATION_ID, { filename: "notes.txt", data: Buffer.from("notes"), interactive: true }, {})).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(fixture.service.listInteractiveAttachments(OWNER_ID, CONVERSATION_ID)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(fixture.service.deleteStagedAttachments(OWNER_ID, CONVERSATION_ID, [FILE_ID], {}, true)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversationFile.findMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects removal of already submitted application attachments", async () => {
+    const fixture = await fileFixture();
+    const tx = { $queryRaw: vi.fn(async () => []), conversationFile: { deleteMany: vi.fn() } };
+    fixture.prisma.$transaction.mockImplementationOnce(async (operation: (transaction: typeof tx) => Promise<unknown>) => operation(tx));
+    await expect(fixture.service.deleteStagedAttachments(OWNER_ID, CONVERSATION_ID, [FILE_ID], {}, true)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(tx.conversationFile.deleteMany).not.toHaveBeenCalled();
+  });
+
   it("stores a detectable attachment by its actual MIME when its filename extension disagrees", async () => {
     const fixture = await fileFixture();
     const tx = attachmentUploadTransactionFixture();
@@ -2503,6 +2537,7 @@ async function fileFixture(
   const prisma = {
     conversationFile: {
       count: vi.fn(async () => 0),
+      findMany: vi.fn(async () => [] as Array<Record<string, unknown>>),
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
     },
     conversationTurn: {
@@ -2521,6 +2556,7 @@ async function fileFixture(
     $transaction: vi.fn(),
   };
   const conversations = {
+    assertInteractiveFileAccess: vi.fn(async () => undefined),
     assertOwner: vi.fn(async () => ({
       id: CONVERSATION_ID,
       ownerId: OWNER_ID,

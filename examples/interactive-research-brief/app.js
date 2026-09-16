@@ -3,6 +3,8 @@
 
   const copy = {
     "zh-CN": {
+      filesLabel: "参考文件", filesHint: "可选择多个文件，上传完成后随本次研究一起提交。", fileUploading: "上传中", fileFailed: "上传失败，请重试或移除后再提交", fileRemove: "移除", fileRetry: "重试", fileRemoveFailed: "无法移除文件，请稍后重试",
+
       workspaceLabel: "研究工作台", appTitle: "交互式研究简报", connecting: "正在连接 LinkSense", connected: "已连接 LinkSense", connectError: "无法连接 LinkSense",
       toggleChat: "显示 / 隐藏对话", configureTitle: "定义这次研究", configureHint: "填写目标与交付偏好，LinkSense 会据此组织完整任务。", loadingUser: "读取当前用户...", topicLabel: "你希望研究什么？",
       topicPlaceholder: "例如：评估生成式 AI 在制造业售后服务中的落地机会，并给出未来 90 天的行动建议", topicHint: "描述目标、背景和你真正需要做出的决定",
@@ -22,6 +24,8 @@
       priority: "优先级", impact: "影响", high: "高", medium: "中", low: "低", selected: "已选择", resourceUnit: "项", unknownUser: "LinkSense 用户"
     },
     "en-US": {
+      filesLabel: "Reference files", filesHint: "Select multiple files and submit them with this research after uploading.", fileUploading: "Uploading", fileFailed: "Upload failed. Retry or remove the file before submitting", fileRemove: "Remove", fileRetry: "Retry", fileRemoveFailed: "Could not remove the file. Please try again",
+
       workspaceLabel: "Research workspace", appTitle: "Interactive Research Brief", connecting: "Connecting to LinkSense", connected: "Connected to LinkSense", connectError: "Unable to connect to LinkSense",
       toggleChat: "Show / hide chat", configureTitle: "Define the research", configureHint: "Set the objective and delivery preferences so LinkSense can structure the task.", loadingUser: "Loading current user...", topicLabel: "What would you like to research?",
       topicPlaceholder: "Example: Evaluate generative AI opportunities in manufacturing after-sales service and propose a 90-day action plan", topicHint: "Describe the goal, context, and the decision you need to make",
@@ -44,6 +48,10 @@
 
   const state = {
     locale: "zh-CN",
+    files: [],
+    fileBusy: false,
+    submitting: false,
+    ready: false,
     user: null,
     capabilities: [],
     knowledgeBases: [],
@@ -295,8 +303,66 @@
     while (feed.children.length > 30) feed.lastElementChild?.remove();
   }
 
+  function renderFiles() {
+    const disabled = !state.ready || state.fileBusy || state.submitting;
+    byId("research-files").disabled = disabled;
+    byId("run-task").disabled = disabled || state.files.some((item) => item.status === "failed");
+    byId("research-file-list").replaceChildren(...state.files.map((item) => {
+      const row = document.createElement("li");
+      const label = document.createElement("span");
+      label.textContent = item.attachment?.filename || item.file.name;
+      row.append(label);
+      if (item.status !== "uploaded") {
+        const status = document.createElement("span");
+        status.textContent = t(item.status === "failed" ? "fileFailed" : "fileUploading");
+        row.append(status);
+      }
+      if (item.status === "failed") {
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "button button-ghost";
+        retry.textContent = t("fileRetry");
+        retry.disabled = disabled;
+        retry.addEventListener("click", () => void uploadFiles([item]));
+        row.append(retry);
+      }
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "button button-ghost";
+      remove.textContent = t("fileRemove");
+      remove.disabled = disabled;
+      remove.addEventListener("click", async () => {
+        state.fileBusy = true;
+        renderFiles();
+        try {
+          if (item.attachment) await window.LinkSense.files.remove(item.attachment.id);
+          state.files = state.files.filter((candidate) => candidate !== item);
+        } catch { showToast(t("fileRemoveFailed"), true); }
+        finally { state.fileBusy = false; renderFiles(); }
+      });
+      row.append(remove);
+      return row;
+    }));
+  }
+
+  async function uploadFiles(items) {
+    if (state.fileBusy || state.submitting || !state.ready) return;
+    state.fileBusy = true;
+    for (const item of items) {
+      item.status = "uploading";
+      renderFiles();
+      try {
+        item.attachment = await window.LinkSense.files.upload(item.file);
+        item.status = "uploaded";
+      } catch { item.status = "failed"; }
+    }
+    state.fileBusy = false;
+    renderFiles();
+  }
+
   async function submitTask(event) {
     event.preventDefault();
+    if (!state.ready || state.fileBusy || state.submitting || state.files.some((item) => item.status !== "uploaded")) return;
     const topic = byId("topic");
     if (!topic.value.trim()) {
       topic.focus();
@@ -306,16 +372,19 @@
     }
     topic.removeAttribute("aria-invalid");
     const button = byId("run-task");
-    button.disabled = true;
+    state.submitting = true;
+    renderFiles();
     const buttonLabel = button.querySelector("span");
     buttonLabel.textContent = t("runningTask");
     try {
       const receipt = await window.LinkSense.tasks.run({
         prompt: buildPrompt(),
+        file_ids: state.files.map((item) => item.attachment.id),
         capability_ids: selectedValues("capability"),
         knowledge_base_ids: selectedValues("knowledge"),
         idempotency_key: `interactive-brief-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       });
+      state.files = [];
       state.activeTurnId = receipt.turn_id;
       byId("run-status").hidden = false;
       byId("turn-id").textContent = receipt.turn_id;
@@ -325,7 +394,8 @@
       console.error("Failed to start LinkSense task", error);
       showToast(t("taskFailed"), true);
     } finally {
-      button.disabled = false;
+      state.submitting = false;
+      renderFiles();
       buttonLabel.textContent = t("runTask");
     }
   }
@@ -348,6 +418,12 @@
   }
 
   function bindUi() {
+    byId("research-files").addEventListener("change", (event) => {
+      const items = Array.from(event.target.files || []).map((file) => ({ file, status: "uploading", attachment: null }));
+      event.target.value = "";
+      state.files.push(...items);
+      void uploadFiles(items);
+    });
     byId("topic").addEventListener("input", (event) => {
       byId("topic-count").textContent = `${event.target.value.length} / 4000`;
       if (event.target.value.trim()) event.target.removeAttribute("aria-invalid");
@@ -380,6 +456,10 @@
         window.LinkSense.events.on("brief.action_ready", (event) => receiveEvent("action", event))
       );
       await loadResources();
+      const { items } = await window.LinkSense.files.list();
+      state.files = items.filter((file) => file.status === "staged").map((attachment) => ({ attachment, status: "uploaded" }));
+      state.ready = true;
+      renderFiles();
     } catch (error) {
       console.error("Failed to initialize LinkSense SDK", error);
       setConnection("error", t("connectError"));

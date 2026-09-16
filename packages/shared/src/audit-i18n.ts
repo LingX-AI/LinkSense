@@ -5,6 +5,16 @@ type AuditMessages = Readonly<Record<string, readonly [string, string]>>
 const actionMessages = {
   application_created: ["已创建应用", "Application created"],
   application_copied: ["已复制应用", "Application copied"],
+  application_installed: ["已安装应用", "Application installed"],
+  application_installation_updated: ["已更新安装的应用", "Installed application updated"],
+  application_share_modes_updated: ["已修改应用分享方式", "Application sharing options updated"],
+  application_center_submitted: ["已提交应用上架审批", "Application submitted for approval"],
+  application_center_approved: ["已通过应用上架审批", "Application listing approved"],
+  application_center_rejected: ["已拒绝应用上架申请", "Application listing rejected"],
+  application_center_withdrawn: ["已撤回应用上架申请", "Application submission withdrawn"],
+  application_center_published: ["已恢复应用上架", "Application listing restored"],
+  application_center_unlisted: ["已下架应用", "Application unlisted"],
+  application_center_suspended: ["已停用应用上架项", "Application listing suspended"],
   application_published: ["已发布应用版本", "Application version published"],
   application_deleted: ["已删除应用", "Application deleted"],
   application_embed_ticket_issued: ["已签发应用嵌入票据", "Application embed ticket issued"],
@@ -198,6 +208,7 @@ const actionMessages = {
 
 const targetTypeMessages = {
   application: ["应用", "Application"],
+  application_distribution: ["应用分享与上架", "Application sharing and listing"],
   application_external_access: ["应用外部访问", "Application external access"],
   application_external_session: ["应用外部会话", "Application external session"],
   application_grant: ["应用授权", "Application grant"],

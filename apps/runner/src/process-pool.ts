@@ -158,6 +158,7 @@ import {
   type SteerOperationState,
 } from "./steer-operation.js";
 import {
+  CapabilityRuntimeError,
   CapabilityRuntimeManager,
   type CapabilityRuntimeLease,
   type CapabilityRuntimeInput,
@@ -791,18 +792,11 @@ type PreparedUserMcpProxyRuntime = {
   configServers: RuntimeMcpServer[];
 };
 
-type TaskCapabilityLeaseState = {
-  generation: string;
-  capabilityControl: string;
-  holders: Set<TaskCapabilityLeaseToken>;
-  release: CapabilityRuntimeLease["release"];
-};
-
 type TaskCapabilityLeaseToken = {
   ownerId: string;
   conversationId: string;
   projectionTurnId: string;
-  lease: TaskCapabilityLeaseState;
+  lease: CapabilityRuntimeLease;
   managed: ManagedProcess | null;
   released: boolean;
 };
@@ -830,10 +824,6 @@ export class AppServerProcessPool {
   private processCapacityTail: Promise<void> = Promise.resolve();
   private readonly processLifecycleLocks = new Map<string, Promise<void>>();
   private readonly taskCapabilityLocks = new Map<string, Promise<void>>();
-  private readonly taskCapabilityLeases = new Map<
-    string,
-    TaskCapabilityLeaseState
-  >();
   private readonly activeStartOperations = new Map<string, Promise<void>>();
   private readonly startOperationLocks = new Map<string, Promise<void>>();
   private readonly startOperationStore: StartOperationStore;
@@ -1436,6 +1426,10 @@ export class AppServerProcessPool {
           }
           await this.releaseManagedCapabilityLeaseIfIdle(managed);
           throw error;
+        } finally {
+          // Keep the native turn and its recovery identity alive. Only the
+          // short publication fence ends when startup has consumed the files.
+          await this.processes.get(input.conversationId)?.capabilityLeaseToken?.lease.releasePublicationLock();
         }
       }),
     );
@@ -2771,6 +2765,27 @@ export class AppServerProcessPool {
           );
           await this.interruptCancelledStart(managed, input.projectionTurnId);
           return { thread: recovered.thread, goal: managed.activeGoal };
+        } catch (error) {
+          if (!(error instanceof CapabilityRuntimeError) ||
+              this.processes.get(input.conversationId)?.client.isHealthy) throw error;
+          // An app update may have replaced the old generation after this
+          // process exited. Observing a native terminal result needs no plugin
+          // activation, model lease, thread/resume or turn replay.
+          if (await this.options.workspaceManager.readRuntimeGeneration(input.conversationId) !== input.expectedRuntimeGeneration) {
+            throw new StartOperationRuntimeGenerationMismatchError();
+          }
+          return await this.withThreadMetadataClient(input.conversationId, input, async client => {
+            const { thread } = await client.request<ThreadReadResponse>("thread/read", { threadId: input.codexThreadId, includeTurns: true });
+            if (thread.id !== input.codexThreadId) throw new CodexProtocolError("Codex read an unexpected thread");
+            assertLinkSenseThreadProvider(thread, "read");
+            const turn = thread.turns?.find(candidate => candidate.id === input.codexTurnId);
+            if (!turn || !isTerminalTurn(turn)) throw error;
+            const { goal } = input.taskKind === "goal"
+              ? await client.request<ThreadGoalGetResponse>("thread/goal/get", { threadId: input.codexThreadId })
+              : { goal: null };
+            if (input.taskKind === "goal" && (!goal || goal.threadId !== input.codexThreadId || goal.status === "active")) throw error;
+            return { thread, goal };
+          });
         } finally {
           if (managed && this.processes.get(input.conversationId) === managed) {
             managed.starting = false;
@@ -3720,6 +3735,8 @@ export class AppServerProcessPool {
         );
       }
       throw error;
+    } finally {
+      await preparedCapability?.leaseToken.lease.releasePublicationLock();
     }
   }
 
@@ -4877,31 +4894,10 @@ export class AppServerProcessPool {
     controlRoot: string;
     generation: string;
   }): Promise<TaskCapabilityLeaseToken> {
-    let lease = this.taskCapabilityLeases.get(input.ownerId);
-    if (lease) {
-      if (
-        lease.generation !== input.generation ||
-        lease.capabilityControl !== join(input.controlRoot, "capabilities")
-      ) {
-        throw new CodexProtocolError(
-          "task capability generation is still in use",
-        );
-      }
-    } else {
-      const acquired = await this.options.capabilityRuntimeManager.acquireLease(
-        {
-          controlRoot: input.controlRoot,
-          expectedGeneration: input.generation,
-        },
-      );
-      lease = {
-        generation: acquired.generation,
-        capabilityControl: acquired.capabilityControl,
-        holders: new Set(),
-        release: acquired.release,
-      };
-      this.taskCapabilityLeases.set(input.ownerId, lease);
-    }
+    const lease = await this.options.capabilityRuntimeManager.acquireLease({
+      controlRoot: input.controlRoot,
+      expectedGeneration: input.generation,
+    });
     const token: TaskCapabilityLeaseToken = {
       ownerId: input.ownerId,
       conversationId: input.conversationId,
@@ -4910,7 +4906,6 @@ export class AppServerProcessPool {
       managed: null,
       released: false,
     };
-    lease.holders.add(token);
     return token;
   }
 
@@ -4921,10 +4916,6 @@ export class AppServerProcessPool {
     token.released = true;
     token.managed = null;
     const { lease } = token;
-    if (!lease.holders.delete(token) || lease.holders.size > 0) return;
-    if (this.taskCapabilityLeases.get(token.ownerId) === lease) {
-      this.taskCapabilityLeases.delete(token.ownerId);
-    }
     await lease.release();
   }
 

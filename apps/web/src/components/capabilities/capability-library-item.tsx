@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
+import { AppWindowIcon } from "lucide-react"
 
 import type { CapabilitySummary } from "@/api/contracts"
 import {
@@ -52,7 +53,7 @@ export function CapabilityLibraryItem({
   onInspect,
 }: {
   name: string
-  type: CapabilityType
+  type: CapabilityType | "application"
   logoUrl?: string | null
   logo?: ReactNode
   typeLabel?: string
@@ -70,7 +71,14 @@ export function CapabilityLibraryItem({
 }) {
   const { t } = useTranslation()
   const resolvedTypeLabel =
-    typeLabel ?? t(type === "plugin" ? "capability.plugin" : "capability.skill")
+    typeLabel ??
+    t(
+      type === "application"
+        ? "marketplace.catalogTabs.application"
+        : type === "plugin"
+          ? "capability.plugin"
+          : "capability.skill"
+    )
   const actionMenu = actions && (
     <div className="capability-library-actions">{actions}</div>
   )
@@ -93,7 +101,14 @@ export function CapabilityLibraryItem({
           onClick={onInspect}
         />
       )}
-      {logo ?? <CapabilityLogo type={type} logoUrl={logoUrl} />}
+      {logo ??
+        (type === "application" ? (
+          <span className="capability-logo">
+            <AppWindowIcon aria-hidden="true" />
+          </span>
+        ) : (
+          <CapabilityLogo type={type} logoUrl={logoUrl} />
+        ))}
       <div className="capability-library-body">
         <div className="capability-library-title-row">
           <h3 className="capability-library-name">{name}</h3>

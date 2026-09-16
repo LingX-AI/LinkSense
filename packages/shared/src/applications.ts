@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { applicationVersionInputSchema } from "./application-version.js";
 
 import { capabilityTypeSchema } from "./capabilities.js";
 import { timestampSchema, uniqueArraySchema, uuidSchema } from "./common.js";
@@ -7,6 +8,7 @@ import {
   reasoningEffortSchema,
 } from "./model-provider.js";
 import { interactiveApplicationPackageSchema } from "./interactive-applications.js";
+import { applicationUsageModesSchema } from "./application-distribution.js";
 
 export const applicationStatusSchema = z.enum(["active", "disabled"]);
 export const applicationUnavailableReasonSchema = z.enum([
@@ -23,6 +25,7 @@ export const applicationAccessSourceSchema = z.enum([
   "owner",
   "direct",
   "user_group",
+  "center",
 ]);
 export const applicationGranteeTypeSchema = z.enum(["user", "user_group"]);
 
@@ -208,6 +211,7 @@ export const applicationGrantSchema = z.strictObject({
   id: uuidSchema,
   application_id: uuidSchema,
   grantee_type: applicationGranteeTypeSchema,
+  usage_modes: applicationUsageModesSchema,
   target: z.strictObject({
     id: uuidSchema,
     name: z.string().min(1).max(120),
@@ -223,10 +227,12 @@ export const createApplicationGrantInputSchema = z.discriminatedUnion(
     z.strictObject({
       grantee_type: z.literal("user"),
       user_id: uuidSchema,
+      usage_modes: applicationUsageModesSchema,
     }),
     z.strictObject({
       grantee_type: z.literal("user_group"),
       user_group_id: uuidSchema,
+      usage_modes: applicationUsageModesSchema,
     }),
   ],
 );
@@ -237,6 +243,11 @@ export const applicationShareTargetSchema = z.strictObject({
   name: z.string().min(1).max(120),
   secondary_text: z.string().max(320).nullable(),
 });
+
+export const applicationShareInputSchema = applicationVersionInputSchema.extend({
+  target: createApplicationGrantInputSchema.nullable(),
+});
+export type ApplicationShareInput = z.infer<typeof applicationShareInputSchema>;
 
 export const applicationConversationSchema = z.strictObject({
   conversation_id: uuidSchema,

@@ -17,6 +17,7 @@ describe("interactive application contracts", () => {
       prompt: prompt.trim(),
       capability_ids: [],
       knowledge_base_ids: [],
+      file_ids: [],
     });
     for (const invalid of ["", "  ", "x".repeat(200_001)]) {
       expect(
@@ -30,6 +31,17 @@ describe("interactive application contracts", () => {
         knowledge_base_ids: ["invalid"],
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts explicit file selection and rejects invalid, duplicate or excessive IDs", () => {
+    const id = "70000000-0000-4000-8000-000000000001";
+    expect(interactiveApplicationTaskInputSchema.parse({ prompt: "Analyze", file_ids: [id] }).file_ids).toEqual([id]);
+    for (const file_ids of [["bad"], [id, id], Array(101).fill(id)]) {
+      expect(interactiveApplicationTaskInputSchema.safeParse({ prompt: "Analyze", file_ids }).success).toBe(false);
+    }
+    const oldManifest = { schema_version: 1, id: "example", name: "Example", version: "1", sdk_version: 1 };
+    expect(interactiveApplicationManifestSchema.parse(oldManifest).permissions).not.toContain("files:write");
+    expect(interactiveApplicationManifestSchema.parse({ ...oldManifest, permissions: ["tasks:write", "files:write"] }).permissions).toContain("files:write");
   });
 
   it("distinguishes persisted application message metadata from Office annotations", () => {

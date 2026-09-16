@@ -1,7 +1,13 @@
-import { ApplicationPublicationDialog } from "./application-publication-dialog"
+import { ApplicationUsageGuideDialog } from "./application-usage-guide-dialog"
+import { ApplicationDistributionDialog } from "./application-distribution-dialog"
+import { useApplicationDistributionSummaries } from "./application-distribution-queries"
+import {
+  ApplicationInstallationDialog,
+  ApplicationInstallationUpdateDialog,
+  type ApplicationInstallTarget,
+} from "./application-installation-dialog"
 import {
   useDeferredValue,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -15,14 +21,13 @@ import {
   FileArchiveIcon,
   MoreHorizontalIcon,
   PencilIcon,
+  PlayIcon,
   PlusIcon,
   PowerIcon,
   ServerIcon,
   Share2Icon,
   Trash2Icon,
   UploadIcon,
-  UserIcon,
-  UserRoundIcon,
   UsersIcon,
   WrenchIcon,
 } from "lucide-react"
@@ -44,16 +49,12 @@ import { z } from "zod"
 import { apiRequest } from "@/api/client"
 import {
   applicationConversationSchema,
-  applicationGrantSchema,
   applicationSchema,
-  applicationShareTargetSchema,
   capabilitySummarySchema,
   mcpServerSchema,
   modelPreferenceSchema,
   paginatedSchema,
   type Application,
-  type ApplicationGrant,
-  type ApplicationShareTarget,
   type CapabilitySummary,
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
@@ -67,6 +68,7 @@ import {
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import {
   Card,
   CardAction,
@@ -81,7 +83,6 @@ import {
   ComboboxChipsInput,
   ComboboxContent,
   ComboboxEmpty,
-  ComboboxInput,
   ComboboxItem,
   ComboboxList,
   ComboboxValue,
@@ -118,7 +119,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
@@ -127,23 +127,13 @@ import {
 } from "@/features/applications/application-icon"
 import { applicationIconPresetOptions } from "@/features/applications/application-icon-presets"
 import { useKnowledgeBaseList } from "@/features/knowledge-bases/knowledge-base-hooks"
-import { readUrlEnum, updateUrlSearchParams } from "@/lib/url-search-params"
+import { updateUrlSearchParams } from "@/lib/url-search-params"
 
 const applicationPageSchema = paginatedSchema(applicationSchema)
-const applicationGrantPageSchema = paginatedSchema(applicationGrantSchema)
-const applicationShareTargetPageSchema = paginatedSchema(
-  applicationShareTargetSchema
-)
 const mcpServerListSchema = z.strictObject({ items: z.array(mcpServerSchema) })
 const emptyResponseSchema = z.unknown()
 const USER_SELECTED_MODEL_VALUE = "__application_user_selected_model__"
 const APPLICATION_SHARE_TARGET_PREVIEW_LIMIT = 2
-
-type ApplicationScope = "all" | "owned" | "shared"
-
-type ApplicationShareDisplayItem =
-  | { kind: "selected"; target: ApplicationShareTarget }
-  | { kind: "grant"; grant: ApplicationGrant }
 
 function InteractiveApplicationImportDialog({
   application,
@@ -259,11 +249,6 @@ function InteractiveApplicationImportDialog({
   )
 }
 
-type ApplicationGrantPage = {
-  items: ApplicationGrant[]
-  next_cursor: string | null
-}
-
 function formatApplicationShareTargets(
   targets: Application["share_targets"],
   formatter: Intl.ListFormat
@@ -338,29 +323,19 @@ function RequiredFieldLabel({
 
 export function ApplicationCatalogPanel({
   onFeedback,
+  scope,
+  onInstalled,
   organizationSharingEnabled = true,
 }: {
   onFeedback: (message: string, isError?: boolean) => void
+  scope: "owned" | "shared"
+  onInstalled?: () => void
   organizationSharingEnabled?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const requestedScope = readUrlEnum<ApplicationScope>(
-    searchParams,
-    "app_scope",
-    ["all", "owned", "shared"],
-    "all"
-  )
-  const scope = organizationSharingEnabled ? requestedScope : "owned"
-  useEffect(() => {
-    if (organizationSharingEnabled || requestedScope === "owned") return
-    setSearchParams(
-      (current) => updateUrlSearchParams(current, { app_scope: "owned" }),
-      { replace: true }
-    )
-  }, [organizationSharingEnabled, requestedScope, setSearchParams])
   const search = searchParams.get("app_search") ?? ""
   const updateCatalogParams = (
     updates: Readonly<Record<string, string | null>>
@@ -374,8 +349,16 @@ export function ApplicationCatalogPanel({
     open: boolean
     application: Application | null
   }>({ open: false, application: null })
-  const [publicationTarget, setPublicationTarget] = useState<Application | null>(null)
-  const [shareTarget, setShareTarget] = useState<Application | null>(null)
+  const [distributionTarget, setDistributionTarget] = useState<{
+    application: Application
+    mode: "direct" | "center"
+  } | null>(null)
+  const [publicationTarget, setPublicationTarget] =
+    useState<Application | null>(null)
+  const [installTarget, setInstallTarget] =
+    useState<ApplicationInstallTarget | null>(null)
+  const [updateTarget, setUpdateTarget] = useState<Application | null>(null)
+  const distribution = useApplicationDistributionSummaries()
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null)
   const [createChoiceOpen, setCreateChoiceOpen] = useState(false)
   const [interactiveImportTarget, setInteractiveImportTarget] = useState<
@@ -392,12 +375,6 @@ export function ApplicationCatalogPanel({
       ),
     [i18n.resolvedLanguage]
   )
-  const scopeItems = [
-    { value: "all", label: t("applications.scope.all") },
-    { value: "owned", label: t("applications.scope.owned") },
-    { value: "shared", label: t("applications.scope.shared") },
-  ]
-
   const applications = useQuery({
     queryKey: ["applications", scope, deferredSearch],
     queryFn: ({ signal }) =>
@@ -460,33 +437,6 @@ export function ApplicationCatalogPanel({
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row">
-          {organizationSharingEnabled && (
-            <Select
-              items={scopeItems}
-              value={scope}
-              onValueChange={(value) =>
-                updateCatalogParams({
-                  app_scope: value === "all" ? null : value,
-                })
-              }
-            >
-              <SelectTrigger
-                className="w-full sm:w-40"
-                aria-label={t("applications.scopeLabel")}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {scopeItems.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          )}
           <InputGroup className="w-full md:max-w-md">
             <SearchInput
               value={search}
@@ -498,13 +448,21 @@ export function ApplicationCatalogPanel({
             />
           </InputGroup>
         </div>
-        <Button type="button" onClick={() => setCreateChoiceOpen(true)}>
-          <PlusIcon data-icon="inline-start" />
-          {t("applications.create")}
-        </Button>
+        {scope === "owned" && (
+          <Button type="button" onClick={() => setCreateChoiceOpen(true)}>
+            <PlusIcon data-icon="inline-start" />
+            {t("applications.create")}
+          </Button>
+        )}
       </div>
 
       {applications.isLoading && <LoadingState />}
+      {distribution.error && (
+        <ErrorState
+          message={getErrorMessage(distribution.error, t)}
+          onRetry={() => void distribution.refetch()}
+        />
+      )}
       {applications.isError && (
         <ErrorState
           message={getErrorMessage(applications.error, t)}
@@ -517,7 +475,13 @@ export function ApplicationCatalogPanel({
       {applications.data && applications.data.items.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2">
           {applications.data.items.map((application) => {
+            const starting =
+              startConversation.isPending &&
+              startConversation.variables?.id === application.id
             const unavailable = !application.dependencies_available
+            const sharing = distribution.data?.items.find(
+              (item) => item.application_id === application.id
+            )
             const shareTargetSummary = formatApplicationShareTargets(
               application.share_targets,
               shareTargetListFormatter
@@ -534,21 +498,32 @@ export function ApplicationCatalogPanel({
                       <h3 className="truncate font-medium">
                         {application.name}
                       </h3>
-                      {application.kind === "interactive" && (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {t("applications.interactiveApp")}
-                          {application.interactive_package
-                            ? ` · v${application.interactive_package.version}`
-                            : ""}
-                        </p>
-                      )}
-                      <p className="mt-auto truncate text-xs leading-4 text-muted-foreground">
-                        {application.is_owner
-                          ? t("applications.createdByMe")
-                          : t("applications.createdBy", {
-                              name: application.owner.name,
-                            })}
-                      </p>
+                      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-4 text-muted-foreground">
+                        {application.kind === "interactive" && (
+                          <span className="max-w-full truncate">
+                            {t("applications.interactiveApp")}
+                            {application.interactive_package
+                              ? ` · v${application.interactive_package.version}`
+                              : ""}
+                          </span>
+                        )}
+                        <span className="min-w-0 truncate">
+                          {application.is_owner
+                            ? sharing?.installation
+                              ? t(
+                                  "applications.distribution.installedVersion",
+                                  {
+                                    version:
+                                      sharing.installation
+                                        .installed_version_number,
+                                  }
+                                )
+                              : t("applications.createdByMe")
+                            : t("applications.createdBy", {
+                                name: application.owner.name,
+                              })}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   <CardAction className="flex items-center gap-1">
@@ -604,28 +579,48 @@ export function ApplicationCatalogPanel({
                               </DropdownMenuItem>
                             )}
                             {organizationSharingEnabled && (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    setDistributionTarget({
+                                      application,
+                                      mode: "direct",
+                                    })
+                                  }
+                                >
+                                  <Share2Icon aria-hidden="true" />
+                                  {t("applications.distribution.direct")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    setDistributionTarget({
+                                      application,
+                                      mode: "center",
+                                    })
+                                  }
+                                >
+                                  <UploadIcon aria-hidden="true" />
+                                  {t("applications.distribution.applyListing")}
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                            {sharing?.installation && (
                               <DropdownMenuItem
-                                className="whitespace-nowrap"
-                                onClick={() => setShareTarget(application)}
+                                onClick={() => setUpdateTarget(application)}
                               >
-                                <Share2Icon aria-hidden="true" />
-                                {t("applications.shareWithinOrganization")}
+                                {t("applications.distribution.checkUpdate")}
                               </DropdownMenuItem>
                             )}
-                            <DropdownMenuItem
-                              className="whitespace-nowrap"
-                              disabled={toggleApplicationStatus.isPending}
-                              onClick={() =>
-                                toggleApplicationStatus.mutate(application)
-                              }
-                            >
-                              <PowerIcon aria-hidden="true" />
-                              {t(
-                                application.status === "active"
-                                  ? "common.disable"
-                                  : "common.enable"
+                            {application.kind === "interactive" &&
+                              sharing?.installation && (
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    setEditor({ open: true, application })
+                                  }
+                                >
+                                  {t("applications.distribution.configure")}
+                                </DropdownMenuItem>
                               )}
-                            </DropdownMenuItem>
                             <DropdownMenuItem
                               className="whitespace-nowrap"
                               render={
@@ -652,6 +647,20 @@ export function ApplicationCatalogPanel({
                             )}
                             <DropdownMenuItem
                               className="whitespace-nowrap"
+                              disabled={toggleApplicationStatus.isPending}
+                              onClick={() =>
+                                toggleApplicationStatus.mutate(application)
+                              }
+                            >
+                              <PowerIcon aria-hidden="true" />
+                              {t(
+                                application.status === "active"
+                                  ? "common.disable"
+                                  : "common.enable"
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="whitespace-nowrap"
                               variant="destructive"
                               onClick={() => setDeleteTarget(application)}
                             >
@@ -665,7 +674,7 @@ export function ApplicationCatalogPanel({
                   </CardAction>
                 </CardHeader>
                 <CardContent className="flex flex-1 flex-col gap-3">
-                  <p className="line-clamp-2 min-h-10 text-sm leading-5 break-words text-muted-foreground">
+                  <p className="line-clamp-2 min-h-10 text-[length:var(--app-font-13)] leading-5 break-words text-muted-foreground">
                     {application.description || t("applications.noDescription")}
                   </p>
                   <div
@@ -716,26 +725,92 @@ export function ApplicationCatalogPanel({
                       </Badge>
                     )}
                   </div>
-                  {unavailable && (
-                    <StatusBanner variant="warning">
-                      {t("applications.dependencyUnavailable")}
-                    </StatusBanner>
-                  )}
+                  {unavailable &&
+                    (application.is_owner ||
+                      sharing?.usage_modes.includes("service")) && (
+                      <StatusBanner variant="warning">
+                        {t("applications.dependencyUnavailable")}
+                      </StatusBanner>
+                    )}
                 </CardContent>
                 <CardFooter className="flex-wrap justify-end gap-2">
-                  <Button type="button" size="sm" variant="outline" onClick={() => setPublicationTarget(application)}>{t("applications.publication.title")}</Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={
-                      application.status !== "active" ||
-                      unavailable ||
-                      startConversation.isPending
-                    }
-                    onClick={() => startConversation.mutate(application)}
-                  >
-                    {t("applications.startChat")}
-                  </Button>
+                  {sharing?.installation?.update_available && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setUpdateTarget(application)}
+                    >
+                      {t("applications.distribution.updateAvailable")}
+                    </Button>
+                  )}
+                  {!application.is_owner && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setPublicationTarget(application)}
+                    >
+                      {t("applications.distribution.guide")}
+                    </Button>
+                  )}
+                  {!application.is_owner &&
+                    sharing?.usage_modes.includes("install") &&
+                    sharing.published_version_id && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={Boolean(sharing.installed_application_id)}
+                        onClick={() => {
+                          if (sharing.published_version_id)
+                            setInstallTarget({
+                              id: application.id,
+                              name: application.name,
+                              versionId: sharing.published_version_id,
+                              channel: "direct",
+                            })
+                        }}
+                      >
+                        {t(
+                          sharing.installed_application_id
+                            ? "applications.distribution.installedLabel"
+                            : "applications.distribution.install"
+                        )}
+                      </Button>
+                    )}
+                  {sharing?.installation?.setup_required ? (
+                    <Button
+                      size="sm"
+                      onClick={() => setEditor({ open: true, application })}
+                    >
+                      {t("applications.distribution.completeSetup")}
+                    </Button>
+                  ) : (
+                    (application.is_owner ||
+                      sharing?.usage_modes.includes("service")) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        aria-busy={starting || undefined}
+                        disabled={
+                          application.status !== "active" ||
+                          unavailable ||
+                          startConversation.isPending
+                        }
+                        onClick={() => startConversation.mutate(application)}
+                      >
+                        {starting ? (
+                          <Spinner data-icon="inline-start" />
+                        ) : (
+                          <PlayIcon
+                            data-icon="inline-start"
+                            aria-hidden="true"
+                          />
+                        )}
+                        {t("applications.distribution.useService")}
+                      </Button>
+                    )
+                  )}
                 </CardFooter>
               </Card>
             )
@@ -743,11 +818,42 @@ export function ApplicationCatalogPanel({
         </div>
       )}
 
-      {publicationTarget && <ApplicationPublicationDialog key={publicationTarget.id} application={publicationTarget} onClose={() => setPublicationTarget(null)} onCopied={application => {
-        setPublicationTarget(null)
-        if (application.kind === "standard") setEditor({ open: true, application })
-        notify.success(t("applications.publication.copied"))
-      }} />}
+      {distributionTarget && (
+        <ApplicationDistributionDialog
+          key={distributionTarget.application.id + distributionTarget.mode}
+          application={distributionTarget.application}
+          mode={distributionTarget.mode}
+          onClose={() => setDistributionTarget(null)}
+        />
+      )}
+      {publicationTarget && (
+        <ApplicationUsageGuideDialog
+          application={publicationTarget}
+          onClose={() => setPublicationTarget(null)}
+        />
+      )}
+      {installTarget && (
+        <ApplicationInstallationDialog
+          target={installTarget}
+          onClose={() => setInstallTarget(null)}
+          onInstalled={(application) => {
+            setInstallTarget(null)
+            if (onInstalled) onInstalled()
+            else setEditor({ open: true, application })
+            notify.success(t("applications.distribution.installed"))
+          }}
+        />
+      )}
+      {updateTarget && (
+        <ApplicationInstallationUpdateDialog
+          applicationId={updateTarget.id}
+          onClose={() => setUpdateTarget(null)}
+          onUpdated={() => {
+            setUpdateTarget(null)
+            notify.success(t("applications.distribution.updated"))
+          }}
+        />
+      )}
       <ApplicationEditorDialog
         key={`${editor.open}:${editor.application?.id ?? "new"}:${editor.application?.updated_at ?? ""}`}
         open={editor.open}
@@ -828,12 +934,6 @@ export function ApplicationCatalogPanel({
             )
           )
           await queryClient.invalidateQueries({ queryKey: ["applications"] })
-        }}
-      />
-      <ApplicationShareDialog
-        application={organizationSharingEnabled ? shareTarget : null}
-        onOpenChange={(open) => {
-          if (!open) setShareTarget(null)
         }}
       />
       <ConfirmDialog
@@ -1660,311 +1760,6 @@ function ResourceMultiSelect({
         </ComboboxContent>
       </Combobox>
     </Field>
-  )
-}
-
-function ApplicationShareDialog({
-  application,
-  onOpenChange,
-}: {
-  application: Application | null
-  onOpenChange: (open: boolean) => void
-}) {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [shareTargetType, setShareTargetType] =
-    useState<ApplicationShareTarget["type"]>("user")
-  const [search, setSearch] = useState("")
-  const [selectedTarget, setSelectedTarget] =
-    useState<ApplicationShareTarget | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const applicationId = application?.id
-  const grants = useQuery({
-    queryKey: ["applications", applicationId, "grants"],
-    queryFn: ({ signal }) =>
-      apiRequest(`/applications/${applicationId}/grants`, {
-        schema: applicationGrantPageSchema,
-        signal,
-      }),
-    enabled: Boolean(applicationId),
-  })
-  const targets = useQuery({
-    queryKey: ["applications", "share-targets", shareTargetType, search],
-    queryFn: ({ signal }) =>
-      apiRequest("/applications/share-targets", {
-        query: { type: shareTargetType, search: search.trim() || undefined },
-        schema: applicationShareTargetPageSchema,
-        signal,
-      }),
-    enabled: Boolean(applicationId),
-  })
-
-  const grant = useMutation({
-    mutationFn: (target: ApplicationShareTarget) =>
-      apiRequest(`/applications/${applicationId}/grants`, {
-        method: "POST",
-        body:
-          target.type === "user"
-            ? { grantee_type: "user", user_id: target.id }
-            : { grantee_type: "user_group", user_group_id: target.id },
-        schema: applicationGrantSchema,
-      }),
-    onSuccess: async (createdGrant) => {
-      queryClient.setQueryData<ApplicationGrantPage>(
-        ["applications", applicationId, "grants"],
-        (current) => {
-          const items = current?.items ?? []
-          const filtered = items.filter(
-            (item) =>
-              item.id !== createdGrant.id &&
-              !(
-                item.grantee_type === createdGrant.grantee_type &&
-                item.target.id === createdGrant.target.id
-              )
-          )
-          return {
-            items: [createdGrant, ...filtered],
-            next_cursor: current?.next_cursor ?? null,
-          }
-        }
-      )
-      setSelectedTarget(null)
-      setSearch("")
-      setError(null)
-      notify.success(t("applications.shareSaved"))
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ["applications", applicationId, "grants"],
-        }),
-        queryClient.invalidateQueries({ queryKey: ["applications"] }),
-      ])
-    },
-    onError: (nextError) => setError(getErrorMessage(nextError, t)),
-  })
-  const revoke = useMutation({
-    mutationFn: (item: ApplicationGrant) =>
-      apiRequest(`/applications/${applicationId}/grants/${item.id}`, {
-        method: "DELETE",
-        schema: emptyResponseSchema,
-      }),
-    onSuccess: async () => {
-      setError(null)
-      await queryClient.invalidateQueries({
-        queryKey: ["applications", applicationId, "grants"],
-      })
-    },
-    onError: (nextError) => setError(getErrorMessage(nextError, t)),
-  })
-  const availableTargets = (targets.data?.items ?? []).filter(
-    (target) =>
-      target.type === shareTargetType &&
-      !(grants.data?.items ?? []).some(
-        (item) =>
-          item.grantee_type === target.type && item.target.id === target.id
-      )
-  )
-  const targetInputLabel = (target: ApplicationShareTarget) => target.name
-  const selected =
-    selectedTarget?.type === shareTargetType && search === selectedTarget.name
-      ? selectedTarget
-      : null
-  const grantItems = grants.data?.items ?? []
-  const selectedAlreadyShared =
-    selected !== null &&
-    grantItems.some(
-      (item) =>
-        item.grantee_type === selected.type && item.target.id === selected.id
-    )
-  const displayShareItems: ApplicationShareDisplayItem[] = [
-    ...(selected && !selectedAlreadyShared
-      ? [{ kind: "selected" as const, target: selected }]
-      : []),
-    ...grantItems.map((item) => ({ kind: "grant" as const, grant: item })),
-  ]
-  const shareTargetLabel =
-    shareTargetType === "user"
-      ? t("applications.shareUserTarget")
-      : t("applications.shareGroupTarget")
-  const shareSearchPlaceholder =
-    shareTargetType === "user"
-      ? t("applications.shareUserSearchPlaceholder")
-      : t("applications.shareGroupSearchPlaceholder")
-
-  return (
-    <Dialog open={application !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>{t("applications.shareTitle")}</DialogTitle>
-          <DialogDescription>
-            {t("applications.shareDescription")}
-          </DialogDescription>
-        </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel>{t("applications.shareTargetType")}</FieldLabel>
-            <Tabs
-              value={shareTargetType}
-              onValueChange={(value) => {
-                if (value !== "user" && value !== "user_group") return
-                setShareTargetType(value)
-                setSelectedTarget(null)
-                setSearch("")
-                setError(null)
-              }}
-            >
-              <TabsList
-                className="share-target-type-options"
-                aria-label={t("applications.shareTargetType")}
-              >
-                <TabsTrigger value="user">
-                  <UserIcon aria-hidden="true" />
-                  {t("applications.shareToUsers")}
-                </TabsTrigger>
-                <TabsTrigger value="user_group">
-                  <UsersIcon aria-hidden="true" />
-                  {t("applications.shareToGroups")}
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="application-share-search">
-              {shareTargetLabel}
-            </FieldLabel>
-            <Combobox
-              items={availableTargets}
-              value={selected}
-              inputValue={search}
-              disabled={grant.isPending}
-              itemToStringLabel={targetInputLabel}
-              itemToStringValue={(target) => `${target.type}:${target.id}`}
-              isItemEqualToValue={(target, value) =>
-                target.type === value.type && target.id === value.id
-              }
-              onInputValueChange={setSearch}
-              onValueChange={(target) => {
-                const nextTarget = target ?? null
-                setSelectedTarget(nextTarget)
-                setSearch(nextTarget?.name ?? "")
-              }}
-            >
-              <ComboboxInput
-                id="application-share-search"
-                aria-label={shareTargetLabel}
-                disabled={grant.isPending}
-                placeholder={shareSearchPlaceholder}
-                showClear={search.length > 0}
-              />
-              <ComboboxContent>
-                <ComboboxEmpty>
-                  {targets.isLoading
-                    ? t("common.loading")
-                    : targets.isError
-                      ? getErrorMessage(targets.error, t)
-                      : t("applications.resourceSearchEmpty")}
-                </ComboboxEmpty>
-                <ComboboxList>
-                  {(target: ApplicationShareTarget) => (
-                    <ComboboxItem
-                      key={`${target.type}:${target.id}`}
-                      value={target}
-                    >
-                      <span className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap">
-                        <span className="min-w-0 truncate font-medium">
-                          {target.name}
-                        </span>
-                        {target.secondary_text && (
-                          <span className="shrink-0 text-muted-foreground">
-                            {target.secondary_text}
-                          </span>
-                        )}
-                      </span>
-                    </ComboboxItem>
-                  )}
-                </ComboboxList>
-              </ComboboxContent>
-            </Combobox>
-          </Field>
-          <Field>
-            <FieldLabel>{t("applications.currentShares")}</FieldLabel>
-            {grants.isLoading ? (
-              <LoadingState />
-            ) : displayShareItems.length === 0 ? (
-              <p className="application-share-current-empty rounded-xl border p-4 text-sm text-muted-foreground">
-                {t("applications.noShares")}
-              </p>
-            ) : (
-              <div className="flex max-h-64 flex-col gap-2 overflow-y-auto">
-                {displayShareItems.map((item) => {
-                  const type =
-                    item.kind === "grant"
-                      ? item.grant.grantee_type
-                      : item.target.type
-                  const name =
-                    item.kind === "grant"
-                      ? item.grant.target.name
-                      : item.target.name
-                  return (
-                    <div
-                      key={
-                        item.kind === "grant"
-                          ? item.grant.id
-                          : `selected:${item.target.type}:${item.target.id}`
-                      }
-                      className="application-share-current-item flex items-center justify-between gap-3 rounded-xl border p-3"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        {type === "user" ? (
-                          <UserRoundIcon
-                            aria-hidden="true"
-                            className="size-5 shrink-0"
-                          />
-                        ) : (
-                          <UsersIcon
-                            aria-hidden="true"
-                            className="size-5 shrink-0"
-                          />
-                        )}
-                        <span className="min-w-0 flex-1 truncate text-sm">
-                          {name}
-                        </span>
-                        <Badge variant="secondary" className="shrink-0">
-                          {t(`applications.shareGrantType.${type}`)}
-                        </Badge>
-                      </div>
-                      {item.kind === "grant" && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          disabled={revoke.isPending}
-                          onClick={() => revoke.mutate(item.grant)}
-                        >
-                          {t("applications.revoke")}
-                        </Button>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </Field>
-        </FieldGroup>
-        {error && <StatusBanner variant="error">{error}</StatusBanner>}
-        <DialogFooter>
-          <Button
-            type="button"
-            disabled={!selected || grant.isPending}
-            onClick={() => {
-              if (selected) grant.mutate(selected)
-            }}
-          >
-            <Share2Icon data-icon="inline-start" />
-            {t("applications.share")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }
 

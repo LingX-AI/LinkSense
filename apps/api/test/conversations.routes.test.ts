@@ -28,6 +28,7 @@ describe("interactive application message source", () => {
       payload: {
         input_text: "完整研究要求",
         message_source: "interactive_application",
+        file_ids: [MESSAGE_ID],
       },
     });
     expect(response.statusCode, response.body).toBe(202);
@@ -37,9 +38,19 @@ describe("interactive application message source", () => {
       expect.objectContaining({
         inputText: "完整研究要求",
         messageSource: "interactive_application",
+        attachmentIds: [MESSAGE_ID],
       }),
       expect.any(Object),
     );
+  });
+
+  it.each([{ file_ids: ["invalid"] }, { file_ids: [MESSAGE_ID, MESSAGE_ID] }])("rejects invalid attachment selection %j", async ({ file_ids }) => {
+    const { app, startTurn: acceptTurn } = await conversationRouteFixture();
+    const response = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/turns`, payload: {
+      input_text: "Analyze", message_source: "interactive_application", file_ids,
+    } });
+    expect(response.statusCode).toBe(400);
+    expect(acceptTurn).not.toHaveBeenCalled();
   });
 
   it("rejects unsupported message sources before accepting a turn", async () => {

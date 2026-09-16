@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { stageProjectHomes } from "../apps/api/src/operations/project-home-conversion.ts";
-import { execFile } from "node:child_process";
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -30,6 +30,8 @@ async function main(): Promise<void> {
   const secondProject = path.join(home, "projects", "second");
   let modelCalls = 0;
   let probeMove = false;
+  let pauseNextResponse = false;
+  const pausedResponse = Promise.withResolvers<void>();
   const fixtureFailures: unknown[] = [];
   const executionOutputs: unknown[] = [];
   const provider = createServer((request, response) => {
@@ -39,6 +41,13 @@ async function main(): Promise<void> {
     const body = z.object({ tools: z.array(z.record(z.string(), z.unknown())), input: z.array(z.record(z.string(), z.unknown())) }).parse(JSON.parse(payload));
     executionOutputs.push(...body.input.filter(item => item.type === "function_call_output" || item.type === "custom_tool_call_output"));
     const id = `fixture-${++modelCalls}`;
+    if (pauseNextResponse) {
+      pauseNextResponse = false;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.flushHeaders();
+      pausedResponse.resolve();
+      return;
+    }
     const message = {
       id: `message-${id}`, type: "message", role: "assistant",
       status: "completed", phase: "final_answer",
@@ -90,13 +99,19 @@ async function main(): Promise<void> {
   const address = provider.address();
   assert(address && typeof address !== "string");
   const clients: CodexJsonRpcClient[] = [];
+  const children = new Map<CodexJsonRpcClient, ChildProcessWithoutNullStreams>();
   const createClient = (runtimeHome = home) => {
+    let child: ChildProcessWithoutNullStreams | undefined;
     const client = new CodexJsonRpcClient({
       command,
       userHome: runtimeHome,
       codexHome: path.join(runtimeHome, ".codex"),
       logger: pino({ level: "silent" }),
       requestTimeoutMs: 30_000,
+      childProcessFactory: (executable, args, env) => {
+        child = spawn(executable, args, { env, stdio: "pipe" });
+        return child;
+      },
       configOverrides: [
         "features.memories=false", "features.multi_agent=false", "features.hooks=false",
         'model="gpt-5.4"', 'model_provider="fixture"',
@@ -107,6 +122,8 @@ async function main(): Promise<void> {
       ],
     });
     clients.push(client);
+    assert(child);
+    children.set(client, child);
     return client;
   };
   try {
@@ -174,9 +191,31 @@ async function main(): Promise<void> {
     await runTurn(convertedClient, threads[0]!.id, path.join(convertedHome, "projects", projectId));
     assert.equal((await readFile(path.join(convertedHome, "projects", projectId, "moved-cwd.txt"), "utf8")).trim(), path.join(convertedHome, "projects", projectId));
 
+    // Reading persisted state after a crash must not need old plugin files or
+    // resume execution. No model replay is involved in this native read.
+    const crashed = createClient();
+    await crashed.initialize();
+    const crashThread = threadResponse.parse(await crashed.request("thread/start", {
+      cwd: firstProject, approvalPolicy: "never", sandbox: "danger-full-access",
+    })).thread;
+    pauseNextResponse = true;
+    const crashTurn = z.object({ turn: z.object({ id: z.string() }) }).parse(await crashed.request("turn/start", {
+      threadId: crashThread.id, input: [{ type: "text", text: "Crash recovery fixture", text_elements: [] }],
+    })).turn;
+    await pausedResponse.promise;
+    const child = children.get(crashed)!;
+    await new Promise<void>(resolve => { child.once("exit", () => resolve()); child.kill("SIGKILL"); });
+    const observer = createClient();
+    await observer.initialize();
+    const observed = z.object({ thread: z.object({ id: z.string(), turns: z.array(z.object({ id: z.string(), status: z.string() })) }) }).parse(
+      await observer.request("thread/read", { threadId: crashThread.id, includeTurns: true }),
+    ).thread;
+    assert.equal(observed.id, crashThread.id);
+    assert.equal(observed.turns.find(turn => turn.id === crashTurn.id)?.status, "interrupted");
+
     assert.deepEqual(fixtureFailures, []);
-    assert.equal(modelCalls, 7);
-    process.stdout.write(`${JSON.stringify({ status: "passed", codexVersion: CODEX_SCHEMA_VERSION, concurrentClients: 2, threads: 3, resumed: 3, projectMove: true, migratedNativeHistory: true, localFixtureCalls: modelCalls, externalModelCalls: 0 })}\n`);
+    assert.equal(modelCalls, 8);
+    process.stdout.write(`${JSON.stringify({ status: "passed", codexVersion: CODEX_SCHEMA_VERSION, concurrentClients: 2, threads: 3, resumed: 3, projectMove: true, migratedNativeHistory: true, coldRecoveryRead: true, localFixtureCalls: modelCalls, externalModelCalls: 0 })}\n`);
   } finally {
     await Promise.allSettled(clients.map(client => client.close()));
     await new Promise<void>((resolve, reject) => provider.close(error => error ? reject(error) : resolve()));

@@ -283,9 +283,16 @@ export class WorkerManager {
     ownerId: string,
     conversationId: string,
     serviceSessionId?: string,
+    removeServiceEnvironment = false,
   ): Promise<WorkerHttpResponse> {
     const validatedOwnerId = ownerIdSchema.parse(ownerId)
     const validatedConversationId = ownerIdSchema.parse(conversationId)
+    if (removeServiceEnvironment) {
+      if (!serviceSessionId) {
+        throw new RuntimeCleanupError("reconcile", "CLEANUP_PATH_BOUNDARY_INVALID")
+      }
+      return this.cleanupServiceEnvironment(validatedOwnerId, validatedConversationId, ownerIdSchema.parse(serviceSessionId))
+    }
     const storageKey = ownerStorageKey(
       validatedOwnerId,
       this.config.LINKSENSE_RUNNER_SHARED_SECRET,
@@ -387,6 +394,103 @@ export class WorkerManager {
   async prewarm(ownerId: string): Promise<void> {
     const worker = await this.ensureWorker(ownerId)
     await this.releaseWorkerRequest(worker)
+  }
+
+  /** The API authorizes this only after the last persisted reference is removed. */
+  private async cleanupServiceEnvironment(
+    ownerId: string,
+    conversationId: string,
+    serviceSessionId: string,
+  ): Promise<WorkerHttpResponse> {
+    const storageKey = ownerStorageKey(ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, serviceSessionId)
+    return this.withLock(storageKey, async () => {
+      const directories = this.userDirectories(ownerId, serviceSessionId)
+      let existed = true
+      try {
+        await assertSafeDirectory(directories.root, directories.root)
+        for (const directory of [
+          path.join(directories.root, ownerId),
+          path.join(directories.root, ownerId, "services"),
+          directories.owner,
+        ]) {
+          if (!await assertSafeDirectoryIfExists(directories.root, directory)) {
+            existed = false
+            break
+          }
+        }
+      } catch {
+        throw new RuntimeCleanupError("reconcile", "CLEANUP_PATH_BOUNDARY_INVALID")
+      }
+      const worker = this.workers.get(storageKey)
+      if (worker) {
+        if (worker.activeRequests !== 0) {
+          throw new RuntimeCleanupError("stop_runtime", "CLEANUP_RUNTIME_ACTIVE")
+        }
+        if (!worker.cleanupPending) {
+          let response: WorkerHttpResponse
+          try {
+            response = await this.transport.request(worker.endpoint, `/conversations/${conversationId}/runtime`, "DELETE", {
+              authorization: `Bearer ${ownerWorkerSecret(ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, serviceSessionId)}`,
+              "x-linksense-owner-id": ownerId,
+            })
+          } catch {
+            throw new RuntimeCleanupError("stop_runtime", "CLEANUP_RUNTIME_STATE_UNCERTAIN")
+          }
+          if (response.statusCode !== 200) return response
+          let accepted = false
+          try {
+            accepted = z.object({ success: z.literal(true) })
+              .safeParse(JSON.parse(response.body.toString("utf8"))).success
+          } catch {
+            // Invalid replies cannot authorize filesystem removal.
+          }
+          if (!accepted) {
+            throw new RuntimeCleanupError("stop_runtime", "CLEANUP_RUNTIME_STATE_UNCERTAIN")
+          }
+        }
+        try {
+          await this.releaseManagedWorker(worker)
+        } catch {
+          throw new RuntimeCleanupError("stop_runtime", "CLEANUP_RUNTIME_STATE_UNCERTAIN")
+        }
+      }
+      // Include other controller instances and partially released containers.
+      try {
+        if (await this.provider.hasWorkerForEnvironment(ownerId, serviceSessionId)) {
+          throw new RuntimeCleanupError("reconcile", "CLEANUP_RUNTIME_STATE_UNCERTAIN")
+        }
+      } catch {
+        throw new RuntimeCleanupError("reconcile", "CLEANUP_RUNTIME_STATE_UNCERTAIN")
+      }
+      if (existed) {
+        try {
+          await removeUserDirectoryAfterContainerRelease(directories.owner)
+        } catch (error) {
+          throw new RuntimeCleanupError(
+            "delete_workspace",
+            isNodeError(error, "EACCES") || isNodeError(error, "EPERM")
+              ? "CLEANUP_PERMISSION_DENIED"
+              : "CLEANUP_DIRECTORY_REMOVE_FAILED",
+          )
+        }
+        try {
+          if (await assertSafeDirectoryIfExists(directories.root, directories.owner)) {
+            throw new Error("environment remains")
+          }
+        } catch {
+          throw new RuntimeCleanupError("verify_absent", "CLEANUP_VERIFICATION_FAILED")
+        }
+      }
+      return {
+        statusCode: 200,
+        headers: { "content-type": "application/json" },
+        body: Buffer.from(JSON.stringify({
+          success: true,
+          runtime: "absent",
+          environment: existed ? "deleted" : "absent",
+        })),
+      }
+    })
   }
 
   getModelCatalog(): CodexModelReasoningCatalog | undefined {

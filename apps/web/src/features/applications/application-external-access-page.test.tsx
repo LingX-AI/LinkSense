@@ -130,7 +130,9 @@ function renderCatalogPanel() {
           <Routes>
             <Route
               path="/capabilities"
-              element={<ApplicationCatalogPanel onFeedback={vi.fn()} />}
+              element={
+                <ApplicationCatalogPanel scope="owned" onFeedback={vi.fn()} />
+              }
             />
             <Route
               path="/capabilities/applications/:applicationId/external-access"

@@ -66,7 +66,7 @@ export async function convertProjectRuntime(input: {
       const manifest = interactiveApplicationManifestSchema.parse(package_.manifestJson);
       instructions = interactiveApplicationRuntimeInstructions(manifest.instructions ?? interactiveApplicationBaseInstructions(manifest.name), manifest);
     }
-    await publications.publish(application.ownerId, application.id, { allow_copy: application.allowCopy, usage_instructions: application.usageInstructions }, instructions, version.id);
+    await publications.capture(application.ownerId, application.id, { version_number: version.versionLabel, usage_instructions: application.usageInstructions }, { runtimeInstructions: instructions, conversionVersionId: version.id, complete: async (tx, captured) => { await tx.application.update({ where: { id: application.id }, data: { publishedVersionId: captured.id } }); } });
   }
   await mkdir(originals, { mode: 0o700 });
   if (process.platform === "linux" && process.geteuid?.() === 0) {
@@ -97,7 +97,7 @@ export async function convertProjectRuntime(input: {
               const latest = await tx.applicationVersion.findFirstOrThrow({ where: { applicationId: row.applicationId }, orderBy: { versionNumber: "desc" } });
               versionId = randomUUID();
               await tx.applicationVersion.create({ data: {
-                id: versionId, applicationId: row.applicationId, versionNumber: latest.versionNumber + 1, createdBy: base.createdBy, assetsReady: true,
+                id: versionId, applicationId: row.applicationId, versionNumber: latest.versionNumber + 1, versionLabel: base.versionLabel, createdBy: base.createdBy, assetsReady: true,
                 definitionJson: { ...definition, interactivePackageId: page.id, instructions: interactiveApplicationRuntimeInstructions(manifest.instructions ?? interactiveApplicationBaseInstructions(manifest.name), manifest) },
               } });
             }

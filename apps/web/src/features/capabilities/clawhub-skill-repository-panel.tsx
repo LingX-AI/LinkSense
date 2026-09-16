@@ -132,7 +132,7 @@ function SecurityBadge({ item }: { item: ClawHubSkillCatalogItem }) {
   }
   if (item.security_has_warnings) {
     return (
-      <Badge variant="outline">
+      <Badge variant="tag">
         <ShieldAlertIcon aria-hidden="true" />
         {t("clawHub.security.warning")}
       </Badge>
@@ -140,13 +140,13 @@ function SecurityBadge({ item }: { item: ClawHubSkillCatalogItem }) {
   }
   if (item.security_status === "clean") {
     return (
-      <Badge variant="secondary">
+      <Badge variant="tag">
         <ShieldCheckIcon aria-hidden="true" />
         {t("clawHub.security.clean")}
       </Badge>
     )
   }
-  return <Badge variant="outline">{t("clawHub.security.unknown")}</Badge>
+  return <Badge variant="tag">{t("clawHub.security.unknown")}</Badge>
 }
 
 function SkillMetadata({ item }: { item: ClawHubSkillCatalogItem }) {
@@ -218,9 +218,15 @@ function CanonicalLink({
 
 function ClawHubSkillDetailDialog({
   item,
+  installDisabled,
+  previewPending,
+  onInstall,
   onOpenChange,
 }: {
   item: ClawHubSkillCatalogItem | null
+  installDisabled: boolean
+  previewPending: boolean
+  onInstall: (item: ClawHubSkillCatalogItem) => void
   onOpenChange: (open: boolean) => void
 }) {
   const { t, i18n } = useTranslation()
@@ -251,8 +257,8 @@ function ClawHubSkillDetailDialog({
             </DialogHeader>
             <div className="flex flex-col gap-5">
               <div className="flex flex-wrap gap-2">
-                <Badge variant="outline">{t("capability.skill")}</Badge>
-                <Badge variant="outline">{t("clawHub.sourceName")}</Badge>
+                <Badge variant="tag">{t("capability.skill")}</Badge>
+                <Badge variant="tag">{t("clawHub.sourceName")}</Badge>
                 <SecurityBadge item={item} />
                 {item.installed_capability_id && (
                   <Badge variant="secondary">
@@ -261,7 +267,7 @@ function ClawHubSkillDetailDialog({
                   </Badge>
                 )}
                 {item.update_available && (
-                  <Badge variant="outline">
+                  <Badge variant="tag">
                     <RefreshCwIcon aria-hidden="true" />
                     {t("marketplace.updateAvailable")}
                   </Badge>
@@ -322,7 +328,7 @@ function ClawHubSkillDetailDialog({
                   <h3 className="font-medium">{t("clawHub.topics")}</h3>
                   <div className="flex flex-wrap gap-2">
                     {item.topics.map((topic) => (
-                      <Badge key={topic} variant="outline">
+                      <Badge key={topic} variant="tag">
                         {topic}
                       </Badge>
                     ))}
@@ -338,12 +344,12 @@ function ClawHubSkillDetailDialog({
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     {item.metadata?.os?.map((os) => (
-                      <Badge key={`os-${os}`} variant="outline">
+                      <Badge key={`os-${os}`} variant="tag">
                         {os}
                       </Badge>
                     ))}
                     {item.metadata?.systems?.map((system) => (
-                      <Badge key={`system-${system}`} variant="outline">
+                      <Badge key={`system-${system}`} variant="tag">
                         {system}
                       </Badge>
                     ))}
@@ -361,6 +367,23 @@ function ClawHubSkillDetailDialog({
             </div>
             <DialogFooter>
               <CanonicalLink item={item} />
+              {item.installable && !item.installed_capability_id && (
+                <Button
+                  type="button"
+                  disabled={installDisabled}
+                  aria-busy={previewPending || undefined}
+                  onClick={() => onInstall(item)}
+                >
+                  {previewPending ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <DownloadIcon data-icon="inline-start" />
+                  )}
+                  {t(
+                    previewPending ? "clawHub.preparing" : "marketplace.install"
+                  )}
+                </Button>
+              )}
             </DialogFooter>
           </>
         )}
@@ -573,6 +596,7 @@ export function ClawHubSkillRepositoryPanel({
         schema: capabilityImportPreviewSchema,
       }),
     onSuccess: (preview, item) => {
+      setSelected(null)
       setInstallPreview({ item, preview })
       setRiskConfirmed(false)
       setConfirmError(null)
@@ -887,7 +911,13 @@ export function ClawHubSkillRepositoryPanel({
         )}
       </div>
       <ClawHubSkillDetailDialog
-        item={selected}
+        item={items.find((item) => item.id === selected?.id) ?? null}
+        installDisabled={previewMutation.isPending || confirmMutation.isPending}
+        previewPending={
+          previewMutation.isPending &&
+          previewMutation.variables?.id === selected?.id
+        }
+        onInstall={(item) => previewMutation.mutate(item)}
         onOpenChange={(open) => {
           if (!open) setSelected(null)
         }}

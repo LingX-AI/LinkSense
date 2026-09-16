@@ -132,6 +132,7 @@ const fieldDescriptionVariants = cva(
     variants: {
       size: {
         default: "text-sm leading-normal",
+        caption: "text-[length:var(--app-font-13)] leading-5",
         sm: "text-xs leading-5",
       },
     },

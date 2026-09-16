@@ -448,6 +448,82 @@ describe("maintenance cleanup failures", () => {
     expect(updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "pending", stage: "delete_control", lastErrorCode: "CLEANUP_PERMISSION_DENIED" }) }))
   })
 
+  it.each([false, true])("reclaims a newly deleted service only when no fork references it (referenced: %s)", async (referenced) => {
+    const outbox = runtimeCleanupOutboxRow({ status: "queued", serviceSessionId: "01900000-0000-7000-8000-000000000003", removeServiceEnvironment: true })
+    const cleanupRuntime = vi.fn().mockResolvedValue({ success: true })
+    const findMany = vi.fn().mockResolvedValue(referenced ? [{ id: "01900000-0000-7000-8000-000000000004" }] : [])
+    const acquireUserLifecycleLock = vi.fn().mockResolvedValue("lifecycle-lease")
+    const releaseUserLifecycleLock = vi.fn().mockResolvedValue(undefined)
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 })
+    await executeRuntimeCleanupJob({
+      runner: { cleanupRuntime },
+      prisma: {
+        runtimeCleanupOutbox: { findUnique: vi.fn().mockResolvedValue(outbox), updateMany: vi.fn().mockResolvedValue({ count: 1 }), deleteMany } as never,
+        conversation: { findMany } as never,
+      },
+      lifecycleCoordinator: { acquireUserLifecycleLock, releaseUserLifecycleLock },
+      ownerId: outbox.ownerId, conversationId: outbox.conversationId, outboxId: outbox.id,
+    })
+    expect(findMany).toHaveBeenCalledWith({ where: { ownerId: outbox.ownerId, OR: [{ id: outbox.conversationId }, { workspaceRelPath: { startsWith: `${outbox.ownerId}/services/${outbox.serviceSessionId}/home/` } }] }, select: { id: true } })
+    if (referenced) expect(cleanupRuntime).toHaveBeenCalledWith(outbox.conversationId, outbox.ownerId, outbox.serviceSessionId)
+    else expect(cleanupRuntime).toHaveBeenCalledWith(outbox.conversationId, outbox.ownerId, outbox.serviceSessionId, true)
+    expect(releaseUserLifecycleLock).toHaveBeenCalledWith(outbox.ownerId, "lifecycle-lease")
+    expect(findMany.mock.invocationCallOrder[0]).toBeGreaterThan(acquireUserLifecycleLock.mock.invocationCallOrder[0]!)
+    expect(releaseUserLifecycleLock.mock.invocationCallOrder[0]).toBeGreaterThan(cleanupRuntime.mock.invocationCallOrder[0]!)
+    expect(deleteMany).toHaveBeenCalledOnce()
+  })
+
+  it("keeps a historical service cleanup intent task-only even when no references remain", async () => {
+    const outbox = runtimeCleanupOutboxRow({ status: "queued", serviceSessionId: "01900000-0000-7000-8000-000000000003", removeServiceEnvironment: false })
+    const cleanupRuntime = vi.fn().mockResolvedValue({ success: true })
+    const findMany = vi.fn()
+    await executeRuntimeCleanupJob({
+      runner: { cleanupRuntime },
+      prisma: {
+        runtimeCleanupOutbox: { findUnique: vi.fn().mockResolvedValue(outbox), updateMany: vi.fn().mockResolvedValue({ count: 1 }), deleteMany: vi.fn() } as never,
+        conversation: { findMany } as never,
+      },
+      ownerId: outbox.ownerId, conversationId: outbox.conversationId, outboxId: outbox.id,
+    })
+    expect(cleanupRuntime).toHaveBeenCalledWith(outbox.conversationId, outbox.ownerId, outbox.serviceSessionId)
+    expect(findMany).not.toHaveBeenCalled()
+  })
+
+  it("does not reclaim an environment while its original conversation still exists", async () => {
+    const outbox = runtimeCleanupOutboxRow({ status: "queued", serviceSessionId: "01900000-0000-7000-8000-000000000003", removeServiceEnvironment: true })
+    const cleanupRuntime = vi.fn()
+    const deleteMany = vi.fn()
+    const releaseUserLifecycleLock = vi.fn()
+    await expect(executeRuntimeCleanupJob({
+      runner: { cleanupRuntime },
+      prisma: {
+        runtimeCleanupOutbox: { findUnique: vi.fn().mockResolvedValue(outbox), updateMany: vi.fn().mockResolvedValue({ count: 1 }), deleteMany } as never,
+        conversation: { findMany: vi.fn().mockResolvedValue([{ id: outbox.conversationId }]) } as never,
+      },
+      lifecycleCoordinator: { acquireUserLifecycleLock: vi.fn().mockResolvedValue("lease"), releaseUserLifecycleLock },
+      ownerId: outbox.ownerId, conversationId: outbox.conversationId, outboxId: outbox.id,
+    })).rejects.toThrow("CLEANUP_RUNTIME_STATE_UNCERTAIN")
+    expect(cleanupRuntime).not.toHaveBeenCalled()
+    expect(deleteMany).not.toHaveBeenCalled()
+    expect(releaseUserLifecycleLock).toHaveBeenCalledOnce()
+  })
+
+  it("retains the environment cleanup intent when the lifecycle lock is busy", async () => {
+    const outbox = runtimeCleanupOutboxRow({ status: "queued", serviceSessionId: "01900000-0000-7000-8000-000000000003", removeServiceEnvironment: true })
+    const cleanupRuntime = vi.fn()
+    const findMany = vi.fn()
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    await expect(executeRuntimeCleanupJob({
+      runner: { cleanupRuntime },
+      prisma: { runtimeCleanupOutbox: { findUnique: vi.fn().mockResolvedValue(outbox), updateMany } as never, conversation: { findMany } as never },
+      lifecycleCoordinator: { acquireUserLifecycleLock: vi.fn().mockResolvedValue(null), releaseUserLifecycleLock: vi.fn() },
+      ownerId: outbox.ownerId, conversationId: outbox.conversationId, outboxId: outbox.id,
+    })).rejects.toThrow("CLEANUP_RUNTIME_ACTIVE")
+    expect(findMany).not.toHaveBeenCalled()
+    expect(cleanupRuntime).not.toHaveBeenCalled()
+    expect(updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "pending" }) }))
+  })
+
   it("discards a runtime cleanup whose queue payload does not match its durable owner binding", async () => {
     const cleanupRuntime = vi.fn().mockResolvedValue({ success: true })
     const outbox = runtimeCleanupOutboxRow()
@@ -582,6 +658,8 @@ function runtimeCleanupOutboxRow(overrides: Record<string, unknown> = {}) {
     id: "01900000-0000-7000-8000-000000000099",
     ownerId: OWNER_ID,
     conversationId: "01900000-0000-7000-8000-000000000001",
+    serviceSessionId: null,
+    removeServiceEnvironment: false,
     status: "pending",
     stage: "reconcile",
     attemptCount: 0,

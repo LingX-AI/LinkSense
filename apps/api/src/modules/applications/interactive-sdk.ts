@@ -19,7 +19,8 @@ export const interactiveApplicationSdkV1 = String.raw`(() => {
     const requestId = String(++requestSequence);
     return new Promise((resolve, reject) => {
       pending.set(requestId, { resolve, reject });
-      post({ type: "request", requestId, method, params });
+      try { post({ type: "request", requestId, method, params }); }
+      catch (error) { pending.delete(requestId); reject(error); }
     });
   }
 
@@ -84,7 +85,7 @@ export const interactiveApplicationSdkV1 = String.raw`(() => {
   });
 
   const api = Object.freeze({
-    version: "1.0.0",
+    version: "1.1.0",
     ready: () => instanceId
       ? Promise.resolve()
       : new Promise((resolve) => window.addEventListener("linksense:ready", resolve, { once: true })),
@@ -99,6 +100,11 @@ export const interactiveApplicationSdkV1 = String.raw`(() => {
     tasks: Object.freeze({
       run: (input) => request("tasks.run", input),
       interrupt: (turnId) => request("tasks.interrupt", { turnId }),
+    }),
+    files: Object.freeze({
+      upload: (file) => request("files.upload", { file }),
+      list: () => request("files.list"),
+      remove: (fileId) => request("files.remove", { file_id: fileId }),
     }),
     chat: Object.freeze({
       show: () => request("chat.show"),

@@ -1,0 +1,68 @@
+import type { ApplicationCenterRelease } from "@linksense/shared"
+import { useTranslation } from "react-i18next"
+import { CapabilityLibraryItem } from "@/components/capabilities/capability-library-item"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { normalizeLanguage } from "@/i18n"
+import { formatDateTime } from "@/i18n/date"
+import { ApplicationUsageModeBadges } from "./application-usage-modes"
+
+export function ApplicationPublicationCard({
+  release,
+  onManage,
+}: {
+  release: ApplicationCenterRelease
+  onManage: () => void
+}) {
+  const { t, i18n } = useTranslation()
+  const status =
+    release.listing_status === "suspended" || release.status === "approved"
+      ? release.listing_status
+      : release.status
+  const notice =
+    release.listing_status === "suspended"
+      ? release.suspension_reason
+      : release.review_comment
+  const destructive = status === "suspended" || status === "rejected"
+  return (
+    <CapabilityLibraryItem
+      type="application"
+      name={release.name}
+      description={release.description || t("marketplace.noDescription")}
+      metadata={
+        <>
+          <span>
+            {t("applications.distribution.version", {
+              version: release.version_number,
+            })}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>
+            {t("marketplace.submittedAt", {
+              date: formatDateTime(
+                release.submitted_at,
+                normalizeLanguage(i18n.resolvedLanguage ?? i18n.language) ??
+                  "zh-CN"
+              ),
+            })}
+          </span>
+          <ApplicationUsageModeBadges modes={release.usage_modes} />
+        </>
+      }
+      status={
+        <Badge variant={destructive ? "destructive" : "secondary"}>
+          {t(`marketplace.status.${status}`)}
+        </Badge>
+      }
+      statusPlacement="top-right"
+      notice={notice ? <span title={notice}>{notice}</span> : undefined}
+      noticeVariant={destructive ? "destructive" : "default"}
+      onInspect={onManage}
+      actions={
+        <Button variant="ghost" size="sm" onClick={onManage}>
+          {t("marketplace.manageApplicationListing")}
+        </Button>
+      }
+    />
+  )
+}

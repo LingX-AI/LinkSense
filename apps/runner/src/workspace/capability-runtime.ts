@@ -40,6 +40,8 @@ export type PreparedCapabilityRuntime = {
 export type CapabilityRuntimeLease = {
   capabilityControl: string
   generation: string
+  /** Publication is fenced only until native startup has consumed the configuration. */
+  releasePublicationLock: () => Promise<void>
   release: () => Promise<void>
 }
 
@@ -180,14 +182,16 @@ export class CapabilityRuntimeManager {
         throw new CapabilityRuntimeError()
       }
       let released = false
+      const releasePublicationLock = async (): Promise<void> => {
+        if (released) return
+        released = true
+        await releaseLock?.()
+      }
       return {
         capabilityControl,
         generation,
-        release: async () => {
-          if (released) return
-          released = true
-          await releaseLock?.()
-        },
+        releasePublicationLock,
+        release: releasePublicationLock,
       }
     } catch (error) {
       await releaseLock?.().catch(() => undefined)

@@ -23,8 +23,8 @@ export function userWorkspacePath(ownerId: string, workspaceRelPath: string): st
   return runtimePlacementForWorkspace(ownerId, workspaceRelPath).workspacePath;
 }
 
-export function serviceWorkspaceRelativePath(ownerId: string, conversationId: string): string {
-  return `${runtimeEnvironmentPath(ownerId, conversationId)}/home/workspace`;
+export function serviceWorkspaceRelativePath(ownerId: string, serviceEnvironmentId: string): string {
+  return `${runtimeEnvironmentPath(ownerId, serviceEnvironmentId)}/home/workspace`;
 }
 
 export function runtimePlacementForWorkspace(ownerId: string, workspaceRelPath: string): RuntimePlacement {
@@ -35,7 +35,7 @@ export function runtimePlacementForWorkspace(ownerId: string, workspaceRelPath: 
   if (!workspaceRelPath.startsWith(prefix)) throw new UserRuntimePathError("workspace belongs to another user");
   const parsed = userWorkspacePathSchema.safeParse(workspaceRelPath.slice(prefix.length));
   if (!parsed.success) throw new UserRuntimePathError("invalid project workspace");
-  if (service && parsed.data !== "workspace") throw new UserRuntimePathError("service workspace must be session scoped");
+  if (service && parsed.data !== "workspace") throw new UserRuntimePathError("invalid application workspace");
   return { workspacePath: parsed.data, ...(service ? { serviceSessionId: service } : {}) };
 }
 

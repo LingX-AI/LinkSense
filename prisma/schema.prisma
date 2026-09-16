@@ -450,7 +450,6 @@ model Application {
   instructions         String    @db.Text
   usageInstructions    String    @default("") @map("usage_instructions") @db.Text
   publishedVersionId   String?   @map("published_version_id") @db.Uuid
-  allowCopy            Boolean   @default(false) @map("allow_copy")
   model                String?   @db.VarChar(240)
   reasoningEffort      String?   @map("reasoning_effort") @db.VarChar(32)
   interactivePackageId String?   @map("interactive_package_id") @db.Uuid
@@ -473,6 +472,7 @@ model ApplicationVersion {
   id             String   @id @default(uuid()) @db.Uuid
   applicationId  String   @map("application_id") @db.Uuid
   versionNumber  Int      @map("version_number")
+  versionLabel   String   @map("version_label") @db.VarChar(80)
   definitionJson Json     @map("definition_json") @db.JsonB
   assetsReady    Boolean  @default(false) @map("assets_ready")
   createdBy      String   @map("created_by") @db.Uuid
@@ -522,6 +522,7 @@ model InteractiveApplicationRuntimeTicket {
   ownerId       String   @map("owner_id") @db.Uuid
   applicationId String   @map("application_id") @db.Uuid
   packageId     String   @map("package_id") @db.Uuid
+  channel       String   @default("direct") @db.VarChar(32)
   expiresAt     DateTime @map("expires_at") @db.Timestamptz(6)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -682,6 +683,7 @@ model ApplicationGrant {
   userId           String?   @map("user_id") @db.Uuid
   userGroupId      String?   @map("user_group_id") @db.Uuid
   status           String    @default("active") @db.VarChar(32)
+  usageModes       String[]  @map("usage_modes")
   grantedBy        String    @map("granted_by") @db.Uuid
   revokedBy        String?   @map("revoked_by") @db.Uuid
   revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
@@ -695,6 +697,58 @@ model ApplicationGrant {
   @@index([grantedBy], map: "application_grants_granted_by_idx")
   @@index([revokedBy], map: "application_grants_revoked_by_idx")
   @@map("application_grants")
+}
+
+model ApplicationListing {
+  id               String    @id @default(uuid()) @db.Uuid
+  applicationId    String    @unique(map: "application_listings_application_key") @map("application_id") @db.Uuid
+  publisherId      String    @map("publisher_id") @db.Uuid
+  status           String    @default("draft") @db.VarChar(32)
+  currentReleaseId String?   @map("current_release_id") @db.Uuid
+  suspensionReason String?   @map("suspension_reason") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, updatedAt(sort: Desc)], map: "application_listings_status_updated_idx")
+  @@index([publisherId], map: "application_listings_publisher_idx")
+  @@map("application_listings")
+}
+
+model ApplicationRelease {
+  id             String    @id @default(uuid()) @db.Uuid
+  listingId      String    @map("listing_id") @db.Uuid
+  applicationId  String    @map("application_id") @db.Uuid
+  versionId      String    @map("version_id") @db.Uuid
+  name           String    @db.VarChar(160)
+  description    String?   @db.Text
+  publisherName  String    @map("publisher_name") @db.VarChar(120)
+  usageModes     String[]  @map("usage_modes")
+  releaseNotes   String    @map("release_notes") @db.Text
+  status         String    @default("pending") @db.VarChar(32)
+  reviewerId     String?   @map("reviewer_id") @db.Uuid
+  reviewComment  String?   @map("review_comment") @db.Text
+  submittedAt    DateTime  @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  reviewedAt     DateTime? @map("reviewed_at") @db.Timestamptz(6)
+
+  @@index([listingId, submittedAt(sort: Desc)], map: "application_releases_listing_submitted_idx")
+  @@index([status, submittedAt], map: "application_releases_status_submitted_idx")
+  @@index([versionId], map: "application_releases_version_idx")
+  @@map("application_releases")
+}
+
+model ApplicationInstallation {
+  applicationId       String   @id @map("application_id") @db.Uuid
+  ownerId             String   @map("owner_id") @db.Uuid
+  sourceApplicationId String   @map("source_application_id") @db.Uuid
+  channel             String   @db.VarChar(32)
+  installedVersionId  String   @map("installed_version_id") @db.Uuid
+  baselineJson        Json     @map("baseline_json") @db.JsonB
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([ownerId, sourceApplicationId, channel], map: "application_installations_owner_source_channel_key")
+  @@index([sourceApplicationId], map: "application_installations_source_idx")
+  @@map("application_installations")
 }
 
 model Project {
@@ -732,6 +786,7 @@ model Conversation {
   selectedKnowledgeBaseIdsJson    Json      @default("[]") @map("selected_knowledge_base_ids_json") @db.JsonB
   applicationId                   String?   @map("application_id") @db.Uuid
   applicationVersionId            String?   @map("application_version_id") @db.Uuid
+  applicationChannel              String?   @map("application_channel") @db.VarChar(32)
   applicationNameSnapshot         String?   @map("application_name_snapshot") @db.VarChar(160)
   interactiveApplicationPackageId String?   @map("interactive_application_package_id") @db.Uuid
   forkRootId                      String?   @map("fork_root_id") @db.Uuid
@@ -1278,6 +1333,7 @@ model RuntimeCleanupOutbox {
   ownerId        String    @map("owner_id") @db.Uuid
   conversationId String    @unique(map: "runtime_cleanup_outbox_conversation_id_key") @map("conversation_id") @db.Uuid
   serviceSessionId String?  @map("service_session_id") @db.Uuid
+  removeServiceEnvironment Boolean @default(false) @map("remove_service_environment")
   status         String    @default("pending") @db.VarChar(32)
   stage          String    @default("reconcile") @db.VarChar(32)
   attemptCount   Int       @default(0) @map("attempt_count")

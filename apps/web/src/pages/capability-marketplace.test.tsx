@@ -141,6 +141,50 @@ function envelope(data: unknown) {
   })
 }
 
+const applicationRelease = {
+  id: RELEASE_ID,
+  application_id: CAPABILITY_ID,
+  version_id: LISTING_ID,
+  version_number: "1.0.0",
+  name: "研究简报应用",
+  kind: "standard",
+  description: "生成研究简报",
+  usage_instructions: "填写研究主题",
+  publisher_name: "发布者",
+  usage_modes: ["install", "service"],
+  release_notes: "首次发布",
+  status: "pending",
+  listing_status: "draft",
+  review_comment: null,
+  suspension_reason: null,
+  submitted_at: NOW,
+  reviewed_at: null,
+  installed_application_id: null,
+}
+const publishableApplication = {
+  id: CAPABILITY_ID,
+  owner: { id: PUBLISHER_ID, name: "发布者" },
+  icon: { type: "preset", preset: "book-open" },
+  name: applicationRelease.name,
+  description: applicationRelease.description,
+  instructions: "研究主题",
+  model: null,
+  reasoning_effort: null,
+  status: "active",
+  is_owner: true,
+  can_manage: true,
+  access_source: "owner",
+  capability_count: 0,
+  mcp_server_count: 0,
+  knowledge_base_count: 0,
+  dependencies_available: true,
+  capabilities: [],
+  mcp_servers: [],
+  knowledge_bases: [],
+  created_at: NOW,
+  updated_at: NOW,
+}
+
 class ControllableUploadRequest {
   static latest: ControllableUploadRequest | null = null
 
@@ -284,7 +328,7 @@ function renderUserPage(
   })
   return render(
     <ThemeProvider>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={["/capabilities?section=plugin"]}>
         <QueryClientProvider client={queryClient}>
           <TestAuthProvider registrationSource={registrationSource}>
             <CapabilityManagementPage />
@@ -302,7 +346,7 @@ function renderUserPageWithSettingsDestination() {
   })
   return render(
     <ThemeProvider>
-      <MemoryRouter initialEntries={["/capabilities"]}>
+      <MemoryRouter initialEntries={["/capabilities?section=plugin"]}>
         <QueryClientProvider client={queryClient}>
           <TestAuthProvider>
             <Routes>
@@ -397,6 +441,284 @@ describe("capability marketplace pages", () => {
     vi.unstubAllGlobals()
   })
 
+  it.each(["zh-CN", "en-US"])(
+    "shows a unified publications page and returns to the previous category in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const fetchMock = vi.fn((input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        const items =
+          path === "/api/v1/application-center/mine"
+            ? [applicationRelease]
+            : path === "/api/v1/marketplace/mine"
+              ? [
+                  {
+                    listing,
+                    latest_release: release,
+                    current_release: release,
+                    install_count: 3,
+                  },
+                ]
+              : []
+        return Promise.resolve(envelope({ items, next_cursor: null }))
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      const interaction = userEvent.setup()
+      renderUserPageWithRouter("/capabilities?section=skill")
+      await interaction.click(
+        screen.getByRole("button", {
+          name: i18n.t("marketplace.tabs.publishing"),
+        })
+      )
+      expect(
+        screen.getByRole("heading", {
+          name: i18n.t("marketplace.tabs.publishing"),
+          level: 1,
+        })
+      ).toBeVisible()
+      expect(
+        screen.getByText(i18n.t("marketplace.publicationsDescription"))
+      ).toBeVisible()
+      expect(
+        screen.queryByRole("button", {
+          name: i18n.t("marketplace.tabs.publishing"),
+        })
+      ).not.toBeInTheDocument()
+      const application = await screen.findByRole("article", {
+        name: applicationRelease.name,
+      })
+      expect(
+        within(application).getByText(
+          i18n.t("marketplace.catalogTabs.application")
+        )
+      ).toBeVisible()
+      expect(
+        within(application).getByText(i18n.t("marketplace.status.pending"))
+      ).toBeVisible()
+      expect(within(application).getByText("v1.0.0")).toBeVisible()
+      expect(
+        within(application).getByText(
+          i18n.t("applications.distribution.modes.service")
+        )
+      ).toBeVisible()
+      expect(screen.getByRole("article", { name: release.name })).toBeVisible()
+      const backButton = screen.getByRole("button", {
+        name: i18n.t("marketplace.backToCenter"),
+      })
+      expect(backButton).not.toHaveClass("ml-auto")
+      expect(backButton.parentElement?.firstElementChild).toBe(backButton)
+      expect(backButton.querySelector("svg.lucide-arrow-left")).not.toBeNull()
+      expect(
+        screen.getByRole("banner").closest(".management-page")
+      ).not.toContainElement(backButton)
+      await interaction.click(backButton)
+      expect(
+        screen.getByRole("tab", {
+          name: i18n.t("marketplace.catalogTabs.skill"),
+        })
+      ).toHaveAttribute("aria-selected", "true")
+      expect(
+        screen.getByRole("heading", {
+          name: i18n.t("marketplace.catalogTabs.skill"),
+          level: 1,
+        })
+      ).toBeVisible()
+    }
+  )
+
+  it("submits an application from My publications even without any publishable plugins or skills", async () => {
+    let submitted = false
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), window.location.origin).pathname
+      if (
+        path === `/api/v1/application-center/${CAPABILITY_ID}/submissions` &&
+        init?.method === "POST"
+      ) {
+        submitted = true
+        return Promise.resolve(envelope(applicationRelease))
+      }
+      if (
+        path === `/api/v1/applications/${CAPABILITY_ID}/distribution/settings`
+      )
+        return Promise.resolve(
+          envelope({
+            version_number: "1.0.0",
+            highest_version_number: null,
+            usage_instructions: "填写研究主题",
+          })
+        )
+      const items =
+        path === "/api/v1/applications"
+          ? [publishableApplication]
+          : path === "/api/v1/application-center/mine" && submitted
+            ? [applicationRelease]
+            : []
+      return Promise.resolve(envelope({ items, next_cursor: null }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const interaction = userEvent.setup()
+    renderUserPage()
+    await interaction.click(screen.getByRole("button", { name: "我的发布" }))
+    await interaction.click(
+      await screen.findByRole("button", { name: "申请上架" })
+    )
+    expect(
+      await screen.findByRole("menuitem", { name: "插件" })
+    ).toHaveAttribute("aria-disabled", "true")
+    expect(screen.getByRole("menuitem", { name: "技能" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    )
+    await interaction.click(screen.getByRole("menuitem", { name: "应用" }))
+    await interaction.click(
+      await screen.findByRole("button", { name: applicationRelease.name })
+    )
+    const dialog = await screen.findByRole("dialog", { name: "申请上架" })
+    await interaction.click(
+      await within(dialog).findByRole("checkbox", { name: "应用服务" })
+    )
+    await interaction.click(
+      within(dialog).getByRole("button", { name: "提交上架审批" })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+    expect(
+      await screen.findByRole("article", { name: applicationRelease.name })
+    ).toBeVisible()
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `/application-center/${CAPABILITY_ID}/submissions`
+      ),
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"version_number":"1.0.0"'),
+      })
+    )
+    await interaction.click(screen.getByRole("button", { name: "管理上架" }))
+    expect(
+      await screen.findByRole("dialog", { name: "申请上架" })
+    ).toBeVisible()
+    expect(
+      within(screen.getByRole("dialog")).getByText(applicationRelease.name)
+    ).toBeVisible()
+  })
+
+  it("shows an application-publications error with a working retry", async () => {
+    let fail = true
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        if (String(input).includes("/application-center/mine") && fail)
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error_code: "INTERNAL_ERROR",
+                message: "Could not load publications",
+              }),
+              { status: 500 }
+            )
+          )
+        return Promise.resolve(envelope({ items: [], next_cursor: null }))
+      })
+    )
+    const interaction = userEvent.setup()
+    renderUserPage()
+    await interaction.click(screen.getByRole("button", { name: "我的发布" }))
+    const retry = await screen.findByRole("button", {
+      name: i18n.t("common.retry"),
+    })
+    fail = false
+    await interaction.click(retry)
+    expect(
+      await screen.findByText(
+        i18n.t("marketplace.publicationsEmpty").replace(/[。.]+$/u, "")
+      )
+    ).toBeVisible()
+  })
+
+  it.each(["zh-CN", "en-US"])(
+    "places category navigation above the centered page and synchronizes its header in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(envelope({ items: [], next_cursor: null })))
+      )
+      const interaction = userEvent.setup()
+      const { router } = renderUserPageWithRouter(
+        "/capabilities?section=application"
+      )
+      const tabs = screen.getByRole("tablist", {
+        name: i18n.t("marketplace.catalogTabsLabel"),
+      })
+      const header = screen.getByRole("banner")
+      const page = header.closest(".management-page")
+      expect(page).not.toContainElement(tabs)
+      expect(
+        tabs.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(tabs.closest('[data-slot="tabs"]')).toContainElement(header)
+      const publicationsButton = screen.getByRole("button", {
+        name: i18n.t("marketplace.tabs.publishing"),
+      })
+      expect(page).not.toContainElement(publicationsButton)
+      expect(tabs.parentElement).toContainElement(publicationsButton)
+      expect(publicationsButton).toHaveClass("ml-auto", "shrink-0")
+
+      for (const section of [
+        "application",
+        "plugin",
+        "skill",
+        "mcp",
+      ] as const) {
+        const name = i18n.t(`marketplace.catalogTabs.${section}`)
+        const tab = within(tabs).getByRole("tab", { name })
+        await interaction.click(tab)
+        expect(tab).toHaveAttribute("aria-selected", "true")
+        expect(
+          within(header).getByRole("heading", { name, level: 1 })
+        ).toBeVisible()
+        expect(
+          within(header).getByText(
+            i18n.t(`marketplace.catalogDescriptions.${section}`)
+          )
+        ).toBeVisible()
+        expect(screen.getByRole("tabpanel", { name })).toBeVisible()
+      }
+      await act(() => router.navigate(-1))
+      expect(
+        within(header).getByRole("heading", {
+          name: i18n.t("marketplace.catalogTabs.skill"),
+          level: 1,
+        })
+      ).toBeVisible()
+    }
+  )
+
+  it.each(["/capabilities", "/capabilities?section=unknown"])(
+    "matches the default category header to the selected tab for %s",
+    async (initialEntry) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(envelope({ items: [], next_cursor: null })))
+      )
+      renderUserPageWithRouter(initialEntry)
+      expect(
+        await screen.findByRole("heading", { name: "应用", level: 1 })
+      ).toBeVisible()
+      expect(screen.getByRole("tab", { name: "应用" })).toHaveAttribute(
+        "aria-selected",
+        "true"
+      )
+      expect(screen.getByRole("tab", { name: "我的应用" })).toHaveAttribute(
+        "aria-selected",
+        "true"
+      )
+    }
+  )
+
   it("restores catalog controls from the URL and keeps history navigable", async () => {
     vi.stubGlobal(
       "fetch",
@@ -452,7 +774,7 @@ describe("capability marketplace pages", () => {
     )
 
     expect(
-      await screen.findByText("管理已安装内容、个人内容、技能仓库与 MCP 连接。")
+      await screen.findByText("浏览技能仓库，安装和管理适用于不同任务的技能。")
     ).toBeVisible()
     expect(
       screen.queryByRole("button", { name: "我的发布" })
@@ -592,6 +914,9 @@ describe("capability marketplace pages", () => {
     })
     expect(within(builtInDetail).getAllByText("内置")).toHaveLength(2)
     expect(within(builtInDetail).getByText(/平台自动装配/u)).toBeVisible()
+    expect(
+      within(builtInDetail).queryByRole("button", { name: "卸载" })
+    ).not.toBeInTheDocument()
     await interaction.click(
       within(builtInDetail).getByRole("button", { name: "关闭" })
     )
@@ -653,9 +978,7 @@ describe("capability marketplace pages", () => {
       screen.queryByRole("tablist", { name: "插件中心页面" })
     ).not.toBeInTheDocument()
     const header = screen.getByRole("banner")
-    expect(
-      within(header).getByRole("button", { name: "我的发布" })
-    ).toBeVisible()
+    expect(screen.getByRole("button", { name: "我的发布" })).toBeVisible()
     expect(
       within(header).queryByRole("button", { name: "我的插件/Skill" })
     ).not.toBeInTheDocument()
@@ -969,9 +1292,18 @@ describe("capability marketplace pages", () => {
     const manifestHeading = within(installedDetail).getByRole("heading", {
       name: "Manifest 快照",
     })
+    expect(within(installedDetail).getByText("Skill")).toHaveClass(
+      "rounded-2xl",
+      "border",
+      "border-divider"
+    )
     expect(manifestHeading.parentElement?.querySelector("pre")).toHaveClass(
       "border-divider"
     )
+    const detailUninstallButton = within(installedDetail).getByRole("button", {
+      name: "卸载",
+    })
+    expect(detailUninstallButton.querySelector("svg")).not.toBeNull()
     await interaction.click(
       within(installedDetail).getByRole("button", { name: "关闭" })
     )
@@ -982,10 +1314,20 @@ describe("capability marketplace pages", () => {
     expect(await screen.findByRole("menuitem", { name: "卸载" })).toBeVisible()
     await interaction.keyboard("{Escape}")
 
-    await interaction.click(within(item).getByRole("button", { name: "操作" }))
     await interaction.click(
-      await screen.findByRole("menuitem", { name: "卸载" })
+      within(installedItem).getByRole("button", {
+        name: `查看${release.name}详情`,
+      })
     )
+    const reopenedInstalledDetail = await screen.findByRole("dialog", {
+      name: release.name,
+    })
+    await interaction.click(
+      within(reopenedInstalledDetail).getByRole("button", { name: "卸载" })
+    )
+    expect(
+      screen.queryByRole("dialog", { name: release.name })
+    ).not.toBeInTheDocument()
     const uninstallDialog = await screen.findByRole("dialog", {
       name: "卸载此插件中心技能？",
     })
@@ -1021,7 +1363,7 @@ describe("capability marketplace pages", () => {
     expect(await screen.findByRole("menuitem", { name: "安装" })).toBeVisible()
   })
 
-  it("closes the permanent delete confirmation and reports progress globally", async () => {
+  it("uninstalls a deletable personal skill from its renamed action", async () => {
     let deleted = false
     let resolveDelete: ((response: Response) => void) | undefined
     const deleteResponse = new Promise<Response>((resolve) => {
@@ -1090,27 +1432,40 @@ describe("capability marketplace pages", () => {
       await screen.findByRole("region", { name: "个人技能" })
     ).getByRole("article", { name: "Frontend Slides" })
 
+    await interaction.click(
+      within(item).getByRole("button", {
+        name: "查看Frontend Slides详情",
+      })
+    )
+    const detail = await screen.findByRole("dialog", {
+      name: "Frontend Slides",
+    })
+    expect(within(detail).getByRole("button", { name: "卸载" })).toBeVisible()
+    await interaction.click(
+      within(detail).getByRole("button", { name: "关闭" })
+    )
+
     await interaction.click(within(item).getByRole("button", { name: "操作" }))
     await interaction.click(
-      await screen.findByRole("menuitem", { name: "删除" })
+      await screen.findByRole("menuitem", { name: "卸载" })
     )
     const deleteDialog = await screen.findByRole("dialog", {
-      name: "永久删除此技能？",
+      name: "卸载此技能？",
     })
     await interaction.click(
-      within(deleteDialog).getByRole("button", { name: "删除" })
+      within(deleteDialog).getByRole("button", { name: "卸载" })
     )
 
     await waitFor(() => {
       expect(
-        screen.queryByRole("dialog", { name: "永久删除此技能？" })
+        screen.queryByRole("dialog", { name: "卸载此技能？" })
       ).not.toBeInTheDocument()
     })
-    const deleteLoading = await screen.findByText("正在删除技能…")
+    const deleteLoading = await screen.findByText("正在卸载技能…")
     expect(deleteLoading.closest("[data-sonner-toast]")).not.toBeNull()
 
     resolveDelete?.(envelope({ deleted: true }))
-    expect(await screen.findByText("个人技能已永久删除")).toBeVisible()
+    expect(await screen.findByText("技能已卸载")).toBeVisible()
     expect(await screen.findByText("没有符合条件的个人技能")).toBeVisible()
   })
 
@@ -1468,15 +1823,13 @@ describe("capability marketplace pages", () => {
     renderUserPage()
 
     expect(
-      await screen.findByRole("heading", { name: "插件中心" })
+      await screen.findByRole("heading", { name: "插件", level: 1 })
     ).toBeVisible()
     expect(
       screen.queryByRole("tablist", { name: "插件中心页面" })
     ).not.toBeInTheDocument()
     const header = screen.getByRole("banner")
-    expect(
-      within(header).getByRole("button", { name: "我的发布" })
-    ).toBeVisible()
+    expect(screen.getByRole("button", { name: "我的发布" })).toBeVisible()
     expect(
       within(header).queryByRole("button", { name: "我的插件/Skill" })
     ).not.toBeInTheDocument()
@@ -1503,7 +1856,7 @@ describe("capability marketplace pages", () => {
       within(catalogTabs)
         .getAllByRole("tab")
         .map((tab) => tab.textContent)
-    ).toEqual(["插件", "技能", "MCP", "应用"])
+    ).toEqual(["应用", "插件", "技能", "MCP"])
     expect(screen.getByRole("heading", { name: "已安装" })).toBeVisible()
     const scopeToggle = screen.getByLabelText("内容范围")
     expect(
@@ -1893,12 +2246,31 @@ describe("capability marketplace pages", () => {
   it("lists an internally shared application without exposing management actions", async () => {
     const applicationId = "50000000-0000-4000-8000-000000000001"
     const conversationId = "60000000-0000-4000-8000-000000000001"
+    let resolveStart: ((response: Response) => void) | undefined
+    const startRequest = new Promise<Response>((resolve) => {
+      resolveStart = resolve
+    })
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), window.location.origin)
       const method = init?.method ?? "GET"
       if (url.pathname === "/api/v1/marketplace") {
         return Promise.resolve(envelope({ items: [], next_cursor: null }))
       }
+      if (url.pathname === "/api/v1/applications/distribution")
+        return Promise.resolve(
+          envelope({
+            items: [
+              {
+                application_id: applicationId,
+                published_version_id: applicationId,
+                published_version_number: "1.0.0",
+                usage_modes: ["service"],
+                installation: null,
+                installed_application_id: null,
+              },
+            ],
+          })
+        )
       if (url.pathname === "/api/v1/applications" && method === "GET") {
         return Promise.resolve(
           envelope({
@@ -1936,7 +2308,7 @@ describe("capability marketplace pages", () => {
           `/api/v1/applications/${applicationId}/conversations` &&
         method === "POST"
       ) {
-        return Promise.resolve(envelope({ conversation_id: conversationId }))
+        return startRequest
       }
       return Promise.resolve(envelope({ items: [], next_cursor: null }))
     })
@@ -1951,6 +2323,7 @@ describe("capability marketplace pages", () => {
       within(catalogTabs).getByRole("tab", { name: "应用" })
     )
 
+    await interaction.click(screen.getByRole("tab", { name: "共享给我的应用" }))
     const title = await screen.findByRole("heading", {
       name: "财务制度助手",
     })
@@ -1968,10 +2341,33 @@ describe("capability marketplace pages", () => {
     expect(within(card).queryByRole("button", { name: "编辑" })).toBeNull()
 
     const startButton = within(card).getByRole("button", {
-      name: "立即试用",
+      name: "使用",
     })
-    expect(startButton.querySelector("svg")).not.toBeInTheDocument()
+    expect(startButton).toHaveClass("bg-secondary", "text-secondary-foreground")
+    expect(
+      startButton.querySelector('svg[data-icon="inline-start"]')
+    ).toHaveAttribute("aria-hidden", "true")
     await interaction.click(startButton)
+    await waitFor(() =>
+      expect(startButton).toHaveAttribute("aria-busy", "true")
+    )
+    expect(startButton).toBeDisabled()
+    expect(
+      startButton.querySelector('[data-slot="spinner"]')
+    ).toBeInTheDocument()
+    await interaction.click(startButton)
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input, options]) =>
+          String(input).includes(
+            `/applications/${applicationId}/conversations`
+          ) && options?.method === "POST"
+      )
+    ).toHaveLength(1)
+    await act(async () => {
+      resolveStart?.(envelope({ conversation_id: conversationId }))
+    })
+    await waitFor(() => expect(startButton).not.toBeInTheDocument())
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining(
@@ -2171,11 +2567,17 @@ describe("capability marketplace pages", () => {
     expect(grid).toHaveClass("grid", "md:grid-cols-2")
     expect(grid).not.toHaveClass("xl:grid-cols-3")
     expect(cardHeader).toHaveClass("gap-x-4", "gap-y-0")
-    expect(creator.parentElement).toHaveClass("min-h-14", "flex-col")
-    expect(creator).toHaveClass("mt-auto", "text-xs", "leading-4")
+    expect(creator.parentElement).toHaveClass(
+      "flex",
+      "gap-x-3",
+      "text-xs",
+      "leading-4"
+    )
+    expect(creator).toHaveClass("truncate")
     expect(description).toHaveClass(
       "line-clamp-2",
       "min-h-10",
+      "text-[length:var(--app-font-13)]",
       "break-words",
       "leading-5"
     )
@@ -2223,12 +2625,17 @@ describe("capability marketplace pages", () => {
       throw new Error("Expected fixed-model application card")
     }
     expect(within(fixedModelCard).getByText("gpt-5.6-terra")).toBeVisible()
-    expect(
-      within(fixedModelCard).getByText("交互式应用 · v1.1.0")
-    ).toBeVisible()
-    expect(
-      within(fixedModelCard).getByText("由我创建").parentElement
-    ).toHaveClass("min-h-14", "flex-col")
+    const versionLabel = within(fixedModelCard).getByText("交互式应用 · v1.1.0")
+    const interactiveCreator = within(fixedModelCard).getByText("由我创建")
+    expect(versionLabel).toBeVisible()
+    expect(versionLabel.parentElement).toBe(interactiveCreator.parentElement)
+    expect(versionLabel.nextElementSibling).toBe(interactiveCreator)
+    expect(versionLabel.parentElement).toHaveClass(
+      "flex",
+      "flex-wrap",
+      "gap-x-3",
+      "gap-y-1"
+    )
     expect(
       fixedModelCard.querySelector('[data-slot="application-card-model"]')
     ).toHaveTextContent("gpt-5.6-terra")
@@ -2239,7 +2646,10 @@ describe("capability marketplace pages", () => {
       within(footer!)
         .getAllByRole("button")
         .map((button) => button.textContent)
-    ).toEqual(["使用与分享", "立即试用"])
+    ).toEqual(["使用"])
+    expect(within(footer!).getByRole("button", { name: "使用" })).toHaveClass(
+      "bg-secondary"
+    )
     expect(
       within(footer!).queryByRole("button", { name: "共享" })
     ).not.toBeInTheDocument()
@@ -2262,12 +2672,21 @@ describe("capability marketplace pages", () => {
       within(actionMenu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent)
-    ).toEqual(["编辑", "组织内共享", "停用", "用量统计", "外部访问", "删除"])
+    ).toEqual([
+      "编辑",
+      "组织内共享",
+      "申请上架",
+      "用量统计",
+      "外部访问",
+      "停用",
+      "删除",
+    ])
     expect(screen.getByRole("menuitem", { name: "用量统计" })).toHaveAttribute(
       "href",
       `/capabilities/applications/${applications[0]!.id}/usage`
     )
     expect(screen.getByRole("menuitem", { name: "组织内共享" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "申请上架" })).toBeVisible()
     expect(screen.getByRole("menuitem", { name: "编辑" })).toBeVisible()
     expect(screen.getByRole("menuitem", { name: "删除" })).toBeVisible()
   })
@@ -2283,6 +2702,7 @@ describe("capability marketplace pages", () => {
       grantee_type: "user" | "user_group"
       target: { id: string; name: string }
       status: "active"
+      usage_modes: ("install" | "service")[]
       created_at: string
       updated_at: string
     }> = []
@@ -2312,6 +2732,19 @@ describe("capability marketplace pages", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), window.location.origin)
       const method = init?.method ?? "GET"
+      if (
+        url.pathname ===
+        `/api/v1/applications/${applicationId}/distribution/settings`
+      )
+        return Promise.resolve(
+          envelope({
+            highest_version_number: "1.0.0",
+            version_number: "1.0.0",
+            usage_instructions: "Read the guide",
+          })
+        )
+      if (url.pathname === "/api/v1/applications/distribution")
+        return Promise.resolve(envelope({ items: [] }))
       if (url.pathname === "/api/v1/applications" && method === "GET") {
         return Promise.resolve(
           envelope({ items: [application], next_cursor: null })
@@ -2355,7 +2788,7 @@ describe("capability marketplace pages", () => {
         )
       }
       if (
-        url.pathname === `/api/v1/applications/${applicationId}/grants` &&
+        url.pathname === `/api/v1/applications/${applicationId}/share` &&
         method === "POST"
       ) {
         submittedBody = JSON.parse(String(init?.body)) as Record<
@@ -2368,11 +2801,18 @@ describe("capability marketplace pages", () => {
           grantee_type: "user_group" as const,
           target: { id: groupTargetId, name: "教务组" },
           status: "active" as const,
+          usage_modes: ["service" as const],
           created_at: NOW,
           updated_at: NOW,
         }
         activeGrants = [createdGrant]
-        return Promise.resolve(envelope(createdGrant))
+        return Promise.resolve(
+          envelope({
+            version_id: applicationId,
+            version_number: "1.0.0",
+            usage_instructions: "Read the guide",
+          })
+        )
       }
       return Promise.resolve(envelope({ items: [], next_cursor: null }))
     })
@@ -2395,8 +2835,7 @@ describe("capability marketplace pages", () => {
     await interaction.click(
       await screen.findByRole("menuitem", { name: "组织内共享" })
     )
-
-    const dialog = await screen.findByRole("dialog", { name: "共享应用" })
+    const dialog = await screen.findByRole("dialog", { name: "组织内共享" })
     const userTab = within(dialog).getByRole("tab", { name: "用户" })
     const groupTab = within(dialog).getByRole("tab", { name: "用户组" })
     const targetTypeSelector = userTab.closest(".share-target-type-options")
@@ -2449,9 +2888,7 @@ describe("capability marketplace pages", () => {
       within(selectedUserRow).queryByRole("button", { name: "取消共享" })
     ).toBeNull()
     expect(submittedBody).toBeNull()
-    expect(
-      within(dialog).queryByRole("button", { name: "关闭" })
-    ).not.toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "关闭" })).toBeVisible()
     expect(
       within(dialog).getAllByRole("button", { name: "共享" })
     ).toHaveLength(1)
@@ -2498,14 +2935,35 @@ describe("capability marketplace pages", () => {
 
     await waitFor(() =>
       expect(submittedBody).toEqual({
-        grantee_type: "user_group",
-        user_group_id: groupTargetId,
+        version_number: "1.0.0",
+        usage_instructions: "Read the guide",
+        target: {
+          grantee_type: "user_group",
+          user_group_id: groupTargetId,
+          usage_modes: ["service"],
+        },
       })
     )
     const shareNotification = await screen.findByText("共享成功")
     expect(shareNotification.closest("[data-sonner-toast]")).not.toBeNull()
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "组织内共享" })
+      ).not.toBeInTheDocument()
+    )
+    await interaction.click(
+      within(card).getByRole("button", {
+        name: `${application.name}的更多操作`,
+      })
+    )
+    await interaction.click(
+      await screen.findByRole("menuitem", { name: "组织内共享" })
+    )
+    const reopenedDialog = await screen.findByRole("dialog", {
+      name: "组织内共享",
+    })
     await waitFor(() => {
-      const sharedGroupRow = within(dialog)
+      const sharedGroupRow = within(reopenedDialog)
         .getByText("教务组")
         .closest(".application-share-current-item")
       if (!(sharedGroupRow instanceof HTMLElement)) {
@@ -3411,6 +3869,93 @@ describe("capability marketplace pages", () => {
     }
   )
 
+  it.each(["zh-CN", "en-US"])(
+    "constrains long publication source labels in %s without losing selection",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const displayName = "Expense Review Skill 费用报销检查"
+      const capability = {
+        id: CAPABILITY_ID,
+        name: "expense-review",
+        display_name: displayName,
+        slug: "expense-review",
+        can_delete: true,
+        type: "skill",
+        description: "Review employee expenses",
+        status: "active",
+        source_type: "local",
+        marketplace_listing_id: null,
+        marketplace_release_id: null,
+        logo_url: null,
+        has_logo: false,
+        manifest: {},
+        risk_summary: riskSummary,
+        preference_status: "enabled",
+        can_manage: true,
+        can_govern: true,
+        is_owner: true,
+        created_at: NOW,
+        updated_at: NOW,
+      }
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          const url = new URL(String(input), window.location.origin)
+          return Promise.resolve(
+            envelope({
+              items:
+                url.pathname === "/api/v1/capabilities" ? [capability] : [],
+              next_cursor: null,
+            })
+          )
+        })
+      )
+      const interaction = userEvent.setup()
+      renderUserPageWithRouter("/capabilities?section=skill&scope=personal")
+      const personalCatalog = await screen.findByRole("region", {
+        name: i18n.t("marketplace.personalCatalogLabel", {
+          category: i18n.t("marketplace.catalogTabs.skill"),
+        }),
+      })
+      const personalItem = await within(personalCatalog).findByRole("article", {
+        name: displayName,
+      })
+      await interaction.click(
+        within(personalItem).getByRole("button", {
+          name: i18n.t("common.actions"),
+        })
+      )
+      await interaction.click(
+        await screen.findByRole("menuitem", {
+          name: i18n.t("marketplace.applyForListing"),
+        })
+      )
+      const dialog = await screen.findByRole("dialog", {
+        name: i18n.t("marketplace.publishNew"),
+      })
+      const source = within(dialog).getByLabelText(
+        i18n.t("marketplace.sourceCapability")
+      )
+      const label = `${displayName} · Skill · ${i18n.t("capability.sourceTypes.local")}`
+      expect(source.closest('[data-slot="field"]')).toHaveClass("min-w-0")
+      expect(source).toHaveClass("w-full", "min-w-0")
+      expect(source.querySelector('[data-slot="select-value"]')).toHaveClass(
+        "min-w-0"
+      )
+      expect(within(source).getByTitle(label)).toHaveClass("truncate")
+      expect(source).toHaveTextContent(label)
+      expect(
+        within(dialog).getByRole("button", {
+          name: i18n.t("marketplace.submitForReview"),
+        })
+      ).toBeEnabled()
+      await interaction.click(source)
+      expect(
+        await screen.findByRole("option", { name: label })
+      ).toHaveAttribute("aria-selected", "true")
+    }
+  )
+
   it("shows a persistent three-dot action menu with icons and submits a listing request", async () => {
     const capability = {
       id: CAPABILITY_ID,
@@ -3523,6 +4068,8 @@ describe("capability marketplace pages", () => {
           })
         )
       }
+      if (url.pathname === "/api/v1/application-center/mine")
+        return Promise.resolve(envelope({ items: [], next_cursor: null }))
       if (
         url.pathname === "/api/v1/marketplace/submissions" &&
         method === "POST"
@@ -3548,11 +4095,13 @@ describe("capability marketplace pages", () => {
         name: "个人",
       })
     )
+    const personalCatalog = await screen.findByRole("region", {
+      name: "个人技能",
+    })
     expect(
-      within(await screen.findByRole("region", { name: "个人技能" })).getByRole(
-        "article",
-        { name: "Frontend Slides" }
-      )
+      within(personalCatalog).getByRole("article", {
+        name: "Frontend Slides",
+      })
     ).toBeVisible()
 
     await interaction.click(screen.getByRole("button", { name: "添加技能" }))
@@ -3630,7 +4179,12 @@ describe("capability marketplace pages", () => {
     resolveConfirm(envelope(capability))
     expect(await screen.findByText("技能已安装")).toBeVisible()
 
-    const actionTrigger = screen.getByRole("button", { name: "操作" })
+    const personalItem = within(personalCatalog).getByRole("article", {
+      name: "Frontend Slides",
+    })
+    const actionTrigger = within(personalItem).getByRole("button", {
+      name: "操作",
+    })
     expect(actionTrigger.querySelector("svg")).not.toBeNull()
     await interaction.click(actionTrigger)
 
@@ -3640,7 +4194,7 @@ describe("capability marketplace pages", () => {
       actionMenu.querySelector('[data-slot="dropdown-menu-group"]')
     ).not.toBeNull()
 
-    const menuLabels = ["仅为我停用", "更新个人技能", "申请上架", "删除"]
+    const menuLabels = ["仅为我停用", "更新个人技能", "申请上架", "卸载"]
     for (const label of menuLabels) {
       const item = await screen.findByRole("menuitem", { name: label })
       expect(item.querySelector("svg")).not.toBeNull()
@@ -3674,7 +4228,9 @@ describe("capability marketplace pages", () => {
       ).not.toBeInTheDocument()
     })
 
-    await interaction.click(screen.getByRole("button", { name: "操作" }))
+    await interaction.click(
+      within(personalItem).getByRole("button", { name: "操作" })
+    )
     await interaction.click(
       await screen.findByRole("menuitem", { name: "申请上架" })
     )
@@ -3845,6 +4401,70 @@ describe("capability marketplace pages", () => {
       })
     ).toBe(false)
   })
+
+  it.each([
+    ["zh-CN", "draft", "rejected", "未通过"],
+    ["en-US", "draft", "rejected", "Not approved"],
+    ["zh-CN", "draft", "pending", "待审核"],
+    ["zh-CN", "draft", "withdrawn", "已撤回"],
+    ["zh-CN", "published", "rejected", "已上架"],
+    ["zh-CN", "unlisted", "rejected", "已下架"],
+    ["zh-CN", "suspended", "rejected", "已停用"],
+  ] as const)(
+    "shows the %s governance status for a %s listing with a %s release",
+    async (language, listingStatus, releaseStatus, expectedStatus) => {
+      await i18n.changeLanguage(language)
+      const hasCurrentRelease = listingStatus !== "draft"
+      const publication = {
+        listing: {
+          ...listing,
+          status: listingStatus,
+          current_release_id: hasCurrentRelease ? RELEASE_ID : null,
+        },
+        current_release: hasCurrentRelease ? release : null,
+        latest_release: {
+          ...release,
+          id: "40000000-0000-4000-8000-000000000002",
+          release_number: hasCurrentRelease ? 2 : 1,
+          status: releaseStatus,
+          published_at: null,
+        },
+        install_count: 0,
+      }
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          const url = new URL(String(input), window.location.origin)
+          return Promise.resolve(
+            envelope({
+              items:
+                url.pathname === "/api/v1/admin/marketplace/listings"
+                  ? [publication]
+                  : [],
+              next_cursor: null,
+            })
+          )
+        })
+      )
+      const interaction = userEvent.setup()
+      renderAdminPage()
+      await interaction.click(
+        await screen.findByRole("tab", {
+          name: i18n.t("marketplace.tabs.listings"),
+        })
+      )
+
+      const item = await screen.findByRole("article", { name: release.name })
+      const badge = within(item).getByText(expectedStatus)
+      expect(badge).toBeVisible()
+      expect(
+        within(item).queryByText(i18n.t("marketplace.status.draft"))
+      ).not.toBeInTheDocument()
+      if (listingStatus === "draft" && releaseStatus === "rejected") {
+        expect(badge).toHaveAttribute("data-variant", "destructive")
+      }
+    }
+  )
 
   it.each([false, true])(
     "shows a direct governance action when suspended is %s",

@@ -51,12 +51,12 @@ export function CapabilityRiskSummary({
     >
       <div className="flex flex-wrap gap-2">
         {flags.map((flag) => (
-          <Badge key={flag} variant="outline">
+          <Badge key={flag} variant="tag">
             {t(`marketplace.risks.${flag}`)}
           </Badge>
         ))}
         {environmentKeys.length > 0 && (
-          <Badge variant="outline">
+          <Badge variant="tag">
             {t("marketplace.risks.declaredEnvironmentKeys", {
               values: environmentKeys.join(", "),
             })}

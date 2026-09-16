@@ -57,7 +57,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "f0e7d4832369c9b61fe5b2c13fd40b1a45ab452f322b96dca97e66cf6cd2019b"
+  "8280097df915a02ff4ec8546ce6b4a4c9c27450a42a75c1b08cc43cfe226e830"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"
@@ -129,7 +129,7 @@ export class UserHomeCapabilityMaterializationError extends Error {
 
 export class UserHomeCapabilityPublicationDeferredError extends Error {
   constructor() {
-    super("capability publication is deferred while a turn is active")
+    super("capability publication is deferred while a turn is starting")
     this.name = "UserHomeCapabilityPublicationDeferredError"
   }
 }
@@ -162,6 +162,7 @@ export class UserHomeCapabilityMaterializer {
   readonly #userDataRoot: string
   readonly #enabledBuiltInSkillNames: readonly BuiltInSkillName[]
   readonly #publicationGuard: UserHomeCapabilityPublicationGuard
+  readonly #snapshotPruneGuard: UserHomeCapabilityPublicationGuard
   readonly #instrumentation:
     | UserHomeCapabilityMaterializerInstrumentation
     | undefined
@@ -170,6 +171,7 @@ export class UserHomeCapabilityMaterializer {
     userDataRoot: string
     managedBrowserEnabled?: boolean
     publicationGuard?: UserHomeCapabilityPublicationGuard
+    snapshotPruneGuard?: UserHomeCapabilityPublicationGuard
     instrumentation?: UserHomeCapabilityMaterializerInstrumentation
   }) {
     if (!path.isAbsolute(options.userDataRoot)) {
@@ -183,6 +185,7 @@ export class UserHomeCapabilityMaterializer {
     )
     this.#publicationGuard =
       options.publicationGuard ?? (async () => true)
+    this.#snapshotPruneGuard = options.snapshotPruneGuard ?? (async () => true)
     this.#instrumentation = options.instrumentation
   }
 
@@ -286,7 +289,7 @@ export class UserHomeCapabilityMaterializer {
       })),
     })).digest("hex")
     const store = new CapabilitySnapshotStore(paths.ownerRoot)
-    // Publish one capability set per execution user after active native leases finish.
+    // Serialize publication with native startup, never with a whole running turn.
     const release = await this.#acquireReconcileLock(paths)
     try {
       return await store.withBuildLock(key, async () => {
@@ -335,7 +338,9 @@ export class UserHomeCapabilityMaterializer {
           return await store.withCatalogLock(async () => {
             await store.install(key, snapshot, staged.root)
             await this.#bindSnapshot(paths, snapshot)
-            await store.prune()
+            // Running native calls may still refer to the previous snapshot.
+            // Defer only reclamation; publication and new tasks remain available.
+            if (await this.#snapshotPruneGuard({ ...this.#publicationIdentity(paths), currentGeneration: snapshot.generation, nextGeneration: snapshot.generation })) await store.prune()
             return reconciledRuntime(paths, snapshot)
           })
         } finally {
@@ -379,8 +384,8 @@ export class UserHomeCapabilityMaterializer {
     },
     action: () => Promise<T>,
   ): Promise<T> {
-    // A running worker holds reconcile.lock for its full lifetime. The
-    // publication/start fence is deliberately separate and short-lived.
+    // The worker holds reconcile.lock only through native startup. The API
+    // publication/start fence protects admission against that exact publication.
     return this.withPublicationStartFence(input, async () => {
       const paths = this.pathsFor(input.ownerId, input.conversationId, input.serviceSessionId)
       validateCapabilitySet(input.capabilities)

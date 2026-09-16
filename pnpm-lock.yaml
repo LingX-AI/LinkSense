@@ -765,10 +765,16 @@ importers:
       es-toolkit:
         specifier: 1.50.0
         version: 1.50.0
+      semver:
+        specifier: 7.8.5
+        version: 7.8.5
       zod:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@types/semver':
+        specifier: 7.8.0
+        version: 7.8.0
       typescript:
         specifier: ~6
         version: 6.0.3

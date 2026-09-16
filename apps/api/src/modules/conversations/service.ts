@@ -1,3 +1,6 @@
+import { readApplicationDistributionAccess } from "../applications/distribution-repository.js";
+import { requireApplicationDistributionVersion } from "../applications/distribution-policy.js";
+import { applicationDistributionChannelSchema, type ApplicationDistributionChannel } from "@linksense/shared";
 import { executionPrincipalStatus, assertExecutionPrincipalActive, lockExecutionPrincipal } from "../../lib/execution-principal.js";
 import { runtimePlacementForWorkspace, serviceSessionForWorkspace } from "../../lib/user-runtime-paths.js";
 import { assertApplicationRuntimeCurrent } from "../applications/runtime-version.js";
@@ -43,6 +46,9 @@ import { extractReferencedSources, mergeReferencedSources } from "./referenced-s
 import type { ConversationTitleService } from "./title-service.js";
 import type { ConversationPrewarmInput } from "./prewarm.js";
 import {
+  INTERACTIVE_APPLICATION_FILE_SOURCE,
+  interactiveApplicationFileIdsSchema,
+  interactiveApplicationManifestSchema,
   builtInCapabilityDefinitionForId,
   capabilityPackageNameSchema,
   capabilitySelectionIdSchema,
@@ -155,17 +161,18 @@ export interface ConversationApplicationResolver {
     actorId: string,
     applicationId: string,
     interactivePackageId?: string | null,
-    applicationVersionId?: string | null,
+    channel?: ApplicationDistributionChannel,
   ): Promise<ApplicationTurnConfiguration>;
-  assertCurrentAccess(actorId: string, applicationId: string): Promise<void>;
+  assertCurrentAccess(actorId: string, applicationId: string, channel?: ApplicationDistributionChannel): Promise<void>;
   allowsUserModelSelection(
     actorId: string,
     applicationId: string,
-    applicationVersionId?: string | null,
+    channel?: ApplicationDistributionChannel,
   ): Promise<boolean>;
   resolveTaskMetadata?(
     actorId: string,
     applicationIds: readonly string[],
+    channel?: ApplicationDistributionChannel,
   ): Promise<ReadonlyMap<string, ApplicationTaskMetadata>>;
 }
 
@@ -299,6 +306,7 @@ export type TurnSubmission = TurnSubmissionBase &
     | {
         inputText: string;
         messageSource?: InteractiveApplicationMessageSource;
+        attachmentIds?: string[];
         officeAnnotation?: never;
         presentationAnnotation?: never;
       }
@@ -759,13 +767,43 @@ export class ConversationService {
     ownerId: string,
     applicationId: string | null | undefined,
     interactivePackageId?: string | null,
-    applicationVersionId?: string | null,
+    channel?: string | null,
   ): Promise<ApplicationTurnConfiguration | null> {
     if (applicationId == null) return null;
     if (!this.applicationResolver) {
       throw new AppError("APPLICATION_NOT_FOUND");
     }
-    return this.applicationResolver.resolveRuntime(ownerId, applicationId, interactivePackageId, applicationVersionId);
+    return this.applicationResolver.resolveRuntime(ownerId, applicationId, interactivePackageId, applicationDistributionChannelSchema.parse(channel ?? "direct"));
+  }
+
+  async assertInteractiveFileAccess(
+    ownerId: string,
+    conversationId: string,
+  ): Promise<void> {
+    const conversation = await this.assertOwner(ownerId, conversationId);
+    const runtime = await this.applicationRuntimeForConversation(
+      ownerId,
+      conversation.applicationId,
+      conversation.interactiveApplicationPackageId,
+      conversation.applicationChannel,
+    );
+    if (runtime?.kind !== "interactive" || !conversation.interactiveApplicationPackageId) {
+      throw new AppError("FORBIDDEN");
+    }
+    const package_ = await this.prisma.interactiveApplicationPackage.findFirst({
+      where: {
+        id: conversation.interactiveApplicationPackageId,
+        applicationId: runtime.applicationId,
+      },
+      select: { manifestJson: true },
+    });
+    if (
+      !package_ ||
+      !interactiveApplicationManifestSchema.parse(package_.manifestJson)
+        .permissions.includes("files:write")
+    ) {
+      throw new AppError("FORBIDDEN");
+    }
   }
 
   private async modelRuntimeForUser(
@@ -986,6 +1024,10 @@ export class ConversationService {
   }
 
   async executePrewarm(input: ConversationPrewarmInput): Promise<void> {
+    return this.withActiveUserLifecycleLock(input.ownerId, () => this.executePrewarmForActiveUser(input));
+  }
+
+  private async executePrewarmForActiveUser(input: ConversationPrewarmInput): Promise<void> {
     const reservation = input.reservationRevision
       ? {
           ownerId: input.ownerId,
@@ -1003,6 +1045,7 @@ export class ConversationService {
         collaborationMode: true,
         interactiveApplicationPackageId: true,
         applicationVersionId: true,
+        applicationChannel: true,
         workspaceRelPath: true,
       },
     });
@@ -1014,7 +1057,7 @@ export class ConversationService {
       input.ownerId,
       existing?.applicationId,
       existing?.interactiveApplicationPackageId,
-      existing?.applicationVersionId,
+      existing?.applicationChannel,
     );
     // Publish the mount boundary first, then overlap the cheap claimable
     // directory with capability preparation and Worker startup.
@@ -1024,7 +1067,7 @@ export class ConversationService {
         userId: input.ownerId,
         conversationId: input.conversationId,
         priorityCapabilityIds: [],
-        ...(applicationRuntime?.applicationVersionId ? {
+        ...(applicationRuntime?.applicationVersionId && existing && runtimePlacementForWorkspace(input.ownerId, existing.workspaceRelPath).serviceSessionId ? {
           capabilityScope: {
             applicationId: applicationRuntime.applicationId,
             serviceSessionId: serviceSessionForWorkspace(input.ownerId, existing?.workspaceRelPath),
@@ -1044,7 +1087,6 @@ export class ConversationService {
       ),
       this.executionConcurrencyForStart(),
       this.runner.prepareRuntime(input.conversationId, input.ownerId),
-      this.runner.prewarmWorker(input.ownerId),
     ]);
     if (reservation && !(await this.redis.isConversationPrewarmCurrent(reservation))) return;
     const collaborationMode = existing
@@ -1737,6 +1779,7 @@ export class ConversationService {
           codexThreadId: true,
           runtimeGeneration: true,
           applicationId: true,
+          applicationChannel: true,
         },
       }),
       executionPrincipalStatus(this.prisma, intent.ownerId),
@@ -1758,6 +1801,7 @@ export class ConversationService {
         await this.applicationResolver.assertCurrentAccess(
           intent.ownerId,
           intent.applicationId,
+          applicationDistributionChannelSchema.parse(conversation.applicationChannel ?? "direct"),
         );
       } catch (error) {
         if (error instanceof AppError) return null;
@@ -1991,7 +2035,7 @@ export class ConversationService {
                 ? "failed"
                 : (row.lastTurnStatus ?? "idle"),
           row.applicationId
-            ? applicationMetadata.get(row.applicationId) ?? {
+            ? applicationMetadata.get(row.id) ?? {
                 available: false,
                 unavailable_reason: "APPLICATION_NOT_FOUND",
               }
@@ -2013,20 +2057,19 @@ export class ConversationService {
     ownerId: string,
     conversations: readonly ConversationProjection[],
   ): Promise<ReadonlyMap<string, ApplicationTaskMetadata>> {
-    const applicationIds = [
-      ...new Set(
-        conversations.flatMap((conversation) =>
-          conversation.applicationId ? [conversation.applicationId] : [],
-        ),
-      ),
-    ];
-    if (
-      applicationIds.length === 0 ||
-      this.applicationResolver?.resolveTaskMetadata === undefined
-    ) {
-      return new Map();
+    if (!this.applicationResolver?.resolveTaskMetadata) return new Map();
+    const result = new Map<string, ApplicationTaskMetadata>();
+    for (const channel of ["direct", "center"] as const) {
+      const selected = conversations.filter(row => row.applicationId && (row.applicationChannel ?? "direct") === channel);
+      const ids = [...new Set(selected.flatMap(row => row.applicationId ? [row.applicationId] : []))];
+      if (!ids.length) continue;
+      const metadata = await this.applicationResolver.resolveTaskMetadata(ownerId, ids, channel);
+      for (const row of selected) {
+        const item = row.applicationId ? metadata.get(row.applicationId) : undefined;
+        if (item) result.set(row.id, item);
+      }
     }
-    return this.applicationResolver.resolveTaskMetadata(ownerId, applicationIds);
+    return result;
   }
 
   private async findLatestPlanOutputMissingConversationIds(
@@ -3184,12 +3227,14 @@ export class ConversationService {
     });
   }
 
-  async delete(ownerId: string, conversationId: string, context: AuditContext) {
+  async delete(ownerId: string, conversationId: string, context: AuditContext, deletionReason: "user" | "creation-failed" = "user") {
     await this.assertOwner(ownerId, conversationId);
     const deleted = await this.deleteOwnedConversation(
       ownerId,
       conversationId,
       context,
+      undefined,
+      deletionReason,
     );
     if (!deleted) throw new AppError("CONVERSATION_NOT_FOUND");
   }
@@ -3218,6 +3263,7 @@ export class ConversationService {
     conversationId: string,
     context: AuditContext,
     expectedArchiveStatus?: "archived",
+    deletionReason: "user" | "creation-failed" = "user",
   ): Promise<boolean> {
     const lock = await this.redis.acquireConversationLock(
       conversationId,
@@ -3260,13 +3306,20 @@ export class ConversationService {
           where: { conversationId },
         });
         if (unresolvedStart > 0) throw new AppError("CONFLICT");
+        const storedConversation = await tx.conversation.findUnique({ where: { id: conversationId }, select: { workspaceRelPath: true } });
+        if (!storedConversation) throw new AppError("CONVERSATION_NOT_FOUND");
+        const cleanupPlacement = runtimePlacementForWorkspace(ownerId, storedConversation.workspaceRelPath);
+        const removeServiceEnvironment = deletionReason === "user" && cleanupPlacement.serviceSessionId !== undefined;
         const artifacts = await tx.conversationFile.findMany({
           where: {
             conversationId,
             kind: "artifact",
-            minioObjectKey: { not: null },
+            ...(removeServiceEnvironment ? {} : { minioObjectKey: { not: null } }),
           },
         });
+        if (removeServiceEnvironment && artifacts.some((artifact) => !artifact.minioObjectKey)) {
+          throw new AppError("ARTIFACT_RETENTION_INCOMPLETE");
+        }
         const deletedAt = new Date();
         const retainedArtifactIds: string[] = [];
         for (const artifact of artifacts) {
@@ -3309,20 +3362,19 @@ export class ConversationService {
             userAgent: context.userAgent ?? null,
           },
         });
-        const storedConversation = await tx.conversation.findUnique({ where: { id: conversationId }, select: { workspaceRelPath: true } });
-        if (!storedConversation) throw new AppError("CONVERSATION_NOT_FOUND");
-        const cleanupPlacement = runtimePlacementForWorkspace(ownerId, storedConversation.workspaceRelPath);
         await tx.runtimeCleanupOutbox.upsert({
           where: { conversationId },
           create: {
             ownerId,
             conversationId,
             serviceSessionId: cleanupPlacement.serviceSessionId ?? null,
+            removeServiceEnvironment,
             status: "pending",
             stage: "reconcile",
           },
           update: {
             serviceSessionId: cleanupPlacement.serviceSessionId ?? null,
+            removeServiceEnvironment,
             status: "pending",
             stage: "reconcile",
             attemptCount: 0,
@@ -3371,7 +3423,7 @@ export class ConversationService {
         ownerId,
         conversation.applicationId,
         conversation.interactiveApplicationPackageId,
-        conversation.applicationVersionId,
+        conversation.applicationChannel,
       );
       const knowledgeBaseIds = applicationRuntime?.kind === "standard"
         ? applicationRuntime.knowledgeBaseIds
@@ -3454,6 +3506,7 @@ export class ConversationService {
               turnId: null,
               kind: "attachment",
               status: "staged",
+              source: { not: INTERACTIVE_APPLICATION_FILE_SOURCE },
             },
             select: { id: true },
           });
@@ -3480,6 +3533,7 @@ export class ConversationService {
               pendingRequestId: null,
               turnId: null,
               status: "staged",
+              source: { not: INTERACTIVE_APPLICATION_FILE_SOURCE },
             },
             data: {
               pendingRequestId: pending.id,
@@ -4156,7 +4210,7 @@ export class ConversationService {
             ownerId,
             source.conversation.applicationId,
             source.conversation.interactiveApplicationPackageId,
-            source.conversation.applicationVersionId,
+            source.conversation.applicationChannel,
           ),
         ]);
         const refreshed = await this.prisma.conversation.updateMany({
@@ -6335,7 +6389,7 @@ export class ConversationService {
     const allowed = await this.applicationResolver.allowsUserModelSelection(
       ownerId,
       conversation.applicationId,
-      conversation.applicationVersionId,
+      applicationDistributionChannelSchema.parse(conversation.applicationChannel ?? "direct"),
     );
     if (!allowed) throw new AppError("FORBIDDEN");
   }
@@ -6664,6 +6718,7 @@ export class ConversationService {
                 sourceTurn.knowledgeBaseIdsJson as Prisma.InputJsonValue,
               applicationId: source.applicationId,
               applicationVersionId: source.applicationVersionId,
+              applicationChannel: source.applicationChannel,
               applicationNameSnapshot: source.applicationNameSnapshot,
               interactiveApplicationPackageId:
                 source.interactiveApplicationPackageId,
@@ -6966,6 +7021,7 @@ export class ConversationService {
       name: string;
       kind: "standard" | "interactive";
       interactivePackageId: string | null;
+      channel?: ApplicationDistributionChannel;
     },
   ) {
     return this.withActiveUserLifecycleLock(ownerId, () =>
@@ -6980,6 +7036,7 @@ export class ConversationService {
       name: string;
       kind: "standard" | "interactive";
       interactivePackageId: string | null;
+      channel?: ApplicationDistributionChannel;
     },
     conversationId?: string,
   ) {
@@ -7012,6 +7069,7 @@ export class ConversationService {
       name: string;
       kind: "standard" | "interactive";
       interactivePackageId: string | null;
+      channel?: ApplicationDistributionChannel;
     },
     options?: {
       title?: string;
@@ -7024,8 +7082,8 @@ export class ConversationService {
     prewarmedConversationId?: string,
   ) {
     let id = options?.conversationId ?? prewarmedConversationId ?? crypto.randomUUID();
-    const applicationRuntime = application ? await this.applicationRuntimeForConversation(ownerId, application.id, application.interactivePackageId) : null;
-    const serviceSessionId = applicationRuntime?.applicationVersionId ? id : undefined;
+    const applicationRuntime = application ? await this.applicationRuntimeForConversation(ownerId, application.id, application.interactivePackageId, application.channel) : null;
+    const serviceSessionId = applicationRuntime?.applicationVersionId ? applicationRuntime.applicationId : undefined;
     const workspaceRelPath = serviceSessionId
       ? serviceWorkspaceRelativePath(ownerId, serviceSessionId)
       : projectWorkspaceRelativePath(ownerId, options?.projectId ?? null);
@@ -7111,6 +7169,7 @@ export class ConversationService {
             runtimeGeneration: runtime.runtimeGeneration,
             codexThreadId: prewarmedRuntime?.codexThreadId ?? null,
             applicationId: application?.id ?? null,
+            applicationChannel: application ? application.channel ?? "direct" : null,
             applicationVersionId: applicationRuntime?.applicationVersionId ?? null,
             applicationNameSnapshot: application?.name ?? null,
             interactiveApplicationPackageId:
@@ -7356,8 +7415,11 @@ export class ConversationService {
         ) {
           throw new AppError("CONFLICT");
         }
-        const application = await assertApplicationRuntimeCurrent(tx, input.ownerId, conversation.applicationVersionId ?? null, input.applicationRuntime);
-        if (application.ownerId !== input.ownerId) {
+        const application = await assertApplicationRuntimeCurrent(tx, input.ownerId, input.applicationRuntime);
+        const channel = applicationDistributionChannelSchema.parse(conversation.applicationChannel ?? "direct");
+        if (channel === "center") {
+          requireApplicationDistributionVersion(await readApplicationDistributionAccess(tx, input.ownerId, application.id), "center", "service", input.applicationRuntime.applicationVersionId ?? undefined);
+        } else if (application.ownerId !== input.ownerId) {
           const externalSession =
             await tx.applicationExternalSession.findFirst({
               where: {
@@ -7389,6 +7451,7 @@ export class ConversationService {
               where: {
                 applicationId: application.id,
                 status: "active",
+                usageModes: { has: "service" },
                 OR: [
                   { granteeType: "user", userId: input.ownerId },
                   ...(groupIds.length > 0
@@ -7471,6 +7534,19 @@ export class ConversationService {
         },
       });
       if (running > 0) throw new AppError("CONFLICT");
+
+      if (input.applicationRuntime) {
+        // The task follows the latest publication at the next execution boundary.
+        // An active turn keeps its admitted instructions and page event contract.
+        await tx.conversation.update({
+          where: { id: input.conversationId },
+          data: {
+            applicationVersionId: input.applicationRuntime.applicationVersionId,
+            interactiveApplicationPackageId: input.applicationRuntime.interactivePackageId,
+            applicationNameSnapshot: input.applicationRuntime.applicationName,
+          },
+        });
+      }
 
       if (input.pendingRequestId) {
         await tx.$queryRaw<Array<{ id: string }>>`
@@ -7583,6 +7659,9 @@ export class ConversationService {
                 turnId: null,
                 kind: "attachment",
                 status: "staged",
+                ...(input.prepared.messageDisplay?.kind === "interactive_application"
+                  ? { id: { in: input.attachments.map((file) => file.id) }, source: INTERACTIVE_APPLICATION_FILE_SOURCE }
+                  : { source: { not: INTERACTIVE_APPLICATION_FILE_SOURCE } }),
               }
             : null;
       let currentAttachments: Array<{
@@ -8779,7 +8858,7 @@ export class ConversationService {
         ownerId,
         conversation.applicationId,
         conversation.interactiveApplicationPackageId,
-        conversation.applicationVersionId,
+        conversation.applicationChannel,
       );
       const fromInteractiveApplication =
         "messageSource" in submission &&
@@ -8788,6 +8867,17 @@ export class ConversationService {
         fromInteractiveApplication && applicationRuntime?.kind !== "interactive"
       ) {
         throw new AppError("VALIDATION_ERROR");
+      }
+      if ("attachmentIds" in submission && !fromInteractiveApplication) {
+        throw new AppError("VALIDATION_ERROR");
+      }
+      const attachmentIds = fromInteractiveApplication
+        ? interactiveApplicationFileIdsSchema.parse(
+            "attachmentIds" in submission ? submission.attachmentIds ?? [] : [],
+          )
+        : undefined;
+      if (attachmentIds?.length) {
+        await this.assertInteractiveFileAccess(ownerId, conversationId);
       }
       const officeAnnotation = submissionOfficeAnnotation(submission);
       const preservesStagedAttachments =
@@ -8862,6 +8952,7 @@ export class ConversationService {
       const idempotencyRequestHash = input.idempotencyKey
         ? turnIdempotencyRequestHash({
             inputText: input.inputText,
+            ...(attachmentIds !== undefined ? { attachmentIds } : {}),
             messageDisplay: input.messageDisplay,
             submitMode: input.submitMode,
             priorityCapabilityIds: input.priorityCapabilityIds,
@@ -8980,8 +9071,19 @@ export class ConversationService {
                     turnId: null,
                     kind: "attachment",
                     status: "staged",
+                    ...(attachmentIds !== undefined
+                      ? { id: { in: attachmentIds }, source: INTERACTIVE_APPLICATION_FILE_SOURCE }
+                      : { source: { not: INTERACTIVE_APPLICATION_FILE_SOURCE } }),
                   },
+            orderBy: { id: "asc" },
           });
+      if (
+        attachmentIds !== undefined &&
+        (files.length !== attachmentIds.length ||
+          files.some((file) => !attachmentIds.includes(file.id)))
+      ) {
+        throw new AppError("ATTACHMENT_UPLOAD_INVALID");
+      }
       if (input.inputText.trim().length === 0 && files.length === 0) {
         throw new AppError("VALIDATION_ERROR");
       }
@@ -9061,7 +9163,7 @@ export class ConversationService {
           userId: ownerId,
           conversationId,
           priorityCapabilityIds: input.priorityCapabilityIds,
-          ...(applicationRuntime?.applicationVersionId
+          ...(applicationRuntime?.applicationVersionId && runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath).serviceSessionId
             ? {
                 capabilityScope: {
                   applicationId: applicationRuntime.applicationId,
@@ -9187,7 +9289,7 @@ export class ConversationService {
           environment: resolved.environment ?? {},
           credentialUsageReceipts: resolved.credentialUsageReceipts ?? [],
           mcpCredentialUsageReceipts: resolved.mcpCredentialUsageReceipts ?? [],
-          ...(applicationRuntime?.applicationVersionId
+          ...(applicationRuntime?.applicationVersionId && runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath).serviceSessionId
             ? {
                 capabilityScope: {
                   applicationId: applicationRuntime.applicationId,
@@ -9662,6 +9764,7 @@ type ConversationProjection = {
   completionUnread: boolean;
   selectedKnowledgeBaseIdsJson: unknown;
   applicationId: string | null;
+  applicationChannel: string | null;
   applicationNameSnapshot: string | null;
   interactiveApplicationPackageId: string | null;
   createdAt: Date;
@@ -11012,6 +11115,7 @@ function snapshotTurnStartAttachment(file: {
 
 function turnIdempotencyRequestHash(input: {
   inputText: string;
+  attachmentIds?: string[];
   messageDisplay: UserMessageDisplay | null;
   submitMode: PreparedTurnSubmission["submitMode"];
   priorityCapabilityIds: string[];
@@ -11030,6 +11134,7 @@ function turnIdempotencyRequestHash(input: {
     .update(
       JSON.stringify({
         schema_version: 3,
+        ...(input.attachmentIds?.length ? { attachment_ids: [...input.attachmentIds].sort() } : {}),
         input_text: input.inputText,
         message_display: input.messageDisplay,
         submit_mode: input.submitMode,
@@ -11082,6 +11187,7 @@ function turnStartIntentIdempotencyRequestHash(
     TurnStartIntent,
     | "inputText"
     | "messageDisplayJson"
+    | "attachmentsJson"
     | "submitMode"
     | "priorityCapabilityIdsJson"
     | "knowledgeBaseIdsJson"
@@ -11098,6 +11204,8 @@ function turnStartIntentIdempotencyRequestHash(
 ): string {
   return turnIdempotencyRequestHash({
     inputText: intent.inputText,
+    ...(intent.messageDisplayJson?.kind === "interactive_application" && !intent.regenerationJson
+      ? { attachmentIds: intent.attachmentsJson.filter((file) => file.source === INTERACTIVE_APPLICATION_FILE_SOURCE).map((file) => file.id) } : {}),
     messageDisplay: intent.messageDisplayJson,
     submitMode: intent.submitMode,
     priorityCapabilityIds: intent.priorityCapabilityIdsJson,

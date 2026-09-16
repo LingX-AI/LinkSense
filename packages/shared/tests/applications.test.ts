@@ -123,8 +123,9 @@ describe("internal application contracts", () => {
       createApplicationGrantInputSchema.parse({
         grantee_type: "user",
         user_id: ID,
+        usage_modes: ["service"],
       }),
-    ).toEqual({ grantee_type: "user", user_id: ID });
+    ).toEqual({ grantee_type: "user", user_id: ID, usage_modes: ["service"] });
     expect(
       createApplicationGrantInputSchema.safeParse({
         grantee_type: "all_users",

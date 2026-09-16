@@ -107,7 +107,7 @@ export async function stageProjectHomes(input: {
   return converted;
 }
 
-async function mergeTree(source: string, target: string, sourceRoot: string, excluded = new Set<string>(), child = ""): Promise<void> {
+export async function mergeTree(source: string, target: string, sourceRoot: string, excluded = new Set<string>(), child = ""): Promise<void> {
   if (excluded.has(child)) return;
   const entry = await lstat(source), existing = await info(target);
   if (entry.isSymbolicLink()) {

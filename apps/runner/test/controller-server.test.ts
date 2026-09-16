@@ -324,8 +324,26 @@ describe("controller authentication and routing", () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({ success: true })
-    expect(cleanupConversation).toHaveBeenCalledWith(ownerId, conversationId, undefined)
+    expect(cleanupConversation).toHaveBeenCalledWith(ownerId, conversationId, undefined, false)
     expect(request).not.toHaveBeenCalled()
+    await server.close()
+  })
+
+  it("forwards explicit service environment cleanup authorization", async () => {
+    const { server, cleanupConversation } = await createServer()
+    const conversationId = "01900000-0000-7000-8000-000000000001"
+    const response = await server.inject({
+      method: "DELETE",
+      url: `/conversations/${conversationId}/runtime`,
+      headers: {
+        authorization: `Bearer ${secret}`,
+        "x-linksense-owner-id": ownerId,
+        "x-linksense-service-session": conversationId,
+        "x-linksense-cleanup-environment": "true",
+      },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(cleanupConversation).toHaveBeenCalledWith(ownerId, conversationId, conversationId, true)
     await server.close()
   })
 

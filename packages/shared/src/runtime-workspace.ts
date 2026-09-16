@@ -14,8 +14,10 @@ export function projectWorkspacePath(projectId: string | null): string {
 
 export const runtimeWorkspaceHeader = "x-linksense-workspace";
 
-/** A published service session lives outside the user's mounted personal HOME. */
+/** A published application environment uses its application ID within the user's storage. */
 export const runtimeServiceSessionHeader = "x-linksense-service-session";
+/** Internal API authorization to reclaim an unreferenced service environment. */
+export const runtimeCleanupEnvironmentHeader = "x-linksense-cleanup-environment";
 
 export const runtimePlacementSchema = z.strictObject({
   workspacePath: userWorkspacePathSchema,

@@ -5,7 +5,7 @@ description: Understand interactive application Manifest fields, their effects, 
 
 # Build an interactive application
 
-Interactive applications put your workflow forms, visualizations, and controls inside LinkSense. Your code runs in an isolated iframe while the complete trusted LinkSense chat occupies a separate pane on the right, preserving task progress, forms, approvals, attachments, and artifacts. Users can drag the divider to resize both panes, and the chat never covers the application UI.
+Interactive applications put your workflow forms, visualizations, and controls inside LinkSense. Your code runs in an iframe without a sandbox while the complete LinkSense chat occupies a separate pane on the right, preserving task progress, forms, approvals, attachments, and artifacts. Users can drag the divider to resize both panes, and the chat never covers the application UI.
 
 ## Package layout
 
@@ -22,7 +22,7 @@ assets/
 
 The archive can be up to 10 MiB, expand to at most 30 MiB, contain at most 200 files, and have no individual file larger than 5 MiB. Do not include dependency directories, caches, symbolic links, server code, or credentials. Hidden files and directories such as `.DS_Store` and `.git` cause import to fail, as do file paths that differ only in letter case.
 
-Supported extensions are `.html`, `.css`, `.js`, `.mjs`, `.json`, `.map`, `.txt`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.svg`, `.ico`, `.woff`, and `.woff2`. When using a build tool, package only the generated static files and configure relative asset references such as `./app.js` and `./assets/logo.png`. Bundle fonts, scripts, styles, and images instead of relying on external CDNs.
+Supported extensions are `.html`, `.css`, `.js`, `.mjs`, `.json`, `.map`, `.txt`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.svg`, `.ico`, `.woff`, and `.woff2`. When using a build tool, package only the generated static files and configure relative references for bundled assets such as `./app.js` and `./assets/logo.png`. Fonts, scripts, styles, and images can be bundled or loaded from external CDNs.
 
 ## Manifest
 
@@ -57,10 +57,10 @@ String limits below apply after trimming leading and trailing whitespace. The Ma
 | `version` | String, 1–80 characters; matches `^[0-9A-Za-z][0-9A-Za-z._+-]*$` | Required | Identifies a release of the application package; a previously imported version cannot be reused within the same application. | Prefer semantic versions such as `1.0.0` and `1.1.0`. The platform checks format and uniqueness, does not require SemVer, and does not automatically upgrade by comparing version order. |
 | `description` | String or `null`; at most 4,000 characters | Optional; `null` | User-facing application summary; import and updates write it into the application description. It is not a task instruction. | Explain the use case, expected input, and output. This accepts one string, not an object of translations. |
 | `instructions` | String or `null`; at most 20,000 characters | Optional; `null` | Application-level task instructions. At runtime, declared event names, descriptions, and payload schemas are also appended. | Describe stable business goals, output requirements, and event triggers. Put this submission's form input in `tasks.run().prompt`. Omitting this field or using `null` selects the platform's basic instructions; an empty string does not. |
-| `icon` | String or `null`; path of 1–500 characters | Optional; `null` | Path to an image inside the package, used as the application icon; not an external image URL. | Use a relative path such as `assets/logo.png`. PNG, JPEG, and WebP are supported, up to 512 KiB and 8,192 pixels per dimension. Prefer a compressed square image. Paths cannot start with `/` or contain `..`. Omitting it or using `null` during an update preserves the existing icon rather than deleting it. |
+| `icon` | String or `null`; path of 1–500 characters | Optional; `null` | Path to an image inside the package, used as the application icon; not an external image URL. | Use a relative path such as `assets/logo.png`. PNG, JPEG, and WebP are supported, up to 612 KiB and 8,192 pixels per dimension. Prefer a compressed square image. Paths cannot start with `/` or contain `..`. Omitting it or using `null` during an update preserves the existing icon rather than deleting it. |
 | `entry` | String; only `"index.html"` is supported | Optional; `"index.html"` | Entry document opened in the iframe; it must exist at the ZIP root. | Keep the default. Do not use a full URL, nested entry document, or frontend route. |
 | `sdk_version` | Integer; only `1` is supported | Required | LinkSense SDK protocol version used by the page. | Load `/sdk/v1.js` using the complete path shown below. Do not use the SDK's string version `"1.0.0"`. |
-| `permissions` | Array of permission strings; at most 5, without duplicates | Optional; all five permissions below | Controls which SDK capabilities the page can call; it does not expand the current user's resource access. | Explicitly list what is needed. Use `["tasks:write"]` to start work only. `[]` requests none of these five capabilities; omitting the field requests all five. |
+| `permissions` | Array of permission strings; at most 6, without duplicates | Optional; the original five permissions (excluding `files:write`) below | Controls which SDK capabilities the page can call; it does not expand the current user's resource access. | Explicitly list what is needed. Use `["tasks:write"]` to start work only. `[]` requests none of these capabilities; omitting the field requests the original five, excluding `files:write`. |
 | `custom_events` | Array of event definitions; at most 50, with unique names | Optional; `[]` | Declares structured business data that tasks may deliver to the application for display and restoration. | Start with a few meaningful events, such as “section ready”; do not design events around chat deltas or tool logs. |
 
 ### Choosing permissions
@@ -74,6 +74,7 @@ A permission enables the corresponding SDK methods. It does not automatically se
 | `knowledge_bases:read` | `resources.listKnowledgeBases()` | Knowledge base summaries: `id`, `name`, `description`, `lifecycle_status`, `availability_status`. | For a knowledge base picker. Reflect availability in the options and pass selected IDs in `knowledge_base_ids`. |
 | `mcp_servers:read` | `resources.listMcpServers()` | MCP service summaries: `id`, `name`, `status`, `transport`; no addresses or credentials. | When displaying connection information. This permission does not expose direct MCP calls, and `tasks.run()` does not accept `mcp_server_ids`. |
 | `tasks:write` | `tasks.run(input)`, `tasks.interrupt(turnId)` | Submits work in the current application task or requests interruption of a specified turn. | For generate, submit, or stop controls. Handle acceptance failures and conflicts with running work. |
+| `files:write` | `files.upload(file)`, `files.list()`, `files.remove(fileId)` | Upload and list this application task’s attachments; remove unsubmitted files. | Explicitly request this permission for uploads. It is not granted to older applications by default. |
 
 `ready()`, `events.on(...)`, and `chat.show()/hide()/toggle()` need no additional permission entry. Do not add method names as new permission strings. Resource list methods return `{ items: [...] }`. Read methods expose summaries, never passwords, tokens, MCP credentials, capability source, or knowledge base content.
 
@@ -187,7 +188,7 @@ Existing tasks keep the package, instructions, and event contracts fixed at crea
 ## Load the SDK
 
 ```html
-<script src="/api/v1/interactive-app-runtime/sdk/v1.js"></script>
+<script src="/api/v1/interactive-app-runtime/sdk/v1.js?v=1.1.0"></script>
 <script type="module" src="./app.js"></script>
 ```
 
@@ -208,7 +209,7 @@ Implement `renderSections` in your application. Render output through `textConte
 
 To read context or resources, add the permission first and call the method after `ready()`. For example, after adding `knowledge_bases:read`, use `const { items } = await LinkSense.resources.listKnowledgeBases()` to obtain options.
 
-Do not write application JavaScript in inline `<script>` blocks or `onclick` attributes; the runtime permits scripts loaded from the same origin. Use the platform URL above for the SDK and relative paths for application scripts. Opening the HTML outside LinkSense provides no host handshake, so `ready()` will not complete. You can develop the pure UI locally, but SDK integration needs an imported application.
+The runtime supports inline `<script>` blocks, event handler attributes, bundled scripts, and external scripts. Use the platform URL above for the SDK and relative paths for bundled application scripts. Opening the HTML outside LinkSense provides no host handshake, so `ready()` will not complete. You can develop the pure UI locally, but SDK integration needs an imported application.
 
 ## Submit work
 
@@ -221,8 +222,9 @@ const receipt = await LinkSense.tasks.run({
 | Parameter | Meaning and limits | Recommended practice |
 | --- | --- | --- |
 | `prompt` | Required; 1–200,000 characters after trimming; the current task request. | Build it from validated form values, with a clear topic, constraints, and deliverables. Avoid submitting values without context. |
-| `capability_ids` | Optional, default `[]`; up to 50 skill or plugin IDs. | Use the user's current selection. Reading a list does not select its entries, and the server still checks resource access and status. |
+| `capability_ids` | Optional, default `[]`; up to 60 skill or plugin IDs. | Use the user's current selection. Reading a list does not select its entries, and the server still checks resource access and status. |
 | `knowledge_base_ids` | Optional, default `[]`; up to 20 knowledge base UUIDs. | Include only the knowledge bases needed for this submission. |
+| `file_ids` | Optional, defaults to `[]`; up to 100 unique file UUIDs. | Select staged IDs returned by `files.upload()` or `files.list()`; only these files are attached, excluding chat drafts. |
 | `idempotency_key` | Optional; 1–120 characters after trimming. | Usually let the host manage it. If supplied, identify one logical submission; do not reuse a fixed value across different requests. |
 
 On submission, LinkSense immediately opens the chat pane and shows the message as sending. Once accepted, the pending message is reconciled with the persisted message. `tasks.run()` returns the server's acceptance receipt without waiting for chat history refreshes or research results. Repeated calls for the same in-flight submission share one request; applications should still disable their generate button during submission and handle failures.
@@ -261,10 +263,13 @@ await LinkSense.chat.toggle()
 
 Hiding the panel never stops the task. Ask the user to reopen it when a LinkSense form, approval, or error needs attention.
 
-## Security boundaries
+## Network access, downloads, and trust boundaries
 
-- The iframe cannot call LinkSense APIs directly or read authentication cookies and tokens.
-- Network connections, HTML form submission, objects, and base URL changes are blocked by default.
+- Interactive applications have no iframe `sandbox`, and runtime resources send no CSP, Permissions-Policy, or X-Frame-Options. Applications can use `fetch`, `XMLHttpRequest`, `WebSocket`, and `EventSource` directly, load external resources, submit HTML forms, open new windows, and download files without adding Manifest permissions.
+- Downloads can use ordinary file links, the `download` attribute, or Blob URLs created from files retrieved with `fetch`. Cross-origin `download` attributes, popups, and automatic downloads remain subject to browser rules; third-party servers can serve downloads with `Content-Disposition: attachment`.
+- Browser CORS, HTTPS mixed-content rules, and permission prompts still apply. Permissions-Policy from an outer host or deployment gateway may also restrict device capabilities. Third-party APIs should allow the LinkSense page origin; HTTPS pages should use HTTPS APIs and WSS connections. Server-side connectivity does not establish connectivity from the user's browser.
+- Import only trusted packages and external scripts. Applications share the host origin and are no longer a security isolation boundary: they can access the parent page, same-origin storage, and non-HttpOnly cookies, and may request LinkSense APIs as the current user. HttpOnly cookies remain unreadable by JavaScript. Never bundle long-lived tokens or third-party service secrets in frontend files.
+- Existing applications use the new policy after deploying both the API and Web updates and reloading the page; no reimport or historical Manifest changes are needed. CSP declared by the application itself or additional policies from an external proxy still apply.
 - Every SDK call is checked against Manifest permissions and server-side authorization.
 - Custom event payloads must match their Manifest JSON Schema.
 - Do not use custom events for chat content, reasoning, tool logs, credentials, or large files. Deliver files as LinkSense artifacts.
@@ -291,7 +296,42 @@ The repository's `examples/interactive-research-brief/` directory contains a com
 | An event schema prevents import | `payload_schema.type`, schema dialect, and resolvable references. | Use 2020-12 with an object root and a self-contained schema; do not rely on downloading external `$ref` targets at runtime. |
 | An update reports a version conflict | Whether this application's new `version` was previously imported. | Use a never-published version. Changing file contents does not bypass uniqueness checks. |
 | The icon fails import | Whether `icon` points to SVG, GIF, or an external URL. | Use a valid bundled PNG, JPEG, or WebP. Support for SVG page assets does not imply SVG application icon support. |
-| Scripts, requests, or assets fail | Inline scripts, CDNs, absolute asset paths, or direct `fetch` calls. | Use external script files and relative bundled asset paths. Get platform data through the SDK; ordinary network connections are blocked. |
+| Scripts, requests, or assets fail | Check browser errors, CORS, HTTPS mixed content, asset paths, and connectivity from the user's network. | Direct connections and external scripts are allowed. Configure the third-party service to allow the page origin, use HTTPS/WSS and correct asset paths, and check for CSP added by the application or a proxy. |
 | The SDK reports not ready or permission denied | Whether `ready()` completed and the required permission is present. | Enable controls after initialization. Add permissions required by actual calls, publish a new package, and verify in a new task. |
 | Chat has results but the application receives no business data | Matching event names in declaration, instructions, and listener; emission tool use; payload validity. | State precise triggers, check required fields, types, lengths, and extra fields, and register listeners early. |
 | Reopening produces duplicates or loses drafts | Whether every event is appended as a new record, or unsent drafts are treated as saved results. | Deduplicate by event ID and update by business ID. Rebuild the interface from persisted events rather than relying on page memory to restore drafts. |
+
+
+## Upload reference files
+
+File methods are available in SDK `1.1.0`; the protocol `sdk_version` remains `1`. When updating a package, use the `v1.js?v=1.1.0` script URL above to bypass any previously cached SDK with a long immutable lifetime.
+
+Explicitly add `files:write` to the Manifest permissions; task submission also needs `tasks:write`. The application owns its file picker, drop area, file list, and upload states. The SDK does not create a UI. Pass browser `File` objects to the host; do not encode them as Base64, call platform APIs directly, or send them through custom events.
+
+```js
+await LinkSense.ready()
+const file = document.querySelector('input[type="file"]').files[0]
+const uploaded = await LinkSense.files.upload(file)
+const receipt = await LinkSense.tasks.run({
+  prompt: "Analyze this reference and summarize the key findings.",
+  file_ids: [uploaded.id],
+})
+```
+
+| Method | Result and behavior |
+| --- | --- |
+| `files.upload(file)` | Upload one `File` and return its metadata. Call separately for multiple files. Uploading does not start a task. |
+| `files.list()` | Return `{ items }` containing this application task’s staged and bound files, including after reopening the page. |
+| `files.remove(fileId)` | Remove an unsubmitted application attachment; return `{ removed: true }`. Files already submitted or being admitted cannot be removed. |
+
+File metadata contains only `id`, `filename`, `mime_type`, `size_bytes`, `status`, and `turn_id`. A `staged` file can be selected for submission; a `bound` file belongs to a turn. On reopening, display any files you need, but only select staged files for the next submission. The platform does not restore application-specific mappings between files and form fields.
+
+Uploads use the platform’s existing per-file size and per-conversation file-count limits. Applications can further restrict types with `accept` and their own validation. Multiple uploads succeed or fail independently: retain successful files, allow failed files to be retried or removed, and enable submission only when all selected files are ready. Handle rejected SDK Promises with localized feedback. The host rejects task submission while uploads or removals are in progress. A failed task submission retains staged files for a user-initiated retry.
+
+Omitting `file_ids` or passing `[]` submits no files. Application attachments and native chat drafts are managed separately: an application can only submit its current task’s staged application attachments, and chat does not automatically consume them. Accepted attachments belong to the submitted turn, appear in chat history, and are passed through the existing runner attachment context. Do not submit a bound file again as a new attachment. Reuse the same `idempotency_key` for the same logical submission; use a new key when changing file selection.
+
+Existing packages continue to submit text without reimporting. To enable uploads, update the package with the permission and create a task using that version. Existing tasks retain their pinned package and permissions.
+
+See `examples/interactive-research-brief/` for multiple selection, retry, removal, restoration, and explicit file-ID submission.
+
+Before deploying this capability, run `pnpm db:migrate:deploy` to extend the attachment-source database constraint, then deploy matching API and frontend versions. The migration retains all existing source values, attachments, and field definitions. After new-origin attachments have been written, do not roll back to an API version that cannot parse that origin or mix old and new API instances.
