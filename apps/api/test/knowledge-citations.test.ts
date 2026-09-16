@@ -76,22 +76,57 @@ describe("projectKnowledgeCitations", () => {
     })
   })
 
-  it("keeps citations separate when the same parent matched different children", () => {
+  it("merges repeated retrievals of one document parent and preserves all matched evidence", () => {
     const result = projectKnowledgeCitations(
       `A[[kb-source:${SOURCE_A_REF}]]B[[kb-source:${SOURCE_A_SECOND_REF}]]`,
       new Map([
         [SOURCE_A_REF, sourceA],
         [
           SOURCE_A_SECOND_REF,
-          { ...sourceA, matchedChildIds: ["child-a-second"] },
+          { ...sourceA, matchedChildIds: ["child-a-second", "child-a"], pageNumbers: [3, 2] },
         ],
       ]),
     )
 
-    expect(result.citations).toHaveLength(2)
-    expect(result.citations.map((citation) => citation.matchedChildIds)).toEqual([
-      ["child-a"],
-      ["child-a-second"],
+    expect(result.citations).toEqual([{
+      ...sourceA,
+      matchedChildIds: ["child-a", "child-a-second"],
+      pageNumbers: [1, 2, 3],
+      citationNo: 1,
+      anchors: [
+        { occurrenceNo: 1, anchorAfterOffsetUtf16: 1 },
+        { occurrenceNo: 2, anchorAfterOffsetUtf16: 2 },
+      ],
+    }])
+    expect(sourceA.matchedChildIds).toEqual(["child-a"])
+    expect(sourceA.pageNumbers).toEqual([1, 2])
+  })
+
+  it("keeps different parent sections and document versions separate", () => {
+    const result = projectKnowledgeCitations(
+      `A[[kb-source:${SOURCE_A_REF}]]B[[kb-source:${SOURCE_A_SECOND_REF}]]C[[kb-source:${SOURCE_B_REF}]]`,
+      new Map([
+        [SOURCE_A_REF, sourceA],
+        [SOURCE_A_SECOND_REF, { ...sourceA, parentId: "parent-second" }],
+        [SOURCE_B_REF, { ...sourceA, documentVersionId: sourceB.documentVersionId }],
+      ]),
+    )
+    expect(result.citations).toHaveLength(3)
+    expect(result.citations.map(citation => citation.citationNo)).toEqual([1, 2, 3])
+  })
+
+  it("merges evidence from adjacent different handles without duplicating an anchor", () => {
+    const result = projectKnowledgeCitations(
+      `A[[kb-source:${SOURCE_A_REF}]][[kb-source:${SOURCE_A_SECOND_REF}]]`,
+      new Map([
+        [SOURCE_A_REF, sourceA],
+        [SOURCE_A_SECOND_REF, { ...sourceA, matchedChildIds: [] }],
+      ]),
+    )
+    expect(result.citations).toHaveLength(1)
+    expect(result.citations[0]?.matchedChildIds).toEqual(["child-a"])
+    expect(result.citations[0]?.anchors).toEqual([
+      { occurrenceNo: 1, anchorAfterOffsetUtf16: 1 },
     ])
   })
 

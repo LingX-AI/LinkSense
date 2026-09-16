@@ -1315,7 +1315,7 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
     ).not.toHaveBeenCalled();
   });
 
-  it("atomically removes private source markers and persists exact-version citations", async () => {
+  it.each([false, true])("atomically persists exact-version citations after repeated retrieval: %s", async (repeatedRetrieval) => {
     const fixture = eventFixture(undefined, {
       knowledgeBaseIds: ["81000000-0000-4000-8000-000000000001"],
     });
@@ -1339,6 +1339,18 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
           ]),
       ),
     };
+    if (repeatedRetrieval) {
+      const sources = await knowledgeSources.read();
+      const original = sources.get(sourceRef);
+      if (!original) throw new Error("Missing citation fixture source");
+      sources.set("source_ref_second_retrieval", {
+        ...original,
+        matchedChildIds: ["child-2"],
+        pageNumbers: [2],
+      });
+      knowledgeSources.read.mockResolvedValue(sources);
+      knowledgeSources.read.mockClear();
+    }
     fixture.tx.knowledgeBaseDocumentVersion.findMany.mockResolvedValueOnce([
       {
         id: "83000000-0000-4000-8000-000000000001",
@@ -1362,7 +1374,7 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
         item: {
           type: "agentMessage",
           id: "native-message-with-citation",
-          text: `知识结论[[kb-source:${sourceRef}]]。`,
+          text: `知识结论[[kb-source:${sourceRef}]]${repeatedRetrieval ? "[[kb-source:source_ref_second_retrieval]]" : ""}。`,
           phase: "final_answer",
         },
       },
@@ -1374,11 +1386,16 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
     });
     expect(
       fixture.tx.conversationMessageKnowledgeCitation.create,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      fixture.tx.conversationMessageKnowledgeCitation.create,
     ).toHaveBeenCalledWith({
       data: expect.objectContaining({
         messageId: "70000000-0000-4000-8000-000000000001",
         documentVersionId: "83000000-0000-4000-8000-000000000001",
         citationNo: 1,
+        matchedChildIds: repeatedRetrieval ? ["child-1", "child-2"] : ["child-1"],
+        pageNumbers: repeatedRetrieval ? [1, 2] : [1],
       }),
     });
     expect(
