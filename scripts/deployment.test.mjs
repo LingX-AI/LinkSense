@@ -16,6 +16,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -1972,6 +1973,23 @@ test("shared Python and Node runtimes are lockfile-driven and smoke tested", asy
   assert.match(dockerfile, /pnpm install --prod --frozen-lockfile/u);
   assert.match(dockerfile, /python \/runtime-python\/smoke\.py/u);
   assert.match(dockerfile, /node \/opt\/linksense\/runtime\/node\/smoke\.mjs/u);
+});
+
+test("worker restricts native marketplaces to the mounted LinkSense source while keeping plugins enabled", async () => {
+  const require = createRequire(resolve("apps/runner/package.json"));
+  const { parse } = require("smol-toml");
+  const [requirements, config] = await Promise.all([
+    readFile(codexSystemRequirementsPath, "utf8").then(parse),
+    readFile(codexConfigPath, "utf8").then(parse),
+  ]);
+
+  assert.deepEqual(requirements.marketplaces, {
+    restrict_to_allowed_sources: true,
+    allowed_sources: {
+      linksense: { source: "local", path: "/home/linksense" },
+    },
+  });
+  assert.equal(config.features.plugins, true);
 });
 
 test("worker enables only the managed Plan output Stop hook", async () => {
