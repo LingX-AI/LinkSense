@@ -149,7 +149,14 @@ describe("task artifact library", () => {
     vi.stubGlobal("fetch", fetchMock)
     renderLibrary()
 
-    expect(screen.getByRole("heading", { name: "资料库" })).toBeVisible()
+    expect(
+      screen.getByRole("heading", { name: "任务产物", level: 1 })
+    ).toBeVisible()
+    expect(
+      within(screen.getByRole("banner")).getByText(
+        i18n.t("library.artifacts.description")
+      )
+    ).toBeVisible()
     const tabs = screen.getByRole("tablist", { name: "资料库内容" })
     expect(tabs).toHaveAttribute("data-variant", "default")
     expect(within(tabs).getByRole("tab", { name: "任务产物" })).toHaveAttribute(

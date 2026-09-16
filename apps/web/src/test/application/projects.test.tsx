@@ -280,6 +280,26 @@ async function chooseProject(
   await interaction.click(await screen.findByRole("option", { name }))
 }
 
+async function openMoveProjectMenu(
+  interaction: ReturnType<typeof userEvent.setup>
+) {
+  const trigger = await screen.findByRole("menuitem", {
+    name: "移动到项目",
+  })
+  await waitFor(() =>
+    expect(trigger).not.toHaveAttribute("aria-disabled", "true")
+  )
+  await interaction.hover(trigger)
+  await waitFor(() => expect(trigger).toHaveAttribute("data-popup-open"))
+  return waitFor(() => {
+    const submenu = document.querySelector<HTMLElement>(
+      '[data-slot="dropdown-menu-sub-content"][data-open]'
+    )
+    expect(submenu).not.toBeNull()
+    return submenu!
+  })
+}
+
 async function dragFirstTaskToPersonalProject() {
   const sidebar = await screen.findByRole("complementary", {
     name: "LinkSense 导航",
@@ -1035,46 +1055,37 @@ describe("task projects", () => {
         name: `${conversations[0].title}的更多操作`,
       })
     )
-    await interaction.click(
-      await screen.findByRole("menuitem", { name: "移动到项目" })
-    )
-    let dialog = await screen.findByRole("dialog", { name: "移动到项目" })
+    const workSubmenu = await openMoveProjectMenu(interaction)
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(
-      within(dialog).getByRole("combobox", { name: "项目" })
-    ).toHaveClass("bg-field")
-    await chooseProject(interaction, "生活", dialog)
-    await interaction.click(
-      within(dialog).getByRole("button", { name: "保存" })
-    )
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-    )
+      within(workSubmenu).getByRole("menuitem", { name: "工作" })
+    ).toHaveAttribute("aria-disabled", "true")
+    fireEvent.click(within(workSubmenu).getByRole("menuitem", { name: "生活" }))
     const folder = screen.getByRole("region", { name: "生活" })
-    expect(within(folder).getByText(conversations[0].title)).toBeVisible()
+    expect(
+      await within(folder).findByText(conversations[0].title)
+    ).toBeVisible()
     await interaction.click(
       screen.getByRole("button", {
         name: `${conversations[0].title}的更多操作`,
       })
     )
-    await interaction.click(
-      await screen.findByRole("menuitem", { name: "移动到项目" })
-    )
-    dialog = await screen.findByRole("dialog", { name: "移动到项目" })
-    await chooseProject(interaction, "公共空间", dialog)
-    await interaction.click(
-      within(dialog).getByRole("button", { name: "保存" })
+    const personalSubmenu = await openMoveProjectMenu(interaction)
+    fireEvent.click(
+      within(personalSubmenu).getByRole("menuitem", { name: "公共空间" })
     )
     await waitFor(() =>
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      expect(
+        actions
+          .filter((action) => action.method === "PATCH")
+          .map((action) => action.body)
+      ).toEqual([{ project_id: personalId }, { project_id: null }])
     )
-    expect(
-      actions
-        .filter((action) => action.method === "PATCH")
-        .map((action) => action.body)
-    ).toEqual([{ project_id: personalId }, { project_id: null }])
-    expect(
-      within(folder).queryByText(conversations[0].title)
-    ).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        within(folder).queryByText(conversations[0].title)
+      ).not.toBeInTheDocument()
+    )
   })
 
   it("preserves the original group when moving fails", async () => {
@@ -1087,15 +1098,9 @@ describe("task projects", () => {
         name: `${conversations[0].title}的更多操作`,
       })
     )
-    await interaction.click(
-      await screen.findByRole("menuitem", { name: "移动到项目" })
-    )
-    const dialog = await screen.findByRole("dialog", { name: "移动到项目" })
-    await chooseProject(interaction, "生活", dialog)
-    await interaction.click(
-      within(dialog).getByRole("button", { name: "保存" })
-    )
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+    const submenu = await openMoveProjectMenu(interaction)
+    fireEvent.click(within(submenu).getByRole("menuitem", { name: "生活" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(
       "该项目不存在或你无权访问"
     )
     expect(

@@ -648,9 +648,9 @@
 .conversation-welcome h2 {
   max-width: 680px;
   color: var(--app-text);
-  font-size: var(--app-font-16);
-  font-weight: 600;
-  line-height: var(--app-line-24);
+  font-size: var(--app-font-24);
+  font-weight: 500;
+  line-height: var(--app-line-32);
   text-wrap: balance;
 }
 

@@ -1599,8 +1599,6 @@ export const zhCN = {
     delete: "移除项目",
     move: "移动到项目",
     moveNamed: "将“{{title}}”移动到项目",
-    moveDescription:
-      "为“{{title}}”选择项目。后续任务使用新项目的文件，原项目的文件保留。",
     name: "项目名称",
     namePlaceholder: "输入项目名称",
     search: "搜索项目",
@@ -1728,8 +1726,7 @@ export const zhCN = {
     modelContextBadgeLabel: "背景信息窗口：{{value}}",
     modelContextTitle: "背景信息窗口：",
     modelContextUsagePercent: "{{percent}}% 已用",
-    modelContextUsageDetail_singular: "已用 {{used}} token，共 {{total}}",
-    modelContextUsageDetail_plural: "已用 {{used}} tokens，共 {{total}}",
+    modelContextUsageDetail: "已用 {{used}}，共 {{total}}",
     modelContextUnavailable: "暂无上下文用量",
     stop: "停止",
     interrupting: "正在中断…",

@@ -4,7 +4,6 @@ import { projectInputSchema, type Project } from "@linksense/shared"
 import { useTranslation } from "react-i18next"
 
 import { getErrorMessage } from "@/api/error-message"
-import type { Conversation } from "@/api/contracts"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { FieldShell } from "@/components/forms/form-field"
 import { FieldGroup } from "@/components/ui/field"
@@ -20,22 +19,10 @@ import {
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
-import { cn } from "@/lib/utils"
-import {
-  deleteProject,
-  moveTaskToProject,
-  refreshProjects,
-  saveProject,
-} from "./project-api"
-import { ProjectPicker } from "./project-picker"
+import { deleteProject, refreshProjects, saveProject } from "./project-api"
 
 export type ProjectAction =
-  | { mode: "create" }
-  | { mode: "rename" | "delete"; project: Project }
-  | {
-      mode: "move"
-      conversation: Pick<Conversation, "id" | "title" | "project_id">
-    }
+  { mode: "create" } | { mode: "rename" | "delete"; project: Project }
 
 export function ProjectDialog({
   action,
@@ -52,16 +39,11 @@ export function ProjectDialog({
   const [name, setName] = useState(
     "project" in action ? action.project.name : ""
   )
-  const [projectId, setProjectId] = useState(
-    action.mode === "move" ? action.conversation.project_id : null
-  )
   const nameRequired = action.mode === "create" || action.mode === "rename"
   const validName = projectInputSchema.safeParse({ name })
   const mutation = useMutation({
     mutationFn: async () => {
       if (action.mode === "delete") return deleteProject(action.project.id)
-      if (action.mode === "move")
-        return moveTaskToProject(action.conversation.id, projectId)
       const input = projectInputSchema.parse({ name })
       return saveProject(
         input,
@@ -89,12 +71,8 @@ export function ProjectDialog({
       <DialogContent
         closeLabel={t("common.close")}
         showCloseButton={!mutation.isPending}
-        className={cn(
-          action.mode === "move" &&
-            "max-h-[calc(100dvh-2rem)] gap-4 overflow-y-auto sm:max-w-sm"
-        )}
       >
-        <DialogHeader className={cn(action.mode === "move" && "min-w-0 pr-8")}>
+        <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {action.mode === "create" && (
             <DialogDescription>
@@ -105,13 +83,6 @@ export function ProjectDialog({
             <DialogDescription>
               {t("projects.deleteDescription", {
                 name: action.project.name,
-              })}
-            </DialogDescription>
-          )}
-          {action.mode === "move" && (
-            <DialogDescription className="[overflow-wrap:anywhere]">
-              {t("projects.moveDescription", {
-                title: action.conversation.title,
               })}
             </DialogDescription>
           )}
@@ -137,19 +108,6 @@ export function ProjectDialog({
                   placeholder={t("projects.namePlaceholder")}
                   onChange={(event) => {
                     setName(event.target.value)
-                    mutation.reset()
-                  }}
-                />
-              </FieldShell>
-            )}
-            {action.mode === "move" && (
-              <FieldShell id={inputId} label={t("projects.choose")}>
-                <ProjectPicker
-                  id={inputId}
-                  value={projectId}
-                  disabled={mutation.isPending}
-                  onChange={(id) => {
-                    setProjectId(id)
                     mutation.reset()
                   }}
                 />

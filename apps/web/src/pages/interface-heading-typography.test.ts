@@ -15,7 +15,6 @@ function cssRules(selector: string) {
 
 describe("application heading typography", () => {
   it.each([
-    ".conversation-welcome h2",
     ".management-header h1",
     ".capability-library-header h1",
     ".settings-page-header h1",
@@ -28,6 +27,15 @@ describe("application heading typography", () => {
     expect(rules[0]).toContain("font-size: var(--app-font-16);")
     expect(rules[0]).toContain("font-weight: 600;")
     expect(rules[0]).toContain("line-height: var(--app-line-24);")
+  })
+
+  it("uses the 24px title tier for the conversation welcome heading", () => {
+    const rules = cssRules(".conversation-welcome h2")
+
+    expect(rules).toHaveLength(1)
+    expect(rules[0]).toContain("font-size: var(--app-font-24);")
+    expect(rules[0]).toContain("font-weight: 500;")
+    expect(rules[0]).toContain("line-height: var(--app-line-32);")
   })
 
   it("uses the configured appearance font size for preview file names", () => {

@@ -1744,8 +1744,6 @@ export const enUS = {
     delete: "Remove project",
     move: "Move to project",
     moveNamed: "Move “{{title}}” to a project",
-    moveDescription:
-      "Choose a project for “{{title}}”. Future work uses its files. Files in the original project are kept.",
     name: "Project name",
     namePlaceholder: "Enter a project name",
     search: "Search projects",
@@ -1876,8 +1874,7 @@ export const enUS = {
     modelContextBadgeLabel: "Background context window: {{value}}",
     modelContextTitle: "Background context window:",
     modelContextUsagePercent: "{{percent}}% used",
-    modelContextUsageDetail_singular: "{{used}} token used, {{total}} total",
-    modelContextUsageDetail_plural: "{{used}} tokens used, {{total}} total",
+    modelContextUsageDetail: "{{used}} used, {{total}} total",
     modelContextUnavailable: "No context usage yet",
     stop: "Stop",
     interrupting: "Interrupting…",

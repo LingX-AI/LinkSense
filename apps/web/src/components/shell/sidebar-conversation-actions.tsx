@@ -1,6 +1,7 @@
 import { ArchiveIcon, FolderInputIcon, MoreHorizontalIcon } from "lucide-react"
 import { TbPin, TbPinFilled } from "react-icons/tb"
 import { useTranslation } from "react-i18next"
+import type { Project } from "@linksense/shared"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -8,6 +9,9 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -26,9 +30,12 @@ type SidebarConversationActionsProps = {
   pinned: boolean
   pinDisabled: boolean
   archiveDisabled: boolean
+  moveDisabled?: boolean
+  projects?: Pick<Project, "id" | "name">[]
+  currentProjectId?: string | null
   onTogglePinned: () => void
   onArchive: () => void
-  onMoveToProject?: () => void
+  onMoveToProject?: (projectId: string | null) => void
 }
 
 export function SidebarConversationActions({
@@ -36,6 +43,9 @@ export function SidebarConversationActions({
   pinned,
   pinDisabled,
   archiveDisabled,
+  moveDisabled = false,
+  projects = [],
+  currentProjectId = null,
   onTogglePinned,
   onArchive,
   onMoveToProject,
@@ -94,14 +104,40 @@ export function SidebarConversationActions({
           <DropdownMenuContent align="start" className="w-max min-w-40">
             <DropdownMenuGroup>
               {onMoveToProject && (
-                <DropdownMenuItem onClick={onMoveToProject}>
-                  <FolderInputIcon
-                    className="size-4"
-                    strokeWidth={2}
-                    aria-hidden="true"
-                  />
-                  {t("projects.move")}
-                </DropdownMenuItem>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger disabled={moveDisabled}>
+                    <FolderInputIcon strokeWidth={2} aria-hidden="true" />
+                    {t("projects.move")}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent
+                    side="right"
+                    className="max-w-[min(18rem,calc(100vw-2rem))] min-w-40"
+                  >
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        disabled={moveDisabled || currentProjectId === null}
+                        onClick={() => onMoveToProject(null)}
+                      >
+                        <span className="truncate">
+                          {t("projects.projectless")}
+                        </span>
+                      </DropdownMenuItem>
+                      {projects.map((project) => (
+                        <DropdownMenuItem
+                          key={project.id}
+                          disabled={
+                            moveDisabled || project.id === currentProjectId
+                          }
+                          onClick={() => onMoveToProject(project.id)}
+                        >
+                          <span className="truncate" title={project.name}>
+                            {project.name}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
               )}
               <DropdownMenuItem disabled={pinDisabled} onClick={onTogglePinned}>
                 {pinned ? (
