@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from "react"
 import { useDrag, usePinch } from "@use-gesture/react"
 import {
@@ -22,14 +23,12 @@ import { useTranslation } from "react-i18next"
 import { downloadImagePreviewItem } from "@/components/media/image-preview-download"
 import type { ImagePreviewItem } from "@/components/media/image-preview.types"
 import { Button } from "@/components/ui/button"
+import { Dialog } from "@/components/ui/dialog"
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+  ImagePreviewToolbar,
+  ImagePreviewToolbarButton,
+} from "@/components/media/image-preview-toolbar"
+import { ImagePreviewSurface } from "@/components/media/image-preview-surface"
 import { cn } from "@/lib/utils"
 
 const MINIMUM_ZOOM = 50
@@ -39,6 +38,25 @@ const DEFAULT_ZOOM = 100
 const PAN_EDGE_ALLOWANCE_RATIO = 0.16
 
 type ImagePreviewPan = Readonly<{ x: number; y: number }>
+
+export type ImagePreviewControls = Readonly<{
+  zoom: number
+  minimumZoom: number
+  maximumZoom: number
+  zoomIn: () => void
+  zoomOut: () => void
+  resetZoom: () => void
+}>
+
+function ImagePreviewControlsSlot({
+  render,
+  controls,
+}: Readonly<{
+  render: (controls: ImagePreviewControls) => ReactNode
+  controls: ImagePreviewControls
+}>) {
+  return render(controls)
+}
 
 export type { ImagePreviewItem } from "@/components/media/image-preview.types"
 
@@ -145,11 +163,19 @@ export function ImagePreviewViewer({
   item,
   className,
   stageClassName,
+  showZoomControls = true,
+  wheelZoom = false,
+  maximumZoom = MAXIMUM_ZOOM,
+  renderControls,
   onLoadError,
 }: Readonly<{
   item: ImagePreviewItem
   className?: string
   stageClassName?: string
+  showZoomControls?: boolean
+  wheelZoom?: boolean
+  maximumZoom?: number
+  renderControls?: (controls: ImagePreviewControls) => ReactNode
   onLoadError?: () => void
 }>) {
   const { t } = useTranslation()
@@ -228,7 +254,7 @@ export function ImagePreviewViewer({
   const setClampedZoom = useCallback(
     (nextZoom: number) => {
       const clampedZoom = Math.min(
-        MAXIMUM_ZOOM,
+        maximumZoom,
         Math.max(MINIMUM_ZOOM, nextZoom)
       )
       zoomRef.current = clampedZoom
@@ -239,7 +265,7 @@ export function ImagePreviewViewer({
       setClampedPan(panRef.current)
       setZoom(clampedZoom)
     },
-    [setClampedPan]
+    [maximumZoom, setClampedPan]
   )
 
   const fitImageToStage = useCallback(() => {
@@ -301,12 +327,31 @@ export function ImagePreviewViewer({
       from: () => [zoomRef.current / 100, 0],
       scaleBounds: {
         min: MINIMUM_ZOOM / 100,
-        max: MAXIMUM_ZOOM / 100,
+        max: maximumZoom / 100,
       },
       rubberband: 0,
       pointer: { touch: true },
     }
   )
+
+  useEffect(() => {
+    if (!wheelZoom || !stageElement) return
+    const handleWheel = (event: WheelEvent) => {
+      // Pinch gestures (Ctrl + wheel) are handled once by usePinch above.
+      if (event.ctrlKey || event.metaKey || event.deltaY === 0) return
+      event.preventDefault()
+      const unit =
+        event.deltaMode === 1
+          ? 16
+          : event.deltaMode === 2
+            ? stageElement.clientHeight
+            : 1
+      const delta = Math.max(-100, Math.min(100, event.deltaY * unit))
+      setClampedZoom(Math.round(zoomRef.current * Math.exp(-delta * 0.002)))
+    }
+    stageElement.addEventListener("wheel", handleWheel, { passive: false })
+    return () => stageElement.removeEventListener("wheel", handleWheel)
+  }, [wheelZoom, stageElement, setClampedZoom])
 
   const bindStageDrag = useDrag(
     ({ active, event, offset: [x, y], pinching }) => {
@@ -411,33 +456,44 @@ export function ImagePreviewViewer({
         )}
       </div>
 
-      <div className="image-preview-zoom-controls">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-lg"
-          className="image-preview-zoom-button"
-          aria-label={t("conversation.zoomOut")}
-          disabled={zoom === MINIMUM_ZOOM}
-          onClick={() => changeZoom(-1)}
-        >
-          <MinusIcon aria-hidden="true" />
-        </Button>
-        <output className="image-preview-zoom-value" aria-live="polite">
-          {zoom}%
-        </output>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-lg"
-          className="image-preview-zoom-button"
-          aria-label={t("conversation.zoomIn")}
-          disabled={zoom === MAXIMUM_ZOOM}
-          onClick={() => changeZoom(1)}
-        >
-          <PlusIcon aria-hidden="true" />
-        </Button>
-      </div>
+      {renderControls ? (
+        <ImagePreviewControlsSlot
+          render={renderControls}
+          controls={{
+            zoom,
+            minimumZoom: MINIMUM_ZOOM,
+            maximumZoom,
+            zoomIn: () => changeZoom(1),
+            zoomOut: () => changeZoom(-1),
+            resetZoom: () => {
+              setClampedZoom(DEFAULT_ZOOM)
+              setClampedPan({ x: 0, y: 0 })
+            },
+          }}
+        />
+      ) : (
+        showZoomControls && (
+          <ImagePreviewToolbar>
+            <ImagePreviewToolbarButton
+              aria-label={t("conversation.zoomOut")}
+              disabled={zoom === MINIMUM_ZOOM}
+              onClick={() => changeZoom(-1)}
+            >
+              <MinusIcon aria-hidden="true" />
+            </ImagePreviewToolbarButton>
+            <output className="image-preview-zoom-value" aria-live="polite">
+              {zoom}%
+            </output>
+            <ImagePreviewToolbarButton
+              aria-label={t("conversation.zoomIn")}
+              disabled={zoom === maximumZoom}
+              onClick={() => changeZoom(1)}
+            >
+              <PlusIcon aria-hidden="true" />
+            </ImagePreviewToolbarButton>
+          </ImagePreviewToolbar>
+        )
+      )}
     </div>
   )
 }
@@ -712,25 +768,11 @@ function ImagePreviewDialogContent({
   }
 
   return (
-    <DialogContent
-      showCloseButton={false}
-      overlayClassName="image-preview-overlay"
-      className="image-preview-dialog top-0 left-0 translate-x-0 translate-y-0"
+    <ImagePreviewSurface
+      name={activeItem.name}
       onKeyDown={handleKeyDown}
-    >
-      <DialogHeader className="sr-only">
-        <DialogTitle>
-          {t("conversation.imagePreviewTitle", { name: activeItem.name })}
-        </DialogTitle>
-        <DialogDescription>
-          {t("conversation.imagePreviewDescription", {
-            name: activeItem.name,
-          })}
-        </DialogDescription>
-      </DialogHeader>
-
-      <div className="image-preview-toolbar">
-        {activeItem.downloadable !== false && (
+      actions={
+        activeItem.downloadable !== false && (
           <Button
             type="button"
             variant="ghost"
@@ -747,22 +789,9 @@ function ImagePreviewDialogContent({
               <DownloadIcon aria-hidden="true" />
             )}
           </Button>
-        )}
-        <DialogClose
-          render={
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-lg"
-              className="image-preview-control"
-              aria-label={t("common.close")}
-            />
-          }
-        >
-          <XIcon aria-hidden="true" />
-        </DialogClose>
-      </div>
-
+        )
+      }
+    >
       <div
         {...stageDragHandlers}
         ref={setStage}
@@ -826,33 +855,25 @@ function ImagePreviewDialogContent({
         </>
       )}
 
-      <div className="image-preview-zoom-controls">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-lg"
-          className="image-preview-zoom-button"
+      <ImagePreviewToolbar>
+        <ImagePreviewToolbarButton
           aria-label={t("conversation.zoomOut")}
           disabled={zoom === MINIMUM_ZOOM}
           onClick={() => changeZoom(-1)}
         >
           <MinusIcon aria-hidden="true" />
-        </Button>
+        </ImagePreviewToolbarButton>
         <output className="image-preview-zoom-value" aria-live="polite">
           {zoom}%
         </output>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-lg"
-          className="image-preview-zoom-button"
+        <ImagePreviewToolbarButton
           aria-label={t("conversation.zoomIn")}
           disabled={zoom === MAXIMUM_ZOOM}
           onClick={() => changeZoom(1)}
         >
           <PlusIcon aria-hidden="true" />
-        </Button>
-      </div>
-    </DialogContent>
+        </ImagePreviewToolbarButton>
+      </ImagePreviewToolbar>
+    </ImagePreviewSurface>
   )
 }

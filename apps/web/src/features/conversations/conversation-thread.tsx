@@ -2730,6 +2730,7 @@ const Message = memo(function Message({
           <div
             className={cn(
               "message-content",
+              !user && "has-[[data-assistant-diagram]]:w-full",
               user && "user-message",
               (proposedPlan || embeddedProposedPlan) && "w-full",
               !user &&

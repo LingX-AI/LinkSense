@@ -2219,7 +2219,7 @@ export const enUS = {
     diagram: {
       title: "Flowchart",
       actions: "Flowchart actions",
-      copy: "Copy diagram code",
+      copy: "Copy code",
       export: "Export image",
       expand: "Enlarge diagram",
       close: "Close",

@@ -1,7 +1,7 @@
+import { AssistantPreviewActions } from "@/features/conversations/assistant-preview-actions"
 import tailwindBrowserRuntimeUrl from "@tailwindcss/browser?url"
 import {
   DownloadIcon,
-  EllipsisIcon,
   ImageIcon,
   Maximize2Icon,
   Minimize2Icon,
@@ -20,13 +20,7 @@ import {
   initializeHtmlPreviewShell,
   interactiveHtmlPreviewSandbox,
 } from "@/components/media/html-preview/html-preview-shell"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import {
   assistantHtmlPreviewCaptureErrorMessageType,
   assistantHtmlPreviewCaptureRequestMessageType,
@@ -90,7 +84,6 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
   const pendingCaptureRequestsRef = useRef(
     new Map<string, PendingCaptureRequest>()
   )
-  const [actionsOpen, setActionsOpen] = useState(false)
   const [isCapturingImage, setIsCapturingImage] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const documentSource = useMemo(() => {
@@ -443,47 +436,25 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
       </div>
 
       {activeFrameState.status === "ready" && !isFullscreen && (
-        <div
-          className={cn(
-            "assistant-html-preview-actions absolute top-2 left-full z-20 pl-2",
-            actionsOpen && "is-open"
-          )}
+        <AssistantPreviewActions
+          label={t("conversation.inlineHtmlPreview.actions")}
         >
-          <DropdownMenu onOpenChange={setActionsOpen}>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  className="rounded-lg border-muted-foreground/20 bg-background/95 shadow-none backdrop-blur-sm"
-                  aria-label={t("conversation.inlineHtmlPreview.actions")}
-                />
-              }
-            >
-              <EllipsisIcon aria-hidden="true" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-48">
-              <DropdownMenuGroup>
-                <DropdownMenuItem onClick={downloadHtml}>
-                  <DownloadIcon aria-hidden="true" />
-                  {t("conversation.inlineHtmlPreview.downloadHtml")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={isCapturingImage}
-                  onClick={() => void copyAsImage()}
-                >
-                  <ImageIcon aria-hidden="true" />
-                  {t("conversation.inlineHtmlPreview.copyImage")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void enterFullscreen()}>
-                  <Maximize2Icon aria-hidden="true" />
-                  {t("conversation.inlineHtmlPreview.fullscreen")}
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+          <DropdownMenuItem onClick={downloadHtml}>
+            <DownloadIcon aria-hidden="true" />
+            {t("conversation.inlineHtmlPreview.downloadHtml")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={isCapturingImage}
+            onClick={() => void copyAsImage()}
+          >
+            <ImageIcon aria-hidden="true" />
+            {t("conversation.inlineHtmlPreview.copyImage")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void enterFullscreen()}>
+            <Maximize2Icon aria-hidden="true" />
+            {t("conversation.inlineHtmlPreview.fullscreen")}
+          </DropdownMenuItem>
+        </AssistantPreviewActions>
       )}
 
       {isFullscreen && (

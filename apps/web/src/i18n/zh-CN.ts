@@ -2053,7 +2053,7 @@ export const zhCN = {
     diagram: {
       title: "流程图",
       actions: "流程图操作",
-      copy: "复制流程图代码",
+      copy: "复制代码",
       export: "导出图片",
       expand: "放大查看",
       close: "关闭",

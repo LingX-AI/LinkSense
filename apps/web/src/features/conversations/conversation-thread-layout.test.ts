@@ -112,6 +112,16 @@ describe("conversation message navigation layout", () => {
     )
   })
 
+  it("uses 24px medium-weight typography for the new-task welcome title", () => {
+    const titleRule = conversationStyles.match(
+      /\.conversation-welcome h2\s*\{([^}]*)\}/u
+    )?.[1]
+
+    expect(titleRule).toMatch(/font-size:\s*var\(--app-font-24\);/u)
+    expect(titleRule).toMatch(/font-weight:\s*500;/u)
+    expect(titleRule).toMatch(/line-height:\s*var\(--app-line-32\);/u)
+  })
+
   it("places the new-task welcome group slightly below the geometric center", () => {
     const welcomeColumnRule = conversationStyles.match(
       /\.conversation-column-welcome\s*\{([^}]*)\}/u
@@ -274,7 +284,7 @@ describe("conversation message spacing", () => {
     expect(iconMediaRule).toMatch(/margin:\s*0;/u)
     expect(iconMediaRule).toMatch(/border:\s*0;/u)
     expect(conversationStyles).toMatch(
-      /\.assistant-markdown\s+img:not\(\.conversation-image-thumbnail-image\):not\(\[data-diagram-image\]\)\s*\{/u
+      /\.assistant-markdown\s+img:not\(\.conversation-image-thumbnail-image\):not\(\.image-preview-image\):not\(\[data-diagram-image\]\)\s*\{/u
     )
   })
 

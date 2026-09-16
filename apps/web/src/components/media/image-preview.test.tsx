@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { downloadApiFile } from "@/api/client"
 import {
   ImagePreviewDialog,
+  ImagePreviewViewer,
   ImageThumbnail,
   type ImagePreviewItem,
 } from "@/components/media/image-preview"
@@ -119,6 +120,83 @@ describe("image preview", () => {
     vi.restoreAllMocks()
   })
 
+  it("shows inline image zoom controls by default and hides them when requested", async () => {
+    const item = {
+      id: "preview",
+      name: "preview.png",
+      src: "data:image/png,test",
+    }
+    const view = render(<ImagePreviewViewer item={item} />)
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "放大图片" }))
+    expect(screen.getByText("125%")).toBeInTheDocument()
+    view.rerender(<ImagePreviewViewer item={item} showZoomControls={false} />)
+    expect(screen.queryByRole("button", { name: "放大图片" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "缩小图片" })).toBeNull()
+    expect(screen.queryByText("125%")).toBeNull()
+    expect(screen.getByRole("img")).toHaveAttribute("data-zoom", "125")
+  })
+
+  it("clamps opt-in wheel zoom and removes the wheel listener when disabled", () => {
+    const item = {
+      id: "wheel",
+      name: "preview.png",
+      src: "data:image/png,test",
+    }
+    const view = render(<ImagePreviewViewer item={item} wheelZoom />)
+    const image = screen.getByRole("img")
+    const stage = image.closest<HTMLElement>(".image-preview-stage")!
+    const wheel = (deltaY: number) =>
+      new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY })
+    for (let index = 0; index < 10; index++) fireEvent(stage, wheel(-100))
+    expect(image).toHaveAttribute("data-zoom", "300")
+    expect(screen.getByRole("button", { name: "放大图片" })).toBeDisabled()
+    for (let index = 0; index < 15; index++) fireEvent(stage, wheel(100))
+    expect(image).toHaveAttribute("data-zoom", "50")
+    expect(screen.getByRole("button", { name: "缩小图片" })).toBeDisabled()
+    view.rerender(<ImagePreviewViewer item={item} />)
+    const scroll = wheel(-100)
+    fireEvent(stage, scroll)
+    expect(scroll.defaultPrevented).toBe(false)
+    expect(image).toHaveAttribute("data-zoom", "50")
+  })
+
+  it.each([
+    { deltaMode: 1, deltaY: -3, zoom: "110" },
+    { deltaMode: 2, deltaY: -1, zoom: "122" },
+  ])(
+    "normalizes wheel delta mode $deltaMode",
+    ({ deltaMode, deltaY, zoom }) => {
+      render(
+        <ImagePreviewViewer
+          item={{
+            id: "wheel",
+            name: "preview.png",
+            src: "data:image/png,test",
+          }}
+          wheelZoom
+        />
+      )
+      const image = screen.getByRole("img")
+      const stage = image.closest<HTMLElement>(".image-preview-stage")!
+      Object.defineProperty(stage, "clientHeight", {
+        configurable: true,
+        value: 480,
+      })
+      fireEvent(
+        stage,
+        new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          deltaY,
+          deltaMode,
+        })
+      )
+      expect(image).toHaveAttribute("data-zoom", zoom)
+    }
+  )
+
   it("opens from a thumbnail, traps focus, and returns focus after Escape", async () => {
     const interaction = userEvent.setup()
     render(<PreviewHarness />)
@@ -179,7 +257,9 @@ describe("image preview", () => {
     expect(screen.getByRole("button", { name: "下一张图片" })).toBeDisabled()
 
     await interaction.click(screen.getByRole("button", { name: "上一张图片" }))
-    expect(await screen.findByRole("img", { name: "preview.png" })).toBeVisible()
+    expect(
+      await screen.findByRole("img", { name: "preview.png" })
+    ).toBeVisible()
   })
 
   it("supports keyboard zoom, clamps its range, and resets with zero", async () => {
@@ -486,26 +566,30 @@ describe("image preview", () => {
 
   it("opens an already-cached image without repeatedly reattaching preview refs", async () => {
     const interaction = userEvent.setup()
-    vi
-      .spyOn(HTMLImageElement.prototype, "complete", "get")
-      .mockReturnValue(true)
-    vi
-      .spyOn(HTMLImageElement.prototype, "naturalWidth", "get")
-      .mockReturnValue(1_200)
-    vi
-      .spyOn(HTMLImageElement.prototype, "naturalHeight", "get")
-      .mockReturnValue(1_800)
-    vi.spyOn(HTMLDivElement.prototype, "getBoundingClientRect").mockReturnValue({
-      bottom: 600,
-      height: 600,
-      left: 0,
-      right: 800,
-      top: 0,
-      width: 800,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    })
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(
+      true
+    )
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(
+      1_200
+    )
+    vi.spyOn(
+      HTMLImageElement.prototype,
+      "naturalHeight",
+      "get"
+    ).mockReturnValue(1_800)
+    vi.spyOn(HTMLDivElement.prototype, "getBoundingClientRect").mockReturnValue(
+      {
+        bottom: 600,
+        height: 600,
+        left: 0,
+        right: 800,
+        top: 0,
+        width: 800,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }
+    )
 
     render(<PreviewHarness items={[images[0]!]} />)
     await interaction.click(
