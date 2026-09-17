@@ -1,4 +1,5 @@
 import { readVerifiedInteractiveAsset } from "./interactive-asset-integrity.js";
+import { assertInteractiveDependenciesReady } from "./interactive-dependencies.js";
 import type { InteractiveApplicationAssetStore } from "./service.js";
 import { isDeepStrictEqual } from "node:util";
 import { lstat } from "node:fs/promises";
@@ -73,6 +74,11 @@ export class ApplicationPublicationService {
     const parsed = conversionVersionId ? { ...input, version_number: applicationVersionNumberSchema.parse(input.version_number) } : applicationVersionInputSchema.parse(input);
     const application = await this.prisma.application.findFirst({ where: { id: applicationId, ownerId, status: conversionVersionId ? { not: "deleted" } : "active" } });
     if (!application) throw new AppError("APPLICATION_NOT_FOUND");
+    if (application.kind === "interactive" && application.interactivePackageId) {
+      const package_ = await this.prisma.interactiveApplicationPackage.findFirst({ where: { id: application.interactivePackageId, applicationId } });
+      if (!package_) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+      await assertInteractiveDependenciesReady(this.prisma, ownerId, package_.manifestJson, application.interactiveDependencyBindings);
+    }
     if (!conversionVersionId) assertVersionNotLower(parsed.version_number, await this.prisma.applicationVersion.findMany({ where: { applicationId }, select: { versionLabel: true } }));
     const [bindings, knowledge, mcp] = await Promise.all([
       this.prisma.applicationCapability.findMany({ where: { applicationId }, orderBy: { selectionOrder: "asc" } }),

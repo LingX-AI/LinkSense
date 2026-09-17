@@ -1,3 +1,4 @@
+import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { useDeferredValue, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
@@ -29,7 +30,7 @@ export function ApplicationPublicationPicker({
   onSelect,
 }: {
   onClose: () => void
-  onSelect: (application: Pick<Application, "id" | "name">) => void
+  onSelect: (application: Pick<Application, "id" | "name" | "kind">) => void
 }) {
   const { t } = useTranslation()
   const [search, setSearch] = useState("")
@@ -82,7 +83,7 @@ export function ApplicationPublicationPicker({
         ) : applications.length === 0 ? (
           <EmptyState title={t("marketplace.noPublishableApplication")} />
         ) : (
-          <div className="flex max-h-80 flex-col gap-2 overflow-y-auto">
+          <div className={dialogBodyStyles("flex max-h-80 flex-col gap-2")}>
             {applications.map((application) => (
               <Button
                 key={application.id}

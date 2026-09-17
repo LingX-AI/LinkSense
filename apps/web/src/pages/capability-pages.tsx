@@ -1,3 +1,4 @@
+import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { ListCard } from "@/components/ui/list-card"
 import {
   useDeferredValue,
@@ -3220,7 +3221,7 @@ function ReleaseDetailDialog({
           />
         )}
         {detail.data && (
-          <div className="max-h-[65vh] space-y-5 overflow-y-auto pr-1">
+          <div className={dialogBodyStyles("max-h-[65vh] space-y-5")}>
             <div className="flex flex-wrap gap-2">
               <MarketplaceStatusBadge status={detail.data.release.status} />
               <CapabilityTypeBadge type={detail.data.listing.type} />
@@ -3301,6 +3302,7 @@ function MyPublicationsPanel({
   const [applicationTarget, setApplicationTarget] = useState<{
     id: string
     name: string
+    kind: "standard" | "interactive"
   } | null>(null)
   const [publicationTarget, setPublicationTarget] =
     useState<MarketplacePublication | null>(null)
@@ -3460,6 +3462,7 @@ function MyPublicationsPanel({
                 setApplicationTarget({
                   id: release.application_id,
                   name: release.name,
+                  kind: release.kind,
                 })
               }
             />
@@ -3709,7 +3712,7 @@ function ReviewDialog({
           />
         )}
         {detail.data && (
-          <div className="max-h-[55vh] space-y-5 overflow-y-auto pr-1">
+          <div className={dialogBodyStyles("max-h-[55vh] space-y-5")}>
             <div className="flex flex-wrap gap-2">
               <CapabilityTypeBadge type={detail.data.listing.type} />
               <Badge variant="outline">

@@ -206,6 +206,7 @@ export function ApplicationSharingPanel({
     >
       <ApplicationVersionFields form={versionForm} disabled={grant.isPending} />
       <ApplicationUsageModes
+        serviceOnly={application.kind === "interactive"}
         value={usageModes}
         onChange={setUsageModes}
         disabled={grant.isPending}
@@ -342,7 +343,10 @@ export function ApplicationSharingPanel({
                         {name}
                       </span>
                       {item.kind === "grant" && (
-                        <ApplicationGrantPermissions grant={item.grant} />
+                        <ApplicationGrantPermissions
+                          grant={item.grant}
+                          serviceOnly={application.kind === "interactive"}
+                        />
                       )}
                       <Badge variant="secondary" className="shrink-0">
                         {t(`applications.shareGrantType.${type}`)}

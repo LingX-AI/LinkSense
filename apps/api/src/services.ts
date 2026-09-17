@@ -529,7 +529,7 @@ export function createServices(input: {
     },
     applicationAssets,
     applicationPublications,
-    new ApplicationInstallationService(input.prisma, input.config.capabilityRoot, applicationPublications, applicationAssets),
+    new ApplicationInstallationService(input.prisma, input.config.capabilityRoot, applicationPublications),
   );
   const applicationCenter = new ApplicationCenterService(new ApplicationDistributionRepository(input.prisma), applicationPublications, audit, applications);
   const knowledgeSources = new TurnKnowledgeSourceStore(input.redis.client);

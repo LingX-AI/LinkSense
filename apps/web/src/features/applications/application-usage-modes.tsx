@@ -18,10 +18,12 @@ export function ApplicationUsageModes({
   value,
   onChange,
   disabled = false,
+  serviceOnly = false,
 }: {
   value: ApplicationUsageMode[]
   onChange: (value: ApplicationUsageMode[]) => void
   disabled?: boolean
+  serviceOnly?: boolean
 }) {
   const { t } = useTranslation()
   const id = useId()
@@ -32,48 +34,57 @@ export function ApplicationUsageModes({
         <RequiredIndicator />
       </FieldLegend>
       <FieldDescription id={`${id}-hint`} size="caption">
-        {t("applications.distribution.usageModesHint")}
+        {t(
+          serviceOnly
+            ? "applications.dependencies.serviceOnly"
+            : "applications.distribution.usageModesHint"
+        )}
       </FieldDescription>
       <FieldGroup className="grid grid-cols-2 gap-3">
-        {(["install", "service"] as const).map((mode) => (
-          <FieldLabel
-            key={mode}
-            htmlFor={`${id}-${mode}`}
-            className="h-full min-w-0 border-divider"
-          >
-            <Field className="h-full min-w-0" data-disabled={disabled}>
-              <div className="flex items-start gap-2">
-                <Checkbox
-                  id={`${id}-${mode}`}
-                  aria-labelledby={`${id}-${mode}-title`}
-                  aria-describedby={`${id}-${mode}-description`}
-                  checked={value.includes(mode)}
-                  disabled={disabled}
-                  onCheckedChange={(checked) =>
-                    onChange(
-                      checked
-                        ? [...value.filter((item) => item !== mode), mode]
-                        : value.filter((item) => item !== mode)
-                    )
-                  }
-                />
-                <FieldTitle
-                  id={`${id}-${mode}-title`}
-                  className="min-w-0 break-words"
-                >
-                  {t(`applications.distribution.modes.${mode}`)}
-                </FieldTitle>
-              </div>
-              <FieldDescription
-                id={`${id}-${mode}-description`}
-                size="caption"
-                className="break-words"
+        {(["install", "service"] as const)
+          .filter((mode) => !serviceOnly || mode === "service")
+          .map((mode) => (
+            <FieldLabel
+              key={mode}
+              htmlFor={`${id}-${mode}`}
+              className="h-full min-w-0 border-divider"
+            >
+              <Field
+                className="h-full min-w-0"
+                data-disabled={disabled || serviceOnly}
               >
-                {t(`applications.distribution.modeDescriptions.${mode}`)}
-              </FieldDescription>
-            </Field>
-          </FieldLabel>
-        ))}
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id={`${id}-${mode}`}
+                    aria-labelledby={`${id}-${mode}-title`}
+                    aria-describedby={`${id}-${mode}-description`}
+                    checked={value.includes(mode)}
+                    disabled={disabled || serviceOnly}
+                    onCheckedChange={(checked) =>
+                      onChange(
+                        checked
+                          ? [...value.filter((item) => item !== mode), mode]
+                          : value.filter((item) => item !== mode)
+                      )
+                    }
+                  />
+                  <FieldTitle
+                    id={`${id}-${mode}-title`}
+                    className="min-w-0 break-words"
+                  >
+                    {t(`applications.distribution.modes.${mode}`)}
+                  </FieldTitle>
+                </div>
+                <FieldDescription
+                  id={`${id}-${mode}-description`}
+                  size="caption"
+                  className="break-words"
+                >
+                  {t(`applications.distribution.modeDescriptions.${mode}`)}
+                </FieldDescription>
+              </Field>
+            </FieldLabel>
+          ))}
       </FieldGroup>
     </FieldSet>
   )

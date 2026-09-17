@@ -17,3 +17,9 @@ test("interactive application migration is additive and keeps historical applica
   assert.match(sql, /ADD COLUMN "interactive_application_package_id" UUID/u)
   assert.doesNotMatch(sql, /\b(?:DROP|TRUNCATE)\b/iu)
 })
+
+test("interactive dependency mappings add an empty default without rewriting old packages or resources", async () => {
+  const sql = await readFile(new URL("../prisma/migrations/20260916090000_interactive_dependency_bindings/migration.sql", import.meta.url), "utf8")
+  assert.match(sql, /ADD COLUMN "interactive_dependency_bindings" JSONB NOT NULL DEFAULT '\[\]'/u)
+  assert.doesNotMatch(sql, /\b(?:DROP|TRUNCATE|DELETE|UPDATE)\b/iu)
+})

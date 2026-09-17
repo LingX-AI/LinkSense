@@ -23,7 +23,7 @@ function fixture(latestVersion: number, modes = ["install"]) {
     applicationRelease: { findFirst: vi.fn(async () => ({ versionId: latestId, usageModes: modes, releaseNotes: "Approved release" })) },
     applicationVersion: { findFirst: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, versionLabel: "1.0.0", versionNumber: where.id === latestId ? latestVersion : 2 })) },
   };
-  const service = new ApplicationInstallationService(db as never, "/unused", {} as never, {} as never);
+  const service = new ApplicationInstallationService(db as never, "/unused", {} as never);
   return { service, db };
 }
 
@@ -32,7 +32,7 @@ describe("installed application version discovery", () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-installation-authorization-"));
     try {
       const db = { applicationInstallation: { findFirst: vi.fn(async () => null) } };
-      const service = new ApplicationInstallationService(db as never, root, {} as never, {} as never);
+      const service = new ApplicationInstallationService(db as never, root, {} as never);
       await expect(service.update("another-user", installation.applicationId, latestId)).rejects.toMatchObject({ code: "APPLICATION_NOT_FOUND" });
       expect(await readdir(root)).toEqual([]);
     } finally { await rm(root, { recursive: true, force: true }); }

@@ -2652,6 +2652,47 @@ export const enUS = {
     interactivePackageSizeInvalid:
       "The application package is empty or exceeds the size limit.",
     importPackageAction: "Import",
+    declaration: {
+      title: "Resource declaration list",
+      purpose:
+        "When creating an interactive app, use this list to declare the plugins, skills, MCP servers, and knowledge bases it needs in manifest.json.",
+      search: "Search resources by name",
+      selectAll: "Select all",
+      selectResults: "Select all search results",
+      selectType: "Select all: {{type}}",
+      selectTypeResults: "Select all search results: {{type}}",
+      selected: "{{count}} selected",
+      groupSelected: "{{count}} / {{total}} selected",
+      empty: "No resources available to declare",
+      preview: "Declaration preview",
+      mergeHint:
+        "After copying, add the dependencies field to manifest.json alongside name and version. Replace any existing dependencies field; do not overwrite the entire file.",
+      invalid:
+        "Cannot generate a valid declaration. Select up to 50 plugins and skills combined, 20 MCP servers, and 20 knowledge bases. Resource names must contain 1–160 characters. Adjust your selection or resource names.",
+      copy: "Copy dependencies JSON",
+      copyFailed:
+        "Copy failed. Try again, or select the text in the declaration preview and copy it manually.",
+    },
+    dependencies: {
+      title: "Configure required resources",
+      preview: "Check required resources",
+      hint: "The following plugins, skills, and other resources have been declared by the app package. We recommend completing resource configuration before importing so the app can work properly.",
+      empty: "This app does not declare any required resources.",
+      search: "Search and choose your resources",
+      matched: "Configured",
+      unmatched: "Not configured",
+      clear: "Clear selection",
+      savedDraft:
+        "Changes are saved to the app draft. Shared and listed versions stay unchanged until you publish again.",
+      serviceOnly:
+        "Interactive apps can only be used online, not copied. Users do not need to reconfigure the creator's connected resources.",
+      types: {
+        plugin: "Plugin",
+        skill: "Skill",
+        mcp_server: "MCP server",
+        knowledge_base: "Knowledge base",
+      },
+    },
     nativeChatPanel: "LinkSense chat",
     hideNativeChat: "Hide chat",
     showNativeChat: "Show chat",

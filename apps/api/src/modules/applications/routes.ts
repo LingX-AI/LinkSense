@@ -18,6 +18,8 @@ import {
   applicationUsageModesSchema,
   type ApplicationDistributionChannel,
   interactiveApplicationRuntimeTokenResultSchema,
+  interactiveDependencySelectionSchema,
+  interactiveDependencyTypeSchema,
   usageAnalyticsReportQuerySchema,
 } from "@linksense/shared";
 
@@ -91,21 +93,40 @@ export const applicationRoutes: FastifyPluginAsync<
 
   app.post("/interactive-import", async (request, reply) => {
     const actor = await actorFor(request);
-    const file = await request.file({
-      limits: {
-        files: 1,
-        fileSize: INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES,
-      },
-    });
-    if (!file || !isZipUpload(file.mimetype)) {
-      throw new AppError("APPLICATION_PACKAGE_INVALID");
-    }
+    const { archive, bindings } = await readInteractiveUpload(request);
     const created = await options.service.importInteractive(
       actor,
-      await file.toBuffer(),
+      archive,
       auditContext(request),
+      bindings,
     );
     return reply.code(201).send(ok(created, request));
+  });
+
+  app.post("/interactive-import/preview", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { application_id: applicationId } = z.strictObject({ application_id: uuid.optional() }).parse(request.query);
+    const { archive } = await readInteractiveUpload(request);
+    return reply.send(ok(await options.service.previewInteractiveDependencies(actor, archive, applicationId), request));
+  });
+
+  app.get("/interactive-dependency-options", async (request, reply) => {
+    const actor = await actorFor(request);
+    const query = z.strictObject({ type: interactiveDependencyTypeSchema, search: z.string().trim().min(1).max(160).optional(), cursor: uuid.optional() }).parse(request.query);
+    return reply.send(ok(await options.service.interactiveDependencyOptions(actor, query.type, query.search, query.cursor), request));
+  });
+
+  app.get("/:id/interactive-dependencies", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    return reply.send(ok(await options.service.interactiveDependencies(actor, id), request));
+  });
+
+  app.patch("/:id/interactive-dependencies", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    const { bindings } = interactiveDependencySelectionSchema.parse(request.body);
+    return reply.send(ok(await options.service.updateInteractiveDependencies(actor, id, bindings, auditContext(request)), request));
   });
 
   app.post("/:id/interactive-runtime-token", async (request, reply) => {
@@ -214,22 +235,15 @@ export const applicationRoutes: FastifyPluginAsync<
   app.post("/:id/interactive-package", async (request, reply) => {
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
-    const file = await request.file({
-      limits: {
-        files: 1,
-        fileSize: INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES,
-      },
-    });
-    if (!file || !isZipUpload(file.mimetype)) {
-      throw new AppError("APPLICATION_PACKAGE_INVALID");
-    }
+    const { archive, bindings } = await readInteractiveUpload(request);
     return reply.send(
       ok(
         await options.service.updateInteractivePackage(
           actor,
           id,
-          await file.toBuffer(),
+          archive,
           auditContext(request),
+          bindings,
         ),
         request,
       ),
@@ -406,4 +420,20 @@ function isZipUpload(mimeType: string) {
     "application/x-zip-compressed",
     "application/octet-stream",
   ].includes(mimeType.toLocaleLowerCase("en-US"));
+}
+
+async function readInteractiveUpload(request: FastifyRequest) {
+  let archive: Buffer | undefined;
+  let selection: unknown = { bindings: [] };
+  for await (const part of request.parts({ limits: { files: 1, fields: 1, fileSize: INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES, fieldSize: 32 * 1024 } })) {
+    if (part.type === "file") {
+      if (part.fieldname !== "file" || !isZipUpload(part.mimetype)) throw new AppError("APPLICATION_PACKAGE_INVALID");
+      archive = await part.toBuffer();
+    } else {
+      if (part.fieldname !== "dependencies" || part.valueTruncated || typeof part.value !== "string") throw new AppError("VALIDATION_ERROR");
+      try { selection = JSON.parse(part.value); } catch { throw new AppError("VALIDATION_ERROR"); }
+    }
+  }
+  if (!archive) throw new AppError("APPLICATION_PACKAGE_INVALID");
+  return { archive, ...interactiveDependencySelectionSchema.parse(selection) };
 }

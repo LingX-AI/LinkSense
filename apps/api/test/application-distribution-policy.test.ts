@@ -1,13 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { applicationModesForChannel, mergeApplicationUsageModes, requireApplicationDistributionVersion, type ApplicationDistributionAccess } from "../src/modules/applications/distribution-policy.js";
+import { assertApplicationUsageModes, applicationModesForChannel, mergeApplicationUsageModes, requireApplicationDistributionVersion, type ApplicationDistributionAccess } from "../src/modules/applications/distribution-policy.js";
 
 const access: ApplicationDistributionAccess = {
+  applicationKind: "standard",
   actorId: "recipient", ownerId: "publisher", organizationMember: true,
   applicationStatus: "active", publishedVersionId: "direct-v2", directModes: ["install"],
   center: { status: "published", versionId: "approved-v1", usageModes: ["service"] },
 };
 
 describe("application distribution permissions", () => {
+  it("denies copying interactive apps even to their author or through historical install grants", () => {
+    const interactive = { ...access, applicationKind: "interactive", directModes: ["install", "service"] as const,
+      center: { status: "published" as const, versionId: "approved-v1", usageModes: ["install", "service"] as const } };
+    for (const actorId of [access.actorId, access.ownerId]) for (const channel of ["direct", "center"] as const) {
+      expect(applicationModesForChannel({ ...interactive, actorId }, channel)).toEqual(["service"]);
+      expect(() => requireApplicationDistributionVersion({ ...interactive, actorId }, channel, "install")).toThrow();
+    }
+    expect(applicationModesForChannel({ ...interactive, directModes: ["install"] }, "direct")).toEqual([]);
+    expect(() => assertApplicationUsageModes("interactive", ["install", "service"])).toThrow();
+    expect(() => assertApplicationUsageModes("interactive", ["service"])).not.toThrow();
+    expect(() => assertApplicationUsageModes("standard", ["install", "service"])).not.toThrow();
+  });
   it("keeps installation and service permissions independent in each channel", () => {
     expect(requireApplicationDistributionVersion(access, "direct", "install")).toBe("direct-v2");
     expect(() => requireApplicationDistributionVersion(access, "direct", "service")).toThrow();

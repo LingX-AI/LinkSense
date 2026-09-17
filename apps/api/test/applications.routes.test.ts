@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 
 import Fastify, { type FastifyRequest } from "fastify";
+import multipart from "@fastify/multipart";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -28,6 +29,56 @@ afterEach(async () => {
 });
 
 describe("internal application routes", () => {
+  it("validates resource type and UUID cursors before listing declaration resources", async () => {
+    const { app, service } = await applicationRouteFixture();
+    const headers = { authorization: "Bearer internal-user" };
+    for (const query of ["type=skill&cursor=invalid", "type=unknown", "type=skill&owner_id=other"]) {
+      expect((await app.inject({ method: "GET", url: `/api/v1/applications/interactive-dependency-options?${query}`, headers })).statusCode).toBe(400);
+    }
+    expect(service.interactiveDependencyOptions).not.toHaveBeenCalled();
+    const response = await app.inject({ method: "GET", url: `/api/v1/applications/interactive-dependency-options?type=skill&search=Review&cursor=${APPLICATION_ID}`, headers });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toEqual({ items: [], next_cursor: null });
+    expect(service.interactiveDependencyOptions).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), "skill", "Review", APPLICATION_ID);
+  });
+  it.each([true, false])("accepts optional mapping fields before or after the ZIP (field first: %s)", async fieldFirst => {
+    const { app, service } = await applicationRouteFixture();
+    const bindings = [{ type: "skill", id: TARGET_USER_ID, resource_id: null }];
+    const form = new FormData();
+    if (fieldFirst) form.append("dependencies", JSON.stringify({ bindings }));
+    form.append("file", new Blob(["zip-bytes"], { type: "application/zip" }), "app.zip");
+    if (!fieldFirst) form.append("dependencies", JSON.stringify({ bindings }));
+    const upload = new Request("http://localhost", { method: "POST", body: form });
+    const response = await app.inject({ method: "POST", url: "/api/v1/applications/interactive-import", headers: { authorization: "Bearer internal-user", "content-type": upload.headers.get("content-type") ?? "" }, payload: Buffer.from(await upload.arrayBuffer()) });
+    expect(response.statusCode, response.body).toBe(201);
+    expect(service.importInteractive).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), Buffer.from("zip-bytes"), expect.any(Object), bindings);
+  });
+  it("authenticates dependency endpoints and validates mappings before changing the application", async () => {
+    const { app, service } = await applicationRouteFixture();
+    for (const url of [`/api/v1/applications/${APPLICATION_ID}/interactive-dependencies`, "/api/v1/applications/interactive-dependency-options?type=skill"]) {
+      expect((await app.inject({ method: "GET", url })).statusCode).toBe(401);
+    }
+    const headers = { authorization: "Bearer internal-user" };
+    const read = await app.inject({ method: "GET", url: `/api/v1/applications/${APPLICATION_ID}/interactive-dependencies`, headers });
+    expect(read.statusCode).toBe(200);
+    const invalid = await app.inject({ method: "PATCH", url: `/api/v1/applications/${APPLICATION_ID}/interactive-dependencies`, headers, payload: { bindings: [{ type: "skill", id: "slug", resource_id: null }] } });
+    expect(invalid.statusCode).toBe(400); expect(service.updateInteractiveDependencies).not.toHaveBeenCalled();
+    const valid = await app.inject({ method: "PATCH", url: `/api/v1/applications/${APPLICATION_ID}/interactive-dependencies`, headers, payload: { bindings: [] } });
+    expect(valid.statusCode).toBe(200);
+    expect(service.updateInteractiveDependencies).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID, [], expect.any(Object));
+  });
+  it("rejects malformed mapping JSON and permits uploads without a mapping field", async () => {
+    const { app, service } = await applicationRouteFixture();
+    for (const value of ["not-json", undefined]) {
+      const form = new FormData();
+      form.append("file", new Blob(["zip"], { type: "application/zip" }), "app.zip");
+      if (value) form.append("dependencies", value);
+      const upload = new Request("http://localhost", { method: "POST", body: form });
+      const response = await app.inject({ method: "POST", url: "/api/v1/applications/interactive-import", headers: { authorization: "Bearer internal-user", "content-type": upload.headers.get("content-type") ?? "" }, payload: Buffer.from(await upload.arrayBuffer()) });
+      expect(response.statusCode, response.body).toBe(value ? 400 : 201);
+    }
+    expect(service.importInteractive).toHaveBeenCalledOnce();
+  });
   it("accepts an omitted usage guide without relaxing version or length validation", async () => {
     const { app, service } = await applicationRouteFixture();
     const headers = { authorization: "Bearer internal-user" };
@@ -387,6 +438,7 @@ describe("internal application routes", () => {
 
 async function applicationRouteFixture() {
   const app = Fastify();
+  await app.register(multipart);
   apps.push(app);
   app.decorate("authenticate", async (request: FastifyRequest) => {
     if (request.headers.authorization !== "Bearer internal-user") {
@@ -407,6 +459,11 @@ async function applicationRouteFixture() {
     sendAppError(reply, request, error),
   );
   const service = {
+    importInteractive: vi.fn(async () => ({ id: APPLICATION_ID })),
+    previewInteractiveDependencies: vi.fn(async () => ({ items: [] })),
+    interactiveDependencies: vi.fn(async () => ({ items: [] })),
+    interactiveDependencyOptions: vi.fn(async () => ({ items: [], next_cursor: null })),
+    updateInteractiveDependencies: vi.fn(async () => ({ id: APPLICATION_ID })),
     getPublication: vi.fn(async () => ({ version_id: null, version_number: null, usage_instructions: "" })),
     distributionSettings: vi.fn(async () => ({ version_number: "1.0.0", highest_version_number: null, usage_instructions: "" })),
     share: vi.fn(async () => ({ version_id: APPLICATION_ID, version_number: "1.0.0", usage_instructions: "Configure your account." })),

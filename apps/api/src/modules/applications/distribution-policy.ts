@@ -2,6 +2,7 @@ import type { ApplicationDistributionChannel, ApplicationUsageMode } from "@link
 import { AppError } from "../../lib/errors.js";
 
 export interface ApplicationDistributionAccess {
+  applicationKind: string;
   actorId: string;
   organizationMember: boolean;
   ownerId: string;
@@ -22,11 +23,19 @@ export function mergeApplicationUsageModes(grants: ReadonlyArray<readonly Applic
 export function applicationModesForChannel(access: ApplicationDistributionAccess, channel: ApplicationDistributionChannel): ApplicationUsageMode[] {
   if (access.applicationStatus !== "active") return [];
   if (channel === "direct") {
-    if (access.actorId === access.ownerId) return ["install", "service"];
-    return access.organizationMember && access.publishedVersionId ? [...access.directModes] : [];
+    if (access.actorId === access.ownerId) return allowedApplicationUsageModes(access.applicationKind, ["install", "service"]);
+    return access.organizationMember && access.publishedVersionId ? allowedApplicationUsageModes(access.applicationKind, access.directModes) : [];
   }
   if (!access.organizationMember || access.center?.status !== "published") return [];
-  return [...access.center.usageModes];
+  return allowedApplicationUsageModes(access.applicationKind, access.center.usageModes);
+}
+
+export function allowedApplicationUsageModes(kind: string, modes: readonly ApplicationUsageMode[]): ApplicationUsageMode[] {
+  return modes.filter(mode => kind !== "interactive" || mode === "service");
+}
+
+export function assertApplicationUsageModes(kind: string, modes: readonly ApplicationUsageMode[]): void {
+  if (kind === "interactive" && modes.includes("install")) throw new AppError("VALIDATION_ERROR");
 }
 
 /** A center launch always uses the approved release, including for its publisher. */

@@ -70,6 +70,64 @@ export const interactiveApplicationPermissionSchema = z.enum([
   "files:write",
 ]);
 
+export const interactiveDependencyTypeSchema = z.enum([
+  "plugin", "skill", "mcp_server", "knowledge_base",
+]);
+const dependencyDeclarationSchema = z.strictObject({
+  id: uuidSchema.toLowerCase(),
+  name: z.string().trim().min(1).max(160),
+});
+export const interactiveDependenciesSchema = z.strictObject({
+  plugins: z.array(dependencyDeclarationSchema).max(50).default([]),
+  skills: z.array(dependencyDeclarationSchema).max(50).default([]),
+  mcp_servers: z.array(dependencyDeclarationSchema).max(20).default([]),
+  knowledge_bases: z.array(dependencyDeclarationSchema).max(20).default([]),
+}).superRefine((value, context) => {
+  const capabilities = [...value.plugins, ...value.skills];
+  if (capabilities.length > 50) context.addIssue({ code: "custom", message: "too_many_capabilities" });
+  for (const items of [capabilities, value.mcp_servers, value.knowledge_bases]) {
+    if (new Set(items.map(item => item.id)).size !== items.length) {
+      context.addIssue({ code: "custom", message: "duplicate_dependency_id" });
+    }
+  }
+});
+
+export const interactiveDependencyBindingSchema = z.strictObject({
+  type: interactiveDependencyTypeSchema,
+  id: uuidSchema.toLowerCase(),
+  resource_id: uuidSchema.toLowerCase().nullable(),
+});
+export const interactiveDependencyBindingsSchema = z.array(interactiveDependencyBindingSchema).max(90)
+  .refine(items => new Set(items.map(item => `${item.type}:${item.id}`)).size === items.length, "duplicate_dependency_binding");
+export const interactiveDependencySelectionSchema = z.strictObject({
+  bindings: interactiveDependencyBindingsSchema,
+});
+export const interactiveDependencyStateSchema = z.strictObject({
+  items: z.array(interactiveDependencyBindingSchema.extend({
+    name: z.string(),
+    resource_name: z.string().nullable(),
+    available: z.boolean(),
+  })).max(90),
+});
+export const interactiveDependencyOptionsSchema = z.strictObject({
+  items: z.array(z.strictObject({ id: uuidSchema, name: z.string() })).max(100),
+  next_cursor: uuidSchema.nullable(),
+});
+export type InteractiveDependencyOptions = z.infer<typeof interactiveDependencyOptionsSchema>;
+export type InteractiveDependencyType = z.infer<typeof interactiveDependencyTypeSchema>;
+export type InteractiveDependencyBinding = z.infer<typeof interactiveDependencyBindingSchema>;
+export type InteractiveDependencyState = z.infer<typeof interactiveDependencyStateSchema>;
+export type InteractiveDependencies = z.infer<typeof interactiveDependenciesSchema>;
+
+export function interactiveDependencyDeclarations(dependencies: InteractiveDependencies): Array<{ type: InteractiveDependencyType; id: string; name: string }> {
+  return [
+    ...dependencies.plugins.map(item => ({ ...item, type: "plugin" as const })),
+    ...dependencies.skills.map(item => ({ ...item, type: "skill" as const })),
+    ...dependencies.mcp_servers.map(item => ({ ...item, type: "mcp_server" as const })),
+    ...dependencies.knowledge_bases.map(item => ({ ...item, type: "knowledge_base" as const })),
+  ];
+}
+
 export const interactiveApplicationManifestSchema = z
   .strictObject({
     schema_version: z.literal(1),
@@ -91,6 +149,7 @@ export const interactiveApplicationManifestSchema = z
     icon: z.string().trim().min(1).max(500).nullable().default(null),
     entry: z.literal("index.html").default("index.html"),
     sdk_version: z.literal(1),
+    dependencies: interactiveDependenciesSchema.prefault({}),
     permissions: z
       .array(interactiveApplicationPermissionSchema)
       .max(interactiveApplicationPermissionSchema.options.length)

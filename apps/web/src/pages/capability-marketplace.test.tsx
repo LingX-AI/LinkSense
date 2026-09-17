@@ -2453,6 +2453,10 @@ describe("capability marketplace pages", () => {
   })
 
   it("renders wide two-column application cards with status and owner actions aligned", async () => {
+    const longDescription =
+      "通过结构化表单配置研究任务，并在应用内接收洞察、风险和行动建议。".repeat(
+        12
+      )
     const applications = [
       {
         id: "50000000-0000-4000-8000-000000000011",
@@ -2498,7 +2502,7 @@ describe("capability marketplace pages", () => {
       ...application,
       owner: { id: PUBLISHER_ID, name: "发布者" },
       icon: { type: "preset" as const, preset: "book-open" as const },
-      description: null,
+      description: application.model ? longDescription : null,
       instructions: "仅根据内部知识回答。",
       reasoning_effort: "medium",
       status: "active" as const,
@@ -2565,6 +2569,7 @@ describe("capability marketplace pages", () => {
     )
 
     expect(grid).toHaveClass("grid", "md:grid-cols-2")
+    expect(card).toHaveClass("gap-3")
     expect(grid).not.toHaveClass("xl:grid-cols-3")
     expect(cardHeader).toHaveClass("gap-x-4", "gap-y-0")
     expect(creator.parentElement).toHaveClass(
@@ -2574,15 +2579,16 @@ describe("capability marketplace pages", () => {
       "leading-4"
     )
     expect(creator).toHaveClass("truncate")
+    expect(title.parentElement).not.toHaveClass("min-h-14")
     expect(description).toHaveClass(
       "line-clamp-2",
-      "min-h-10",
       "text-[length:var(--app-font-13)]",
       "break-words",
       "leading-5"
     )
-    expect(modelSlot).toHaveClass("min-h-5", "min-w-0")
-    expect(modelSlot).toBeEmptyDOMElement()
+    expect(description).not.toHaveClass("min-h-10")
+    expect(description.nextElementSibling).toBe(statistics)
+    expect(modelSlot).toBeNull()
     expect(statistics).toHaveClass(
       "min-h-5",
       "flex-wrap",
@@ -2625,6 +2631,10 @@ describe("capability marketplace pages", () => {
       throw new Error("Expected fixed-model application card")
     }
     expect(within(fixedModelCard).getByText("gpt-5.6-terra")).toBeVisible()
+    const fixedModelDescription =
+      within(fixedModelCard).getByText(longDescription)
+    expect(fixedModelDescription).toHaveClass("line-clamp-2", "min-w-0")
+    expect(fixedModelDescription).not.toHaveClass("min-h-10")
     const versionLabel = within(fixedModelCard).getByText("交互式应用 · v1.1.0")
     const interactiveCreator = within(fixedModelCard).getByText("由我创建")
     expect(versionLabel).toBeVisible()
@@ -2636,12 +2646,23 @@ describe("capability marketplace pages", () => {
       "gap-x-3",
       "gap-y-1"
     )
-    expect(
-      fixedModelCard.querySelector('[data-slot="application-card-model"]')
-    ).toHaveTextContent("gpt-5.6-terra")
-    expect(
-      fixedModelCard.querySelector('[data-slot="application-card-statistics"]')
-    ).not.toHaveTextContent("gpt-5.6-terra")
+    const fixedModelStatistics = fixedModelCard.querySelector<HTMLElement>(
+      '[data-slot="application-card-statistics"]'
+    )
+    const fixedModelName = fixedModelCard.querySelector<HTMLElement>(
+      '[data-slot="application-card-model"]'
+    )
+    const fixedModelBadge = fixedModelName?.closest<HTMLElement>(
+      '[data-slot="badge"]'
+    )
+    if (!fixedModelStatistics || !fixedModelName || !fixedModelBadge) {
+      throw new Error("Expected model details in the application statistics")
+    }
+    expect(fixedModelDescription.nextElementSibling).toBe(fixedModelStatistics)
+    expect(fixedModelStatistics).toContainElement(fixedModelBadge)
+    expect(fixedModelName).toHaveTextContent("gpt-5.6-terra")
+    expect(fixedModelName).toHaveAttribute("title", "gpt-5.6-terra")
+    expect(fixedModelBadge?.querySelector("svg.lucide-brain")).toBeVisible()
     expect(
       within(footer!)
         .getAllByRole("button")
@@ -3177,9 +3198,9 @@ describe("capability marketplace pages", () => {
       expect(standardApplicationOption).toHaveClass(
         "border-[color:var(--app-border)]"
       )
-      expect(interactiveApplicationOption).toHaveClass(
-        "border-[color:var(--app-border)]"
-      )
+      expect(
+        interactiveApplicationOption.closest('[data-slot="card"]')
+      ).toHaveClass("border-[color:var(--app-border)]")
       await interaction.click(standardApplicationOption)
 
       const dialog = await screen.findByRole("dialog", { name: "创建应用" })

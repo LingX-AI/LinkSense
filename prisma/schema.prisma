@@ -453,6 +453,7 @@ model Application {
   model                String?   @db.VarChar(240)
   reasoningEffort      String?   @map("reasoning_effort") @db.VarChar(32)
   interactivePackageId String?   @map("interactive_package_id") @db.Uuid
+  interactiveDependencyBindings Json @default("[]") @map("interactive_dependency_bindings") @db.JsonB
   status               String    @default("active") @db.VarChar(32)
   deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
   deletedBy            String?   @map("deleted_by") @db.Uuid

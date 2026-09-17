@@ -17,7 +17,7 @@ function fixture() {
   const release = { id: releaseId, listingId, applicationId, versionId, name: "Reports", description: null, publisherName: "Publisher", usageModes: ["install"], releaseNotes: "Initial release", status: "pending", reviewComment: null, submittedAt: new Date("2026-09-16T00:00:00Z"), reviewedAt: null };
   const repository = {
     prisma: {
-      application: { findFirst: vi.fn(async () => ({ id: applicationId })) },
+      application: { findFirst: vi.fn(async () => ({ id: applicationId, kind: "standard" })) },
       applicationVersion: { findMany: vi.fn(async () => [{ id: versionId, versionNumber: 1, versionLabel: "1.0.0", definitionJson: {} }]) },
       applicationListing: { findMany: vi.fn(async () => [{ id: listingId, status: "draft", suspensionReason: null }]) },
       applicationInstallation: { findMany: vi.fn(async () => []) },
@@ -38,6 +38,14 @@ function fixture() {
 }
 
 describe("application center", () => {
+  it("rejects interactive install submissions and never promotes historical install-only releases to service access", async () => {
+    const f = fixture();
+    f.repository.prisma.application.findFirst.mockResolvedValue({ id: applicationId, kind: "interactive" });
+    await expect(f.service.submit(actor, applicationId, { version_number: "1.0.0", usage_instructions: "", usage_modes: ["install"], release_notes: "" }, context)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(f.applications.captureDistributionVersion).not.toHaveBeenCalled();
+    f.publications.parseDefinition.mockReturnValue({ kind: "interactive", usageInstructions: "Use online" });
+    expect((await f.service.ownPublications(actor))[0]?.usage_modes).toEqual([]);
+  });
   it("returns the owner's submissions with safe release metadata", async () => {
     const f = fixture();
     const releases = await f.service.ownPublications(actor);

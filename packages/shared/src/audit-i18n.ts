@@ -108,6 +108,7 @@ const actionMessages = {
   image_understanding_settings_updated: ["已更新图片理解设置", "Image understanding settings updated"],
   interactive_application_imported: ["已导入交互应用", "Interactive application imported"],
   interactive_application_package_updated: ["已更新交互应用包", "Interactive application package updated"],
+  interactive_application_dependencies_updated: ["已更新交互应用资源配置", "Interactive application resources updated"],
   invalid_auth_tokens_cleaned: ["已清理失效的认证令牌", "Invalid authentication tokens cleaned"],
   "knowledge_base.admin_archived": ["管理员已归档知识库", "Knowledge base archived by administrator"],
   "knowledge_base.admin_disabled": ["管理员已停用知识库", "Knowledge base disabled by administrator"],
