@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify"
 import {
   quotaSettingsSchema,
+  maintenanceStatusSchema,
   resetMemberQuotasInputSchema,
   applyOrganizationCreditLimitsInputSchema,
   deleteModelProviderSchema,
@@ -230,7 +231,13 @@ export const adminSystemRoutes: FastifyPluginAsync<{
       }
     )
     return reply.send(
-      ok({ code: "SYSTEM_SETTINGS_UPDATED", settings }, request.id)
+      ok(
+        {
+          code: "SYSTEM_SETTINGS_UPDATED",
+          settings: maintenanceStatusSchema.strip().parse(settings),
+        },
+        request.id,
+      )
     )
   })
 

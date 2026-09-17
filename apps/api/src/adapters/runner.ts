@@ -5,8 +5,6 @@ import {
   runtimeWorkspaceHeader,
   codexModelReasoningCatalogSchema,
   personalizationSettingsSchema,
-  userEnvironmentSettingsSchema,
-  type UserEnvironmentSettings,
   resetMemoriesResultSchema,
   runnerTurnInterruptResultSchema,
   RUNNER_TURN_START_CONTRACT_VERSION,
@@ -869,14 +867,6 @@ export class RunnerClient {
       { ownerId: input.ownerId, timeoutMs: RUNNER_RECONCILE_TIMEOUT_MS },
     );
     return runnerGoalClearResponseSchema.parse(result).cleared;
-  }
-
-  async getEnvironmentSettings(ownerId: string): Promise<UserEnvironmentSettings> {
-    return userEnvironmentSettingsSchema.parse(await this.request("/environment", "GET", undefined, { ownerId }));
-  }
-
-  async updateEnvironmentSettings(ownerId: string, input: UserEnvironmentSettings): Promise<UserEnvironmentSettings> {
-    return userEnvironmentSettingsSchema.parse(await this.request("/environment", "PUT", userEnvironmentSettingsSchema.parse(input), { ownerId }));
   }
 
   async getPersonalization(ownerId: string): Promise<PersonalizationSettings> {

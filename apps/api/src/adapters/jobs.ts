@@ -31,7 +31,12 @@ export interface AuthTokenCleanup {
   }>
 }
 
+export interface SystemMaintenanceCleanup {
+  expireMaintenanceSettings(): Promise<void>
+}
+
 const maintenanceJobSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("system-maintenance-expiry") }),
   z.strictObject({ type: z.literal("auth-token-cleanup") }),
   z.strictObject({
     type: z.literal("object-delete"),
@@ -114,6 +119,7 @@ export class CleanupJobNotRetryableError extends Error {
 }
 
 export class BackgroundJobs {
+  private systemMaintenanceCleanup: SystemMaintenanceCleanup | null = null
   private readonly connection: ConnectionOptions
   private readonly queue: MaintenanceQueueControl
   private readonly workspaceRoot: string
@@ -214,8 +220,18 @@ export class BackgroundJobs {
     }
   }
 
-  async start(auth: AuthTokenCleanup): Promise<void> {
+  async start(auth: AuthTokenCleanup, system: SystemMaintenanceCleanup): Promise<void> {
     if (this.worker) return
+    this.systemMaintenanceCleanup = system
+    await this.queue.upsertJobScheduler(
+      "system-maintenance-expiry",
+      { every: 5_000 },
+      {
+        name: "system-maintenance-expiry",
+        data: { type: "system-maintenance-expiry" },
+        opts: { attempts: 3, backoff: { type: "exponential", delay: 1_000 } },
+      },
+    )
     await this.queue.upsertJobScheduler(
       "auth-token-cleanup",
       { every: 24 * 60 * 60 * 1_000 },
@@ -386,6 +402,11 @@ export class BackgroundJobs {
         metadata: { reason_code: "INVALID_JOB_PAYLOAD" },
       })
       return { discarded: true }
+    }
+    if (data.type === "system-maintenance-expiry") {
+      if (!this.systemMaintenanceCleanup) throw new Error("System maintenance cleanup is not configured")
+      await this.systemMaintenanceCleanup.expireMaintenanceSettings()
+      return { expired: true }
     }
     if (data.type === "object-delete") {
       await this.storage.removeObject(data.objectKey)
@@ -824,10 +845,11 @@ function isCleanupJob(
   data: MaintenanceJob,
 ): data is Exclude<
   MaintenanceJob,
-  { type: "auth-token-cleanup" | "runtime-cleanup-outbox-dispatch" }
+  { type: "auth-token-cleanup" | "runtime-cleanup-outbox-dispatch" | "system-maintenance-expiry" }
 > {
   return (
     data.type !== "auth-token-cleanup" &&
+    data.type !== "system-maintenance-expiry" &&
     data.type !== "runtime-cleanup-outbox-dispatch"
   )
 }

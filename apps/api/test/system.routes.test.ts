@@ -455,7 +455,7 @@ describe("admin system routes", () => {
       end_at: "2026-08-04T13:00:00.000Z",
     }
     const getMaintenanceStatus = vi.fn().mockResolvedValue(maintenance)
-    const updateMaintenanceSettings = vi.fn().mockResolvedValue(maintenance)
+    const updateMaintenanceSettings = vi.fn().mockResolvedValue({ ...maintenance, maintenance_id: "01900000-0000-7000-8000-000000000001" })
     const app = Fastify()
     app.decorate("requireAdmin", async (request: FastifyRequest) => {
       request.authUser = {
@@ -521,7 +521,7 @@ describe("admin system routes", () => {
       start_at: "2026-08-04T12:00:00.000Z",
       end_at: "2026-08-04T13:00:00.000Z",
     }
-    const updateMaintenanceSettings = vi.fn().mockResolvedValue(maintenance)
+    const updateMaintenanceSettings = vi.fn().mockResolvedValue({ ...maintenance, maintenance_id: "01900000-0000-7000-8000-000000000001" })
     const app = Fastify()
     app.decorate("requireAdmin", async (request: FastifyRequest) => {
       request.authUser = {

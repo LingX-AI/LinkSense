@@ -31,6 +31,6 @@ Application services have their own work environment. Grouping an application ta
 
 ## Runtime and historical files
 
-Your personal tasks use one personal environment. An idle environment stops to save resources while retaining files and settings, then starts automatically when needed. Enable Keep running in settings if it needs to stay available.
+Your personal tasks use one personal environment. An idle environment stops to save resources while retaining files and settings, then starts automatically when needed. The environment remains running while tasks, websites, or services are active.
 
 Files from tasks created before the upgrade are retained in the project's `imports/task-id` directory. Historical attachments remain accessible from the message history.

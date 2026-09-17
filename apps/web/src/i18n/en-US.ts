@@ -393,9 +393,6 @@ export const enUS = {
       "Blank means unlimited. Reaching any configured limit prevents new tasks; running tasks continue. Consumption is rounded up to the nearest 0.000001 credit.",
   },
   settings: {
-    keepEnvironmentRunning: "Keep your environment running",
-    keepEnvironmentRunningDescription:
-      "Keep websites and services running while you are away. When off, the environment pauses after 15 idle minutes. Your files and settings are preserved.",
     navigationLabel: "{{productName}} settings navigation",
     navigation: "Settings navigation",
     backToApp: "Back to {{productName}}",
@@ -796,7 +793,14 @@ export const enUS = {
   maintenance: {
     title: "System maintenance",
     indicatorLabel: "System maintenance enabled",
-    openSettings: "Open system maintenance settings",
+    dialogTitle: "System maintenance enabled",
+    dialogDescription:
+      "Regular users cannot access the system right now. You can continue using and managing it. Turn off maintenance mode when you are finished.",
+    reasonLabel: "Maintenance details",
+    doNotShowAgain: "Don’t show again",
+    rememberFailed:
+      "Your preference could not be saved. Check whether your browser allows site data. You can still close this reminder using the top-right button.",
+    openSettings: "Maintenance settings",
     defaultReason: "The system is undergoing scheduled maintenance.",
     description:
       "This page will recover automatically when maintenance ends. Try again later.",

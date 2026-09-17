@@ -364,9 +364,6 @@ export const zhCN = {
       "留空表示不限额。任一已设置额度耗尽后，将暂停发起新任务，正在运行的任务继续完成。消耗精确到 0.000001 credit，不足该精度的部分向上取整。",
   },
   settings: {
-    keepEnvironmentRunning: "保持工作环境运行",
-    keepEnvironmentRunningDescription:
-      "开启后，空闲时也会继续运行，适合需要持续运行的网站或服务。关闭后，空闲 15 分钟会暂停环境，文件和配置会保留。",
     navigationLabel: "{{productName}} 设置导航",
     navigation: "设置导航",
     backToApp: "返回 {{productName}}",
@@ -730,7 +727,14 @@ export const zhCN = {
   maintenance: {
     title: "系统维护中",
     indicatorLabel: "已开启系统维护",
-    openSettings: "打开系统维护配置",
+    dialogTitle: "已开启系统维护",
+    dialogDescription:
+      "普通用户暂时无法使用系统，您仍可正常访问和管理。维护完成后，请及时关闭维护模式。",
+    reasonLabel: "维护说明",
+    doNotShowAgain: "不再显示",
+    rememberFailed:
+      "无法保存您的选择，请检查浏览器是否允许保存网站数据。您仍可使用右上角按钮关闭提醒。",
+    openSettings: "维护设置",
     defaultReason: "系统正在进行计划维护。",
     description: "维护结束后页面会自动恢复，请稍后再试。",
     windowLabel: "预计维护时间",

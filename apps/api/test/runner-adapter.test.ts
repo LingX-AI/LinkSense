@@ -59,16 +59,6 @@ describe("RunnerClient start operation", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("reads and writes environment settings with the authenticated owner header", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({ keep_running: false })).mockResolvedValueOnce(jsonResponse({ keep_running: true }));
-    vi.stubGlobal("fetch", fetchMock);
-    const client = new RunnerClient(testConfig());
-    expect(await client.getEnvironmentSettings(ownerId)).toEqual({ keep_running: false });
-    expect(await client.updateEnvironmentSettings(ownerId, { keep_running: true })).toEqual({ keep_running: true });
-    expect(fetchMock.mock.calls.map(ownerHeader)).toEqual([ownerId, ownerId]);
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({ keep_running: true });
-  });
-
   it.each(["acceptStartTurn", "startTurn"] as const)(
     "%s distinguishes a sealed submission from an unavailable runner without replaying it",
     async (method) => {

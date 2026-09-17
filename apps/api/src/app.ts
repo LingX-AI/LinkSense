@@ -153,7 +153,7 @@ export async function buildApi(
   await app.register(authenticationPlugin, { prisma: services.prisma });
   const authService = createAuthService(app, services);
   await authService.prepare();
-  await services.jobs.start(authService);
+  await services.jobs.start(authService, services.system);
   await services.passwordResetMail.start();
 
   registerRunnerRuntimeScope(app, services.prisma, services.config.runnerSharedSecret);

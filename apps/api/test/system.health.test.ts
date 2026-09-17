@@ -74,6 +74,23 @@ describe("system health", () => {
     })
   })
 
+  it("exposes the maintenance period beside the unchanged public status for existing pages", async () => {
+    const maintenance = {
+      enabled: true,
+      reason: "Upgrade",
+      start_at: "2000-01-01T00:00:00.000Z",
+      end_at: "2099-01-01T00:00:00.000Z",
+    }
+    const maintenance_id = "01900000-0000-7000-8000-000000000001"
+    const { service } = createSystemService(directory, {
+      systemSettingsJson: { system_initialized: true, maintenance: { ...maintenance, maintenance_id } },
+    })
+    const bootstrap = await service.bootstrap()
+    expect(bootstrap.maintenance_id).toBe(maintenance_id)
+    expect(bootstrap.maintenance).toEqual({ ...maintenance, active: true })
+    await expect(service.getMaintenanceStatus()).resolves.toEqual({ ...maintenance, active: true })
+  })
+
   it("requires the deployment credential only before initialization", async () => {
     const initializationToken = "initialization-credential-".padEnd(64, "1")
     const uninitialized = createSystemService(directory, {

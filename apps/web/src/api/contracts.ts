@@ -347,6 +347,7 @@ export const bootstrapSchema = z
         teams: integrationStatusSchema.optional(),
       })
       .optional(),
+    maintenance_id: z.uuid().nullable().optional(),
     maintenance: maintenanceStatusSchema.optional(),
   })
   .passthrough()

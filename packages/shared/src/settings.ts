@@ -114,6 +114,13 @@ export const maintenanceStatusSchema = z.strictObject({
   end_at: nullableTimestampSchema,
 });
 
+export const maintenanceStateSchema = maintenanceStatusSchema.extend({
+  maintenance_id: z.uuid().nullable(),
+}).refine((status) => !status.active || status.maintenance_id !== null, {
+  path: ["maintenance_id"],
+  message: "active_maintenance_requires_period",
+});
+
 export const systemSettingsMetadataSchema = z.strictObject({
   system_initialized: z.boolean(),
   agents_template_version: z.string().min(1).max(80).nullable(),
@@ -147,3 +154,5 @@ export type MaintenanceStatus = z.infer<typeof maintenanceStatusSchema>;
 export type UpdateMaintenanceSettings = z.input<
   typeof updateMaintenanceSettingsSchema
 >;
+
+export type MaintenanceState = z.infer<typeof maintenanceStateSchema>;

@@ -294,8 +294,24 @@ describe("LinkSense application", () => {
     const memberList = within(dialog).getByRole("list", {
       name: "用户组成员列表",
     })
-    expect(memberList).toHaveClass("divide-border/50")
-    expect(memberList.parentElement).toHaveClass("border-border/50")
+    expect(memberList).toHaveClass(
+      "divide-border/50",
+      "rounded-xl",
+      "border",
+      "border-border/50"
+    )
+    const memberScrollport = memberList.parentElement
+    expect(memberScrollport).toHaveClass(
+      "min-h-0",
+      "max-h-[min(60vh,32rem)]",
+      "overflow-y-auto",
+      "overscroll-contain",
+      "-mr-6",
+      "pr-6"
+    )
+    expect(memberScrollport).not.toContainElement(
+      within(dialog).getByRole("heading", { name: "IT 部门的成员" })
+    )
     expect(
       requests.some(
         (request) =>
@@ -690,11 +706,18 @@ describe("LinkSense application", () => {
       expect(dialog).not.toHaveClass("overflow-y-auto")
       expect(header).toHaveClass("shrink-0")
       expect(header.parentElement).toBe(dialog)
-      expect(form).toHaveClass("flex", "min-h-0", "flex-col", "overflow-hidden")
+      expect(form).toHaveClass("flex", "min-h-0", "flex-col")
+      // The expanded body owns scrolling; clipping the form would hide its
+      // edge-aligned scrollbar. The outer dialog still bounds the content.
+      expect(form).not.toHaveClass("overflow-hidden")
+      expect(form).not.toHaveClass("overflow-y-auto")
+      expect(content.parentElement).toBe(form)
       expect(content).toHaveClass(
         "min-h-0",
         "overflow-y-auto",
-        "overscroll-contain"
+        "overscroll-contain",
+        "-mr-6",
+        "pr-6"
       )
       expect(content).toContainElement(
         within(dialog).getByLabelText(i18n.t("common.name"))

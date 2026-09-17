@@ -583,19 +583,40 @@ describe("controller worker lifecycle", () => {
     expect(docker.stopContainer).toHaveBeenCalledOnce()
   })
 
-  it("honors keep-running and reclaims the container after the preference is disabled", async () => {
-    const docker = new FakeDocker()
-    const transport = new FakeTransport()
-    const manager = createManager(docker, transport)
-    const settings = vi.spyOn(manager, "getEnvironmentSettings").mockResolvedValue({ keep_running: true })
-    await manager.initialize()
-    await manager.prewarm(ownerId)
-    await manager.sweepIdleWorkers(Date.now() + 60_000)
-    expect(docker.stopContainer).not.toHaveBeenCalled()
-    settings.mockResolvedValue({ keep_running: false })
-    await manager.sweepIdleWorkers(Date.now() + 60_000)
-    expect(docker.stopContainer).toHaveBeenCalledOnce()
-  })
+  it.each(['{"keep_running":true}', "invalid"])(
+    "reclaims idle workers without reading obsolete environment settings (%s) and preserves user files",
+    async (settings) => {
+      const root = await mkdtemp(path.join(tmpdir(), "linksense-idle-worker-"))
+      try {
+        const control = path.join(root, ownerId, "control")
+        const workspace = path.join(root, ownerId, "home", "workspace")
+        await mkdir(control, { recursive: true })
+        await mkdir(workspace, { recursive: true })
+        await writeFile(path.join(control, "environment.json"), settings)
+        await writeFile(path.join(workspace, "notes.txt"), "saved work")
+        const docker = new FakeDocker()
+        const manager = createDockerWorkerManager(
+          createConfig({ LINKSENSE_USER_DATA_ROOT: root }),
+          docker,
+          new FakeTransport(),
+          pino({ level: "silent" }),
+          {
+            assertUserDataRoot: async () => undefined,
+            prepareUserDirectories: async () => undefined,
+            probeWorkerRuntime: async () => undefined,
+          },
+        )
+        await manager.initialize()
+        await manager.prewarm(ownerId)
+        await manager.sweepIdleWorkers(Date.now() + 60_000)
+        expect(docker.stopContainer).toHaveBeenCalledOnce()
+        expect(docker.removeContainer).toHaveBeenCalledOnce()
+        expect(await readFile(path.join(workspace, "notes.txt"), "utf8")).toBe("saved work")
+      } finally {
+        await rm(root, { recursive: true, force: true })
+      }
+    },
+  )
 
   it("retries idle cleanup before replacing a worker whose Docker release failed", async () => {
     const docker = new FakeDocker()

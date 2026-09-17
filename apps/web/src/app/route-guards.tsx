@@ -9,6 +9,7 @@ import { useProductName } from "@/app/product-branding"
 import { ErrorState, LoadingState } from "@/components/feedback/page-state"
 import { MaintenancePage } from "@/pages/maintenance-page"
 import { MaintenanceIndicator } from "@/components/shell/maintenance-indicator"
+import { MaintenanceNoticeDialog } from "@/components/shell/maintenance-notice-dialog"
 
 const maintenanceAdminAuthPaths = new Set([
   "/login",
@@ -23,6 +24,12 @@ export function BootstrapGate() {
   const { bootstrap, isLoading, refetch } = useBootstrap()
   const { status, user } = useAuth()
   const location = useLocation()
+  const content = (
+    <>
+      <Outlet />
+      <MaintenanceNoticeDialog />
+    </>
+  )
 
   if (isLoading) return <LoadingState fullScreen />
   // A failed background check must not unmount an already initialized page.
@@ -53,11 +60,11 @@ export function BootstrapGate() {
       maintenanceAdminAuthPaths.has(location.pathname) &&
       hasMaintenanceAdminEntry()
 
-    if (isAdmin || isAdminEntryRoute) return <Outlet />
+    if (isAdmin || isAdminEntryRoute) return content
     if (status === "loading") return <LoadingState fullScreen />
     return <MaintenancePage maintenance={bootstrap.maintenance} />
   }
-  return <Outlet />
+  return content
 }
 
 export function ProtectedRoute() {

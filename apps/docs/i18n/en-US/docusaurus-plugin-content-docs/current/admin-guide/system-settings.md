@@ -38,7 +38,9 @@ Leaving either field blank keeps the corresponding deployment default. New task 
 
 Open the **System maintenance** tab, enter a reason and the start and end times, then enable scheduled maintenance. Maintenance becomes active only when the current time enters the configured window and ends automatically at the specified end time.
 
-During active maintenance, signed-in administrators see a **System maintenance enabled** indicator in the bottom-right corner. Select it to open the maintenance settings. The indicator disappears when maintenance ends or is disabled and does not appear on sign-in or other public pages.
+When maintenance ends, the system automatically turns off scheduled maintenance and clears the reason, start time, end time, and duration. No additional save is required, and cleanup runs even when no administrator has the settings page open. An open settings page updates within a few seconds. Maintenance that ended while the service was stopped is cleared when the service starts again.
+
+During active maintenance, signed-in administrators see a **System maintenance enabled** dialog on pages other than sign-in. Select **Don’t show again** to hide it for the current maintenance period, for your account in this browser. The choice survives navigation, refreshes, and reopening the browser, and synchronizes across tabs. Editing the maintenance details or extending the current period does not show it again; starting a new period does. Other accounts and devices are unaffected. Select **Maintenance settings** to open the configuration page. The close button and Esc dismiss only the current page’s reminder; navigating to another page shows it again. The dialog disappears when maintenance ends or is disabled and never appears on the sign-in page. A **System maintenance enabled** link also remains in the bottom-right corner of signed-in administrator pages and opens maintenance settings. Closing or suppressing the dialog does not hide this indicator; it disappears when maintenance ends.
 
 During maintenance:
 

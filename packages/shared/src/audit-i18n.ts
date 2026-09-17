@@ -143,6 +143,7 @@ const actionMessages = {
   "knowledge_source.sharepoint_settings_updated": ["已更新 SharePoint 知识源设置", "SharePoint knowledge source settings updated"],
   maintenance_job_payload_discarded: ["已丢弃维护任务数据", "Maintenance job payload discarded"],
   maintenance_settings_updated: ["已更新维护设置", "Maintenance settings updated"],
+  maintenance_settings_expired: ["维护已结束并自动清空设置", "Maintenance ended and settings cleared automatically"],
   marketplace_listing_resumed: ["已恢复市场条目", "Marketplace listing resumed"],
   marketplace_listing_status_updated: ["已更新市场条目状态", "Marketplace listing status updated"],
   marketplace_listing_suspended: ["已暂停市场条目", "Marketplace listing suspended"],
