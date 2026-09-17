@@ -791,7 +791,7 @@ export const enUS = {
   bootstrap: {
     unavailableTitle: "{{productName}} is temporarily unavailable",
     unavailableDescription:
-      "The frontend could not read system initialization status. Check the API service and network, then retry.",
+      "Unable to connect to {{productName}}. Please wait a moment or try again.",
   },
   maintenance: {
     title: "System maintenance",

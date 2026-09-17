@@ -725,8 +725,7 @@ export const zhCN = {
   },
   bootstrap: {
     unavailableTitle: "暂时无法连接 {{productName}}",
-    unavailableDescription:
-      "前端无法读取系统初始化状态。请确认 API 服务和网络连接后重试。",
+    unavailableDescription: "暂时无法连接 {{productName}}，请稍候或重试。",
   },
   maintenance: {
     title: "系统维护中",
