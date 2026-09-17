@@ -167,24 +167,30 @@ describe("i18n resources", () => {
     )
   })
 
-  it("localizes the maintenance configuration shortcut with a Chinese fallback", () => {
-    expect(i18n.t("maintenance.indicatorLabel", { lng: "zh-CN" })).toBe(
-      "已开启系统维护"
-    )
-    expect(i18n.t("maintenance.indicatorLabel", { lng: "en-US" })).toBe(
-      "System maintenance enabled"
-    )
-    const key = "maintenance.openSettings"
-    expect(i18n.t(key, { lng: "zh-CN" })).toBe("打开系统维护配置")
-    expect(i18n.t(key, { lng: "en-US" })).toBe(
-      "Open system maintenance settings"
-    )
+  it("localizes every maintenance dialog message with a Chinese fallback", () => {
     const instance = i18n.cloneInstance({ forkResourceStore: true })
     instance.removeResourceBundle("en-US", "translation")
-    expect(instance.t(key, { lng: "en-US" })).toBe("打开系统维护配置")
-    expect(instance.t("maintenance.indicatorLabel", { lng: "en-US" })).toBe(
-      "已开启系统维护"
-    )
+    for (const key of [
+      "indicatorLabel",
+      "dialogTitle",
+      "dialogDescription",
+      "reasonLabel",
+      "doNotShowAgain",
+      "rememberFailed",
+      "openSettings",
+    ] as const) {
+      expect(i18n.t(`maintenance.${key}`, { lng: "zh-CN" })).toBe(
+        zhCN.maintenance[key]
+      )
+      expect(i18n.t(`maintenance.${key}`, { lng: "en-US" })).toBe(
+        enUS.maintenance[key]
+      )
+      expect(instance.t(`maintenance.${key}`, { lng: "en-US" })).toBe(
+        zhCN.maintenance[key]
+      )
+    }
+    expect(zhCN.maintenance.dialogTitle).toBe("已开启系统维护")
+    expect(enUS.maintenance.dialogTitle).toBe("System maintenance enabled")
   })
 
   it("detects supported languages across browser language APIs", () => {

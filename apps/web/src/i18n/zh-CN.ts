@@ -727,7 +727,14 @@ export const zhCN = {
   maintenance: {
     title: "系统维护中",
     indicatorLabel: "已开启系统维护",
-    openSettings: "打开系统维护配置",
+    dialogTitle: "已开启系统维护",
+    dialogDescription:
+      "普通用户暂时无法使用系统，您仍可正常访问和管理。维护完成后，请及时关闭维护模式。",
+    reasonLabel: "维护说明",
+    doNotShowAgain: "不再显示",
+    rememberFailed:
+      "无法保存您的选择，请检查浏览器是否允许保存网站数据。您仍可使用右上角按钮关闭提醒。",
+    openSettings: "维护设置",
     defaultReason: "系统正在进行计划维护。",
     description: "维护结束后页面会自动恢复，请稍后再试。",
     windowLabel: "预计维护时间",

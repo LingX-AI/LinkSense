@@ -793,7 +793,14 @@ export const enUS = {
   maintenance: {
     title: "System maintenance",
     indicatorLabel: "System maintenance enabled",
-    openSettings: "Open system maintenance settings",
+    dialogTitle: "System maintenance enabled",
+    dialogDescription:
+      "Regular users cannot access the system right now. You can continue using and managing it. Turn off maintenance mode when you are finished.",
+    reasonLabel: "Maintenance details",
+    doNotShowAgain: "Don’t show again",
+    rememberFailed:
+      "Your preference could not be saved. Check whether your browser allows site data. You can still close this reminder using the top-right button.",
+    openSettings: "Maintenance settings",
     defaultReason: "The system is undergoing scheduled maintenance.",
     description:
       "This page will recover automatically when maintenance ends. Try again later.",

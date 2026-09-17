@@ -63,6 +63,7 @@ function mockBootstrap() {
             initialized: state.initialized,
             organization_display_name: "LinkSense",
             default_locale: "zh-CN",
+            maintenance_id: "01900000-0000-7000-8000-000000000001",
             maintenance: {
               enabled: state.maintenance,
               active: state.maintenance,

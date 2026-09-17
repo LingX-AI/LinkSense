@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto"
 import { access, constants, mkdir } from "node:fs/promises"
 import type { Readable } from "node:stream"
 import {
+  maintenanceStatusSchema,
+  maintenanceStateSchema,
+  type MaintenanceState,
   resolveOrganizationDisplayName,
   type ExecutionConcurrencySettings,
   type MaintenanceStatus,
@@ -49,6 +52,13 @@ const PRODUCT_LOGO_MAX_BYTES = 2 * 1024 * 1024
 const PRODUCT_LOGO_SETTING_KEY = "organization_logo"
 const PRODUCT_LOGO_OBJECT_PREFIX = "system/product-logo"
 const EXECUTION_CONCURRENCY_SETTING_KEY = "execution_concurrency"
+const EMPTY_MAINTENANCE_SETTINGS = {
+  maintenance_id: null,
+  enabled: false,
+  reason: null,
+  start_at: null,
+  end_at: null,
+} as const
 const PRODUCT_LOGO_EXTENSIONS: Record<SafeRasterImageMimeType, string> = {
   "image/gif": "gif",
   "image/jpeg": "jpg",
@@ -105,17 +115,15 @@ export class SystemService {
   }
 
   async prepare(): Promise<void> {
+    await this.expireMaintenanceSettings()
     const settings = await this.getProductSettings()
     this.defaultLocaleCache = settings.default_locale
   }
 
   async bootstrap() {
-    const setting = await this.prisma.systemSetting.findUnique({
-      where: { id: SYSTEM_SETTINGS_ID },
-    })
-    const raw = asObject(setting?.settingsJson)
+    const raw = await this.readCurrentSystemSettings(new Date())
     const settings = productSettings(raw)
-    const maintenance = maintenanceStatus(raw, new Date())
+    const { maintenance_id, ...maintenance } = maintenanceStatus(raw, new Date())
     const registration = registrationAvailability(raw)
     const authentication = await this.resolveAuthenticationSettings()
     const initialized = raw.system_initialized === true
@@ -129,6 +137,7 @@ export class SystemService {
       logo_url: settings.logo_url,
       logo_updated_at: settings.logo_updated_at,
       supported_locales: ["zh-CN", "en-US"],
+      maintenance_id,
       maintenance,
       registration,
       auth: {
@@ -256,10 +265,46 @@ export class SystemService {
   }
 
   async getMaintenanceStatus(now = new Date()): Promise<MaintenanceStatus> {
+    const settings = await this.readCurrentSystemSettings(now)
+    return maintenanceStatusSchema.strip().parse(maintenanceStatus(settings, now))
+  }
+
+  async expireMaintenanceSettings(): Promise<void> {
+    await this.readCurrentSystemSettings(new Date())
+  }
+
+  private async readCurrentSystemSettings(now: Date): Promise<Record<string, unknown>> {
     const row = await this.prisma.systemSetting.findUnique({
       where: { id: SYSTEM_SETTINGS_ID },
     })
-    return maintenanceStatus(asObject(row?.settingsJson), now)
+    const current = asObject(row?.settingsJson)
+    if (!isMaintenanceExpired(current, now)) return current
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended('linksense-system-settings', 0))
+      `
+      // A concurrent administrator may have extended or replaced this plan.
+      // Read again under the same lock used by all system-settings writers.
+      const latest = await tx.systemSetting.findUnique({ where: { id: SYSTEM_SETTINGS_ID } })
+      const settings = asObject(latest?.settingsJson)
+      if (!isMaintenanceExpired(settings, now)) return settings
+      const merged = { ...settings, maintenance: EMPTY_MAINTENANCE_SETTINGS }
+      await tx.systemSetting.update({
+        where: { id: SYSTEM_SETTINGS_ID },
+        data: { settingsJson: merged },
+      })
+      await tx.auditLog.create({
+        data: {
+          actorId: null,
+          action: "maintenance_settings_expired",
+          targetType: "system_settings",
+          targetId: SYSTEM_SETTINGS_ID,
+          result: "success",
+        },
+      })
+      return merged
+    })
   }
 
   async getRegistrationSettings(): Promise<RegistrationSettings> {
@@ -320,7 +365,7 @@ export class SystemService {
     actorId: string,
     settings: UpdateMaintenanceSettings,
     context: AuditContext,
-  ): Promise<MaintenanceStatus> {
+  ): Promise<MaintenanceState> {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
         SELECT pg_advisory_xact_lock(hashtextextended('linksense-system-settings', 0))
@@ -329,13 +374,37 @@ export class SystemService {
         where: { id: SYSTEM_SETTINGS_ID },
       })
       const current = asObject(row?.settingsJson)
+      const now = new Date()
+      const previous = maintenanceStatus(current, now)
+      // Edits within a live/scheduled period retain its identity. Expiry,
+      // disabling, or moving active maintenance into the future ends that period.
+      const continuesPeriod =
+        previous.enabled &&
+        previous.maintenance_id !== null &&
+        previous.end_at !== null &&
+        Date.parse(previous.end_at) > now.getTime() &&
+        !(
+          previous.active &&
+          settings.start_at !== null &&
+          Date.parse(settings.start_at) > now.getTime()
+        )
       const maintenance = {
+        maintenance_id: settings.enabled
+          ? continuesPeriod
+            ? previous.maintenance_id
+            : randomUUID()
+          : null,
         enabled: settings.enabled,
         reason: settings.reason,
         start_at: settings.start_at,
         end_at: settings.end_at,
       }
-      const merged = { ...current, maintenance }
+      const merged = {
+        ...current,
+        maintenance: isMaintenanceExpired({ maintenance }, now)
+          ? EMPTY_MAINTENANCE_SETTINGS
+          : maintenance,
+      }
       await tx.systemSetting.upsert({
         where: { id: SYSTEM_SETTINGS_ID },
         create: {
@@ -361,7 +430,7 @@ export class SystemService {
           userAgent: context.userAgent ?? null,
         },
       })
-      return maintenanceStatus(merged, new Date())
+      return maintenanceStatus(merged, now)
     })
   }
 
@@ -1118,7 +1187,7 @@ function productLogoUrl(metadata: ProductLogoMetadata | null): string | null {
 export function maintenanceStatus(
   raw: Record<string, unknown>,
   now: Date,
-): MaintenanceStatus {
+): MaintenanceState {
   const maintenance = asObject(raw.maintenance)
   const enabled = maintenance.enabled === true
   const reason =
@@ -1135,13 +1204,20 @@ export function maintenanceStatus(
     Date.parse(startAt) <= currentTime &&
     currentTime < Date.parse(endAt)
 
-  return {
+  return maintenanceStateSchema.parse({
+    maintenance_id: maintenance.maintenance_id ?? null,
     enabled,
     active,
     reason,
     start_at: startAt,
     end_at: endAt,
-  }
+  })
+}
+
+function isMaintenanceExpired(raw: Record<string, unknown>, now: Date): boolean {
+  const maintenance = asObject(raw.maintenance)
+  const endAt = validTimestamp(maintenance.end_at)
+  return maintenance.enabled === true && endAt !== null && Date.parse(endAt) <= now.getTime()
 }
 
 function validTimestamp(value: unknown): string | null {

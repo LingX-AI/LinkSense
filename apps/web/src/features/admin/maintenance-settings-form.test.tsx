@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
+  act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -10,6 +12,7 @@ import dayjs from "dayjs"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { bootstrapSchema } from "@/api/contracts"
 import { setAccessToken } from "@/api/session"
 import { notify } from "@/components/feedback/notification"
 import { MaintenanceSettingsForm } from "@/features/admin/maintenance-settings-form"
@@ -40,6 +43,153 @@ describe("maintenance settings form", () => {
     cleanup()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  it.each(["zh-CN", "en-US", "fr-FR"])(
+    "refreshes an expired plan and clears every field without saving in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const t = i18n.t.bind(i18n)
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] })
+      vi.setSystemTime(new Date("2026-09-17T12:59:59.000Z"))
+      const endAt = "2026-09-17T13:00:00.000Z"
+      const fetch = vi.fn(() =>
+        Promise.resolve(
+          envelope(
+            Date.now() < Date.parse(endAt)
+              ? {
+                  enabled: true,
+                  active: true,
+                  reason: "Upgrade",
+                  start_at: "2026-09-17T12:00:00.000Z",
+                  end_at: endAt,
+                }
+              : {
+                  enabled: false,
+                  active: false,
+                  reason: null,
+                  start_at: null,
+                  end_at: null,
+                }
+          )
+        )
+      )
+      vi.stubGlobal("fetch", fetch)
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      renderForm(queryClient)
+      expect(
+        await screen.findByRole("switch", {
+          name: t("admin.maintenance.enabled"),
+        })
+      ).toBeChecked()
+      expect(screen.getByLabelText(t("admin.maintenance.reason"))).toHaveValue(
+        "Upgrade"
+      )
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000)
+      })
+      await waitFor(() => expect(screen.getByRole("switch")).not.toBeChecked())
+      expect(
+        screen.getByText(t("admin.maintenance.status.disabled"))
+      ).toBeVisible()
+      expect(
+        screen.queryByLabelText(t("admin.maintenance.reason"))
+      ).not.toBeInTheDocument()
+      expect(
+        queryClient.getQueryData(["admin", "maintenance-settings"])
+      ).toEqual({
+        enabled: false,
+        active: false,
+        reason: null,
+        start_at: null,
+        end_at: null,
+      })
+
+      fireEvent.click(screen.getByRole("switch"))
+      expect(screen.getByLabelText(t("admin.maintenance.reason"))).toHaveValue(
+        ""
+      )
+      expect(
+        screen.getByLabelText(t("admin.maintenance.duration"))
+      ).toHaveValue(null)
+      expect(
+        screen.getAllByText(t("admin.maintenance.datePlaceholder"))
+      ).toHaveLength(2)
+      for (const button of within(
+        screen.getByRole("group", {
+          name: t("admin.maintenance.durationPresetsLabel"),
+        })
+      ).getAllByRole("button")) {
+        expect(button).toHaveAttribute("aria-pressed", "false")
+      }
+      queryClient.clear()
+    }
+  )
+
+  it("keeps unsaved edits when polling returns the same plan", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          envelope({
+            enabled: true,
+            active: true,
+            reason: "Upgrade",
+            start_at: "2026-09-17T12:00:00.000Z",
+            end_at: "2026-09-17T13:00:00.000Z",
+          })
+        )
+      )
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    renderForm(queryClient)
+    fireEvent.change(await screen.findByLabelText("维护原因"), {
+      target: { value: "Draft" },
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000)
+    })
+    expect(screen.getByLabelText("维护原因")).toHaveValue("Draft")
+    queryClient.clear()
+  })
+
+  it("keeps unsaved edits through a failed background refresh", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
+    const fetch = vi.fn().mockResolvedValue(
+      envelope({
+        enabled: true,
+        active: true,
+        reason: "Upgrade",
+        start_at: "2026-09-17T12:00:00.000Z",
+        end_at: "2026-09-17T13:00:00.000Z",
+      })
+    )
+    vi.stubGlobal("fetch", fetch)
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    renderForm(queryClient)
+    fireEvent.change(await screen.findByLabelText("维护原因"), {
+      target: { value: "Draft" },
+    })
+    fetch.mockRejectedValueOnce(new Error("Network unavailable"))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000)
+    })
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryState(["admin", "maintenance-settings"])?.status
+      ).toBe("error")
+    )
+    expect(screen.getByLabelText("维护原因")).toHaveValue("Draft")
+    queryClient.clear()
   })
 
   it("saves an enabled maintenance window without a reason", async () => {
@@ -90,6 +240,13 @@ describe("maintenance settings form", () => {
       },
     })
     const interaction = userEvent.setup()
+    queryClient.setQueryData(
+      ["system", "bootstrap"],
+      bootstrapSchema.parse({
+        initialized: true,
+        maintenance_id: "01900000-0000-7000-8000-000000000001",
+      })
+    )
     renderForm(queryClient)
 
     const maintenanceSwitch = await screen.findByRole("switch", {
@@ -141,6 +298,14 @@ describe("maintenance settings form", () => {
       start_at: string
       end_at: string
     }
+    await waitFor(() =>
+      expect(queryClient.getQueryData(["system", "bootstrap"])).toMatchObject({
+        maintenance_id: null,
+      })
+    )
+    expect(
+      queryClient.getQueryState(["system", "bootstrap"])?.isInvalidated
+    ).toBe(true)
     expect(payload.enabled).toBe(true)
     expect(payload.reason).toBeNull()
     expect(Date.parse(payload.end_at)).toBeGreaterThan(

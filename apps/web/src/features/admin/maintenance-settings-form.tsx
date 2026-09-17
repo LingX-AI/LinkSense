@@ -67,6 +67,7 @@ export function MaintenanceSettingsForm() {
         schema: maintenanceStatusSchema,
         signal,
       }),
+    refetchInterval: 5_000,
   })
   const clearMessage = useCallback(() => setMessage(null), [])
   const handleUpdateSuccess = useCallback(
@@ -78,7 +79,7 @@ export function MaintenanceSettingsForm() {
   )
 
   if (query.isLoading) return <LoadingState />
-  if (query.error || !query.data) {
+  if (!query.data) {
     return (
       <ErrorState
         message={getErrorMessage(query.error, t)}
@@ -147,6 +148,10 @@ function MaintenanceSettingsEditor({
   })
 
   const mutation = useMutation({
+    onMutate: () =>
+      queryClient.cancelQueries({
+        queryKey: ["admin", "maintenance-settings"],
+      }),
     mutationFn: (payload: MaintenanceUpdatePayload) =>
       apiRequest("/admin/maintenance-settings", {
         method: "PUT",
@@ -161,10 +166,14 @@ function MaintenanceSettingsEditor({
         ["admin", "maintenance-settings"],
         updatedSettings
       )
+      // The next bootstrap fetch supplies the identity of the saved period.
+      // Do not associate a newly enabled period with an old dismissal.
       queryClient.setQueryData<BootstrapStatus>(
         ["system", "bootstrap"],
         (current) =>
-          current ? { ...current, maintenance: updatedSettings } : current
+          current
+            ? { ...current, maintenance: updatedSettings, maintenance_id: null }
+            : current
       )
       await queryClient.invalidateQueries({ queryKey: ["system", "bootstrap"] })
     },

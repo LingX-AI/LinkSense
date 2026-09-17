@@ -191,6 +191,7 @@ describe("API response contracts", () => {
         oidc: { status: "available" },
         teams: { status: "not_configured" },
       },
+      maintenance_id: "01900000-0000-7000-8000-000000000001",
       maintenance: {
         enabled: true,
         active: true,
@@ -210,6 +211,7 @@ describe("API response contracts", () => {
     expect(result.oidc?.status).toBe("available")
     expect(result.teams_sso?.status).toBe("not_configured")
     expect(result.maintenance?.active).toBe(true)
+    expect(result.maintenance_id).toBe("01900000-0000-7000-8000-000000000001")
   })
 
   it("normalizes current user token usage summaries", () => {
