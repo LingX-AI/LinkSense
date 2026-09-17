@@ -497,8 +497,19 @@ describe("administrator audit metadata", () => {
     expect(await screen.findByText("conversation-1")).toBeVisible()
     expect(screen.getByText("林晓")).toBeVisible()
     expect(screen.queryByText("不得展示的敏感标题")).not.toBeInTheDocument()
-    expect(screen.getByText("插件: 业务数据")).toHaveClass("table-secondary")
-    expect(screen.getByText("Skill: 报告写作")).toHaveClass("table-secondary")
+    const pluginSummary = screen.getByText("插件: 业务数据")
+    const skillSummary = screen.getByText("Skill: 报告写作")
+    expect(pluginSummary).toHaveClass("table-secondary", "truncate")
+    expect(skillSummary).toHaveClass("table-secondary", "truncate")
+    expect(pluginSummary.closest("td")).toHaveClass(
+      "audit-conversation-capabilities-column"
+    )
+    expect(
+      screen.getByRole("columnheader", { name: "使用的插件/Skill" })
+    ).toHaveClass("audit-conversation-capabilities-column")
+    expect(appStyles).toMatch(
+      /\.audit-conversation-capabilities-column\s*\{[^}]*width:\s*360px;[^}]*min-width:\s*360px;[^}]*max-width:\s*360px;/u
+    )
     expect(screen.getByText("附件 1 个 · 1 kB")).toHaveClass("table-secondary")
     expect(screen.getByText("产物 2 个 · 2 kB")).toHaveClass("table-secondary")
     expect(screen.getByText("插件: -")).toBeVisible()

@@ -8054,6 +8054,12 @@ button.annotation-hover-file:focus-visible {
   min-width: 1180px;
 }
 
+.audit-conversation-capabilities-column {
+  width: 360px;
+  min-width: 360px;
+  max-width: 360px;
+}
+
 .input-with-icon {
   position: relative;
 }

@@ -3440,7 +3440,9 @@ function AuditConversationTable({
               <TableHead>{t("admin.conversation")}</TableHead>
               <TableHead>{t("admin.owner")}</TableHead>
               <TableHead>{t("common.status")}</TableHead>
-              <TableHead>{t("admin.capabilitiesUsed")}</TableHead>
+              <TableHead className="audit-conversation-capabilities-column">
+                {t("admin.capabilitiesUsed")}
+              </TableHead>
               <TableHead>{t("admin.files")}</TableHead>
               <TableHead>{t("admin.execution")}</TableHead>
               <TableHead>{t("admin.lastRun")}</TableHead>
@@ -3495,12 +3497,12 @@ function AuditConversationTable({
                     </span>
                   )}
                 </TableCell>
-                <TableCell>
-                  <span className="table-secondary">
+                <TableCell className="audit-conversation-capabilities-column">
+                  <span className="table-secondary truncate">
                     {t("capability.plugin")}:{" "}
                     {record.plugin_names.join(", ") || "-"}
                   </span>
-                  <span className="table-secondary">
+                  <span className="table-secondary truncate">
                     {t("capability.skill")}:{" "}
                     {record.skill_names.join(", ") || "-"}
                   </span>
