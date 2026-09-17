@@ -1,6 +1,6 @@
 ---
 title: Build an interactive application
-description: Understand interactive application Manifest fields, their effects, limits, and recommended practices, then submit tasks and receive business events with the SDK.
+description: Generate resource declarations by name, configure the Manifest, match resources and share apps, then submit tasks and receive business events with the SDK.
 ---
 
 # Build an interactive application
@@ -26,7 +26,7 @@ Supported extensions are `.html`, `.css`, `.js`, `.mjs`, `.json`, `.map`, `.txt`
 
 ## Manifest
 
-`manifest.json` describes the application identity, task instructions, SDK permissions, and business event contracts. LinkSense validates it during import, fixes the corresponding package version when a task is created, and uses its permissions and event definitions at runtime.
+`manifest.json` describes the application identity, required resources, task instructions, SDK permissions, and business event contracts. LinkSense validates it during import, fixes the corresponding package version when a task is created, and uses its permissions and event definitions at runtime.
 
 ### Minimal configuration
 
@@ -63,15 +63,94 @@ String limits below apply after trimming leading and trailing whitespace. The Ma
 | `permissions` | Array of permission strings; at most 6, without duplicates | Optional; the original five permissions (excluding `files:write`) below | Controls which SDK capabilities the page can call; it does not expand the current user's resource access. | Explicitly list what is needed. Use `["tasks:write"]` to start work only. `[]` requests none of these capabilities; omitting the field requests the original five, excluding `files:write`. |
 | `custom_events` | Array of event definitions; at most 50, with unique names | Optional; `[]` | Declares structured business data that tasks may deliver to the application for display and restoration. | Start with a few meaningful events, such as “section ready”; do not design events around chat deltas or tool logs. |
 
+### Declaring and matching required resources
+
+| Field | Type and limits | Required / default | Meaning and behavior | Recommended practice |
+| --- | --- | --- | --- | --- |
+| `dependencies` | Object with `plugins`, `skills`, `mcp_servers`, and `knowledge_bases` arrays | Optional; each array defaults to `[]` | Each entry is `{ "id": "resource UUID", "name": "display name" }`. Up to 50 plugins and skills combined, 20 MCP servers, and 20 knowledge bases. | Match by resource UUID, never name or slug. Names are display hints of 1–160 characters. Duplicate UUIDs across plugins and skills are also rejected. |
+
+#### Generate resource declarations by name
+
+You do not need to look up resource UUIDs manually when developing an app:
+
+1. Open **My applications → Create application**, then click **Resource declaration list** at the bottom right of the **Import interactive app** card.
+2. Search by name and select the resources your app needs. Each category uses two columns on wider screens and has its own **Select all** control. Selecting plugins, skills, MCP servers, or knowledge bases does not affect other categories. When searching, **Select all search results** affects only that category's current results and preserves other selections.
+3. Click **Copy dependencies JSON**. Add the copied `dependencies` field to `manifest.json` alongside `name` and `version`. Replace any existing dependencies field; do not overwrite the entire file.
+
+This tool fills in names and UUIDs for available resources you own. It does not create an app, copy resources, export credentials, or grant access. Other users or environments may still need to match resources when importing the package. If the declaration limits are exceeded, reduce the selection before copying.
+
+Resource rows display names only. Click anywhere on a rounded, bordered row to select or deselect it. Each category heading shows the selected count for its current list; the footer always shows the total selection count. On wider screens, select resources on the left and view the always-visible **Declaration preview** on the right, updated as you select. On smaller screens, these sections stack vertically. If copying fails, select the preview text and copy it manually.
+
+If a resource is missing, confirm that your current account owns it and that it is available. Resources you can only view or that others have shared with you are not listed. Copying is disabled when nothing is selected; omit `dependencies` if the app needs no such resources.
+
+The generated object includes all four resource arrays; unselected categories are empty arrays. The following UUIDs are examples only:
+
+```json title="dependencies.json"
+{
+  "dependencies": {
+    "plugins": [{ "id": "10000000-0000-4000-8000-000000000001", "name": "Document tools" }],
+    "skills": [{ "id": "20000000-0000-4000-8000-000000000001", "name": "Procurement review" }],
+    "mcp_servers": [{ "id": "30000000-0000-4000-8000-000000000001", "name": "Procurement system" }],
+    "knowledge_bases": [{ "id": "40000000-0000-4000-8000-000000000001", "name": "Procurement policies" }]
+  }
+}
+```
+
+#### Add the declaration to the package
+
+The **Resource declaration list** generates a JSON object containing `dependencies`, not a complete app configuration. Merge that field into your existing `manifest.json` without nesting an extra `dependencies` object or removing existing instructions, permissions, or events. For example, after selecting a skill and a knowledge base:
+
+```json title="manifest-with-dependencies.json"
+{
+  "schema_version": 1,
+  "id": "policy-assistant",
+  "name": "Policy assistant",
+  "version": "1.0.0",
+  "sdk_version": 1,
+  "permissions": ["tasks:write"],
+  "dependencies": {
+    "plugins": [],
+    "skills": [{ "id": "20000000-0000-4000-8000-000000000001", "name": "Policy review" }],
+    "mcp_servers": [],
+    "knowledge_bases": [{ "id": "40000000-0000-4000-8000-000000000001", "name": "Company policies" }]
+  }
+}
+```
+
+Replace the example UUIDs with values generated by the resource declaration list, name the file `manifest.json`, and package it with `index.html` and other static files. Resource names are display hints only: identical names do not necessarily identify the same resource. Do not replace UUIDs with names.
+
+| Configuration | Question it answers | What it does not do |
+| --- | --- | --- |
+| `dependencies` | Which plugins, skills, MCP servers, and knowledge bases does the app need? | Install or copy resources, carry credentials, or grant resource access. |
+| `permissions` | Which SDK methods may the application page call? | Replace resource declarations or automatically bind resources. |
+| Resource configuration after import | Which actual resources owned by this account satisfy the declarations? | Change the original package UUIDs or directly change published versions. |
+
+An app that only submits tasks can request just `tasks:write`, even if those tasks need skills or knowledge bases. Add resource-read permissions only when the page needs to read resource lists.
+
+#### Import and configure resources
+
+Import preview matches UUIDs only against available resources of the correct type owned by the importer. Unmatched entries may be mapped to another owned resource of the same type or left unselected: import still succeeds. Original declarations and unresolved states are retained. Use **Configure required resources** in the app menu to finish later. Every declaration must be resolved before running the draft or publishing. Declarations do not copy resources, carry credentials, or grant access. Disabled or deleted resources must also be addressed.
+
+1. Select a ZIP in **Import interactive app** and review its declared resources.
+2. A **yellow circled exclamation mark** next to a name means an available resource still needs to be configured. Search and select a resource of the same type in the picker on the right. A **green circled check mark** means it is configured.
+3. To change a selection, use the **clear icon** inside the right end of the picker, then choose again. Clearing does not delete the resource or its declaration.
+4. You may leave selections empty and continue importing. Later, open **Configure required resources** from the app menu, finish configuration, and save. Apps without declared resources show an informational message without Cancel or Save buttons.
+
+#### Updates, sharing, and listing
+
+Package updates preserve mappings, including explicit empty selections, for unchanged type/UUID pairs. New declarations attempt automatic matching; removed declarations are unbound. Mappings belong to the draft and do not rewrite package UUIDs. Published versions keep their own resource snapshots and remain unaffected by incomplete drafts until a new version is shared or listed.
+
+Interactive apps can only be shared or listed as online services, not copied or installed. Users use the creator's bound resources without remapping; credentials stay on the server. Standard apps remain installable when authorized. Existing interactive copies remain independent apps but no longer receive copied updates from the source. Historical install-only grants do not become service grants automatically; the creator must change sharing permissions. Existing packages without `dependencies` remain readable and usable.
+
 ### Choosing permissions
 
-A permission enables the corresponding SDK methods. It does not automatically select resources, install plugins, or grant resource access. After reading a resource list, let the user select entries and include the relevant IDs in the submission. Calls without the required permission fail with `LINKSENSE_SDK_PERMISSION_DENIED`.
+A permission enables the corresponding SDK methods. It does not install plugins or grant resource access. Tasks use resources bound by the creator, not arbitrary resource IDs supplied by users in the page. Calls without the required permission fail with `LINKSENSE_SDK_PERMISSION_DENIED`.
 
 | Permission | SDK methods | Returned data or effect | When to request it |
 | --- | --- | --- | --- |
 | `user.profile:read` | `context.getCurrentUser()` | Current user's `id`, `name`, `avatar_url`, and `language`. | When displaying user information or choosing the interface language; omit it otherwise. |
-| `capabilities:read` | `resources.listCapabilities()` | Skill and plugin summaries: `id`, `name`, `type`, `description`, `status`, `can_select`, `logo_url`. | For a skill or plugin picker. Allow selection of available entries and pass their IDs in `capability_ids`. |
-| `knowledge_bases:read` | `resources.listKnowledgeBases()` | Knowledge base summaries: `id`, `name`, `description`, `lifecycle_status`, `availability_status`. | For a knowledge base picker. Reflect availability in the options and pass selected IDs in `knowledge_base_ids`. |
+| `capabilities:read` | `resources.listCapabilities()` | Skill and plugin summaries: `id`, `name`, `type`, `description`, `status`, `can_select`, `logo_url`. | Display the current user's skill or plugin summaries. Reading the list does not change the application's configured resources. |
+| `knowledge_bases:read` | `resources.listKnowledgeBases()` | Knowledge base summaries: `id`, `name`, `description`, `lifecycle_status`, `availability_status`. | Display the current user's knowledge base summaries. Application tasks use the creator's configured knowledge bases, independently of this list. |
 | `mcp_servers:read` | `resources.listMcpServers()` | MCP service summaries: `id`, `name`, `status`, `transport`; no addresses or credentials. | When displaying connection information. This permission does not expose direct MCP calls, and `tasks.run()` does not accept `mcp_server_ids`. |
 | `tasks:write` | `tasks.run(input)`, `tasks.interrupt(turnId)` | Submits work in the current application task or requests interruption of a specified turn. | For generate, submit, or stop controls. Handle acceptance failures and conflicts with running work. |
 | `files:write` | `files.upload(file)`, `files.list()`, `files.remove(fileId)` | Upload and list this application task’s attachments; remove unsubmitted files. | Explicitly request this permission for uploads. It is not granted to older applications by default. |
@@ -222,8 +301,8 @@ const receipt = await LinkSense.tasks.run({
 | Parameter | Meaning and limits | Recommended practice |
 | --- | --- | --- |
 | `prompt` | Required; 1–200,000 characters after trimming; the current task request. | Build it from validated form values, with a clear topic, constraints, and deliverables. Avoid submitting values without context. |
-| `capability_ids` | Optional, default `[]`; up to 60 skill or plugin IDs. | Use the user's current selection. Reading a list does not select its entries, and the server still checks resource access and status. |
-| `knowledge_base_ids` | Optional, default `[]`; up to 20 knowledge base UUIDs. | Include only the knowledge bases needed for this submission. |
+| `capability_ids` | Optional, default `[]`; up to 50 skill or plugin IDs. | Application tasks use the configured skills and plugins. This parameter cannot override application resources and should normally be omitted. |
+| `knowledge_base_ids` | Optional, default `[]`; up to 20 knowledge base UUIDs. | Application tasks use the configured knowledge bases. This parameter cannot override application resources and should normally be omitted. |
 | `file_ids` | Optional, defaults to `[]`; up to 100 unique file UUIDs. | Select staged IDs returned by `files.upload()` or `files.list()`; only these files are attached, excluding chat drafts. |
 | `idempotency_key` | Optional; 1–120 characters after trimming. | Usually let the host manage it. If supplied, identify one logical submission; do not reuse a fixed value across different requests. |
 

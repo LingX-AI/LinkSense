@@ -1,6 +1,6 @@
 ---
 title: LinkSense Help Center
-description: Complete documentation for LinkSense users, administrators, developers, and deployment operators.
+description: Documentation for LinkSense users, administrators, and developers.
 slug: /
 ---
 
@@ -13,7 +13,6 @@ This site explains how to complete tasks, manage automations, use plugins and kn
 - [User guide](./user-guide/overview.md): for everyone who creates tasks, uploads files, installs capabilities, or manages personal settings.
 - [Developer guide](./developer-guide/interactive-application.md): for interactive application packages and external iframe integration.
 - [Administrator guide](./admin-guide/overview.md): for user, permission, plugin, knowledge base, model, authentication, health, audit, and usage management.
-- [Deployment and operations](./operations/editions-and-installation.md): for edition selection, installation, CLI administration, repair, and upgrade boundaries.
 
 Every help article is publicly readable. The pages and operations described in the administrator guide are still protected by LinkSense administrator authorization.
 
@@ -30,4 +29,4 @@ The search index ships with the static help site. Queries and documentation cont
 
 ## Documentation scope
 
-These articles describe current LinkSense product and public deployment capabilities, including task context, image generation, automations, message channels, file annotations, application creation and embedding, installation, feedback, and upgrades. Database commands, infrastructure secrets, and internal services not explicitly documented in the operator guide are outside the public operations surface.
+These articles describe current LinkSense usage and administration features, including task context, image generation, automations, message channels, file annotations, application creation and embedding, feedback, and administrator settings.

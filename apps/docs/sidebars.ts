@@ -139,14 +139,6 @@ const sidebars: SidebarsConfig = {
         "developer-guide/embed-application",
       ],
     },
-    {
-      type: "category",
-      label: "部署与运维",
-      items: [
-        "operations/editions-and-installation",
-        "operations/cli-and-maintenance",
-      ],
-    },
   ],
 }
 

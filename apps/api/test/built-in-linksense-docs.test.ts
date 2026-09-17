@@ -46,11 +46,9 @@ describe("linksense-docs built-in Skill", () => {
       markdownPaths(sourceRoots["zh-CN"]),
     ])
 
-    expect(chinesePaths).toHaveLength(67)
+    expect(chinesePaths).toHaveLength(65)
     expect(chinesePaths).toEqual(expect.arrayContaining([
       "admin-guide/quota-settings.md",
-      "operations/editions-and-installation.md",
-      "operations/cli-and-maintenance.md",
       "user-guide/tasks/context-and-drafts.md",
       "user-guide/tasks/progress-and-sources.md",
       "user-guide/tasks/generate-images.md",
@@ -65,7 +63,7 @@ describe("linksense-docs built-in Skill", () => {
     await expect(
       readFile(path.join(skillRoot, "SKILL.md"), "utf8"),
     ).resolves.toMatch(
-      /name: linksense-docs[\s\S]*audience and intent[\s\S]*references\/catalog\.md[\s\S]*deployment locations and commands/u,
+      /name: linksense-docs[\s\S]*audience and intent[\s\S]*references\/catalog\.md[\s\S]*Do not expose Skill or runtime filesystem paths/u,
     )
     await expect(
       readFile(path.join(skillRoot, "agents", "openai.yaml"), "utf8"),
@@ -84,9 +82,8 @@ describe("linksense-docs built-in Skill", () => {
     expect(catalog).toContain(
       "[使用计划模式](zh-CN/user-guide/tasks/plan-mode.md)",
     )
-    expect(catalog).toContain(
-      "[版本选择与安装](zh-CN/operations/editions-and-installation.md)",
-    )
+    expect(catalog).not.toContain("/operations/")
+    expect(chinesePaths.some((document) => document.startsWith("operations/"))).toBe(false)
     expect(catalog).toContain(
       "[Generate images](en-US/user-guide/tasks/generate-images.md)",
     )
@@ -132,7 +129,7 @@ describe("linksense-docs built-in Skill", () => {
       markdownPaths(path.join(outputRoot, "zh-CN")),
       markdownPaths(path.join(outputRoot, "en-US")),
     ])
-    expect(chinesePaths).toHaveLength(67)
+    expect(chinesePaths).toHaveLength(65)
     expect(englishPaths).toEqual(chinesePaths)
     await expect(
       readFile(path.join(outputRoot, "zh-CN", "introduction.md"), "utf8"),

@@ -1,6 +1,6 @@
 ---
 title: LinkSense 帮助中心
-description: 面向 LinkSense 用户、管理员、开发者和部署运维人员的完整说明。
+description: 面向 LinkSense 用户、管理员和开发者的使用说明。
 slug: /
 ---
 
@@ -13,7 +13,6 @@ slug: /
 - [用户指南](./user-guide/overview.md)：适合所有使用 LinkSense 创建任务、上传文件、安装插件或管理个人设置的用户。
 - [开发者指南](./developer-guide/interactive-application.md)：说明交互式应用包和外部 iframe 接入。
 - [管理员指南](./admin-guide/overview.md)：说明用户、权限、插件、知识库、模型、认证、健康、审计和用量管理。
-- [部署与运维](./operations/editions-and-installation.md)：说明版本选择、安装、命令行管理、修复与升级边界。
 
 所有帮助文档都可以公开阅读。管理员指南中的页面和操作仍受 LinkSense 本身的管理员权限保护。
 
@@ -30,4 +29,4 @@ slug: /
 
 ## 文档范围
 
-文档描述 LinkSense 当前产品与公开部署能力，包括任务上下文、图片生成、自动化、消息渠道、文件批注、应用创建与外部接入、反馈、安装和系统升级。未在运维指南中明确记录的数据库命令、基础设施密钥和内部服务不属于公开操作范围。
+文档描述 LinkSense 当前产品的使用与管理功能，包括任务上下文、图片生成、自动化、消息渠道、文件批注、应用创建与外部接入、反馈和管理员配置。
