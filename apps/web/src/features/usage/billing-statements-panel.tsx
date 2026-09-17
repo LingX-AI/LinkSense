@@ -1,3 +1,4 @@
+import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import dayjs from "dayjs"
@@ -231,7 +232,9 @@ export function BillingStatementsPanel(props: {
             role="region"
             aria-label={t("usage.billing.detail.title")}
             tabIndex={0}
-            className="min-h-0 overflow-y-auto overscroll-contain rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={dialogBodyStyles(
+              "rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            )}
           >
             {detailQuery.isLoading && <LoadingState />}
             {detailQuery.isError && (

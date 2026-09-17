@@ -37,6 +37,8 @@ function DialogOverlay({
   )
 }
 
+// For an inset scrolling body with fixed header/footer, use dialogBodyStyles
+// from ./dialog-layout on the body only (not on nested scrollable controls).
 function DialogContent({
   className,
   children,

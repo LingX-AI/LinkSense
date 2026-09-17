@@ -1,3 +1,4 @@
+import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
@@ -187,7 +188,7 @@ function SkillUpdateForm({
 
   return (
     <>
-      <div className="flex min-h-0 flex-col gap-5 overflow-y-auto pr-1">
+      <div className={dialogBodyStyles("flex flex-col gap-5")}>
         {error && <ErrorState message={getErrorMessage(error, t)} />}
         {preview ? (
           <SkillUpdatePreview

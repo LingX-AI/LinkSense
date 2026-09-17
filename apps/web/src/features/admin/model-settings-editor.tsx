@@ -1,3 +1,4 @@
+import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
@@ -67,7 +68,7 @@ export function ModelSettingsEditor({
               <DialogTitle>{title}</DialogTitle>
               <DialogDescription>{description}</DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 overflow-y-auto overscroll-contain">
+            <div className={dialogBodyStyles()}>
               {error && <StatusBanner variant="error">{error}</StatusBanner>}
               <fieldset
                 disabled={pending}

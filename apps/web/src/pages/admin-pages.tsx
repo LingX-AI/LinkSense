@@ -1,3 +1,4 @@
+import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { ListCard } from "@/components/ui/list-card"
 import {
   useDeferredValue,
@@ -1455,7 +1456,7 @@ function UserManagementPage() {
             <DialogDescription>{t("admin.noPasswordNotice")}</DialogDescription>
           </DialogHeader>
           <form
-            className="flex min-h-0 flex-col gap-4 overflow-hidden"
+            className="flex min-h-0 flex-col gap-4"
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
               if (editing) {
@@ -1486,7 +1487,7 @@ function UserManagementPage() {
             <div
               role="region"
               aria-label={t(editing ? "admin.editUser" : "admin.createUser")}
-              className="flex min-h-0 flex-col gap-3.5 overflow-y-auto overscroll-contain px-1 py-1"
+              className={dialogBodyStyles("flex flex-col gap-3.5 py-1 pl-1")}
             >
               <div className="form-grid">
                 <FieldShell id="user-name" label={t("common.name")}>
@@ -2437,9 +2438,9 @@ function UserGroupManagementPage() {
               <EmptyState title={t("admin.groupMembersEmpty")} />
             )}
           {visibleGroupMembers.length > 0 && (
-            <div className="max-h-[min(60vh,32rem)] overflow-y-auto rounded-xl border border-border/50">
+            <div className={dialogBodyStyles("max-h-[min(60vh,32rem)]")}>
               <ul
-                className="divide-y divide-border/50"
+                className="divide-y divide-border/50 rounded-xl border border-border/50"
                 aria-label={t("admin.memberListLabel")}
               >
                 {visibleGroupMembers.map((member) => (
