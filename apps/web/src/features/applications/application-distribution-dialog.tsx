@@ -18,7 +18,7 @@ export function ApplicationDistributionDialog({
 }: (
   | { application: Application; mode: "direct" | "center" }
   | {
-      application: Pick<Application, "id" | "name">
+      application: Pick<Application, "id" | "name" | "kind">
       mode: "center"
     }
 ) & { onClose: () => void }) {
@@ -54,6 +54,7 @@ export function ApplicationDistributionDialog({
           />
         ) : (
           <ApplicationCenterSubmissionPanel
+            serviceOnly={application.kind === "interactive"}
             applicationId={application.id}
             onSubmitted={onClose}
           />

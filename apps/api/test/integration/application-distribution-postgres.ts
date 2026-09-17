@@ -74,13 +74,15 @@ try {
   const historicalListing = await db.applicationListing.create({ data: { applicationId: oldCopyId, publisherId: recipient.id, status: "published" } });
   const historicalRelease = await db.applicationRelease.create({ data: { listingId: historicalListing.id, applicationId: oldCopyId, versionId: historicalVersionId, name: "Existing listing", publisherName: recipient.name, usageModes: ["install", "service"], releaseNotes: "Existing approved release", status: "approved", reviewerId: admin.id } });
   await db.applicationListing.update({ where: { id: historicalListing.id }, data: { currentReleaseId: historicalRelease.id } });
-  const historicalInstall = await db.application.create({ data: { ownerId: admin.id, name: "Existing installation", instructions: "Existing shared service" } });
+  const historicalInstall = { id: randomUUID() };
+  await db.$executeRaw`INSERT INTO applications(id,owner_id,name,instructions,updated_at) VALUES (${historicalInstall.id}::uuid,${admin.id}::uuid,'Existing installation','Existing shared service',CURRENT_TIMESTAMP)`;
   await db.applicationInstallation.create({ data: { applicationId: historicalInstall.id, ownerId: admin.id, sourceApplicationId: oldCopyId, channel: "center", installedVersionId: historicalVersionId, baselineJson: { name: "Reports", instructions: "Existing shared service", model: null, reasoningEffort: null, interactivePackageId: null, capabilities: [], requiredKnowledgeBases: 0, requiredMcpServers: 0 } } });
   await migrate(migrations);
   const historicalVersion = await db.applicationVersion.findUniqueOrThrow({ where: { id: historicalVersionId } });
   assert.equal(historicalVersion.versionLabel, "7.0.0");
   assert.equal(historicalVersion.versionNumber, 7);
   assert.equal((await db.application.findUniqueOrThrow({ where: { id: oldCopyId } })).publishedVersionId, historicalVersionId);
+  assert.deepEqual((await db.application.findUniqueOrThrow({ where: { id: oldCopyId } })).interactiveDependencyBindings, []);
   assert.deepEqual((await db.applicationGrant.findFirstOrThrow({ where: { applicationId: sourceId } })).usageModes, ["install", "service"]);
   assert.deepEqual((await db.applicationGrant.findFirstOrThrow({ where: { applicationId: serviceOnlyId } })).usageModes, ["service"]);
   assert.equal(await db.application.count(), 4);
@@ -98,7 +100,7 @@ try {
   const assets = new Map<string, Buffer>();
   const assetStore = { put: async (key: string, value: Buffer) => { assets.set(key, value); }, get: async (key: string) => { const value = assets.get(key); if (!value) throw new Error("missing asset"); return Readable.from(value); }, remove: async (key: string) => { assets.delete(key); } };
   const publications = new ApplicationPublicationService(db, capabilityRoot, assetStore);
-  const installations = new ApplicationInstallationService(db, capabilityRoot, publications, assetStore);
+  const installations = new ApplicationInstallationService(db, capabilityRoot, publications);
   const models: ModelRuntimeSettingsReader = { resolveRuntime: async () => { throw new Error("not selected"); }, resolveRuntimeForSelection: async () => { throw new Error("not selected"); }, resolveModelTransitionRuntime: async () => { throw new Error("not selected"); } };
   const service = new ApplicationService(db, models, new AuditService(db), { resolveForCapability: async (userId, capabilityId) => ({ ok: true, environment: {}, usageReceipt: { userId, capabilityId, credentialIds: [] } }) }, undefined, assetStore, publications, installations);
   const center = new ApplicationCenterService(new ApplicationDistributionRepository(db), publications, new AuditService(db), service);
@@ -214,44 +216,63 @@ try {
   await installations.update(recipient.id, centerInstalledId, sameVersion.version_id);
   console.log("PASS semantic versions: lower labels rejected without writes; same-label content changes are immutable, discoverable and manually updated.");
 
-  // Interactive application bytes are copied, versioned and authorized through the same channels.
-  const archive = async (version: string): Promise<Buffer> => {
+  // Interactive applications are service-only; approved versions and tickets remain isolated.
+  const archive = async (version: string, dependencyId?: string): Promise<Buffer> => {
     const zip = new JSZip();
-    zip.file("manifest.json", JSON.stringify({ schema_version: 1, id: "interactive-reports", name: "Interactive reports", version, sdk_version: 1, instructions: "Summarize reports" }));
+    zip.file("manifest.json", JSON.stringify({ schema_version: 1, id: "interactive-reports", name: "Interactive reports", version, sdk_version: 1, instructions: "Summarize reports", ...(dependencyId ? { dependencies: { skills: [{ id: dependencyId, name: "Reports skill" }] } } : {}) }));
     zip.file("index.html", "<main>Reports</main>");
     return zip.generateAsync({ type: "nodebuffer" });
   };
   const interactive = await service.importInteractive(actor(publisher), await archive("1.0.0"), context);
-  const interactiveRelease = await center.submit(actor(publisher), interactive.id, { version_number: "1.0.0", usage_instructions: "Use the report form", usage_modes: ["install", "service"], release_notes: "Interactive release" }, context);
+  await assert.rejects(center.submit(actor(publisher), interactive.id, { version_number: "1.0.0", usage_instructions: "Use the report form", usage_modes: ["install"], release_notes: "Invalid copy mode" }, context), { code: "VALIDATION_ERROR" });
+  const interactiveRelease = await center.submit(actor(publisher), interactive.id, { version_number: "1.0.0", usage_instructions: "Use the report form", usage_modes: ["service"], release_notes: "Interactive release" }, context);
   const interactiveVersion1 = { version_id: interactiveRelease.version_id };
   assert.equal((await db.application.findUniqueOrThrow({ where: { id: interactive.id } })).publishedVersionId, null);
   await assert.rejects(service.resolveRuntime(recipient.id, interactive.id, undefined, "center"), { code: "FORBIDDEN" });
   await center.review(actor(admin), interactiveRelease.id, { decision: "approved", comment: "" }, context);
   const approvedRuntime = await service.resolveRuntime(recipient.id, interactive.id, undefined, "center");
   await db.$transaction(tx => assertApplicationRuntimeCurrent(tx, recipient.id, approvedRuntime));
-  const interactiveInstall = await installations.install(recipient.id, interactive.id, { name: "My interactive reports", channel: "center", version_id: interactiveVersion1.version_id });
-  const ownRuntime = await service.resolveRuntime(recipient.id, interactiveInstall);
-  assert.notEqual(ownRuntime.interactivePackageId, interactive.interactive_package?.id);
-  assert.equal(ownRuntime.applicationOwnerId, recipient.id);
-  await db.application.update({ where: { id: interactiveInstall }, data: { instructions: "Use my own report format" } });
-  assert((await service.resolveRuntime(recipient.id, interactiveInstall)).instructions.startsWith("Use my own report format"));
+  await assert.rejects(installations.install(recipient.id, interactive.id, { name: "My interactive reports", channel: "center", version_id: interactiveVersion1.version_id }), { code: "FORBIDDEN" });
+  assert.equal(approvedRuntime.applicationOwnerId, publisher.id);
+  assert.equal(approvedRuntime.interactivePackageId, interactive.interactive_package?.id);
   const interactiveTask = await db.conversation.create({ data: { ownerId: recipient.id, title: "Interactive task", titleSource: "manual", archiveStatus: "active", workspaceRelPath: "test/interactive", runtimeGeneration: randomUUID(), applicationId: interactive.id, applicationNameSnapshot: interactive.name, applicationChannel: "center", interactiveApplicationPackageId: interactive.interactive_package?.id ?? null } });
   const ticket = await service.createInteractiveRuntimeTicket(actor(recipient), interactive.id, undefined, interactiveTask.id);
   assert.equal((await service.getInteractiveAssetForTicket(ticket.token, "index.html")).contentType, "text/html; charset=utf-8");
   await service.updateInteractivePackage(actor(publisher), interactive.id, await archive("2.0.0"), context);
-  const interactiveRelease2 = await center.submit(actor(publisher), interactive.id, { version_number: "2.0.0", usage_instructions: "Updated form", usage_modes: ["install", "service"], release_notes: "New form" }, context);
-  const interactiveVersion2 = { version_id: interactiveRelease2.version_id };
+  const interactiveRelease2 = await center.submit(actor(publisher), interactive.id, { version_number: "2.0.0", usage_instructions: "Updated form", usage_modes: ["service"], release_notes: "New form" }, context);
   const pendingPackage = (await db.application.findUniqueOrThrow({ where: { id: interactive.id } })).interactivePackageId;
   assert(pendingPackage);
   await assert.rejects(service.resolveInteractiveRuntimePackage(actor(recipient), interactive.id, pendingPackage, "center"), { code: "APPLICATION_NOT_FOUND" });
-  assert.equal((await installations.previewUpdate(recipient.id, interactiveInstall)).update_available, false);
+  assert.equal((await service.resolveRuntime(recipient.id, interactive.id, undefined, "center")).interactivePackageId, approvedRuntime.interactivePackageId);
   await center.review(actor(admin), interactiveRelease2.id, { decision: "approved", comment: "" }, context);
-  await installations.update(recipient.id, interactiveInstall, interactiveVersion2.version_id);
-  assert.equal((await db.interactiveApplicationPackage.findFirstOrThrow({ where: { applicationId: interactiveInstall, version: "2.0.0" } })).createdBy, recipient.id);
-  assert((await service.resolveRuntime(recipient.id, interactiveInstall)).instructions.startsWith("Use my own report format"));
+  assert.equal((await service.resolveRuntime(recipient.id, interactive.id, undefined, "center")).interactivePackageId, pendingPackage);
   await center.setStatus(actor(admin), interactive.id, { status: "suspended", reason: "Review" }, context);
   await assert.rejects(service.getInteractiveAssetForTicket(ticket.token, "index.html"), { code: "FORBIDDEN" });
-  console.log("PASS interactive applications: independent assets, edited instructions, approved versions, manual package updates and ticket revocation.");
+  console.log("PASS interactive applications: service-only distribution, approved versions, package updates and ticket revocation.");
+
+  const declarationId = randomUUID();
+  const unresolved = await service.importInteractive(actor(publisher), await archive("1.0.0", declarationId), context);
+  assert.equal(unresolved.dependencies_available, false);
+  assert.equal(unresolved.capability_count, 1);
+  assert.deepEqual((await db.application.findUniqueOrThrow({ where: { id: unresolved.id } })).interactiveDependencyBindings, [{ type: "skill", id: declarationId, resource_id: null }]);
+  await assert.rejects(service.resolveRuntime(publisher.id, unresolved.id), { code: "APPLICATION_DEPENDENCY_UNAVAILABLE" });
+  const shareInput = { version_number: "1.0.0", usage_instructions: "Read-only review", target: { grantee_type: "user" as const, user_id: recipient.id, usage_modes: ["service" as const] } };
+  await assert.rejects(service.share(actor(publisher), unresolved.id, shareInput, context), { code: "APPLICATION_DEPENDENCY_UNAVAILABLE" });
+  await service.updateInteractiveDependencies(actor(publisher), unresolved.id, [{ type: "skill", id: declarationId, resource_id: capability.id }], context);
+  assert.deepEqual((await service.resolveRuntime(publisher.id, unresolved.id)).capabilityIds, [capability.id]);
+  await service.share(actor(publisher), unresolved.id, shareInput, context);
+  const publishedRuntime = await service.resolveRuntime(recipient.id, unresolved.id);
+  assert.equal(publishedRuntime.applicationOwnerId, publisher.id);
+  assert.deepEqual(publishedRuntime.capabilityIds, [capability.id]);
+  await assert.rejects(service.updateInteractiveDependencies(actor(recipient), unresolved.id, [], context), { code: "APPLICATION_NOT_FOUND" });
+  await service.updateInteractivePackage(actor(publisher), unresolved.id, await archive("1.1.0", declarationId), context);
+  assert.equal((await service.interactiveDependencies(actor(publisher), unresolved.id)).items[0]?.resource_id, capability.id);
+  await service.updateInteractivePackage(actor(publisher), unresolved.id, await archive("1.2.0", randomUUID()), context);
+  assert.equal((await service.interactiveDependencies(actor(publisher), unresolved.id)).items[0]?.resource_id, null);
+  assert.equal(await db.applicationCapability.count({ where: { applicationId: unresolved.id } }), 0);
+  assert.deepEqual((await service.resolveRuntime(recipient.id, unresolved.id)).capabilityIds, [capability.id]);
+  await assert.rejects(service.share(actor(publisher), unresolved.id, { ...shareInput, version_number: "1.2.0" }, context), { code: "APPLICATION_DEPENDENCY_UNAVAILABLE" });
+  console.log("PASS dependency lifecycle: unresolved import, later matching, owner-scoped runtime, preserved mappings and published snapshot isolation.");
 
   // Real route handlers and services against the migrated database.
   app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));

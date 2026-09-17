@@ -18,8 +18,10 @@ import {
 
 export function ApplicationGrantPermissions({
   grant,
+  serviceOnly = false,
 }: {
   grant: ApplicationGrant
+  serviceOnly?: boolean
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
@@ -42,6 +44,7 @@ export function ApplicationGrantPermissions({
       {editing ? (
         <>
           <ApplicationUsageModes
+            serviceOnly={serviceOnly}
             value={modes}
             onChange={setModes}
             disabled={mutation.isPending}
@@ -76,7 +79,7 @@ export function ApplicationGrantPermissions({
             size="sm"
             variant="ghost"
             onClick={() => {
-              setModes(grant.usage_modes)
+              setModes(serviceOnly ? ["service"] : grant.usage_modes)
               mutation.reset()
               setEditing(true)
             }}

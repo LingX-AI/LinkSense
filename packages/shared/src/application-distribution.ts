@@ -57,7 +57,7 @@ export const applicationCenterReleaseSchema = z.strictObject({
   description: z.string().max(4_000).nullable(),
   usage_instructions: z.string().max(20_000),
   publisher_name: z.string().min(1).max(120),
-  usage_modes: applicationUsageModesSchema,
+  usage_modes: z.array(applicationUsageModeSchema).max(2),
   release_notes: z.string().max(8_000),
   status: z.enum(["pending", "approved", "rejected", "withdrawn"]),
   listing_status: z.enum(["draft", "published", "unlisted", "suspended"]),

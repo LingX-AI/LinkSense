@@ -1,4 +1,3 @@
-import { readVerifiedInteractiveAsset } from "./interactive-asset-integrity.js";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
@@ -17,20 +16,20 @@ import { verifiedApplicationPackagePath, type ApplicationPublicationService } fr
 import { readApplicationDistributionAccess } from "./distribution-repository.js";
 import { requireApplicationDistributionVersion } from "./distribution-policy.js";
 import { installedApplicationBaselineSchema, mergeInstalledApplication, type InstalledApplicationBaseline } from "./installation-merge.js";
-import type { InteractiveApplicationAssetStore } from "./service.js";
 import type { PublishedApplicationDefinition } from "./published-definition.js";
 
 export class ApplicationInstallationService {
   constructor(private readonly prisma: PrismaClient, private readonly capabilityRoot: string,
-    private readonly publications: ApplicationPublicationService, private readonly assets: InteractiveApplicationAssetStore) {}
+    private readonly publications: ApplicationPublicationService) {}
 
   async install(ownerId: string, sourceId: string, input: ApplicationInstallInput): Promise<string> {
     const access = await readApplicationDistributionAccess(this.prisma, ownerId, sourceId);
     const versionId = requireApplicationDistributionVersion(access, input.channel, "install", input.version_id);
     const source = await this.prisma.application.findUniqueOrThrow({ where: { id: sourceId } });
     const definition = await this.publications.readVersion(sourceId, versionId);
+    if (definition.kind === "interactive") throw new AppError("FORBIDDEN");
     const id = randomUUID();
-    const staged = await this.stage(ownerId, id, sourceId, definition);
+    const staged = await this.stage(ownerId, id, definition);
     let committed = false;
     try {
       await this.prisma.$transaction(async tx => {
@@ -41,13 +40,13 @@ export class ApplicationInstallationService {
         await tx.application.create({ data: {
           id, ownerId, name: input.name, kind: definition.kind, iconPreset: source.iconPreset,
           instructions: definition.instructions, usageInstructions: definition.usageInstructions, description: source.description,
-          model: definition.model, reasoningEffort: definition.reasoningEffort, interactivePackageId: staged.packageId,
+          model: definition.model, reasoningEffort: definition.reasoningEffort,
           status: requiresSetup(definition) ? "disabled" : "active",
         } });
         await staged.save(tx);
         await tx.applicationInstallation.create({ data: {
           applicationId: id, ownerId, sourceApplicationId: sourceId, channel: input.channel,
-          installedVersionId: versionId, baselineJson: this.baseline(definition, staged.mapping, staged.packageId),
+          installedVersionId: versionId, baselineJson: this.baseline(definition, staged.mapping),
         } });
       });
       committed = true;
@@ -93,7 +92,7 @@ export class ApplicationInstallationService {
     const baseline = installedApplicationBaselineSchema.parse(installation.baselineJson);
     const definition = await this.publications.readVersion(installation.sourceApplicationId, latest.id);
     const merged = mergeInstalledApplication({ ...current, reasoningEffort: reasoningEffortSchema.nullable().parse(current.reasoningEffort) }, baseline, definition);
-    const staged = await this.stage(ownerId, applicationId, installation.sourceApplicationId, definition, baseline, current.interactivePackageId);
+    const staged = await this.stage(ownerId, applicationId, definition, baseline);
     let committed = false;
     try {
       await this.prisma.$transaction(async tx => {
@@ -106,11 +105,11 @@ export class ApplicationInstallationService {
         const mcp = await tx.applicationMcpServer.count({ where: { applicationId } });
         await staged.save(tx);
         await tx.application.update({ where: { id: applicationId }, data: {
-          ...merged.values, usageInstructions: definition.usageInstructions, interactivePackageId: staged.packageId,
+          ...merged.values, usageInstructions: definition.usageInstructions,
           ...(knowledge < definition.knowledgeBaseIds.length || mcp < definition.mcpServerIds.length ? { status: "disabled" } : {}),
         } });
         await tx.applicationInstallation.update({ where: { applicationId }, data: {
-          installedVersionId: latest.id, baselineJson: this.baseline(definition, staged.mapping, staged.baselinePackageId),
+          installedVersionId: latest.id, baselineJson: this.baseline(definition, staged.mapping),
         } });
       });
       committed = true;
@@ -141,24 +140,24 @@ export class ApplicationInstallationService {
     return installation;
   }
 
-  private baseline(definition: PublishedApplicationDefinition, capabilities: InstalledApplicationBaseline["capabilities"], interactivePackageId: string | null): InstalledApplicationBaseline {
+  private baseline(definition: PublishedApplicationDefinition, capabilities: InstalledApplicationBaseline["capabilities"]): InstalledApplicationBaseline {
     return installedApplicationBaselineSchema.parse({ name: definition.name, instructions: definition.instructions,
-      model: definition.model, reasoningEffort: definition.reasoningEffort, capabilities, interactivePackageId,
+      model: definition.model, reasoningEffort: definition.reasoningEffort, capabilities, interactivePackageId: null,
       requiredKnowledgeBases: definition.knowledgeBaseIds.length, requiredMcpServers: definition.mcpServerIds.length });
   }
 
-  private async stage(ownerId: string, applicationId: string, sourceId: string, definition: PublishedApplicationDefinition,
-    baseline?: InstalledApplicationBaseline, currentPackageId?: string | null) {
+  private async stage(ownerId: string, applicationId: string, definition: PublishedApplicationDefinition,
+    baseline?: InstalledApplicationBaseline) {
+    if (definition.kind === "interactive" || definition.interactivePackageId) throw new AppError("FORBIDDEN");
     const replacements: Awaited<ReturnType<typeof stageAtomicDirectoryReplacement>>[] = [];
     const releases: Array<() => Promise<void>> = [];
-    const uploads: string[] = [];
     const mapping: InstalledApplicationBaseline["capabilities"] = [];
     const capabilities: Prisma.CapabilityCreateManyInput[] = [];
     const currentBindings = baseline ? await this.prisma.applicationCapability.findMany({ where: { applicationId }, orderBy: { selectionOrder: "asc" } }) : [];
     const bound = new Map(currentBindings.filter(binding => !baseline?.capabilities.some(item => item.installedId === binding.capabilityId)).map(binding => [binding.capabilityId, { id: binding.capabilityId, name: binding.capabilityNameSnapshot, type: binding.capabilityTypeSnapshot }]));
     const updated: Array<{ id: string; before: Date; data: Prisma.CapabilityUpdateManyMutationInput }> = [];
     const rollback = async () => {
-      try { for (const replacement of replacements.reverse()) await replacement.rollback(); for (const key of uploads) await this.assets.remove(key); }
+      try { for (const replacement of replacements.reverse()) await replacement.rollback(); }
       finally { for (const release of releases.reverse()) await release(); }
     };
     try {
@@ -189,26 +188,9 @@ export class ApplicationInstallationService {
         const own = await this.prisma.capability.findFirst({ where: { id: old.installedId, ownerId, status: "active" } });
         if (own && currentBindings.some(binding => binding.capabilityId === own.id) && await hashPackageDirectory(await verifiedApplicationPackagePath(this.capabilityRoot, own.storagePath)) !== old.contentSha256) bound.set(own.id, { id: own.id, name: own.name, type: own.type });
       }
-      const preservePackage = baseline && currentPackageId !== baseline.interactivePackageId;
-      const sourcePackage = definition.interactivePackageId ? await this.prisma.interactiveApplicationPackage.findFirst({ where: { id: definition.interactivePackageId, applicationId: sourceId } }) : null;
-      if (definition.interactivePackageId && !sourcePackage) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
-      const existingPackage = sourcePackage && baseline ? await this.prisma.interactiveApplicationPackage.findFirst({ where: { applicationId, version: sourcePackage.version } }) : null;
-      if (existingPackage && sourcePackage && existingPackage.archiveSha256 !== sourcePackage.archiveSha256 && !preservePackage) throw new AppError("CONFLICT");
-      const packageId = preservePackage ? currentPackageId ?? null : existingPackage?.id ?? (sourcePackage ? randomUUID() : null);
-      const assetRows: Prisma.InteractiveApplicationAssetCreateManyInput[] = [];
-      if (sourcePackage && packageId && !preservePackage && !existingPackage) {
-        const sourceAssets = await this.prisma.interactiveApplicationAsset.findMany({ where: { packageId: sourcePackage.id } });
-        if (sourceAssets.length !== sourcePackage.fileCount) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
-        for (const asset of sourceAssets) {
-          const bytes = await readVerifiedInteractiveAsset(this.assets, asset);
-          const id = randomUUID(), key = `applications/${ownerId}/${applicationId}/packages/${packageId}/${id}`;
-          uploads.push(key); await this.assets.put(key, bytes, asset.contentType);
-          assetRows.push({ id, packageId, path: asset.path, objectKey: key, contentType: asset.contentType, byteSize: bytes.length, sha256: asset.sha256 });
-        }
-      }
       if (bound.size > 50) throw new AppError("VALIDATION_ERROR");
       return {
-        mapping, packageId, baselinePackageId: preservePackage ? baseline.interactivePackageId : packageId,
+        mapping,
         save: async (tx: Prisma.TransactionClient): Promise<void> => {
           const actualBindings = await tx.applicationCapability.findMany({ where: { applicationId }, orderBy: { selectionOrder: "asc" } });
           if (!isDeepStrictEqual(actualBindings, currentBindings)) throw new AppError("CONFLICT");
@@ -219,10 +201,6 @@ export class ApplicationInstallationService {
           }
           await tx.applicationCapability.deleteMany({ where: { applicationId } });
           if (bound.size) await tx.applicationCapability.createMany({ data: [...bound.values()].map((item, selectionOrder) => ({ applicationId, capabilityId: item.id, capabilityNameSnapshot: item.name, capabilityTypeSnapshot: item.type, selectionOrder })) });
-          if (sourcePackage && packageId && !preservePackage && !existingPackage) {
-            await tx.interactiveApplicationPackage.create({ data: { id: packageId, applicationId, version: sourcePackage.version, manifestJson: sourcePackage.manifestJson ?? Prisma.JsonNull, archiveSha256: sourcePackage.archiveSha256, fileCount: sourcePackage.fileCount, expandedBytes: sourcePackage.expandedBytes, createdBy: ownerId } });
-            await tx.interactiveApplicationAsset.createMany({ data: assetRows });
-          }
         },
         commit: async (): Promise<void> => { try { for (const replacement of replacements) await replacement.commit(); } finally { for (const release of releases.reverse()) await release(); } },
         rollback,

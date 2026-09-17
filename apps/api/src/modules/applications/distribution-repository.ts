@@ -30,6 +30,7 @@ export async function readApplicationDistributionAccessBatch(db: ApplicationDist
     const release = listing?.currentReleaseId ? releaseById.get(listing.currentReleaseId) : undefined;
     return [application.id, {
       actorId, ownerId: application.ownerId, organizationMember,
+      applicationKind: application.kind,
       applicationStatus: application.status === "active" ? "active" : "disabled",
       publishedVersionId: application.publishedVersionId,
       directModes: mergeApplicationUsageModes(grants.filter(grant => grant.applicationId === application.id).map(grant => applicationUsageModesSchema.parse(grant.usageModes))),
@@ -59,6 +60,7 @@ export async function readApplicationDistributionAccess(db: ApplicationDistribut
   const release = listing?.currentReleaseId ? await db.applicationRelease.findFirst({ where: { id: listing.currentReleaseId, listingId: listing.id, applicationId, status: "approved" } }) : null;
   return {
     actorId, ownerId: application.ownerId, organizationMember,
+    applicationKind: application.kind,
     applicationStatus: application.status === "active" ? "active" : "disabled",
     publishedVersionId: application.publishedVersionId,
     directModes: mergeApplicationUsageModes(grants.map(grant => applicationUsageModesSchema.parse(grant.usageModes))),

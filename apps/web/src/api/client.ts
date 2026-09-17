@@ -79,12 +79,13 @@ type RequestOptions<TSchema extends z.ZodType> = {
   query?: Record<string, QueryValue>
   schema: TSchema
   signal?: AbortSignal
+  cache?: RequestCache
   skipRefresh?: boolean
 }
 
 export type ApiUploadRequestOptions<TSchema extends z.ZodType> = Omit<
   RequestOptions<TSchema>,
-  "body"
+  "body" | "cache"
 > & {
   body: FormData
   onUploadProgress?: (percentage: number) => void
@@ -244,6 +245,7 @@ async function rawRequest<TSchema extends z.ZodType>(
       body,
       credentials: "include",
       signal: options.signal,
+      cache: options.cache,
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {

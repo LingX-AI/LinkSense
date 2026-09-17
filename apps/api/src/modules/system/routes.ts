@@ -55,7 +55,9 @@ export const systemRoutes: FastifyPluginAsync<{
   services: AppServices
 }> = async (app, { services }) => {
   app.get("/bootstrap", async (request, reply) =>
-    reply.send(ok(await services.system.bootstrap(), request.id))
+    reply
+      .header("cache-control", "no-store")
+      .send(ok(await services.system.bootstrap(), request.id))
   )
 
   app.get("/logo", async (_request, reply) => {

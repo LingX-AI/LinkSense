@@ -48,6 +48,7 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive: var(--destructive);
   --color-success: var(--success);
+  --color-warning: var(--warning);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-hover: var(--app-hover);
@@ -110,6 +111,7 @@
   --destructive: #b84048;
   --destructive-foreground: #ffffff;
   --success: #07c160;
+  --warning: #ca8a04;
   --border: transparent;
   --input: #eeeeee;
   --field: color-mix(in oklab, var(--input) 50%, transparent);
@@ -283,6 +285,7 @@
   --destructive: #e16d75;
   --destructive-foreground: #ffffff;
   --success: #07c160;
+  --warning: #facc15;
   --border: transparent;
   --input: #303030;
   --field: #303030;
@@ -8052,6 +8055,12 @@ button.annotation-hover-file:focus-visible {
 
 .audit-conversation-table {
   min-width: 1180px;
+}
+
+.audit-conversation-capabilities-column {
+  width: 360px;
+  min-width: 360px;
+  max-width: 360px;
 }
 
 .input-with-icon {

@@ -1,4 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
+import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArchiveIcon,
@@ -1540,7 +1541,9 @@ function KnowledgeBaseDetailContent({
                     count: deletionBlock.usages.length,
                   })}
                 </h3>
-                <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto">
+                <ul
+                  className={dialogBodyStyles("flex max-h-64 flex-col gap-2")}
+                >
                   {deletionBlock.usages.map((usage) => (
                     <li
                       key={`${usage.type}:${usage.resource_id}`}

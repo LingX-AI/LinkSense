@@ -10,7 +10,6 @@ docs/                                           # zh-CN，默认语言
   user-guide/                                   # 普通用户指南
   admin-guide/                                  # 管理员指南，公开可读
   developer-guide/                              # 应用与嵌入开发指南
-  operations/                                   # 安装、命令行与维护指南
 i18n/en-US/docusaurus-plugin-content-docs/current/
                                                  # en-US，与 docs/ 一一对应
 sidebars.ts                                      # 显式目录与阅读顺序
@@ -18,7 +17,7 @@ src/css/custom.css                               # 极简主题、明暗模式�
 tests/content.test.mjs                           # 文档结构、链接和双语完整性
 ```
 
-当前内容包含 67 个中文 Markdown 文件和 67 个英文镜像文件。每个功能使用独立文件；管理员与运维文档可以被任何访问帮助中心的人阅读，但实际管理页面、管理操作和部署环境仍由 LinkSense 权限与主机权限控制。
+当前内容包含 65 个中文 Markdown 文件和 65 个英文镜像文件。每个功能使用独立文件；管理员文档可以被任何访问帮助中心的人阅读，但实际管理页面和管理操作仍由 LinkSense 权限控制。
 
 这些 Markdown 同时是平台内置 `linksense-docs` Skill 的唯一内容来源。API 构建会校验中英文路径和元数据，再把原文复制到生产包；运行时由 API 将文档、检索目录、`SKILL.md` 和 `agents/openai.yaml` 一起物化到每个用户的只读内置 Skill。不要直接维护运行时副本，也不要在 Skill 源码中复制帮助正文。
 

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "interactive-dependency-check",
+  "name": "交互式资源匹配测试",
+  "version": "1.0.0",
+  "description": "手动验证资源匹配、留空导入、后续配置和在线共享。",
+  "instructions": "这是用户主动发起的资源配置测试。仅执行用户请求的只读操作，不修改或删除任何资料，不发送消息，不泄露密钥、连接地址或凭证。若没有可用资源、没有权限或连接失败，应明确说明，不可伪造成功。最终通过原生聊天给出简短结果，并使用 emit_application_event 发送 dependency_check.completed，message 为同一结果摘要。",
+  "sdk_version": 1,
+  "entry": "index.html",
+  "permissions": ["tasks:write"],
+  "dependencies": {
+    "plugins": [{ "id": "ffffffff-1111-4111-8111-111111111111", "name": "选择一个测试插件" }],
+    "skills": [{ "id": "ffffffff-2222-4222-8222-222222222222", "name": "选择一个测试技能" }],
+    "mcp_servers": [{ "id": "ffffffff-3333-4333-8333-333333333333", "name": "选择一个只读测试 MCP" }],
+    "knowledge_bases": [{ "id": "ffffffff-4444-4444-8444-444444444444", "name": "选择一个测试知识库" }]
+  },
+  "custom_events": [{
+    "name": "dependency_check.completed",
+    "description": "测试结束后发送简短结果摘要；失败时如实说明原因。",
+    "schema_version": 1,
+    "payload_schema": {
+      "type": "object",
+      "properties": { "message": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+      "required": ["message"],
+      "additionalProperties": false
+    }
+  }]
+}

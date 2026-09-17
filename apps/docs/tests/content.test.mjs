@@ -36,8 +36,6 @@ const expectedMarkdownPaths = [
   "developer-guide/embed-application.md",
   "developer-guide/interactive-application.md",
   "introduction.md",
-  "operations/cli-and-maintenance.md",
-  "operations/editions-and-installation.md",
   "user-guide/automations/create-and-manage.md",
   "user-guide/feedback.md",
   "user-guide/getting-started/first-task.md",
@@ -160,6 +158,18 @@ test("every guide has required metadata, a heading, and valid local links", asyn
     assertContentTree(defaultDocsRoot, paths),
     assertContentTree(englishDocsRoot, paths),
   ]);
+});
+
+test("help navigation and introductions omit deployment and operations", async () => {
+  const sources = await Promise.all([
+    readFile(path.join(packageRoot, "sidebars.ts"), "utf8"),
+    readFile(path.join(defaultDocsRoot, "introduction.md"), "utf8"),
+    readFile(path.join(englishDocsRoot, "introduction.md"), "utf8"),
+    readFile(path.join(packageRoot, "i18n/en-US/docusaurus-plugin-content-docs/current.json"), "utf8"),
+  ]);
+  for (const source of sources) {
+    assert.doesNotMatch(source, /operations\/|部署与运维|Deployment and operations/iu);
+  }
 });
 
 test("administrator guides remain public documentation, not hidden content", async () => {

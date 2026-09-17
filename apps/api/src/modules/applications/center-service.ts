@@ -11,6 +11,7 @@ import type { AuditContext, AuditService } from "../audit/service.js";
 import { ApplicationDistributionRepository } from "./distribution-repository.js";
 import type { ApplicationPublicationService } from "./publication-service.js";
 import type { ApplicationService } from "./service.js";
+import { allowedApplicationUsageModes, assertApplicationUsageModes } from "./distribution-policy.js";
 
 export class ApplicationCenterService {
   constructor(private readonly repository: ApplicationDistributionRepository, private readonly publications: ApplicationPublicationService, private readonly audit: Pick<AuditService, "write">,
@@ -36,8 +37,9 @@ export class ApplicationCenterService {
   async submit(actor: RequestActor, applicationId: string, input: ApplicationCenterSubmissionInput, context: AuditContext): Promise<ApplicationCenterRelease> {
     assertOrganizationActor(actor);
     const parsed = applicationCenterSubmissionInputSchema.parse(input);
-    const owned = await this.repository.prisma.application.findFirst({ where: { id: applicationId, ownerId: actor.id, status: "active" }, select: { id: true } });
+    const owned = await this.repository.prisma.application.findFirst({ where: { id: applicationId, ownerId: actor.id, status: "active" }, select: { id: true, kind: true } });
     if (!owned) throw new AppError("FORBIDDEN");
+    assertApplicationUsageModes(owned.kind, parsed.usage_modes);
     let release: ApplicationRelease | null = null;
     await this.applications.captureDistributionVersion(actor, applicationId, parsed, async (tx, version) => {
       release = await this.repository.submit(tx, actor.id, applicationId, version.id, parsed);
@@ -119,7 +121,7 @@ export class ApplicationCenterService {
       return applicationCenterReleaseSchema.parse({
         id: release.id, application_id: release.applicationId, version_id: release.versionId, version_number: version.versionLabel,
         name: release.name, kind: definition.kind, description: release.description, usage_instructions: definition.usageInstructions,
-        publisher_name: release.publisherName, usage_modes: applicationUsageModesSchema.parse(release.usageModes), release_notes: release.releaseNotes,
+        publisher_name: release.publisherName, usage_modes: allowedApplicationUsageModes(definition.kind, applicationUsageModesSchema.parse(release.usageModes)), release_notes: release.releaseNotes,
         status: release.status, listing_status: listing.status, review_comment: release.reviewComment, suspension_reason: listing.suspensionReason,
         submitted_at: release.submittedAt.toISOString(), reviewed_at: release.reviewedAt?.toISOString() ?? null,
         installed_application_id: installedBySource.get(release.applicationId) ?? null,

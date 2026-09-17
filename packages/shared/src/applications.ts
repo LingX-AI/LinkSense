@@ -8,7 +8,7 @@ import {
   reasoningEffortSchema,
 } from "./model-provider.js";
 import { interactiveApplicationPackageSchema } from "./interactive-applications.js";
-import { applicationUsageModesSchema } from "./application-distribution.js";
+import { applicationUsageModeSchema, applicationUsageModesSchema } from "./application-distribution.js";
 
 export const applicationStatusSchema = z.enum(["active", "disabled"]);
 export const applicationUnavailableReasonSchema = z.enum([
@@ -211,7 +211,7 @@ export const applicationGrantSchema = z.strictObject({
   id: uuidSchema,
   application_id: uuidSchema,
   grantee_type: applicationGranteeTypeSchema,
-  usage_modes: applicationUsageModesSchema,
+  usage_modes: z.array(applicationUsageModeSchema).max(2),
   target: z.strictObject({
     id: uuidSchema,
     name: z.string().min(1).max(120),

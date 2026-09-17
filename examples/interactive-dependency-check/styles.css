@@ -1,0 +1,19 @@
+/* Standalone ZIP example: no framework, build runtime, or external stylesheet. */
+:root { font-family: system-ui, sans-serif; color: #18232d; background: #f5f7f8; line-height: 1.6; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; }
+main { max-width: 760px; margin: auto; display: flex; flex-direction: column; gap: 20px; }
+header, .actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+h1 { font-size: 1.5rem; margin: 0; }
+h2 { font-size: 1.05rem; margin: 0 0 8px; }
+p, ol { margin: 0; }
+section, form { background: white; padding: 20px; border: 1px solid #dce2e5; border-radius: 12px; }
+form { display: flex; flex-direction: column; gap: 12px; }
+textarea, select, button { font: inherit; border-radius: 6px; padding: 8px 12px; }
+textarea, select { border: 1px solid #9eabb4; }
+textarea { width: 100%; resize: vertical; }
+button { border: 1px solid #245b4c; background: #245b4c; color: white; cursor: pointer; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+:focus-visible { outline: 3px solid #558ac0; outline-offset: 3px; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 0; }
+@media (max-width: 480px) { body { padding: 12px; } section, form { padding: 16px; } }

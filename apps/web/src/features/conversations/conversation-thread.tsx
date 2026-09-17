@@ -1,3 +1,4 @@
+import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { AssistantMermaid } from "@/features/conversations/assistant-mermaid"
 import {
   Children,
@@ -1065,7 +1066,9 @@ function MarkdownTable({
             <Table
               {...props}
               className="markdown-responsive-table"
-              containerClassName="markdown-table-dialog-scroll min-h-0 flex-1 overscroll-contain"
+              containerClassName={dialogBodyStyles(
+                "markdown-table-dialog-scroll flex-1"
+              )}
               containerProps={{
                 "aria-label": t("conversation.scrollExpandedTable"),
                 tabIndex: 0,

@@ -1,4 +1,8 @@
+import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { ApplicationUsageGuideDialog } from "./application-usage-guide-dialog"
+import { InteractiveDependencyFields } from "./interactive-dependency-fields"
+import { InteractiveDependenciesDialog } from "./interactive-dependencies-dialog"
+import { InteractiveDeclarationDialog } from "./interactive-declaration-dialog"
 import { ApplicationDistributionDialog } from "./application-distribution-dialog"
 import { useApplicationDistributionSummaries } from "./application-distribution-queries"
 import {
@@ -15,6 +19,8 @@ import {
 } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  ArrowRightIcon,
+  BrainIcon,
   DatabaseIcon,
   ChartNoAxesCombinedIcon,
   ExternalLinkIcon,
@@ -37,6 +43,10 @@ import {
   APPLICATION_ICON_MAX_BYTES,
   APPLICATION_ICON_MAX_DIMENSION,
   INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES,
+  interactiveDependencyStateSchema,
+  interactiveDependencyDeclarations,
+  interactiveDependencySelectionSchema,
+  type InteractiveDependencyBinding,
   applicationIconMimeTypeSchema,
   applicationIconPresetSchema,
   type ApplicationIcon,
@@ -135,7 +145,7 @@ const emptyResponseSchema = z.unknown()
 const USER_SELECTED_MODEL_VALUE = "__application_user_selected_model__"
 const APPLICATION_SHARE_TARGET_PREVIEW_LIMIT = 2
 
-function InteractiveApplicationImportDialog({
+export function InteractiveApplicationImportDialog({
   application,
   open,
   onOpenChange,
@@ -149,11 +159,30 @@ function InteractiveApplicationImportDialog({
   const { t } = useTranslation()
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [bindings, setBindings] = useState<InteractiveDependencyBinding[]>([])
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const preview = useMutation({
+    mutationFn: async () => {
+      if (!file) throw new Error("APPLICATION_PACKAGE_REQUIRED")
+      const body = new FormData()
+      body.append("file", file)
+      return apiRequest("/applications/interactive-import/preview", {
+        method: "POST",
+        body,
+        query: { application_id: application?.id },
+        schema: interactiveDependencyStateSchema,
+      })
+    },
+    onError: (nextError) => setError(getErrorMessage(nextError, t)),
+  })
   const mutation = useMutation({
     mutationFn: async () => {
       if (!file) throw new Error("APPLICATION_PACKAGE_REQUIRED")
       const body = new FormData()
+      body.append(
+        "dependencies",
+        JSON.stringify(interactiveDependencySelectionSchema.parse({ bindings }))
+      )
       body.append("file", file)
       return apiRequest(
         application
@@ -174,14 +203,17 @@ function InteractiveApplicationImportDialog({
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
+        if (mutation.isPending || preview.isPending) return
         if (!nextOpen) {
           setFile(null)
           setError(null)
+          setBindings([])
+          preview.reset()
         }
         onOpenChange(nextOpen)
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
             {t(
@@ -194,7 +226,7 @@ function InteractiveApplicationImportDialog({
             {t("applications.interactivePackageRequirements")}
           </DialogDescription>
         </DialogHeader>
-        <FieldGroup>
+        <FieldGroup className={dialogBodyStyles()}>
           <Field data-invalid={Boolean(error) || undefined}>
             <FieldLabel htmlFor="interactive-application-package">
               {t("applications.applicationPackage")}
@@ -204,9 +236,12 @@ function InteractiveApplicationImportDialog({
               id="interactive-application-package"
               type="file"
               accept=".zip,application/zip"
+              disabled={mutation.isPending || preview.isPending}
               onChange={(event) => {
                 const next = event.target.files?.[0] ?? null
                 setError(null)
+                setBindings([])
+                preview.reset()
                 if (
                   next &&
                   (next.size === 0 ||
@@ -223,24 +258,48 @@ function InteractiveApplicationImportDialog({
               {t("applications.interactivePackageHint", { size: "10 MiB" })}
             </FieldDescription>
           </Field>
+          {preview.data && (
+            <InteractiveDependencyFields
+              state={preview.data}
+              disabled={mutation.isPending}
+              onChange={(binding) =>
+                setBindings((current) => [
+                  ...current.filter(
+                    (item) =>
+                      item.type !== binding.type || item.id !== binding.id
+                  ),
+                  binding,
+                ])
+              }
+            />
+          )}
           {error && <StatusBanner variant="error">{error}</StatusBanner>}
         </FieldGroup>
         <DialogFooter>
           <Button
             type="button"
             variant="outline"
+            disabled={mutation.isPending || preview.isPending}
             onClick={() => onOpenChange(false)}
           >
             {t("common.cancel")}
           </Button>
           <Button
             type="button"
-            disabled={!file || mutation.isPending}
-            onClick={() => mutation.mutate()}
+            disabled={!file || mutation.isPending || preview.isPending}
+            onClick={() => {
+              setError(null)
+              if (preview.data) mutation.mutate()
+              else preview.mutate()
+            }}
           >
             <UploadIcon data-icon="inline-start" aria-hidden="true" />
             {t(
-              application ? "common.update" : "applications.importPackageAction"
+              !preview.data
+                ? "applications.dependencies.preview"
+                : application
+                  ? "common.update"
+                  : "applications.importPackageAction"
             )}
           </Button>
         </DialogFooter>
@@ -361,9 +420,13 @@ export function ApplicationCatalogPanel({
   const distribution = useApplicationDistributionSummaries()
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null)
   const [createChoiceOpen, setCreateChoiceOpen] = useState(false)
+  const [declarationOpen, setDeclarationOpen] = useState(false)
   const [interactiveImportTarget, setInteractiveImportTarget] = useState<
     Application | null | undefined
   >(undefined)
+  const [dependencyTarget, setDependencyTarget] = useState<Application | null>(
+    null
+  )
   const shareTargetListFormatter = useMemo(
     () =>
       new Intl.ListFormat(
@@ -479,6 +542,11 @@ export function ApplicationCatalogPanel({
               startConversation.isPending &&
               startConversation.variables?.id === application.id
             const unavailable = !application.dependencies_available
+            const hasDeclaredResources = application.interactive_package
+              ? interactiveDependencyDeclarations(
+                  application.interactive_package.manifest.dependencies
+                ).length > 0
+              : false
             const sharing = distribution.data?.items.find(
               (item) => item.application_id === application.id
             )
@@ -487,14 +555,14 @@ export function ApplicationCatalogPanel({
               shareTargetListFormatter
             )
             return (
-              <Card key={application.id} className="min-w-0">
+              <Card key={application.id} className="min-w-0 gap-3">
                 <CardHeader className="gap-x-4 gap-y-0">
                   <div className="flex min-w-0 items-start gap-3">
                     <ApplicationIconDisplay
                       icon={application.icon}
                       className="size-10"
                     />
-                    <div className="flex min-h-14 min-w-0 flex-col">
+                    <div className="flex min-w-0 flex-col">
                       <h3 className="truncate font-medium">
                         {application.name}
                       </h3>
@@ -604,6 +672,18 @@ export function ApplicationCatalogPanel({
                                 </DropdownMenuItem>
                               </>
                             )}
+                            {application.kind === "interactive" &&
+                              (!sharing?.installation ||
+                                hasDeclaredResources) && (
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    setDependencyTarget(application)
+                                  }
+                                >
+                                  <WrenchIcon aria-hidden="true" />
+                                  {t("applications.dependencies.title")}
+                                </DropdownMenuItem>
+                              )}
                             {sharing?.installation && (
                               <DropdownMenuItem
                                 onClick={() => setUpdateTarget(application)}
@@ -612,6 +692,7 @@ export function ApplicationCatalogPanel({
                               </DropdownMenuItem>
                             )}
                             {application.kind === "interactive" &&
+                              !hasDeclaredResources &&
                               sharing?.installation && (
                                 <DropdownMenuItem
                                   onClick={() =>
@@ -674,25 +755,25 @@ export function ApplicationCatalogPanel({
                   </CardAction>
                 </CardHeader>
                 <CardContent className="flex flex-1 flex-col gap-3">
-                  <p className="line-clamp-2 min-h-10 text-[length:var(--app-font-13)] leading-5 break-words text-muted-foreground">
+                  <p className="line-clamp-2 min-w-0 text-[length:var(--app-font-13)] leading-5 break-words text-muted-foreground">
                     {application.description || t("applications.noDescription")}
                   </p>
-                  <div
-                    data-slot="application-card-model"
-                    className="flex min-h-5 min-w-0 items-start"
-                  >
-                    {application.model && (
-                      <Badge variant="outline" className="max-w-full">
-                        <span className="min-w-0 truncate">
-                          {application.model}
-                        </span>
-                      </Badge>
-                    )}
-                  </div>
                   <div
                     data-slot="application-card-statistics"
                     className="flex min-h-5 flex-wrap items-start gap-2 tabular-nums"
                   >
+                    {application.model && (
+                      <Badge variant="outline" className="max-w-full">
+                        <BrainIcon aria-hidden="true" />
+                        <span
+                          data-slot="application-card-model"
+                          className="min-w-0 truncate"
+                          title={application.model}
+                        >
+                          {application.model}
+                        </span>
+                      </Badge>
+                    )}
                     <Badge variant="outline">
                       <WrenchIcon aria-hidden="true" />
                       {t("applications.capabilityCount", {
@@ -826,6 +907,13 @@ export function ApplicationCatalogPanel({
           onClose={() => setDistributionTarget(null)}
         />
       )}
+      {dependencyTarget && (
+        <InteractiveDependenciesDialog
+          key={dependencyTarget.id}
+          applicationId={dependencyTarget.id}
+          onClose={() => setDependencyTarget(null)}
+        />
+      )}
       {publicationTarget && (
         <ApplicationUsageGuideDialog
           application={publicationTarget}
@@ -893,32 +981,61 @@ export function ApplicationCatalogPanel({
                 </span>
               </span>
             </Button>
-            <Button
-              type="button"
-              variant="card-outline"
-              className="h-auto items-start justify-start gap-3 p-4 text-left whitespace-normal"
-              onClick={() => {
-                setCreateChoiceOpen(false)
-                setInteractiveImportTarget(null)
-              }}
-            >
-              <FileArchiveIcon
-                className="mt-0.5 size-4 shrink-0"
-                aria-hidden="true"
-              />
-              <span>
-                <span className="block font-medium">
-                  {t("applications.importInteractiveApp")}
-                </span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  {t("applications.importInteractiveAppDescription")}
-                </span>
-              </span>
-            </Button>
+            <Card className="min-w-0 gap-0 py-0">
+              <CardContent className="p-0">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-auto w-full items-start justify-start gap-3 p-4 text-left whitespace-normal"
+                  onClick={() => {
+                    setCreateChoiceOpen(false)
+                    setInteractiveImportTarget(null)
+                  }}
+                >
+                  <FileArchiveIcon
+                    data-icon="inline-start"
+                    className="mt-0.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    <span className="block font-medium">
+                      {t("applications.importInteractiveApp")}
+                    </span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {t("applications.importInteractiveAppDescription")}
+                    </span>
+                  </span>
+                </Button>
+              </CardContent>
+              <CardFooter className="mt-auto justify-end px-4 pb-3">
+                <Button
+                  type="button"
+                  variant="link"
+                  size="xs"
+                  className="font-normal text-muted-foreground"
+                  onClick={() => {
+                    setCreateChoiceOpen(false)
+                    setDeclarationOpen(true)
+                  }}
+                >
+                  {t("applications.declaration.title")}
+                  <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
+                </Button>
+              </CardFooter>
+            </Card>
           </div>
         </DialogContent>
       </Dialog>
+      {declarationOpen && (
+        <InteractiveDeclarationDialog
+          onClose={() => {
+            setDeclarationOpen(false)
+            setCreateChoiceOpen(true)
+          }}
+        />
+      )}
       <InteractiveApplicationImportDialog
+        key={`${interactiveImportTarget?.id ?? "new"}:${interactiveImportTarget !== undefined}`}
         application={interactiveImportTarget ?? null}
         open={interactiveImportTarget !== undefined}
         onOpenChange={(open) => {

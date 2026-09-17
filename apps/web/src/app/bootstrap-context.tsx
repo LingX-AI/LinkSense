@@ -10,10 +10,16 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
   const query = useQuery({
     queryKey: ["system", "bootstrap"],
     queryFn: ({ signal }) =>
-      apiRequest("/system/bootstrap", { schema: bootstrapSchema, signal }),
+      apiRequest("/system/bootstrap", {
+        schema: bootstrapSchema,
+        signal,
+        cache: "no-store",
+      }),
     staleTime: 60_000,
     refetchInterval: 30_000,
     refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
     retry: 1,
   })
   const systemName = query.data?.system_name

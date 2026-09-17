@@ -1,6 +1,7 @@
 import type { ApplicationInstallationService } from "./installation-service.js";
+import { assertInteractiveDependenciesReady, dependencyBindings, interactiveBindingsComplete, listInteractiveDependencyOptions, resolveInteractiveDependencies, writeInteractiveRuntimeBindings } from "./interactive-dependencies.js";
 import { readApplicationDistributionAccess, readApplicationDistributionAccessBatch } from "./distribution-repository.js";
-import { applicationModesForChannel, requireApplicationDistributionVersion } from "./distribution-policy.js";
+import { allowedApplicationUsageModes, assertApplicationUsageModes, applicationModesForChannel, requireApplicationDistributionVersion } from "./distribution-policy.js";
 import { installedApplicationBaselineSchema } from "./installation-merge.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
@@ -25,6 +26,11 @@ import {
   type ApplicationIconPreset,
   type CreateApplicationInput,
   interactiveApplicationManifestSchema,
+  interactiveDependencyDeclarations,
+  type InteractiveDependencyBinding,
+  type InteractiveDependencyState,
+  type InteractiveDependencyType,
+  type InteractiveDependencyOptions,
   type UpdateApplicationInput,
 } from "@linksense/shared";
 
@@ -432,6 +438,7 @@ export class ApplicationService {
     actor: RequestActor,
     archive: Buffer,
     context: AuditContext,
+    selections: InteractiveDependencyBinding[] = [],
   ): Promise<Application> {
     assertActiveActor(actor);
     const prepared = await inspectInteractiveApplicationArchive(archive);
@@ -467,6 +474,7 @@ export class ApplicationService {
         uploadedObjectKeys.push(iconObjectKey);
       }
       await this.prisma.$transaction(async (tx) => {
+        const dependencies = await resolveInteractiveDependencies(tx, actor.id, prepared.manifest, [], selections);
         await tx.application.create({
           data: {
             id: applicationId,
@@ -482,9 +490,11 @@ export class ApplicationService {
             model: null,
             reasoningEffort: null,
             interactivePackageId: packageId,
+            interactiveDependencyBindings: dependencyBindings(dependencies),
             status: "active",
           },
         });
+        await writeInteractiveRuntimeBindings(tx, applicationId, dependencies, false);
         await tx.interactiveApplicationPackage.create({
           data: {
             id: packageId,
@@ -547,6 +557,7 @@ export class ApplicationService {
     applicationId: string,
     archive: Buffer,
     context: AuditContext,
+    selections: InteractiveDependencyBinding[] = [],
   ): Promise<Application> {
     assertActiveActor(actor);
     const current = await this.#requireOwned(actor.id, applicationId);
@@ -589,6 +600,7 @@ export class ApplicationService {
         uploadedObjectKeys.push(nextIconObjectKey);
       }
       await this.prisma.$transaction(async (tx) => {
+        const dependencies = await resolveInteractiveDependencies(tx, actor.id, prepared.manifest, current.interactiveDependencyBindings, selections);
         await tx.interactiveApplicationPackage.create({
           data: {
             id: packageId,
@@ -631,10 +643,12 @@ export class ApplicationService {
               interactiveApplicationBaseInstructions(prepared.manifest.name),
             iconObjectKey: nextIconObjectKey,
             interactivePackageId: packageId,
+            interactiveDependencyBindings: dependencyBindings(dependencies),
             updatedAt: new Date(),
           },
         });
         if (updated.count !== 1) throw new AppError("CONFLICT");
+        await writeInteractiveRuntimeBindings(tx, applicationId, dependencies, true);
       });
     } catch (error) {
       await Promise.allSettled(
@@ -669,6 +683,48 @@ export class ApplicationService {
       },
     });
     return this.get(actor, applicationId);
+  }
+
+  async previewInteractiveDependencies(actor: RequestActor, archive: Buffer, applicationId?: string): Promise<InteractiveDependencyState> {
+    assertActiveActor(actor);
+    const current = applicationId ? await this.#requireOwned(actor.id, applicationId) : null;
+    if (current && current.kind !== "interactive") throw new AppError("APPLICATION_PACKAGE_INVALID");
+    const prepared = await inspectInteractiveApplicationArchive(archive);
+    return resolveInteractiveDependencies(this.prisma, actor.id, prepared.manifest, current?.interactiveDependencyBindings);
+  }
+
+  async interactiveDependencies(actor: RequestActor, applicationId: string): Promise<InteractiveDependencyState> {
+    assertActiveActor(actor);
+    const current = await this.#requireOwned(actor.id, applicationId);
+    const manifest = await this.#interactiveManifest(current);
+    return resolveInteractiveDependencies(this.prisma, actor.id, manifest, current.interactiveDependencyBindings, [], false);
+  }
+
+  async updateInteractiveDependencies(actor: RequestActor, applicationId: string, selections: InteractiveDependencyBinding[], context: AuditContext): Promise<Application> {
+    assertActiveActor(actor);
+    const current = await this.#requireOwned(actor.id, applicationId);
+    const manifest = await this.#interactiveManifest(current);
+    await this.prisma.$transaction(async tx => {
+      const dependencies = await resolveInteractiveDependencies(tx, actor.id, manifest, current.interactiveDependencyBindings, selections, false);
+      const updated = await tx.application.updateMany({ where: { id: applicationId, ownerId: actor.id, updatedAt: current.updatedAt, status: { not: "deleted" } },
+        data: { interactiveDependencyBindings: dependencyBindings(dependencies), updatedAt: new Date() } });
+      if (updated.count !== 1) throw new AppError("CONFLICT");
+      await writeInteractiveRuntimeBindings(tx, applicationId, dependencies, true);
+    });
+    await this.audit.write({ ...context, actorId: actor.id, action: "interactive_application_dependencies_updated", targetType: "application", targetId: applicationId, result: "success" });
+    return this.get(actor, applicationId);
+  }
+
+  async interactiveDependencyOptions(actor: RequestActor, type: InteractiveDependencyType, search?: string, cursor?: string): Promise<InteractiveDependencyOptions> {
+    assertActiveActor(actor);
+    return listInteractiveDependencyOptions(this.prisma, actor.id, type, search, cursor);
+  }
+
+  async #interactiveManifest(application: StoredApplication) {
+    if (application.kind !== "interactive" || !application.interactivePackageId) throw new AppError("APPLICATION_PACKAGE_INVALID");
+    const package_ = await this.prisma.interactiveApplicationPackage.findFirst({ where: { id: application.interactivePackageId, applicationId: application.id } });
+    if (!package_) throw new AppError("APPLICATION_PACKAGE_INVALID");
+    return interactiveApplicationManifestSchema.parse(package_.manifestJson);
   }
 
   async resolveInteractiveRuntimePackage(
@@ -797,7 +853,8 @@ export class ApplicationService {
     if (
       current.kind === "interactive" &&
       Object.keys(input).some((key) => key !== "status") &&
-      !await this.prisma.applicationInstallation.findFirst({ where: { applicationId, ownerId: actor.id }, select: { applicationId: true } })
+      (!await this.prisma.applicationInstallation.findFirst({ where: { applicationId, ownerId: actor.id }, select: { applicationId: true } }) ||
+        interactiveDependencyDeclarations((await this.#interactiveManifest(current)).dependencies).length > 0)
     ) {
       throw new AppError("APPLICATION_PACKAGE_INVALID");
     }
@@ -1053,7 +1110,7 @@ export class ApplicationService {
   async listGrants(actor: RequestActor, applicationId: string) {
     assertActiveActor(actor);
     assertOrganizationSharingAccess(actor);
-    await this.#requireOwned(actor.id, applicationId);
+    const application = await this.#requireOwned(actor.id, applicationId);
     const grants = await this.prisma.applicationGrant.findMany({
       where: { applicationId, status: "active" },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -1089,14 +1146,18 @@ export class ApplicationService {
         name: targets.get(grant.userId ?? grant.userGroupId!) ?? "-",
       },
       status: "active" as const,
-      usage_modes: applicationUsageModesSchema.parse(grant.usageModes),
+      usage_modes: allowedApplicationUsageModes(application.kind, applicationUsageModesSchema.parse(grant.usageModes)),
       created_at: grant.createdAt.toISOString(),
       updated_at: grant.updatedAt.toISOString(),
     }));
   }
 
   async share(actor: RequestActor, applicationId: string, input: ApplicationShareInput, context: AuditContext): Promise<ApplicationPublication> {
+    assertActiveActor(actor);
+    assertOrganizationSharingAccess(actor);
     const parsed = applicationShareInputSchema.parse(input);
+    const application = await this.#requireOwned(actor.id, applicationId);
+    if (parsed.target) assertApplicationUsageModes(application.kind, parsed.target.usage_modes);
     const result = await this.captureDistributionVersion(actor, applicationId, parsed, async (tx, version) => {
       const target = parsed.target;
       if (target) {
@@ -1164,8 +1225,9 @@ export class ApplicationService {
   async updateGrantModes(actor: RequestActor, applicationId: string, grantId: string, modes: ApplicationUsageMode[], context: AuditContext): Promise<void> {
     assertActiveActor(actor);
     assertOrganizationSharingAccess(actor);
-    await this.#requireOwned(actor.id, applicationId);
+    const application = await this.#requireOwned(actor.id, applicationId);
     const usageModes = applicationUsageModesSchema.parse(modes);
+    assertApplicationUsageModes(application.kind, usageModes);
     await this.prisma.$transaction(async tx => {
       await tx.$queryRaw(Prisma.sql`SELECT id FROM applications WHERE id = ${applicationId}::uuid FOR UPDATE`);
       const result = await tx.applicationGrant.updateMany({ where: { id: grantId, applicationId, status: "active" }, data: { usageModes } });
@@ -1322,6 +1384,9 @@ export class ApplicationService {
     }
     if (application.kind === "interactive" && (!package_ || package_.applicationId !== application.id)) {
       throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+    }
+    if (application.kind === "interactive" && package_) {
+      await assertInteractiveDependenciesReady(this.prisma, application.ownerId, package_.manifestJson, application.interactiveDependencyBindings);
     }
     const reasoningEffort =
       application.reasoningEffort as ApplicationRuntimeConfiguration["reasoningEffort"];
@@ -1670,6 +1735,7 @@ export class ApplicationService {
       model: string | null;
       reasoningEffort: string | null;
       interactivePackageId: string | null;
+      interactiveDependencyBindings: Prisma.JsonValue;
       status: string;
       createdAt: Date;
       updatedAt: Date;
@@ -1911,6 +1977,9 @@ export class ApplicationService {
             })
           : [];
         const icon = await this.#projectIcon(row);
+        const draftPackage = row.interactivePackageId ? interactivePackageById.get(row.interactivePackageId) : undefined;
+        const draftBindingsComplete = row.kind !== "interactive" || Boolean(draftPackage && interactiveBindingsComplete(draftPackage.manifestJson, row.interactiveDependencyBindings));
+        const draftDependencies = isOwner && draftPackage ? interactiveApplicationManifestSchema.parse(draftPackage.manifestJson).dependencies : null;
         // The editor shows draft bindings; launch readiness always describes the
         // published version used by both its author and its recipients.
         const publishedDependenciesAvailable = published && (
@@ -1946,12 +2015,12 @@ export class ApplicationService {
           access_source: isOwner
             ? "owner"
             : (access.accessSource.get(row.id) ?? "user_group"),
-          capability_count: projectedCapabilities.length,
-          knowledge_base_count: projectedKnowledgeBases.length,
-          mcp_server_count: projectedMcpServers.length,
+          capability_count: draftDependencies && (draftDependencies.plugins.length + draftDependencies.skills.length > 0) ? draftDependencies.plugins.length + draftDependencies.skills.length : projectedCapabilities.length,
+          knowledge_base_count: draftDependencies?.knowledge_bases.length || projectedKnowledgeBases.length,
+          mcp_server_count: draftDependencies?.mcp_servers.length || projectedMcpServers.length,
           share_targets: shareTargets,
           dependencies_available:
-            published ? publishedDependenciesAvailable : isOwner && !row.publishedVersionId &&
+            published ? publishedDependenciesAvailable : isOwner && !row.publishedVersionId && draftBindingsComplete &&
             projectedCapabilities.every((item) => item.available) &&
             projectedKnowledgeBases.every((item) => item.available) &&
             projectedMcpServers.every((item) => item.available),

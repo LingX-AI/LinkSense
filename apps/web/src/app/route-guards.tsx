@@ -20,18 +20,20 @@ const maintenanceAdminAuthPaths = new Set([
 export function BootstrapGate() {
   const { t } = useTranslation()
   const productName = useProductName()
-  const { bootstrap, isLoading, error, refetch } = useBootstrap()
+  const { bootstrap, isLoading, refetch } = useBootstrap()
   const { status, user } = useAuth()
   const location = useLocation()
 
   if (isLoading) return <LoadingState fullScreen />
-  if (error || !bootstrap) {
+  // A failed background check must not unmount an already initialized page.
+  // TanStack Query retains the last successful status while polling recovers.
+  if (!bootstrap) {
     return (
       <div className="public-shell">
         <div className="public-panel">
           <h1>{t("bootstrap.unavailableTitle", { productName })}</h1>
           <ErrorState
-            message={t("bootstrap.unavailableDescription")}
+            message={t("bootstrap.unavailableDescription", { productName })}
             onRetry={refetch}
           />
         </div>

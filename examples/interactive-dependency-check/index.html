@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LinkSense</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script src="/api/v1/interactive-app-runtime/sdk/v1.js?v=1.1.0" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><h1 data-copy="title"></h1><label><span data-copy="language"></span><select id="language"><option value="zh-CN">简体中文</option><option value="en-US">English</option></select></label></header>
+    <p data-copy="intro"></p>
+    <p id="status" role="status" aria-live="polite"></p>
+    <section aria-labelledby="checklist-title">
+      <h2 id="checklist-title" data-copy="checklist"></h2>
+      <ol><li data-copy="stepOne"></li><li data-copy="stepTwo"></li><li data-copy="stepThree"></li></ol>
+    </section>
+    <form id="test-form">
+      <label for="prompt" data-copy="promptLabel"></label>
+      <textarea id="prompt" rows="5" required maxlength="4000"></textarea>
+      <div class="actions"><button id="run" type="submit" disabled data-copy="run"></button><button id="chat" type="button" disabled data-copy="chat"></button></div>
+    </form>
+    <section aria-labelledby="result-title"><h2 id="result-title" data-copy="result"></h2><pre id="result" aria-live="polite"></pre></section>
+  </main>
+</body>
+</html>

@@ -12,6 +12,27 @@ const ONE_PIXEL_PNG = Buffer.from(
 )
 
 describe("system routes", () => {
+  it.each([200, 503])("never caches bootstrap responses with status %s", async (statusCode) => {
+    const bootstrap = vi.fn(async () => {
+      if (statusCode === 503) {
+        throw Object.assign(new Error("temporarily unavailable"), { statusCode })
+      }
+      return { initialized: true }
+    })
+    const app = Fastify()
+    await app.register(systemRoutes, {
+      prefix: "/api/v1/system",
+      services: { system: { bootstrap } } as unknown as AppServices,
+    })
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/v1/system/bootstrap" })
+      expect(response.statusCode).toBe(statusCode)
+      expect(response.headers["cache-control"]).toBe("no-store")
+    } finally {
+      await app.close()
+    }
+  })
+
   it.each(["ready", "unready"] as const)("returns the %s readiness result without full diagnostics", async (state) => {
     const readiness = vi.fn().mockResolvedValue({
       status: state === "ready" ? "available" : "unavailable",

@@ -725,8 +725,7 @@ export const zhCN = {
   },
   bootstrap: {
     unavailableTitle: "暂时无法连接 {{productName}}",
-    unavailableDescription:
-      "前端无法读取系统初始化状态。请确认 API 服务和网络连接后重试。",
+    unavailableDescription: "暂时无法连接 {{productName}}，请稍候或重试。",
   },
   maintenance: {
     title: "系统维护中",
@@ -2454,6 +2453,46 @@ export const zhCN = {
       "仅支持 ZIP，最大 {{size}}。重新导入时 manifest.json 中的版本号必须递增。",
     interactivePackageSizeInvalid: "应用包为空或超过允许的大小。",
     importPackageAction: "导入",
+    declaration: {
+      title: "资源声明清单",
+      purpose:
+        "创建交互式应用时，使用此清单在 manifest.json 中声明应用所需的插件、技能、MCP 服务和知识库。",
+      search: "按资源名称搜索",
+      selectAll: "全选",
+      selectResults: "全选搜索结果",
+      selectType: "全选{{type}}",
+      selectTypeResults: "全选{{type}}搜索结果",
+      selected: "已选择 {{count}} 项",
+      groupSelected: "已选 {{count}} / {{total}}",
+      empty: "暂无可声明的资源",
+      preview: "声明预览",
+      mergeHint:
+        "复制后，将 dependencies 字段加入 manifest.json，与 name、version 等字段同级；如果已有 dependencies，请替换该字段，不要覆盖整个文件。",
+      invalid:
+        "无法生成有效声明。插件和技能合计最多 50 项，MCP 服务和知识库各最多 20 项；资源名称须为 1–160 个字符，请调整选择或资源名称。",
+      copy: "复制 dependencies JSON",
+      copyFailed: "复制失败，请重试，或在声明预览中选中文本后手动复制。",
+    },
+    dependencies: {
+      title: "配置所需资源",
+      preview: "检查所需资源",
+      hint: "以下是应用包已声明的插件技能等资源，导入前建议完成资源配置，以便可以正常的使用应用包。",
+      empty: "此应用没有声明所需资源。",
+      search: "搜索并选择你的资源",
+      matched: "已配置",
+      unmatched: "未配置",
+      clear: "清除选择",
+      savedDraft:
+        "修改会保存到应用草稿。已共享或上架的版本不受影响，重新发布后才会更新。",
+      serviceOnly:
+        "交互式应用仅提供在线使用，不允许创建副本。使用者无需重复配置创建者已绑定的资源。",
+      types: {
+        plugin: "插件",
+        skill: "技能",
+        mcp_server: "MCP 服务",
+        knowledge_base: "知识库",
+      },
+    },
     nativeChatPanel: "LinkSense 聊天",
     hideNativeChat: "隐藏聊天",
     showNativeChat: "显示聊天",

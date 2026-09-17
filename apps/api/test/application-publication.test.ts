@@ -1,6 +1,5 @@
 import { ApplicationInstallationService } from "../src/modules/applications/installation-service.js";
-import { createHash, randomUUID } from "node:crypto";
-import { Readable } from "node:stream";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -182,55 +181,24 @@ describe('application publication', () => {
 
 
 describe("independent application copies", () => {
-  it.each([false, true])("copies interactive assets to the recipient and rolls back corrupt downloads (corrupt: %s)", async corrupt => {
-    const f = await fixture(), recipient = randomUUID(), sourcePackageId = randomUUID();
-    f.application.kind = "interactive";
-    f.application.interactivePackageId = sourcePackageId;
+  it("rejects interactive copies under historical install grants before reading or writing assets", async () => {
+    const f = await fixture(), recipient = randomUUID();
     await f.capture(f.ownerId, f.applicationId, { usage_instructions: "Connect your own services." });
-    const files = [
-      { path: "index.html", contentType: "text/html", bytes: Buffer.from("<main>Reports</main>") },
-      { path: "style.css", contentType: "text/css", bytes: Buffer.from("main { color: black }") },
-    ];
-    const sourceAssets = files.map(file => ({ ...file, id: randomUUID(), packageId: sourcePackageId,
-      objectKey: `author/${sourcePackageId}/${file.path}`, byteSize: file.bytes.length,
-      sha256: createHash("sha256").update(file.bytes).digest("hex"),
-    }));
-    const sourcePackage = { id: sourcePackageId, applicationId: f.applicationId, version: "1.0.0",
-      manifestJson: { schema_version: 1, id: "reports", name: "Reports", version: "1.0.0", entry: "index.html", sdk_version: 1 },
-      archiveSha256: "a".repeat(64), fileCount: 2, expandedBytes: files.reduce((sum, file) => sum + file.bytes.length, 0), createdBy: f.ownerId,
-    };
-    const database = { ...f.prisma,
-      interactiveApplicationPackage: { findFirst: vi.fn(async () => sourcePackage), create: vi.fn() },
-      interactiveApplicationAsset: { findMany: vi.fn(async () => sourceAssets), createMany: vi.fn() },
-    };
-    const prisma = { ...database, $transaction: vi.fn(async <T>(action: (tx: typeof database) => Promise<T>) => action(database)) };
-    const assets = { get: vi.fn(async (key: string) => {
-      const asset = sourceAssets.find(asset => asset.objectKey === key)!;
-      return Readable.from([corrupt && asset.path === "style.css" ? Buffer.from("corrupt") : asset.bytes]);
-    }), put: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) };
-    const copy = new ApplicationInstallationService(prisma as never, f.root, f.service, assets);
-    if (corrupt) {
-      await expect(copy.install(recipient, f.applicationId, { name: "My page", channel: "direct", version_id: f.application.publishedVersionId! })).rejects.toMatchObject({ code: "APPLICATION_DEPENDENCY_UNAVAILABLE" });
-      expect(f.createdApplications).toHaveLength(0);
-      expect(f.createdCapabilities).toHaveLength(0);
-      expect(assets.remove).toHaveBeenCalledOnce();
-      expect(database.interactiveApplicationPackage.create).not.toHaveBeenCalled();
-    } else {
-      const id = await copy.install(recipient, f.applicationId, { name: "My page", channel: "direct", version_id: f.application.publishedVersionId! });
-      const packageId = f.createdApplications[0]!.interactivePackageId;
-      expect(packageId).not.toBe(sourcePackageId);
-      expect(database.interactiveApplicationPackage.create).toHaveBeenCalledWith({ data: expect.objectContaining({ id: packageId, applicationId: id, createdBy: recipient, manifestJson: sourcePackage.manifestJson }) });
-      expect(database.interactiveApplicationAsset.createMany).toHaveBeenCalledWith({ data: sourceAssets.map(asset => expect.objectContaining({ packageId, path: asset.path, sha256: asset.sha256, objectKey: expect.stringContaining(`applications/${recipient}/${id}/packages/${packageId}/`) })) });
-      expect(assets.put).toHaveBeenCalledTimes(2);
-      expect(assets.remove).not.toHaveBeenCalled();
-    }
+    f.application.kind = "interactive";
+    const version = f.versions[0];
+    if (!version) throw new Error("fixture version missing");
+    version.definitionJson = { ...publishedApplicationDefinitionSchema.parse(version.definitionJson), kind: "interactive", interactivePackageId: randomUUID() };
+    const copy = new ApplicationInstallationService(f.prisma as never, f.root, f.service);
+    await expect(copy.install(recipient, f.applicationId, { name: "My page", channel: "direct", version_id: version.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(f.createdApplications).toHaveLength(0);
+    expect(f.createdCapabilities).toHaveLength(0);
+    expect(f.bindingsCreated).toHaveLength(0);
   });
 
   it("creates recipient-owned files and bindings, leaving external connections for the recipient to configure", async () => {
     const f = await fixture(), recipient = randomUUID();
     await f.capture(f.ownerId, f.applicationId, { usage_instructions: "Connect your own handbook and MCP service." });
-    const assets = { get: vi.fn(), put: vi.fn(), remove: vi.fn() };
-    const copy = new ApplicationInstallationService(f.prisma as never, f.root, f.service, assets);
+    const copy = new ApplicationInstallationService(f.prisma as never, f.root, f.service);
     const id = await copy.install(recipient, f.applicationId, { name: "My reports", channel: "direct", version_id: f.application.publishedVersionId! });
     expect(f.createdApplications).toEqual([expect.objectContaining({ id, ownerId: recipient, status: "disabled", name: "My reports", usageInstructions: "Connect your own handbook and MCP service." })]);
     expect(f.createdApplications[0]).not.toHaveProperty("publishedVersionId");
@@ -240,12 +208,11 @@ describe("independent application copies", () => {
     expect(f.bindingsCreated[0]).toMatchObject({ applicationId: id, capabilityId: f.createdCapabilities[0]?.id });
     await expect(readFile(join(f.root, f.createdCapabilities[0]!.storagePath, "SKILL.md"), "utf8")).resolves.toContain("Original skill.");
     expect(f.application.ownerId).toBe(f.ownerId);
-    expect(assets.get).not.toHaveBeenCalled();
   });
 
   it("requires separate copy permission and rechecks revocation before saving", async () => {
     const f = await fixture(), recipient = randomUUID();
-    const copy = new ApplicationInstallationService(f.prisma as never, f.root, f.service, { get: vi.fn(), put: vi.fn(), remove: vi.fn() });
+    const copy = new ApplicationInstallationService(f.prisma as never, f.root, f.service);
     await f.capture(f.ownerId, f.applicationId, { usage_instructions: "Use the service." });
     f.prisma.applicationGrant.findMany.mockResolvedValue([{ usageModes: ["service"] }]);
     await expect(copy.install(recipient, f.applicationId, { name: "Private copy", channel: "direct", version_id: f.application.publishedVersionId! })).rejects.toMatchObject({ code: "FORBIDDEN" });

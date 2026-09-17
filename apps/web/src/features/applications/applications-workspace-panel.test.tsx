@@ -121,6 +121,53 @@ function mockCatalog() {
 
 describe("three application categories", () => {
   it.each(["zh-CN", "en-US"])(
+    "opens resource declarations separately from import and returns to the choices in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      mockCatalog()
+      show()
+      const user = userEvent.setup()
+      await user.click(
+        await screen.findByRole("button", {
+          name: i18n.t("applications.create"),
+        })
+      )
+      const declaration = screen.getByRole("button", {
+        name: i18n.t("applications.declaration.title"),
+      })
+      expect(declaration.parentElement?.closest("button")).toBeNull()
+      expect(declaration).toHaveClass("h-6", "text-xs")
+      expect(declaration).toHaveClass("font-normal", "text-muted-foreground")
+      expect(
+        declaration.querySelector('svg[data-icon="inline-end"]')
+      ).toHaveAttribute("aria-hidden", "true")
+      await user.click(declaration)
+      expect(
+        await screen.findByRole("dialog", {
+          name: i18n.t("applications.declaration.title"),
+        })
+      ).toBeVisible()
+      expect(
+        screen.queryByText(i18n.t("applications.applicationPackage"))
+      ).not.toBeInTheDocument()
+      const [closeButton] = screen.getAllByRole("button", {
+        name: i18n.t("common.close"),
+      })
+      if (!closeButton) throw new Error("Expected dialog close button")
+      await user.click(closeButton)
+      expect(
+        await screen.findByRole("dialog", {
+          name: i18n.t("applications.createTitle"),
+        })
+      ).toBeVisible()
+      expect(
+        vi
+          .mocked(apiRequest)
+          .mock.calls.some(([, options]) => options?.method === "POST")
+      ).toBe(false)
+    }
+  )
+  it.each(["zh-CN", "en-US"])(
     "separates personal, shared and center applications in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)

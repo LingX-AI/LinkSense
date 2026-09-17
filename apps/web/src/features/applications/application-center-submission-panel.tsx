@@ -34,15 +34,19 @@ import {
 
 export function ApplicationCenterSubmissionPanel({
   applicationId,
+  serviceOnly = false,
   onSubmitted,
 }: {
   applicationId: string
+  serviceOnly?: boolean
   onSubmitted: () => void
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const versionForm = useApplicationVersionForm(applicationId)
-  const [modes, setModes] = useState<ApplicationUsageMode[]>(["install"])
+  const [modes, setModes] = useState<ApplicationUsageMode[]>([
+    serviceOnly ? "service" : "install",
+  ])
   const [notes, setNotes] = useState("")
   const releases = useQuery({
     queryKey: applicationDistributionKeys.releases(applicationId),
@@ -158,6 +162,7 @@ export function ApplicationCenterSubmissionPanel({
       </FieldDescription>
       <ApplicationVersionFields form={versionForm} disabled={busy} />
       <ApplicationUsageModes
+        serviceOnly={serviceOnly}
         value={modes}
         onChange={setModes}
         disabled={busy}

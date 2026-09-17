@@ -1,3 +1,4 @@
+import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { Fragment, useState, type FormEvent } from "react"
 import {
   mcpDefaultStartupTimeoutSeconds,
@@ -607,7 +608,9 @@ export function McpManagementPage() {
             <DialogDescription>{t("mcp.editorDescription")}</DialogDescription>
           </DialogHeader>
           <form
-            className="flex max-h-[70vh] min-w-0 flex-col gap-5 overflow-x-hidden overflow-y-auto pr-1"
+            className={dialogBodyStyles(
+              "flex max-h-[70vh] min-w-0 flex-col gap-5 overflow-x-hidden"
+            )}
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
               if (canSave) saveMutation.mutate()
