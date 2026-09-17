@@ -364,9 +364,6 @@ export const zhCN = {
       "留空表示不限额。任一已设置额度耗尽后，将暂停发起新任务，正在运行的任务继续完成。消耗精确到 0.000001 credit，不足该精度的部分向上取整。",
   },
   settings: {
-    keepEnvironmentRunning: "保持工作环境运行",
-    keepEnvironmentRunningDescription:
-      "开启后，空闲时也会继续运行，适合需要持续运行的网站或服务。关闭后，空闲 15 分钟会暂停环境，文件和配置会保留。",
     navigationLabel: "{{productName}} 设置导航",
     navigation: "设置导航",
     backToApp: "返回 {{productName}}",

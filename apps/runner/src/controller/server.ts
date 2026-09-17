@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto"
 
 import Fastify, { type FastifyReply } from "fastify"
 import { z } from "zod"
-import { userEnvironmentSettingsSchema, runtimeWorkspaceHeader, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, userWorkspacePathSchema } from "@linksense/shared"
+import { runtimeWorkspaceHeader, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, userWorkspacePathSchema } from "@linksense/shared"
 
 import type { RunnerConfig } from "../config.js"
 import { deriveKnowledgeSearchTimeouts } from "../knowledge-search-timeout.js"
@@ -101,19 +101,6 @@ export function buildControllerServer(
       return reply.code(204).send()
     })
   }
-
-  app.get("/environment", async (request, reply) => {
-    const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
-    if (!ownerId) return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" })
-    return workers.getEnvironmentSettings(ownerId)
-  })
-  app.put("/environment", async (request, reply) => {
-    const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
-    const input = userEnvironmentSettingsSchema.safeParse(request.body)
-    if (!ownerId) return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" })
-    if (!input.success) return reply.code(400).send({ error_code: "INVALID_INPUT" })
-    return workers.updateEnvironmentSettings(ownerId, input.data)
-  })
 
   app.post("/workers/prewarm", async (request, reply) => {
     const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])

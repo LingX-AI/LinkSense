@@ -393,9 +393,6 @@ export const enUS = {
       "Blank means unlimited. Reaching any configured limit prevents new tasks; running tasks continue. Consumption is rounded up to the nearest 0.000001 credit.",
   },
   settings: {
-    keepEnvironmentRunning: "Keep your environment running",
-    keepEnvironmentRunningDescription:
-      "Keep websites and services running while you are away. When off, the environment pauses after 15 idle minutes. Your files and settings are preserved.",
     navigationLabel: "{{productName}} settings navigation",
     navigation: "Settings navigation",
     backToApp: "Back to {{productName}}",

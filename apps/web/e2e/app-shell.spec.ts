@@ -3326,7 +3326,6 @@ async function mockApi(page: Page) {
       })
     }
     if (path === "/projects") return ok(route, { items: [], next_cursor: null })
-    if (path === "/me/environment") return ok(route, { keep_running: false })
     if (path === "/admin/health") return ok(route, HEALTH_STATUS)
     if (path === "/credentials" || path === "/credentials/bindings") {
       return ok(route, { items: [], next_cursor: null })

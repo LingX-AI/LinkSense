@@ -1,4 +1,3 @@
-import { UserEnvironmentSettingsStore } from "./user-environment-settings.js";
 import {
   chmod,
   chown,
@@ -24,7 +23,6 @@ import {
   managedProjectionProbeFileName,
   workspacePermissionPolicy,
   type CodexModelReasoningCatalog,
-  type UserEnvironmentSettings,
 } from "@linksense/shared"
 
 import type { RunnerConfig } from "../config.js"
@@ -583,16 +581,6 @@ export class WorkerManager {
     return { statusCode: available ? 200 : 503, body }
   }
 
-  async getEnvironmentSettings(ownerId: string): Promise<UserEnvironmentSettings> {
-    return new UserEnvironmentSettingsStore(this.config.LINKSENSE_USER_DATA_ROOT).get(ownerId)
-  }
-
-  async updateEnvironmentSettings(ownerId: string, input: UserEnvironmentSettings): Promise<UserEnvironmentSettings> {
-    const settings = await new UserEnvironmentSettingsStore(this.config.LINKSENSE_USER_DATA_ROOT).set(ownerId, input)
-    if (settings.keep_running) await this.prewarm(ownerId)
-    return settings
-  }
-
   async sweepIdleWorkers(now = Date.now()): Promise<void> {
     const ttlMs = this.config.LINKSENSE_WORKER_IDLE_TTL_SECONDS * 1000
     const failures: unknown[] = []
@@ -622,7 +610,6 @@ export class WorkerManager {
     }
     if (now - worker.lastUsedAt < ttlMs) return
     if (!worker.ownerId) return
-    if (!worker.serviceSessionId && (await this.getEnvironmentSettings(worker.ownerId)).keep_running) return
     let health: WorkerHealth
     try {
       const response = await this.transport.request(

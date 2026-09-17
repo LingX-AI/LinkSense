@@ -67,6 +67,21 @@ describe("published service routing", () => {
   })
 })
 describe("controller authentication and routing", () => {
+  it.each(["GET", "PUT"] as const)("does not expose the removed environment settings endpoint (%s)", async (method) => {
+    const { server } = await createServer()
+    try {
+      const response = await server.inject({
+        method,
+        url: "/environment",
+        headers: { authorization: `Bearer ${secret}`, "x-linksense-owner-id": ownerId },
+        ...(method === "PUT" ? { payload: { keep_running: true } } : {}),
+      })
+      expect(response.statusCode).toBe(404)
+    } finally {
+      await server.close()
+    }
+  })
+
   it("suppresses info request logs for readiness probes", async () => {
     const { server } = await createServer()
     const routes = server.printRoutes({
