@@ -6,6 +6,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { Duplex } from "node:stream";
+import { UpstreamLatency } from "./latency.js";
 
 import { countTokens } from "gpt-tokenizer/encoding/cl100k_base";
 import type { Logger } from "pino";
@@ -168,6 +169,8 @@ type ModelGatewayAbortSource =
   | "upstream_stream_cancelled";
 
 type ModelGatewayRequestContext = {
+  latency?: UpstreamLatency;
+  upstreamStreaming?: boolean;
   requestId: string;
   startedAt: number;
   conversationId: string | null;
@@ -1039,6 +1042,8 @@ export class ModelGateway implements ModelGatewayRuntime {
       context,
       model: authorizedLease.model,
     };
+    context.upstreamStreaming = true;
+    context.latency = this.createUpstreamLatency(context, "websocket", true);
     try {
       await sendWebSocketJson(
         requiredOpenWebSocket(session.upstream),
@@ -1060,10 +1065,12 @@ export class ModelGateway implements ModelGatewayRuntime {
     if (isBinary) throw new Error("model provider returned a binary frame");
     const source = parseJsonObject(data.toString());
     const pending = session.pendingRequest;
+    pending?.context.latency?.event(source);
     const rewritten = pending?.compatibilityContext
       ? rewriteResponsesPayload(source, pending.compatibilityContext)
       : source;
     const terminal = isTerminalWebSocketEvent(source);
+    if (terminal) pending?.context.latency?.mark("upstream_end");
     if (source.type === "response.completed" && isRecord(source.response) &&
       typeof source.response.id === "string" && pending?.compatibilityContext) {
       // A native generate:false warmup can be the parent of later incremental
@@ -1532,6 +1539,8 @@ export class ModelGateway implements ModelGatewayRuntime {
     abort: ModelGatewayRequestAbort,
     context: ModelGatewayRequestContext,
   ): Promise<Response> {
+    const latency = this.createUpstreamLatency(context, "http", body.stream === true);
+    context.latency = latency;
     const timer = setTimeout(
       () => abort.abort("upstream_header_timeout"),
       this.options.upstreamHeaderTimeoutMs ??
@@ -1553,14 +1562,37 @@ export class ModelGateway implements ModelGatewayRuntime {
         redirect: "manual" as const,
         signal: abort.controller.signal,
       };
-      if (this.options.fetch) return await this.options.fetch(url, requestInit);
-      return (await undiciFetch(url, {
+      const upstream = this.options.fetch
+        ? await this.options.fetch(url, requestInit)
+        : (await undiciFetch(url, {
         ...requestInit,
         dispatcher: this.httpProxyDispatcher,
       })) as unknown as Response;
+      context.upstreamStreaming = isEventStream(upstream.headers.get("content-type"));
+      latency.mark("upstream_headers");
+      if (!upstream.ok || !upstream.body) return upstream;
+      return new Response(latency.stream(upstream.body, isEventStream(upstream.headers.get("content-type"))), {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers: upstream.headers,
+      });
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private createUpstreamLatency(
+    context: ModelGatewayRequestContext,
+    transport: "http" | "websocket",
+    streaming: boolean,
+  ): UpstreamLatency {
+    return new UpstreamLatency(sample => this.options.logger.info({
+      ...requestLogFields(context),
+      ...sample,
+      transport,
+      streamRequested: streaming,
+      upstreamStreaming: context.upstreamStreaming,
+    }, "model upstream latency"));
   }
 
   private async handleUnsuccessfulUpstream(

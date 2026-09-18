@@ -31,7 +31,7 @@ export function linkSenseSkillConfigOverrides(
   ];
 }
 
-const coreMcpEnvironmentVariables = [
+export const coreMcpEnvironmentVariables = [
   "LINKSENSE_COLLABORATION_MODE",
   "LINKSENSE_CONVERSATION_ID",
   "LINKSENSE_CURRENT_USER_ENDPOINT",
@@ -47,6 +47,8 @@ const coreMcpEnvironmentVariables = [
   "LINKSENSE_KNOWLEDGE_SERVICE_TOKEN",
   "LINKSENSE_SKILL_CREATOR_ENDPOINT",
   "LINKSENSE_SKILL_CREATOR_TOKEN",
+  "LINKSENSE_APPLICATION_BUILDER_ENDPOINT",
+  "LINKSENSE_APPLICATION_BUILDER_TOKEN",
 ] as const;
 
 const managedBrowserEnvironmentVariables = [

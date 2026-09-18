@@ -5,6 +5,7 @@ import {
   randomInt,
   timingSafeEqual,
 } from "node:crypto";
+import { ApplicationBuilderRequestError } from "./application-builder-error.js";
 import {
   chmod,
   mkdtemp,
@@ -15,6 +16,7 @@ import {
   type FileHandle,
 } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { interruptNativeExecutionForShutdown } from "./codex/native-shutdown.js";
 import { OrderedBatchQueue } from "./ordered-batch-queue.js";
 
@@ -186,6 +188,8 @@ const PLAN_MUTATION_SERVICE_ENVIRONMENT_NAMES = new Set([
   "LINKSENSE_IMAGE_GENERATION_TOKEN",
   "LINKSENSE_SKILL_CREATOR_ENDPOINT",
   "LINKSENSE_SKILL_CREATOR_TOKEN",
+  "LINKSENSE_APPLICATION_BUILDER_ENDPOINT",
+  "LINKSENSE_APPLICATION_BUILDER_TOKEN",
 ]);
 
 export type StartTurnInput = {
@@ -306,6 +310,7 @@ export type GoalRuntimeInput = Pick<
   codexThreadId: string;
 };
 type AuthorizedRecoveryInput = Omit<GoalRuntimeInput, "codexThreadId"> & {
+  appServerProcessLimit?: StartTurnInput["appServerProcessLimit"];
   codexThreadId?: string | null;
   collaborationMode?: StartTurnInput["collaborationMode"];
   operationKind?: StartTurnInput["operationKind"];
@@ -807,6 +812,7 @@ type PreparedCapabilityRuntimeLease = {
 };
 
 export class AppServerProcessPool {
+  private readonly prewarmContext = new AsyncLocalStorage<boolean>();
   private readonly nativePluginManager: NativePluginRuntimeManager;
   private readonly runtimeFingerprintSecret = randomBytes(32);
   private readonly processes = new Map<string, ManagedProcess>();
@@ -1036,12 +1042,21 @@ export class AppServerProcessPool {
       input.ownerId,
     );
     const startedAt = Date.now();
-    return this.withTaskCapabilityLock(input.conversationId, () =>
+    return this.prewarmContext.run(true, () => this.withTaskCapabilityLock(input.conversationId, () =>
       this.withProcessLifecycleLock(input.conversationId, async () => {
+        const current = this.processes.get(input.conversationId);
+        if (current?.codexThreadId && (current.activeTurnId || current.starting || current.uncertainStartOperationId || hasContinuingGoal(current))) {
+          return { codexThreadId: current.codexThreadId, agentsTemplateVersion: this.options.templateVersion, runtimeGeneration: current.runtimeGeneration };
+        }
         let managed: ManagedProcess | undefined;
         try {
-          const recovered =
-            await this.readThreadForAuthorizedRecoveryLocked(input);
+          // Prewarm prepares the next turn; it must not apply its target model
+          // before the source history has been compacted. Recovery of an
+          // already accepted turn still resumes that turn's own model.
+          const recovered = await this.readThreadForAuthorizedRecoveryLocked(
+            input,
+            { resumeModel: input.modelTransitionSource?.model ?? input.model },
+          );
           managed = recovered.managed;
           if (!managed.codexThreadId) {
             throw new CodexProtocolError("conversation has no Codex thread");
@@ -1067,7 +1082,7 @@ export class AppServerProcessPool {
           }
         }
       }),
-    );
+    ));
   }
 
   async inspectPrewarmedConversation(
@@ -1571,6 +1586,19 @@ export class AppServerProcessPool {
     let managed = this.processes.get(input.conversationId);
     const canReuse = managed === existing && canReuseValidatedProcess;
     const reusedHealthyProcess = canReuse;
+    this.options.logger.info({
+      stage: "runtime_reuse",
+      conversationId: input.conversationId,
+      turnId: input.projectionTurnId,
+      runtimeGeneration: input.expectedRuntimeGeneration,
+      reused: canReuse,
+      reason: canReuse ? "validated" : !managed ? "process_missing"
+        : !managed.client.isHealthy ? "process_unhealthy"
+        : managed.runtimeGeneration !== input.expectedRuntimeGeneration ? "runtime_generation_changed"
+        : managed.capabilityGeneration !== input.capabilityGeneration ? "capability_generation_changed"
+        : managed.mcpGeneration !== mcpGenerationFor(input) ? "mcp_generation_changed"
+        : "runtime_configuration_changed",
+    }, "runner task latency");
     if (managed && !canReuse) {
       this.options.logger.debug(
         { conversationId: input.conversationId },
@@ -1632,6 +1660,8 @@ export class AppServerProcessPool {
               LINKSENSE_KNOWLEDGE_SERVICE_TOKEN: knowledgeServiceToken,
               LINKSENSE_SKILL_CREATOR_ENDPOINT: `${this.skillCreatorMcpEndpointBase}/${input.conversationId}`,
               LINKSENSE_SKILL_CREATOR_TOKEN: skillCreatorToken,
+              LINKSENSE_APPLICATION_BUILDER_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-application-builder/${input.conversationId}`,
+              LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
               LINKSENSE_CONVERSATION_ID: input.conversationId,
@@ -1701,6 +1731,7 @@ export class AppServerProcessPool {
       const needsNativeThreadHistory =
         isResumingExistingNativeThread &&
         (!reusedHealthyProcess ||
+          managed.codexThreadModel !== input.model ||
           input.forkFromCodexTurnId !== undefined ||
           operationKind === "compact");
       const sourceThread = needsNativeThreadHistory
@@ -3501,10 +3532,12 @@ export class AppServerProcessPool {
 
   private async readThreadForAuthorizedRecoveryLocked(
     input: AuthorizedRecoveryInput,
+    options: { resumeModel?: string } = {},
   ): Promise<{ thread: CodexThread; managed: ManagedProcess }> {
     const recoveryStartInput: StartTurnInput = {
       conversationId: input.conversationId,
       projectionTurnId: input.projectionTurnId,
+      ...(input.appServerProcessLimit === undefined ? {} : { appServerProcessLimit: input.appServerProcessLimit }),
       ownerId: input.ownerId,
       expectedRuntimeGeneration: input.expectedRuntimeGeneration,
       capabilityGeneration: input.capabilityGeneration,
@@ -3680,6 +3713,8 @@ export class AppServerProcessPool {
               LINKSENSE_KNOWLEDGE_SERVICE_TOKEN: knowledgeServiceToken,
               LINKSENSE_SKILL_CREATOR_ENDPOINT: `${this.skillCreatorMcpEndpointBase}/${input.conversationId}`,
               LINKSENSE_SKILL_CREATOR_TOKEN: skillCreatorToken,
+              LINKSENSE_APPLICATION_BUILDER_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-application-builder/${input.conversationId}`,
+              LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
               LINKSENSE_CONVERSATION_ID: input.conversationId,
@@ -3699,7 +3734,7 @@ export class AppServerProcessPool {
             starting: true,
             reservedProcessSlot: false,
             allowReplacementThread: false,
-            resumeModel: input.model,
+            resumeModel: options.resumeModel ?? input.model,
             capabilityLeaseToken: leaseToken,
           },
         );
@@ -4016,6 +4051,7 @@ export class AppServerProcessPool {
       displayName: string;
       mimeType?: string;
       artifactKind?: string;
+    webRootRelativePath?: string;
     },
   ): Promise<unknown> {
     const managed = this.processes.get(conversationId);
@@ -4051,6 +4087,7 @@ export class AppServerProcessPool {
       displayName: input.displayName,
       ...(input.mimeType ? { mimeType: input.mimeType } : {}),
       ...(input.artifactKind ? { artifactKind: input.artifactKind } : {}),
+      ...(input.webRootRelativePath ? { webRootRelativePath: input.webRootRelativePath } : {}),
     });
   }
 
@@ -4139,6 +4176,14 @@ export class AppServerProcessPool {
       turnId: managed.activeTurnId,
       workspaceRelativePath: parsedPath.data,
     });
+  }
+
+  async applicationBuilder(conversationId: string, token: string, request: import("@linksense/shared").ApplicationBuilderRequest): Promise<unknown> {
+    const managed = this.processes.get(conversationId);
+    if (!managed?.activeTurnId || !managed.activeProjectionTurnId) throw new ApplicationBuilderRequestError("APPLICATION_DEVELOPMENT_TURN_INACTIVE", false, 409);
+    if (!safeTokenEqual(token, managed.skillCreatorToken) || managed.activeCollaborationMode === "plan") throw new ApplicationBuilderRequestError("APPLICATION_DEVELOPMENT_FORBIDDEN", false, 403);
+    if (!this.options.eventSink.applicationBuilder) throw new ApplicationBuilderRequestError("APPLICATION_DEVELOPMENT_UNAVAILABLE", true, 503);
+    return this.options.eventSink.applicationBuilder({ conversationId, turnId: managed.activeProjectionTurnId, request });
   }
 
   async confirmSkillInstall(
@@ -4372,6 +4417,7 @@ export class AppServerProcessPool {
     starting: StartOperationState,
   ): Promise<void> {
     let result: StartOperationResult;
+    const startedAt = performance.now();
     let current = starting;
     try {
       result = await this.startTurn(input, async (correlation) => {
@@ -4406,6 +4452,7 @@ export class AppServerProcessPool {
                   : "RUNNER_TURN_START_FAILED",
               },
         );
+        await this.notifyStartSettled(input);
       } catch {
         this.options.logger.error(
           {
@@ -4423,6 +4470,14 @@ export class AppServerProcessPool {
         status: "succeeded",
         result,
       });
+      this.options.logger.info({
+        stage: "native_start_settled",
+        conversationId: input.conversationId,
+        turnId: input.projectionTurnId,
+        runtimeGeneration: input.expectedRuntimeGeneration,
+        durationMs: performance.now() - startedAt,
+      }, "runner task latency");
+      await this.notifyStartSettled(input);
     } catch {
       this.options.logger.error(
         {
@@ -4452,6 +4507,24 @@ export class AppServerProcessPool {
         this.activeStartOperations.delete(key);
       }
     });
+  }
+
+  private async notifyStartSettled(input: StartTurnInput): Promise<void> {
+    if (!this.options.eventSink.reportStartSettled) return;
+    try {
+      await this.options.eventSink.reportStartSettled({
+        conversationId: input.conversationId,
+        projectionTurnId: input.projectionTurnId,
+        runtimeGeneration: input.expectedRuntimeGeneration,
+      });
+    } catch {
+      // The durable operation remains authoritative. Recovery only observes it;
+      // a notification failure must never downgrade success or replay input.
+      this.options.logger.warn({
+        conversationId: input.conversationId,
+        projectionTurnId: input.projectionTurnId,
+      }, "start projection notification deferred to durable recovery");
+    }
   }
 
   private async readStartOperation(
@@ -6669,6 +6742,9 @@ export class AppServerProcessPool {
     for (;;) {
       let evictionTarget: ManagedProcess | undefined;
       const reserved = await this.withProcessCapacityLock(async () => {
+        if (this.prewarmContext.getStore() && this.processes.size + this.pendingProcessSlots >= Math.max(1, processLimit - 1)) {
+          throw new CodexProtocolError("prewarm deferred to preserve foreground capacity");
+        }
         if (
           this.processes.size + this.pendingProcessSlots <
           processLimit

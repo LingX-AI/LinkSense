@@ -154,6 +154,43 @@ describe("controller task-owned directory preparation", () => {
 })
 
 describe("controller worker lifecycle", () => {
+  it("closes an absent runtime without preparing projections or starting a worker", async () => {
+    const docker = new FakeDocker(), transport = new FakeTransport();
+    const prepare = vi.fn(async () => undefined);
+    const projection = vi.fn(async () => { throw new Error("Managed projection is absent"); });
+    const manager = createManager(docker, transport, { prepareUserDirectories: prepare, assertManagedProjection: projection });
+    await manager.initialize();
+    const session = "01900000-0000-7000-8000-000000000011";
+    const response = await manager.closeConversationRuntime(ownerId, session, session);
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body.toString())).toEqual({ success: true });
+    expect(prepare).not.toHaveBeenCalled(); expect(projection).not.toHaveBeenCalled();
+    expect(docker.createContainer).not.toHaveBeenCalled(); expect(docker.stopContainer).not.toHaveBeenCalled();
+    expect(transport.calls).toEqual([]);
+  });
+
+  it("closes only the existing service runtime and preserves the worker's active response", async () => {
+    const docker = new FakeDocker(), transport = new FakeTransport(), manager = createManager(docker, transport);
+    await manager.initialize();
+    const session = "01900000-0000-7000-8000-000000000011";
+    await manager.request(ownerId, `/conversations/${session}/runtime`, "PUT", undefined, undefined, "workspace", session);
+    const request = vi.spyOn(transport, "request").mockResolvedValueOnce(jsonResponse({ error_code: "CLEANUP_RUNTIME_ACTIVE" }, 409));
+    expect((await manager.closeConversationRuntime(ownerId, session, session)).statusCode).toBe(409);
+    expect(request).toHaveBeenLastCalledWith(expect.any(String), `/conversations/${session}/runtime/close`, "POST", expect.objectContaining({ authorization: `Bearer ${ownerWorkerSecret(ownerId, secret, session)}` }));
+    expect(docker.createContainer).toHaveBeenCalledOnce(); expect(docker.stopContainer).not.toHaveBeenCalled();
+    expect((await manager.closeConversationRuntime(ownerId, session, session)).statusCode).toBe(200);
+  });
+
+  it("does not declare a runtime absent when another controller owns a worker or inspection fails", async () => {
+    const docker = new FakeDocker([{ Id: "foreign-worker", Names: ["/foreign-worker"], State: "running", Labels: {
+      "com.linksense.runner.managed": "true", "com.linksense.runner.owner-id": ownerId, "com.linksense.runner.instance": "other-controller",
+    } }]);
+    const manager = createManager(docker, new FakeTransport()); await manager.initialize();
+    await expect(manager.closeConversationRuntime(ownerId, ownerId)).rejects.toMatchObject({ reasonCode: "CLEANUP_RUNTIME_STATE_UNCERTAIN" });
+    docker.listManagedContainers.mockRejectedValueOnce(new Error("Docker unavailable"));
+    await expect(manager.closeConversationRuntime(ownerId, ownerId)).rejects.toMatchObject({ reasonCode: "CLEANUP_RUNTIME_STATE_UNCERTAIN" });
+    expect(docker.createContainer).not.toHaveBeenCalled(); expect(docker.stopContainer).not.toHaveBeenCalled();
+  });
   async function serviceCleanupFixture() {
     const root = await mkdtemp(path.join(tmpdir(), "linksense-service-cleanup-"))
     const userDataRoot = path.join(root, "users")
@@ -178,6 +215,16 @@ describe("controller worker lifecycle", () => {
     await manager.initialize()
     return { root, environment, personal, sibling, sessionId, docker, transport, manager }
   }
+
+  it("retains historical files when closing an absent application runtime", async () => {
+    const f = await serviceCleanupFixture();
+    try {
+      expect((await f.manager.closeConversationRuntime(ownerId, f.sessionId, f.sessionId)).statusCode).toBe(200);
+      expect(await readFile(path.join(f.environment, "home/.codex/history"), "utf8")).toBe("deleted-application-history");
+      await expect(lstat(path.join(f.environment, "control/workspaces", f.sessionId))).resolves.toMatchObject({});
+      expect(f.docker.createContainer).not.toHaveBeenCalled();
+    } finally { await rm(f.root, { recursive: true, force: true }); }
+  });
 
   it("reclaims an authorized absent service environment without touching personal or sibling data", async () => {
     const f = await serviceCleanupFixture()

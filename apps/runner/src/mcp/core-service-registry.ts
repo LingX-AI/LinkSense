@@ -8,6 +8,7 @@ import { imageGenerationCoreMcpModule } from "./core-services/image-generation-s
 import { interactiveFormCoreMcpModule } from "./core-services/interactive-form-service.js"
 import { knowledgeCoreMcpModule } from "./core-services/knowledge-service.js"
 import { skillCreatorCoreMcpModule } from "./core-services/skill-creator-service.js"
+import { applicationBuilderCoreMcpModule } from "./core-services/application-builder-service.js"
 import type {
   CoreMcpCollaborationMode,
   CoreMcpModuleContext,
@@ -26,6 +27,7 @@ export const coreMcpModuleRegistry: readonly CoreMcpModuleDefinition[] = [
   knowledgeCoreMcpModule,
   interactiveFormCoreMcpModule,
   skillCreatorCoreMcpModule,
+  applicationBuilderCoreMcpModule,
 ]
 
 export class CoreMcpToolUnavailableError extends Error {

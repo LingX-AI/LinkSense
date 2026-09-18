@@ -11,6 +11,7 @@ import {
   WorkerContractVersionMismatchError,
   type WorkerManager,
 } from "../src/controller/worker-manager.js"
+import { RuntimeCleanupError } from "../src/runtime-cleanup.js"
 
 const ownerId = "01900000-0000-7000-8000-000000000002"
 const otherOwnerId = "01900000-0000-7000-8000-000000000003"
@@ -39,6 +40,25 @@ afterEach(async () => {
 })
 
 describe("published service routing", () => {
+  it("authenticates runtime close and uses the existing-worker path without starting an environment", async () => {
+    const { server, request, closeConversationRuntime } = await createServer();
+    const session = "01900000-0000-7000-8000-000000000011";
+    const url = `/conversations/${session}/runtime/close`;
+    const headers = { authorization: `Bearer ${secret}`, "x-linksense-owner-id": ownerId, "x-linksense-service-session": session };
+    try {
+      expect((await server.inject({ method: "POST", url })).statusCode).toBe(401);
+      expect((await server.inject({ method: "POST", url, headers: { authorization: `Bearer ${secret}` } })).statusCode).toBe(403);
+      expect((await server.inject({ method: "POST", url, headers: { ...headers, "x-linksense-service-session": "invalid" } })).statusCode).toBe(400);
+      const result = await server.inject({ method: "POST", url, headers, payload: {} });
+      expect(result.statusCode).toBe(200); expect(result.json()).toEqual({ success: true });
+      expect(closeConversationRuntime).toHaveBeenCalledWith(ownerId, session, session);
+      expect(request).not.toHaveBeenCalled();
+      closeConversationRuntime.mockRejectedValueOnce(new RuntimeCleanupError("reconcile", "CLEANUP_RUNTIME_STATE_UNCERTAIN"));
+      expect((await server.inject({ method: "POST", url, headers, payload: {} })).statusCode).toBe(503);
+      closeConversationRuntime.mockResolvedValueOnce({ statusCode: 409, headers: { "content-type": "application/json" }, body: Buffer.from(JSON.stringify({ error_code: "CLEANUP_RUNTIME_ACTIVE" })) });
+      expect((await server.inject({ method: "POST", url, headers, payload: {} })).statusCode).toBe(409);
+    } finally { await server.close(); }
+  });
   it("routes tasks and their branches to the explicitly authorized service environment", async () => {
     const { server, request } = await createServer()
     const session = "01900000-0000-7000-8000-000000000011"
@@ -58,6 +78,7 @@ describe("published service routing", () => {
     vi.stubGlobal("fetch", fetchMock)
     const headers = { authorization: `Bearer ${ownerWorkerSecret(ownerId, secret, session)}`, "x-linksense-owner-id": ownerId, "x-linksense-service-session": session }
     expect((await server.inject({ method: "POST", url: "/internal/skill-creator/confirm", headers, payload: { conversationId: session } })).statusCode).toBe(403)
+    expect((await server.inject({ method: "POST", url: "/internal/application-builder", headers, payload: { conversationId: session } })).statusCode).toBe(403)
     expect((await server.inject({ method: "POST", url: "/internal/runner/events", headers: { ...headers, "x-linksense-service-session": otherOwnerId }, payload: { conversationId: otherOwnerId } })).statusCode).toBe(401)
     expect(fetchMock).not.toHaveBeenCalled()
     expect((await server.inject({ method: "POST", url: "/internal/runner/events", headers, payload: { conversationId: session, events: [] } })).statusCode).toBe(200)
@@ -362,7 +383,7 @@ describe("controller authentication and routing", () => {
     await server.close()
   })
 
-  it.each(["/internal/runner/events", "/internal/runner/heartbeat"])("authenticates and relays the scoped callback %s", async (route) => {
+  it.each(["/internal/runner/events", "/internal/runner/heartbeat", "/internal/runner/start-settled"])("authenticates and relays the scoped callback %s", async (route) => {
     const { server } = await createServer()
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ success: true }), {
@@ -399,7 +420,44 @@ describe("controller authentication and routing", () => {
       `Bearer ${secret}`,
     )
     expect(new Headers(init?.headers).get("x-linksense-owner-id")).toBe(ownerId)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`http://api:4000${route}`)
     await server.close()
+  })
+
+  it("preserves the service scope, durable operation identity and projection receipt across the start-settled relay", async () => {
+    const { server } = await createServer()
+    const session = "01900000-0000-7000-8000-000000000011"
+    const body = {
+      conversationId: "01900000-0000-7000-8000-000000000001",
+      projectionTurnId: "01900000-0000-7000-8000-000000000012",
+      runtimeGeneration: expectedRuntimeGeneration,
+    }
+    const receipt = { success: true, data: { settled: true } }
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(receipt), {
+      headers: { "content-type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      const response = await server.inject({
+        method: "POST",
+        url: "/internal/runner/start-settled",
+        headers: {
+          authorization: `Bearer ${ownerWorkerSecret(ownerId, secret, session)}`,
+          "x-linksense-owner-id": ownerId,
+          "x-linksense-service-session": session,
+        },
+        payload: body,
+      })
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual(receipt)
+      expect(fetchMock).toHaveBeenCalledOnce()
+      const forwarded = fetchMock.mock.calls[0]?.[1]
+      expect(JSON.parse(String(forwarded?.body))).toEqual(body)
+      expect(new Headers(forwarded?.headers).get("x-linksense-service-session")).toBe(session)
+      expect(new Headers(forwarded?.headers).get("authorization")).toBe(`Bearer ${secret}`)
+    } finally {
+      await server.close()
+    }
   })
 
   it("relays interactive application events across the owner-scoped callback boundary", async () => {
@@ -463,6 +521,34 @@ describe("controller authentication and routing", () => {
     expect(new Headers(init?.headers).get("x-linksense-owner-id")).toBe(ownerId)
     expect(JSON.parse(String(init?.body))).toEqual(payload)
     await server.close()
+  })
+
+  it("relays application development only for an authenticated owner worker and preserves the API response", async () => {
+    const { server } = await createServer()
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout")
+    const receipt = { success: true, data: { project: null } }
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(receipt), { headers: { "content-type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+    const payload = { conversationId: ownerId, turnId: otherOwnerId, action: "inspect" }
+    try {
+      for (const authorization of [undefined, `Bearer ${ownerWorkerSecret(otherOwnerId, secret)}`]) {
+        const denied = await server.inject({ method: "POST", url: "/internal/application-builder", headers: { ...(authorization ? { authorization } : {}), "x-linksense-owner-id": ownerId }, payload })
+        expect(denied.statusCode).toBe(401)
+      }
+      expect(fetchMock).not.toHaveBeenCalled()
+      const response = await server.inject({ method: "POST", url: "/internal/application-builder", headers: { authorization: `Bearer ${ownerWorkerSecret(ownerId, secret)}`, "x-linksense-owner-id": ownerId }, payload })
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual(receipt)
+      expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://api:4000/internal/application-builder")
+      const forwarded = fetchMock.mock.calls[0]?.[1]
+      expect(new Headers(forwarded?.headers).get("authorization")).toBe(`Bearer ${secret}`)
+      expect(new Headers(forwarded?.headers).get("x-linksense-owner-id")).toBe(ownerId)
+      expect(JSON.parse(String(forwarded?.body))).toEqual(payload)
+      expect(timeoutSpy).toHaveBeenCalledWith(60_000)
+    } finally {
+      timeoutSpy.mockRestore()
+      await server.close()
+    }
   })
 
   it("relays knowledge search only across the scoped internal callback boundary", async () => {
@@ -1021,6 +1107,7 @@ async function createServer(
     getModelCatalog: vi.fn(() => options.modelCatalog),
     request,
     cleanupConversation,
+    closeConversationRuntime: vi.fn<WorkerManager["closeConversationRuntime"]>(async () => ({ statusCode: 200, headers: { "content-type": "application/json" }, body: Buffer.from(JSON.stringify({ success: true })) })),
   } as unknown as WorkerManager
   return {
     server: buildControllerServer(config, workers),
@@ -1029,5 +1116,6 @@ async function createServer(
     prewarm: workers.prewarm,
     stopAllWorkers: workers.stopAllWorkers,
     cleanupConversation,
+    closeConversationRuntime: vi.mocked(workers.closeConversationRuntime),
   }
 }

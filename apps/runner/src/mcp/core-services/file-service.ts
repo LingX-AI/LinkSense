@@ -1,5 +1,5 @@
 import type { Stats } from "node:fs"
-import { chmod, chown, lstat, realpath } from "node:fs/promises"
+import { chmod, chown, lstat, realpath, readdir } from "node:fs/promises"
 import path from "node:path"
 
 import { workspacePermissionPolicy } from "@linksense/shared"
@@ -20,6 +20,7 @@ const artifactArgumentsSchema = z.strictObject({
   display_name: z.string().min(1).max(260),
   mime_type: z.string().max(160).optional(),
   artifact_kind: z.string().max(80).optional(),
+  web_root_relative_path: z.string().min(1).max(2_000).optional(),
 })
 
 const artifactResultSchema = z.object({
@@ -32,6 +33,8 @@ const artifactResultSchema = z.object({
 
 const artifactFailureSchema = z.object({
   code: z.enum([
+    "WEB_SITE_BUNDLE_INVALID",
+    "WEB_SITE_RESOURCES_MISSING",
     "ARTIFACT_NOT_FOUND",
     "ARTIFACT_REGISTRATION_BUSY",
     "ARTIFACT_REGISTRATION_FAILED",
@@ -88,6 +91,7 @@ export const fileServiceCoreMcpModule = {
             workspaceRoot,
             arguments_.workspace_relative_path,
           )
+          if (arguments_.web_root_relative_path) await prepareWebDirectory(workspaceRoot, arguments_.web_root_relative_path)
           const response = await fetch(endpoint, {
             method: "POST",
             headers: {
@@ -103,6 +107,7 @@ export const fileServiceCoreMcpModule = {
               ...(arguments_.artifact_kind
                 ? { artifactKind: arguments_.artifact_kind }
                 : {}),
+              ...(arguments_.web_root_relative_path ? { webRootRelativePath: arguments_.web_root_relative_path } : {}),
             }),
             signal: withRequestTimeout(input.signal, 30_000),
           })
@@ -268,7 +273,7 @@ function isNodeError(
 const artifactTool = {
   name: "register_artifact",
   description:
-    "Register one existing file, including supported audio or video, from the current LinkSense task workspace as a downloadable artifact.",
+    "Register an existing file from the current task as a downloadable artifact. For a webpage with local JS, CSS, images, fonts, or data, put all public files in a dedicated directory and set web_root_relative_path to that directory; workspace_relative_path is its HTML entry. This snapshots the complete website for link sharing. Use relative resource URLs, including runtime fetch URLs. Do not include secrets, dotfiles, node_modules, source maps, or source projects; use their built static output. Single self-contained HTML needs no web_root_relative_path.",
   inputSchema: {
     type: "object",
     properties: {
@@ -277,8 +282,28 @@ const artifactTool = {
       display_name: { type: "string" },
       mime_type: { type: "string" },
       artifact_kind: { type: "string" },
+      web_root_relative_path: { type: "string", description: "Dedicated public website directory inside this task workspace; never the whole workspace." },
     },
     required: ["workspace_relative_path", "display_name"],
     additionalProperties: false,
   },
 } satisfies Tool
+
+async function prepareWebDirectory(workspaceRoot: string, directory: string): Promise<void> {
+  const root = path.resolve(workspaceRoot, directory)
+  if (!root.startsWith(`${path.resolve(workspaceRoot)}${path.sep}`)) throw invalidArtifactRegistration()
+  let entries = 0
+  const visit = async (current: string): Promise<void> => {
+    const info = await lstat(current)
+    if (!info.isDirectory() || info.isSymbolicLink() || await realpath(current) !== current) throw invalidArtifactRegistration()
+    for (const name of await readdir(current)) {
+      if (++entries > 1_000 || name.startsWith(".") || name === "node_modules") throw invalidArtifactRegistration()
+      const target = path.join(current, name)
+      const stat = await lstat(target)
+      if (stat.isSymbolicLink()) throw invalidArtifactRegistration()
+      if (stat.isDirectory()) await visit(target)
+      else await prepareArtifactForSharedRead(workspaceRoot, path.relative(workspaceRoot, target))
+    }
+  }
+  await visit(root)
+}

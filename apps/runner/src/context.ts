@@ -76,8 +76,6 @@ const KNOWLEDGE_GROUNDING_INSTRUCTIONS = [
 const INLINE_HTML_PREVIEW_INSTRUCTIONS = [
   "For an interactive HTML deliverable, prefer one complete UTF-8 document in a code fence whose info string is exactly html-preview. Use ordinary html fences for source examples; never preview an incomplete fragment or explanatory HTML.",
   "Current-conversation questions, choices, confirmation and feedback use request_user_form; preview forms are standalone demos only.",
-  "Use literal Tailwind CSS v4 classes; LinkSense injects the runtime. Do not generate class names dynamically or add a CDN, external stylesheet or CSS framework.",
-  "Keep scripts self-contained: no parent-page, cookie, credential, browser-storage, external-API, remote-asset or external-navigation access. Never claim blocked resources or LinkSense API actions work in previews.",
 ].join("\n");
 const LOCAL_WEB_SERVER_RESTRICTION_INSTRUCTIONS = [
   "Mandatory platform rule: never start or keep alive a network-listening service for this task, including HTTP(S), WebSocket, development, preview or callback servers on any address or port, including loopback.",

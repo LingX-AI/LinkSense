@@ -1106,23 +1106,25 @@ trust_level = "trusted"
 
     await expect(
       pool.registerArtifact(input.conversationId, token, {
-        workspaceRelativePath: "artifacts/report.txt",
-        displayName: "report.txt",
-        mimeType: "text/plain",
+        workspaceRelativePath: "artifacts/site/index.html",
+        displayName: "index.html",
+        mimeType: "text/html",
+      webRootRelativePath: "artifacts/site",
       }),
     ).resolves.toEqual({});
     expect(eventSink.registerArtifact).toHaveBeenCalledWith({
       conversationId: input.conversationId,
       turnId: "turn-native-1",
-      workspaceRelativePath: "artifacts/report.txt",
-      displayName: "report.txt",
-      mimeType: "text/plain",
+      workspaceRelativePath: "artifacts/site/index.html",
+      displayName: "index.html",
+      mimeType: "text/html",
+      webRootRelativePath: "artifacts/site",
     });
 
     await expect(
       pool.registerArtifact(input.conversationId, "wrong-turn-token", {
-        workspaceRelativePath: "artifacts/report.txt",
-        displayName: "report.txt",
+        workspaceRelativePath: "artifacts/site/index.html",
+        displayName: "index.html",
       }),
     ).rejects.toMatchObject({
       code: "FILE_SERVICE_FORBIDDEN",
@@ -1392,6 +1394,29 @@ trust_level = "trusted"
       /stop:0:|sourcePath|entries|plan-stop-hook|private hook|private status|\/opt\/linksense/u,
     );
     await pool.closeAll();
+  });
+
+  it("binds application development to the projection turn, scoped token and normal mode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-application-builder-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    await pool.startTurn(input);
+    const token = controlled.environment?.LINKSENSE_APPLICATION_BUILDER_TOKEN;
+    if (!token) throw new Error("missing application builder token");
+    expect(controlled.environment?.LINKSENSE_APPLICATION_BUILDER_ENDPOINT).toContain(`/mcp-application-builder/${input.conversationId}`);
+    await expect(pool.applicationBuilder(input.conversationId, token, { operation: "inspect" })).resolves.toEqual(null);
+    expect(eventSink.applicationBuilder).toHaveBeenCalledWith({ conversationId: input.conversationId, turnId: input.projectionTurnId, request: { operation: "inspect" } });
+    await expect(pool.applicationBuilder(input.conversationId, "wrong-token", { operation: "inspect" })).rejects.toMatchObject({ code: "APPLICATION_DEVELOPMENT_FORBIDDEN" });
+    await expect(pool.applicationBuilder("another-task", token, { operation: "inspect" })).rejects.toMatchObject({ code: "APPLICATION_DEVELOPMENT_TURN_INACTIVE" });
+    await pool.closeAll();
+    const planControlled = createControlledAppServer();
+    const plan = createStartOperationPool(root, planControlled.factory);
+    await plan.pool.startTurn({ ...input, collaborationMode: "plan" });
+    expect(planControlled.environment?.LINKSENSE_APPLICATION_BUILDER_TOKEN).toBeUndefined();
+    await expect(plan.pool.applicationBuilder(input.conversationId, token, { operation: "inspect" })).rejects.toMatchObject({ code: "APPLICATION_DEVELOPMENT_FORBIDDEN" });
+    await plan.pool.closeAll();
   });
 
   it("binds Skill preview and install to the active native turn and creator token", async () => {
@@ -4924,6 +4949,117 @@ trust_level = "trusted"
     expect(controlled.methods).toContain("turn/start");
     expect(controlled.kill).not.toHaveBeenCalled();
     await pool.closeAll();
+  });
+
+  it.each(["completed", "failed"] as const)(
+    "preserves the source model during prewarm and gates the new model on %s compaction",
+    async (compactStatus) => {
+      const root = await mkdtemp(join(tmpdir(), "linksense-prewarm-model-switch-"));
+      roots.push(root);
+      const sourceTurns: CodexTurn[] = [
+        { id: "deepseek-completed", status: "completed", items: [], error: null },
+        {
+          id: "previous-luna-failure",
+          status: "failed",
+          items: [],
+          error: {
+            message: "incompatible provider reasoning",
+            codexErrorInfo: null,
+            additionalDetails: null,
+          },
+        },
+      ];
+      const compactTurn: CodexTurn = {
+        id: "source-model-compaction",
+        status: compactStatus,
+        items: [{ id: "compaction-item", type: "contextCompaction" }],
+        error: compactStatus === "failed"
+          ? { message: "source unavailable", codexErrorInfo: null, additionalDetails: null }
+          : null,
+      };
+      // Echo the requested resume model, as the real app-server does. Pinning
+      // the mock's response to the source would hide a premature model change.
+      const controlled = createControlledAppServer({
+        threadReadTurns: sourceTurns,
+        compactTurn,
+        forkThreadId: "compacted-luna-thread",
+        threadForkTurns: [...sourceTurns, compactTurn],
+        turnStartIds: ["luna-after-compaction"],
+      });
+      const modelGateway = createModelGatewayMock();
+      const { pool, eventSink } = createStartOperationPool(
+        root, controlled.factory, undefined, { modelGateway },
+      );
+      const input = {
+        ...startOperationInput(),
+        codexThreadId: "existing-deepseek-thread",
+        model: "gpt-5.6-luna",
+        modelTransitionSource: {
+          model: "deepseek-flash",
+          provider: modelRuntimeInput.modelProvider,
+        },
+      };
+
+      try {
+        await pool.prewarmConversation(input);
+        expect(controlled.requests.find((request) => request.method === "thread/resume")?.params)
+          .toMatchObject({ threadId: input.codexThreadId, model: "deepseek-flash" });
+        expect(controlled.methods).not.toContain("thread/compact/start");
+        expect(controlled.methods).not.toContain("thread/fork");
+        expect(controlled.methods).not.toContain("turn/start");
+        const readsBeforeSubmit = controlled.methods.filter((method) => method === "thread/read").length;
+
+        if (compactStatus === "completed") {
+          await expect(pool.startTurn(input)).resolves.toEqual({
+            codexThreadId: "compacted-luna-thread",
+            codexTurnId: "luna-after-compaction",
+          });
+          expect(controlled.methods.indexOf("thread/compact/start"))
+            .toBeLessThan(controlled.methods.indexOf("thread/fork"));
+          expect(controlled.methods.indexOf("thread/fork"))
+            .toBeLessThan(controlled.methods.indexOf("turn/start"));
+          expect(controlled.requests.find((request) => request.method === "turn/start")?.params)
+            .toMatchObject({ threadId: "compacted-luna-thread", model: "gpt-5.6-luna" });
+          expect(eventSink.alignConversationThread)
+            .toHaveBeenCalledWith(input.conversationId, "compacted-luna-thread");
+          expect(controlled.methods.filter((method) => method === "turn/start")).toHaveLength(1);
+        } else {
+          await expect(pool.startTurn(input)).rejects.toThrow("model transition context compaction failed");
+          expect(controlled.methods).not.toContain("thread/fork");
+          expect(controlled.methods).not.toContain("turn/start");
+          expect(eventSink.alignConversationThread)
+            .toHaveBeenLastCalledWith(input.conversationId, input.codexThreadId);
+        }
+        // Switching must read the prewarmed history and use the native source
+        // compaction even though no process rebuild is needed.
+        expect(controlled.methods.filter((method) => method === "initialize")).toHaveLength(1);
+        expect(controlled.methods.filter((method) => method === "thread/read").length)
+          .toBeGreaterThan(readsBeforeSubmit);
+        expect(controlled.methods.filter((method) => method === "thread/compact/start")).toHaveLength(1);
+        const gatewayLease = modelGateway.issueLease.mock.results[0]?.value;
+        expect(gatewayLease.setModelTransition).toHaveBeenCalledWith(
+          expect.objectContaining({ model: "deepseek-flash" }), expect.any(String),
+        );
+        expect(gatewayLease.setManualModelTransitionCompaction).toHaveBeenCalledWith(true);
+        expect(gatewayLease.setManualModelTransitionCompaction).toHaveBeenLastCalledWith(false);
+      } finally {
+        await pool.closeAll();
+      }
+    },
+  );
+
+  it("keeps a foreground process slot free and never evicts another task for speculative prewarm", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-prewarm-capacity-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ threadReadTurns: [] });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    try {
+      await pool.prewarmConversation(input);
+      await expect(pool.prewarmConversation({ ...input, conversationId: "01900000-0000-7000-8000-000000000003" })).rejects.toThrow("preserve foreground capacity");
+      expect(controlled.kill).not.toHaveBeenCalled();
+      await expect(pool.startTurn({ ...input, conversationId: "01900000-0000-7000-8000-000000000003" })).resolves.toBeDefined();
+    } finally { await pool.closeAll(); }
   });
 
   it("does not make task creation wait for an in-flight app-server prewarm", async () => {
@@ -9563,6 +9699,26 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("notifies only after durable startup and keeps success when the callback is unavailable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-start-notify-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    let observed: unknown;
+    eventSink.reportStartSettled.mockImplementation(async notification => {
+      observed = await pool.getStartOperation(notification.conversationId, notification.projectionTurnId);
+      throw new Error("API temporarily unavailable");
+    });
+    try {
+      await pool.beginStartOperation(input);
+      await waitForFast(() => expect(eventSink.reportStartSettled).toHaveBeenCalledOnce());
+      await waitForFast(() => expect(observed).toMatchObject({ status: "succeeded" }));
+      await expect(pool.beginStartOperation(input)).resolves.toMatchObject({ status: "succeeded" });
+      expect(controlled.methods.filter(method => method === "turn/start")).toHaveLength(1);
+    } finally { await pool.closeAll(); }
+  });
+
   it("logs safe filesystem diagnostics when a start operation fails before native preparation", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-start-enoent-log-"));
     roots.push(root);
@@ -10959,12 +11115,14 @@ function createStartOperationPool(
   const publish = vi.fn<RunnerEventSink["publish"]>(async () => undefined);
   const eventSink = {
     publish,
+    reportStartSettled: vi.fn<NonNullable<RunnerEventSink["reportStartSettled"]>>(async () => undefined),
     publishBatch: vi.fn<RunnerEventSink["publishBatch"]>(async (conversationId, events) => {
       for (const event of events) await publish(conversationId, event);
     }),
     reportProcessExit: vi.fn(async () => undefined),
     registerArtifact: vi.fn(async () => ({})),
     previewSkillZip: vi.fn(async () => ({})),
+    applicationBuilder: vi.fn(async () => null),
     confirmSkillInstall: vi.fn(async () => ({})),
     searchKnowledge: vi.fn(async () => ({})),
     listKnowledgeDocuments: vi.fn(async () => ({})),
@@ -11400,6 +11558,10 @@ function createControlledAppServer(
                                 ? {}
                                 : {
                                     register_artifact: {},
+                                    open_application_development: {},
+                                    inspect_application_development: {},
+                                    inspect_application_tests: {},
+                                    update_application_metadata: {},
                                     generate_image: {},
                                     preview_skill_zip: {},
                                     install_skill: {},
@@ -11718,6 +11880,10 @@ function createControlledAppServer(
                     ? {}
                     : {
                         register_artifact: {},
+                        open_application_development: {},
+                        inspect_application_development: {},
+                        inspect_application_tests: {},
+                        update_application_metadata: {},
                         generate_image: {},
                         preview_skill_zip: {},
                         install_skill: {},

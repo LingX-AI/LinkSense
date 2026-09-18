@@ -60,7 +60,7 @@ export function buildControllerServer(
     const scope = uuid.optional().safeParse(request.headers[runtimeServiceSessionHeader])
     if (!scope.success) return reply.code(400).send({ error_code: "RUNNER_SERVICE_SCOPE_INVALID" })
     if (!scope.data) return
-    if (request.url.startsWith("/internal/skill-creator/")) {
+    if (request.url.startsWith("/internal/skill-creator/") || request.url === "/internal/application-builder") {
       return reply.code(403).send({ error_code: "RUNNER_SERVICE_SCOPE_MISMATCH" })
     }
   })
@@ -137,6 +137,7 @@ export function buildControllerServer(
 
   for (const route of [
     "/internal/runner/heartbeat",
+    "/internal/runner/start-settled",
     "/internal/runner/events",
     "/internal/runner/memory-usage",
     "/internal/runner/process-exit",
@@ -149,6 +150,7 @@ export function buildControllerServer(
     "/internal/skill-creator/confirm",
     "/internal/current-user/info",
     "/internal/application-events/emit",
+    "/internal/application-builder",
   ]) {
     app.post(route, async (request, reply) => {
       const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
@@ -175,6 +177,8 @@ export function buildControllerServer(
               ? 180_000
             : route === "/internal/runner/process-exit"
               ? 130_000
+            : route === "/internal/application-builder"
+              ? 60_000
             : 15_000,
           controller.signal,
           uuid.optional().parse(request.headers[runtimeServiceSessionHeader]),
@@ -225,6 +229,21 @@ export function buildControllerServer(
       },
     })
   }
+
+  app.post<{ Params: { conversationId: string } }>(
+    "/conversations/:conversationId/runtime/close",
+    async (request, reply) => {
+      const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
+      const conversationId = uuid.safeParse(request.params.conversationId)
+      if (!ownerId || !conversationId.success) return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" })
+      try {
+        return sendWorkerResponse(reply, await workers.closeConversationRuntime(ownerId, conversationId.data, uuid.optional().parse(request.headers[runtimeServiceSessionHeader])))
+      } catch (error) {
+        if (error instanceof RuntimeCleanupError) return reply.code(503).send({ error_code: error.reasonCode, cleanup_stage: error.stage })
+        return sendWorkerTransportFailure(reply, error)
+      }
+    },
+  )
 
   app.delete<{ Params: { conversationId: string } }>(
     "/conversations/:conversationId/runtime",

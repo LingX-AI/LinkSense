@@ -48,7 +48,7 @@ afterEach(async () => {
 });
 
 describe("runtime cleanup isolation", () => {
-  it("protects an active target task without touching its workspace", async () => {
+  it.each(["DELETE", "POST"] as const)("protects an active target task during %s cleanup or update without touching its workspace", async method => {
     const root = await mkdtemp(path.join(tmpdir(), "linksense-active-cleanup-"));
     roots.push(root);
     const config = createWorkerConfig(root);
@@ -66,8 +66,8 @@ describe("runtime cleanup isolation", () => {
     const server = buildRunnerServer(config, pool, workspaceManager);
 
     const response = await server.inject({
-      method: "DELETE",
-      url: `/conversations/${conversationId}/runtime`,
+      method,
+      url: `/conversations/${conversationId}/runtime${method === "POST" ? "/close" : ""}`,
       headers: {
         authorization: `Bearer ${config.LINKSENSE_RUNNER_SHARED_SECRET}`,
         "x-linksense-owner-id": ownerId,

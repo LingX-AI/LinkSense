@@ -611,7 +611,7 @@ describe("WorkspaceManager", () => {
     )
     expect(managedServiceConfig).toContain('args = ["core-service.js"]')
     expect(managedServiceConfig).toContain(
-      'env_vars = ["LINKSENSE_COLLABORATION_MODE", "LINKSENSE_CONVERSATION_ID", "LINKSENSE_CURRENT_USER_ENDPOINT", "LINKSENSE_CURRENT_USER_TOKEN", "LINKSENSE_FILE_SERVICE_ENDPOINT", "LINKSENSE_FILE_SERVICE_TOKEN", "LINKSENSE_FORM_SERVICE_ENDPOINT", "LINKSENSE_FORM_SERVICE_TOKEN", "LINKSENSE_IMAGE_GENERATION_ENDPOINT", "LINKSENSE_IMAGE_GENERATION_TOKEN", "LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT", "LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS", "LINKSENSE_KNOWLEDGE_SERVICE_TOKEN", "LINKSENSE_SKILL_CREATOR_ENDPOINT", "LINKSENSE_SKILL_CREATOR_TOKEN"]',
+      'env_vars = ["LINKSENSE_COLLABORATION_MODE", "LINKSENSE_CONVERSATION_ID", "LINKSENSE_CURRENT_USER_ENDPOINT", "LINKSENSE_CURRENT_USER_TOKEN", "LINKSENSE_FILE_SERVICE_ENDPOINT", "LINKSENSE_FILE_SERVICE_TOKEN", "LINKSENSE_FORM_SERVICE_ENDPOINT", "LINKSENSE_FORM_SERVICE_TOKEN", "LINKSENSE_IMAGE_GENERATION_ENDPOINT", "LINKSENSE_IMAGE_GENERATION_TOKEN", "LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT", "LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS", "LINKSENSE_KNOWLEDGE_SERVICE_TOKEN", "LINKSENSE_SKILL_CREATOR_ENDPOINT", "LINKSENSE_SKILL_CREATOR_TOKEN", "LINKSENSE_APPLICATION_BUILDER_ENDPOINT", "LINKSENSE_APPLICATION_BUILDER_TOKEN"]',
     )
     expect(managedServiceConfig).toContain("required = true")
     expect(managedServiceConfig).toContain("tool_timeout_sec = 630")
@@ -1453,6 +1453,7 @@ async function publishedRuntimeFixture() {
     mkdir(path.join(skillsRoot, "linksense-skill-creator"), {
       recursive: true,
     }),
+    mkdir(path.join(skillsRoot, "linksense-interactive-app-builder"), { recursive: true }),
     mkdir(pluginRoot, { recursive: true }),
     mkdir(path.join(userHome, ".codex", "plugins"), { recursive: true }),
     mkdir(path.dirname(marketplacePath), { recursive: true }),
@@ -1500,6 +1501,7 @@ async function publishedRuntimeFixture() {
       path.join(skillsRoot, "linksense-skill-creator", "SKILL.md"),
       "creator",
     ),
+    writeFile(path.join(skillsRoot, "linksense-interactive-app-builder", "SKILL.md"), "application builder"),
     writeFile(path.join(pluginRoot, "plugin.json"), "documents"),
     writeFile(marketplacePath, marketplace),
   ])
@@ -1515,6 +1517,7 @@ async function publishedRuntimeFixture() {
     [path.join(skillsRoot, "linksense-image-generation"), 0o750],
     [path.join(skillsRoot, "linksense-knowledge-base"), 0o750],
     [path.join(skillsRoot, "linksense-skill-creator"), 0o750],
+    [path.join(skillsRoot, "linksense-interactive-app-builder"), 0o750],
     [path.join(userHome, ".agents", "plugins"), 0o750],
     [path.join(userHome, ".codex"), 0o770],
     [pluginsRoot, 0o750],
@@ -1533,6 +1536,7 @@ async function publishedRuntimeFixture() {
     path.join(skillsRoot, "linksense-image-generation", "SKILL.md"),
     path.join(skillsRoot, "linksense-knowledge-base", "SKILL.md"),
     path.join(skillsRoot, "linksense-skill-creator", "SKILL.md"),
+    path.join(skillsRoot, "linksense-interactive-app-builder", "SKILL.md"),
     path.join(pluginRoot, "plugin.json"),
     marketplacePath,
   ]

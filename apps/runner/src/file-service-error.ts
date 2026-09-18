@@ -1,4 +1,6 @@
 const SAFE_API_ERROR_CODES = new Set([
+  "WEB_SITE_BUNDLE_INVALID",
+  "WEB_SITE_RESOURCES_MISSING",
   "ARTIFACT_NOT_FOUND",
   "ARTIFACT_REGISTRATION_INVALID",
   "CONFLICT",
@@ -8,6 +10,8 @@ const SAFE_API_ERROR_CODES = new Set([
 ])
 
 export type FileServiceErrorCode =
+  | "WEB_SITE_BUNDLE_INVALID"
+  | "WEB_SITE_RESOURCES_MISSING"
   | "ARTIFACT_NOT_FOUND"
   | "ARTIFACT_REGISTRATION_BUSY"
   | "ARTIFACT_REGISTRATION_FAILED"
@@ -40,6 +44,9 @@ export function fileServiceErrorFromApi(
       : null
 
   switch (apiCode) {
+    case "WEB_SITE_BUNDLE_INVALID":
+    case "WEB_SITE_RESOURCES_MISSING":
+      return new FileServiceRequestError(apiCode, false, 422)
     case "ARTIFACT_NOT_FOUND":
       return new FileServiceRequestError("ARTIFACT_NOT_FOUND", false, 404)
     case "ARTIFACT_REGISTRATION_INVALID":
