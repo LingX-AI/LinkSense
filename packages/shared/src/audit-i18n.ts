@@ -3,6 +3,10 @@ import type { Locale } from "./common.js"
 type AuditMessages = Readonly<Record<string, readonly [string, string]>>
 
 const actionMessages = {
+  web_site_created: ["已创建分享站点", "Shared site created"],
+  web_site_updated: ["已修改分享站点", "Shared site updated"],
+  web_site_published: ["已更新站点内容", "Site content published"],
+  web_site_deleted: ["已删除分享站点", "Shared site deleted"],
   application_created: ["已创建应用", "Application created"],
   application_copied: ["已复制应用", "Application copied"],
   application_installed: ["已安装应用", "Application installed"],
@@ -209,6 +213,7 @@ const actionMessages = {
 } as const satisfies AuditMessages
 
 const targetTypeMessages = {
+  web_site: ["分享站点", "Shared site"],
   application: ["应用", "Application"],
   application_distribution: ["应用分享与上架", "Application sharing and listing"],
   application_external_access: ["应用外部访问", "Application external access"],

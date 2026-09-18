@@ -1,14 +1,19 @@
 import { z } from "zod";
 
 import { timestampSchema, uniqueArraySchema, uuidSchema } from "./common.js";
+import { projectColorSchema, projectIconSchema } from "./project-appearance.js";
 
 export const projectNameSchema = z.string().trim().min(1).max(80);
 export const projectInputSchema = z.strictObject({
   name: projectNameSchema,
+  icon: projectIconSchema.optional(),
+  color: projectColorSchema.optional(),
 });
 export const projectSchema = z.strictObject({
   id: uuidSchema,
   name: projectNameSchema,
+  icon: projectIconSchema,
+  color: projectColorSchema,
   created_at: timestampSchema,
   updated_at: timestampSchema,
 });

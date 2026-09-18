@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { timestampSchema, uniqueArraySchema, uuidSchema } from "./common.js";
-import { applicationVersionInputSchema, applicationVersionNumberSchema } from "./application-version.js";
+import { applicationPublishedVersionInputSchema, applicationVersionNumberSchema } from "./application-version.js";
 
 export const applicationUsageModeSchema = z.enum(["install", "service"]);
 export const applicationUsageModesSchema = uniqueArraySchema(applicationUsageModeSchema).min(1).max(2);
@@ -16,7 +16,7 @@ export const applicationInstallInputSchema = z.strictObject({
 export const applicationUpdateInstallationInputSchema = z.strictObject({
   version_id: uuidSchema,
 });
-export const applicationCenterSubmissionInputSchema = applicationVersionInputSchema.extend({
+export const applicationCenterSubmissionInputSchema = applicationPublishedVersionInputSchema.extend({
   usage_modes: applicationUsageModesSchema,
   release_notes: z.string().trim().max(8_000).default(""),
 });
@@ -39,6 +39,14 @@ export const applicationInstallationSchema = z.strictObject({
   update_available: z.boolean(),
   setup_required: z.boolean(),
 });
+export const applicationServiceInstallationSchema = z.strictObject({
+  installed_version_id: uuidSchema.nullable(),
+  installed_version_number: applicationVersionNumberSchema.nullable(),
+  available_version_id: uuidSchema.nullable(),
+  available_version_number: applicationVersionNumberSchema.nullable(),
+  update_available: z.boolean(),
+});
+export type ApplicationServiceInstallation = z.infer<typeof applicationServiceInstallationSchema>;
 export const applicationDistributionSummarySchema = z.strictObject({
   application_id: uuidSchema,
   published_version_id: uuidSchema.nullable(),
@@ -46,6 +54,8 @@ export const applicationDistributionSummarySchema = z.strictObject({
   usage_modes: z.array(applicationUsageModeSchema).max(2),
   installation: applicationInstallationSchema.nullable(),
   installed_application_id: uuidSchema.nullable(),
+  service_installation: applicationServiceInstallationSchema.nullable().default(null),
+  copy_installation: applicationServiceInstallationSchema.nullable().default(null),
 });
 export const applicationCenterReleaseSchema = z.strictObject({
   id: uuidSchema,
@@ -66,6 +76,8 @@ export const applicationCenterReleaseSchema = z.strictObject({
   submitted_at: timestampSchema,
   reviewed_at: timestampSchema.nullable(),
   installed_application_id: uuidSchema.nullable(),
+  service_installation: applicationServiceInstallationSchema.nullable().default(null),
+  copy_installation: applicationServiceInstallationSchema.nullable().default(null),
 });
 export const applicationInstallationUpdateSchema = z.strictObject({
   current_version_id: uuidSchema,
