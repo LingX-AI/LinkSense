@@ -92,21 +92,25 @@ Linux 会在需要时请求 `sudo`，macOS 需要把 `$HOME/.local/bin` 加入 `
 
 ## 本地开发
 
-需要 Node.js 24+、pnpm 10.6.4、可用的 Docker Engine/Compose 和 rsync（macOS 已自带；Linux 请安装发行版的 rsync 包）。应用和依赖始终在 Linux 容器中运行，宿主机的 rsync 仅负责源码同步。
+需要 Node.js 24.5+、pnpm 10.6.4、可用的 Docker Engine/Compose、rsync（macOS 已自带；Linux 请安装发行版的 rsync 包）和宿主机上的 [mkcert](https://github.com/FiloSottile/mkcert)（macOS：`brew install mkcert`）。应用和依赖始终在 Linux 容器中运行，宿主机的 rsync 仅负责源码同步。首次执行 `mkcert -install` 时，按系统提示完成证书信任授权。
 
 ```bash
 corepack enable
 corepack prepare pnpm@10.6.4 --activate
 pnpm install --frozen-lockfile
+mkcert -install
 pnpm dev:prepare
 pnpm dev
 ```
 
 首次准备会构建应用镜像、正式任务 Worker，以及与生产共用构建阶段的双语帮助中心，检查基础设施和数据库初始化，再启动服务并预热运行时缓存直至就绪。`pnpm dev` 也会自动补齐缺失的准备步骤；如果希望本地开发不运行 Docker，Core 最小模式只需要宿主机可访问的 PostgreSQL 和 Redis，并使用开发专用的本地文件存储及无隔离子进程 Worker。复制最小环境模板并按 [`dev:host` 启动说明](./deploy/development/README.zh-CN.md#不依赖本机-docker-的-host-开发模式)操作。容器日常启动目标为准备完成后 10 秒内就绪。默认地址：
 
-- Web：`http://localhost:18173`
+- Web HTTP：`http://localhost:18172`
+- Web HTTPS（HTTP/2）：`https://localhost:18173`
 - API：`http://localhost:4000`
 - Runner：`http://localhost:4010`
+
+HTTP 和 HTTPS 同时可用，不会强制跳转，均支持 API、SSE 和热更新；验证多任务 SSE 并发时使用 HTTPS 的 HTTP/2 入口。在 `.env` 中通过 `LINKSENSE_DEV_WEB_ORIGIN` 和 `LINKSENSE_DEV_WEB_PORT` 配置 HTTP 地址和端口，通过 `LINKSENSE_DEV_WEB_HTTPS_PORT` 配置 HTTPS 端口。开发证书会自动生成，并排除在 Git 之外。
 
 常用命令：
 

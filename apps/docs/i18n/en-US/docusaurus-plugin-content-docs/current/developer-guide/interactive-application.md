@@ -7,6 +7,24 @@ description: Generate resource declarations by name, configure the Manifest, mat
 
 Interactive applications put your workflow forms, visualizations, and controls inside LinkSense. Your code runs in an iframe without a sandbox while the complete LinkSense chat occupies a separate pane on the right, preserving task progress, forms, approvals, attachments, and artifacts. Users can drag the divider to resize both panes, and the chat never covers the application UI.
 
+## Built-in conversational development
+
+The built-in `linksense-interactive-app-builder` Skill uses `linksense_core.open_application_development` to create or open a project in the current regular task. Supply an existing deployable directory or let the platform generate an SDK starter. `linksense_core.inspect_application_development` synchronizes files and returns preview state, source validation failures, and browser diagnostics. Both tools are restricted to the owner's active development turn in normal collaboration mode; neither installs nor publishes applications.
+
+Sources live in a separate directory in the task workspace. The open panel checks the bounded static directory every 1.5 seconds. Stable snapshots pass the same package validation as ZIP imports and become immutable preview packages. Keep hidden files, symbolic links, private files, and `node_modules` outside this directory. Framework sources can live alongside it, with compiled static output written into the registered directory.
+
+The preview runs the real SDK in a separate application task. Active tests keep their original package until completion. Configure capabilities supports searching, adding, and removing plugins, skills, knowledge bases, and MCP servers, including applications with no dependencies yet. Saving checks resource ownership and availability, writes actual resource UUIDs and names to `dependencies.plugins`, `skills`, `knowledge_bases`, and `mcp_servers` in the source `manifest.json`, and rebuilds the preview. Other manifest fields and code files are preserved. Installation and updates package the same configuration. If the source changes after the editor opens, saving reports a conflict and requires reloading the configuration. Script errors and unhandled promise rejections appear in Debug logs, bounded to 20 reports per version and redacted on the server. Treat diagnostic text as untrusted application output.
+
+Install submits the reviewed source digest. The server checks sources and resources again and saves the application version and project installation state in one transaction. Installed versions are independent of later preview changes. Continue development also works for existing applications: the first use restores files from their current static package; later uses reopen the original project. Build sources absent from an imported package cannot be restored.
+
+### App icon, name and description
+
+Call `linksense_core.update_application_metadata` to edit the current development project's metadata. Inspect first for `source_hash`, then supply the requested `name`, `description` or `icon`. Omitted fields are preserved; `description: null` clears the description.
+
+Icons accept `{ "type": "preset", "preset": "book-open" }` or `{ "type": "file", "path": "uploads/logo.png" }`. Use the actual image path relative to this task's workspace. Absolute paths, hidden paths and symlinks are rejected. Both the tool and editor accept PNG, JPEG or WebP, at most 512 KiB and 1024 pixels per side. The platform copies the image into the app directory and updates its manifest, preserving the original image, code and resource selections. Icons do not depend on temporary attachment URLs.
+
+The development header's icon button and a draft's Edit app details action in My applications use the same save flow. Publish draft edits to apply them. Edit on an installed application changes its current metadata; shared or listed versions still require republication.
+
 ## Package layout
 
 Create a ZIP whose root directly contains `manifest.json` and `index.html`.
@@ -26,7 +44,7 @@ Supported extensions are `.html`, `.css`, `.js`, `.mjs`, `.json`, `.map`, `.txt`
 
 ## Manifest
 
-`manifest.json` describes the application identity, required resources, task instructions, SDK permissions, and business event contracts. LinkSense validates it during import, fixes the corresponding package version when a task is created, and uses its permissions and event definitions at runtime.
+`manifest.json` describes the application identity, required resources, task instructions, SDK permissions, and business event contracts. LinkSense validates it during import, records the adopted package when creating a task, and uses the corresponding version's permissions and event definitions at runtime. Published services can adopt a new version on later executions, as explained below.
 
 ### Minimal configuration
 
@@ -54,10 +72,11 @@ String limits below apply after trimming leading and trailing whitespace. The Ma
 | `schema_version` | Integer; only `1` is supported | Required | Version of the Manifest file format, determining how the platform parses it. | Keep `1`. Change `version` when releasing the application, rather than incrementing this field. |
 | `id` | String, 1–120 characters; matches `^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$` | Required | Application identifier inside the package, such as `research-workbench`; it is not the platform-assigned application UUID. | Use a stable lowercase name with hyphen-separated words, keep it unchanged across updates, and omit version numbers. Importing the same `id` does not automatically overwrite an application; update through the target application's menu. |
 | `name` | String, 1–160 characters | Required | Name displayed to users in places such as the application list; import and package updates write this into the application name. | Use a short, recognizable business name, such as “Research workbench”, without accumulating versions or technical terms. |
-| `version` | String, 1–80 characters; matches `^[0-9A-Za-z][0-9A-Za-z._+-]*$` | Required | Identifies a release of the application package; a previously imported version cannot be reused within the same application. | Prefer semantic versions such as `1.0.0` and `1.1.0`. The platform checks format and uniqueness, does not require SemVer, and does not automatically upgrade by comparing version order. |
+| `version` | String in `x.x.x` format | Required | Application version label; same-label updates have separate package and release records. | Updates may keep or increase the version, but cannot lower it. |
 | `description` | String or `null`; at most 4,000 characters | Optional; `null` | User-facing application summary; import and updates write it into the application description. It is not a task instruction. | Explain the use case, expected input, and output. This accepts one string, not an object of translations. |
 | `instructions` | String or `null`; at most 20,000 characters | Optional; `null` | Application-level task instructions. At runtime, declared event names, descriptions, and payload schemas are also appended. | Describe stable business goals, output requirements, and event triggers. Put this submission's form input in `tasks.run().prompt`. Omitting this field or using `null` selects the platform's basic instructions; an empty string does not. |
-| `icon` | String or `null`; path of 1–500 characters | Optional; `null` | Path to an image inside the package, used as the application icon; not an external image URL. | Use a relative path such as `assets/logo.png`. PNG, JPEG, and WebP are supported, up to 612 KiB and 8,192 pixels per dimension. Prefer a compressed square image. Paths cannot start with `/` or contain `..`. Omitting it or using `null` during an update preserves the existing icon rather than deleting it. |
+| `icon` | String or `null`; path of 1–500 characters | Optional; `null` | Path to an image inside the package, used as the application icon; not an external image URL. | Use a relative path such as `assets/logo.png`. PNG, JPEG, and WebP are supported, up to 512 KiB and 8,192 pixels per dimension. Prefer a compressed square image. Paths cannot start with `/` or contain `..`. Omitting the image and `icon_preset` preserves the existing icon on update. To choose a preset, set `icon` to `null` and supply `icon_preset`. |
+| `icon_preset` | Preset icon identifier, such as `book-open`, `sparkles`, or `code-xml` | Optional | Chooses a preset when no image is provided; also provides the fallback for a custom image. | Use the editor or the metadata tool to select a supported value. |
 | `entry` | String; only `"index.html"` is supported | Optional; `"index.html"` | Entry document opened in the iframe; it must exist at the ZIP root. | Keep the default. Do not use a full URL, nested entry document, or frontend route. |
 | `sdk_version` | Integer; only `1` is supported | Required | LinkSense SDK protocol version used by the page. | Load `/sdk/v1.js` using the complete path shown below. Do not use the SDK's string version `"1.0.0"`. |
 | `permissions` | Array of permission strings; at most 6, without duplicates | Optional; the original five permissions (excluding `files:write`) below | Controls which SDK capabilities the page can call; it does not expand the current user's resource access. | Explicitly list what is needed. Use `["tasks:write"]` to start work only. `[]` requests none of these capabilities; omitting the field requests the original five, excluding `files:write`. |
@@ -129,16 +148,18 @@ An app that only submits tasks can request just `tasks:write`, even if those tas
 
 #### Import and configure resources
 
-Import preview matches UUIDs only against available resources of the correct type owned by the importer. Unmatched entries may be mapped to another owned resource of the same type or left unselected: import still succeeds. Original declarations and unresolved states are retained. Use **Configure required resources** in the app menu to finish later. Every declaration must be resolved before running the draft or publishing. Declarations do not copy resources, carry credentials, or grant access. Disabled or deleted resources must also be addressed.
+Import preview matches UUIDs only against available resources of the correct type owned by the importer. Map unmatched entries to another owned resource of the same type in the package import or update dialog. Original declarations and unresolved states are retained. Every declaration must be resolved before running the draft or publishing. Declarations do not copy resources, carry credentials, or grant access. Disabled or deleted resources must also be addressed.
 
 1. Select a ZIP in **Import interactive app** and review its declared resources.
 2. A **yellow circled exclamation mark** next to a name means an available resource still needs to be configured. Search and select a resource of the same type in the picker on the right. A **green circled check mark** means it is configured.
 3. To change a selection, use the **clear icon** inside the right end of the picker, then choose again. Clearing does not delete the resource or its declaration.
-4. You may leave selections empty and continue importing. Later, open **Configure required resources** from the app menu, finish configuration, and save. Apps without declared resources show an informational message without Cancel or Save buttons.
+4. Once resources are configured, click **Import** or **Update**. If any resources are missing, follow the dialog instructions to complete the configuration and retry.
 
 #### Updates, sharing, and listing
 
 Package updates preserve mappings, including explicit empty selections, for unchanged type/UUID pairs. New declarations attempt automatic matching; removed declarations are unbound. Mappings belong to the draft and do not rewrite package UUIDs. Published versions keep their own resource snapshots and remain unaffected by incomplete drafts until a new version is shared or listed.
+
+Development publication and package updates activate only for the creator. The package, resource bindings, release record, and installation change in one transaction. Failure leaves no partial configuration. Save sharing or update the center listing separately; recipients manually install the new version.
 
 Interactive apps can only be shared or listed as online services, not copied or installed. Users use the creator's bound resources without remapping; credentials stay on the server. Standard apps remain installable when authorized. Existing interactive copies remain independent apps but no longer receive copied updates from the source. Historical install-only grants do not become service grants automatically; the creator must change sharing permissions. Existing packages without `dependencies` remain readable and usable.
 
@@ -259,10 +280,23 @@ An event payload matching this contract:
 | --- | --- | --- |
 | Top-level `schema_version` | Manifest format | Currently fixed at `1`, according to the format supported by the platform. |
 | `sdk_version` | SDK protocol | Currently fixed at `1`, matching the SDK v1 script. |
-| `version` | Entire application release package | Use a never-published version when importing changes to HTML, JS, styles, instructions, permissions, or event contracts. |
+| `version` | Entire application release package | Updates may keep or increase the label; every save creates a separate record. |
 | `custom_events[].schema_version` | One business event contract | Increment when its structure or meaning changes, and publish it with a new package version. |
 
-Existing tasks keep the package, instructions, and event contracts fixed at creation; new tasks use the current package. An update neither switches old tasks to the new interface nor rewrites historical data with the new schema. Before releasing, check both creating a new task and reopening an existing one.
+### When published applications adopt a new version
+
+Creators use their current installation under ownership permissions in historical tasks, including tasks originally started from Application Center. Removing the listing does not block the creator's own active application. Other users retain the original sharing or center access checks. A removed center listing shows “This application has been removed from the Application Center.” in a centered notice without a background; conversation history remains visible and further execution is blocked. Disabling or deleting the application itself also blocks its owner.
+
+For online services used through organization sharing or Application Center, the version depends on the access channel and execution boundary:
+
+- Organization sharing and Application Center keep their submitted versions. Creators must reshare or relist updates, and recipients install them manually.
+- New tasks and subsequent turns in existing tasks use the current user’s installed version, not uninstalled creator updates.
+- Saving or installing updates is blocked while the same user has regular tasks running or starting for that application. Development debugging uses a separate environment.
+- Opening or refreshing a historical task loads its currently recorded package. That may be the package adopted at creation or a newer package adopted by a later execution. Restoring the page does not execute or automatically upgrade the task.
+
+These rules apply to published online services. They do not imply that unpublished application drafts or development previews follow shared versions automatically.
+
+Historical events and results are not rewritten to the new contract; one task can contain events with multiple `schema_version` values. New package handlers must recognize historical event versions rather than treat old payloads as the new structure. Before publishing, test creating a new task, only reopening an old task, executing again in an old task, and publishing an update while a task is running.
 
 ## Load the SDK
 
@@ -326,7 +360,7 @@ The same event may arrive again after reconnection. The SDK deduplicates by even
 
 ### Re-entering a task and restoring events
 
-After switching to another task, users can reopen an interactive application from the task sidebar or search results. LinkSense loads the immutable application package fixed when the task was created, replays all persisted custom events in `sequence` order, and then continues with live events. Restoring the page never reruns the task or asks the model to emit the data again.
+After switching to another task, users can reopen an interactive application from the task sidebar or search results. LinkSense loads the application's package currently recorded for that task, replays all persisted custom events in `sequence` order, and then continues with live events. After a published service adopts a new package on its next execution, reopening the task uses that package. Merely opening the page does not change the recorded version. Restoring the page never reruns the task or asks the model to emit the data again.
 
 The SDK buffers events that arrive before the application registers a listener and deduplicates them by stable event id. Register business event listeners early and keep handlers idempotent so the UI can be rebuilt from callbacks. Unsubmitted form drafts that were never represented by custom events are not persisted automatically.
 
@@ -373,7 +407,7 @@ The repository's `examples/interactive-research-brief/` directory contains a com
 | --- | --- | --- |
 | Import reports an invalid package | ZIP root, unknown fields, version types, duplicate permissions or events, file and icon limits. | Compare with the minimal configuration. Use numeric `1`, not string `"1"`, and place `index.html` and `manifest.json` directly at the root. |
 | An event schema prevents import | `payload_schema.type`, schema dialect, and resolvable references. | Use 2020-12 with an object root and a self-contained schema; do not rely on downloading external `$ref` targets at runtime. |
-| An update reports a version conflict | Whether this application's new `version` was previously imported. | Use a never-published version. Changing file contents does not bypass uniqueness checks. |
+| An update reports a lower version | Whether the package version is below the highest existing version. | Use the same or a higher x.x.x version. |
 | The icon fails import | Whether `icon` points to SVG, GIF, or an external URL. | Use a valid bundled PNG, JPEG, or WebP. Support for SVG page assets does not imply SVG application icon support. |
 | Scripts, requests, or assets fail | Check browser errors, CORS, HTTPS mixed content, asset paths, and connectivity from the user's network. | Direct connections and external scripts are allowed. Configure the third-party service to allow the page origin, use HTTPS/WSS and correct asset paths, and check for CSP added by the application or a proxy. |
 | The SDK reports not ready or permission denied | Whether `ready()` completed and the required permission is present. | Enable controls after initialization. Add permissions required by actual calls, publish a new package, and verify in a new task. |
@@ -409,7 +443,7 @@ Uploads use the platform’s existing per-file size and per-conversation file-co
 
 Omitting `file_ids` or passing `[]` submits no files. Application attachments and native chat drafts are managed separately: an application can only submit its current task’s staged application attachments, and chat does not automatically consume them. Accepted attachments belong to the submitted turn, appear in chat history, and are passed through the existing runner attachment context. Do not submit a bound file again as a new attachment. Reuse the same `idempotency_key` for the same logical submission; use a new key when changing file selection.
 
-Existing packages continue to submit text without reimporting. To enable uploads, update the package with the permission and create a task using that version. Existing tasks retain their pinned package and permissions.
+Existing packages continue to submit text without reimporting. To enable uploads, declare `files:write` in an updated package and update the corresponding shared or listed version. Prefer a new task when verifying uploads. An existing shared or listed task uses the new permissions only after adopting the new package on its next execution. Refreshing alone does not update permissions; uploads use the package currently recorded for that task.
 
 See `examples/interactive-research-brief/` for multiple selection, retry, removal, restoration, and explicit file-ID submission.
 
