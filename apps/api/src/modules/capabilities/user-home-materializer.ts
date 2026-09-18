@@ -34,6 +34,7 @@ import { CapabilitySnapshotStore, writeSnapshotFile } from "./capability-snapsho
 
 import { writeBuiltInLinksenseDocs } from "./built-in-linksense-docs.js"
 import { writeBuiltInSkillCreator } from "./built-in-skill-creator.js"
+import { writeBuiltInApplicationBuilder } from "./built-in-application-builder.js"
 import {
   SkillManifestValidationError,
   parseSkillManifest,
@@ -57,7 +58,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "fc56276ece5e76bb9e95d6a42b89bd0e45f086be9641ae64b406f51e464c6171"
+  "a270b80998bdae3ef2f5db071f9a5f1d7f10ad4d8ce90754dd1d72a2256131e2"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"
@@ -278,16 +279,7 @@ export class UserHomeCapabilityMaterializer {
       const existing = await readMatchingRuntimeVerification(paths, input.capabilities, sourceDigest)
       if (existing) return reconciledRuntime(paths, existing)
     }
-    const key = createHash("sha256").update(JSON.stringify({
-      version: 1,
-      builtIns: {
-        revision: BUILT_IN_CAPABILITY_RUNTIME_REVISION,
-        skills: this.#enabledBuiltInSkillNames,
-      },
-      capabilities: [...input.capabilities].sort(compareCapabilities).map((capability) => ({
-        ...capabilityRuntimeDescriptor(capability), sourcePath: capability.sourcePath,
-      })),
-    })).digest("hex")
+    const key = capabilitySnapshotKey(input.capabilities, this.#enabledBuiltInSkillNames)
     const store = new CapabilitySnapshotStore(paths.ownerRoot)
     // Serialize publication with native startup, never with a whole running turn.
     const release = await this.#acquireReconcileLock(paths)
@@ -596,6 +588,7 @@ export class UserHomeCapabilityMaterializer {
         writeBuiltInKnowledgeBaseSkill(skillsRoot),
         writeBuiltInLinksenseDocs(skillsRoot),
         writeBuiltInSkillCreator(skillsRoot),
+        writeBuiltInApplicationBuilder(skillsRoot),
       ])
 
       const sortedCapabilities = [...capabilities].sort(compareCapabilities)
@@ -1699,6 +1692,16 @@ async function runtimeMatches(
   }
 }
 
+function capabilitySnapshotKey(capabilities: UserHomeCapabilityInput[], enabledBuiltIns: readonly BuiltInSkillName[]): string {
+  return createHash("sha256").update(JSON.stringify({
+    version: 1,
+    builtIns: { revision: BUILT_IN_CAPABILITY_RUNTIME_REVISION, skills: enabledBuiltIns },
+    capabilities: [...capabilities].sort(compareCapabilities).map(capability => ({
+      ...capabilityRuntimeDescriptor(capability), sourcePath: capability.sourcePath,
+    })),
+  })).digest("hex")
+}
+
 async function readPublishedRuntimeVerification(
   paths: UserHomeCapabilityPaths,
   capabilities: UserHomeCapabilityInput[],
@@ -1707,6 +1710,10 @@ async function readPublishedRuntimeVerification(
   try {
     const snapshot = await readUserSnapshot(paths)
     if (!snapshot) return null
+    // Skill names can stay unchanged across a release. The catalog key also
+    // binds their built-in revision, without hashing every file on each start.
+    const expected = await new CapabilitySnapshotStore(paths.ownerRoot).read(capabilitySnapshotKey(capabilities, enabledBuiltIns))
+    if (expected?.id !== snapshot.id) return null
     const skillsRoot = await lstat(paths.skillsRoot)
     const marketplace = await lstat(paths.marketplacePath)
     if (
@@ -1931,6 +1938,13 @@ spreadsheet, PDF, image, audio, video, or archive.
 - Only register finished deliverables, not caches or intermediate files.
 - Pass a path relative to the current task workspace.
 - Keep deliverables under \`artifacts/\`.
+- For websites, place the HTML entry and all public JS, CSS, images, fonts, and
+  data in a dedicated directory under \`artifacts/\`. Pass that directory as
+  \`web_root_relative_path\` and the HTML entry as \`workspace_relative_path\`.
+  This saves every resource for later link sharing. Use relative URLs, including
+  runtime fetch URLs. Keep credentials, dotfiles, source maps, node_modules, and
+  source projects out of that directory; register built static output.
+- Self-contained HTML can be registered without \`web_root_relative_path\`.
 - Register supported audio and video files directly. Do not wrap a media file
   in a ZIP archive only to make it downloadable.
 - Never pass credentials, environment variables, absolute paths, or files from

@@ -5,12 +5,25 @@ import { isDeepStrictEqual } from "node:util";
 import { lstat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { applicationVersionInputSchema, applicationVersionNumberSchema, applicationVersionStatus, type ApplicationVersionInput, type ApplicationPublication, type ApplicationDistributionSettings } from "@linksense/shared";
+import { applicationVersionInputSchema, applicationVersionNumberSchema, applicationVersionStatus, nextApplicationVersion, type ApplicationVersionInput, type ApplicationPublication, type ApplicationDistributionSettings } from "@linksense/shared";
 import { Prisma, type PrismaClient, type ApplicationVersion } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
 import { hashPackageDirectory, listPackageDirectoryFiles } from "../../lib/package-directory-integrity.js";
 import { stageAtomicDirectoryReplacement } from "../capabilities/importer.js";
 import { publishedApplicationDefinitionSchema, publishedCapabilitySchema, type PublishedApplicationDefinition, type PublishedCapability } from "./published-definition.js";
+
+export type InteractivePublicationUpdate = {
+  packageId: string;
+  name: string;
+  description: string | null;
+  iconPreset: string;
+  iconObjectKey: string | null;
+  capabilityIds: string[];
+  knowledgeBaseIds: string[];
+  mcpServerIds: string[];
+};
+
+export type StandardPublicationUpdate = Omit<InteractivePublicationUpdate, "packageId"> & Pick<PublishedApplicationDefinition, "instructions" | "model" | "reasoningEffort">;
 
 export class ApplicationPublicationService {
   constructor(private readonly prisma: PrismaClient, private readonly capabilityRoot: string, private readonly assets?: Pick<InteractiveApplicationAssetStore, "get">) {}
@@ -22,18 +35,16 @@ export class ApplicationPublicationService {
     return {
       version_id: version?.id ?? null,
       version_number: version?.versionLabel ?? null,
-      usage_instructions: application.usageInstructions,
+      usage_instructions: version?.assetsReady ? this.parseDefinition(version.definitionJson).usageInstructions : application.usageInstructions,
     };
   }
 
   async settings(applicationId: string): Promise<ApplicationDistributionSettings> {
     const application = await this.prisma.application.findUniqueOrThrow({ where: { id: applicationId } });
-    const versions = await this.prisma.applicationVersion.findMany({ where: { applicationId }, orderBy: { versionNumber: "desc" } });
+    const versions = await this.prisma.applicationVersion.findMany({ where: { applicationId, purpose: { not: "debug" } }, orderBy: { versionNumber: "desc" } });
     const highest = highestVersion(versions);
-    const package_ = application.interactivePackageId ? await this.prisma.interactiveApplicationPackage.findUnique({ where: { id: application.interactivePackageId }, select: { version: true } }) : null;
-    const packageVersion = applicationVersionNumberSchema.safeParse(package_?.version);
     return {
-      version_number: highest ?? (packageVersion.success ? packageVersion.data : "1.0.0"),
+      version_number: nextApplicationVersion(highest),
       highest_version_number: highest,
       usage_instructions: versions[0]?.assetsReady ? this.parseDefinition(versions[0].definitionJson).usageInstructions : application.usageInstructions,
     };
@@ -68,33 +79,48 @@ export class ApplicationPublicationService {
   async capture(ownerId: string, applicationId: string, input: ApplicationVersionInput, options: {
     runtimeInstructions?: string;
     conversionVersionId?: string;
+    purpose?: "release" | "debug" | "installation";
+    /** The completion callback installs this package and its bindings in the same transaction. */
+    interactiveUpdate?: InteractivePublicationUpdate;
+    /** Edits and their release are committed together by the completion callback. */
+    standardUpdate?: StandardPublicationUpdate;
+    /** Interactive presentation edits keep the package and resource bindings unchanged. */
+    metadataUpdate?: Pick<PublishedApplicationDefinition, "name" | "description" | "iconPreset" | "iconObjectKey">;
     complete: (tx: Prisma.TransactionClient, version: ApplicationVersion) => Promise<void>;
   }): Promise<ApplicationPublication> {
-    const { runtimeInstructions, conversionVersionId } = options;
+    const { runtimeInstructions, conversionVersionId, interactiveUpdate, standardUpdate, metadataUpdate } = options;
+    const update = interactiveUpdate ?? standardUpdate;
+    const presentation = metadataUpdate ?? update;
+    if (metadataUpdate && update) throw new AppError("APPLICATION_PACKAGE_INVALID");
+    const purpose = options.purpose ?? "release";
     const parsed = conversionVersionId ? { ...input, version_number: applicationVersionNumberSchema.parse(input.version_number) } : applicationVersionInputSchema.parse(input);
-    const application = await this.prisma.application.findFirst({ where: { id: applicationId, ownerId, status: conversionVersionId ? { not: "deleted" } : "active" } });
+    const application = await this.prisma.application.findFirst({ where: { id: applicationId, ownerId, status: { not: "deleted" } } });
     if (!application) throw new AppError("APPLICATION_NOT_FOUND");
-    if (application.kind === "interactive" && application.interactivePackageId) {
+    if (metadataUpdate && (application.kind !== "interactive" || application.developmentOnly)) throw new AppError("APPLICATION_PACKAGE_INVALID");
+    if (standardUpdate && (application.kind !== "standard" || interactiveUpdate)) throw new AppError("APPLICATION_PACKAGE_INVALID");
+    if (interactiveUpdate && (application.kind !== "interactive" || (application.developmentOnly && purpose !== "debug"))) throw new AppError("APPLICATION_PACKAGE_INVALID");
+    if (!interactiveUpdate && application.kind === "interactive" && application.interactivePackageId) {
       const package_ = await this.prisma.interactiveApplicationPackage.findFirst({ where: { id: application.interactivePackageId, applicationId } });
       if (!package_) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
       await assertInteractiveDependenciesReady(this.prisma, ownerId, package_.manifestJson, application.interactiveDependencyBindings);
     }
-    if (!conversionVersionId) assertVersionNotLower(parsed.version_number, await this.prisma.applicationVersion.findMany({ where: { applicationId }, select: { versionLabel: true } }));
+    if (!conversionVersionId && purpose === "release") assertVersionHigher(parsed.version_number, await this.prisma.applicationVersion.findMany({ where: { applicationId, purpose: { not: "debug" } }, select: { versionLabel: true } }), Boolean(standardUpdate || metadataUpdate || interactiveUpdate));
     const [bindings, knowledge, mcp] = await Promise.all([
       this.prisma.applicationCapability.findMany({ where: { applicationId }, orderBy: { selectionOrder: "asc" } }),
       this.prisma.applicationKnowledgeBase.findMany({ where: { applicationId }, orderBy: { selectionOrder: "asc" } }),
       this.prisma.applicationMcpServer.findMany({ where: { applicationId }, orderBy: { selectionOrder: "asc" } }),
     ]);
     const sourceStatus = conversionVersionId ? { in: ["active", "disabled"] } : "active";
-    const sources = await this.prisma.capability.findMany({ where: { id: { in: bindings.map(binding => binding.capabilityId) }, ownerId, status: sourceStatus } });
-    if (sources.length !== bindings.length) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+    const capabilityIds = update?.capabilityIds ?? bindings.map(binding => binding.capabilityId);
+    const sources = await this.prisma.capability.findMany({ where: { id: { in: capabilityIds }, ownerId, status: sourceStatus } });
+    if (sources.length !== capabilityIds.length) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
     const versionId = conversionVersionId ?? randomUUID();
     const replacements: Awaited<ReturnType<typeof stageAtomicDirectoryReplacement>>[] = [];
     const snapshots: PublishedCapability[] = [];
     let committed = false;
     try {
-      for (const binding of bindings) {
-        const source = sources.find(candidate => candidate.id === binding.capabilityId);
+      for (const capabilityId of capabilityIds) {
+        const source = sources.find(candidate => candidate.id === capabilityId);
         if (!source) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
         const sourcePath = await verifiedApplicationPackagePath(this.capabilityRoot, source.storagePath);
         await listPackageDirectoryFiles(sourcePath);
@@ -110,12 +136,13 @@ export class ApplicationPublicationService {
         }));
       }
       const definition = publishedApplicationDefinitionSchema.parse({
-        schemaVersion: 1, name: application.name, kind: application.kind,
-        instructions: runtimeInstructions ?? application.instructions, usageInstructions: parsed.usage_instructions,
-        model: application.model, reasoningEffort: application.reasoningEffort,
-        interactivePackageId: application.interactivePackageId,
-        capabilities: snapshots, knowledgeBaseIds: knowledge.map(binding => binding.knowledgeBaseId),
-        mcpServerIds: mcp.map(binding => binding.mcpServerId),
+        schemaVersion: 1, description: presentation ? presentation.description : application.description,
+        iconPreset: presentation?.iconPreset ?? application.iconPreset, iconObjectKey: presentation ? presentation.iconObjectKey : application.iconObjectKey, name: presentation?.name ?? application.name, kind: application.kind,
+        instructions: standardUpdate?.instructions ?? runtimeInstructions ?? application.instructions, usageInstructions: parsed.usage_instructions,
+        model: standardUpdate ? standardUpdate.model : application.model, reasoningEffort: standardUpdate ? standardUpdate.reasoningEffort : application.reasoningEffort,
+        interactivePackageId: interactiveUpdate?.packageId ?? application.interactivePackageId,
+        capabilities: snapshots, knowledgeBaseIds: update?.knowledgeBaseIds ?? knowledge.map(binding => binding.knowledgeBaseId),
+        mcpServerIds: update?.mcpServerIds ?? mcp.map(binding => binding.mcpServerId),
       });
       const saved = await this.prisma.$transaction(async tx => {
         const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM applications WHERE id = ${applicationId}::uuid AND owner_id = ${ownerId}::uuid AND status = ${application.status} FOR UPDATE`);
@@ -136,11 +163,11 @@ export class ApplicationPublicationService {
           if (changed.count !== 1) throw new AppError("CONFLICT");
           version = await tx.applicationVersion.findUniqueOrThrow({ where: { id: conversionVersionId } });
         } else {
-          assertVersionNotLower(parsed.version_number, await tx.applicationVersion.findMany({ where: { applicationId }, select: { versionLabel: true } }));
-          if (latest?.assetsReady && latest.versionLabel === parsed.version_number && sameApplicationContent(this.parseDefinition(latest.definitionJson), definition)) {
+          if (purpose === "release") assertVersionHigher(parsed.version_number, await tx.applicationVersion.findMany({ where: { applicationId, purpose: { not: "debug" } }, select: { versionLabel: true } }), Boolean(standardUpdate || metadataUpdate || interactiveUpdate));
+          if (purpose !== "release" && latest?.assetsReady && latest.purpose === purpose && sameApplicationContent(this.parseDefinition(latest.definitionJson), definition)) {
             version = latest;
           } else {
-            version = await tx.applicationVersion.create({ data: { id: versionId, applicationId, versionNumber: (latest?.versionNumber ?? 0) + 1, versionLabel: parsed.version_number, definitionJson: definition, assetsReady: true, createdBy: ownerId } });
+            version = await tx.applicationVersion.create({ data: { id: versionId, applicationId, purpose, versionNumber: (latest?.versionNumber ?? 0) + 1, versionLabel: parsed.version_number, definitionJson: definition, assetsReady: true, createdBy: ownerId } });
           }
         }
         await options.complete(tx, version);
@@ -159,9 +186,10 @@ function highestVersion(versions: ReadonlyArray<{ versionLabel: string }>): stri
   return versions.reduce<string | null>((highest, version) => applicationVersionStatus(version.versionLabel, highest) === "new" ? version.versionLabel : highest, null);
 }
 
-function assertVersionNotLower(value: string, versions: ReadonlyArray<{ versionLabel: string }>): void {
+function assertVersionHigher(value: string, versions: ReadonlyArray<{ versionLabel: string }>, allowSameVersion = false): void {
   const highest = highestVersion(versions);
-  if (applicationVersionStatus(value, highest) === "lower") throw new AppError("APPLICATION_VERSION_TOO_LOW", { version: highest });
+  const status = applicationVersionStatus(value, highest);
+  if (highest !== null && status !== "new" && !(allowSameVersion && status === "same")) throw new AppError("APPLICATION_VERSION_TOO_LOW", { version: highest });
 }
 
 function sameApplicationContent(left: PublishedApplicationDefinition, right: PublishedApplicationDefinition): boolean {

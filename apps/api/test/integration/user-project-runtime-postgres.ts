@@ -12,6 +12,7 @@ import { convertProjectRuntime } from "../../src/operations/project-runtime-conv
 import { assertRuntimeLayoutReady } from "../../src/operations/runtime-layout-readiness.js";
 import { executionPrincipalStatus } from "../../src/lib/execution-principal.js";
 import { ProjectRepository } from "../../src/modules/projects/repository.js";
+import { ProjectService } from "../../src/modules/projects/service.js";
 import { convertApplicationEnvironments, recoverApplicationEnvironments } from "../../src/operations/application-environment-conversion.js";
 
 // This test owns a disposable database and never reads application .env files.
@@ -99,6 +100,20 @@ try {
   assert.deepEqual(after[0]?.row, expectedRow);
   assert.deepEqual(await db.$queryRaw`SELECT migration_name, checksum FROM _prisma_migrations WHERE migration_name < ${migrationName} ORDER BY migration_name`, checksums);
   assert.equal((await db.project.findUniqueOrThrow({ where: { id: project } })).sortOrder, 7);
+  const projectBeforeEdit = await db.project.findUniqueOrThrow({ where: { id: project } });
+  assert.equal(projectBeforeEdit.icon, 'folder');
+  assert.equal(projectBeforeEdit.color, 'default');
+  const projects = new ProjectService(new ProjectRepository(db));
+  const editedProject = await projects.update(owner, project, { name: projectBeforeEdit.name, icon: 'flower', color: 'blue' });
+  assert.equal(editedProject.icon, 'flower');
+  assert.equal(editedProject.color, 'blue');
+  await projects.update(owner, project, { name: projectBeforeEdit.name });
+  const persistedProject = await db.project.findUniqueOrThrow({ where: { id: project } });
+  assert.equal(persistedProject.icon, 'flower');
+  assert.equal(persistedProject.color, 'blue');
+  assert.equal(persistedProject.sortOrder, 7);
+  assert.deepEqual(persistedProject.createdAt, projectBeforeEdit.createdAt);
+  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(c) AS row FROM conversations c WHERE id = ${task}::uuid`, after);
   assert.equal((await db.conversationFile.findUniqueOrThrow({ where: { id: file } })).workspaceRootRelPath, oldWorkspace);
   assert.deepEqual((await db.conversationShare.findUniqueOrThrow({ where: { id: share } })).snapshotJson,
     { ...snapshot, conversation: { id: task, project_id: project, title: 'Existing task' } });

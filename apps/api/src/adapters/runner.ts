@@ -408,6 +408,7 @@ export class RunnerClient {
    */
   async acceptStartTurn(
     input: RunnerStartInput,
+    placement?: RuntimePlacement,
   ): Promise<RunnerStartOperation> {
     assertCapabilityGeneration(input.capabilityGeneration);
     assertCapabilityGeneration(input.mcpGeneration);
@@ -421,6 +422,7 @@ export class RunnerClient {
         "POST",
         input.ownerId,
         startBody,
+        placement,
       );
     } catch (error) {
       if (
@@ -598,13 +600,16 @@ export class RunnerClient {
     }
   }
 
-  prewarmConversation(input: RunnerStartInput) {
+  prewarmConversation(input: RunnerStartInput, placement?: RuntimePlacement) {
     const { conversationId, ...body } = input;
     return this.request<unknown>(
       `/conversations/${conversationId}/runtime/prewarm`,
       "POST",
       body,
-      { ownerId: input.ownerId, timeoutMs: RUNNER_RECONCILE_TIMEOUT_MS },
+      { ownerId: input.ownerId, timeoutMs: RUNNER_RECONCILE_TIMEOUT_MS,
+        ...(placement ? { workspacePath: placement.workspacePath } : {}),
+        ...(placement?.serviceSessionId ? { serviceSessionId: placement.serviceSessionId } : {}),
+      },
     ).then((result) => runnerPrewarmedRuntimeSchema.parse(result));
   }
 
@@ -634,7 +639,7 @@ export class RunnerClient {
     }
   }
 
-  async inspectRuntime(conversationId: string, ownerId: string) {
+  async inspectRuntime(conversationId: string, ownerId: string, placement?: RuntimePlacement) {
     try {
       const response = await fetch(
         new URL(
@@ -646,7 +651,7 @@ export class RunnerClient {
           headers: {
             authorization: `Bearer ${this.config.runnerSharedSecret}`,
             [OWNER_ID_HEADER]: ownerId,
-            ...await this.workspaceHeaders(`/conversations/${conversationId}`, ownerId),
+            ...await this.workspaceHeaders(`/conversations/${conversationId}`, ownerId, placement?.workspacePath, placement?.serviceSessionId),
           },
           signal: AbortSignal.timeout(15_000),
         },
@@ -1051,13 +1056,18 @@ export class RunnerClient {
     return result.data;
   }
 
-  closeRuntimeProcess(conversationId: string, ownerId: string) {
-    return this.request<{ success: boolean }>(
+  async closeRuntimeProcess(conversationId: string, ownerId: string): Promise<{ success: true }> {
+    const response = await this.request<unknown>(
       `/conversations/${conversationId}/runtime/close`,
       "POST",
       {},
-      { ownerId },
+      { ownerId, acceptErrorResponse: true },
     );
+    const success = z.object({ success: z.literal(true) }).safeParse(response);
+    if (success.success) return success.data;
+    const failure = z.object({ error_code: z.string() }).safeParse(response);
+    if (failure.success && failure.data.error_code === "CLEANUP_RUNTIME_ACTIVE") throw new AppError("APPLICATION_RUNTIME_BUSY");
+    throw new AppError("RUNNER_UNAVAILABLE");
   }
 
   listCodexModels(): Promise<CodexModelReasoningCatalog> {
@@ -1120,8 +1130,9 @@ export class RunnerClient {
     method: "GET" | "POST",
     ownerId: string,
     body?: unknown,
+    placement?: RuntimePlacement,
   ): Promise<RunnerStartOperation> {
-    const workspaceHeaders = await this.workspaceHeaders(pathname, ownerId);
+    const workspaceHeaders = await this.workspaceHeaders(pathname, ownerId, placement?.workspacePath, placement?.serviceSessionId);
     let response: Response;
     try {
       response = await fetch(new URL(pathname, this.config.runnerUrl), {

@@ -1,4 +1,5 @@
 import type { FastifyCorsOptions } from "@fastify/cors"
+import { SERVER_BUILD_HEADER } from "@linksense/shared"
 
 export function createApiCorsOptions(
   publicBaseUrl: string,
@@ -12,6 +13,7 @@ export function createApiCorsOptions(
     },
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     credentials: true,
+    exposedHeaders: [SERVER_BUILD_HEADER],
   }
 }
 
@@ -25,6 +27,7 @@ export function sseCorsHeaders(
   return {
     "access-control-allow-origin": allowedOrigin,
     "access-control-allow-credentials": "true",
+    "access-control-expose-headers": SERVER_BUILD_HEADER,
     vary: "Origin",
   }
 }

@@ -77,6 +77,7 @@ export interface CredentialAuditInput {
 }
 
 export interface CredentialStore {
+  readRuntimeSnapshot(userId: string, capabilityIds: string[]): Promise<CredentialRuntimeSnapshot>;
   transaction<T>(work: (store: CredentialStore) => Promise<T>): Promise<T>;
   lockCapability(id: string): Promise<void>;
   lockCredential(id: string): Promise<void>;
@@ -113,6 +114,17 @@ export interface CredentialStore {
   findCapability(id: string): Promise<CapabilityRecord | null>;
   canUserUseCapability(userId: string, capabilityId: string): Promise<boolean>;
   writeAudit(input: CredentialAuditInput): Promise<void>;
+}
+
+export interface CredentialRuntimeSnapshot {
+  capabilities: CapabilityRecord[];
+  bindings: CredentialBindingRecord[];
+  credentials: CredentialRecord[];
+}
+
+export interface CredentialResolutionRequest {
+  capabilityId: string;
+  requiredEnvironmentKeys?: string[];
 }
 
 export interface CredentialView {

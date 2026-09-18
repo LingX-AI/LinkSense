@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { applicationVersionInputSchema, type ApplicationShareInput } from "@linksense/shared";
+import { type ApplicationShareInput } from "@linksense/shared";
 import { describe, expect, it, vi } from "vitest";
 import type { ApplicationVersion } from "../src/generated/prisma/client.js";
 import { ApplicationPublicationService } from "../src/modules/applications/publication-service.js";
@@ -11,8 +11,13 @@ function fixture() {
   const applicationId = randomUUID(), ownerId = randomUUID(), recipientId = randomUUID();
   const actor: RequestActor = { id: ownerId, role: "user", status: "active", registrationSource: "organization_invitation", ipAddress: "127.0.0.1" };
   const app = { id: applicationId, ownerId, status: "active", kind: "standard", name: "Reports", instructions: "Write reports", model: null, reasoningEffort: null, interactivePackageId: null, updatedAt: new Date("2026-09-16T00:00:00Z") };
-  const version: ApplicationVersion = { id: randomUUID(), applicationId, versionNumber: 1, versionLabel: "1.0.0", definitionJson: {}, assetsReady: true, createdBy: ownerId, createdAt: app.updatedAt };
+  const version: ApplicationVersion = { id: randomUUID(), applicationId, versionNumber: 1, purpose: "release", versionLabel: "1.0.0", definitionJson: {
+    schemaVersion: 1, description: null, iconPreset: "bot", iconObjectKey: null, name: "Reports", kind: "standard", instructions: "Published reports", usageInstructions: "Configure your account",
+    model: null, reasoningEffort: null, interactivePackageId: null, capabilities: [], knowledgeBaseIds: [], mcpServerIds: [],
+  }, assetsReady: true, createdBy: ownerId, createdAt: app.updatedAt };
   const prisma = {
+    $queryRaw: vi.fn(async () => []),
+    applicationVersion: { findFirst: vi.fn(async (): Promise<ApplicationVersion | null> => version) },
     application: { findFirst: vi.fn(async () => app), update: vi.fn() },
     applicationCapability: { findMany: vi.fn(async () => []) },
     applicationKnowledgeBase: { findMany: vi.fn(async () => []) },
@@ -24,34 +29,32 @@ function fixture() {
     userGroup: { findUnique: vi.fn(async () => ({ id: recipientId })) },
     applicationGrant: { findFirst: vi.fn(async (): Promise<{ id: string } | null> => null), create: vi.fn(), update: vi.fn() },
   };
-  const publications = new ApplicationPublicationService(prisma as never, "/not-used");
-  const capture = vi.spyOn(publications, "capture").mockImplementation(async (_owner, _app, input, options) => {
-    const parsed = applicationVersionInputSchema.parse(input);
-    await options.complete(prisma as never, version);
-    return { version_id: version.id, version_number: parsed.version_number, usage_instructions: parsed.usage_instructions };
-  });
+  const db = { ...prisma, $transaction: vi.fn(async <T>(action: (tx: typeof prisma) => Promise<T>) => action(prisma)) };
+  const publications = new ApplicationPublicationService(db as never, "/not-used");
+  const capture = vi.spyOn(publications, "capture");
   const audit = new AuditService(prisma as never);
   vi.spyOn(audit, "write").mockResolvedValue(undefined);
-  const service = new ApplicationService(prisma as never, { resolveRuntime: vi.fn(), resolveRuntimeForSelection: vi.fn(), resolveModelTransitionRuntime: vi.fn() }, audit, { resolveForCapability: vi.fn() }, undefined, undefined, publications);
+  const service = new ApplicationService(db as never, { resolveRuntime: vi.fn(), resolveRuntimeForSelection: vi.fn(), resolveModelTransitionRuntime: vi.fn() }, audit, { resolveForCapability: vi.fn() }, undefined, undefined, publications);
   const input: ApplicationShareInput = { version_number: "1.0.0", usage_instructions: "Configure your account", target: { grantee_type: "user", user_id: recipientId, usage_modes: ["service"] } };
   const share = (data = input, user = actor) => service.share(user, applicationId, data, { ipAddress: "127.0.0.1" });
   return { service, share, input, actor, applicationId, ownerId, recipientId, version, prisma, capture, audit };
 }
 
 describe("sharing an application version", () => {
-  it("saves an explicitly cleared usage guide", async () => {
+  it("shares the fixed release guide without silently publishing draft changes", async () => {
     const f = fixture();
-    expect(await f.share({ ...f.input, usage_instructions: "" })).toMatchObject({ usage_instructions: "" });
-    expect(f.prisma.application.update).toHaveBeenCalledWith({ where: { id: f.applicationId, ownerId: f.ownerId }, data: { publishedVersionId: f.version.id, usageInstructions: "" } });
+    expect(await f.share({ ...f.input, usage_instructions: "" })).toMatchObject({ usage_instructions: "Configure your account" });
+    expect(f.prisma.application.update).toHaveBeenCalledWith({ where: { id: f.applicationId, ownerId: f.ownerId }, data: { publishedVersionId: f.version.id } });
+    expect(f.capture).not.toHaveBeenCalled();
   });
   it.each(["user", "user_group"] as const)("shares with a %s and activates the captured version atomically", async type => {
     const f = fixture();
     const target: ApplicationShareInput["target"] = type === "user" ? f.input.target : { grantee_type: "user_group", user_group_id: f.recipientId, usage_modes: ["install", "service"] };
     const result = await f.share({ ...f.input, target });
     expect(result.version_number).toBe("1.0.0");
-    expect(f.capture).toHaveBeenCalledWith(f.ownerId, f.applicationId, { version_number: "1.0.0", usage_instructions: "Configure your account" }, expect.objectContaining({ runtimeInstructions: "Write reports" }));
+    expect(f.capture).not.toHaveBeenCalled();
     expect(f.prisma.applicationGrant.create).toHaveBeenCalledWith({ data: expect.objectContaining({ applicationId: f.applicationId, granteeType: type, usageModes: target?.usage_modes, grantedBy: f.ownerId }) });
-    expect(f.prisma.application.update).toHaveBeenCalledWith({ where: { id: f.applicationId, ownerId: f.ownerId }, data: { publishedVersionId: f.version.id, usageInstructions: "Configure your account" } });
+    expect(f.prisma.application.update).toHaveBeenCalledWith({ where: { id: f.applicationId, ownerId: f.ownerId }, data: { publishedVersionId: f.version.id } });
     expect(f.audit.write).toHaveBeenCalledOnce();
   });
 

@@ -9,10 +9,13 @@ import {
   INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES,
   applicationGranteeTypeSchema,
   applicationListQuerySchema,
+  applicationCatalogQuerySchema,
   applicationShareInputSchema,
   createApplicationInputSchema,
   updateApplicationInputSchema,
+  editAndPublishApplicationInputSchema,
   applicationInstallInputSchema,
+  applicationVersionInputSchema,
   applicationUpdateInstallationInputSchema,
   applicationDistributionChannelSchema,
   applicationUsageModesSchema,
@@ -64,6 +67,12 @@ export const applicationRoutes: FastifyPluginAsync<
 > = async (app, options) => {
   const actorFor = options.resolveActor ?? defaultActorResolver;
 
+  app.get("/catalog", async (request, reply) => {
+    const actor = await actorFor(request);
+    const query = applicationCatalogQuerySchema.parse(request.query);
+    return reply.header("cache-control", "private, no-store").send(ok(await options.service.catalog(actor, query), request));
+  });
+
   app.get("/distribution", async (request, reply) => {
     const actor = await actorFor(request);
     return reply.send(ok({ items: await options.service.distributionSummaries(actor) }, request));
@@ -89,6 +98,14 @@ export const applicationRoutes: FastifyPluginAsync<
       limit: query.limit,
     });
     return reply.send(ok({ items, next_cursor: null }, request));
+  });
+
+  app.get("/:id/details", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    const { channel } = z.strictObject({ channel: applicationDistributionChannelSchema.default("direct") }).parse(request.query);
+    const details = await options.service.details(actor, id, channel);
+    return reply.header("cache-control", "private, no-store").send(ok(details, request));
   });
 
   app.post("/interactive-import", async (request, reply) => {
@@ -182,11 +199,31 @@ export const applicationRoutes: FastifyPluginAsync<
     return reply.send(ok(await options.service.distributionSettings(actor, id), request));
   });
 
+  app.get("/:id/publication-readiness", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    reply.header("cache-control", "private, no-store");
+    return reply.send(ok(await options.service.publicationReadiness(actor, id), request));
+  });
+
   app.post("/:id/install", async (request, reply) => {
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
     const input = applicationInstallInputSchema.parse(request.body);
     return reply.code(201).send(ok(await options.service.install(actor, id, input, auditContext(request)), request));
+  });
+
+  app.post("/:id/publish", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    return reply.send(ok(await options.service.publish(actor, id, applicationVersionInputSchema.parse(request.body)), request));
+  });
+
+  app.post("/:id/service-installation", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    const input = z.strictObject({ channel: applicationDistributionChannelSchema, version_id: z.uuid() }).parse(request.body);
+    return reply.send(ok(await options.service.installService(actor, id, input.channel, input.version_id, auditContext(request)), request));
   });
 
   app.get("/:id/installation/update", async (request, reply) => {
@@ -232,10 +269,17 @@ export const applicationRoutes: FastifyPluginAsync<
     );
   });
 
+  app.post("/:id/edit-and-publish", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    const { changes, release } = editAndPublishApplicationInputSchema.parse(request.body);
+    return reply.send(ok(await options.service.update(actor, id, changes, auditContext(request), release), request));
+  });
+
   app.post("/:id/interactive-package", async (request, reply) => {
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
-    const { archive, bindings } = await readInteractiveUpload(request);
+    const { archive, bindings, release } = await readInteractiveUpload(request, { allowRelease: true });
     return reply.send(
       ok(
         await options.service.updateInteractivePackage(
@@ -244,6 +288,7 @@ export const applicationRoutes: FastifyPluginAsync<
           archive,
           auditContext(request),
           bindings,
+          ...(release ? [{ release }] : []),
         ),
         request,
       ),
@@ -299,7 +344,7 @@ export const applicationRoutes: FastifyPluginAsync<
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
     const { channel } = z.strictObject({ channel: applicationDistributionChannelSchema.default("direct") }).default({ channel: "direct" }).parse(request.body);
-    const runtime = await options.service.resolveRuntime(actor.id, id, undefined, channel);
+    const runtime = await options.service.resolveRuntime(actor.id, id, channel);
     const conversation = await options.createConversation(actor.id, {
       id: runtime.applicationId,
       name: runtime.applicationName,
@@ -422,18 +467,25 @@ function isZipUpload(mimeType: string) {
   ].includes(mimeType.toLocaleLowerCase("en-US"));
 }
 
-async function readInteractiveUpload(request: FastifyRequest) {
+async function readInteractiveUpload(request: FastifyRequest, options: { allowRelease?: boolean } = {}) {
   let archive: Buffer | undefined;
   let selection: unknown = { bindings: [] };
-  for await (const part of request.parts({ limits: { files: 1, fields: 1, fileSize: INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES, fieldSize: 32 * 1024 } })) {
+  let release: unknown;
+  const fields = new Set<string>();
+  for await (const part of request.parts({ limits: { files: 1, fields: options.allowRelease ? 3 : 2, fileSize: INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES, fieldSize: 32 * 1024 } })) {
     if (part.type === "file") {
       if (part.fieldname !== "file" || !isZipUpload(part.mimetype)) throw new AppError("APPLICATION_PACKAGE_INVALID");
       archive = await part.toBuffer();
     } else {
-      if (part.fieldname !== "dependencies" || part.valueTruncated || typeof part.value !== "string") throw new AppError("VALIDATION_ERROR");
-      try { selection = JSON.parse(part.value); } catch { throw new AppError("VALIDATION_ERROR"); }
+      if ((part.fieldname !== "dependencies" && !(options.allowRelease && part.fieldname === "release")) || fields.has(part.fieldname) || part.valueTruncated || typeof part.value !== "string") throw new AppError("VALIDATION_ERROR");
+      fields.add(part.fieldname);
+      try {
+        const value: unknown = JSON.parse(part.value);
+        if (part.fieldname === "release") release = value;
+        else selection = value;
+      } catch { throw new AppError("VALIDATION_ERROR"); }
     }
   }
   if (!archive) throw new AppError("APPLICATION_PACKAGE_INVALID");
-  return { archive, ...interactiveDependencySelectionSchema.parse(selection) };
+  return { archive, ...interactiveDependencySelectionSchema.parse(selection), release: release === undefined ? undefined : applicationVersionInputSchema.parse(release) };
 }

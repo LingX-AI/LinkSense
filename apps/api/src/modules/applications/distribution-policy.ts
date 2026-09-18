@@ -20,6 +20,16 @@ export function mergeApplicationUsageModes(grants: ReadonlyArray<readonly Applic
   return (["install", "service"] as const).filter(mode => grants.some(grant => grant.includes(mode)));
 }
 
+/** Existing tasks use the owner's installation regardless of their original entry point. */
+export function applicationRuntimeChannel(access: Pick<ApplicationDistributionAccess, "actorId" | "ownerId">, channel: ApplicationDistributionChannel): ApplicationDistributionChannel {
+  return access.actorId === access.ownerId ? "direct" : channel;
+}
+
+export function isApplicationCenterUnavailable(access: ApplicationDistributionAccess): boolean {
+  return access.organizationMember && Boolean(access.center?.usageModes.includes("service")) &&
+    (access.center?.status === "suspended" || access.center?.status === "unlisted");
+}
+
 export function applicationModesForChannel(access: ApplicationDistributionAccess, channel: ApplicationDistributionChannel): ApplicationUsageMode[] {
   if (access.applicationStatus !== "active") return [];
   if (channel === "direct") {

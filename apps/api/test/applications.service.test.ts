@@ -48,6 +48,35 @@ function credentialResolver(
 }
 
 describe("ApplicationService owner lifecycle", () => {
+  it.each([false, true])("reports publication readiness from the same activity query as publication admission (busy: %s)", async busy => {
+    const prisma = {
+      application: { findFirst: vi.fn(async () => ({ developmentOnly: false })) },
+      $queryRaw: vi.fn(async () => busy ? [{ id: "task" }] : []),
+    };
+    const service = new ApplicationService(prisma as never, modelSettings(), { write: vi.fn() } as never, credentialResolver());
+    await expect(service.publicationReadiness(activeActor(), APPLICATION_ID)).resolves.toEqual({ has_active_tasks: busy });
+    expect(prisma.application.findFirst).toHaveBeenCalledWith({ where: { id: APPLICATION_ID, ownerId: OWNER_ID, status: { in: ["active", "disabled"] } } });
+    expect(prisma.$queryRaw).toHaveBeenCalledWith(expect.objectContaining({
+      values: [OWNER_ID, APPLICATION_ID],
+      strings: expect.arrayContaining([expect.stringContaining("conversation_turn_start_intents"), expect.stringContaining("t.status = 'running'")]),
+    }));
+  });
+
+  it("does not treat first-publication preview tasks as formal application activity", async () => {
+    const prisma = { application: { findFirst: vi.fn(async () => ({ developmentOnly: true })) }, $queryRaw: vi.fn() };
+    const service = new ApplicationService(prisma as never, modelSettings(), { write: vi.fn() } as never, credentialResolver());
+    await expect(service.publicationReadiness(activeActor(), APPLICATION_ID)).resolves.toEqual({ has_active_tasks: false });
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("denies readiness reads for a non-owner, missing application or disabled user before querying tasks", async () => {
+    const prisma = { application: { findFirst: vi.fn(async () => null) }, $queryRaw: vi.fn() };
+    const service = new ApplicationService(prisma as never, modelSettings(), { write: vi.fn() } as never, credentialResolver());
+    await expect(service.publicationReadiness(activeActor(), APPLICATION_ID)).rejects.toMatchObject({ code: "APPLICATION_NOT_FOUND" });
+    await expect(service.publicationReadiness({ ...activeActor(), status: "disabled" }, APPLICATION_ID)).rejects.toMatchObject({ code: "USER_DISABLED" });
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(prisma.application.findFirst).toHaveBeenCalledTimes(1);
+  });
   it("creates an application with stable resource references and a validated custom icon", async () => {
     const createdAt = new Date("2026-07-27T00:00:00.000Z");
     let applicationRow: Omit<
@@ -87,6 +116,7 @@ describe("ApplicationService owner lifecycle", () => {
       },
     };
     const prisma = {
+      applicationRuntimeInstallation: { findMany: vi.fn(async () => []), findUnique: vi.fn(async () => null) },
       $transaction: vi.fn(
         async (action: (tx: typeof transaction) => Promise<unknown>) =>
           action(transaction),
@@ -268,6 +298,7 @@ describe("ApplicationService owner lifecycle", () => {
       },
     ];
     const ownerPrisma = {
+      applicationRuntimeInstallation: { findMany: vi.fn(async () => []) },
       user: {
         findMany: vi.fn(async (query: { where: { id: { in: string[] } } }) =>
           query.where.id.in.includes(OWNER_ID)
@@ -323,6 +354,7 @@ describe("ApplicationService owner lifecycle", () => {
     );
 
     const recipientPrisma = {
+      applicationRuntimeInstallation: { findMany: vi.fn(async () => []) },
       user: {
         findMany: vi.fn(async () => [{ id: OWNER_ID, name: "Owner" }]),
       },
@@ -408,6 +440,8 @@ describe("ApplicationService owner lifecycle", () => {
       },
     };
     const prisma = {
+      applicationVersion: { findFirst: vi.fn(async () => null) },
+      applicationRuntimeInstallation: { findMany: vi.fn(async () => []), findUnique: vi.fn(async () => null) },
       $transaction: vi.fn(
         async (action: (tx: typeof transaction) => Promise<unknown>) =>
           action(transaction),
@@ -422,6 +456,7 @@ describe("ApplicationService owner lifecycle", () => {
         findFirst: vi
           .fn()
           .mockResolvedValueOnce(original)
+          .mockResolvedValueOnce(null)
           .mockResolvedValueOnce(updated),
       },
       applicationCapability: {
@@ -528,8 +563,9 @@ describe("ApplicationService owner lifecycle", () => {
     const transaction = {
       application: { updateMany: vi.fn(async () => ({ count: 1 })) },
       applicationGrant: { updateMany: vi.fn(async () => ({ count: 2 })) },
-      $queryRaw: vi.fn(),
+      $queryRaw: vi.fn().mockResolvedValue([]),
       applicationInstallation: { deleteMany: vi.fn() },
+      applicationDevelopment: { updateMany: vi.fn() },
       applicationListing: { updateMany: vi.fn() },
       applicationRelease: { updateMany: vi.fn() },
       applicationExternalSession: {
@@ -545,7 +581,9 @@ describe("ApplicationService owner lifecycle", () => {
       user: { updateMany: vi.fn(async () => ({ count: 0 })) },
     };
     const prisma = {
-      application: { findFirst: vi.fn(async () => current) },
+      applicationVersion: { findFirst: vi.fn(async () => null) },
+      applicationRuntimeInstallation: { findMany: vi.fn(async () => []), findUnique: vi.fn(async () => null) },
+      application: { findFirst: vi.fn(async ({ where }: { where: { id?: string; iconObjectKey?: string } }) => where.iconObjectKey ? null : current) },
       $transaction: vi.fn(
         async (action: (tx: typeof transaction) => Promise<unknown>) =>
           action(transaction),
@@ -607,7 +645,7 @@ describe("ApplicationService task metadata", () => {
     { status: "active", dependencyMissing: false, available: true },
     { status: "disabled", dependencyMissing: false, available: false },
     { status: "active", dependencyMissing: true, available: false },
-  ])("resolves access and availability for $status applications with missing dependency=$dependencyMissing", async ({ status, dependencyMissing, available }) => {
+  ].flatMap(state => (["direct", "center"] as const).map(channel => ({ ...state, channel }))))("resolves owner task availability for $status applications in $channel with missing dependency=$dependencyMissing", async ({ status, dependencyMissing, available, channel }) => {
     const inaccessibleId = "20000000-0000-4000-8000-000000000099";
     const deletedId = "20000000-0000-4000-8000-000000000098";
     const row = {
@@ -616,6 +654,8 @@ describe("ApplicationService task metadata", () => {
       iconPreset: "book-open", iconObjectKey: `applications/${OWNER_ID}/icons/current.png`,
     };
     const prisma = {
+      applicationVersion: { findFirst: vi.fn(async () => null) },
+      applicationRuntimeInstallation: { findMany: vi.fn(async () => []), findUnique: vi.fn(async () => null) },
       user: {
         findFirst: vi.fn(async () => ({ selfRegisteredAt: null })),
         findMany: vi.fn(async () => [{ id: OWNER_ID, name: "Owner" }]),
@@ -642,7 +682,7 @@ describe("ApplicationService task metadata", () => {
       presignGet: vi.fn(async (key: string) => `https://objects.example.test/${key}`),
     };
     const service = new ApplicationService(prisma as never, modelSettings(), { write: vi.fn() } as never, credentialResolver(), iconStore);
-    const metadata = await service.resolveTaskMetadata(OWNER_ID, [APPLICATION_ID, inaccessibleId, deletedId, APPLICATION_ID]);
+    const metadata = await service.resolveTaskMetadata(OWNER_ID, [APPLICATION_ID, inaccessibleId, deletedId, APPLICATION_ID], channel);
     expect([...metadata]).toEqual([[APPLICATION_ID, { icon: { type: "custom", url: `https://objects.example.test/${row.iconObjectKey}`, fallback_preset: "book-open" }, available, unavailable_reason: status === "disabled" ? "APPLICATION_DISABLED" : dependencyMissing ? "APPLICATION_DEPENDENCY_UNAVAILABLE" : null }]]);
     expect(iconStore.presignGet).toHaveBeenCalledWith(row.iconObjectKey, 5 * 60);
     expect(prisma.application.findMany).toHaveBeenNthCalledWith(3, {
@@ -654,6 +694,7 @@ describe("ApplicationService task metadata", () => {
 describe("ApplicationService share targets", () => {
   it("blocks organization sharing for self-registered users", async () => {
     const prisma = {
+      applicationRuntimeInstallation: { findMany: vi.fn(async () => []), findUnique: vi.fn(async () => null) },
       user: { findMany: vi.fn() },
       userGroup: { findMany: vi.fn() },
     };
@@ -679,6 +720,7 @@ describe("ApplicationService share targets", () => {
 
   it("searches only user groups when a group target type is requested", async () => {
     const prisma = {
+      applicationRuntimeInstallation: { findMany: vi.fn(async () => []), findUnique: vi.fn(async () => null) },
       user: {
         findMany: vi.fn(async () => [
           {
@@ -735,6 +777,38 @@ describe("ApplicationService share targets", () => {
 });
 
 describe("ApplicationService runtime resolution", () => {
+  it("validates an external update before task admission and records the selected release", async () => {
+    const prisma = runtimePrisma({ model: "gpt-5.6-terra", reasoningEffort: "medium", instructions: "Ready release", capabilityId: CAPABILITY_ID, knowledgeBaseId: KNOWLEDGE_BASE_ID, updatedAt: new Date("2026-07-27T01:00:00Z") });
+    const order: string[] = [];
+    const audit = { write: vi.fn() };
+    const versionId = "91000000-0000-4000-8000-000000000001";
+    const refreshExternal = vi.fn(async (_owner: string, _application: string, validate: (version: string) => Promise<void>) => {
+      await validate(versionId);
+      order.push("updated");
+      return { previousVersionId: null, versionId };
+    });
+    const gate = { start: vi.fn(async <T>(_owner: string, _application: string, action: () => Promise<T>) => { order.push("admitted"); return action(); }) };
+    const service = new ApplicationService(prisma as never, modelSettings(), audit as never, credentialResolver(), undefined, undefined,
+      new ApplicationPublicationService(prisma as never, "/unused"), undefined, { refreshExternal, gate } as never);
+    await expect(service.withRuntimeStart(RECIPIENT_ID, APPLICATION_ID, async () => { order.push("started"); return "accepted"; })).resolves.toBe("accepted");
+    expect(order).toEqual(["updated", "admitted", "started"]);
+    expect(prisma.capability.findMany).toHaveBeenCalled();
+    expect(audit.write).toHaveBeenCalledWith(expect.objectContaining({ actorId: RECIPIENT_ID, action: "application_installed", metadata: { channel: "external", version_id: versionId } }));
+    expect(gate.start).toHaveBeenCalledOnce();
+  });
+
+  it("does not start a task or record a successful installation when external preparation fails", async () => {
+    const prisma = runtimePrisma({ model: "gpt-5.6-terra", reasoningEffort: "medium", instructions: "Old release", capabilityId: CAPABILITY_ID, knowledgeBaseId: KNOWLEDGE_BASE_ID, updatedAt: new Date("2026-07-27T01:00:00Z") });
+    const failure = new Error("Resource preparation failed");
+    const refreshExternal = vi.fn(async () => { throw failure; });
+    const gate = { start: vi.fn() }, audit = { write: vi.fn() }, start = vi.fn();
+    const service = new ApplicationService(prisma as never, modelSettings(), audit as never, credentialResolver(), undefined, undefined, undefined, undefined, { refreshExternal, gate } as never);
+    await expect(service.withRuntimeStart(RECIPIENT_ID, APPLICATION_ID, start)).rejects.toBe(failure);
+    expect(gate.start).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(audit.write).not.toHaveBeenCalled();
+  });
+
   it("does not grant self-registered users access to shared applications", async () => {
     const prisma = runtimePrisma({
       model: "gpt-5.6-terra",
@@ -808,20 +882,82 @@ describe("ApplicationService runtime resolution", () => {
     expect(modelResolution).toHaveBeenNthCalledWith(2, "gpt-5.6-terra", "medium");
   });
 
+  it.each([false, true])("checks required plugin credentials before selecting a new debug snapshot (available: %s)", async (available) => {
+    const state = {
+      model: "gpt-5.6-terra", reasoningEffort: "medium", instructions: "Test the next draft",
+      capabilityId: CAPABILITY_ID, knowledgeBaseId: KNOWLEDGE_BASE_ID,
+      updatedAt: new Date("2026-07-27T01:00:00.000Z"),
+    };
+    const base = runtimePrisma(state);
+    const packageId = "92000000-0000-4000-8000-000000000002";
+    const versionId = "91000000-0000-4000-8000-000000000002";
+    const prisma = {
+      ...base,
+      application: {
+        ...base.application,
+        findFirst: vi.fn(async () => ({
+          ...application(state), kind: "interactive", developmentOnly: true,
+          interactivePackageId: packageId, interactiveDependencyBindings: [],
+        })),
+      },
+      interactiveApplicationPackage: {
+        findUnique: vi.fn(async () => ({
+          id: packageId, applicationId: APPLICATION_ID,
+          manifestJson: { schema_version: 1, id: "draft-test", name: "Draft test", version: "0.0.0-dev.2", sdk_version: 1 },
+        })),
+      },
+      applicationInstallation: { findUnique: vi.fn(async () => null) },
+    };
+    const transaction = { applicationRuntimeInstallation: { upsert: vi.fn() } };
+    const publications = new ApplicationPublicationService(prisma as never, "/unused");
+    vi.spyOn(publications, "capture").mockImplementation(async (_owner, _application, input, options) => {
+      await options.complete(transaction as never, {
+        id: versionId,
+        definitionJson: {
+          ...base.publishedDefinition, kind: "interactive", interactivePackageId: packageId,
+          capabilities: base.publishedDefinition.capabilities.map(item => ({
+            ...item, type: "plugin", riskSummaryJson: { declared_environment_keys: ["API_KEY"] },
+          })),
+        },
+      } as never);
+      return { version_id: versionId, ...input };
+    });
+    const credentials = credentialResolver({ ok: available });
+    const service = new ApplicationService(
+      prisma as never, modelSettings(), { write: vi.fn() } as never, credentials,
+      undefined, undefined, publications, undefined,
+      { gate: { change: async (_owner: string, _id: string, action: (check: () => void) => Promise<unknown>) => action(() => {}) } } as never,
+    );
+
+    const result = service.prepareDebugRuntime(OWNER_ID, APPLICATION_ID, packageId);
+    if (available) {
+      await expect(result).resolves.toBeUndefined();
+      expect(transaction.applicationRuntimeInstallation.upsert).toHaveBeenCalledWith({
+        where: { ownerId_applicationId: { ownerId: OWNER_ID, applicationId: APPLICATION_ID } },
+        create: { ownerId: OWNER_ID, applicationId: APPLICATION_ID, versionId, channel: "direct" },
+        update: { versionId, channel: "direct" },
+      });
+    } else {
+      await expect(result).rejects.toMatchObject({ code: "APPLICATION_DEPENDENCY_UNAVAILABLE" });
+      expect(transaction.applicationRuntimeInstallation.upsert).not.toHaveBeenCalled();
+    }
+    expect(credentials.resolveForCapability).toHaveBeenCalledWith(OWNER_ID, CAPABILITY_ID, ["API_KEY"]);
+  });
+
   it("publishes edited draft instructions even when a prior release already exists", async () => {
     const state = { model: "gpt-5.6-terra", reasoningEffort: "medium", instructions: "Published release", capabilityId: CAPABILITY_ID, knowledgeBaseId: KNOWLEDGE_BASE_ID, updatedAt: new Date("2026-07-27T01:00:00.000Z") };
     const prisma = runtimePrisma(state);
     const publications = new ApplicationPublicationService(prisma as never, "/unused");
     const publish = vi.spyOn(publications, "capture").mockResolvedValue({ version_id: APPLICATION_ID, version_number: "2.0.0", usage_instructions: "Read the guide." });
-    const service = new ApplicationService(prisma as never, modelSettings(), { write: vi.fn() } as never, credentialResolver(), undefined, undefined, publications);
+    const service = new ApplicationService(prisma as never, modelSettings(), { write: vi.fn() } as never, credentialResolver(), undefined, undefined, publications, undefined, { gate: { change: async (_owner: string, _id: string, action: (check: () => void) => Promise<unknown>) => action(() => {}) } } as never);
     state.instructions = "Edited draft for the next release";
     const input = { version_number: "2.0.0", usage_instructions: "Read the guide." };
-    await service.captureDistributionVersion(activeActor(), APPLICATION_ID, input, async () => {});
+    await service.publish(activeActor(), APPLICATION_ID, input);
     expect(publish).toHaveBeenCalledWith(OWNER_ID, APPLICATION_ID, input, expect.objectContaining({ runtimeInstructions: state.instructions, complete: expect.any(Function) }));
-    expect(prisma.applicationVersion.findFirst).not.toHaveBeenCalled();
+    expect(publish).toHaveBeenCalledOnce();
   });
 
-  it("loads a newly published release on the next execution without changing an admitted runtime", async () => {
+  it("loads an explicitly installed release without changing an admitted runtime", async () => {
     const prisma = runtimePrisma({ model: "gpt-5.6-terra", reasoningEffort: "medium", instructions: "Release one", capabilityId: CAPABILITY_ID, knowledgeBaseId: KNOWLEDGE_BASE_ID, updatedAt: new Date("2026-07-27T01:00:00Z") });
     const service = new ApplicationService(prisma as never, modelSettings(), { write: vi.fn() } as never, credentialResolver(), undefined, undefined, new ApplicationPublicationService(prisma as never, "/unused"));
     const first = await service.resolveRuntime(RECIPIENT_ID, APPLICATION_ID);
@@ -829,6 +965,7 @@ describe("ApplicationService runtime resolution", () => {
     const nextVersionId = "91000000-0000-4000-8000-000000000002";
     prisma.application.findFirst.mockResolvedValue({ ...application, publishedVersionId: nextVersionId });
     prisma.applicationVersion.findFirst.mockResolvedValue({ id: nextVersionId, assetsReady: true, definitionJson: { ...prisma.publishedDefinition, instructions: "Release two" } });
+    prisma.applicationRuntimeInstallation.findUnique.mockResolvedValue({ versionId: nextVersionId });
     const next = await service.resolveRuntime(RECIPIENT_ID, APPLICATION_ID);
     expect(next).toMatchObject({ applicationVersionId: nextVersionId, instructions: "Release two" });
     expect(first.instructions).toBe("Release one");
@@ -972,31 +1109,39 @@ describe("ApplicationService runtime resolution", () => {
 });
 
 describe("ApplicationService recipient projection", () => {
-  it("runs the published page for both author and recipient and denies unpublished recipient previews", async () => {
+  it("runs the installed package for both author and recipient despite mutable draft changes", async () => {
     const versionId = "91000000-0000-4000-8000-000000000001";
     const publishedPackage = "92000000-0000-4000-8000-000000000001";
     const draftPackage = "92000000-0000-4000-8000-000000000002";
     const current = { ...application({ model: "gpt-5.6-terra", reasoningEffort: "medium", instructions: "Draft", updatedAt: new Date() }),
-      kind: "interactive", interactivePackageId: draftPackage, publishedVersionId: versionId };
-    const definition = { schemaVersion: 1, name: "Page", kind: "interactive", instructions: "Published page instructions", usageInstructions: "Open the page.",
+      kind: "interactive", interactivePackageId: draftPackage, publishedVersionId: versionId, interactiveDependencyBindings: [] };
+    const definition = { schemaVersion: 1, description: null, iconPreset: "bot", iconObjectKey: null, name: "Page", kind: "interactive", instructions: "Published page instructions", usageInstructions: "Open the page.",
       model: null, reasoningEffort: null, interactivePackageId: publishedPackage, capabilities: [], knowledgeBaseIds: [], mcpServerIds: [] };
     const prisma = {
+      applicationRuntimeInstallation: { findMany: vi.fn(async () => []), findUnique: vi.fn(async () => ({ versionId })) },
       user: { findFirst: vi.fn(async () => ({ id: OWNER_ID, selfRegisteredAt: null })) },
       userGroupMember: { findMany: vi.fn(async () => []) },
       applicationGrant: { findMany: vi.fn(async () => []) },
-      application: { findMany: vi.fn(async () => [{ id: APPLICATION_ID }]), findFirst: vi.fn(async () => current) },
+      application: { findMany: vi.fn(async () => [{ id: APPLICATION_ID }]), findFirst: vi.fn(async ({ where }: { where: { id?: string; iconObjectKey?: string } }) => where.iconObjectKey ? null : current) },
       applicationVersion: { findFirst: vi.fn(async ({ where }: { where: { definitionJson?: { equals: string } } }) =>
         !where.definitionJson || where.definitionJson.equals === publishedPackage ? { id: versionId, assetsReady: true, definitionJson: definition } : null) },
       capability: { findMany: vi.fn(async () => []) }, knowledgeBase: { findMany: vi.fn(async () => []) }, mcpServer: { findMany: vi.fn(async () => []) },
-      interactiveApplicationPackage: { findFirst: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, manifestJson: { schema_version: 1, id: "page", name: "Page", version: "1.0.0", sdk_version: 1 } })) },
+      applicationCapability: { findMany: vi.fn(async () => []) }, applicationKnowledgeBase: { findMany: vi.fn(async () => []) }, applicationMcpServer: { findMany: vi.fn(async () => []) },
+      applicationInstallation: { findUnique: vi.fn(async () => null) },
+      interactiveApplicationPackage: {
+        findFirst: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, manifestJson: { schema_version: 1, id: "page", name: "Page", version: "1.0.0", sdk_version: 1 } })),
+        findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, applicationId: APPLICATION_ID, manifestJson: { schema_version: 1, id: "page", name: "Page", version: "2.0.0", sdk_version: 1 } })),
+      },
     };
     const service = new ApplicationService(prisma as never, modelSettings(), { write: vi.fn() } as never, credentialResolver(), undefined, undefined, new ApplicationPublicationService(prisma as never, "/unused-test-store"));
-    for (const actorId of [OWNER_ID, RECIPIENT_ID]) {
-      expect(await service.resolveRuntime(actorId, APPLICATION_ID)).toMatchObject({ interactivePackageId: publishedPackage, instructions: definition.instructions });
-      expect(await service.resolveInteractiveRuntimePackage({ id: actorId, role: "user", status: "active", ipAddress: "192.0.2.1" }, APPLICATION_ID)).toMatchObject({ id: publishedPackage });
-    }
-    await expect(service.resolveInteractiveRuntimePackage({ id: RECIPIENT_ID, role: "user", status: "active", ipAddress: "192.0.2.1" }, APPLICATION_ID, draftPackage)).rejects.toMatchObject({ code: "APPLICATION_NOT_FOUND" });
-    await expect(service.resolveInteractiveRuntimePackage({ id: OWNER_ID, role: "user", status: "active", ipAddress: "192.0.2.1" }, APPLICATION_ID, draftPackage)).resolves.toMatchObject({ id: draftPackage });
+    expect(await service.resolveRuntime(OWNER_ID, APPLICATION_ID)).toMatchObject({ interactivePackageId: publishedPackage, instructions: definition.instructions, model: null });
+    expect(await service.resolveInteractiveRuntimePackage({ id: OWNER_ID, role: "user", status: "active", ipAddress: "192.0.2.1" }, APPLICATION_ID)).toMatchObject({ id: publishedPackage });
+    expect(await service.resolveRuntime(RECIPIENT_ID, APPLICATION_ID)).toMatchObject({ interactivePackageId: publishedPackage, instructions: definition.instructions, model: null });
+    expect(await service.resolveInteractiveRuntimePackage({ id: RECIPIENT_ID, role: "user", status: "active", ipAddress: "192.0.2.1" }, APPLICATION_ID)).toMatchObject({ id: publishedPackage });
+    expect(await service.allowsUserModelSelection(OWNER_ID, APPLICATION_ID)).toBe(true);
+    expect(await service.allowsUserModelSelection(RECIPIENT_ID, APPLICATION_ID)).toBe(true);
+    await expect(service.resolveInteractiveRuntimePackage({ id: RECIPIENT_ID, role: "user", status: "active", ipAddress: "192.0.2.1" }, APPLICATION_ID, draftPackage)).resolves.toMatchObject({ id: publishedPackage });
+    await expect(service.resolveInteractiveRuntimePackage({ id: OWNER_ID, role: "user", status: "active", ipAddress: "192.0.2.1" }, APPLICATION_ID, draftPackage)).resolves.toMatchObject({ id: publishedPackage });
   });
 
   it("uses the creator's plugin binding status without disclosing private inventory", async () => {
@@ -1008,12 +1153,13 @@ describe("ApplicationService recipient projection", () => {
       updatedAt: createdAt,
     });
     Object.assign(app, { publishedVersionId: APPLICATION_ID });
-    const publishedDefinition = { schemaVersion: 1, name: app.name, kind: "standard", instructions: app.instructions,
+    const publishedDefinition = { schemaVersion: 1, description: app.description, iconPreset: app.iconPreset, iconObjectKey: null, name: app.name, kind: "standard", instructions: app.instructions,
       usageInstructions: "Use the application service.", model: app.model, reasoningEffort: app.reasoningEffort, interactivePackageId: null,
       capabilities: [{ id: CAPABILITY_ID, type: "plugin", name: "private-plugin", description: "Private workflow metadata", sourceType: "local", storagePath: "published/plugin", revision: createdAt.toISOString(), contentSha256: "a".repeat(64), manifestJson: null, riskSummaryJson: { requires_credentials: true, declared_environment_keys: ["API_KEY"] } }],
       knowledgeBaseIds: [KNOWLEDGE_BASE_ID], mcpServerIds: [],
     };
     const prisma = {
+      applicationRuntimeInstallation: { findMany: vi.fn(async () => [{ applicationId: APPLICATION_ID, versionId: APPLICATION_ID }]), findUnique: vi.fn(async () => ({ versionId: APPLICATION_ID })) },
       applicationVersion: { findMany: vi.fn(async () => [{ id: APPLICATION_ID, definitionJson: publishedDefinition }]) },
       user: {
         findMany: vi.fn(async () => [{ id: OWNER_ID, name: "Owner" }]),
@@ -1205,7 +1351,7 @@ function runtimePrisma(state: {
 }) {
   const versionId = "91000000-0000-4000-8000-000000000001";
   const publishedDefinition = {
-    schemaVersion: 1, name: "Finance assistant", kind: "standard", instructions: state.instructions,
+    schemaVersion: 1, description: null, iconPreset: "bot", iconObjectKey: null, name: "Finance assistant", kind: "standard", instructions: state.instructions,
     usageInstructions: "Read the guide.", model: state.model, reasoningEffort: state.reasoningEffort,
     interactivePackageId: null,
     capabilities: [{ id: state.capabilityId, type: "skill", name: "finance-research", description: null,
@@ -1215,6 +1361,7 @@ function runtimePrisma(state: {
   };
   return {
     publishedDefinition,
+    applicationRuntimeInstallation: { findUnique: vi.fn(async () => ({ versionId })) },
     applicationListing: { findUnique: vi.fn(async () => null) },
     applicationVersion: { findFirst: vi.fn(async () => ({ id: versionId, assetsReady: true, definitionJson: publishedDefinition })) },
     user: {

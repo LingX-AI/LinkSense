@@ -1,10 +1,14 @@
 import { lstat } from "node:fs/promises";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import type { NativeHomeNormalizer } from "../operations/application-environment-conversion.js";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { createPrismaClient } from "../db.js";
 import { convertApplicationEnvironments, recoverApplicationEnvironments } from "../operations/application-environment-conversion.js";
+import { convertApplicationInstallations } from "../operations/application-installation-conversion.js";
 
-async function main(): Promise<void> {
+export async function runApplicationEnvironmentConversion(normalizeNativeHome?: NativeHomeNormalizer): Promise<void> {
   const { values } = parseArgs({ options: {
     apply: { type: "boolean", default: false }, recover: { type: "boolean", default: false },
     "workers-stopped": { type: "boolean", default: false },
@@ -24,13 +28,14 @@ async function main(): Promise<void> {
       await recoverApplicationEnvironments(prisma, outputRoot);
       process.stdout.write(JSON.stringify({ recovered: true }) + "\n");
     } else {
-      const result = await convertApplicationEnvironments({ prisma, userDataRoot: environment.LINKSENSE_USER_DATA_ROOT, outputRoot, apply: values.apply });
-      process.stdout.write(JSON.stringify(result) + "\n");
+      const result = await convertApplicationEnvironments({ prisma, userDataRoot: environment.LINKSENSE_USER_DATA_ROOT, outputRoot, apply: values.apply, ...(normalizeNativeHome ? { normalizeNativeHome } : {}) });
+      const installations = await convertApplicationInstallations({ prisma, capabilityRoot: join(environment.LINKSENSE_USER_DATA_ROOT, ".capabilities"), apply: values.apply });
+      process.stdout.write(JSON.stringify({ ...result, installations }) + "\n");
     }
   } finally { await prisma.$disconnect(); }
 }
 
-main().catch((error: unknown) => {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) runApplicationEnvironmentConversion().catch((error: unknown) => {
   const code = error instanceof Error && /^MIGRATION_[A-Z_]+$/.test(error.message) ? error.message : "MIGRATION_FAILED";
   process.stderr.write(JSON.stringify({ error_code: code }) + "\n");
   process.exitCode = 1;

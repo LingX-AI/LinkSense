@@ -45,6 +45,8 @@ import {
 } from "../conversations/service.js";
 import { nextConversationEventSequence } from "../events/sequence.js";
 import { taskArtifactFileTypeFilter } from "./task-artifact-file-type-filter.js";
+import { captureWebBundle } from "../web-sites/bundle.js";
+import type { WebBundleManifest } from "@linksense/shared";
 
 export interface FileCleanupScheduler {
   enqueueObjectDelete(objectKey: string): Promise<void>;
@@ -632,6 +634,7 @@ export class FileService {
     displayName: string;
     mimeType?: string;
     artifactKind?: string;
+    webRootRelativePath?: string;
   }) {
     return this.withConversationLock(input.conversationId, async () => {
       const turn = await this.prisma.conversationTurn.findFirst({
@@ -689,7 +692,15 @@ export class FileService {
       await this.storage.putObject(objectKey, data, {
         "content-type": mimeType,
       });
+      let webBundle: WebBundleManifest | null = null;
       try {
+        if (input.webRootRelativePath) {
+          if (mimeType !== "text/html") throw new AppError("WEB_SITE_BUNDLE_INVALID");
+          webBundle = await captureWebBundle({ workspaceRoot: root, directory: input.webRootRelativePath,
+            entry: actual, entryData: data, fileId: id, storage: this.storage,
+            cleanup: (key) => this.removeObjectOrEnqueue(input.conversationId, key),
+          });
+        }
         const file = await this.prisma.$transaction(async (tx) => {
           const eventSequence = await nextConversationEventSequence(
             tx,
@@ -715,6 +726,7 @@ export class FileService {
               downloadCardEventId,
             },
           });
+          if (webBundle) await tx.webArtifactBundle.create({ data: { fileId: id, ownerId: input.ownerId, conversationId: input.conversationId, manifestJson: webBundle } });
           await tx.conversationEvent.create({
             data: {
               id: systemCapabilityEventId,
@@ -824,6 +836,7 @@ export class FileService {
         };
       } catch (error) {
         await this.removeObjectOrEnqueue(input.conversationId, objectKey);
+        if (webBundle) await Promise.all(webBundle.files.map(file => this.removeObjectOrEnqueue(input.conversationId, file.object_key)));
         throw error;
       }
     });

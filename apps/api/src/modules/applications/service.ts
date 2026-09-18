@@ -1,17 +1,28 @@
+import { validateApplicationCredentials } from "./runtime-credentials.js";
+import { hasActiveApplicationTasks } from "./publication-readiness.js";
+import type { ApplicationPublicationReadiness } from "@linksense/shared";
 import type { ApplicationInstallationService } from "./installation-service.js";
-import { assertInteractiveDependenciesReady, dependencyBindings, interactiveBindingsComplete, listInteractiveDependencyOptions, resolveInteractiveDependencies, writeInteractiveRuntimeBindings } from "./interactive-dependencies.js";
+import { activateApplicationInstallation, type ApplicationRuntimeInstallationService } from "./runtime-installation-service.js";
+import { projectServiceInstallation, isApplicationVersionUpdate } from "./runtime-installation-projection.js";
+import { readApplicationDetails } from "./details.js";
+import { readOwnedApplicationCatalog, projectApplicationCatalogPage } from "./catalog-repository.js";
+import { deleteApplicationDevelopment } from "./development-deletion.js";
+import { assertInteractiveDependenciesReady, dependencyBindings, interactiveBindingsComplete, interactiveRuntimeDependencyIds, listInteractiveDependencyOptions, resolveInteractiveDependencies, writeInteractiveRuntimeBindings } from "./interactive-dependencies.js";
 import { readApplicationDistributionAccess, readApplicationDistributionAccessBatch } from "./distribution-repository.js";
-import { allowedApplicationUsageModes, assertApplicationUsageModes, applicationModesForChannel, requireApplicationDistributionVersion } from "./distribution-policy.js";
+import { applicationRuntimeChannel, isApplicationCenterUnavailable, allowedApplicationUsageModes, assertApplicationUsageModes, applicationModesForChannel, requireApplicationDistributionVersion } from "./distribution-policy.js";
 import { installedApplicationBaselineSchema } from "./installation-merge.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
+import { buffer } from "node:stream/consumers";
+import { instrumentApplicationPreview } from "./development-diagnostics.js";
 
 import {
-  APPLICATION_ICON_MAX_BYTES,
-  APPLICATION_ICON_MAX_DIMENSION,
+  DEFAULT_APPLICATION_ICON_PRESET,
   applicationIconInputSchema,
   applicationIconPresetSchema,
   applicationSchema,
+  applicationDetailsSchema,
+  type ApplicationDetails,
   applicationUsageModesSchema,
   applicationDistributionSummarySchema,
   applicationDistributionChannelSchema,
@@ -21,11 +32,15 @@ import {
   type ApplicationInstallInput,
   type ApplicationInstallationUpdate,
   type Application,
+  type ApplicationCatalogQuery,
+  type ApplicationCatalogPage,
   type ApplicationUnavailableReason,
   type ApplicationIconInput,
   type ApplicationIconPreset,
   type CreateApplicationInput,
   interactiveApplicationManifestSchema,
+  interactiveApplicationImportPreviewSchema,
+  type InteractiveApplicationImportPreview,
   interactiveDependencyDeclarations,
   type InteractiveDependencyBinding,
   type InteractiveDependencyState,
@@ -40,7 +55,7 @@ import type { ApplicationVersion } from "../../generated/prisma/client.js";
 import type { ApplicationPublicationService } from "./publication-service.js";
 import { publishedApplicationDefinitionSchema, type PublishedCapability } from "./published-definition.js";
 import { AppError } from "../../lib/errors.js";
-import { detectSafeRasterImage } from "../../lib/safe-raster-image.js";
+import { decodeApplicationIcon } from "./icon-input.js";
 import type { AuditContext, AuditService } from "../audit/service.js";
 import type { RequestActor } from "../capabilities/types.js";
 import type { CredentialService } from "../credentials/service.js";
@@ -101,6 +116,15 @@ export interface InteractiveApplicationAssetStore {
   remove(objectKey: string): Promise<void>;
 }
 
+export interface InteractivePackageWriteOptions {
+  developmentOnly?: boolean;
+  /** Owner-scoped mappings copied when opening an installed application for development. */
+  initialDependencyBindings?: InteractiveDependencyBinding[];
+  release?: ApplicationVersionInput;
+  staged?(tx: Prisma.TransactionClient, applicationId: string): Promise<void>;
+  complete?(tx: Prisma.TransactionClient, applicationId: string): Promise<void>;
+}
+
 type PreparedApplicationIcon = {
   preset: ApplicationIconPreset;
   objectKey: string | null;
@@ -117,7 +141,89 @@ export class ApplicationService {
     private readonly interactiveAssetStore?: InteractiveApplicationAssetStore,
     private readonly publications?: ApplicationPublicationService,
     private readonly installations?: ApplicationInstallationService,
+    private readonly runtimeInstallations?: ApplicationRuntimeInstallationService,
   ) {}
+
+  private async installedVersionId(ownerId: string, application: StoredApplication): Promise<string | null> {
+    const installation = await this.prisma.applicationRuntimeInstallation.findUnique({ where: { ownerId_applicationId: { ownerId, applicationId: application.id } } });
+    if (!installation && !application.developmentOnly) throw new AppError("APPLICATION_INSTALLATION_REQUIRED");
+    return installation?.versionId ?? null;
+  }
+
+  async withRuntimeStart<T>(ownerId: string, applicationId: string, action: () => Promise<T>): Promise<T> {
+    if (!this.runtimeInstallations) throw new AppError("INTERNAL_ERROR");
+    const updated = await this.runtimeInstallations.refreshExternal(ownerId, applicationId,
+      versionId => this.#validateInstallationResources(ownerId, applicationId, "direct", versionId));
+    if (updated) await this.audit.write({ actorId: ownerId, action: "application_installed", targetType: "application",
+      targetId: applicationId, result: "success", metadata: { channel: "external", version_id: updated.versionId } });
+    const application = await this.prisma.application.findFirst({ where: { id: applicationId }, select: { developmentOnly: true } });
+    return this.runtimeInstallations.gate.start(ownerId, applicationId, action, application?.developmentOnly ?? false);
+  }
+
+  async installService(actor: RequestActor, applicationId: string, channel: ApplicationDistributionChannel, versionId: string, context: AuditContext): Promise<Application> {
+    assertActiveActor(actor);
+    if (!this.runtimeInstallations) throw new AppError("INTERNAL_ERROR");
+    await this.runtimeInstallations.install(actor.id, applicationId, channel, versionId,
+      () => this.#validateInstallationResources(actor.id, applicationId, channel, versionId));
+    await this.audit.write({ ...context, actorId: actor.id, action: "application_installed", targetType: "application", targetId: applicationId, result: "success", metadata: { channel, version_id: versionId, mode: "service" } });
+    return this.get(actor, applicationId);
+  }
+
+  async #validateInstallationResources(ownerId: string, applicationId: string, channel: ApplicationDistributionChannel, versionId: string): Promise<void> {
+    const application = await this.#requireCurrentAccess(ownerId, applicationId, channel);
+    if (!this.publications) throw new AppError("INTERNAL_ERROR");
+    const definition = await this.publications.readVersion(applicationId, versionId);
+    await validateApplicationCredentials(this.credentials, application.ownerId, definition.capabilities);
+    await this.#validateDependencies(application.ownerId, {
+      capabilityIds: definition.capabilities.map(item => item.id),
+      knowledgeBaseIds: definition.knowledgeBaseIds, mcpServerIds: definition.mcpServerIds,
+    });
+    if (definition.model && definition.reasoningEffort) await this.models.resolveRuntimeForSelection(definition.model, definition.reasoningEffort);
+  }
+
+  async publish(actor: RequestActor, applicationId: string, input: ApplicationVersionInput,
+    complete?: (tx: Prisma.TransactionClient, applicationId: string) => Promise<void>): Promise<ApplicationPublication> {
+    assertActiveActor(actor);
+    if (!this.runtimeInstallations || !this.publications) throw new AppError("INTERNAL_ERROR");
+    const publications = this.publications;
+    return this.runtimeInstallations.gate.change(actor.id, applicationId, async assertCurrent => {
+      const application = await this.#requireOwned(actor.id, applicationId);
+      if (application.developmentOnly) throw new AppError("FORBIDDEN");
+      const runtime = await this.#resolveDraftRuntime(application);
+      return publications.capture(actor.id, applicationId, input, { runtimeInstructions: runtime.instructions,
+        complete: async (tx, version) => {
+          assertCurrent();
+          await validateApplicationCredentials(this.credentials, actor.id, publishedApplicationDefinitionSchema.parse(version.definitionJson).capabilities);
+          await activateApplicationInstallation(tx, actor.id, applicationId, version.id, "direct");
+          await complete?.(tx, applicationId);
+        },
+      });
+    });
+  }
+
+  /** Actual test submission selects a snapshot; opening a preview does not. */
+  async prepareDebugRuntime(ownerId: string, applicationId: string, packageId: string | null): Promise<void> {
+    const application = await this.prisma.application.findFirst({ where: { id: applicationId, ownerId, developmentOnly: true, status: "active" } });
+    if (!application) return;
+    if (!this.runtimeInstallations || !this.publications) throw new AppError("INTERNAL_ERROR");
+    const installed = await this.prisma.applicationRuntimeInstallation.findUnique({ where: { ownerId_applicationId: { ownerId, applicationId } } });
+    if (installed && (await this.publications.readVersion(applicationId, installed.versionId)).interactivePackageId === packageId) return;
+    if (!packageId || packageId !== application.interactivePackageId) throw new AppError("APPLICATION_DEVELOPMENT_TEST_CHANGED");
+    const publications = this.publications;
+    await this.runtimeInstallations.gate.change(ownerId, applicationId, async assertCurrent => {
+      const current = await this.#requireOwned(ownerId, applicationId);
+      if (current.interactivePackageId !== packageId) throw new AppError("APPLICATION_DEVELOPMENT_TEST_CHANGED");
+      const runtime = await this.#resolveDraftRuntime(current);
+      await publications.capture(ownerId, applicationId, { version_number: "0.0.0", usage_instructions: "" }, {
+        purpose: "debug", runtimeInstructions: runtime.instructions,
+        complete: async (tx, version) => {
+          assertCurrent();
+          await validateApplicationCredentials(this.credentials, ownerId, publishedApplicationDefinitionSchema.parse(version.definitionJson).capabilities);
+          await activateApplicationInstallation(tx, ownerId, applicationId, version.id, "direct");
+        },
+      });
+    }, true);
+  }
 
   async install(actor: RequestActor, applicationId: string, input: ApplicationInstallInput, context: AuditContext): Promise<Application> {
     assertActiveActor(actor);
@@ -145,6 +251,7 @@ export class ApplicationService {
     const applications = await this.list(actor, { scope: "all", limit: 200 });
     const rows = await this.prisma.application.findMany({ where: { id: { in: applications.map(item => item.id) } } });
     const installations = await this.prisma.applicationInstallation.findMany({ where: { ownerId: actor.id, OR: [{ applicationId: { in: rows.map(row => row.id) } }, { sourceApplicationId: { in: rows.map(row => row.id) } }] } });
+    const runtimeInstallations = await this.prisma.applicationRuntimeInstallation.findMany({ where: { ownerId: actor.id, applicationId: { in: rows.map(row => row.id) } } });
     const permissions = await readApplicationDistributionAccessBatch(this.prisma, actor.id, [...rows.map(row => row.id), ...installations.map(item => item.sourceApplicationId)]);
     const latestByInstallation = new Map(installations.map(installed => {
       const source = permissions.get(installed.sourceApplicationId);
@@ -152,7 +259,7 @@ export class ApplicationService {
       return [installed.applicationId, source && applicationModesForChannel(source, channel).includes("install")
         ? channel === "center" ? source.center?.versionId ?? null : source.publishedVersionId : null];
     }));
-    const versions = await this.prisma.applicationVersion.findMany({ where: { id: { in: [...rows.flatMap(row => row.publishedVersionId ? [row.publishedVersionId] : []), ...installations.map(item => item.installedVersionId), ...[...latestByInstallation.values()].filter((id): id is string => id !== null)] }, assetsReady: true } });
+    const versions = await this.prisma.applicationVersion.findMany({ where: { id: { in: [...runtimeInstallations.map(item => item.versionId), ...rows.flatMap(row => row.publishedVersionId ? [row.publishedVersionId] : []), ...installations.map(item => item.installedVersionId), ...[...latestByInstallation.values()].filter((id): id is string => id !== null)] }, assetsReady: true } });
     const byVersion = new Map(versions.map(version => [version.id, version]));
     return rows.map(row => {
       const access = permissions.get(row.id);
@@ -162,16 +269,20 @@ export class ApplicationService {
       const installedVersion = installed ? byVersion.get(installed.installedVersionId) : undefined;
       const baseline = installed ? installedApplicationBaselineSchema.parse(installed.baselineJson) : null;
       const app = applications.find(item => item.id === row.id);
+      const selected = runtimeInstallations.find(item => item.applicationId === row.id);
+      const selectedVersion = selected ? byVersion.get(selected.versionId) : null;
       return applicationDistributionSummarySchema.parse({
         application_id: row.id, published_version_id: row.publishedVersionId,
         published_version_number: row.publishedVersionId ? byVersion.get(row.publishedVersionId)?.versionLabel ?? null : null,
         usage_modes: access ? applicationModesForChannel(access, "direct") : [],
-        installed_application_id: installations.find(item => item.channel === "direct" && item.sourceApplicationId === row.id)?.applicationId ?? null,
+        installed_application_id: installations.find(item => item.sourceApplicationId === row.id)?.applicationId ?? null,
+        copy_installation: projectServiceInstallation(byVersion.get(installations.find(item => item.sourceApplicationId === row.id)?.installedVersionId ?? ""), byVersion.get(row.publishedVersionId ?? "")),
+        service_installation: projectServiceInstallation(selectedVersion, row.ownerId === actor.id ? selectedVersion : row.publishedVersionId ? byVersion.get(row.publishedVersionId) : null),
         installation: installed && baseline ? {
           source_application_id: installed.sourceApplicationId, channel: installed.channel,
           installed_version_id: installed.installedVersionId, installed_version_number: installedVersion?.versionLabel,
           latest_version_id: latestVersion ? latestId : null, latest_version_number: latestVersion?.versionLabel ?? null,
-          update_available: Boolean(latestVersion && installedVersion && latestVersion.versionNumber > installedVersion.versionNumber),
+          update_available: Boolean(installedVersion && latestVersion && isApplicationVersionUpdate(installedVersion, latestVersion)),
           setup_required: !app?.dependencies_available || (app.knowledge_base_count < baseline.requiredKnowledgeBases || app.mcp_server_count < baseline.requiredMcpServers),
         } : null,
       });
@@ -181,6 +292,11 @@ export class ApplicationService {
   async getPublication(actor: RequestActor, applicationId: string): Promise<ApplicationPublication> {
     const app = await this.get(actor, applicationId);
     if (!this.publications) throw new AppError("INTERNAL_ERROR");
+    if (app.is_owner) {
+      const selected = await this.prisma.applicationRuntimeInstallation.findUnique({ where: { ownerId_applicationId: { ownerId: actor.id, applicationId } } });
+      const version = selected ? await this.prisma.applicationVersion.findUnique({ where: { id: selected.versionId } }) : null;
+      return { version_id: version?.id ?? null, version_number: version?.versionLabel ?? null, usage_instructions: version ? this.publications.parseDefinition(version.definitionJson).usageInstructions : "" };
+    }
     if (app.access_source === "center") {
       const access = await readApplicationDistributionAccess(this.prisma, actor.id, applicationId);
       const id = access.center?.versionId;
@@ -199,15 +315,47 @@ export class ApplicationService {
     return this.publications.settings(applicationId);
   }
 
+  async publicationReadiness(actor: RequestActor, applicationId: string): Promise<ApplicationPublicationReadiness> {
+    assertActiveActor(actor);
+    const application = await this.#requireOwned(actor.id, applicationId);
+    // First publication creates a separate formal application. Preview tasks
+    // never block that publication or an update to the existing formal app.
+    return { has_active_tasks: !application.developmentOnly && await hasActiveApplicationTasks(this.prisma, actor.id, applicationId) };
+  }
+
   async captureDistributionVersion(actor: RequestActor, applicationId: string, input: ApplicationVersionInput,
     complete: (tx: Prisma.TransactionClient, version: ApplicationVersion) => Promise<void>): Promise<ApplicationPublication> {
     assertActiveActor(actor);
     assertOrganizationSharingAccess(actor);
     const application = await this.#requireOwned(actor.id, applicationId);
+    if (application.developmentOnly) throw new AppError("FORBIDDEN");
     if (!this.publications) throw new AppError("INTERNAL_ERROR");
-    const runtime = await this.#resolveDraftRuntime(application);
-    const versionInput = { version_number: input.version_number, usage_instructions: input.usage_instructions };
-    return this.publications.capture(actor.id, applicationId, versionInput, { runtimeInstructions: runtime.instructions, complete });
+    const publications = this.publications;
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM applications WHERE id = ${applicationId}::uuid FOR UPDATE`);
+      const version = await tx.applicationVersion.findFirst({ where: { applicationId, purpose: "release", assetsReady: true, versionLabel: input.version_number }, orderBy: { versionNumber: "desc" } });
+      if (!version) throw new AppError("APPLICATION_PUBLICATION_REQUIRED");
+      await complete(tx, version);
+      return { version_id: version.id, version_number: version.versionLabel, usage_instructions: publications.parseDefinition(version.definitionJson).usageInstructions };
+    });
+  }
+
+  async catalog(actor: RequestActor, input: ApplicationCatalogQuery): Promise<ApplicationCatalogPage> {
+    assertActiveActor(actor);
+    const catalog = await readOwnedApplicationCatalog(this.prisma, actor.id, input);
+    const ids = catalog.slice(0, input.limit).flatMap(row => row.application_id ? [row.application_id] : []);
+    const rows = ids.length ? await this.prisma.application.findMany({
+      where: { id: { in: ids }, ownerId: actor.id, developmentOnly: false, status: { in: ["active", "disabled"] } },
+    }) : [];
+    const applications = rows.length ? await this.#projectApplications(actor.id, rows, {
+      owned: new Set(ids), shared: new Set(), accessSource: new Map(),
+    }, actor.registrationSource !== "self_registration", true) : [];
+    const icons = new Map(await Promise.all(catalog.slice(0, input.limit).flatMap(row => {
+      const id = row.development_id;
+      if (!id) return [];
+      return [this.projectIcon({ iconPreset: row.development_icon_preset ?? DEFAULT_APPLICATION_ICON_PRESET, iconObjectKey: row.development_icon_object_key ?? null }).then(icon => [id, icon] as const)];
+    })));
+    return projectApplicationCatalogPage(catalog, applications, input.limit, icons);
   }
 
   async list(
@@ -229,6 +377,7 @@ export class ApplicationService {
     const rows = await this.prisma.application.findMany({
       where: {
         id: { in: ids },
+        developmentOnly: false,
         status: { in: ["active", "disabled"] },
         ...(input.search
           ? {
@@ -263,6 +412,7 @@ export class ApplicationService {
     );
     if (!access.owned.has(applicationId) && !access.shared.has(applicationId)) {
       const distribution = await readApplicationDistributionAccess(this.prisma, actor.id, applicationId);
+      if (isApplicationCenterUnavailable(distribution)) throw new AppError("APPLICATION_CENTER_UNAVAILABLE");
       if (!applicationModesForChannel(distribution, "center").length) throw new AppError("APPLICATION_NOT_FOUND");
       access.shared.add(applicationId);
       access.accessSource.set(applicationId, "center");
@@ -288,6 +438,12 @@ export class ApplicationService {
     return projected;
   }
 
+  async details(actor: RequestActor, applicationId: string, channel: ApplicationDistributionChannel): Promise<ApplicationDetails> {
+    assertActiveActor(actor);
+    const { details, iconSource } = await readApplicationDetails(this.prisma, actor.id, applicationId, channel);
+    return applicationDetailsSchema.parse({ ...details, icon: await this.projectIcon(iconSource) });
+  }
+
   async resolveTaskMetadata(
     actorId: string,
     applicationIds: readonly string[],
@@ -310,13 +466,14 @@ export class ApplicationService {
     const accessibleIds = requestedIds.filter(id => {
       const permission = distribution.get(id);
       // Disabled applications retain their metadata so tasks can explain why they cannot run.
-      const usable = permission && applicationModesForChannel({ ...permission, applicationStatus: "active" }, channel).includes("service");
-      if (usable && channel === "center") { access.shared.add(id); access.accessSource.set(id, "center"); }
+      const runtimeChannel = permission ? applicationRuntimeChannel(permission, channel) : channel;
+      const usable = permission && (applicationModesForChannel({ ...permission, applicationStatus: "active" }, runtimeChannel).includes("service") || (runtimeChannel === "center" && isApplicationCenterUnavailable(permission)));
+      if (usable && runtimeChannel === "center") { access.shared.add(id); access.accessSource.set(id, "center"); }
       return usable;
     });
     if (!accessibleIds.length) return new Map();
     const rows = await this.prisma.application.findMany({ where: { id: { in: accessibleIds }, status: { in: ["active", "disabled"] } } });
-    if (channel === "center") for (const row of rows) row.publishedVersionId = distribution.get(row.id)?.center?.versionId ?? null;
+    if (channel === "center") for (const row of rows) if (row.ownerId !== actorId) row.publishedVersionId = distribution.get(row.id)?.center?.versionId ?? null;
     if (rows.length === 0) return new Map();
     const applications = await this.#projectApplications(
       actorId,
@@ -326,12 +483,16 @@ export class ApplicationService {
     );
     return new Map(
       applications.map((application) => {
+        const permission = distribution.get(application.id);
+        const centerUnavailable = permission && applicationRuntimeChannel(permission, channel) === "center" && isApplicationCenterUnavailable(permission);
         const reason =
           application.status !== "active"
             ? "APPLICATION_DISABLED"
-            : !application.dependencies_available
-              ? "APPLICATION_DEPENDENCY_UNAVAILABLE"
-              : null;
+            : centerUnavailable
+              ? "APPLICATION_CENTER_UNAVAILABLE"
+              : !application.dependencies_available
+                ? "APPLICATION_DEPENDENCY_UNAVAILABLE"
+                : null;
         return [
           application.id,
           {
@@ -439,9 +600,11 @@ export class ApplicationService {
     archive: Buffer,
     context: AuditContext,
     selections: InteractiveDependencyBinding[] = [],
+    options: InteractivePackageWriteOptions = {},
   ): Promise<Application> {
     assertActiveActor(actor);
     const prepared = await inspectInteractiveApplicationArchive(archive);
+
     const applicationId = randomUUID();
     const packageId = randomUUID();
     const iconObjectKey = prepared.icon
@@ -474,14 +637,15 @@ export class ApplicationService {
         uploadedObjectKeys.push(iconObjectKey);
       }
       await this.prisma.$transaction(async (tx) => {
-        const dependencies = await resolveInteractiveDependencies(tx, actor.id, prepared.manifest, [], selections);
+        const dependencies = await resolveInteractiveDependencies(tx, actor.id, prepared.manifest, options.initialDependencyBindings ?? [], selections);
         await tx.application.create({
           data: {
             id: applicationId,
             ownerId: actor.id,
             name: prepared.manifest.name,
             kind: "interactive",
-            iconPreset: "sparkles",
+            developmentOnly: options.developmentOnly ?? false,
+            iconPreset: prepared.manifest.icon_preset ?? DEFAULT_APPLICATION_ICON_PRESET,
             iconObjectKey,
             description: prepared.manifest.description,
             instructions:
@@ -522,6 +686,8 @@ export class ApplicationService {
             sha256: asset.sha256,
           })),
         });
+        await options.staged?.(tx, applicationId);
+        if (!options.release) await options.complete?.(tx, applicationId);
       });
     } catch (error) {
       await Promise.allSettled(
@@ -531,11 +697,9 @@ export class ApplicationService {
             : this.interactiveAssetStore?.remove(objectKey),
         ),
       );
-      if (isPackageVersionConflict(error)) {
-        throw new AppError("APPLICATION_PACKAGE_VERSION_CONFLICT");
-      }
       throw error;
     }
+    if (options.release) await this.publish(actor, applicationId, options.release, options.complete);
     await this.audit.write({
       ...context,
       actorId: actor.id,
@@ -558,9 +722,22 @@ export class ApplicationService {
     archive: Buffer,
     context: AuditContext,
     selections: InteractiveDependencyBinding[] = [],
+    options: InteractivePackageWriteOptions = {},
   ): Promise<Application> {
     assertActiveActor(actor);
     const current = await this.#requireOwned(actor.id, applicationId);
+    if (options.release) {
+      if (!this.runtimeInstallations) throw new AppError("INTERNAL_ERROR");
+      return this.runtimeInstallations.gate.change(actor.id, applicationId,
+        () => this.updateInteractivePackageLocked(actor, applicationId, archive, context, selections, options));
+    }
+    return this.updateInteractivePackageLocked(actor, applicationId, archive, context, selections, options, current);
+  }
+
+  private async updateInteractivePackageLocked(actor: RequestActor, applicationId: string, archive: Buffer,
+    context: AuditContext, selections: InteractiveDependencyBinding[], options: InteractivePackageWriteOptions,
+    loaded?: StoredApplication): Promise<Application> {
+    const current = loaded ?? await this.#requireOwned(actor.id, applicationId);
     if (current.kind !== "interactive") {
       throw new AppError("APPLICATION_PACKAGE_INVALID");
     }
@@ -568,7 +745,7 @@ export class ApplicationService {
     const packageId = randomUUID();
     const nextIconObjectKey = prepared.icon
       ? `applications/${actor.id}/${applicationId}/icon/${randomUUID()}`
-      : current.iconObjectKey;
+      : prepared.manifest.icon_preset !== undefined ? null : current.iconObjectKey;
     const uploadedObjectKeys: string[] = [];
     if (!this.interactiveAssetStore) throw new AppError("INTERNAL_ERROR");
     try {
@@ -599,8 +776,9 @@ export class ApplicationService {
         );
         uploadedObjectKeys.push(nextIconObjectKey);
       }
-      await this.prisma.$transaction(async (tx) => {
+      const savePackage = async (tx: Prisma.TransactionClient): Promise<void> => {
         const dependencies = await resolveInteractiveDependencies(tx, actor.id, prepared.manifest, current.interactiveDependencyBindings, selections);
+        if (options.release && dependencies.items.some(item => !item.available)) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
         await tx.interactiveApplicationPackage.create({
           data: {
             id: packageId,
@@ -642,6 +820,7 @@ export class ApplicationService {
               prepared.manifest.instructions ??
               interactiveApplicationBaseInstructions(prepared.manifest.name),
             iconObjectKey: nextIconObjectKey,
+            iconPreset: prepared.manifest.icon_preset ?? current.iconPreset,
             interactivePackageId: packageId,
             interactiveDependencyBindings: dependencyBindings(dependencies),
             updatedAt: new Date(),
@@ -649,7 +828,26 @@ export class ApplicationService {
         });
         if (updated.count !== 1) throw new AppError("CONFLICT");
         await writeInteractiveRuntimeBindings(tx, applicationId, dependencies, true);
-      });
+        await options.complete?.(tx, applicationId);
+      };
+      if (options.release && !current.developmentOnly) {
+        if (!this.publications) throw new AppError("INTERNAL_ERROR");
+        const dependencies = await resolveInteractiveDependencies(this.prisma, actor.id, prepared.manifest, current.interactiveDependencyBindings, selections);
+        if (dependencies.items.some(item => !item.available)) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+        const resourceIds = interactiveRuntimeDependencyIds(dependencies);
+        await this.#validateDependencies(actor.id, resourceIds);
+        await this.publications.capture(actor.id, applicationId, options.release, {
+          interactiveUpdate: { packageId, name: prepared.manifest.name, description: prepared.manifest.description ?? null, iconPreset: prepared.manifest.icon_preset ?? current.iconPreset, iconObjectKey: nextIconObjectKey, ...resourceIds },
+          runtimeInstructions: interactiveApplicationRuntimeInstructions(prepared.manifest.instructions ?? interactiveApplicationBaseInstructions(prepared.manifest.name), prepared.manifest),
+          complete: async (tx, version) => {
+            await savePackage(tx);
+            await validateApplicationCredentials(this.credentials, actor.id, publishedApplicationDefinitionSchema.parse(version.definitionJson).capabilities);
+            await activateApplicationInstallation(tx, actor.id, applicationId, version.id, "direct");
+          },
+        });
+      } else {
+        await this.prisma.$transaction(savePackage);
+      }
     } catch (error) {
       await Promise.allSettled(
         uploadedObjectKeys.map((objectKey) =>
@@ -658,13 +856,9 @@ export class ApplicationService {
             : this.interactiveAssetStore?.remove(objectKey),
         ),
       );
-      if (isPackageVersionConflict(error)) {
-        throw new AppError("APPLICATION_PACKAGE_VERSION_CONFLICT");
-      }
       throw error;
     }
     if (
-      prepared.icon &&
       current.iconObjectKey &&
       current.iconObjectKey !== nextIconObjectKey
     ) {
@@ -685,12 +879,16 @@ export class ApplicationService {
     return this.get(actor, applicationId);
   }
 
-  async previewInteractiveDependencies(actor: RequestActor, archive: Buffer, applicationId?: string): Promise<InteractiveDependencyState> {
+  async previewInteractiveDependencies(actor: RequestActor, archive: Buffer, applicationId?: string): Promise<InteractiveApplicationImportPreview> {
     assertActiveActor(actor);
     const current = applicationId ? await this.#requireOwned(actor.id, applicationId) : null;
     if (current && current.kind !== "interactive") throw new AppError("APPLICATION_PACKAGE_INVALID");
     const prepared = await inspectInteractiveApplicationArchive(archive);
-    return resolveInteractiveDependencies(this.prisma, actor.id, prepared.manifest, current?.interactiveDependencyBindings);
+    const dependencies = await resolveInteractiveDependencies(this.prisma, actor.id, prepared.manifest, current?.interactiveDependencyBindings);
+    return interactiveApplicationImportPreviewSchema.parse({
+      ...dependencies,
+      application: { name: prepared.manifest.name, description: prepared.manifest.description, version: prepared.manifest.version },
+    });
   }
 
   async interactiveDependencies(actor: RequestActor, applicationId: string): Promise<InteractiveDependencyState> {
@@ -739,19 +937,14 @@ export class ApplicationService {
       applicationId,
       channel,
     );
-    const published = application.publishedVersionId && this.publications
-      ? await this.publications.readVersion(applicationId, application.publishedVersionId) : null;
-    const packageId = requestedPackageId ?? published?.interactivePackageId ?? application.interactivePackageId;
+    const versionId = await this.installedVersionId(actor.id, application);
+    const published = versionId && this.publications
+      ? await this.publications.readVersion(applicationId, versionId) : null;
+    const packageId = application.developmentOnly
+      ? requestedPackageId ?? application.interactivePackageId
+      : published?.interactivePackageId;
     if (application.kind !== "interactive" || !packageId) {
       throw new AppError("APPLICATION_NOT_FOUND");
-    }
-    if (application.ownerId !== actor.id || channel === "center") {
-      const approved = channel === "center" ? await this.prisma.applicationRelease.findMany({ where: { applicationId, status: "approved", usageModes: { has: "service" } }, select: { versionId: true } }) : null;
-      const publishedPackage = await this.prisma.applicationVersion.findFirst({
-        where: { applicationId, assetsReady: true, ...(approved ? { id: { in: approved.map(item => item.versionId) } } : {}), definitionJson: { path: ["interactivePackageId"], equals: packageId } },
-        select: { id: true },
-      });
-      if (!publishedPackage) throw new AppError("APPLICATION_NOT_FOUND");
     }
     const package_ = await this.prisma.interactiveApplicationPackage.findFirst({
       where: { id: packageId, applicationId },
@@ -773,7 +966,7 @@ export class ApplicationService {
     conversationId?: string,
   ) {
     const conversation = conversationId ? await this.prisma.conversation.findFirst({ where: { id: conversationId, ownerId: actor.id, applicationId }, select: { applicationChannel: true, interactiveApplicationPackageId: true } }) : null;
-    if (conversationId && (!conversation || (requestedPackageId && conversation.interactiveApplicationPackageId !== requestedPackageId))) throw new AppError("FORBIDDEN");
+    if (conversationId && !conversation) throw new AppError("FORBIDDEN");
     const channel = conversation?.applicationChannel === "center" ? "center" : "direct";
     const package_ = await this.resolveInteractiveRuntimePackage(
       actor,
@@ -811,11 +1004,16 @@ export class ApplicationService {
     if (application.kind !== "interactive") {
       throw new AppError("APPLICATION_NOT_FOUND");
     }
-    return this.#loadInteractiveAsset(
+    const asset = await this.#loadInteractiveAsset(
       ticket.applicationId,
       ticket.packageId,
       path,
     );
+    if (application.developmentOnly && asset.contentType.startsWith("text/html")) {
+      const data = Buffer.from(instrumentApplicationPreview((await buffer(asset.data)).toString("utf8")));
+      return { ...asset, data: Readable.from(data), byteSize: data.length, etag: createHash("sha256").update(data).digest("hex") };
+    }
+    return asset;
   }
 
   async #loadInteractiveAsset(
@@ -847,9 +1045,25 @@ export class ApplicationService {
     applicationId: string,
     input: UpdateApplicationInput,
     context: AuditContext,
+    release?: ApplicationVersionInput,
   ): Promise<Application> {
     assertActiveActor(actor);
     const current = await this.#requireOwned(actor.id, applicationId);
+    if (release) {
+      if (current.developmentOnly || (current.kind === "interactive" && Object.keys(input).some(key => !["name", "description", "icon"].includes(key)))) throw new AppError("FORBIDDEN");
+      if (!this.runtimeInstallations) throw new AppError("INTERNAL_ERROR");
+      return this.runtimeInstallations.gate.change(actor.id, applicationId, async assertCurrent =>
+        this.#updateApplication(actor, await this.#requireOwned(actor.id, applicationId), input, context, { release, assertCurrent }));
+    }
+    return this.#updateApplication(actor, current, input, context);
+  }
+
+  async #updateApplication(actor: RequestActor, current: StoredApplication, input: UpdateApplicationInput, context: AuditContext,
+    publication?: { release: ApplicationVersionInput; assertCurrent: () => void }): Promise<Application> {
+    const applicationId = current.id;
+    if (current.kind === "interactive" && Object.keys(input).every(key => ["name", "description", "icon"].includes(key))) {
+      return this.#updateInteractiveMetadata(actor, current, input, context, publication);
+    }
     if (
       current.kind === "interactive" &&
       Object.keys(input).some((key) => key !== "status") &&
@@ -904,7 +1118,7 @@ export class ApplicationService {
         : await this.#prepareIcon(actor.id, input.icon);
     const now = new Date();
     try {
-      await this.prisma.$transaction(async (tx) => {
+      const saveChanges = async (tx: Prisma.TransactionClient): Promise<void> => {
         const updated = await tx.application.updateMany({
           where: {
             id: applicationId,
@@ -1003,7 +1217,28 @@ export class ApplicationService {
             data: { revokedAt: now, revokeReason: "application_disabled" },
           });
         }
-      });
+      };
+      if (publication) {
+        if (!this.publications) throw new AppError("INTERNAL_ERROR");
+        await this.publications.capture(actor.id, applicationId, publication.release, {
+          standardUpdate: {
+            name: input.name ?? current.name,
+            description: input.description === undefined ? current.description : input.description,
+            iconPreset: preparedIcon?.preset ?? current.iconPreset,
+            iconObjectKey: preparedIcon === null ? current.iconObjectKey : preparedIcon.objectKey,
+            instructions: input.instructions ?? current.instructions,
+            model, reasoningEffort, capabilityIds, knowledgeBaseIds, mcpServerIds,
+          },
+          complete: async (tx, version) => {
+            publication.assertCurrent();
+            await validateApplicationCredentials(this.credentials, actor.id, publishedApplicationDefinitionSchema.parse(version.definitionJson).capabilities);
+            await saveChanges(tx);
+            await activateApplicationInstallation(tx, actor.id, applicationId, version.id, "direct");
+          },
+        });
+      } else {
+        await this.prisma.$transaction(saveChanges);
+      }
     } catch (error) {
       if (preparedIcon?.newObjectKey) {
         await this.#removeIconAfterFailure(preparedIcon.newObjectKey);
@@ -1035,6 +1270,51 @@ export class ApplicationService {
     return this.get(actor, applicationId);
   }
 
+  /** Presentation edits preserve bindings; publication validates and installs a new immutable release. */
+  async #updateInteractiveMetadata(actor: RequestActor, current: StoredApplication, input: UpdateApplicationInput, context: AuditContext,
+    publication?: { release: ApplicationVersionInput; assertCurrent: () => void }): Promise<Application> {
+    const prepared = input.icon ? await this.#prepareIcon(actor.id, input.icon) : null;
+    try {
+      const saveChanges = async (tx: Prisma.TransactionClient) => {
+        const changed = await tx.application.updateMany({
+          where: { id: current.id, ownerId: actor.id, status: { in: ["active", "disabled"] }, updatedAt: current.updatedAt },
+          data: {
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.description !== undefined ? { description: input.description } : {}),
+            ...(prepared ? { iconPreset: prepared.preset, iconObjectKey: prepared.objectKey } : {}),
+            updatedAt: new Date(),
+          },
+        });
+        if (changed.count !== 1) throw new AppError("CONFLICT");
+      };
+      if (publication) {
+        if (!this.publications) throw new AppError("INTERNAL_ERROR");
+        await this.publications.capture(actor.id, current.id, publication.release, {
+          metadataUpdate: {
+            name: input.name ?? current.name,
+            description: input.description === undefined ? current.description : input.description,
+            iconPreset: prepared?.preset ?? current.iconPreset,
+            iconObjectKey: prepared ? prepared.objectKey : current.iconObjectKey,
+          },
+          complete: async (tx, version) => {
+            publication.assertCurrent();
+            await validateApplicationCredentials(this.credentials, actor.id, publishedApplicationDefinitionSchema.parse(version.definitionJson).capabilities);
+            await saveChanges(tx);
+            await activateApplicationInstallation(tx, actor.id, current.id, version.id, "direct");
+          },
+        });
+      } else {
+        await this.prisma.$transaction(saveChanges);
+      }
+    } catch (error) {
+      if (prepared?.newObjectKey) await this.#removeIconAfterFailure(prepared.newObjectKey);
+      throw error;
+    }
+    if (prepared && current.iconObjectKey && current.iconObjectKey !== prepared.objectKey) await this.#enqueueIconRemoval(current.iconObjectKey);
+    await this.audit.write({ ...context, actorId: actor.id, action: "application_updated", targetType: "application", targetId: current.id, result: "success" });
+    return this.get(actor, current.id);
+  }
+
   async delete(
     actor: RequestActor,
     applicationId: string,
@@ -1042,8 +1322,10 @@ export class ApplicationService {
   ): Promise<void> {
     assertActiveActor(actor);
     const current = await this.#requireOwned(actor.id, applicationId);
+    if (current.developmentOnly) throw new AppError("FORBIDDEN");
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
+      await deleteApplicationDevelopment(tx, actor.id, { applicationId }, context);
       await tx.$queryRaw(Prisma.sql`SELECT id FROM applications WHERE id = ${applicationId}::uuid FOR UPDATE`);
       await tx.applicationInstallation.deleteMany({ where: { applicationId, ownerId: actor.id } });
       await tx.applicationListing.updateMany({ where: { applicationId, status: { not: "suspended" } }, data: { status: "unlisted" } });
@@ -1173,7 +1455,7 @@ export class ApplicationService {
       } else if (!await tx.applicationGrant.findFirst({ where: { applicationId, status: "active" }, select: { id: true } })) {
         throw new AppError("APPLICATION_GRANT_TARGET_INVALID");
       }
-      await tx.application.update({ where: { id: applicationId, ownerId: actor.id }, data: { publishedVersionId: version.id, usageInstructions: parsed.usage_instructions } });
+      await tx.application.update({ where: { id: applicationId, ownerId: actor.id }, data: { publishedVersionId: version.id } });
     });
     await this.audit.write({ ...context, actorId: actor.id, action: "application_shared", targetType: "application", targetId: applicationId,
       result: "success", metadata: { application_id: applicationId, version_number: result.version_number } });
@@ -1316,7 +1598,6 @@ export class ApplicationService {
   async resolveRuntime(
     actorId: string,
     applicationId: string,
-    interactivePackageId?: string | null,
     channel: ApplicationDistributionChannel = "direct",
   ): Promise<ApplicationRuntimeConfiguration> {
     const application = await this.#requireCurrentAccess(
@@ -1324,7 +1605,7 @@ export class ApplicationService {
       applicationId,
       channel,
     );
-    const versionId = application.publishedVersionId;
+    const versionId = await this.installedVersionId(actorId, application);
     if (versionId) {
       if (!this.publications) throw new AppError("INTERNAL_ERROR");
       const definition = await this.publications.readVersion(applicationId, versionId);
@@ -1343,10 +1624,16 @@ export class ApplicationService {
       };
     }
     if (application.ownerId !== actorId) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
-    return this.#resolveDraftRuntime(application, interactivePackageId);
+    return this.#resolveDraftRuntime(application);
   }
 
-  async #resolveDraftRuntime(application: StoredApplication, interactivePackageId?: string | null): Promise<ApplicationRuntimeConfiguration> {
+  async resolvePreviewRuntime(ownerId: string, applicationId: string): Promise<ApplicationRuntimeConfiguration> {
+    const application = await this.#requireOwned(ownerId, applicationId);
+    if (!application.developmentOnly) throw new AppError("FORBIDDEN");
+    return this.#resolveDraftRuntime(application);
+  }
+
+  async #resolveDraftRuntime(application: StoredApplication): Promise<ApplicationRuntimeConfiguration> {
     const applicationId = application.id;
     const [capabilityBindings, knowledgeBindings, mcpBindings, package_, installation] =
       await Promise.all([
@@ -1362,10 +1649,10 @@ export class ApplicationService {
           where: { applicationId },
           orderBy: { selectionOrder: "asc" },
         }),
-        (interactivePackageId ?? application.interactivePackageId)
+        application.interactivePackageId
           ? this.prisma.interactiveApplicationPackage.findUnique({
               where: {
-                id: (interactivePackageId ?? application.interactivePackageId)!,
+                id: application.interactivePackageId,
               },
             })
           : Promise.resolve(null),
@@ -1432,7 +1719,7 @@ export class ApplicationService {
 
   async allowsUserModelSelection(actorId: string, applicationId: string, channel: ApplicationDistributionChannel = "direct"): Promise<boolean> {
     const application = await this.#requireCurrentAccess(actorId, applicationId, channel);
-    const versionId = application.publishedVersionId;
+    const versionId = await this.installedVersionId(actorId, application);
     if (!versionId) return application.ownerId === actorId && application.model === null;
     if (!this.publications) throw new AppError("INTERNAL_ERROR");
     return (await this.publications.readVersion(applicationId, versionId)).model === null;
@@ -1485,8 +1772,9 @@ export class ApplicationService {
     if (application.status !== "active") {
       throw new AppError("APPLICATION_DISABLED");
     }
-    if (channel === "center") {
+    if (applicationRuntimeChannel({ actorId, ownerId: application.ownerId }, channel) === "center") {
       const distribution = await readApplicationDistributionAccess(this.prisma, actorId, applicationId);
+      if (isApplicationCenterUnavailable(distribution)) throw new AppError("APPLICATION_CENTER_UNAVAILABLE");
       application.publishedVersionId = requireApplicationDistributionVersion(distribution, "center", "service");
     }
     return application;
@@ -1742,8 +2030,11 @@ export class ApplicationService {
     }>,
     access: AccessibleApplications,
     includeOrganizationSharing: boolean,
+    installedPresentation = false,
   ): Promise<Application[]> {
-    const versionIds = rows.flatMap(row => row.publishedVersionId ? [row.publishedVersionId] : []);
+    const runtimeInstallations = await this.prisma.applicationRuntimeInstallation.findMany({ where: { ownerId: actorId, applicationId: { in: rows.map(row => row.id) } } });
+    const installedByApp = new Map(runtimeInstallations.map(installation => [installation.applicationId, installation.versionId]));
+    const versionIds = [...rows.flatMap(row => row.publishedVersionId ? [row.publishedVersionId] : []), ...runtimeInstallations.map(installation => installation.versionId)];
     const versions = versionIds.length ? await this.prisma.applicationVersion.findMany({ where: { id: { in: versionIds }, assetsReady: true } }) : [];
     const definitionByVersion = new Map(versions.map(version => [version.id, publishedApplicationDefinitionSchema.parse(version.definitionJson)]));
     const applicationIds = rows.map((row) => row.id);
@@ -1889,8 +2180,9 @@ export class ApplicationService {
     return Promise.all(
       rows.map(async (row) => {
         const isOwner = row.ownerId === actorId;
-        const published = row.publishedVersionId ? definitionByVersion.get(row.publishedVersionId) : undefined;
-        const frozen = isOwner ? undefined : published;
+        const runtimeVersionId = installedByApp.get(row.id) ?? null;
+        const published = runtimeVersionId ? definitionByVersion.get(runtimeVersionId) : row.publishedVersionId ? definitionByVersion.get(row.publishedVersionId) : undefined;
+        const frozen = isOwner && !installedPresentation ? undefined : published;
         const projectedCapabilities = await Promise.all(
           (frozen ? frozen.capabilities.map(capability => ({ capabilityId: capability.id, capabilityNameSnapshot: capability.name, capabilityTypeSnapshot: capability.type, createdAt: new Date(capability.revision) })) : capabilityBindingsByApplication.get(row.id) ?? []).map(
             async (binding) => {
@@ -1976,12 +2268,11 @@ export class ApplicationService {
               };
             })
           : [];
-        const icon = await this.#projectIcon(row);
+        const icon = await this.projectIcon(frozen ?? row);
         const draftPackage = row.interactivePackageId ? interactivePackageById.get(row.interactivePackageId) : undefined;
         const draftBindingsComplete = row.kind !== "interactive" || Boolean(draftPackage && interactiveBindingsComplete(draftPackage.manifestJson, row.interactiveDependencyBindings));
-        const draftDependencies = isOwner && draftPackage ? interactiveApplicationManifestSchema.parse(draftPackage.manifestJson).dependencies : null;
-        // The editor shows draft bindings; launch readiness always describes the
-        // published version used by both its author and its recipients.
+        const draftDependencies = isOwner && !frozen && draftPackage ? interactiveApplicationManifestSchema.parse(draftPackage.manifestJson).dependencies : null;
+        // Launch readiness must use the same configuration as runtime selection.
         const publishedDependenciesAvailable = published && (
           await Promise.all(published.capabilities.map(async snapshot => {
             const capability = capabilityById.get(snapshot.id);
@@ -2004,7 +2295,7 @@ export class ApplicationService {
           },
           name: frozen?.name ?? row.name,
           icon,
-          description: row.description,
+          description: frozen ? frozen.description : row.description,
           kind: frozen?.kind ?? (row.kind === "interactive" ? "interactive" : "standard"),
           instructions: isOwner ? row.instructions : null,
           model: frozen ? frozen.model : row.model,
@@ -2020,7 +2311,7 @@ export class ApplicationService {
           mcp_server_count: draftDependencies?.mcp_servers.length || projectedMcpServers.length,
           share_targets: shareTargets,
           dependencies_available:
-            published ? publishedDependenciesAvailable : isOwner && !row.publishedVersionId && draftBindingsComplete &&
+            runtimeVersionId ? Boolean(publishedDependenciesAvailable) : isOwner && draftBindingsComplete &&
             projectedCapabilities.every((item) => item.available) &&
             projectedKnowledgeBases.every((item) => item.available) &&
             projectedMcpServers.every((item) => item.available),
@@ -2038,12 +2329,12 @@ export class ApplicationService {
     );
   }
 
-  async #projectIcon(row: {
+  async projectIcon(row: {
     iconPreset: string;
     iconObjectKey: string | null;
   }): Promise<Application["icon"]> {
     const parsedPreset = applicationIconPresetSchema.safeParse(row.iconPreset);
-    const fallbackPreset = parsedPreset.success ? parsedPreset.data : "bot";
+    const fallbackPreset = parsedPreset.success ? parsedPreset.data : DEFAULT_APPLICATION_ICON_PRESET;
     if (row.iconObjectKey === null || this.iconStore === undefined) {
       return { type: "preset", preset: fallbackPreset };
     }
@@ -2063,7 +2354,7 @@ export class ApplicationService {
     input?: ApplicationIconInput,
   ): Promise<PreparedApplicationIcon> {
     if (input === undefined) {
-      return { preset: "bot", objectKey: null, newObjectKey: null };
+      return { preset: DEFAULT_APPLICATION_ICON_PRESET, objectKey: null, newObjectKey: null };
     }
     const parsed = applicationIconInputSchema.safeParse(input);
     if (!parsed.success) throw new AppError("APPLICATION_ICON_UPLOAD_INVALID");
@@ -2077,26 +2368,7 @@ export class ApplicationService {
     if (this.iconStore === undefined) {
       throw new AppError("APPLICATION_ICON_UPLOAD_INVALID");
     }
-    const bytes = Buffer.from(parsed.data.data_base64, "base64");
-    const detectedType = detectSafeRasterImage(
-      bytes,
-      APPLICATION_ICON_MAX_DIMENSION,
-    );
-    if (
-      bytes.byteLength === 0 ||
-      bytes.byteLength > APPLICATION_ICON_MAX_BYTES ||
-      detectedType === null ||
-      detectedType === "image/gif" ||
-      detectedType !== parsed.data.mime_type
-    ) {
-      throw new AppError("APPLICATION_ICON_UPLOAD_INVALID");
-    }
-    const extension =
-      detectedType === "image/png"
-        ? "png"
-        : detectedType === "image/jpeg"
-          ? "jpg"
-          : "webp";
+    const { bytes, contentType: detectedType, extension } = decodeApplicationIcon(parsed.data);
     const objectKey = `applications/${ownerId}/icons/${randomUUID()}.${extension}`;
     try {
       await this.iconStore.put(objectKey, bytes, detectedType);
@@ -2105,7 +2377,7 @@ export class ApplicationService {
       throw new AppError("APPLICATION_ICON_UPLOAD_INVALID");
     }
     return {
-      preset: "bot",
+      preset: DEFAULT_APPLICATION_ICON_PRESET,
       objectKey,
       newObjectKey: objectKey,
     };
@@ -2126,6 +2398,15 @@ export class ApplicationService {
 
   async #enqueueIconRemoval(objectKey: string): Promise<void> {
     if (this.iconStore === undefined) return;
+    // Released icons can be shared by immutable versions and installed copies.
+    // A failed reference check must retain the object, never delete optimistically.
+    try {
+      const [version, application] = await Promise.all([
+        this.prisma.applicationVersion.findFirst({ where: { assetsReady: true, definitionJson: { path: ["iconObjectKey"], equals: objectKey } }, select: { id: true } }),
+        this.prisma.application.findFirst({ where: { iconObjectKey: objectKey, status: { not: "deleted" } }, select: { id: true } }),
+      ]);
+      if (version || application) return;
+    } catch { return; }
     try {
       if (this.iconStore.enqueueRemoval !== undefined) {
         await this.iconStore.enqueueRemoval(objectKey);
@@ -2184,19 +2465,6 @@ function groupBy<T, K>(values: T[], keyFor: (value: T) => K): Map<K, T[]> {
     grouped.set(key, current);
   }
   return grouped;
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return (
-    error !== null &&
-    typeof error === "object" &&
-    "code" in error &&
-    error.code === "P2002"
-  );
-}
-
-function isPackageVersionConflict(error: unknown): boolean {
-  return isUniqueConstraintError(error);
 }
 
 function interactiveAssetObjectKey(

@@ -50,6 +50,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       generation: CAPABILITY_GENERATION,
     }));
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi.fn(),
       commitUsage: vi.fn(async () => undefined),
     };
@@ -80,7 +81,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prismaFixture([]) as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -93,6 +95,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
         userId: USER_ID, conversationId: TASK_ID,
         priorityCapabilityIds: [BUILT_IN_BROWSER_ID],
         capabilityScope: {
+          source: "draft",
           sourceOwnerId: APPLICATION_OWNER_ID,
           capabilityIds: [],
           mcpServerIds: [],
@@ -125,7 +128,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prismaFixture([source]) as never,
       {
-        resolveForCapability: vi.fn(async () => ({
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(async () => ({
           ok: true,
           environment: {},
           usageReceipt: { userId: APPLICATION_OWNER_ID, capabilityId: source.id, credentialIds: [] },
@@ -142,6 +146,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       conversationId: TASK_ID,
       priorityCapabilityIds: [],
       capabilityScope: {
+        source: "published",
         applicationId: APPLICATION_ID,
         serviceSessionId: APPLICATION_ID,
         sourceOwnerId: APPLICATION_OWNER_ID,
@@ -160,12 +165,50 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     }));
   });
 
+  it.each(["draft", "published"] as const)("resolves live dependencies only for a %s preview without a published snapshot", async (source) => {
+    const root = await capabilityRoot();
+    const selected = { ...capability(PRIMARY_PLUGIN_ID, join(root, "primary"), false), type: "skill" };
+    const prisma = prismaFixture([selected]);
+    const reconcile = vi.fn(async () => ({ generation: CAPABILITY_GENERATION }));
+    const home = materializerWithReconcile(reconcile);
+    const preflight = new DatabaseConversationPreflight(
+      prisma as never,
+      { resolveForCapabilities: batchCredentialStub, resolveForCapability: vi.fn(), commitUsage: vi.fn() } as never,
+      root, "credential-source-secret-for-tests-1234567890", home,
+    );
+    const capabilityScope = {
+      ...(source === "published" ? { source, publishedCapabilities: [] } : { source }),
+      applicationId: APPLICATION_ID, serviceSessionId: APPLICATION_ID,
+      sourceOwnerId: USER_ID, capabilityIds: [PRIMARY_PLUGIN_ID], mcpServerIds: [],
+    };
+    const input = { userId: USER_ID, conversationId: TASK_ID, priorityCapabilityIds: [], capabilityScope };
+    if (source === "published") {
+      await expect(preflight.resolve(input)).rejects.toMatchObject({ code: "APPLICATION_DEPENDENCY_UNAVAILABLE" });
+      expect(reconcile).not.toHaveBeenCalled();
+      return;
+    }
+    const resolved = await preflight.resolve(input);
+    expect(prisma.capability.findMany).toHaveBeenCalledWith({
+      where: { ownerId: USER_ID, status: "active", id: { in: [PRIMARY_PLUGIN_ID] } },
+    });
+    expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({
+      ownerId: USER_ID, serviceSessionId: APPLICATION_ID,
+      capabilities: [expect.objectContaining({ id: PRIMARY_PLUGIN_ID, sourcePath: join(root, "primary") })],
+    }));
+    const start = vi.fn(async () => "started");
+    await expect(preflight.withCapabilityStartBarrier({ ...input, ...resolved }, start)).resolves.toBe("started");
+    expect(home.withPublishedRuntime).toHaveBeenCalledWith(expect.objectContaining({
+      ownerId: USER_ID, serviceSessionId: APPLICATION_ID,
+    }), expect.any(Function));
+  });
+
   it.each(["../outside/current", "application-versions/../../outside", "."])("rejects a relative capability path that escapes or names the storage root: %s", async (storagePath) => {
     const root = await capabilityRoot();
     const reconcile = vi.fn();
     const preflight = new DatabaseConversationPreflight(
       prismaFixture([{ ...capability(PRIMARY_PLUGIN_ID, storagePath, false), type: "skill" }]) as never,
-      { resolveForCapability: vi.fn(), commitUsage: vi.fn() } as never,
+      { resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(), commitUsage: vi.fn() } as never,
       root,
       "credential-source-secret-for-tests-1234567890",
       materializerWithReconcile(reconcile),
@@ -186,6 +229,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     };
     const prisma = prismaFixture([applicationSkill]);
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi.fn(),
       commitUsage: vi.fn(async () => undefined),
     };
@@ -204,6 +248,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
       capabilityScope: {
+        source: "draft",
         sourceOwnerId: APPLICATION_OWNER_ID,
         capabilityIds: [PRIMARY_PLUGIN_ID],
         mcpServerIds: [],
@@ -264,7 +309,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prismaFixture([]) as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -277,6 +323,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [],
       capabilityScope: {
+        source: "draft",
         sourceOwnerId: APPLICATION_OWNER_ID,
         capabilityIds: [],
         mcpServerIds: [APPLICATION_MCP_SERVER_ID],
@@ -341,7 +388,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prisma as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -351,6 +399,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       EXTERNAL_APPLICATION_SESSION_ID_MASTER_KEY,
     );
     const capabilityScope = {
+      source: "draft" as const,
       applicationId: APPLICATION_ID,
       sourceOwnerId: APPLICATION_OWNER_ID,
       capabilityIds: [],
@@ -392,6 +441,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       },
     };
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi.fn(async () => ({
         ok: true as const,
         environment: { API_KEY: "owner-plugin-secret" },
@@ -416,6 +466,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       userId: USER_ID, conversationId: TASK_ID,
       priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
       capabilityScope: {
+        source: "draft",
         sourceOwnerId: APPLICATION_OWNER_ID,
         capabilityIds: [PRIMARY_PLUGIN_ID],
         mcpServerIds: [],
@@ -479,6 +530,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       },
     };
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi.fn(async () => ({
         ok: false as const,
         blockCode: "required_credential_unavailable" as const,
@@ -498,6 +550,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
         userId: USER_ID, conversationId: TASK_ID,
         priorityCapabilityIds: [PRIMARY_PLUGIN_ID],
         capabilityScope: {
+          source: "draft",
           sourceOwnerId: APPLICATION_OWNER_ID,
           capabilityIds: [PRIMARY_PLUGIN_ID],
           mcpServerIds: [],
@@ -528,7 +581,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prisma as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -561,7 +615,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prismaFixture([primarySkill]) as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -582,6 +637,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       name: "Presentations",
     };
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi.fn(),
       commitUsage: vi.fn(async () => undefined),
     };
@@ -610,6 +666,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       name: "presentation-builder",
     }));
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi.fn(),
       commitUsage: vi.fn(async () => undefined),
     };
@@ -634,6 +691,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       capability(SECONDARY_PLUGIN_ID, join(root, "secondary"), true),
     ];
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi.fn(
         async (_userId: string, capabilityId: string) => ({
           ok: true as const,
@@ -735,7 +793,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prismaFixture([plugin]) as never,
       {
-        resolveForCapability: vi.fn(async () => ({
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(async () => ({
           ok: false as const,
           blockCode: "required_credential_unavailable" as const,
         })),
@@ -766,7 +825,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prismaFixture([plugin]) as never,
       {
-        resolveForCapability: vi.fn(async () => ({
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(async () => ({
           ok: true as const,
           environment: { PUBLIC_API_KEY: "primary-secret-value" },
           usageReceipt: {
@@ -792,7 +852,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prismaFixture([plugin]) as never,
       {
-        resolveForCapability: vi.fn(async () => ({
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(async () => ({
           ok: true as const,
           environment: { BASH_ENV: "untrusted-bootstrap" },
           usageReceipt: {
@@ -818,6 +879,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const plugin = capability(PRIMARY_PLUGIN_ID, join(root, "primary"), true);
     const prisma = prismaFixture([plugin]);
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi.fn(async () => ({
         ok: true as const,
         environment: { API_KEY: "recovered-secret-value" },
@@ -882,6 +944,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
   it("fails closed when a recovery credential mapping does not match the persisted snapshot", async () => {
     const root = await capabilityRoot();
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi.fn(async () => ({
         ok: true as const,
         environment: { API_KEY: "recovered-secret-value" },
@@ -928,6 +991,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
   it("fails closed when a credential used by the running-turn snapshot was revoked", async () => {
     const root = await capabilityRoot();
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi.fn(async () => ({
         ok: false as const,
         blockCode: "required_credential_unavailable" as const,
@@ -965,6 +1029,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
   it("does not resolve credentials or materialize HOME for a persisted Skill snapshot", async () => {
     const root = await capabilityRoot();
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi.fn(),
       commitUsage: vi.fn(async () => undefined),
     };
@@ -1001,6 +1066,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
   it("does not read the current capability or credential state for a persisted plugin without credentials", async () => {
     const root = await capabilityRoot();
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi.fn(),
       commitUsage: vi.fn(async () => undefined),
     };
@@ -1046,7 +1112,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prismaFixture([skill]) as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -1073,7 +1140,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prismaFixture([skill]) as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -1102,7 +1170,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prismaFixture([skill]) as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -1152,7 +1221,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prisma as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -1185,6 +1255,7 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const root = await capabilityRoot();
     const plugin = capability(PRIMARY_PLUGIN_ID, join(root, "primary"), true);
     const credentials = {
+      resolveForCapabilities: batchCredentialStub,
       resolveForCapability: vi
         .fn()
         .mockResolvedValueOnce({
@@ -1242,7 +1313,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prisma as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -1294,7 +1366,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prisma as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -1327,7 +1400,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prismaFixture([approved]) as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -1377,7 +1451,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
       const preflight = new DatabaseConversationPreflight(
         prismaFixture([installed]) as never,
         {
-          resolveForCapability: vi.fn(async () => ({
+          resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(async () => ({
             ok: true,
             environment: {},
             usageReceipt: {
@@ -1435,7 +1510,8 @@ describe("DatabaseConversationPreflight credential isolation", () => {
     const preflight = new DatabaseConversationPreflight(
       prisma as never,
       {
-        resolveForCapability: vi.fn(),
+        resolveForCapabilities: batchCredentialStub,
+      resolveForCapability: vi.fn(),
         commitUsage: vi.fn(async () => undefined),
       } as never,
       root,
@@ -1669,4 +1745,12 @@ function prismaFixture(capabilities: Array<ReturnType<typeof capability>>) {
       ),
     },
   };
+}
+
+async function batchCredentialStub(
+  this: { resolveForCapability: (userId: string, capabilityId: string, requiredKeys?: string[]) => Promise<import('../src/modules/credentials/types.js').CredentialResolution> },
+  userId: string,
+  requests: import('../src/modules/credentials/types.js').CredentialResolutionRequest[],
+) {
+  return new Map(await Promise.all(requests.map(async request => [request.capabilityId, await this.resolveForCapability(userId, request.capabilityId, request.requiredEnvironmentKeys)] as const)));
 }

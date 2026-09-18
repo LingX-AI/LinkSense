@@ -2,6 +2,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -292,6 +293,25 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
         CAPABILITY_SOURCE_DIGEST_FILE,
       ),
     )
+  })
+
+  it("rebuilds an existing task snapshot when only the built-in publication revision changes", async () => {
+    const root = await temporaryDirectory()
+    const onStage = vi.fn()
+    const materializer = new UserHomeCapabilityMaterializer({ userDataRoot: join(root, "users"), instrumentation: { onStage } })
+    const input = { ownerId: OWNER_ID, conversationId: TASK_ID, capabilities: [] }
+    const first = await materializer.reconcile(input)
+    const catalog = join(first.ownerRoot, "control", "capability-snapshots")
+    const index = (await readdir(catalog)).find(name => name.endsWith(".json"))!
+    // An older binary records the same skill names under its previous revision key.
+    await rename(join(catalog, index), join(catalog, `${"0".repeat(64)}.json`))
+    onStage.mockClear()
+    const next = await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)
+    expect(onStage).toHaveBeenCalledOnce()
+    expect(next.verification.contentDigest).toBe(BUILT_IN_CAPABILITY_RUNTIME_REVISION)
+    // Subsequent starts reuse the freshly published snapshot.
+    await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)
+    expect(onStage).toHaveBeenCalledOnce()
   })
 
   it("changes generation and refreshes source when content changes without a revision change", async () => {

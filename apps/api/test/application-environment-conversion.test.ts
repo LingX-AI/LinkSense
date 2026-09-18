@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -58,6 +58,29 @@ describe("application environment conversion", () => {
     for (const task of f.tasks) await expect(readFile(join(f.sources, task.workspaceRelPath, "artifacts/result.txt"), "utf8")).resolves.toBe(task.id);
   });
 
+  it("merges native-upgraded copies and preserves originals and previous conversion archives", async () => {
+    const f = await fixture();
+    for (const task of f.tasks) {
+      const source = join(f.sources, f.ownerId, "services", task.id);
+      await writeFile(join(source, "home/.codex/native-state"), "old schema");
+      await mkdir(join(source, "control/native-home-imports"), { recursive: true });
+      await writeFile(join(source, "control/native-home-imports/archive"), task.id);
+    }
+    const normalize = vi.fn(async (source: string) => {
+      const target = join(f.root, "normalized", randomUUID(), ".codex");
+      await cp(source, target, { recursive: true });
+      await writeFile(join(target, "native-state"), "upgraded schema");
+      return target;
+    });
+    await stageApplicationEnvironment(f.sources, f.target, f.group, "/home/linksense", normalize);
+    expect(normalize).toHaveBeenCalledTimes(2);
+    expect(await readFile(join(f.target, "home/.codex/native-state"), "utf8")).toBe("upgraded schema");
+    for (const task of f.tasks) {
+      expect(await readFile(join(f.sources, f.ownerId, "services", task.id, "home/.codex/native-state"), "utf8")).toBe("old schema");
+      expect(await readFile(join(f.target, "control/previous-native-home-imports", task.id, "archive"), "utf8")).toBe(task.id);
+    }
+  });
+
   it("retains the worker's managed Node dependency links when moving old workspaces into imports", async () => {
     const f = await fixture();
     for (const task of f.tasks) {
@@ -68,6 +91,20 @@ describe("application environment conversion", () => {
     }
     await stageApplicationEnvironment(f.sources, f.target, f.group);
     for (const task of f.tasks) await expect(readFile(join(f.target, "home/workspace/imports", task.id, "node_modules/example/index.js"), "utf8")).resolves.toBe("retained dependency");
+  });
+
+  it("retains nested managed dependency links and leaves unrelated personal files untouched", async () => {
+    const f = await fixture();
+    const personal = { id: randomUUID(), ownerId: f.ownerId, applicationId: f.applicationId, workspaceRelPath: `${f.ownerId}/home/workspace` };
+    const home = join(f.sources, f.ownerId, "home");
+    await mkdir(join(home, "workspace/example"), { recursive: true });
+    await writeFile(join(home, "workspace/example/result.txt"), "personal original");
+    await symlink("/home/linksense/.local/share/linksense/node/node_modules", join(home, "workspace/example/node_modules"));
+    const group = planApplicationEnvironments([personal])[0]!;
+    await stageApplicationEnvironment(f.sources, f.target, group);
+    expect(await readlink(join(f.target, "home/workspace/imports/personal/workspace/example/node_modules"))).toBe("/home/linksense/.local/share/linksense/node/node_modules");
+    expect(await readFile(join(f.target, "home/workspace/imports/personal/workspace/example/result.txt"), "utf8")).toBe("personal original");
+    expect(await readFile(join(home, "workspace/example/result.txt"), "utf8")).toBe("personal original");
   });
 
   it("rejects a shared directory referenced by different applications", () => {
@@ -83,6 +120,17 @@ describe("application environment conversion", () => {
     await symlink(join(f.sources, f.ownerId, "services", f.tasks[1]!.id), source);
     await expect(stageApplicationEnvironment(f.sources, f.target, f.group)).rejects.toThrow("MIGRATION_PATH_INVALID");
     await expect(readFile(join(f.sources, f.tasks[1]!.workspaceRelPath, "artifacts/result.txt"), "utf8")).resolves.toBe(f.tasks[1]!.id);
+  });
+
+  it("rejects a symlinked native HOME before invoking its native upgrade", async () => {
+    const f = await fixture();
+    const native = join(f.sources, f.ownerId, "services", f.tasks[0]!.id, "home/.codex");
+    await rename(native, native + ".original");
+    await symlink(native + ".original", native);
+    const normalize = vi.fn(async (source: string) => source);
+    await expect(stageApplicationEnvironment(f.sources, f.target, f.group, "/home/linksense", normalize)).rejects.toThrow("MIGRATION_PATH_INVALID");
+    expect(normalize).not.toHaveBeenCalledWith(native);
+    expect(await readFile(join(native + ".original", "auth.json"), "utf8")).toContain("same-account");
   });
 
   it.each(["running", "starting"])("refuses conversion while a task is %s before creating staging", async state => {

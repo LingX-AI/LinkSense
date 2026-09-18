@@ -1,8 +1,16 @@
+import { prepareApplicationAnnotation, assertApplicationAnnotationBinding, validateApplicationAnnotationSnapshot } from "./application-annotation.js";
+import { lockDevelopmentPreview, reuseUnusedDevelopmentPreview, assertCurrentDevelopmentPreview, assertNotDevelopmentPreview, type DevelopmentPreviewCreation } from "../applications/development-preview-lifecycle.js";
+import { lockDetachedDevelopment, type DevelopmentConversationCreation } from "../applications/development-conversation-lifecycle.js";
 import { readApplicationDistributionAccess } from "../applications/distribution-repository.js";
+import { deleteConversationWithinTransaction } from "./deletion.js";
+import { readConversationDevelopmentRoles, ordinaryConversationFilter } from "./application-development-role.js";
 import { requireApplicationDistributionVersion } from "../applications/distribution-policy.js";
 import { applicationDistributionChannelSchema, type ApplicationDistributionChannel } from "@linksense/shared";
 import { executionPrincipalStatus, assertExecutionPrincipalActive, lockExecutionPrincipal } from "../../lib/execution-principal.js";
-import { runtimePlacementForWorkspace, serviceSessionForWorkspace } from "../../lib/user-runtime-paths.js";
+import { assertUserRuntimeLeaseCurrent, withUserRuntimeLease } from "../../lib/user-runtime-lease.js";
+import { bindTaskLatency, measureTaskStage, startTaskStage } from "../../lib/task-latency.js";
+import { regenerationIdempotencyKey, type RunnerStartSettled } from "@linksense/shared";
+import { runtimePlacementForWorkspace } from "../../lib/user-runtime-paths.js";
 import { assertApplicationRuntimeCurrent } from "../applications/runtime-version.js";
 import type { ApplicationRuntimeConfiguration } from "../applications/service.js";
 import type { PublishedCapability } from "../applications/published-definition.js";
@@ -39,7 +47,6 @@ import {
   resolveConversationWorkspaceRoot,
 } from "../../lib/user-runtime-paths.js";
 import type { AuditContext, AuditService } from "../audit/service.js";
-import { restoreUnreferencedVersionCleanupEligibility } from "../knowledge/retention.js";
 import type { KnowledgeStore } from "../knowledge/types.js";
 import { resolveRunnerKnowledgeSelection } from "./knowledge-selection.js";
 import { extractReferencedSources, mergeReferencedSources } from "./referenced-sources.js";
@@ -88,8 +95,10 @@ import {
   userMessageDisplaySchema,
   type HtmlAnnotation,
   type ConversationCollaborationMode,
+  type ConversationApplicationDevelopmentRole,
   type ConversationOrderGroup,
   type ConversationPlanReviewAction,
+  conversationStartFailurePayloadSchema,
   type ConversationUserInputResponse,
   type Locale,
   type PublicKnowledgeCitation,
@@ -157,10 +166,12 @@ const nativeSubAgentItemEventPayloadSchema = z.object({
 export type ApplicationTurnConfiguration = ApplicationRuntimeConfiguration;
 
 export interface ConversationApplicationResolver {
+  withRuntimeStart<T>(ownerId: string, applicationId: string, action: () => Promise<T>): Promise<T>;
+  prepareDebugRuntime(ownerId: string, applicationId: string, packageId: string | null): Promise<void>;
+  resolvePreviewRuntime(ownerId: string, applicationId: string): Promise<ApplicationTurnConfiguration>;
   resolveRuntime(
     actorId: string,
     applicationId: string,
-    interactivePackageId?: string | null,
     channel?: ApplicationDistributionChannel,
   ): Promise<ApplicationTurnConfiguration>;
   assertCurrentAccess(actorId: string, applicationId: string, channel?: ApplicationDistributionChannel): Promise<void>;
@@ -177,13 +188,34 @@ export interface ConversationApplicationResolver {
 }
 
 export type CapabilityResolutionScope = {
-  publishedCapabilities?: PublishedCapability[];
   serviceSessionId?: string;
   applicationId?: string;
   sourceOwnerId: string;
   capabilityIds: string[];
   mcpServerIds: string[];
-};
+} & (
+  | { source: "draft" }
+  | { source: "published"; publishedCapabilities: PublishedCapability[] }
+);
+
+function applicationCapabilityScope(
+  runtime: ApplicationTurnConfiguration | null,
+  serviceSessionId: string | undefined,
+): { capabilityScope?: CapabilityResolutionScope } {
+  if (!runtime || !serviceSessionId) return {};
+  return {
+    capabilityScope: {
+      ...(runtime.applicationVersionId
+        ? { source: "published", publishedCapabilities: runtime.publishedCapabilities } as const
+        : { source: "draft" } as const),
+      applicationId: runtime.applicationId,
+      serviceSessionId,
+      sourceOwnerId: runtime.applicationOwnerId,
+      capabilityIds: runtime.capabilityIds,
+      mcpServerIds: runtime.mcpServerIds,
+    },
+  };
+}
 
 export interface ConversationPreflight {
   ensureUserHome(userId: string, serviceSessionId?: string): Promise<void>;
@@ -748,6 +780,7 @@ export class ConversationService {
       ConversationTitleService,
       "scheduleForUserMessage"
     >,
+    private readonly developmentInstructions?: (ownerId: string, conversationId: string) => Promise<string | null>,
   ) {}
 
   private async executionConcurrencyForStart(): Promise<ResolvedExecutionConcurrencySettings> {
@@ -766,14 +799,13 @@ export class ConversationService {
   private async applicationRuntimeForConversation(
     ownerId: string,
     applicationId: string | null | undefined,
-    interactivePackageId?: string | null,
     channel?: string | null,
   ): Promise<ApplicationTurnConfiguration | null> {
     if (applicationId == null) return null;
     if (!this.applicationResolver) {
       throw new AppError("APPLICATION_NOT_FOUND");
     }
-    return this.applicationResolver.resolveRuntime(ownerId, applicationId, interactivePackageId, applicationDistributionChannelSchema.parse(channel ?? "direct"));
+    return this.applicationResolver.resolveRuntime(ownerId, applicationId, applicationDistributionChannelSchema.parse(channel ?? "direct"));
   }
 
   async assertInteractiveFileAccess(
@@ -784,15 +816,14 @@ export class ConversationService {
     const runtime = await this.applicationRuntimeForConversation(
       ownerId,
       conversation.applicationId,
-      conversation.interactiveApplicationPackageId,
       conversation.applicationChannel,
     );
-    if (runtime?.kind !== "interactive" || !conversation.interactiveApplicationPackageId) {
+    if (runtime?.kind !== "interactive" || !runtime.interactivePackageId) {
       throw new AppError("FORBIDDEN");
     }
     const package_ = await this.prisma.interactiveApplicationPackage.findFirst({
       where: {
-        id: conversation.interactiveApplicationPackageId,
+        id: runtime.interactivePackageId,
         applicationId: runtime.applicationId,
       },
       select: { manifestJson: true },
@@ -981,9 +1012,11 @@ export class ConversationService {
     input: {
       conversationId?: string;
       collaborationMode: ConversationCollaborationMode;
+      projectId?: string | null;
     },
   ): Promise<{ accepted: true; conversation_id: string }> {
     await assertExecutionPrincipalActive(this.prisma, ownerId);
+    if (input.projectId) await this.assertPrewarmProject(ownerId, input.projectId);
     const conversationId = input.conversationId ?? crypto.randomUUID();
     let reservationRevision: string | undefined;
     if (input.conversationId) {
@@ -997,7 +1030,7 @@ export class ConversationService {
       if (!existing) {
         reservationRevision = crypto.randomUUID();
         const reserved = await this.redis.reserveConversationPrewarm(
-          { ownerId, conversationId, reservationRevision },
+          { ownerId, conversationId, reservationRevision, projectId: input.projectId, collaborationMode: input.collaborationMode },
           false,
         );
         if (!reserved) {
@@ -1007,7 +1040,7 @@ export class ConversationService {
     } else {
       reservationRevision = crypto.randomUUID();
       const reserved = await this.redis.reserveConversationPrewarm(
-        { ownerId, conversationId, reservationRevision },
+        { ownerId, conversationId, reservationRevision, projectId: input.projectId, collaborationMode: input.collaborationMode },
         true,
       );
       if (!reserved) {
@@ -1018,21 +1051,29 @@ export class ConversationService {
       ownerId,
       conversationId,
       collaborationMode: input.collaborationMode,
+      ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
       ...(reservationRevision ? { reservationRevision } : {}),
     });
     return { accepted: true as const, conversation_id: conversationId };
   }
 
   async executePrewarm(input: ConversationPrewarmInput): Promise<void> {
-    return this.withActiveUserLifecycleLock(input.ownerId, () => this.executePrewarmForActiveUser(input));
+    return this.withActiveUserRuntimeLease(input.ownerId, (assertCurrent) => this.executePrewarmForActiveUser(input, assertCurrent));
   }
 
-  private async executePrewarmForActiveUser(input: ConversationPrewarmInput): Promise<void> {
+  private async assertPrewarmProject(ownerId: string, projectId: string): Promise<void> {
+    const project = await this.prisma.project.findFirst({ where: { id: projectId, ownerId }, select: { id: true } });
+    if (!project) throw new AppError("PROJECT_NOT_FOUND");
+  }
+
+  private async executePrewarmForActiveUser(input: ConversationPrewarmInput, assertCurrent: () => void): Promise<void> {
     const reservation = input.reservationRevision
       ? {
           ownerId: input.ownerId,
           conversationId: input.conversationId,
           reservationRevision: input.reservationRevision,
+          projectId: input.projectId,
+          collaborationMode: input.collaborationMode,
         }
       : null;
     if (reservation && !(await this.redis.isConversationPrewarmCurrent(reservation))) return;
@@ -1050,33 +1091,29 @@ export class ConversationService {
       },
     });
     if (existing && existing.ownerId !== input.ownerId) return;
+    // App resources are prepared under the installation gate on submission.
+    // Merely opening a draft must not activate a test snapshot or native cache.
+    if (existing?.applicationId) return;
     // A reservation only prepares an unclaimed task. Once claimed, the normal
     // task path resolves the current application, mode, and authorization.
     if (reservation ? existing !== null : existing === null) return;
+    if (reservation && input.projectId) await this.assertPrewarmProject(input.ownerId, input.projectId);
+    const placement = runtimePlacementForWorkspace(input.ownerId, existing?.workspaceRelPath
+      ?? projectWorkspaceRelativePath(input.ownerId, input.projectId ?? null));
     const applicationRuntime = await this.applicationRuntimeForConversation(
       input.ownerId,
       existing?.applicationId,
-      existing?.interactiveApplicationPackageId,
       existing?.applicationChannel,
     );
     // Publish the mount boundary first, then overlap the cheap claimable
     // directory with capability preparation and Worker startup.
-    await this.preflight.ensureUserHome(input.ownerId, existing ? runtimePlacementForWorkspace(input.ownerId, existing.workspaceRelPath).serviceSessionId : undefined);
+    await this.preflight.ensureUserHome(input.ownerId, placement.serviceSessionId);
     const [resolved, modelRuntime, executionConcurrency, runtime] = await Promise.all([
       this.preflight.resolve({
         userId: input.ownerId,
         conversationId: input.conversationId,
         priorityCapabilityIds: [],
-        ...(applicationRuntime?.applicationVersionId && existing && runtimePlacementForWorkspace(input.ownerId, existing.workspaceRelPath).serviceSessionId ? {
-          capabilityScope: {
-            applicationId: applicationRuntime.applicationId,
-            serviceSessionId: serviceSessionForWorkspace(input.ownerId, existing?.workspaceRelPath),
-            publishedCapabilities: applicationRuntime.publishedCapabilities,
-            sourceOwnerId: applicationRuntime.applicationOwnerId,
-            capabilityIds: applicationRuntime.capabilityIds,
-            mcpServerIds: applicationRuntime.mcpServerIds,
-          },
-        } : {}),
+        ...applicationCapabilityScope(applicationRuntime, placement.serviceSessionId),
       }),
       applicationRuntime?.model && applicationRuntime.reasoningEffort
         ? this.modelRuntimeForSelection(input.ownerId, input.conversationId,
@@ -1086,9 +1123,11 @@ export class ConversationService {
         existing ? input.conversationId : undefined,
       ),
       this.executionConcurrencyForStart(),
-      this.runner.prepareRuntime(input.conversationId, input.ownerId),
+      this.runner.prepareRuntime(input.conversationId, input.ownerId, placement.workspacePath, placement.serviceSessionId),
     ]);
+    assertCurrent();
     if (reservation && !(await this.redis.isConversationPrewarmCurrent(reservation))) return;
+    if (reservation && input.projectId) await this.assertPrewarmProject(input.ownerId, input.projectId);
     const collaborationMode = existing
       ? conversationCollaborationModeSchema.parse(existing.collaborationMode)
       : input.collaborationMode;
@@ -1123,7 +1162,7 @@ export class ConversationService {
       model: modelRuntime.model,
       reasoningEffort: modelRuntime.reasoningEffort,
       modelProvider: modelRuntime.provider,
-    });
+    }, placement);
   }
 
   async resolveRecoveryRuntime(
@@ -1597,6 +1636,21 @@ export class ConversationService {
     }
   }
 
+  async settleStartOperation(ownerId: string, input: RunnerStartSettled): Promise<boolean> {
+    bindTaskLatency({ conversationId: input.conversationId, turnId: input.projectionTurnId });
+    const stored = await this.prisma.conversationTurnStartIntent.findUnique({
+      where: { projectionTurnId: input.projectionTurnId },
+    });
+    // Projection consumes the intent. Duplicate notifications are harmless.
+    if (!stored) return true;
+    const intent = parseTurnStartIntent(stored);
+    if (intent.ownerId !== ownerId || intent.conversationId !== input.conversationId) {
+      throw new AppError("CONVERSATION_NOT_FOUND");
+    }
+    if (intent.runtimeGeneration !== input.runtimeGeneration) throw new AppError("CONFLICT");
+    return (await measureTaskStage("start_projection", () => this.recoverStartIntent(input.projectionTurnId, { resubmitNonTerminal: false }))) !== "pending";
+  }
+
   async recoverStartIntent(
     projectionTurnId: string,
     options: { resubmitNonTerminal?: boolean } = {},
@@ -1944,6 +1998,7 @@ export class ConversationService {
     const cursor = input.cursor ? parseConversationCursor(input.cursor) : null;
     if (input.cursor && !cursor) throw new AppError("VALIDATION_ERROR");
     const archiveStatus = input.archived ? "archived" : "active";
+    const visible = await ordinaryConversationFilter(this.prisma, ownerId);
     const [rows, totalCount] = await Promise.all([
       input.search
         ? this.searchConversations(ownerId, {
@@ -1956,6 +2011,7 @@ export class ConversationService {
             where: {
               ownerId,
               archiveStatus,
+              AND: visible,
               ...(cursor
                 ? {
                     OR: [
@@ -1971,7 +2027,7 @@ export class ConversationService {
       input.search || !input.archived
         ? Promise.resolve(undefined)
         : this.prisma.conversation.count({
-            where: { ownerId, archiveStatus },
+            where: { ownerId, archiveStatus, AND: visible },
           }),
     ]);
     const selected = rows.slice(0, input.limit);
@@ -1987,6 +2043,7 @@ export class ConversationService {
       automationTargets,
       applicationMetadata,
       planOutputMissingConversationIds,
+      developmentRoles,
     ] = await Promise.all([
       this.prisma.conversationTurn.findMany({
         where: { conversationId: { in: ids }, status: "running" },
@@ -2010,6 +2067,7 @@ export class ConversationService {
         : Promise.resolve([]),
       this.resolveApplicationTaskMetadata(ownerId, selected),
       this.findLatestPlanOutputMissingConversationIds(selected),
+      readConversationDevelopmentRoles(this.prisma, ownerId, selected),
     ]);
     const runningIds = new Set(
       running
@@ -2041,6 +2099,7 @@ export class ConversationService {
               }
             : undefined,
           automationTargetIds.has(row.id),
+          developmentRoles.get(row.id) ?? null,
         ),
       ),
       next_cursor:
@@ -2051,6 +2110,11 @@ export class ConversationService {
           : null,
       ...(totalCount === undefined ? {} : { total_count: totalCount }),
     };
+  }
+
+  private async projectWithDevelopmentRole(row: ConversationProjection): Promise<ReturnType<typeof projectConversation>> {
+    const roles = await readConversationDevelopmentRoles(this.prisma, row.ownerId, [row]);
+    return projectConversation(row, row.lastTurnStatus ?? "idle", undefined, false, roles.get(row.id) ?? null);
   }
 
   private async resolveApplicationTaskMetadata(
@@ -2156,6 +2220,7 @@ export class ConversationService {
       FROM conversations AS c
       WHERE c.owner_id = CAST(${ownerId} AS uuid)
         AND c.archive_status = ${input.archiveStatus}
+        AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.id = c.application_id AND a.owner_id = c.owner_id AND a.development_only = true)
         ${cursorFilter}
         AND (
           (
@@ -2395,6 +2460,8 @@ export class ConversationService {
       goal,
       latestModelContextUsage,
       indexMessages,
+      developmentRoles,
+      deletedApplication,
     ] = await Promise.all([
       this.prisma.conversationMessage.findMany({
         where: { conversationId, turnId: { in: messageTurnIds } },
@@ -2458,6 +2525,13 @@ export class ConversationService {
             orderBy: { sequenceNo: "asc" },
           })
         : [],
+      readConversationDevelopmentRoles(this.prisma, ownerId, [conversation]),
+      conversation.applicationId
+        ? this.prisma.application.findFirst({
+            where: { id: conversation.applicationId, status: "deleted" },
+            select: { id: true },
+          })
+        : null,
     ]);
     const firstUserByTurn = new Map<string, (typeof indexMessages)[number]>();
     const turnsWithContent = new Set<string>();
@@ -2635,7 +2709,9 @@ export class ConversationService {
         );
     return {
       conversation: {
-        ...projectConversation(conversation, executionStatus),
+        ...projectConversation(conversation, executionStatus,
+          deletedApplication ? { available: false, unavailable_reason: "APPLICATION_DELETED" } : undefined,
+          false, developmentRoles.get(conversation.id) ?? null),
         ...(forkSource ? { fork_source: forkSource } : {}),
       },
       goal: goal ? projectConversationGoal(goal) : null,
@@ -3023,7 +3099,7 @@ export class ConversationService {
       projectId?: string | null;
     },
   ) {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       const conversation = await this.createConversation(
         ownerId,
         input.fallbackLocale,
@@ -3053,10 +3129,7 @@ export class ConversationService {
       collaborationMode?: ConversationCollaborationMode;
     },
   ) {
-    const ownedConversation = await this.assertOwner(ownerId, conversationId);
-    if (input.title && ownedConversation.applicationId !== null) {
-      throw new AppError("APPLICATION_CONVERSATION_RENAME_UNSUPPORTED");
-    }
+    await this.assertOwner(ownerId, conversationId);
     const now = new Date();
     const conversation = await this.prisma.$transaction(async (tx) => {
       if (input.projectId) {
@@ -3171,10 +3244,7 @@ export class ConversationService {
         },
       });
     });
-    return projectConversation(
-      conversation,
-      conversation.lastTurnStatus ?? "idle",
-    );
+    return this.projectWithDevelopmentRole(conversation);
   }
 
   async reorder(
@@ -3240,8 +3310,9 @@ export class ConversationService {
   }
 
   async clearArchived(ownerId: string, context: AuditContext) {
+    const visible = await ordinaryConversationFilter(this.prisma, ownerId);
     const archivedConversations = await this.prisma.conversation.findMany({
-      where: { ownerId, archiveStatus: "archived" },
+      where: { ownerId, archiveStatus: "archived", AND: visible },
       select: { id: true },
       orderBy: { id: "asc" },
     });
@@ -3270,6 +3341,7 @@ export class ConversationService {
       120_000,
     );
     if (!lock) throw new AppError("CONFLICT");
+    const deletedIds: string[] = [];
     try {
       const deleted = await this.prisma.$transaction(async (tx) => {
         const lockedConversation = await tx.$queryRaw<
@@ -3288,111 +3360,12 @@ export class ConversationService {
         ) {
           return false;
         }
-        const automationCount = await tx.automation.count({
-          where: { conversationId, deletedAt: null },
-        });
-        if (automationCount > 0) throw new AppError("AUTOMATION_TASK_IN_USE");
-        await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT id
-        FROM conversation_files
-        WHERE conversation_id = ${conversationId}::uuid
-        FOR UPDATE
-      `;
-        const running = await tx.conversationTurn.count({
-          where: { conversationId, status: "running" },
-        });
-        if (running > 0) throw new AppError("CONFLICT");
-        const unresolvedStart = await tx.conversationTurnStartIntent.count({
-          where: { conversationId },
-        });
-        if (unresolvedStart > 0) throw new AppError("CONFLICT");
-        const storedConversation = await tx.conversation.findUnique({ where: { id: conversationId }, select: { workspaceRelPath: true } });
-        if (!storedConversation) throw new AppError("CONVERSATION_NOT_FOUND");
-        const cleanupPlacement = runtimePlacementForWorkspace(ownerId, storedConversation.workspaceRelPath);
-        const removeServiceEnvironment = deletionReason === "user" && cleanupPlacement.serviceSessionId !== undefined;
-        const artifacts = await tx.conversationFile.findMany({
-          where: {
-            conversationId,
-            kind: "artifact",
-            ...(removeServiceEnvironment ? {} : { minioObjectKey: { not: null } }),
-          },
-        });
-        if (removeServiceEnvironment && artifacts.some((artifact) => !artifact.minioObjectKey)) {
-          throw new AppError("ARTIFACT_RETENTION_INCOMPLETE");
-        }
-        const deletedAt = new Date();
-        const retainedArtifactIds: string[] = [];
-        for (const artifact of artifacts) {
-          if (!artifact.minioObjectKey) continue;
-          const retained = await tx.retainedArtifact.create({
-            data: {
-              originalFileId: artifact.id,
-              conversationId,
-              ownerId,
-              minioObjectKey: artifact.minioObjectKey,
-              mimeType: artifact.mimeType,
-              sizeBytes: artifact.sizeBytes,
-              checksumSha256: artifact.checksumSha256,
-              artifactCreatedAt: artifact.createdAt,
-              conversationDeletedAt: deletedAt,
-              createdAt: deletedAt,
-            },
-          });
-          retainedArtifactIds.push(retained.id);
-        }
-        const fileSummary = await tx.conversationFile.aggregate({
-          where: { conversationId },
-          _count: { id: true },
-          _sum: { sizeBytes: true },
-        });
-        await tx.auditLog.create({
-          data: {
-            actorId: ownerId,
-            action: "conversation_deleted",
-            targetType: "conversation",
-            targetId: conversationId,
-            result: "success",
-            metadataJson: {
-              file_count: fileSummary._count.id,
-              retained_artifact_count: retainedArtifactIds.length,
-              retained_artifact_ids: retainedArtifactIds,
-              total_size_bytes: Number(fileSummary._sum.sizeBytes ?? 0n),
-            },
-            ipAddress: context.ipAddress ?? null,
-            userAgent: context.userAgent ?? null,
-          },
-        });
-        await tx.runtimeCleanupOutbox.upsert({
-          where: { conversationId },
-          create: {
-            ownerId,
-            conversationId,
-            serviceSessionId: cleanupPlacement.serviceSessionId ?? null,
-            removeServiceEnvironment,
-            status: "pending",
-            stage: "reconcile",
-          },
-          update: {
-            serviceSessionId: cleanupPlacement.serviceSessionId ?? null,
-            removeServiceEnvironment,
-            status: "pending",
-            stage: "reconcile",
-            attemptCount: 0,
-            nextAttemptAt: new Date(),
-            lastAttemptAt: null,
-            lastErrorCode: null,
-            claimToken: null,
-            leaseExpiresAt: null,
-          },
-        });
-        await deleteConversationGraph(tx, conversationId);
+        await deleteConversationWithinTransaction(tx, ownerId, conversationId, context, deletionReason, deletedIds);
         return true;
       });
 
-      if (deleted) {
-        await this.cleanup
-          .enqueueRuntimeCleanup(ownerId, conversationId)
-          .catch(() => undefined);
+      for (const id of deletedIds) {
+        await this.cleanup.enqueueRuntimeCleanup(ownerId, id).catch(() => undefined);
       }
       return deleted;
     } finally {
@@ -3408,7 +3381,7 @@ export class ConversationService {
     input: PendingTurnSubmission,
     context: AuditContext,
   ) {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       const conversation = await this.assertOwner(ownerId, conversationId);
       const collaborationMode = conversationCollaborationModeSchema.parse(
         conversation.collaborationMode,
@@ -3422,7 +3395,6 @@ export class ConversationService {
       const applicationRuntime = await this.applicationRuntimeForConversation(
         ownerId,
         conversation.applicationId,
-        conversation.interactiveApplicationPackageId,
         conversation.applicationChannel,
       );
       const knowledgeBaseIds = applicationRuntime?.kind === "standard"
@@ -3907,7 +3879,7 @@ export class ConversationService {
     pendingId: string,
     context: AuditContext,
   ) {
-    return this.withActiveUserLifecycleLock(ownerId, () =>
+    return this.withActiveUserRuntimeLease(ownerId, () =>
       this.startPendingForActiveUser(
         ownerId,
         conversationId,
@@ -3982,7 +3954,7 @@ export class ConversationService {
     input: TurnSubmission,
     context: AuditContext,
   ): Promise<ReturnType<typeof projectTurn>> {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       const knowledgeBaseIds = await this.validateKnowledgeBaseSelection(
         ownerId,
         input.knowledgeBaseIds,
@@ -4002,7 +3974,7 @@ export class ConversationService {
     input: TurnSubmission,
     context: AuditContext,
   ): Promise<TurnStartReceipt> {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       const knowledgeBaseIds = await this.validateKnowledgeBaseSelection(
         ownerId,
         input.knowledgeBaseIds,
@@ -4026,7 +3998,7 @@ export class ConversationService {
     input: GoalStartInput,
     context: AuditContext,
   ): Promise<TurnStartReceipt> {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       const objective = input.objective.trim();
       if (objective.length === 0 || objective.length > 4_000) {
         throw new AppError("VALIDATION_ERROR");
@@ -4068,7 +4040,7 @@ export class ConversationService {
     idempotencyKey: string,
     context: AuditContext,
   ): Promise<TurnStartReceipt> {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       const normalizedKey = idempotencyKey.trim();
       if (normalizedKey.length === 0 || normalizedKey.length > 120) {
         throw new AppError("VALIDATION_ERROR");
@@ -4209,7 +4181,6 @@ export class ConversationService {
           this.applicationRuntimeForConversation(
             ownerId,
             source.conversation.applicationId,
-            source.conversation.interactiveApplicationPackageId,
             source.conversation.applicationChannel,
           ),
         ]);
@@ -4403,7 +4374,7 @@ export class ConversationService {
     input: GoalUpdateInput,
     context: AuditContext,
   ): Promise<ThreadGoal> {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       const lock = await this.acquireConversationLock(conversationId);
       try {
         const goal = await this.requireConversationGoal(
@@ -4466,7 +4437,7 @@ export class ConversationService {
     conversationId: string,
     context: AuditContext,
   ): Promise<TurnStartReceipt> {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       const lock = await this.acquireConversationLock(conversationId);
       let lockTransferred = false;
       try {
@@ -4576,7 +4547,7 @@ export class ConversationService {
     conversationId: string,
     context: AuditContext,
   ): Promise<{ cleared: boolean }> {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       const lock = await this.acquireConversationLock(conversationId);
       try {
         const goal = await this.prisma.conversationGoal.findFirst({
@@ -4796,11 +4767,11 @@ export class ConversationService {
     context: AuditContext,
     returnWhenAccepted: boolean,
   ) {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       await this.assertOwner(ownerId, conversationId);
       const inputText = input.inputText.trim();
       if (inputText.length === 0) throw new AppError("VALIDATION_ERROR");
-      const scopedIdempotencyKey = `regenerate:${messageId}:${input.idempotencyKey}`;
+      const scopedIdempotencyKey = regenerationIdempotencyKey(messageId, input.idempotencyKey);
       const existingProjection = await this.findProjectedRegeneration(
         conversationId,
         messageId,
@@ -4934,7 +4905,7 @@ export class ConversationService {
     operationId: string,
     context: AuditContext,
   ) {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       await this.assertOwner(ownerId, conversationId);
       const lock = await this.acquireConversationLock(conversationId);
       try {
@@ -5077,7 +5048,7 @@ export class ConversationService {
     pendingId: string,
     context: AuditContext,
   ) {
-    return this.withActiveUserLifecycleLock(ownerId, () =>
+    return this.withActiveUserRuntimeLease(ownerId, () =>
       this.steerPendingForActiveUser(
         ownerId,
         conversationId,
@@ -5865,7 +5836,7 @@ export class ConversationService {
     input: PlanReviewActionInput,
     context: AuditContext,
   ) {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       const lock = await this.acquireConversationLock(conversationId);
       let lockTransferred = false;
       try {
@@ -6407,14 +6378,22 @@ export class ConversationService {
     }
   }
 
-  async forkConversationAtMessage(
+  async forkConversationAtMessage(ownerId: string, conversationId: string, messageId: string, idempotencyKey: string, context: AuditContext) {
+    const source = await this.assertOwner(ownerId, conversationId);
+    const fork = () => this.forkInEnvironment(ownerId, conversationId, messageId, idempotencyKey, context);
+    if (!source.applicationId) return fork();
+    if (!this.applicationResolver) throw new AppError("APPLICATION_NOT_FOUND");
+    return this.applicationResolver.withRuntimeStart(ownerId, source.applicationId, fork);
+  }
+
+  private async forkInEnvironment(
     ownerId: string,
     conversationId: string,
     messageId: string,
     idempotencyKey: string,
     context: AuditContext,
   ) {
-    return this.withActiveUserLifecycleLock(ownerId, async () => {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
       const idempotent = await this.prisma.conversation.findFirst({
         where: { ownerId, forkIdempotencyKey: idempotencyKey },
       });
@@ -6425,10 +6404,7 @@ export class ConversationService {
         ) {
           throw new AppError("CONFLICT");
         }
-        return projectConversation(
-          idempotent,
-          idempotent.lastTurnStatus ?? "idle",
-        );
+        return this.projectWithDevelopmentRole(idempotent);
       }
 
       const lock = await this.acquireConversationLock(conversationId);
@@ -6440,6 +6416,7 @@ export class ConversationService {
           where: { id: conversationId, ownerId },
         });
         if (!source) throw new AppError("CONVERSATION_NOT_FOUND");
+        if (source.applicationId) await assertNotDevelopmentPreview(this.prisma, source.applicationId);
         if (source.archiveStatus !== "active" || !source.codexThreadId) {
           throw new AppError("CONFLICT");
         }
@@ -6998,7 +6975,7 @@ export class ConversationService {
             },
           })
           .catch(() => undefined);
-        return projectConversation(created, created.lastTurnStatus ?? "idle");
+        return this.projectWithDevelopmentRole(created);
       } catch (error) {
         if (forkRuntimePrepared) {
           await this.cleanup
@@ -7014,6 +6991,18 @@ export class ConversationService {
     });
   }
 
+  async createDevelopmentPreview(ownerId: string, application: {
+    id: string; name: string; kind: "interactive"; interactivePackageId: string | null;
+  }, development: DevelopmentPreviewCreation) {
+    return this.withActiveUserRuntimeLease(ownerId, () => this.createConversation(ownerId, undefined, application, { development }));
+  }
+
+  async createDevelopmentConversation(ownerId: string, developmentSource: DevelopmentConversationCreation, locale: Locale) {
+    if (developmentSource.workspaceRelPath !== projectWorkspaceRelativePath(ownerId, developmentSource.projectId)) throw new AppError("FORBIDDEN");
+    return this.withActiveUserRuntimeLease(ownerId, () => this.createConversation(ownerId, locale, undefined,
+      { developmentSource, projectId: developmentSource.projectId }));
+  }
+
   async createApplicationConversation(
     ownerId: string,
     application: {
@@ -7024,7 +7013,7 @@ export class ConversationService {
       channel?: ApplicationDistributionChannel;
     },
   ) {
-    return this.withActiveUserLifecycleLock(ownerId, () =>
+    return this.withActiveUserRuntimeLease(ownerId, () =>
       this.createConversation(ownerId, undefined, application),
     );
   }
@@ -7040,7 +7029,7 @@ export class ConversationService {
     },
     conversationId?: string,
   ) {
-    return this.withActiveUserLifecycleLock(ownerId, () =>
+    return this.withActiveUserRuntimeLease(ownerId, () =>
       this.createConversation(ownerId, undefined, application, {
         autoGenerateTitle: true,
         ...(conversationId ? { conversationId } : {}),
@@ -7053,7 +7042,7 @@ export class ConversationService {
     title: string,
     fallbackLocale?: Locale,
   ) {
-    return this.withActiveUserLifecycleLock(ownerId, () =>
+    return this.withActiveUserRuntimeLease(ownerId, () =>
       this.createConversation(ownerId, fallbackLocale, undefined, {
         title,
         pinned: true,
@@ -7072,6 +7061,8 @@ export class ConversationService {
       channel?: ApplicationDistributionChannel;
     },
     options?: {
+      development?: DevelopmentPreviewCreation;
+      developmentSource?: DevelopmentConversationCreation;
       title?: string;
       pinned?: boolean;
       collaborationMode?: ConversationCollaborationMode;
@@ -7082,8 +7073,20 @@ export class ConversationService {
     prewarmedConversationId?: string,
   ) {
     let id = options?.conversationId ?? prewarmedConversationId ?? crypto.randomUUID();
-    const applicationRuntime = application ? await this.applicationRuntimeForConversation(ownerId, application.id, application.interactivePackageId, application.channel) : null;
-    const serviceSessionId = applicationRuntime?.applicationVersionId ? applicationRuntime.applicationId : undefined;
+    const applicationRuntime = application
+      ? options?.development && this.applicationResolver
+        ? await this.applicationResolver.resolvePreviewRuntime(ownerId, application.id)
+        : await this.applicationRuntimeForConversation(ownerId, application.id, application.channel)
+      : null;
+    if (options?.development?.previousConversationId && application) {
+      const development = options.development;
+      const reused = await this.prisma.$transaction(tx => {
+        assertUserRuntimeLeaseCurrent();
+        return reuseUnusedDevelopmentPreview(tx, ownerId, application, development);
+      });
+      if (reused) return reused;
+    }
+    const serviceSessionId = application?.id;
     const workspaceRelPath = serviceSessionId
       ? serviceWorkspaceRelativePath(ownerId, serviceSessionId)
       : projectWorkspaceRelativePath(ownerId, options?.projectId ?? null);
@@ -7096,6 +7099,8 @@ export class ConversationService {
       claimedPrewarm = !collision && await this.redis.claimConversationPrewarm(
         ownerId,
         prewarmedConversationId,
+        options?.projectId,
+        options?.collaborationMode,
       );
       if (!claimedPrewarm) id = crypto.randomUUID();
     }
@@ -7144,6 +7149,12 @@ export class ConversationService {
         if (options?.projectId) {
           await lockOwnedProject(tx, ownerId, options.projectId);
         }
+        if (application) {
+          if (options?.development) await lockDevelopmentPreview(tx, ownerId, application.id, application.interactivePackageId, options.development);
+          else await assertNotDevelopmentPreview(tx, application.id);
+        }
+        if (options?.developmentSource) await lockDetachedDevelopment(tx, ownerId, options.developmentSource);
+        assertUserRuntimeLeaseCurrent();
         const created = await tx.conversation.create({
           data: {
             id,
@@ -7178,6 +7189,15 @@ export class ConversationService {
                 : null,
           },
         });
+        if (options?.developmentSource) {
+          await tx.applicationDevelopment.update({ where: { id: options.developmentSource.id }, data: { conversationId: created.id } });
+        }
+        if (options?.development) {
+          await tx.applicationDevelopment.update({ where: { id: options.development.id }, data: { previewConversationId: created.id } });
+          if (options.development.previousConversationId) {
+            await tx.conversation.update({ where: { id: options.development.previousConversationId }, data: { archiveStatus: "archived", archivedAt: new Date() } });
+          }
+        }
         await tx.usageActivityRecord.create({
           data: {
             activityType: "task_created",
@@ -7206,6 +7226,9 @@ export class ConversationService {
     inputText: string;
     display: OfficeAnnotationDisplay;
   }> {
+    if (annotation.kind === "application_annotation") {
+      return prepareApplicationAnnotation(this.prisma, this.workspaceRoot, conversationId, annotation, officeAnnotationFingerprint(annotation));
+    }
     const file = await this.prisma.conversationFile.findFirst({
       where: { id: annotation.file_id, conversationId },
       select: { filename: true, mimeType: true },
@@ -7216,6 +7239,7 @@ export class ConversationService {
     assertOfficeAnnotationSemantics(annotation);
 
     const display = buildOfficeAnnotationDisplay(annotation, file.filename);
+    if (display.kind === "application_annotation") throw new AppError("VALIDATION_ERROR");
     return {
       inputText: buildOfficeAnnotationPrompt(annotation, display),
       display,
@@ -7418,7 +7442,7 @@ export class ConversationService {
         const application = await assertApplicationRuntimeCurrent(tx, input.ownerId, input.applicationRuntime);
         const channel = applicationDistributionChannelSchema.parse(conversation.applicationChannel ?? "direct");
         if (channel === "center") {
-          requireApplicationDistributionVersion(await readApplicationDistributionAccess(tx, input.ownerId, application.id), "center", "service", input.applicationRuntime.applicationVersionId ?? undefined);
+          requireApplicationDistributionVersion(await readApplicationDistributionAccess(tx, input.ownerId, application.id), "center", "service");
         } else if (application.ownerId !== input.ownerId) {
           const externalSession =
             await tx.applicationExternalSession.findFirst({
@@ -7535,8 +7559,10 @@ export class ConversationService {
       });
       if (running > 0) throw new AppError("CONFLICT");
 
+      if (conversation.applicationId) await assertCurrentDevelopmentPreview(tx, input.ownerId, input.conversationId, conversation.applicationId,
+        input.applicationRuntime?.interactivePackageId ?? conversation.interactiveApplicationPackageId);
       if (input.applicationRuntime) {
-        // The task follows the latest publication at the next execution boundary.
+        // The task follows the user's installed version at the next boundary.
         // An active turn keeps its admitted instructions and page event contract.
         await tx.conversation.update({
           where: { id: input.conversationId },
@@ -7704,9 +7730,13 @@ export class ConversationService {
         throw new AppError("ATTACHMENT_UPLOAD_INVALID");
       }
 
+      if (input.prepared.messageDisplay?.kind === "application_annotation") {
+        await assertApplicationAnnotationBinding(tx, input.conversationId, input.prepared.messageDisplay);
+      }
       if (
         input.prepared.messageDisplay &&
-        input.prepared.messageDisplay.kind !== "interactive_application"
+        input.prepared.messageDisplay.kind !== "interactive_application" &&
+        input.prepared.messageDisplay.kind !== "application_annotation"
       ) {
         await tx.$queryRaw<Array<{ id: string }>>`
           SELECT id
@@ -7748,7 +7778,7 @@ export class ConversationService {
             applicationUpdatedAt:
               input.applicationRuntime?.applicationUpdatedAt ?? null,
             applicationInstructions:
-              input.applicationRuntime?.instructions ?? null,
+              input.applicationRuntime?.instructions ?? await this.developmentInstructions?.(input.ownerId, input.conversationId) ?? null,
             inputText: input.prepared.inputText,
             taskKind: input.prepared.goal ? "goal" : "turn",
             collaborationMode: input.prepared.collaborationMode,
@@ -8668,14 +8698,18 @@ export class ConversationService {
           sequenceNo,
           eventType: "conversation.error",
           visibility: "user_visible",
-          payloadJson: {
+          payloadJson: conversationStartFailurePayloadSchema.parse({
             schema_version: 1,
             error_code: failureCode,
             message_key: failureCode === "TURN_START_CLOSED"
               ? "errors.turnStartClosed"
               : "errors.runnerUnavailable",
             retryable: true,
-          },
+            start_failure: {
+              turn_id: intent.projectionTurnId,
+              idempotency_key: intent.idempotencyKey,
+            },
+          }),
           sseEventId: `${intent.conversationId}:${sequenceNo}`,
         },
       });
@@ -8844,6 +8878,33 @@ export class ConversationService {
     returnWhenAccepted = false,
     planReviewAction?: PlanReviewTurnAction,
   ) {
+    let transferred = false;
+    const start = () => {
+      transferred = true;
+      return this.startTurnInEnvironment(ownerId, conversationId, submission, context, pendingId, existingLock, regeneration, returnWhenAccepted, planReviewAction);
+    };
+    try {
+      const conversation = await this.assertOwner(ownerId, conversationId);
+      if (!conversation.applicationId) return await start();
+      if (!this.applicationResolver) throw new AppError("APPLICATION_NOT_FOUND");
+      await this.applicationResolver.prepareDebugRuntime(ownerId, conversation.applicationId, conversation.interactiveApplicationPackageId);
+      return await this.applicationResolver.withRuntimeStart(ownerId, conversation.applicationId, start);
+    } finally {
+      if (existingLock && !transferred) await this.redis.releaseConversationLock(conversationId, existingLock);
+    }
+  }
+
+  private async startTurnInEnvironment(
+    ownerId: string,
+    conversationId: string,
+    submission: TurnSubmission,
+    context: AuditContext,
+    pendingId?: string,
+    existingLock?: string,
+    regeneration?: RegenerationSource,
+    returnWhenAccepted = false,
+    planReviewAction?: PlanReviewTurnAction,
+  ) {
     const lock =
       existingLock ?? (await this.acquireConversationLock(conversationId));
     try {
@@ -8857,7 +8918,6 @@ export class ConversationService {
       const applicationRuntime = await this.applicationRuntimeForConversation(
         ownerId,
         conversation.applicationId,
-        conversation.interactiveApplicationPackageId,
         conversation.applicationChannel,
       );
       const fromInteractiveApplication =
@@ -8888,6 +8948,13 @@ export class ConversationService {
       const preparedAnnotation = officeAnnotation
         ? await this.prepareOfficeAnnotation(conversationId, officeAnnotation)
         : null;
+      // Queued requests preserve their original annotation prompt. Validate its
+      // snapshot again before starting, since code may change while waiting.
+      const queuedDisplay = pendingId && "inputText" in submission && submission.inputText
+        ? inspectOfficeAnnotationPrompt(submission.inputText).display : null;
+      if (queuedDisplay?.kind === "application_annotation") {
+        await validateApplicationAnnotationSnapshot(this.prisma, this.workspaceRoot, conversationId, queuedDisplay);
+      }
       const input: PreparedTurnSubmission = {
         inputText: preparedAnnotation
           ? preparedAnnotation.inputText
@@ -8928,6 +8995,7 @@ export class ConversationService {
           : {}),
         messageDisplay:
           preparedAnnotation?.display ??
+          (queuedDisplay?.kind === "application_annotation" ? queuedDisplay : null) ??
           (fromInteractiveApplication && applicationRuntime
             ? {
                 kind: "interactive_application",
@@ -9163,18 +9231,7 @@ export class ConversationService {
           userId: ownerId,
           conversationId,
           priorityCapabilityIds: input.priorityCapabilityIds,
-          ...(applicationRuntime?.applicationVersionId && runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath).serviceSessionId
-            ? {
-                capabilityScope: {
-                  applicationId: applicationRuntime.applicationId,
-                  serviceSessionId: serviceSessionForWorkspace(ownerId, conversation.workspaceRelPath),
-                  publishedCapabilities: applicationRuntime.publishedCapabilities,
-                  sourceOwnerId: applicationRuntime.applicationOwnerId,
-                  capabilityIds: applicationRuntime.capabilityIds,
-                  mcpServerIds: applicationRuntime.mcpServerIds,
-                },
-              }
-            : {}),
+          ...applicationCapabilityScope(applicationRuntime, runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath).serviceSessionId),
         });
         // Dynamic Worker creation must happen after the API has atomically
         // published managed/agents. Keeping the dependency in this promise
@@ -9182,6 +9239,7 @@ export class ConversationService {
         const runtimeInspectionPromise = this.runner.inspectRuntime(
           conversationId,
           ownerId,
+          runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath),
         );
         const runtimePromise = Promise.all([
           authorizationPromise,
@@ -9195,7 +9253,8 @@ export class ConversationService {
           ) {
             return inspected;
           }
-          return this.runner.prepareRuntime(conversationId, ownerId);
+          const placement = runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath);
+          return this.runner.prepareRuntime(conversationId, ownerId, placement.workspacePath, placement.serviceSessionId);
         });
         const [
           runtimeResult,
@@ -9260,15 +9319,16 @@ export class ConversationService {
         runtime = runtimeResult.value;
         resolved = authorizationResult.value;
         modelRuntime = modelRuntimeResult.value;
-        const refreshed = await this.prisma.conversation.updateMany({
+        if (runtime.agentsTemplateVersion !== conversation.agentsTemplateVersion ||
+            runtime.runtimeGeneration !== conversation.runtimeGeneration) {
+          const refreshed = await this.prisma.conversation.updateMany({
           where: { id: conversationId, ownerId },
           data: {
             agentsTemplateVersion: runtime.agentsTemplateVersion,
             runtimeGeneration: runtime.runtimeGeneration,
           },
         });
-        if (refreshed.count !== 1) {
-          throw new AppError("CONVERSATION_NOT_FOUND");
+          if (refreshed.count !== 1) throw new AppError("CONVERSATION_NOT_FOUND");
         }
       } catch (error) {
         await this.recordPendingStartBlock(conversationId, pendingId, error);
@@ -9289,18 +9349,7 @@ export class ConversationService {
           environment: resolved.environment ?? {},
           credentialUsageReceipts: resolved.credentialUsageReceipts ?? [],
           mcpCredentialUsageReceipts: resolved.mcpCredentialUsageReceipts ?? [],
-          ...(applicationRuntime?.applicationVersionId && runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath).serviceSessionId
-            ? {
-                capabilityScope: {
-                  applicationId: applicationRuntime.applicationId,
-                  serviceSessionId: serviceSessionForWorkspace(ownerId, conversation.workspaceRelPath),
-                  publishedCapabilities: applicationRuntime.publishedCapabilities,
-                  sourceOwnerId: applicationRuntime.applicationOwnerId,
-                  capabilityIds: applicationRuntime.capabilityIds,
-                  mcpServerIds: applicationRuntime.mcpServerIds,
-                },
-              }
-            : {}),
+          ...applicationCapabilityScope(applicationRuntime, runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath).serviceSessionId),
         },
         () =>
           this.createStartIntentWithResourceLease({
@@ -9456,11 +9505,14 @@ export class ConversationService {
           ),
         );
         if (returnWhenAccepted) {
-          await this.runner.acceptStartTurn(runnerStartInput);
+          assertUserRuntimeLeaseCurrent();
+          bindTaskLatency({ conversationId, turnId: projectionTurnId });
+          await measureTaskStage("runner_accept", () => this.runner.acceptStartTurn(runnerStartInput, runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath)));
           this.trackAcceptedStartRecovery(projectionTurnId);
           return startReceipt(projectionTurnId, "starting");
         }
 
+        assertUserRuntimeLeaseCurrent();
         const startedTurn = await this.runner.startTurn(runnerStartInput);
         runnerTurn = startedTurn;
         startIntent = await this.recordSucceededStartIntent(
@@ -9564,38 +9616,31 @@ export class ConversationService {
     }
   }
 
-  private async withActiveUserLifecycleLock<T>(
+  private async withActiveUserRuntimeLease<T>(
     userId: string,
-    action: () => Promise<T>,
+    action: (assertCurrent: () => void) => Promise<T>,
   ): Promise<T> {
-    let token: string | null = null;
-    for (let attempt = 0; attempt < 400; attempt += 1) {
-      token = await this.redis.acquireUserLifecycleLock(userId, 120_000);
-      if (token) break;
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
-    }
-    if (!token) throw new AppError("CONFLICT");
-    try {
+    return withUserRuntimeLease(this.redis, userId, async (assertCurrent) => {
       await assertExecutionPrincipalActive(this.prisma, userId);
-      return await action();
-    } finally {
-      await this.redis
-        .releaseUserLifecycleLock(userId, token)
-        .catch(() => undefined);
-    }
+      assertCurrent();
+      return action(assertCurrent);
+    });
   }
 
   private async acquireConversationLock(
     conversationId: string,
   ): Promise<string> {
+    bindTaskLatency({ conversationId });
+    const finish = startTaskStage("conversation_lock_wait");
     for (let attempt = 0; attempt < 400; attempt += 1) {
       const token = await this.redis.acquireConversationLock(
         conversationId,
         120_000,
       );
-      if (token) return token;
+      if (token) { finish(); return token; }
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
     }
+    finish("error");
     throw new AppError("CONFLICT");
   }
 }
@@ -9829,6 +9874,7 @@ export function projectConversation(
     icon?: ApplicationTaskMetadata["icon"];
   },
   hasAutomation = false,
+  developmentRole: ConversationApplicationDevelopmentRole | null = null,
 ) {
   return {
     id: row.id,
@@ -9850,6 +9896,7 @@ export function projectConversation(
     last_run_at: row.lastRunAt?.toISOString() ?? null,
     has_unread_completion: row.completionUnread,
     has_automation: hasAutomation,
+    application_development_role: developmentRole,
     selected_knowledge_base_ids: jsonStringArray(
       row.selectedKnowledgeBaseIdsJson,
     ),
@@ -10195,6 +10242,8 @@ function matchesAnnotationFile(
 ): boolean {
   const lowerName = file.filename.toLocaleLowerCase("en-US");
   switch (kind) {
+    case "application_annotation":
+      return false;
     case "presentation_annotation":
       return file.mimeType === PPTX_MIME_TYPE && lowerName.endsWith(".pptx");
     case "word_annotation":
@@ -10427,8 +10476,8 @@ function buildHtmlAnnotationSection(
 }
 
 function buildOfficeAnnotationPrompt(
-  annotation: OfficeAnnotationInput,
-  display: OfficeAnnotationDisplay,
+  annotation: Exclude<OfficeAnnotationInput, { kind: "application_annotation" }>,
+  display: Exclude<OfficeAnnotationDisplay, { kind: "application_annotation" }>,
 ): string {
   if (annotation.kind !== display.kind) throw new AppError("VALIDATION_ERROR");
 
@@ -10640,11 +10689,20 @@ function resolveUserMessageProjection(
   if (storedDisplay && !inspected.suspected) {
     return { contentText: "", display: null, selectedCapabilities };
   }
+  if (inspected.display?.kind === "application_annotation") {
+    // Persisted sidecars survive app deletion and renaming. Never interpret an
+    // application selection as an attachment or expose its internal prompt.
+    const display = storedDisplay?.kind === "application_annotation" &&
+      storedDisplay.development_id === inspected.display.development_id ? storedDisplay : null;
+    return { contentText: inspected.request ?? "", display, selectedCapabilities };
+  }
   if (inspected.display) {
+    const fileId = inspected.display.file_id;
+    const kind = inspected.display.kind;
     const canonicalFile = files.find(
       (file) =>
-        file.id === inspected.display?.file_id &&
-        matchesAnnotationFile(inspected.display.kind, file),
+        file.id === fileId &&
+        matchesAnnotationFile(kind, file),
     );
     if (canonicalFile) {
       const display = {
@@ -11319,61 +11377,6 @@ function priorityCapabilityIdsFromEvents(payloads: unknown[]): string[] {
   return [...ids];
 }
 
-async function deleteConversationGraph(
-  tx: Prisma.TransactionClient,
-  conversationId: string,
-) {
-  const turnIds = (
-    await tx.conversationTurn.findMany({
-      where: { conversationId },
-      select: { id: true },
-    })
-  ).map((turn) => turn.id);
-  const citations = await tx.conversationMessageKnowledgeCitation.findMany({
-    where: { conversationId },
-    select: { id: true, documentVersionId: true },
-  });
-  const citationIds = citations.map((citation) => citation.id);
-  const citedVersionIds = [
-    ...new Set(citations.map((citation) => citation.documentVersionId)),
-  ];
-  await tx.conversationShare.deleteMany({ where: { conversationId } });
-  await tx.botChannelOutboundDelivery.deleteMany({ where: { conversationId } });
-  await tx.botChannelInboundMessage.deleteMany({ where: { conversationId } });
-  await tx.botChannelPeerSession.deleteMany({ where: { conversationId } });
-  await tx.weixinOutboundDelivery.deleteMany({ where: { conversationId } });
-  await tx.weixinInboundMessage.deleteMany({ where: { conversationId } });
-  await tx.weixinPeerSession.deleteMany({ where: { conversationId } });
-  await tx.conversationFile.deleteMany({ where: { conversationId } });
-  if (citationIds.length > 0) {
-    await tx.conversationMessageKnowledgeCitationAnchor.deleteMany({
-      where: { citationId: { in: citationIds } },
-    });
-  }
-  await tx.conversationMessageKnowledgeCitation.deleteMany({
-    where: { conversationId },
-  });
-  await restoreUnreferencedVersionCleanupEligibility(tx, citedVersionIds);
-  await tx.conversationEvent.deleteMany({ where: { conversationId } });
-  await tx.conversationPlanReview.deleteMany({ where: { conversationId } });
-  await tx.conversationMessage.deleteMany({ where: { conversationId } });
-  await tx.conversationTurnKnowledgeBase.deleteMany({
-    where: { turnId: { in: turnIds } },
-  });
-  await tx.conversationTurnAttempt.deleteMany({
-    where: { turnId: { in: turnIds } },
-  });
-  await tx.conversationUserInputRequest.deleteMany({
-    where: { conversationId },
-  });
-  await tx.conversationGoal.deleteMany({ where: { conversationId } });
-  await tx.conversationTurn.deleteMany({ where: { conversationId } });
-  await tx.conversationTurnStartIntent.deleteMany({
-    where: { conversationId },
-  });
-  await tx.pendingRequest.deleteMany({ where: { conversationId } });
-  await tx.conversation.delete({ where: { id: conversationId } });
-}
 
 async function recordTurnStartedActivity(
   tx: Prisma.TransactionClient,

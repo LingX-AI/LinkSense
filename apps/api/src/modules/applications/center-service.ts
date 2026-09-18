@@ -12,6 +12,7 @@ import { ApplicationDistributionRepository } from "./distribution-repository.js"
 import type { ApplicationPublicationService } from "./publication-service.js";
 import type { ApplicationService } from "./service.js";
 import { allowedApplicationUsageModes, assertApplicationUsageModes } from "./distribution-policy.js";
+import { projectServiceInstallation } from "./runtime-installation-projection.js";
 
 export class ApplicationCenterService {
   constructor(private readonly repository: ApplicationDistributionRepository, private readonly publications: ApplicationPublicationService, private readonly audit: Pick<AuditService, "write">,
@@ -105,11 +106,14 @@ export class ApplicationCenterService {
   }
 
   private async project(actorId: string, releases: ApplicationRelease[]): Promise<ApplicationCenterRelease[]> {
+    const runtimeInstallations = await this.repository.prisma.applicationRuntimeInstallation.findMany({ where: { ownerId: actorId, applicationId: { in: releases.map(item => item.applicationId) } } });
+    const installedVersions = await this.repository.prisma.applicationVersion.findMany({ where: { id: { in: runtimeInstallations.map(item => item.versionId) }, assetsReady: true } });
     const [versions, listings, installations] = await Promise.all([
       this.repository.prisma.applicationVersion.findMany({ where: { id: { in: releases.map(item => item.versionId) }, assetsReady: true } }),
       this.repository.prisma.applicationListing.findMany({ where: { id: { in: releases.map(item => item.listingId) } } }),
-      this.repository.prisma.applicationInstallation.findMany({ where: { ownerId: actorId, channel: "center", sourceApplicationId: { in: releases.map(item => item.applicationId) } } }),
+      this.repository.prisma.applicationInstallation.findMany({ where: { ownerId: actorId, sourceApplicationId: { in: releases.map(item => item.applicationId) } } }),
     ]);
+    const copyVersions = await this.repository.prisma.applicationVersion.findMany({ where: { id: { in: installations.map(item => item.installedVersionId) }, assetsReady: true } });
     const versionById = new Map(versions.map(item => [item.id, item]));
     const listingById = new Map(listings.map(item => [item.id, item]));
     const installedBySource = new Map(installations.map(item => [item.sourceApplicationId, item.applicationId]));
@@ -125,6 +129,8 @@ export class ApplicationCenterService {
         status: release.status, listing_status: listing.status, review_comment: release.reviewComment, suspension_reason: listing.suspensionReason,
         submitted_at: release.submittedAt.toISOString(), reviewed_at: release.reviewedAt?.toISOString() ?? null,
         installed_application_id: installedBySource.get(release.applicationId) ?? null,
+        copy_installation: projectServiceInstallation(copyVersions.find(item => item.id === installations.find(copy => copy.sourceApplicationId === release.applicationId)?.installedVersionId), version),
+        service_installation: projectServiceInstallation(installedVersions.find(item => item.id === runtimeInstallations.find(selected => selected.applicationId === release.applicationId)?.versionId), version),
       });
     });
   }

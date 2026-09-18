@@ -11,6 +11,8 @@ const isolatedTests = [
   "test/safe-http-fetch.test.ts",
   "test/docling-extraction.test.ts",
   "test/deployment-task-settlement.test.ts",
+  "test/application-development-recovery.test.ts",
+  "test/application-development-deletion.test.ts",
 ]
 
 export default defineConfig({

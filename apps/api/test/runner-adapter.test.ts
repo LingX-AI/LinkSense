@@ -37,6 +37,22 @@ afterEach(() => {
 });
 
 describe("RunnerClient start operation", () => {
+  it("reports a native task still running as an installation conflict without retrying or stopping it", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({ error_code: "CLEANUP_RUNTIME_ACTIVE", cleanup_stage: "stop_runtime" }, 409));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(new RunnerClient(testConfig()).closeRuntimeProcess(conversationId, ownerId)).rejects.toMatchObject({ code: "APPLICATION_RUNTIME_BUSY" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("uses an already authorized placement without repeating its database lookup", async () => {
+    const resolveWorkspace = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse(startingOperation(), 202));
+    vi.stubGlobal("fetch", fetchMock);
+    await new RunnerClient(testConfig(), resolveWorkspace).acceptStartTurn(startInput(), { workspacePath: `projects/${projectionTurnId}` });
+    expect(resolveWorkspace).not.toHaveBeenCalled();
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("x-linksense-owner-id")).toBe(ownerId);
+    expect(headers.get("x-linksense-workspace")).toBe(`projects/${projectionTurnId}`);
+  });
   it("resolves each task's current project cwd and forwards it without changing the caller identity", async () => {
     const resolveWorkspace = vi.fn(async (): Promise<import("@linksense/shared").RuntimePlacement> => ({ workspacePath: `projects/${projectionTurnId}` }));
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({ agentsTemplateVersion: "v1", runtimeGeneration }));

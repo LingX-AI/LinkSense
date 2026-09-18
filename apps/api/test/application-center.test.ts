@@ -17,6 +17,7 @@ function fixture() {
   const release = { id: releaseId, listingId, applicationId, versionId, name: "Reports", description: null, publisherName: "Publisher", usageModes: ["install"], releaseNotes: "Initial release", status: "pending", reviewComment: null, submittedAt: new Date("2026-09-16T00:00:00Z"), reviewedAt: null };
   const repository = {
     prisma: {
+      applicationRuntimeInstallation: { findMany: vi.fn(async () => []) },
       application: { findFirst: vi.fn(async () => ({ id: applicationId, kind: "standard" })) },
       applicationVersion: { findMany: vi.fn(async () => [{ id: versionId, versionNumber: 1, versionLabel: "1.0.0", definitionJson: {} }]) },
       applicationListing: { findMany: vi.fn(async () => [{ id: listingId, status: "draft", suspensionReason: null }]) },

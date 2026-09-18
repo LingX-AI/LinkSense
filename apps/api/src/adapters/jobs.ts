@@ -1,3 +1,4 @@
+import { recoverDetachedDevelopmentTests } from "../modules/applications/development-recovery.js"
 import { createHash, randomUUID } from "node:crypto"
 import { rm } from "node:fs/promises"
 import { relative, resolve, sep } from "node:path"
@@ -433,6 +434,7 @@ export class BackgroundJobs {
         ownerId: data.ownerId,
         conversationId: data.conversationId,
         collaborationMode: data.collaborationMode,
+        ...(data.projectId !== undefined ? { projectId: data.projectId } : {}),
         ...(data.reservationRevision
           ? { reservationRevision: data.reservationRevision }
           : {}),
@@ -569,6 +571,7 @@ export class BackgroundJobs {
         })
       })
     }
+    await recoverDetachedDevelopmentTests(prisma)
   }
 
   private async dispatchRuntimeCleanup(record: {

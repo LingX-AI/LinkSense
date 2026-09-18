@@ -1,5 +1,7 @@
 import { applicationCenterRoutes, adminApplicationCenterRoutes } from "./modules/applications/center-routes.js";
+import { applicationDevelopmentRoutes, internalApplicationBuilderRoutes } from "./modules/applications/development-routes.js";
 import { registerRunnerRuntimeScope } from "./modules/events/runtime-scope.js";
+import { finishTaskRequest, withTaskLatencyContext } from "./lib/task-latency.js";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
@@ -12,6 +14,8 @@ import {
   type MaintenanceStatus,
 } from "@linksense/shared";
 import Fastify, { type FastifyInstance } from "fastify";
+import { readRuntimeBuildId } from "./lib/build-info.js";
+import { registerClientBuildGuard } from "./plugins/client-build.js";
 
 import type { AppServices } from "./services.js";
 import { createApiCorsOptions } from "./lib/cors.js";
@@ -23,6 +27,7 @@ import { systemRoutes, adminSystemRoutes } from "./modules/system/routes.js";
 import { projectRoutes } from "./modules/projects/routes.js";
 import { conversationRoutes } from "./modules/conversations/routes.js";
 import { publicConversationShareRoutes } from "./modules/conversations/share-routes.js";
+import { publicWebSiteRoutes, webSiteRoutes } from "./modules/web-sites/routes.js";
 import { fileRoutes } from "./modules/files/routes.js";
 import { internalRunnerRoutes, sseRoutes } from "./modules/events/routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
@@ -119,6 +124,7 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
 export async function buildApi(
   services: AppServices,
 ): Promise<FastifyInstance> {
+  const buildId = readRuntimeBuildId(services.config.nodeEnv);
   await services.system.prepare();
   const maximumMultipartFileSize = Math.max(
     services.config.upload.maxFileSizeBytes,
@@ -138,7 +144,10 @@ export async function buildApi(
     bodyLimit: maximumMultipartFileSize + 1024 * 1024,
   });
 
+  app.addHook("onRequest", (request, _reply, done) => { withTaskLatencyContext(request.log, done); });
+  app.addHook("onResponse", async () => { finishTaskRequest(); });
   await app.register(cors, createApiCorsOptions(services.config.publicBaseUrl));
+  registerClientBuildGuard(app, buildId);
   await app.register(cookie);
   await app.register(jwt, {
     secret: services.config.jwtSecret,
@@ -451,6 +460,8 @@ export async function buildApi(
     prefix: "/api/v1/shared-conversations",
     service: services.conversationShares,
   });
+  await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: services.webSites });
+  await app.register(publicWebSiteRoutes, { prefix: "/web", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl });
   await app.register(automationRoutes, {
     prefix: "/api/v1/automations",
     services,
@@ -505,6 +516,8 @@ export async function buildApi(
     service: services.skillCreator,
     sharedSecret: services.config.runnerSharedSecret,
   });
+  await app.register(applicationDevelopmentRoutes, { prefix: "/api/v1/application-developments", service: services.applicationDevelopment });
+  await app.register(internalApplicationBuilderRoutes, { prefix: "/internal/application-builder", service: services.applicationDevelopment, sharedSecret: services.config.runnerSharedSecret });
   if (services.knowledgeSearch) {
     await app.register(internalKnowledgeSearchRoutes, {
       prefix: "/internal",

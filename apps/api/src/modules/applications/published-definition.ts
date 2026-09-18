@@ -21,6 +21,9 @@ export type PublishedCapability = z.infer<typeof publishedCapabilitySchema>;
 
 export const publishedApplicationDefinitionSchema = z.strictObject({
   schemaVersion: z.literal(1),
+  description: z.string().nullable(),
+  iconPreset: z.string(),
+  iconObjectKey: z.string().nullable(),
   name: z.string().min(1).max(160),
   kind: applicationKindSchema,
   instructions: z.string().max(20_000),

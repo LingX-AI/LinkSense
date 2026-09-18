@@ -113,6 +113,14 @@ export async function mergeTree(source: string, target: string, sourceRoot: stri
   if (entry.isSymbolicLink()) {
     const link = await readlink(source);
     const destination = resolve(source, "..", link);
+    // Managed Node dependency links may occur inside generated project folders,
+    // not only at the root. Their fixed runtime HOME destination stays valid
+    // when a workspace is imported into the application environment.
+    if (source.endsWith(`${sep}node_modules`) && link === "/home/linksense/.local/share/linksense/node/node_modules") {
+      if (existing) { if (!existing.isSymbolicLink() || await readlink(target) !== link) throw new Error("MIGRATION_FILE_CONFLICT"); }
+      else { await mkdir(resolve(target, ".."), { recursive: true }); await symlink(link, target); }
+      return;
+    }
     const legacyWorkspace = /[/\\]home[/\\]workspaces[/\\]([0-9a-f-]{36})$/u.exec(sourceRoot);
     if (legacyWorkspace && relative(sourceRoot, source) === "skills" &&
       (link === "../../.agents/skills" || link === `../../task-homes/${legacyWorkspace[1]}/.agents/skills`)) return;

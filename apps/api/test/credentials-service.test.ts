@@ -153,6 +153,29 @@ describe("CredentialService encryption and boundaries", () => {
 });
 
 describe("CredentialService strict runtime resolution", () => {
+  it("resolves multiple plugins from one fresh snapshot and immediately observes revocation", async () => {
+    const store = resolvedStore();
+    const otherId = "20000000-0000-4000-8000-000000000002";
+    store.capabilities.push(capability({ id: otherId }));
+    store.usableCapabilityIds.add(otherId);
+    store.bindings.push(binding({ credentialId: PERSONAL_CREDENTIAL_ID }), binding({ id: "40000000-0000-4000-8000-000000000002", capabilityId: otherId, credentialId: PERSONAL_CREDENTIAL_ID }));
+    const snapshot = vi.spyOn(store, "readRuntimeSnapshot");
+    const findCredential = vi.spyOn(store, "findCredential");
+    const service = createService(store);
+    const requests = [CAPABILITY_ID, otherId].map(capabilityId => ({ capabilityId, requiredEnvironmentKeys: ["API_KEY"] }));
+    const first = await service.resolveForCapabilities(USER_ID, requests);
+    expect(snapshot).toHaveBeenCalledOnce();
+    expect(findCredential).not.toHaveBeenCalled();
+    expect([...first.values()].every(result => result.ok)).toBe(true);
+    store.usableCapabilityIds.delete(otherId);
+    store.credentials[0]!.status = "disabled";
+    const second = await service.resolveForCapabilities(USER_ID, requests);
+    expect(snapshot).toHaveBeenCalledTimes(2);
+    expect([...second.values()]).toEqual([
+      { ok: false, blockCode: "required_credential_unavailable" },
+      { ok: false, blockCode: "required_credential_unavailable" },
+    ]);
+  });
   it("keeps native MCP environment references optional when no binding exists", async () => {
     const store = baseStore();
     store.capabilities[0] = capability({
@@ -874,6 +897,13 @@ function binding(
 }
 
 class MemoryCredentialStore implements CredentialStore {
+  async readRuntimeSnapshot(userId: string, capabilityIds: string[]) {
+    return {
+      capabilities: this.capabilities.filter(capability => capabilityIds.includes(capability.id) && this.usableCapabilityIds.has(capability.id)),
+      bindings: this.bindings.filter(binding => capabilityIds.includes(binding.capabilityId) && binding.userId === userId && binding.status === "active"),
+      credentials: this.credentials.filter(credential => credential.ownerId === userId),
+    };
+  }
   credentials: CredentialRecord[] = [];
   bindings: CredentialBindingRecord[] = [];
   capabilities: CapabilityRecord[] = [];

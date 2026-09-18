@@ -12,6 +12,7 @@ const taskSchema = z.object({ id: z.uuid(), ownerId: z.uuid(), applicationId: z.
 type Task = z.infer<typeof taskSchema>;
 const groupSchema = z.strictObject({ ownerId: z.uuid(), applicationId: z.uuid(), tasks: z.array(taskSchema).min(1) });
 type Group = z.infer<typeof groupSchema>;
+export type NativeHomeNormalizer = (sourceHome: string) => Promise<string>;
 const journalSchema = z.strictObject({
   version: z.literal(1), root: z.string(), outputRoot: z.string(),
   phase: z.enum(["prepared", "swapping", "committed"]), groups: z.array(groupSchema),
@@ -23,12 +24,14 @@ export function planApplicationEnvironments(rows: Task[]): Group[] {
   const ownersByEnvironment = new Map<string, string>();
   for (const task of z.array(taskSchema).parse(rows)) {
     const placement = runtimePlacementForWorkspace(task.ownerId, task.workspaceRelPath);
-    if (!placement.serviceSessionId) continue;
-    if (!task.applicationId) throw new Error("MIGRATION_APPLICATION_REFERENCE_INVALID");
+    if (!task.applicationId) {
+      if (placement.serviceSessionId) throw new Error("MIGRATION_APPLICATION_REFERENCE_INVALID");
+      continue;
+    }
     const key = `${task.ownerId}/${task.applicationId}`;
     const prior = ownersByEnvironment.get(task.workspaceRelPath);
-    if (prior && prior !== key) throw new Error("MIGRATION_APPLICATION_REFERENCE_CONFLICT");
-    ownersByEnvironment.set(task.workspaceRelPath, key);
+    if (placement.serviceSessionId && prior && prior !== key) throw new Error("MIGRATION_APPLICATION_REFERENCE_CONFLICT");
+    if (placement.serviceSessionId) ownersByEnvironment.set(task.workspaceRelPath, key);
     const group = groups.get(key) ?? { ownerId: task.ownerId, applicationId: task.applicationId, tasks: [] };
     group.tasks.push(task);
     groups.set(key, group);
@@ -44,24 +47,32 @@ export function planApplicationEnvironments(rows: Task[]): Group[] {
 
 /** Stages a complete app HOME without changing any source. Differing credentials,
  * user packages and native records are conflicts, never last-writer-wins merges. */
-export async function stageApplicationEnvironment(root: string, target: string, group: Group, nativeHome = "/home/linksense"): Promise<void> {
+export async function stageApplicationEnvironment(root: string, target: string, group: Group, nativeHome = "/home/linksense", normalizeNativeHome?: NativeHomeNormalizer): Promise<void> {
   groupSchema.parse(group);
   if (group.tasks.some(task => task.ownerId !== group.ownerId || task.applicationId !== group.applicationId)) throw new Error("MIGRATION_APPLICATION_REFERENCE_INVALID");
-  for (const parent of [root, join(root, group.ownerId), join(root, group.ownerId, "services")]) await assertDirectory(parent);
+  for (const parent of [root, join(root, group.ownerId)]) await assertDirectory(parent);
+  if (await info(join(root, group.ownerId, "services"))) await assertDirectory(join(root, group.ownerId, "services"));
   const canonical = environmentPath(root, group, group.applicationId);
   const sources = sourceIds(group);
   if (await info(canonical) && !sources.includes(group.applicationId)) throw new Error("MIGRATION_ENVIRONMENT_TARGET_UNREFERENCED");
   sources.sort((left, right) => Number(right === group.applicationId) - Number(left === group.applicationId) || left.localeCompare(right));
   await mkdir(target, { recursive: true, mode: 0o770 });
   await mkdir(join(target, "home"), { mode: 0o770 });
-  for (const sourceId of sources) {
-    const source = environmentPath(root, group, sourceId);
+  const personalTasks = group.tasks.filter(task => !runtimePlacementForWorkspace(group.ownerId, task.workspaceRelPath).serviceSessionId);
+  for (const sourceId of [...sources, ...(personalTasks.length ? ["personal"] : [])]) {
+    const source = sourceId === "personal" ? join(root, group.ownerId) : environmentPath(root, group, sourceId);
     await assertDirectory(source);
     const sourceHome = join(source, "home");
     await assertDirectory(sourceHome);
-    await mergeTree(sourceHome, join(target, "home"), sourceHome, new Set(["workspace", ".agents"]));
-    const sourceWorkspace = join(sourceHome, "workspace");
-    const imported = sourceId === group.applicationId ? "" : `imports/${sourceId}`;
+    const nativeSource = join(sourceHome, ".codex");
+    if (await info(nativeSource)) await assertDirectory(nativeSource);
+    const normalized = normalizeNativeHome && await info(nativeSource) ? await normalizeNativeHome(nativeSource) : null;
+    await mergeTree(sourceHome, join(target, "home"), sourceHome, new Set(["workspace", "projects", ".agents", ...(normalized ? [".codex"] : [])]));
+    if (normalized) await mergeTree(normalized, join(target, "home/.codex"), resolve(normalized, ".."));
+    const workspaces = sourceId === "personal" ? [...new Set(personalTasks.map(task => runtimePlacementForWorkspace(group.ownerId, task.workspaceRelPath).workspacePath))] : ["workspace"];
+    for (const oldPath of workspaces) {
+    const sourceWorkspace = join(sourceHome, oldPath);
+    const imported = sourceId === group.applicationId ? "" : sourceId === "personal" ? `imports/personal/${oldPath}` : `imports/${sourceId}`;
     if (await info(sourceWorkspace)) {
       const destination = join(target, "home/workspace", imported);
       const modules = join(sourceWorkspace, "node_modules");
@@ -73,10 +84,17 @@ export async function stageApplicationEnvironment(root: string, target: string, 
       await mergeTree(sourceWorkspace, destination, sourceWorkspace, managedModules ? new Set(["node_modules"]) : new Set());
       if (managedModules) await symlink(relative(destination, join(target, "home", nodeModulesRelativePath)), join(destination, "node_modules"));
     }
+    }
     const control = join(source, "control");
-    if (await info(control)) await mergeTree(control, join(target, "control"), control, new Set(["capabilities", "capability-snapshots"]));
+    if (await info(control)) {
+      await mergeTree(control, join(target, "control"), control, new Set(["capabilities", "capability-snapshots", "native-home-imports"]));
+      // Preserve earlier conversion archives separately from the archive of the
+      // current HOME. They can share a source-path hash but have different dates.
+      const archived = join(control, "native-home-imports");
+      if (await info(archived)) await mergeTree(archived, join(target, "control/previous-native-home-imports", sourceId), archived);
+    }
     const unknown = (await readdir(source)).filter(name => !["home", "control", "managed"].includes(name));
-    if (unknown.length > 0) throw new Error("MIGRATION_ENVIRONMENT_ENTRY_UNKNOWN");
+    if (sourceId !== "personal" && unknown.length > 0) throw new Error("MIGRATION_ENVIRONMENT_ENTRY_UNKNOWN");
   }
   const native = join(target, "home/.codex");
   rewriteNativeRolloutPaths(native, nativeHome, !!await info(join(native, "state_5.sqlite")));
@@ -85,7 +103,7 @@ export async function stageApplicationEnvironment(root: string, target: string, 
 /** Operator-controlled, offline conversion. No schema change and no deletion of
  * originals. A dry run verifies all merges, then removes only its own staging. */
 export async function convertApplicationEnvironments(input: {
-  prisma: PrismaClient; userDataRoot: string; outputRoot: string; apply: boolean;
+  prisma: PrismaClient; userDataRoot: string; outputRoot: string; apply: boolean; normalizeNativeHome?: NativeHomeNormalizer;
 }): Promise<{ applications: number; tasks: number; applied: boolean }> {
   const root = resolve(input.userDataRoot), outputRoot = resolve(input.outputRoot);
   assertRoots(root, outputRoot);
@@ -99,10 +117,13 @@ export async function convertApplicationEnvironments(input: {
   const journal: Journal = { version: 1, root, outputRoot, groups, phase: "prepared" };
   await saveJournal(journal);
   try {
-    for (const group of groups) await stageApplicationEnvironment(root, stagedPath(journal, group), group);
+    for (const group of groups) await stageApplicationEnvironment(root, stagedPath(journal, group), group, "/home/linksense", input.normalizeNativeHome);
     if (!input.apply) return result;
     await assertIdle(input.prisma);
-    for (const group of groups) await prepareOwnership(stagedPath(journal, group));
+    for (const group of groups) {
+      await mkdir(join(root, group.ownerId, "services"), { recursive: true, mode: 0o770 });
+      await prepareOwnership(stagedPath(journal, group));
+    }
     await syncTree(join(outputRoot, "staged"));
     await writeFile(join(root, applicationEnvironmentConversionMarker), JSON.stringify({ outputRoot }), { mode: 0o600, flag: "wx" });
     await syncFile(join(root, applicationEnvironmentConversionMarker));
@@ -123,14 +144,16 @@ export async function convertApplicationEnvironments(input: {
           }
           for (const oldWorkspace of new Set(group.tasks.map(task => task.workspaceRelPath))) {
             if (oldWorkspace === workspace) continue;
-            const sourceId = serviceEnvironmentId(group.ownerId, oldWorkspace);
-            const files = await tx.conversationFile.findMany({ where: { workspaceRootRelPath: oldWorkspace } });
+            const placement = runtimePlacementForWorkspace(group.ownerId, oldWorkspace);
+            const sourceId = placement.serviceSessionId;
+            const imported = sourceId ? `imports/${sourceId}` : `imports/personal/${placement.workspacePath}`;
+            const files = await tx.conversationFile.findMany({ where: { workspaceRootRelPath: oldWorkspace, conversationId: { in: group.tasks.map(task => task.id) } } });
             for (const file of files) {
               const relativePath = file.workspaceRelativePath;
               if (!relativePath || isAbsolute(relativePath) || relativePath.includes("\\") || relativePath.split("/").includes("..")) throw new Error("MIGRATION_FILE_REFERENCE_CONFLICT");
-              await tx.conversationFile.update({ where: { id: file.id }, data: { workspaceRootRelPath: workspace, workspaceRelativePath: `imports/${sourceId}/${relativePath}` } });
+              await tx.conversationFile.update({ where: { id: file.id }, data: { workspaceRootRelPath: workspace, workspaceRelativePath: `${imported}/${relativePath}` } });
             }
-            await tx.runtimeCleanupOutbox.updateMany({ where: { ownerId: group.ownerId, serviceSessionId: sourceId }, data: { serviceSessionId: group.applicationId } });
+            if (sourceId) await tx.runtimeCleanupOutbox.updateMany({ where: { ownerId: group.ownerId, serviceSessionId: sourceId }, data: { serviceSessionId: group.applicationId } });
           }
           for (const sourceId of sourceIds(group)) {
             const source = environmentPath(root, group, sourceId);
@@ -220,12 +243,12 @@ export async function recoverApplicationEnvironments(prisma: PrismaClient, outpu
 
 function environmentPath(root: string, group: Group, id: string): string { return join(root, group.ownerId, "services", id); }
 function stagedPath(journal: Journal, group: Group): string { return environmentPath(join(journal.outputRoot, "staged"), group, group.applicationId); }
-function serviceEnvironmentId(ownerId: string, workspace: string): string {
-  const id = runtimePlacementForWorkspace(ownerId, workspace).serviceSessionId;
-  if (!id) throw new Error("MIGRATION_APPLICATION_REFERENCE_INVALID");
-  return id;
+function sourceIds(group: Group): string[] {
+  return [...new Set(group.tasks.flatMap(task => {
+    const id = runtimePlacementForWorkspace(group.ownerId, task.workspaceRelPath).serviceSessionId;
+    return id ? [id] : [];
+  }))];
 }
-function sourceIds(group: Group): string[] { return [...new Set(group.tasks.map(task => serviceEnvironmentId(group.ownerId, task.workspaceRelPath)))]; }
 function assertRoots(root: string, output: string): void {
   if (!isAbsolute(root) || !isAbsolute(output) || root === output || output.startsWith(root + sep) || root.startsWith(output + sep)) throw new Error("MIGRATION_ROOT_INVALID");
 }

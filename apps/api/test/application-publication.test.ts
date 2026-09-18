@@ -17,7 +17,7 @@ async function fixture() {
   const ownerId = randomUUID(), applicationId = randomUUID(), capabilityId = randomUUID();
   const application = {
     id: applicationId, ownerId, status: 'active', name: 'Published reports', kind: 'standard',
-    iconPreset: 'bot', description: 'Reports', instructions: 'Create a report.', usageInstructions: '', publishedVersionId: null as string | null,
+    iconPreset: 'bot', iconObjectKey: null, description: 'Reports', instructions: 'Create a report.', usageInstructions: '', publishedVersionId: null as string | null,
     model: null, reasoningEffort: null, interactivePackageId: null as string | null, updatedAt: new Date('2026-09-15T00:00:00Z'),
   };
   const knowledgeBaseId = randomUUID(), mcpServerId = randomUUID();
@@ -38,6 +38,7 @@ async function fixture() {
     applicationGrant: { findMany: vi.fn(async () => [{ usageModes: ["install", "service"] }]) },
     applicationListing: { findUnique: vi.fn(async () => null) },
     applicationInstallation: { findFirst: vi.fn(async () => null), create: vi.fn() },
+    applicationRuntimeInstallation: { upsert: vi.fn() },
     application: {
       findFirst: vi.fn(async ({ where }: { where: { ownerId?: string } }) => (!where.ownerId || where.ownerId === ownerId) ? application : null),
       create: vi.fn(async ({ data }: { data: Prisma.ApplicationCreateInput }) => { createdApplications.push(data); return data; }),
@@ -70,10 +71,31 @@ async function fixture() {
 }
 
 describe('application publication', () => {
+  it("captures edited resources and presentation instead of the previous standard configuration", async () => {
+    const f = await fixture();
+    f.prisma.applicationCapability.findMany.mockResolvedValue([]);
+    const knowledgeBaseId = randomUUID(), mcpServerId = randomUUID();
+    const complete = vi.fn(async () => undefined);
+    await f.service.capture(f.ownerId, f.applicationId, { version_number: "0.0.1", usage_instructions: "Existing guide" }, {
+      standardUpdate: { name: "Updated", description: null, iconPreset: "book-open", iconObjectKey: null, instructions: "Edited instructions", model: null, reasoningEffort: null, capabilityIds: [f.capability.id], knowledgeBaseIds: [knowledgeBaseId], mcpServerIds: [mcpServerId] }, complete,
+    });
+    expect(f.versions[0]?.definitionJson).toMatchObject({ name: "Updated", description: null, iconPreset: "book-open", instructions: "Edited instructions", model: null, reasoningEffort: null, capabilities: [expect.objectContaining({ id: f.capability.id })], knowledgeBaseIds: [knowledgeBaseId], mcpServerIds: [mcpServerId] });
+    expect(complete).toHaveBeenCalledOnce();
+    const snapshot = publishedApplicationDefinitionSchema.parse(f.versions[0]?.definitionJson).capabilities[0];
+    expect(await readFile(join(applicationPackagePath(f.root, snapshot!.storagePath), "SKILL.md"), "utf8")).toContain("Original skill");
+  });
+  it("can publish a disabled application without enabling it", async () => {
+    const f = await fixture();
+    f.application.status = "disabled";
+    const result = await f.capture(f.ownerId, f.applicationId, { version_number: "0.0.1", usage_instructions: "" });
+    expect(result.version_number).toBe("0.0.1");
+    expect(f.application.status).toBe("disabled");
+    expect(f.prisma.application.findFirst).toHaveBeenCalledWith({ where: { id: f.applicationId, ownerId: f.ownerId, status: { not: "deleted" } } });
+  });
   it("prefills historical usage instructions before a version is available", async () => {
     const f = await fixture();
     f.application.usageInstructions = "Existing usage guide";
-    expect((await f.service.settings(f.applicationId)).usage_instructions).toBe("Existing usage guide");
+    expect(await f.service.settings(f.applicationId)).toEqual({ version_number: "0.0.1", highest_version_number: null, usage_instructions: "Existing usage guide" });
     f.versions.push({ id: randomUUID(), applicationId: f.applicationId, versionNumber: 1, versionLabel: "1.0.0", definitionJson: { conversionRequired: true }, assetsReady: false, createdBy: f.ownerId });
     expect((await f.service.settings(f.applicationId)).usage_instructions).toBe("Existing usage guide");
   });
@@ -82,8 +104,8 @@ describe('application publication', () => {
     const f = await fixture();
     await f.capture(f.ownerId, f.applicationId, { usage_instructions: "Direct guide" });
     expect((await f.service.settings(f.applicationId)).usage_instructions).toBe("Direct guide");
-    for (const usage_instructions of ["Revised center guide", ""]) {
-      await f.service.capture(f.ownerId, f.applicationId, { version_number: "1.0.0", usage_instructions }, { complete: async () => undefined });
+    for (const [version_number, usage_instructions] of [["1.0.1", "Revised guide"], ["1.0.2", ""]] as const) {
+      await f.service.capture(f.ownerId, f.applicationId, { version_number, usage_instructions }, { complete: async () => undefined });
       expect((await f.service.settings(f.applicationId)).usage_instructions).toBe(usage_instructions);
       expect(f.application.usageInstructions).toBe("Direct guide");
     }
@@ -95,15 +117,29 @@ describe('application publication', () => {
     await expect(f.capture(f.ownerId, f.applicationId, { ...input, version_number: "1.9.0" })).rejects.toMatchObject({ code: "APPLICATION_VERSION_TOO_LOW", params: { version: "1.10.0" } });
     expect(f.versions).toHaveLength(1);
     expect(f.application.publishedVersionId).toBe(first.version_id);
-    expect(await f.service.settings(f.applicationId)).toMatchObject({ version_number: "1.10.0", highest_version_number: "1.10.0" });
+    expect(await f.service.settings(f.applicationId)).toMatchObject({ version_number: "1.10.1", highest_version_number: "1.10.0" });
   });
 
-  it("reuses an unchanged same-number submission without reporting a new update", async () => {
+  it("captures a different interactive package under the same version label without overwriting earlier releases", async () => {
+    const f = await fixture();
+    f.application.kind = "interactive";
+    const input = { version_number: "1.0.0", usage_instructions: "Guide" };
+    const update = { packageId: randomUUID(), name: "First", description: null, iconPreset: "bot", iconObjectKey: null, capabilityIds: [f.capability.id], knowledgeBaseIds: [], mcpServerIds: [] };
+    await f.service.capture(f.ownerId, f.applicationId, input, { interactiveUpdate: update, complete: async () => {} });
+    const first = structuredClone(f.versions[0]);
+    await f.service.capture(f.ownerId, f.applicationId, input, { interactiveUpdate: { ...update, name: "Second", packageId: randomUUID() }, complete: async () => {} });
+    expect(f.versions).toHaveLength(2);
+    expect(f.versions[0]).toEqual(first);
+    expect(f.versions[1]).toMatchObject({ versionLabel: "1.0.0", versionNumber: 2, definitionJson: { name: "Second" } });
+    expect(f.versions[1]?.id).not.toBe(f.versions[0]?.id);
+    await expect(f.service.capture(f.ownerId, f.applicationId, { ...input, version_number: "0.9.9" }, { interactiveUpdate: update, complete: async () => {} })).rejects.toMatchObject({code: "APPLICATION_VERSION_TOO_LOW"});
+  });
+
+  it("rejects a duplicate release number even when its content is unchanged", async () => {
     const f = await fixture();
     const input = { usage_instructions: "Use your own account", version_number: "1.0.0" };
     const first = await f.capture(f.ownerId, f.applicationId, input);
-    const second = await f.capture(f.ownerId, f.applicationId, input);
-    expect(second).toEqual(first);
+    await expect(f.capture(f.ownerId, f.applicationId, input)).rejects.toMatchObject({ code: "APPLICATION_VERSION_TOO_LOW" });
     expect(f.versions).toHaveLength(1);
     await f.service.verifyVersion(f.applicationId, first.version_id!);
   });
@@ -147,8 +183,8 @@ describe('application publication', () => {
     const original = await f.service.readVersion(f.applicationId, first.version_id!);
     f.application.instructions = 'Changed draft.';
     await writeFile(join(f.root, 'source', 'SKILL.md'), '---\nname: report\ndescription: Write reports\n---\nUpdated skill.');
-    const second = await f.capture(f.ownerId, f.applicationId, { usage_instructions: 'Use your own credentials.' });
-    expect(second.version_number).toBe('1.0.0');
+    const second = await f.capture(f.ownerId, f.applicationId, { usage_instructions: 'Use your own credentials.', version_number: "1.0.1" });
+    expect(second.version_number).toBe('1.0.1');
     expect(second.version_id).not.toBe(first.version_id);
     expect(await f.service.readVersion(f.applicationId, first.version_id!)).toEqual(original);
     expect(original.instructions).toBe('Create a report.');
@@ -202,6 +238,8 @@ describe("independent application copies", () => {
     const id = await copy.install(recipient, f.applicationId, { name: "My reports", channel: "direct", version_id: f.application.publishedVersionId! });
     expect(f.createdApplications).toEqual([expect.objectContaining({ id, ownerId: recipient, status: "disabled", name: "My reports", usageInstructions: "Connect your own handbook and MCP service." })]);
     expect(f.createdApplications[0]).not.toHaveProperty("publishedVersionId");
+    const installedVersion = f.versions.find(version => version.applicationId === id);
+    expect(publishedApplicationDefinitionSchema.parse(installedVersion?.definitionJson).name).toBe("My reports");
     expect(f.createdCapabilities).toHaveLength(1);
     expect(f.createdCapabilities[0]).toMatchObject({ ownerId: recipient, installedBy: recipient, sourceType: "local" });
     expect(f.createdCapabilities[0]?.id).not.toBe(f.capability.id);

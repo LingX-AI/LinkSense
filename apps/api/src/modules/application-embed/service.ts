@@ -1086,6 +1086,11 @@ export class ApplicationExternalAccessService {
     if (!session) {
       const runtimePrincipalId = randomUUID();
       const conversationId = this.reserveConversationId();
+      // Seed the external environment from the creator's installed release.
+      // Later task starts refresh it only when this visitor's environment is idle.
+      const source = await this.prisma.application.findUniqueOrThrow({ where: { id: application.id }, select: { ownerId: true } });
+      const selected = await this.prisma.applicationRuntimeInstallation.findUnique({ where: { ownerId_applicationId: { ownerId: source.ownerId, applicationId: application.id } } });
+      if (!selected) throw new AppError("APPLICATION_PUBLICATION_REQUIRED");
       session = await this.prisma.applicationExternalSession.create({
         data: {
           externalAccessId: access.id, applicationId: application.id, runtimePrincipalId, conversationId,
@@ -1095,9 +1100,11 @@ export class ApplicationExternalAccessService {
         },
       });
       try {
+        await this.prisma.applicationRuntimeInstallation.create({ data: { ownerId: runtimePrincipalId, applicationId: application.id, versionId: selected.versionId, channel: "external" } });
         const conversation = await this.createConversation(runtimePrincipalId, application, conversationId);
         if (conversation.id !== conversationId) throw new AppError("CONFLICT");
       } catch (error) {
+        await this.prisma.applicationRuntimeInstallation.deleteMany({ where: { ownerId: runtimePrincipalId, applicationId: application.id } });
         await this.prisma.applicationExternalSession.delete({ where: { id: session.id } });
         throw error;
       }

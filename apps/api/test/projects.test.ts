@@ -14,14 +14,14 @@ const ownerId = "10000000-0000-4000-8000-000000000001";
 const id = "20000000-0000-4000-8000-000000000001";
 const secondId = "20000000-0000-4000-8000-000000000002";
 const now = new Date("2026-09-09T00:00:00.000Z");
-const row = { id, ownerId, name: "Work", sortOrder: null, createdAt: now, updatedAt: now };
-const project = { id, name: "Work", created_at: now.toISOString(), updated_at: now.toISOString() };
+const row = { id, ownerId, icon: "folder", color: "default", name: "Work", sortOrder: null, createdAt: now, updatedAt: now };
+const project = { icon: "folder" as const, color: "default" as const, id, name: "Work", created_at: now.toISOString(), updated_at: now.toISOString() };
 
 function serviceFixture() {
   const repository = {
     list: vi.fn(async () => [row]),
     create: vi.fn(async () => row),
-    rename: vi.fn(async () => row),
+    update: vi.fn(async () => row),
     delete: vi.fn(async () => undefined),
     reorder: vi.fn(async () => [{ ...row, id: secondId }, row]),
   };
@@ -29,6 +29,11 @@ function serviceFixture() {
 }
 
 describe("task project service", () => {
+  it("validates and persists appearance together with the edited name", async () => {
+    const { repository, service } = serviceFixture();
+    await service.update(ownerId, id, { name: " Work ", icon: "flower", color: "blue" });
+    expect(repository.update).toHaveBeenCalledWith(ownerId, id, { name: "Work", icon: "flower", color: "blue" });
+  });
   it("preserves stored ordering while returning only public project fields", async () => {
     const { repository, service } = serviceFixture();
     const result = await service.reorder(ownerId, { project_ids: [secondId, id] });
@@ -47,30 +52,30 @@ describe("task project service", () => {
     expect(await service.list(ownerId)).toEqual([project]);
     expect(repository.list).toHaveBeenCalledWith(ownerId);
   });
-  it("trims the name on create and rename", async () => {
+  it("trims the name on create and update", async () => {
     const { repository, service } = serviceFixture();
     await service.create(ownerId, { name: " Work " });
-    await service.rename(ownerId, id, { name: " Work " });
-    expect(repository.create).toHaveBeenCalledWith(ownerId, "Work");
-    expect(repository.rename).toHaveBeenCalledWith(ownerId, id, "Work");
+    await service.update(ownerId, id, { name: " Work " });
+    expect(repository.create).toHaveBeenCalledWith(ownerId, { name: "Work" });
+    expect(repository.update).toHaveBeenCalledWith(ownerId, id, { name: "Work" });
   });
   it.each(["", "  ", "x".repeat(81)])("rejects invalid name %s before persistence", async (name) => {
     const { repository, service } = serviceFixture();
     await expect(service.create(ownerId, { name })).rejects.toThrow();
-    await expect(service.rename(ownerId, id, { name })).rejects.toThrow();
+    await expect(service.update(ownerId, id, { name })).rejects.toThrow();
     expect(repository.create).not.toHaveBeenCalled();
-    expect(repository.rename).not.toHaveBeenCalled();
+    expect(repository.update).not.toHaveBeenCalled();
   });
-  it.each(["create", "rename"] as const)("maps concurrent duplicate-name errors from %s without exposing database details", async (method) => {
+  it.each(["create", "update"] as const)("maps concurrent duplicate-name errors from %s without exposing database details", async (method) => {
     const { repository, service } = serviceFixture();
     repository[method].mockRejectedValue(new Prisma.PrismaClientKnownRequestError("database details", { code: "P2002", clientVersion: "test" }));
-    const action = method === "create" ? service.create(ownerId, { name: "Work" }) : service.rename(ownerId, id, { name: "Work" });
+    const action = method === "create" ? service.create(ownerId, { name: "Work" }) : service.update(ownerId, id, { name: "Work" });
     await expect(action).rejects.toMatchObject({ code: "PROJECT_NAME_EXISTS" });
   });
-  it("returns an unavailable project error for a rename outside the owner's scope", async () => {
+  it("returns an unavailable project error for a update outside the owner's scope", async () => {
     const { repository, service } = serviceFixture();
-    repository.rename.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("database details", { code: "P2025", clientVersion: "test" }));
-    await expect(service.rename(ownerId, id, { name: "Work" })).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND" });
+    repository.update.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("database details", { code: "P2025", clientVersion: "test" }));
+    await expect(service.update(ownerId, id, { name: "Work" })).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND" });
   });
   it("keeps storage failures visible to the error boundary", async () => {
     const { repository, service } = serviceFixture();
@@ -85,7 +90,7 @@ describe("task project service", () => {
 
 function databaseFixture() {
   const tx = {
-    $queryRaw: vi.fn<(query: Prisma.Sql) => Promise<Array<{ id: string } | { busy: boolean }>>>().mockImplementation(async query => query.sql.includes("AS busy") ? [{ busy: false }] : [{ id }]),
+    $queryRaw: vi.fn<(query: Prisma.Sql) => Promise<Array<{ id: string } | { busy: boolean }>>>().mockImplementation(async query => query.sql.includes("AS busy") ? [{ busy: false }] : query.sql.includes("application_developments") ? [] : [{ id }]),
     $executeRaw: vi.fn<(query: Prisma.Sql) => Promise<number>>().mockResolvedValue(3),
     project: {
       findMany: vi.fn().mockResolvedValue([row]),
@@ -100,11 +105,18 @@ function databaseFixture() {
 }
 
 describe("task project persistence and transaction integrity", () => {
+  it("writes appearance only for the owning project and preserves omitted fields", async () => {
+    const { repository, tx } = databaseFixture();
+    await repository.update(ownerId, id, { name: "Work", icon: "flower", color: "blue" });
+    expect(tx.project.update).toHaveBeenLastCalledWith({ where: { ownerId, id }, data: { name: "Work", icon: "flower", color: "blue" } });
+    await repository.update(ownerId, id, { name: "Personal" });
+    expect(tx.project.update).toHaveBeenLastCalledWith({ where: { ownerId, id }, data: { name: "Personal" } });
+  });
   it("scopes reads and writes to the owner", async () => {
     const { repository, tx } = databaseFixture();
     await repository.list(ownerId);
-    await repository.create(ownerId, "Work");
-    await repository.rename(ownerId, id, "Work");
+    await repository.create(ownerId, { name: "Work" });
+    await repository.update(ownerId, id, { name: "Work" });
     expect(tx.project.findMany).toHaveBeenCalledWith({ where: { ownerId }, orderBy: [{ sortOrder: { sort: "asc", nulls: "last" } }, { createdAt: "asc" }, { id: "asc" }] });
     expect(tx.project.create).toHaveBeenCalledWith({ data: { ownerId, name: "Work" } });
     expect(tx.project.update).toHaveBeenCalledWith({ where: { ownerId, id }, data: { name: "Work" } });
@@ -188,7 +200,7 @@ afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close(
 async function routeFixture(authenticated = true) {
   const app = Fastify();
   apps.push(app);
-  const service = { list: vi.fn(async () => [project]), create: vi.fn(async () => project), rename: vi.fn(async () => project), delete: vi.fn(async () => undefined), reorder: vi.fn(async () => [{ ...project, id: secondId, name: "Personal" }, project]) };
+  const service = { list: vi.fn(async () => [project]), create: vi.fn(async () => project), update: vi.fn(async () => project), delete: vi.fn(async () => undefined), reorder: vi.fn(async () => [{ ...project, id: secondId, name: "Personal" }, project]) };
   app.decorate("authenticate", async (request: FastifyRequest) => {
     if (!authenticated) throw new AppError("AUTH_REQUIRED");
     request.authUser = { id: ownerId, email: "owner@example.test", name: "Owner", role: "user", status: "active", preferredLocale: "zh-CN", avatarObjectKey: null, authValidAfter: new Date(0) };
@@ -199,6 +211,19 @@ async function routeFixture(authenticated = true) {
 }
 
 describe("task project routes", () => {
+  it("updates icon and color using the authenticated owner", async () => {
+    const { app, service } = await routeFixture();
+    const input = { name: "Work", icon: "flower", color: "blue" };
+    const response = await app.inject({ method: "PATCH", url: `/projects/${id}`, payload: input });
+    expect(response.statusCode).toBe(200);
+    expect(service.update).toHaveBeenCalledExactlyOnceWith(ownerId, id, input);
+  });
+  it.each([{ icon: "unknown" }, { color: "#000" }, { icon: null }, { owner_id: secondId }])("rejects invalid project edits before persistence: %j", async fields => {
+    const { app, service } = await routeFixture();
+    const response = await app.inject({ method: "PATCH", url: `/projects/${id}`, payload: { name: "Work", ...fields } });
+    expect(response.statusCode).toBe(400);
+    expect(service.update).not.toHaveBeenCalled();
+  });
   it("accepts the project drag request and returns the ordered list matching the frontend contract", async () => {
     const { app, service } = await routeFixture();
     const response = await app.inject({ method: "PUT", url: "/projects/order", payload: { project_ids: [secondId, id] } });
@@ -230,7 +255,7 @@ describe("task project routes", () => {
     expect((await app.inject({ method: "POST", url: "/projects", payload: { name: " Work " } })).statusCode).toBe(201);
     expect(service.create).toHaveBeenCalledWith(ownerId, { name: "Work" });
     expect((await app.inject({ method: "PATCH", url: `/projects/${id}`, payload: { name: "Personal" } })).statusCode).toBe(200);
-    expect(service.rename).toHaveBeenCalledWith(ownerId, id, { name: "Personal" });
+    expect(service.update).toHaveBeenCalledWith(ownerId, id, { name: "Personal" });
     expect((await app.inject({ method: "DELETE", url: `/projects/${id}` })).statusCode).toBe(204);
     expect(service.delete).toHaveBeenCalledWith(ownerId, id);
   });

@@ -136,6 +136,7 @@ const archivedQuery = z
 const prewarmBodySchema = z.strictObject({
   conversation_id: z.string().uuid().optional(),
   collaboration_mode: conversationCollaborationModeSchema.default("default"),
+  project_id: z.uuid().nullable().optional(),
 });
 
 export const conversationRoutes: FastifyPluginAsync<{
@@ -151,6 +152,7 @@ export const conversationRoutes: FastifyPluginAsync<{
         ? { conversationId: body.conversation_id }
         : {}),
       collaborationMode: body.collaboration_mode,
+      ...(body.project_id !== undefined ? { projectId: body.project_id } : {}),
     });
     return reply.code(202).send(ok(receipt, request.id));
   });

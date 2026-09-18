@@ -31,7 +31,7 @@ describe("API CORS preflight", () => {
         headers: {
           origin: publicOrigin,
           "access-control-request-method": method,
-          "access-control-request-headers": "authorization,content-type",
+          "access-control-request-headers": "authorization,content-type,x-linksense-client-build",
         },
       })
 
@@ -45,7 +45,8 @@ describe("API CORS preflight", () => {
         response.headers["access-control-allow-headers"]
           ?.toLowerCase()
           .split(/,\s*/u),
-      ).toEqual(expect.arrayContaining(["authorization", "content-type"]))
+      ).toEqual(expect.arrayContaining(["authorization", "content-type", "x-linksense-client-build"]))
+      expect(response.headers["access-control-expose-headers"]).toBe("x-linksense-build")
     },
   )
 
@@ -68,6 +69,7 @@ describe("SSE CORS headers", () => {
     expect(sseCorsHeaders(publicOrigin, `${publicOrigin}/app`)).toEqual({
       "access-control-allow-origin": publicOrigin,
       "access-control-allow-credentials": "true",
+      "access-control-expose-headers": "x-linksense-build",
       vary: "Origin",
     })
   })

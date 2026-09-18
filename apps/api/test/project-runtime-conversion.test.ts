@@ -330,7 +330,7 @@ describe("offline project conversion", () => {
 
   it("blocks startup until old paths, pending publications and conversion markers are resolved", async () => {
     const f = await fixture();
-    const prisma = { conversation: { count: vi.fn(async () => 1) }, applicationVersion: { count: vi.fn(async () => 0) } };
+    const prisma = { $queryRaw: vi.fn(async () => []), conversation: { count: vi.fn(async () => 1) }, applicationVersion: { count: vi.fn(async () => 0) } };
     await expect(assertRuntimeLayoutReady(prisma as never, f.source)).rejects.toThrow("MIGRATION_PROJECT_RUNTIME_REQUIRED");
     prisma.conversation.count.mockResolvedValue(0); prisma.applicationVersion.count.mockResolvedValue(1);
     await expect(assertRuntimeLayoutReady(prisma as never, f.source)).rejects.toThrow("MIGRATION_PROJECT_RUNTIME_REQUIRED");
