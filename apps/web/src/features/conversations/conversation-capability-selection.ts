@@ -1,5 +1,12 @@
 import type { CapabilitySummary } from "@/api/contracts"
 
+export function withRequiredConversationCapabilities(
+  selectedIds: readonly string[],
+  requiredIds: readonly string[]
+): string[] {
+  return [...new Set([...requiredIds, ...selectedIds])]
+}
+
 export function canSelectConversationCapability(
   capability: Pick<CapabilitySummary, "can_select" | "is_builtin">
 ): boolean {

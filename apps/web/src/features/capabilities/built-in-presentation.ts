@@ -11,6 +11,7 @@ const capabilityTranslationKeys = {
   "linksense-image-generation": "imageGeneration",
   "linksense-knowledge-base": "knowledgeBase",
   "linksense-skill-creator": "skillCreator",
+  "linksense-interactive-app-builder": "applicationBuilder",
 } as const
 
 export function capabilityPresentation(

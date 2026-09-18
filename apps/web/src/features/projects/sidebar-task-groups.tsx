@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next"
 import type { Conversation } from "@/api/contracts"
 import { Button } from "@/components/ui/button"
 import { SidebarTaskGroup } from "./sidebar-task-group"
+import { SidebarTaskSection } from "./sidebar-task-section"
 import type { ProjectAction } from "./project-dialog"
 import {
   SidebarConversationDragState,
@@ -90,17 +91,11 @@ export function SidebarTaskGroups({
           })}
         </section>
       )}
-      <section
-        aria-labelledby="recent-conversations-title"
-        className="flex flex-col gap-0.5"
-      >
-        <div className="group/tasks-heading flex items-center justify-between gap-2 pr-0.5 pb-1 pl-2.5">
-          <h2
-            id="recent-conversations-title"
-            className="text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-semibold text-[var(--app-muted)]"
-          >
-            {t("nav.recent")}
-          </h2>
+      <SidebarTaskSection
+        key={JSON.stringify([userId, "projects"])}
+        titleId="sidebar-projects-title"
+        label={t("nav.projects")}
+        action={
           <Button
             type="button"
             variant="ghost"
@@ -111,7 +106,8 @@ export function SidebarTaskGroups({
           >
             <PlusIcon />
           </Button>
-        </div>
+        }
+      >
         <SortableContext
           items={projectIds}
           strategy={stationaryProjectStrategy}
@@ -133,7 +129,6 @@ export function SidebarTaskGroups({
             </SidebarTaskGroup>
           ))}
         </SortableContext>
-        {byProject.has(null) && <div>{renderProject(null)}</div>}
         {unavailableIds.map((id) => (
           <SidebarTaskGroup
             key={id}
@@ -144,7 +139,14 @@ export function SidebarTaskGroups({
             {renderProject(id)}
           </SidebarTaskGroup>
         ))}
-      </section>
+      </SidebarTaskSection>
+      <SidebarTaskSection
+        key={JSON.stringify([userId, "recent"])}
+        titleId="recent-conversations-title"
+        label={t("nav.recent")}
+      >
+        {byProject.has(null) && renderProject(null)}
+      </SidebarTaskSection>
     </>
   )
 }

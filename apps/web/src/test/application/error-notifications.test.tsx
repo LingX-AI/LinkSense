@@ -104,7 +104,8 @@ describe("conversation error notifications", () => {
                 {
                   id: projectId,
                   name: "日常工作",
-                  sort_order: 0,
+                  icon: "folder",
+                  color: "default",
                   created_at: "2026-09-09T00:00:00.000Z",
                   updated_at: "2026-09-09T00:00:00.000Z",
                 },

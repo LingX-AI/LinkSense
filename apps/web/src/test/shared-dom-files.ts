@@ -70,7 +70,6 @@ export const sharedDomTests = [
   "src/features/conversations/conversation-goal-bar.test.tsx",
   "src/features/conversations/conversation-goal-clock.test.tsx",
   "src/features/conversations/conversation-line-sidebar.test.tsx",
-  "src/features/conversations/conversation-model-selector.test.tsx",
   "src/features/conversations/conversation-office-document.test.ts",
   "src/features/conversations/conversation-office-preview-update.test.ts",
   "src/features/conversations/conversation-plan-card.test.tsx",

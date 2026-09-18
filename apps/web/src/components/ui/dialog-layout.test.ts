@@ -8,7 +8,6 @@ import dialogSource from "./dialog.tsx?raw"
 
 const dialogBodies = [
   "features/applications/interactive-declaration-dialog.tsx",
-  "features/applications/interactive-dependencies-dialog.tsx",
   "features/applications/application-catalog-panel.tsx",
   "features/applications/application-publication-picker.tsx",
   "features/admin/model-settings-editor.tsx",

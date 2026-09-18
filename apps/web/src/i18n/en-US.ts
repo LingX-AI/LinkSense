@@ -1,6 +1,26 @@
+import { webSitesEnUS } from "@/features/web-sites/messages"
 import { errorCatalog } from "@linksense/shared"
 
 export const enUS = {
+  webSites: webSitesEnUS,
+  clientUpdate: {
+    title: "System updated",
+    description: "A system update is available. Refresh the page to continue.",
+    update: "Update page",
+    updating: "Checking update…",
+    later: "Update later",
+    forceRefreshTitle: "How to hard refresh",
+    windowsLabel: "Windows / Linux",
+    windowsHelp: "Ctrl + Shift + R",
+    macLabel: "Mac",
+    macHelp: "⌘ + Shift + R or ⌘ + ⌥ + R",
+    mobileLabel: "Phone / tablet",
+    mobileHelp: "Reopen the page or clear this site's cache.",
+    notReady:
+      "The update could not be completed yet. Try again shortly and check your connection. Your current page has been kept open.",
+    loadFailed:
+      "This page could not be loaded. Check your connection and try again. If an update notice is shown, update the page first.",
+  },
   common: {
     close: "Close",
     notifications: "Notifications",
@@ -14,6 +34,7 @@ export const enUS = {
     confirm: "Confirm",
     gotIt: "Got It",
     retry: "Retry",
+    loadMore: "Load more",
     continue: "Continue",
     search: "Search",
     loading: "Loading…",
@@ -129,7 +150,8 @@ export const enUS = {
     capabilities: "Plugin Center",
     knowledgeBases: "Resource library",
     pinned: "Pinned",
-    recent: "Tasks",
+    projects: "Projects",
+    recent: "Recent",
     administration: "Administration",
     usage: "Usage analytics",
     users: "Users",
@@ -155,7 +177,7 @@ export const enUS = {
     automationTask: "Automation task",
     unreadCompletion: "Task completed and not yet viewed",
     unreadFailure: "Task failed and has not been viewed",
-    creditQuotaRemainingTitle: "Credits remaining",
+    creditQuotaRemainingTitle: "Credits",
     creditQuotaRemaining: "Total {{total}} · W {{weekly}} · M {{monthly}}",
   },
   support: {
@@ -1733,8 +1755,60 @@ export const enUS = {
     create: "New project",
     createDescription:
       "Tasks in a project share files and keep separate message histories.",
-    rename: "Rename project",
-    renameAction: "Rename",
+    edit: "Edit project",
+    editAction: "Edit",
+    appearance: {
+      choose: "Choose project icon and color",
+      icon: "Project icon",
+      color: "Icon color",
+      done: "Done",
+      colors: {
+        default: "Default",
+        red: "Red",
+        orange: "Orange",
+        yellow: "Yellow",
+        green: "Green",
+        blue: "Blue",
+        purple: "Purple",
+        pink: "Pink",
+        teal: "Teal",
+        cyan: "Cyan",
+        brown: "Brown",
+        gray: "Gray",
+      },
+      icons: {
+        folder: "Folder",
+        coins: "Finance",
+        book: "Reading",
+        "graduation-cap": "Learning",
+        pencil: "Writing",
+        "pen-tool": "Design",
+        braces: "Code",
+        terminal: "Terminal",
+        music: "Music",
+        popcorn: "Movies",
+        brush: "Painting",
+        palette: "Art",
+        stethoscope: "Health",
+        asterisk: "Asterisk",
+        flower: "Flower",
+        briefcase: "Work",
+        "chart-column": "Data",
+        medal: "Medal",
+        dumbbell: "Fitness",
+        notebook: "Notes",
+        scale: "Law",
+        globe: "Globe",
+        plane: "Travel",
+        earth: "World",
+        wrench: "Tools",
+        "paw-print": "Pets",
+        flask: "Science",
+        brain: "Thinking",
+        heart: "Heart",
+        sprout: "Plants",
+      },
+    },
     reorderHandle:
       "Use the keyboard to reorder project “{{title}}”, currently position {{position}}",
     sidebarDragInstructions:
@@ -1754,7 +1828,7 @@ export const enUS = {
     noResults: "No matching projects",
     choose: "Project",
     projectless: "Common workspace",
-    projectlessTask: "Task in common workspace",
+    selectPlaceholder: "Select project",
     clearSelection: "Clear project selection",
     unavailable: "Project unavailable",
     loadError: "Unable to load task projects",
@@ -1812,7 +1886,7 @@ export const enUS = {
     clearArchived: "Clear all",
     clearArchivedTitle: "Clear all archived tasks?",
     clearArchivedDescription:
-      "All archived tasks will be permanently deleted and cannot be recovered. Active tasks are not affected. Artifacts and minimum trace metadata remain retained according to system policy.",
+      "All archived tasks will be permanently deleted and cannot be recovered. Applications, development drafts and debug conversation history remain available in My applications, where you can continue development or delete them. Other active tasks are not affected. Artifacts and minimum trace metadata remain retained according to system policy.",
     clearingArchived: "Clearing archived tasks…",
     clearArchivedSuccess: "Cleared {{count}} archived tasks.",
     searchTitle: "Search",
@@ -1922,6 +1996,7 @@ export const enUS = {
     officeAnnotation: "Document annotation: {{name}}",
     officeAnnotationCount_one: "{{count}} annotation",
     officeAnnotationCount_other: "{{count}} annotations",
+    applicationAnnotation: "App annotations: {{name}}",
     htmlAnnotation: "HTML annotation: {{name}}",
     htmlAnnotationCount_one: "{{count}} annotation",
     htmlAnnotationCount_other: "{{count}} annotations",
@@ -2149,6 +2224,7 @@ export const enUS = {
     moreSelectedResources_other: "{{count}} more selected items",
     additionalSelectedResources: "Additional selected items",
     removeCapability: "Remove {{name}}",
+    requiredCapability: "Required for this task",
     addKnowledgeBase: "Add knowledge base",
     knowledgeBaseTitle: "Choose knowledge bases",
     knowledgeBaseSearch: "Search available knowledge bases…",
@@ -2531,14 +2607,32 @@ export const enUS = {
     },
   },
   applications: {
+    editMetadata: "Edit app details",
+    editMetadataPublishDescription:
+      "Edit the app icon, name, and description. Changes take effect when saved. Shared and Application Center versions are updated separately.",
+    editMetadataDescription: "Change the app icon, name and description.",
+    editDraftMetadataDescription:
+      "Save to the app in development. Publish to use these changes in My applications.",
     distribution: {
       versionNumber: "Version number",
-      versionHint: "Enter a version such as 1.0.0.",
+      editVersionLower:
+        "The version cannot be lower than the highest existing version v{{version}}.",
+      editVersionHint:
+        "Keep the existing version or enter a higher version in the format 1.0.0.",
+      versionHint:
+        "A suggested version is filled in. To change it, use a format like 1.0.0.",
+      publishFirst:
+        "Publish a version before sharing or listing this application.",
+      publishedVersionHint:
+        "Share or list this published version. Publish new changes first.",
+      serviceInstallationHint:
+        "Install to use the creator's application resources. New versions require a manual update. Your conversations and work files are kept.",
+      availableVersion: "Available · v{{version}}",
       versionInvalid: "Enter a valid version such as 1.0.0.",
       versionSame:
-        "Version v{{version}} already exists. You can submit using the same version.",
+        "Version v{{version}} already exists. Enter a higher version.",
       versionLower:
-        "The version cannot be lower than the highest existing version, v{{version}}.",
+        "The version must be higher than the highest existing version, v{{version}}.",
       saveSharing: "Save sharing",
       applyListing: "Apply for listing",
       completeSetup: "Complete setup",
@@ -2547,7 +2641,7 @@ export const enUS = {
       direct: "Share with organization",
       center: "Application center",
       myApplications: "My applications",
-      sharedApplications: "Applications shared with me",
+      sharedApplications: "Shared with me",
       usageModes: "Usage options",
       usageModesHint: "Choose at least one option. You can offer both.",
       modes: { install: "Application package", service: "Application service" },
@@ -2555,7 +2649,7 @@ export const enUS = {
         install:
           "Users install their own application, configure their credentials and maintain it independently.",
         service:
-          "Users run your application with your configured credentials, without installing it.",
+          "Users manually install the application service and use your configured resources and credentials.",
       },
       install: "Install application",
       useService: "Use",
@@ -2589,7 +2683,7 @@ export const enUS = {
       updateTitle: "Update installed application",
       update: "Update application",
       updateHint:
-        "Update application content you have not customized while keeping your credentials, resource settings and personal changes.",
+        "Updating replaces your changes to the application. Your conversations, work files and personal credentials are kept. Finish all regular tasks for this application first.",
       upToDate: "You have the latest available version.",
       updateUnavailable:
         "Updates are currently unavailable. Your installed application is retained.",
@@ -2605,18 +2699,14 @@ export const enUS = {
         capabilities: "Plugins and skills",
         resources: "Knowledge bases and external connections",
       },
-      adminTitle: "Application approvals",
-      adminHint:
-        "Review application versions and usage options, and manage application listings.",
       review: "Review application",
       approve: "Approve",
       reject: "Reject",
       reviewComment: "Review comment",
       reviewed: "Review decision saved.",
       reviewInstructions: "Application instructions",
-      noReviews: "No application submissions yet",
-      suspend: "Suspend listing",
-      resume: "Restore listing",
+      suspend: "Unlist application",
+      resume: "Relist application",
       governanceReason: "Reason",
       revokeHint:
         "Revoking access prevents new installations or service use. Existing independent installations and history are retained.",
@@ -2635,27 +2725,42 @@ export const enUS = {
     search: "Search applications",
     searchPlaceholder: "Search application names or descriptions…",
     create: "Create application",
-    createTypeDescription:
-      "Configure an application directly, or import an interactive application built with HTML, CSS, and JavaScript.",
+    createTypeDescription: "Choose how to create your application.",
+    creation: {
+      recommended: "Recommended",
+      interactiveTitle: "Create an interactive app through chat",
+      interactiveDescription:
+        "Share your idea and let LinkSense bring it to life.",
+      start: "Start creating",
+    },
     createStandardApp: "Create standard app",
     createStandardAppDescription:
-      "Configure a model, instructions, and fixed plugins, Skills, knowledge bases, and MCP servers.",
+      "Set up a personal assistant with your usual tools and resources.",
     interactiveApp: "Interactive application",
     importInteractiveApp: "Import interactive app",
     importInteractiveAppDescription:
-      "Upload a ZIP package containing manifest.json and index.html.",
+      "Upload an existing app package to add it to My applications.",
     updateInteractivePackage: "Update application package",
-    interactivePackageUpdated:
-      "The interactive application package was updated. New tasks will use the new version.",
-    interactiveAppImported: "The interactive application was imported.",
+    interactivePackageUpdated: "Updated successfully.",
+    interactiveAppImported: "Imported successfully.",
     interactivePackageRequirements:
-      "The ZIP root must contain manifest.json and index.html. The application runs in an isolated iframe.",
+      "Upload a ZIP application package with manifest.json and index.html at its root.",
     applicationPackage: "Application package",
     interactivePackageHint:
-      "ZIP only, up to {{size}}. Use a new manifest.json version when updating.",
+      "ZIP only, up to {{size}}. Updates can keep the existing version or use a higher version.",
     interactivePackageSizeInvalid:
       "The application package is empty or exceeds the size limit.",
     importPackageAction: "Import",
+    updatePackageAndPublish: "Update",
+    interactivePackageVersionInvalid:
+      "The package version must contain three numbers, such as 0.0.1. Update the version and upload the package again.",
+    importPublicationRetry:
+      "Import is not complete. Check the required resources and retry; no duplicate application will be created.",
+    createAndPublish: "Create",
+    editAndPublish: "Save",
+    editedAndPublished: "Saved successfully.",
+    createPublicationRetry:
+      "Creation is not complete. Check the configuration and retry; no duplicate application will be created.",
     declaration: {
       title: "Resource declaration list",
       purpose:
@@ -2678,7 +2783,6 @@ export const enUS = {
         "Copy failed. Try again, or select the text in the declaration preview and copy it manually.",
     },
     dependencies: {
-      title: "Configure required resources",
       preview: "Check required resources",
       hint: "The following plugins, skills, and other resources have been declared by the app package. We recommend completing resource configuration before importing so the app can work properly.",
       empty: "This app does not declare any required resources.",
@@ -2686,8 +2790,6 @@ export const enUS = {
       matched: "Configured",
       unmatched: "Not configured",
       clear: "Clear selection",
-      savedDraft:
-        "Changes are saved to the app draft. Shared and listed versions stay unchanged until you publish again.",
       serviceOnly:
         "Interactive apps can only be used online, not copied. Users do not need to reconfigure the creator's connected resources.",
       types: {
@@ -2699,11 +2801,11 @@ export const enUS = {
     },
     nativeChatPanel: "LinkSense chat",
     hideNativeChat: "Hide chat",
-    showNativeChat: "Show chat",
+    showNativeChat: "Show conversation",
     resizeNativeChat: "Resize chat panel",
     interactiveRuntimeUnavailable:
       "This interactive application is currently unavailable. Contact its creator.",
-    created: "Application created.",
+    created: "Created successfully.",
     updated:
       "Application updated. Future task turns will automatically use the latest configuration.",
     deleted: "Application deleted.",
@@ -2715,10 +2817,15 @@ export const enUS = {
       disabled: "Disabled",
     },
     noDescription: "No description",
+    card: {
+      capabilityCount: "Plugins / Skills {{count}}",
+      knowledgeBaseCount: "Knowledge bases {{count}}",
+      mcpServerCount: "MCP {{count}}",
+    },
     capabilityCount: "{{count}} plugins/Skills",
     knowledgeBaseCount: "{{count}} knowledge bases",
     mcpServerCount: "{{count}} MCP servers",
-    shareTargets: "Shared with {{targets}}",
+    shareTargets: "Shared · {{targets}}",
     dependencyUnavailable:
       "Some dependencies are disabled or unavailable. Restore them before starting a new task.",
     dependencyUnavailableShort: "Currently unavailable; it can be removed",
@@ -2746,14 +2853,39 @@ export const enUS = {
         "Review calls, tokens, and cost by model workload.",
     },
     startChat: "Try now",
+    deleteAction: "Delete application",
     deleteTitle: "Delete this application?",
     deleteDescription:
       "The application will disappear from the Plugin Center and cannot start new tasks. Existing private task history is retained.",
     editTitle: "Edit application",
     createTitle: "Create application",
     editorDescription:
-      "Configure the model, plugins/Skills, knowledge bases, and application instructions. The model can be fixed by the application or selected by the user in chat. Saved updates automatically apply to everyone's future turns.",
+      "Configure the model, plugins/Skills, knowledge bases, and application instructions. Enter a version number; changes take effect when saved. Shared and listed versions are updated separately.",
     basicInformation: "Basic information",
+    details: {
+      title: "Application details",
+      open: "View details for {{name}}",
+      creator: "Creator",
+      kinds: {
+        standard: "Standard application",
+        interactive: "Interactive application",
+      },
+      views: {
+        configuration: "Current configuration",
+        published: "Published version",
+      },
+      resources: "Application resources",
+      noResources: "This application has no configured or declared resources.",
+      emptyGroup: "No resources of this type",
+      unknownResource: "Resource no longer available",
+      resourceGroup: "{{type}} ({{count}})",
+      declaredResource: "Declared by application: {{name}}",
+      resourceStatus: {
+        configured: "Configured",
+        unconfigured: "Not configured",
+        unavailable: "Unavailable",
+      },
+    },
     runtimeConfiguration: "Runtime configuration",
     icon: "Application icon",
     iconPresetLabel: "Built-in application icons",
@@ -2958,7 +3090,7 @@ export const enUS = {
       "Manage installed content, personal content, the Skill repository, and MCP connections.",
     adminTitle: "Plugin Center",
     adminDescription:
-      "Review immutable release snapshots, manage Plugin Center visibility, and suspend listings immediately when risks are found.",
+      "Review immutable release snapshots, manage Plugin Center visibility, and unlist items immediately when risks are found.",
     adminTabsLabel: "Plugin Center management sections",
     tabs: {
       store: "Plugin Center",
@@ -3006,7 +3138,7 @@ export const enUS = {
       draft: "Draft",
       published: "Published",
       unlisted: "Unlisted",
-      suspended: "Suspended",
+      suspended: "Unlisted",
       pending: "Pending review",
       approved: "Approved",
       rejected: "Not approved",
@@ -3170,18 +3302,18 @@ export const enUS = {
       "The release was approved and is now the current Plugin Center release.",
     reviewRejected:
       "The release was rejected and the reason was sent to the publisher.",
-    suspendListing: "Suspend",
-    resumeListing: "Resume",
-    suspendListingTitle: "Suspend “{{name}}”?",
+    suspendListing: "Unlist",
+    resumeListing: "Relist",
+    suspendListingTitle: "Unlist “{{name}}”?",
     suspendListingDescription:
       "The listing will be hidden from the Plugin Center and every installed copy will be blocked from starting new tasks.",
-    resumeListingTitle: "Resume “{{name}}”?",
+    resumeListingTitle: "Relist “{{name}}”?",
     resumeListingDescription:
       "The listing will return to the Plugin Center and installed copies can be used in new tasks again.",
-    suspensionReason: "Suspension reason",
+    suspensionReason: "Unlisting reason",
     listingSuspended:
-      "The listing was suspended and new tasks are blocked for every installation.",
-    listingResumed: "The listing was resumed.",
+      "The listing was unlisted and new tasks are blocked for every installation.",
+    listingResumed: "The listing was relisted.",
     risks: {
       contains_mcp_server: "Contains an MCP server",
       contains_scripts: "Contains executable scripts",
@@ -3276,6 +3408,144 @@ export const enUS = {
       alreadyInstalled: "This version is already installed.",
     },
   },
+  applicationDevelopment: {
+    aiWorking: "{{productName}} is automatically developing the app",
+    actions: "Application actions",
+    annotations: {
+      start: "Annotate",
+      finish: "Exit annotation",
+      unavailable:
+        "This page cannot be annotated right now. Reopen the app preview.",
+      changed:
+        "The page has changed. Clear the annotations and exit annotation mode, then select again after the preview updates.",
+    },
+    metadata: {
+      name: "Application name",
+      description: "Application description",
+      editName: "Edit application name",
+      editDescription: "Edit application description",
+      addDescription: "Add an application description",
+      invalidName: "Enter an application name between 1 and 160 characters.",
+      invalidDescription: "The description must be 4000 characters or fewer.",
+      changed: "The application has changed. Reload it before editing again.",
+      reload: "Reload",
+    },
+    publish: {
+      draft: "Draft",
+      action: "Publish",
+      update: "Publish update",
+      done: "Published",
+      pending: "Publishing…",
+      title: "Publish application",
+      confirm: "Publish",
+      successTitle: "Published successfully",
+      successDescription:
+        "“{{name}}” v{{version}} has been published. You can use it from My applications.",
+      description:
+        "Publishing makes “{{name}}” ready to use.\nYou can open it from My applications.",
+      updateDescription:
+        "After publishing, you will use the new version of “{{name}}”.\nShared apps: share again and ask recipients to install the update manually.\nListed apps: submit an update to the Application Center separately.\nBefore publishing, confirm this app has no tasks in progress.",
+      checking: "Checking for tasks in progress…",
+      activeTasks:
+        "This app has tasks in progress. Wait for them to finish before publishing. The status updates automatically.",
+      checkFailed: "Unable to check task status. Retry before publishing.",
+      changed:
+        "The app has new changes. Close and reopen the publishing window.",
+    },
+    deleteDescription:
+      "The application, development draft and debug conversation history will be deleted. Development conversations, regular tasks and workspace files will remain.",
+    tests: {
+      title: "Debug conversation history",
+      empty: "No debug conversations yet",
+      emptyHint:
+        "Submit a task in the app preview to see its input, results and progress here.",
+      current: "Current debug conversation",
+      restart: "New debug conversation",
+      summary: "Runs: {{count}}",
+      submitted: "Debug request submitted",
+      view: "View history",
+      more: "Load more records",
+      detailHint:
+        "Review inputs, outputs, files and activity. You can stop the current debug conversation or resolve pending requests here.",
+      delete: "Delete debug conversation",
+      deleteHint:
+        "This debug conversation will be permanently deleted and its runtime resources cleaned up.",
+      deleteDevelopmentHint:
+        "This development conversation will be permanently deleted. The application, draft and debug conversation history will remain in My applications, where you can continue development or delete them.",
+      status: {
+        idle: "Submitted",
+        running: "In progress",
+        completed: "Completed",
+        failed: "Failed",
+        interrupted: "Stopped",
+      },
+    },
+
+    resizePreview: "Resize application preview",
+    developmentTask: "Application development task",
+    previewTask: "Application debug conversation",
+    catalog: {
+      newDevelopment: "New development version",
+      continueDevelopment: "Continue developing",
+      developNewVersion: "Develop new version",
+      deleteDraft: "Delete development draft",
+      deleteDraftDescription:
+        "The draft and its debug conversations will be deleted. The published application, development conversations, regular tasks and workspace files will remain.",
+      draftDetails: "Development draft",
+      savedAt: "Last saved {{time}}",
+      unpublishedHint:
+        "These changes are not published yet. Using the application still opens the published version.",
+      filter: "Filter applications",
+      all: "All applications",
+      developing: "In development",
+      standard: "Standard applications",
+      interactive: "Interactive applications",
+      draftDescription:
+        "This application is not published yet. Continue developing from its menu.",
+      empty: "No matching applications",
+      loadMore: "Load more applications",
+    },
+    create: "Create interactive application",
+    createHint:
+      "Build through conversation, preview changes as you work, and install when ready.",
+    name: "Application name",
+    start: "Start building",
+    creating: "Preparing…",
+    continue: "Develop",
+    workspace: "Application development workspace",
+    waitingForTest:
+      "Your debug conversation is still running. The latest changes will appear automatically when it finishes.",
+    debug: "Debug",
+    preview: "Preview",
+    diagnostics: "Debug logs ({{count}})",
+    capabilities: "Configure capabilities",
+    capabilitiesHint:
+      "Choose the capabilities this application can use. Saved selections apply to the development preview and are included when you install or update the application.",
+    capabilitySearch: "Search and select…",
+    reloadCapabilities: "Reload configuration",
+    capabilitiesChanged:
+      "The application has changed. Reload the configuration before saving.",
+    capabilityUnavailable: "Unavailable",
+    capabilitiesUnavailable:
+      "Some selected capabilities are unavailable. Replace or remove them before saving.",
+    capabilityLimits:
+      "Choose up to 50 plugins and skills combined, 20 knowledge bases, and 20 MCP servers.",
+    capabilityHints: {
+      plugin: "Connect the services and tools this application needs.",
+      skill: "Choose skills for the application's tasks.",
+      knowledge_base:
+        "Choose the knowledge bases this application can consult.",
+      mcp_server: "Choose the MCP servers this application can call.",
+    },
+    sourceError:
+      "The current changes cannot run yet. Ask the assistant to fix the application. The preview shows the last successful version.",
+    preparing: "Preparing your preview",
+    preparingHint:
+      "Your application will appear here when ready. Configure any required plugins or knowledge bases first.",
+    noErrors: "No debug logs yet",
+    noErrorsHint:
+      "Try your application in the preview. Runtime errors are recorded here, and the assistant can inspect them to help troubleshoot.",
+  },
   capability: {
     title: "Plugins & Skills",
     description:
@@ -3318,6 +3588,11 @@ export const enUS = {
         name: "{{productName}} Knowledge",
         description:
           "Searches selected knowledge bases and reads the documents needed for the task.",
+      },
+      applicationBuilder: {
+        name: "{{productName}} Interactive Application Development",
+        description:
+          "Create and edit applications through conversation, with live preview, debugging and installation.",
       },
       skillCreator: {
         name: "{{productName}} Skill Creator",
@@ -4917,6 +5192,27 @@ export const enUS = {
     riskRequired: "Review and confirm the source and risk notice first.",
   },
   errors: {
+    applicationDevelopment: {
+      testBusy:
+        errorCatalog.APPLICATION_DEVELOPMENT_TEST_BUSY.messages["en-US"],
+      testChanged:
+        errorCatalog.APPLICATION_DEVELOPMENT_TEST_CHANGED.messages["en-US"],
+      workspaceBound:
+        errorCatalog.APPLICATION_DEVELOPMENT_WORKSPACE_BOUND.messages["en-US"],
+      notFound:
+        errorCatalog.APPLICATION_DEVELOPMENT_NOT_FOUND.messages["en-US"],
+      sourceChanged:
+        errorCatalog.APPLICATION_DEVELOPMENT_SOURCE_CHANGED.messages["en-US"],
+    },
+    webSites: {
+      notFound: errorCatalog.WEB_SITE_NOT_FOUND.messages["en-US"],
+      slugTaken: errorCatalog.WEB_SITE_SLUG_TAKEN.messages["en-US"],
+      sourceUnavailable:
+        errorCatalog.WEB_SITE_SOURCE_UNAVAILABLE.messages["en-US"],
+      resourcesMissing:
+        errorCatalog.WEB_SITE_RESOURCES_MISSING.messages["en-US"],
+      bundleInvalid: errorCatalog.WEB_SITE_BUNDLE_INVALID.messages["en-US"],
+    },
     feishu: {
       connectionNotFound:
         "The Feishu connection was not found. Connect it again.",
@@ -4945,6 +5241,9 @@ export const enUS = {
       "The service could not be reached. Check your network and try again.",
     invalidResponse:
       "The service returned invalid data. Contact an administrator.",
+    clientUpdateRequired: errorCatalog.CLIENT_UPDATE_REQUIRED.messages["en-US"],
+    serviceTemporarilyUnavailable:
+      errorCatalog.SERVICE_TEMPORARILY_UNAVAILABLE.messages["en-US"],
     imageUnderstanding: {
       validationFailed:
         "The image-understanding model failed image input, structured output, or thinking-disable validation. Check the model and provider configuration.",
@@ -5097,6 +5396,7 @@ export const enUS = {
         "Some SharePoint documents failed to synchronize and will be retried on schedule.",
     },
     application: {
+      deleted: "This application has been deleted",
       notFound: "The application does not exist or you cannot access it.",
       disabled: "The application is disabled and cannot start new tasks.",
       dependencyUnavailable:
@@ -5107,8 +5407,9 @@ export const enUS = {
         "This user or group already has access to the application.",
       packageInvalid:
         "The interactive application package is invalid. Check manifest.json, index.html, and the file structure.",
-      packageVersionConflict:
-        "This application package version has already been imported. Update the version number.",
+      runtimeBusy: errorCatalog.APPLICATION_RUNTIME_BUSY.messages["en-US"],
+      centerUnavailable:
+        errorCatalog.APPLICATION_CENTER_UNAVAILABLE.messages["en-US"],
       customEventInvalid:
         "The custom event name or payload does not match the application contract.",
     },

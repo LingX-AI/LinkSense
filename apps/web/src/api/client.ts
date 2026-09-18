@@ -1,4 +1,10 @@
 import { z } from "zod"
+import { CLIENT_BUILD_HEADER, SERVER_BUILD_HEADER } from "@linksense/shared"
+import {
+  getClientBuildId,
+  getPendingClientBuild,
+  observeServerBuild,
+} from "@/app/client-build"
 
 import { authSessionSchema, type AccessSession } from "@/api/contracts"
 import {
@@ -51,6 +57,31 @@ export class ApiError extends Error {
     this.messageKey = options.messageKey
     this.params = options.params
   }
+}
+
+export function prepareClientBuildRequest(
+  headers: Headers,
+  path?: string
+): void {
+  if (getPendingClientBuild() && path !== "/system/bootstrap") {
+    throw new ApiError({ status: 409, errorCode: "CLIENT_UPDATE_REQUIRED" })
+  }
+  const buildId = getClientBuildId()
+  if (buildId) headers.set(CLIENT_BUILD_HEADER, buildId)
+}
+
+export function validateResponseBuild(headers: Headers): void {
+  if (observeServerBuild(headers.get(SERVER_BUILD_HEADER))) {
+    throw new ApiError({ status: 409, errorCode: "CLIENT_UPDATE_REQUIRED" })
+  }
+}
+
+export function validateUploadResponseBuild(request: XMLHttpRequest): void {
+  if (!getClientBuildId()) return
+  const headers = new Headers()
+  const buildId = request.getResponseHeader(SERVER_BUILD_HEADER)
+  if (buildId) headers.set(SERVER_BUILD_HEADER, buildId)
+  validateResponseBuild(headers)
 }
 
 export type QueryValue = string | number | boolean | null | undefined
@@ -192,7 +223,11 @@ async function parseError(response: Response) {
     throw new ApiError({
       status: response.status,
       errorCode:
-        response.status === 0 ? "NETWORK_UNAVAILABLE" : "API_RESPONSE_INVALID",
+        response.status === 0
+          ? "NETWORK_UNAVAILABLE"
+          : response.status >= 500
+            ? "SERVICE_TEMPORARILY_UNAVAILABLE"
+            : "API_RESPONSE_INVALID",
     })
   }
 
@@ -219,6 +254,7 @@ async function rawRequest<TSchema extends z.ZodType>(
   accessTokenOverride?: string | null
 ) {
   const headers = new Headers({ Accept: "application/json" })
+  prepareClientBuildRequest(headers, path)
   const language = document.documentElement.lang
   if (language === "zh-CN" || language === "en-US") {
     headers.set("Accept-Language", language)
@@ -245,7 +281,7 @@ async function rawRequest<TSchema extends z.ZodType>(
       body,
       credentials: "include",
       signal: options.signal,
-      cache: options.cache,
+      cache: options.cache ?? "no-store",
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
@@ -254,6 +290,7 @@ async function rawRequest<TSchema extends z.ZodType>(
     throw new ApiError({ status: 0, errorCode: "NETWORK_UNAVAILABLE" })
   }
 
+  validateResponseBuild(response.headers)
   if (!response.ok) {
     await parseError(response)
   }
@@ -294,6 +331,8 @@ function rawUploadRequest<TSchema extends z.ZodType>(
   options: ApiUploadRequestOptions<TSchema>,
   accessTokenOverride?: string | null
 ): Promise<z.infer<TSchema>> {
+  const buildHeaders = new Headers()
+  prepareClientBuildRequest(buildHeaders, path)
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest()
     const language = document.documentElement.lang
@@ -311,6 +350,7 @@ function rawUploadRequest<TSchema extends z.ZodType>(
     request.responseType = "json"
     request.withCredentials = true
     request.setRequestHeader("Accept", "application/json")
+    buildHeaders.forEach((value, name) => request.setRequestHeader(name, value))
     if (language === "zh-CN" || language === "en-US") {
       request.setRequestHeader("Accept-Language", language)
     }
@@ -329,6 +369,12 @@ function rawUploadRequest<TSchema extends z.ZodType>(
     })
     request.addEventListener("load", () => {
       cleanup()
+      try {
+        validateUploadResponseBuild(request)
+      } catch (error) {
+        reject(error)
+        return
+      }
       const successEnvelope = successEnvelopeSchema.safeParse(request.response)
       if (
         request.status >= 200 &&
@@ -355,7 +401,9 @@ function rawUploadRequest<TSchema extends z.ZodType>(
           status: request.status,
           errorCode: errorEnvelope.success
             ? errorEnvelope.data.error_code
-            : "API_RESPONSE_INVALID",
+            : request.status >= 500
+              ? "SERVICE_TEMPORARILY_UNAVAILABLE"
+              : "API_RESPONSE_INVALID",
           message: errorEnvelope.success
             ? errorEnvelope.data.message
             : undefined,
@@ -563,6 +611,7 @@ async function rawStreamRequest(
   const headers = new Headers({
     Accept: "application/x-ndjson, application/json",
   })
+  prepareClientBuildRequest(headers, path)
   const language = document.documentElement.lang
   if (language === "zh-CN" || language === "en-US") {
     headers.set("Accept-Language", language)
@@ -589,6 +638,7 @@ async function rawStreamRequest(
       body,
       credentials: "include",
       signal: options.signal,
+      cache: "no-store",
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
@@ -597,6 +647,7 @@ async function rawStreamRequest(
     throw new ApiError({ status: 0, errorCode: "NETWORK_UNAVAILABLE" })
   }
 
+  validateResponseBuild(response.headers)
   if (!response.ok) {
     await parseError(response)
   }
@@ -655,6 +706,7 @@ export async function downloadApiFile(
   signal?: AbortSignal
 ) {
   const headers = new Headers()
+  prepareClientBuildRequest(headers, path)
   const language = document.documentElement.lang
   if (language === "zh-CN" || language === "en-US") {
     headers.set("Accept-Language", language)
@@ -664,17 +716,22 @@ export async function downloadApiFile(
     headers.set("Authorization", `Bearer ${accessTokenUsed}`)
   }
 
-  const fetchFile = () =>
-    fetch(buildApiUrl(path, query), {
+  const fetchFile = async () => {
+    const response = await fetch(buildApiUrl(path, query), {
       headers,
       credentials: "include",
       signal,
+      cache: "no-store",
     })
+    validateResponseBuild(response.headers)
+    return response
+  }
 
   let response: Response
   try {
     response = await fetchFile()
   } catch (error) {
+    if (error instanceof ApiError) throw error
     if (error instanceof DOMException && error.name === "AbortError") {
       throw error
     }
@@ -704,6 +761,7 @@ export async function downloadApiFile(
     try {
       response = await fetchFile()
     } catch (error) {
+      if (error instanceof ApiError) throw error
       if (error instanceof DOMException && error.name === "AbortError") {
         throw error
       }

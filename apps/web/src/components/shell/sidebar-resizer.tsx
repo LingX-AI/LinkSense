@@ -1,4 +1,10 @@
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react"
 
 import {
   clampSidebarWidth,
@@ -26,6 +32,7 @@ type DragState = {
   startX: number
   startWidth: number
   currentWidth: number
+  appliedWidth: number
 }
 
 export function SidebarResizer({
@@ -39,7 +46,28 @@ export function SidebarResizer({
   onResizeEnd,
 }: SidebarResizerProps) {
   const dragStateRef = useRef<DragState | null>(null)
+  const animationFrameRef = useRef<number | null>(null)
   const [isResizing, setIsResizing] = useState(false)
+
+  useEffect(
+    () => () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current)
+      }
+    },
+    []
+  )
+
+  const flushResize = () => {
+    if (animationFrameRef.current !== null) {
+      cancelAnimationFrame(animationFrameRef.current)
+      animationFrameRef.current = null
+    }
+    const dragState = dragStateRef.current
+    if (!dragState || dragState.currentWidth === dragState.appliedWidth) return
+    dragState.appliedWidth = dragState.currentWidth
+    onResize(dragState.currentWidth)
+  }
 
   const constrainWidth = (width: number) => {
     if (minValue === MIN_SIDEBAR_WIDTH && maxValue === MAX_SIDEBAR_WIDTH) {
@@ -56,6 +84,7 @@ export function SidebarResizer({
     if (!dragState || dragState.pointerId !== pointerId) return
 
     const completedWidth = dragState.currentWidth
+    flushResize()
     dragStateRef.current = null
     setIsResizing(false)
     if (
@@ -76,6 +105,7 @@ export function SidebarResizer({
       startX: event.clientX,
       startWidth: value,
       currentWidth: value,
+      appliedWidth: value,
     }
     setIsResizing(true)
     onResizeStart?.()
@@ -93,7 +123,9 @@ export function SidebarResizer({
       dragState.startWidth + event.clientX - dragState.startX
     )
     dragState.currentWidth = nextWidth
-    onResize(nextWidth)
+    if (animationFrameRef.current === null) {
+      animationFrameRef.current = requestAnimationFrame(flushResize)
+    }
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

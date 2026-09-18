@@ -4,6 +4,9 @@ import {
   buildApiUrl,
   isDefinitiveAuthenticationError,
   refreshSession,
+  ApiError,
+  prepareClientBuildRequest,
+  validateResponseBuild,
 } from "@/api/client"
 import { parseSseFrame } from "@/api/sse"
 import { waitForSseReconnectDelay } from "@/api/sse-reconnect-delay"
@@ -31,6 +34,7 @@ export function connectKnowledgeCitationEvents(
       if (token) headers.set("Authorization", `Bearer ${token}`)
 
       try {
+        prepareClientBuildRequest(headers)
         let response = await fetch(
           buildApiUrl(
             `/knowledge-citations/${encodeURIComponent(citationId)}/events`
@@ -43,6 +47,7 @@ export function connectKnowledgeCitationEvents(
           }
         )
 
+        validateResponseBuild(response.headers)
         if (response.status === 401) {
           try {
             await refreshSession(token)
@@ -65,6 +70,7 @@ export function connectKnowledgeCitationEvents(
               signal: controller.signal,
             }
           )
+          validateResponseBuild(response.headers)
           if (response.status === 401) setAccessToken(null)
         }
 
@@ -109,6 +115,13 @@ export function connectKnowledgeCitationEvents(
           }
         }
       } catch (error) {
+        if (
+          error instanceof ApiError &&
+          error.errorCode === "CLIENT_UPDATE_REQUIRED"
+        ) {
+          controller.abort()
+          return
+        }
         if (controller.signal.aborted) return
         if (error instanceof DOMException && error.name === "AbortError") return
       }

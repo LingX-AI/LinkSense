@@ -4,6 +4,15 @@ import appStyles from "@/index.css?raw"
 import { describe, expect, it } from "vitest"
 
 describe("knowledge-base detail page layout", () => {
+  it("does not add a knowledge-only gap above the library search toolbar", () => {
+    const toolbarRule = appStyles.match(
+      /\.knowledge-library-toolbar\s*\{([^}]*)\}/u
+    )?.[1]
+
+    expect(toolbarRule).toBeDefined()
+    expect(toolbarRule).not.toMatch(/margin(?:-top|-block(?:-start)?)?:/u)
+  })
+
   it("maps directory tree guides to a visible divider token in every theme", () => {
     const dividerValues = Array.from(
       appStyles.matchAll(/--app-divider:\s*([^;]+);/gu),

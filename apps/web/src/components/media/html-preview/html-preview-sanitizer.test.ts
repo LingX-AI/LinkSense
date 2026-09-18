@@ -242,8 +242,7 @@ describe("HTML preview sanitizer", () => {
         </html>`,
       "interaction",
       {
-        scriptUrl: "/assets/tailwind-browser.js",
-        additionalScriptUrls: ["/assets/html2canvas.js"],
+        scriptUrls: ["/assets/selection.js", "/assets/html2canvas.js"],
         bootstrapScript: "window.linksenseBootstrap = true",
       }
     )
@@ -252,7 +251,7 @@ describe("HTML preview sanitizer", () => {
 
     expect(externalScripts).toHaveLength(2)
     expect(externalScripts[0]?.getAttribute("src")).toBe(
-      "http://localhost/assets/tailwind-browser.js"
+      "http://localhost/assets/selection.js"
     )
     expect(
       externalScripts[0]?.getAttribute("data-linksense-trusted-preview-runtime")
@@ -275,7 +274,7 @@ describe("HTML preview sanitizer", () => {
         .querySelector('meta[http-equiv="Content-Security-Policy"]')
         ?.getAttribute("content")
     ).toContain(
-      "script-src 'unsafe-inline' http://localhost/assets/tailwind-browser.js http://localhost/assets/html2canvas.js"
+      "script-src 'unsafe-inline' http://localhost/assets/selection.js http://localhost/assets/html2canvas.js"
     )
   })
 
@@ -296,7 +295,6 @@ describe("HTML preview sanitizer", () => {
             <script>window.runPreview = () => new Worker("worker.js")</script>
           </body>
         </html>`,
-      "/assets/tailwind-browser.js",
       "/assets/selecto.js"
     )
     const parsed = new DOMParser().parseFromString(safeDocument, "text/html")
@@ -319,12 +317,14 @@ describe("HTML preview sanitizer", () => {
     expect(
       parsed.querySelector('script[type="module"]:not([src])')
     ).not.toBeNull()
-    expect(safeDocument).not.toContain("cdn.jsdelivr.net")
+    expect(safeDocument).toContain(
+      "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"
+    )
     expect(
       parsed.querySelector(
         'script[src="http://localhost/assets/tailwind-browser.js"]'
       )
-    ).not.toBeNull()
+    ).toBeNull()
     expect(
       parsed.querySelector('script[src="http://localhost/assets/selecto.js"]')
     ).not.toBeNull()
@@ -336,10 +336,61 @@ describe("HTML preview sanitizer", () => {
     ).toBeNull()
   })
 
+  it.each([
+    "https://cdn.tailwindcss.com?plugins=forms,typography",
+    "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.2",
+    "https://unpkg.com/@tailwindcss/browser@4/dist/index.global.js",
+  ])(
+    "preserves the author's Tailwind version, configuration and load attributes: %s",
+    (url) => {
+      const html = buildUnrestrictedHtmlPreviewDocument(
+        `<html><head><script src="${url}" defer crossorigin="anonymous"></script>
+      <script>tailwind.config = { theme: { extend: { colors: { brand: '#123456' } } } }</script>
+      <style type="text/tailwindcss">@theme { --color-brand: #123456; }</style>
+      <link rel="stylesheet" href="https://cdn.example/site.css"></head><body class="bg-brand"></body></html>`,
+        "/assets/selecto.js"
+      )
+      const parsed = new DOMParser().parseFromString(html, "text/html")
+      const external = [...parsed.querySelectorAll("script[src]")].filter(
+        (script) =>
+          !script.hasAttribute("data-linksense-trusted-preview-runtime")
+      )
+      expect(external).toHaveLength(1)
+      expect(external[0]?.getAttribute("src")).toBe(url)
+      expect(external[0]?.hasAttribute("defer")).toBe(true)
+      expect(external[0]?.getAttribute("crossorigin")).toBe("anonymous")
+      expect(html).toContain("tailwind.config =")
+      expect(
+        parsed.querySelector('style[type="text/tailwindcss"]')?.textContent
+      ).toContain("@theme")
+      expect(
+        parsed.querySelector('link[rel="stylesheet"]')?.getAttribute("href")
+      ).toBe("https://cdn.example/site.css")
+      expect(
+        parsed.querySelectorAll("[data-linksense-trusted-preview-runtime]")
+      ).toHaveLength(1)
+    }
+  )
+
+  it("adds no CSS framework to an HTML file that does not use one", () => {
+    const html = buildUnrestrictedHtmlPreviewDocument(
+      "<html><head><style>main { display: grid; }</style></head><body><main>Preview</main></body></html>",
+      "/assets/selecto.js"
+    )
+    const parsed = new DOMParser().parseFromString(html, "text/html")
+    expect(
+      [...parsed.querySelectorAll("script[src]")].map((script) =>
+        script.getAttribute("src")
+      )
+    ).toEqual(["http://localhost/assets/selecto.js"])
+    expect(html).not.toMatch(/tailwind/i)
+    expect(html).toContain("main { display: grid; }")
+  })
+
   it("rejects a trusted runtime outside the LinkSense origin", () => {
     expect(() =>
       buildSafeHtmlDocument("<p>Preview</p>", "interaction", {
-        scriptUrl: "https://cdn.example/runtime.js",
+        scriptUrls: ["https://cdn.example/runtime.js"],
         bootstrapScript: "",
       })
     ).toThrow("HTML preview runtime must use the LinkSense origin")

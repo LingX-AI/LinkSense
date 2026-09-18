@@ -89,6 +89,34 @@ function renderSearchDialog() {
 }
 
 describe("conversation search dialog", () => {
+  it("keeps development task indicators in search results", async () => {
+    vi.stubGlobal(
+      "fetch",
+      createSearchFetchMock({
+        conversations: [
+          { ...searchResults[0], application_development_role: "development" },
+          { ...searchResults[1], application_development_role: "preview" },
+        ],
+      })
+    )
+    renderSearchDialog()
+    for (const [index, label] of [
+      [0, "应用开发任务"],
+      [1, "应用调试对话"],
+    ] as const) {
+      const icon = await screen.findByRole("img", { name: label })
+      const option = icon.closest('[role="option"]')
+      if (!(option instanceof HTMLElement))
+        throw new Error("Missing task search result")
+      expect(option).toHaveTextContent(searchResults[index]!.title)
+      expect(
+        icon.compareDocumentPosition(
+          within(option).getByText(searchResults[index]!.title)
+        ) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    }
+  })
+
   it("preserves Chinese text and does not select a result with the IME confirmation Enter", async () => {
     renderSearchDialog()
     const input = await screen.findByRole("combobox")

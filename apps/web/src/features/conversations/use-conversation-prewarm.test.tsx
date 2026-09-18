@@ -55,10 +55,63 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
 describe("conversation prewarm scope", () => {
+  it("prepares the selected project and never claims another project's receipt", async () => {
+    const { result, rerender } = renderHook(useConversationPrewarm, {
+      initialProps: input({ projectId: firstId }),
+    })
+    expect(body(0)).toEqual({
+      collaboration_mode: "default",
+      project_id: firstId,
+    })
+    rerender(input({ projectId: secondId }))
+    await resolve(1, secondId)
+    await resolve(0, firstId)
+    expect(result.current.claim()).toBe(secondId)
+  })
+
+  it("refreshes visible idle preparation before expiry and stops after claim", async () => {
+    vi.useFakeTimers()
+    const { result } = renderHook(useConversationPrewarm, {
+      initialProps: input(),
+    })
+    await resolve(0)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+    })
+    expect(requests).toHaveLength(2)
+    expect(body(1)).toMatchObject({ conversation_id: firstId })
+    await resolve(1)
+    expect(result.current.claim()).toBe(firstId)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+    })
+    expect(requests).toHaveLength(2)
+  })
+
+  it("does not warm busy tasks and starts when they become idle", () => {
+    const { rerender } = renderHook(useConversationPrewarm, {
+      initialProps: input({ enabled: false }),
+    })
+    expect(requests).toHaveLength(0)
+    rerender(input({ enabled: true }))
+    expect(requests).toHaveLength(1)
+  })
+  it("keeps the prepared reservation claimable when foreground submission pauses background work", async () => {
+    const { result, rerender } = renderHook(useConversationPrewarm, {
+      initialProps: input(),
+    })
+    await resolve(0)
+    rerender(input({ enabled: false }))
+    expect(requests).toHaveLength(1)
+    expect(result.current.claim()).toBe(firstId)
+    rerender(input({ enabled: true }))
+    expect(requests).toHaveLength(1)
+  })
   it("reuses the initial reservation and sends only the latest mode after a pending receipt", async () => {
     const { result, rerender } = renderHook(useConversationPrewarm, {
       initialProps: input(),

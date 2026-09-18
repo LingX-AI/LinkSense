@@ -4,10 +4,12 @@ import { interactiveApplicationTaskInputSchema } from "@linksense/shared"
 
 import { ApiError, apiRequest } from "@/api/client"
 import {
+  clearPendingConversationTurnSubmission,
   getPendingConversationTurnSubmission,
   setPendingConversationTurnSubmission,
 } from "@/features/conversations/conversation-pending-turn-submission"
 import {
+  clearPendingConversationExecution,
   getPendingConversationExecution,
   markConversationExecutionPending,
 } from "@/features/conversations/conversation-pending-execution"
@@ -36,6 +38,28 @@ afterEach(() => {
 })
 
 describe("interactive application submission", () => {
+  it("starts a new manual attempt after an accepted start failed, while retaining in-flight deduplication", async () => {
+    const queryClient = new QueryClient()
+    const submit = createInteractiveApplicationSubmitter({
+      queryClient,
+      applicationId,
+      conversationId,
+    })
+    vi.mocked(apiRequest).mockResolvedValue(receipt)
+    await submit(input)
+    const first = getPendingConversationTurnSubmission(
+      queryClient,
+      conversationId
+    )?.idempotencyKey
+    clearPendingConversationTurnSubmission(queryClient, conversationId)
+    clearPendingConversationExecution(queryClient, conversationId)
+    await submit(input)
+    expect(
+      getPendingConversationTurnSubmission(queryClient, conversationId)
+        ?.idempotencyKey
+    ).not.toBe(first)
+    expect(apiRequest).toHaveBeenCalledTimes(2)
+  })
   it("includes only explicitly selected application files in the message and request", async () => {
     const queryClient = new QueryClient()
     const selected = {

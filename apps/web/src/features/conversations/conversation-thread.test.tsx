@@ -832,7 +832,7 @@ describe("conversation turn responses", () => {
       }),
       "*"
     )
-    expect(postMessage.mock.calls[0]?.[0].html).not.toContain(
+    expect(postMessage.mock.calls[0]?.[0].html).toContain(
       "cdn.jsdelivr.net"
     )
 

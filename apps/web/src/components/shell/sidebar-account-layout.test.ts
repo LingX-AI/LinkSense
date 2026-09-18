@@ -9,17 +9,13 @@ describe("sidebar account bar layout", () => {
       'className="sidebar-primary-navigation mt-2 shrink-0 space-y-0.5"'
     )
     expect(appShellSource).toContain(".slice(0, 1)")
-    expect(appShellSource).toContain(
-      'className="sidebar-conversation-scroll min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto pr-3.5"'
-    )
+    expect(appShellSource).toContain("<SidebarTaskScrollArea>")
     expect(appShellSource).toContain(".slice(1)")
 
     const primaryNavigationIndex = appShellSource.indexOf(
       "sidebar-primary-navigation"
     )
-    const scrollAreaIndex = appShellSource.indexOf(
-      "sidebar-conversation-scroll"
-    )
+    const scrollAreaIndex = appShellSource.indexOf("<SidebarTaskScrollArea>")
     const accountBarIndex = appShellSource.indexOf("sidebar-account-bar")
 
     expect(primaryNavigationIndex).toBeGreaterThan(-1)
@@ -43,7 +39,7 @@ describe("sidebar account bar layout", () => {
       )
     ).toHaveLength(2)
     expect(appShellSource).toContain(
-      '<DropdownMenuLabel className="account-menu-quota px-2 py-1.5'
+      '<DropdownMenuLabel className="account-menu-quota flex min-h-7 items-center justify-between gap-2 px-2 py-1.5'
     )
   })
 })

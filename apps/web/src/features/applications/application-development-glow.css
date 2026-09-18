@@ -1,0 +1,169 @@
+/* Masking, animated angles and the shared glow palette live here; layout stays in Tailwind. */
+@property --application-development-glow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.application-development-glow,
+.application-development-takeover {
+  --development-glow-color: var(--app-selection);
+}
+
+.application-development-glow {
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 350ms ease-out;
+}
+
+.application-development-glow[data-active="true"] {
+  opacity: 1;
+}
+
+.application-development-glow::before,
+.application-development-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  animation-play-state: paused;
+}
+
+.application-development-glow::before {
+  box-shadow:
+    inset 0 0 0 2px
+      color-mix(in srgb, var(--development-glow-color) 50%, transparent),
+    inset 0 0 24px 2px
+      color-mix(in srgb, var(--development-glow-color) 34%, transparent),
+    inset 0 0 44px
+      color-mix(in srgb, var(--development-glow-color) 14%, transparent);
+  animation: application-development-glow-breathe 2.4s ease-in-out infinite
+    paused;
+}
+
+.application-development-glow::after {
+  padding: 2px;
+  background: conic-gradient(
+    from var(--application-development-glow-angle),
+    transparent 0%,
+    color-mix(in srgb, var(--development-glow-color) 35%, transparent) 12%,
+    color-mix(in srgb, var(--development-glow-color) 90%, transparent) 24%,
+    color-mix(in srgb, var(--development-glow-color) 45%, white) 28%,
+    transparent 42%,
+    transparent 50%,
+    color-mix(in srgb, var(--development-glow-color) 35%, transparent) 62%,
+    color-mix(in srgb, var(--development-glow-color) 90%, transparent) 74%,
+    color-mix(in srgb, var(--development-glow-color) 45%, white) 78%,
+    transparent 92%
+  );
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: application-development-glow-orbit 3.6s linear infinite paused;
+}
+
+.application-development-glow[data-active="true"]::before,
+.application-development-glow[data-active="true"]::after {
+  animation-play-state: running;
+}
+
+.application-development-takeover {
+  color: var(--color-white);
+  background: var(--development-glow-color);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 350ms ease-out,
+    visibility 350ms ease-out;
+}
+
+.application-development-takeover[aria-hidden="false"] {
+  opacity: 1;
+  visibility: visible;
+}
+
+.application-development-takeover-icon {
+  transform-origin: center;
+  animation: application-development-takeover-pulse 2.4s ease-in-out infinite
+    paused;
+}
+
+.application-development-takeover::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-white) 24%, transparent),
+    transparent
+  );
+  opacity: 0;
+  transform: translateX(-150%) skewX(-18deg);
+  animation: application-development-takeover-sheen 1.8s linear infinite paused;
+}
+
+.application-development-takeover[aria-hidden="false"]::before,
+.application-development-takeover[aria-hidden="false"]
+  .application-development-takeover-icon {
+  animation-play-state: running;
+}
+
+@keyframes application-development-takeover-sheen {
+  0% {
+    opacity: 0;
+    transform: translateX(-150%) skewX(-18deg);
+  }
+  20%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(350%) skewX(-18deg);
+  }
+}
+
+@keyframes application-development-takeover-pulse {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes application-development-glow-orbit {
+  to {
+    --application-development-glow-angle: 360deg;
+  }
+}
+
+@keyframes application-development-glow-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .application-development-glow,
+  .application-development-takeover {
+    transition: none;
+  }
+  .application-development-glow::before,
+  .application-development-glow::after,
+  .application-development-takeover::before,
+  .application-development-takeover-icon {
+    animation: none;
+  }
+}

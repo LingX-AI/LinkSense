@@ -24,6 +24,18 @@ import {
 } from "@/features/conversations/use-voice-transcription"
 import i18n from "@/i18n"
 
+const editorRender = vi.hoisted(() => vi.fn())
+vi.mock("@/components/ui/textarea", async (importOriginal) => {
+  const { Textarea } =
+    await importOriginal<typeof import("@/components/ui/textarea")>()
+  return {
+    Textarea: (props: React.ComponentProps<typeof Textarea>) => {
+      editorRender()
+      return <Textarea {...props} />
+    },
+  }
+})
+
 class MediaRecorderMock {
   static instances: MediaRecorderMock[] = []
   static nextBlob = new Blob(["recorded voice"], { type: "audio/webm" })
@@ -2527,8 +2539,8 @@ describe("conversation voice input", () => {
   })
 
   it("blocks send and attachment actions while a model preference update is pending", () => {
-    const { props } = renderComposer({
-      modelPreferencePending: true,
+    const { props, rerender } = renderComposer({
+      modelPreferencePending: false,
       modelPreference: {
         configured: true,
         default_model: "gpt-5.6-terra",
@@ -2547,6 +2559,22 @@ describe("conversation voice input", () => {
       },
     })
 
+    const input = screen.getByRole<HTMLTextAreaElement>("textbox", {
+      name: "任务输入框",
+    })
+    input.focus()
+    input.setSelectionRange(1, 4)
+    const renders = editorRender.mock.calls.length
+    rerender(<ConversationComposer {...props} modelPreferencePending />)
+    expect(editorRender).toHaveBeenCalledTimes(renders)
+    expect(screen.getByRole("textbox", { name: "任务输入框" })).toBe(input)
+    expect(input).toHaveFocus()
+    expect(input.selectionStart).toBe(1)
+    expect(input.selectionEnd).toBe(4)
+    expect(screen.getByRole("button", { name: "添加" })).toHaveClass(
+      "disabled:opacity-100"
+    )
+
     expect(screen.getByRole("button", { name: "发送" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "添加" })).toBeDisabled()
     expect(screen.getByLabelText("添加附件")).toBeDisabled()
@@ -2556,6 +2584,22 @@ describe("conversation voice input", () => {
       code: "Enter",
     })
     expect(props.onSubmit).not.toHaveBeenCalled()
+
+    rerender(
+      <ConversationComposer
+        {...props}
+        modelPreference={
+          props.modelPreference && {
+            ...props.modelPreference,
+            selected_reasoning_effort: "high",
+          }
+        }
+      />
+    )
+    expect(editorRender).toHaveBeenCalledTimes(renders)
+    expect(screen.getByRole("button", { name: "添加" })).toBeEnabled()
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" })
+    expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith("Existing text")
   })
 
   it("does not consume a pasted file when attachment operations are busy", () => {
@@ -2628,6 +2672,42 @@ describe("conversation voice input", () => {
     )
     expect(
       screen.queryByRole("button", { name: "添加附件" })
+    ).not.toBeInTheDocument()
+  })
+
+  it.each(["zh-CN", "en-US", "fr-FR"])(
+    "hides the knowledge button when disabled and restores it by default in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const { props, rerender } = renderComposer({
+        showKnowledgeBaseButton: false,
+      })
+      const buttonName = i18n.t("conversation.addKnowledgeBase")
+      expect(
+        screen.queryByRole("button", { name: buttonName })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: i18n.t("conversation.addMenu") })
+      ).toBeVisible()
+      rerender(
+        <ConversationComposer {...props} showKnowledgeBaseButton={undefined} />
+      )
+      expect(screen.getByRole("button", { name: buttonName })).toBeVisible()
+      await i18n.changeLanguage("zh-CN")
+    }
+  )
+
+  it("also hides the unavailable knowledge search button when disabled", () => {
+    renderComposer({
+      showKnowledgeBaseButton: false,
+      knowledgeSearchCapability: {
+        status: "unavailable",
+        reason_code: "KNOWLEDGE_SEARCH_UNAVAILABLE",
+        checked_at: "2026-07-22T08:00:00.000Z",
+      },
+    })
+    expect(
+      screen.queryByRole("button", { name: "添加知识库" })
     ).not.toBeInTheDocument()
   })
 
@@ -2742,6 +2822,73 @@ describe("conversation voice input", () => {
     const description = labels?.querySelector("[data-capability-description]")
     expect(description).toHaveTextContent("Create presentation files")
     expect(description).toHaveClass("text-[length:var(--app-font-12)]")
+  })
+
+  it("selects the required development Skill automatically and prevents removal while other Skills remain editable", async () => {
+    const interaction = userEvent.setup()
+    const id = "builtin:capability:linksense-interactive-app-builder"
+    const { props, rerender } = renderComposer({
+      capabilities: [
+        capabilityFixture({
+          id,
+          name: "linksense-interactive-app-builder",
+          slug: "linksense-interactive-app-builder",
+          source_type: "builtin",
+          builtin_key: "linksense-interactive-app-builder",
+          is_builtin: true,
+        }),
+        capabilityFixture({ name: "Optional Skill" }),
+      ],
+      selectedIds: ["skill-1"],
+      requiredIds: [id],
+    })
+    expect(screen.getByText("LinkSense 交互式应用开发")).toBeVisible()
+    expect(
+      screen.queryByRole("img", { name: "此任务必需" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByText("此任务必需")).toHaveClass("sr-only")
+    expect(
+      screen.queryByRole("button", { name: "移除 LinkSense 交互式应用开发" })
+    ).not.toBeInTheDocument()
+    await interaction.click(
+      screen.getByRole("button", { name: "移除 Optional Skill" })
+    )
+    expect(props.onSelectedIdsChange).toHaveBeenCalledWith([id])
+    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    const requiredOption = screen.getByRole("option", {
+      name: /LinkSense 交互式应用开发/,
+    })
+    expect(requiredOption).toHaveAttribute("aria-disabled", "true")
+    expect(requiredOption).toHaveAttribute("data-checked", "true")
+    await interaction.keyboard("{Escape}")
+    rerender(<ConversationComposer {...props} selectedIds={[]} />)
+    expect(screen.getByText("LinkSense 交互式应用开发")).toBeVisible()
+    expect(screen.queryByText("Optional Skill")).not.toBeInTheDocument()
+  })
+
+  it("keeps required Skills selected when selected again with the keyboard shortcut", async () => {
+    const interaction = userEvent.setup()
+    const id = "builtin:capability:linksense-interactive-app-builder"
+    const { onSelectedIdsChange } = renderStatefulComposer({
+      capabilities: [
+        capabilityFixture({
+          id,
+          name: "linksense-interactive-app-builder",
+          slug: "linksense-interactive-app-builder",
+          source_type: "builtin",
+          builtin_key: "linksense-interactive-app-builder",
+          is_builtin: true,
+        }),
+      ],
+      requiredIds: [id],
+    })
+    await interaction.type(
+      screen.getByRole("textbox", { name: "任务输入框" }),
+      "$"
+    )
+    await interaction.keyboard("{Enter}")
+    expect(onSelectedIdsChange).not.toHaveBeenCalled()
+    expect(screen.getByText("LinkSense 交互式应用开发")).toBeVisible()
   })
 
   it("sorts non-built-in Skills alphabetically and places built-in Skills last", async () => {

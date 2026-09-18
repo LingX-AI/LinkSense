@@ -19,7 +19,7 @@ import type { Project } from "@linksense/shared"
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { FolderClosedIcon, FolderOpenIcon } from "lucide-react"
+import { ProjectIcon } from "@/features/projects/project-icon"
 import type { Conversation } from "@/api/contracts"
 import {
   reorderConversationIds,
@@ -83,20 +83,13 @@ export function SidebarConversationDnd({
   )
   const destinations = useMemo(
     () =>
-      new Map(
-        projects.map((project) => [
-          projectDropId(project.id),
-          project,
-        ])
-      ),
+      new Map(projects.map((project) => [projectDropId(project.id), project])),
     [projects]
   )
   const orders = useMemo(() => {
     const groups = new Map<string, Conversation[]>()
     for (const task of conversations) {
-      const key = task.pinned_at
-        ? "pinned"
-        : `project:${task.project_id ?? ""}`
+      const key = task.pinned_at ? "pinned" : `project:${task.project_id ?? ""}`
       const group = groups.get(key) ?? []
       group.push(task)
       groups.set(key, group)
@@ -133,7 +126,6 @@ export function SidebarConversationDnd({
   )
   const activeTask = activeId ? tasks.get(activeId) : undefined
   const activeProject = activeId ? destinations.get(activeId) : undefined
-  const ProjectIcon = projectOpen ? FolderOpenIcon : FolderClosedIcon
 
   const isEligibleTarget = useCallback(
     (sourceId: UniqueIdentifier, targetId: UniqueIdentifier) => {
@@ -404,7 +396,12 @@ export function SidebarConversationDnd({
                   className="pointer-events-none flex h-8 items-center rounded-[10px] bg-popover px-2.5 text-[length:var(--app-ui-font-size)] text-popover-foreground opacity-80 shadow-sm"
                 >
                   {activeProject && (
-                    <ProjectIcon className="mr-1.5 size-3.5 shrink-0" />
+                    <ProjectIcon
+                      icon={activeProject.icon}
+                      color={activeProject.color}
+                      open={projectOpen}
+                      className="mr-1.5 size-3.5 shrink-0"
+                    />
                   )}
                   <span className="min-w-0 flex-1 truncate font-medium">
                     {activeProject?.name ||

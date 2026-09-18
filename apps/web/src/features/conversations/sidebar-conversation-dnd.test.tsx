@@ -18,6 +18,8 @@ const now = "2026-09-09T00:00:00.000Z"
 const projects = ["工作", "生活"].map((name, index) => ({
   id: `project-${index}`,
   name,
+  icon: "folder" as const,
+  color: "default" as const,
   created_at: now,
   updated_at: now,
 }))

@@ -1,7 +1,7 @@
 import { formatRelativeDate } from "@/i18n/date"
 import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   setupApplicationTests,
   conversation,
@@ -13,6 +13,162 @@ import {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each([
+    ["development", "应用开发任务"],
+    ["preview", "应用调试对话"],
+  ] as const)(
+    "shows the %s icon before the opened task title",
+    async (role, label) => {
+      installApiMock({
+        conversationOverride: { application_development_role: role },
+      })
+      renderApp()
+      const header = await screen.findByRole("banner")
+      const icon = await within(header).findByRole("img", { name: label })
+      const title = within(header).getByRole("heading", {
+        name: conversation.title,
+      })
+      expect(
+        icon.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    }
+  )
+
+  it("shows development icons for builder and preview tasks in recent and pinned lists", async () => {
+    const application = {
+      id: "50000000-0000-4000-8000-000000000001",
+      name: "Preview",
+      kind: "interactive",
+    }
+    installApiMock({
+      conversationListResponse: () =>
+        json({
+          success: true,
+          data: {
+            items: [
+              {
+                ...conversations[0],
+                application_development_role: "development",
+              },
+              {
+                ...conversations[1],
+                application,
+                application_development_role: "preview",
+                pinned_at: "2026-09-17T00:00:00Z",
+              },
+              {
+                ...conversations[2],
+                application,
+                application_development_role: null,
+              },
+            ],
+            next_cursor: null,
+          },
+        }),
+    })
+    renderApp()
+    const sidebar = await screen.findByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+    for (const [index, label] of [
+      [0, "应用开发任务"],
+      [1, "应用调试对话"],
+    ] as const) {
+      const icon = await within(sidebar).findByRole("img", { name: label })
+      const link = icon.closest("a")!
+      expect(link).toHaveTextContent(conversations[index]!.title)
+      expect(
+        link.querySelector(".sidebar-conversation-application-icon")
+      ).toBeNull()
+      expect(
+        icon.compareDocumentPosition(
+          within(link).getByText(conversations[index]!.title)
+        ) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    }
+    const normal = within(sidebar).getByRole("link", {
+      name: conversations[2]!.title,
+    })
+    expect(normal.querySelector(".conversation-development-icon")).toBeNull()
+    expect(
+      normal.querySelector(".sidebar-conversation-application-icon")
+    ).not.toBeNull()
+  })
+
+  it.each([
+    {
+      label: "preset",
+      icon: { type: "preset", preset: "graduation-cap" },
+    },
+    {
+      label: "custom",
+      icon: {
+        type: "custom",
+        url: "https://example.com/application-icon.png",
+        fallback_preset: "graduation-cap",
+      },
+    },
+    { label: "default", icon: undefined },
+  ] as const)(
+    "keeps $label interactive task icons at 16px in recent and pinned lists without shifting titles",
+    async ({ icon }) => {
+      const application = {
+        id: "50000000-0000-4000-8000-000000000001",
+        name: "Interactive application",
+        kind: "interactive",
+        icon,
+      }
+      installApiMock({
+        conversationListResponse: () =>
+          json({
+            success: true,
+            data: {
+              items: [
+                { ...conversations[0], application },
+                {
+                  ...conversations[1],
+                  application,
+                  pinned_at: "2026-09-17T00:00:00Z",
+                },
+                {
+                  ...conversations[2],
+                  application: { ...application, kind: "standard" },
+                },
+              ],
+              next_cursor: null,
+            },
+          }),
+      })
+      renderApp()
+      const sidebar = await screen.findByRole("complementary", {
+        name: "LinkSense 导航",
+      })
+      for (const conversation of conversations.slice(0, 2)) {
+        const link = await within(sidebar).findByRole("link", {
+          name: conversation.title,
+        })
+        const iconElement = link.querySelector(
+          ".sidebar-conversation-application-icon"
+        )
+        expect(iconElement).toHaveClass("size-4", "[&_svg]:size-4", "shrink-0")
+        expect(iconElement).not.toHaveClass("size-5")
+        expect(iconElement).not.toHaveClass("[&_svg]:size-5")
+        expect(iconElement?.parentElement).toHaveClass(
+          "size-5",
+          "shrink-0",
+          "items-center",
+          "justify-center"
+        )
+      }
+      const standardLink = within(sidebar).getByRole("link", {
+        name: conversations[2]!.title,
+      })
+      expect(
+        standardLink.querySelector(".sidebar-conversation-application-icon")
+      ).toHaveClass("size-5")
+    }
+  )
+
   it.each([
     ["APPLICATION_NOT_FOUND", "应用不存在或你无权访问。"],
     ["APPLICATION_DISABLED", "应用已停用，暂时不能开始新任务。"],
@@ -72,79 +228,163 @@ describe("LinkSense application", () => {
     }
   )
 
-  it("does not expose rename actions or shortcuts for application-managed tasks", async () => {
-    const applicationName = "AISG学校政策问答助手"
-    const application = {
-      id: "50000000-0000-4000-8000-000000000001",
-      name: applicationName,
-      icon: { type: "preset" as const, preset: "graduation-cap" as const },
-    }
-    const applicationConversation = {
-      ...conversation,
-      title: applicationName,
-      application,
-    }
-    const { requests } = installApiMock({
-      conversationListResponse: () =>
-        json({
-          success: true,
-          data: {
-            items: [
-              {
-                ...conversations[0],
-                title: applicationName,
-                application,
+  it.each([
+    ["standard", "menu"],
+    ["standard", "double-click"],
+    ["standard", "F2"],
+    ["interactive", "menu"],
+    ["interactive", "double-click"],
+    ["interactive", "F2"],
+  ] as const)(
+    "renames a %s application task through %s and updates both titles",
+    async (kind, entry) => {
+      const applicationName = "AISG学校政策问答助手"
+      const packageId = "40000000-0000-4000-8000-000000000001"
+      const application = {
+        id: "50000000-0000-4000-8000-000000000001",
+        name: applicationName,
+        kind,
+        package_id: kind === "interactive" ? packageId : null,
+        icon: { type: "preset" as const, preset: "graduation-cap" as const },
+      }
+      let task = {
+        ...conversation,
+        title: applicationName,
+        title_source: "manual",
+        application,
+      }
+      const { requests } = installApiMock({
+        conversationListResponse: () =>
+          json({
+            success: true,
+            data: {
+              items: [task, conversations[1], conversations[2]],
+              next_cursor: null,
+            },
+          }),
+        conversationGetResponse: async () =>
+          json({ success: true, data: task }),
+        conversationPatchResponse: (_id, body) => {
+          if (typeof body.title === "string")
+            task = { ...task, title: body.title }
+          return json({ success: true, data: task })
+        },
+      })
+      const baseFetch = globalThis.fetch
+      vi.stubGlobal(
+        "fetch",
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          if (path === `/api/v1/applications/${application.id}`)
+            return json({
+              success: true,
+              data: {
+                id: application.id,
+                name: applicationName,
+                kind,
+                icon: application.icon,
+                owner: {
+                  id: "10000000-0000-4000-8000-000000000001",
+                  name: "测试用户",
+                },
+                description: null,
+                instructions: null,
+                model: null,
+                reasoning_effort: null,
+                status: "active",
+                is_owner: true,
+                can_manage: true,
+                access_source: "owner",
+                capability_count: 0,
+                knowledge_base_count: 0,
+                mcp_server_count: 0,
+                dependencies_available: true,
+                capabilities: [],
+                knowledge_bases: [],
+                mcp_servers: [],
+                created_at: conversation.updated_at,
+                updated_at: conversation.updated_at,
               },
-              conversations[1],
-              conversations[2],
-            ],
-            next_cursor: null,
-          },
-        }),
-      conversationGetResponse: async () =>
-        json({ success: true, data: applicationConversation }),
-    })
-    const interaction = userEvent.setup()
-    renderApp()
-
-    const sidebar = await screen.findByRole(
-      "complementary",
-      { name: "LinkSense 导航" },
-      { timeout: 5_000 }
-    )
-    const sidebarTitle = await within(sidebar).findByText(applicationName)
-    const applicationLink = sidebarTitle.closest("a")
-    expect(applicationLink).not.toBeNull()
-    expect(applicationLink).not.toHaveAttribute("aria-keyshortcuts")
-
-    await interaction.dblClick(sidebarTitle)
-    fireEvent.keyDown(applicationLink as HTMLAnchorElement, { key: "F2" })
-    expect(
-      screen.queryByRole("dialog", { name: "重命名" })
-    ).not.toBeInTheDocument()
-
-    const banner = await screen.findByRole("banner")
-    await interaction.click(
-      within(banner).getByRole("button", { name: "操作" })
-    )
-    expect(
-      screen.queryByRole("menuitem", { name: "重命名" })
-    ).not.toBeInTheDocument()
-    expect(
-      await screen.findByRole("menuitem", { name: "置顶任务" })
-    ).toBeVisible()
-    expect(screen.getByRole("menuitem", { name: "归档任务" })).toBeVisible()
-    expect(screen.getByRole("menuitem", { name: "删除任务" })).toBeVisible()
-    expect(
-      requests.some(
-        (request) =>
-          request.method === "PATCH" &&
-          typeof request.body === "object" &&
-          request.body !== null &&
-          "title" in request.body
+            })
+          if (
+            path ===
+            `/api/v1/applications/${application.id}/interactive-runtime-token`
+          )
+            return json({
+              success: true,
+              data: {
+                runtime_url:
+                  "/api/v1/interactive-app-runtime/test-ticket/index.html",
+                expires_at: "2099-09-18T00:00:00.000Z",
+                manifest: {
+                  schema_version: 1,
+                  id: "rename-test",
+                  name: applicationName,
+                  version: "1.0.0",
+                  sdk_version: 1,
+                },
+              },
+            })
+          return baseFetch(input, init)
+        }
       )
-    ).toBe(false)
-  })
+      const interaction = userEvent.setup()
+      renderApp()
+      const sidebar = await screen.findByRole("complementary", {
+        name: "LinkSense 导航",
+      })
+      const sidebarTitle = await within(sidebar).findByText(applicationName)
+      const applicationLink = sidebarTitle.closest("a")!
+      expect(applicationLink).toHaveAttribute("aria-keyshortcuts", "F2")
+      const banner = await screen.findByRole("banner")
+      if (entry === "menu") {
+        await interaction.click(
+          within(banner).getByRole("button", { name: "操作" })
+        )
+        await interaction.click(
+          await screen.findByRole("menuitem", { name: "重命名" })
+        )
+      } else if (entry === "double-click") {
+        await interaction.dblClick(sidebarTitle)
+      } else {
+        fireEvent.keyDown(applicationLink, { key: "F2" })
+      }
+      const dialog = await screen.findByRole("dialog", { name: "重命名" })
+      const input = within(dialog).getByRole("textbox", { name: "任务" })
+      expect(input).toHaveValue(applicationName)
+      await interaction.clear(input)
+      await interaction.type(input, "本周政策咨询")
+      await interaction.click(
+        within(dialog).getByRole("button", { name: "保存" })
+      )
+      await waitFor(() =>
+        expect(requests).toContainEqual(
+          expect.objectContaining({
+            path: "/api/v1/conversations/c1",
+            method: "PATCH",
+            body: { title: "本周政策咨询" },
+          })
+        )
+      )
+      expect(await within(sidebar).findByText("本周政策咨询")).toBeVisible()
+      expect(
+        await within(banner).findByRole("heading", { name: "本周政策咨询" })
+      ).toBeVisible()
+      expect(
+        within(banner).getByRole("button", {
+          name: `此任务由应用“${applicationName}”管理`,
+        })
+      ).toBeVisible()
+      expect(
+        screen.queryByRole("dialog", { name: "重命名" })
+      ).not.toBeInTheDocument()
+      expect(
+        requests
+          .filter((request) => request.method === "PATCH")
+          .every((request) => request.path.startsWith("/api/v1/conversations/"))
+      ).toBe(true)
+    }
+  )
 
   it("shows the styled task preview on hover and a running indicator in compact task rows", async () => {
     const interaction = userEvent.setup()
@@ -634,7 +874,7 @@ describe("LinkSense application", () => {
       expect(
         within(sidebar).queryByRole("heading", { name: "置顶" })
       ).not.toBeInTheDocument()
-      const taskHeading = within(sidebar).getByRole("heading", { name: "任务" })
+      const taskHeading = within(sidebar).getByRole("heading", { name: "最近" })
       expect(
         within(taskHeading.closest("section") as HTMLElement).getByText(
           taskTitle
@@ -928,8 +1168,8 @@ describe("LinkSense application", () => {
 
       // JSDOM has no layout engine; assert the scroll and shrink constraints.
       expect(scroller).toHaveClass(
-        "overflow-x-hidden",
-        "overflow-y-auto",
+        "overflow-x-hidden!",
+        "overflow-y-auto!",
         "min-w-0"
       )
       expect(scroller?.parentElement).toHaveClass("min-w-0", "overflow-hidden")
@@ -1239,7 +1479,7 @@ describe("LinkSense application", () => {
     expect(taskScroller).not.toHaveClass("pr-0.5")
   })
 
-  it("shows the shared sidebar top divider only while its content is scrolled", async () => {
+  it("updates the sidebar fade as its content scrolls to either edge", async () => {
     installApiMock()
     renderApp()
     const sidebar = await screen.findByRole("complementary", {
@@ -1252,18 +1492,30 @@ describe("LinkSense application", () => {
     expect(taskRegion).not.toBeNull()
     expect(taskRegion).not.toHaveClass("mt-2")
     expect(taskRegion).not.toHaveClass("mt-5")
-    expect(taskRegion).not.toHaveAttribute("data-scrolled")
+    expect(taskRegion).not.toHaveAttribute("data-overflow-y-start")
 
     if (!(taskScroller instanceof HTMLElement)) {
       throw new Error("Expected the recent-task scroller to render")
     }
+    Object.defineProperties(taskScroller, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 600 },
+      clientWidth: { configurable: true, value: 240 },
+      scrollWidth: { configurable: true, value: 240 },
+    })
     taskScroller.scrollTop = 24
     fireEvent.scroll(taskScroller)
-    expect(taskRegion).toHaveAttribute("data-scrolled", "true")
+    expect(taskRegion).toHaveAttribute("data-overflow-y-start")
+    expect(taskRegion).toHaveAttribute("data-overflow-y-end")
+
+    taskScroller.scrollTop = 400
+    fireEvent.scroll(taskScroller)
+    expect(taskRegion).toHaveAttribute("data-overflow-y-start")
+    expect(taskRegion).not.toHaveAttribute("data-overflow-y-end")
 
     taskScroller.scrollTop = 0
     fireEvent.scroll(taskScroller)
-    expect(taskRegion).not.toHaveAttribute("data-scrolled")
+    expect(taskRegion).not.toHaveAttribute("data-overflow-y-start")
   })
 
   it("uses the stronger navigation typography hierarchy across app and settings shells", async () => {
@@ -1324,9 +1576,9 @@ describe("LinkSense application", () => {
     expect(
       within(sidebar).queryByRole("link", { name: "已归档任务" })
     ).not.toBeInTheDocument()
-    expect(within(sidebar).getByRole("heading", { name: "任务" })).toHaveClass(
+    expect(within(sidebar).getByRole("heading", { name: "最近" })).toHaveClass(
       "font-semibold",
-      "text-[length:var(--app-ui-font-size)]"
+      "text-[length:var(--app-font-13)]"
     )
     expect(
       await within(sidebar).findByText(conversations[0]!.title)
@@ -1376,16 +1628,31 @@ describe("LinkSense application", () => {
       "font-semibold",
       "text-[length:var(--app-ui-font-size)]"
     )
-    const quotaTitle = within(menu).getByText("剩余额度")
+    const quotaTitle = within(menu).getByText("额度")
     const quotaValues = within(menu).getByText("总 - · 周 - · 月 -")
-    expect(quotaTitle).toHaveClass("block")
-    expect(quotaValues).toHaveClass("block", "tabular-nums")
+    expect(quotaTitle).toHaveClass("flex", "shrink-0", "items-center", "gap-2")
+    const quotaIcon = quotaTitle.querySelector("svg")
+    expect(quotaIcon).toHaveClass("size-3.5", "shrink-0")
+    expect(quotaIcon).toHaveAttribute("aria-hidden", "true")
+    expect(quotaTitle.firstElementChild).toBe(quotaIcon)
+    expect(quotaValues).toHaveClass(
+      "min-w-0",
+      "text-right",
+      "text-[length:var(--app-font-11)]",
+      "text-[var(--app-muted)]",
+      "tabular-nums"
+    )
     expect(quotaTitle.nextElementSibling).toBe(quotaValues)
     const quotaRemaining = quotaTitle.parentElement
     expect(quotaRemaining).toHaveClass(
       "account-menu-quota",
-      "text-[length:var(--app-font-11)]",
-      "text-[var(--app-muted)]"
+      "flex",
+      "items-center",
+      "justify-between",
+      "gap-2",
+      "text-[length:var(--app-ui-font-size)]",
+      "font-medium",
+      "text-popover-foreground"
     )
     expect(accountName.parentElement).not.toContainElement(quotaRemaining)
     expect(

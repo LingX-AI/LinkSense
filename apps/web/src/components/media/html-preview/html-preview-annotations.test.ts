@@ -22,6 +22,7 @@ afterEach(() => {
 function install() {
   vi.useFakeTimers()
   controller = installHtmlPreviewAnnotationsController(window, {
+    reportMessage: (message) => window.parent.postMessage(message, "*"),
     markersMessageType: htmlPreviewAnnotationsMessageType,
     framesMessageType: htmlPreviewAnnotationFramesMessageType,
     focusMessageType: htmlPreviewAnnotationFocusMessageType,

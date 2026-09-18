@@ -1,6 +1,6 @@
 import { useState } from "react"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { SidebarResizer } from "@/components/shell/sidebar-resizer"
 import {
@@ -47,10 +47,12 @@ function ResizerHarness({
 describe("SidebarResizer", () => {
   beforeEach(() => {
     window.localStorage.clear()
+    vi.useFakeTimers()
   })
 
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
   })
 
   it("uses a 248px default width", () => {
@@ -72,12 +74,68 @@ describe("SidebarResizer", () => {
     expect(handle).toHaveAttribute("data-resizing", "true")
 
     fireEvent.pointerMove(handle, { clientX: 328, pointerId: 7 })
+    act(() => vi.advanceTimersToNextFrame())
     expect(screen.getByTestId("current-width")).toHaveTextContent("328")
     expect(handle).toHaveAttribute("aria-valuenow", "328")
 
     fireEvent.pointerUp(handle, { clientX: 328, pointerId: 7 })
     expect(handle).not.toHaveAttribute("data-resizing")
     expect(screen.getByTestId("committed-width")).toHaveTextContent("328")
+  })
+
+  it("coalesces pointer moves into one update per frame and skips unchanged widths", () => {
+    const onResize = vi.fn()
+    render(<SidebarResizer label="Resize" value={248} onResize={onResize} />)
+    const handle = screen.getByRole("separator")
+    fireEvent.pointerDown(handle, { button: 0, clientX: 248, pointerId: 7 })
+    for (const clientX of [270, 300, 320]) {
+      fireEvent.pointerMove(handle, { clientX, pointerId: 7 })
+    }
+    expect(onResize).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersToNextFrame())
+    expect(onResize).toHaveBeenCalledExactlyOnceWith(320)
+    fireEvent.pointerMove(handle, { clientX: 320, pointerId: 7 })
+    act(() => vi.advanceTimersToNextFrame())
+    expect(onResize).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["pointerUp", "pointerCancel", "lostPointerCapture"] as const)(
+    "flushes the last pending width exactly once on %s",
+    (eventName) => {
+      const onResize = vi.fn()
+      const onResizeEnd = vi.fn()
+      render(
+        <SidebarResizer
+          label="Resize"
+          value={248}
+          onResize={onResize}
+          onResizeEnd={onResizeEnd}
+        />
+      )
+      const handle = screen.getByRole("separator")
+      fireEvent.pointerDown(handle, { button: 0, clientX: 248, pointerId: 7 })
+      fireEvent.pointerMove(handle, { clientX: 320, pointerId: 7 })
+      fireEvent[eventName](handle, { pointerId: 8 })
+      expect(onResizeEnd).not.toHaveBeenCalled()
+      fireEvent[eventName](handle, { pointerId: 7 })
+      act(() => vi.advanceTimersToNextFrame())
+      expect(onResize).toHaveBeenCalledExactlyOnceWith(320)
+      expect(onResizeEnd).toHaveBeenCalledExactlyOnceWith(320)
+      expect(handle).not.toHaveAttribute("data-resizing")
+    }
+  )
+
+  it("cancels scheduled resize work when unmounted", () => {
+    const onResize = vi.fn()
+    const { unmount } = render(
+      <SidebarResizer label="Resize" value={248} onResize={onResize} />
+    )
+    const handle = screen.getByRole("separator")
+    fireEvent.pointerDown(handle, { button: 0, clientX: 248, pointerId: 7 })
+    fireEvent.pointerMove(handle, { clientX: 320, pointerId: 7 })
+    unmount()
+    act(() => vi.advanceTimersToNextFrame())
+    expect(onResize).not.toHaveBeenCalled()
   })
 
   it("clamps pointer and keyboard resizing to the supported range", () => {

@@ -39,7 +39,11 @@ export function createInteractiveApplicationSubmitter({
     fingerprint: string
     promise: Promise<TurnStartReceipt>
   } | null = null
-  let attempt: { fingerprint: string; idempotencyKey: string } | null = null
+  let attempt: {
+    fingerprint: string
+    idempotencyKey: string
+    accepted: boolean
+  } | null = null
 
   return (input) => {
     const conversation = queryClient.getQueryData<Conversation>([
@@ -81,9 +85,10 @@ export function createInteractiveApplicationSubmitter({
       )
     }
 
-    if (attempt?.fingerprint !== fingerprint) {
+    if (attempt?.fingerprint !== fingerprint || attempt.accepted) {
       attempt = {
         fingerprint,
+        accepted: false,
         idempotencyKey:
           input.idempotency_key ?? `interactive:${crypto.randomUUID()}`,
       }
@@ -146,6 +151,8 @@ export function createInteractiveApplicationSubmitter({
     })
       .then(
         (receipt) => {
+          if (attempt?.idempotencyKey === idempotencyKey)
+            attempt.accepted = true
           if (
             getPendingConversationTurnSubmission(queryClient, conversationId)
               ?.optimisticId === optimisticId

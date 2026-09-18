@@ -27,8 +27,8 @@ const workId = "80000000-0000-4000-8000-000000000001"
 const personalId = "80000000-0000-4000-8000-000000000002"
 const now = "2026-09-09T00:00:00.000Z"
 const initialProjects: Project[] = [
-  { id: workId, name: "工作", created_at: now, updated_at: now },
-  { id: personalId, name: "生活", created_at: now, updated_at: now },
+  { id: workId, name: "工作", icon: "folder", color: "default", created_at: now, updated_at: now },
+  { id: personalId, name: "生活", icon: "folder", color: "default", created_at: now, updated_at: now },
 ]
 
 function installProjectApi(
@@ -116,7 +116,7 @@ function installProjectApi(
           )
           return new Response(null, { status: 204 })
         }
-        const { name } = projectInputSchema.parse(body)
+        const { name, icon, color } = projectInputSchema.parse(body)
         if (
           projects.some(
             (project) => project.name === name && project.id !== id
@@ -126,9 +126,11 @@ function installProjectApi(
             { success: false, error_code: "PROJECT_NAME_EXISTS" },
             409
           )
-        const project = {
+        const project: Project = {
           id: method === "POST" ? "80000000-0000-4000-8000-000000000003" : id!,
           name,
+          icon: icon ?? projects.find((item) => item.id === id)?.icon ?? "folder",
+          color: color ?? projects.find((item) => item.id === id)?.color ?? "default",
           created_at: now,
           updated_at: now,
         }
@@ -358,6 +360,37 @@ async function dragFirstTaskToPersonalProject() {
 }
 
 describe("task projects", () => {
+  it("saves project appearance and reopens it consistently in the sidebar and composer", async () => {
+    const { actions } = installProjectApi()
+    const interaction = userEvent.setup()
+    renderApp("/conversations/new")
+    await chooseProject(interaction, "工作")
+    await interaction.click(await screen.findByRole("button", { name: "工作的更多操作" }))
+    await interaction.click(await screen.findByRole("menuitem", { name: "编辑" }))
+    const dialog = await screen.findByRole("dialog", { name: "编辑项目" })
+    await interaction.click(within(dialog).getByRole("button", { name: "选择项目图标和颜色" }))
+    const picker = await screen.findByRole("dialog", { name: "选择项目图标和颜色" })
+    await interaction.click(within(picker).getByRole("button", { name: "蓝色" }))
+    await interaction.click(within(picker).getByRole("button", { name: "花朵" }))
+    await interaction.click(within(picker).getByRole("button", { name: "完成" }))
+    expect(actions.filter((action) => action.method === "PATCH")).toHaveLength(0)
+    await interaction.click(within(dialog).getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    expect(actions).toContainEqual({ path: `/api/v1/projects/${workId}`, method: "PATCH", body: { name: "工作", icon: "flower", color: "blue" } })
+    expect(screen.getByRole("button", { name: "工作" }).querySelector("svg")).toHaveAttribute("data-project-icon", "flower")
+    expect(screen.getByRole("combobox", { name: "项目" }).querySelector("svg")).toHaveAttribute("data-project-color", "blue")
+    await interaction.click(screen.getByRole("button", { name: "工作的更多操作" }))
+    await interaction.click(await screen.findByRole("menuitem", { name: "编辑" }))
+    const reopened = await screen.findByRole("dialog", { name: "编辑项目" })
+    expect(within(reopened).getByRole("button", { name: "选择项目图标和颜色" }).querySelector("svg")).toHaveAttribute("data-project-icon", "flower")
+    await interaction.click(within(reopened).getByRole("button", { name: "选择项目图标和颜色" }))
+    await interaction.click(await screen.findByRole("button", { name: "红色" }))
+    await interaction.click(screen.getByRole("button", { name: "完成" }))
+    await interaction.click(within(reopened).getByRole("button", { name: "取消" }))
+    expect(actions.filter((action) => action.method === "PATCH")).toHaveLength(1)
+    expect(screen.getByRole("combobox", { name: "项目" }).querySelector("svg")).toHaveAttribute("data-project-color", "blue")
+  })
+
   setupApplicationTests()
 
   it("waits for the remembered project to load before submitting a new task", async () => {
@@ -455,7 +488,7 @@ describe("task projects", () => {
 
   it.each([
     { projectId: workId, label: "工作" },
-    { projectId: null, label: "公共空间任务" },
+    { projectId: null, label: "选择项目" },
   ])(
     "inherits $label from the task detail instead of the last manual choice",
     async ({ projectId, label }) => {
@@ -767,15 +800,22 @@ describe("task projects", () => {
       await interaction.hover(trigger)
       const clear = await screen.findByRole("button", { name: "取消项目选择" })
       expect(trigger).not.toContainElement(clear)
+      // Pressing must not replace a centering transform and move the click target.
+      expect(clear).toHaveClass("inset-y-0", "my-auto")
+      expect(clear).not.toHaveClass("-translate-y-1/2")
+      expect(clear).not.toHaveClass("active:not-aria-[haspopup]:translate-y-px")
       if (keyboard) {
         trigger.focus()
         await interaction.tab()
         expect(clear).toHaveFocus()
         await interaction.keyboard("{Enter}")
       } else {
-        await interaction.click(clear)
+        await interaction.pointer({ target: clear, keys: "[MouseLeft>]" })
+        expect(trigger).toHaveTextContent("工作")
+        expect(clear).toHaveFocus()
+        await interaction.pointer({ target: clear, keys: "[/MouseLeft]" })
       }
-      await waitFor(() => expect(trigger).toHaveTextContent("公共空间任务"))
+      await waitFor(() => expect(trigger).toHaveTextContent("选择项目"))
       expect(
         screen.queryByRole("dialog", { name: "项目" })
       ).not.toBeInTheDocument()
@@ -833,7 +873,7 @@ describe("task projects", () => {
     expect(actions).toContainEqual({
       path: "/api/v1/projects",
       method: "POST",
-      body: { name: "研究" },
+      body: { name: "研究", icon: "folder", color: "default" },
     })
     expect(
       requests.some(
@@ -978,26 +1018,27 @@ describe("task projects", () => {
     expect(actions).toContainEqual({
       path: "/api/v1/projects",
       method: "POST",
-      body: { name: "研究" },
+      body: { name: "研究", icon: "folder", color: "default" },
     })
     expect(await screen.findByRole("button", { name: "研究" })).toBeVisible()
     await chooseProject(interaction, "研究")
     expect(composer).toHaveValue("保留这段任务内容")
   })
 
-  it("keeps duplicate-name errors in the rename dialog and allows correction", async () => {
+  it("keeps duplicate-name errors in the edit dialog and allows correction", async () => {
     installProjectApi()
     const interaction = userEvent.setup()
     renderApp()
+    const projectFolder = await screen.findByRole("region", { name: "工作" })
     await interaction.click(
       await screen.findByRole("button", {
         name: "工作的更多操作",
       })
     )
     await interaction.click(
-      await screen.findByRole("menuitem", { name: "重命名" })
+      await screen.findByRole("menuitem", { name: "编辑" })
     )
-    const dialog = await screen.findByRole("dialog", { name: "重命名项目" })
+    const dialog = await screen.findByRole("dialog", { name: "编辑项目" })
     const input = within(dialog).getByRole("textbox", { name: "项目名称" })
     await interaction.clear(input)
     await interaction.type(input, "生活")
@@ -1012,18 +1053,38 @@ describe("task projects", () => {
     await interaction.click(
       within(dialog).getByRole("button", { name: "保存" })
     )
-    expect(await screen.findByRole("button", { name: "项目" })).toBeVisible()
+    expect(
+      await within(projectFolder).findByRole("button", { name: "项目" })
+    ).toBeVisible()
   })
 
-  it("deletes a project and keeps its tasks available in Common workspace", async () => {
+  it("removes a project and moves its existing tasks from Projects to Recent", async () => {
     const { actions } = installProjectApi()
     const interaction = userEvent.setup()
     renderApp()
+    const projectsSection = await screen.findByRole("region", { name: "项目" })
+    const recentSection = screen.getByRole("region", { name: "最近" })
+    expect(
+      await within(projectsSection).findByText(conversations[0].title)
+    ).toBeVisible()
+    expect(
+      within(recentSection).queryByText(conversations[0].title)
+    ).not.toBeInTheDocument()
+    expect(
+      await within(recentSection).findByText(conversations[1].title)
+    ).toBeVisible()
+    expect(
+      within(projectsSection).queryByText(conversations[1].title)
+    ).not.toBeInTheDocument()
+    expect(
+      projectsSection.compareDocumentPosition(recentSection) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
     await interaction.click(
       await screen.findByRole("button", { name: "工作的更多操作" })
     )
     await interaction.click(
-      await screen.findByRole("menuitem", { name: "删除" })
+      await screen.findByRole("menuitem", { name: "移除项目" })
     )
     const dialog = await screen.findByRole("dialog", { name: "移除项目" })
     expect(dialog).toHaveTextContent("消息记录和原项目文件都会保留")
@@ -1039,8 +1100,13 @@ describe("task projects", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     )
     expect(
-      screen.getByRole("link", { name: new RegExp(conversations[0].title) })
+      within(recentSection).getByRole("link", {
+        name: new RegExp(conversations[0].title),
+      })
     ).toBeVisible()
+    expect(
+      within(projectsSection).queryByText(conversations[0].title)
+    ).not.toBeInTheDocument()
     expect(actions.filter((action) => action.method === "DELETE")).toHaveLength(
       1
     )

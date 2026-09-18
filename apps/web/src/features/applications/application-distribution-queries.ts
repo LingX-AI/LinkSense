@@ -5,6 +5,7 @@ import {
   applicationDistributionSummarySchema,
   applicationInstallationUpdateSchema,
   applicationDistributionSettingsSchema,
+  type ApplicationDistributionChannel,
 } from "@linksense/shared"
 import { apiRequest } from "@/api/client"
 import { paginatedSchema } from "@/api/contracts"
@@ -17,6 +18,16 @@ export const applicationDistributionKeys = {
     ["applications", "distribution", "publishable", search] as const,
   settings: (applicationId: string) =>
     ["applications", "distribution", "settings", applicationId] as const,
+  publicationReadiness: (applicationId: string) =>
+    ["applications", "publication-readiness", applicationId] as const,
+  details: (applicationId: string, channel: ApplicationDistributionChannel) =>
+    [
+      "applications",
+      "distribution",
+      "details",
+      applicationId,
+      channel,
+    ] as const,
   center: (search: string) =>
     ["applications", "distribution", "center", search] as const,
   releases: (applicationId: string) =>
@@ -26,7 +37,10 @@ export const applicationDistributionKeys = {
   reviews: ["admin", "application-center"] as const,
 }
 
-export function useApplicationDistributionSettings(applicationId: string) {
+export function useApplicationDistributionSettings(
+  applicationId: string,
+  enabled = true
+) {
   return useQuery({
     queryKey: applicationDistributionKeys.settings(applicationId),
     queryFn: ({ signal }) =>
@@ -34,6 +48,8 @@ export function useApplicationDistributionSettings(applicationId: string) {
         schema: applicationDistributionSettingsSchema,
         signal,
       }),
+    enabled: enabled && Boolean(applicationId),
+    refetchOnMount: "always",
   })
 }
 export const applicationCenterPageSchema = paginatedSchema(
@@ -60,6 +76,17 @@ export function useApplicationInstallationUpdate(applicationId: string) {
     queryFn: ({ signal }) =>
       apiRequest(`/applications/${applicationId}/installation/update`, {
         schema: applicationInstallationUpdateSchema,
+        signal,
+      }),
+  })
+}
+
+export function useAdminApplicationReleases() {
+  return useQuery({
+    queryKey: applicationDistributionKeys.reviews,
+    queryFn: ({ signal }) =>
+      apiRequest("/admin/application-center", {
+        schema: applicationCenterPageSchema,
         signal,
       }),
   })

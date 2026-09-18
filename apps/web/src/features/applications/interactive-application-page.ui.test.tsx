@@ -13,29 +13,17 @@ import { MemoryRouter, Route, Routes } from "react-router-dom"
 import type { ReactNode } from "react"
 
 import type { ConversationEvent } from "@/api/contracts"
+import { ApiError } from "@/api/client"
 import { AuthContext } from "@/app/auth-state"
 import { InteractiveApplicationPage } from "@/features/applications/interactive-application-page"
 import { getPendingConversationTurnSubmission } from "@/features/conversations/conversation-pending-turn-submission"
 import { getPendingConversationExecution } from "@/features/conversations/conversation-pending-execution"
 import i18n from "@/i18n"
 
-const { apiRequest, useConversationEvents } = vi.hoisted(() => ({
+const { apiRequest, observeApplicationEvents } = vi.hoisted(() => ({
   apiRequest: vi.fn(),
-  useConversationEvents: vi.fn(
-    (
-      _conversationId: string | undefined,
-      _onEvent: (event: ConversationEvent) => void,
-      _initialEventId?: string
-    ) => {
-      void _conversationId
-      void _onEvent
-      void _initialEventId
-      return {
-        connectionState: "connected",
-        reconnectingWarningVisible: false,
-      }
-    }
-  ),
+  observeApplicationEvents:
+    vi.fn<(observer?: (event: ConversationEvent) => void) => void>(),
 }))
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -43,20 +31,39 @@ vi.mock("@/api/client", async (importOriginal) => {
   return { ...actual, apiRequest }
 })
 
-vi.mock("@/features/conversations/use-conversation-events", () => ({
-  useConversationEvents,
-}))
-
 vi.mock("@/pages/conversation-pages", () => ({
-  ConversationPage: ({ headerActions }: { headerActions?: ReactNode }) => (
-    <div>
-      <header data-testid="native-conversation-header">
-        <button type="button" aria-label="任务概览" />
-        {headerActions}
-      </header>
-      <div>原生任务聊天</div>
-    </div>
-  ),
+  ConversationPage: ({
+    headerActions,
+    conversationId,
+    embedded,
+    surfaceActive,
+    unavailableMessage,
+    onApplicationEvent,
+  }: {
+    headerActions?: ReactNode
+    conversationId?: string
+    embedded?: boolean
+    surfaceActive?: boolean
+    unavailableMessage?: string
+    onApplicationEvent?: (event: ConversationEvent) => void
+  }) => {
+    observeApplicationEvents(onApplicationEvent)
+    return (
+      <div
+        data-testid="native-conversation"
+        data-conversation={conversationId}
+        data-embedded={embedded}
+        data-surface-active={surfaceActive}
+        data-unavailable-message={unavailableMessage}
+      >
+        <header data-testid="native-conversation-header">
+          <button type="button" aria-label="任务概览" />
+          {headerActions}
+        </header>
+        <div>原生任务聊天</div>
+      </div>
+    )
+  },
 }))
 
 describe("interactive application runtime page", () => {
@@ -92,6 +99,415 @@ describe("interactive application runtime page", () => {
     cleanup()
     vi.restoreAllMocks()
     vi.clearAllMocks()
+  })
+
+  it.each([
+    ["zh-CN", "此应用已被删除"],
+    ["en-US", "This application has been deleted"],
+    ["fr-FR", "此应用已被删除"],
+  ])(
+    "keeps deleted application history readable in %s without requesting a runtime",
+    async (language, notice) => {
+      await i18n.changeLanguage(language)
+      const original = apiRequest.getMockImplementation()!
+      apiRequest.mockImplementation(async (path: string, options?: unknown) => {
+        if (path === `/conversations/${conversationFixture().id}`) {
+          const conversation = conversationFixture()
+          return {
+            ...conversation,
+            application: {
+              ...conversation.application,
+              available: false,
+              unavailable_reason: "APPLICATION_DELETED",
+            },
+          }
+        }
+        if (path === `/applications/${applicationFixture().id}`) {
+          throw new ApiError({
+            status: 404,
+            errorCode: "APPLICATION_NOT_FOUND",
+          })
+        }
+        return original(path, options)
+      })
+      renderPage()
+
+      expect(await screen.findByText(notice)).toBeVisible()
+      const deletedState = screen.getByRole("status")
+      expect(deletedState).toHaveTextContent(notice)
+      expect(deletedState).toHaveClass(
+        "h-full",
+        "items-center",
+        "justify-center",
+        "text-center"
+      )
+      expect(deletedState.className).not.toMatch(/\bbg-/u)
+      expect(screen.getByText(notice).closest('[data-slot="alert"]')).toBeNull()
+      expect(screen.getByTestId("native-conversation")).toHaveAttribute(
+        "data-unavailable-message",
+        notice
+      )
+      expect(screen.getByTestId("native-conversation")).toHaveAttribute(
+        "data-conversation",
+        conversationFixture().id
+      )
+      expect(screen.queryByTitle("研究工作台")).not.toBeInTheDocument()
+      expect(
+        screen.getByText(notice).closest(".interactive-application-workspace")
+      ).not.toBeNull()
+      expect(
+        screen
+          .getByTestId("native-conversation")
+          .closest(".interactive-application-chat-pane")
+      ).not.toBeNull()
+      expect(
+        apiRequest.mock.calls.some(([path]) =>
+          path.endsWith("/interactive-runtime-token")
+        )
+      ).toBe(false)
+    }
+  )
+
+  it("preserves history and blocks further input when the runtime ticket becomes unavailable", async () => {
+    const original = apiRequest.getMockImplementation()!
+    apiRequest.mockImplementation(async (path: string, options?: unknown) => {
+      if (path.endsWith("/interactive-runtime-token")) {
+        throw new ApiError({
+          status: 403,
+          errorCode: "APPLICATION_DEPENDENCY_UNAVAILABLE",
+        })
+      }
+      return original(path, options)
+    })
+    renderPage()
+    await waitFor(() =>
+      expect(screen.getByTestId("native-conversation")).toHaveAttribute(
+        "data-unavailable-message",
+        "该交互式应用当前不可运行，请联系应用创建者。"
+      )
+    )
+    expect(screen.queryByTitle("研究工作台")).not.toBeInTheDocument()
+    expect(screen.queryByText("此应用已被删除")).not.toBeInTheDocument()
+    const notice = screen.getByRole("status")
+    expect(notice).toHaveClass("items-center", "justify-center", "text-center")
+    expect(notice.className).not.toMatch(/\bbg-/u)
+  })
+
+  it.each(["zh-CN", "en-US", "fr-FR"])(
+    "shows the center removal reason without a background and retains history in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const original = apiRequest.getMockImplementation()!
+      apiRequest.mockImplementation(async (path: string, options?: unknown) => {
+        if (path.endsWith("/interactive-runtime-token"))
+          throw new ApiError({
+            status: 403,
+            errorCode: "APPLICATION_CENTER_UNAVAILABLE",
+          })
+        return original(path, options)
+      })
+      renderPage()
+      const message = i18n.t("errors.application.centerUnavailable")
+      expect(await screen.findByText(message)).toBeVisible()
+      const notice = screen.getByRole("status")
+      expect(notice).toHaveTextContent(message)
+      expect(notice).toHaveClass(
+        "h-full",
+        "items-center",
+        "justify-center",
+        "text-center"
+      )
+      expect(notice.className).not.toMatch(/\bbg-/u)
+      expect(notice.querySelector('[data-slot="alert"]')).toBeNull()
+      expect(screen.getByTestId("native-conversation")).toHaveAttribute(
+        "data-unavailable-message",
+        message
+      )
+      expect(screen.getByTestId("native-conversation")).toHaveAttribute(
+        "data-conversation",
+        conversationFixture().id
+      )
+      expect(screen.queryByTitle("研究工作台")).not.toBeInTheDocument()
+    }
+  )
+
+  it("removes a previously rendered application after deletion while keeping the chat pane", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    renderPage(queryClient)
+    await screen.findByTitle("研究工作台")
+    const conversation = conversationFixture()
+    act(() =>
+      queryClient.setQueryData(["conversation", conversation.id], {
+        ...conversation,
+        application: {
+          ...conversation.application,
+          available: false,
+          unavailable_reason: "APPLICATION_DELETED",
+        },
+      })
+    )
+    expect(await screen.findByText("此应用已被删除")).toBeVisible()
+    expect(screen.queryByTitle("研究工作台")).not.toBeInTheDocument()
+    expect(screen.getByTestId("native-conversation")).toBeVisible()
+    expect(screen.getByTestId("native-conversation")).toHaveAttribute(
+      "data-unavailable-message",
+      "此应用已被删除"
+    )
+  })
+
+  it("retains history without labelling an inaccessible application as deleted", async () => {
+    const original = apiRequest.getMockImplementation()!
+    apiRequest.mockImplementation(async (path: string, options?: unknown) => {
+      if (path === `/applications/${applicationFixture().id}`) {
+        throw new ApiError({ status: 404, errorCode: "APPLICATION_NOT_FOUND" })
+      }
+      return original(path, options)
+    })
+    renderPage()
+    expect(
+      await screen.findByText("该交互式应用当前不可运行，请联系应用创建者。")
+    ).toBeVisible()
+    expect(screen.getByTestId("native-conversation")).toHaveAttribute(
+      "data-unavailable-message",
+      "该交互式应用当前不可运行，请联系应用创建者。"
+    )
+    expect(screen.queryByText("此应用已被删除")).not.toBeInTheDocument()
+    expect(
+      apiRequest.mock.calls.some(([path]) =>
+        path.endsWith("/interactive-runtime-token")
+      )
+    ).toBe(false)
+  })
+
+  it("does not display history when the conversation itself is inaccessible", async () => {
+    const original = apiRequest.getMockImplementation()!
+    apiRequest.mockImplementation(async (path: string, options?: unknown) => {
+      if (path.startsWith("/conversations/")) {
+        throw new ApiError({ status: 404, errorCode: "CONVERSATION_NOT_FOUND" })
+      }
+      return original(path, options)
+    })
+    renderPage()
+    expect(await screen.findByRole("alert")).toBeVisible()
+    expect(screen.queryByTestId("native-conversation")).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ["zh-CN", "显示对话"],
+    ["en-US", "Show conversation"],
+    ["fr-FR", "显示对话"],
+  ])(
+    "keeps the localized floating conversation button opaque on hover in %s",
+    async (language, label) => {
+      await i18n.changeLanguage(language)
+      renderPage(undefined, {
+        runtimeProps: {
+          applicationId: applicationFixture().id,
+          conversationId: conversationFixture().id,
+          onDiagnostic: vi.fn(),
+        },
+      })
+      const button = await screen.findByRole("button", { name: label })
+      await userEvent.hover(button)
+      expect(button).toHaveClass(
+        "bg-[var(--app-canvas)]",
+        "hover:bg-[var(--app-canvas)]"
+      )
+      expect(button).not.toHaveClass("dark:bg-transparent")
+      expect(button).not.toHaveClass("hover:bg-[var(--app-hover)]")
+    }
+  )
+
+  it.each(["account", "conversation", "neither"])(
+    "isolates runtime tickets by account and conversation (changed scope: %s)",
+    async (changedScope) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      const original = apiRequest.getMockImplementation()!
+      let ticketCount = 0
+      apiRequest.mockImplementation(async (path: string, options?: unknown) => {
+        const result = await original(path, options)
+        if (path.endsWith("/interactive-runtime-token")) {
+          ticketCount += 1
+          return {
+            ...result,
+            runtime_url: `/api/v1/interactive-app-runtime/ticket-${ticketCount}/index.html`,
+          }
+        }
+        return result
+      })
+
+      const firstPage = renderPage(queryClient)
+      expect(await screen.findByTitle("研究工作台")).toHaveAttribute(
+        "src",
+        "/api/v1/interactive-app-runtime/ticket-1/index.html"
+      )
+      firstPage.unmount()
+      renderPage(queryClient, {
+        ...(changedScope === "account"
+          ? { userId: "10000000-0000-4000-8000-000000000002" }
+          : changedScope === "conversation"
+            ? { conversationId: "30000000-0000-4000-8000-000000000002" }
+            : {}),
+      })
+
+      const expectedTicketCount = changedScope === "neither" ? 1 : 2
+      await waitFor(() =>
+        expect(screen.getByTitle("研究工作台")).toHaveAttribute(
+          "src",
+          `/api/v1/interactive-app-runtime/ticket-${expectedTicketCount}/index.html`
+        )
+      )
+      expect(ticketCount).toBe(expectedTicketCount)
+    }
+  )
+
+  it("recreates the application frame and chat state when the active account changes", async () => {
+    const page = renderPage()
+    const previousFrame = await screen.findByTitle("研究工作台")
+    await userEvent.click(screen.getByRole("button", { name: "隐藏聊天" }))
+
+    page.changeUser("10000000-0000-4000-8000-000000000002")
+
+    await waitFor(() =>
+      expect(screen.getByTitle("研究工作台")).not.toBe(previousFrame)
+    )
+    expect(previousFrame).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "隐藏聊天" })).toBeVisible()
+  })
+
+  it("loads edited preview assets when the package changes within the same unused conversation", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const original = apiRequest.getMockImplementation()!
+    const conversation = conversationFixture()
+    let packageId = conversation.application.package_id
+    apiRequest.mockImplementation(async (path: string, options?: unknown) => {
+      const result = await original(path, options)
+      if (path.endsWith("/interactive-runtime-token"))
+        return {
+          ...result,
+          runtime_url: `/api/v1/interactive-app-runtime/${packageId}/index.html`,
+        }
+      if (path.startsWith("/conversations/"))
+        return {
+          ...conversation,
+          application: { ...conversation.application, package_id: packageId },
+        }
+      return result
+    })
+    renderPage(client, {
+      runtimeProps: {
+        applicationId: conversation.application.id,
+        conversationId: conversation.id,
+        onDiagnostic: vi.fn(),
+      },
+    })
+    expect(await screen.findByTitle("研究工作台")).toHaveAttribute(
+      "src",
+      `/api/v1/interactive-app-runtime/${packageId}/index.html`
+    )
+    packageId = "40000000-0000-4000-8000-000000000002"
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: ["conversation", conversation.id],
+      })
+    })
+    await waitFor(() =>
+      expect(screen.getByTitle("研究工作台")).toHaveAttribute(
+        "src",
+        `/api/v1/interactive-app-runtime/${packageId}/index.html`
+      )
+    )
+    expect(apiRequest).toHaveBeenLastCalledWith(
+      `/applications/${conversation.application.id}/interactive-runtime-token`,
+      expect.objectContaining({
+        body: { package_id: packageId, conversation_id: conversation.id },
+      })
+    )
+    expect(screen.getByRole("button", { name: "显示对话" })).toBeVisible()
+  })
+
+  it("cancels a pending runtime ticket request when the application closes", async () => {
+    const original = apiRequest.getMockImplementation()!
+    let requestSignal: AbortSignal | undefined
+    apiRequest.mockImplementation(
+      async (path: string, options?: { signal?: AbortSignal }) => {
+        if (path.endsWith("/interactive-runtime-token")) {
+          requestSignal = options?.signal
+          return new Promise<never>(() => undefined)
+        }
+        return original(path, options)
+      }
+    )
+    const page = renderPage()
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith(
+        expect.stringContaining("/interactive-runtime-token"),
+        expect.any(Object)
+      )
+    )
+    page.unmount()
+
+    expect(requestSignal?.aborted).toBe(true)
+  })
+
+  it("isolates development preview chat from the route and accepts diagnostics only from its own frame", async () => {
+    const onDiagnostic = vi.fn()
+    const previewConversationId = "30000000-0000-4000-8000-000000000002"
+    renderPage(undefined, {
+      runtimeProps: {
+        applicationId: "20000000-0000-4000-8000-000000000001",
+        conversationId: previewConversationId,
+        onDiagnostic,
+      },
+    })
+    const frame = await screen.findByTitle("研究工作台")
+    expect(apiRequest).toHaveBeenCalledWith(
+      expect.stringContaining(previewConversationId),
+      expect.anything()
+    )
+    expect(screen.getByRole("button", { name: "显示对话" })).toBeVisible()
+    expect(screen.getByTestId("native-conversation")).toHaveAttribute(
+      "data-conversation",
+      previewConversationId
+    )
+    expect(screen.getByTestId("native-conversation")).toHaveAttribute(
+      "data-embedded",
+      "true"
+    )
+    expect(screen.getByTestId("native-conversation")).toHaveAttribute(
+      "data-surface-active",
+      "false"
+    )
+    const diagnostic = { message: "Example failure", file: "app.js", line: 2 }
+    const report = (source: Window, value: unknown) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source,
+          data: {
+            protocol: "linksense:development",
+            type: "diagnostic",
+            diagnostic: value,
+          },
+        })
+      )
+    act(() => {
+      report(window, diagnostic)
+      report((frame as HTMLIFrameElement).contentWindow!, { message: 123 })
+      report((frame as HTMLIFrameElement).contentWindow!, diagnostic)
+    })
+    expect(onDiagnostic).toHaveBeenCalledOnce()
+    expect(onDiagnostic).toHaveBeenCalledWith(diagnostic)
+    await userEvent.click(screen.getByRole("button", { name: "显示对话" }))
+    expect(screen.getByTestId("native-conversation")).toHaveAttribute(
+      "data-surface-active",
+      "true"
+    )
   })
 
   it.each([false, true])(
@@ -361,7 +777,7 @@ describe("interactive application runtime page", () => {
     await interaction.click(hideButton)
     expect(layout).toHaveAttribute("data-chat-open", "false")
     expect(chat.parentElement).toHaveAttribute("aria-hidden", "true")
-    const show = screen.getByRole("button", { name: "显示聊天" })
+    const show = screen.getByRole("button", { name: "显示对话" })
     expect(show).toBeVisible()
     expect(show).toHaveClass(
       "h-7",
@@ -420,7 +836,7 @@ describe("interactive application runtime page", () => {
     expect(layout).not.toHaveAttribute("data-chat-resizing")
 
     await interaction.click(screen.getByRole("button", { name: "隐藏聊天" }))
-    await interaction.click(screen.getByRole("button", { name: "显示聊天" }))
+    await interaction.click(screen.getByRole("button", { name: "显示对话" }))
     expect(screen.getByTitle("研究工作台")).toBe(frame)
     expect(layout).toHaveStyle(
       "--interactive-application-workspace-width: 947px"
@@ -455,13 +871,7 @@ describe("interactive application runtime page", () => {
       postMessage.mock.calls
         .map(([value]) => value as Record<string, unknown>)
         .filter((value) => value.type === "custom-event")
-    const subscription = useConversationEvents.mock.calls.find(
-      ([conversationId]) =>
-        conversationId === "30000000-0000-4000-8000-000000000001"
-    )
-    expect(subscription?.[2]).toBe("")
-    const onEvent = subscription?.[1] as
-      ((event: ConversationEvent) => void) | undefined
+    const onEvent = observeApplicationEvents.mock.calls.at(-1)?.[0]
     expect(onEvent).toBeTypeOf("function")
 
     const first = customEvent({
@@ -498,12 +908,7 @@ describe("interactive application runtime page", () => {
       event: { id: "50000000-0000-4000-8000-000000000001", sequence: 7 },
     })
 
-    const liveOnEvent = useConversationEvents.mock.calls
-      .filter(
-        ([conversationId]) =>
-          conversationId === "30000000-0000-4000-8000-000000000001"
-      )
-      .at(-1)?.[1]
+    const liveOnEvent = observeApplicationEvents.mock.calls.at(-1)?.[0]
     act(() => {
       liveOnEvent?.(
         customEvent({
@@ -610,14 +1015,23 @@ function dispatchFrameMessage(
 function renderPage(
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
-  })
+  }),
+  {
+    userId = "10000000-0000-4000-8000-000000000001",
+    conversationId = "30000000-0000-4000-8000-000000000001",
+    runtimeProps = {},
+  }: {
+    userId?: string
+    conversationId?: string
+    runtimeProps?: React.ComponentProps<typeof InteractiveApplicationPage>
+  } = {}
 ) {
-  return render(
+  const tree = (currentUserId: string) => (
     <AuthContext.Provider
       value={{
         status: "authenticated",
         user: {
-          id: "10000000-0000-4000-8000-000000000001",
+          id: currentUserId,
           name: "测试用户",
           email: "user@example.test",
           role: "user",
@@ -639,19 +1053,24 @@ function renderPage(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter
           initialEntries={[
-            "/applications/20000000-0000-4000-8000-000000000001/run/30000000-0000-4000-8000-000000000001",
+            `/applications/20000000-0000-4000-8000-000000000001/run/${conversationId}`,
           ]}
         >
           <Routes>
             <Route
               path="/applications/:applicationId/run/:conversationId"
-              element={<InteractiveApplicationPage />}
+              element={<InteractiveApplicationPage {...runtimeProps} />}
             />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>
     </AuthContext.Provider>
   )
+  const view = render(tree(userId))
+  return {
+    ...view,
+    changeUser: (nextUserId: string) => view.rerender(tree(nextUserId)),
+  }
 }
 
 function mockSplitLayoutWidth(width: number) {

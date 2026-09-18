@@ -70,10 +70,11 @@ function DependencyField({
   const { t } = useTranslation()
   const id = useId()
   const [search, setSearch] = useState("")
+  const initialResource = item.resource_id
+    ? { id: item.resource_id, name: item.resource_name ?? item.name }
+    : null
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(
-    item.resource_id
-      ? { id: item.resource_id, name: item.resource_name ?? item.name }
-      : null
+    initialResource
   )
   const [changed, setChanged] = useState(false)
   const configured = selected !== null && (changed || item.available)
@@ -90,9 +91,12 @@ function DependencyField({
   })
   const options = [
     ...new Map(
-      [...(selected ? [selected] : []), ...(query.data?.items ?? [])].map(
-        (option) => [option.id, option]
-      )
+      [
+        // The original match may be outside the first page of search results.
+        ...(item.available && initialResource ? [initialResource] : []),
+        ...(selected ? [selected] : []),
+        ...(query.data?.items ?? []),
+      ].map((option) => [option.id, option])
     ).values(),
   ]
   const choose = (option: { id: string; name: string } | null) => {
@@ -129,7 +133,13 @@ function DependencyField({
           value={selected}
           onValueChange={choose}
           disabled={disabled}
-          onInputValueChange={setSearch}
+          onInputValueChange={(value, details) => {
+            // Selecting an item also fills the input; only typing is a search.
+            setSearch(details.reason === "input-change" ? value : "")
+          }}
+          onOpenChange={(open) => {
+            if (!open) setSearch("")
+          }}
           itemToStringLabel={(option) => option.name}
           itemToStringValue={(option) => option.id}
           isItemEqualToValue={(option, value) => option.id === value.id}

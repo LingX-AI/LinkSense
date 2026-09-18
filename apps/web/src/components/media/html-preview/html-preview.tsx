@@ -1,4 +1,3 @@
-import tailwindBrowserRuntimeUrl from "@tailwindcss/browser?url"
 import { MessageCirclePlusIcon } from "lucide-react"
 import {
   useCallback,
@@ -20,6 +19,7 @@ import {
 } from "@/components/media/html-preview/html-preview-fit"
 import {
   htmlSelectionAnchor,
+  htmlSelectionKey,
   parseHtmlPreviewSelectionMessage,
   postHtmlPreviewAnnotationMode,
   postHtmlPreviewSelectionClear,
@@ -79,6 +79,7 @@ export type HtmlPreviewProps = Readonly<{
   selectionAction?: HtmlSelectionAction
   annotationMarkers?: readonly HtmlAnnotationMarker[]
   annotationNavigation?: OfficeAnnotationNavigationRequest | null
+  toolbarActions?: ReactNode
   floatingContent?: ReactNode
   onRetry?: () => void
   onDownload?: () => void
@@ -94,6 +95,7 @@ export function HtmlPreview({
   annotationMarkers = emptyHtmlAnnotationMarkers,
   annotationNavigation,
   floatingContent,
+  toolbarActions,
   onRetry,
   onDownload,
   updateAction,
@@ -145,7 +147,6 @@ export function HtmlPreview({
     try {
       return buildUnrestrictedHtmlPreviewDocument(
         decodedHtml,
-        tailwindBrowserRuntimeUrl,
         selectoBrowserRuntimeUrl
       )
     } catch {
@@ -450,12 +451,6 @@ export function HtmlPreview({
     interactionFrameStatus,
   ])
 
-  const selectionKey = selection
-    ? selection.elements
-        .map((element) => `${element.selector}:${element.domPath.join(".")}`)
-        .join("\u0000")
-    : null
-
   return (
     <OfficePreviewShell
       ref={paneRef}
@@ -471,6 +466,7 @@ export function HtmlPreview({
       floatingContent={floatingContent}
       controls={
         <>
+          {toolbarActions}
           {selectionAction && (
             <Button
               type="button"
@@ -579,7 +575,7 @@ export function HtmlPreview({
       )}
       {annotationMode && selection && selectionAction && (
         <OfficeSelectionPrompt
-          key={selectionKey}
+          key={htmlSelectionKey(selection)}
           scopeRef={paneRef}
           selection={selection}
           anchor={selectionAnchor}

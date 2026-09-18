@@ -17,6 +17,8 @@ const buttonVariants = cva(
           "border-foreground/35 bg-background hover:border-foreground/50 hover:bg-hover hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-transparent",
         "card-outline":
           "border-[color:var(--app-border)] bg-card hover:border-foreground/20 hover:bg-hover hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground",
+        floating:
+          "border-[color:var(--app-border)] bg-[var(--app-canvas)] text-foreground shadow-[var(--app-shadow)] hover:border-foreground/20 hover:bg-[var(--app-canvas)]",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         input:

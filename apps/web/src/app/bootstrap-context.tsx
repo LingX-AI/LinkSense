@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 
-import { apiRequest } from "@/api/client"
+import { apiRequest, ApiError } from "@/api/client"
 import { bootstrapSchema } from "@/api/contracts"
 import { BootstrapContext } from "@/app/bootstrap-state"
 import { applyProductMetadata } from "@/app/product-branding"
@@ -20,7 +20,12 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: "always",
     refetchOnReconnect: "always",
-    retry: 1,
+    retry: (count, error) =>
+      count < 1 &&
+      !(
+        error instanceof ApiError &&
+        error.errorCode === "CLIENT_UPDATE_REQUIRED"
+      ),
   })
   const systemName = query.data?.system_name
 

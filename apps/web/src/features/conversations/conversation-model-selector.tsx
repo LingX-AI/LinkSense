@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { memo, useState } from "react"
 import { ChevronDownIcon, ChevronRightIcon, RotateCcwIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
@@ -39,84 +39,97 @@ import { cn } from "@/lib/utils"
 import { formatTokenCount, type UsageNumberLanguage } from "@/lib/usage-number"
 import type { ConversationModelContextUsage } from "@/features/conversations/conversation-context-usage"
 
-export function ConversationModelSelector({
-  preference,
-  pending,
-  onChange,
-  contextUsage,
-}: {
-  preference: ModelPreference
-  pending: boolean
-  onChange: (model: string, reasoningEffort: ReasoningEffort) => void
-  contextUsage?: ConversationModelContextUsage | null
-}) {
-  const { t } = useTranslation()
-  const selectedModel = preference.models.find(
-    (model) => model.id === preference.selected_model
-  )
-  const selectedReasoningEffort = preference.selected_reasoning_effort
-
-  if (!preference.configured || !selectedModel || !selectedReasoningEffort) {
-    return (
-      <Button
-        type="button"
-        variant="secondary"
-        size="sm"
-        className="h-8 rounded-full px-3 text-xs"
-        disabled
-      >
-        {t("conversation.modelNotConfigured")}
-      </Button>
+export const ConversationModelSelector = memo(
+  function ConversationModelSelector({
+    preference,
+    pending,
+    onChange,
+    contextUsage,
+  }: {
+    preference: ModelPreference
+    pending: boolean
+    onChange: (model: string, reasoningEffort: ReasoningEffort) => void
+    contextUsage?: ConversationModelContextUsage | null
+  }) {
+    const { t } = useTranslation()
+    const selectedModel = preference.models.find(
+      (model) => model.id === preference.selected_model
     )
-  }
+    const selectedReasoningEffort = preference.selected_reasoning_effort
 
-  return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <ModelContextUsageIndicator
-        model={selectedModel}
-        contextUsage={contextUsage}
-      />
-      <Popover>
-        <PopoverTrigger
-          render={
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 w-fit max-w-[min(20rem,calc(100vw-6rem))] rounded-full bg-muted/40 px-3 text-xs font-medium hover:bg-hover aria-expanded:bg-muted/60"
-              aria-label={t("conversation.modelSelector")}
-              disabled={pending}
-            />
+    if (!preference.configured || !selectedModel || !selectedReasoningEffort) {
+      return (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="h-8 rounded-full px-3 text-xs"
+          disabled
+        >
+          {t("conversation.modelNotConfigured")}
+        </Button>
+      )
+    }
+
+    return (
+      <div className="flex min-w-0 items-center gap-1.5">
+        <ModelContextUsageIndicator
+          totalTokens={
+            contextUsage?.modelContextWindow ?? selectedModel.context_window
           }
-        >
-          <span className="truncate">{selectedModel.display_name}</span>
-          <span className="text-muted-foreground">
-            {t(`reasoningEffort.${selectedReasoningEffort}`)}
-          </span>
-          <ChevronDownIcon className="size-3.5" aria-hidden="true" />
-        </PopoverTrigger>
-        <PopoverContent
-          side="top"
-          align="end"
-          sideOffset={8}
-          className="w-[min(14rem,calc(100vw-2rem))] gap-2 rounded-2xl px-3 py-2.5"
-        >
-          <PopoverTitle className="sr-only">
-            {t("conversation.modelSelector")}
-          </PopoverTitle>
-          <ModelReasoningControls
-            key={selectedModel.id}
-            models={preference.models}
-            model={selectedModel}
-            effort={selectedReasoningEffort}
-            pending={pending}
-            onChange={onChange}
-          />
-        </PopoverContent>
-      </Popover>
-    </div>
-  )
-}
+          usedTokens={contextUsage?.usedTokens ?? null}
+        />
+        <Popover>
+          <PopoverTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 w-fit max-w-[min(20rem,calc(100vw-6rem))] rounded-full bg-muted/40 px-3 text-xs font-medium hover:bg-hover disabled:opacity-100 aria-expanded:bg-muted/60"
+                aria-label={t("conversation.modelSelector")}
+                aria-busy={pending || undefined}
+                disabled={pending}
+              />
+            }
+          >
+            <span className="truncate">{selectedModel.display_name}</span>
+            <span className="text-muted-foreground">
+              {t(`reasoningEffort.${selectedReasoningEffort}`)}
+            </span>
+            <ChevronDownIcon className="size-3.5" aria-hidden="true" />
+          </PopoverTrigger>
+          <PopoverContent
+            side="top"
+            align="end"
+            sideOffset={8}
+            className="w-[min(14rem,calc(100vw-2rem))] gap-2 rounded-2xl px-3 py-2.5"
+          >
+            <PopoverTitle className="sr-only">
+              {t("conversation.modelSelector")}
+            </PopoverTitle>
+            <ModelReasoningControls
+              key={selectedModel.id}
+              models={preference.models}
+              model={selectedModel}
+              effort={selectedReasoningEffort}
+              pending={pending}
+              onChange={onChange}
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+    )
+  },
+  (previous, next) =>
+    previous.preference === next.preference &&
+    previous.pending === next.pending &&
+    previous.onChange === next.onChange &&
+    previous.contextUsage?.usedTokens === next.contextUsage?.usedTokens &&
+    previous.contextUsage?.modelContextWindow ===
+      next.contextUsage?.modelContextWindow &&
+    previous.contextUsage?.turnId === next.contextUsage?.turnId
+)
 
 function ModelReasoningControls({
   models,
@@ -168,7 +181,7 @@ function ModelReasoningControls({
                 type="button"
                 variant="ghost"
                 size="xs"
-                className="col-start-2 h-auto min-w-0 flex-col gap-0 px-1 py-0 has-data-[icon=inline-end]:pr-1"
+                className="col-start-2 h-auto min-w-0 flex-col gap-0 px-1 py-0 disabled:opacity-100 has-data-[icon=inline-end]:pr-1"
                 aria-label={t("conversation.model")}
                 disabled={pending}
               />
@@ -229,7 +242,12 @@ function ModelReasoningControls({
           type="button"
           variant="ghost"
           size="icon-xs"
-          className="rounded-full text-muted-foreground"
+          className={cn(
+            "rounded-full text-muted-foreground",
+            pending &&
+              previewEffort !== model.default_reasoning_effort &&
+              "disabled:opacity-100"
+          )}
           aria-label={t("conversation.resetReasoningEffort")}
           title={t("conversation.resetReasoningEffort")}
           disabled={pending || previewEffort === model.default_reasoning_effort}
@@ -253,7 +271,12 @@ function ModelReasoningControls({
           if (nextEffort) commitEffort(nextEffort)
         }}
       >
-        <SliderControl className="h-6">
+        <SliderControl
+          className={cn(
+            "h-6",
+            pending && efforts.length > 1 && "data-disabled:opacity-100"
+          )}
+        >
           <SliderTrack className="bg-muted ring-1 ring-border/60 data-horizontal:h-4">
             <SliderRange className="bg-[var(--app-selection)]" />
           </SliderTrack>
@@ -284,17 +307,15 @@ function ModelReasoningControls({
   )
 }
 
-function ModelContextUsageIndicator({
-  model,
-  contextUsage,
+const ModelContextUsageIndicator = memo(function ModelContextUsageIndicator({
+  totalTokens,
+  usedTokens,
 }: {
-  model: ModelPreference["models"][number]
-  contextUsage?: ConversationModelContextUsage | null
+  totalTokens: number | null
+  usedTokens: number | null
 }) {
   const { i18n, t } = useTranslation()
   const language = toUsageNumberLanguage(i18n.language)
-  const totalTokens = contextUsage?.modelContextWindow ?? model.context_window
-  const usedTokens = contextUsage?.usedTokens ?? null
   const percentage =
     usedTokens !== null && totalTokens !== null && totalTokens > 0
       ? Math.round((usedTokens / totalTokens) * 100)
@@ -348,7 +369,7 @@ function ModelContextUsageIndicator({
       </HoverCardContent>
     </HoverCard>
   )
-}
+})
 
 function ContextUsageRing({ percentage }: { percentage: number | null }) {
   const progress =

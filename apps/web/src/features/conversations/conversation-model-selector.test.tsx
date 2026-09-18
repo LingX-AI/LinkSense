@@ -14,6 +14,31 @@ import type { ModelPreference, ReasoningEffort } from "@linksense/shared"
 import { ConversationModelSelector } from "@/features/conversations/conversation-model-selector"
 import i18n from "@/i18n"
 
+const contextUsageRender = vi.hoisted(() => vi.fn())
+const modelSelectorRender = vi.hoisted(() => vi.fn())
+vi.mock("@/components/ui/popover", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@/components/ui/popover")>()
+  return {
+    ...original,
+    Popover: (props: React.ComponentProps<typeof original.Popover>) => {
+      modelSelectorRender()
+      return <original.Popover {...props} />
+    },
+  }
+})
+vi.mock("@/components/ui/hover-card", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@/components/ui/hover-card")>()
+  return {
+    ...original,
+    HoverCard: (props: React.ComponentProps<typeof original.HoverCard>) => {
+      contextUsageRender()
+      return <original.HoverCard {...props} />
+    },
+  }
+})
+
 describe("ConversationModelSelector", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
@@ -33,6 +58,89 @@ describe("ConversationModelSelector", () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+  })
+
+  it("does not rerender context usage while saving effort, but updates changed usage", () => {
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <ConversationModelSelector
+        preference={modelPreference}
+        pending={false}
+        onChange={onChange}
+        contextUsage={modelContextUsage}
+      />
+    )
+    const renders = contextUsageRender.mock.calls.length
+    rerender(
+      <ConversationModelSelector
+        preference={modelPreference}
+        pending
+        onChange={onChange}
+        contextUsage={{ ...modelContextUsage }}
+      />
+    )
+    expect(contextUsageRender).toHaveBeenCalledTimes(renders)
+    rerender(
+      <ConversationModelSelector
+        preference={{ ...modelPreference, selected_reasoning_effort: "high" }}
+        pending={false}
+        onChange={onChange}
+        contextUsage={{ ...modelContextUsage }}
+      />
+    )
+    expect(contextUsageRender).toHaveBeenCalledTimes(renders)
+    expect(
+      screen.getByRole("button", { name: "选择模型与推理强度" })
+    ).toHaveTextContent("高")
+    rerender(
+      <ConversationModelSelector
+        preference={modelPreference}
+        pending={false}
+        onChange={onChange}
+        contextUsage={{ ...modelContextUsage, usedTokens: 129_000 }}
+      />
+    )
+    expect(screen.getByLabelText("背景信息窗口：50% 已用")).toBeVisible()
+    expect(contextUsageRender).toHaveBeenCalledTimes(renders + 1)
+  })
+
+  it("skips unchanged settings from parent renders without retaining an old change callback", async () => {
+    const interaction = userEvent.setup()
+    const initial = vi.fn()
+    const latest = vi.fn()
+    const { rerender } = render(
+      <ConversationModelSelector
+        preference={modelPreference}
+        pending={false}
+        onChange={initial}
+        contextUsage={modelContextUsage}
+      />
+    )
+    const renders = modelSelectorRender.mock.calls.length
+    rerender(
+      <ConversationModelSelector
+        preference={modelPreference}
+        pending={false}
+        onChange={initial}
+        contextUsage={{ ...modelContextUsage }}
+      />
+    )
+    expect(modelSelectorRender).toHaveBeenCalledTimes(renders)
+    rerender(
+      <ConversationModelSelector
+        preference={modelPreference}
+        pending={false}
+        onChange={latest}
+        contextUsage={{ ...modelContextUsage }}
+      />
+    )
+    await interaction.click(
+      screen.getByRole("button", { name: "选择模型与推理强度" })
+    )
+    screen.getByRole("slider", { name: "推理强度" }).focus()
+    await interaction.keyboard("{End}")
+    expect(initial).not.toHaveBeenCalled()
+    expect(latest).toHaveBeenCalledExactlyOnceWith("gpt-5.6-sol", "ultra")
   })
 
   it("shows models in the preference order supplied by model settings", async () => {
@@ -483,6 +591,15 @@ describe("ConversationModelSelector", () => {
       )
       expect(slider).toHaveAttribute("aria-valuetext", "极致")
       expect(slider).toBeDisabled()
+      expect(slider.closest('[data-slot="slider-control"]')).toHaveClass(
+        "data-disabled:opacity-100"
+      )
+      expect(
+        screen.getByRole("button", { name: "选择模型与推理强度" })
+      ).toHaveAttribute("aria-busy", "true")
+      expect(
+        screen.getByRole("button", { name: "选择模型与推理强度" })
+      ).toHaveClass("disabled:opacity-100")
       expect(screen.getByRole("button", { name: "模型" })).toBeDisabled()
       expect(
         screen.getByRole("button", { name: "恢复默认推理强度" })

@@ -62,10 +62,13 @@ const user = userSchema.parse({
 function MaintenanceConfigurationDestination() {
   const location = useLocation()
   return (
-    <h1>
-      {location.pathname}
-      {location.search}
-    </h1>
+    <>
+      <h1>
+        {location.pathname}
+        {location.search}
+      </h1>
+      <Link to="/conversations/new">New task</Link>
+    </>
   )
 }
 
@@ -375,23 +378,67 @@ describe("maintenance route guard", () => {
       await interaction.click(
         within(dialog).getByRole("button", { name: settingsLabel })
       )
-      // The destination is another page entry, so its reminder can be dismissed too.
-      await interaction.click(
-        await screen.findByRole("button", { name: dismissLabel })
-      )
       expect(
         await screen.findByRole("heading", {
           name: "/admin/settings?section=maintenance",
         })
       ).toBeVisible()
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     }
   )
+
+  it.each([
+    "/admin/settings?section=maintenance",
+    "/admin/settings/?section=maintenance",
+    "/admin/settings?other=value&section=maintenance#schedule",
+  ])(
+    "does not show a reminder when opening maintenance settings at %s",
+    (path) => {
+      const view = renderProtected("admin", bootstrap.maintenance, path)
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      view.updateMaintenance({
+        ...bootstrap.maintenance!,
+        reason: "Updated reason",
+      })
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      view.unmount()
+      renderProtected("admin", bootstrap.maintenance, path)
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    }
+  )
+
+  it("keeps maintenance settings usable after repeated navigation without permanently dismissing reminders", async () => {
+    const interaction = userEvent.setup()
+    renderProtected("admin")
+    await interaction.click(
+      await screen.findByRole("button", { name: "维护设置" })
+    )
+    for (let visit = 0; visit < 2; visit++) {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      await interaction.click(
+        screen.getByRole("link", { name: "已开启系统维护" })
+      )
+      expect(
+        screen.getByRole("heading", {
+          name: "/admin/settings?section=maintenance",
+        })
+      ).toBeVisible()
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    }
+    await interaction.click(screen.getByRole("link", { name: "New task" }))
+    expect(
+      await screen.findByRole("dialog", { name: "已开启系统维护" })
+    ).toBeVisible()
+  })
 
   it.each([
     "/conversations/new",
     "/settings/general",
     "/archived",
     "/admin/users",
+    "/admin/settings",
+    "/admin/settings?section=product",
+    "/conversations/new?section=maintenance",
   ])("opens the reminder on authenticated page %s", async (path) => {
     renderProtected("admin", bootstrap.maintenance, path)
     expect(
@@ -527,6 +574,17 @@ describe("maintenance route guard", () => {
       "disabled"
     )
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
+  it("dims the page behind the maintenance dialog without blurring it", async () => {
+    renderProtected("admin")
+    await screen.findByRole("dialog", { name: "已开启系统维护" })
+    const overlay = document.querySelector('[data-slot="dialog-overlay"]')
+    expect(overlay).toHaveClass(
+      "bg-black/30",
+      "supports-backdrop-filter:backdrop-blur-none"
+    )
+    expect(overlay).not.toHaveClass("supports-backdrop-filter:backdrop-blur-sm")
   })
 
   it("supports maintenance without a reason or scheduled dates", async () => {
@@ -693,7 +751,24 @@ describe("maintenance route guard", () => {
     )
   })
 
-  it("keeps long maintenance details scrollable with a decorative warning illustration and separate actions", async () => {
+  it("preserves the maintenance icon proportions without perspective distortion", async () => {
+    renderProtected("admin")
+    const dialog = await screen.findByRole("dialog", { name: "已开启系统维护" })
+    const layers = dialog.querySelectorAll(".lucide-wrench")
+    expect(layers).toHaveLength(2)
+    for (const layer of layers) {
+      expect(layer).toHaveAttribute("viewBox", "0 0 24 24")
+      expect(layer).toHaveAttribute("preserveAspectRatio", "xMidYMid meet")
+      expect(layer.parentElement).toHaveClass("aspect-square", "shrink-0")
+      expect(
+        layer.closest(
+          '[class*="perspective"], [class*="rotate-x"], [class*="rotate-y"]'
+        )
+      ).toBeNull()
+    }
+  })
+
+  it("keeps long maintenance details scrollable beneath a decorative glass maintenance illustration", async () => {
     const reason = "维护说明与检查事项。".repeat(100)
     renderProtected("admin", { ...bootstrap.maintenance!, reason })
     const dialog = await screen.findByRole("dialog", { name: "已开启系统维护" })
@@ -703,10 +778,14 @@ describe("maintenance route guard", () => {
       'div[aria-hidden="true"]'
     )
     expect(decorativeBackground).toHaveClass(
-      "bg-warning/25",
+      "bg-maintenance-hero-base",
+      "aspect-[3/1]",
       "pointer-events-none",
       "overflow-hidden"
     )
+    expect(decorativeBackground?.querySelector("pre")).toBeInTheDocument()
+    expect(illustration).toHaveClass("fill-maintenance-hero-ink/20")
+    expect(dialog.querySelector(".lucide-shield-check")).not.toBeInTheDocument()
     expect(decorativeBackground).not.toContainElement(
       within(dialog).getByRole("button", { name: "关闭" })
     )

@@ -107,8 +107,8 @@ const AdminFeedbackPage = lazy(() =>
   }))
 )
 const ConversationPage = lazy(() =>
-  import("@/pages/conversation-pages").then((module) => ({
-    default: module.ConversationPage,
+  import("@/pages/conversation-workspace").then((module) => ({
+    default: module.ConversationWorkspace,
   }))
 )
 const SharedConversationPage = lazy(() =>

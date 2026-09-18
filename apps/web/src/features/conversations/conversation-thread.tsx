@@ -1,11 +1,14 @@
+import { officeAnnotationDisplayName } from "@linksense/shared"
 import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { AssistantMermaid } from "@/features/conversations/assistant-mermaid"
+import { responseLatency } from "./response-latency"
 import {
   Children,
   createContext,
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useContext,
   useId,
   isValidElement,
@@ -2478,6 +2481,15 @@ const Message = memo(function Message({
   const hasDisplayedUserContent = displayedUserContent.trim().length > 0
   const showMessageActions = !editing && !hideActions
   const assistantActionsPending = !user && message.streaming === true
+  useLayoutEffect(() => {
+    if (!user && message.turn_id && safeAssistantContent.trim()) {
+      responseLatency.record(
+        conversationId,
+        message.turn_id,
+        "ui_first_text_commit"
+      )
+    }
+  }, [conversationId, message.turn_id, safeAssistantContent, user])
 
   const startEditing = () => {
     setOptimisticContent(null)
@@ -2690,22 +2702,25 @@ const Message = memo(function Message({
       {officeAnnotation && !editing ? (
         <OfficeAnnotationCard
           ariaLabel={t(
-            officeAnnotation.kind === "presentation_annotation"
-              ? "conversation.presentationAnnotation"
-              : officeAnnotation.kind === "html_annotation"
-                ? "conversation.htmlAnnotation"
-                : "conversation.officeAnnotation",
+            officeAnnotation.kind === "application_annotation"
+              ? "conversation.applicationAnnotation"
+              : officeAnnotation.kind === "presentation_annotation"
+                ? "conversation.presentationAnnotation"
+                : officeAnnotation.kind === "html_annotation"
+                  ? "conversation.htmlAnnotation"
+                  : "conversation.officeAnnotation",
             {
-              name: officeAnnotation.file_name,
+              name: officeAnnotationDisplayName(officeAnnotation),
             }
           )}
-          fileName={officeAnnotation.file_name}
+          fileName={officeAnnotationDisplayName(officeAnnotation)}
           mimeType={officeFile?.mime_type}
           annotations={officeAnnotationCardItems(officeAnnotation, t)}
           annotationLabel={t(
             officeAnnotation.kind === "presentation_annotation"
               ? "conversation.presentationAnnotationCount"
-              : officeAnnotation.kind === "html_annotation"
+              : officeAnnotation.kind === "html_annotation" ||
+                  officeAnnotation.kind === "application_annotation"
                 ? "conversation.htmlAnnotationCount"
                 : "conversation.officeAnnotationCount",
             {
@@ -2715,11 +2730,12 @@ const Message = memo(function Message({
           openLabel={t(
             officeAnnotation.kind === "presentation_annotation"
               ? "conversation.previewPresentation"
-              : officeAnnotation.kind === "html_annotation"
+              : officeAnnotation.kind === "html_annotation" ||
+                  officeAnnotation.kind === "application_annotation"
                 ? "conversation.previewHtml"
                 : "conversation.previewDocument",
             {
-              name: officeAnnotation.file_name,
+              name: officeAnnotationDisplayName(officeAnnotation),
             }
           )}
           onOpen={
@@ -4642,7 +4658,7 @@ export function ConversationThread({
         onPreviewImage={onPreviewImage}
         onPreviewOfficeDocument={openOfficeDocument}
         officeFile={
-          officeAnnotation
+          officeAnnotation && officeAnnotation.kind !== "application_annotation"
             ? conversationFilesById.get(officeAnnotation.file_id)
             : undefined
         }
@@ -5157,7 +5173,9 @@ export function ConversationThread({
           "conversation-column",
           embedded && "conversation-column-embedded",
           showWelcome && "conversation-column-welcome",
-          blockingPanel && blockingPanelBlocksInput && "conversation-column-blocked"
+          blockingPanel &&
+            blockingPanelBlocksInput &&
+            "conversation-column-blocked"
         )}
       >
         {messages.length === 0 &&

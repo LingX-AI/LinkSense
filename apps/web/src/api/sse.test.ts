@@ -108,6 +108,7 @@ describe("conversation SSE", () => {
     expect(commitCursor).toBeTypeOf("function")
 
     commitCursor?.()
+    await Promise.resolve()
 
     expect(
       window.sessionStorage.getItem(
@@ -115,6 +116,45 @@ describe("conversation SSE", () => {
       )
     ).toBe(`${CONVERSATION_ID}:43`)
     disconnect()
+  })
+
+  it("coalesces cursor writes and never skips an unconsumed event", async () => {
+    const commits: Array<() => void> = []
+    const write = vi.spyOn(window.sessionStorage, "setItem")
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            [41, 42, 43]
+              .map(
+                (sequence) =>
+                  `data: ${JSON.stringify(completedEvent(sequence))}\n\n`
+              )
+              .join("")
+          )
+        )
+      },
+    })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(stream)))
+    const disconnect = connectConversationEvents(CONVERSATION_ID, {
+      onEvent: (_event, commit) => {
+        if (commit) commits.push(commit)
+        return false
+      },
+    })
+    await vi.waitFor(() => expect(commits).toHaveLength(3))
+    commits[2]?.()
+    await Promise.resolve()
+    expect(write).not.toHaveBeenCalled()
+    commits[0]?.()
+    commits[1]?.()
+    await Promise.resolve()
+    expect(write).toHaveBeenCalledExactlyOnceWith(
+      `linksense.sse.${CONVERSATION_ID}.lastEventId`,
+      `${CONVERSATION_ID}:43`
+    )
+    disconnect()
+    write.mockRestore()
   })
 
   it("starts after the latest event already returned by the detail API", async () => {
@@ -144,6 +184,60 @@ describe("conversation SSE", () => {
       )
     ).toBe(`${CONVERSATION_ID}:18`)
     disconnect()
+  })
+
+  it("replays an event after its consumer throws without leaving a permanent cursor gap", async () => {
+    vi.useFakeTimers()
+    const stream = (sequences: number[], close: boolean) =>
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              sequences
+                .map(
+                  (sequence) =>
+                    `data: ${JSON.stringify(completedEvent(sequence))}\n\n`
+                )
+                .join("")
+            )
+          )
+          if (close) controller.close()
+        },
+      })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(stream([42], true)))
+      .mockResolvedValueOnce(new Response(stream([42, 43], false)))
+    vi.stubGlobal("fetch", fetchMock)
+    const onEvent = vi
+      .fn<ConversationEventHandlers["onEvent"]>()
+      .mockImplementationOnce(() => {
+        throw new Error("consumer failed")
+      })
+    const disconnect = connectConversationEvents(CONVERSATION_ID, { onEvent })
+    try {
+      await vi.waitFor(() => expect(onEvent).toHaveBeenCalledOnce())
+      expect(
+        window.sessionStorage.getItem(
+          `linksense.sse.${CONVERSATION_ID}.lastEventId`
+        )
+      ).toBeNull()
+      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+      expect(
+        new Headers(fetchMock.mock.calls[1]?.[1].headers).get("Last-Event-ID")
+      ).toBeNull()
+      expect(onEvent.mock.calls.map(([event]) => event.sequence_no)).toEqual([
+        42, 42, 43,
+      ])
+      expect(
+        window.sessionStorage.getItem(
+          `linksense.sse.${CONVERSATION_ID}.lastEventId`
+        )
+      ).toBe(`${CONVERSATION_ID}:43`)
+    } finally {
+      disconnect()
+    }
   })
 
   it("starts from the beginning when the detail API provides an empty cursor", async () => {

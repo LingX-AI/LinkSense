@@ -1,3 +1,5 @@
+import { SiteShareButton } from "@/features/web-sites/site-share-button"
+
 import { useRef } from "react"
 import { useTranslation } from "react-i18next"
 
@@ -40,6 +42,9 @@ export function TaskArtifactPreview({
   return (
     <ConversationFilePreview
       file={file}
+      toolbarActions={
+        <SiteShareButton file={file} conversationId={file.conversation_id} />
+      }
       loadContent={async (candidate, signal) => {
         const blob = await downloadApiFile(
           `/conversations/${file.conversation_id}/files/${candidate.id}/content`,

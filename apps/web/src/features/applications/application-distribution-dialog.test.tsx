@@ -305,69 +305,23 @@ describe("separate application distribution forms", () => {
   })
 
   it.each(["direct", "center"] as const)(
-    "allows the current version and blocks lower or invalid versions in %s",
+    "distributes the selected published version without allowing draft edits in %s",
     async (mode) => {
       await i18n.changeLanguage("zh-CN")
       mockRequests()
       show(mode)
-      const version = await screen.findByRole("textbox", {
-        name: i18n.t("applications.distribution.versionNumber"),
-      })
+      const version = await screen.findByRole("textbox", { name: i18n.t("applications.distribution.versionNumber") })
       expect(version).toHaveValue("1.10.0")
-      expect(screen.getByText("v")).toBeVisible()
-      expect(
-        screen.getByText(
-          i18n.t("applications.distribution.versionSame", { version: "1.10.0" })
-        )
-      ).toBeVisible()
-      if (mode === "center")
-        await userEvent.type(
-          screen.getByRole("textbox", {
-            name: i18n.t("applications.distribution.releaseNotes"),
-          }),
-          "Updated reporting"
-        )
-      const submit = screen.getByRole("button", {
-        name: i18n.t(
-          mode === "direct"
-            ? "applications.distribution.saveSharing"
-            : "applications.distribution.submit"
-        ),
-      })
+      expect(version).toHaveAttribute("readonly")
+      const guide = screen.getByRole("textbox", { name: i18n.t("applications.distribution.guide") })
+      expect(guide).toHaveAttribute("readonly")
+      const submit = screen.getByRole("button", { name: i18n.t(mode === "direct" ? "applications.distribution.saveSharing" : "applications.distribution.submit") })
       await waitFor(() => expect(submit).toBeEnabled())
-      await userEvent.clear(version)
-      expect(submit).toBeDisabled()
-      await userEvent.type(version, "1.9.0")
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        i18n.t("applications.distribution.versionLower", { version: "1.10.0" })
-      )
-      expect(version).toHaveAttribute("aria-invalid", "true")
-      expect(submit).toBeDisabled()
       await userEvent.click(submit)
-      expect(
-        vi
-          .mocked(apiRequest)
-          .mock.calls.some(([, options]) => options?.method === "POST")
-      ).toBe(false)
-      await userEvent.clear(version)
-      await userEvent.type(version, "v1.11.0")
-      expect(version).toHaveValue("1.11.0")
-      expect(submit).toBeEnabled()
-      await userEvent.click(submit)
-      await waitFor(() =>
-        expect(apiRequest).toHaveBeenCalledWith(
-          mode === "direct"
-            ? `/applications/${id}/share`
-            : `/application-center/${id}/submissions`,
-          expect.objectContaining({
-            method: "POST",
-            body: expect.objectContaining({
-              version_number: "1.11.0",
-              usage_instructions: publication.usage_instructions,
-            }),
-          })
-        )
-      )
+      await waitFor(() => expect(apiRequest).toHaveBeenCalledWith(
+        mode === "direct" ? `/applications/${id}/share` : `/application-center/${id}/submissions`,
+        expect.objectContaining({ method: "POST", body: expect.objectContaining({ version_number: "1.10.0", usage_instructions: publication.usage_instructions }) })
+      ))
     }
   )
   it.each(["zh-CN", "en-US"])(
@@ -406,7 +360,7 @@ describe("separate application distribution forms", () => {
     }
   )
   it.each(["direct", "center"] as const)(
-    "retains guide edits and keeps the %s dialog open after a failed submission",
+    "retains the published guide and keeps the %s dialog open after a failed submission",
     async (mode) => {
       await i18n.changeLanguage("zh-CN")
       mockRequests({ failSubmission: true })
@@ -421,12 +375,11 @@ describe("separate application distribution forms", () => {
             : "applications.distribution.submit"
         ),
       })
-      await userEvent.clear(guide)
+      expect(guide).toHaveAttribute("readonly")
       expect(submit).toBeEnabled()
-      await userEvent.type(guide, "Configure your own connection")
       await userEvent.click(submit)
       await screen.findByRole("alert")
-      expect(guide).toHaveValue("Configure your own connection")
+      expect(guide).toHaveValue(publication.usage_instructions)
       expect(screen.getByRole("dialog")).toBeVisible()
       expect(onClose).not.toHaveBeenCalled()
     }
@@ -437,18 +390,16 @@ describe("separate application distribution forms", () => {
     ["direct", ""],
     ["center", ""],
   ] as const)(
-    "prefills saved instructions and keeps the %s edit '%s' when reopening either channel",
+    "prefills the published instructions for %s with guide '%s' when reopening either channel",
     async (mode, nextGuide) => {
       await i18n.changeLanguage("zh-CN")
-      mockRequests()
+      mockRequests({ guide: nextGuide })
       show(mode)
       const guide = await screen.findByRole("textbox", {
         name: i18n.t("applications.distribution.guide"),
       })
-      expect(guide).toHaveValue(publication.usage_instructions)
-      expect(guide).toBeEnabled()
-      await userEvent.clear(guide)
-      if (nextGuide) await userEvent.type(guide, nextGuide)
+      expect(guide).toHaveValue(nextGuide)
+      expect(guide).toHaveAttribute("readonly")
       if (mode === "center")
         await userEvent.type(
           screen.getByRole("textbox", {

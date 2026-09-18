@@ -15,6 +15,7 @@ import {
 } from "@/api/contracts"
 import { useProductName } from "@/app/product-branding"
 import { CapabilityIcon } from "@/components/capabilities/capability-icon"
+import { ConversationDevelopmentIcon } from "@/components/shell/conversation-development-icon"
 import { FileTypeIcon } from "@/components/media/file-type-icon"
 import {
   Command,
@@ -166,10 +167,17 @@ export function ConversationSearchDialog({
                         closeSearch()
                       }}
                     >
-                      <MessageSquareIcon
-                        className={searchResultLineIconClassName}
-                        aria-hidden="true"
-                      />
+                      {conversation.application_development_role ? (
+                        <ConversationDevelopmentIcon
+                          role={conversation.application_development_role}
+                          className={searchResultLineIconClassName}
+                        />
+                      ) : (
+                        <MessageSquareIcon
+                          className={searchResultLineIconClassName}
+                          aria-hidden="true"
+                        />
+                      )}
                       <span className="min-w-0 flex-1 truncate">
                         {conversation.title || t("conversation.untitled")}
                       </span>

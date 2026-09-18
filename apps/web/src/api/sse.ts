@@ -3,6 +3,9 @@ import {
   buildApiUrl,
   isDefinitiveAuthenticationError,
   refreshSession,
+  prepareClientBuildRequest,
+  validateResponseBuild,
+  ApiError,
 } from "@/api/client"
 import {
   conversationEventHistoryPageSchema,
@@ -97,34 +100,83 @@ export function connectConversationEvents(
     : (options?.initialEventId ?? readLastEventId(conversationId))
   if (lastEventId) saveLastEventId(conversationId, lastEventId)
   let reconnectDelay = 1_000
+  let committedSequence = lastEventId.startsWith(`${conversationId}:`)
+    ? Number(lastEventId.slice(conversationId.length + 1))
+    : -1
+  const pending: Array<{ id: string; sequence: number; committed: boolean }> =
+    []
+  const pendingIds = new Set<string>()
+  let persistScheduled = false
+  let dirtyCursor = false
+  const persistCursor = () => {
+    persistScheduled = false
+    if (!dirtyCursor) return
+    dirtyCursor = false
+    saveLastEventId(conversationId, lastEventId)
+  }
 
   const dispatch = (frame: ParsedSseFrame) => {
     if (!frame.data) return
-
+    let payload: unknown
     try {
-      const payload: unknown = JSON.parse(frame.data)
-      const parsed = sseEventSchema.safeParse(payload)
-      if (!parsed.success) return
-      if (frame.id !== undefined && frame.id !== parsed.data.id) return
-      if (
-        frame.event !== undefined &&
-        frame.event !== "message" &&
-        frame.event !== parsed.data.type
-      ) {
-        return
+      payload = JSON.parse(frame.data)
+    } catch {
+      // Invalid SSE data is ignored at this untrusted network boundary.
+      return
+    }
+    const parsed = sseEventSchema.safeParse(payload)
+    if (!parsed.success) return
+    if (frame.id !== undefined && frame.id !== parsed.data.id) return
+    if (
+      frame.event !== undefined &&
+      frame.event !== "message" &&
+      frame.event !== parsed.data.type
+    ) {
+      return
+    }
+    if (
+      parsed.data.sequence_no <= committedSequence ||
+      parsed.data.id === lastEventId ||
+      pendingIds.has(parsed.data.id)
+    )
+      return
+    const cursor = {
+      id: parsed.data.id,
+      sequence: parsed.data.sequence_no,
+      committed: false,
+    }
+    pending.push(cursor)
+    pendingIds.add(cursor.id)
+    const commitCursor = () => {
+      if (cursor.committed) return
+      cursor.committed = true
+      let consumed = 0
+      for (const entry of pending) {
+        if (!entry.committed) break
+        lastEventId = entry.id
+        committedSequence = entry.sequence
+        pendingIds.delete(entry.id)
+        consumed += 1
       }
-      lastEventId = parsed.data.id
-      let cursorCommitted = false
-      const commitCursor = () => {
-        if (cursorCommitted) return
-        cursorCommitted = true
-        saveLastEventId(conversationId, parsed.data.id)
+      if (!consumed) return
+      pending.splice(0, consumed)
+      dirtyCursor = true
+      if (!persistScheduled) {
+        persistScheduled = true
+        queueMicrotask(persistCursor)
       }
+    }
+    try {
       if (handlers.onEvent(parsed.data, commitCursor) !== false) {
         commitCursor()
       }
-    } catch {
-      // Invalid SSE data is ignored at this untrusted network boundary.
+    } catch (error) {
+      // A failed consumer has not consumed this event. Reconnection must be
+      // allowed to deliver it again instead of retaining a permanent gap.
+      const index = pending.indexOf(cursor)
+      if (index !== -1) pending.splice(index, 1)
+      pendingIds.delete(cursor.id)
+      throw error
     }
   }
 
@@ -136,6 +188,7 @@ export function connectConversationEvents(
       if (lastEventId) headers.set("Last-Event-ID", lastEventId)
 
       try {
+        prepareClientBuildRequest(headers)
         let response = await fetch(
           buildApiUrl(`/conversations/${conversationId}/events`, {
             last_event_id: lastEventId || undefined,
@@ -148,6 +201,7 @@ export function connectConversationEvents(
           }
         )
 
+        validateResponseBuild(response.headers)
         if (response.status === 401) {
           try {
             await refreshSession(token)
@@ -171,6 +225,7 @@ export function connectConversationEvents(
               signal: controller.signal,
             }
           )
+          validateResponseBuild(response.headers)
           if (response.status === 401) setAccessToken(null)
         }
 
@@ -180,28 +235,40 @@ export function connectConversationEvents(
         reconnectDelay = 1_000
 
         const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ""
-        while (!controller.signal.aborted) {
-          const chunk = await reader.read()
-          if (chunk.done) break
-          buffer += decoder.decode(chunk.value, { stream: true })
-          if (buffer.length > MAX_SSE_FRAME_BUFFER_CHARACTERS) {
-            await reader.cancel()
-            throw new Error("SSE_FRAME_TOO_LARGE")
-          }
-          const frames = buffer.split(/\r?\n\r?\n/u)
-          buffer = frames.pop() ?? ""
-          for (const rawFrame of frames) {
-            const frame = parseSseFrame(rawFrame)
-            if (!frame) continue
-            if (frame.retry !== undefined) {
-              reconnectDelay = Math.min(Math.max(frame.retry, 500), 30_000)
+        try {
+          const decoder = new TextDecoder()
+          let buffer = ""
+          while (!controller.signal.aborted) {
+            const chunk = await reader.read()
+            if (chunk.done) break
+            buffer += decoder.decode(chunk.value, { stream: true })
+            if (buffer.length > MAX_SSE_FRAME_BUFFER_CHARACTERS) {
+              await reader.cancel()
+              throw new Error("SSE_FRAME_TOO_LARGE")
             }
-            dispatch(frame)
+            const frames = buffer.split(/\r?\n\r?\n/u)
+            buffer = frames.pop() ?? ""
+            for (const rawFrame of frames) {
+              const frame = parseSseFrame(rawFrame)
+              if (!frame) continue
+              if (frame.retry !== undefined) {
+                reconnectDelay = Math.min(Math.max(frame.retry, 500), 30_000)
+              }
+              dispatch(frame)
+            }
           }
+        } finally {
+          await reader.cancel().catch(() => undefined)
+          reader.releaseLock()
         }
       } catch (error) {
+        if (
+          error instanceof ApiError &&
+          error.errorCode === "CLIENT_UPDATE_REQUIRED"
+        ) {
+          controller.abort()
+          return
+        }
         if (controller.signal.aborted) return
         if (error instanceof DOMException && error.name === "AbortError") return
       }
@@ -215,5 +282,8 @@ export function connectConversationEvents(
   }
 
   void connect()
-  return () => controller.abort()
+  return () => {
+    persistCursor()
+    controller.abort()
+  }
 }

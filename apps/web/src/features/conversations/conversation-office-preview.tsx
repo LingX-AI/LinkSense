@@ -1,4 +1,12 @@
-import { lazy, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import { MessageCirclePlusIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { maximumOfficeAnnotationCount } from "@linksense/shared"
@@ -99,6 +107,7 @@ export type DownloadConversationFilePreviewSource = (
 
 type ConversationOfficePreviewProps = Readonly<{
   file: ConversationFile
+  toolbarActions?: ReactNode
   loadContent: LoadConversationFileContent
   onAskSelection?: (
     file: ConversationFile,
@@ -126,6 +135,7 @@ export function ConversationOfficePreview(
 
 function ConversationOfficePreviewContent({
   file,
+  toolbarActions,
   loadContent,
   onAskSelection,
   selectionDisabled = false,
@@ -557,6 +567,7 @@ function ConversationOfficePreviewContent({
       />
     ) : documentKind === "html" ? (
       <HtmlPreview
+        toolbarActions={toolbarActions}
         key={requestKey}
         {...commonProps}
         className={initialLoadPaneClassName}

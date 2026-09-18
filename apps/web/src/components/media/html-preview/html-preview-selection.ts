@@ -90,7 +90,7 @@ type SelectoInstance = Readonly<{
   destroy: () => void
 }>
 
-type SelectoConstructor = new (
+export type SelectoConstructor = new (
   options: Partial<SelectoOptions>
 ) => SelectoInstance
 
@@ -134,6 +134,17 @@ export function parseHtmlPreviewSelectionMessage(value: unknown) {
   return parsed.success ? parsed.data : null
 }
 
+/** Layout updates must not replace the prompt for the same selected elements. */
+export function htmlSelectionKey(
+  selection: HtmlSelection | null
+): string | null {
+  return selection
+    ? selection.elements
+        .map((element) => `${element.selector}:${element.domPath.join(".")}`)
+        .join("\u0000")
+    : null
+}
+
 export function htmlSelectionAnchor(
   frame: HTMLIFrameElement,
   anchor: HtmlPreviewSelectionViewportAnchor | null
@@ -147,17 +158,21 @@ export function htmlSelectionAnchor(
 }
 
 /**
- * Installs element selection directly into the live, opaque-origin preview.
+ * Installs element selection directly into a live preview.
  *
  * Keep this function self-contained: its source is injected into the preview
  * runtime, where it can operate on the real DOM without granting the parent
- * application same-origin access.
+ * application same-origin access. Same-origin application previews install it
+ * directly and supply a frame-bound reporting callback instead.
  */
 export function installHtmlPreviewAnnotationController(
   targetWindow: Window,
   config: Readonly<{
+    blockApplicationEvents?: boolean
+    selectoConstructor?: SelectoConstructor
     modeMessageType: string
     selectionMessageType: string
+    reportMessage: (message: unknown) => void
     clearMessageType: string
     selectableAttribute: string
     selectedAttribute: string
@@ -169,6 +184,7 @@ export function installHtmlPreviewAnnotationController(
     getBoundingRect: typeof getHtmlPreviewBoundingRect
   }>
 ): HtmlPreviewAnnotationController {
+  const targetDocument = targetWindow.document
   const selectableElementSelector = [
     "article",
     "aside",
@@ -302,7 +318,7 @@ export function installHtmlPreviewAnnotationController(
   }
 
   const refreshSelectableElements = () => {
-    const document = targetWindow.document
+    const document = targetDocument
     const nextElements = new Set(
       [...document.querySelectorAll(selectableElementSelector)].filter(
         isMeaningfulElement
@@ -354,7 +370,7 @@ export function installHtmlPreviewAnnotationController(
   }
 
   const uniqueSelector = (element: Element) => {
-    const document = targetWindow.document
+    const document = targetDocument
     const id = element.id.trim()
     if (id) {
       const selector = `#${cssEscape(id)}`
@@ -394,7 +410,7 @@ export function installHtmlPreviewAnnotationController(
   }
 
   const domPath = (element: Element) => {
-    const document = targetWindow.document
+    const document = targetDocument
     const path: number[] = []
     let current: Element | null = element
     while (current?.parentElement && current !== document.body) {
@@ -529,17 +545,14 @@ export function installHtmlPreviewAnnotationController(
   const postSelection = () => {
     paintSelectionFill()
     const anchor = selectionAnchor()
-    targetWindow.parent.postMessage(
-      {
-        type: config.selectionMessageType,
-        selection:
-          selectedElements.length > 0 && anchor !== null
-            ? buildSelection()
-            : null,
-        anchor,
-      },
-      "*"
-    )
+    config.reportMessage({
+      type: config.selectionMessageType,
+      selection:
+        selectedElements.length > 0 && anchor !== null
+          ? buildSelection()
+          : null,
+      anchor,
+    })
   }
 
   const refresh = () => {
@@ -557,8 +570,16 @@ export function installHtmlPreviewAnnotationController(
   }
 
   const preventInteractiveActivation = (event: Event) => {
+    // Live applications have JS click/submit handlers; cancelling only the
+    // browser default (sufficient for static documents) would still run tasks.
+    if (config.blockApplicationEvents) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      return
+    }
     const target = event.target
-    if (!(target instanceof Element)) return
+    const ElementConstructor = targetDocument.defaultView?.Element
+    if (!ElementConstructor || !(target instanceof ElementConstructor)) return
     if (
       target.closest(
         "a,button,input,select,textarea,label,summary,[contenteditable='true']"
@@ -585,17 +606,13 @@ export function installHtmlPreviewAnnotationController(
     mutationObserver?.disconnect()
     mutationObserver = null
     targetWindow.removeEventListener("resize", handleScrollOrResize)
-    targetWindow.document.removeEventListener(
-      "scroll",
-      handleScrollOrResize,
-      true
-    )
-    targetWindow.document.removeEventListener(
+    targetDocument.removeEventListener("scroll", handleScrollOrResize, true)
+    targetDocument.removeEventListener(
       "submit",
       preventInteractiveActivation,
       true
     )
-    targetWindow.document.removeEventListener(
+    targetDocument.removeEventListener(
       "click",
       preventInteractiveActivation,
       true
@@ -683,10 +700,11 @@ export function installHtmlPreviewAnnotationController(
       refresh()
       return
     }
-    const document = targetWindow.document
+    const document = targetDocument
     const body = document.body
-    const Selecto = Reflect.get(targetWindow, "Selecto") as
-      SelectoConstructor | undefined
+    const Selecto =
+      config.selectoConstructor ??
+      (Reflect.get(targetWindow, "Selecto") as SelectoConstructor | undefined)
     if (!body || typeof Selecto !== "function") {
       selectoLoadAttempts += 1
       if (selectoLoadAttempts <= 120) {
@@ -786,17 +804,13 @@ export function installHtmlPreviewAnnotationController(
       postSelection()
     })
 
-    targetWindow.document.addEventListener(
-      "click",
-      preventInteractiveActivation,
-      true
-    )
-    targetWindow.document.addEventListener(
+    targetDocument.addEventListener("click", preventInteractiveActivation, true)
+    targetDocument.addEventListener(
       "submit",
       preventInteractiveActivation,
       true
     )
-    targetWindow.document.addEventListener("scroll", handleScrollOrResize, true)
+    targetDocument.addEventListener("scroll", handleScrollOrResize, true)
     targetWindow.addEventListener("resize", handleScrollOrResize)
     const observer = new MutationObserver(() => refresh())
     mutationObserver = observer
@@ -859,7 +873,7 @@ export function installHtmlPreviewAnnotationController(
     if (message.enabled) {
       if (typeof message.selectionColor !== "string") return
       // Parse the parent theme color before interpolating it into the iframe CSS.
-      const colorStyle = targetWindow.document.createElement("span").style
+      const colorStyle = targetDocument.createElement("span").style
       colorStyle.color = message.selectionColor
       if (!colorStyle.color) return
       selectionColor = colorStyle.color

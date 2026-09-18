@@ -1,11 +1,11 @@
 import type { ApplicationCenterRelease } from "@linksense/shared"
 import { useTranslation } from "react-i18next"
 import { CapabilityLibraryItem } from "@/components/capabilities/capability-library-item"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
 import { ApplicationUsageModeBadges } from "./application-usage-modes"
+import { ApplicationPublicationStatus } from "./application-publication-status"
 
 export function ApplicationPublicationCard({
   release,
@@ -15,15 +15,12 @@ export function ApplicationPublicationCard({
   onManage: () => void
 }) {
   const { t, i18n } = useTranslation()
-  const status =
-    release.listing_status === "suspended" || release.status === "approved"
-      ? release.listing_status
-      : release.status
   const notice =
     release.listing_status === "suspended"
       ? release.suspension_reason
       : release.review_comment
-  const destructive = status === "suspended" || status === "rejected"
+  const destructive =
+    release.listing_status === "suspended" || release.status === "rejected"
   return (
     <CapabilityLibraryItem
       type="application"
@@ -50,9 +47,10 @@ export function ApplicationPublicationCard({
         </>
       }
       status={
-        <Badge variant={destructive ? "destructive" : "secondary"}>
-          {t(`marketplace.status.${status}`)}
-        </Badge>
+        <ApplicationPublicationStatus
+          status={release.status}
+          listingStatus={release.listing_status}
+        />
       }
       statusPlacement="top-right"
       notice={notice ? <span title={notice}>{notice}</span> : undefined}

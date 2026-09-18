@@ -10,11 +10,14 @@ import {
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { applicationSchema } from "@linksense/shared"
+import {
+  applicationCenterReleaseSchema,
+  applicationSchema,
+} from "@linksense/shared"
 import { apiRequest } from "@/api/client"
 import i18n from "@/i18n"
 import { ApplicationCenterSubmissionPanel } from "./application-center-submission-panel"
-import { ApplicationCenterAdminPanel } from "./application-center-admin-panel"
+import { ApplicationCenterAdminItem } from "./application-center-admin-item"
 import {
   ApplicationCenterPanel,
   ApplicationsWorkspacePanel,
@@ -55,6 +58,13 @@ const release = {
   submitted_at: "2026-09-16T00:00:00Z",
   reviewed_at: null,
   installed_application_id: null,
+  service_installation: {
+    installed_version_id: version,
+    installed_version_number: "2.0.0",
+    available_version_id: version,
+    available_version_number: "2.0.0",
+    update_available: false,
+  },
 }
 function show(content: React.ReactNode) {
   const client = new QueryClient({
@@ -68,6 +78,24 @@ function show(content: React.ReactNode) {
 }
 
 describe("application center user flows", () => {
+  it.each(["standard", "interactive"] as const)(
+    "uses the cube default for %s application cards",
+    async (kind) => {
+      vi.mocked(apiRequest).mockResolvedValue({
+        items: [
+          { ...release, kind, status: "approved", listing_status: "published" },
+        ],
+      })
+      show(<ApplicationCenterPanel search="" />)
+      const card = await screen.findByRole("article", { name: release.name })
+      expect(
+        card.querySelector('[data-application-icon-preset="bot"]')
+      ).toBeInTheDocument()
+      expect(
+        card.querySelector('[data-application-icon-preset="sparkles"]')
+      ).toBeNull()
+    }
+  )
   it("returns to personal applications after installing and offers setup before use", async () => {
     await i18n.changeLanguage("zh-CN")
     const installed = applicationSchema.parse({
@@ -113,8 +141,19 @@ describe("application center user flows", () => {
             },
           ],
         }
-      if (path === "/applications")
-        return { items: didInstall ? [installed] : [] }
+      if (path === "/applications/catalog")
+        return {
+          items: didInstall
+            ? [
+                {
+                  type: "application",
+                  application: installed,
+                  development: null,
+                },
+              ]
+            : [],
+          next_cursor: null,
+        }
       if (path === "/applications/distribution")
         return {
           items: didInstall
@@ -194,6 +233,8 @@ describe("application center user flows", () => {
       />
     )
     expect(await screen.findByText("请补充使用说明")).toBeVisible()
+    expect(screen.getByText("已下架")).toBeVisible()
+    expect(screen.queryByText("已停用")).not.toBeInTheDocument()
     await userEvent.type(
       screen.getByRole("textbox", {
         name: i18n.t("applications.distribution.releaseNotes"),
@@ -350,7 +391,7 @@ describe("application center user flows", () => {
       )
     )
   })
-  it("starts the approved center service without offering installation when only service is allowed", async () => {
+  it("starts the already installed center service without offering a copy install when only service is allowed", async () => {
     await i18n.changeLanguage("en-US")
     vi.mocked(apiRequest).mockImplementation(async (_path, options) =>
       options?.method === "POST"
@@ -361,7 +402,7 @@ describe("application center user flows", () => {
             ],
           }
     )
-    show(<ApplicationCenterPanel />)
+    show(<ApplicationCenterPanel search="" />)
     await screen.findByText("Reports")
     expect(screen.getByText(release.description)).toHaveClass(
       "text-[length:var(--app-font-13)]",
@@ -377,9 +418,9 @@ describe("application center user flows", () => {
       })
     ).not.toBeInTheDocument()
     const useButton = screen.getByRole("button", { name: "Use" })
-    expect(useButton).toHaveClass("bg-secondary", "text-secondary-foreground")
+    expect(useButton).toHaveClass("border-border", "bg-background")
     expect(
-      useButton.querySelector('svg[data-icon="inline-start"]')
+      useButton.querySelector('svg[data-icon="inline-end"]')
     ).toHaveAttribute("aria-hidden", "true")
     await userEvent.click(useButton)
     await waitFor(() =>
@@ -419,7 +460,7 @@ describe("application center user flows", () => {
               ],
             }
       )
-      show(<ApplicationCenterPanel />)
+      show(<ApplicationCenterPanel search="" />)
       const [useButton, otherButton] = await screen.findAllByRole("button", {
         name: "使用",
       })
@@ -451,7 +492,7 @@ describe("application center user flows", () => {
         useButton.querySelector('[data-slot="spinner"]')
       ).not.toBeInTheDocument()
       expect(
-        useButton.querySelector('svg[data-icon="inline-start"]')
+        useButton.querySelector('svg[data-icon="inline-end"]')
       ).toBeInTheDocument()
     }
   )
@@ -460,7 +501,7 @@ describe("application center user flows", () => {
     vi.mocked(apiRequest)
       .mockRejectedValueOnce(new Error("Unavailable"))
       .mockResolvedValue({ items: [] })
-    show(<ApplicationCenterPanel />)
+    show(<ApplicationCenterPanel search="" />)
     await userEvent.click(
       await screen.findByRole("button", { name: i18n.t("common.retry") })
     )
@@ -489,7 +530,12 @@ describe("application center review", () => {
               interactive_files: [],
             }
       )
-      show(<ApplicationCenterAdminPanel />)
+      show(
+        <ApplicationCenterAdminItem
+          item={applicationCenterReleaseSchema.parse(release)}
+          scope="reviews"
+        />
+      )
       await userEvent.click(
         await screen.findByRole("button", {
           name: i18n.t("applications.distribution.review"),

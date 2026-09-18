@@ -1,3 +1,10 @@
+import { createRef } from "react"
+import {
+  APPLICATION_BUILDER_SKILL_NAME,
+  builtInCapabilityId,
+  type ApplicationAnnotationInput,
+} from "@linksense/shared"
+import type { ApplicationAnnotationSubmit } from "@/features/applications/application-annotation-submission"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   act,
@@ -169,6 +176,41 @@ function ConversationPageWithNewTaskShortcut() {
 }
 
 describe("archived conversation pagination", () => {
+  it("keeps the development and testing indicators on archived task titles", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          envelope({
+            items: [
+              {
+                ...conversation("builder", "Archived builder"),
+                application_development_role: "development",
+              },
+              {
+                ...conversation("preview", "Archived preview"),
+                application_development_role: "preview",
+              },
+            ],
+            next_cursor: null,
+          })
+        )
+      )
+    )
+    renderArchivedConversations()
+    for (const [title, label] of [
+      ["Archived builder", "应用开发任务"],
+      ["Archived preview", "应用调试对话"],
+    ]) {
+      const icon = await screen.findByRole("img", { name: label })
+      expect(icon.closest('[role="listitem"]')).toHaveTextContent(title!)
+      expect(
+        icon.compareDocumentPosition(screen.getByText(title!)) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    }
+  })
+
   beforeEach(async () => {
     setAccessToken("archived-conversations-access-token")
     await i18n.changeLanguage("zh-CN")
@@ -311,6 +353,32 @@ describe("archived conversation pagination", () => {
     ).toHaveLength(3)
   })
 
+  it("warns that deleting an archived development task also removes its tests", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        envelope({
+          items: [
+            {
+              ...conversation("development-1", "开发应用"),
+              application_development_role: "development",
+            },
+          ],
+          next_cursor: null,
+        })
+      )
+    )
+    renderArchivedConversations()
+    await userEvent.click(
+      await screen.findByRole("button", { name: /删除任务.*开发应用/u })
+    )
+    expect(
+      await screen.findByText(
+        i18n.t("applicationDevelopment.tests.deleteDevelopmentHint")
+      )
+    ).toBeVisible()
+  })
+
   it("有多页数据时显示分页操作，并在最后一页保留返回入口", async () => {
     vi.stubGlobal(
       "fetch",
@@ -358,6 +426,241 @@ describe("conversation knowledge base snapshots", () => {
     setAccessToken(null)
     vi.unstubAllGlobals()
   })
+
+  it.each([false, true])(
+    "sends app annotations to the development conversation with its required Skill (queued: %s)",
+    async (queued) => {
+      const id = "20000000-0000-4000-8000-000000000001"
+      const turnId = "20000000-0000-4000-8000-000000000002"
+      const submitRef = createRef<ApplicationAnnotationSubmit | null>()
+      const posts: Array<{ path: string; body: Record<string, unknown> }> = []
+      const annotation: ApplicationAnnotationInput = {
+        kind: "application_annotation",
+        development_id: id,
+        package_id: turnId,
+        source_hash: "a".repeat(64),
+        page_path: "index.html",
+        annotations: [
+          {
+            request: "把按钮改成蓝色",
+            elements: [
+              {
+                selector: "#run",
+                dom_path: [0],
+                tag_name: "button",
+                class_names: [],
+                attributes: {},
+                bounds: { x: 0, y: 0, width: 100, height: 20 },
+              },
+            ],
+          },
+        ],
+      }
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          if (
+            init?.method === "POST" &&
+            (path.endsWith("/turns") || path.endsWith("/pending-requests"))
+          ) {
+            posts.push({ path, body: JSON.parse(String(init.body)) })
+            return path.endsWith("/turns")
+              ? envelope({
+                  turn_id: turnId,
+                  accepted: true,
+                  status: "starting",
+                })
+              : envelope({
+                  id: turnId,
+                  sequence_no: 1,
+                  status: "waiting_previous_turn",
+                  input_text: "把按钮改成蓝色",
+                })
+          }
+          if (path.endsWith(`/conversations/${id}`))
+            return envelope({
+              id,
+              title: "开发应用",
+              project_id: null,
+              updated_at: "2026-09-18T00:00:00Z",
+              messages: [],
+              turns: [],
+              attachments: [],
+              artifacts: [],
+              pending_requests: [],
+              running_turn: queued ? { id: turnId, status: "running" } : null,
+            })
+          if (path.endsWith("/model-preference"))
+            return envelope(modelPreference())
+          if (path.endsWith("/events"))
+            return new Response("", {
+              headers: { "content-type": "text/event-stream" },
+            })
+          return envelope({ items: [], next_cursor: null })
+        })
+      )
+      const client = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      })
+      render(
+        <MemoryRouter>
+          <QueryClientProvider client={client}>
+            <ConversationPage
+              conversationId={id}
+              development
+              embedded
+              annotationSubmitRef={submitRef}
+            />
+          </QueryClientProvider>
+        </MemoryRouter>
+      )
+      await screen.findByText("开发应用")
+      await waitFor(() => expect(client.isFetching()).toBe(0))
+      expect(submitRef.current).not.toBeNull()
+      await act(async () => {
+        await submitRef.current?.({ annotation, name: "调研" })
+      })
+      expect(posts).toHaveLength(1)
+      expect(posts[0]).toMatchObject({
+        path: `/api/v1/conversations/${id}/${queued ? "pending-requests" : "turns"}`,
+        body: {
+          message_display: annotation,
+          priority_capability_ids: [
+            builtInCapabilityId(APPLICATION_BUILDER_SKILL_NAME),
+          ],
+        },
+      })
+      client.clear()
+    }
+  )
+
+  it.each([
+    { development: true, role: null, hidden: true },
+    { development: false, role: "development", hidden: true },
+    { development: false, role: null, hidden: false },
+    { development: false, role: "preview", hidden: false },
+  ])(
+    "shows the knowledge button only outside application development: %j",
+    async ({ development, role, hidden }) => {
+      const id = "knowledge-button-visibility"
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          if (path.endsWith(`/conversations/${id}`))
+            return envelope({
+              id,
+              title: "开发入口验证",
+              project_id: null,
+              application_development_role: role,
+              updated_at: "2026-09-17T00:00:00.000Z",
+              messages: [],
+              turns: [],
+              attachments: [],
+              artifacts: [],
+              pending_requests: [],
+            })
+          if (path.endsWith("/model-preference"))
+            return envelope(modelPreference())
+          if (path.endsWith("/events"))
+            return new Response("", {
+              headers: { "content-type": "text/event-stream" },
+            })
+          return envelope({ items: [], next_cursor: null })
+        })
+      )
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      render(
+        <MemoryRouter>
+          <QueryClientProvider client={client}>
+            <ConversationPage
+              conversationId={id}
+              development={development}
+              embedded
+            />
+          </QueryClientProvider>
+        </MemoryRouter>
+      )
+      expect(await screen.findByText("开发入口验证")).toBeVisible()
+      await waitFor(() => expect(client.isFetching()).toBe(0))
+      if (hidden) {
+        expect(
+          screen.queryByRole("button", { name: "添加知识库" })
+        ).not.toBeInTheDocument()
+      } else {
+        expect(screen.getByRole("button", { name: "添加知识库" })).toBeVisible()
+      }
+      expect(screen.getByRole("textbox", { name: "任务输入框" })).toBeVisible()
+      client.clear()
+    }
+  )
+
+  it.each([false, true])(
+    "renders test history with composer readOnly=%s",
+    async (readOnly) => {
+      const id = "test-history-session"
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          if (path.endsWith(`/conversations/${id}`))
+            return envelope({
+              id,
+              title: "历史测试内容",
+              project_id: null,
+              updated_at: "2026-09-17T00:00:00.000Z",
+              messages: [],
+              turns: [],
+              attachments: [],
+              artifacts: [],
+              pending_requests: [],
+            })
+          if (path.endsWith("/model-preference"))
+            return envelope(modelPreference())
+          if (path.endsWith("/events"))
+            return new Response("", {
+              headers: { "content-type": "text/event-stream" },
+            })
+          return envelope({ items: [], next_cursor: null })
+        })
+      )
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      render(
+        <MemoryRouter>
+          <QueryClientProvider client={client}>
+            <ConversationPage
+              conversationId={id}
+              embedded
+              readOnly={readOnly}
+            />
+          </QueryClientProvider>
+        </MemoryRouter>
+      )
+      expect(await screen.findByText("历史测试内容")).toBeVisible()
+      if (readOnly) {
+        expect(
+          screen.queryByRole("textbox", { name: "任务输入框" })
+        ).not.toBeInTheDocument()
+        await waitFor(() => expect(client.isFetching()).toBe(0))
+        expect(
+          vi
+            .mocked(fetch)
+            .mock.calls.some(([url]) => String(url).includes("/prewarm"))
+        ).toBe(false)
+      } else
+        expect(
+          await screen.findByRole("textbox", { name: "任务输入框" })
+        ).toBeVisible()
+    }
+  )
 
   it("shows a Goal card immediately, waits for native timing, and yields to a fast completion", async () => {
     const conversationId = "conversation-native-goal"

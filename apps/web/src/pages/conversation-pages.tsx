@@ -1,3 +1,7 @@
+import type { ApplicationAnnotationSubmit } from "@/features/applications/application-annotation-submission"
+import { SiteShareButton } from "@/features/web-sites/site-share-button"
+
+import { responseLatency } from "@/features/conversations/response-latency"
 import {
   Fragment,
   useCallback,
@@ -7,6 +11,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react"
 import {
   useMutation,
@@ -34,6 +39,8 @@ import {
   buildOfficeAnnotationDisplay,
   isMeaninglessTemporaryUploadPath,
   officeAnnotationRequestText,
+  APPLICATION_BUILDER_SKILL_NAME,
+  builtInCapabilityId,
   type ConversationCollaborationMode,
   type ConversationUserInputResponse,
 } from "@linksense/shared"
@@ -48,6 +55,7 @@ import {
   type ConversationInterruptTarget,
 } from "@/features/conversations/conversation-interrupt"
 import { useConversationPrewarm } from "@/features/conversations/use-conversation-prewarm"
+import { withRequiredConversationCapabilities } from "@/features/conversations/conversation-capability-selection"
 import { useConversationArchiveNotification } from "@/features/conversations/use-conversation-archive-notification"
 import {
   archivedConversationClearResultSchema,
@@ -72,6 +80,7 @@ import {
   type NativeMessagePhase,
   type NativeMessageOutputKind,
   type Paginated,
+  type ConversationEvent,
   type PendingRequest,
   type Application,
   type ThreadGoal,
@@ -119,12 +128,14 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { ApplicationIconDisplay } from "@/features/applications/application-icon"
 import { defaultApplicationIcon } from "@/features/applications/application-icon-default"
+import { ConversationDevelopmentIcon } from "@/components/shell/conversation-development-icon"
 import {
-  ConversationComposer,
   type ConversationComposerHandle,
   type KnowledgeBaseSelectionStatus,
   type PendingAttachmentUpload,
 } from "@/features/conversations/conversation-composer"
+import { ConversationDraftComposer } from "@/features/conversations/conversation-draft-composer"
+import { createConversationComposerValue } from "@/features/conversations/conversation-composer-value"
 import { isConversationContextCompactionAvailable } from "@/features/conversations/conversation-context-compaction"
 import { conversationPath } from "@/features/conversations/conversation-navigation"
 import { isConversationContextCompactionCommand } from "@/features/conversations/conversation-slash-command"
@@ -139,6 +150,7 @@ import {
   getConversationExecutionTransition,
   isTerminalConversationExecutionStatus,
 } from "@/features/conversations/conversation-execution-lifecycle"
+import { matchingConversationStartFailure } from "@/features/conversations/conversation-start-failure"
 import {
   bindPendingConversationTurn,
   clearPendingConversationExecution,
@@ -493,10 +505,27 @@ function isDefinitiveKnowledgeBaseSelectionError(error: unknown) {
 
 export function ConversationPage({
   headerActions,
+  conversationId: embeddedConversationId,
+  embedded = false,
+  surfaceActive = true,
+  development = false,
+  readOnly = false,
+  unavailableMessage,
+  annotationSubmitRef,
+  onApplicationEvent,
 }: Readonly<{
   headerActions?: ReactNode
+  conversationId?: string
+  embedded?: boolean
+  surfaceActive?: boolean
+  development?: boolean
+  annotationSubmitRef?: RefObject<ApplicationAnnotationSubmit | null>
+  readOnly?: boolean
+  unavailableMessage?: string
+  onApplicationEvent?: (event: ConversationEvent) => void
 }> = {}) {
-  const { conversationId } = useParams()
+  const { conversationId: routeConversationId } = useParams()
+  const conversationId = embeddedConversationId ?? routeConversationId
   const isNew = !conversationId || conversationId === "new"
   const { t } = useTranslation()
   const productName = useProductName()
@@ -504,15 +533,16 @@ export function ConversationPage({
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
-  const [value, setValue] = useState("")
+  const [composerValue] = useState(createConversationComposerValue)
+  const { setValue } = composerValue
   const {
     projectId: newProjectId,
     isResolving: newProjectResolving,
     chooseProject: chooseNewProject,
     resetProject: resetNewProject,
   } = useNewProject({ userId: user?.id, isNew })
-  const [taskOverviewOpen, setTaskOverviewOpen] = useState(
-    readTaskOverviewOpenPreference
+  const [taskOverviewOpen, setTaskOverviewOpen] = useState(() =>
+    embedded ? false : readTaskOverviewOpenPreference()
   )
   const [
     pendingFirstMessageConversationId,
@@ -524,8 +554,21 @@ export function ConversationPage({
   ] = useState<string | null>(null)
   const [newTaskPromotionConversationId, setNewTaskPromotionConversationId] =
     useState<string | null>(null)
-  const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<string[]>(
+  const [optionalCapabilityIds, setSelectedCapabilityIds] = useState<string[]>(
     []
+  )
+  const requiredCapabilityIds = useMemo(
+    () =>
+      development ? [builtInCapabilityId(APPLICATION_BUILDER_SKILL_NAME)] : [],
+    [development]
+  )
+  const selectedCapabilityIds = useMemo(
+    () =>
+      withRequiredConversationCapabilities(
+        optionalCapabilityIds,
+        requiredCapabilityIds
+      ),
+    [optionalCapabilityIds, requiredCapabilityIds]
   )
   const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<
     string[]
@@ -820,12 +863,15 @@ export function ConversationPage({
     scrollToBottom(prefersReducedMotion ? "auto" : "smooth")
   }, [scrollToBottom])
 
-  const handleStarterQuestionSelect = useCallback((prompt: string) => {
-    setError(null)
-    setCreditQuotaNotice(null)
-    setValue(prompt)
-    window.setTimeout(() => composerRef.current?.focus(), 0)
-  }, [])
+  const handleStarterQuestionSelect = useCallback(
+    (prompt: string) => {
+      setError(null)
+      setCreditQuotaNotice(null)
+      setValue(prompt)
+      window.setTimeout(() => composerRef.current?.focus(), 0)
+    },
+    [setValue]
+  )
 
   const conversationQuery = useQuery({
     ...conversationDetailQueryOptions(conversationId),
@@ -836,6 +882,9 @@ export function ConversationPage({
   const isManagedApplicationConversation =
     conversationQuery.data?.application?.kind === "standard"
   const applicationId = conversationQuery.data?.application?.id ?? ""
+  const applicationDeleted =
+    conversationQuery.data?.application?.unavailable_reason ===
+    "APPLICATION_DELETED"
   const applicationDetailActorId = user?.id ?? ""
   const applicationDetailQuery = useQuery({
     queryKey: [
@@ -849,18 +898,26 @@ export function ConversationPage({
         schema: applicationSchema,
         signal,
       }),
-    enabled: applicationDetailActorId.length > 0 && applicationId.length > 0,
+    enabled:
+      applicationDetailActorId.length > 0 &&
+      applicationId.length > 0 &&
+      !applicationDeleted,
   })
-  const applicationUnavailableMessage = applicationDetailQuery.isError
-    ? getErrorMessage(applicationDetailQuery.error, t)
-    : applicationDetailQuery.data?.status === "disabled"
-      ? t("errors.application.disabled")
-      : applicationDetailQuery.data?.dependencies_available === false
-        ? t("errors.application.dependencyUnavailable")
-        : undefined
+  const applicationUnavailableMessage =
+    unavailableMessage ??
+    (applicationDeleted
+      ? t("errors.application.deleted")
+      : applicationDetailQuery.isError
+        ? getErrorMessage(applicationDetailQuery.error, t)
+        : applicationDetailQuery.data?.status === "disabled"
+          ? t("errors.application.disabled")
+          : applicationDetailQuery.data?.dependencies_available === false
+            ? t("errors.application.dependencyUnavailable")
+            : undefined)
   const applicationInteractionBlocked =
     isApplicationConversation &&
     (!applicationDetailQuery.data || Boolean(applicationUnavailableMessage))
+  const executionBlocked = readOnly || applicationInteractionBlocked
   const startApplicationFromComposerMutation = useMutation({
     mutationFn: (application: Application) =>
       apiRequest(`/applications/${application.id}/conversations`, {
@@ -958,6 +1015,24 @@ export function ConversationPage({
       composerModelPreferenceOperationInFlightRef.current = false
     },
   })
+  const { mutate: updateModelPreference } = modelPreferenceMutation
+  const handleModelPreferenceChange = useCallback(
+    (model: string, reasoningEffort: string) => {
+      if (
+        composerAttachmentOperationInFlightRef.current ||
+        composerSubmissionInFlightRef.current ||
+        composerModelPreferenceOperationInFlightRef.current
+      )
+        return
+      composerModelPreferenceOperationInFlightRef.current = true
+      updateModelPreference({
+        model,
+        reasoningEffort,
+        targetConversationId: isNew ? null : (conversationId ?? null),
+      })
+    },
+    [conversationId, isNew, updateModelPreference]
+  )
 
   const knowledgeBaseQuery = useKnowledgeBaseList(
     {
@@ -1265,6 +1340,13 @@ export function ConversationPage({
     conversationId: isNew ? undefined : conversationId,
     scopeKey: isNew ? location.key : (conversationId ?? ""),
     collaborationMode,
+    projectId: isNew ? newProjectId : undefined,
+    configurationKey: modelPreferenceQuery.data?.selected_model ?? undefined,
+    enabled:
+      !readOnly &&
+      !turnExecutionActive &&
+      !modelPreferenceMutation.isPending &&
+      !modelPreferenceQuery.isPending,
   })
 
   const startNewTaskFromComposer = useCallback(() => {
@@ -1308,6 +1390,7 @@ export function ConversationPage({
     setGoalMode,
     user,
     conversationId,
+    setValue,
   ])
 
   useEffect(() => {
@@ -1338,23 +1421,32 @@ export function ConversationPage({
     setValue(draft.input)
     setSelectedCapabilityIds([...draft.capabilityIds])
     setSelectedKnowledgeBaseIds([...draft.knowledgeBaseIds])
-  }, [localDraftScope, newTaskResetVersion, user])
+  }, [localDraftScope, newTaskResetVersion, user, setValue])
 
   useEffect(() => {
     if (!user) return
-    if (hydratedDraftScopeRef.current !== localDraftScope) return
-    if (composerSubmissionInFlightRef.current) return
-    writeLocalConversationDraft(window.localStorage, user.id, localDraftScope, {
-      input: value,
-      capabilityIds: selectedCapabilityIds,
-      knowledgeBaseIds: selectedKnowledgeBaseIds,
-    })
+    const persistDraft = () => {
+      if (hydratedDraftScopeRef.current !== localDraftScope) return
+      if (composerSubmissionInFlightRef.current) return
+      writeLocalConversationDraft(
+        window.localStorage,
+        user.id,
+        localDraftScope,
+        {
+          input: composerValue.getSnapshot(),
+          capabilityIds: selectedCapabilityIds,
+          knowledgeBaseIds: selectedKnowledgeBaseIds,
+        }
+      )
+    }
+    persistDraft()
+    return composerValue.subscribe(persistDraft)
   }, [
     localDraftScope,
     selectedCapabilityIds,
     selectedKnowledgeBaseIds,
     user,
-    value,
+    composerValue,
   ])
 
   const scheduleConversationRefresh = useCallback(
@@ -1605,6 +1697,55 @@ export function ConversationPage({
       hasReusableReplayBoundary:
         isNewTaskPromotion || hasConversationLiveState(conversationId),
     })
+
+  const settleFailedStart = useCallback(
+    (event: ConversationEvent) => {
+      if (!conversationId) return
+      const pending =
+        getPendingConversationTurnSubmission(queryClient, conversationId) ??
+        (pendingTurnSubmission?.conversationId === conversationId
+          ? pendingTurnSubmission
+          : null)
+      const failure = matchingConversationStartFailure(event, pending)
+      if (!failure) return
+      clearPendingConversationTurnSubmission(queryClient, conversationId)
+      clearPendingConversationExecution(queryClient, conversationId)
+      setPendingTurnSubmission((current) =>
+        current?.conversationId === conversationId &&
+        matchingConversationStartFailure(event, current)
+          ? null
+          : current
+      )
+      clearInterruptingConversation(
+        conversationId,
+        failure.start_failure.turn_id
+      )
+      clearNativeReconnect()
+      setPendingFirstMessageConversationId(null)
+      setError(t(failure.message_key))
+      scheduleConversationRefresh("detail-and-list")
+    },
+    [
+      conversationId,
+      queryClient,
+      pendingTurnSubmission,
+      clearInterruptingConversation,
+      clearNativeReconnect,
+      t,
+      scheduleConversationRefresh,
+    ]
+  )
+
+  useEffect(() => {
+    if (!currentPendingTurnSubmission || !conversation?.events?.length) return
+    const failedStart = conversation.events.find((event) =>
+      matchingConversationStartFailure(event, currentPendingTurnSubmission)
+    )
+    if (!failedStart) return
+    const timer = window.setTimeout(() => settleFailedStart(failedStart), 0)
+    return () => window.clearTimeout(timer)
+  }, [conversation?.events, currentPendingTurnSubmission, settleFailedStart])
+
   const { connectionState, reconnectingWarningVisible } = useConversationEvents(
     eventSubscriptionConversationId,
     useCallback(
@@ -2082,6 +2223,7 @@ export function ConversationPage({
           return
         }
         if (event.type === "conversation.error") {
+          settleFailedStart(event)
           const errorCode =
             typeof payload.error_code === "string"
               ? payload.error_code
@@ -2146,6 +2288,7 @@ export function ConversationPage({
         pendingSubmissionBelongsToConversation,
         queryClient,
         scheduleConversationRefresh,
+        settleFailedStart,
         setLiveActivities,
         setLiveEvents,
         setLiveReasoningSummaries,
@@ -2155,7 +2298,8 @@ export function ConversationPage({
         t,
       ]
     ),
-    conversation?.last_event_id
+    conversation?.last_event_id,
+    onApplicationEvent
   )
 
   useEffect(() => {
@@ -2409,6 +2553,7 @@ export function ConversationPage({
         ["conversation", createdConversation.id],
         createdConversation
       )
+      responseLatency.move(newConversationPlaceholderId, createdConversation.id)
       if (suppressEmptyStateUntilFirstMessage) {
         const runningConversation: Conversation = {
           ...createdConversation,
@@ -2641,14 +2786,7 @@ export function ConversationPage({
       patchSidebarConversationExecutionStatus(cached, conversationId, "running")
     )
     return optimisticStatus
-  }, [
-    collaborationMode,
-    conversationId,
-    isNew,
-    newProjectId,
-    queryClient,
-    t,
-  ])
+  }, [collaborationMode, conversationId, isNew, newProjectId, queryClient, t])
 
   const restoreOptimisticSidebarExecutionStatus = useCallback(
     (
@@ -2684,6 +2822,12 @@ export function ConversationPage({
 
   const sendMutation = useMutation({
     onMutate: async (submission): Promise<OptimisticTurnStart> => {
+      responseLatency.begin(
+        isNew
+          ? newConversationPlaceholderId
+          : (conversationId ?? newConversationPlaceholderId),
+        isNew ? "new_task" : "follow_up"
+      )
       // A sidebar refetch may have started before this submission. Cancel it
       // before applying the optimistic status so its older snapshot cannot
       // replace this task -- or the other running task rows -- when it settles.
@@ -2827,6 +2971,7 @@ export function ConversationPage({
           collaboration_mode: submission.collaborationMode,
         }
       )
+      responseLatency.bind(id, receipt.turn_id)
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
         (current.idempotencyKey === idempotencyKey ||
@@ -3050,7 +3195,15 @@ export function ConversationPage({
   })
 
   const goalStartMutation = useMutation({
-    onMutate: optimisticallyConsumeSubmissionAttachments,
+    onMutate: async (submission: ComposerSubmission) => {
+      responseLatency.begin(
+        isNew
+          ? newConversationPlaceholderId
+          : (conversationId ?? newConversationPlaceholderId),
+        isNew ? "new_task" : "follow_up"
+      )
+      return optimisticallyConsumeSubmissionAttachments(submission)
+    },
     mutationFn: async (submission: ComposerSubmission) => {
       goalStartSubmissionConversationIdRef.current = isNew
         ? null
@@ -3140,6 +3293,7 @@ export function ConversationPage({
           idempotency_key: idempotencyKey,
         }
       )
+      responseLatency.bind(id, receipt.turn_id)
       setPendingTurnSubmission((current) =>
         current?.conversationId === id &&
         current.idempotencyKey === idempotencyKey
@@ -3314,22 +3468,28 @@ export function ConversationPage({
     mutateAsync: submitOfficeQuestion,
     isPending: officeQuestionPending,
   } = useMutation({
-    mutationFn: async ({
-      file,
-      requests,
-    }: {
-      file: ConversationFile
-      requests: readonly ConversationOfficeAnnotationRequest[]
-    }) => {
+    mutationFn: async (
+      input:
+        | {
+            file: ConversationFile
+            requests: readonly ConversationOfficeAnnotationRequest[]
+          }
+        | Parameters<ApplicationAnnotationSubmit>[0]
+    ) => {
       const id = await ensureConversation({
         initialKnowledgeBaseIds: validSelectedKnowledgeBaseIds,
         initialCollaborationMode: collaborationMode,
       })
-      const messageDisplay = buildOfficeAnnotationInput(file, requests)
+      const messageDisplay =
+        "annotation" in input
+          ? input.annotation
+          : buildOfficeAnnotationInput(input.file, input.requests)
+      const requestCapabilityIds =
+        "annotation" in input ? [...selectedCapabilityIds] : []
       const requestText = officeAnnotationRequestText(messageDisplay)
       const optimisticDisplay = buildOfficeAnnotationDisplay(
         messageDisplay,
-        file.name
+        "annotation" in input ? input.name : input.file.name
       )
       const shouldQueueSelection = Boolean(turnExecutionActive)
       const idempotencyKey = await stableOperationId(
@@ -3340,8 +3500,8 @@ export function ConversationPage({
             : "office_selection_turn_start",
           submission_attempt_id: operationAttemptId(officeTurnSubmitAttemptRef),
           conversation_id: id,
-          file_id: file.id,
           message_display: messageDisplay,
+          priority_capability_ids: requestCapabilityIds,
           knowledge_base_ids: validSelectedKnowledgeBaseIds,
         }
       )
@@ -3353,7 +3513,7 @@ export function ConversationPage({
           status: "waiting_previous_turn",
           input_text: requestText,
           display: optimisticDisplay,
-          priority_capability_ids: [],
+          priority_capability_ids: requestCapabilityIds,
           knowledge_base_ids: validSelectedKnowledgeBaseIds,
           attachments: [],
           collaboration_mode: collaborationMode,
@@ -3369,7 +3529,7 @@ export function ConversationPage({
           {
             method: "POST",
             body: {
-              priority_capability_ids: [],
+              priority_capability_ids: requestCapabilityIds,
               knowledge_base_ids: validSelectedKnowledgeBaseIds,
               collaboration_mode: collaborationMode,
               idempotency_key: idempotencyKey,
@@ -3411,7 +3571,7 @@ export function ConversationPage({
         officeTurnSubmitOperationRef,
         `/conversations/${id}/turns`,
         {
-          priority_capability_ids: [],
+          priority_capability_ids: requestCapabilityIds,
           knowledge_base_ids: validSelectedKnowledgeBaseIds,
           collaboration_mode: collaborationMode,
           idempotency_key: idempotencyKey,
@@ -3451,6 +3611,36 @@ export function ConversationPage({
       setError(getErrorMessage(nextError, t))
     },
   })
+
+  useEffect(() => {
+    if (
+      !annotationSubmitRef ||
+      !development ||
+      readOnly ||
+      !conversationId ||
+      isNew
+    )
+      return
+    const submit: ApplicationAnnotationSubmit = async (input) => {
+      if (officeQuestionPending || knowledgeBaseSelectionPending)
+        throw new Error("annotation_submission_busy")
+      await submitOfficeQuestion(input)
+    }
+    annotationSubmitRef.current = submit
+    return () => {
+      if (annotationSubmitRef.current === submit)
+        annotationSubmitRef.current = null
+    }
+  }, [
+    annotationSubmitRef,
+    development,
+    readOnly,
+    conversationId,
+    isNew,
+    officeQuestionPending,
+    knowledgeBaseSelectionPending,
+    submitOfficeQuestion,
+  ])
 
   const regenerateMutation = useMutation({
     mutationFn: async ({
@@ -4377,7 +4567,7 @@ export function ConversationPage({
     scrollToBottom("auto")
     composerSubmissionInFlightRef.current = true
     contextCompactionMutation.mutate({
-      commandValue: value,
+      commandValue: composerValue.getSnapshot(),
       targetConversationId,
       routeEpoch: routeEpochRef.current,
       precedingTurnId: conversation?.turns?.at(-1)?.id ?? null,
@@ -4849,6 +5039,9 @@ export function ConversationPage({
     optimisticGoal?.conversationId === displayConversation.id
       ? optimisticGoal
       : null
+  const developmentRole = development
+    ? "development"
+    : displayConversation.application_development_role
   const persistedGoalHasReconciled = Boolean(
     currentOptimisticGoal &&
     threadGoalRevision(displayConversation.goal) !==
@@ -4879,7 +5072,6 @@ export function ConversationPage({
     displayConversation.available_capabilities ??
     []
   const openRenameDialog = () => {
-    if (isApplicationConversation) return
     setRenameValue(displayConversation.title || t("conversation.untitled"))
     setRenameOpen(true)
   }
@@ -5058,14 +5250,20 @@ export function ConversationPage({
     optimisticPendingTurn ??
     optimisticCompactionTurn ??
     displayConversation.running_turn
-  const activePlanReview = [...(displayConversation.plan_reviews ?? [])]
-    .filter((review) => review.status === "pending")
-    .sort((left, right) => right.created_at.localeCompare(left.created_at))[0]
-  const activeUserInputRequest = selectActiveUserInputRequest(
-    displayConversation.user_input_requests,
-    visibleRunningTurn?.id,
-    Boolean(activePlanReview)
-  )
+  const activePlanReview = executionBlocked
+    ? undefined
+    : [...(displayConversation.plan_reviews ?? [])]
+        .filter((review) => review.status === "pending")
+        .sort((left, right) =>
+          right.created_at.localeCompare(left.created_at)
+        )[0]
+  const activeUserInputRequest = executionBlocked
+    ? null
+    : selectActiveUserInputRequest(
+        displayConversation.user_input_requests,
+        visibleRunningTurn?.id,
+        Boolean(activePlanReview)
+      )
   const blockingPanelKey = activeUserInputRequest
     ? `user-input:${activeUserInputRequest.id}`
     : activePlanReview
@@ -5142,7 +5340,9 @@ export function ConversationPage({
 
   return (
     <ConversationOfficeLayout
-      taskOverviewOpen={!isNew && !taskOverviewSuppressed && taskOverviewOpen}
+      taskOverviewOpen={
+        surfaceActive && !isNew && !taskOverviewSuppressed && taskOverviewOpen
+      }
       defaultPreviewViewportRatio={
         activeSubAgent ? DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO : undefined
       }
@@ -5180,6 +5380,12 @@ export function ConversationPage({
         ) : officeFile ? (
           <ConversationOfficePreview
             file={officeFile}
+            toolbarActions={
+              <SiteShareButton
+                file={officeFile}
+                conversationId={displayConversation.id}
+              />
+            }
             animateEntrance={officePreview?.animateEntrance}
             loadContent={loadOfficeContent}
             loadPreviewSource={loadFilePreviewSource}
@@ -5209,7 +5415,8 @@ export function ConversationPage({
     >
       <header className="conversation-top-bar" role="banner">
         <div className="conversation-title-actions flex min-w-0 items-center gap-1">
-          {displayConversation.application && (
+          <ConversationDevelopmentIcon role={developmentRole} />
+          {displayConversation.application && !developmentRole && (
             <ApplicationIconDisplay
               icon={
                 applicationDetailQuery.data?.icon ??
@@ -5280,15 +5487,13 @@ export function ConversationPage({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-40">
                 <DropdownMenuGroup>
-                  {!isApplicationConversation && (
-                    <DropdownMenuItem onClick={openRenameDialog}>
-                      <PencilIcon
-                        className="size-3.5 text-[var(--app-muted)] opacity-70"
-                        aria-hidden="true"
-                      />{" "}
-                      {t("conversation.rename")}
-                    </DropdownMenuItem>
-                  )}
+                  <DropdownMenuItem onClick={openRenameDialog}>
+                    <PencilIcon
+                      className="size-3.5 text-[var(--app-muted)] opacity-70"
+                      aria-hidden="true"
+                    />{" "}
+                    {t("conversation.rename")}
+                  </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={patchConversationMutation.isPending}
                     onClick={() =>
@@ -5376,7 +5581,7 @@ export function ConversationPage({
               {t("conversation.share.action")}
             </Button>
           )}
-          {!isNew && (
+          {!isNew && surfaceActive && (
             <ConversationTaskOverviewPanel
               key={conversationId}
               events={visibleEvents}
@@ -5494,6 +5699,7 @@ export function ConversationPage({
         onDownload={handleDownloadArtifact}
         downloadingFileId={downloadingFileId}
         editingDisabled={
+          executionBlocked ||
           regenerateMutation.isPending ||
           Boolean(turnExecutionActive) ||
           Boolean(activeUserInputRequest) ||
@@ -5511,7 +5717,11 @@ export function ConversationPage({
         scrollContainerRef={scrollContainerRef}
         contentRef={contentRef}
         onRegenerateMessage={handleRegenerateMessage}
-        onForkMessage={handleForkMessage}
+        onForkMessage={
+          developmentRole === "preview" || executionBlocked
+            ? undefined
+            : handleForkMessage
+        }
         forkingDisabled={
           forkMutation.isPending ||
           Boolean(turnExecutionActive) ||
@@ -5548,7 +5758,7 @@ export function ConversationPage({
             />
           </div>
         )}
-        {!blockingPanelActive && (
+        {!executionBlocked && !blockingPanelActive && (
           <PendingRequests
             requests={visiblePendingRequests}
             capabilities={availableCapabilities}
@@ -5586,7 +5796,7 @@ export function ConversationPage({
             }
           />
         )}
-        {!blockingPanelActive && displayGoal && (
+        {!executionBlocked && !blockingPanelActive && displayGoal && (
           <ConversationGoalBar
             goal={displayGoal}
             synchronizing={displayGoalSynchronizing}
@@ -5616,14 +5826,14 @@ export function ConversationPage({
               }
             />
           )}
-        {!blockingPanelActive &&
+        {!readOnly &&
+          !blockingPanelActive &&
           !taskStartDisabledByCreditQuota &&
+          !development &&
           (isNew || !isApplicationConversation) &&
           visibleMessages.length === 0 && (
             <ProjectComposerPicker
-              value={
-                isNew ? newProjectId : displayConversation.project_id
-              }
+              value={isNew ? newProjectId : displayConversation.project_id}
               onChange={(projectId) => {
                 chooseNewProject(projectId)
                 if (!isNew)
@@ -5637,21 +5847,22 @@ export function ConversationPage({
               }
             />
           )}
-        {!blockingPanelActive && (
-          <ConversationComposer
+        {!readOnly && !applicationDeleted && !blockingPanelActive && (
+          <ConversationDraftComposer
             ref={composerRef}
             voiceTranscriptionAvailability={voiceTranscriptionAvailability}
             key={`${composerInstanceId}:${newTaskResetVersion}`}
-            value={value}
+            draft={composerValue}
             interactionBlocked={applicationInteractionBlocked}
             unavailableMessage={applicationUnavailableMessage}
-            onValueChange={setValue}
             capabilities={availableCapabilities}
             capabilitiesLoading={capabilityQuery.isLoading}
             capabilitiesError={capabilityQuery.isError}
             onRetryCapabilities={() => void capabilityQuery.refetch()}
             selectedIds={selectedCapabilityIds}
+            requiredIds={requiredCapabilityIds}
             onSelectedIdsChange={setSelectedCapabilityIds}
+            showKnowledgeBaseButton={developmentRole !== "development"}
             knowledgeBases={availableKnowledgeBases}
             knowledgeBasesLoading={knowledgeBasesLoading}
             knowledgeBasesError={knowledgeBasesError}
@@ -5722,22 +5933,7 @@ export function ConversationPage({
             }
             onModelPreferenceChange={
               canSelectConversationModel
-                ? (model, reasoningEffort) => {
-                    if (
-                      composerAttachmentOperationInFlightRef.current ||
-                      composerSubmissionInFlightRef.current ||
-                      composerModelPreferenceOperationInFlightRef.current
-                    )
-                      return
-                    composerModelPreferenceOperationInFlightRef.current = true
-                    modelPreferenceMutation.mutate({
-                      model,
-                      reasoningEffort,
-                      targetConversationId: isNew
-                        ? null
-                        : (conversationId ?? null),
-                    })
-                  }
+                ? handleModelPreferenceChange
                 : undefined
             }
             onSubmit={submitComposer}
@@ -5803,22 +5999,24 @@ export function ConversationPage({
         )}
       </div>
 
-      {!isApplicationConversation && (
-        <ConversationRenameDialog
-          open={renameOpen}
-          onOpenChange={setRenameOpen}
-          value={renameValue}
-          onValueChange={setRenameValue}
-          pending={patchConversationMutation.isPending}
-          onSubmit={(title) => patchConversationMutation.mutate({ title })}
-        />
-      )}
+      <ConversationRenameDialog
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+        value={renameValue}
+        onValueChange={setRenameValue}
+        pending={patchConversationMutation.isPending}
+        onSubmit={(title) => patchConversationMutation.mutate({ title })}
+      />
 
       <ConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title={t("conversation.deleteTitle")}
-        description={t("conversation.deleteDescription")}
+        description={t(
+          developmentRole === "development"
+            ? "applicationDevelopment.tests.deleteDevelopmentHint"
+            : "conversation.deleteDescription"
+        )}
         confirmLabel={t("common.delete")}
         destructive
         pending={deleteMutation.isPending}
@@ -5835,6 +6033,7 @@ export function ArchivedConversationListPage() {
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string
     title: string
+    development: boolean
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const dismissError = useCallback((message: string) => {
@@ -5998,9 +6197,14 @@ export function ArchivedConversationListPage() {
                     className="simple-list-row archived-conversation-row"
                   >
                     <div className="archived-conversation-copy">
-                      <span className="archived-conversation-title">
-                        {displayTitle}
-                      </span>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <ConversationDevelopmentIcon
+                          role={conversation.application_development_role}
+                        />
+                        <span className="archived-conversation-title">
+                          {displayTitle}
+                        </span>
+                      </div>
                       <time dateTime={conversation.updated_at}>
                         {formatLongDateTime(conversation.updated_at, language)}
                       </time>
@@ -6017,6 +6221,9 @@ export function ArchivedConversationListPage() {
                           setDeleteTarget({
                             id: conversation.id,
                             title: displayTitle,
+                            development:
+                              conversation.application_development_role ===
+                              "development",
                           })
                         }
                       >
@@ -6067,7 +6274,11 @@ export function ArchivedConversationListPage() {
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         title={t("conversation.deleteTitle")}
-        description={t("conversation.deleteDescription")}
+        description={t(
+          deleteTarget?.development
+            ? "applicationDevelopment.tests.deleteDevelopmentHint"
+            : "conversation.deleteDescription"
+        )}
         confirmLabel={t("common.delete")}
         destructive
         pending={deleteMutation.isPending}

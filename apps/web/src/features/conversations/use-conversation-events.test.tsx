@@ -63,11 +63,199 @@ describe("useConversationEvents", () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
     restoreWindowProperty(
       "requestAnimationFrame",
       originalRequestAnimationFrame
     )
     restoreWindowProperty("cancelAnimationFrame", originalCancelAnimationFrame)
+  })
+
+  it("releases hidden-page connections and resumes after the last delivered event", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible")
+    const onEvent = vi.fn()
+    const { unmount } = renderHook(() =>
+      useConversationEvents("conversation-1", onEvent, "conversation-1:1")
+    )
+    const first = sseMocks.connectConversationEvents.mock
+      .calls[0]?.[1] as ConversationEventHandlers
+    const commit = vi.fn()
+    const buffered = {
+      ...nativeAgentDelta(2, "已收到"),
+      id: "conversation-1:2",
+    }
+    act(() => first.onEvent(buffered, commit))
+    act(() => {
+      visibility.mockReturnValue("hidden")
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+    expect(disconnects[0]).toHaveBeenCalledOnce()
+    expect(onEvent).toHaveBeenCalledWith(buffered)
+    expect(commit).toHaveBeenCalledOnce()
+    expect(animationFrames.size).toBe(0)
+    act(() => first.onEvent(nativeAgentDelta(3, "已断开的连接")))
+    expect(onEvent).toHaveBeenCalledOnce()
+    act(() => {
+      visibility.mockReturnValue("visible")
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+    expect(sseMocks.connectConversationEvents).toHaveBeenLastCalledWith(
+      "conversation-1",
+      expect.any(Object),
+      { initialEventId: "conversation-1:2" }
+    )
+    expect(sseMocks.connectConversationEvents).toHaveBeenCalledTimes(2)
+    unmount()
+    expect(disconnects[1]).toHaveBeenCalledOnce()
+    act(() => document.dispatchEvent(new Event("visibilitychange")))
+    expect(sseMocks.connectConversationEvents).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not allocate an event connection until a background page becomes visible", () => {
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden")
+    const { unmount } = renderHook(() =>
+      useConversationEvents("conversation-1", vi.fn(), "conversation-1:8")
+    )
+    expect(sseMocks.connectConversationEvents).not.toHaveBeenCalled()
+    act(() => {
+      visibility.mockReturnValue("visible")
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+    expect(sseMocks.connectConversationEvents).toHaveBeenCalledExactlyOnceWith(
+      "conversation-1",
+      expect.any(Object),
+      { initialEventId: "conversation-1:8" }
+    )
+    unmount()
+  })
+
+  it("shares one stream for application replay and live chat without replaying old chat transitions", () => {
+    const onEvent = vi.fn()
+    const onReplayEvent = vi.fn()
+    const { unmount } = renderHook(() =>
+      useConversationEvents(
+        "conversation-1",
+        onEvent,
+        "conversation-1:8",
+        onReplayEvent
+      )
+    )
+    expect(sseMocks.connectConversationEvents).toHaveBeenCalledExactlyOnceWith(
+      "conversation-1",
+      expect.any(Object),
+      { initialEventId: "" }
+    )
+    const handlers = sseMocks.connectConversationEvents.mock
+      .calls[0]?.[1] as ConversationEventHandlers
+    const historical: ConversationEvent = {
+      id: "conversation-1:7",
+      type: "turn/completed",
+      turn_id: "turn-1",
+      payload: {},
+      created_at: "2026-09-18T00:00:00.000Z",
+      sequence_no: 7,
+    }
+    const live = { ...historical, id: "conversation-1:9", sequence_no: 9 }
+    const historicalCommit = vi.fn()
+    act(() => {
+      handlers.onEvent(historical, historicalCommit)
+      handlers.onEvent(live)
+    })
+    expect(onReplayEvent.mock.calls.map(([event]) => event.id)).toEqual([
+      historical.id,
+      live.id,
+    ])
+    expect(onEvent).toHaveBeenCalledExactlyOnceWith(live)
+    expect(historicalCommit).toHaveBeenCalledOnce()
+    unmount()
+  })
+
+  it("continues a partially replayed application history without changing the chat snapshot boundary", () => {
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible")
+    const onEvent = vi.fn()
+    const firstObserver = vi.fn()
+    const nextObserver = vi.fn()
+    const { rerender, unmount } = renderHook(
+      ({ observer }) =>
+        useConversationEvents(
+          "conversation-1",
+          onEvent,
+          "conversation-1:8",
+          observer
+        ),
+      { initialProps: { observer: firstObserver } }
+    )
+    const first = sseMocks.connectConversationEvents.mock
+      .calls[0]?.[1] as ConversationEventHandlers
+    const event: ConversationEvent = {
+      id: "conversation-1:6",
+      type: "linksense/application/custom-event",
+      turn_id: "turn-1",
+      payload: {},
+      created_at: "2026-09-18T00:00:00.000Z",
+      sequence_no: 6,
+    }
+    act(() => first.onEvent(event))
+    rerender({ observer: nextObserver })
+    expect(sseMocks.connectConversationEvents).toHaveBeenCalledOnce()
+    act(() => {
+      visibility.mockReturnValue("hidden")
+      document.dispatchEvent(new Event("visibilitychange"))
+      visibility.mockReturnValue("visible")
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+    expect(sseMocks.connectConversationEvents).toHaveBeenLastCalledWith(
+      "conversation-1",
+      expect.any(Object),
+      { initialEventId: event.id }
+    )
+    const resumed = sseMocks.connectConversationEvents.mock
+      .calls[1]?.[1] as ConversationEventHandlers
+    const historical = { ...event, id: "conversation-1:7", sequence_no: 7 }
+    const live = { ...event, id: "conversation-1:9", sequence_no: 9 }
+    act(() => {
+      resumed.onEvent(historical)
+      resumed.onEvent(live)
+    })
+    expect(firstObserver).toHaveBeenCalledExactlyOnceWith(event)
+    expect(nextObserver.mock.calls.map(([received]) => received.id)).toEqual([
+      historical.id,
+      live.id,
+    ])
+    expect(onEvent).toHaveBeenCalledExactlyOnceWith(live)
+    unmount()
+  })
+
+  it("does not show a reconnection warning when the page intentionally releases its connection", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible")
+    const { result, unmount } = renderHook(() =>
+      useConversationEvents("conversation-1", vi.fn(), "conversation-1:8")
+    )
+    const first = sseMocks.connectConversationEvents.mock
+      .calls[0]?.[1] as ConversationEventHandlers
+    act(() => first.onConnectionChange?.("reconnecting"))
+    act(() => {
+      visibility.mockReturnValue("hidden")
+      document.dispatchEvent(new Event("visibilitychange"))
+      first.onConnectionChange?.("reconnecting")
+      vi.advanceTimersByTime(conversationReconnectingWarningDelayMs)
+    })
+    expect(result.current).toEqual({
+      connectionState: "connected",
+      reconnectingWarningVisible: false,
+    })
+    expect(sseMocks.connectConversationEvents).toHaveBeenCalledOnce()
+    unmount()
   })
 
   it("coalesces a burst of streaming events into one animation-frame delivery", () => {
