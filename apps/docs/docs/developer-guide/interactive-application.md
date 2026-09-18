@@ -173,7 +173,7 @@ assets/
 | `capabilities:read` | `resources.listCapabilities()` | 技能和插件摘要：`id`、`name`、`type`、`description`、`status`、`can_select`、`logo_url`。 | 需要展示当前用户的技能或插件摘要时；读取列表不会改变应用已配置的资源。 |
 | `knowledge_bases:read` | `resources.listKnowledgeBases()` | 知识库摘要：`id`、`name`、`description`、`lifecycle_status`、`availability_status`。 | 需要展示当前用户的知识库摘要时；应用任务使用创建者配置的知识库，不受此列表影响。 |
 | `mcp_servers:read` | `resources.listMcpServers()` | MCP 服务摘要：`id`、`name`、`status`、`transport`；不返回地址和凭据。 | 需要展示连接信息时；此权限不提供直接调用 MCP 的接口，`tasks.run()` 也不接受 `mcp_server_ids`。 |
-| `tasks:write` | `tasks.run(input)`、`tasks.interrupt(turnId)` | 在当前应用任务中提交请求或请求中断指定轮次。 | 页面有生成、提交或停止操作时；需要处理受理失败和运行中的冲突。 |
+| `tasks:write` | `tasks.run(input)`、`tasks.interrupt(turnId)`、`tasks.getState()`、`tasks.onStateChange(...)` | 在当前应用任务中提交请求或请求中断指定轮次。 | 页面有生成、提交或停止操作时；需要处理受理失败和运行中的冲突。 |
 | `files:write` | `files.upload(file)`、`files.list()`、`files.remove(fileId)` | 上传、列出当前应用任务的附件，移除尚未提交的附件。 | 应用需要上传参考文件时，必须显式声明；不会自动授予旧应用。 |
 
 `ready()`、`events.on(...)` 和 `chat.show()/hide()/toggle()` 不需要额外的权限项。不要把方法名当成新的权限字符串加入 Manifest。资源列表方法返回 `{ items: [...] }`；资料读取接口只返回摘要，不返回密码、Token、MCP 凭据、能力正文或知识库正文。
@@ -360,6 +360,49 @@ const receipt = await LinkSense.tasks.run({
 
 网络恢复时同一事件可能再次到达，SDK 会按事件 `id` 去重，应用更新界面时也应保持幂等。受理回执只表示请求已被接受，不代表任务已完成；需要停止时可调用 `await LinkSense.tasks.interrupt(receipt.turn_id)`，不能用隐藏聊天区代替中断。
 
+
+### 任务状态查询与订阅（SDK 1.2.0）
+
+`tasks.getState()` 读取当前应用会话的最新任务状态；`tasks.onStateChange(handler, onError?)` 订阅状态变化并返回取消订阅函数。两者沿用 `tasks:write`，不增加 Manifest 权限或 `sdk_version` 值；SDK 地址仍是 `/api/v1/interactive-app-runtime/sdk/v1.js`。查询只读取现有启动记录、轮次和待处理请求，不提交任务。
+
+| 状态字段 | 含义 |
+| --- | --- |
+| `status` | `idle` 尚无任务；`starting` 已受理、正在启动；`running` 执行中；`waiting_for_input` 需要在原生聊天处理问题或计划；`completed` 已完成；`failed` 失败；`interrupted` 已停止。 |
+| `turn_id` | 当前启动请求或最新轮次的 ID，无任务时为 `null`。启动失败可能只有请求 ID，没有原生轮次。 |
+| `file_ids` | 当前请求/轮次关联的应用附件 ID；启动时附件可能仍是 `staged`，但已被该请求占用。 |
+| `can_submit` | 当前是否可尝试提交新请求；排队任务也会使它为 `false`。它不是锁，多窗口操作仍需处理提交时的冲突。 |
+| `interrupt_requested` | 服务端是否已记录停止请求；不代表任务已经停止。 |
+
+先注册业务事件和状态监听，再读取初始快照。在初始读取完成前，以及读取失败后禁用提交。监听器注册时如果 SDK 已收到状态，会立即收到最新一份；不会回放历史启动/完成状态。查询响应与推送乱序时 SDK 使用当前页面实例的递增版本防止旧状态覆盖新状态；这个版本不需要应用保存。`onError` 接收状态读取错误，随后成功的读取或推送会继续调用 `handler`。页面聚焦、恢复联网和任务生命周期事件会重新读取；忙碌时还会定期校准状态，不会重试执行任务。
+
+```js title="task-state.js"
+await LinkSense.ready()
+let current = null
+let submitting = false
+const button = document.querySelector('[type="submit"]')
+button.disabled = true
+function render(state) {
+  current = state
+  button.disabled = submitting || !state.can_submit
+  // 用应用的双语文案映射 state.status，按 state.turn_id 展示对应结果。
+}
+function unavailable() {
+  current = null
+  button.disabled = true
+  // 展示本地化的“暂时无法读取任务状态”，允许用户重新打开页面。
+}
+const unsubscribe = LinkSense.tasks.onStateChange(render, unavailable)
+await LinkSense.tasks.getState().catch(unavailable)
+window.addEventListener('pagehide', unsubscribe, { once: true })
+// 提交时同时检查 current?.can_submit 和 submitting；仅用户操作可调用 tasks.run。
+```
+
+`tasks.run()` 的受理回执不表示任务完成。停止后也应继续显示实际任务状态，直到收到 `interrupted` 或其他终态。业务事件可能在完成状态之后才回放到页面，应继续接收；按事件 `id` 去重、按 `turn_id` 分组，避免多轮结果混在一起。
+
+用 `files.list()` 恢复文件列表，并将状态快照的 `file_ids` 标为已提交/处理中。不能把仍处于 `staged` 但已被启动请求占用的文件当作新的可提交文件，也不能重新提交 `bound` 文件。查询不会恢复尚未提交的表单草稿；应用无需将“正在启动”等显示状态另外存入数据库或 localStorage。
+
+已有应用仍可使用原方法，无需改变 Manifest 或重新导入；但要让应用内部按钮与提示支持恢复，需要在应用代码中接入这些方法并正常发布更新、安装更新。已有任务打开的是其记录的包版本，仅刷新不会改写旧包；按现有版本更新流程核对任务实际采用的版本。平台不会直接修改已发布应用源码。
+
 ### 页面重进与事件恢复
 
 用户切换到其他任务后，可以从左侧任务列表或搜索结果重新进入交互式应用。LinkSense 会加载该任务当前记录的应用包版本，并按 `sequence` 从头回放已经持久化的自定义事件，然后继续发送实时事件。已发布服务在下一次执行采用新包后，后续重新进入会加载该新包；仅打开页面不会改变任务记录的版本。页面恢复不会重新运行任务，也不会要求模型再次生成数据。
@@ -450,3 +493,5 @@ const receipt = await LinkSense.tasks.run({
 `examples/interactive-research-brief/` 演示了多文件选择、失败重试、移除、重进恢复及按 ID 提交。
 
 部署此能力时，需要先运行 `pnpm db:migrate:deploy`，扩展附件来源的数据库约束，再部署同版本的 API 和前端。迁移保留原有来源值、历史附件和字段结构。开始写入新的附件来源后，不应将服务回退到不识别该来源的旧版本；不要混用新旧 API 实例。
+
+若各类文件上传都返回 `INTERNAL_ERROR`，且服务端日志出现 `conversation_files_source_check` 约束错误，请确认部署包包含并已执行 `20260918210000_allow_interactive_application_uploads` 迁移。修复后可直接重试上传，无需重新导入应用。`pnpm test:interactive-files:postgres` 使用临时 PostgreSQL 容器验证历史升级和全新安装，不连接应用数据库；该检查也会在 CI 中运行，需要 Docker。

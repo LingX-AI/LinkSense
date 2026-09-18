@@ -173,7 +173,7 @@ A permission enables the corresponding SDK methods. It does not install plugins 
 | `capabilities:read` | `resources.listCapabilities()` | Skill and plugin summaries: `id`, `name`, `type`, `description`, `status`, `can_select`, `logo_url`. | Display the current user's skill or plugin summaries. Reading the list does not change the application's configured resources. |
 | `knowledge_bases:read` | `resources.listKnowledgeBases()` | Knowledge base summaries: `id`, `name`, `description`, `lifecycle_status`, `availability_status`. | Display the current user's knowledge base summaries. Application tasks use the creator's configured knowledge bases, independently of this list. |
 | `mcp_servers:read` | `resources.listMcpServers()` | MCP service summaries: `id`, `name`, `status`, `transport`; no addresses or credentials. | When displaying connection information. This permission does not expose direct MCP calls, and `tasks.run()` does not accept `mcp_server_ids`. |
-| `tasks:write` | `tasks.run(input)`, `tasks.interrupt(turnId)` | Submits work in the current application task or requests interruption of a specified turn. | For generate, submit, or stop controls. Handle acceptance failures and conflicts with running work. |
+| `tasks:write` | `tasks.run(input)`, `tasks.interrupt(turnId)`, `tasks.getState()`, `tasks.onStateChange(...)` | Submits work in the current application task or requests interruption of a specified turn. | For generate, submit, or stop controls. Handle acceptance failures and conflicts with running work. |
 | `files:write` | `files.upload(file)`, `files.list()`, `files.remove(fileId)` | Upload and list this application task’s attachments; remove unsubmitted files. | Explicitly request this permission for uploads. It is not granted to older applications by default. |
 
 `ready()`, `events.on(...)`, and `chat.show()/hide()/toggle()` need no additional permission entry. Do not add method names as new permission strings. Resource list methods return `{ items: [...] }`. Read methods expose summaries, never passwords, tokens, MCP credentials, capability source, or knowledge base content.
@@ -364,6 +364,49 @@ After switching to another task, users can reopen an interactive application fro
 
 The SDK buffers events that arrive before the application registers a listener and deduplicates them by stable event id. Register business event listeners early and keep handlers idempotent so the UI can be rebuilt from callbacks. Unsubmitted form drafts that were never represented by custom events are not persisted automatically.
 
+
+### Task state queries and subscriptions (SDK 1.2.0)
+
+`tasks.getState()` reads the latest state of the current application conversation. `tasks.onStateChange(handler, onError?)` subscribes to changes and returns an unsubscribe function. Both use the existing `tasks:write` permission; keep the Manifest's `sdk_version` and the SDK URL `/api/v1/interactive-app-runtime/sdk/v1.js` unchanged. Queries read existing admission, turn and pending-request records; they never submit work.
+
+| State field | Meaning |
+| --- | --- |
+| `status` | `idle`: no task; `starting`: accepted, starting; `running`: executing; `waiting_for_input`: respond to questions or a plan in native chat; `completed`: finished; `failed`: failed; `interrupted`: stopped. |
+| `turn_id` | Current admission or latest turn ID, or `null` when idle. Failed admission may have an ID without a native turn. |
+| `file_ids` | Application attachment IDs associated with this request/turn. A starting request may reserve files that are still `staged`. |
+| `can_submit` | Whether a new submission may be attempted. Queued work also makes this `false`. This is not a lock: still handle conflicts caused by other windows. |
+| `interrupt_requested` | Whether the server has recorded a stop request, not confirmation that execution has stopped. |
+
+Register business-event and state listeners before reading the initial snapshot. Disable submission until that read succeeds, and after a read failure. A new listener immediately receives the latest state if the SDK already has one; historical lifecycle states are not replayed. Page-instance revisions prevent delayed query responses from replacing newer pushes; applications do not persist these revisions. `onError` receives read failures; subsequent successful reads or pushes resume delivery to `handler`. Focus, network reconnection and lifecycle notifications refresh the snapshot; busy tasks also receive periodic reconciliation. None of these actions retries execution.
+
+```js title="task-state.js"
+await LinkSense.ready()
+let current = null
+let submitting = false
+const button = document.querySelector('[type="submit"]')
+button.disabled = true
+function render(state) {
+  current = state
+  button.disabled = submitting || !state.can_submit
+  // Translate state.status using the app's locale and group results by state.turn_id.
+}
+function unavailable() {
+  current = null
+  button.disabled = true
+  // Show a localized status-unavailable message and allow reopening the page.
+}
+const unsubscribe = LinkSense.tasks.onStateChange(render, unavailable)
+await LinkSense.tasks.getState().catch(unavailable)
+window.addEventListener('pagehide', unsubscribe, { once: true })
+// Check current?.can_submit and submitting on submit; only user actions call tasks.run.
+```
+
+A `tasks.run()` receipt means acceptance, not completion. After requesting interruption, continue displaying actual state until `interrupted` or another terminal state arrives. Business events can be replayed after completion is observed; continue receiving them, deduplicate by event `id`, and group by `turn_id` so multiple submissions remain distinct.
+
+Restore file lists with `files.list()` and mark snapshot `file_ids` as submitted/in progress. Do not resubmit or remove staged files reserved by an accepted start, or resubmit bound files. Unsubmitted form drafts are outside this API. There is no need to store derived starting/running labels in a database or localStorage.
+
+Existing applications retain their current methods without Manifest changes or reimporting. To restore an application's own controls, update its code to use these methods, then publish and install through the normal update flow. Existing conversations load their recorded package version; refreshing does not rewrite old packages. Verify the version actually adopted by existing tasks. The platform does not edit published application source automatically.
+
 ## Chat controls
 
 Users can resize the chat pane on desktop and show or hide it at any time. Applications can also request a visibility change:
@@ -448,3 +491,5 @@ Existing packages continue to submit text without reimporting. To enable uploads
 See `examples/interactive-research-brief/` for multiple selection, retry, removal, restoration, and explicit file-ID submission.
 
 Before deploying this capability, run `pnpm db:migrate:deploy` to extend the attachment-source database constraint, then deploy matching API and frontend versions. The migration retains all existing source values, attachments, and field definitions. After new-origin attachments have been written, do not roll back to an API version that cannot parse that origin or mix old and new API instances.
+
+If uploads of every file type return `INTERNAL_ERROR` and server logs report a `conversation_files_source_check` constraint violation, confirm that the deployment includes and has applied `20260918210000_allow_interactive_application_uploads`. Retry the upload after the repair; reimporting the application is unnecessary. `pnpm test:interactive-files:postgres` verifies historical upgrades and fresh installations in a temporary PostgreSQL container without connecting to the application database. This check also runs in CI and requires Docker.

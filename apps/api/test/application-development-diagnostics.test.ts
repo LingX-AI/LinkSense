@@ -28,3 +28,33 @@ describe("preview diagnostics and starter", () => {
     expect(JSON.parse(files["manifest.json"]!)).toMatchObject({ sdk_version: 1, permissions: ["tasks:write", "files:write"] });
   });
 });
+
+describe("starter task restoration behavior", () => {
+  it.each(["zh-CN", "en-US"] as const)("restores server state and prevents automatic resubmission in %s", async locale => {
+    const files = applicationDevelopmentTemplate("Example", "example", locale);
+    const button = { disabled: true };
+    const status = { textContent: "" };
+    let submit: ((event: { preventDefault(): void }) => Promise<void>) | undefined;
+    let update: ((state: { status: string; can_submit: boolean }) => void) | undefined;
+    let unavailable: (() => void) | undefined;
+    const form = { querySelector: () => button, addEventListener: (_: string, fn: typeof submit) => { submit = fn; } };
+    const run = vi.fn();
+    const sdk = { ready: async () => undefined, tasks: {
+      run,
+      onStateChange: (fn: typeof update, error: typeof unavailable) => { update = fn; unavailable = error; return () => undefined; },
+      getState: async () => { update?.({ status: "starting", can_submit: false }); },
+    } };
+    runInNewContext(files["app.js"]!, { window: { LinkSense: sdk, addEventListener: vi.fn() }, document: { querySelector: (selector: string) => selector === "form" ? form : selector === "#status" ? status : { value: "A request" } } });
+    await vi.waitFor(() => expect(status.textContent).toBe(locale === "en-US" ? "Accepted, starting…" : "已受理，正在启动…"));
+    expect(button.disabled).toBe(true);
+    await submit?.({ preventDefault: vi.fn() });
+    expect(run).not.toHaveBeenCalled();
+    update?.({ status: "completed", can_submit: true });
+    expect(button.disabled).toBe(false);
+    unavailable?.();
+    expect(button.disabled).toBe(true);
+    expect(status.textContent).toBe(locale === "en-US" ? "Unable to read task status. Reopen the application to retry." : "暂时无法读取任务状态，请重新打开应用重试。");
+    update?.({ status: "interrupted", can_submit: true });
+    expect(button.disabled).toBe(false);
+  });
+});
