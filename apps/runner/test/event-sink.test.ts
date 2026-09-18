@@ -36,6 +36,26 @@ afterEach(async () => {
 });
 
 describe("HttpRunnerEventSink", () => {
+  it("projects a settled start outside the blocked event queue and wakes delivery immediately", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    let projected = false;
+    const fetchMock = vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url).endsWith("/runner/start-settled")) {
+        projected = true;
+        return jsonResponse({ data: { settled: true } });
+      }
+      return projected ? acknowledgeRequest(url, init) : jsonResponse({ data: { accepted_delivery_ids: [] } });
+    });
+    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000", "runner-secret", workspaceManager,
+      { fetch: fetchMock, retryBaseMs: 10_000 });
+    try {
+      await sink.publish(conversationId, statusEvent());
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      await sink.reportStartSettled({ conversationId, projectionTurnId: "01900000-0000-7000-8000-000000000099", runtimeGeneration: "01900000-0000-7000-8000-000000000098" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3), { timeout: 500 });
+      expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({ "x-linksense-owner-id": ownerId });
+    } finally { await sink.close(0); }
+  });
   it("retains queued and delayed preparation compaction across native thread alignment", async () => {
     const { root, workspaceManager } = await createWorkspaceManager();
     const outbox = new RunnerEventOutboxStore(workspaceManager);
@@ -275,8 +295,10 @@ describe("HttpRunnerEventSink", () => {
       turnId: "turn-native-1",
       workspaceRelativePath: "artifacts/report.txt",
       displayName: "report.txt",
+      webRootRelativePath: "artifacts/site",
     });
     expect(timeoutSpy).toHaveBeenLastCalledWith(12_345);
+    expect(JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))).toMatchObject({ webRootRelativePath: "artifacts/site" });
     await sink.close();
   });
 
@@ -323,6 +345,17 @@ describe("HttpRunnerEventSink", () => {
       "http://127.0.0.1:4000/internal/runner/process-exit",
     ]);
     expect(await outboxFiles(root)).toEqual([]);
+    await sink.close();
+  });
+
+  it("forwards application development with the current owner and preserves safe rejection codes", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse(null)).mockResolvedValueOnce(jsonResponse({ error_code: "APPLICATION_PACKAGE_INVALID", message: "private details" }, 422));
+    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000/internal", "runner-shared-secret-value", workspaceManager, { fetch: fetchMock });
+    const input = { conversationId, turnId: "01900000-0000-7000-8000-000000000003", request: { operation: "inspect" as const } };
+    await expect(sink.applicationBuilder(input)).resolves.toBeNull();
+    await expect(sink.applicationBuilder(input)).rejects.toMatchObject({ code: "APPLICATION_PACKAGE_INVALID", retryable: false, message: "APPLICATION_PACKAGE_INVALID" });
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ headers: expect.objectContaining({ "x-linksense-owner-id": ownerId }), body: JSON.stringify(input) });
     await sink.close();
   });
 

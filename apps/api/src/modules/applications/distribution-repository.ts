@@ -1,3 +1,4 @@
+import { publishedApplicationDefinitionSchema } from "./published-definition.js";
 import { applicationUsageModesSchema, type ApplicationCenterSubmissionInput } from "@linksense/shared";
 import { Prisma, type PrismaClient, type ApplicationRelease, type ApplicationListing } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
@@ -113,9 +114,10 @@ export class ApplicationDistributionRepository {
       const listing = await tx.applicationListing.upsert({ where: { applicationId }, create: { applicationId, publisherId: ownerId }, update: {} });
       if (listing.status === "suspended") throw new AppError("FORBIDDEN");
       if (await tx.applicationRelease.findFirst({ where: { listingId: listing.id, status: "pending" }, select: { id: true } })) throw new AppError("CONFLICT");
+      const definition = publishedApplicationDefinitionSchema.parse(version.definitionJson);
       return tx.applicationRelease.create({ data: {
-        listingId: listing.id, applicationId, versionId: version.id, name: application.name,
-        description: application.description, publisherName: owner.name,
+        listingId: listing.id, applicationId, versionId: version.id, name: definition.name,
+        description: definition.description, publisherName: owner.name,
         usageModes: input.usage_modes, releaseNotes: input.release_notes,
       } });
   }

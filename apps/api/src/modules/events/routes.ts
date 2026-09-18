@@ -8,6 +8,7 @@ import {
   isRunnerTextDeltaEvent,
   type RunnerTextDeltaEvent,
   runnerHeartbeatSchema,
+  runnerStartSettledSchema,
   runtimeServiceSessionHeader,
   type ConversationEvent,
 } from "@linksense/shared"
@@ -34,6 +35,7 @@ const artifactSchema = z.strictObject({
   displayName: z.string().min(1).max(260),
   mimeType: z.string().max(160).optional(),
   artifactKind: z.string().max(80).optional(),
+  webRootRelativePath: z.string().min(1).max(2_000).optional(),
 })
 
 const processExitSchema = z.strictObject({
@@ -57,6 +59,14 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
       const body = runnerHeartbeatSchema.parse(request.body)
       await services.events.recordRunnerHeartbeat(ownerId, body, z.uuid().optional().parse(request.headers[runtimeServiceSessionHeader]))
       return reply.send(ok({ confirmed: true }, request.id))
+    })
+
+    app.post("/runner/start-settled", async (request, reply) => {
+      const ownerId = parseRunnerOwnerId(request)
+      const body = runnerStartSettledSchema.parse(request.body)
+      await services.conversations.assertOwner(ownerId, body.conversationId)
+      const settled = await services.conversations.settleStartOperation(ownerId, body)
+      return reply.send(ok({ settled }, request.id))
     })
 
     app.post("/runner/events", async (request, reply) => {
@@ -180,6 +190,7 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
         displayName: body.displayName,
         ...(body.mimeType ? { mimeType: body.mimeType } : {}),
         ...(body.artifactKind ? { artifactKind: body.artifactKind } : {}),
+        ...(body.webRootRelativePath ? { webRootRelativePath: body.webRootRelativePath } : {}),
       })
       return reply.send(result)
     })

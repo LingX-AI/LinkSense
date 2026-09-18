@@ -22,6 +22,102 @@ function leafStrings(value: unknown): string[] {
 }
 
 describe("i18n resources", () => {
+  it("uses unlisting terminology for Plugin Center governance with Chinese fallback", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    for (const [key, chinese, english] of [
+      ["suspendListing", "下架", "Unlist"],
+      ["resumeListing", "重新上架", "Relist"],
+      ["suspensionReason", "下架原因", "Unlisting reason"],
+      ["status.suspended", "已下架", "Unlisted"],
+      ["suspendListingTitle", "下架“Example”？", "Unlist “Example”?"],
+      ["resumeListingTitle", "重新上架“Example”？", "Relist “Example”?"],
+    ]) {
+      const path = `marketplace.${key}`
+      expect(i18n.t(path, { lng: "zh-CN", name: "Example" })).toBe(chinese)
+      expect(i18n.t(path, { lng: "en-US", name: "Example" })).toBe(english)
+      expect(fallback.t(path, { lng: "en-US", name: "Example" })).toBe(chinese)
+    }
+  })
+  it("localizes application metadata editing and falls back when English resources are missing", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    for (const key of [
+      "editMetadata",
+      "editMetadataDescription",
+      "editDraftMetadataDescription",
+    ] as const) {
+      const path = `applications.${key}`
+      expect(i18n.t(path, { lng: "zh-CN" })).toBe(zhCN.applications[key])
+      expect(i18n.t(path, { lng: "en-US" })).toBe(enUS.applications[key])
+      expect(fallback.t(path, { lng: "en-US" })).toBe(zhCN.applications[key])
+    }
+  })
+  it("localizes catalog type filters and empty results with Chinese fallback", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    for (const [key, chinese, english] of [
+      ["standard", "普通应用", "Standard applications"],
+      ["interactive", "交互式应用", "Interactive applications"],
+      ["empty", "没有符合条件的应用", "No matching applications"],
+      ["filter", "筛选应用", "Filter applications"],
+    ]) {
+      const path = `applicationDevelopment.catalog.${key}`
+      expect(i18n.t(path, { lng: "zh-CN" })).toBe(chinese)
+      expect(i18n.t(path, { lng: "en-US" })).toBe(english)
+      expect(fallback.t(path, { lng: "en-US" })).toBe(chinese)
+    }
+  })
+  it("localizes draft status, actions and detail copy with Chinese fallback", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    for (const key of [
+      "newDevelopment",
+      "continueDevelopment",
+      "developNewVersion",
+      "deleteDraft",
+      "deleteDraftDescription",
+      "draftDetails",
+      "savedAt",
+      "unpublishedHint",
+    ] as const) {
+      const path = `applicationDevelopment.catalog.${key}`
+      expect(i18n.t(path, { lng: "zh-CN" })).toBe(
+        zhCN.applicationDevelopment.catalog[key]
+      )
+      expect(i18n.t(path, { lng: "en-US" })).toBe(
+        enUS.applicationDevelopment.catalog[key]
+      )
+      expect(fallback.t(path, { lng: "en-US" })).toBe(
+        zhCN.applicationDevelopment.catalog[key]
+      )
+    }
+  })
+  it("uses a concise develop action in both languages and Chinese fallback", () => {
+    const key = "applicationDevelopment.continue"
+    expect(i18n.t(key, { lng: "zh-CN" })).toBe("开发")
+    expect(i18n.t(key, { lng: "en-US" })).toBe("Develop")
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    expect(fallback.t(key, { lng: "en-US" })).toBe("开发")
+  })
+  it("localizes application details and resource states with a Chinese fallback", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    expect(leafKeys(zhCN.applications.details)).toEqual(
+      leafKeys(enUS.applications.details)
+    )
+    for (const key of leafKeys(
+      zhCN.applications.details,
+      "applications.details"
+    )) {
+      expect(i18n.t(key, { lng: "zh-CN" })).not.toBe(key)
+      expect(i18n.t(key, { lng: "en-US" })).not.toBe(key)
+      expect(fallback.t(key, { lng: "en-US" })).toBe(
+        i18n.t(key, { lng: "zh-CN" })
+      )
+    }
+  })
   it("localizes the unified publications page in both languages with a Chinese fallback", () => {
     const fallback = i18n.cloneInstance({ forkResourceStore: true })
     fallback.removeResourceBundle("en-US", "translation")
@@ -111,13 +207,13 @@ describe("i18n resources", () => {
       "总 12 · 周 0 · 月 -"
     )
     expect(i18n.t("nav.creditQuotaRemainingTitle", { lng: "zh-CN" })).toBe(
-      "剩余额度"
+      "额度"
     )
     expect(i18n.t("nav.creditQuotaRemainingTitle", { lng: "en-US" })).toBe(
-      "Credits remaining"
+      "Credits"
     )
     expect(instance.t("nav.creditQuotaRemainingTitle", { lng: "en-US" })).toBe(
-      "剩余额度"
+      "额度"
     )
   })
 
@@ -427,10 +523,14 @@ describe("i18n resources", () => {
     ).toContain("System health")
   })
 
-  it("uses conversation terminology only for models and naming frequency", () => {
+  it("uses conversation terminology only for models, naming frequency, chat-based app creation and debug conversations", () => {
     const allowedChineseConversationTerms = new Set([
       "首次对话时",
       "每次对话时",
+      "用对话创建交互式应用",
+      "显示对话",
+      "安装后使用创建者提供的应用资源。以后有新版本时，需要你手动安装更新；对话和工作文件会保留。",
+      "更新会覆盖你对应用内容的修改，保留对话、工作文件和个人凭据。请先结束该应用的所有正式任务。",
       "首次对话时命名，或随每次新消息更新。手动修改的名称不会被覆盖。",
       "对话模型",
       "对话可选",
@@ -449,7 +549,8 @@ describe("i18n resources", () => {
     expect(
       leafStrings(zhCN).filter(
         (value) =>
-          value.includes("对话") && !allowedChineseConversationTerms.has(value)
+          value.replaceAll("调试对话", "").includes("对话") &&
+          !allowedChineseConversationTerms.has(value)
       )
     ).toEqual([])
     expect(
@@ -691,7 +792,10 @@ describe("i18n resources", () => {
     expect(zhCN.conversation.searchTitle).toBe("搜索")
     expect(zhCN.conversation.searchEmpty).toBe("没有找到结果")
     expect(zhCN.conversation.clearArchivedDescription).toContain(
-      "未归档任务不受影响"
+      "其他未归档任务不受影响"
+    )
+    expect(zhCN.conversation.clearArchivedDescription).toContain(
+      "应用、开发草稿及其调试对话记录会保留"
     )
     expect(zhCN.conversation.clearingArchived).toBe("正在清除已归档任务…")
     expect(enUS.settings.credentials).toBe("Plugin credentials")
@@ -704,7 +808,10 @@ describe("i18n resources", () => {
     expect(enUS.conversation.searchTitle).toBe("Search")
     expect(enUS.conversation.searchEmpty).toBe("No results found")
     expect(enUS.conversation.clearArchivedDescription).toContain(
-      "Active tasks are not affected"
+      "Other active tasks are not affected"
+    )
+    expect(enUS.conversation.clearArchivedDescription).toContain(
+      "Applications, development drafts and debug conversation history remain available in My applications"
     )
     expect(enUS.conversation.clearingArchived).toBe("Clearing archived tasks…")
   })

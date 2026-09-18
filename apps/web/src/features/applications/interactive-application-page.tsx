@@ -1,10 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  ApplicationAnnotationPreview,
+  type ApplicationAnnotationOptions,
+} from "./application-annotation-preview"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { MessageCircleIcon, PanelRightCloseIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Navigate, useParams } from "react-router-dom"
 import { z } from "zod"
 import {
+  applicationDevelopmentDiagnosticSchema,
   interactiveApplicationRuntimeTokenResultSchema,
   interactiveApplicationTaskInputSchema,
 } from "@linksense/shared"
@@ -15,6 +27,7 @@ import {
   conversationDetailSchema,
   mcpServerSchema,
   paginatedSchema,
+  type ConversationEvent,
 } from "@/api/contracts"
 import { ApiError, apiRequest } from "@/api/client"
 import { createInteractiveApplicationFiles } from "./interactive-application-files"
@@ -24,9 +37,9 @@ import { interactiveCustomEvent } from "@/features/applications/interactive-appl
 import { createInteractiveApplicationSubmitter } from "@/features/applications/interactive-application-submission"
 import { InteractiveApplicationSplitLayout } from "@/features/applications/interactive-application-split-layout"
 import { conversationPath } from "@/features/conversations/conversation-navigation"
-import { useConversationEvents } from "@/features/conversations/use-conversation-events"
 import { listKnowledgeBases } from "@/features/knowledge-bases/knowledge-base-api"
 import { Button } from "@/components/ui/button"
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { ConversationPage } from "@/pages/conversation-pages"
 
@@ -54,13 +67,27 @@ const sdkRequestSchema = z.strictObject({
   params: z.record(z.string(), z.unknown()),
 })
 
-export function InteractiveApplicationPage() {
-  const { applicationId = "", conversationId = "" } = useParams()
+export function InteractiveApplicationPage(
+  props: {
+    applicationId?: string
+    conversationId?: string
+    annotation?: ApplicationAnnotationOptions
+    onDiagnostic?: (
+      diagnostic: import("@linksense/shared").ApplicationDevelopmentDiagnostic
+    ) => void
+  } = {}
+) {
+  const params = useParams()
+  const applicationId = props.applicationId ?? params.applicationId ?? ""
+  const conversationId = props.conversationId ?? params.conversationId ?? ""
+  const { user } = useAuth()
   return (
     <InteractiveApplicationRuntime
-      key={`${applicationId}:${conversationId}`}
+      key={`${user?.id}:${applicationId}:${conversationId}`}
       applicationId={applicationId}
       conversationId={conversationId}
+      onDiagnostic={props.onDiagnostic}
+      annotation={props.annotation}
     />
   )
 }
@@ -68,9 +95,15 @@ export function InteractiveApplicationPage() {
 function InteractiveApplicationRuntime({
   applicationId,
   conversationId,
+  onDiagnostic,
+  annotation,
 }: {
   applicationId: string
   conversationId: string
+  annotation?: ApplicationAnnotationOptions
+  onDiagnostic?: (
+    diagnostic: import("@linksense/shared").ApplicationDevelopmentDiagnostic
+  ) => void
 }) {
   const { t } = useTranslation()
   const { user } = useAuth()
@@ -80,7 +113,7 @@ function InteractiveApplicationRuntime({
   const seenCustomEventIdsRef = useRef(new Set<string>())
   const [instanceId] = useState(() => crypto.randomUUID())
   const [chatOpen, setChatOpen] = useState(
-    () => !window.matchMedia("(max-width: 767px)").matches
+    () => !onDiagnostic && !window.matchMedia("(max-width: 767px)").matches
   )
   const [frameReady, setFrameReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -98,16 +131,6 @@ function InteractiveApplicationRuntime({
     [queryClient, applicationId, conversationId]
   )
 
-  const application = useQuery({
-    queryKey: ["applications", "detail", user?.id, applicationId],
-    queryFn: ({ signal }) =>
-      apiRequest(`/applications/${applicationId}`, {
-        schema: applicationSchema,
-        signal,
-      }),
-    enabled: Boolean(user?.id && applicationId),
-  })
-
   const conversation = useQuery({
     queryKey: ["conversation", conversationId],
     queryFn: ({ signal }) =>
@@ -118,6 +141,23 @@ function InteractiveApplicationRuntime({
     enabled: Boolean(conversationId),
   })
   const conversationApplication = conversation.data?.application
+  const applicationDeleted =
+    conversationApplication?.unavailable_reason === "APPLICATION_DELETED"
+  const application = useQuery({
+    queryKey: ["applications", "detail", user?.id, applicationId],
+    queryFn: ({ signal }) =>
+      apiRequest(`/applications/${applicationId}`, {
+        schema: applicationSchema,
+        signal,
+      }),
+    enabled: Boolean(
+      user?.id &&
+      applicationId &&
+      conversation.isSuccess &&
+      conversationApplication?.id === applicationId &&
+      !applicationDeleted
+    ),
+  })
   const runtimePackageId =
     conversationApplication?.kind === "interactive"
       ? conversationApplication.package_id
@@ -126,25 +166,83 @@ function InteractiveApplicationRuntime({
     queryKey: [
       "applications",
       "interactive-runtime-token",
+      user?.id,
       applicationId,
       runtimePackageId,
+      conversationId,
     ],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiRequest(`/applications/${applicationId}/interactive-runtime-token`, {
         method: "POST",
         body: { package_id: runtimePackageId, conversation_id: conversationId },
         schema: interactiveApplicationRuntimeTokenResultSchema,
+        signal,
       }),
     enabled: Boolean(
-      runtimePackageId && conversationApplication?.id === applicationId
+      user?.id &&
+      runtimePackageId &&
+      conversationApplication?.id === applicationId &&
+      !applicationDeleted &&
+      application.isSuccess &&
+      application.data.status === "active" &&
+      application.data.dependencies_available
     ),
     staleTime: 8 * 60 * 1_000,
   })
+  const runtimeUnavailableMessage = applicationDeleted
+    ? t("errors.application.deleted")
+    : conversationApplication?.unavailable_reason ===
+          "APPLICATION_CENTER_UNAVAILABLE" ||
+        [application.error, runtimeToken.error].some(
+          (error) =>
+            error instanceof ApiError &&
+            error.errorCode === "APPLICATION_CENTER_UNAVAILABLE"
+        )
+      ? t("errors.application.centerUnavailable")
+      : application.isError ||
+          runtimeToken.isError ||
+          application.data?.kind === "standard" ||
+          application.data?.status === "disabled" ||
+          application.data?.dependencies_available === false ||
+          (conversation.isSuccess && !runtimePackageId)
+        ? t("applications.interactiveRuntimeUnavailable")
+        : undefined
   const permissions = useMemo(
     () => new Set(runtimeToken.data?.manifest.permissions ?? []),
     [runtimeToken.data?.manifest.permissions]
   )
-  const frameSource = runtimeToken.data?.runtime_url
+  const [annotationSession, setAnnotationSession] = useState<{
+    source: string
+    packageId: string
+  } | null>(null)
+  const frameSource =
+    annotationSession?.source ?? runtimeToken.data?.runtime_url
+  const onAnnotationActiveChange = annotation?.onActiveChange
+  const annotationRuntime = useRef({
+    source: runtimeToken.data?.runtime_url,
+    packageId: runtimePackageId,
+    onActiveChange: onAnnotationActiveChange,
+  })
+  useLayoutEffect(() => {
+    annotationRuntime.current = {
+      source: runtimeToken.data?.runtime_url,
+      packageId: runtimePackageId,
+      onActiveChange: onAnnotationActiveChange,
+    }
+  }, [
+    runtimeToken.data?.runtime_url,
+    runtimePackageId,
+    onAnnotationActiveChange,
+  ])
+  const handleAnnotationActiveChange = useCallback((active: boolean) => {
+    const { source, packageId, onActiveChange } = annotationRuntime.current
+    setAnnotationSession((current) =>
+      active
+        ? (current ?? (source && packageId ? { source, packageId } : null))
+        : null
+    )
+    onActiveChange?.(active)
+  }, [])
 
   const postToFrame = useCallback(
     (message: Record<string, unknown>) => {
@@ -159,6 +257,17 @@ function InteractiveApplicationRuntime({
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.source !== frameRef.current?.contentWindow) return
+      if (
+        onDiagnostic &&
+        event.data?.protocol === "linksense:development" &&
+        event.data.type === "diagnostic"
+      ) {
+        const parsed = applicationDevelopmentDiagnosticSchema.safeParse(
+          event.data.diagnostic
+        )
+        if (parsed.success) onDiagnostic(parsed.data)
+        return
+      }
       if (event.data?.protocol !== protocol) return
       if (event.data.type === "ready") {
         postToFrame({ type: "initialize" })
@@ -320,6 +429,7 @@ function InteractiveApplicationRuntime({
     window.addEventListener("message", handleMessage)
     return () => window.removeEventListener("message", handleMessage)
   }, [
+    onDiagnostic,
     chatOpen,
     applicationFiles,
     conversationId,
@@ -332,9 +442,8 @@ function InteractiveApplicationRuntime({
     user,
   ])
 
-  useConversationEvents(
-    conversationId || undefined,
-    (event) => {
+  const handleApplicationEvent = useCallback(
+    (event: ConversationEvent) => {
       const custom = interactiveCustomEvent(event)
       if (!custom || seenCustomEventIdsRef.current.has(custom.id)) return
       seenCustomEventIdsRef.current.add(custom.id)
@@ -349,7 +458,7 @@ function InteractiveApplicationRuntime({
       }
       postToFrame(message)
     },
-    ""
+    [frameReady, postToFrame]
   )
 
   if (conversation.data?.application?.kind !== undefined) {
@@ -362,13 +471,7 @@ function InteractiveApplicationRuntime({
     }
   }
 
-  if (
-    application.isError ||
-    conversation.isError ||
-    runtimeToken.isError ||
-    application.data?.kind === "standard" ||
-    (conversation.isSuccess && !runtimePackageId)
-  ) {
+  if (conversation.isError) {
     return (
       <div className="p-6">
         <StatusBanner variant="error">
@@ -384,14 +487,39 @@ function InteractiveApplicationRuntime({
       resizeLabel={t("applications.resizeNativeChat")}
       application={
         <>
-          {frameSource ? (
-            <iframe
-              ref={frameRef}
-              src={frameSource}
-              title={application.data?.name ?? t("applications.interactiveApp")}
-              className="absolute inset-0 size-full border-0 bg-background"
-              onLoad={() => setError(null)}
-            />
+          {runtimeUnavailableMessage ? (
+            <Empty className="h-full" role="status">
+              <EmptyHeader>
+                <EmptyTitle>{runtimeUnavailableMessage}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
+          ) : frameSource ? (
+            annotation && runtimePackageId ? (
+              <ApplicationAnnotationPreview
+                key={frameSource}
+                source={frameSource}
+                packageId={annotationSession?.packageId ?? runtimePackageId}
+                title={
+                  application.data?.name ?? t("applications.interactiveApp")
+                }
+                frameRef={frameRef}
+                options={{
+                  ...annotation,
+                  onActiveChange: handleAnnotationActiveChange,
+                }}
+                onLoad={() => setError(null)}
+              />
+            ) : (
+              <iframe
+                ref={frameRef}
+                src={frameSource}
+                title={
+                  application.data?.name ?? t("applications.interactiveApp")
+                }
+                className="absolute inset-0 size-full border-0 bg-background"
+                onLoad={() => setError(null)}
+              />
+            )
           ) : (
             <div className="flex size-full items-center justify-center text-sm text-muted-foreground">
               {t("common.loading")}
@@ -401,9 +529,9 @@ function InteractiveApplicationRuntime({
           {!chatOpen && (
             <Button
               type="button"
-              variant="outline"
+              variant="floating"
               size="sm"
-              className="absolute right-4 bottom-4 z-30 rounded-full border-[color:var(--app-border)] bg-[var(--app-canvas)] text-foreground shadow-[var(--app-shadow)] hover:bg-[var(--app-hover)]"
+              className="absolute right-4 bottom-4 z-30 rounded-full"
               aria-label={t("applications.showNativeChat")}
               onClick={() => setChatOpen(true)}
             >
@@ -430,6 +558,11 @@ function InteractiveApplicationRuntime({
         >
           <div className="min-h-0 flex-1 [&_.conversation-office-layout]:h-full">
             <ConversationPage
+              conversationId={conversationId}
+              embedded={Boolean(onDiagnostic)}
+              surfaceActive={chatOpen}
+              unavailableMessage={runtimeUnavailableMessage}
+              onApplicationEvent={handleApplicationEvent}
               headerActions={
                 <Button
                   type="button"

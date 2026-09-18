@@ -585,6 +585,38 @@ describe("knowledge processing pipeline", () => {
 })
 
 describe("knowledge index reconciliation", () => {
+  it.each([1, 2])("cancels a scan of %i documents without advancing past cancelled work", async (documentCount) => {
+    const coordinator = memoryReconciliationCoordinator()
+    const close = vi.spyOn(coordinator, "close")
+    const setCursor = vi.spyOn(coordinator, "setCursor")
+    const reconcileActiveDocumentVersion = vi.fn<ElasticsearchKnowledgeAdapter["reconcileActiveDocumentVersion"]>(
+      async (input) => new Promise<void>((resolve) => {
+        input.signal?.addEventListener("abort", () => resolve(), { once: true })
+      }),
+    )
+    const reconciler = new KnowledgeIndexActivationReconciler({
+      source: {
+        listDocumentIds: vi.fn(async () => ({ documentIds: [ids.document, "00000000-0000-4000-8000-000000000006"].slice(0, documentCount), exhausted: true })),
+        resolveActiveVersion: vi.fn(async () => ({
+          knowledgeBaseId: ids.knowledgeBase, documentId: ids.document,
+          documentVersionId: ids.version, expectedParentCount: 1,
+          expectedChildCount: 2, expectedEmbeddingProfileHash: "d".repeat(64),
+          expectedIndexIntegrityDigest: "e".repeat(64),
+        })),
+      },
+      coordinator, documentLock: immediateDocumentLock(),
+      elasticsearch: { reconcileActiveDocumentVersion },
+    })
+    await reconciler.start()
+    await vi.waitFor(() => expect(reconcileActiveDocumentVersion).toHaveBeenCalledOnce())
+    const closing = reconciler.close()
+    expect(reconcileActiveDocumentVersion.mock.calls[0]?.[0].signal?.aborted).toBe(true)
+    await closing
+    expect(reconcileActiveDocumentVersion).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+    expect(setCursor).not.toHaveBeenCalled()
+  })
+
   it("starts without waiting for a sweep, coalesces ticks and drains work before closing", async () => {
     vi.useFakeTimers()
     let resolvePage: (value: { documentIds: string[]; exhausted: boolean }) => void = () => {}
@@ -725,6 +757,7 @@ describe("knowledge index reconciliation", () => {
       expectedChildCount: 2,
       expectedEmbeddingProfileHash: "d".repeat(64),
       expectedIndexIntegrityDigest: "e".repeat(64),
+      signal: expect.any(AbortSignal),
     })
   })
 })

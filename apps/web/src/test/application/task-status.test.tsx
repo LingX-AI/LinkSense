@@ -562,19 +562,23 @@ describe("LinkSense application", () => {
     expect(applicationIcon).toHaveClass(
       "bg-transparent",
       "after:border-border/60",
-      "[&_svg]:size-5"
+      "size-5"
     )
     expect(applicationIcon).not.toHaveClass("bg-muted")
     expect(
       applicationIcon?.querySelector('[data-slot="avatar-fallback"]')
-    ).toHaveClass("bg-transparent", "text-muted-foreground")
+    ).toHaveClass("bg-transparent")
     expect(presetIcon).not.toBeNull()
+    expect(presetIcon).toHaveClass("size-5")
     expect(presetIcon?.querySelectorAll("[fill]").length).toBeGreaterThan(0)
     expect(
       applicationIcon!.compareDocumentPosition(applicationTitle) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     expect(fallbackIcon?.querySelector("svg")).not.toBeNull()
+    expect(
+      fallbackIcon?.querySelector('[data-application-icon-preset="bot"]')
+    ).not.toBeNull()
     expect(
       regularLink!.querySelector(".sidebar-conversation-application-icon")
     ).toBeNull()

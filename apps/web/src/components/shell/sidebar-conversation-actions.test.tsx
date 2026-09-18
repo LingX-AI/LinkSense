@@ -28,8 +28,8 @@ function renderActions(pinned = false, disabled = false, movable = true) {
         moveDisabled={disabled}
         currentProjectId="project-work"
         projects={[
-          { id: "project-work", name: "工作" },
-          { id: "project-personal", name: "生活" },
+          { id: "project-work", name: "工作", icon: "folder", color: "default" },
+          { id: "project-personal", name: "生活", icon: "heart", color: "pink" },
         ]}
         {...callbacks}
       />

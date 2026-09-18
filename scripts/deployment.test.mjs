@@ -472,7 +472,10 @@ test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO 
     gateway.match(
       /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;\s*\}/gu,
     ) ?? [];
-  assert.equal(maintenanceChecks.length, 4);
+  assert.equal(maintenanceChecks.length, 5);
+  const siteLocation = section(gateway, "  location ^~ /web/", "  location /api/");
+  assert.match(siteLocation, /if \(-f \/tmp\/linksense-maintenance\)/u);
+  assert.match(siteLocation, /proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/u);
   const maintenanceLocation = section(
     gateway,
     "  location @linksense_maintenance",
@@ -1362,16 +1365,43 @@ test("development Web proxies browser OIDC callbacks to the API service", async 
   assert.match(viteConfig, /process\.env\.LINKSENSE_DEV_API_PROXY_TARGET/u);
 });
 
-test("development applications start without serial Docker healthcheck delays", async () => {
+test("development applications are independently managed and promptly report failed readiness", async () => {
   const { stdout } = await execFileAsync("docker", [
     "compose", "--env-file", environmentExamplePath,
     "-f", composePath, "-f", developmentComposePath, "config", "--format", "json",
   ], { maxBuffer: 4 * 1024 * 1024 });
   const { services } = JSON.parse(stdout);
-  assert.equal(services.api.depends_on.runner.condition, "service_started");
-  assert.equal(services.web.depends_on.api.condition, "service_started");
-  assert.equal(services.api.depends_on.redis.condition, "service_healthy");
-  assert.equal(services.api.depends_on.migrate.condition, "service_completed_successfully");
+  for (const service of ["api", "runner", "web", "docs"]) {
+    assert.deepEqual(services[service].depends_on ?? {}, {}, service);
+  }
+  for (const service of ["api", "runner"]) {
+    assert.equal(services[service].healthcheck.interval, "5s");
+    assert.equal(services[service].healthcheck.retries, 3);
+    assert.equal(services[service].healthcheck.timeout, "3s");
+    assert.equal(services[service].init, true);
+    assert.equal(services[service].restart, "unless-stopped");
+    assert.deepEqual(services[service].command, ["node", "--import", "tsx", "src/index.ts"]);
+    assert.equal(services[service].working_dir, `/workspace/apps/${service}`);
+    assert.match(services[service].environment.NODE_OPTIONS, /--max-old-space-size=\d+/u);
+    for (const path of [`./apps/${service}/src`, "./packages/shared/src"]) {
+      assert.equal(services[service].develop.watch.find((rule) => rule.path === resolve(path)).action, "sync+restart");
+    }
+  }
+  assert.equal(services.docs.build.args.DOCS_BUILD_NODE_OPTIONS, "--max-old-space-size=1024");
+  assert.equal(services.docs.build.args.DOCS_BUILD_TERSER_PARALLEL, "false");
+
+  const production = await execFileAsync("docker", [
+    "compose", "--env-file", environmentExamplePath,
+    "-f", composePath, "config", "--format", "json",
+  ], { maxBuffer: 4 * 1024 * 1024 });
+  const base = JSON.parse(production.stdout).services;
+  assert.equal(base.api.depends_on.runner.condition, "service_healthy");
+  assert.equal(base.api.depends_on.migrate.condition, "service_completed_successfully");
+  assert.equal(base.runner.depends_on["runner-worker-image"].condition, "service_completed_successfully");
+  assert.equal(base.web.depends_on.api.condition, "service_healthy");
+  assert.equal(base.api.healthcheck.interval, "1m0s");
+  assert.equal(base.web.build.args.DOCS_BUILD_NODE_OPTIONS, undefined);
+  assert.equal(base.web.build.args.DOCS_BUILD_TERSER_PARALLEL, undefined);
 });
 
 test("development serves the production bilingual Help Center from an independent image", async () => {
@@ -1391,7 +1421,8 @@ test("development serves the production bilingual Help Center from an independen
   assert.match(docs, /action: rebuild\s+path: \.\/apps\/docs/u);
   assert.match(docs, /\/help\/en-US\//u);
   assert.match(dockerfile, /FROM dependencies AS docs-build/u);
-  assert.match(dockerfile, /RUN pnpm --filter @linksense\/docs build/u);
+  assert.match(dockerfile, /RUN NODE_OPTIONS="\$\{DOCS_BUILD_NODE_OPTIONS\}" TERSER_PARALLEL="\$\{DOCS_BUILD_TERSER_PARALLEL\}"/u);
+  assert.match(dockerfile, /pnpm --filter @linksense\/docs build/u);
   assert.equal(dockerfile.split("COPY --from=docs-build /workspace/apps/docs/build /usr/share/nginx/html/help").length - 1, 2);
   assert.match(docsConfig, /include \/etc\/nginx\/linksense\/help-location\.conf;/u);
   assert.match(script, /name: "Help Center \(zh-CN\)"/u);
@@ -1849,17 +1880,11 @@ test("runner runtime smoke validates the registry-driven Core MCP in Default and
   const smoke = await readFile(runnerRuntimeSmokePath, "utf8");
 
   assert.match(smoke, /dist\/mcp\/core-service-server\.js/u);
+  assert.match(smoke, /dist\/mcp\/core-service-registry\.js/u);
+  assert.match(smoke, /coreMcpToolNamesFor\(service\.environment\.LINKSENSE_COLLABORATION_MODE\)/u);
+  assert.doesNotMatch(smoke, /tools: \[/u, "tool names must come from the deployed registry, not a duplicate list");
   assert.match(smoke, /LINKSENSE_COLLABORATION_MODE: "default"/u);
   assert.match(smoke, /LINKSENSE_COLLABORATION_MODE: "plan"/u);
-  assert.match(smoke, /"register_artifact"/u);
-  assert.match(smoke, /"convert_document_to_markdown"/u);
-  assert.match(smoke, /"generate_image"/u);
-  assert.match(smoke, /"search_knowledge_base"/u);
-  assert.equal(
-    [...smoke.matchAll(/"get_current_user_info"/gu)].length,
-    2,
-    "current user tool must be smoke-tested in both Default and Plan modes",
-  );
   assert.equal(
     [...smoke.matchAll(/LINKSENSE_CURRENT_USER_ENDPOINT:/gu)].length,
     2,
@@ -1871,16 +1896,6 @@ test("runner runtime smoke validates the registry-driven Core MCP in Default and
     "current user token must be configured in both Default and Plan modes",
   );
   assert.equal(
-    [...smoke.matchAll(/"request_user_form"/gu)].length,
-    2,
-    "interactive form tool must be smoke-tested in both Default and Plan modes",
-  );
-  assert.equal(
-    [...smoke.matchAll(/"emit_application_event"/gu)].length,
-    2,
-    "interactive application event tool must be smoke-tested in both Default and Plan modes",
-  );
-  assert.equal(
     [...smoke.matchAll(/LINKSENSE_FORM_SERVICE_ENDPOINT:/gu)].length,
     2,
     "interactive form endpoint must be configured in both Default and Plan modes",
@@ -1890,7 +1905,8 @@ test("runner runtime smoke validates the registry-driven Core MCP in Default and
     2,
     "interactive form token must be configured in both Default and Plan modes",
   );
-  assert.match(smoke, /"preview_skill_zip"/u);
+  assert.match(smoke, /LINKSENSE_APPLICATION_BUILDER_ENDPOINT:/u);
+  assert.match(smoke, /LINKSENSE_APPLICATION_BUILDER_TOKEN:/u);
   assert.doesNotMatch(
     smoke,
     /(?:file|image-generation|knowledge|skill-creator)-service-server\.js/u,

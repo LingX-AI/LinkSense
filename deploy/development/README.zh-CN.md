@@ -103,7 +103,11 @@ Host 模式还会关闭内置 `linksense-browser` Skill、托管浏览器 MCP �
 
 API 模块加载与 Office 转换器预热并行进行；历史知识索引巡检在受控后台任务中执行，不阻塞启动，并保留分布式锁、周期巡检和关闭等待。开发和生产共用这些行为。就绪接口验证实际必需依赖及 Runner 执行能力；SMTP、模型诊断和 Docker 资源采样仍由完整健康诊断提供，资源采样失败不会阻塞就绪。就绪检查不替代真实模型调用等业务验收。
 
-开发 Web 默认地址为 `http://localhost:18173`。浏览器通过 Vite 的 `/api` 代理发送同源 API 请求，开发环境将 `VITE_API_BASE_URL` 设为空字符串，因为 Cookie 认证会拒绝跨域刷新会话。就绪检查还会通过该代理读取初始化状态、发送不带 Cookie 的会话刷新请求，确认返回 `AUTH_SESSION_EXPIRED`，而非跨域拒绝。Web/API 显式配置的映射端口优先于开发 Origin 中的端口，生产部署配置不受影响。
+Docker 开发模式同时提供 `http://localhost:18172` 和 `https://localhost:18173`，HTTP 不会强制跳转。请在 `.env` 中设置 `LINKSENSE_DEV_WEB_ORIGIN=http://localhost:18172`、`LINKSENSE_DEV_WEB_PORT=18172` 和 `LINKSENSE_DEV_WEB_HTTPS_PORT=18173`。两个入口使用相同的 Web 主机名和绑定地址；验证多任务 SSE 并发时使用 HTTPS 的 HTTP/2 入口。
+
+宿主机需要 Node.js 24.5+ 和 [mkcert](https://github.com/FiloSottile/mkcert)（macOS：`brew install mkcert`）。首次启动前在终端运行 `mkcert -install`，按系统提示完成授权，再运行 `pnpm dev`。启动器自动生成、复用或更新开发证书，文件保存在已被 Git 忽略的 `.data/dev/tls`；目录权限为 0700，证书私钥权限为 0600。开发网关只读挂载证书目录，CA 签名私钥保留在宿主机的 mkcert 目录中。
+
+`dev-gateway` 使用 Nginx 接入 HTTPS/HTTP2，并代理到同一个 Vite HTTP 服务；SSE 关闭响应缓冲，热更新通过 WSS 连接。浏览器在两个入口都通过 Vite 的 `/api` 代理发送同源请求，`VITE_API_BASE_URL` 为空字符串。就绪检查会分别读取初始化状态、发送不带 Cookie 的会话刷新请求，确认返回 `AUTH_SESSION_EXPIRED`，并验证实际协商为 HTTP/2；证书验证保持开启。开发环境的规范 URL 和外部登录回跳地址仍使用配置的 HTTP 地址。生产配置和单独的 HTTP `pnpm dev:host` 模式不受影响。
 
 `pnpm dev:stop` 停止开发服务与动态 Worker，保留容器、缓存和持久数据，适合日常使用；`pnpm dev:down` 删除开发容器与网络，仍保留持久数据。Ctrl+C 仅结束当前终端的 Watch/日志会话，服务继续运行。
 

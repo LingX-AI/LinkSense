@@ -72,6 +72,14 @@ export function dependencyBindings(state: InteractiveDependencyState): Interacti
   return state.items.map(({ type, id, resource_id }) => ({ type, id, resource_id }));
 }
 
+export function interactiveRuntimeDependencyIds(state: InteractiveDependencyState): {
+  capabilityIds: string[]; knowledgeBaseIds: string[]; mcpServerIds: string[];
+} {
+  const ids = (...types: InteractiveDependencyType[]): string[] => [...new Set(state.items.flatMap(item =>
+    types.includes(item.type) && item.resource_id ? [item.resource_id] : []))];
+  return { capabilityIds: ids("plugin", "skill"), knowledgeBaseIds: ids("knowledge_base"), mcpServerIds: ids("mcp_server") };
+}
+
 /** Actual runtime bindings are deduplicated; several declarations may use one resource. */
 export async function writeInteractiveRuntimeBindings(
   tx: Pick<Prisma.TransactionClient, "applicationCapability" | "applicationKnowledgeBase" | "applicationMcpServer">,

@@ -12,13 +12,93 @@ type ErrorCatalogEntry = {
 };
 
 export const errorCatalog = {
+  APPLICATION_DEVELOPMENT_TEST_BUSY: {
+    message_key: "errors.applicationDevelopment.testBusy", http_status: 409,
+    messages: { "zh-CN": "试运行尚未结束，请在试运行记录中停止运行并处理待办后再操作。", "en-US": "A test is still active. Stop it and resolve pending requests in Test history before continuing." },
+  },
+  APPLICATION_DEVELOPMENT_TEST_CHANGED: {
+    message_key: "errors.applicationDevelopment.testChanged", http_status: 409,
+    messages: { "zh-CN": "测试会话已更新，请使用最新预览重新操作。", "en-US": "The test session has changed. Continue from the latest preview." },
+  },
+  APPLICATION_DEVELOPMENT_WORKSPACE_BOUND: {
+    message_key: "errors.applicationDevelopment.workspaceBound", http_status: 409,
+    messages: { "zh-CN": "此项目中仍有应用开发内容。请在“我的应用”中删除相关应用后再删除项目；开发任务不能移动到其他项目。", "en-US": "This project contains application sources. Delete those applications in My applications before deleting the project. Development tasks must stay in their current project." },
+  },
+  APPLICATION_DEVELOPMENT_NOT_FOUND: {
+    message_key: "errors.applicationDevelopment.notFound", http_status: 404,
+    messages: { "zh-CN": "找不到这个应用，请返回“我的应用”查看。", "en-US": "This application is unavailable. Return to My applications." },
+  },
+  APPLICATION_DEVELOPMENT_SOURCE_CHANGED: {
+    message_key: "errors.applicationDevelopment.sourceChanged", http_status: 409,
+    messages: { "zh-CN": "应用内容已更新，请查看最新预览后再安装。", "en-US": "The application has changed. Review the latest preview before installing." },
+  },
+  WEB_SITE_NOT_FOUND: {
+    message_key: "errors.webSites.notFound", http_status: 404,
+    messages: { "zh-CN": "该站点不存在或已停止分享", "en-US": "This site is unavailable or sharing has stopped" },
+  },
+  WEB_SITE_SLUG_TAKEN: {
+    message_key: "errors.webSites.slugTaken", http_status: 409,
+    messages: { "zh-CN": "该访问地址已被使用，请换一个地址", "en-US": "This address is already reserved. Choose another address" },
+  },
+  WEB_SITE_SOURCE_UNAVAILABLE: {
+    message_key: "errors.webSites.sourceUnavailable", http_status: 409,
+    messages: { "zh-CN": "找不到可发布的网页，请从任务中选择已生成的 HTML 文件", "en-US": "Select an available HTML artifact from the source task" },
+  },
+  WEB_SITE_RESOURCES_MISSING: {
+    message_key: "errors.webSites.resourcesMissing", http_status: 422,
+    messages: { "zh-CN": "网页缺少配套资源（{{path}}）。请在原任务中让助手将网页和所需资源一起保存后再发布", "en-US": "A webpage resource is missing ({{path}}). Ask the assistant in the source task to save the webpage together with its resources before publishing" },
+  },
+  WEB_SITE_BUNDLE_INVALID: {
+    message_key: "errors.webSites.bundleInvalid", http_status: 422,
+    messages: { "zh-CN": "网页资源包不完整或包含不支持的文件，请在原任务中整理后重试", "en-US": "The webpage package is incomplete or contains unsupported files. Update it in the source task and retry" },
+  },
+  CLIENT_UPDATE_REQUIRED: {
+    message_key: "errors.clientUpdateRequired",
+    http_status: 409,
+    messages: {
+      "zh-CN": "系统已更新，请更新页面后继续。",
+      "en-US": "The system has been updated. Update this page to continue.",
+    },
+  },
+  SERVICE_TEMPORARILY_UNAVAILABLE: {
+    message_key: "errors.serviceTemporarilyUnavailable",
+    http_status: 503,
+    messages: {
+      "zh-CN": "系统暂时无法访问，请稍后重试。",
+      "en-US": "The system is temporarily unavailable. Please try again shortly.",
+    },
+  },
   APPLICATION_VERSION_TOO_LOW: {
     message_key: "errors.application.versionTooLow",
     http_status: 409,
     messages: {
-      "zh-CN": "版本号不能低于已有最高版本 v{{version}}。请修改版本号后重试。",
-      "en-US": "The version cannot be lower than the highest existing version, v{{version}}. Choose that version or a higher one.",
+      "zh-CN": "版本号必须高于已有最高版本 v{{version}}。请修改版本号后重试。",
+      "en-US": "The version must be higher than the highest existing version, v{{version}}. Choose a higher version.",
     },
+  },
+  APPLICATION_RUNTIME_BUSY: {
+    message_key: "errors.application.runtimeBusy", http_status: 409,
+    messages: { "zh-CN": "该应用有正式任务正在进行，暂时无法保存或更新。请停止相关任务或等待完成后重试。", "en-US": "This application has regular tasks in progress and cannot be saved or updated. Stop them or wait for completion, then try again." },
+  },
+  APPLICATION_CENTER_UNAVAILABLE: {
+    message_key: "errors.application.centerUnavailable", http_status: 403,
+    messages: { "zh-CN": "当前应用已被应用中心下架", "en-US": "This application has been removed from the Application Center." },
+  },
+  APPLICATION_RUNTIME_UPDATING: {
+    message_key: "errors.application.runtimeUpdating", http_status: 409,
+    messages: { "zh-CN": "应用正在更新，请在更新完成后重试。", "en-US": "The application is updating. Try again after the update finishes." },
+  },
+  APPLICATION_DEVELOPMENT_RUNTIME_UPDATING: {
+    message_key: "errors.applicationDevelopment.preparing", http_status: 409,
+    messages: { "zh-CN": "调试版正在准备，请稍后重试。", "en-US": "The test version is being prepared. Try again shortly." },
+  },
+  APPLICATION_INSTALLATION_REQUIRED: {
+    message_key: "errors.application.installationRequired", http_status: 409,
+    messages: { "zh-CN": "请先安装该应用，再开始使用。", "en-US": "Install this application before starting a task." },
+  },
+  APPLICATION_PUBLICATION_REQUIRED: {
+    message_key: "errors.application.publicationRequired", http_status: 409,
+    messages: { "zh-CN": "请先发布应用版本，再共享或上架。", "en-US": "Publish an application version before sharing it or submitting it to the App Center." },
   },
   PROJECT_NOT_FOUND: {
     message_key: "projects.notFound",
@@ -276,21 +356,20 @@ export const errorCatalog = {
         "The application was not found or is no longer available to you.",
     },
   },
+  APPLICATION_DELETED: {
+    message_key: "errors.application.deleted",
+    http_status: 410,
+    messages: {
+      "zh-CN": "此应用已被删除",
+      "en-US": "This application has been deleted",
+    },
+  },
   APPLICATION_DISABLED: {
     message_key: "errors.application.disabled",
     http_status: 409,
     messages: {
       "zh-CN": "该应用已停用，暂时无法开始新的任务轮次。",
       "en-US": "This application is disabled and cannot start a new turn.",
-    },
-  },
-  APPLICATION_CONVERSATION_RENAME_UNSUPPORTED: {
-    message_key: "errors.application.conversationRenameUnsupported",
-    http_status: 409,
-    messages: {
-      "zh-CN": "应用任务标题由应用管理，不支持重命名。",
-      "en-US":
-        "Application task titles are managed by the application and cannot be renamed.",
     },
   },
   APPLICATION_DEPENDENCY_UNAVAILABLE: {
@@ -320,15 +399,6 @@ export const errorCatalog = {
         "交互式应用包无效。请确认 ZIP 根目录包含有效的 manifest.json 和 index.html。",
       "en-US":
         "The interactive application package is invalid. Make sure the ZIP root contains valid manifest.json and index.html files.",
-    },
-  },
-  APPLICATION_PACKAGE_VERSION_CONFLICT: {
-    message_key: "errors.application.packageVersionConflict",
-    http_status: 409,
-    messages: {
-      "zh-CN": "该交互式应用版本已导入，请更新 manifest.json 中的版本号。",
-      "en-US":
-        "This interactive application version has already been imported. Update the version in manifest.json.",
     },
   },
   APPLICATION_CUSTOM_EVENT_INVALID: {

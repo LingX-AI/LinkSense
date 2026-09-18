@@ -1,5 +1,4 @@
 import { AssistantPreviewActions } from "@/features/conversations/assistant-preview-actions"
-import tailwindBrowserRuntimeUrl from "@tailwindcss/browser?url"
 import {
   DownloadIcon,
   ImageIcon,
@@ -90,7 +89,6 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
     try {
       return buildAssistantHtmlPreviewDocument(html, {
         previewId,
-        tailwindRuntimeUrl: tailwindBrowserRuntimeUrl,
       })
     } catch {
       return null

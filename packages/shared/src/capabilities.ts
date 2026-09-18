@@ -16,6 +16,7 @@ export const builtInSkillNames = [
   "linksense-image-generation",
   "linksense-knowledge-base",
   "linksense-skill-creator",
+  "linksense-interactive-app-builder",
 ] as const;
 export const builtInSkillNameSchema = z.enum(builtInSkillNames);
 export type BuiltInSkillName = z.infer<typeof builtInSkillNameSchema>;

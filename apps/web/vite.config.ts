@@ -6,6 +6,7 @@ import react from "@vitejs/plugin-react"
 import type { Plugin } from "vite"
 import { defineConfig } from "vitest/config"
 import { sharedDomTests } from "./src/test/shared-dom-files"
+import { applicationBuildId } from "../../scripts/application-build.mjs"
 
 const embedStylesheetFileName = "assets/embed-app.css"
 const applicationTests = ["src/App.test.tsx", "src/test/application/*.test.tsx"]
@@ -50,9 +51,34 @@ function emitEmbedStylesheet(): Plugin {
   }
 }
 
+function emitBuildInfo(): Plugin {
+  let buildId: string | null = null
+  return {
+    name: "linksense-build-info",
+    apply: "build",
+    config() {
+      buildId = applicationBuildId()
+      return {
+        define: {
+          "import.meta.env.VITE_LINKSENSE_BUILD_ID": JSON.stringify(buildId),
+        },
+      }
+    },
+    generateBundle() {
+      if (!buildId) this.error("Application build identity was not initialized")
+      this.emitFile({
+        type: "asset",
+        fileName: "build-info.json",
+        source: JSON.stringify({ build_id: buildId }),
+      })
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    emitBuildInfo(),
     fileViewerRenderers({
       autoPresets: ["lite", "office"],
       // Keep Flyfish code behind the lazy knowledge routes instead of
@@ -67,6 +93,10 @@ export default defineConfig({
   ],
   server: {
     proxy: {
+      "/web": {
+        target:
+          process.env.LINKSENSE_DEV_API_PROXY_TARGET ?? "http://localhost:4000",
+      },
       "/help": {
         target:
           process.env.LINKSENSE_DEV_DOCS_PROXY_TARGET ??
@@ -128,7 +158,10 @@ export default defineConfig({
           // the machine. Keep their deadline separate from small unit tests.
           testTimeout: ciApplicationTestTimeout,
           hookTimeout: ciDomHookTimeout,
-          setupFiles: ["./src/test/setup.ts", "./src/test/application/mocks.tsx"],
+          setupFiles: [
+            "./src/test/setup.ts",
+            "./src/test/application/mocks.tsx",
+          ],
           sequence: { setupFiles: "list" },
         },
       },

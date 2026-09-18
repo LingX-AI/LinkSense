@@ -73,6 +73,7 @@ import {
   CapabilityLogo,
   McpLogo,
 } from "@/components/capabilities/capability-library-item"
+import { MarketplaceGovernanceRow } from "@/components/capabilities/marketplace-governance-row"
 import { CapabilityRiskSummary } from "@/components/capabilities/capability-risk-summary"
 import { SkillContentPreview } from "@/components/capabilities/skill-content-preview"
 import { SkillUpdateDialog } from "@/features/capabilities/skill-update-dialog"
@@ -141,12 +142,15 @@ import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
 import { cn } from "@/lib/utils"
 import { ApplicationsWorkspacePanel } from "@/features/applications/application-center-panel"
-import { ApplicationCenterAdminPanel } from "@/features/applications/application-center-admin-panel"
+import { ApplicationCreateButton } from "@/features/applications/application-catalog-panel"
+import { applicationWorkspaceScope } from "@/features/applications/application-workspace-scope"
+import { ApplicationCenterAdminItem } from "@/features/applications/application-center-admin-item"
 import { ApplicationDistributionDialog } from "@/features/applications/application-distribution-dialog"
 import { ApplicationPublicationCard } from "@/features/applications/application-publication-card"
 import { ApplicationPublicationPicker } from "@/features/applications/application-publication-picker"
 import {
   applicationCenterPageSchema,
+  useAdminApplicationReleases,
   applicationDistributionKeys,
 } from "@/features/applications/application-distribution-queries"
 import {
@@ -167,7 +171,7 @@ type CapabilityImportProgress =
 type UserCapabilityView = "store" | "publishing"
 type MarketplaceCatalogSection = "plugin" | "skill" | "mcp" | "application"
 type MarketplaceCatalogScope = "public" | "personal" | "clawhub"
-type AdminMarketplaceTab = "reviews" | "listings" | "applications"
+type AdminMarketplaceTab = "reviews" | "listings"
 type CapabilityUninstallTarget = {
   id: string
   name: string
@@ -3605,6 +3609,16 @@ export function CapabilityManagementPage() {
             ? `marketplace.catalogDescriptions.${section}`
             : "marketplace.publicationsDescription"
         )}
+        actions={
+          view === "store" &&
+          section === "application" &&
+          applicationWorkspaceScope(
+            new URLSearchParams(location.search),
+            organizationMarketplaceEnabled
+          ) === "owned" ? (
+            <ApplicationCreateButton onFeedback={feedback} />
+          ) : undefined
+        }
         afterHeader={
           view !== "publishing" && error ? <Feedback error={error} /> : null
         }
@@ -3977,32 +3991,23 @@ function MarketplaceGovernanceItem({
   const { t } = useTranslation()
 
   return (
-    <article
-      className="marketplace-governance-item -mx-4 px-4"
-      aria-label={capabilityDisplayName({
+    <MarketplaceGovernanceRow
+      name={capabilityDisplayName({
         ...publication.latest_release,
         type: publication.listing.type,
       })}
-    >
-      <CapabilityLogo
-        type={publication.listing.type}
-        logoUrl={publication.latest_release.logo_url}
-      />
-      <div className="marketplace-governance-copy">
-        <div className="marketplace-governance-title-row">
-          <h3 className="marketplace-governance-name">
-            {capabilityDisplayName({
-              ...publication.latest_release,
-              type: publication.listing.type,
-            })}
-          </h3>
-          <MarketplaceStatusBadge status={status} />
-        </div>
-        <p className="marketplace-governance-description">
-          {publication.latest_release.description ||
-            t("marketplace.noDescription")}
-        </p>
-        <div className="marketplace-governance-meta">
+      logo={
+        <CapabilityLogo
+          type={publication.listing.type}
+          logoUrl={publication.latest_release.logo_url}
+        />
+      }
+      description={
+        publication.latest_release.description || t("marketplace.noDescription")
+      }
+      status={<MarketplaceStatusBadge status={status} />}
+      metadata={
+        <>
           <span>
             {t("marketplace.byPublisher", {
               publisher: publication.listing.publisher_name,
@@ -4022,13 +4027,11 @@ function MarketplaceGovernanceItem({
               {metadata}
             </>
           )}
-        </div>
-        {notice}
-      </div>
-      {actions && (
-        <div className="marketplace-governance-action">{actions}</div>
-      )}
-    </article>
+        </>
+      }
+      notice={notice}
+      actions={actions}
+    />
   )
 }
 
@@ -4119,6 +4122,20 @@ export function AdminCapabilityManagementPage() {
       }),
   })
 
+  const applications = useAdminApplicationReleases()
+  const applicationReviews = (applications.data?.items ?? []).filter(
+    (item) => item.status === "pending"
+  )
+  const applicationListings = useMemo(() => {
+    const seen = new Set<string>()
+    // The API returns releases newest first; keep one row per application.
+    return (applications.data?.items ?? []).filter((item) => {
+      if (seen.has(item.application_id)) return false
+      seen.add(item.application_id)
+      return true
+    })
+  }, [applications.data])
+
   const completed = async (message: string) => {
     setError(null)
     notify.success(message, { id: "admin-capability-action-success" })
@@ -4141,7 +4158,7 @@ export function AdminCapabilityManagementPage() {
       <Tabs
         value={tab}
         onValueChange={(value) => setTab(value as AdminMarketplaceTab)}
-        className="space-y-6"
+        className="gap-6"
       >
         <TabsList aria-label={t("marketplace.adminTabsLabel")}>
           <TabsTrigger value="reviews">
@@ -4152,19 +4169,19 @@ export function AdminCapabilityManagementPage() {
             <StoreIcon data-icon="inline-start" />
             {t("marketplace.tabs.listings")}
           </TabsTrigger>
-          <TabsTrigger value="applications">
-            {t("applications.distribution.adminTitle")}
-          </TabsTrigger>
         </TabsList>
-        <TabsContent value="applications">
-          <ApplicationCenterAdminPanel />
-        </TabsContent>
         <TabsContent value="reviews">
-          {reviews.isLoading ? (
+          {applications.error && (
+            <ErrorState
+              message={getErrorMessage(applications.error, t)}
+              onRetry={() => void applications.refetch()}
+            />
+          )}
+          {reviews.isLoading || applications.isPending ? (
             <LoadingState />
-          ) : reviews.data?.items.length ? (
+          ) : reviews.data?.items.length || applicationReviews.length ? (
             <ListCard>
-              {reviews.data.items.map((publication) => (
+              {reviews.data?.items.map((publication) => (
                 <MarketplaceGovernanceItem
                   key={publication.latest_release.id}
                   publication={publication}
@@ -4201,27 +4218,47 @@ export function AdminCapabilityManagementPage() {
                   }
                 />
               ))}
+              {applicationReviews.map((item) => (
+                <ApplicationCenterAdminItem
+                  key={item.id}
+                  item={item}
+                  scope="reviews"
+                />
+              ))}
             </ListCard>
-          ) : (
+          ) : !reviews.error && !applications.error ? (
             <EmptyState title={t("marketplace.reviewsEmpty")} />
-          )}
+          ) : null}
         </TabsContent>
         <TabsContent value="listings">
-          {listings.isLoading ? (
+          {applications.error && (
+            <ErrorState
+              message={getErrorMessage(applications.error, t)}
+              onRetry={() => void applications.refetch()}
+            />
+          )}
+          {listings.isLoading || applications.isPending ? (
             <LoadingState />
-          ) : listings.data?.items.length ? (
+          ) : listings.data?.items.length || applicationListings.length ? (
             <ListCard>
-              {listings.data.items.map((publication) => (
+              {listings.data?.items.map((publication) => (
                 <GovernanceListingItem
                   key={publication.listing.id}
                   publication={publication}
                   onStatusChange={() => setGovernanceTarget(publication)}
                 />
               ))}
+              {applicationListings.map((item) => (
+                <ApplicationCenterAdminItem
+                  key={item.application_id}
+                  item={item}
+                  scope="listings"
+                />
+              ))}
             </ListCard>
-          ) : (
+          ) : !listings.error && !applications.error ? (
             <EmptyState title={t("marketplace.listingsEmpty")} />
-          )}
+          ) : null}
         </TabsContent>
       </Tabs>
       <ReviewDialog

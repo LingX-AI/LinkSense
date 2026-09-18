@@ -8,6 +8,7 @@ import { NotificationCenter } from "@/components/feedback/notification-toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { BrowserNotificationCenter } from "@/features/browser-notifications/browser-notification-center"
 import { BrowserNotificationPrompt } from "@/features/browser-notifications/browser-notification-prompt"
+import { ApiError } from "@/api/client"
 import { CreditQuotaRefreshCenter } from "@/features/usage/credit-quota-refresh-center"
 
 export function AppProviders({ children }: { children: ReactNode }) {
@@ -18,7 +19,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
           queries: {
             staleTime: 15_000,
             refetchOnWindowFocus: false,
-            retry: 1,
+            retry: (count, error) =>
+              count < 1 &&
+              !(
+                error instanceof ApiError &&
+                error.errorCode === "CLIENT_UPDATE_REQUIRED"
+              ),
           },
           mutations: { retry: false },
         },

@@ -3,13 +3,13 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
-  interactiveDependencySelectionSchema,
+  applicationSchema,
   interactiveDependencyTypeSchema,
+  type InteractiveDependencyState,
 } from "@linksense/shared"
 import i18n from "@/i18n"
-import { apiRequest } from "@/api/client"
+import { ApiError, apiRequest } from "@/api/client"
 import { InteractiveApplicationImportDialog } from "./application-catalog-panel"
-import { InteractiveDependenciesDialog } from "./interactive-dependencies-dialog"
 import { InteractiveDependencyFields } from "./interactive-dependency-fields"
 import { ApplicationUsageModes } from "./application-usage-modes"
 
@@ -23,7 +23,12 @@ afterEach(() => {
 })
 const id = "10000000-0000-4000-8000-000000000001"
 const resourceId = "20000000-0000-4000-8000-000000000001"
-const state = {
+const previewApplication = {
+  name: "Request review",
+  description: "Review procurement requests.",
+  version: "1.2.3",
+}
+const state: InteractiveDependencyState = {
   items: [
     {
       type: "skill",
@@ -52,13 +57,9 @@ function show(content: React.ReactNode) {
   )
 }
 function mockRequests() {
-  vi.mocked(apiRequest).mockImplementation(async (path, options) => {
-    if (
-      path.endsWith("/preview") ||
-      (path.endsWith("/interactive-dependencies") &&
-        options?.method !== "PATCH")
-    )
-      return state
+  vi.mocked(apiRequest).mockImplementation(async (path) => {
+    if (path.endsWith("/preview"))
+      return { ...state, application: previewApplication }
     if (path === "/applications/interactive-dependency-options")
       return { items: [{ id: resourceId, name: "My review" }] }
     return { id }
@@ -66,33 +67,18 @@ function mockRequests() {
 }
 
 describe.each(["zh-CN", "en-US"])("interactive dependencies (%s)", (locale) => {
-  it("hides cancel and save when no resources are declared and keeps the close button usable", async () => {
+  it("shows an empty state when no resources are declared", async () => {
     await i18n.changeLanguage(locale)
-    vi.mocked(apiRequest).mockResolvedValue({ items: [] })
-    const close = vi.fn(),
-      user = userEvent.setup()
-    show(<InteractiveDependenciesDialog applicationId={id} onClose={close} />)
-    expect(
-      await screen.findByText(i18n.t("applications.dependencies.empty"))
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: i18n.t("common.cancel") })
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: i18n.t("common.save") })
-    ).not.toBeInTheDocument()
-    expect(
-      screen.getByRole("dialog").querySelector('[data-slot="dialog-footer"]')
-    ).toBeNull()
-    await user.click(
-      screen.getByRole("button", { name: i18n.t("common.close") })
+    const onChange = vi.fn()
+    show(
+      <InteractiveDependencyFields state={{ items: [] }} onChange={onChange} />
     )
-    expect(close).toHaveBeenCalledOnce()
     expect(
-      vi
-        .mocked(apiRequest)
-        .mock.calls.some(([, options]) => options?.method === "PATCH")
-    ).toBe(false)
+      screen.getByText(i18n.t("applications.dependencies.empty"))
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument()
+    expect(onChange).not.toHaveBeenCalled()
+    expect(apiRequest).not.toHaveBeenCalled()
   })
   it("keeps every resource label beside a right-aligned picker, with wrapping space for long names", async () => {
     await i18n.changeLanguage(locale)
@@ -142,7 +128,7 @@ describe.each(["zh-CN", "en-US"])("interactive dependencies (%s)", (locale) => {
     ).toHaveLength(4)
     await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(4))
   })
-  it("previews missing resources and imports without forcing a selection", async () => {
+  it("shows parsed metadata, preserves resource selection and publishes the imported version", async () => {
     await i18n.changeLanguage(locale)
     mockRequests()
     const user = userEvent.setup(),
@@ -172,6 +158,22 @@ describe.each(["zh-CN", "en-US"])("interactive dependencies (%s)", (locale) => {
     expect(
       screen.getByText(i18n.t("applications.dependencies.hint"))
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole("textbox", { name: i18n.t("common.name") })
+    ).toHaveValue(previewApplication.name)
+    expect(
+      screen.getByRole("textbox", { name: i18n.t("common.description") })
+    ).toHaveValue(previewApplication.description)
+    expect(
+      screen.getByRole("textbox", {
+        name: i18n.t("applications.distribution.versionNumber"),
+      })
+    ).toHaveValue(previewApplication.version)
+    expect(
+      screen.getByRole("textbox", {
+        name: i18n.t("applications.distribution.versionNumber"),
+      })
+    ).toHaveAttribute("readonly")
     await user.click(
       screen.getByRole("button", {
         name: i18n.t("applications.importPackageAction"),
@@ -188,39 +190,283 @@ describe.each(["zh-CN", "en-US"])("interactive dependencies (%s)", (locale) => {
       bindings: [],
     })
     expect(body.get("file")).toBeInstanceOf(File)
-  })
-  it("allows manual matching after import and submits only the declared mapping", async () => {
-    await i18n.changeLanguage(locale)
-    mockRequests()
-    const user = userEvent.setup(),
-      close = vi.fn()
-    show(<InteractiveDependenciesDialog applicationId={id} onClose={close} />)
-    const picker = await screen.findByRole("combobox")
-    expect(
-      screen.getByRole("button", { name: i18n.t("common.cancel") })
-    ).toBeEnabled()
-    expect(
-      screen.getByRole("button", { name: i18n.t("common.save") })
-    ).toBeEnabled()
-    await user.click(picker)
-    await user.click(await screen.findByRole("option", { name: "My review" }))
-    await user.click(
-      screen.getByRole("button", { name: i18n.t("common.save") })
+    expect(apiRequest).toHaveBeenCalledWith(
+      `/applications/${id}/publish`,
+      expect.objectContaining({
+        method: "POST",
+        body: { version_number: "1.2.3", usage_instructions: "" },
+      })
     )
-    await waitFor(() => expect(close).toHaveBeenCalledOnce())
-    const request = vi
-      .mocked(apiRequest)
-      .mock.calls.find(([, options]) => options?.method === "PATCH")
-    expect(
-      interactiveDependencySelectionSchema.parse(request?.[1]?.body)
-    ).toEqual({ bindings: [{ type: "skill", id, resource_id: resourceId }] })
   })
-  it("switches status icons when selecting and clearing inside the picker, and saves an empty mapping", async () => {
+  it.each([
+    ["import", "1.2.2"],
+    ["update", "1.2.2"],
+    ["update", "1.2.3"],
+  ])(
+    "submits resource choices during %s with existing version %s",
+    async (mode, highest) => {
+      await i18n.changeLanguage(locale)
+      const application = applicationSchema.parse({
+        id,
+        owner: { id, name: "Owner" },
+        name: "Review app",
+        icon: { type: "preset", preset: "sparkles" },
+        description: null,
+        kind: "interactive",
+        instructions: null,
+        model: null,
+        reasoning_effort: null,
+        status: "active",
+        is_owner: true,
+        can_manage: true,
+        access_source: "owner",
+        capability_count: 1,
+        knowledge_base_count: 0,
+        mcp_server_count: 0,
+        dependencies_available: true,
+        capabilities: [],
+        knowledge_bases: [],
+        mcp_servers: [],
+        created_at: "2026-09-16T00:00:00Z",
+        updated_at: "2026-09-16T00:00:00Z",
+      })
+      const original = { id: resourceId, name: "Procurement review" }
+      const alternative = {
+        id: "20000000-0000-4000-8000-000000000002",
+        name: "Expense review",
+      }
+      vi.mocked(apiRequest).mockImplementation(async (path, options) => {
+        if (path.endsWith("/distribution/settings"))
+          return {
+            version_number: "1.2.3",
+            highest_version_number: highest,
+            usage_instructions: "Existing guide",
+          }
+        if (path.endsWith("/preview"))
+          return {
+            application: previewApplication,
+            items: [
+              {
+                type: "skill",
+                id: original.id,
+                name: original.name,
+                resource_id: original.id,
+                resource_name: original.name,
+                available: true,
+              },
+            ],
+          }
+        if (path === "/applications/interactive-dependency-options") {
+          const search = String(options?.query?.search ?? "").toLowerCase()
+          return {
+            items: [original, alternative].filter((item) =>
+              item.name.toLowerCase().includes(search)
+            ),
+            next_cursor: null,
+          }
+        }
+        return application
+      })
+      const user = userEvent.setup(),
+        completed = vi.fn(async () => undefined)
+      show(
+        <InteractiveApplicationImportDialog
+          open
+          application={mode === "update" ? application : null}
+          onOpenChange={vi.fn()}
+          onCompleted={completed}
+        />
+      )
+      await user.upload(
+        screen.getByLabelText(i18n.t("applications.applicationPackage")),
+        new File(["zip"], "app.zip", { type: "application/zip" })
+      )
+      await user.click(
+        screen.getByRole("button", {
+          name: i18n.t("applications.dependencies.preview"),
+        })
+      )
+      const picker = await screen.findByRole("combobox")
+      expect(picker).toHaveValue(original.name)
+      await user.clear(picker)
+      await user.type(picker, "Expense")
+      const option = await screen.findByRole("option", {
+        name: alternative.name,
+      })
+      expect(
+        screen.queryByRole("option", { name: original.name })
+      ).not.toBeInTheDocument()
+      await user.click(option)
+      expect(picker).toHaveValue(alternative.name)
+      await user.click(picker)
+      await user.click(
+        await screen.findByRole("option", { name: original.name })
+      )
+      expect(picker).toHaveValue(original.name)
+      await user.click(
+        screen.getByRole("button", {
+          name: i18n.t(
+            mode === "update"
+              ? "applications.updatePackageAndPublish"
+              : "applications.importPackageAction"
+          ),
+        })
+      )
+      await waitFor(() => expect(completed).toHaveBeenCalledOnce())
+      const path =
+        mode === "update"
+          ? `/applications/${id}/interactive-package`
+          : "/applications/interactive-import"
+      const body = vi
+        .mocked(apiRequest)
+        .mock.calls.find(([url]) => url === path)?.[1]?.body
+      expect(body).toBeInstanceOf(FormData)
+      if (!(body instanceof FormData))
+        throw new Error("Expected multipart body")
+      expect(JSON.parse(String(body.get("dependencies")))).toEqual({
+        bindings: [
+          { type: "skill", id: original.id, resource_id: original.id },
+        ],
+      })
+      if (mode === "update") {
+        expect(JSON.parse(String(body.get("release")))).toEqual({
+          version_number: "1.2.3",
+          usage_instructions: "Existing guide",
+        })
+        expect(apiRequest).not.toHaveBeenCalledWith(
+          `/applications/${id}/publish`,
+          expect.anything()
+        )
+      }
+    }
+  )
+  it.each(interactiveDependencyTypeSchema.options)(
+    "allows switching a matched %s resource away and back without filtering by the selected name",
+    async (type) => {
+      await i18n.changeLanguage(locale)
+      const original = { id: resourceId, name: "Procurement review" }
+      const alternative = {
+        id: "20000000-0000-4000-8000-000000000002",
+        name: "Expense review",
+      }
+      const other = {
+        id: "20000000-0000-4000-8000-000000000003",
+        name: "Policy search",
+      }
+      vi.mocked(apiRequest).mockImplementation(async (path, options) => {
+        if (path === "/applications/interactive-dependency-options") {
+          const search = String(options?.query?.search ?? "").toLowerCase()
+          return {
+            items: [original, alternative, other].filter((item) =>
+              item.name.toLowerCase().includes(search)
+            ),
+            next_cursor: null,
+          }
+        }
+        throw new Error(`Unexpected request: ${path}`)
+      })
+      const user = userEvent.setup(),
+        onChange = vi.fn()
+      show(
+        <InteractiveDependencyFields
+          state={{
+            items: [
+              {
+                type,
+                id,
+                name: "Declared review resource",
+                resource_id: original.id,
+                resource_name: original.name,
+                available: true,
+              },
+            ],
+          }}
+          onChange={onChange}
+        />
+      )
+      const picker = await screen.findByRole("combobox")
+      expect(picker).toHaveValue(original.name)
+      await user.click(picker)
+      await user.click(
+        await screen.findByRole("option", { name: alternative.name })
+      )
+      expect(picker).toHaveValue(alternative.name)
+      await user.click(picker)
+      expect(
+        await screen.findByRole("option", { name: other.name })
+      ).toBeInTheDocument()
+      expect(screen.getAllByRole("option")).toHaveLength(3)
+      await user.click(
+        await screen.findByRole("option", { name: original.name })
+      )
+      expect(picker).toHaveValue(original.name)
+      expect(onChange).toHaveBeenLastCalledWith({
+        type,
+        id,
+        resource_id: original.id,
+      })
+    }
+  )
+  it("keeps an available original match selectable when it is outside the first options page", async () => {
+    await i18n.changeLanguage(locale)
+    const original = { id: resourceId, name: "Original review" }
+    const alternative = {
+      id: "10000000-0000-4000-8000-000000000002",
+      name: "Alternative review",
+    }
+    vi.mocked(apiRequest).mockResolvedValue({
+      items: [alternative],
+      next_cursor: alternative.id,
+    })
+    const user = userEvent.setup(),
+      change = vi.fn()
+    show(
+      <InteractiveDependencyFields
+        state={{
+          items: [
+            {
+              type: "skill",
+              id,
+              name: "Declared review",
+              resource_id: original.id,
+              resource_name: original.name,
+              available: true,
+            },
+          ],
+        }}
+        onChange={change}
+      />
+    )
+    const picker = screen.getByRole("combobox")
+    await user.click(picker)
+    await user.click(
+      await screen.findByRole("option", { name: alternative.name })
+    )
+    await user.click(picker)
+    await user.click(await screen.findByRole("option", { name: original.name }))
+    expect(picker).toHaveValue(original.name)
+    expect(change).toHaveBeenLastCalledWith({
+      type: "skill",
+      id,
+      resource_id: original.id,
+    })
+    await user.click(
+      screen.getByRole("button", {
+        name: i18n.t("applications.dependencies.clear"),
+      })
+    )
+    expect(picker).toHaveValue("")
+    await user.click(picker)
+    expect(
+      await screen.findByRole("option", { name: original.name })
+    ).toBeInTheDocument()
+  })
+  it("switches status icons when selecting and clearing inside the picker, and reports an empty mapping", async () => {
     await i18n.changeLanguage(locale)
     mockRequests()
     const user = userEvent.setup(),
-      close = vi.fn()
-    show(<InteractiveDependenciesDialog applicationId={id} onClose={close} />)
+      onChange = vi.fn()
+    show(<InteractiveDependencyFields state={state} onChange={onChange} />)
     const picker = await screen.findByRole("combobox")
     expect(
       screen.getByRole("img", {
@@ -272,20 +518,23 @@ describe.each(["zh-CN", "en-US"])("interactive dependencies (%s)", (locale) => {
         name: i18n.t("applications.dependencies.clear"),
       })
     ).not.toBeInTheDocument()
-    await user.click(
-      screen.getByRole("button", { name: i18n.t("common.save") })
-    )
-    await waitFor(() => expect(close).toHaveBeenCalledOnce())
-    const request = vi
-      .mocked(apiRequest)
-      .mock.calls.find(([, options]) => options?.method === "PATCH")
-    expect(
-      interactiveDependencySelectionSchema.parse(request?.[1]?.body)
-    ).toEqual({ bindings: [{ type: "skill", id, resource_id: null }] })
+    expect(onChange).toHaveBeenLastCalledWith({
+      type: "skill",
+      id,
+      resource_id: null,
+    })
   })
   it("marks unavailable saved resources with a warning and still allows clearing them", async () => {
     await i18n.changeLanguage(locale)
-    mockRequests()
+    vi.mocked(apiRequest).mockResolvedValue({
+      items: [
+        {
+          id: "20000000-0000-4000-8000-000000000002",
+          name: "Other review",
+        },
+      ],
+      next_cursor: null,
+    })
     const change = vi.fn(),
       user = userEvent.setup()
     show(
@@ -321,6 +570,13 @@ describe.each(["zh-CN", "en-US"])("interactive dependencies (%s)", (locale) => {
       resource_id: null,
     })
     expect(screen.getByRole("combobox")).toHaveValue("")
+    await user.click(screen.getByRole("combobox"))
+    expect(
+      await screen.findByRole("option", { name: "Other review" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("option", { name: "Review" })
+    ).not.toBeInTheDocument()
   })
   it("disables the internal clear button while resource editing is disabled", async () => {
     await i18n.changeLanguage(locale)
@@ -377,7 +633,6 @@ describe.each(["zh-CN", "en-US"])("interactive dependencies (%s)", (locale) => {
 
 it("falls back to Chinese when dependency translations are missing in the selected language", async () => {
   await i18n.changeLanguage("fr-FR")
-  expect(i18n.t("applications.dependencies.title")).toBe("配置所需资源")
   expect(i18n.t("applications.dependencies.types.skill")).toBe("技能")
   expect(i18n.t("applications.dependencies.matched")).toBe("已配置")
   expect(i18n.t("applications.dependencies.unmatched")).toBe("未配置")
@@ -429,4 +684,148 @@ it("keeps the import open and displays a preview error", async () => {
   )
   await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument())
   expect(completed).not.toHaveBeenCalled()
+})
+
+it("retries publication with corrected resources without importing a duplicate application", async () => {
+  await i18n.changeLanguage("zh-CN")
+  mockRequests()
+  const original = vi.mocked(apiRequest).getMockImplementation()!
+  let attempts = 0
+  vi.mocked(apiRequest).mockImplementation(async (path, options) => {
+    if (path.endsWith("/publish") && attempts++ === 0)
+      throw new ApiError({
+        status: 409,
+        errorCode: "APPLICATION_DEPENDENCY_UNAVAILABLE",
+      })
+    return original(path, options)
+  })
+  const user = userEvent.setup()
+  const completed = vi.fn(async () => undefined)
+  show(
+    <InteractiveApplicationImportDialog
+      open
+      application={null}
+      onOpenChange={vi.fn()}
+      onCompleted={completed}
+    />
+  )
+  const fileInput = screen.getByLabelText(
+    i18n.t("applications.applicationPackage")
+  )
+  await user.upload(
+    fileInput,
+    new File(["zip"], "app.zip", { type: "application/zip" })
+  )
+  await user.click(
+    screen.getByRole("button", {
+      name: i18n.t("applications.dependencies.preview"),
+    })
+  )
+  await user.click(await screen.findByRole("button", { name: "导入" }))
+  expect(await screen.findByRole("alert")).toBeVisible()
+  expect(completed).not.toHaveBeenCalled()
+  expect(fileInput).toBeDisabled()
+  await user.click(screen.getByRole("combobox"))
+  await user.click(await screen.findByRole("option", { name: "My review" }))
+  await user.click(screen.getByRole("button", { name: "导入" }))
+  await waitFor(() => expect(completed).toHaveBeenCalledOnce())
+  expect(
+    vi
+      .mocked(apiRequest)
+      .mock.calls.filter(
+        ([path]) => path === "/applications/interactive-import"
+      )
+  ).toHaveLength(1)
+  expect(apiRequest).toHaveBeenCalledWith(
+    `/applications/${id}/interactive-dependencies`,
+    expect.objectContaining({
+      method: "PATCH",
+      body: { bindings: [{ type: "skill", id, resource_id: resourceId }] },
+    })
+  )
+})
+
+it("clears the previous package information when choosing another file", async () => {
+  await i18n.changeLanguage("zh-CN")
+  mockRequests()
+  const user = userEvent.setup()
+  show(
+    <InteractiveApplicationImportDialog
+      open
+      application={null}
+      onOpenChange={vi.fn()}
+      onCompleted={vi.fn(async () => undefined)}
+    />
+  )
+  const fileInput = screen.getByLabelText(
+    i18n.t("applications.applicationPackage")
+  )
+  await user.upload(
+    fileInput,
+    new File(["zip"], "first.zip", { type: "application/zip" })
+  )
+  await user.click(
+    screen.getByRole("button", {
+      name: i18n.t("applications.dependencies.preview"),
+    })
+  )
+  expect(await screen.findByDisplayValue(previewApplication.name)).toBeVisible()
+  await user.upload(
+    fileInput,
+    new File(["another zip"], "second.zip", { type: "application/zip" })
+  )
+  expect(
+    screen.queryByDisplayValue(previewApplication.name)
+  ).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "导入" })).not.toBeInTheDocument()
+  expect(
+    screen.getByRole("button", {
+      name: i18n.t("applications.dependencies.preview"),
+    })
+  ).toBeEnabled()
+})
+
+it("shows an empty description and prevents publishing a package with a non-release version", async () => {
+  await i18n.changeLanguage("fr-FR")
+  vi.mocked(apiRequest).mockResolvedValue({
+    items: [],
+    application: {
+      ...previewApplication,
+      description: null,
+      version: "1.2.3-beta",
+    },
+  })
+  const user = userEvent.setup()
+  show(
+    <InteractiveApplicationImportDialog
+      open
+      application={null}
+      onOpenChange={vi.fn()}
+      onCompleted={vi.fn(async () => undefined)}
+    />
+  )
+  await user.upload(
+    screen.getByLabelText(i18n.t("applications.applicationPackage")),
+    new File(["zip"], "first.zip", { type: "application/zip" })
+  )
+  await user.click(
+    screen.getByRole("button", {
+      name: i18n.t("applications.dependencies.preview"),
+    })
+  )
+  expect(await screen.findByPlaceholderText("暂无说明")).toHaveValue("")
+  expect(screen.getByRole("textbox", { name: "版本号" })).toHaveValue(
+    "1.2.3-beta"
+  )
+  expect(screen.getByRole("textbox", { name: "版本号" })).toHaveAttribute(
+    "aria-invalid",
+    "true"
+  )
+  expect(
+    screen.getByText(i18n.t("applications.interactivePackageVersionInvalid"))
+  ).toBeVisible()
+  const submit = screen.getByRole("button", { name: "导入" })
+  expect(submit).toBeDisabled()
+  await user.click(submit)
+  expect(apiRequest).toHaveBeenCalledTimes(1)
 })

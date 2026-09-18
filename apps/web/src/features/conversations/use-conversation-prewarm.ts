@@ -15,24 +15,36 @@ const receiptSchema = z.strictObject({
   conversation_id: z.uuid(),
 })
 const refreshIntervalMs = 60_000
+const renewalIntervalMs = 5 * 60_000
+const activityWindowMs = 15 * 60_000
 
 type PrewarmScope = {
   key: string
   active: boolean
+  enabled: boolean
   claimed: boolean
   conversationId: string | undefined
+  projectId: string | null | undefined
+  lastActivityAt: number
   reservationId: string | null
   mode: ConversationCollaborationMode
   inFlight: boolean
-  completed: { mode: ConversationCollaborationMode; at: number } | null
+  enqueued: { mode: ConversationCollaborationMode; at: number } | null
 }
 
 async function prewarm(scope: PrewarmScope): Promise<void> {
-  if (!scope.active || scope.claimed || scope.inFlight) return
+  if (
+    !scope.active ||
+    !scope.enabled ||
+    scope.claimed ||
+    scope.inFlight ||
+    document.visibilityState === "hidden"
+  )
+    return
   const now = Date.now()
   if (
-    scope.completed?.mode === scope.mode &&
-    now - scope.completed.at < refreshIntervalMs
+    scope.enqueued?.mode === scope.mode &&
+    now - scope.enqueued.at < refreshIntervalMs
   )
     return
   const mode = scope.mode
@@ -45,15 +57,18 @@ async function prewarm(scope: PrewarmScope): Promise<void> {
       body: {
         ...(targetId ? { conversation_id: targetId } : {}),
         collaboration_mode: mode,
+        ...(!scope.conversationId && scope.projectId
+          ? { project_id: scope.projectId }
+          : {}),
       },
       schema: receiptSchema,
     })
     if (!scope.active || scope.claimed) return
     if (!scope.conversationId) scope.reservationId = receipt.conversation_id
-    scope.completed = { mode, at: now }
+    scope.enqueued = { mode, at: now }
   } catch (error) {
     if (!scope.active || scope.claimed) return
-    scope.completed = null
+    scope.enqueued = null
     // A reservation can expire while the user is composing. Only an absent
     // reservation permits allocating a fresh one; task/auth/server errors do not.
     if (
@@ -84,14 +99,32 @@ export function useConversationPrewarm(input: {
   conversationId: string | undefined
   scopeKey: string
   collaborationMode: ConversationCollaborationMode
+  projectId?: string | null
+  configurationKey?: string
+  enabled?: boolean
 }): { claim: () => string | null; reset: () => void } {
-  const { ownerId, conversationId, scopeKey, collaborationMode } = input
+  const {
+    ownerId,
+    conversationId,
+    scopeKey,
+    collaborationMode,
+    projectId,
+    configurationKey,
+    enabled = true,
+  } = input
   const scopeRef = useRef<PrewarmScope | null>(null)
   const [resetVersion, increaseResetVersion] = useReducer(
     (value: number) => value + 1,
     0
   )
-  const key = JSON.stringify([ownerId, conversationId, scopeKey, resetVersion])
+  const key = JSON.stringify([
+    ownerId,
+    conversationId,
+    scopeKey,
+    resetVersion,
+    projectId,
+    configurationKey,
+  ])
 
   useLayoutEffect(() => {
     if (!ownerId) return
@@ -99,26 +132,52 @@ export function useConversationPrewarm(input: {
       scopeRef.current = {
         key,
         active: true,
+        enabled,
         claimed: false,
         conversationId,
+        projectId,
+        lastActivityAt: Date.now(),
         reservationId: null,
         mode: collaborationMode,
         inFlight: false,
-        completed: null,
+        enqueued: null,
       }
     }
     const scope = scopeRef.current
     scope.active = true
+    scope.enabled = enabled
     scope.mode = collaborationMode
     return () => {
       scope.active = false
     }
-  }, [key, ownerId, conversationId, collaborationMode])
+  }, [key, ownerId, conversationId, collaborationMode, enabled, projectId])
 
   useEffect(() => {
     const scope = scopeRef.current
-    if (scope?.active) void prewarm(scope)
-  }, [key, collaborationMode])
+    if (!scope?.active || !scope.enabled) return
+    void prewarm(scope)
+    const recordActivity = () => {
+      scope.lastActivityAt = Date.now()
+    }
+    const refreshVisible = () => {
+      if (document.visibilityState === "hidden") return
+      recordActivity()
+      void prewarm(scope)
+    }
+    const timer = window.setInterval(() => {
+      if (Date.now() - scope.lastActivityAt < activityWindowMs)
+        void prewarm(scope)
+    }, renewalIntervalMs)
+    document.addEventListener("visibilitychange", refreshVisible)
+    document.addEventListener("keydown", recordActivity)
+    document.addEventListener("pointerdown", recordActivity)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener("visibilitychange", refreshVisible)
+      document.removeEventListener("keydown", recordActivity)
+      document.removeEventListener("pointerdown", recordActivity)
+    }
+  }, [key, collaborationMode, enabled])
 
   const claim = useCallback((): string | null => {
     const scope = scopeRef.current

@@ -7,12 +7,7 @@ import {
   FieldError,
   FieldGroup,
 } from "@/components/ui/field"
-import {
-  InputGroup,
-  InputGroupInput,
-  InputGroupAddon,
-  InputGroupText,
-} from "@/components/ui/input-group"
+import { ApplicationVersionNumberInput } from "./application-version-number-input"
 import { Textarea } from "@/components/ui/textarea"
 import { ErrorState, LoadingState } from "@/components/feedback/page-state"
 import { getErrorMessage } from "@/api/error-message"
@@ -28,7 +23,10 @@ export function ApplicationVersionFields({
 }) {
   const { t } = useTranslation()
   const id = useId()
-  const invalid = form.status === "lower" || form.status === "invalid"
+  const invalid =
+    form.status === "lower" ||
+    form.status === "invalid" ||
+    (!form.readOnly && !form.allowSameVersion && form.status === "same")
   if (form.settings.isPending) return <LoadingState />
   if (form.settings.error)
     return (
@@ -37,6 +35,12 @@ export function ApplicationVersionFields({
         onRetry={() => void form.settings.refetch()}
       />
     )
+  if (form.readOnly && form.highest === null)
+    return (
+      <p role="status" className="text-sm text-muted-foreground">
+        {t("applications.distribution.publishFirst")}
+      </p>
+    )
   return (
     <FieldGroup>
       <Field data-invalid={invalid}>
@@ -44,32 +48,28 @@ export function ApplicationVersionFields({
           {t("applications.distribution.versionNumber")}
           <RequiredIndicator />
         </FieldLabel>
-        <InputGroup>
-          <InputGroupInput
-            id={`${id}-version`}
-            value={form.version}
-            maxLength={80}
-            required
-            disabled={disabled}
-            aria-invalid={invalid}
-            aria-describedby={`${id}-hint`}
-            placeholder="1.0.0"
-            onChange={(event) =>
-              form.setVersion(event.target.value.replace(/^v/i, ""))
-            }
-          />
-          <InputGroupAddon>
-            <InputGroupText aria-hidden>v</InputGroupText>
-          </InputGroupAddon>
-        </InputGroup>
+        <ApplicationVersionNumberInput
+          id={`${id}-version`}
+          value={form.version}
+          maxLength={80}
+          required
+          readOnly={form.readOnly}
+          disabled={disabled}
+          aria-invalid={invalid}
+          aria-describedby={`${id}-hint`}
+          placeholder="1.0.0"
+          onValueChange={form.setVersion}
+        />
         {invalid ? (
           <FieldError
             id={`${id}-hint`}
             className="text-[length:var(--app-font-13)] leading-5"
           >
             {t(
-              form.status === "lower"
-                ? "applications.distribution.versionLower"
+              form.status === "lower" || form.status === "same"
+                ? form.allowSameVersion
+                  ? "applications.distribution.editVersionLower"
+                  : "applications.distribution.versionLower"
                 : "applications.distribution.versionInvalid",
               { version: form.highest }
             )}
@@ -81,9 +81,11 @@ export function ApplicationVersionFields({
             role={form.status === "same" ? "status" : undefined}
           >
             {t(
-              form.status === "same"
-                ? "applications.distribution.versionSame"
-                : "applications.distribution.versionHint",
+              form.readOnly
+                ? "applications.distribution.publishedVersionHint"
+                : form.allowSameVersion
+                  ? "applications.distribution.editVersionHint"
+                  : "applications.distribution.versionHint",
               { version: form.highest }
             )}
           </FieldDescription>
@@ -96,6 +98,7 @@ export function ApplicationVersionFields({
         <Textarea
           id={`${id}-guide`}
           value={form.guide}
+          readOnly={form.readOnly}
           maxLength={20000}
           disabled={disabled}
           onChange={(event) => form.setGuide(event.target.value)}

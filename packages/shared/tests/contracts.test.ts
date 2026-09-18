@@ -1143,7 +1143,7 @@ describe("shared boundary contracts", () => {
 
   it("publishes one stable runner turn-start contract version", () => {
     expect(RUNNER_TURN_START_CONTRACT_VERSION).toBe(
-      "user-project-runtime-v24",
+      "user-project-runtime-v25",
     );
   });
 
@@ -1472,17 +1472,6 @@ describe("shared boundary contracts", () => {
         },
       }),
     );
-    expect(
-      getErrorCatalogEntry("APPLICATION_CONVERSATION_RENAME_UNSUPPORTED"),
-    ).toEqual({
-      message_key: "errors.application.conversationRenameUnsupported",
-      http_status: 409,
-      messages: {
-        "zh-CN": "应用任务标题由应用管理，不支持重命名。",
-        "en-US":
-          "Application task titles are managed by the application and cannot be renamed.",
-      },
-    });
   });
 
   it("uses a conflict response when a system-selected model blocks deletion", () => {

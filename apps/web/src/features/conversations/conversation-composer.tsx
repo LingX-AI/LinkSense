@@ -58,7 +58,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { Textarea } from "@/components/ui/textarea"
+import { ConversationComposerInput } from "@/features/conversations/conversation-composer-input"
 import {
   HoverCard,
   HoverCardContent,
@@ -75,6 +75,7 @@ import { ConversationAttachmentOverflow } from "@/features/conversations/convers
 import { capabilityPresentation } from "@/features/capabilities/built-in-presentation"
 import {
   canSelectConversationCapability,
+  withRequiredConversationCapabilities,
   orderConversationSkills,
 } from "@/features/conversations/conversation-capability-selection"
 import { ConversationModelSelector } from "@/features/conversations/conversation-model-selector"
@@ -387,6 +388,8 @@ export type ConversationComposerHandle = Readonly<{
 export type KnowledgeBaseSelectionStatus =
   "available" | "loading" | "unavailable" | "verification_failed"
 
+const noRequiredCapabilityIds: readonly string[] = []
+
 type ConversationComposerProps = Readonly<{
   value: string
   onValueChange: (value: string) => void
@@ -395,7 +398,9 @@ type ConversationComposerProps = Readonly<{
   capabilitiesError?: boolean
   onRetryCapabilities?: () => void
   selectedIds: string[]
+  requiredIds?: readonly string[]
   onSelectedIdsChange: (ids: string[]) => void
+  showKnowledgeBaseButton?: boolean
   knowledgeBases?: KnowledgeBase[]
   knowledgeBasesLoading?: boolean
   knowledgeBasesError?: boolean
@@ -468,8 +473,10 @@ export const ConversationComposer = forwardRef<
     capabilitiesLoading,
     capabilitiesError,
     onRetryCapabilities,
-    selectedIds,
+    selectedIds: optionalSelectedIds,
+    requiredIds = noRequiredCapabilityIds,
     onSelectedIdsChange,
+    showKnowledgeBaseButton = true,
     knowledgeBases = [],
     knowledgeBasesLoading,
     knowledgeBasesError,
@@ -683,6 +690,11 @@ export const ConversationComposer = forwardRef<
         : voiceTranscriptionAvailability === "unavailable"
           ? "conversation.voiceServiceUnavailable"
           : "conversation.voice"
+  const selectedIds = useMemo(
+    () =>
+      withRequiredConversationCapabilities(optionalSelectedIds, requiredIds),
+    [optionalSelectedIds, requiredIds]
+  )
   const selected = useMemo(
     () =>
       capabilities.filter((capability) => selectedIds.includes(capability.id)),
@@ -859,13 +871,16 @@ export const ConversationComposer = forwardRef<
     taskStartDisabled ||
     !modelReady ||
     knowledgeBaseSelectionPending
-  const attachmentActionDisabled =
+  const attachmentActionUnavailable =
     submitting ||
     uploading ||
     attachmentOperationPending ||
-    modelPreferencePending ||
     interactionBlocked ||
     isPastedTextAttachmentPending
+  const attachmentActionDisabled =
+    attachmentActionUnavailable || modelPreferencePending
+  const modelPreferenceBlockingActions =
+    modelPreferencePending && !attachmentActionUnavailable
 
   const removeComposerAttachment = (file: ConversationFile) => {
     setPastedTextAttachmentNames((current) =>
@@ -894,6 +909,7 @@ export const ConversationComposer = forwardRef<
   }
 
   const toggleCapability = (id: string) => {
+    if (requiredIds.includes(id)) return
     onSelectedIdsChange(
       selectedIds.includes(id)
         ? selectedIds.filter((value) => value !== id)
@@ -1357,19 +1373,26 @@ export const ConversationComposer = forwardRef<
               <span className="composer-chip-label min-w-0 truncate">
                 {capabilityPresentation(capability, t, productName).name}
               </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                className="chip-remove"
-                aria-label={t("conversation.removeCapability", {
-                  name: capabilityPresentation(capability, t, productName).name,
-                })}
-                disabled={submitting}
-                onClick={() => toggleCapability(capability.id)}
-              >
-                <XIcon aria-hidden="true" />
-              </Button>
+              {requiredIds.includes(capability.id) ? (
+                <span className="sr-only">
+                  {t("conversation.requiredCapability")}
+                </span>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="chip-remove"
+                  aria-label={t("conversation.removeCapability", {
+                    name: capabilityPresentation(capability, t, productName)
+                      .name,
+                  })}
+                  disabled={submitting}
+                  onClick={() => toggleCapability(capability.id)}
+                >
+                  <XIcon aria-hidden="true" />
+                </Button>
+              )}
             </span>
           ))}
           {selectedKnowledgeBases.map(({ id, knowledgeBase }) => {
@@ -1593,7 +1616,7 @@ export const ConversationComposer = forwardRef<
             segments={composerInputSegments}
           />
         )}
-        <Textarea
+        <ConversationComposerInput
           ref={textareaRef}
           value={value}
           onChange={(event) => {
@@ -1667,7 +1690,10 @@ export const ConversationComposer = forwardRef<
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="composer-control"
+                  className={cn(
+                    "composer-control",
+                    modelPreferenceBlockingActions && "disabled:opacity-100"
+                  )}
                   aria-label={t("conversation.addMenu")}
                   disabled={attachmentActionDisabled}
                 />
@@ -1834,7 +1860,11 @@ export const ConversationComposer = forwardRef<
                                     selectedIds.includes(capability.id) ||
                                     undefined
                                   }
-                                  disabled={submitting || !selectable}
+                                  disabled={
+                                    submitting ||
+                                    !selectable ||
+                                    requiredIds.includes(capability.id)
+                                  }
                                   onSelect={() => {
                                     if (selectable) {
                                       handleCapabilitySelect(capability.id)
@@ -1883,7 +1913,7 @@ export const ConversationComposer = forwardRef<
             </PopoverContent>
           </Popover>
 
-          {!managedApplicationName && (
+          {!managedApplicationName && showKnowledgeBaseButton && (
             <>
               {knowledgeSearchUnavailable ? (
                 <HoverCard>
@@ -1947,7 +1977,11 @@ export const ConversationComposer = forwardRef<
                         type="button"
                         variant="ghost"
                         size="icon-sm"
-                        className="composer-control"
+                        className={cn(
+                          "composer-control",
+                          modelPreferenceBlockingActions &&
+                            "disabled:opacity-100"
+                        )}
                         aria-label={t("conversation.addKnowledgeBase")}
                         disabled={attachmentActionDisabled}
                       />
@@ -2206,6 +2240,10 @@ export const ConversationComposer = forwardRef<
                   size="icon-sm"
                   className={cn(
                     "composer-control",
+                    voiceAvailable &&
+                      !taskStartDisabled &&
+                      modelPreferenceBlockingActions &&
+                      "disabled:opacity-100",
                     !voiceAvailable && "text-muted-foreground opacity-50"
                   )}
                   aria-label={t("conversation.voice")}

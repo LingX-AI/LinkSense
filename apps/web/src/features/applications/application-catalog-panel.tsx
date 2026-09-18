@@ -1,10 +1,45 @@
+import { DEFAULT_APPLICATION_ICON_PRESET } from "@linksense/shared"
+import {
+  applicationIconInputFor,
+  type ApplicationIconFormState,
+} from "./application-icon-form"
+import { ApplicationIconField } from "./application-icon-field"
+import { ApplicationVersionNumberInput } from "./application-version-number-input"
+import { ApplicationMetadataPublishDialog } from "./application-metadata-dialog"
 import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { ApplicationUsageGuideDialog } from "./application-usage-guide-dialog"
+import { ApplicationDevelopmentCreateDialog } from "./application-development-create-dialog"
+import {
+  ApplicationCreateDialog,
+  type ApplicationCreationMethod,
+} from "./application-create-dialog"
+import {
+  useOpenApplicationDevelopment,
+  useDeleteApplicationDevelopment,
+} from "./application-development-api"
+import { ApplicationDevelopmentCard } from "./application-development-card"
+import { useApplicationCatalog } from "./application-catalog-queries"
+import {
+  ApplicationDetailsDialog,
+  type ApplicationDetailsTarget,
+} from "./application-details-dialog"
 import { InteractiveDependencyFields } from "./interactive-dependency-fields"
-import { InteractiveDependenciesDialog } from "./interactive-dependencies-dialog"
 import { InteractiveDeclarationDialog } from "./interactive-declaration-dialog"
 import { ApplicationDistributionDialog } from "./application-distribution-dialog"
-import { useApplicationDistributionSummaries } from "./application-distribution-queries"
+import {
+  useApplicationDistributionSummaries,
+  useApplicationDistributionSettings,
+} from "./application-distribution-queries"
+import { ApplicationDevelopmentPublishDialog } from "./application-development-publish-dialog"
+import {
+  applicationPublicationSchema,
+  applicationVersionInputSchema,
+  applicationReleaseVersionSchema,
+  applicationVersionStatus,
+  editAndPublishApplicationInputSchema,
+  nextApplicationVersion,
+  type ApplicationVersionInput,
+} from "@linksense/shared"
 import {
   ApplicationInstallationDialog,
   ApplicationInstallationUpdateDialog,
@@ -20,39 +55,31 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowRightIcon,
-  BrainIcon,
-  DatabaseIcon,
+  ArrowUpRightIcon,
   ChartNoAxesCombinedIcon,
+  CodeXmlIcon,
   ExternalLinkIcon,
   FileArchiveIcon,
   MoreHorizontalIcon,
   PencilIcon,
-  PlayIcon,
   PlusIcon,
   PowerIcon,
-  ServerIcon,
   Share2Icon,
   Trash2Icon,
   UploadIcon,
   UsersIcon,
-  WrenchIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Link, useNavigate, useSearchParams } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import {
-  APPLICATION_ICON_MAX_BYTES,
-  APPLICATION_ICON_MAX_DIMENSION,
   INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES,
-  interactiveDependencyStateSchema,
+  interactiveApplicationImportPreviewSchema,
   interactiveDependencyDeclarations,
   interactiveDependencySelectionSchema,
   type InteractiveDependencyBinding,
-  applicationIconMimeTypeSchema,
-  applicationIconPresetSchema,
-  type ApplicationIcon,
-  type ApplicationIconInput,
-  type ApplicationIconPreset,
   type ReasoningEffort,
+  type ApplicationCatalogFilter,
+  type ApplicationDevelopmentSummary,
 } from "@linksense/shared"
 import { z } from "zod"
 
@@ -76,32 +103,15 @@ import {
   LoadingState,
 } from "@/components/feedback/page-state"
 import { StatusBanner } from "@/components/feedback/status-banner"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card"
-import {
-  Combobox,
-  ComboboxChip,
-  ComboboxChips,
-  ComboboxChipsInput,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxValue,
-} from "@/components/ui/combobox"
+import { ResourceMultiSelect } from "./application-resource-multi-select"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -115,12 +125,11 @@ import {
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { InputGroup } from "@/components/ui/input-group"
-import { SearchInput } from "@/components/ui/search-input"
 import {
   Select,
   SelectContent,
@@ -130,16 +139,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import {
-  ApplicationIconDisplay,
-  ApplicationPresetIcon,
-} from "@/features/applications/application-icon"
-import { applicationIconPresetOptions } from "@/features/applications/application-icon-presets"
 import { useKnowledgeBaseList } from "@/features/knowledge-bases/knowledge-base-hooks"
-import { updateUrlSearchParams } from "@/lib/url-search-params"
+import {
+  ApplicationCard,
+  ApplicationCardResources,
+  ApplicationCardModel,
+} from "./application-card"
 
-const applicationPageSchema = paginatedSchema(applicationSchema)
 const mcpServerListSchema = z.strictObject({ items: z.array(mcpServerSchema) })
 const emptyResponseSchema = z.unknown()
 const USER_SELECTED_MODEL_VALUE = "__application_user_selected_model__"
@@ -158,9 +164,18 @@ export function InteractiveApplicationImportDialog({
 }) {
   const { t } = useTranslation()
   const [file, setFile] = useState<File | null>(null)
+  const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
   const [bindings, setBindings] = useState<InteractiveDependencyBinding[]>([])
+  const [declarationOpen, setDeclarationOpen] = useState(false)
+  const [importedApplicationId, setImportedApplicationId] = useState<
+    string | null
+  >(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const settings = useApplicationDistributionSettings(
+    application?.id ?? "",
+    open
+  )
   const preview = useMutation({
     mutationFn: async () => {
       if (!file) throw new Error("APPLICATION_PACKAGE_REQUIRED")
@@ -170,21 +185,55 @@ export function InteractiveApplicationImportDialog({
         method: "POST",
         body,
         query: { application_id: application?.id },
-        schema: interactiveDependencyStateSchema,
+        schema: interactiveApplicationImportPreviewSchema,
       })
     },
     onError: (nextError) => setError(getErrorMessage(nextError, t)),
   })
+  const packageVersion =
+    preview.data?.application.version.replace(/^v/u, "") ?? ""
+  const packageVersionStatus = applicationVersionStatus(
+    packageVersion,
+    settings.data?.highest_version_number ?? null
+  )
+  const packageVersionInvalid =
+    preview.isSuccess &&
+    (!applicationReleaseVersionSchema.safeParse(packageVersion).success ||
+      (packageVersionStatus !== "new" &&
+        !(application && packageVersionStatus === "same")))
   const mutation = useMutation({
     mutationFn: async () => {
-      if (!file) throw new Error("APPLICATION_PACKAGE_REQUIRED")
+      if (!file || !preview.data)
+        throw new Error("APPLICATION_PACKAGE_REQUIRED")
+      const release = applicationVersionInputSchema.parse({
+        version_number: packageVersion,
+        usage_instructions: application
+          ? settings.data?.usage_instructions
+          : "",
+      })
+      if (importedApplicationId) {
+        await apiRequest(
+          `/applications/${importedApplicationId}/interactive-dependencies`,
+          {
+            method: "PATCH",
+            body: interactiveDependencySelectionSchema.parse({ bindings }),
+            schema: applicationSchema,
+          }
+        )
+        return apiRequest(`/applications/${importedApplicationId}/publish`, {
+          method: "POST",
+          body: release,
+          schema: applicationPublicationSchema,
+        })
+      }
       const body = new FormData()
       body.append(
         "dependencies",
         JSON.stringify(interactiveDependencySelectionSchema.parse({ bindings }))
       )
       body.append("file", file)
-      return apiRequest(
+      if (application) body.append("release", JSON.stringify(release))
+      const imported = await apiRequest(
         application
           ? `/applications/${application.id}/interactive-package`
           : "/applications/interactive-import",
@@ -194,9 +243,21 @@ export function InteractiveApplicationImportDialog({
           schema: applicationSchema,
         }
       )
+      if (!application) {
+        setImportedApplicationId(imported.id)
+        await apiRequest(`/applications/${imported.id}/publish`, {
+          method: "POST",
+          body: release,
+          schema: applicationPublicationSchema,
+        })
+      }
+      return imported
     },
     onSuccess: () => onCompleted(),
-    onError: (nextError) => setError(getErrorMessage(nextError, t)),
+    onError: async (nextError) => {
+      setError(getErrorMessage(nextError, t))
+      await queryClient.invalidateQueries({ queryKey: ["applications"] })
+    },
   })
 
   return (
@@ -208,12 +269,17 @@ export function InteractiveApplicationImportDialog({
           setFile(null)
           setError(null)
           setBindings([])
+          setDeclarationOpen(false)
+          setImportedApplicationId(null)
           preview.reset()
         }
         onOpenChange(nextOpen)
       }}
     >
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-xl">
+      <DialogContent
+        className="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-xl"
+        closeLabel={t("common.close")}
+      >
         <DialogHeader>
           <DialogTitle>
             {t(
@@ -236,7 +302,11 @@ export function InteractiveApplicationImportDialog({
               id="interactive-application-package"
               type="file"
               accept=".zip,application/zip"
-              disabled={mutation.isPending || preview.isPending}
+              disabled={
+                mutation.isPending ||
+                preview.isPending ||
+                Boolean(importedApplicationId)
+              }
               onChange={(event) => {
                 const next = event.target.files?.[0] ?? null
                 setError(null)
@@ -257,7 +327,65 @@ export function InteractiveApplicationImportDialog({
             <FieldDescription>
               {t("applications.interactivePackageHint", { size: "10 MiB" })}
             </FieldDescription>
+            <Button
+              type="button"
+              variant="link"
+              size="xs"
+              className="self-start"
+              disabled={mutation.isPending || preview.isPending}
+              onClick={() => setDeclarationOpen(true)}
+            >
+              {t("applications.declaration.title")}
+              <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
+            </Button>
           </Field>
+          {preview.data && (
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="interactive-import-name">
+                  {t("common.name")}
+                </FieldLabel>
+                <Input
+                  id="interactive-import-name"
+                  readOnly
+                  value={preview.data.application.name}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="interactive-import-description">
+                  {t("common.description")}
+                </FieldLabel>
+                <Textarea
+                  id="interactive-import-description"
+                  readOnly
+                  value={preview.data.application.description ?? ""}
+                  placeholder={t("applications.noDescription")}
+                />
+              </Field>
+              <Field data-invalid={packageVersionInvalid}>
+                <FieldLabel htmlFor="interactive-import-version">
+                  {t("applications.distribution.versionNumber")}
+                </FieldLabel>
+                <ApplicationVersionNumberInput
+                  id="interactive-import-version"
+                  readOnly
+                  value={packageVersion}
+                  aria-invalid={packageVersionInvalid}
+                />
+                {packageVersionInvalid && (
+                  <FieldError>
+                    {t(
+                      packageVersionStatus === "lower" ||
+                        packageVersionStatus === "same"
+                        ? "applications.distribution.editVersionLower"
+                        : "applications.interactivePackageVersionInvalid",
+                      { version: settings.data?.highest_version_number }
+                    )}
+                  </FieldError>
+                )}
+              </Field>
+            </FieldGroup>
+          )}
           {preview.data && (
             <InteractiveDependencyFields
               state={preview.data}
@@ -273,7 +401,18 @@ export function InteractiveApplicationImportDialog({
               }
             />
           )}
+          {application && settings.error && (
+            <ErrorState
+              message={getErrorMessage(settings.error, t)}
+              onRetry={() => void settings.refetch()}
+            />
+          )}
           {error && <StatusBanner variant="error">{error}</StatusBanner>}
+          {error && importedApplicationId && (
+            <StatusBanner>
+              {t("applications.importPublicationRetry")}
+            </StatusBanner>
+          )}
         </FieldGroup>
         <DialogFooter>
           <Button
@@ -286,23 +425,38 @@ export function InteractiveApplicationImportDialog({
           </Button>
           <Button
             type="button"
-            disabled={!file || mutation.isPending || preview.isPending}
+            disabled={
+              !file ||
+              mutation.isPending ||
+              preview.isPending ||
+              (Boolean(application) && !settings.isSuccess) ||
+              packageVersionInvalid
+            }
             onClick={() => {
               setError(null)
               if (preview.data) mutation.mutate()
               else preview.mutate()
             }}
           >
-            <UploadIcon data-icon="inline-start" aria-hidden="true" />
+            {mutation.isPending || preview.isPending ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <UploadIcon data-icon="inline-start" aria-hidden="true" />
+            )}
             {t(
               !preview.data
                 ? "applications.dependencies.preview"
                 : application
-                  ? "common.update"
+                  ? "applications.updatePackageAndPublish"
                   : "applications.importPackageAction"
             )}
           </Button>
         </DialogFooter>
+        {declarationOpen && (
+          <InteractiveDeclarationDialog
+            onClose={() => setDeclarationOpen(false)}
+          />
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -335,20 +489,6 @@ type ApplicationFormState = {
   icon: ApplicationIconFormState
 }
 
-type ApplicationIconFormState =
-  | { mode: "preset"; preset: ApplicationIconPreset }
-  | {
-      mode: "existing-custom"
-      icon: Extract<ApplicationIcon, { type: "custom" }>
-    }
-  | {
-      mode: "upload"
-      filename: string
-      mimeType: "image/png" | "image/jpeg" | "image/webp"
-      dataBase64: string
-      previewUrl: string
-    }
-
 const emptyForm: ApplicationFormState = {
   name: "",
   description: "",
@@ -360,7 +500,7 @@ const emptyForm: ApplicationFormState = {
   knowledgeBaseIds: [],
   mcpServerIds: [],
   status: "active",
-  icon: { mode: "preset", preset: "bot" },
+  icon: { mode: "preset", preset: DEFAULT_APPLICATION_ICON_PRESET },
 }
 
 function RequiredFieldLabel({
@@ -383,27 +523,26 @@ function RequiredFieldLabel({
 export function ApplicationCatalogPanel({
   onFeedback,
   scope,
+  search,
+  state = "all",
   onInstalled,
   organizationSharingEnabled = true,
 }: {
   onFeedback: (message: string, isError?: boolean) => void
   scope: "owned" | "shared"
+  search: string
+  state?: ApplicationCatalogFilter
   onInstalled?: () => void
   organizationSharingEnabled?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const search = searchParams.get("app_search") ?? ""
-  const updateCatalogParams = (
-    updates: Readonly<Record<string, string | null>>
-  ) => {
-    setSearchParams((current) => updateUrlSearchParams(current, updates), {
-      replace: true,
-    })
-  }
   const deferredSearch = useDeferredValue(search.trim())
+  const development = useOpenApplicationDevelopment()
+  const deleteDraft = useDeleteApplicationDevelopment()
+  const [deleteDraftTarget, setDeleteDraftTarget] =
+    useState<ApplicationDevelopmentSummary | null>(null)
   const [editor, setEditor] = useState<{
     open: boolean
     application: Application | null
@@ -414,19 +553,29 @@ export function ApplicationCatalogPanel({
   } | null>(null)
   const [publicationTarget, setPublicationTarget] =
     useState<Application | null>(null)
+  const [releaseTarget, setReleaseTarget] = useState<Application | null>(null)
+  const release = useMutation({
+    mutationFn: (input: ApplicationVersionInput) =>
+      apiRequest(`/applications/${releaseTarget?.id}/publish`, {
+        method: "POST",
+        schema: applicationPublicationSchema,
+        body: input,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["applications"] })
+      setReleaseTarget(null)
+    },
+  })
+  const [detailsTarget, setDetailsTarget] =
+    useState<ApplicationDetailsTarget | null>(null)
   const [installTarget, setInstallTarget] =
     useState<ApplicationInstallTarget | null>(null)
   const [updateTarget, setUpdateTarget] = useState<Application | null>(null)
   const distribution = useApplicationDistributionSummaries()
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null)
-  const [createChoiceOpen, setCreateChoiceOpen] = useState(false)
-  const [declarationOpen, setDeclarationOpen] = useState(false)
   const [interactiveImportTarget, setInteractiveImportTarget] = useState<
-    Application | null | undefined
+    Application | undefined
   >(undefined)
-  const [dependencyTarget, setDependencyTarget] = useState<Application | null>(
-    null
-  )
   const shareTargetListFormatter = useMemo(
     () =>
       new Intl.ListFormat(
@@ -438,18 +587,9 @@ export function ApplicationCatalogPanel({
       ),
     [i18n.resolvedLanguage]
   )
-  const applications = useQuery({
-    queryKey: ["applications", scope, deferredSearch],
-    queryFn: ({ signal }) =>
-      apiRequest("/applications", {
-        query: {
-          scope,
-          search: deferredSearch || undefined,
-        },
-        schema: applicationPageSchema,
-        signal,
-      }),
-  })
+  const applications = useApplicationCatalog(scope, deferredSearch, state)
+  const catalogItems =
+    applications.data?.pages.flatMap((page) => page.items) ?? []
 
   const startConversation = useMutation({
     mutationFn: (application: Application) =>
@@ -477,7 +617,13 @@ export function ApplicationCatalogPanel({
     onSuccess: async () => {
       setDeleteTarget(null)
       onFeedback(t("applications.deleted"))
-      await queryClient.invalidateQueries({ queryKey: ["applications"] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["applications"] }),
+        queryClient.invalidateQueries({ queryKey: ["conversations"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["application-development"],
+        }),
+      ])
     },
     onError: (error) => onFeedback(getErrorMessage(error, t), true),
   })
@@ -498,27 +644,6 @@ export function ApplicationCatalogPanel({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row">
-          <InputGroup className="w-full md:max-w-md">
-            <SearchInput
-              value={search}
-              aria-label={t("applications.search")}
-              placeholder={t("applications.searchPlaceholder")}
-              onValueChange={(value) =>
-                updateCatalogParams({ app_search: value })
-              }
-            />
-          </InputGroup>
-        </div>
-        {scope === "owned" && (
-          <Button type="button" onClick={() => setCreateChoiceOpen(true)}>
-            <PlusIcon data-icon="inline-start" />
-            {t("applications.create")}
-          </Button>
-        )}
-      </div>
-
       {applications.isLoading && <LoadingState />}
       {distribution.error && (
         <ErrorState
@@ -532,12 +657,27 @@ export function ApplicationCatalogPanel({
           onRetry={() => void applications.refetch()}
         />
       )}
-      {applications.data && applications.data.items.length === 0 && (
-        <EmptyState title={t("applications.emptyTitle")} />
+      {applications.data && catalogItems.length === 0 && (
+        <EmptyState
+          title={t(
+            scope === "owned" && (state !== "all" || deferredSearch.length > 0)
+              ? "applicationDevelopment.catalog.empty"
+              : "applications.emptyTitle"
+          )}
+        />
       )}
-      {applications.data && applications.data.items.length > 0 && (
+      {catalogItems.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2">
-          {applications.data.items.map((application) => {
+          {catalogItems.map((entry) => {
+            if (entry.type === "development") {
+              return (
+                <ApplicationDevelopmentCard
+                  key={`development:${entry.development.id}`}
+                  development={entry.development}
+                />
+              )
+            }
+            const { application, development: draft } = entry
             const starting =
               startConversation.isPending &&
               startConversation.variables?.id === application.id
@@ -554,351 +694,435 @@ export function ApplicationCatalogPanel({
               application.share_targets,
               shareTargetListFormatter
             )
+            const showShareTargets =
+              organizationSharingEnabled && Boolean(shareTargetSummary)
             return (
-              <Card key={application.id} className="min-w-0 gap-3">
-                <CardHeader className="gap-x-4 gap-y-0">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <ApplicationIconDisplay
-                      icon={application.icon}
-                      className="size-10"
-                    />
-                    <div className="flex min-w-0 flex-col">
-                      <h3 className="truncate font-medium">
-                        {application.name}
-                      </h3>
-                      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-4 text-muted-foreground">
-                        {application.kind === "interactive" && (
-                          <span className="max-w-full truncate">
-                            {t("applications.interactiveApp")}
-                            {application.interactive_package
-                              ? ` · v${application.interactive_package.version}`
-                              : ""}
-                          </span>
-                        )}
-                        <span className="min-w-0 truncate">
-                          {application.is_owner
-                            ? sharing?.installation
-                              ? t(
-                                  "applications.distribution.installedVersion",
+              <ApplicationCard
+                key={application.id}
+                id={application.id}
+                name={application.name}
+                kind={application.kind}
+                status={application.status}
+                icon={application.icon}
+                version={
+                  application.kind === "interactive"
+                    ? application.interactive_package?.version
+                    : (sharing?.service_installation
+                        ?.installed_version_number ??
+                      sharing?.installation?.installed_version_number ??
+                      sharing?.published_version_number)
+                }
+                description={application.description}
+                onOpenDetails={setDetailsTarget}
+                headerActions={
+                  application.is_owner && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={t("common.moreActionsNamed", {
+                              name: application.name,
+                            })}
+                          />
+                        }
+                      >
+                        <MoreHorizontalIcon aria-hidden="true" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        className="w-max min-w-32"
+                      >
+                        <DropdownMenuGroup>
+                          {
+                            <DropdownMenuItem
+                              className="whitespace-nowrap"
+                              onClick={() =>
+                                setEditor({ open: true, application })
+                              }
+                            >
+                              <PencilIcon aria-hidden="true" />
+                              {t("common.edit")}
+                            </DropdownMenuItem>
+                          }
+                          {application.kind === "interactive" && (
+                            <DropdownMenuItem
+                              className="whitespace-nowrap"
+                              onClick={() =>
+                                setInteractiveImportTarget(application)
+                              }
+                            >
+                              <FileArchiveIcon aria-hidden="true" />
+                              {t("applications.updateInteractivePackage")}
+                            </DropdownMenuItem>
+                          )}
+                          {application.kind === "interactive" && (
+                            <DropdownMenuItem
+                              disabled={development.isPending}
+                              onClick={() =>
+                                development.mutate(
+                                  draft
+                                    ? { developmentId: draft.id }
+                                    : { applicationId: application.id },
                                   {
-                                    version:
-                                      sharing.installation
-                                        .installed_version_number,
+                                    onError: (error) =>
+                                      onFeedback(
+                                        getErrorMessage(error, t),
+                                        true
+                                      ),
                                   }
                                 )
-                              : t("applications.createdByMe")
-                            : t("applications.createdBy", {
-                                name: application.owner.name,
-                              })}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <CardAction className="flex items-center gap-1">
-                    <Badge
-                      variant={
-                        application.status === "active"
-                          ? "secondary"
-                          : "outline"
-                      }
-                    >
-                      {t(`applications.status.${application.status}`)}
-                    </Badge>
-                    {application.is_owner && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={t("common.moreActionsNamed", {
-                                name: application.name,
-                              })}
-                            />
-                          }
-                        >
-                          <MoreHorizontalIcon aria-hidden="true" />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="end"
-                          className="w-max min-w-32"
-                        >
-                          <DropdownMenuGroup>
-                            {application.kind === "standard" ? (
+                              }
+                            >
+                              <CodeXmlIcon aria-hidden="true" />
+                              {t(
+                                draft
+                                  ? "applicationDevelopment.catalog.continueDevelopment"
+                                  : "applicationDevelopment.catalog.developNewVersion"
+                              )}
+                            </DropdownMenuItem>
+                          )}
+                          {sharing?.installation && (
+                            <DropdownMenuItem
+                              onClick={() => setUpdateTarget(application)}
+                            >
+                              {t("applications.distribution.checkUpdate")}
+                            </DropdownMenuItem>
+                          )}
+                          {application.kind === "interactive" &&
+                            !hasDeclaredResources &&
+                            sharing?.installation && (
                               <DropdownMenuItem
-                                className="whitespace-nowrap"
                                 onClick={() =>
                                   setEditor({ open: true, application })
                                 }
                               >
-                                <PencilIcon aria-hidden="true" />
-                                {t("common.edit")}
+                                {t("applications.distribution.configure")}
                               </DropdownMenuItem>
-                            ) : (
+                            )}
+                        </DropdownMenuGroup>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem
+                            onClick={() => setReleaseTarget(application)}
+                          >
+                            <UploadIcon aria-hidden="true" />
+                            {t("applicationDevelopment.publish.confirm")}
+                          </DropdownMenuItem>
+                          {organizationSharingEnabled && (
+                            <>
                               <DropdownMenuItem
-                                className="whitespace-nowrap"
                                 onClick={() =>
-                                  setInteractiveImportTarget(application)
+                                  setDistributionTarget({
+                                    application,
+                                    mode: "direct",
+                                  })
                                 }
                               >
-                                <FileArchiveIcon aria-hidden="true" />
-                                {t("applications.updateInteractivePackage")}
+                                <Share2Icon aria-hidden="true" />
+                                {t("applications.distribution.direct")}
                               </DropdownMenuItem>
-                            )}
-                            {organizationSharingEnabled && (
-                              <>
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    setDistributionTarget({
-                                      application,
-                                      mode: "direct",
-                                    })
-                                  }
-                                >
-                                  <Share2Icon aria-hidden="true" />
-                                  {t("applications.distribution.direct")}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    setDistributionTarget({
-                                      application,
-                                      mode: "center",
-                                    })
-                                  }
-                                >
-                                  <UploadIcon aria-hidden="true" />
-                                  {t("applications.distribution.applyListing")}
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                            {application.kind === "interactive" &&
-                              (!sharing?.installation ||
-                                hasDeclaredResources) && (
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    setDependencyTarget(application)
-                                  }
-                                >
-                                  <WrenchIcon aria-hidden="true" />
-                                  {t("applications.dependencies.title")}
-                                </DropdownMenuItem>
-                              )}
-                            {sharing?.installation && (
                               <DropdownMenuItem
-                                onClick={() => setUpdateTarget(application)}
+                                onClick={() =>
+                                  setDistributionTarget({
+                                    application,
+                                    mode: "center",
+                                  })
+                                }
                               >
-                                {t("applications.distribution.checkUpdate")}
+                                <UploadIcon aria-hidden="true" />
+                                {t("applications.distribution.applyListing")}
                               </DropdownMenuItem>
-                            )}
-                            {application.kind === "interactive" &&
-                              !hasDeclaredResources &&
-                              sharing?.installation && (
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    setEditor({ open: true, application })
-                                  }
-                                >
-                                  {t("applications.distribution.configure")}
-                                </DropdownMenuItem>
-                              )}
+                            </>
+                          )}
+                        </DropdownMenuGroup>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem
+                            className="whitespace-nowrap"
+                            render={
+                              <Link
+                                to={`/capabilities/applications/${application.id}/usage`}
+                              />
+                            }
+                          >
+                            <ChartNoAxesCombinedIcon aria-hidden="true" />
+                            {t("applications.usage.action")}
+                          </DropdownMenuItem>
+                          {application.kind === "standard" && (
                             <DropdownMenuItem
                               className="whitespace-nowrap"
                               render={
                                 <Link
-                                  to={`/capabilities/applications/${application.id}/usage`}
+                                  to={`/capabilities/applications/${application.id}/external-access`}
                                 />
                               }
                             >
-                              <ChartNoAxesCombinedIcon aria-hidden="true" />
-                              {t("applications.usage.action")}
+                              <ExternalLinkIcon aria-hidden="true" />
+                              {t("applications.externalAccess.action")}
                             </DropdownMenuItem>
-                            {application.kind === "standard" && (
-                              <DropdownMenuItem
-                                className="whitespace-nowrap"
-                                render={
-                                  <Link
-                                    to={`/capabilities/applications/${application.id}/external-access`}
-                                  />
-                                }
-                              >
-                                <ExternalLinkIcon aria-hidden="true" />
-                                {t("applications.externalAccess.action")}
-                              </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem
+                            className="whitespace-nowrap"
+                            disabled={toggleApplicationStatus.isPending}
+                            onClick={() =>
+                              toggleApplicationStatus.mutate(application)
+                            }
+                          >
+                            <PowerIcon aria-hidden="true" />
+                            {t(
+                              application.status === "active"
+                                ? "common.disable"
+                                : "common.enable"
                             )}
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuGroup>
+                          {draft && (
                             <DropdownMenuItem
-                              className="whitespace-nowrap"
-                              disabled={toggleApplicationStatus.isPending}
-                              onClick={() =>
-                                toggleApplicationStatus.mutate(application)
-                              }
-                            >
-                              <PowerIcon aria-hidden="true" />
-                              {t(
-                                application.status === "active"
-                                  ? "common.disable"
-                                  : "common.enable"
-                              )}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="whitespace-nowrap"
-                              variant="destructive"
-                              onClick={() => setDeleteTarget(application)}
+                              onClick={() => setDeleteDraftTarget(draft)}
                             >
                               <Trash2Icon aria-hidden="true" />
-                              {t("common.delete")}
+                              {t("applicationDevelopment.catalog.deleteDraft")}
                             </DropdownMenuItem>
-                          </DropdownMenuGroup>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                          )}
+                          <DropdownMenuItem
+                            className="whitespace-nowrap"
+                            variant="destructive"
+                            onClick={() => setDeleteTarget(application)}
+                          >
+                            <Trash2Icon aria-hidden="true" />
+                            {t("applications.deleteAction")}
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )
+                }
+                footer={
+                  <div className="flex min-w-0 flex-col gap-1">
+                    {(!showShareTargets ||
+                      !application.is_owner ||
+                      sharing?.installation) && (
+                      <span className="min-w-0 truncate">
+                        {application.is_owner
+                          ? sharing?.installation
+                            ? t("applications.distribution.installedVersion", {
+                                version:
+                                  sharing.installation.installed_version_number,
+                              })
+                            : t("applications.createdByMe")
+                          : t("applications.createdBy", {
+                              name: application.owner.name,
+                            })}
+                      </span>
                     )}
-                  </CardAction>
-                </CardHeader>
-                <CardContent className="flex flex-1 flex-col gap-3">
-                  <p className="line-clamp-2 min-w-0 text-[length:var(--app-font-13)] leading-5 break-words text-muted-foreground">
-                    {application.description || t("applications.noDescription")}
-                  </p>
-                  <div
-                    data-slot="application-card-statistics"
-                    className="flex min-h-5 flex-wrap items-start gap-2 tabular-nums"
-                  >
-                    {application.model && (
-                      <Badge variant="outline" className="max-w-full">
-                        <BrainIcon aria-hidden="true" />
-                        <span
-                          data-slot="application-card-model"
-                          className="min-w-0 truncate"
-                          title={application.model}
-                        >
-                          {application.model}
-                        </span>
-                      </Badge>
-                    )}
-                    <Badge variant="outline">
-                      <WrenchIcon aria-hidden="true" />
-                      {t("applications.capabilityCount", {
-                        count: application.capability_count,
-                      })}
-                    </Badge>
-                    <Badge variant="outline">
-                      <DatabaseIcon aria-hidden="true" />
-                      {t("applications.knowledgeBaseCount", {
-                        count: application.knowledge_base_count,
-                      })}
-                    </Badge>
-                    <Badge variant="outline">
-                      <ServerIcon aria-hidden="true" />
-                      {t("applications.mcpServerCount", {
-                        count: application.mcp_server_count,
-                      })}
-                    </Badge>
-                    {organizationSharingEnabled && shareTargetSummary && (
-                      <Badge
-                        variant="outline"
-                        className="application-share-target-summary max-w-full min-w-0"
-                      >
-                        <UsersIcon aria-hidden="true" />
+                    {showShareTargets && (
+                      <span className="application-share-target-summary inline-flex max-w-full min-w-0 items-center gap-1.5">
+                        <UsersIcon
+                          className="size-3.5 shrink-0"
+                          aria-hidden="true"
+                        />
                         <span className="min-w-0 truncate">
                           {t("applications.shareTargets", {
                             targets: shareTargetSummary,
                           })}
                         </span>
-                      </Badge>
+                      </span>
                     )}
                   </div>
-                  {unavailable &&
-                    (application.is_owner ||
-                      sharing?.usage_modes.includes("service")) && (
-                      <StatusBanner variant="warning">
-                        {t("applications.dependencyUnavailable")}
-                      </StatusBanner>
-                    )}
-                </CardContent>
-                <CardFooter className="flex-wrap justify-end gap-2">
-                  {sharing?.installation?.update_available && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setUpdateTarget(application)}
-                    >
-                      {t("applications.distribution.updateAvailable")}
-                    </Button>
-                  )}
-                  {!application.is_owner && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setPublicationTarget(application)}
-                    >
-                      {t("applications.distribution.guide")}
-                    </Button>
-                  )}
-                  {!application.is_owner &&
-                    sharing?.usage_modes.includes("install") &&
-                    sharing.published_version_id && (
+                }
+                actions={
+                  <>
+                    {sharing?.installation?.update_available && (
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={Boolean(sharing.installed_application_id)}
-                        onClick={() => {
-                          if (sharing.published_version_id)
-                            setInstallTarget({
-                              id: application.id,
-                              name: application.name,
-                              versionId: sharing.published_version_id,
-                              channel: "direct",
-                            })
-                        }}
+                        onClick={() => setUpdateTarget(application)}
                       >
-                        {t(
-                          sharing.installed_application_id
-                            ? "applications.distribution.installedLabel"
-                            : "applications.distribution.install"
-                        )}
+                        {t("applications.distribution.updateAvailable")}
                       </Button>
                     )}
-                  {sharing?.installation?.setup_required ? (
-                    <Button
-                      size="sm"
-                      onClick={() => setEditor({ open: true, application })}
-                    >
-                      {t("applications.distribution.completeSetup")}
-                    </Button>
-                  ) : (
-                    (application.is_owner ||
-                      sharing?.usage_modes.includes("service")) && (
+                    {!application.is_owner &&
+                      sharing?.usage_modes.includes("service") &&
+                      sharing.published_version_id &&
+                      (!sharing.service_installation?.installed_version_id ||
+                        sharing.service_installation.update_available) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            if (sharing.published_version_id)
+                              setInstallTarget({
+                                id: application.id,
+                                name: application.name,
+                                versionId: sharing.published_version_id,
+                                channel: "direct",
+                                mode: "service",
+                                versionNumber: sharing.published_version_number,
+                                installedVersionNumber:
+                                  sharing.service_installation
+                                    ?.installed_version_number,
+                              })
+                          }}
+                        >
+                          {t(
+                            sharing.service_installation?.update_available
+                              ? "applications.distribution.updateAvailable"
+                              : "applications.distribution.install"
+                          )}
+                        </Button>
+                      )}
+                    {!application.is_owner && (
                       <Button
                         type="button"
                         size="sm"
-                        variant="secondary"
-                        aria-busy={starting || undefined}
-                        disabled={
-                          application.status !== "active" ||
-                          unavailable ||
-                          startConversation.isPending
-                        }
-                        onClick={() => startConversation.mutate(application)}
+                        variant="outline"
+                        onClick={() => setPublicationTarget(application)}
                       >
-                        {starting ? (
-                          <Spinner data-icon="inline-start" />
-                        ) : (
-                          <PlayIcon
-                            data-icon="inline-start"
-                            aria-hidden="true"
-                          />
-                        )}
-                        {t("applications.distribution.useService")}
+                        {t("applications.distribution.guide")}
                       </Button>
-                    )
+                    )}
+                    {!application.is_owner &&
+                      sharing?.usage_modes.includes("install") &&
+                      sharing.published_version_id && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            Boolean(sharing.installed_application_id) &&
+                            !sharing.copy_installation?.update_available
+                          }
+                          onClick={() => {
+                            if (sharing.published_version_id)
+                              setInstallTarget({
+                                id: application.id,
+                                name: application.name,
+                                versionId: sharing.published_version_id,
+                                versionNumber: sharing.published_version_number,
+                                installedVersionNumber:
+                                  sharing.copy_installation
+                                    ?.installed_version_number,
+                                channel: "direct",
+                              })
+                          }}
+                        >
+                          {t(
+                            sharing.copy_installation?.update_available
+                              ? "applications.distribution.updateAvailable"
+                              : sharing.installed_application_id
+                                ? "applications.distribution.installedLabel"
+                                : "applications.distribution.install"
+                          )}
+                        </Button>
+                      )}
+                    {sharing?.installation?.setup_required ? (
+                      <Button
+                        size="sm"
+                        onClick={() => setEditor({ open: true, application })}
+                      >
+                        {t("applications.distribution.completeSetup")}
+                      </Button>
+                    ) : (
+                      (application.is_owner ||
+                        sharing?.usage_modes.includes("service")) &&
+                      sharing?.service_installation?.installed_version_id && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          aria-busy={starting || undefined}
+                          disabled={
+                            application.status !== "active" ||
+                            unavailable ||
+                            startConversation.isPending
+                          }
+                          onClick={() => startConversation.mutate(application)}
+                        >
+                          {starting && <Spinner data-icon="inline-start" />}
+                          {t("applications.distribution.useService")}
+                          {!starting && (
+                            <ArrowUpRightIcon
+                              data-icon="inline-end"
+                              aria-hidden="true"
+                            />
+                          )}
+                        </Button>
+                      )
+                    )}
+                  </>
+                }
+              >
+                <ApplicationCardResources
+                  capability_count={application.capability_count}
+                  knowledge_base_count={application.knowledge_base_count}
+                  mcp_server_count={application.mcp_server_count}
+                  hasNewDevelopment={draft?.has_changes ?? false}
+                />
+                <ApplicationCardModel model={application.model} />
+                {unavailable &&
+                  (application.is_owner ||
+                    sharing?.usage_modes.includes("service")) && (
+                    <StatusBanner variant="warning">
+                      {t("applications.dependencyUnavailable")}
+                    </StatusBanner>
                   )}
-                </CardFooter>
-              </Card>
+              </ApplicationCard>
             )
           })}
         </div>
       )}
+      {applications.hasNextPage && (
+        <Button
+          className="self-center"
+          variant="outline"
+          disabled={applications.isFetchingNextPage}
+          onClick={() => void applications.fetchNextPage()}
+        >
+          {applications.isFetchingNextPage && (
+            <Spinner data-icon="inline-start" />
+          )}
+          {t("applicationDevelopment.catalog.loadMore")}
+        </Button>
+      )}
 
+      {detailsTarget && (
+        <ApplicationDetailsDialog
+          target={detailsTarget}
+          development={
+            catalogItems.find(
+              (entry) =>
+                entry.type === "application" &&
+                entry.application.id === detailsTarget.id
+            )?.development
+          }
+          onClose={() => setDetailsTarget(null)}
+        />
+      )}
+      <ConfirmDialog
+        open={deleteDraftTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteDraftTarget(null)
+        }}
+        title={t("applicationDevelopment.catalog.deleteDraft")}
+        description={t("applicationDevelopment.catalog.deleteDraftDescription")}
+        confirmLabel={t("common.delete")}
+        destructive
+        pending={deleteDraft.isPending}
+        onConfirm={() => {
+          if (deleteDraftTarget)
+            deleteDraft.mutate(deleteDraftTarget.id, {
+              onSuccess: () => setDeleteDraftTarget(null),
+              onError: (error) => {
+                setDeleteDraftTarget(null)
+                onFeedback(getErrorMessage(error, t), true)
+              },
+            })
+        }}
+      />
       {distributionTarget && (
         <ApplicationDistributionDialog
           key={distributionTarget.application.id + distributionTarget.mode}
@@ -907,17 +1131,26 @@ export function ApplicationCatalogPanel({
           onClose={() => setDistributionTarget(null)}
         />
       )}
-      {dependencyTarget && (
-        <InteractiveDependenciesDialog
-          key={dependencyTarget.id}
-          applicationId={dependencyTarget.id}
-          onClose={() => setDependencyTarget(null)}
-        />
-      )}
       {publicationTarget && (
         <ApplicationUsageGuideDialog
           application={publicationTarget}
           onClose={() => setPublicationTarget(null)}
+        />
+      )}
+      {releaseTarget && (
+        <ApplicationDevelopmentPublishDialog
+          applicationId={releaseTarget.id}
+          name={releaseTarget.name}
+          updating={Boolean(
+            distribution.data?.items.find(
+              (item) => item.application_id === releaseTarget.id
+            )?.service_installation?.installed_version_id
+          )}
+          pending={release.isPending}
+          changed={false}
+          error={release.error}
+          onClose={() => setReleaseTarget(null)}
+          onConfirm={(input) => release.mutate(input)}
         />
       )}
       {installTarget && (
@@ -927,7 +1160,8 @@ export function ApplicationCatalogPanel({
           onInstalled={(application) => {
             setInstallTarget(null)
             if (onInstalled) onInstalled()
-            else setEditor({ open: true, application })
+            else if (installTarget.mode !== "service")
+              setEditor({ open: true, application })
             notify.success(t("applications.distribution.installed"))
           }}
         />
@@ -942,95 +1176,39 @@ export function ApplicationCatalogPanel({
           }}
         />
       )}
-      <ApplicationEditorDialog
-        key={`${editor.open}:${editor.application?.id ?? "new"}:${editor.application?.updated_at ?? ""}`}
-        open={editor.open}
-        application={editor.application}
-        onOpenChange={(open) => setEditor((current) => ({ ...current, open }))}
-        onCompleted={async (message) => {
-          setEditor({ open: false, application: null })
-          onFeedback(message)
-          await queryClient.invalidateQueries({ queryKey: ["applications"] })
-        }}
-      />
-      <Dialog open={createChoiceOpen} onOpenChange={setCreateChoiceOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t("applications.createTitle")}</DialogTitle>
-            <DialogDescription>
-              {t("applications.createTypeDescription")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3 py-2 sm:grid-cols-2">
-            <Button
-              type="button"
-              variant="card-outline"
-              className="h-auto items-start justify-start gap-3 p-4 text-left whitespace-normal"
-              onClick={() => {
-                setCreateChoiceOpen(false)
-                setEditor({ open: true, application: null })
-              }}
-            >
-              <PlusIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-              <span>
-                <span className="block font-medium">
-                  {t("applications.createStandardApp")}
-                </span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  {t("applications.createStandardAppDescription")}
-                </span>
-              </span>
-            </Button>
-            <Card className="min-w-0 gap-0 py-0">
-              <CardContent className="p-0">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-auto w-full items-start justify-start gap-3 p-4 text-left whitespace-normal"
-                  onClick={() => {
-                    setCreateChoiceOpen(false)
-                    setInteractiveImportTarget(null)
-                  }}
-                >
-                  <FileArchiveIcon
-                    data-icon="inline-start"
-                    className="mt-0.5 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span>
-                    <span className="block font-medium">
-                      {t("applications.importInteractiveApp")}
-                    </span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {t("applications.importInteractiveAppDescription")}
-                    </span>
-                  </span>
-                </Button>
-              </CardContent>
-              <CardFooter className="mt-auto justify-end px-4 pb-3">
-                <Button
-                  type="button"
-                  variant="link"
-                  size="xs"
-                  className="font-normal text-muted-foreground"
-                  onClick={() => {
-                    setCreateChoiceOpen(false)
-                    setDeclarationOpen(true)
-                  }}
-                >
-                  {t("applications.declaration.title")}
-                  <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
-                </Button>
-              </CardFooter>
-            </Card>
-          </div>
-        </DialogContent>
-      </Dialog>
-      {declarationOpen && (
-        <InteractiveDeclarationDialog
-          onClose={() => {
-            setDeclarationOpen(false)
-            setCreateChoiceOpen(true)
+      {editor.open && editor.application?.kind === "interactive" ? (
+        <ApplicationMetadataPublishDialog
+          key={editor.application.id}
+          application={editor.application}
+          onClose={() => setEditor({ open: false, application: null })}
+          onSave={async (input, release) => {
+            await apiRequest(
+              `/applications/${editor.application!.id}/edit-and-publish`,
+              {
+                method: "POST",
+                body: editAndPublishApplicationInputSchema.parse({
+                  changes: input,
+                  release,
+                }),
+                schema: applicationSchema,
+              }
+            )
+            onFeedback(t("applications.editedAndPublished"))
+            await queryClient.invalidateQueries({ queryKey: ["applications"] })
+          }}
+        />
+      ) : (
+        <ApplicationEditorDialog
+          key={`${editor.open}:${editor.application?.id ?? "new"}:${editor.application?.updated_at ?? ""}`}
+          open={editor.open}
+          application={editor.application}
+          onOpenChange={(open) =>
+            setEditor((current) => ({ ...current, open }))
+          }
+          onCompleted={async (message) => {
+            setEditor({ open: false, application: null })
+            onFeedback(message)
+            await queryClient.invalidateQueries({ queryKey: ["applications"] })
           }}
         />
       )}
@@ -1043,13 +1221,7 @@ export function ApplicationCatalogPanel({
         }}
         onCompleted={async () => {
           setInteractiveImportTarget(undefined)
-          onFeedback(
-            t(
-              interactiveImportTarget
-                ? "applications.interactivePackageUpdated"
-                : "applications.interactiveAppImported"
-            )
-          )
+          onFeedback(t("applications.interactivePackageUpdated"))
           await queryClient.invalidateQueries({ queryKey: ["applications"] })
         }}
       />
@@ -1059,7 +1231,16 @@ export function ApplicationCatalogPanel({
           if (!open) setDeleteTarget(null)
         }}
         title={t("applications.deleteTitle")}
-        description={t("applications.deleteDescription")}
+        description={t(
+          catalogItems.some(
+            (item) =>
+              item.type === "application" &&
+              item.application.id === deleteTarget?.id &&
+              item.development
+          )
+            ? "applicationDevelopment.deleteDescription"
+            : "applications.deleteDescription"
+        )}
         confirmLabel={t("common.delete")}
         destructive
         pending={deleteApplication.isPending}
@@ -1071,7 +1252,60 @@ export function ApplicationCatalogPanel({
   )
 }
 
-function ApplicationEditorDialog({
+export function ApplicationCreateButton({
+  onFeedback,
+}: {
+  onFeedback: (message: string, isError?: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [step, setStep] = useState<"choose" | ApplicationCreationMethod | null>(
+    null
+  )
+  const complete = async (message: string) => {
+    setStep(null)
+    onFeedback(message)
+    await queryClient.invalidateQueries({ queryKey: ["applications"] })
+  }
+  return (
+    <>
+      <Button type="button" onClick={() => setStep("choose")}>
+        <PlusIcon data-icon="inline-start" />
+        {t("applications.create")}
+      </Button>
+      <ApplicationCreateDialog
+        open={step === "choose"}
+        onOpenChange={(open) => setStep(open ? "choose" : null)}
+        onChoose={setStep}
+      />
+      {step === "development" && (
+        <ApplicationDevelopmentCreateDialog onClose={() => setStep(null)} />
+      )}
+      {step === "standard" && (
+        <ApplicationEditorDialog
+          open
+          application={null}
+          onOpenChange={(open) => {
+            if (!open) setStep(null)
+          }}
+          onCompleted={complete}
+        />
+      )}
+      {step === "interactive" && (
+        <InteractiveApplicationImportDialog
+          open
+          application={null}
+          onOpenChange={(open) => {
+            if (!open) setStep(null)
+          }}
+          onCompleted={() => complete(t("applications.interactiveAppImported"))}
+        />
+      )}
+    </>
+  )
+}
+
+export function ApplicationEditorDialog({
   open,
   application,
   onOpenChange,
@@ -1083,6 +1317,8 @@ function ApplicationEditorDialog({
   onCompleted: (message: string) => Promise<void>
 }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const publishesStandard = !application || application.kind === "standard"
   const [form, setForm] = useState<ApplicationFormState>(() =>
     application
       ? {
@@ -1108,9 +1344,29 @@ function ApplicationEditorDialog({
       : emptyForm
   )
   const [error, setError] = useState<string | null>(null)
-  const [iconError, setIconError] = useState<string | null>(null)
   const [iconReading, setIconReading] = useState(false)
-  const iconInputRef = useRef<HTMLInputElement | null>(null)
+  const settings = useApplicationDistributionSettings(
+    application?.id ?? "",
+    open && publishesStandard
+  )
+  const [editedVersion, setVersion] = useState<string | null>(null)
+  const version =
+    editedVersion ??
+    (application
+      ? (settings.data?.highest_version_number ??
+        settings.data?.version_number ??
+        "")
+      : nextApplicationVersion(null))
+  const [createdApplicationId, setCreatedApplicationId] = useState<
+    string | null
+  >(null)
+  const versionStatus = applicationVersionStatus(
+    version,
+    settings.data?.highest_version_number ?? null
+  )
+  const versionInvalid =
+    !applicationReleaseVersionSchema.safeParse(version).success ||
+    (versionStatus !== "new" && !(application && versionStatus === "same"))
 
   const capabilities = useQuery({
     queryKey: ["capabilities", "managed", "application-editor"],
@@ -1256,56 +1512,94 @@ function ApplicationEditorDialog({
     { value: "active", label: t("common.enabled") },
     { value: "disabled", label: t("common.disabled") },
   ]
-  const displayedIcon: ApplicationIcon =
-    form.icon.mode === "preset"
-      ? { type: "preset", preset: form.icon.preset }
-      : form.icon.mode === "existing-custom"
-        ? form.icon.icon
-        : {
-            type: "custom",
-            url: form.icon.previewUrl,
-            fallback_preset: "bot",
-          }
-
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const icon = applicationIconInputFor(form.icon)
-      return apiRequest(
-        application ? `/applications/${application.id}` : "/applications",
+      const savedId = application?.id ?? createdApplicationId
+      const changes = {
+        name: form.name.trim(),
+        description: form.description.trim() || null,
+        instructions: form.instructions.trim(),
+        model: form.model || null,
+        reasoning_effort: form.model ? form.reasoningEffort || null : null,
+        capability_ids: [...form.pluginIds, ...form.skillIds],
+        knowledge_base_ids: form.knowledgeBaseIds,
+        mcp_server_ids: form.mcpServerIds,
+        status: form.status,
+        ...(icon === undefined ? {} : { icon }),
+      }
+      if (application?.kind === "interactive") {
+        return apiRequest(`/applications/${application.id}`, {
+          method: "PATCH",
+          body: changes,
+          schema: applicationSchema,
+        })
+      }
+      const release = applicationVersionInputSchema.parse({
+        version_number: version,
+        usage_instructions: settings.data?.usage_instructions ?? "",
+      })
+      if (application) {
+        return apiRequest(`/applications/${application.id}/edit-and-publish`, {
+          method: "POST",
+          body: editAndPublishApplicationInputSchema.parse({
+            changes,
+            release,
+          }),
+          schema: applicationSchema,
+        })
+      }
+      const saved = await apiRequest(
+        savedId ? `/applications/${savedId}` : "/applications",
         {
-          method: application ? "PATCH" : "POST",
-          body: {
-            name: form.name.trim(),
-            description: form.description.trim() || null,
-            instructions: form.instructions.trim(),
-            model: form.model || null,
-            reasoning_effort: form.model ? form.reasoningEffort || null : null,
-            capability_ids: [...form.pluginIds, ...form.skillIds],
-            knowledge_base_ids: form.knowledgeBaseIds,
-            mcp_server_ids: form.mcpServerIds,
-            status: form.status,
-            ...(icon === undefined ? {} : { icon }),
-          },
+          method: savedId ? "PATCH" : "POST",
+          body: changes,
           schema: applicationSchema,
         }
       )
+      setCreatedApplicationId(saved.id)
+      await apiRequest(`/applications/${saved.id}/publish`, {
+        method: "POST",
+        body: release,
+        schema: applicationPublicationSchema,
+      })
+      return saved
     },
     onSuccess: () =>
       onCompleted(
-        t(application ? "applications.updated" : "applications.created")
+        t(
+          application
+            ? publishesStandard
+              ? "applications.editedAndPublished"
+              : "applications.updated"
+            : "applications.created"
+        )
       ),
-    onError: (nextError) => setError(getErrorMessage(nextError, t)),
+    onError: async (nextError) => {
+      setError(getErrorMessage(nextError, t))
+      await queryClient.invalidateQueries({ queryKey: ["applications"] })
+    },
   })
 
   const valid =
     form.name.trim().length > 0 &&
     form.instructions.trim().length > 0 &&
     (form.model.length === 0 || form.reasoningEffort.length > 0) &&
+    (!publishesStandard ||
+      (!versionInvalid && (!application || settings.isSuccess))) &&
     !iconReading
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!save.isPending) onOpenChange(nextOpen)
+      }}
+    >
+      <DialogContent
+        showCloseButton={!save.isPending}
+        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl"
+      >
         <DialogHeader className="shrink-0 border-b border-divider px-6 py-5 pr-16">
           <DialogTitle>
             {t(
@@ -1338,124 +1632,14 @@ function ApplicationEditorDialog({
                 {t("applications.basicInformation")}
               </h3>
               <FieldGroup>
-                <Field data-invalid={Boolean(iconError)}>
-                  <FieldLabel>{t("applications.icon")}</FieldLabel>
-                  <div className="flex flex-col items-start gap-4 sm:flex-row">
-                    <ApplicationIconDisplay
-                      icon={displayedIcon}
-                      className="size-16 [&_svg]:size-11"
-                    />
-                    <div className="flex min-w-0 flex-1 flex-col gap-3">
-                      <ToggleGroup
-                        variant="outline"
-                        value={
-                          form.icon.mode === "preset" ? [form.icon.preset] : []
-                        }
-                        onValueChange={(values) => {
-                          const preset = applicationIconPresetSchema.safeParse(
-                            values[0]
-                          )
-                          if (!preset.success) return
-                          setIconError(null)
-                          setForm((current) => ({
-                            ...current,
-                            icon: { mode: "preset", preset: preset.data },
-                          }))
-                        }}
-                        aria-label={t("applications.iconPresetLabel")}
-                        spacing={1}
-                        className="grid w-full grid-cols-10"
-                      >
-                        {applicationIconPresetOptions.map((option) => (
-                          <ToggleGroupItem
-                            key={option.value}
-                            value={option.value}
-                            aria-label={t(
-                              `applications.iconPresets.${option.value}`
-                            )}
-                            className="aspect-square h-auto min-h-7 w-full min-w-0 p-0"
-                          >
-                            <ApplicationPresetIcon preset={option.value} />
-                          </ToggleGroupItem>
-                        ))}
-                      </ToggleGroup>
-                      <div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={iconReading}
-                          onClick={() => iconInputRef.current?.click()}
-                        >
-                          <UploadIcon data-icon="inline-start" />
-                          {t(
-                            form.icon.mode === "preset"
-                              ? "applications.uploadIcon"
-                              : "applications.replaceIcon"
-                          )}
-                        </Button>
-                        <Input
-                          ref={iconInputRef}
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="sr-only"
-                          aria-label={t("applications.uploadIcon")}
-                          onChange={async (event) => {
-                            const file = event.target.files?.[0]
-                            event.target.value = ""
-                            if (!file) return
-                            setIconError(null)
-                            const mimeType =
-                              applicationIconMimeTypeSchema.safeParse(file.type)
-                            if (
-                              file.size === 0 ||
-                              file.size > APPLICATION_ICON_MAX_BYTES ||
-                              !mimeType.success
-                            ) {
-                              setIconError(t("applications.iconFileInvalid"))
-                              return
-                            }
-                            setIconReading(true)
-                            try {
-                              const previewUrl = await readFileAsDataUrl(file)
-                              const prefix = `data:${mimeType.data};base64,`
-                              if (!previewUrl.startsWith(prefix)) {
-                                throw new Error(
-                                  "Invalid application icon data URL"
-                                )
-                              }
-                              setForm((current) => ({
-                                ...current,
-                                icon: {
-                                  mode: "upload",
-                                  filename: file.name,
-                                  mimeType: mimeType.data,
-                                  dataBase64: previewUrl.slice(prefix.length),
-                                  previewUrl,
-                                },
-                              }))
-                            } catch {
-                              setIconError(t("applications.iconFileInvalid"))
-                            } finally {
-                              setIconReading(false)
-                            }
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <FieldDescription className="w-full max-w-none text-xs leading-5 whitespace-normal">
-                    {t("applications.iconHint", {
-                      size: "512 KiB",
-                      dimension: APPLICATION_ICON_MAX_DIMENSION,
-                    })}
-                  </FieldDescription>
-                  {iconError && (
-                    <FieldDescription role="alert" className="text-destructive">
-                      {iconError}
-                    </FieldDescription>
-                  )}
-                </Field>
+                <ApplicationIconField
+                  value={form.icon}
+                  onChange={(icon) =>
+                    setForm((current) => ({ ...current, icon }))
+                  }
+                  onReadingChange={setIconReading}
+                  disabled={save.isPending}
+                />
                 <Field>
                   <RequiredFieldLabel htmlFor="application-name">
                     {t("common.name")}
@@ -1489,6 +1673,56 @@ function ApplicationEditorDialog({
                     }
                   />
                 </Field>
+                {publishesStandard && (
+                  <Field
+                    data-invalid={
+                      versionInvalid && (!application || settings.isSuccess)
+                    }
+                  >
+                    <RequiredFieldLabel htmlFor="application-version">
+                      {t("applications.distribution.versionNumber")}
+                    </RequiredFieldLabel>
+                    <ApplicationVersionNumberInput
+                      id="application-version"
+                      value={version}
+                      onValueChange={setVersion}
+                      required
+                      disabled={
+                        save.isPending ||
+                        (Boolean(application) && !settings.isSuccess)
+                      }
+                      aria-invalid={
+                        versionInvalid && (!application || settings.isSuccess)
+                      }
+                      aria-describedby="application-version-hint"
+                    />
+                    {application && settings.error ? (
+                      <ErrorState
+                        message={getErrorMessage(settings.error, t)}
+                        onRetry={() => void settings.refetch()}
+                      />
+                    ) : application && settings.isPending ? (
+                      <LoadingState />
+                    ) : versionInvalid ? (
+                      <FieldError id="application-version-hint">
+                        {t(
+                          versionStatus === "lower" || versionStatus === "same"
+                            ? "applications.distribution.editVersionLower"
+                            : "applications.distribution.versionInvalid",
+                          { version: settings.data?.highest_version_number }
+                        )}
+                      </FieldError>
+                    ) : (
+                      <FieldDescription id="application-version-hint">
+                        {t(
+                          application
+                            ? "applications.distribution.editVersionHint"
+                            : "applications.distribution.versionHint"
+                        )}
+                      </FieldDescription>
+                    )}
+                  </Field>
+                )}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field>
                     <FieldLabel htmlFor="application-model">
@@ -1693,6 +1927,11 @@ function ApplicationEditorDialog({
           {error && (
             <div className="mt-5">
               <StatusBanner variant="error">{error}</StatusBanner>
+              {createdApplicationId && (
+                <StatusBanner>
+                  {t("applications.createPublicationRetry")}
+                </StatusBanner>
+              )}
             </div>
           )}
         </div>
@@ -1700,6 +1939,7 @@ function ApplicationEditorDialog({
           <Button
             type="button"
             variant="outline"
+            disabled={save.isPending}
             onClick={() => onOpenChange(false)}
           >
             {t("common.cancel")}
@@ -1712,171 +1952,24 @@ function ApplicationEditorDialog({
               models.isLoading ||
               mcpServers.isLoading
             }
-            onClick={() => save.mutate()}
+            aria-busy={save.isPending || undefined}
+            onClick={() => {
+              setError(null)
+              save.mutate()
+            }}
           >
-            {t(application ? "common.save" : "common.create")}
+            {save.isPending && <Spinner data-icon="inline-start" />}
+            {t(
+              application
+                ? publishesStandard
+                  ? "applications.editAndPublish"
+                  : "common.save"
+                : "applications.createAndPublish"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
-}
-
-function applicationIconInputFor(
-  icon: ApplicationIconFormState
-): ApplicationIconInput | undefined {
-  if (icon.mode === "existing-custom") return undefined
-  if (icon.mode === "preset") {
-    return { type: "preset", preset: icon.preset }
-  }
-  return {
-    type: "upload",
-    filename: icon.filename,
-    mime_type: icon.mimeType,
-    data_base64: icon.dataBase64,
-  }
-}
-
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = () => reject(reader.error)
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result)
-        return
-      }
-      reject(new Error("Application icon could not be read as a data URL"))
-    }
-    reader.readAsDataURL(file)
-  })
-}
-
-type ApplicationResourceOption = {
-  id: string
-  label: string
-  detail: string
-  detailInline: boolean
-  disabled: boolean
-}
-
-const visibleResourceChipLimit = 2
-
-function ResourceMultiSelect({
-  id,
-  title,
-  description,
-  items,
-  selectedIds,
-  onChange,
-  emptyLabel,
-  placeholder,
-  searchPlaceholder,
-}: {
-  id: string
-  title: string
-  description: string
-  items: ApplicationResourceOption[]
-  selectedIds: string[]
-  onChange: (ids: string[]) => void
-  emptyLabel: string
-  placeholder: string
-  searchPlaceholder: string
-}) {
-  const { t } = useTranslation()
-  const selected = new Set(selectedIds)
-  const selectedItems = items.filter((item) => selected.has(item.id))
-  const hiddenSelectedCount = Math.max(
-    selectedItems.length - visibleResourceChipLimit,
-    0
-  )
-
-  return (
-    <Field>
-      <FieldLabel htmlFor={id}>{title}</FieldLabel>
-      <FieldDescription>{description}</FieldDescription>
-      <Combobox
-        items={items}
-        multiple
-        value={selectedItems}
-        disabled={items.length === 0}
-        itemToStringLabel={(item) =>
-          [item.label, item.detail].filter(Boolean).join(" ")
-        }
-        itemToStringValue={(item) => item.id}
-        isItemEqualToValue={(item, value) => item.id === value.id}
-        onValueChange={(nextItems) =>
-          onChange(nextItems.map((item) => item.id))
-        }
-      >
-        <ComboboxChips className="min-h-9 w-full">
-          <ComboboxValue>
-            {selectedItems.slice(0, visibleResourceChipLimit).map((item) => (
-              <ComboboxChip
-                key={item.id}
-                removeLabel={t("applications.removeResource", {
-                  name: item.label,
-                })}
-              >
-                <span className="max-w-40 truncate">{item.label}</span>
-              </ComboboxChip>
-            ))}
-            {hiddenSelectedCount > 0 && (
-              <Badge
-                variant="secondary"
-                aria-label={t("applications.additionalResources", {
-                  count: hiddenSelectedCount,
-                })}
-              >
-                +{hiddenSelectedCount}
-              </Badge>
-            )}
-          </ComboboxValue>
-          <ComboboxChipsInput
-            id={id}
-            aria-label={title}
-            disabled={items.length === 0}
-            placeholder={
-              items.length === 0
-                ? emptyLabel
-                : selectedItems.length === 0
-                  ? placeholder
-                  : searchPlaceholder
-            }
-          />
-        </ComboboxChips>
-        <ComboboxContent>
-          <ComboboxEmpty>{t("applications.resourceSearchEmpty")}</ComboboxEmpty>
-          <ComboboxList>
-            {(item: ApplicationResourceOption) => (
-              <ComboboxItem
-                key={item.id}
-                value={item}
-                disabled={item.disabled && !selected.has(item.id)}
-              >
-                <span className="min-w-0">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-medium">
-                      {item.label}
-                    </span>
-                    {item.detailInline && item.detail && (
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {item.detail}
-                      </span>
-                    )}
-                  </span>
-                  {!item.detailInline && item.detail && (
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {item.detail}
-                    </span>
-                  )}
-                </span>
-              </ComboboxItem>
-            )}
-          </ComboboxList>
-        </ComboboxContent>
-      </Combobox>
-    </Field>
   )
 }
 

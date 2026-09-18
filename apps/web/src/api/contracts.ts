@@ -28,6 +28,7 @@ import {
   capabilityRiskSummarySchema as sharedCapabilityRiskSummarySchema,
   conversationEventSchema,
   conversationCollaborationModeSchema,
+  conversationApplicationDevelopmentRoleSchema,
   conversationHistoryPageSchema,
   conversationOrderResultSchema as sharedConversationOrderResultSchema,
   conversationPlanReviewSchema as sharedConversationPlanReviewSchema,
@@ -892,6 +893,9 @@ export const conversationSchema = z
       .optional(),
     has_unread_completion: z.boolean().default(false),
     has_automation: z.boolean().default(false),
+    application_development_role: conversationApplicationDevelopmentRoleSchema
+      .nullable()
+      .optional(),
     collaboration_mode: conversationCollaborationModeSchema.default("default"),
     fork_source: conversationForkSourceSchema.nullable().optional(),
     selected_knowledge_base_ids: z.array(z.string()).optional(),

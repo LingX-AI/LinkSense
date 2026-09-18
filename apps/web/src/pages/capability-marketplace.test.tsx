@@ -543,7 +543,7 @@ describe("capability marketplace pages", () => {
         return Promise.resolve(
           envelope({
             version_number: "1.0.0",
-            highest_version_number: null,
+            highest_version_number: "1.0.0",
             usage_instructions: "填写研究主题",
           })
         )
@@ -2264,6 +2264,13 @@ describe("capability marketplace pages", () => {
                 application_id: applicationId,
                 published_version_id: applicationId,
                 published_version_number: "1.0.0",
+                service_installation: {
+                  installed_version_id: applicationId,
+                  installed_version_number: "1.0.0",
+                  available_version_id: applicationId,
+                  available_version_number: "1.0.0",
+                  update_available: false,
+                },
                 usage_modes: ["service"],
                 installation: null,
                 installed_application_id: null,
@@ -2323,7 +2330,12 @@ describe("capability marketplace pages", () => {
       within(catalogTabs).getByRole("tab", { name: "应用" })
     )
 
-    await interaction.click(screen.getByRole("tab", { name: "共享给我的应用" }))
+    await interaction.click(
+      within(screen.getByRole("tablist", { name: "应用范围" })).getByRole(
+        "tab",
+        { name: "共享我的" }
+      )
+    )
     const title = await screen.findByRole("heading", {
       name: "财务制度助手",
     })
@@ -2343,9 +2355,9 @@ describe("capability marketplace pages", () => {
     const startButton = within(card).getByRole("button", {
       name: "使用",
     })
-    expect(startButton).toHaveClass("bg-secondary", "text-secondary-foreground")
+    expect(startButton).toHaveClass("border-border", "bg-background")
     expect(
-      startButton.querySelector('svg[data-icon="inline-start"]')
+      startButton.querySelector('svg[data-icon="inline-end"]')
     ).toHaveAttribute("aria-hidden", "true")
     await interaction.click(startButton)
     await waitFor(() =>
@@ -2382,8 +2394,8 @@ describe("capability marketplace pages", () => {
     const applicationId = "50000000-0000-4000-8000-000000000090"
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = new URL(String(input), window.location.origin)
-      if (url.pathname === "/api/v1/applications") {
-        expect(url.searchParams.get("scope")).toBe("owned")
+      if (url.pathname === "/api/v1/applications/catalog") {
+        expect(url.searchParams.get("state")).toBe("all")
         return Promise.resolve(
           envelope({
             items: [
@@ -2417,7 +2429,11 @@ describe("capability marketplace pages", () => {
                 created_at: NOW,
                 updated_at: NOW,
               },
-            ],
+            ].map((application) => ({
+              type: "application",
+              application,
+              development: null,
+            })),
             next_cursor: null,
           })
         )
@@ -2451,6 +2467,76 @@ describe("capability marketplace pages", () => {
       )
     )
   })
+
+  it.each(["zh-CN", "en-US"])(
+    "places application creation in the page header and search beside the scope tabs in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(envelope({ items: [], next_cursor: null })))
+      )
+      const interaction = userEvent.setup()
+      renderUserPage()
+      await interaction.click(
+        await screen.findByRole("tab", {
+          name: i18n.t("marketplace.catalogTabs.application"),
+        })
+      )
+      const header = screen.getByRole("banner")
+      const create = within(header).getByRole("button", {
+        name: i18n.t("applications.create"),
+      })
+      const tabs = screen.getByRole("tablist", {
+        name: i18n.t("applications.scopeLabel"),
+      })
+      const search = screen.getByRole("textbox", {
+        name: i18n.t("applications.search"),
+      })
+      const toolbar = search.closest(
+        '[data-slot="application-catalog-toolbar"]'
+      )
+      expect(toolbar).toContainElement(tabs)
+      expect(toolbar).not.toContainElement(create)
+      expect(search.closest('[data-slot="input-group"]')).not.toBeNull()
+      await interaction.click(create)
+      const choices = await screen.findByRole("dialog", {
+        name: i18n.t("applications.createTitle"),
+      })
+      expect(
+        within(choices).getByRole("button", {
+          name: new RegExp(i18n.t("applications.createStandardApp")),
+        })
+      ).toBeVisible()
+      await interaction.keyboard("{Escape}")
+      await interaction.click(
+        screen.getByRole("tab", {
+          name: i18n.t("applications.distribution.sharedApplications"),
+        })
+      )
+      expect(
+        within(header).queryByRole("button", {
+          name: i18n.t("applications.create"),
+        })
+      ).not.toBeInTheDocument()
+      await interaction.click(
+        screen.getByRole("tab", {
+          name: i18n.t("applications.distribution.center"),
+        })
+      )
+      const centerSearch = screen.getByRole("textbox", {
+        name: i18n.t("applications.distribution.centerSearch"),
+      })
+      expect(
+        centerSearch.closest('[data-slot="application-catalog-toolbar"]')
+      ).toContainElement(tabs)
+      expect(
+        within(header).queryByRole("button", {
+          name: i18n.t("applications.create"),
+        })
+      ).not.toBeInTheDocument()
+    }
+  )
 
   it("renders wide two-column application cards with status and owner actions aligned", async () => {
     const longDescription =
@@ -2523,9 +2609,37 @@ describe("capability marketplace pages", () => {
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         const url = new URL(String(input), window.location.origin)
-        if (url.pathname === "/api/v1/applications") {
+        if (url.pathname === "/api/v1/applications/distribution") {
           return Promise.resolve(
-            envelope({ items: applications, next_cursor: null })
+            envelope({
+              items: applications.map((application) => ({
+                application_id: application.id,
+                published_version_id: application.id,
+                published_version_number: "1.0.0",
+                usage_modes: ["service"],
+                installation: null,
+                installed_application_id: null,
+                service_installation: {
+                  installed_version_id: application.id,
+                  installed_version_number: "1.0.0",
+                  available_version_id: application.id,
+                  available_version_number: "1.0.0",
+                  update_available: false,
+                },
+              })),
+            })
+          )
+        }
+        if (url.pathname === "/api/v1/applications/catalog") {
+          return Promise.resolve(
+            envelope({
+              items: applications.map((application) => ({
+                type: "application",
+                application,
+                development: null,
+              })),
+              next_cursor: null,
+            })
           )
         }
         return Promise.resolve(envelope({ items: [], next_cursor: null }))
@@ -2543,134 +2657,106 @@ describe("capability marketplace pages", () => {
       throw new Error("Expected owned application card")
     }
     const grid = card.parentElement
-    const cardAction = card.querySelector<HTMLElement>(
-      '[data-slot="card-action"]'
-    )
     const cardHeader = card.querySelector<HTMLElement>(
       '[data-slot="card-header"]'
     )
-    const creator = within(card).getByText("由我创建")
+    const cardAction = cardHeader
     const description = within(card).getByText("暂无说明")
-    const modelSlot = card.querySelector<HTMLElement>(
-      '[data-slot="application-card-model"]'
+    const statistics = within(card).getByRole("list", { name: "应用资源" })
+    const status = card.querySelector<HTMLElement>(
+      '[data-slot="application-card-status"]'
     )
-    const statistics = card.querySelector<HTMLElement>(
-      '[data-slot="application-card-statistics"]'
-    )
-    const statusBadge = within(card)
-      .getByText("已启用")
-      .closest<HTMLElement>('[data-slot="badge"]')
     const footer = card.querySelector<HTMLElement>('[data-slot="card-footer"]')
-    const applicationIcon = card.querySelector<HTMLElement>(
-      '[data-slot="avatar"]'
+    const iconTile = card.querySelector<HTMLElement>(
+      '[data-slot="application-card-icon"]'
     )
-    const applicationIconFallback = card.querySelector<HTMLElement>(
-      '[data-slot="avatar-fallback"]'
-    )
+    const shareSummary = within(card).getByText("已共享 · 林老师、教务组…")
 
     expect(grid).toHaveClass("grid", "md:grid-cols-2")
-    expect(card).toHaveClass("gap-3")
     expect(grid).not.toHaveClass("xl:grid-cols-3")
-    expect(cardHeader).toHaveClass("gap-x-4", "gap-y-0")
-    expect(creator.parentElement).toHaveClass(
-      "flex",
-      "gap-x-3",
-      "text-xs",
-      "leading-4"
+    expect(card).toHaveClass("gap-5", "shadow-none")
+    expect(cardHeader).toHaveClass("flex", "flex-row", "gap-3")
+    expect(cardHeader).toContainElement(
+      within(card).getByRole("button", {
+        name: applications[0]!.name + "的更多操作",
+      })
     )
-    expect(creator).toHaveClass("truncate")
-    expect(title.parentElement).not.toHaveClass("min-h-14")
     expect(description).toHaveClass(
       "line-clamp-2",
-      "text-[length:var(--app-font-13)]",
-      "break-words",
+      "min-h-10",
+      "wrap-anywhere",
       "leading-5"
     )
-    expect(description).not.toHaveClass("min-h-10")
     expect(description.nextElementSibling).toBe(statistics)
-    expect(modelSlot).toBeNull()
-    expect(statistics).toHaveClass(
-      "min-h-5",
-      "flex-wrap",
-      "items-start",
-      "tabular-nums"
-    )
-    expect(cardAction).not.toBeNull()
-    expect(cardAction).toContainElement(statusBadge)
-    expect(cardAction).toHaveClass("col-start-2", "justify-self-end")
-    expect(cardAction).toHaveClass("flex", "items-center", "gap-1")
-    expect(footer).not.toBeNull()
-    expect(footer).toHaveClass("flex-wrap")
-    expect(applicationIcon).toHaveClass(
-      "rounded-[calc(var(--radius)*0.7)]",
-      "after:rounded-[calc(var(--radius)*0.7)]"
-    )
-    expect(applicationIcon).not.toHaveClass("rounded-xl")
-    expect(applicationIconFallback).toHaveClass(
-      "rounded-[calc(var(--radius)*0.7)]"
+    expect(statistics).toHaveClass("flex-wrap", "tabular-nums")
+    expect(statistics).toHaveTextContent("插件 / Skill 0")
+    expect(statistics).toHaveTextContent("知识库 1")
+    const mcpCount = within(statistics).getByText("MCP 0").closest("li")
+    expect(mcpCount?.querySelector("svg.lucide-server")).toBeVisible()
+    expect(statistics).not.toHaveTextContent("已启用")
+    expect(status).toHaveTextContent("已启用")
+    expect(cardHeader).toContainElement(status)
+    expect(
+      card.querySelector('[data-slot="application-card-model"]')
+    ).toBeNull()
+    expect(footer).toHaveClass("flex-wrap", "border-t")
+    expect(footer).toContainElement(shareSummary)
+    expect(statistics).not.toContainElement(shareSummary)
+    expect(within(card).queryByText(/王老师/u)).toBeNull()
+    expect(iconTile).toHaveClass("size-12", "rounded-lg")
+    expect(card.querySelector('[data-slot="avatar"]')).toHaveClass(
+      "size-10",
+      "after:border-0"
     )
     expect(
       within(card).queryByText("由用户在聊天中选择")
     ).not.toBeInTheDocument()
-    expect(within(card).getByText("0 个插件/Skill")).toBeVisible()
-    const mcpCountBadge = within(card)
-      .getByText("0 个 MCP")
-      .closest<HTMLElement>('[data-slot="badge"]')
-    expect(mcpCountBadge).toBeVisible()
-    expect(
-      mcpCountBadge?.querySelector('img[data-default-capability-icon="mcp"]')
-    ).toBeNull()
-    expect(mcpCountBadge?.querySelector("svg.lucide-server")).toBeVisible()
-    expect(within(card).getByText("1 个知识库")).toBeVisible()
-    expect(within(card).getByText("共享 林老师、教务组…")).toBeVisible()
-    expect(within(card).queryByText(/王老师/u)).toBeNull()
+
     const fixedModelCard = (
       await screen.findByRole("heading", { name: applications[1]!.name })
     ).closest('[data-slot="card"]')
     if (!(fixedModelCard instanceof HTMLElement)) {
       throw new Error("Expected fixed-model application card")
     }
-    expect(within(fixedModelCard).getByText("gpt-5.6-terra")).toBeVisible()
     const fixedModelDescription =
       within(fixedModelCard).getByText(longDescription)
-    expect(fixedModelDescription).toHaveClass("line-clamp-2", "min-w-0")
-    expect(fixedModelDescription).not.toHaveClass("min-h-10")
-    const versionLabel = within(fixedModelCard).getByText("交互式应用 · v1.1.0")
+    expect(fixedModelDescription).toHaveClass(
+      "line-clamp-2",
+      "min-h-10",
+      "wrap-anywhere"
+    )
+    const versionLabel = within(fixedModelCard).getByText("v1.1.0")
     const interactiveCreator = within(fixedModelCard).getByText("由我创建")
-    expect(versionLabel).toBeVisible()
-    expect(versionLabel.parentElement).toBe(interactiveCreator.parentElement)
-    expect(versionLabel.nextElementSibling).toBe(interactiveCreator)
-    expect(versionLabel.parentElement).toHaveClass(
-      "flex",
-      "flex-wrap",
-      "gap-x-3",
-      "gap-y-1"
+    const versionHeader = versionLabel.closest('[data-slot="card-header"]')
+    expect(versionHeader).toHaveTextContent("交互式应用")
+    expect(versionHeader).not.toContainElement(interactiveCreator)
+    expect(
+      interactiveCreator.closest('[data-slot="card-footer"]')
+    ).not.toBeNull()
+    const fixedModelStatistics = within(fixedModelCard).getByRole("list", {
+      name: "应用资源",
+    })
+    const fixedModelName = within(fixedModelCard).getByText("gpt-5.6-terra")
+    const fixedModelRow = fixedModelName.closest(
+      '[data-slot="application-card-model-row"]'
     )
-    const fixedModelStatistics = fixedModelCard.querySelector<HTMLElement>(
-      '[data-slot="application-card-statistics"]'
-    )
-    const fixedModelName = fixedModelCard.querySelector<HTMLElement>(
-      '[data-slot="application-card-model"]'
-    )
-    const fixedModelBadge = fixedModelName?.closest<HTMLElement>(
-      '[data-slot="badge"]'
-    )
-    if (!fixedModelStatistics || !fixedModelName || !fixedModelBadge) {
-      throw new Error("Expected model details in the application statistics")
-    }
     expect(fixedModelDescription.nextElementSibling).toBe(fixedModelStatistics)
-    expect(fixedModelStatistics).toContainElement(fixedModelBadge)
-    expect(fixedModelName).toHaveTextContent("gpt-5.6-terra")
+    expect(fixedModelStatistics).not.toContainElement(fixedModelName)
+    expect(
+      fixedModelCard.querySelector('[data-slot="application-card-metadata"]')
+    ).toHaveTextContent("已启用")
+    expect(fixedModelRow).not.toHaveTextContent("已启用")
     expect(fixedModelName).toHaveAttribute("title", "gpt-5.6-terra")
-    expect(fixedModelBadge?.querySelector("svg.lucide-brain")).toBeVisible()
+    expect(fixedModelName).toHaveClass("truncate")
+    expect(fixedModelRow?.querySelector("svg.lucide-brain")).toBeVisible()
     expect(
       within(footer!)
         .getAllByRole("button")
         .map((button) => button.textContent)
     ).toEqual(["使用"])
-    expect(within(footer!).getByRole("button", { name: "使用" })).toHaveClass(
-      "bg-secondary"
-    )
+    const useButton = within(footer!).getByRole("button", { name: "使用" })
+    expect(useButton).toHaveClass("border-border", "bg-background")
+    expect(useButton.querySelector('svg[data-icon="inline-end"]')).toBeVisible()
     expect(
       within(footer!).queryByRole("button", { name: "共享" })
     ).not.toBeInTheDocument()
@@ -2678,7 +2764,7 @@ describe("capability marketplace pages", () => {
       within(footer!).queryByRole("button", { name: "编辑" })
     ).not.toBeInTheDocument()
     expect(
-      within(footer!).queryByRole("button", { name: "删除" })
+      within(footer!).queryByRole("button", { name: "删除应用" })
     ).not.toBeInTheDocument()
     await interaction.click(
       within(cardAction!).getByRole("button", {
@@ -2695,12 +2781,13 @@ describe("capability marketplace pages", () => {
         .map((item) => item.textContent)
     ).toEqual([
       "编辑",
+      "发布",
       "组织内共享",
       "申请上架",
       "用量统计",
       "外部访问",
       "停用",
-      "删除",
+      "删除应用",
     ])
     expect(screen.getByRole("menuitem", { name: "用量统计" })).toHaveAttribute(
       "href",
@@ -2709,7 +2796,7 @@ describe("capability marketplace pages", () => {
     expect(screen.getByRole("menuitem", { name: "组织内共享" })).toBeVisible()
     expect(screen.getByRole("menuitem", { name: "申请上架" })).toBeVisible()
     expect(screen.getByRole("menuitem", { name: "编辑" })).toBeVisible()
-    expect(screen.getByRole("menuitem", { name: "删除" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "删除应用" })).toBeVisible()
   })
 
   it("separates application sharing between users and user groups", async () => {
@@ -2766,9 +2853,12 @@ describe("capability marketplace pages", () => {
         )
       if (url.pathname === "/api/v1/applications/distribution")
         return Promise.resolve(envelope({ items: [] }))
-      if (url.pathname === "/api/v1/applications" && method === "GET") {
+      if (url.pathname === "/api/v1/applications/catalog" && method === "GET") {
         return Promise.resolve(
-          envelope({ items: [application], next_cursor: null })
+          envelope({
+            items: [{ type: "application", application, development: null }],
+            next_cursor: null,
+          })
         )
       }
       if (
@@ -3059,7 +3149,10 @@ describe("capability marketplace pages", () => {
           if (url.pathname === "/api/v1/marketplace") {
             return Promise.resolve(envelope({ items: [], next_cursor: null }))
           }
-          if (url.pathname === "/api/v1/applications" && method === "GET") {
+          if (
+            url.pathname === "/api/v1/applications/catalog" &&
+            method === "GET"
+          ) {
             return Promise.resolve(envelope({ items: [], next_cursor: null }))
           }
           if (url.pathname === "/api/v1/capabilities") {
@@ -3168,6 +3261,18 @@ describe("capability marketplace pages", () => {
               })
             )
           }
+          if (
+            url.pathname === `/api/v1/applications/${applicationId}/publish` &&
+            method === "POST"
+          ) {
+            return Promise.resolve(
+              envelope({
+                version_id: applicationId,
+                version_number: "0.0.1",
+                usage_instructions: "",
+              })
+            )
+          }
           return Promise.resolve(envelope({ items: [], next_cursor: null }))
         }
       )
@@ -3195,12 +3300,18 @@ describe("capability marketplace pages", () => {
         "button",
         { name: /导入交互式应用/u }
       )
-      expect(standardApplicationOption).toHaveClass(
-        "border-[color:var(--app-border)]"
+      const alternatives = typeDialog.querySelector(
+        '[data-slot="application-creation-alternatives"]'
       )
-      expect(
-        interactiveApplicationOption.closest('[data-slot="card"]')
-      ).toHaveClass("border-[color:var(--app-border)]")
+      expect(alternatives).toHaveClass("flex-col")
+      expect(alternatives).toContainElement(standardApplicationOption)
+      expect(alternatives).toContainElement(interactiveApplicationOption)
+      expect(standardApplicationOption).toHaveAccessibleDescription(
+        i18n.t("applications.createStandardAppDescription")
+      )
+      expect(interactiveApplicationOption).toHaveAccessibleDescription(
+        i18n.t("applications.importInteractiveAppDescription")
+      )
       await interaction.click(standardApplicationOption)
 
       const dialog = await screen.findByRole("dialog", { name: "创建应用" })
@@ -3289,7 +3400,11 @@ describe("capability marketplace pages", () => {
       )
       expect(selectedIconPreview).toHaveClass("[&_svg]:size-11")
       const iconPresetGroup = within(dialog).getByLabelText("内置应用图标")
-      expect(iconPresetGroup).toHaveClass("grid", "grid-cols-10")
+      expect(iconPresetGroup).toHaveClass(
+        "grid",
+        "grid-cols-5",
+        "sm:grid-cols-10"
+      )
       expect(within(iconPresetGroup).getAllByRole("button")).toHaveLength(20)
       for (const label of [
         "机器人",
@@ -3442,6 +3557,21 @@ describe("capability marketplace pages", () => {
       )
 
       await waitFor(() => expect(submittedBody).not.toBeNull())
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("dialog", { name: "创建应用" })
+        ).not.toBeInTheDocument()
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(`/applications/${applicationId}/publish`),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            version_number: "0.0.1",
+            usage_instructions: "",
+          }),
+        })
+      )
       expect(submittedBody).toMatchObject({
         name: "财务助手",
         instructions: "只回答内部财务制度。",
@@ -4423,6 +4553,278 @@ describe("capability marketplace pages", () => {
     ).toBe(false)
   })
 
+  it.each(["zh-CN", "en-US"])(
+    "combines application and Skill reviews and keeps application listing management in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      let currentApplication = { ...applicationRelease }
+      const olderApplication = {
+        ...applicationRelease,
+        id: "40000000-0000-4000-8000-000000000009",
+        version_number: "0.9.0",
+        status: "approved",
+      }
+      const skillPublication = {
+        listing,
+        current_release: release,
+        latest_release: { ...release, status: "pending" },
+        install_count: 1,
+      }
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          if (
+            path === `/api/v1/admin/application-center/${RELEASE_ID}/review` &&
+            init?.method === "POST"
+          ) {
+            currentApplication = {
+              ...currentApplication,
+              status: "approved",
+              listing_status: "published",
+            }
+            return Promise.resolve(envelope(null))
+          }
+          if (
+            path ===
+              `/api/v1/admin/application-center/applications/${CAPABILITY_ID}/status` &&
+            init?.method === "PATCH"
+          ) {
+            currentApplication = {
+              ...currentApplication,
+              listing_status: "suspended",
+            }
+            return Promise.resolve(envelope(null))
+          }
+          if (path === "/api/v1/admin/application-center") {
+            return Promise.resolve(
+              envelope({
+                items: [currentApplication, olderApplication],
+                next_cursor: null,
+              })
+            )
+          }
+          if (path === `/api/v1/admin/application-center/${RELEASE_ID}`) {
+            return Promise.resolve(
+              envelope({
+                release: currentApplication,
+                instructions: "Review the research instructions",
+                capabilities: [],
+                knowledge_base_count: 0,
+                mcp_server_count: 0,
+                interactive_files: [],
+              })
+            )
+          }
+          return Promise.resolve(
+            envelope({ items: [skillPublication], next_cursor: null })
+          )
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      renderAdminPage()
+      expect(screen.getAllByRole("tab")).toHaveLength(2)
+      const application = await screen.findByRole("article", {
+        name: applicationRelease.name,
+      })
+      const skill = await screen.findByRole("article", { name: release.name })
+      expect(application.closest('[data-slot="card"]')).toBe(
+        skill.closest('[data-slot="card"]')
+      )
+      expect(within(application).queryByText("v0.9.0")).not.toBeInTheDocument()
+      expect(
+        screen.queryByText(
+          i18n.t("marketplace.reviewsEmpty").replace(/[。.]+$/u, "")
+        )
+      ).not.toBeInTheDocument()
+      await userEvent.click(
+        within(application).getByRole("button", {
+          name: i18n.t("applications.distribution.review"),
+        })
+      )
+      const reviewDialog = await screen.findByRole("dialog")
+      await userEvent.click(
+        await within(reviewDialog).findByRole("button", {
+          name: i18n.t("applications.distribution.approve"),
+        })
+      )
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("article", { name: applicationRelease.name })
+        ).not.toBeInTheDocument()
+      )
+      expect(screen.getByRole("article", { name: release.name })).toBeVisible()
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `/admin/application-center/${RELEASE_ID}/review`
+        ),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ decision: "approved", comment: "" }),
+        })
+      )
+
+      await userEvent.click(
+        screen.getByRole("tab", { name: i18n.t("marketplace.tabs.listings") })
+      )
+      const listingRow = await screen.findByRole("article", {
+        name: applicationRelease.name,
+      })
+      expect(
+        screen.getAllByRole("article", { name: applicationRelease.name })
+      ).toHaveLength(1)
+      expect(within(listingRow).getByText("v1.0.0")).toBeVisible()
+      expect(
+        within(listingRow).getByText(i18n.t("marketplace.status.published"))
+      ).toBeVisible()
+      await userEvent.click(
+        within(listingRow).getByRole("button", {
+          name: i18n.t("marketplace.manageApplicationListing"),
+        })
+      )
+      const managementDialog = await screen.findByRole("dialog")
+      await userEvent.type(
+        within(managementDialog).getByLabelText(
+          i18n.t("applications.distribution.reviewComment")
+        ),
+        "Needs review"
+      )
+      await userEvent.click(
+        await within(managementDialog).findByRole("button", {
+          name: i18n.t("applications.distribution.suspend"),
+        })
+      )
+      expect(
+        await within(listingRow).findByText(
+          i18n.t("marketplace.status.unlisted")
+        )
+      ).toBeVisible()
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `/admin/application-center/applications/${CAPABILITY_ID}/status`
+        ),
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ status: "suspended", reason: "Needs review" }),
+        })
+      )
+    }
+  )
+
+  it("keeps pending applications visible when the Skill review queue is empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        return Promise.resolve(
+          envelope({
+            items:
+              path === "/api/v1/admin/application-center"
+                ? [applicationRelease]
+                : [],
+            next_cursor: null,
+          })
+        )
+      })
+    )
+    renderAdminPage()
+    expect(
+      await screen.findByRole("article", { name: applicationRelease.name })
+    ).toBeVisible()
+    expect(
+      screen.queryByText(
+        i18n.t("marketplace.reviewsEmpty").replace(/[。.]+$/u, "")
+      )
+    ).not.toBeInTheDocument()
+  })
+
+  it("waits for both review sources before showing the shared empty state", async () => {
+    let finishApplications: ((response: Response) => void) | undefined
+    const applicationResponse = new Promise<Response>((resolve) => {
+      finishApplications = resolve
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        return path === "/api/v1/admin/application-center"
+          ? applicationResponse
+          : Promise.resolve(envelope({ items: [], next_cursor: null }))
+      })
+    )
+    renderAdminPage()
+    expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true")
+    expect(
+      screen.queryByText(
+        i18n.t("marketplace.reviewsEmpty").replace(/[。.]+$/u, "")
+      )
+    ).not.toBeInTheDocument()
+    await act(async () =>
+      finishApplications?.(envelope({ items: [], next_cursor: null }))
+    )
+    expect(
+      await screen.findByText(
+        i18n.t("marketplace.reviewsEmpty").replace(/[。.]+$/u, "")
+      )
+    ).toBeVisible()
+    await userEvent.click(
+      screen.getByRole("tab", { name: i18n.t("marketplace.tabs.listings") })
+    )
+    expect(
+      await screen.findByText(
+        i18n.t("marketplace.listingsEmpty").replace(/[。.]+$/u, "")
+      )
+    ).toBeVisible()
+  })
+
+  it("retains Skill reviews when application loading fails and retries the application query", async () => {
+    let failed = true
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        if (path === "/api/v1/admin/application-center") {
+          if (failed) return Promise.reject(new Error("Unavailable"))
+          return Promise.resolve(
+            envelope({ items: [applicationRelease], next_cursor: null })
+          )
+        }
+        return Promise.resolve(
+          envelope({
+            items: [
+              {
+                listing,
+                current_release: release,
+                latest_release: { ...release, status: "pending" },
+                install_count: 0,
+              },
+            ],
+            next_cursor: null,
+          })
+        )
+      })
+    )
+    renderAdminPage()
+    expect(
+      await screen.findByRole("article", { name: release.name })
+    ).toBeVisible()
+    const retry = await screen.findByRole("button", {
+      name: i18n.t("common.retry"),
+    })
+    expect(
+      screen.queryByText(
+        i18n.t("marketplace.reviewsEmpty").replace(/[。.]+$/u, "")
+      )
+    ).not.toBeInTheDocument()
+    failed = false
+    await userEvent.click(retry)
+    expect(
+      await screen.findByRole("article", { name: applicationRelease.name })
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: i18n.t("common.retry") })
+    ).not.toBeInTheDocument()
+  })
+
   it.each([
     ["zh-CN", "draft", "rejected", "未通过"],
     ["en-US", "draft", "rejected", "Not approved"],
@@ -4430,7 +4832,7 @@ describe("capability marketplace pages", () => {
     ["zh-CN", "draft", "withdrawn", "已撤回"],
     ["zh-CN", "published", "rejected", "已上架"],
     ["zh-CN", "unlisted", "rejected", "已下架"],
-    ["zh-CN", "suspended", "rejected", "已停用"],
+    ["zh-CN", "suspended", "rejected", "已下架"],
   ] as const)(
     "shows the %s governance status for a %s listing with a %s release",
     async (language, listingStatus, releaseStatus, expectedStatus) => {
@@ -4490,7 +4892,7 @@ describe("capability marketplace pages", () => {
   it.each([false, true])(
     "shows a direct governance action when suspended is %s",
     async (suspended) => {
-      const actionLabel = suspended ? "恢复" : "停用"
+      const actionLabel = suspended ? "重新上架" : "下架"
       const publication = {
         listing: { ...listing, status: suspended ? "suspended" : "published" },
         current_release: release,
@@ -4501,6 +4903,9 @@ describe("capability marketplace pages", () => {
         (input: RequestInfo | URL, init?: RequestInit) => {
           const url = new URL(String(input), window.location.origin)
           const method = init?.method ?? "GET"
+          if (url.pathname === "/api/v1/admin/application-center") {
+            return Promise.resolve(envelope({ items: [], next_cursor: null }))
+          }
           if (
             url.pathname === "/api/v1/admin/marketplace/reviews" &&
             method === "GET"
@@ -4541,7 +4946,7 @@ describe("capability marketplace pages", () => {
       expect(within(item).getByText("Skill")).toBeVisible()
       expect(within(item).getByText("已安装 7 次")).toBeVisible()
       expect(
-        within(item).getByText(suspended ? "已停用" : "已上架")
+        within(item).getByText(suspended ? "已下架" : "已上架")
       ).toBeVisible()
 
       expect(within(item).queryByRole("button", { name: "操作" })).toBeNull()
@@ -4556,7 +4961,7 @@ describe("capability marketplace pages", () => {
           name: `${actionLabel}“${release.name}”？`,
         })
       ).toBeVisible()
-      if (!suspended) expect(screen.getByLabelText("停用原因")).toBeVisible()
+      if (!suspended) expect(screen.getByLabelText("下架原因")).toBeVisible()
     }
   )
 
@@ -4583,6 +4988,9 @@ describe("capability marketplace pages", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), window.location.origin)
       const method = init?.method ?? "GET"
+      if (url.pathname === "/api/v1/admin/application-center") {
+        return Promise.resolve(envelope({ items: [], next_cursor: null }))
+      }
       if (
         url.pathname === "/api/v1/admin/marketplace/reviews" &&
         method === "GET"
@@ -4656,6 +5064,9 @@ describe("capability marketplace pages", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), window.location.origin)
       const method = init?.method ?? "GET"
+      if (url.pathname === "/api/v1/admin/application-center") {
+        return Promise.resolve(envelope({ items: [], next_cursor: null }))
+      }
       if (
         url.pathname === "/api/v1/admin/marketplace/reviews" &&
         method === "GET"

@@ -131,7 +131,11 @@ function renderCatalogPanel() {
             <Route
               path="/capabilities"
               element={
-                <ApplicationCatalogPanel scope="owned" onFeedback={vi.fn()} />
+                <ApplicationCatalogPanel
+                  scope="owned"
+                  search=""
+                  onFeedback={vi.fn()}
+                />
               }
             />
             <Route
@@ -162,9 +166,18 @@ describe("application external access page", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), window.location.origin)
       const method = init?.method ?? "GET"
-      if (url.pathname === "/api/v1/applications" && method === "GET") {
+      if (url.pathname === "/api/v1/applications/catalog" && method === "GET") {
         return Promise.resolve(
-          envelope({ items: [applicationFixture()], next_cursor: null })
+          envelope({
+            items: [
+              {
+                type: "application",
+                application: applicationFixture(),
+                development: null,
+              },
+            ],
+            next_cursor: null,
+          })
         )
       }
       throw new Error(`Unexpected request: ${method} ${url.pathname}`)

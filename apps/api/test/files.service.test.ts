@@ -57,6 +57,18 @@ afterEach(async () => {
 });
 
 describe("FileService workspace and MIME boundaries", () => {
+  it("registers a complete website snapshot atomically with its HTML artifact", async () => {
+    const fixture = await fileFixture();
+    await mkdir(join(fixture.conversationRoot, "site"));
+    await writeFile(join(fixture.conversationRoot, "site/index.html"), '<!doctype html><script src="app.js"></script>');
+    await writeFile(join(fixture.conversationRoot, "site/app.js"), 'document.title="Published";');
+    const tx = artifactTransactionFixture();
+    fixture.prisma.$transaction.mockImplementationOnce(async (operation: (transaction: typeof tx) => Promise<unknown>) => operation(tx));
+    await fixture.service.registerArtifact({ ownerId: OWNER_ID, conversationId: CONVERSATION_ID, codexTurnId: "codex-turn-1", workspaceRelativePath: "site/index.html", displayName: "index.html", mimeType: "text/html", webRootRelativePath: "site" });
+    expect(tx.webArtifactBundle.create).toHaveBeenCalledWith({ data: expect.objectContaining({ ownerId: OWNER_ID, conversationId: CONVERSATION_ID, manifestJson: expect.objectContaining({ entry_path: "index.html", files: expect.arrayContaining([expect.objectContaining({ path: "app.js" }), expect.objectContaining({ path: "index.html" })]) }) }) });
+    expect(fixture.storage.putObject).toHaveBeenCalledTimes(3);
+    expect(fixture.storage.removeObject).not.toHaveBeenCalled();
+  });
   it("lists only the authenticated owner's registered artifacts with a stable cursor", async () => {
     const fixture = await fileFixture();
     const firstCreatedAt = new Date("2026-08-10T08:30:00.000Z");
@@ -2701,6 +2713,7 @@ function artifactTransactionFixture() {
         async (input: { data: Record<string, unknown> }) => input.data,
       ),
     },
+    webArtifactBundle: { create: vi.fn(async () => ({})) },
     conversationFile: {
       create: vi.fn(async () => artifact),
     },

@@ -11,6 +11,8 @@ import { hmacSha256 } from "../lib/crypto.js"
 import {
   conversationPrewarmReservationSchema,
   conversationPrewarmReservationTtlMs,
+  prewarmReservationScope,
+  prewarmReservationValue,
   type ConversationPrewarmReservation,
 } from "../modules/conversations/prewarm.js"
 
@@ -584,17 +586,24 @@ export class LinkSenseRedis {
   async acquireUserLifecycleLock(
     userId: string,
     ttlMilliseconds = 120_000,
+    options: { waitForReaders?: boolean } = {},
   ): Promise<string | null> {
     const token = randomUUID()
     try {
-      const result = await this.client.set(
-        `linksense:user-lifecycle-lock:${userId}`,
-        token,
-        "PX",
-        ttlMilliseconds,
-        "NX",
-      )
-      return result === "OK" ? token : null
+      const result = await this.client.eval(`
+        local clock = redis.call('TIME')
+        local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+        redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now)
+        if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
+        if redis.call('ZCARD', KEYS[2]) > 0 then
+          if ARGV[3] == '1' then redis.call('SET', KEYS[3], '1', 'PX', 1000) end
+          return 0
+        end
+        redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+        redis.call('DEL', KEYS[3])
+        return 1
+      `, 3, ...this.userLifecycleKeys(userId), token, ttlMilliseconds, options.waitForReaders === false ? "0" : "1")
+      return Number(result) === 1 ? token : null
     } catch {
       throw new RedisUnavailableError("user_lifecycle_lock")
     }
@@ -616,6 +625,73 @@ export class LinkSenseRedis {
       )
     } catch {
       throw new RedisUnavailableError("user_lifecycle_unlock")
+    }
+  }
+
+  async renewUserLifecycleLock(userId: string, token: string, ttlMilliseconds: number): Promise<boolean> {
+    try {
+      return Number(await this.client.eval(`
+        if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+        return redis.call('PEXPIRE', KEYS[1], ARGV[2])
+      `, 1, this.userLifecycleKeys(userId)[0], token, ttlMilliseconds)) === 1
+    } catch {
+      throw new RedisUnavailableError("user_lifecycle_lock")
+    }
+  }
+
+  private userLifecycleKeys(userId: string): [string, string, string] {
+    return [
+      `linksense:user-lifecycle-lock:${userId}`,
+      `linksense:user-runtime-leases:${userId}`,
+      `linksense:user-lifecycle-writer:${userId}`,
+    ]
+  }
+
+  /** Concurrent runtime users exclude account mutation and environment reclamation. */
+  async acquireUserRuntimeLease(userId: string, ttlMilliseconds = 120_000): Promise<string | null> {
+    const token = randomUUID()
+    try {
+      const result = await this.client.eval(`
+        if redis.call('EXISTS', KEYS[1]) == 1 or redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
+        local clock = redis.call('TIME')
+        local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+        redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now)
+        redis.call('ZADD', KEYS[2], now + tonumber(ARGV[2]), ARGV[1])
+        redis.call('PEXPIRE', KEYS[2], math.max(redis.call('PTTL', KEYS[2]), tonumber(ARGV[2])))
+        return 1
+      `, 3, ...this.userLifecycleKeys(userId), token, ttlMilliseconds)
+      return Number(result) === 1 ? token : null
+    } catch {
+      throw new RedisUnavailableError("user_runtime_lease")
+    }
+  }
+
+  async renewUserRuntimeLease(userId: string, token: string, ttlMilliseconds = 120_000): Promise<boolean> {
+    try {
+      const result = await this.client.eval(`
+        local clock = redis.call('TIME')
+        local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+        local expires = redis.call('ZSCORE', KEYS[2], ARGV[1])
+        if redis.call('EXISTS', KEYS[1]) == 1 or not expires or tonumber(expires) <= now then return 0 end
+        redis.call('ZADD', KEYS[2], now + tonumber(ARGV[2]), ARGV[1])
+        redis.call('PEXPIRE', KEYS[2], math.max(redis.call('PTTL', KEYS[2]), tonumber(ARGV[2])))
+        return 1
+      `, 3, ...this.userLifecycleKeys(userId), token, ttlMilliseconds)
+      return Number(result) === 1
+    } catch {
+      throw new RedisUnavailableError("user_runtime_renew")
+    }
+  }
+
+  async releaseUserRuntimeLease(userId: string, token: string): Promise<void> {
+    try {
+      await this.client.eval(`
+        redis.call('ZREM', KEYS[1], ARGV[1])
+        if redis.call('ZCARD', KEYS[1]) == 0 then redis.call('DEL', KEYS[1]) end
+        return 1
+      `, 1, this.userLifecycleKeys(userId)[1], token)
+    } catch {
+      throw new RedisUnavailableError("user_runtime_release")
     }
   }
 
@@ -644,7 +720,7 @@ export class LinkSenseRedis {
   ): Promise<boolean> {
     const reservation = conversationPrewarmReservationSchema.parse(input)
     const key = `linksense:conversation-prewarm:${reservation.conversationId}`
-    const value = `${reservation.ownerId}:${reservation.reservationRevision}`
+    const value = prewarmReservationValue(reservation)
     try {
       if (create) {
         const result = await this.client.set(
@@ -685,7 +761,7 @@ export class LinkSenseRedis {
       const value = await this.client.get(
         `linksense:conversation-prewarm:${reservation.conversationId}`,
       )
-      return value === `${reservation.ownerId}:${reservation.reservationRevision}`
+      return value === prewarmReservationValue(reservation)
     } catch {
       throw new RedisUnavailableError("conversation_prewarm_read")
     }
@@ -694,6 +770,8 @@ export class LinkSenseRedis {
   async claimConversationPrewarm(
     ownerId: string,
     conversationId: string,
+    projectId?: string | null,
+    collaborationMode = "default",
   ): Promise<boolean> {
     conversationPrewarmReservationSchema
       .pick({ ownerId: true, conversationId: true })
@@ -703,6 +781,8 @@ export class LinkSenseRedis {
         local value = redis.call('GET', KEYS[1])
         local ownerPrefix = ARGV[1] .. ':'
         if not value or string.sub(value, 1, string.len(ownerPrefix)) ~= ownerPrefix then return 0 end
+        local scopeSuffix = ':' .. ARGV[2]
+        if string.sub(value, -string.len(scopeSuffix)) ~= scopeSuffix then return 0 end
         return redis.call('DEL', KEYS[1])
       `
       const result = await this.client.eval(
@@ -710,6 +790,7 @@ export class LinkSenseRedis {
         1,
         `linksense:conversation-prewarm:${conversationId}`,
         ownerId,
+        prewarmReservationScope(projectId, collaborationMode),
       )
       return Number(result) === 1
     } catch {

@@ -444,6 +444,7 @@ model Application {
   ownerId              String    @map("owner_id") @db.Uuid
   name                 String    @db.VarChar(160)
   kind                 String    @default("standard") @db.VarChar(32)
+  developmentOnly      Boolean   @default(false) @map("development_only")
   iconPreset           String    @default("bot") @map("icon_preset") @db.VarChar(32)
   iconObjectKey        String?   @map("icon_object_key") @db.Text
   description          String?   @db.Text
@@ -469,11 +470,37 @@ model Application {
   @@map("applications")
 }
 
+model ApplicationDevelopment {
+  id                    String   @id @default(uuid()) @db.Uuid
+  ownerId               String   @map("owner_id") @db.Uuid
+  conversationId        String?  @unique(map: "application_developments_conversation_key") @map("conversation_id") @db.Uuid
+  workspaceRelPath      String   @map("workspace_rel_path") @db.VarChar(500)
+  projectId             String?  @map("project_id") @db.Uuid
+  name                  String   @db.VarChar(160)
+  directory             String   @db.VarChar(500)
+  applicationId         String?  @unique(map: "application_developments_application_key") @map("application_id") @db.Uuid
+  previewApplicationId  String?  @unique(map: "application_developments_preview_application_key") @map("preview_application_id") @db.Uuid
+  previewConversationId String?  @map("preview_conversation_id") @db.Uuid
+  revision              Int      @default(0)
+  installedVersion      Int      @default(0) @map("installed_version")
+  sourceHash            String?  @map("source_hash") @db.VarChar(64)
+  installedSourceHash   String?  @map("installed_source_hash") @db.VarChar(64)
+  sourceError           String?  @map("source_error") @db.VarChar(80)
+  diagnosticsJson       Json     @default("[]") @map("diagnostics_json") @db.JsonB
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, updatedAt(sort: Desc)], map: "application_developments_owner_updated_idx")
+  @@index([ownerId, projectId], map: "application_developments_owner_project_idx")
+  @@map("application_developments")
+}
+
 model ApplicationVersion {
   id             String   @id @default(uuid()) @db.Uuid
   applicationId  String   @map("application_id") @db.Uuid
   versionNumber  Int      @map("version_number")
   versionLabel   String   @map("version_label") @db.VarChar(80)
+  purpose        String   @default("release") @db.VarChar(16)
   definitionJson Json     @map("definition_json") @db.JsonB
   assetsReady    Boolean  @default(false) @map("assets_ready")
   createdBy      String   @map("created_by") @db.Uuid
@@ -482,6 +509,21 @@ model ApplicationVersion {
   @@unique([applicationId, versionNumber], map: "application_versions_application_number_key")
   @@index([createdBy], map: "application_versions_created_by_idx")
   @@map("application_versions")
+}
+
+// Preview applications have stable private IDs, separate from their formal app.
+// Both purposes therefore use the same per-user installation boundary.
+model ApplicationRuntimeInstallation {
+  ownerId       String   @map("owner_id") @db.Uuid
+  applicationId String   @map("application_id") @db.Uuid
+  versionId     String   @map("version_id") @db.Uuid
+  channel       String   @db.VarChar(16)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@id([ownerId, applicationId])
+  @@index([applicationId], map: "application_runtime_installations_application_idx")
+  @@map("application_runtime_installations")
 }
 
 model InteractiveApplicationPackage {
@@ -495,7 +537,6 @@ model InteractiveApplicationPackage {
   createdBy     String   @map("created_by") @db.Uuid
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  @@unique([applicationId, version], map: "interactive_application_packages_application_version_key")
   @@index([applicationId, createdAt(sort: Desc)], map: "interactive_application_packages_application_created_idx")
   @@index([createdBy], map: "interactive_application_packages_created_by_idx")
   @@map("interactive_application_packages")
@@ -756,6 +797,8 @@ model Project {
   id        String   @id @default(uuid()) @db.Uuid
   ownerId   String   @map("owner_id") @db.Uuid
   name      String   @db.VarChar(80)
+  icon      String   @default("folder") @db.VarChar(32)
+  color     String   @default("default") @db.VarChar(16)
   sortOrder Int?     @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1308,6 +1351,60 @@ model ConversationFile {
   @@unique([conversationId, knowledgeAssetReferenceId], map: "conversation_files_knowledge_asset_key")
   @@index([createdBy], map: "conversation_files_created_by_idx")
   @@map("conversation_files")
+}
+
+model WebArtifactBundle {
+  fileId         String   @id @map("file_id") @db.Uuid
+  ownerId        String   @map("owner_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  manifestJson   Json     @map("manifest_json") @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([conversationId], map: "web_artifact_bundles_conversation_idx")
+  @@map("web_artifact_bundles")
+}
+
+model WebSite {
+  id               String    @id @default(uuid()) @db.Uuid
+  ownerId          String    @map("owner_id") @db.Uuid
+  conversationId   String?   @map("conversation_id") @db.Uuid
+  sourceTaskTitle  String    @map("source_task_title") @db.VarChar(240)
+  originFileId     String    @map("origin_file_id") @db.Uuid
+  sourceFileId     String    @map("source_file_id") @db.Uuid
+  name             String    @db.VarChar(240)
+  description      String    @default("") @db.VarChar(1000)
+  slug             String    @unique(map: "web_sites_slug_key") @db.VarChar(80)
+  status           String    @db.VarChar(32)
+  currentReleaseId String    @map("current_release_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, updatedAt(sort: Desc), id], map: "web_sites_owner_updated_idx")
+  @@index([conversationId], map: "web_sites_conversation_idx")
+  @@index([originFileId], map: "web_sites_origin_file_idx")
+  @@map("web_sites")
+}
+
+// Reserve retired addresses while a site exists. Deleting the site releases
+// all its addresses for use by any publisher.
+model WebSiteAddress {
+  slug      String   @id @db.VarChar(80)
+  siteId    String   @map("site_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([siteId], map: "web_site_addresses_site_idx")
+  @@map("web_site_addresses")
+}
+
+model WebSiteRelease {
+  id           String   @id @default(uuid()) @db.Uuid
+  siteId       String   @map("site_id") @db.Uuid
+  sourceFileId String   @map("source_file_id") @db.Uuid
+  manifestJson Json     @map("manifest_json") @db.JsonB
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([siteId, createdAt(sort: Desc)], map: "web_site_releases_site_created_idx")
+  @@map("web_site_releases")
 }
 
 model RetainedArtifact {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { interactiveApplicationManifestSchema } from "@linksense/shared";
-import { assertInteractiveDependenciesReady, dependencyBindings, interactiveBindingsComplete, listInteractiveDependencyOptions, resolveInteractiveDependencies, writeInteractiveRuntimeBindings } from "../src/modules/applications/interactive-dependencies.js";
+import { assertInteractiveDependenciesReady, dependencyBindings, interactiveBindingsComplete, interactiveRuntimeDependencyIds, listInteractiveDependencyOptions, resolveInteractiveDependencies, writeInteractiveRuntimeBindings } from "../src/modules/applications/interactive-dependencies.js";
 
 const OWNER = "10000000-0000-4000-8000-000000000001";
 const SKILL = "20000000-0000-4000-8000-000000000001";
@@ -8,6 +8,13 @@ const OTHER = "20000000-0000-4000-8000-000000000002";
 const KB = "30000000-0000-4000-8000-000000000001";
 const MCP = "40000000-0000-4000-8000-000000000001";
 describe("dependency declaration resource listing", () => {
+  it("captures only bound resource IDs in declaration order and deduplicates repeated bindings", () => {
+    const items = ([
+      ["skill", SKILL], ["skill", SKILL], ["plugin", OTHER], ["knowledge_base", KB], ["mcp_server", MCP], ["skill", null],
+    ] as const).map(([type, resource_id]) => ({ type, id: SKILL, name: "Resource", resource_id, resource_name: null, available: resource_id !== null }));
+    expect(interactiveRuntimeDependencyIds({ items })).toEqual({ capabilityIds: [SKILL, OTHER], knowledgeBaseIds: [KB], mcpServerIds: [MCP] });
+    expect(interactiveRuntimeDependencyIds({ items: [] })).toEqual({ capabilityIds: [], knowledgeBaseIds: [], mcpServerIds: [] });
+  });
   it.each(["plugin", "skill", "mcp_server", "knowledge_base"] as const)("scopes every %s page to the owner and available resources, returning only names and IDs", async type => {
     const query = vi.fn().mockResolvedValue([]);
     const db = { capability: { findMany: query }, mcpServer: { findMany: query }, knowledgeBase: { findMany: query } };

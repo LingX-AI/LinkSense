@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { applicationVersionInputSchema } from "./application-version.js";
+import { applicationIconInputSchema, applicationIconSchema } from "./application-icons.js";
+import { applicationPublishedVersionInputSchema, applicationVersionInputSchema } from "./application-version.js";
 
 import { capabilityTypeSchema } from "./capabilities.js";
 import { timestampSchema, uniqueArraySchema, uuidSchema } from "./common.js";
@@ -7,13 +8,15 @@ import {
   modelIdentifierSchema,
   reasoningEffortSchema,
 } from "./model-provider.js";
-import { interactiveApplicationPackageSchema } from "./interactive-applications.js";
+import { interactiveApplicationPackageSchema, interactiveDependencyTypeSchema } from "./interactive-applications.js";
 import { applicationUsageModeSchema, applicationUsageModesSchema } from "./application-distribution.js";
 
 export const applicationStatusSchema = z.enum(["active", "disabled"]);
 export const applicationUnavailableReasonSchema = z.enum([
   "APPLICATION_NOT_FOUND",
+  "APPLICATION_DELETED",
   "APPLICATION_DISABLED",
+  "APPLICATION_CENTER_UNAVAILABLE",
   "APPLICATION_DEPENDENCY_UNAVAILABLE",
 ]);
 export type ApplicationUnavailableReason = z.infer<
@@ -34,67 +37,6 @@ export const applicationShareTargetSummarySchema = z.strictObject({
   type: applicationGranteeTypeSchema,
   name: z.string().min(1).max(120),
 });
-
-export const APPLICATION_ICON_MAX_BYTES = 512 * 1024;
-export const APPLICATION_ICON_MAX_DIMENSION = 1_024;
-export const applicationIconPresets = [
-  "bot",
-  "search",
-  "book-open",
-  "graduation-cap",
-  "briefcase-business",
-  "chart-column",
-  "code-xml",
-  "pen-line",
-  "sparkles",
-  "lightbulb",
-  "headset",
-  "file-text",
-  "landmark",
-  "scale",
-  "heart-pulse",
-  "shield-check",
-  "workflow",
-  "calendar-clock",
-  "users",
-  "globe-2",
-] as const;
-export const applicationIconPresetSchema = z.enum(applicationIconPresets);
-export const applicationIconMimeTypeSchema = z.enum([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-]);
-const applicationIconBase64Schema = z
-  .string()
-  .min(1)
-  .max(Math.ceil((APPLICATION_ICON_MAX_BYTES * 4) / 3) + 4)
-  .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u);
-
-export const applicationIconInputSchema = z.discriminatedUnion("type", [
-  z.strictObject({
-    type: z.literal("preset"),
-    preset: applicationIconPresetSchema,
-  }),
-  z.strictObject({
-    type: z.literal("upload"),
-    filename: z.string().trim().min(1).max(160),
-    mime_type: applicationIconMimeTypeSchema,
-    data_base64: applicationIconBase64Schema,
-  }),
-]);
-
-export const applicationIconSchema = z.discriminatedUnion("type", [
-  z.strictObject({
-    type: z.literal("preset"),
-    preset: applicationIconPresetSchema,
-  }),
-  z.strictObject({
-    type: z.literal("custom"),
-    url: z.string().url().max(4_096),
-    fallback_preset: applicationIconPresetSchema,
-  }),
-]);
 
 export const applicationCapabilitySchema = z.strictObject({
   id: uuidSchema,
@@ -156,6 +98,27 @@ export const applicationSchema = z.strictObject({
   updated_at: timestampSchema,
 });
 
+// Read-only presentation data. Never include resource manifests, credentials,
+// connection settings, or the application's private instructions here.
+export const applicationResourceDetailsSchema = z.strictObject({
+  id: uuidSchema,
+  type: interactiveDependencyTypeSchema,
+  name: z.string().min(1).max(160).nullable(),
+  configured_name: z.string().min(1).max(160).nullable(),
+  status: z.enum(["configured", "unconfigured", "unavailable"]),
+});
+export const applicationDetailsSchema = applicationSchema.pick({
+  id: true, name: true, icon: true, description: true, kind: true,
+  model: true, status: true, created_at: true, updated_at: true,
+}).extend({
+  creator_name: z.string().min(1).max(120),
+  view: z.enum(["configuration", "published"]),
+  version_number: z.string().min(1).max(80).nullable(),
+  resources: z.array(applicationResourceDetailsSchema).max(90),
+});
+export type ApplicationResourceDetails = z.infer<typeof applicationResourceDetailsSchema>;
+export type ApplicationDetails = z.infer<typeof applicationDetailsSchema>;
+
 const applicationCapabilityIdsSchema = uniqueArraySchema(uuidSchema).max(50);
 const applicationKnowledgeBaseIdsSchema = uniqueArraySchema(uuidSchema).max(20);
 const applicationMcpServerIdsSchema = uniqueArraySchema(uuidSchema).max(20);
@@ -207,6 +170,11 @@ export const applicationListQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(200).default(100),
 });
 
+export const editAndPublishApplicationInputSchema = z.strictObject({
+  changes: updateApplicationInputSchema,
+  release: applicationVersionInputSchema,
+});
+
 export const applicationGrantSchema = z.strictObject({
   id: uuidSchema,
   application_id: uuidSchema,
@@ -244,7 +212,7 @@ export const applicationShareTargetSchema = z.strictObject({
   secondary_text: z.string().max(320).nullable(),
 });
 
-export const applicationShareInputSchema = applicationVersionInputSchema.extend({
+export const applicationShareInputSchema = applicationPublishedVersionInputSchema.extend({
   target: createApplicationGrantInputSchema.nullable(),
 });
 export type ApplicationShareInput = z.infer<typeof applicationShareInputSchema>;
@@ -254,9 +222,6 @@ export const applicationConversationSchema = z.strictObject({
 });
 
 export type Application = z.infer<typeof applicationSchema>;
-export type ApplicationIcon = z.infer<typeof applicationIconSchema>;
-export type ApplicationIconInput = z.infer<typeof applicationIconInputSchema>;
-export type ApplicationIconPreset = z.infer<typeof applicationIconPresetSchema>;
 export type ApplicationCapability = z.infer<typeof applicationCapabilitySchema>;
 export type ApplicationKnowledgeBase = z.infer<
   typeof applicationKnowledgeBaseSchema

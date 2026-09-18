@@ -434,6 +434,48 @@ describe("authentication Fastify integration", () => {
     expect(response.headers["set-cookie"]).toContain("SameSite=None")
   })
 
+  it.each([
+    { origin: "http://localhost:18172", secure: false },
+    { origin: "https://localhost:18173", secure: true },
+  ])("restores sessions through the local $origin entry with the correct cookie security", async ({ origin, secure }) => {
+    const app = Fastify({ trustProxy: false })
+    apps.push(app)
+    await registerAuthentication(app, { jwtSecret: "s".repeat(32) })
+    const user = makeUser()
+    const service = createService(authPersistence(user), authRateLimiter())
+    vi.spyOn(service, "refresh").mockResolvedValueOnce({
+      accessToken: "a".repeat(48),
+      refreshToken: "r".repeat(48),
+      accessTokenExpiresAt: new Date("2026-07-11T10:00:00.000Z"),
+      refreshSessionExpiresAt: new Date("2026-10-01T00:00:00.000Z"),
+      user,
+    })
+    await app.register(authRoutes, {
+      prefix: "/auth",
+      service,
+      secureCookies: false,
+      publicBaseUrl: "http://localhost:18172",
+    })
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/refresh",
+      headers: {
+        host: new URL(origin).host,
+        origin,
+        "sec-fetch-site": "same-origin",
+        cookie: `linksense_refresh=${"r".repeat(48)}`,
+      },
+      payload: {},
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(service.refresh).toHaveBeenCalledOnce()
+    expect(response.headers["set-cookie"]).toContain("HttpOnly")
+    expect(response.headers["set-cookie"]?.includes("Secure")).toBe(secure)
+    expect(response.headers["set-cookie"]).toContain(secure ? "SameSite=None" : "SameSite=Lax")
+  })
+
   it("rejects a cross-origin production refresh before reading or rotating its cookie", async () => {
     const app = Fastify()
     apps.push(app)

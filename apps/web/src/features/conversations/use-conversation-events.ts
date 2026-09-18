@@ -6,6 +6,7 @@ import {
 } from "@/api/sse"
 import type { ConversationEvent } from "@/api/contracts"
 import { isStreamOnlyNativeEvent } from "@/features/conversations/conversation-live-events"
+import { recordFirstTextReceived } from "./response-latency"
 
 export const conversationReconnectingWarningDelayMs = 3_000
 export const conversationStreamFrameFallbackDelayMs = 50
@@ -20,7 +21,8 @@ function shouldBufferUntilAnimationFrame(event: ConversationEvent) {
 export function useConversationEvents(
   conversationId: string | undefined,
   onEvent: ConversationEventHandlers["onEvent"],
-  initialEventId?: string
+  initialEventId?: string,
+  onReplayEvent?: (event: ConversationEvent) => void
 ) {
   const [connectionState, setConnectionState] = useState<{
     conversationId: string | undefined
@@ -30,12 +32,23 @@ export function useConversationEvents(
     string | null
   >(null)
   const dispatchEvent = useEffectEvent(onEvent)
+  const dispatchReplayEvent = useEffectEvent((event: ConversationEvent) =>
+    onReplayEvent?.(event)
+  )
+  const replayFromStart = Boolean(onReplayEvent)
   const readInitialEventId = useEffectEvent(() => initialEventId)
   const readActiveConversationId = useEffectEvent(() => conversationId)
 
   useEffect(() => {
     if (!conversationId) return
     let active = true
+    let connectionGeneration = 0
+    let disconnect: (() => void) | null = null
+    const initialCursor = readInitialEventId() ?? ""
+    const snapshotSequence = initialCursor.startsWith(`${conversationId}:`)
+      ? Number(initialCursor.slice(conversationId.length + 1))
+      : -1
+    let resumeCursor = replayFromStart ? "" : initialCursor
     let reconnecting = false
     let warningTimer: number | null = null
     let streamFrame: number | null = null
@@ -61,6 +74,13 @@ export function useConversationEvents(
         streamFallbackTimer = null
       }
     }
+    const commitEvent = (
+      event: ConversationEvent,
+      commitCursor?: () => void
+    ) => {
+      commitCursor?.()
+      resumeCursor = event.id
+    }
     const flushStreamEvents = () => {
       if (!isActiveConversation()) {
         pendingStreamEvents = []
@@ -76,7 +96,7 @@ export function useConversationEvents(
       cancelStreamFlush()
       for (const { event, commitCursor } of pendingEvents) {
         dispatchEvent(event)
-        commitCursor?.()
+        commitEvent(event, commitCursor)
       }
     }
     const scheduleStreamFlush = () => {
@@ -95,6 +115,16 @@ export function useConversationEvents(
       commitCursor
     ) => {
       if (!isActiveConversation()) return false
+      if (replayFromStart) {
+        dispatchReplayEvent(event)
+        // The app needs historical business events. Chat already has its
+        // detail snapshot and must not reapply older execution transitions.
+        if (event.sequence_no <= snapshotSequence) {
+          commitEvent(event, commitCursor)
+          return false
+        }
+      }
+      recordFirstTextReceived(conversationId, event)
       if (shouldBufferUntilAnimationFrame(event)) {
         pendingStreamEvents.push({ event, commitCursor })
         scheduleStreamFlush()
@@ -104,6 +134,8 @@ export function useConversationEvents(
       // completion or error state, without an intermediate React commit.
       flushStreamEvents()
       dispatchEvent(event)
+      commitEvent(event, commitCursor)
+      return false
     }
     const handleConnectionChange: NonNullable<
       ConversationEventHandlers["onConnectionChange"]
@@ -134,24 +166,54 @@ export function useConversationEvents(
         setWarningConversationId(conversationId)
       }, conversationReconnectingWarningDelayMs)
     }
-    const disconnect = connectConversationEvents(
-      conversationId,
-      {
-        onEvent: handleEvent,
-        onConnectionChange: handleConnectionChange,
-      },
-      // The detail snapshot owns the replay boundary. An empty boundary must
-      // replay from the beginning instead of resuming a discarded UI cursor.
-      { initialEventId: readInitialEventId() ?? "" }
-    )
+    const connect = () => {
+      if (disconnect || document.visibilityState === "hidden") return
+      const generation = ++connectionGeneration
+      disconnect = connectConversationEvents(
+        conversationId,
+        {
+          onEvent: (event, commitCursor) =>
+            generation === connectionGeneration
+              ? handleEvent(event, commitCursor)
+              : false,
+          onConnectionChange: (state) => {
+            if (generation === connectionGeneration)
+              handleConnectionChange(state)
+          },
+        },
+        { initialEventId: resumeCursor }
+      )
+    }
+    const releaseConnection = () => {
+      connectionGeneration += 1
+      disconnect?.()
+      disconnect = null
+    }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "hidden") {
+        connect()
+        return
+      }
+      // HTTP/1.1 sockets are shared across tabs. Hidden pages must release
+      // their streams so ordinary API and preview requests can still run.
+      try {
+        flushStreamEvents()
+      } finally {
+        releaseConnection()
+        handleConnectionChange("connected")
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    connect()
     return () => {
       active = false
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
       clearWarningTimer()
       cancelStreamFlush()
       pendingStreamEvents = []
-      disconnect()
+      releaseConnection()
     }
-  }, [conversationId])
+  }, [conversationId, replayFromStart])
 
   return {
     connectionState:

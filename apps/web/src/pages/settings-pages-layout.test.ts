@@ -65,9 +65,10 @@ describe("settings page layout", () => {
       selector.closest('[data-slot="settings-section-action"]')
     ).not.toBeNull()
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument()
-    await interaction.click(selector)
+    selector.focus()
+    await interaction.keyboard("{ArrowDown}")
     expect(
-      screen.getAllByRole("option").map((option) => option.textContent)
+      (await screen.findAllByRole("option")).map((option) => option.textContent)
     ).toEqual(["引导当前执行", "排队为下一条请求"])
   })
   it("places the language selector beside its description and the notification switch in its title row", async () => {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
+import { performance } from "node:perf_hooks";
 
 import {
   assertSafeBenchmarkUrl,
@@ -71,8 +72,8 @@ test("target evaluation separates prewarm, acceptance, and warm projection", () 
           warm: { p95_ms: 301 },
         },
         turns: [
-          { acceptance_ms: 100, projection_ms: 2_000 },
-          { acceptance_ms: 350, projection_ms: 1_001 },
+          { sample: 1, acceptance_ms: 100, projection_ms: 2_000, first_text_ms: 900, final_status: "completed" },
+          { sample: 2, acceptance_ms: 350, projection_ms: 1_001, first_text_ms: 900, final_status: "completed" },
         ],
       },
       {
@@ -89,6 +90,25 @@ test("target evaluation separates prewarm, acceptance, and warm projection", () 
       "warm native projection p95 1001ms exceeds 1000ms",
     ],
   );
+});
+
+test("first text targets reject every breach, missing text, and unsuccessful turn", () => {
+  const turns = [
+    { sample: 1, kind: "new_task", first_text_ms: 3001, final_status: "completed" },
+    { sample: 2, kind: "follow_up", first_text_ms: 1001, final_status: "completed" },
+    { sample: 3, kind: "follow_up", first_text_ms: null, final_status: "completed" },
+    { sample: 4, kind: "follow_up", first_text_ms: 50, final_status: "failed" },
+  ];
+  assert.deepEqual(evaluateLatencyTargets({ turns }, {}), [
+    "turn 1 new_task first text 3001ms exceeds 3000ms",
+    "turn 2 follow_up first text 1001ms exceeds 1000ms",
+    "turn 3 has no valid first text measurement",
+    "turn 4 ended with failed",
+  ]);
+  assert.deepEqual(evaluateLatencyTargets({ turns: [
+    { sample: 1, kind: "new_task", first_text_ms: 3000, final_status: "completed" },
+    { sample: 2, kind: "follow_up", first_text_ms: 1000, final_status: "completed" },
+  ] }, {}), []);
 });
 
 test("default smoke mode only calls the authenticated prewarm endpoint", async () => {
@@ -134,6 +154,7 @@ test("first text ignores other turns, reasoning, tools and empty deltas", () => 
   assert.equal(isAssistantTextDelta(event, "turn-b"), false);
   assert.equal(isAssistantTextDelta({ ...event, event_type: "item/reasoning/summaryTextDelta" }, "turn-a"), false);
   assert.equal(isAssistantTextDelta({ ...event, payload: { params: { delta: "" } } }, "turn-a"), false);
+  assert.equal(isAssistantTextDelta({ ...event, payload: { params: { delta: " \n " } } }, "turn-a"), false);
   assert.equal(isAssistantTextDelta({ ...event, event_type: "conversation.message.delta", payload: { delta: "hello", role: "user" } }, "turn-a"), false);
 });
 
@@ -153,7 +174,9 @@ test("first text is measured from fragmented SSE and closes the stream", async (
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("turn benchmark uses the current create and submit contracts and bodyless DELETE", async () => {
+for (const prewarm of [true, false]) test(`turn benchmark includes creation and drains terminal SSE (${prewarm ? "prewarm" : "cold project"})`, async () => {
+  let clock = 0;
+  const now = mock.method(performance, "now", () => clock);
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
@@ -161,7 +184,10 @@ test("turn benchmark uses the current create and submit contracts and bodyless D
     const json = (data, status = 200) => new Response(JSON.stringify({ data }), { status });
     if (url.pathname.endsWith('/prewarm')) return json({ accepted: true, conversation_id: 'reserved-task' }, 202);
     if (url.pathname.endsWith('/conversations/')) {
-      assert.deepEqual(JSON.parse(options.body), { prewarmed_conversation_id: 'reserved-task' });
+      clock += 400;
+      assert.deepEqual(JSON.parse(options.body), prewarm
+        ? { prewarmed_conversation_id: 'reserved-task', collaboration_mode: 'default' }
+        : { project_id: 'project-id', collaboration_mode: 'plan' });
       return json({ id: 'reserved-task' }, 201);
     }
     if (url.pathname.endsWith('/turns')) {
@@ -169,7 +195,9 @@ test("turn benchmark uses the current create and submit contracts and bodyless D
       return json({ accepted: true, status: 'starting', turn_id: 'test-turn' }, 202);
     }
     if (url.pathname.endsWith('/events')) {
-      return new Response(`data: ${JSON.stringify({ turn_id: 'test-turn', event_type: 'item/agentMessage/delta', payload: { params: { delta: 'OK' } } })}\n\n`);
+      clock += 200;
+      const data = new TextEncoder().encode(`data: ${JSON.stringify({ turn_id: 'test-turn', event_type: 'item/agentMessage/delta', payload: { params: { delta: 'OK' } } })}\n\n`);
+      return new Response(new ReadableStream({ start(controller) { setTimeout(() => { controller.enqueue(data); controller.close(); }, 10); } }));
     }
     if (options.method === 'DELETE') {
       assert.equal(options.headers['content-type'], undefined);
@@ -179,10 +207,19 @@ test("turn benchmark uses the current create and submit contracts and bodyless D
     return json({ turns: [{ id: 'test-turn', status: 'completed' }] });
   };
   try {
-    const { result } = await runLatencySmoke({ LINKSENSE_LATENCY_ACCESS_TOKEN: 'test-token', LINKSENSE_LATENCY_ALLOW_TURN: '1', LINKSENSE_LATENCY_TURN_SAMPLES: '1' });
+    const { result } = await runLatencySmoke({ LINKSENSE_LATENCY_ACCESS_TOKEN: 'test-token', LINKSENSE_LATENCY_ALLOW_TURN: '1', LINKSENSE_LATENCY_TURN_SAMPLES: '1',
+      ...(prewarm ? {} : { LINKSENSE_LATENCY_SKIP_PREWARM: '1', LINKSENSE_LATENCY_PROJECT_ID: 'project-id', LINKSENSE_LATENCY_COLLABORATION_MODE: 'plan' }),
+    });
     assert.equal(result.ephemeral_conversation_id, null);
     assert.equal(typeof result.creation_ms, 'number');
     assert.equal(result.turns[0].final_status, 'completed');
+    assert.equal(result.turns[0].kind, 'new_task');
+    assert.equal(result.turns[0].first_text_ms, 600);
     assert.equal(calls.filter((call) => call.method === 'DELETE').length, 1);
-  } finally { globalThis.fetch = originalFetch; }
+    assert.equal(calls.filter((call) => call.path.endsWith('/prewarm')).length, prewarm ? 1 : 0);
+  } finally { globalThis.fetch = originalFetch; now.mock.restore(); }
+});
+
+test("an empty cold benchmark cannot report a passing latency result", async () => {
+  await assert.rejects(runLatencySmoke({ LINKSENSE_LATENCY_ACCESS_TOKEN: "test-token", LINKSENSE_LATENCY_SKIP_PREWARM: "1" }), /requires LINKSENSE_LATENCY_ALLOW_TURN=1/u);
 });

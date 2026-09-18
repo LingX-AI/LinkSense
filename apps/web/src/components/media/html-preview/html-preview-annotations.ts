@@ -72,6 +72,7 @@ export function installHtmlPreviewAnnotationsController(
   config: Readonly<{
     markersMessageType: string
     framesMessageType: string
+    reportMessage: (message: unknown) => void
     focusMessageType: string
     maximumMarkers: number
     maximumElements: number
@@ -79,6 +80,7 @@ export function installHtmlPreviewAnnotationsController(
     getBoundingRect: typeof getHtmlPreviewBoundingRect
   }>
 ): Readonly<{ refresh: () => void; destroy: () => void }> {
+  const targetDocument = targetWindow.document
   type Marker = { id: string; index: number; selectors: string[] }
   let markers: Marker[] = []
   const elements = new Map<string, Element>()
@@ -91,7 +93,7 @@ export function installHtmlPreviewAnnotationsController(
     const cached = elements.get(selector)
     if (cached?.isConnected) return cached
     try {
-      const matches = targetWindow.document.querySelectorAll(selector)
+      const matches = targetDocument.querySelectorAll(selector)
       if (matches.length !== 1) return null
       const element = matches[0]
       elements.set(selector, element)
@@ -124,8 +126,8 @@ export function installHtmlPreviewAnnotationsController(
         return null
       if (
         parent === element ||
-        parent === targetWindow.document.documentElement ||
-        parent === targetWindow.document.body
+        parent === targetDocument.documentElement ||
+        parent === targetDocument.body
       )
         continue
       const bounds = parent.getBoundingClientRect()
@@ -166,10 +168,7 @@ export function installHtmlPreviewAnnotationsController(
     const serialized = JSON.stringify(frames)
     if (serialized !== lastFrames) {
       lastFrames = serialized
-      targetWindow.parent.postMessage(
-        { type: config.framesMessageType, frames },
-        "*"
-      )
+      config.reportMessage({ type: config.framesMessageType, frames })
     }
   }
   const track = () => {

@@ -15,6 +15,7 @@ import {
 } from "./capabilities.js";
 import {
   conversationExecutionStatusSchema,
+  conversationStartFailurePayloadSchema,
   codexAsyncUserInputQuestionsSchema,
   conversationMessageRoleSchema,
   conversationPlanReviewActionSchema,
@@ -296,6 +297,7 @@ const errorEventSchema = z.strictObject({
     error_code: z.string().min(1).max(120),
     message_key: z.string().min(1).max(200),
     retryable: z.boolean().optional(),
+    start_failure: conversationStartFailurePayloadSchema.shape.start_failure.optional(),
   }),
 });
 

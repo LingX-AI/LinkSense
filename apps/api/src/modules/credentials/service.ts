@@ -14,6 +14,8 @@ import type {
   CredentialBindingView,
   CredentialRecord,
   CredentialResolution,
+  CredentialResolutionRequest,
+  CredentialRuntimeSnapshot,
   CredentialStore,
   CredentialUsageReceipt,
   CredentialView,
@@ -546,24 +548,30 @@ export class CredentialService {
     capabilityId: string,
     requiredEnvironmentKeys?: string[],
   ): Promise<CredentialResolution> {
-    const capability = await this.#store.findCapability(capabilityId);
+    const resolutions = await this.resolveForCapabilities(userId, [{
+      capabilityId,
+      ...(requiredEnvironmentKeys === undefined ? {} : { requiredEnvironmentKeys }),
+    }]);
+    return resolutions.get(capabilityId) ?? { ok: false, blockCode: "required_credential_unavailable" };
+  }
+
+  async resolveForCapabilities(userId: string, requests: CredentialResolutionRequest[]): Promise<Map<string, CredentialResolution>> {
+    const snapshot = await this.#store.readRuntimeSnapshot(userId, [...new Set(requests.map(request => request.capabilityId))]);
+    return new Map(requests.map(request => [request.capabilityId, this.#resolveSnapshot(userId, request, snapshot)]));
+  }
+
+  #resolveSnapshot(userId: string, { capabilityId, requiredEnvironmentKeys }: CredentialResolutionRequest, snapshot: CredentialRuntimeSnapshot): CredentialResolution {
+    const capability = snapshot.capabilities.find(entry => entry.id === capabilityId);
     if (
-      capability === null ||
+      capability === undefined ||
       capability.type !== "plugin" ||
-      capability.status !== "active" ||
-      !(await this.#store.canUserUseCapability(userId, capabilityId))
+      capability.status !== "active"
     ) {
       return { ok: false, blockCode: "required_credential_unavailable" };
     }
     const requiredKeys =
       requiredEnvironmentKeys ??
-      (
-        await this.#store.listBindings({
-          capabilityId,
-          userId,
-          status: "active",
-        })
-      ).map((binding) => binding.envKey);
+      snapshot.bindings.filter(binding => binding.capabilityId === capabilityId && binding.userId === userId && binding.status === "active").map(binding => binding.envKey);
     if (
       requiredKeys.length !== new Set(requiredKeys).size ||
       requiredKeys.some(
@@ -577,11 +585,12 @@ export class CredentialService {
     const environment: Record<string, string> = {};
     const usedCredentialIds = new Set<string>();
     for (const envKey of requiredKeys) {
-      const resolution = await this.#resolveEnvironmentKey(
-        userId,
-        capabilityId,
-        envKey,
-      );
+      const bindings = snapshot.bindings.filter(binding => binding.capabilityId === capabilityId && binding.userId === userId && binding.status === "active" && binding.envKey === envKey);
+      if (bindings.length > 1) return { ok: false, blockCode: "credential_binding_ambiguous" };
+      const binding = bindings[0];
+      if (!binding) return { ok: false, blockCode: "required_credential_unavailable" };
+      const resolution = this.#resolveBoundCredential(
+        snapshot.credentials.find(credential => credential.id === binding.credentialId) ?? null, binding, userId);
       if (!resolution.ok) return { ok: false, blockCode: resolution.blockCode };
       environment[envKey] = resolution.value;
       usedCredentialIds.add(resolution.credentialId);
@@ -636,20 +645,6 @@ export class CredentialService {
         ? "CREDENTIAL_BINDING_CONFLICT"
         : "CREDENTIAL_BINDING_REQUIRED",
     );
-  }
-
-  async #resolveEnvironmentKey(
-    userId: string,
-    capabilityId: string,
-    envKey: string,
-  ): Promise<CredentialFieldResolution> {
-    const activePersonal = await this.#store.listBindings({
-      capabilityId,
-      userId,
-      envKey,
-      status: "active",
-    });
-    return this.#resolvePersonalBindings(userId, activePersonal);
   }
 
   async #resolvePersonalBindings(

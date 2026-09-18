@@ -1,8 +1,9 @@
 import { Prisma, type PrismaClient, type Project } from "../../generated/prisma/client.js";
+import type { ProjectInput } from "@linksense/shared";
 
 import { AppError } from "../../lib/errors.js";
 import { projectWorkspaceRelativePath } from "../../lib/user-runtime-paths.js";
-import { assertProjectTasksIdle } from "./runtime-state.js";
+import { assertProjectTasksIdle, assertProjectHasNoApplicationSources } from "./runtime-state.js";
 
 const projectOrder = [
   { sortOrder: { sort: "asc", nulls: "last" } },
@@ -63,14 +64,14 @@ export class ProjectRepository {
     });
   }
 
-  create(ownerId: string, name: string): Promise<Project> {
-    return this.prisma.project.create({ data: { ownerId, name } });
+  create(ownerId: string, input: ProjectInput): Promise<Project> {
+    return this.prisma.project.create({ data: { ownerId, ...projectWriteData(input) } });
   }
 
-  rename(ownerId: string, id: string, name: string): Promise<Project> {
+  update(ownerId: string, id: string, input: ProjectInput): Promise<Project> {
     return this.prisma.project.update({
       where: { id, ownerId },
-      data: { name },
+      data: projectWriteData(input),
     });
   }
 
@@ -82,6 +83,7 @@ export class ProjectRepository {
         FOR UPDATE
       `);
       if (rows.length === 0) throw new AppError("PROJECT_NOT_FOUND");
+      await assertProjectHasNoApplicationSources(tx, ownerId, id);
       const tasks = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT id FROM conversations
         WHERE owner_id = ${ownerId}::uuid AND project_id = ${id}::uuid
@@ -99,4 +101,12 @@ export class ProjectRepository {
       await tx.project.delete({ where: { id, ownerId } });
     });
   }
+}
+
+function projectWriteData(input: ProjectInput): Pick<Prisma.ProjectCreateInput, "name" | "icon" | "color"> {
+  return {
+    name: input.name,
+    ...(input.icon === undefined ? {} : { icon: input.icon }),
+    ...(input.color === undefined ? {} : { color: input.color }),
+  };
 }

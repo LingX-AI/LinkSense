@@ -309,7 +309,7 @@ describe("maintenance cleanup failures", () => {
     }
     const jobs = createBackgroundJobs(
       queue,
-      { runtimeCleanupOutbox } as unknown as PrismaClient,
+      { runtimeCleanupOutbox, $queryRaw: vi.fn(async () => []) } as unknown as PrismaClient,
     )
 
     await jobs.recoverRuntimeCleanupOutbox()
@@ -359,6 +359,7 @@ describe("maintenance cleanup failures", () => {
       queue,
       {
         runtimeCleanupOutbox: { updateMany, findMany },
+        $queryRaw: vi.fn(async () => []),
       } as unknown as PrismaClient,
     )
     const now = new Date("2026-07-11T00:10:00.000Z")

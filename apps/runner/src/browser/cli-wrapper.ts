@@ -297,7 +297,9 @@ export async function browserCliMain(
   // Playwright creates nested Unix sockets below TMPDIR. Keep this prefix
   // short enough for Linux's 108-byte sockaddr_un limit.
   const temporaryRoot = path.join("/tmp/lb", conversationId)
-  const outputRoot = path.join(workspace, "temp", "browser")
+  // Shells may start in HOME or another project. Keep browser artifacts in the
+  // task's assigned workspace so image projection and file registration agree.
+  const outputRoot = path.join(expectedWorkspace, "temp", "browser")
   const effectiveArgs =
     command === OPEN_WORKSPACE_HTML_COMMAND
       ? [

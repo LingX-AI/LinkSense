@@ -548,15 +548,8 @@ describe("buildTurnInput", () => {
     expect(instructions).toContain(
       "preview forms are standalone demos only",
     );
-    expect(instructions).toContain(
-      "Use literal Tailwind CSS v4 classes; LinkSense injects the runtime",
-    );
-    expect(instructions).toContain(
-      "no parent-page, cookie, credential, browser-storage, external-API, remote-asset or external-navigation access",
-    );
+    expect(instructions).not.toMatch(/tailwind|CDN|CSS framework|external stylesheet/i);
     expect(instructions).toContain("Use ordinary html fences for source examples; never preview an incomplete fragment");
-    expect(instructions).toContain("Do not generate class names dynamically or add a CDN, external stylesheet or CSS framework");
-    expect(instructions).toContain("Never claim blocked resources or LinkSense API actions work in previews");
     expect(instructions).not.toContain(
       "mcp__linksense_core__search_knowledge_base",
     );

@@ -197,6 +197,12 @@ describe("task artifact library", () => {
     )
     expect(screen.getByText("已归档")).toBeVisible()
 
+    for (const link of [taskLink, archivedTaskLink]) {
+      const card = link.closest("section")?.querySelector(":scope > div")
+      expect(card).toHaveClass("rounded-card", "overflow-hidden")
+      expect(card).not.toHaveClass("rounded-[var(--radius-3xl)]")
+    }
+
     await interaction.click(
       screen.getByRole("button", { name: "预览文件 季度总结.pdf" })
     )

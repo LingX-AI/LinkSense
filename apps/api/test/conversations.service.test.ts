@@ -1,4 +1,8 @@
-import { serviceWorkspaceRelativePath } from "../src/lib/user-runtime-paths.js";
+import { prepareApplicationAnnotation } from "../src/modules/conversations/application-annotation.js";
+import { applicationAnnotationInputSchema } from "@linksense/shared";
+import { readApplicationSource } from "../src/modules/applications/development-source.js";
+import { applicationDevelopmentTemplate } from "../src/modules/applications/development-template.js";
+import { serviceWorkspaceRelativePath, projectWorkspaceRelativePath } from "../src/lib/user-runtime-paths.js";
 import { createHash } from "node:crypto";
 import {
   mkdir,
@@ -115,7 +119,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     }, {});
     expect(fixture.runner.acceptStartTurn).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({ selectedKnowledgeBases: ids.map((id) => ({ id, name: "Knowledge base" })) }),
-    }));
+    }), { workspacePath: "workspace" });
     expect(fixture.prisma.knowledgeBase.findMany).not.toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: { in: ["30000000-0000-4000-8000-000000000008"] } }),
     }));
@@ -125,6 +129,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     fixture.prisma.conversation.findFirst.mockResolvedValueOnce(null);
     await expect(fixture.service.get(OWNER_ID, CONVERSATION_ID, { around_turn: 26 })).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
     expect(fixture.prisma.conversationMessage.findMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.application.findFirst).not.toHaveBeenCalled();
   });
 
   it("checks ownership before reading referenced sources", async () => {
@@ -602,7 +607,6 @@ describe("ConversationService ownership and draft lifecycle", () => {
       expect(fixture.applicationResolver.resolveRuntime).toHaveBeenCalledWith(
         OWNER_ID,
         APPLICATION_ID,
-        undefined,
         "direct",
       );
       expect(
@@ -762,7 +766,43 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.runner.prewarmWorker).not.toHaveBeenCalled();
     expect(fixture.runner.prewarmConversation).not.toHaveBeenCalled();
     expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
-    expect(fixture.redis.acquireUserLifecycleLock).not.toHaveBeenCalled();
+    expect(fixture.redis.acquireUserRuntimeLease).not.toHaveBeenCalled();
+  });
+
+  it("prewarms the authorized project cwd and rejects a removed project before native initialization", async () => {
+    const fixture = await conversationFixture();
+    const projectId = "71000000-0000-4000-8000-000000000050";
+    fixture.prisma.conversation.findUnique.mockResolvedValue(null);
+    fixture.prisma.project.findFirst.mockResolvedValue({ id: projectId });
+    const input = { ownerId: OWNER_ID, conversationId: CONVERSATION_ID, collaborationMode: "default" as const, projectId, reservationRevision: "71000000-0000-4000-8000-000000000099" };
+    await fixture.service.executePrewarm(input);
+    expect(fixture.prisma.project.findFirst).toHaveBeenCalledWith({ where: { id: projectId, ownerId: OWNER_ID }, select: { id: true } });
+    expect(fixture.runner.prepareRuntime).toHaveBeenCalledWith(CONVERSATION_ID, OWNER_ID, `projects/${projectId}`, undefined);
+    expect(fixture.runner.prewarmConversation).toHaveBeenCalledWith(expect.objectContaining({ conversationId: CONVERSATION_ID }), { workspacePath: `projects/${projectId}` });
+    fixture.runner.prewarmConversation.mockClear();
+    fixture.prisma.project.findFirst.mockResolvedValueOnce({ id: projectId }).mockResolvedValueOnce(null);
+    await expect(fixture.service.executePrewarm(input)).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND" });
+    expect(fixture.runner.prewarmConversation).not.toHaveBeenCalled();
+    fixture.prisma.project.findFirst.mockResolvedValue(null);
+    await expect(fixture.service.prewarm(OWNER_ID, { collaborationMode: "default", projectId })).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND" });
+    expect(fixture.cleanup.enqueueConversationPrewarm).not.toHaveBeenCalled();
+  });
+
+  it("settles native startup once, scopes the generation, and never resubmits from a notification", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow();
+    fixture.prisma.conversationTurnStartIntent.findUnique.mockResolvedValue(intent);
+    const recover = vi.spyOn(fixture.service, "recoverStartIntent").mockResolvedValue("projected");
+    const input = { conversationId: CONVERSATION_ID, projectionTurnId: intent.projectionTurnId, runtimeGeneration: intent.runtimeGeneration };
+    await expect(fixture.service.settleStartOperation(OWNER_ID, { ...input, runtimeGeneration: "80000000-0000-4000-8000-000000000002" })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(fixture.service.settleStartOperation("10000000-0000-4000-8000-000000000009", input)).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(recover).not.toHaveBeenCalled();
+    await expect(fixture.service.settleStartOperation(OWNER_ID, input)).resolves.toBe(true);
+    expect(recover).toHaveBeenCalledExactlyOnceWith(intent.projectionTurnId, { resubmitNonTerminal: false });
+    fixture.prisma.conversationTurnStartIntent.findUnique.mockResolvedValue(null);
+    await expect(fixture.service.settleStartOperation(OWNER_ID, input)).resolves.toBe(true);
+    expect(recover).toHaveBeenCalledOnce();
+    expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
   });
 
   it("changes the mode of an owned prewarm reservation before a task exists", async () => {
@@ -805,7 +845,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       priorityCapabilityIds: [],
     });
     expect(fixture.runner.prewarmWorker).not.toHaveBeenCalled();
-    expect(fixture.runner.prepareRuntime).toHaveBeenCalledWith(conversationId, OWNER_ID);
+    expect(fixture.runner.prepareRuntime).toHaveBeenCalledWith(conversationId, OWNER_ID, "workspace", undefined);
     expect(fixture.runner.prewarmConversation).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId,
@@ -813,9 +853,10 @@ describe("ConversationService ownership and draft lifecycle", () => {
         collaborationMode: "default",
         context: expect.objectContaining({ userInput: "" }),
       }),
+      { workspacePath: "workspace" },
     );
     expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
-    expect(fixture.redis.acquireUserLifecycleLock).toHaveBeenCalledWith(OWNER_ID, 120_000);
+    expect(fixture.redis.acquireUserRuntimeLease).toHaveBeenCalledWith(OWNER_ID, 120_000);
   });
 
   it("rejects absent, expired or foreign reservations before preparing or queuing a runtime", async () => {
@@ -875,27 +916,55 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.preflight.resolve).not.toHaveBeenCalled();
   });
 
-  it("prewarms an application with its creator's authorized scope instead of the user's personal catalog", async () => {
+  it.each(["standard", "interactive"])("does not materialize %s application resources by opening a preview", async () => {
     const fixture = await conversationFixture();
-    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(conversationRow({ applicationId: APPLICATION_ID, applicationVersionId: APPLICATION_ID, workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID), codexThreadId: null }));
-    const capabilityIds = ["60000000-0000-4000-8000-000000000006"];
-    fixture.applicationResolver.resolveRuntime.mockResolvedValueOnce({
-      applicationVersionId: APPLICATION_ID, publishedCapabilities: [], interactivePackageId: null,
-      kind: "standard", applicationId: APPLICATION_ID, applicationOwnerId: APPLICATION_OWNER_ID,
-      applicationName: "Application", applicationUpdatedAt: NOW, instructions: "Application instructions",
-      model: null, reasoningEffort: null, capabilityIds, knowledgeBaseIds: [], mcpServerIds: [],
-    });
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(conversationRow({ applicationId: APPLICATION_ID, workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, APPLICATION_ID), codexThreadId: null }));
     await fixture.service.executePrewarm({ ownerId: OWNER_ID, conversationId: CONVERSATION_ID, collaborationMode: "default" });
-    expect(fixture.preflight.resolve).toHaveBeenCalledWith(expect.objectContaining({
-      userId: OWNER_ID, conversationId: CONVERSATION_ID,
-      capabilityScope: { applicationId: APPLICATION_ID, serviceSessionId: CONVERSATION_ID, publishedCapabilities: [], sourceOwnerId: APPLICATION_OWNER_ID, capabilityIds, mcpServerIds: [] },
-    }));
-    expect(fixture.runner.prewarmConversation).toHaveBeenCalledTimes(1);
-    expect(fixture.preflight.ensureUserHome).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID);
-    expect(fixture.runner.prewarmWorker).not.toHaveBeenCalled();
+    expect(fixture.preflight.resolve).not.toHaveBeenCalled();
+    expect(fixture.runner.prewarmConversation).not.toHaveBeenCalled();
+    expect(fixture.applicationResolver.prepareDebugRuntime).not.toHaveBeenCalled();
   });
 
-  it("keeps an author's existing personal task in the personal catalog after publishing its application", async () => {
+  it("starts a prepared debug snapshot with the same isolated scope at resolution and admission", async () => {
+    const fixture = await conversationFixture();
+    const runtime = await fixture.applicationResolver.resolveRuntime(OWNER_ID, APPLICATION_ID);
+    runtime.applicationOwnerId = OWNER_ID;
+    fixture.applicationResolver.resolveRuntime.mockResolvedValue(runtime);
+    fixture.defaultTransaction.application.findFirst.mockResolvedValue({
+      id: APPLICATION_ID, ownerId: OWNER_ID, kind: runtime.kind,
+      status: "active", updatedAt: NOW, instructions: runtime.instructions,
+      model: runtime.model, reasoningEffort: runtime.reasoningEffort,
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({
+      applicationId: APPLICATION_ID,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+      codexThreadId: null,
+    }));
+    vi.spyOn(fixture.service, "recoverStartIntent").mockResolvedValue("projected");
+    await fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, {
+      inputText: "Test the application",
+      priorityCapabilityIds: [],
+      idempotencyKey: "preview-start",
+      submitMode: "normal",
+    }, {});
+    const scope = expect.objectContaining({
+      source: "published",
+      serviceSessionId: CONVERSATION_ID,
+      applicationId: APPLICATION_ID,
+      sourceOwnerId: OWNER_ID,
+      capabilityIds: [],
+      mcpServerIds: [],
+    });
+    expect(fixture.preflight.resolve).toHaveBeenCalledWith(expect.objectContaining({ capabilityScope: scope }));
+    expect(fixture.preflight.withCapabilityStartBarrier).toHaveBeenCalledWith(
+      expect.objectContaining({ capabilityScope: scope }), expect.any(Function),
+    );
+    expect(fixture.runner.acceptStartTurn).toHaveBeenCalledWith(
+      expect.any(Object), expect.objectContaining({ serviceSessionId: CONVERSATION_ID }),
+    );
+  });
+
+  it("does not change a legacy application's personal environment during prewarm", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findUnique.mockResolvedValueOnce(conversationRow({ applicationId: APPLICATION_ID, codexThreadId: null }));
     fixture.applicationResolver.resolveRuntime.mockResolvedValueOnce({
@@ -905,9 +974,8 @@ describe("ConversationService ownership and draft lifecycle", () => {
       model: null, reasoningEffort: null, capabilityIds: [], knowledgeBaseIds: [], mcpServerIds: [],
     });
     await fixture.service.executePrewarm({ ownerId: OWNER_ID, conversationId: CONVERSATION_ID, collaborationMode: "default" });
-    expect(fixture.preflight.resolve).toHaveBeenCalledWith({ userId: OWNER_ID, conversationId: CONVERSATION_ID, priorityCapabilityIds: [] });
-    expect(fixture.preflight.ensureUserHome).toHaveBeenCalledWith(OWNER_ID, undefined);
-    expect(fixture.runner.prewarmConversation).toHaveBeenCalledOnce();
+    expect(fixture.preflight.resolve).not.toHaveBeenCalled();
+    expect(fixture.runner.prewarmConversation).not.toHaveBeenCalled();
   });
 
   it("does not prewarm a revoked application or another user's task", async () => {
@@ -917,7 +985,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.preflight.resolve).not.toHaveBeenCalled();
     fixture.prisma.conversation.findUnique.mockResolvedValueOnce(conversationRow({ applicationId: APPLICATION_ID }));
     fixture.applicationResolver.resolveRuntime.mockRejectedValueOnce(new AppError("FORBIDDEN"));
-    await expect(fixture.service.executePrewarm({ ownerId: OWNER_ID, conversationId: CONVERSATION_ID, collaborationMode: "default" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(fixture.service.executePrewarm({ ownerId: OWNER_ID, conversationId: CONVERSATION_ID, collaborationMode: "default" })).resolves.toBeUndefined();
     expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
     expect(fixture.runner.prewarmConversation).not.toHaveBeenCalled();
   });
@@ -1332,6 +1400,42 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
   });
 
+  it("filters preview applications before paging while keeping builder and installed application tasks", async () => {
+    const fixture = await conversationFixture();
+    const previewId = "30000000-0000-4000-8000-000000000099";
+    fixture.prisma.conversation.findMany.mockResolvedValueOnce([
+      conversationRow(), conversationRow({ id: APPLICATION_ID, applicationId: APPLICATION_ID }),
+    ]);
+    fixture.prisma.applicationDevelopment.findMany.mockResolvedValue([{ conversationId: CONVERSATION_ID }]);
+    fixture.prisma.application.findMany.mockImplementation(async ({ where }: { where: { id?: unknown } }) => where.id ? [] : [{ id: previewId }]);
+    const result = await fixture.service.list(OWNER_ID, { limit: 30 });
+    expect(result.items.map(row => row.application_development_role)).toEqual(["development", null]);
+    expect(fixture.prisma.conversation.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ ownerId: OWNER_ID, AND: { OR: [{ applicationId: null }, { applicationId: { notIn: [previewId] } }] } }), take: 31,
+    }));
+  });
+
+  it("preserves the development task marker in task details and after a rename", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.applicationDevelopment.findMany.mockResolvedValue([{ conversationId: CONVERSATION_ID }]);
+    const detail = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(detail.conversation.application_development_role).toBe("development");
+    const renamed = await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { title: "Renamed builder" });
+    expect(renamed.application_development_role).toBe("development");
+    expect(renamed.title).toBe("Renamed builder");
+  });
+
+  it("returns no development marker for ordinary historical tasks and does not look up roles before ownership validation", async () => {
+    const fixture = await conversationFixture();
+    const detail = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(detail.conversation.application_development_role).toBeNull();
+    fixture.prisma.applicationDevelopment.findMany.mockClear();
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(null);
+    await expect(fixture.service.get(OWNER_ID, SECOND_CONVERSATION_ID)).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.prisma.applicationDevelopment.findMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.application.findMany).not.toHaveBeenCalled();
+  });
+
   it("adds a batch-resolved application icon to application task rows", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findMany.mockResolvedValueOnce([
@@ -1393,6 +1497,29 @@ describe("ConversationService ownership and draft lifecycle", () => {
     const result = await fixture.service.list(OWNER_ID, { archived: false, limit: 30 });
     expect(result.items[0]?.application).toMatchObject({ name: "Finance assistant", available: false, unavailable_reason: "APPLICATION_NOT_FOUND" });
     expect(result.items[1]?.application).toBeNull();
+  });
+
+  it.each(["standard", "interactive"])("preserves owned %s application history after deletion and rejects new messages", async (kind) => {
+    const fixture = await conversationFixture();
+    const row = conversationRow({ applicationId: APPLICATION_ID, applicationNameSnapshot: "Deleted application",
+      interactiveApplicationPackageId: kind === "interactive" ? TEST_CAPABILITY_ID : null });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(row);
+    fixture.prisma.conversation.findUnique.mockResolvedValue(row);
+    fixture.prisma.application.findFirst.mockResolvedValue({ id: APPLICATION_ID });
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([turnRow({ status: "completed" })]);
+    fixture.prisma.conversationMessage.findMany.mockResolvedValue([messageRow({ role: "assistant", contentText: "Saved application result" })]);
+    fixture.applicationResolver.resolveRuntime.mockRejectedValue(new AppError("APPLICATION_NOT_FOUND"));
+
+    const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(result.messages).toEqual(expect.arrayContaining([expect.objectContaining({ content_text: "Saved application result" })]));
+    expect(result.conversation.application).toMatchObject({ id: APPLICATION_ID, kind, name: "Deleted application", available: false, unavailable_reason: "APPLICATION_DELETED" });
+    expect(fixture.prisma.application.findFirst).toHaveBeenCalledWith({ where: { id: APPLICATION_ID, status: "deleted" }, select: { id: true } });
+    expect(fixture.applicationResolver.resolveRuntime).not.toHaveBeenCalled();
+    await expect(fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, {
+      inputText: "Continue", priorityCapabilityIds: [], submitMode: "normal", idempotencyKey: `deleted-${kind}`,
+    }, {})).rejects.toMatchObject({ code: "APPLICATION_NOT_FOUND" });
+    expect(fixture.defaultTransaction.conversationTurnStartIntent.create).not.toHaveBeenCalled();
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
   });
 
   it("projects the persisted unread completion reminder into task rows", async () => {
@@ -1539,6 +1666,125 @@ describe("ConversationService ownership and draft lifecycle", () => {
     fixture.prisma.conversation.create.mockImplementationOnce(async ({ data }) => conversationRow(data));
     await fixture.service.createApplicationConversation(OWNER_ID, { id: APPLICATION_ID, name: "Page", kind: "interactive", interactivePackageId: "92000000-0000-4000-8000-000000000002" });
     expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ applicationVersionId: APPLICATION_ID, interactiveApplicationPackageId: packageId }) });
+  });
+
+  it("creates preview context and updates its project pointer in one transaction using an isolated application workspace", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: APPLICATION_ID, used: true }]);
+    fixture.prisma.conversation.create.mockImplementation(async ({ data }) => conversationRow(data));
+    const runtime = await fixture.applicationResolver.resolveRuntime(OWNER_ID, APPLICATION_ID);
+    fixture.applicationResolver.resolveRuntime.mockResolvedValueOnce({ ...runtime, kind: "interactive", applicationVersionId: null, interactivePackageId: APPLICATION_ID });
+    const created = await fixture.service.createDevelopmentPreview(OWNER_ID, { id: APPLICATION_ID, name: "Preview", kind: "interactive", interactivePackageId: APPLICATION_ID }, { id: APPLICATION_ID, revision: 1, previousConversationId: SECOND_CONVERSATION_ID });
+    expect(created.workspaceRelPath).toBe(serviceWorkspaceRelativePath(OWNER_ID, APPLICATION_ID));
+    expect(fixture.defaultTransaction.applicationDevelopment.update).toHaveBeenCalledWith({ where: { id: APPLICATION_ID }, data: { previewConversationId: created.id } });
+    expect(fixture.defaultTransaction.conversation.update).toHaveBeenCalledWith({ where: { id: SECOND_CONVERSATION_ID }, data: { archiveStatus: "archived", archivedAt: expect.any(Date) } });
+  });
+
+  it("creates the installed page in the stable application environment and defers resource preparation until execution", async () => {
+    const fixture = await conversationFixture();
+    const runtime = await fixture.applicationResolver.resolveRuntime(OWNER_ID, APPLICATION_ID);
+    const capabilityIds = ["60000000-0000-4000-8000-000000000006"];
+    fixture.applicationResolver.resolveRuntime.mockResolvedValue({ ...runtime, kind: "interactive", applicationOwnerId: OWNER_ID,
+      applicationVersionId: APPLICATION_ID, publishedCapabilities: [], interactivePackageId: APPLICATION_ID, capabilityIds });
+    fixture.prisma.conversation.create.mockImplementationOnce(async ({ data }) => conversationRow(data));
+    const created = await fixture.service.createApplicationConversation(OWNER_ID, { id: APPLICATION_ID, name: "Updated application", kind: "interactive", interactivePackageId: APPLICATION_ID });
+    expect(created.workspaceRelPath).toBe(serviceWorkspaceRelativePath(OWNER_ID, APPLICATION_ID));
+    expect(created).toMatchObject({ applicationVersionId: APPLICATION_ID, interactiveApplicationPackageId: APPLICATION_ID });
+    expect(fixture.preflight.ensureUserHome).toHaveBeenCalledWith(OWNER_ID, APPLICATION_ID);
+    expect(fixture.runner.prepareRuntime).toHaveBeenCalledWith(created.id, OWNER_ID, expect.any(String), APPLICATION_ID);
+
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(created);
+    await fixture.service.executePrewarm({ ownerId: OWNER_ID, conversationId: created.id, collaborationMode: "default" });
+    expect(fixture.preflight.resolve).not.toHaveBeenCalled();
+    expect(fixture.runner.prewarmConversation).not.toHaveBeenCalled();
+  });
+
+  it("adopts the latest shared page on a historical interactive task's next turn while preserving its native thread and workspace", async () => {
+    const fixture = await conversationFixture();
+    const oldPackage = SECOND_CONVERSATION_ID;
+    const runtime = { ...await fixture.applicationResolver.resolveRuntime(OWNER_ID, APPLICATION_ID), kind: "interactive" as const,
+      applicationVersionId: APPLICATION_ID, interactivePackageId: APPLICATION_ID, instructions: "Updated application instructions" };
+    fixture.applicationResolver.resolveRuntime.mockResolvedValue(runtime);
+    fixture.defaultTransaction.application.findFirst.mockResolvedValue({ id: APPLICATION_ID, ownerId: APPLICATION_OWNER_ID, status: "active", updatedAt: NOW });
+    fixture.defaultTransaction.applicationGrant.findFirst.mockResolvedValue({ id: APPLICATION_ID });
+    fixture.defaultTransaction.applicationVersion.findFirst.mockResolvedValue({ definitionJson: {
+      schemaVersion: 1, description: null, iconPreset: "bot", iconObjectKey: null, name: runtime.applicationName, kind: runtime.kind, instructions: runtime.instructions, usageInstructions: "",
+      model: runtime.model, reasoningEffort: runtime.reasoningEffort, interactivePackageId: runtime.interactivePackageId,
+      capabilities: [], knowledgeBaseIds: [], mcpServerIds: [],
+    } });
+    const conversation = conversationRow({ applicationId: APPLICATION_ID, applicationVersionId: SECOND_CONVERSATION_ID,
+      interactiveApplicationPackageId: oldPackage, workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, APPLICATION_ID) });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversation);
+    const recover = vi.spyOn(fixture.service, "recoverStartIntent").mockResolvedValueOnce("projected");
+    await fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, { inputText: "Continue using my earlier files", priorityCapabilityIds: [],
+      idempotencyKey: "interactive-version-upgrade", submitMode: "normal" }, {});
+    expect(fixture.applicationResolver.resolveRuntime).toHaveBeenCalledWith(OWNER_ID, APPLICATION_ID, "direct");
+    expect(fixture.defaultTransaction.conversation.update).toHaveBeenCalledWith({ where: { id: CONVERSATION_ID }, data: {
+      applicationVersionId: runtime.applicationVersionId, interactiveApplicationPackageId: runtime.interactivePackageId, applicationNameSnapshot: runtime.applicationName,
+    } });
+    expect(fixture.defaultTransaction.conversationTurnStartIntent.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      conversationId: conversation.id, applicationInstructions: runtime.instructions,
+    }) });
+    expect(fixture.runner.interrupt).not.toHaveBeenCalled();
+    expect(conversation.workspaceRelPath).toBe(serviceWorkspaceRelativePath(OWNER_ID, APPLICATION_ID));
+    recover.mockRestore();
+  });
+
+  it("reuses an unsubmitted preview across source updates without creating tasks or preparing extra runtimes", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: SECOND_CONVERSATION_ID, used: false }]);
+    fixture.defaultTransaction.conversation.update.mockImplementation(async input => conversationRow({ ...input?.data, id: SECOND_CONVERSATION_ID }));
+    const runtime = await fixture.applicationResolver.resolveRuntime(OWNER_ID, APPLICATION_ID);
+    fixture.applicationResolver.resolveRuntime.mockResolvedValue({ ...runtime, kind: "interactive", applicationVersionId: null, interactivePackageId: APPLICATION_ID });
+    const created = await fixture.service.createDevelopmentPreview(OWNER_ID,
+      { id: APPLICATION_ID, name: "Updated preview", kind: "interactive", interactivePackageId: APPLICATION_ID },
+      { id: APPLICATION_ID, revision: 9, previousConversationId: SECOND_CONVERSATION_ID });
+    expect(created.id).toBe(SECOND_CONVERSATION_ID);
+    expect(created.interactiveApplicationPackageId).toBe(APPLICATION_ID);
+    expect(created.applicationNameSnapshot).toBe("Updated preview");
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.applicationDevelopment.update).not.toHaveBeenCalled();
+  });
+
+  it("does not update a preview package or allocate a runtime after a test wins admission", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: APPLICATION_ID }]);
+    fixture.defaultTransaction.conversationTurnStartIntent.count.mockResolvedValue(1);
+    await expect(fixture.service.createDevelopmentPreview(OWNER_ID,
+      { id: APPLICATION_ID, name: "Preview", kind: "interactive", interactivePackageId: APPLICATION_ID },
+      { id: APPLICATION_ID, revision: 2, previousConversationId: SECOND_CONVERSATION_ID }))
+      .rejects.toMatchObject({ code: "APPLICATION_DEVELOPMENT_TEST_BUSY" });
+    expect(fixture.defaultTransaction.conversation.update).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+  });
+
+  it("attaches a new developer task to the retained source workspace in the creation transaction", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: APPLICATION_ID }]);
+    fixture.prisma.conversation.create.mockImplementation(async ({ data }) => conversationRow(data));
+    const source = { id: APPLICATION_ID, workspaceRelPath: projectWorkspaceRelativePath(OWNER_ID, null), projectId: null };
+    const created = await fixture.service.createDevelopmentConversation(OWNER_ID, source, "en-US");
+    expect(created.workspaceRelPath).toBe(source.workspaceRelPath);
+    expect(created.applicationId).toBeNull();
+    expect(fixture.defaultTransaction.applicationDevelopment.update).toHaveBeenCalledWith({ where: { id: APPLICATION_ID }, data: { conversationId: created.id } });
+    expect(fixture.runner.prepareRuntime).toHaveBeenCalledWith(created.id, OWNER_ID, "workspace", undefined);
+  });
+
+  it("does not create an orphan developer task when the draft was concurrently reopened or deleted", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([]);
+    await expect(fixture.service.createDevelopmentConversation(OWNER_ID, { id: APPLICATION_ID, workspaceRelPath: projectWorkspaceRelativePath(OWNER_ID, null), projectId: null }, "en-US")).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.applicationDevelopment.update).not.toHaveBeenCalled();
+    expect(fixture.cleanup.enqueueRuntimeCleanup).toHaveBeenCalledWith(OWNER_ID, expect.any(String), undefined);
+  });
+
+  it("rejects a retained source workspace belonging to another user before preparing a runtime", async () => {
+    const fixture = await conversationFixture();
+    await expect(fixture.service.createDevelopmentConversation(OWNER_ID, { id: APPLICATION_ID, workspaceRelPath: projectWorkspaceRelativePath(APPLICATION_ID, null), projectId: null }, "en-US")).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
   });
 
   it("shares one published application environment across tasks and upgrades for the same user", async () => {
@@ -1845,7 +2091,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       data: expect.objectContaining({ collaborationMode: "plan" }),
     });
     expect(fixture.runner.acceptStartTurn).toHaveBeenCalledWith(
-      expect.objectContaining({ collaborationMode: "plan" }),
+      expect.objectContaining({ collaborationMode: "plan" }), { workspacePath: "workspace" },
     );
     await vi.waitFor(() =>
       expect(recover).toHaveBeenCalledWith(result.turn_id, {
@@ -2108,21 +2354,36 @@ describe("ConversationService ownership and draft lifecycle", () => {
     },
   );
 
-  it("rejects manual title updates for application tasks", async () => {
+  it.each([null, "80000000-0000-4000-8000-000000000002"])("renames an application task without changing its application binding (package: %s)", async (packageId) => {
     const fixture = await conversationFixture();
-    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(
-      conversationRow({
-        applicationId: APPLICATION_ID,
-        applicationNameSnapshot: "Finance assistant",
-      }),
-    );
+    const stored = conversationRow({
+      applicationId: APPLICATION_ID,
+      applicationNameSnapshot: "Finance assistant",
+      interactiveApplicationPackageId: packageId,
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(stored);
+    fixture.prisma.conversation.findUnique.mockResolvedValue(stored);
+    fixture.prisma.conversation.update.mockImplementation(async ({ data } = {}) => conversationRow({ ...stored, ...data }));
 
-    await expect(
-      fixture.service.patch(OWNER_ID, CONVERSATION_ID, {
-        title: "Renamed application task",
-      }),
-    ).rejects.toMatchObject({
-      code: "APPLICATION_CONVERSATION_RENAME_UNSUPPORTED",
+    const renamed = await fixture.service.patch(OWNER_ID, CONVERSATION_ID, {
+      title: "Renamed application task",
+    });
+    expect(renamed).toMatchObject({
+      title: "Renamed application task", title_source: "manual",
+      application: { id: APPLICATION_ID, name: "Finance assistant" },
+    });
+    expect(fixture.prisma.conversation.update).toHaveBeenCalledExactlyOnceWith({
+      where: { id: CONVERSATION_ID },
+      data: { title: "Renamed application task", titleSource: "manual" },
+    });
+  });
+
+  it("rejects renaming another user's application task", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(null);
+    await expect(fixture.service.patch(OWNER_ID, CONVERSATION_ID, { title: "Not mine" })).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.prisma.conversation.findFirst).toHaveBeenCalledWith({
+      where: { id: CONVERSATION_ID, ownerId: OWNER_ID },
     });
     expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
   });
@@ -2237,7 +2498,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     );
     expect(firstPage.total_count).toBe(2);
     expect(fixture.prisma.conversation.count).toHaveBeenCalledWith({
-      where: { ownerId: OWNER_ID, archiveStatus: "archived" },
+      where: { ownerId: OWNER_ID, archiveStatus: "archived", AND: {} },
     });
 
     await fixture.service.list(OWNER_ID, {
@@ -2249,6 +2510,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       where: {
         ownerId: OWNER_ID,
         archiveStatus: "archived",
+        AND: {},
         OR: [
           { updatedAt: { lt: NOW } },
           {
@@ -3443,7 +3705,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
   it("persists interactive source metadata with the user message and forwards the full prompt to the runner", async () => {
     const fixture = await conversationFixture();
     const runtime: ApplicationTurnConfiguration = {
-      applicationVersionId: null, publishedCapabilities: [], interactivePackageId: null,
+      applicationVersionId: APPLICATION_ID, publishedCapabilities: [], interactivePackageId: null,
       kind: "interactive",
       applicationId: APPLICATION_ID,
       applicationOwnerId: OWNER_ID,
@@ -3622,6 +3884,20 @@ describe("ConversationService ownership and draft lifecycle", () => {
       orderBy: { sequenceNo: "asc" },
       select: { turnId: true, payloadJson: true },
     });
+  });
+
+  it("keeps persisted app annotation history readable without attachments or a surviving app", async () => {
+    const fixture = await conversationFixture();
+    const activeTurn = turnRow({ status: "completed" });
+    const display = { kind: "application_annotation", development_id: "70000000-0000-4000-8000-000000000001", application_name: "Historical app", package_id: "70000000-0000-4000-8000-000000000002", source_hash: "a".repeat(64), page_path: "index.html", annotations: [{ request: "Make it blue", selection_count: 1 }], annotation_count: 1 };
+    const internalPrompt = `[LinkSense office annotation]\nDisplay metadata:\n${JSON.stringify(display)}\n\nUser request:\nMake it blue\n\nUntrusted selected elements:\nprivate app DOM`;
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(conversationRow({ codexThreadId: activeTurn.codexThreadId }));
+    fixture.prisma.conversationTurn.findMany.mockResolvedValueOnce([activeTurn]);
+    fixture.prisma.conversationMessage.findMany.mockResolvedValueOnce([messageRow({ contentText: internalPrompt })]);
+    fixture.prisma.conversationEvent.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ payloadJson: { schema_version: 1, message_id: MESSAGE_ID, display } }]);
+    const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(result.messages).toEqual([expect.objectContaining({ content_text: "Make it blue", display })]);
+    expect(JSON.stringify(result.messages)).not.toMatch(/private app DOM|Untrusted selected elements/);
   });
 
   it("projects a Word annotation from its internal prompt and canonical DOCX file", async () => {
@@ -4325,6 +4601,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(transaction.weixinPeerSession.deleteMany).toHaveBeenCalledWith({
       where: { conversationId: CONVERSATION_ID },
     });
+    expect(transaction.webSite.updateMany).toHaveBeenCalledWith({ where: { conversationId: CONVERSATION_ID }, data: { conversationId: null, status: "disabled" } });
     expect(transaction.conversationShare.deleteMany).toHaveBeenCalledWith({
       where: { conversationId: CONVERSATION_ID },
     });
@@ -4435,7 +4712,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
 
     expect(fixture.prisma.conversation.findMany).toHaveBeenCalledWith({
-      where: { ownerId: OWNER_ID, archiveStatus: "archived" },
+      where: { ownerId: OWNER_ID, archiveStatus: "archived", AND: {} },
       select: { id: true },
       orderBy: { id: "asc" },
     });
@@ -5935,7 +6212,7 @@ describe("ConversationService pending and turn materialization", () => {
             },
           ],
         }),
-      }),
+      }), { workspacePath: "workspace" },
     );
     await vi.waitFor(() =>
       expect(recover).toHaveBeenCalledWith(result.turn_id, {
@@ -5984,7 +6261,7 @@ describe("ConversationService pending and turn materialization", () => {
       };
       applicationRuntime.publishedCapabilities.push({ id: applicationCapabilityId, type: "skill", name: "financial-analysis", description: "Analyze internal financial data", sourceType: "local", storagePath: "application-versions/skill", revision: NOW.toISOString(), contentSha256: "a".repeat(64), manifestJson: null, riskSummaryJson: null });
       fixture.defaultTransaction.applicationVersion.findFirst.mockResolvedValue({
-        definitionJson: { schemaVersion: 1, name: applicationRuntime.applicationName, kind: "standard", instructions: applicationRuntime.instructions, usageInstructions: "Read the guide.", model, reasoningEffort, interactivePackageId: null, capabilities: applicationRuntime.publishedCapabilities, knowledgeBaseIds: applicationRuntime.knowledgeBaseIds, mcpServerIds: [] },
+        definitionJson: { schemaVersion: 1, description: null, iconPreset: "bot", iconObjectKey: null, name: applicationRuntime.applicationName, kind: "standard", instructions: applicationRuntime.instructions, usageInstructions: "Read the guide.", model, reasoningEffort, interactivePackageId: null, capabilities: applicationRuntime.publishedCapabilities, knowledgeBaseIds: applicationRuntime.knowledgeBaseIds, mcpServerIds: [] },
       });
       const applicationCapability: ExecutionCapability = {
         id: applicationCapabilityId,
@@ -6060,7 +6337,6 @@ describe("ConversationService pending and turn materialization", () => {
       expect(fixture.applicationResolver.resolveRuntime).toHaveBeenCalledWith(
         OWNER_ID,
         APPLICATION_ID,
-        undefined,
         "direct",
       );
       expect(fixture.defaultTransaction.conversation.update).toHaveBeenCalledWith({
@@ -6072,6 +6348,7 @@ describe("ConversationService pending and turn materialization", () => {
         userId: OWNER_ID,
         priorityCapabilityIds: [applicationCapabilityId],
         capabilityScope: {
+          source: "published",
           applicationId: APPLICATION_ID,
           serviceSessionId: CONVERSATION_ID,
           publishedCapabilities: applicationRuntime.publishedCapabilities,
@@ -6087,6 +6364,7 @@ describe("ConversationService pending and turn materialization", () => {
           capabilities: [applicationCapability],
           capabilityVerification: CAPABILITY_VERIFICATION,
           capabilityScope: {
+            source: "published",
             applicationId: APPLICATION_ID,
             serviceSessionId: CONVERSATION_ID,
             publishedCapabilities: applicationRuntime.publishedCapabilities,
@@ -6143,7 +6421,7 @@ describe("ConversationService pending and turn materialization", () => {
               name: applicationCapability.name,
             }),
           ],
-        }),
+        }), { workspacePath: "workspace", serviceSessionId: CONVERSATION_ID },
       );
       expect(
         JSON.stringify(fixture.runner.acceptStartTurn.mock.calls),
@@ -6280,13 +6558,13 @@ describe("ConversationService pending and turn materialization", () => {
       ),
     ).rejects.toMatchObject({ code: "USER_DISABLED" });
 
-    expect(fixture.redis.acquireUserLifecycleLock).toHaveBeenCalledWith(
+    expect(fixture.redis.acquireUserRuntimeLease).toHaveBeenCalledWith(
       OWNER_ID,
       120_000,
     );
     expect(fixture.redis.acquireConversationLock).not.toHaveBeenCalled();
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
-    expect(fixture.redis.releaseUserLifecycleLock).toHaveBeenCalledWith(
+    expect(fixture.redis.releaseUserRuntimeLease).toHaveBeenCalledWith(
       OWNER_ID,
       "user-lifecycle-lock",
     );
@@ -6395,7 +6673,7 @@ describe("ConversationService pending and turn materialization", () => {
         { role: "user", content: "name while the task runs" },
       ]);
       expect(fixture.redis.releaseConversationLock).toHaveBeenCalled();
-      expect(fixture.redis.releaseUserLifecycleLock).toHaveBeenCalled();
+      expect(fixture.redis.releaseUserRuntimeLease).toHaveBeenCalled();
       finishNaming?.();
       if (outcome === "provider failure") {
         await expect(refresh.mock.results[0]?.value).rejects.toThrow(
@@ -6633,7 +6911,7 @@ describe("ConversationService pending and turn materialization", () => {
       fixture.prisma.conversationTurnStartIntent.updateMany.mock
         .invocationCallOrder[0],
     ).toBeLessThan(fixture.runner.startTurn.mock.invocationCallOrder[0]!);
-    expect(fixture.redis.releaseUserLifecycleLock).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseUserRuntimeLease).not.toHaveBeenCalled();
     expect(fixture.titleRefresh.scheduleForUserMessage).not.toHaveBeenCalled();
 
     resolveRunner?.({
@@ -6644,14 +6922,14 @@ describe("ConversationService pending and turn materialization", () => {
     expect(
       fixture.titleRefresh.scheduleForUserMessage,
     ).toHaveBeenCalledExactlyOnceWith(CONVERSATION_ID, "start");
-    expect(fixture.redis.releaseUserLifecycleLock).toHaveBeenCalledWith(
+    expect(fixture.redis.releaseUserRuntimeLease).toHaveBeenCalledWith(
       OWNER_ID,
       "user-lifecycle-lock",
     );
     expect(
       fixture.redis.releaseConversationLock.mock.invocationCallOrder[0],
     ).toBeLessThan(
-      fixture.redis.releaseUserLifecycleLock.mock.invocationCallOrder[0]!,
+      fixture.redis.releaseUserRuntimeLease.mock.invocationCallOrder[0]!,
     );
   });
 
@@ -7791,6 +8069,7 @@ describe("ConversationService pending and turn materialization", () => {
           error_code: "RUNNER_UNAVAILABLE",
           message_key: "errors.runnerUnavailable",
           retryable: true,
+          start_failure: { turn_id: intent.projectionTurnId, idempotency_key: intent.idempotencyKey },
         },
       }),
     });
@@ -8234,6 +8513,7 @@ describe("ConversationService pending and turn materialization", () => {
           error_code: "RUNNER_UNAVAILABLE",
           message_key: "errors.runnerUnavailable",
           retryable: true,
+          start_failure: { turn_id: intent.projectionTurnId, idempotency_key: intent.idempotencyKey },
         },
       }),
     });
@@ -8246,6 +8526,7 @@ describe("ConversationService pending and turn materialization", () => {
           error_code: "RUNNER_UNAVAILABLE",
           message_key: "errors.runnerUnavailable",
           retryable: true,
+          start_failure: { turn_id: intent.projectionTurnId, idempotency_key: intent.idempotencyKey },
         },
       }),
     );
@@ -9586,6 +9867,56 @@ describe("ConversationService pending and turn materialization", () => {
     ).not.toContain("paragraph-17");
   });
 
+  it.each(["direct", "queued", "stale-queued"])("submits app selections with app-specific context or blocks stale selections (%s)", async (mode) => {
+    const fixture = await conversationFixture();
+    const developmentId = "70000000-0000-4000-8000-000000000001";
+    const packageId = "70000000-0000-4000-8000-000000000002";
+    const workspaceRelPath = `${OWNER_ID}/home/workspace`;
+    const directory = "apps/annotated-app";
+    const workspace = join(fixture.root, workspaceRelPath);
+    await mkdir(join(workspace, directory), { recursive: true });
+    for (const [path, contents] of Object.entries(applicationDevelopmentTemplate("Annotated app", "annotated-app", "en-US"))) {
+      await writeFile(join(workspace, directory, path), contents);
+    }
+    const source = await readApplicationSource(workspace, directory);
+    fixture.prisma.applicationDevelopment.findFirst.mockResolvedValue({ id: developmentId, conversationId: CONVERSATION_ID, ownerId: OWNER_ID, workspaceRelPath, directory, previewApplicationId: packageId, sourceHash: source.hash, sourceError: null });
+    fixture.prisma.application.findFirst.mockResolvedValue({ id: packageId });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+    const transaction = transactionFixture();
+    fixture.defaultTransaction.applicationDevelopment.findFirst.mockImplementation(fixture.prisma.applicationDevelopment.findFirst);
+    fixture.defaultTransaction.application.findFirst.mockResolvedValue({ id: packageId });
+    transaction.conversationTurn.create.mockImplementationOnce(async ({ data }) => turnRow({ ...data, submitMode: "normal", codexThreadId: "codex-thread-1", codexTurnId: "codex-turn-1" }));
+    transaction.conversationMessage.create.mockResolvedValueOnce({ id: MESSAGE_ID });
+    useStartProjectionTransaction(fixture, transaction);
+    const annotation = applicationAnnotationInputSchema.parse({
+      kind: "application_annotation", development_id: developmentId, package_id: packageId, source_hash: source.hash, page_path: "index.html",
+      annotations: [{ request: "Make the button blue", elements: [{ selector: "#run", dom_path: [0], tag_name: "button", class_names: [], attributes: {}, text: "untrusted app text", bounds: { x: 0, y: 0, width: 10, height: 10 } }] }],
+    });
+    if (mode === "direct") {
+      await fixture.service.startTurn(OWNER_ID, CONVERSATION_ID, { priorityCapabilityIds: [], submitMode: "normal", officeAnnotation: annotation }, {});
+    } else {
+      const prepared = await prepareApplicationAnnotation(fixture.prisma as unknown as Parameters<typeof prepareApplicationAnnotation>[0], fixture.root, CONVERSATION_ID, annotation, "b".repeat(64));
+      fixture.prisma.pendingRequest.findFirst.mockResolvedValue(pendingRow({ inputText: prepared.inputText }));
+      if (mode === "stale-queued") {
+        await writeFile(join(workspace, directory, "index.html"), "<p>Changed while waiting</p>");
+        await expect(fixture.service.startPending(OWNER_ID, CONVERSATION_ID, PENDING_ID, {})).rejects.toMatchObject({ code: "APPLICATION_DEVELOPMENT_SOURCE_CHANGED" });
+        expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+        return;
+      }
+      transaction.pendingRequest.deleteMany.mockResolvedValueOnce({ count: 1 });
+      await fixture.service.startPending(OWNER_ID, CONVERSATION_ID, PENDING_ID, {});
+    }
+    const context = fixture.runner.startTurn.mock.calls[0]?.[0].context;
+    expect(context?.userInput).toContain("Make the button blue");
+    expect(context?.userInput).not.toContain("untrusted app text");
+    expect(context?.officeSelectionContext).toContain('"directory":"apps/annotated-app"');
+    expect(context?.officeSelectionContext).not.toContain("do not add executable scripts");
+    expect(transaction.conversationEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ conversationId: CONVERSATION_ID, payloadJson: expect.objectContaining({ display: expect.objectContaining({ kind: "application_annotation", development_id: developmentId, application_name: "Annotated app" }) }) }) });
+    expect(fixture.prisma.conversationFile.findFirst).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+  });
+
   it("builds a bounded static HTML element prompt and stores only display metadata", async () => {
     const fixture = await conversationFixture();
     const fileId = "70000000-0000-4000-8000-000000000001";
@@ -10696,7 +11027,7 @@ describe("ConversationService pending and turn materialization", () => {
         codexThreadId: "codex-thread-source",
         forkFromCodexTurnId: "codex-turn-source",
         context: expect.objectContaining({ userInput: "edited request" }),
-      }),
+      }), { workspacePath: "workspace" },
     );
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
     expect(
@@ -11155,6 +11486,9 @@ async function conversationFixture() {
   let storedPlanReview: ReturnType<typeof planReviewRow> | null = null;
   let preparedRuntimeGeneration = "80000000-0000-4000-8000-000000000001";
   const prisma = {
+    applicationDevelopment: { findMany: vi.fn(async () => [] as { conversationId: string }[]), findFirst: vi.fn(async (): Promise<Record<string, unknown> | null> => null) },
+    application: { findMany: vi.fn<(input: { where: { id?: unknown } }) => Promise<{ id: string }[]>>(async () => []), findFirst: vi.fn(async (): Promise<{ id: string } | null> => null) },
+    project: { findFirst: vi.fn<() => Promise<{ id: string } | null>>(async () => null) },
     knowledgeBase: {
       findMany: vi.fn(async (input: { where: { id: { in: string[] } } }) =>
         input.where.id.in.map((id) => ({ id, name: "Knowledge base" })),
@@ -11354,8 +11688,9 @@ async function conversationFixture() {
     reserveConversationPrewarm: vi.fn(async () => true),
     isConversationPrewarmCurrent: vi.fn(async () => true),
     claimConversationPrewarm: vi.fn(async () => true),
-    acquireUserLifecycleLock: vi.fn(async () => "user-lifecycle-lock"),
-    releaseUserLifecycleLock: vi.fn(async () => undefined),
+    acquireUserRuntimeLease: vi.fn(async () => "user-lifecycle-lock"),
+    renewUserRuntimeLease: vi.fn(async () => true),
+    releaseUserRuntimeLease: vi.fn(async () => undefined),
     acquireConversationLock: vi.fn(async () => "conversation-lock"),
     releaseConversationLock: vi.fn(async () => undefined),
     acquireRecoveryLock: vi.fn<
@@ -11529,13 +11864,16 @@ async function conversationFixture() {
     ),
   };
   const applicationResolver = {
+    withRuntimeStart: vi.fn(async <T>(_owner: string, _app: string, action: () => Promise<T>) => action()),
+    prepareDebugRuntime: vi.fn(async () => {}),
+    resolvePreviewRuntime: vi.fn(async (owner: string, app: string): Promise<ApplicationTurnConfiguration> => applicationResolver.resolveRuntime(owner, app)),
     resolveRuntime: vi.fn<
       (
         actorId: string,
         applicationId: string,
       ) => Promise<ApplicationTurnConfiguration>
     >(async () => ({
-      applicationVersionId: null, publishedCapabilities: [], interactivePackageId: null,
+      applicationVersionId: APPLICATION_ID, publishedCapabilities: [], interactivePackageId: null,
       kind: "standard",
       applicationId: APPLICATION_ID,
       applicationOwnerId: APPLICATION_OWNER_ID,
@@ -11553,6 +11891,14 @@ async function conversationFixture() {
     resolveTaskMetadata: vi.fn(async () => new Map<string, { icon: ApplicationIcon; available: boolean; unavailable_reason: ApplicationUnavailableReason | null }>()),
   };
   const defaultTransaction = transactionFixture();
+  defaultTransaction.applicationVersion.findFirst.mockImplementation(async () => {
+    const last = applicationResolver.resolveRuntime.mock.results.at(-1);
+    if (!last || last.type !== "return") return null;
+    const runtime = await last.value;
+    return { definitionJson: { schemaVersion: 1, name: runtime.applicationName, description: null, iconPreset: "bot", iconObjectKey: null,
+      kind: runtime.kind, instructions: runtime.instructions, usageInstructions: "", model: runtime.model, reasoningEffort: runtime.reasoningEffort,
+      interactivePackageId: runtime.interactivePackageId, capabilities: runtime.publishedCapabilities, knowledgeBaseIds: runtime.knowledgeBaseIds, mcpServerIds: runtime.mcpServerIds } };
+  });
   defaultTransaction.conversation.findUnique.mockImplementation(async () => {
     const current = await prisma.conversation.findFirst();
     return current
@@ -11966,6 +12312,8 @@ function transactionFixture() {
     weixinPeerSession: {
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
+    webSite: { updateMany: vi.fn(async () => ({ count: 1 })) },
+    applicationDevelopment: { findFirst: vi.fn(async (): Promise<Record<string, unknown> | null> => null), findUnique: vi.fn(async () => null), deleteMany: vi.fn(), updateMany: vi.fn(), update: vi.fn(async () => ({})) },
     conversationShare: {
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
@@ -12156,6 +12504,7 @@ function transactionFixture() {
     codexThreadTokenUsageCursor: {
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
     },
+    applicationRuntimeInstallation: { findUnique: vi.fn(async () => ({ versionId: APPLICATION_ID })) },
     applicationVersion: { findFirst: vi.fn(async () => null as { definitionJson: unknown } | null) },
     application: {
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
@@ -12473,7 +12822,7 @@ function messageRow(overrides: Record<string, unknown> = {}) {
 async function interactiveFileFixture() {
   const fixture = await conversationFixture();
     const runtime: ApplicationTurnConfiguration = {
-      applicationVersionId: null, publishedCapabilities: [], interactivePackageId: null,
+      applicationVersionId: APPLICATION_ID, publishedCapabilities: [], interactivePackageId: "70000000-0000-4000-8000-000000000088",
       kind: "interactive",
       applicationId: APPLICATION_ID,
       applicationOwnerId: OWNER_ID,

@@ -6,6 +6,8 @@ describe("backend error translations", () => {
   it.each([
     ["audit.export.actorName", "操作人名称", "Actor Name"],
     ["audit.export.actorEmail", "操作人邮箱", "Actor Email"],
+    ["webSitePage.notFoundTitle", "站点未找到", "Site not found"],
+    ["webSitePage.notFoundDescription", "站点可能已删除或取消发布，请检查链接后再试。", "This site may have been deleted or unpublished. Please check the link and try again."],
   ])("translates %s in both languages and falls back for a missing translation", (key, chinese, english) => {
     expect(backendI18n.t(key, { lng: "zh-CN" })).toBe(chinese)
     expect(backendI18n.t(key, { lng: "en-US" })).toBe(english)

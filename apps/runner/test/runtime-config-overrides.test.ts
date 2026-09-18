@@ -87,6 +87,9 @@ describe("Codex process-level runtime config", () => {
         value.startsWith("mcp_servers.linksense_core.env_vars="),
       ),
     ).toContain("LINKSENSE_CURRENT_USER_TOKEN");
+    for (const variable of ["LINKSENSE_APPLICATION_BUILDER_ENDPOINT", "LINKSENSE_APPLICATION_BUILDER_TOKEN"]) {
+      expect(overrides.find(value => value.startsWith("mcp_servers.linksense_core.env_vars="))).toContain(variable);
+    }
     expect(
       overrides.find((value) =>
         value.startsWith("mcp_servers.linksense_managed_browser.env_vars="),

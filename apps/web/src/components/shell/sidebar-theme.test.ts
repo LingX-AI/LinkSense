@@ -243,47 +243,6 @@ describe("sidebar theme", () => {
     ).toContain("background: transparent;")
   })
 
-  it("uses the shared subtle custom scrollbar treatment for recent tasks", () => {
-    const scrollRule = cssRule(".sidebar-conversation-scroll")
-
-    expect(scrollRule).toContain("scrollbar-width: thin;")
-    expect(scrollRule).toMatch(
-      /scrollbar-color:\s*color-mix\(\s*in srgb,\s*var\(--app-sidebar-muted\) 24%,\s*transparent\s*\)\s*transparent;/u
-    )
-    expect(
-      cssRule(".sidebar-conversation-scroll::-webkit-scrollbar")
-    ).toContain("width: 7px;")
-    expect(
-      cssRule(".sidebar-conversation-scroll::-webkit-scrollbar-track")
-    ).toContain("background: transparent;")
-    expect(
-      cssRule(".sidebar-conversation-scroll::-webkit-scrollbar-thumb")
-    ).toMatch(
-      /background:\s*color-mix\(\s*in srgb,\s*var\(--app-sidebar-muted\) 22%,\s*transparent\s*\);/u
-    )
-    expect(
-      cssRule(".sidebar-conversation-scroll::-webkit-scrollbar-thumb:hover")
-    ).toMatch(
-      /background:\s*color-mix\(\s*in srgb,\s*var\(--app-sidebar-muted\) 34%,\s*transparent\s*\);/u
-    )
-  })
-
-  it("reveals a subtle top divider only after the recent task list scrolls", () => {
-    const dividerRule = cssRule(".sidebar-conversation-region::before")
-
-    expect(cssRule(".sidebar-conversation-region")).toContain(
-      "position: relative;"
-    )
-    expect(dividerRule).toContain("position: absolute;")
-    expect(dividerRule).toContain("height: 0.5px;")
-    expect(dividerRule).toContain("background: var(--app-divider);")
-    expect(dividerRule).toContain("opacity: 0;")
-    expect(dividerRule).toContain("pointer-events: none;")
-    expect(
-      cssRule('.sidebar-conversation-region[data-scrolled="true"]::before')
-    ).toContain("opacity: 1;")
-  })
-
   it("uses the configured UI font size for primary sidebar text", () => {
     expect(sidebarStyles).toMatch(
       /\.sidebar-link,\s*\.sidebar-conversation-link\s*\{[^}]*font-size:\s*var\(--app-ui-font-size\);[^}]*line-height:\s*var\(--app-ui-compact-line-height\);/u

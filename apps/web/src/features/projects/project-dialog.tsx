@@ -1,6 +1,10 @@
 import { useId, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { projectInputSchema, type Project } from "@linksense/shared"
+import {
+  projectInputSchema,
+  type Project,
+  type ProjectAppearance,
+} from "@linksense/shared"
 import { useTranslation } from "react-i18next"
 
 import { getErrorMessage } from "@/api/error-message"
@@ -16,13 +20,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group"
 import { Spinner } from "@/components/ui/spinner"
 import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
 import { deleteProject, refreshProjects, saveProject } from "./project-api"
+import { ProjectAppearancePicker } from "./project-appearance-picker"
 
 export type ProjectAction =
-  { mode: "create" } | { mode: "rename" | "delete"; project: Project }
+  { mode: "create" } | { mode: "edit" | "delete"; project: Project }
 
 export function ProjectDialog({
   action,
@@ -39,15 +48,20 @@ export function ProjectDialog({
   const [name, setName] = useState(
     "project" in action ? action.project.name : ""
   )
-  const nameRequired = action.mode === "create" || action.mode === "rename"
-  const validName = projectInputSchema.safeParse({ name })
+  const [appearance, setAppearance] = useState<ProjectAppearance>(() =>
+    "project" in action
+      ? { icon: action.project.icon, color: action.project.color }
+      : { icon: "folder", color: "default" }
+  )
+  const nameRequired = action.mode !== "delete"
+  const validName = projectInputSchema.safeParse({ name, ...appearance })
   const mutation = useMutation({
     mutationFn: async () => {
       if (action.mode === "delete") return deleteProject(action.project.id)
-      const input = projectInputSchema.parse({ name })
+      const input = projectInputSchema.parse({ name, ...appearance })
       return saveProject(
         input,
-        action.mode === "rename" ? action.project.id : undefined
+        action.mode === "edit" ? action.project.id : undefined
       )
     },
     onSuccess: async (result) => {
@@ -99,18 +113,33 @@ export function ProjectDialog({
           <FieldGroup>
             {nameRequired && (
               <FieldShell id={inputId} label={t("projects.name")}>
-                <Input
-                  id={inputId}
-                  value={name}
-                  maxLength={80}
-                  disabled={mutation.isPending}
-                  autoFocus={shouldAutoFocusOnDesktop()}
-                  placeholder={t("projects.namePlaceholder")}
-                  onChange={(event) => {
-                    setName(event.target.value)
-                    mutation.reset()
-                  }}
-                />
+                <InputGroup className="h-12 rounded-xl">
+                  <InputGroupInput
+                    id={inputId}
+                    value={name}
+                    maxLength={80}
+                    disabled={mutation.isPending}
+                    autoFocus={shouldAutoFocusOnDesktop()}
+                    placeholder={t("projects.namePlaceholder")}
+                    onChange={(event) => {
+                      setName(event.target.value)
+                      mutation.reset()
+                    }}
+                  />
+                  <InputGroupAddon
+                    align="inline-start"
+                    className="self-stretch border-r border-border pr-2"
+                  >
+                    <ProjectAppearancePicker
+                      value={appearance}
+                      disabled={mutation.isPending}
+                      onChange={(next) => {
+                        setAppearance(next)
+                        mutation.reset()
+                      }}
+                    />
+                  </InputGroupAddon>
+                </InputGroup>
               </FieldShell>
             )}
           </FieldGroup>

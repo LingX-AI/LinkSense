@@ -31,6 +31,9 @@ export type ApplicationInstallTarget = {
   name: string
   versionId: string
   channel: ApplicationDistributionChannel
+  mode?: "install" | "service"
+  versionNumber?: string | null
+  installedVersionNumber?: string | null
 }
 
 export function ApplicationInstallationDialog({
@@ -52,15 +55,21 @@ export function ApplicationInstallationDialog({
   })
   const mutation = useMutation({
     mutationFn: () =>
-      apiRequest(`/applications/${target.id}/install`, {
-        method: "POST",
-        schema: applicationSchema,
-        body: applicationInstallInputSchema.parse({
-          name,
-          channel: target.channel,
-          version_id: target.versionId,
-        }),
-      }),
+      apiRequest(
+        `/applications/${target.id}/${target.mode === "service" ? "service-installation" : "install"}`,
+        {
+          method: "POST",
+          schema: applicationSchema,
+          body:
+            target.mode === "service"
+              ? { channel: target.channel, version_id: target.versionId }
+              : applicationInstallInputSchema.parse({
+                  name,
+                  channel: target.channel,
+                  version_id: target.versionId,
+                }),
+        }
+      ),
     onSuccess: async (application) => {
       await Promise.all([
         client.invalidateQueries({ queryKey: ["applications"] }),
@@ -80,23 +89,43 @@ export function ApplicationInstallationDialog({
         <DialogHeader>
           <DialogTitle>{t("applications.distribution.install")}</DialogTitle>
           <DialogDescription>
-            {t("applications.distribution.installationHint")}
+            {t(
+              target.mode === "service"
+                ? "applications.distribution.serviceInstallationHint"
+                : "applications.distribution.installationHint"
+            )}
           </DialogDescription>
         </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="application-install-name">
-              {t("applications.distribution.installationName")}
-            </FieldLabel>
-            <Input
-              id="application-install-name"
-              value={name}
-              maxLength={160}
-              onChange={(event) => setName(event.target.value)}
-              disabled={mutation.isPending}
-            />
-          </Field>
-        </FieldGroup>
+        {target.versionNumber && (
+          <p>
+            {t("applications.distribution.availableVersion", {
+              version: target.versionNumber,
+            })}
+          </p>
+        )}
+        {target.installedVersionNumber && (
+          <p>
+            {t("applications.distribution.installedVersion", {
+              version: target.installedVersionNumber,
+            })}
+          </p>
+        )}
+        {target.mode !== "service" && (
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="application-install-name">
+                {t("applications.distribution.installationName")}
+              </FieldLabel>
+              <Input
+                id="application-install-name"
+                value={name}
+                maxLength={160}
+                onChange={(event) => setName(event.target.value)}
+                disabled={mutation.isPending}
+              />
+            </Field>
+          </FieldGroup>
+        )}
         {mutation.error && (
           <StatusBanner variant="error">
             {getErrorMessage(mutation.error, t)}

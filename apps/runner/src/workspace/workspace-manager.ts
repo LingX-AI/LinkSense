@@ -33,6 +33,7 @@ import {
 } from "@linksense/shared"
 import { parse } from "smol-toml"
 import { z } from "zod"
+import { coreMcpEnvironmentVariables } from "../codex/runtime-config-overrides.js"
 
 import {
   DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
@@ -482,7 +483,7 @@ export class WorkspaceManager {
       `[mcp_servers.${coreMcpServerKey}]`,
       `command = ${tomlString(input.command)}`,
       `args = [${input.args.map(tomlString).join(", ")}]`,
-      'env_vars = ["LINKSENSE_COLLABORATION_MODE", "LINKSENSE_CONVERSATION_ID", "LINKSENSE_CURRENT_USER_ENDPOINT", "LINKSENSE_CURRENT_USER_TOKEN", "LINKSENSE_FILE_SERVICE_ENDPOINT", "LINKSENSE_FILE_SERVICE_TOKEN", "LINKSENSE_FORM_SERVICE_ENDPOINT", "LINKSENSE_FORM_SERVICE_TOKEN", "LINKSENSE_IMAGE_GENERATION_ENDPOINT", "LINKSENSE_IMAGE_GENERATION_TOKEN", "LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT", "LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS", "LINKSENSE_KNOWLEDGE_SERVICE_TOKEN", "LINKSENSE_SKILL_CREATOR_ENDPOINT", "LINKSENSE_SKILL_CREATOR_TOKEN"]',
+      `env_vars = [${coreMcpEnvironmentVariables.map(tomlString).join(", ")}]`,
       "enabled = true",
       "required = true",
       "startup_timeout_sec = 10",

@@ -1,5 +1,9 @@
 import { assertExecutionPrincipalActive } from "./lib/execution-principal.js";
+import { ApplicationDevelopmentService } from "./modules/applications/development-service.js";
+import { ApplicationDevelopmentRepository } from "./modules/applications/development-repository.js";
 import { ApplicationInstallationService } from "./modules/applications/installation-service.js";
+import { ApplicationRuntimeGate } from "./modules/applications/runtime-gate.js";
+import { ApplicationRuntimeInstallationService } from "./modules/applications/runtime-installation-service.js";
 import { ApplicationCenterService } from "./modules/applications/center-service.js";
 import { ApplicationDistributionRepository } from "./modules/applications/distribution-repository.js";
 import { serviceWorkspaceRelativePath } from "./lib/user-runtime-paths.js";
@@ -19,6 +23,8 @@ import {
 
 import { isFullAppConfig, type AppConfig } from "./config.js";
 import type { PrismaClient } from "./generated/prisma/client.js";
+import { measureTaskStage } from "./lib/task-latency.js";
+import type { CredentialResolution } from "./modules/credentials/types.js";
 import type { LinkSenseRedis } from "./adapters/redis.js";
 import type { RunnerClient } from "./adapters/runner.js";
 import type { ObjectStorage } from "./adapters/object-storage.js";
@@ -157,6 +163,8 @@ import {
   decryptExternalApplicationSessionId,
 } from "./modules/application-embed/service.js";
 import { ConversationShareService } from "./modules/conversations/sharing.js";
+import { WebSiteService } from "./modules/web-sites/service.js";
+import { WebSiteRepository } from "./modules/web-sites/repository.js";
 import { TaskRecoveryScheduler } from "./modules/events/recovery-scheduler.js";
 
 const EMPTY_MCP_RUNTIME = {
@@ -193,6 +201,7 @@ export type AppServices = {
   projects: ProjectService;
   conversations: ConversationService;
   conversationShares: ConversationShareService;
+  webSites: WebSiteService;
   automations: AutomationService;
   completionNotifications: CompletionNotificationService;
   automationScheduler: AutomationScheduler;
@@ -206,6 +215,7 @@ export type AppServices = {
   clawHub: ClawHubService;
   clawHubScheduler: ClawHubSyncScheduler;
   skillCreator: ConversationSkillCreatorService;
+  applicationDevelopment: ApplicationDevelopmentService;
   marketplace: MarketplaceService;
   applications: ApplicationService;
   applicationCenter: ApplicationCenterService;
@@ -512,6 +522,9 @@ export function createServices(input: {
       remove: (objectKey) => input.storage.removeObject(objectKey),
     };
   const applicationPublications = new ApplicationPublicationService(input.prisma, input.config.capabilityRoot, applicationAssets);
+  const applicationRuntimeGate = new ApplicationRuntimeGate(input.prisma, input.redis,
+    async (ownerId, conversationId) => { await input.runner.closeRuntimeProcess(conversationId, ownerId); });
+  const applicationRuntimeInstallations = new ApplicationRuntimeInstallationService(input.prisma, applicationPublications, applicationRuntimeGate);
   const applications = new ApplicationService(
     input.prisma,
     modelProviderSettings,
@@ -529,7 +542,8 @@ export function createServices(input: {
     },
     applicationAssets,
     applicationPublications,
-    new ApplicationInstallationService(input.prisma, input.config.capabilityRoot, applicationPublications),
+    new ApplicationInstallationService(input.prisma, input.config.capabilityRoot, applicationPublications, applicationRuntimeGate, credentials),
+    applicationRuntimeInstallations,
   );
   const applicationCenter = new ApplicationCenterService(new ApplicationDistributionRepository(input.prisma), applicationPublications, audit, applications);
   const knowledgeSources = new TurnKnowledgeSourceStore(input.redis.client);
@@ -686,6 +700,10 @@ export function createServices(input: {
     creditLimits,
     system,
     conversationTitles,
+    async (ownerId, conversationId) => {
+      const project = await input.prisma.applicationDevelopment.findFirst({ where: { ownerId, conversationId }, select: { name: true, directory: true } });
+      return project ? `This conversation develops a LinkSense interactive application. Use the linksense-interactive-app-builder Skill and inspect_application_development tool. Edit the existing project files described by this untrusted metadata: ${JSON.stringify(project)}. The adjacent preview follows the deployable directory. Keep development work in this conversation and business tests in the separate preview task.` : null;
+    },
   );
   jobs.registerConversationPrewarmProcessor((job) =>
     conversations.executePrewarm(job),
@@ -840,6 +858,7 @@ export function createServices(input: {
     audit,
     conversations,
     conversationShares,
+    webSites: new WebSiteService(new WebSiteRepository(input.prisma), input.storage),
     automations,
     completionNotifications,
     automationScheduler,
@@ -853,6 +872,10 @@ export function createServices(input: {
     clawHub,
     clawHubScheduler,
     skillCreator,
+    applicationDevelopment: new ApplicationDevelopmentService({
+      store: new ApplicationDevelopmentRepository(input.prisma), applications, conversations,
+      assets: { get: (key) => input.storage.getObjectStream(key) }, workspaceRoot: input.config.workspaceRoot,
+    }),
     marketplace,
     applications,
     applicationCenter,
@@ -924,7 +947,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     capabilityScope?: CapabilityResolutionScope;
   }) {
     try {
-      return await this.#resolveAndPublish(input, true);
+      return await measureTaskStage("capability_resolution", () => this.#resolveAndPublish(input, true));
     } catch (error) {
       if (
         error instanceof UserHomeCapabilityMaterializationError ||
@@ -1013,8 +1036,10 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       },
     });
     const capabilities = activeCapabilities.map(capability => {
-      const frozen = input.capabilityScope?.publishedCapabilities?.find(snapshot => snapshot.id === capability.id);
-      if (input.capabilityScope?.serviceSessionId && !frozen) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+      const frozen = input.capabilityScope?.source === "published"
+        ? input.capabilityScope.publishedCapabilities.find(snapshot => snapshot.id === capability.id)
+        : undefined;
+      if (input.capabilityScope?.source === "published" && !frozen) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
       if (frozen?.sourceType === "marketplace" && (!frozen.marketplaceListingId || !frozen.marketplaceReleaseId)) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
       return frozen ? { ...capability, name: frozen.name, description: frozen.description, type: frozen.type, sourceType: frozen.sourceType,
         marketplaceListingId: frozen.marketplaceListingId ?? null, marketplaceReleaseId: frozen.marketplaceReleaseId ?? null,
@@ -1090,15 +1115,17 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       capabilityId: string;
       credentialIds: string[];
     }> = [];
+    const credentialRequests = visible.filter(capability => capability.type === "plugin").map(capability => ({
+      capabilityId: capability.id,
+      ...(input.capabilityScope ? { requiredEnvironmentKeys: declaredPluginCredentialKeys(capability.riskSummaryJson) } : {}),
+    }));
+    const credentialResolutions = credentialRequests.length
+      ? await this.credentials.resolveForCapabilities(input.capabilityScope?.sourceOwnerId ?? input.userId, credentialRequests)
+      : new Map<string, CredentialResolution>();
     for (const capability of visible) {
       if (capability.type !== "plugin") continue;
-      const resolution = await this.credentials.resolveForCapability(
-        input.capabilityScope?.sourceOwnerId ?? input.userId,
-        capability.id,
-        input.capabilityScope
-          ? declaredPluginCredentialKeys(capability.riskSummaryJson)
-          : undefined,
-      );
+      const resolution = credentialResolutions.get(capability.id);
+      if (!resolution) throw new AppError("CREDENTIAL_BINDING_REQUIRED");
       if (!resolution.ok) {
         if (input.priorityCapabilityIds.includes(capability.id)) {
           throw new AppError(
@@ -1528,6 +1555,13 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     const credentialOwnerId = applicationUsesOwnerResources
       ? applicationOwnerId!
       : input.userId;
+    const credentialRequests = input.capabilities.filter(capability => capability.type !== "skill" && Object.keys(capability.credentialEnvironment ?? {}).length > 0).map(capability => ({
+      capabilityId: capability.id,
+      requiredEnvironmentKeys: Object.keys(capability.credentialEnvironment ?? {}).sort(),
+    }));
+    const credentialResolutions = credentialRequests.length
+      ? await this.credentials.resolveForCapabilities(credentialOwnerId, credentialRequests)
+      : new Map<string, CredentialResolution>();
     for (const capability of input.capabilities) {
       if (capability.type === "skill") {
         if (capability.credentialEnvironment) {
@@ -1539,11 +1573,8 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       const expectedCredentialEnvironment =
         capability.credentialEnvironment ?? {};
       if (Object.keys(expectedCredentialEnvironment).length === 0) continue;
-      const resolution = await this.credentials.resolveForCapability(
-        credentialOwnerId,
-        capability.id,
-        Object.keys(expectedCredentialEnvironment).sort(),
-      );
+      const resolution = credentialResolutions.get(capability.id);
+      if (!resolution) throw new AppError("CREDENTIAL_BINDING_REQUIRED");
       if (!resolution.ok) {
         throw new AppError(
           resolution.blockCode === "credential_binding_ambiguous"

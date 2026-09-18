@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   emitInteractiveApplicationCustomEventInputSchema,
   interactiveApplicationManifestSchema,
+  interactiveApplicationImportPreviewSchema,
   interactiveApplicationEventNameSchema,
   interactiveApplicationRuntimeTokenResultSchema,
   interactiveApplicationTaskInputSchema,
@@ -11,6 +12,19 @@ import {
 } from "../src/index.js";
 
 describe("interactive application contracts", () => {
+  it("validates import preview metadata without exposing application instructions", () => {
+    const preview = { items: [], application: { name: "Review", description: null, version: "0.0.1" } };
+    expect(interactiveApplicationImportPreviewSchema.parse(preview)).toEqual(preview);
+    expect(interactiveApplicationImportPreviewSchema.safeParse({ items: [] }).success).toBe(false);
+    for (const application of [
+      { ...preview.application, name: "" },
+      { ...preview.application, version: "" },
+      { ...preview.application, description: "x".repeat(4_001) },
+      { ...preview.application, instructions: "Private instructions" },
+    ]) {
+      expect(interactiveApplicationImportPreviewSchema.safeParse({ items: [], application }).success).toBe(false);
+    }
+  });
   it("validates application prompts without truncating long content and rejects empty or oversized input", () => {
     const prompt = "研究要求\n".repeat(100);
     expect(interactiveApplicationTaskInputSchema.parse({ prompt })).toEqual({

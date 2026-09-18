@@ -277,6 +277,43 @@ export class WorkerManager {
     }
   }
 
+  /** Publication closes existing processes; it must never provision a cold environment. */
+  async closeConversationRuntime(ownerId: string, conversationId: string, serviceSessionId?: string): Promise<WorkerHttpResponse> {
+    const validatedOwnerId = ownerIdSchema.parse(ownerId)
+    const validatedConversationId = ownerIdSchema.parse(conversationId)
+    const session = ownerIdSchema.optional().parse(serviceSessionId)
+    const storageKey = ownerStorageKey(validatedOwnerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, session)
+    const worker = await this.withLock(storageKey, async () => {
+      const existing = this.workers.get(storageKey)
+      if (existing?.cleanupPending) throw new RuntimeCleanupError("reconcile", "CLEANUP_RUNTIME_STATE_UNCERTAIN")
+      if (existing) {
+        existing.activeRequests += 1
+        existing.lastUsedAt = Date.now()
+        return existing
+      }
+      try {
+        if (await this.provider.hasWorkerForEnvironment(validatedOwnerId, session)) {
+          throw new RuntimeCleanupError("reconcile", "CLEANUP_RUNTIME_STATE_UNCERTAIN")
+        }
+      } catch {
+        throw new RuntimeCleanupError("reconcile", "CLEANUP_RUNTIME_STATE_UNCERTAIN")
+      }
+      return null
+    })
+    if (!worker) return { statusCode: 200, headers: { "content-type": "application/json" }, body: Buffer.from(JSON.stringify({ success: true })) }
+    try {
+      return await this.transport.request(worker.endpoint, `/conversations/${validatedConversationId}/runtime/close`, "POST", {
+        authorization: `Bearer ${ownerWorkerSecret(validatedOwnerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, session)}`,
+        "x-linksense-owner-id": validatedOwnerId,
+      })
+    } catch (error) {
+      await this.removeStoppedWorker(worker)
+      throw error
+    } finally {
+      await this.releaseWorkerRequest(worker)
+    }
+  }
+
   async cleanupConversation(
     ownerId: string,
     conversationId: string,

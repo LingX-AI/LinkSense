@@ -195,6 +195,7 @@ import {
 } from "@/features/knowledge-bases/knowledge-base-utils"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
+import { SiteLibrary } from "@/features/web-sites/site-library"
 import { TaskArtifactLibrary } from "@/features/task-artifacts/task-artifact-library"
 import type { TaskArtifact } from "@/features/task-artifacts/task-artifact-api"
 import { TaskArtifactPreview } from "@/features/task-artifacts/task-artifact-preview"
@@ -203,8 +204,11 @@ export function KnowledgeBaseListPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [previewFile, setPreviewFile] = useState<TaskArtifact>()
+  const requestedTab = searchParams.get("tab")
   const activeTab =
-    searchParams.get("tab") === "artifacts" ? "artifacts" : "knowledge"
+    requestedTab === "artifacts" || requestedTab === "sites"
+      ? requestedTab
+      : "knowledge"
 
   return (
     <ConversationOfficeLayout
@@ -222,7 +226,7 @@ export function KnowledgeBaseListPage() {
         value={activeTab}
         onValueChange={(value) => {
           const next = new URLSearchParams(searchParams)
-          if (value === "artifacts") next.set("tab", "artifacts")
+          if (value === "artifacts" || value === "sites") next.set("tab", value)
           else {
             next.delete("tab")
             setPreviewFile(undefined)
@@ -239,24 +243,29 @@ export function KnowledgeBaseListPage() {
             <TabsTrigger value="artifacts">
               {t("library.tabs.artifacts")}
             </TabsTrigger>
+            <TabsTrigger value="sites">{t("webSites.title")}</TabsTrigger>
           </TabsList>
         </div>
         <div className="management-scroll">
           <div className="knowledge-library-page">
-            <header className="knowledge-library-header" role="banner">
+            <header className="knowledge-library-header pb-5" role="banner">
               <div>
                 <h1>
                   {t(
                     activeTab === "knowledge"
                       ? "knowledge.title"
-                      : "library.artifacts.title"
+                      : activeTab === "sites"
+                        ? "webSites.title"
+                        : "library.artifacts.title"
                   )}
                 </h1>
                 <p>
                   {t(
                     activeTab === "knowledge"
                       ? "knowledge.description"
-                      : "library.artifacts.description"
+                      : activeTab === "sites"
+                        ? "webSites.description"
+                        : "library.artifacts.description"
                   )}
                 </p>
               </div>
@@ -265,6 +274,9 @@ export function KnowledgeBaseListPage() {
               {activeTab === "knowledge" ? (
                 <KnowledgeBaseLibraryContent />
               ) : null}
+            </TabsContent>
+            <TabsContent value="sites">
+              {activeTab === "sites" ? <SiteLibrary /> : null}
             </TabsContent>
             <TabsContent value="artifacts">
               {activeTab === "artifacts" ? (
@@ -353,12 +365,12 @@ function KnowledgeBaseLibraryContent() {
           checking={creationCapability.isFetching}
           requestFailed={creationCapability.requestFailed}
           onRetry={() => void creationCapability.retry()}
-          className="mt-3"
+          className="mb-3"
         />
 
         <KnowledgeSearchStatusBanner
           capability={searchCapability.capability}
-          className="mt-3"
+          className="mb-3"
         />
 
         <div className="knowledge-library-toolbar">

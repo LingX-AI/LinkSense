@@ -70,4 +70,14 @@ if (typeof window !== "undefined" && typeof HTMLElement !== "undefined") {
     writable: true,
     value: vi.fn(),
   })
+  Object.defineProperty(HTMLElement.prototype, "getAnimations", {
+    configurable: true,
+    writable: true,
+    value: vi.fn(() => []),
+  })
+  // JSDOM does not render animations; keep Base UI transitions synchronous.
+  Object.defineProperty(globalThis, "BASE_UI_ANIMATIONS_DISABLED", {
+    configurable: true,
+    value: true,
+  })
 }

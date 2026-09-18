@@ -175,14 +175,10 @@ export function isAssistantHtmlPreviewShellReadyMessage(
   return isHtmlPreviewShellReadyMessage(value, previewId)
 }
 
-function buildAssistantHtmlPreviewBootstrap(
-  previewId: string,
-  tailwindRuntimeUrl: string
-) {
+function buildAssistantHtmlPreviewBootstrap(previewId: string) {
   return `
 (() => {
   const previewId = ${JSON.stringify(previewId)};
-  const tailwindRuntimeUrl = ${JSON.stringify(tailwindRuntimeUrl)};
   const readyType = ${JSON.stringify(assistantHtmlPreviewReadyMessageType)};
   const errorType = ${JSON.stringify(assistantHtmlPreviewErrorMessageType)};
   const resizeType = ${JSON.stringify(assistantHtmlPreviewResizeMessageType)};
@@ -195,8 +191,6 @@ function buildAssistantHtmlPreviewBootstrap(
   const maximumCaptureSnapshotLength = ${maximumAssistantHtmlPreviewCaptureSnapshotLength};
   const loadingAttribute = "data-linksense-assistant-preview-loading";
   let settled = false;
-  let tailwindObserver;
-  let tailwindProbe;
   let heightObserver;
   let contentObserver;
   let heightFrame = 0;
@@ -492,8 +486,6 @@ function buildAssistantHtmlPreviewBootstrap(
   const finish = (type) => {
     if (settled) return;
     settled = true;
-    tailwindObserver?.disconnect();
-    tailwindProbe?.remove();
     clearTimeout(timeout);
     if (type === readyType) {
       document.documentElement.removeAttribute(loadingAttribute);
@@ -502,52 +494,12 @@ function buildAssistantHtmlPreviewBootstrap(
     parent.postMessage({ type, previewId }, "*");
   };
 
-  const ensureTailwindProbe = () => {
-    if (tailwindProbe?.isConnected) return tailwindProbe;
-    if (!document.body) return null;
-    tailwindProbe = document.createElement("span");
-    tailwindProbe.setAttribute("aria-hidden", "true");
-    tailwindProbe.className = "[--linksense-preview-ready:1]";
-    tailwindProbe.style.cssText =
-      "position:fixed;left:-10000px;top:0;pointer-events:none;visibility:hidden";
-    document.body.append(tailwindProbe);
-    return tailwindProbe;
-  };
-
-  const hasCompiledTailwind = () => {
-    const probe = ensureTailwindProbe();
-    return Boolean(
-      probe &&
-        getComputedStyle(probe)
-          .getPropertyValue("--linksense-preview-ready")
-          .trim() === "1"
-    );
-  };
-
   const checkReady = () => {
-    if (hasCompiledTailwind()) {
+    if (document.readyState !== "loading") {
       finish(readyType);
     }
   };
 
-  tailwindObserver = new MutationObserver(checkReady);
-  tailwindObserver.observe(document.head, {
-    childList: true,
-    characterData: true,
-    subtree: true,
-  });
-  window.addEventListener(
-    "error",
-    (event) => {
-      if (
-        event.target instanceof HTMLScriptElement &&
-        event.target.src === tailwindRuntimeUrl
-      ) {
-        finish(errorType);
-      }
-    },
-    true
-  );
   document.addEventListener("DOMContentLoaded", checkReady, { once: true });
   window.addEventListener("load", checkReady, { once: true });
   timeout = setTimeout(() => finish(errorType), 8000);
@@ -560,23 +512,14 @@ export function buildAssistantHtmlPreviewDocument(
   rawHtml: string,
   options: Readonly<{
     previewId: string
-    tailwindRuntimeUrl: string
   }>
 ) {
   if (rawHtml.length > maximumAssistantHtmlPreviewLength) {
     throw new Error("Assistant HTML preview is too large")
   }
 
-  const tailwindRuntimeUrl = new URL(
-    options.tailwindRuntimeUrl,
-    window.location.href
-  ).href
   return buildSafeHtmlDocument(rawHtml, "interaction", {
-    scriptUrl: tailwindRuntimeUrl,
-    bootstrapScript: buildAssistantHtmlPreviewBootstrap(
-      options.previewId,
-      tailwindRuntimeUrl
-    ),
+    bootstrapScript: buildAssistantHtmlPreviewBootstrap(options.previewId),
     allowUnrestrictedScripts: true,
   })
 }

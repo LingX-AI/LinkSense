@@ -1,8 +1,17 @@
 import { z } from "zod";
 
-// v24 uses shared user HOME, project cwd, HOME-relative attachments and user-process health.
+/** Wake business projection after the native result is durably recorded. */
+export const runnerStartSettledSchema = z.strictObject({
+  conversationId: z.uuid(),
+  projectionTurnId: z.uuid(),
+  runtimeGeneration: z.uuid(),
+});
+export type RunnerStartSettled = z.infer<typeof runnerStartSettledSchema>;
+export const runnerStartSettledReceiptSchema = z.strictObject({ settled: z.boolean() });
+
+// v25 adds durable start-result projection notifications to shared user runtimes.
 export const RUNNER_TURN_START_CONTRACT_VERSION =
-  "user-project-runtime-v24" as const;
+  "user-project-runtime-v25" as const;
 
 /** Names are server-resolved display data; null means unavailable to this user. */
 export const runnerKnowledgeBaseSelectionSchema = z

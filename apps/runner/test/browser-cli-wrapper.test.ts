@@ -13,6 +13,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { z } from "zod"
 
 import {
   BrowserSessionLeaseStore,
@@ -29,6 +30,10 @@ import {
   readManagedBrowserPolicy,
 } from "../src/browser/policy.js"
 import { cleanupManagedBrowserSession } from "../src/browser/session-cleanup.js"
+import {
+  projectImageViewAsset,
+  type RegisterInlineImageArtifact,
+} from "../src/codex/assistant-message-assets.js"
 import { makeDirectoryTreeRemovable } from "../src/workspace/filesystem.js"
 
 const roots: string[] = []
@@ -462,6 +467,93 @@ describe("managed browser CLI", () => {
     await expect(browserCliMain(["__cleanup"], environment, other, { runCli, policy: { sessionRoot: path.join(root, "sessions"), sessionLimit: 2 } })).resolves.toBe(0)
     await expect(browserCliMain(["__cleanup"], environment, outside, { runCli, policy: { sessionRoot: path.join(root, "sessions"), sessionLimit: 2 } })).rejects.toThrow("inside the user HOME")
   })
+
+  it.each(["home", "another-project"])(
+    "keeps screenshots registerable in the task workspace when launched from %s",
+    async (location) => {
+      const root = await temporaryRoot()
+      const runtimeRoot = path.join(root, "runtime")
+      const userHome = path.join(root, "home")
+      const codexHome = path.join(userHome, ".codex")
+      const workspace = path.join(userHome, "workspace")
+      const cwd =
+        location === "home"
+          ? userHome
+          : path.join(userHome, "projects", secondConversationId)
+      await Promise.all([
+        mkdir(codexHome, { recursive: true }),
+        mkdir(workspace, { recursive: true }),
+        mkdir(cwd, { recursive: true }),
+        prepareBrowserRuntime(runtimeRoot),
+      ])
+      const screenshot = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64",
+      )
+      let outputRoot = ""
+      let screenshotPath = ""
+      const runCli = vi.fn<BrowserCliRunner>(async (input) => {
+        if (input.args.includes("open")) {
+          const configPath = z.string().parse(
+            input.args[input.args.indexOf("--config") + 1],
+          )
+          const config = z.object({ outputDir: z.string() }).parse(
+            JSON.parse(await readFile(configPath, "utf8")),
+          )
+          outputRoot = config.outputDir
+        }
+        if (input.args.includes("screenshot")) {
+          const filename = input.args.find((argument) =>
+            argument.startsWith("--filename="),
+          )
+          screenshotPath =
+            filename?.slice("--filename=".length) ?? path.join(outputRoot, "page.png")
+          await writeFile(screenshotPath, screenshot)
+        }
+        return 0
+      })
+      const environment = {
+        HOME: userHome,
+        CODEX_HOME: codexHome,
+        LINKSENSE_WORKSPACE_PATH: workspace,
+        LINKSENSE_CONVERSATION_ID: firstConversationId,
+      }
+      const dependencies = {
+        runtimeRoot,
+        runCli,
+        policy: { sessionRoot: path.join(root, "sessions"), sessionLimit: 2 },
+      }
+      await browserCliMain(["open", "about:blank"], environment, cwd, dependencies)
+      const fileId = "30000000-0000-4000-8000-000000000001"
+      const registerArtifact = vi.fn<RegisterInlineImageArtifact>(
+        async (artifact) => {
+          const registeredPath = path.join(workspace, artifact.workspaceRelativePath)
+          expect(await readFile(registeredPath)).toEqual(screenshot)
+          return { file_id: fileId }
+        },
+      )
+      for (const args of [["screenshot"], ["screenshot", "--filename=evidence.png"]]) {
+        await browserCliMain(args, environment, cwd, dependencies)
+        await expect(
+          projectImageViewAsset({
+            path: screenshotPath,
+            workspace,
+            codexHome,
+            authorizedSkills: [],
+            turnId: "turn-browser-preview",
+            itemId: `view-${args.length}`,
+            registerArtifact,
+          }),
+        ).resolves.toEqual({ fileId })
+        expect(path.dirname(screenshotPath)).toBe(
+          path.join(await realpath(workspace), "temp", "browser"),
+        )
+      }
+      expect(registerArtifact).toHaveBeenCalledTimes(2)
+      expect(runCli.mock.calls[0]?.[0].cwd).toBe(await realpath(cwd))
+      await browserCliMain(["close"], environment, cwd, dependencies)
+    },
+  )
 
   it("opens a bounded self-contained workspace HTML through the managed browser", async () => {
     const root = await temporaryRoot()

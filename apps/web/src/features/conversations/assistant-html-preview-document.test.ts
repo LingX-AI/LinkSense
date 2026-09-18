@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   assistantHtmlPreviewCaptureErrorMessageType,
@@ -17,8 +17,60 @@ import {
   maximumAssistantHtmlPreviewLength,
 } from "@/features/conversations/assistant-html-preview-document"
 
+afterEach(() => vi.useRealTimers())
+
 describe("assistant HTML preview document", () => {
-  it("injects the bundled Tailwind runtime and a scoped readiness bridge", () => {
+  it.each(["loading", "interactive", "complete"] as const)(
+    "shows plain HTML when the document is %s without waiting for a CSS framework",
+    (initialState) => {
+      vi.useFakeTimers()
+      const html = buildAssistantHtmlPreviewDocument(
+        '<!doctype html><html><body><p style="color: blue">Plain HTML</p></body></html>',
+        { previewId: "plain-html" }
+      )
+      const parsed = new DOMParser().parseFromString(html, "text/html")
+      const bootstrap =
+        parsed.querySelector("[data-linksense-preview-bootstrap]")
+          ?.textContent ?? ""
+      let readyState: DocumentReadyState = initialState
+      Object.defineProperty(parsed, "readyState", { get: () => readyState })
+      const postMessage = vi.fn()
+      // Geometry observation is unrelated to document readiness and must not leak between tests.
+      class Observer {
+        observe() {}
+      }
+      new Function(
+        "document",
+        "window",
+        "parent",
+        "MutationObserver",
+        "ResizeObserver",
+        bootstrap
+      )(parsed, new EventTarget(), { postMessage }, Observer, undefined)
+      if (initialState === "loading") {
+        expect(postMessage).not.toHaveBeenCalled()
+        readyState = "interactive"
+        parsed.dispatchEvent(new Event("DOMContentLoaded"))
+      }
+      expect(postMessage).toHaveBeenCalledWith(
+        { type: assistantHtmlPreviewReadyMessageType, previewId: "plain-html" },
+        "*"
+      )
+      expect(
+        parsed.documentElement.hasAttribute(
+          "data-linksense-assistant-preview-loading"
+        )
+      ).toBe(false)
+      expect(parsed.querySelector("script[src]")).toBeNull()
+      vi.advanceTimersByTime(9000)
+      expect(postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: assistantHtmlPreviewErrorMessageType }),
+        "*"
+      )
+    }
+  )
+
+  it("preserves authored resources and adds only a scoped readiness bridge", () => {
     const safeDocument = buildAssistantHtmlPreviewDocument(
       `<!doctype html>
         <html>
@@ -35,7 +87,6 @@ describe("assistant HTML preview document", () => {
         </html>`,
       {
         previewId: "preview-1",
-        tailwindRuntimeUrl: "/assets/tailwind-browser.js",
       }
     )
     const parsed = new DOMParser().parseFromString(safeDocument, "text/html")
@@ -46,12 +97,12 @@ describe("assistant HTML preview document", () => {
       "script[data-linksense-preview-bootstrap]"
     )
 
-    expect(runtimes).toHaveLength(1)
-    expect(runtimes[0]?.getAttribute("src")).toBe(
-      "http://localhost/assets/tailwind-browser.js"
-    )
-    expect(Array.from(runtimes).every((runtime) => runtime.defer)).toBe(true)
-    expect(safeDocument).not.toContain("cdn.jsdelivr.net")
+    expect(runtimes).toHaveLength(0)
+    expect(
+      parsed.querySelector(
+        'script[src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"]'
+      )
+    ).not.toBeNull()
     expect(safeDocument).toContain("https://cdn.example/app.mjs")
     expect(parsed.querySelector("form#filters")).not.toBeNull()
     expect(bootstrap?.textContent).toContain(
@@ -97,15 +148,9 @@ describe("assistant HTML preview document", () => {
     expect(() => new Function(bootstrap?.textContent ?? "")).not.toThrow()
     expect(bootstrap?.textContent).not.toContain("window.html2canvas")
     expect(bootstrap?.textContent).toContain('const previewId = "preview-1"')
-    expect(bootstrap?.textContent).toContain("[--linksense-preview-ready:1]")
+    expect(bootstrap?.textContent).not.toMatch(/tailwind/i)
     expect(bootstrap?.textContent).toContain(
-      'getPropertyValue("--linksense-preview-ready")'
-    )
-    expect(bootstrap?.textContent).toContain(
-      "event.target.src === tailwindRuntimeUrl"
-    )
-    expect(bootstrap?.textContent).not.toContain(
-      'hasCompiledTailwind() && typeof window.html2canvas === "function"'
+      'document.readyState !== "loading"'
     )
     expect(bootstrap?.textContent).toContain(
       "data-linksense-assistant-preview-loading"
@@ -260,7 +305,6 @@ describe("assistant HTML preview document", () => {
         "x".repeat(maximumAssistantHtmlPreviewLength + 1),
         {
           previewId: "preview-large",
-          tailwindRuntimeUrl: "/assets/tailwind-browser.js",
         }
       )
     ).toThrow("Assistant HTML preview is too large")

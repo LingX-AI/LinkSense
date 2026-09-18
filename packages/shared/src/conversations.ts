@@ -2,9 +2,9 @@ import { z } from "zod";
 import { INTERACTIVE_APPLICATION_FILE_SOURCE } from "./interactive-applications.js";
 
 import {
-  applicationIconSchema,
   applicationUnavailableReasonSchema,
 } from "./applications.js";
+import { applicationIconSchema } from "./application-icons.js";
 import {
   capabilitySelectionIdSchema,
   capabilityTypeSchema,
@@ -30,6 +30,8 @@ import {
 
 export const conversationArchiveStatusSchema = z.enum(["active", "archived"]);
 export const conversationOrderGroupSchema = z.enum(["pinned", "recent"]);
+export const conversationApplicationDevelopmentRoleSchema = z.enum(["development", "preview"]);
+export type ConversationApplicationDevelopmentRole = z.infer<typeof conversationApplicationDevelopmentRoleSchema>;
 export const conversationOrderUpdateSchema = z.strictObject({
   group: conversationOrderGroupSchema,
   project_id: uuidSchema.nullable().optional(),
@@ -84,6 +86,19 @@ export const conversationExecutionStatusSchema = z.enum([
   "interrupted",
 ]);
 
+// Admission may fail before a native turn exists. Identify that submission
+// without fabricating a native turn lifecycle event.
+export const conversationStartFailurePayloadSchema = z.object({
+  schema_version: z.literal(1),
+  error_code: z.enum(["TURN_START_CLOSED", "RUNNER_UNAVAILABLE"]),
+  message_key: z.enum(["errors.turnStartClosed", "errors.runnerUnavailable"]),
+  retryable: z.literal(true),
+  start_failure: z.strictObject({
+    turn_id: uuidSchema,
+    idempotency_key: z.string().min(1).max(120).nullable(),
+  }),
+});
+
 export const conversationSchema = z.strictObject({
   id: uuidSchema,
   owner_id: uuidSchema,
@@ -102,6 +117,7 @@ export const conversationSchema = z.strictObject({
   last_run_at: timestampSchema.nullable(),
   has_unread_completion: z.boolean().default(false),
   has_automation: z.boolean().default(false),
+  application_development_role: conversationApplicationDevelopmentRoleSchema.nullable().optional(),
   selected_knowledge_base_ids: knowledgeBaseIdsSchema,
   application: z
     .strictObject({
@@ -673,11 +689,35 @@ export const htmlAnnotationDisplaySchema = z.strictObject({
   path: ["annotation_count"],
 });
 
+export const applicationAnnotationPagePathSchema = z.string().min(1).max(500)
+  .refine(value => value.split("/").every(part => /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/u.test(part)), "invalid_preview_path");
+
+export const applicationAnnotationInputSchema = z.strictObject({
+  kind: z.literal("application_annotation"),
+  development_id: uuidSchema,
+  package_id: uuidSchema,
+  source_hash: z.string().regex(/^[a-f0-9]{64}$/u),
+  page_path: applicationAnnotationPagePathSchema,
+  annotations: z.array(htmlAnnotationSchema).min(1).max(maximumOfficeAnnotationCount),
+});
+
+export const applicationAnnotationDisplaySchema = z.strictObject({
+  kind: z.literal("application_annotation"),
+  development_id: uuidSchema,
+  application_name: z.string().min(1).max(160),
+  package_id: applicationAnnotationInputSchema.shape.package_id,
+  source_hash: applicationAnnotationInputSchema.shape.source_hash,
+  page_path: applicationAnnotationPagePathSchema,
+  annotations: z.array(htmlAnnotationDisplayItemSchema).min(1).max(maximumOfficeAnnotationCount),
+  annotation_count: z.number().int().positive().max(maximumOfficeAnnotationCount),
+}).refine(value => value.annotation_count === value.annotations.length, { message: "annotation_count_mismatch", path: ["annotation_count"] });
+
 export const officeAnnotationInputSchema = z.discriminatedUnion("kind", [
   presentationAnnotationInputSchema,
   wordAnnotationInputSchema,
   spreadsheetAnnotationInputSchema,
   htmlAnnotationInputSchema,
+  applicationAnnotationInputSchema,
 ]);
 
 export const officeAnnotationDisplaySchema = z.discriminatedUnion("kind", [
@@ -685,6 +725,7 @@ export const officeAnnotationDisplaySchema = z.discriminatedUnion("kind", [
   wordAnnotationDisplaySchema,
   spreadsheetAnnotationDisplaySchema,
   htmlAnnotationDisplaySchema,
+  applicationAnnotationDisplaySchema,
 ]);
 
 export const interactiveApplicationMessageSourceSchema = z.literal(
@@ -858,6 +899,8 @@ export type HtmlAnnotationDisplayItem = z.infer<
   typeof htmlAnnotationDisplayItemSchema
 >;
 export type OfficeAnnotationInput = z.infer<typeof officeAnnotationInputSchema>;
+export type ApplicationAnnotationInput = z.infer<typeof applicationAnnotationInputSchema>;
+export type ApplicationAnnotationDisplay = z.infer<typeof applicationAnnotationDisplaySchema>;
 export type OfficeAnnotationDisplay = z.infer<
   typeof officeAnnotationDisplaySchema
 >;
@@ -889,6 +932,18 @@ export function buildOfficeAnnotationDisplay(
   annotation: OfficeAnnotationInput,
   fileName: string,
 ): OfficeAnnotationDisplay {
+  if (annotation.kind === "application_annotation") {
+    return {
+      kind: "application_annotation",
+      development_id: annotation.development_id,
+      application_name: fileName,
+      package_id: annotation.package_id,
+      source_hash: annotation.source_hash,
+      page_path: annotation.page_path,
+      annotations: annotation.annotations.map(item => ({ request: item.request, selection_count: item.elements.length })),
+      annotation_count: annotation.annotations.length,
+    };
+  }
   if (annotation.kind === "presentation_annotation") {
     return {
       kind: "presentation_annotation",
@@ -954,4 +1009,8 @@ export function officeAnnotationRequestText(
   return annotation.annotations
     .map((item, index) => `${index + 1}. ${item.request}`)
     .join("\n");
+}
+
+export function officeAnnotationDisplayName(display: OfficeAnnotationDisplay): string {
+  return display.kind === "application_annotation" ? display.application_name : display.file_name;
 }

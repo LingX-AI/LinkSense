@@ -2,6 +2,9 @@ import {
   buildApiUrl,
   isDefinitiveAuthenticationError,
   refreshSession,
+  ApiError,
+  prepareClientBuildRequest,
+  validateResponseBuild,
 } from "@/api/client"
 import { parseSseFrame } from "@/api/sse"
 import { waitForSseReconnectDelay } from "@/api/sse-reconnect-delay"
@@ -38,6 +41,7 @@ export function connectKnowledgeBaseEvents(
       if (token) headers.set("Authorization", `Bearer ${token}`)
 
       try {
+        prepareClientBuildRequest(headers)
         let response = await fetch(
           buildApiUrl(`/knowledge-bases/${knowledgeBaseId}/events`),
           {
@@ -48,6 +52,7 @@ export function connectKnowledgeBaseEvents(
           }
         )
 
+        validateResponseBuild(response.headers)
         if (response.status === 401) {
           try {
             await refreshSession(token)
@@ -68,6 +73,7 @@ export function connectKnowledgeBaseEvents(
               signal: controller.signal,
             }
           )
+          validateResponseBuild(response.headers)
           if (response.status === 401) setAccessToken(null)
         }
 
@@ -113,6 +119,13 @@ export function connectKnowledgeBaseEvents(
           }
         }
       } catch (error) {
+        if (
+          error instanceof ApiError &&
+          error.errorCode === "CLIENT_UPDATE_REQUIRED"
+        ) {
+          controller.abort()
+          return
+        }
         if (controller.signal.aborted) return
         if (error instanceof DOMException && error.name === "AbortError") return
       }

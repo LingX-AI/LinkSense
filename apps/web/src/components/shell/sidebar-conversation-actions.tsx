@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import type { Project } from "@linksense/shared"
 
 import { Button } from "@/components/ui/button"
+import { ProjectIcon } from "@/features/projects/project-icon"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,7 +32,7 @@ type SidebarConversationActionsProps = {
   pinDisabled: boolean
   archiveDisabled: boolean
   moveDisabled?: boolean
-  projects?: Pick<Project, "id" | "name">[]
+  projects?: Pick<Project, "id" | "name" | "icon" | "color">[]
   currentProjectId?: string | null
   onTogglePinned: () => void
   onArchive: () => void
@@ -130,6 +131,10 @@ export function SidebarConversationActions({
                           }
                           onClick={() => onMoveToProject(project.id)}
                         >
+                          <ProjectIcon
+                            icon={project.icon}
+                            color={project.color}
+                          />
                           <span className="truncate" title={project.name}>
                             {project.name}
                           </span>

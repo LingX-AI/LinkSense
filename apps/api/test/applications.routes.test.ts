@@ -29,6 +29,100 @@ afterEach(async () => {
 });
 
 describe("internal application routes", () => {
+  it("validates an edit and its release together before publishing a standard application", async () => {
+    const { app, service } = await applicationRouteFixture();
+    const url = `/api/v1/applications/${APPLICATION_ID}/edit-and-publish`;
+    const payload = { changes: { name: "Updated review", instructions: "Review carefully." }, release: { version_number: "1.2.4", usage_instructions: "Existing guide" } };
+    expect((await app.inject({ method: "POST", url, payload })).statusCode).toBe(401);
+    const headers = { authorization: "Bearer internal-user" };
+    for (const invalid of [{ ...payload, release: { version_number: "1.2" } }, { ...payload, changes: {} }, { ...payload, owner_id: TARGET_USER_ID }]) {
+      expect((await app.inject({ method: "POST", url, headers, payload: invalid })).statusCode).toBe(400);
+    }
+    expect(service.update).not.toHaveBeenCalled();
+    const result = await app.inject({ method: "POST", url, headers, payload });
+    expect(result.statusCode, result.body).toBe(200);
+    expect(service.update).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID, payload.changes, expect.any(Object), payload.release);
+    service.update.mockRejectedValueOnce(new AppError("APPLICATION_NOT_FOUND"));
+    expect((await app.inject({ method: "POST", url, headers, payload })).statusCode).toBe(404);
+  });
+
+  it("accepts a validated release with an updated ZIP and rejects malformed or duplicate release fields", async () => {
+    const { app, service } = await applicationRouteFixture();
+    const url = `/api/v1/applications/${APPLICATION_ID}/interactive-package`;
+    expect((await app.inject({ method: "POST", url })).statusCode).toBe(401);
+    async function upload(releases: string[], target = url) {
+      const body = new FormData();
+      body.append("dependencies", JSON.stringify({ bindings: [] }));
+      for (const release of releases) body.append("release", release);
+      body.append("file", new Blob(["zip-bytes"], { type: "application/zip" }), "app.zip");
+      const request = new Request("http://localhost", { method: "POST", body });
+      return app.inject({ method: "POST", url: target, headers: { authorization: "Bearer internal-user", "content-type": request.headers.get("content-type") ?? "" }, payload: Buffer.from(await request.arrayBuffer()) });
+    }
+    const release = { version_number: "1.2.3", usage_instructions: "Existing guide" };
+    const result = await upload([JSON.stringify(release)]);
+    expect(result.statusCode, result.body).toBe(200);
+    expect(service.updateInteractivePackage).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID, Buffer.from("zip-bytes"), expect.any(Object), [], { release });
+    for (const values of [["{"], [JSON.stringify({ version_number: "1.2" })], [JSON.stringify(release), JSON.stringify(release)]]) {
+      expect((await upload(values)).statusCode).toBe(400);
+    }
+    expect((await upload([JSON.stringify(release)], "/api/v1/applications/interactive-import")).statusCode).toBe(400);
+    expect(service.updateInteractivePackage).toHaveBeenCalledOnce();
+  });
+  it("authenticates publication readiness, validates the application id and never caches task status", async () => {
+    const { app, service } = await applicationRouteFixture();
+    const url = `/api/v1/applications/${APPLICATION_ID}/publication-readiness`;
+    const headers = { authorization: "Bearer internal-user" };
+    expect((await app.inject({ method: "GET", url })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/api/v1/applications/invalid/publication-readiness", headers })).statusCode).toBe(400);
+    expect(service.publicationReadiness).not.toHaveBeenCalled();
+    const response = await app.inject({ method: "GET", url, headers });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toBe("private, no-store");
+    expect(response.json().data).toEqual({ has_active_tasks: false });
+    expect(service.publicationReadiness).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID);
+    service.publicationReadiness.mockRejectedValueOnce(new AppError("APPLICATION_NOT_FOUND"));
+    expect((await app.inject({ method: "GET", url, headers })).statusCode).toBe(404);
+  });
+  it("authenticates the owned catalog and validates development filters without accepting another owner", async () => {
+    const { app, service } = await applicationRouteFixture();
+    const url = "/api/v1/applications/catalog";
+    expect((await app.inject({ method: "GET", url })).statusCode).toBe(401);
+    const headers = { authorization: "Bearer internal-user" };
+    for (const query of [`owner_id=${TARGET_USER_ID}`, "state=shared", "limit=201", "search=", "scope=all"]) {
+      expect((await app.inject({ method: "GET", url: `${url}?${query}`, headers })).statusCode).toBe(400);
+    }
+    expect(service.catalog).not.toHaveBeenCalled();
+    const response = await app.inject({ method: "GET", url: `${url}?state=developing&search=Draft&limit=25`, headers });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toBe("private, no-store");
+    expect(response.json().data).toEqual({ items: [], next_cursor: null });
+    expect(service.catalog).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), { state: "developing", search: "Draft", limit: 25 });
+    for (const state of ["standard", "interactive"]) {
+      const filtered = await app.inject({ method: "GET", url: `${url}?state=${state}&search=Report&limit=10&cursor=next-page`, headers });
+      expect(filtered.statusCode).toBe(200);
+      expect(service.catalog).toHaveBeenLastCalledWith(expect.objectContaining({ id: USER_ID }), { state, search: "Report", limit: 10, cursor: "next-page" });
+    }
+    service.catalog.mockRejectedValueOnce(new AppError("FORBIDDEN"));
+    expect((await app.inject({ method: "GET", url, headers })).statusCode).toBe(403);
+  });
+  it("authenticates and validates read-only details requests and passes the viewing channel", async () => {
+    const { app, service } = await applicationRouteFixture();
+    const url = `/api/v1/applications/${APPLICATION_ID}/details`;
+    expect((await app.inject({ method: "GET", url })).statusCode).toBe(401);
+    const headers = { authorization: "Bearer internal-user" };
+    for (const invalid of [`${url}?channel=invalid`, `${url}?owner_id=${TARGET_USER_ID}`, "/api/v1/applications/invalid/details"]) {
+      expect((await app.inject({ method: "GET", url: invalid, headers })).statusCode).toBe(400);
+    }
+    expect(service.details).not.toHaveBeenCalled();
+    for (const channel of ["direct", "center"]) {
+      const response = await app.inject({ method: "GET", url: channel === "direct" ? url : `${url}?channel=center`, headers });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["cache-control"]).toBe("private, no-store");
+      expect(service.details).toHaveBeenLastCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID, channel);
+    }
+    service.details.mockRejectedValueOnce(new AppError("APPLICATION_NOT_FOUND"));
+    expect((await app.inject({ method: "GET", url, headers })).statusCode).toBe(404);
+  });
   it("validates resource type and UUID cursors before listing declaration resources", async () => {
     const { app, service } = await applicationRouteFixture();
     const headers = { authorization: "Bearer internal-user" };
@@ -52,6 +146,20 @@ describe("internal application routes", () => {
     const response = await app.inject({ method: "POST", url: "/api/v1/applications/interactive-import", headers: { authorization: "Bearer internal-user", "content-type": upload.headers.get("content-type") ?? "" }, payload: Buffer.from(await upload.arrayBuffer()) });
     expect(response.statusCode, response.body).toBe(201);
     expect(service.importInteractive).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), Buffer.from("zip-bytes"), expect.any(Object), bindings);
+  });
+  it("returns parsed application information with the resource preview without importing", async () => {
+    const { app, service } = await applicationRouteFixture();
+    const url = "/api/v1/applications/interactive-import/preview";
+    expect((await app.inject({ method: "POST", url })).statusCode).toBe(401);
+    expect(service.previewInteractiveDependencies).not.toHaveBeenCalled();
+    const form = new FormData();
+    form.append("file", new Blob(["zip"], { type: "application/zip" }), "app.zip");
+    const upload = new Request("http://localhost", { method: "POST", body: form });
+    const response = await app.inject({ method: "POST", url, headers: { authorization: "Bearer internal-user", "content-type": upload.headers.get("content-type") ?? "" }, payload: Buffer.from(await upload.arrayBuffer()) });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().data).toEqual({ items: [], application: { name: "Review", description: "Review requests", version: "1.2.3" } });
+    expect(service.importInteractive).not.toHaveBeenCalled();
+    expect(service.previewInteractiveDependencies).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), Buffer.from("zip"), undefined);
   });
   it("authenticates dependency endpoints and validates mappings before changing the application", async () => {
     const { app, service } = await applicationRouteFixture();
@@ -104,8 +212,8 @@ describe("internal application routes", () => {
     const settings = await app.inject({ method: "GET", url: `/api/v1/applications/${APPLICATION_ID}/distribution/settings`, headers });
     expect(settings.statusCode).toBe(200);
     expect(service.distributionSettings).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID);
-    const obsolete = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/publish`, headers, payload: { usage_instructions: "Configure your account." } });
-    expect(obsolete.statusCode).toBe(404);
+    const missingVersion = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/publish`, headers, payload: { usage_instructions: "Configure your account." } });
+    expect(missingVersion.statusCode).toBe(400);
     const shared = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/share`, headers, payload: { version_number: "1.0.0", usage_instructions: "Configure your account.", target: null } });
     expect(shared.statusCode).toBe(200);
     expect(service.share).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID, { version_number: "1.0.0", usage_instructions: "Configure your account.", target: null }, expect.any(Object));
@@ -192,7 +300,6 @@ describe("internal application routes", () => {
     expect(service.resolveRuntime).toHaveBeenCalledWith(
       USER_ID,
       APPLICATION_ID,
-      undefined,
       "direct",
     );
     expect(createConversation).toHaveBeenCalledWith(USER_ID, {
@@ -460,16 +567,20 @@ async function applicationRouteFixture() {
   );
   const service = {
     importInteractive: vi.fn(async () => ({ id: APPLICATION_ID })),
-    previewInteractiveDependencies: vi.fn(async () => ({ items: [] })),
+    updateInteractivePackage: vi.fn(async () => ({ id: APPLICATION_ID })),
+    previewInteractiveDependencies: vi.fn(async () => ({ items: [], application: { name: "Review", description: "Review requests", version: "1.2.3" } })),
     interactiveDependencies: vi.fn(async () => ({ items: [] })),
     interactiveDependencyOptions: vi.fn(async () => ({ items: [], next_cursor: null })),
     updateInteractiveDependencies: vi.fn(async () => ({ id: APPLICATION_ID })),
     getPublication: vi.fn(async () => ({ version_id: null, version_number: null, usage_instructions: "" })),
     distributionSettings: vi.fn(async () => ({ version_number: "1.0.0", highest_version_number: null, usage_instructions: "" })),
+    publicationReadiness: vi.fn(async () => ({ has_active_tasks: false })),
     share: vi.fn(async () => ({ version_id: APPLICATION_ID, version_number: "1.0.0", usage_instructions: "Configure your account." })),
     install: vi.fn(async () => ({ id: APPLICATION_ID })),
     list: vi.fn(async () => []),
+    catalog: vi.fn(async () => ({ items: [], next_cursor: null })),
     get: vi.fn(),
+    details: vi.fn(async () => ({ id: APPLICATION_ID, resources: [] })),
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),

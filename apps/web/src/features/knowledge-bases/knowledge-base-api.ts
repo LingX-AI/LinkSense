@@ -12,6 +12,8 @@ import {
   downloadApiFile,
   isDefinitiveAuthenticationError,
   refreshSession,
+  prepareClientBuildRequest,
+  validateUploadResponseBuild,
 } from "@/api/client"
 import { getAccessToken, setAccessToken } from "@/api/session"
 import {
@@ -608,6 +610,8 @@ function uploadWithToken(
   options: KnowledgeUploadOptions,
   token: string | null
 ): Promise<KnowledgeUploadResult> {
+  const buildHeaders = new Headers()
+  prepareClientBuildRequest(buildHeaders)
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest()
     request.open(
@@ -616,6 +620,7 @@ function uploadWithToken(
     )
     request.responseType = "json"
     request.setRequestHeader("Accept", "application/json")
+    buildHeaders.forEach((value, name) => request.setRequestHeader(name, value))
     const language = document.documentElement.lang
     if (language === "zh-CN" || language === "en-US") {
       request.setRequestHeader("Accept-Language", language)
@@ -645,6 +650,12 @@ function uploadWithToken(
       )
     })
     request.addEventListener("load", () => {
+      try {
+        validateUploadResponseBuild(request)
+      } catch (error) {
+        reject(error)
+        return
+      }
       const successEnvelope = successEnvelopeSchema.safeParse(request.response)
       if (
         request.status >= 200 &&

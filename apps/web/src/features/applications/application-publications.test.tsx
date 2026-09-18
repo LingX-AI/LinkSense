@@ -86,7 +86,7 @@ describe("application publications", () => {
     ["pending", "published", "pending"],
     ["rejected", "published", "rejected"],
     ["withdrawn", "draft", "withdrawn"],
-    ["pending", "suspended", "suspended"],
+    ["pending", "suspended", "unlisted"],
   ] as const)(
     "shows %s releases in %s listings as %s",
     async (status, listing_status, displayed) => {

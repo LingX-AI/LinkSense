@@ -3,9 +3,12 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import i18n from "@/i18n"
+import { conversationSchema } from "@/api/contracts"
 import { SidebarTaskGroups } from "./sidebar-task-groups"
 
 const project = {
+  icon: "folder" as const,
+  color: "default" as const,
   id: "80000000-0000-4000-8000-000000000001",
   name: "日常工作",
   created_at: "2026-09-09T00:00:00.000Z",
@@ -39,6 +42,85 @@ describe("sidebar task project controls", () => {
     vi.restoreAllMocks()
   })
 
+  it("separates project tasks from Recent while preserving pinned and unavailable-project tasks", () => {
+    const task = (id: string, projectId: string | null) =>
+      conversationSchema.parse({
+        id,
+        title: id,
+        project_id: projectId,
+        updated_at: project.updated_at,
+      })
+    render(
+      <SidebarTaskGroups
+        userId="first"
+        pinned={[task("pinned", null)]}
+        recent={[
+          task("project-task", project.id),
+          task("recent-first", null),
+          task("unavailable-task", "80000000-0000-4000-8000-000000000002"),
+          task("recent-second", null),
+        ]}
+        projects={[project]}
+        loadingMore={false}
+        onAction={vi.fn()}
+      >
+        {({ conversations }) =>
+          conversations.map((conversation) => (
+            <a key={conversation.id} href={`/conversations/${conversation.id}`}>
+              {conversation.title}
+            </a>
+          ))
+        }
+      </SidebarTaskGroups>
+    )
+    const projects = screen.getByRole("region", { name: "项目" })
+    const recent = screen.getByRole("region", { name: "最近" })
+    expect(
+      within(projects)
+        .getAllByRole("link")
+        .map((link) => link.textContent)
+    ).toEqual(["project-task", "unavailable-task"])
+    expect(
+      within(recent)
+        .getAllByRole("link")
+        .map((link) => link.textContent)
+    ).toEqual(["recent-first", "recent-second"])
+    expect(
+      within(screen.getByRole("region", { name: "置顶" })).getByRole("link", {
+        name: "pinned",
+      })
+    ).toBeVisible()
+    expect(
+      within(projects).getByRole("region", { name: "项目暂不可用" })
+    ).toBeVisible()
+    expect(
+      projects.compareDocumentPosition(recent) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it("keeps separate section headings and project creation available when both lists are empty", () => {
+    render(
+      <SidebarTaskGroups
+        userId="first"
+        pinned={[]}
+        recent={[]}
+        projects={[]}
+        loadingMore={false}
+        onAction={vi.fn()}
+      >
+        {() => null}
+      </SidebarTaskGroups>
+    )
+    expect(
+      within(screen.getByRole("region", { name: "项目" })).getByRole("button", {
+        name: "新建项目",
+      })
+    ).toBeEnabled()
+    expect(screen.getByRole("region", { name: "最近" })).toBeVisible()
+    expect(screen.queryByRole("link")).not.toBeInTheDocument()
+  })
+
   it("restores the last collapsed or expanded choice after remounting the sidebar", async () => {
     const interaction = userEvent.setup()
     renderGroups()
@@ -60,6 +142,155 @@ describe("sidebar task project controls", () => {
       "true"
     )
     expect(screen.getByRole("link", { name: "归属任务" })).toBeVisible()
+  })
+
+  it("uses the smaller adaptive font size for Projects and Recent headings", () => {
+    renderGroups()
+    for (const name of ["项目", "最近"]) {
+      const heading = screen.getByRole("heading", { name })
+      expect(heading).toHaveClass("text-[length:var(--app-font-13)]")
+      expect(heading).not.toHaveClass("text-[length:var(--app-ui-font-size)]")
+    }
+  })
+
+  it.each([
+    ["zh-CN", "项目", "最近"],
+    ["en-US", "Projects", "Recent"],
+  ])(
+    "toggles the two sections independently with pointer and keyboard in %s",
+    async (language, projectsLabel, recentLabel) => {
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      const task = conversationSchema.parse({
+        id: "recent-task",
+        title: "Recent task",
+        project_id: null,
+        updated_at: project.updated_at,
+      })
+      render(
+        <SidebarTaskGroups
+          userId="first"
+          pinned={[{ ...task, id: "pinned-task", title: "Pinned task" }]}
+          recent={[task]}
+          projects={[project]}
+          loadingMore={false}
+          onAction={vi.fn()}
+        >
+          {({ conversations }) =>
+            conversations.map((conversation) => (
+              <a
+                key={conversation.id}
+                href={`/conversations/${conversation.id}`}
+              >
+                {conversation.title}
+              </a>
+            ))
+          }
+        </SidebarTaskGroups>
+      )
+      const projects = screen.getByRole("button", {
+        name: projectsLabel,
+      })
+      const recent = screen.getByRole("button", {
+        name: recentLabel,
+      })
+      expect(projects).toHaveAttribute("aria-expanded", "true")
+      expect(recent).toHaveAttribute("aria-expanded", "true")
+
+      await interaction.click(projects)
+      expect(projects).toHaveAttribute("aria-expanded", "false")
+      expect(
+        screen.queryByRole("button", { name: project.name })
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole("link", { name: "Recent task" })).toBeVisible()
+      await interaction.click(recent)
+      expect(recent).toHaveAttribute("aria-expanded", "false")
+      expect(
+        screen.queryByRole("link", { name: "Recent task" })
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole("link", { name: "Pinned task" })).toBeVisible()
+
+      await interaction.keyboard("{Enter}")
+      expect(recent).toHaveAttribute("aria-expanded", "true")
+      expect(screen.getByRole("link", { name: "Recent task" })).toBeVisible()
+      await interaction.click(projects)
+      expect(screen.getByRole("button", { name: project.name })).toBeVisible()
+      await interaction.keyboard(" ")
+      expect(projects).toHaveAttribute("aria-expanded", "false")
+      expect(
+        screen.queryByRole("button", { name: project.name })
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  it("reveals section arrows on heading hover, keyboard focus, and touch devices", () => {
+    renderGroups()
+    for (const name of ["项目", "最近"]) {
+      const trigger = screen.getByRole("button", { name })
+      expect(trigger).toHaveClass("w-full", "group/section-trigger")
+      expect(trigger.closest(".group\\/tasks-heading")).toContainElement(
+        trigger
+      )
+      const arrow = trigger.querySelector("svg")
+      expect(arrow).toHaveAttribute("aria-hidden", "true")
+      expect(arrow).toHaveClass(
+        "opacity-0",
+        "group-hover/tasks-heading:opacity-100",
+        "group-has-[:focus-visible]/tasks-heading:opacity-100",
+        "group-aria-expanded/section-trigger:rotate-90",
+        "[@media(hover:none)]:opacity-100"
+      )
+    }
+  })
+
+  it.each(["项目", "最近"])(
+    "animates the %s section height and arrow while respecting reduced motion",
+    (name) => {
+      renderGroups()
+      const section = screen.getByRole("region", { name })
+      const panel = section.querySelector(
+        ":scope > [data-slot='collapsible-content']"
+      )
+      expect(panel).toHaveClass(
+        "h-(--collapsible-panel-height)",
+        "overflow-hidden",
+        "transition-[height,opacity]",
+        "duration-200",
+        "ease-out",
+        "data-starting-style:h-0",
+        "data-ending-style:h-0",
+        "data-starting-style:opacity-0",
+        "data-ending-style:opacity-0",
+        "motion-reduce:transition-none"
+      )
+      expect(
+        within(section).getByRole("button", { name }).querySelector("svg")
+      ).toHaveClass(
+        "transition-[transform,opacity]",
+        "duration-200",
+        "ease-out",
+        "motion-reduce:transition-none"
+      )
+    }
+  )
+
+  it("preserves individual project state and keeps creation available while the section is collapsed", async () => {
+    const interaction = userEvent.setup()
+    const onAction = renderGroups()
+    const projects = screen.getByRole("button", { name: "项目" })
+    await interaction.click(screen.getByRole("button", { name: project.name }))
+    await interaction.click(projects)
+    await interaction.click(screen.getByRole("button", { name: "新建项目" }))
+    expect(onAction).toHaveBeenCalledExactlyOnceWith({ mode: "create" })
+    expect(projects).toHaveAttribute("aria-expanded", "false")
+    await interaction.click(projects)
+    expect(screen.getByRole("button", { name: project.name })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    )
+    expect(
+      screen.queryByRole("link", { name: "归属任务" })
+    ).not.toBeInTheDocument()
   })
 
   it("keeps a renamed project collapsed and restores the correct preference when switching users", async () => {
@@ -119,7 +350,7 @@ describe("sidebar task project controls", () => {
 
     expect(headingRow).toHaveClass("group/tasks-heading", "pr-0.5")
     expect(headingRow).toContainElement(
-      screen.getByRole("heading", { name: "任务" })
+      screen.getByRole("heading", { name: "项目" })
     )
     expect(headingRow).not.toContainElement(
       screen.getByRole("region", { name: project.name })
@@ -138,9 +369,15 @@ describe("sidebar task project controls", () => {
     )
     expect(create).not.toHaveClass("[&_svg:not([class*='size-'])]:size-3")
     await interaction.tab()
+    expect(screen.getByRole("button", { name: "项目" })).toHaveFocus()
+    await interaction.tab()
     expect(create).toHaveFocus()
     await interaction.keyboard("{Enter}")
     expect(onAction).toHaveBeenCalledExactlyOnceWith({ mode: "create" })
+    expect(screen.getByRole("button", { name: "项目" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    )
   })
 
   it("highlights the whole project header including the menu without giving expanded folders a permanent button background", () => {
@@ -229,15 +466,15 @@ describe("sidebar task project controls", () => {
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent)
-    ).toEqual(["重命名", "删除"])
+    ).toEqual(["编辑", "移除项目"])
     await interaction.hover(menu)
     expect(more).toHaveAttribute("data-popup-open")
     expect(folder).toHaveAttribute("aria-expanded", "true")
     await interaction.click(
-      within(menu).getByRole("menuitem", { name: "重命名" })
+      within(menu).getByRole("menuitem", { name: "编辑" })
     )
     expect(onAction).toHaveBeenCalledExactlyOnceWith({
-      mode: "rename",
+      mode: "edit",
       project,
     })
     expect(folder).toHaveAttribute("aria-expanded", "true")

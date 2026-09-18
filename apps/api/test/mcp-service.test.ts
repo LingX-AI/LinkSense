@@ -338,6 +338,57 @@ describe("McpServerService", () => {
     expect(repository.rows).toHaveLength(30);
   });
 
+  it("recovers an empty task snapshot without adding the owner's personal MCP servers", async () => {
+    const { service } = createService(new InMemoryMcpServerRepository());
+    await service.create(actor(), {
+      name: "Personal MCP",
+      url: "https://mcp.example.test/mcp",
+      authType: "bearer",
+      credential: "unrelated-secret",
+    });
+
+    await expect(service.resolveRecovery(OWNER_ID, [])).resolves.toEqual({ environment: {} });
+  });
+
+  it("recovers only the persisted MCP selection after an unrelated server is added", async () => {
+    const { service } = createService(new InMemoryMcpServerRepository());
+    await service.create(actor(), {
+      name: "Selected MCP",
+      url: "https://selected.example.test/mcp",
+      authType: "bearer",
+      credential: "selected-secret",
+    });
+    const snapshot = await service.resolveRuntime(OWNER_ID);
+    await service.create(actor(), {
+      name: "New MCP",
+      url: "https://new.example.test/mcp",
+      authType: "bearer",
+      credential: "unrelated-secret",
+    });
+
+    await expect(service.resolveRecovery(OWNER_ID, snapshot.servers)).resolves.toEqual({
+      environment: snapshot.environment,
+    });
+  });
+
+  it.each(["disabled", "deleted", "another-owner", "duplicate"] as const)(
+    "rejects recovery when a persisted MCP is %s",
+    async (change) => {
+      const repository = new InMemoryMcpServerRepository();
+      const { service } = createService(repository);
+      const created = await service.create(actor(), {
+        name: "Selected MCP", url: "https://mcp.example.test/mcp", authType: "none",
+      });
+      const snapshot = await service.resolveRuntime(OWNER_ID);
+      if (change === "disabled") await repository.update(created.id, { status: "disabled" });
+      if (change === "deleted") await repository.delete(created.id);
+      await expect(service.resolveRecovery(
+        change === "another-owner" ? OTHER_OWNER_ID : OWNER_ID,
+        change === "duplicate" ? [...snapshot.servers, ...snapshot.servers] : snapshot.servers,
+      )).rejects.toMatchObject({ code: "APPLICATION_DEPENDENCY_UNAVAILABLE" });
+    },
+  );
+
   it("changes runtime generation only for runtime-relevant changes and fails closed on recovery drift", async () => {
     const repository = new InMemoryMcpServerRepository();
     const { service } = createService(repository);

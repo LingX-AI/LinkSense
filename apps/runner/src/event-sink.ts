@@ -4,6 +4,9 @@ import {
   RUNNER_EVENT_BATCH_MAX_COUNT,
   RUNNER_EVENT_BATCH_TARGET_BYTES,
   runnerEventBatchReceiptSchema,
+  runnerStartSettledSchema,
+  runnerStartSettledReceiptSchema,
+  type RunnerStartSettled,
 } from "@linksense/shared";
 import type {
   ImageGenerationRequest,
@@ -19,6 +22,7 @@ import { imageGenerationErrorFromApi } from "./image-generation-error.js";
 import { knowledgeSearchErrorFromApi } from "./knowledge-search-error.js";
 import { knowledgeServiceErrorFromApi } from "./knowledge-service-error.js";
 import { skillCreatorErrorFromApi } from "./skill-creator-error.js";
+import { applicationBuilderErrorFromApi } from "./application-builder-error.js";
 import { currentUserInfoErrorFromApi } from "./current-user-error.js";
 import {
   DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
@@ -29,6 +33,7 @@ import { MemoryUsageOutboxStore } from "./workspace/memory-usage-outbox.js";
 import { WorkspaceManager } from "./workspace/workspace-manager.js";
 
 export interface RunnerEventSink {
+  reportStartSettled?(input: RunnerStartSettled): Promise<void>;
   /** Atomically persists the event before returning. */
   publish(conversationId: string, event: LinkSensePublishedEvent): Promise<void>;
   /** Persists every original event, in order, before returning. */
@@ -41,6 +46,7 @@ export interface RunnerEventSink {
     displayName: string;
     mimeType?: string;
     artifactKind?: string;
+    webRootRelativePath?: string;
   }): Promise<unknown>;
   generateImage?(input: {
     conversationId: string;
@@ -53,6 +59,7 @@ export interface RunnerEventSink {
     turnId: string;
     workspaceRelativePath: string;
   }): Promise<unknown>;
+  applicationBuilder?(input: { conversationId: string; turnId: string; request: import("@linksense/shared").ApplicationBuilderRequest }): Promise<unknown>;
   confirmSkillInstall?(input: {
     conversationId: string;
     turnId: string;
@@ -129,6 +136,8 @@ export class HttpRunnerEventSink implements RunnerEventSink {
   private readonly outbox: RunnerEventOutboxStore;
   private readonly memoryUsageOutbox: MemoryUsageOutboxStore;
   private readonly workers = new Map<string, Promise<void>>();
+  private readonly deliveryWakeVersions = new Map<string, number>();
+  private readonly deliveryWaiters = new Map<string, AbortController>();
   private readonly memoryUsageWorkers = new Map<string, Promise<void>>();
   private readonly conversationThreads = new Map<string, string>();
   private readonly stopController = new AbortController();
@@ -215,6 +224,21 @@ export class HttpRunnerEventSink implements RunnerEventSink {
   async resumeConversation(conversationId: string): Promise<void> {
     const entry = await this.outbox.peek(conversationId);
     if (entry) this.startWorker(conversationId);
+  }
+
+  async reportStartSettled(input: RunnerStartSettled): Promise<void> {
+    const body = runnerStartSettledSchema.parse(input);
+    // This control request must bypass events waiting for that very projection.
+    const response = await this.post("/internal/runner/start-settled", body,
+      this.workspaceManager.ownerFor(body.conversationId));
+    const receipt = runnerStartSettledReceiptSchema.parse(asRecord(response).data);
+    if (!receipt.settled) throw new Error("start operation projection is pending");
+    if (this.workers.has(body.conversationId)) {
+      this.deliveryWakeVersions.set(body.conversationId,
+        (this.deliveryWakeVersions.get(body.conversationId) ?? 0) + 1);
+      this.deliveryWaiters.get(body.conversationId)?.abort();
+    }
+    await this.resumeConversation(body.conversationId);
   }
 
   async flushConversation(
@@ -306,6 +330,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     displayName: string;
     mimeType?: string;
     artifactKind?: string;
+    webRootRelativePath?: string;
   }): Promise<unknown> {
     return this.postArtifact(
       input,
@@ -337,6 +362,13 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       input,
       this.workspaceManager.ownerFor(input.conversationId),
     );
+  }
+
+  async applicationBuilder(input: { conversationId: string; turnId: string; request: import("@linksense/shared").ApplicationBuilderRequest }): Promise<unknown> {
+    const response = await this.request("/internal/application-builder", input, this.workspaceManager.ownerFor(input.conversationId));
+    const body = await parseResponseBody(response);
+    if (!response.ok) throw applicationBuilderErrorFromApi(response.status, body);
+    return body;
   }
 
   confirmSkillInstall(input: {
@@ -535,6 +567,8 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     const worker = this.runWorker(conversationId).finally(() => {
       if (this.workers.get(conversationId) === worker) {
         this.workers.delete(conversationId);
+        this.deliveryWakeVersions.delete(conversationId);
+        this.deliveryWaiters.delete(conversationId);
       }
       if (!this.stopController.signal.aborted) {
         void this.resumeConversation(conversationId).catch(() =>
@@ -551,6 +585,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
   private async runWorker(conversationId: string): Promise<void> {
     let attempt = 0;
     while (!this.stopController.signal.aborted) {
+      const wakeVersion = this.deliveryWakeVersions.get(conversationId) ?? 0;
       try {
         const entries = await this.outbox.peekBatch(
           conversationId,
@@ -581,7 +616,14 @@ export class HttpRunnerEventSink implements RunnerEventSink {
         retryMaxMs,
         retryBaseMs * 2 ** Math.min(attempt - 1, 16),
       );
-      await abortableDelay(backoff, this.stopController.signal);
+      if (wakeVersion !== (this.deliveryWakeVersions.get(conversationId) ?? 0)) continue;
+      const wake = new AbortController();
+      this.deliveryWaiters.set(conversationId, wake);
+      try {
+        await abortableDelay(backoff, AbortSignal.any([this.stopController.signal, wake.signal]));
+      } finally {
+        if (this.deliveryWaiters.get(conversationId) === wake) this.deliveryWaiters.delete(conversationId);
+      }
     }
   }
 
@@ -698,7 +740,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     ownerId: string,
     callerSignal?: AbortSignal,
   ): Promise<Response> {
-    const timeoutMs = pathname === "/internal/runner/heartbeat"
+    const timeoutMs = pathname === "/internal/runner/heartbeat" || pathname === "/internal/runner/start-settled"
       ? 5_000
       : pathname.startsWith("/internal/knowledge/")
       ? deriveKnowledgeSearchTimeouts(
@@ -707,6 +749,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
         ).workerRelayMs
       : pathname.startsWith("/internal/image-generation/")
         ? 180_000
+      : pathname === "/internal/application-builder" ? 60_000
       : pathname === "/internal/runner/process-exit"
         ? (this.options.processExitTimeoutMs ?? 150_000)
         : (this.options.requestTimeoutMs ?? 15_000);

@@ -92,21 +92,25 @@ Increase CPU, memory, and storage for high task concurrency, large documents, or
 
 ## Local development
 
-You need Node.js 24+, pnpm 10.6.4, Docker Engine/Compose, and rsync (included with macOS; install your distribution's rsync package on Linux). Applications and dependencies run in Linux containers; host rsync only synchronizes source files.
+You need Node.js 24.5+, pnpm 10.6.4, Docker Engine/Compose, rsync (included with macOS; install your distribution's rsync package on Linux), and [mkcert](https://github.com/FiloSottile/mkcert) on the host (macOS: `brew install mkcert`). Applications and dependencies run in Linux containers; host rsync only synchronizes source files. Complete the system trust prompt when running `mkcert -install` for the first time.
 
 ```bash
 corepack enable
 corepack prepare pnpm@10.6.4 --activate
 pnpm install --frozen-lockfile
+mkcert -install
 pnpm dev:prepare
 pnpm dev
 ```
 
 Preparation builds application images, the production task worker, and the bilingual Help Center using the production build stage, checks infrastructure and database initialization, then starts services and warms runtime caches until ready. `pnpm dev` also prepares missing inputs automatically. For lighter local development without Docker, Core mode needs only host-reachable PostgreSQL and Redis, development-only local file storage, and non-isolated child-process workers. Copy the minimal environment template and follow the [`dev:host` startup guide](./deploy/development/README.md#host-development-without-local-docker). Daily container startup targets 10 seconds after preparation. Default addresses:
 
-- Web: `http://localhost:18173`
+- Web HTTP: `http://localhost:18172`
+- Web HTTPS (HTTP/2): `https://localhost:18173`
 - API: `http://localhost:4000`
 - Runner: `http://localhost:4010`
+
+HTTP and HTTPS are available simultaneously without redirects. Both support API requests, SSE, and hot reload; use HTTPS to test concurrent SSE tasks over HTTP/2. Configure the HTTP origin and port with `LINKSENSE_DEV_WEB_ORIGIN` and `LINKSENSE_DEV_WEB_PORT`, and the HTTPS port with `LINKSENSE_DEV_WEB_HTTPS_PORT` in `.env`. Development certificates are generated automatically and excluded from Git.
 
 Common commands:
 

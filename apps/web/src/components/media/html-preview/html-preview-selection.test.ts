@@ -91,6 +91,7 @@ function installController(useRealSelecto = false) {
   }
   Reflect.set(window, "Selecto", useRealSelecto ? Selecto : SelectoMock)
   const controller = installHtmlPreviewAnnotationController(window, {
+    reportMessage: (message) => window.parent.postMessage(message, "*"),
     modeMessageType: htmlPreviewAnnotationModeMessageType,
     selectionMessageType: htmlPreviewSelectionMessageType,
     clearMessageType: htmlPreviewSelectionClearMessageType,

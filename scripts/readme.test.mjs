@@ -105,6 +105,19 @@ test("every relative README link resolves to a repository file", async () => {
   }
 })
 
+test("both READMEs document the default HTTP and HTTPS entries and certificate setup", async () => {
+  for (const readmePath of [englishPath, chinesePath]) {
+    const source = await readFile(readmePath, "utf8")
+    const development = source.split(/## (?:Local development|本地开发)\n/u)[1]?.split("\n## ")[0]
+    assert.ok(development)
+    for (const required of ["http://localhost:18172", "https://localhost:18173", "HTTP/2", "mkcert -install", "LINKSENSE_DEV_WEB_PORT", "LINKSENSE_DEV_WEB_HTTPS_PORT"]) {
+      assert.ok(development.includes(required), `${path.basename(readmePath)} is missing ${required}`)
+    }
+    assert.doesNotMatch(development, /http:\/\/localhost:18173|https:\/\/localhost:18174/u)
+    assert.ok(development.indexOf("mkcert -install") < development.indexOf("pnpm dev:prepare"))
+  }
+})
+
 test("both READMEs end with the same accessible contributor avatars after the license", async () => {
   const [english, chinese] = await Promise.all([
     readFile(englishPath, "utf8"),

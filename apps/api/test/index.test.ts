@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  ApiStartupError,
   configureApiFileCreationMask,
   createApiLifecycle,
   formatApiStartupFailure,
@@ -178,6 +179,8 @@ describe("API startup lifecycle", () => {
 
     try {
       await vi.waitFor(() => expect(fixture.closeApp).toHaveBeenCalledOnce());
+      expect(fixture.startupLog).toHaveBeenCalledWith({ stage: "http" }, "API shutdown stage started");
+      expect(fixture.startupLog).not.toHaveBeenCalledWith(expect.objectContaining({ stage: "http" }), "API shutdown stage finished");
       expect(fixture.startupErrorLog).toHaveBeenCalledExactlyOnceWith({
         error_class: "Error",
         reason_code: "RUNNING_TURN_RECOVERY_RUNNER_UNAVAILABLE",
@@ -272,6 +275,26 @@ describe("API startup lifecycle", () => {
 });
 
 describe("API startup failure reporting", () => {
+  it("identifies a refused object storage connection without exposing credentials or addresses", () => {
+    const cause = Object.assign(new Error("connect refused http://private:password@storage.internal:9000"), {
+      code: "ECONNREFUSED",
+    });
+    const failure = new ApiStartupError("object-storage", cause);
+
+    expect(formatApiStartupFailure(failure)).toBe(
+      "LinkSense API failed to start (Error, stage=object-storage, reason=ECONNREFUSED).\n",
+    );
+    expect(failure.cause).toBe(cause);
+  });
+
+  it("keeps the startup stage when the underlying failure has no safe reason code", () => {
+    const failure = new ApiStartupError("bootstrap", new Error("password=private-value"));
+
+    expect(formatApiStartupFailure(failure)).toBe(
+      "LinkSense API failed to start (Error, stage=bootstrap).\n",
+    );
+  });
+
   it("reports an explicitly supplied stable recovery reason code", () => {
     const error = Object.assign(new Error("private detail"), {
       name: "RunningTurnRecoveryCycleError",

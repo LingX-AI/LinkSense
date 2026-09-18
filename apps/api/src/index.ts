@@ -47,6 +47,15 @@ export type ApiLifecycle = {
 
 const STABLE_REASON_CODE = /^[A-Z][A-Z0-9_]{0,119}$/u;
 
+type ApiStartupStage = "connections" | "runtime-layout" | "object-storage" | "bootstrap" | "services";
+
+export class ApiStartupError extends Error {
+  constructor(readonly stage: ApiStartupStage, cause: unknown) {
+    super("API_STARTUP_FAILED", { cause });
+    this.name = "ApiStartupError";
+  }
+}
+
 export function createApiLifecycle(
   resources: ApiStartupResources,
 ): ApiLifecycle {
@@ -94,9 +103,11 @@ export function createApiLifecycle(
 }
 
 export function formatApiStartupFailure(error: unknown): string {
-  const errorClass = error instanceof Error ? error.name : "unknown";
-  const reasonCode = stableReasonCode(error);
-  return `LinkSense API failed to start (${errorClass}${reasonCode ? `, reason=${reasonCode}` : ""}).\n`;
+  const failure = error instanceof ApiStartupError ? error.cause : error;
+  const stage = error instanceof ApiStartupError ? `, stage=${error.stage}` : "";
+  const errorClass = failure instanceof Error ? failure.name : "unknown";
+  const reasonCode = stableReasonCode(failure);
+  return `LinkSense API failed to start (${errorClass}${stage}${reasonCode ? `, reason=${reasonCode}` : ""}).\n`;
 }
 
 export function isMainModule(
@@ -143,6 +154,7 @@ export async function main(): Promise<void> {
     : null;
   let services: AppServices | null = null;
   let lifecycle: ApiLifecycle | null = null;
+  let stage: ApiStartupStage = "connections";
 
   try {
     await Promise.all([
@@ -150,9 +162,12 @@ export async function main(): Promise<void> {
       mkdir(config.capabilityRoot, { recursive: true }),
       redis.connect(),
     ]);
+    stage = "runtime-layout";
     await assertRuntimeLayoutReady(prisma, config.userDataRoot);
+    stage = "object-storage";
     await storage.ensureBucket();
 
+    stage = "bootstrap";
     const boot = await loadApiWithOfficeWarmup(async () => {
       const [{ createServices }, { buildApi }] = await Promise.all([
         import("./services.js"), import("./app.js"),
@@ -175,6 +190,7 @@ export async function main(): Promise<void> {
       host: config.host,
       port: config.port,
     });
+    stage = "services";
     await lifecycle.start();
     // Persist enabled Node compilation caches before a container can be stopped.
     const cacheStarted = performance.now();
@@ -187,7 +203,7 @@ export async function main(): Promise<void> {
       await closePartiallyStartedApi(services, redis, prisma);
       if (!services) await officeRuntime?.close().catch(() => undefined);
     }
-    throw error;
+    throw new ApiStartupError(stage, error);
   }
 
   const close = lifecycle.close;
@@ -214,41 +230,49 @@ export function configureApiFileCreationMask(): void {
 async function closeApiResources(
   resources: ApiStartupResources,
 ): Promise<void> {
-  const recoveryResult = await Promise.allSettled([
-    Promise.resolve().then(() => resources.services.events.stopRecoveryMonitor()),
+  const closeStage = async (
+    stage: string,
+    operations: Array<() => unknown>,
+  ): Promise<PromiseSettledResult<unknown>[]> => {
+    const started = performance.now();
+    resources.app.log.info({ stage }, "API shutdown stage started");
+    const results = await Promise.allSettled(
+      operations.map((operation) => Promise.resolve().then(operation)),
+    );
+    resources.app.log.info({
+      stage,
+      duration_ms: Math.round(performance.now() - started),
+      failures: results.filter((result) => result.status === "rejected").length,
+    }, "API shutdown stage finished");
+    return results;
+  };
+  const recoveryResult = await closeStage("recovery-monitor", [
+    () => resources.services.events.stopRecoveryMonitor(),
   ]);
-  const appResult = await Promise.allSettled([
-    Promise.resolve().then(() => resources.app.close()),
+  const appResult = await closeStage("http", [
+    () => resources.app.close(),
   ]);
-  const governanceResult = await Promise.allSettled([
-    Promise.resolve().then(() =>
-      resources.services.knowledgeGovernance?.close(),
-    ),
+  const governanceResult = await closeStage("knowledge-governance", [
+    () => resources.services.knowledgeGovernance?.close(),
   ]);
-  const knowledgeResult = await Promise.allSettled([
-    Promise.resolve().then(() =>
-      resources.services.knowledgeSourceRuntime?.close(),
-    ),
-    Promise.resolve().then(() => resources.services.knowledgeRuntime?.close()),
+  const knowledgeResult = await closeStage("knowledge", [
+    () => resources.services.knowledgeSourceRuntime?.close(),
+    () => resources.services.knowledgeRuntime?.close(),
   ]);
-  const schedulerResults = await Promise.allSettled([
-    Promise.resolve().then(() =>
-      resources.services.automationScheduler.close(),
-    ),
-    Promise.resolve().then(() =>
-      resources.services.billingStatementScheduler.close(),
-    ),
-    Promise.resolve().then(() => resources.services.clawHubScheduler.close()),
-    Promise.resolve().then(() => resources.services.feishu.close()),
-    Promise.resolve().then(() => resources.services.botChannelRuntime.close()),
-    Promise.resolve().then(() => resources.services.feishuRuntime.close()),
-    Promise.resolve().then(() => resources.services.weixinRuntime.close()),
+  const schedulerResults = await closeStage("schedulers", [
+    () => resources.services.automationScheduler.close(),
+    () => resources.services.billingStatementScheduler.close(),
+    () => resources.services.clawHubScheduler.close(),
+    () => resources.services.feishu.close(),
+    () => resources.services.botChannelRuntime.close(),
+    () => resources.services.feishuRuntime.close(),
+    () => resources.services.weixinRuntime.close(),
   ]);
-  const dependencyResults = await Promise.allSettled([
-    Promise.resolve().then(() => resources.services.jobs.close()),
-    Promise.resolve().then(() => resources.services.passwordResetMail.close()),
-    Promise.resolve().then(() => resources.redis.close()),
-    Promise.resolve().then(() => resources.prisma.$disconnect()),
+  const dependencyResults = await closeStage("dependencies", [
+    () => resources.services.jobs.close(),
+    () => resources.services.passwordResetMail.close(),
+    () => resources.redis.close(),
+    () => resources.prisma.$disconnect(),
   ]);
   const failures = [
     ...recoveryResult,
@@ -300,7 +324,9 @@ function stableReasonCode(error: unknown): string | null {
   const reasonCode =
     "reasonCode" in error && typeof error.reasonCode === "string"
       ? error.reasonCode
-      : error.message;
+      : "code" in error && typeof error.code === "string"
+        ? error.code
+        : error.message;
   return STABLE_REASON_CODE.test(reasonCode) ? reasonCode : null;
 }
 

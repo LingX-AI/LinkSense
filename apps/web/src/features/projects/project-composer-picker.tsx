@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import { FolderClosedIcon, PlusIcon, XIcon } from "lucide-react"
+import { PlusIcon, XIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/popover"
 import { useProjects } from "./project-api"
 import { ProjectDialog } from "./project-dialog"
+import { ProjectIcon } from "./project-icon"
 import { cn } from "@/lib/utils"
 
 export function ProjectComposerPicker({
@@ -35,6 +36,7 @@ export function ProjectComposerPicker({
   const selected = projects.find((project) => project.id === value)
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [hovered, setHovered] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const canClear = value !== null && !disabled && !query.isPending
@@ -48,7 +50,14 @@ export function ProjectComposerPicker({
     <>
       <div className="conversation-project-dock flex min-h-10 min-w-0 flex-wrap items-center gap-2 px-2 py-1">
         <Popover open={open && !disabled} onOpenChange={setOpen}>
-          <div className="group/project-picker relative flex max-w-full min-w-0">
+          <div
+            className="group/project-picker relative flex max-w-full min-w-0"
+            onPointerEnter={(event) => {
+              if (event.pointerType !== "touch") setHovered(true)
+            }}
+            onPointerLeave={() => setHovered(false)}
+            onPointerCancel={() => setHovered(false)}
+          >
             <PopoverTrigger
               ref={triggerRef}
               render={<Button variant="ghost" />}
@@ -57,19 +66,21 @@ export function ProjectComposerPicker({
               disabled={disabled || query.isPending}
               className="max-w-full min-w-0 gap-2 bg-transparent px-1.5 text-[length:var(--app-font-13)] font-medium hover:bg-hover focus-visible:bg-hover data-popup-open:bg-hover"
             >
-              <FolderClosedIcon
-                aria-hidden="true"
+              <ProjectIcon
+                icon={selected?.icon}
+                color={selected?.color}
                 className={cn(
                   "size-3.5 shrink-0",
+                  canClear && hovered && "opacity-0",
                   canClear &&
-                    "group-hover/project-picker:opacity-0 group-has-[:focus-visible]/project-picker:opacity-0 [@media(hover:none)]:opacity-0"
+                    "group-has-[:focus-visible]/project-picker:opacity-0 [@media(hover:none)]:opacity-0"
                 )}
               />
               <span className="truncate">
                 {query.isPending
                   ? t("common.loading")
                   : value === null
-                    ? t("projects.projectlessTask")
+                    ? t("projects.selectPlaceholder")
                     : (selected?.name ?? t("projects.unavailable"))}
               </span>
             </PopoverTrigger>
@@ -79,7 +90,12 @@ export function ProjectComposerPicker({
                 variant="secondary"
                 size="icon-xs"
                 aria-label={t("projects.clearSelection")}
-                className="pointer-events-none absolute top-1/2 left-1 size-5 -translate-y-1/2 rounded-full opacity-0 group-hover/project-picker:pointer-events-auto group-hover/project-picker:opacity-100 group-has-[:focus-visible]/project-picker:pointer-events-auto group-has-[:focus-visible]/project-picker:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+                className={cn(
+                  "absolute inset-y-0 left-1 my-auto size-5 rounded-full group-has-[:focus-visible]/project-picker:pointer-events-auto group-has-[:focus-visible]/project-picker:opacity-100 active:not-aria-[haspopup]:translate-y-0 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
+                  hovered
+                    ? "pointer-events-auto opacity-100"
+                    : "pointer-events-none opacity-0"
+                )}
                 onClick={() => {
                   choose(null)
                   triggerRef.current?.focus()
@@ -122,8 +138,9 @@ export function ProjectComposerPicker({
                       onSelect={() => choose(project.id)}
                       className="min-h-7 gap-2 rounded-xl px-2 py-1 text-[length:var(--app-font-13)] font-medium data-[checked=true]:bg-hover [&_svg]:size-3.5"
                     >
-                      <FolderClosedIcon
-                        aria-hidden="true"
+                      <ProjectIcon
+                        icon={project.icon}
+                        color={project.color}
                         className="size-3.5"
                       />
                       <span className="truncate" title={project.name}>

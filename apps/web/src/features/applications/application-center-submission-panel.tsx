@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/field"
 import { Textarea } from "@/components/ui/textarea"
 import { ApplicationVersionFields } from "./application-version-fields"
+import { ApplicationPublicationStatus } from "./application-publication-status"
 import { ApplicationDistributionLayout } from "./application-distribution-layout"
 import { useApplicationVersionForm } from "./use-application-version-form"
 import {
@@ -148,9 +149,7 @@ export function ApplicationCenterSubmissionPanel({
       }
     >
       {latest && (
-        <Badge variant="secondary">
-          {t(`marketplace.status.${latest.listing_status}`)}
-        </Badge>
+        <ApplicationPublicationStatus listingStatus={latest.listing_status} />
       )}
       {latest?.suspension_reason && (
         <StatusBanner variant="warning">

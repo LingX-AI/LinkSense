@@ -33,8 +33,7 @@ export const htmlPreviewAnnotationDocumentAttribute =
   "data-linksense-annotation-document"
 
 export type HtmlPreviewTrustedRuntime = Readonly<{
-  scriptUrl: string
-  additionalScriptUrls?: readonly string[]
+  scriptUrls?: readonly string[]
   bootstrapScript: string
   allowUnrestrictedScripts?: boolean
 }>
@@ -200,6 +199,7 @@ const fitRuntime = `
   const getBoundingRect = (${getHtmlPreviewBoundingRect.toString()});
   const installAnnotationController = (${installHtmlPreviewAnnotationController.toString()});
   const annotationController = installAnnotationController(window, {
+    reportMessage: (message) => window.parent.postMessage(message, "*"),
     modeMessageType: ${JSON.stringify(htmlPreviewAnnotationModeMessageType)},
     selectionMessageType: ${JSON.stringify(htmlPreviewSelectionMessageType)},
     clearMessageType: ${JSON.stringify(htmlPreviewSelectionClearMessageType)},
@@ -214,6 +214,7 @@ const fitRuntime = `
   });
   const installAnnotations = (${installHtmlPreviewAnnotationsController.toString()});
   const annotationsController = installAnnotations(window, {
+    reportMessage: (message) => window.parent.postMessage(message, "*"),
     markersMessageType: ${JSON.stringify(htmlPreviewAnnotationsMessageType)},
     framesMessageType: ${JSON.stringify(htmlPreviewAnnotationFramesMessageType)},
     focusMessageType: ${JSON.stringify(htmlPreviewAnnotationFocusMessageType)},
@@ -507,31 +508,12 @@ function restoreHtmlAnnotationStyleAssets(
   }
 }
 
-function isTailwindBrowserRuntimeScript(script: HTMLScriptElement) {
-  const source = script.getAttribute("src")?.trim()
-  if (!source) return false
-  try {
-    const url = new URL(source, window.location.href)
-    return (
-      url.hostname === "cdn.tailwindcss.com" ||
-      url.pathname.toLowerCase().includes("/@tailwindcss/browser")
-    )
-  } catch {
-    return source.toLowerCase().includes("@tailwindcss/browser")
-  }
-}
-
 function removeExternalResources(
   document: Document,
   mode: HtmlPreviewDocumentMode,
   allowUnrestrictedScripts: boolean
 ) {
-  if (allowUnrestrictedScripts) {
-    for (const script of document.querySelectorAll("script")) {
-      if (isTailwindBrowserRuntimeScript(script)) script.remove()
-    }
-    return
-  }
+  if (allowUnrestrictedScripts) return
   for (const element of document.querySelectorAll("*")) {
     if (element.tagName.toLowerCase() === "script") {
       const script = element as HTMLScriptElement
@@ -597,14 +579,9 @@ export function buildSafeHtmlDocument(
   if (trustedRuntime && mode !== "interaction") {
     throw new Error("Trusted HTML preview runtimes require interaction mode")
   }
-  const trustedRuntimeUrls = trustedRuntime
-    ? [
-        normalizeTrustedRuntimeUrl(trustedRuntime.scriptUrl),
-        ...(trustedRuntime.additionalScriptUrls ?? []).map(
-          normalizeTrustedRuntimeUrl
-        ),
-      ]
-    : []
+  const trustedRuntimeUrls = (trustedRuntime?.scriptUrls ?? []).map(
+    normalizeTrustedRuntimeUrl
+  )
   const allowUnrestrictedScripts =
     mode === "interaction" && trustedRuntime?.allowUnrestrictedScripts === true
   const annotationStyleAssets =
@@ -662,7 +639,7 @@ export function buildSafeHtmlDocument(
     styles.setAttribute("data-linksense-preview-styles", "true")
     styles.textContent = selectionStyles
     document.head.append(styles)
-  } else if (trustedRuntimeUrls.length > 0 && trustedRuntime) {
+  } else if (trustedRuntime) {
     const bootstrap = document.createElement("script")
     bootstrap.setAttribute("data-linksense-preview-bootstrap", "true")
     bootstrap.textContent = trustedRuntime.bootstrapScript
@@ -689,12 +666,10 @@ export function buildSafeHtmlDocument(
 
 export function buildUnrestrictedHtmlPreviewDocument(
   rawHtml: string,
-  tailwindRuntimeUrl: string,
   selectoRuntimeUrl: string
 ) {
   return buildSafeHtmlDocument(rawHtml, "interaction", {
-    scriptUrl: tailwindRuntimeUrl,
-    additionalScriptUrls: [selectoRuntimeUrl],
+    scriptUrls: [selectoRuntimeUrl],
     bootstrapScript: fitRuntime,
     allowUnrestrictedScripts: true,
   })

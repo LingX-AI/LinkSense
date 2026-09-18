@@ -1,7 +1,9 @@
-import type { OfficeAnnotationInput } from "@linksense/shared"
+import type { HtmlAnnotation, OfficeAnnotationInput } from "@linksense/shared"
 
 import type { ConversationFile } from "@/api/contracts"
 import type { ConversationOfficeSelection } from "@/features/conversations/conversation-office-preview"
+
+import type { HtmlSelection } from "@/components/media/html-preview/html-preview.types"
 
 const locatorLimit = 500
 const nameLimit = 240
@@ -112,44 +114,7 @@ export function buildOfficeAnnotationInput(
         if (officeSelection.kind !== "html") {
           throw new Error("office_annotation_kind_mismatch")
         }
-        return {
-          request,
-          elements: officeSelection.selection.elements
-            .slice(0, 20)
-            .map((element) => ({
-              selector: element.selector
-                .replace(/[\r\n]+/gu, " ")
-                .trim()
-                .slice(0, 1_000),
-              dom_path: element.domPath.slice(0, 128),
-              tag_name: element.tagName.trim().slice(0, 80),
-              ...(element.id?.trim()
-                ? { id: element.id.trim().slice(0, 500) }
-                : {}),
-              class_names: [...new Set(element.classNames)]
-                .map((className) => className.trim().slice(0, 120))
-                .filter(Boolean)
-                .slice(0, 50),
-              ...(element.text !== undefined
-                ? { text: element.text.slice(0, 4_000) }
-                : {}),
-              ...(element.outerHtml !== undefined
-                ? { outer_html: element.outerHtml.slice(0, 8_000) }
-                : {}),
-              attributes: Object.fromEntries(
-                Object.entries(element.attributes)
-                  .filter(([name]) =>
-                    /^[a-zA-Z_:][a-zA-Z0-9:._-]*$/u.test(name)
-                  )
-                  .slice(0, 50)
-                  .map(([name, value]) => [
-                    name.slice(0, 120),
-                    value.slice(0, 2_000),
-                  ])
-              ),
-              bounds: element.bounds,
-            })),
-        }
+        return buildHtmlAnnotation(officeSelection.selection, request)
       }),
     }
   }
@@ -245,5 +210,40 @@ export function buildOfficeAnnotationInput(
         },
       }
     }),
+  }
+}
+
+export function buildHtmlAnnotation(
+  selection: HtmlSelection,
+  request: string
+): HtmlAnnotation {
+  return {
+    request,
+    elements: selection.elements.slice(0, 20).map((element) => ({
+      selector: element.selector
+        .replace(/[\r\n]+/gu, " ")
+        .trim()
+        .slice(0, 1_000),
+      dom_path: element.domPath.slice(0, 128),
+      tag_name: element.tagName.trim().slice(0, 80),
+      ...(element.id?.trim() ? { id: element.id.trim().slice(0, 500) } : {}),
+      class_names: [...new Set(element.classNames)]
+        .map((className) => className.trim().slice(0, 120))
+        .filter(Boolean)
+        .slice(0, 50),
+      ...(element.text !== undefined
+        ? { text: element.text.slice(0, 4_000) }
+        : {}),
+      ...(element.outerHtml !== undefined
+        ? { outer_html: element.outerHtml.slice(0, 8_000) }
+        : {}),
+      attributes: Object.fromEntries(
+        Object.entries(element.attributes)
+          .filter(([name]) => /^[a-zA-Z_:][a-zA-Z0-9:._-]*$/u.test(name))
+          .slice(0, 50)
+          .map(([name, value]) => [name.slice(0, 120), value.slice(0, 2_000)])
+      ),
+      bounds: element.bounds,
+    })),
   }
 }

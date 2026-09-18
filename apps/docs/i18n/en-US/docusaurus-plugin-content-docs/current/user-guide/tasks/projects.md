@@ -15,6 +15,12 @@ Projects keep related tasks and files together. Tasks in the same project share 
 
 Each task can belong to one project. Expand or collapse projects, drag them to reorder them, and pin individual tasks. Names and assignments are saved to your account; expansion preferences stay in the current browser.
 
+## Edit the name, icon, and color
+
+Choose **Edit** from a project's **…** menu. Click the icon beside the name, choose a color, then choose an icon from the grid. Click **Done** to return to the dialog, then **Save**. The name, icon, and color are saved together and shown in the sidebar and project picker. **Cancel** discards your changes. You can also choose an icon and color when creating a project.
+
+Existing projects use the folder icon by default. Tasks without a project appear under **Recent**, while pinned tasks remain under **Pinned**.
+
 ## Move a task
 
 Drag a task onto a project or choose Move to project from its menu. Finish running work, queued messages, pending plans, and active goals before moving it.
@@ -23,9 +29,9 @@ New messages use the destination project's files. Files in the original project 
 
 A task branched from a reply inherits the project and shares its files. Each task keeps its own message history.
 
-## Delete tasks and projects
+## Delete tasks or remove projects
 
-Deleting a task removes its message history and keeps project files. Deleting a project moves its tasks to the common workspace and keeps the original files and historical attachments. Delete files separately when you want to remove them.
+Deleting a task removes its message history and keeps project files. **Remove project** moves its tasks to the common workspace and keeps the original files and historical attachments. Delete files separately when you want to remove them.
 
 Application services have their own work environment. Grouping an application task into a project organizes the task without moving service files or sign-in state into your personal workspace.
 

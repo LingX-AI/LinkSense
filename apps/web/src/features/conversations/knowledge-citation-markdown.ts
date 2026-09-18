@@ -5,6 +5,10 @@ type MarkdownNode = {
   value?: string
   url?: string
   children?: MarkdownNode[]
+  data?: {
+    hName: string
+    hProperties: Record<string, string>
+  }
   position?: {
     start: { line: number; column: number; offset?: number }
     end: { line: number; column: number; offset?: number }
@@ -81,6 +85,41 @@ export function remarkKnowledgeCitations(options: {
         citations.sort((left, right) => left.citation_no - right.citation_no)
       )
     }
+    groupImageCitations(tree)
+  }
+}
+
+function groupImageCitations(node: MarkdownNode): void {
+  const children = node.children
+  if (!children) return
+  for (const child of children) groupImageCitations(child)
+
+  for (let index = 0; index < children.length; index += 1) {
+    const image = children[index]
+    if (image.type !== "image" && image.type !== "imageReference") continue
+    let end = index + 1
+    while (
+      children[end]?.type === "link" &&
+      getKnowledgeCitationNumberFromFragment(children[end]?.url) !== null
+    ) {
+      end += 1
+    }
+    if (end === index + 1) continue
+
+    // Keep the block-level thumbnail and its citations in one inline box so
+    // the badges cannot be pushed onto a separate line below the image.
+    children.splice(index, end - index, {
+      type: "imageCitations",
+      children: children.slice(index, end),
+      data: {
+        hName: "span",
+        hProperties: {
+          "data-image-citations": "",
+          className:
+            "inline-flex max-w-full items-end gap-1 align-bottom [&>.knowledge-citation-inline]:mb-1 [&>.knowledge-citation-inline]:shrink-0",
+        },
+      },
+    })
   }
 }
 

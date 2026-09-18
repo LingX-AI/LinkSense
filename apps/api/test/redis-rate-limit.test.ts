@@ -70,6 +70,53 @@ describe("Redis atomic protection", () => {
     await setSuccessfulRecoveryBaseline(client)
   })
 
+  it("allows concurrent runtime preparation and submission while lifecycle changes wait", async () => {
+    const owner = "10000000-0000-4000-8000-000000000001"
+    const second = new LinkSenseRedis(testConfig(), client)
+    const prewarm = await protection.acquireUserRuntimeLease(owner)
+    const foreground = await second.acquireUserRuntimeLease(owner)
+    expect(prewarm).toEqual(expect.any(String))
+    expect(foreground).toEqual(expect.any(String))
+    expect(foreground).not.toBe(prewarm)
+    expect(await protection.acquireUserLifecycleLock(owner)).toBeNull()
+    expect(await protection.acquireUserRuntimeLease(owner)).toBeNull()
+    await protection.releaseUserRuntimeLease(owner, prewarm!)
+    expect(await protection.acquireUserLifecycleLock(owner)).toBeNull()
+    await second.releaseUserRuntimeLease(owner, foreground!)
+    const exclusive = await protection.acquireUserLifecycleLock(owner)
+    expect(exclusive).toEqual(expect.any(String))
+    expect(await second.acquireUserRuntimeLease(owner)).toBeNull()
+    await protection.releaseUserLifecycleLock(owner, exclusive!)
+    expect(await second.acquireUserRuntimeLease(owner)).toEqual(expect.any(String))
+  })
+
+  it("lets parallel starts continue when an opportunistic update cannot acquire an idle environment", async () => {
+    const owner = "10000000-0000-4000-8000-000000000003"
+    const first = await protection.acquireUserRuntimeLease(owner)
+    expect(first).toEqual(expect.any(String))
+    expect(await protection.acquireUserLifecycleLock(owner, 120_000, { waitForReaders: false })).toBeNull()
+    const second = await protection.acquireUserRuntimeLease(owner)
+    expect(second).toEqual(expect.any(String))
+    await protection.releaseUserRuntimeLease(owner, first!)
+    await protection.releaseUserRuntimeLease(owner, second!)
+    const update = await protection.acquireUserLifecycleLock(owner, 120_000, { waitForReaders: false })
+    expect(update).toEqual(expect.any(String))
+    expect(await protection.acquireUserRuntimeLease(owner)).toBeNull()
+    await protection.releaseUserLifecycleLock(owner, update!)
+    expect(await protection.acquireUserRuntimeLease(owner)).toEqual(expect.any(String))
+  })
+
+  it("never renews an expired runtime lease or lets another token release it", async () => {
+    const owner = "10000000-0000-4000-8000-000000000002"
+    const token = await protection.acquireUserRuntimeLease(owner)
+    await protection.releaseUserRuntimeLease(owner, "different-token")
+    expect(await protection.renewUserRuntimeLease(owner, token!, 120_000)).toBe(true)
+    await client.zadd(`linksense:user-runtime-leases:${owner}`, 0, token!)
+    expect(await protection.renewUserRuntimeLease(owner, token!, 120_000)).toBe(false)
+    expect(await protection.acquireUserLifecycleLock(owner)).toEqual(expect.any(String))
+    expect(await protection.renewUserRuntimeLease(owner, token!, 120_000)).toBe(false)
+  })
+
   it("keeps prewarm reservations owner-bound and replaces only a live owned revision", async () => {
     const reservation = {
       ownerId: "71000000-0000-4000-8000-000000000001",
@@ -89,6 +136,20 @@ describe("Redis atomic protection", () => {
     const ttl = await client.pttl(`linksense:conversation-prewarm:${reservation.conversationId}`)
     expect(ttl).toBeGreaterThan(0)
     expect(ttl).toBeLessThanOrEqual(15 * 60_000)
+  })
+
+  it("rejects prewarm claims for a different project or mode without consuming them", async () => {
+    const reservation = {
+      ownerId: "71000000-0000-4000-8000-000000000001",
+      conversationId: "71000000-0000-4000-8000-000000000002",
+      reservationRevision: "71000000-0000-4000-8000-000000000003",
+      projectId: "71000000-0000-4000-8000-000000000004",
+      collaborationMode: "plan" as const,
+    }
+    await protection.reserveConversationPrewarm(reservation, true)
+    expect(await protection.claimConversationPrewarm(reservation.ownerId, reservation.conversationId)).toBe(false)
+    expect(await protection.claimConversationPrewarm(reservation.ownerId, reservation.conversationId, reservation.projectId, "default")).toBe(false)
+    expect(await protection.claimConversationPrewarm(reservation.ownerId, reservation.conversationId, reservation.projectId, "plan")).toBe(true)
   })
 
   it("claims prewarm once across API instances and never renews an expired or claimed reservation", async () => {

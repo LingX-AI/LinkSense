@@ -21,9 +21,9 @@ Depending on its configuration:
 - plugins, Skills, knowledge bases, and application instructions are maintained by the creator;
 - application knowledge bases are searchable only inside the app and do not grant browse, preview, download, or management access.
 
-Configuration is read for each new turn. Updates affect later turns without rewriting running or historical turns.
+Configuration is read for each new turn. After the creator updates sharing, new tasks and the next execution in existing tasks use the latest shared version. Applications used through Application Center use its current approved and listed version. Draft edits do not change the shared version; confirmed **Publish update** or a successful package update automatically updates organization sharing. Running turns and historical results are not rewritten.
 
-Interactive application tasks remain available in the task sidebar. After switching tasks, refreshing, or returning later, LinkSense reopens the original application UI, restores its previously emitted structured data, and continues receiving new results without rerunning the task. Historical tasks keep the application version fixed when they were created.
+Interactive application tasks remain available in the task sidebar. After switching tasks, refreshing, or returning later, LinkSense opens the application version currently recorded for that task, restores its previously emitted structured data, and continues receiving new results. This does not rerun the task or switch versions just by opening the page. An existing task adopts the latest published version for its access channel on its next execution; reopening it afterward uses the version it has adopted.
 
 ## Unavailable applications
 

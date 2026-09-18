@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { ApplicationBuilderRequestError } from "./application-builder-error.js";
 import { constants } from "node:fs";
 import { access, mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -8,6 +9,7 @@ import { z } from "zod";
 
 import {
   runtimeWorkspaceHeader,
+  applicationBuilderRequestSchema,
   userWorkspacePathSchema,
   builtInCapabilityDefinitionForId,
   capabilitySelectionIdSchema,
@@ -89,6 +91,7 @@ const mcpArtifactBodySchema = z.strictObject({
   displayName: z.string().min(1).max(260),
   mimeType: z.string().max(160).optional(),
   artifactKind: z.string().max(80).optional(),
+  webRootRelativePath: z.string().min(1).max(2_000).optional(),
 });
 const mcpInteractiveFormBodySchema = z.strictObject({
   message: z.string().trim().min(1).max(4_000),
@@ -791,6 +794,7 @@ export function buildRunnerServer(
       request.url.startsWith("/mcp-image-generation/") ||
       request.url.startsWith("/mcp-knowledge-service/") ||
       request.url.startsWith("/mcp-skill-creator/") ||
+      request.url.startsWith("/mcp-application-builder/") ||
       request.url.startsWith("/mcp-current-user/") ||
       request.url.startsWith("/mcp-user/")
     )
@@ -1045,6 +1049,7 @@ export function buildRunnerServer(
           displayName: body.displayName,
           ...(body.mimeType ? { mimeType: body.mimeType } : {}),
           ...(body.artifactKind ? { artifactKind: body.artifactKind } : {}),
+        ...(body.webRootRelativePath ? { webRootRelativePath: body.webRootRelativePath } : {}),
         });
       } catch (error) {
         const failure =
@@ -1224,6 +1229,30 @@ export function buildRunnerServer(
         return await pool.previewSkillZip(conversationId, token, body);
       } catch (error) {
         return sendSkillCreatorFailure(request, reply, conversationId, error);
+      }
+    },
+  );
+
+  app.post<{ Params: { conversationId: string } }>(
+    "/mcp-application-builder/:conversationId",
+    async (request, reply) => {
+      const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
+      if (!token) {
+        return reply.code(401).send({ code: "APPLICATION_DEVELOPMENT_FORBIDDEN", retryable: false });
+      }
+      const conversationId = uuid.safeParse(request.params.conversationId);
+      const body = applicationBuilderRequestSchema.safeParse(request.body);
+      if (!conversationId.success || !body.success) {
+        return reply.code(400).send({ code: "APPLICATION_DEVELOPMENT_INVALID", retryable: false });
+      }
+      try {
+        return await pool.applicationBuilder(conversationId.data, token, body.data);
+      } catch (error) {
+        const failure = error instanceof ApplicationBuilderRequestError
+          ? error
+          : new ApplicationBuilderRequestError("APPLICATION_DEVELOPMENT_UNAVAILABLE", true, 503);
+        request.log.warn({ conversationId: conversationId.data, reasonCode: failure.code }, "application development request rejected");
+        return reply.code(failure.statusCode).send({ code: failure.code, retryable: failure.retryable });
       }
     },
   );
@@ -2407,9 +2436,16 @@ export function buildRunnerServer(
 
   app.post<{ Params: { conversationId: string } }>(
     "/conversations/:conversationId/runtime/close",
-    async (request) => {
+    async (request, reply) => {
       const conversationId = uuid.parse(request.params.conversationId);
-      await pool.closeConversation(conversationId);
+      try {
+        await pool.closeConversation(conversationId);
+      } catch (error) {
+        return reply.code(error instanceof ConversationRuntimeActiveError ? 409 : 503).send({
+          error_code: error instanceof ConversationRuntimeActiveError ? "CLEANUP_RUNTIME_ACTIVE" : "CLEANUP_RUNTIME_STATE_UNCERTAIN",
+          cleanup_stage: "stop_runtime",
+        });
+      }
       return { success: true };
     },
   );

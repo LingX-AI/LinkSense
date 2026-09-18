@@ -23,6 +23,8 @@ describe("getErrorMessage", () => {
   it.each([
     ["APPLICATION_NOT_FOUND", "notFound"],
     ["APPLICATION_DISABLED", "disabled"],
+    ["APPLICATION_RUNTIME_BUSY", "runtimeBusy"],
+    ["APPLICATION_CENTER_UNAVAILABLE", "centerUnavailable"],
     ["APPLICATION_DEPENDENCY_UNAVAILABLE", "dependencyUnavailable"],
   ] as const)("localizes %s without a server message key", (errorCode, key) => {
     const error = new ApiError({ status: 409, errorCode })

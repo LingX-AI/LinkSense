@@ -28,7 +28,10 @@ RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-ro
 
 FROM dependencies AS docs-build
 COPY apps/docs apps/docs
-RUN pnpm --filter @linksense/docs build
+ARG DOCS_BUILD_NODE_OPTIONS=
+ARG DOCS_BUILD_TERSER_PARALLEL=true
+RUN NODE_OPTIONS="${DOCS_BUILD_NODE_OPTIONS}" TERSER_PARALLEL="${DOCS_BUILD_TERSER_PARALLEL}" \
+  pnpm --filter @linksense/docs build
 
 # Development serves exactly the same bilingual static build as production.
 FROM nginx:1.28-alpine AS docs-runtime
@@ -41,13 +44,19 @@ ARG DOCS_IMAGE_FINGERPRINT=unversioned
 LABEL com.linksense.docs.fingerprint=${DOCS_IMAGE_FINGERPRINT}
 EXPOSE 80
 
+FROM dependencies AS build-identity
+RUN --mount=type=bind,target=/source \
+  node /source/scripts/application-build.mjs id /source > /linksense-build-id
+
 FROM dependencies AS build
+COPY --from=build-identity /linksense-build-id /linksense-build-id
+COPY scripts/application-build.mjs scripts/source-fingerprint.mjs scripts/application-build.d.mts scripts/
 COPY apps/web apps/web
 COPY packages/shared packages/shared
 ARG VITE_API_BASE_URL=
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN pnpm --filter @linksense/shared build \
-  && pnpm --filter @linksense/web build
+  && LINKSENSE_BUILD_ID="$(cat /linksense-build-id)" pnpm --filter @linksense/web build
 
 FROM nginx:1.28-alpine AS runtime
 ENV NGINX_ENVSUBST_FILTER=^NGINX_

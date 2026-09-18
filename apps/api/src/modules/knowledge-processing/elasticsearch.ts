@@ -96,13 +96,13 @@ export type KnowledgeIndexContractState = "missing" | "ready" | "incompatible";
 
 export interface ElasticsearchClientPort {
   ping(): Promise<unknown>;
-  indexExists(index: string): Promise<boolean>;
+  indexExists(index: string, signal?: AbortSignal): Promise<boolean>;
   createIndex(
     index: string,
     mappings: Record<string, unknown>,
   ): Promise<unknown>;
   deleteIndex(index: string): Promise<unknown>;
-  getMapping(index: string): Promise<unknown>;
+  getMapping(index: string, signal?: AbortSignal): Promise<unknown>;
   bulk(operations: unknown[]): Promise<unknown>;
   search(
     index: string,
@@ -114,16 +114,19 @@ export interface ElasticsearchClientPort {
     routing?: string;
     query: Record<string, unknown>;
     script: Record<string, unknown>;
+    signal?: AbortSignal;
   }): Promise<unknown>;
   deleteByQuery(input: {
     index: string;
     routing: string;
     query: Record<string, unknown>;
+    signal?: AbortSignal;
   }): Promise<unknown>;
   count(input: {
     index: string;
     routing?: string;
     query: Record<string, unknown>;
+    signal?: AbortSignal;
   }): Promise<unknown>;
 }
 
@@ -134,8 +137,8 @@ class OfficialElasticsearchClientPort implements ElasticsearchClientPort {
     return this.client.ping();
   }
 
-  async indexExists(index: string): Promise<boolean> {
-    return Boolean(await this.client.indices.exists({ index }));
+  async indexExists(index: string, signal?: AbortSignal): Promise<boolean> {
+    return Boolean(await this.client.indices.exists({ index }, signal ? { signal } : undefined));
   }
 
   createIndex(
@@ -149,8 +152,8 @@ class OfficialElasticsearchClientPort implements ElasticsearchClientPort {
     return this.client.indices.delete({ index });
   }
 
-  getMapping(index: string): Promise<unknown> {
-    return this.client.indices.getMapping({ index });
+  getMapping(index: string, signal?: AbortSignal): Promise<unknown> {
+    return this.client.indices.getMapping({ index }, signal ? { signal } : undefined);
   }
 
   bulk(operations: unknown[]): Promise<unknown> {
@@ -172,6 +175,7 @@ class OfficialElasticsearchClientPort implements ElasticsearchClientPort {
     routing?: string;
     query: Record<string, unknown>;
     script: Record<string, unknown>;
+    signal?: AbortSignal;
   }): Promise<unknown> {
     return this.client.updateByQuery({
       index: input.index,
@@ -180,13 +184,14 @@ class OfficialElasticsearchClientPort implements ElasticsearchClientPort {
       script: input.script,
       refresh: true,
       conflicts: "abort",
-    });
+    }, input.signal ? { signal: input.signal } : undefined);
   }
 
   deleteByQuery(input: {
     index: string;
     routing: string;
     query: Record<string, unknown>;
+    signal?: AbortSignal;
   }): Promise<unknown> {
     return this.client.deleteByQuery({
       index: input.index,
@@ -194,15 +199,17 @@ class OfficialElasticsearchClientPort implements ElasticsearchClientPort {
       query: input.query,
       refresh: true,
       conflicts: "proceed",
-    });
+    }, input.signal ? { signal: input.signal } : undefined);
   }
 
   count(input: {
     index: string;
     routing?: string;
     query: Record<string, unknown>;
+    signal?: AbortSignal;
   }): Promise<unknown> {
-    return this.client.count(input);
+    const { signal, ...request } = input;
+    return this.client.count(request, signal ? { signal } : undefined);
   }
 }
 
@@ -425,10 +432,10 @@ export class ElasticsearchKnowledgeAdapter {
     }
   }
 
-  async verifyIndexContract(): Promise<void> {
+  async verifyIndexContract(signal?: AbortSignal): Promise<void> {
     this.contractVerified = false;
     readIndexContract(
-      await this.client.getMapping(this.config.index),
+      await this.client.getMapping(this.config.index, signal),
       this.config.index,
       this.config.dimensions,
     );
@@ -598,6 +605,7 @@ export class ElasticsearchKnowledgeAdapter {
     expectedEmbeddingProfileHash?: string;
     expectedIndexIntegrityDigest?: string;
     preserveOtherVersions?: boolean;
+    signal?: AbortSignal;
   }): Promise<void> {
     const identity = documentVersionIdentitySchema.safeParse({
       knowledgeBaseId: input.knowledgeBaseId,
@@ -615,12 +623,13 @@ export class ElasticsearchKnowledgeAdapter {
       );
     }
     try {
-      await this.assertIndexContractReady();
+      await this.assertIndexContractReady(input.signal);
       const version = {
         knowledgeBaseId: input.knowledgeBaseId,
         documentId: input.documentId,
         documentVersionId: input.activeDocumentVersionId,
         expectedParentCount: input.expectedParentCount,
+        ...(input.signal ? { signal: input.signal } : {}),
       };
       await this.assertDocumentVersionCount(version);
       if (
@@ -654,6 +663,7 @@ export class ElasticsearchKnowledgeAdapter {
           knowledgeBaseId: input.knowledgeBaseId,
           documentId: input.documentId,
           expectedParentCount: input.expectedParentCount,
+          ...(input.signal ? { signal: input.signal } : {}),
         });
         await this.client.deleteByQuery({
           index: this.config.index,
@@ -663,6 +673,7 @@ export class ElasticsearchKnowledgeAdapter {
             input.documentId,
             input.activeDocumentVersionId,
           ),
+          ...(input.signal ? { signal: input.signal } : {}),
         });
       }
     } catch (error) {
@@ -672,6 +683,7 @@ export class ElasticsearchKnowledgeAdapter {
             knowledgeBaseId: input.knowledgeBaseId,
             documentId: input.documentId,
             documentVersionId: input.activeDocumentVersionId,
+            ...(input.signal ? { signal: input.signal } : {}),
           },
           false,
         ).catch(() => undefined);
@@ -988,6 +1000,7 @@ export class ElasticsearchKnowledgeAdapter {
     expectedChildCount: number;
     expectedEmbeddingProfileHash: string;
     expectedIndexIntegrityDigest: string;
+    signal?: AbortSignal;
   }): Promise<void> {
     const parents: KnowledgeIndexIntegrityParent[] = [];
     let searchAfter: Array<string | number> | undefined;
@@ -1026,7 +1039,7 @@ export class ElasticsearchKnowledgeAdapter {
           ),
           sort: [{ parent_order: "asc" }, { parent_id: "asc" }],
           ...(searchAfter === undefined ? {} : { search_after: searchAfter }),
-        }),
+        }, input.signal),
       );
       if (!response.success || response.data.hits.hits.length === 0) {
         throw elasticsearchError(
@@ -1087,6 +1100,7 @@ export class ElasticsearchKnowledgeAdapter {
     documentId: string;
     documentVersionId: string;
     expectedParentCount: number;
+    signal?: AbortSignal;
   }): Promise<void> {
     const response = countResponseSchema.safeParse(
       await this.client.count({
@@ -1097,6 +1111,7 @@ export class ElasticsearchKnowledgeAdapter {
           input.documentId,
           input.documentVersionId,
         ),
+        ...(input.signal ? { signal: input.signal } : {}),
       }),
     );
     if (
@@ -1115,6 +1130,7 @@ export class ElasticsearchKnowledgeAdapter {
     documentId: string;
     documentVersionId: string;
     expectedParentCount: number;
+    signal?: AbortSignal;
   }): Promise<void> {
     const response = countResponseSchema.safeParse(
       await this.client.count({
@@ -1125,6 +1141,7 @@ export class ElasticsearchKnowledgeAdapter {
           input.documentId,
           input.documentVersionId,
         ),
+        ...(input.signal ? { signal: input.signal } : {}),
       }),
     );
     if (
@@ -1142,6 +1159,7 @@ export class ElasticsearchKnowledgeAdapter {
     knowledgeBaseId: string;
     documentId: string;
     expectedParentCount: number;
+    signal?: AbortSignal;
   }): Promise<void> {
     const response = countResponseSchema.safeParse(
       await this.client.count({
@@ -1151,6 +1169,7 @@ export class ElasticsearchKnowledgeAdapter {
           input.knowledgeBaseId,
           input.documentId,
         ),
+        ...(input.signal ? { signal: input.signal } : {}),
       }),
     );
     if (
@@ -1168,10 +1187,12 @@ export class ElasticsearchKnowledgeAdapter {
     knowledgeBaseId: string;
     documentId: string;
     documentVersionId: string;
+    signal?: AbortSignal;
   }): Promise<void> {
     await this.runUpdateByQuery({
       routing: input.documentId,
       query: documentScopeQuery(input.knowledgeBaseId, input.documentId),
+      ...(input.signal ? { signal: input.signal } : {}),
       script: {
         lang: "painless",
         source:
@@ -1186,6 +1207,7 @@ export class ElasticsearchKnowledgeAdapter {
       knowledgeBaseId: string;
       documentId: string;
       documentVersionId: string;
+      signal?: AbortSignal;
     },
     searchable: boolean,
   ): Promise<void> {
@@ -1197,6 +1219,7 @@ export class ElasticsearchKnowledgeAdapter {
         input.documentVersionId,
       ),
       script: searchableAssignmentScript(searchable),
+      ...(input.signal ? { signal: input.signal } : {}),
     });
   }
 
@@ -1204,6 +1227,7 @@ export class ElasticsearchKnowledgeAdapter {
     routing?: string;
     query: Record<string, unknown>;
     script: Record<string, unknown>;
+    signal?: AbortSignal;
   }): Promise<void> {
     const response = updateByQueryResponseSchema.safeParse(
       await this.client.updateByQuery({
@@ -1211,6 +1235,7 @@ export class ElasticsearchKnowledgeAdapter {
         ...(input.routing === undefined ? {} : { routing: input.routing }),
         query: input.query,
         script: input.script,
+        ...(input.signal ? { signal: input.signal } : {}),
       }),
     );
     if (
@@ -1226,13 +1251,14 @@ export class ElasticsearchKnowledgeAdapter {
     }
   }
 
-  private async assertIndexContractReady(): Promise<void> {
+  private async assertIndexContractReady(signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     if (this.contractVerified) return;
     try {
-      if (!(await this.client.indexExists(this.config.index))) {
+      if (!(await this.client.indexExists(this.config.index, signal))) {
         throw incompatibleIndexContract();
       }
-      await this.verifyIndexContract();
+      await this.verifyIndexContract(signal);
     } catch (error) {
       if (error instanceof KnowledgeProcessingError) throw error;
       throw elasticsearchError(error, isRetryableElasticsearchError(error));

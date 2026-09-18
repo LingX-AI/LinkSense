@@ -44,7 +44,13 @@ ARG TARGETVARIANT
 RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
   pnpm install --frozen-lockfile --prefer-offline --store-dir=/pnpm/store --package-import-method=copy
 
+FROM dependencies AS build-identity
+RUN --mount=type=bind,target=/source \
+  node /source/scripts/application-build.mjs id /source > /linksense-build-id
+
 FROM dependencies AS build
+COPY --from=build-identity /linksense-build-id /linksense-build-id
+COPY scripts/application-build.mjs scripts/source-fingerprint.mjs scripts/
 ARG PRISMA_ENGINES_MIRROR
 ENV PRISMA_ENGINES_MIRROR=${PRISMA_ENGINES_MIRROR}
 COPY apps/api apps/api
@@ -57,7 +63,7 @@ COPY prisma prisma
 # valid URL; keep this build-only placeholder out of every runtime image.
 RUN DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build pnpm db:generate \
   && pnpm --filter @linksense/shared build \
-  && pnpm --filter @linksense/api build
+  && LINKSENSE_BUILD_ID="$(cat /linksense-build-id)" pnpm --filter @linksense/api build
 # Legacy deploy also installs packages; keep access to the same download store.
 RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
   --mount=type=cache,id=linksense-pnpm-metadata-root,target=/pnpm/metadata,sharing=locked \

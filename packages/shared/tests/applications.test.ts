@@ -3,18 +3,40 @@ import { describe, expect, it } from "vitest";
 import {
   applicationIconPresets,
   applicationSchema,
+  applicationDetailsSchema,
   conversationSchema,
   createApplicationGrantInputSchema,
   createApplicationInputSchema,
   errorCatalog,
   updateApplicationInputSchema,
+  editAndPublishApplicationInputSchema,
 } from "../src/index.js";
 
 const ID = "10000000-0000-4000-8000-000000000001";
 const OWNER_ID = "10000000-0000-4000-8000-000000000002";
 
 describe("internal application contracts", () => {
-  it.each([true, false])("carries application icons and available=%s in conversation summaries", (available) => {
+  it("requires valid changes and a numeric release version for edit and publication", () => {
+    const input = { changes: { name: "Review", model: null, reasoning_effort: null }, release: { version_number: "0.0.1" } };
+    expect(editAndPublishApplicationInputSchema.parse(input)).toEqual({ ...input, release: { ...input.release, usage_instructions: "" } });
+    for (const invalid of [{ ...input, changes: {} }, { ...input, release: { version_number: "v0.0.1" } }, { ...input, release: { version_number: "1.0.0-beta" } }, { ...input, changes: { model: "fixed-model" } }, { ...input, owner_id: OWNER_ID }]) {
+      expect(editAndPublishApplicationInputSchema.safeParse(invalid).success).toBe(false);
+    }
+  });
+  it("accepts safe read-only resource summaries and rejects private configuration fields", () => {
+    const input = {
+      id: ID, name: "App", icon: { type: "preset", preset: "bot" }, description: null,
+      kind: "interactive", model: null, status: "active", creator_name: "Creator", view: "configuration",
+      version_number: "1.0.0", created_at: "2026-09-17T00:00:00Z", updated_at: "2026-09-17T00:00:00Z",
+      resources: [{ id: OWNER_ID, type: "skill", name: "Research", configured_name: null, status: "unconfigured" }],
+    };
+    expect(applicationDetailsSchema.safeParse(input).success).toBe(true);
+    expect(applicationDetailsSchema.safeParse({ ...input, instructions: "private" }).success).toBe(false);
+    expect(applicationDetailsSchema.safeParse({ ...input, resources: [{ ...input.resources[0], credentials: "private" }] }).success).toBe(false);
+    expect(applicationDetailsSchema.safeParse({ ...input, resources: [{ ...input.resources[0], status: "ready" }] }).success).toBe(false);
+  });
+  it.each([null, "APPLICATION_NOT_FOUND", "APPLICATION_DELETED", "APPLICATION_DISABLED", "APPLICATION_DEPENDENCY_UNAVAILABLE"] as const)("carries application icons and unavailable reason %s in conversation summaries", (reason) => {
+    const available = reason === null;
     const parsed = conversationSchema.parse({
       id: ID,
       owner_id: OWNER_ID,
@@ -38,7 +60,7 @@ describe("internal application contracts", () => {
         kind: "standard",
         icon: { type: "preset", preset: "graduation-cap" },
         available,
-        unavailable_reason: available ? null : "APPLICATION_NOT_FOUND",
+        unavailable_reason: reason,
       },
       created_at: "2026-07-28T00:00:00.000Z",
       updated_at: "2026-07-28T00:00:00.000Z",
@@ -50,7 +72,7 @@ describe("internal application contracts", () => {
     });
     expect(parsed.has_automation).toBe(false);
     expect(parsed.application?.available).toBe(available);
-    expect(parsed.application?.unavailable_reason).toBe(available ? null : "APPLICATION_NOT_FOUND");
+    expect(parsed.application?.unavailable_reason).toBe(reason);
   });
 
   it("accepts a fixed model, capabilities, and knowledge bases without a public-access mode", () => {

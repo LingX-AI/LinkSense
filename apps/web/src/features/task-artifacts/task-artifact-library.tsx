@@ -166,7 +166,7 @@ export function TaskArtifactLibrary({
 
   return (
     <section aria-label={t("library.artifacts.title")}>
-      <div className="mt-5 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
         <InputGroup className="w-full max-w-[520px]">
           <InputGroupAddon>
             <SearchIcon aria-hidden="true" />
@@ -256,7 +256,7 @@ export function TaskArtifactLibrary({
                 </time>
               </header>
 
-              <div className="overflow-hidden rounded-[var(--radius-3xl)] border border-[var(--app-divider)] bg-[var(--app-canvas)]">
+              <div className="overflow-hidden rounded-card border border-[var(--app-divider)] bg-[var(--app-canvas)]">
                 {group.files.map((file) => {
                   const previewKind = getConversationFilePreviewKind(file)
                   const downloading = downloadingFileId === file.id

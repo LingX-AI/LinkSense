@@ -79,6 +79,7 @@ COPY --chown=node:node apps/docs apps/docs
 COPY --chown=node:node apps/runner apps/runner
 COPY --chown=node:node apps/web apps/web
 COPY --chown=node:node packages/shared packages/shared
+COPY --chown=node:node scripts/application-build.mjs scripts/source-fingerprint.mjs scripts/application-build.d.mts scripts/
 
 # Prisma 7 loads prisma.config.ts during generation but does not connect to the
 # database. The placeholder is build-only and never reaches application config.

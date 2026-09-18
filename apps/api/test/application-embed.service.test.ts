@@ -1028,6 +1028,7 @@ function lifecycleFixture() {
     },
     application: {
       findUnique: vi.fn(async () => application),
+      findUniqueOrThrow: vi.fn(async () => ({ ...application, ownerId: OWNER_ID })),
       findFirst: vi.fn(async () => application),
     },
     conversation: {
@@ -1115,6 +1116,7 @@ function lifecycleFixture() {
   const sessionCreate = transaction.applicationExternalSession.create;
   const prisma = {
     ...transaction,
+    applicationRuntimeInstallation: { findUnique: vi.fn(async () => ({ versionId: APPLICATION_ID })), create: vi.fn(async () => ({})), deleteMany: vi.fn(async () => ({ count: 1 })) },
     $transaction: vi.fn(
       async (action: (tx: typeof transaction) => Promise<unknown>) =>
         action(transaction),
@@ -1125,6 +1127,7 @@ function lifecycleFixture() {
     },
     application: {
       findUnique: vi.fn(async () => application),
+      findUniqueOrThrow: vi.fn(async () => ({ ...application, ownerId: OWNER_ID })),
       findFirst: vi.fn(async () => application),
     },
     applicationEmbedTicket: {

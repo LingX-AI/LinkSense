@@ -27,20 +27,33 @@ async function fixture(onRequest?: (reply: FastifyReply) => void) {
   const ingest = vi.fn<(...args: unknown[]) => Promise<{ accepted: boolean }>>().mockResolvedValue({ accepted: true });
   const ingestTextDeltaBatch = vi.fn<(...args: unknown[]) => Promise<{ accepted: boolean }>>().mockResolvedValue({ accepted: true });
   const assertOwner = vi.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+  const settleStartOperation = vi.fn().mockResolvedValue(true);
   const app = Fastify();
   apps.push(app);
   app.addHook("onRequest", async (_request, reply) => { onRequest?.(reply); });
   await app.register(internalRunnerRoutes, { services: {
-    config: { runnerSharedSecret: secret }, conversations: { assertOwner }, events: { ingest, ingestTextDeltaBatch },
+    config: { runnerSharedSecret: secret }, conversations: { assertOwner, settleStartOperation }, events: { ingest, ingestTextDeltaBatch },
   } as unknown as AppServices });
   const send = (payload: Record<string, unknown>, headers: Record<string, string> = {}) => app.inject({
     method: "POST", url: "/runner/events", payload,
     headers: { authorization: `Bearer ${secret}`, "x-linksense-owner-id": ownerId, ...headers },
   });
-  return { app, ingest, ingestTextDeltaBatch, assertOwner, send };
+  return { app, ingest, ingestTextDeltaBatch, assertOwner, settleStartOperation, send };
 }
 
 describe("ordered runner event batches", () => {
+  it("authenticates and scopes startup notifications independently of blocked event ingestion", async () => {
+    const { app, assertOwner, settleStartOperation, ingest } = await fixture();
+    const payload = { conversationId, projectionTurnId: randomUUID(), runtimeGeneration: randomUUID() };
+    const request = { method: "POST" as const, url: "/runner/start-settled", payload };
+    expect((await app.inject(request)).statusCode).toBe(401);
+    expect(settleStartOperation).not.toHaveBeenCalled();
+    const response = await app.inject({ ...request, headers: { authorization: `Bearer ${secret}`, "x-linksense-owner-id": ownerId } });
+    expect(response.json().data).toEqual({ settled: true });
+    expect(assertOwner).toHaveBeenCalledWith(ownerId, conversationId);
+    expect(settleStartOperation).toHaveBeenCalledWith(ownerId, payload);
+    expect(ingest).not.toHaveBeenCalled();
+  });
   it("waits for a text group commit before ingesting completion and keeps every original delivery id", async () => {
     const { ingest, ingestTextDeltaBatch, send } = await fixture();
     const input = textBatch();

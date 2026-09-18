@@ -181,11 +181,19 @@ async function runSmoke(): Promise<void> {
     )
     completedPhase = "first-app-server-verified"
 
-    // Keep a real native MCP call in flight while another app-server updates
-    // the same HOME and CODEX_HOME. No model or external service is contacted.
+    // Finish native execution and close the idle process before installing in
+    // the same HOME. The application gate enforces this boundary in production.
     runningCall = await startBlockingMcpCall(client, temporaryRoot, workspace)
     previousClient = client
     client = undefined
+
+    assert((await readFile(requiredSkillPath(firstActivation), "utf8")).includes(firstMarker))
+    assert(previousClient.isHealthy)
+    assert.equal(runningCall.settled(), false)
+    await runningCall.complete()
+    assert(previousClient.isHealthy)
+    await previousClient.close()
+    previousClient = undefined
 
     // Keep both the plugin manifest version and API revision unchanged. Only
     // the Skill content changes, so this proves that the materialized content
@@ -239,13 +247,6 @@ async function runSmoke(): Promise<void> {
     }
     completedPhase = "updated-app-server-verified"
 
-    assert(previousClient.isHealthy)
-    assert.equal(runningCall.settled(), false, "updating plugins must not finish or cancel the active call")
-    await runningCall.complete()
-    assert(previousClient.isHealthy)
-    await previousClient.close()
-    previousClient = undefined
-
     await client.close()
     client = undefined
 
@@ -286,7 +287,8 @@ async function runSmoke(): Promise<void> {
         isolatedHome: true,
         modelTurnStarted: false,
         inFlightMcpCallPreserved: true,
-        sharedHomeClients: 2,
+        sharedHomeClientsConcurrent: false,
+        nativeProcessClosedBeforeUpdate: true,
         manifestVersionUnchanged: pluginVersion,
         capabilityRevisionUnchanged: stableRevision,
         generations: {

@@ -167,7 +167,7 @@ describe("HTML preview", () => {
       "data-linksense-trusted-preview-runtime"
     )
     expect(initializedMessage.html).toContain("selecto.min")
-    expect(initializedMessage.html).not.toContain(
+    expect(initializedMessage.html).toContain(
       "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"
     )
     expect(initializedMessage.html).not.toContain("Content-Security-Policy")

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { applicationRuntimeChannel, isApplicationCenterUnavailable } from "../src/modules/applications/distribution-policy.js";
 import { assertApplicationUsageModes, applicationModesForChannel, mergeApplicationUsageModes, requireApplicationDistributionVersion, type ApplicationDistributionAccess } from "../src/modules/applications/distribution-policy.js";
 
 const access: ApplicationDistributionAccess = {
@@ -9,6 +10,20 @@ const access: ApplicationDistributionAccess = {
 };
 
 describe("application distribution permissions", () => {
+  it("uses ownership for historical runtime access without changing center installation permissions", () => {
+    const owner = { ...access, actorId: access.ownerId, center: { ...access.center!, status: "suspended" as const } };
+    expect(applicationRuntimeChannel(owner, "center")).toBe("direct");
+    expect(applicationModesForChannel(owner, applicationRuntimeChannel(owner, "center"))).toContain("service");
+    expect(applicationModesForChannel(owner, "center")).toEqual([]);
+    expect(applicationRuntimeChannel(access, "center")).toBe("center");
+  });
+  it.each(["suspended", "unlisted"] as const)("identifies %s center services without granting access", status => {
+    const stopped = { ...access, center: { ...access.center!, status } };
+    expect(isApplicationCenterUnavailable(stopped)).toBe(true);
+    expect(applicationModesForChannel(stopped, "center")).toEqual([]);
+    expect(isApplicationCenterUnavailable({ ...stopped, organizationMember: false })).toBe(false);
+    expect(isApplicationCenterUnavailable({ ...stopped, center: null })).toBe(false);
+  });
   it("denies copying interactive apps even to their author or through historical install grants", () => {
     const interactive = { ...access, applicationKind: "interactive", directModes: ["install", "service"] as const,
       center: { status: "published" as const, versionId: "approved-v1", usageModes: ["install", "service"] as const } };

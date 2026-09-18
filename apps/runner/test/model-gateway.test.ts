@@ -34,6 +34,19 @@ afterEach(async () => {
 });
 
 describe("ModelGateway", () => {
+  it("records correlated first-text latency while forwarding native bytes unchanged", async () => {
+    const { logger, logs } = createCapturingLogger();
+    const bytes = 'data: {"type":"response.created"}\n\ndata: {"type":"response.output_text.delta","delta":"private answer"}\n\n';
+    const gateway = await startGateway({ logger, fetch: async () => new Response(bytes, { headers: { "content-type": "text/event-stream" } }) });
+    const lease = gateway.issueLease({ ...leaseMetering, conversationId: "latency-task", revision: 1, upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "private-key", protocolMode: "native_responses", model: "model-a" });
+    lease.setTurnCorrelation({ turnId: "latency-turn", codexTurnId: "native-turn", modelTransitionNonce: null });
+    const response = await requestGateway(gateway, lease.token, { model: "model-a", input: "private question", stream: true });
+    expect(await response.text()).toBe(bytes);
+    const samples = logs.filter(log => log.msg === "model upstream latency");
+    expect(samples.map(sample => sample.stage)).toEqual(["upstream_headers", "upstream_first_byte", "upstream_first_text", "upstream_end"]);
+    expect(samples.every(sample => sample.turnId === "latency-turn" && sample.conversationId === "latency-task" && sample.upstreamStreaming === true)).toBe(true);
+    expect(JSON.stringify(samples)).not.toContain("private");
+  });
   it("forwards native Responses without exposing the upstream key", async () => {
     const received: Array<{
       path: string;
@@ -2223,6 +2236,7 @@ describe("ModelGateway", () => {
 
 async function startGateway(
   options: {
+    fetch?: typeof fetch;
     logger?: Logger;
     requestBodyLimit?: number;
     webSocketQueueLimit?: number;

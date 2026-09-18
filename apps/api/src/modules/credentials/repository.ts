@@ -9,6 +9,7 @@ import type {
   CredentialAuditInput,
   CredentialBindingRecord,
   CredentialRecord,
+  CredentialRuntimeSnapshot,
   CredentialStore,
   UpdateCredentialRecordInput,
 } from "./types.js";
@@ -65,6 +66,30 @@ export class PrismaCredentialStore implements CredentialStore {
       'SELECT "id" FROM "capabilities" WHERE "id" = $1::uuid FOR UPDATE',
       id,
     );
+  }
+
+  async readRuntimeSnapshot(userId: string, capabilityIds: string[]): Promise<CredentialRuntimeSnapshot> {
+    if (!capabilityIds.length) return { capabilities: [], bindings: [], credentials: [] };
+    const read = async (database: DatabaseClient): Promise<CredentialRuntimeSnapshot> => {
+      const [capabilities, preferences, bindings] = await Promise.all([
+        database.capability.findMany({ where: { id: { in: capabilityIds }, ownerId: userId, type: "plugin", status: "active" } }),
+        database.capabilityUserPreference.findMany({ where: { userId, capabilityId: { in: capabilityIds }, status: "disabled" }, select: { capabilityId: true } }),
+        database.credentialBinding.findMany({ where: { userId, capabilityId: { in: capabilityIds }, status: "active" } }),
+      ]);
+      const disabled = new Set(preferences.map(preference => preference.capabilityId));
+      const credentials = bindings.length ? await database.credential.findMany({
+        where: { id: { in: [...new Set(bindings.map(binding => binding.credentialId))] }, ownerId: userId },
+      }) : [];
+      return {
+        capabilities: capabilities.filter(capability => !disabled.has(capability.id)).map(capabilityRecord),
+        bindings: bindings.map(bindingRecord),
+        credentials: credentials.map(credentialRecord),
+      };
+    };
+    // One fresh consistent snapshot per admission barrier, never an authorization TTL cache.
+    return this.#database === this.#root
+      ? this.#root.$transaction(read, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
+      : read(this.#database);
   }
 
   async lockCredential(id: string): Promise<void> {

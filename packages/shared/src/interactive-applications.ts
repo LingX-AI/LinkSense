@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { applicationIconPresetSchema } from "./application-icons.js";
 
 import { timestampSchema, uuidSchema } from "./common.js";
 
@@ -147,6 +148,7 @@ export const interactiveApplicationManifestSchema = z
     description: z.string().trim().max(4_000).nullable().default(null),
     instructions: z.string().trim().max(20_000).nullable().default(null),
     icon: z.string().trim().min(1).max(500).nullable().default(null),
+    icon_preset: applicationIconPresetSchema.optional(),
     entry: z.literal("index.html").default("index.html"),
     sdk_version: z.literal(1),
     dependencies: interactiveDependenciesSchema.prefault({}),
@@ -182,6 +184,15 @@ export const interactiveApplicationManifestSchema = z
       });
     }
   });
+
+export const interactiveApplicationImportPreviewSchema = interactiveDependencyStateSchema.extend({
+  application: z.strictObject({
+    name: interactiveApplicationManifestSchema.shape.name,
+    description: interactiveApplicationManifestSchema.shape.description,
+    version: interactiveApplicationManifestSchema.shape.version,
+  }),
+});
+export type InteractiveApplicationImportPreview = z.infer<typeof interactiveApplicationImportPreviewSchema>;
 
 export const interactiveApplicationPackageSchema = z.strictObject({
   id: uuidSchema,

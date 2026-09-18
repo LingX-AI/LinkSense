@@ -9,7 +9,7 @@ import type { ProjectService } from "./service.js";
 const paramsSchema = z.strictObject({ id: z.string().uuid() });
 
 export const projectRoutes: FastifyPluginAsync<{
-  service: Pick<ProjectService, "list" | "create" | "rename" | "delete" | "reorder">;
+  service: Pick<ProjectService, "list" | "create" | "update" | "delete" | "reorder">;
 }> = async (app, { service }) => {
   app.addHook("preHandler", app.authenticate);
 
@@ -31,7 +31,7 @@ export const projectRoutes: FastifyPluginAsync<{
     const user = (request as AuthenticatedRequest).authUser;
     const { id } = paramsSchema.parse(request.params);
     const input = projectInputSchema.parse(request.body);
-    return reply.send(ok(await service.rename(user.id, id, input), request.id));
+    return reply.send(ok(await service.update(user.id, id, input), request.id));
   });
   app.delete("/:id", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;

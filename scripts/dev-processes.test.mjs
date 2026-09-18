@@ -27,6 +27,7 @@ test("Compose discovery reads working directories only for development Watch and
       "  607 606 /opt/docker/cli-plugins/docker-compose compose -f docker-compose.dev.yml watch --no-up",
       "  707 707 /usr/local/bin/docker compose -f docker-compose.dev.yml logs --follow",
       "  808 808 docker compose -f docker-compose.dev.yml watch --no-up",
+      "  909 909 /usr/local/bin/node /tmp/linksense/scripts/dev-watch.mjs /tmp/linksense/.env",
       "invalid process row",
     ].join("\n"),
     {
@@ -37,7 +38,7 @@ test("Compose discovery reads working directories only for development Watch and
     },
   );
 
-  assert.deepEqual(reads, [606, 607, 707, 808]);
+  assert.deepEqual(reads, [606, 607, 707, 808, 909]);
   assert.deepEqual(processes.map(({ pid }) => pid), reads);
   assert.equal(processes[1].processGroupId, 606);
   // Discovery keeps other repositories as candidates; shutdown must still

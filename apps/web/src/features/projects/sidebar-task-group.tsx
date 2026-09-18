@@ -1,16 +1,11 @@
 import { useContext, useState, type ReactNode } from "react"
 import { useSortable } from "@dnd-kit/sortable"
 import type { Project } from "@linksense/shared"
-import {
-  FolderClosedIcon,
-  FolderOpenIcon,
-  MoreHorizontalIcon,
-  PencilIcon,
-  Trash2Icon,
-} from "lucide-react"
+import { MoreHorizontalIcon, PencilIcon, Trash2Icon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { ProjectIcon } from "./project-icon"
 import { cn } from "@/lib/utils"
 import {
   Collapsible,
@@ -74,7 +69,6 @@ export function SidebarTaskGroup({
     transition: null,
     animateLayoutChanges: () => false,
   })
-  const ProjectIcon = open ? FolderOpenIcon : FolderClosedIcon
   if (!project)
     return (
       <section aria-label={label} className="flex flex-col gap-0.5">
@@ -122,9 +116,10 @@ export function SidebarTaskGroup({
           }
         >
           <ProjectIcon
-            data-icon="inline-start"
+            icon={project.icon}
+            color={project.color}
+            open={open}
             className="size-3.5"
-            aria-hidden="true"
           />
           <span
             className="min-w-0 flex-1 truncate text-left"
@@ -169,17 +164,17 @@ export function SidebarTaskGroup({
           <DropdownMenuContent align="start">
             <DropdownMenuGroup>
               <DropdownMenuItem
-                onClick={() => onAction({ mode: "rename", project })}
+                onClick={() => onAction({ mode: "edit", project })}
               >
                 <PencilIcon className="mx-px size-3.5" />
-                {t("projects.renameAction")}
+                {t("projects.editAction")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"
                 onClick={() => onAction({ mode: "delete", project })}
               >
                 <Trash2Icon />
-                {t("common.delete")}
+                {t("projects.delete")}
               </DropdownMenuItem>
             </DropdownMenuGroup>
           </DropdownMenuContent>

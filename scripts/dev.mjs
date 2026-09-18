@@ -4,8 +4,6 @@ import {
   copyFileSync,
   existsSync,
   readFileSync,
-  readdirSync,
-  statSync,
 } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { createServer } from "node:net";
@@ -19,6 +17,10 @@ import {
   readMigrationManifest,
 } from "./dev-database.mjs";
 import { preparationStatePath, recordStoragePreparation, storageNeedsInitialization } from "./dev-preparation.mjs";
+import { sourceFingerprint } from "./source-fingerprint.mjs";
+import { developmentTlsDirectory, prepareDevelopmentTls, trustDevelopmentCertificate } from "./dev-tls.mjs";
+import { assertDevelopmentHttp2 } from "./dev-http2.mjs";
+export { sourceFingerprint } from "./source-fingerprint.mjs";
 
 import {
   stopDevelopmentApplications,
@@ -107,8 +109,8 @@ function developmentOriginPort(name, value, fallback) {
   if (url.protocol !== "http:") {
     throw new Error(`${name} must use HTTP`);
   }
-  if (url.username || url.password || url.search || url.hash) {
-    throw new Error(`${name} must not contain credentials, query, or fragment`);
+  if (url.username || url.password || url.search || url.hash || url.pathname !== "/") {
+    throw new Error(`${name} must not contain credentials, path, query, or fragment`);
   }
   const port = Number(url.port || fallback);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -136,7 +138,7 @@ export function developmentRuntimePaths(rootDirectory) {
   };
 }
 
-export function buildDevelopmentEnvironment(source) {
+export function buildDevelopmentEnvironment(source, { https = true } = {}) {
   const apiOrigin = optional(
     source,
     "LINKSENSE_DEV_API_ORIGIN",
@@ -145,7 +147,7 @@ export function buildDevelopmentEnvironment(source) {
   const webOrigin = optional(
     source,
     "LINKSENSE_DEV_WEB_ORIGIN",
-    "http://localhost:18173",
+    "http://localhost:18172",
   );
   const portSchema = z.coerce.number().int().min(1).max(65_535).transform(String);
   const apiPort = portSchema.parse(optional(
@@ -156,10 +158,15 @@ export function buildDevelopmentEnvironment(source) {
   const webPort = portSchema.parse(optional(
     source,
     "LINKSENSE_DEV_WEB_PORT",
-    developmentOriginPort("LINKSENSE_DEV_WEB_ORIGIN", webOrigin, "18173"),
+    developmentOriginPort("LINKSENSE_DEV_WEB_ORIGIN", webOrigin, "18172"),
   ));
   const webUrl = new URL(webOrigin);
   webUrl.port = webPort;
+  const httpsPort = https ? portSchema.parse(optional(source, "LINKSENSE_DEV_WEB_HTTPS_PORT", "18173")) : "";
+  if (httpsPort === webPort) throw new Error("LINKSENSE_DEV_WEB_HTTPS_PORT must differ from LINKSENSE_DEV_WEB_PORT");
+  const httpsUrl = new URL(webUrl);
+  httpsUrl.protocol = "https:";
+  httpsUrl.port = httpsPort;
   const existingNoProxy = source.NO_PROXY?.trim();
 
   return {
@@ -190,6 +197,9 @@ export function buildDevelopmentEnvironment(source) {
       "127.0.0.1",
     ),
     LINKSENSE_DEV_WEB_PORT: webPort,
+    LINKSENSE_DEV_WEB_HTTPS_PORT: httpsPort,
+    LINKSENSE_DEV_WEB_HTTPS_ORIGIN: https ? httpsUrl.origin : "",
+    LINKSENSE_DEV_TLS_DIR: developmentTlsDirectory(repositoryRoot),
     NO_PROXY: [existingNoProxy, "127.0.0.1", "localhost"]
       .filter(Boolean)
       .join(","),
@@ -200,7 +210,9 @@ export function developmentReadyMessage(environment) {
   const webPort = required(environment, "LINKSENSE_DEV_WEB_PORT");
   const webUrl = new URL(required(environment, "LINKSENSE_PUBLIC_BASE_URL"));
   webUrl.port = webPort;
-  return `Web: ${webUrl.origin} (port ${webPort})\nAPI port: ${required(environment, "LINKSENSE_DEV_API_PORT")}; runner controller port: ${required(environment, "LINKSENSE_DEV_RUNNER_PORT")}.`;
+  const httpsMessage = environment.LINKSENSE_DEV_WEB_HTTPS_ORIGIN
+    ? `\nWeb HTTPS (HTTP/2): ${environment.LINKSENSE_DEV_WEB_HTTPS_ORIGIN}` : "";
+  return `Web: ${webUrl.origin} (port ${webPort})${httpsMessage}\nAPI port: ${required(environment, "LINKSENSE_DEV_API_PORT")}; runner controller port: ${required(environment, "LINKSENSE_DEV_RUNNER_PORT")}.`;
 }
 
 export function buildDevelopmentComposeEnvironment(source, environment) {
@@ -219,6 +231,8 @@ export function buildDevelopmentComposeEnvironment(source, environment) {
     LINKSENSE_DEV_WEB_BIND_ADDRESS:
       environment.LINKSENSE_DEV_WEB_BIND_ADDRESS,
     LINKSENSE_DEV_WEB_PORT: environment.LINKSENSE_DEV_WEB_PORT,
+    LINKSENSE_DEV_WEB_HTTPS_PORT: environment.LINKSENSE_DEV_WEB_HTTPS_PORT,
+    LINKSENSE_DEV_TLS_DIR: environment.LINKSENSE_DEV_TLS_DIR,
     VITE_API_BASE_URL: environment.VITE_API_BASE_URL,
     LINKSENSE_USER_DATA_ROOT: resolvePortableUserDataRoot(
       source.LINKSENSE_USER_DATA_ROOT,
@@ -325,36 +339,13 @@ export function waitForWatchEnabled(child, timeoutMs = 30_000) {
       output = (output + chunk.toString()).slice(-4_096);
       if (/\bWatch enabled\b/u.test(output)) finish();
     };
-    const exited = () => finish(new Error("Compose Watch exited before source watching was ready"));
-    const timer = setTimeout(() => finish(new Error("Compose Watch did not become ready within 30 seconds")), timeoutMs);
+    const exited = () => finish(new Error("Development watch exited before source watching was ready"));
+    const timer = setTimeout(() => finish(new Error("Development watch did not become ready within 30 seconds")), timeoutMs);
     child.stdout.on("data", inspect);
     child.stderr.on("data", inspect);
     child.once("exit", exited);
     child.once("error", finish);
   });
-}
-
-function fingerprintEntry(hash, rootDirectory, relativePath) {
-  const absolutePath = resolve(rootDirectory, relativePath);
-  const information = statSync(absolutePath);
-  if (information.isDirectory()) {
-    for (const entry of readdirSync(absolutePath).sort()) {
-      fingerprintEntry(hash, rootDirectory, `${relativePath}/${entry}`);
-    }
-    return;
-  }
-  hash.update(relativePath);
-  hash.update("\0");
-  hash.update(readFileSync(absolutePath));
-  hash.update("\0");
-}
-
-export function sourceFingerprint(rootDirectory, relativePaths) {
-  const hash = createHash("sha256");
-  for (const relativePath of [...relativePaths].sort()) {
-    fingerprintEntry(hash, rootDirectory, relativePath);
-  }
-  return hash.digest("hex");
 }
 
 export function developmentDependencyFingerprint(
@@ -516,11 +507,56 @@ export function developmentApplicationStartCommands() {
   return {
     // Infrastructure, storage initialization, and migrations are ready before
     // this command. Do not let Web's service_healthy dependencies block the
-    // process that must attach Compose Watch and synchronize current source.
+    // process that must attach source watching and synchronize current source.
     initial: [
-      ["up", "-d", "--no-build", "--no-deps", "runner", "api", "web", "docs"],
+      ["up", "-d", "--no-build", "--no-deps", "runner", "api", "web", "docs", "dev-gateway"],
     ],
   };
+}
+
+export function developmentApplicationLogCommand(since) {
+  // Keep errors emitted before logs attach, but exclude previous sessions.
+  return ["logs", "--follow", "--since", since, "api", "runner", "web", "docs", "dev-gateway"];
+}
+
+export async function synchronizeDevelopmentApplications(output, { synchronize, restart, isLive }) {
+  const containers = output.trim().split(/\r?\n/u).filter(Boolean).map((line) => z.object({
+    Service: z.enum(["api", "runner", "web"]),
+    ID: z.string().regex(/^[a-f0-9]{12,64}$/u),
+    Health: z.enum(["", "starting", "healthy", "unhealthy"]),
+  }).parse(JSON.parse(line)));
+  if (containers.length !== 3 || new Set(containers.map(({ Service }) => Service)).size !== 3) {
+    throw new Error("Development application containers did not start");
+  }
+  const results = await Promise.all(containers.map(async ({ Service, ID, Health }) => {
+    const result = z.object({ changed: z.boolean() }).parse(await synchronize(Service, ID));
+    // Source reconciliation happens before an explicit restart. Health and a
+    // live probe also detect a running but unresponsive development service.
+    const needsRestart = result.changed || Health === "unhealthy" ||
+      (Health === "healthy" && !(await isLive(Service)));
+    return needsRestart ? Service : null;
+  }));
+  const needsRestart = results.filter(Boolean);
+  // Mirror offline edits and deletions before restarting any application.
+  if (needsRestart.length > 0) await restart(needsRestart);
+}
+
+export async function developmentApplicationIsLive(service, environment, fetchImplementation = fetch) {
+  const targets = {
+    api: ["API", "/api/v1/system/health/live"],
+    runner: ["RUNNER", "/health/live"],
+    web: ["WEB", "/"],
+  };
+  const [name, pathname] = targets[service];
+  const host = developmentPublishedHost(environment, `LINKSENSE_DEV_${name}_BIND_ADDRESS`);
+  const port = required(environment, `LINKSENSE_DEV_${name}_PORT`);
+  try {
+    const response = await fetchImplementation(`http://${host}:${port}${pathname}`, { signal: AbortSignal.timeout(2_000) });
+    await response.body?.cancel();
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 function developmentPublishedHost(environment, name) {
@@ -535,7 +571,7 @@ export function developmentReadinessTargets(environment) {
     "LINKSENSE_DEV_WEB_BIND_ADDRESS",
   )}:${required(environment, "LINKSENSE_DEV_WEB_PORT")}`;
 
-  return [
+  const targets = [
     {
       name: "Runner",
       url: `http://${developmentPublishedHost(
@@ -583,6 +619,19 @@ export function developmentReadinessTargets(environment) {
       bodyIncludes: '"AUTH_SESSION_EXPIRED"',
     },
   ];
+  if (environment.LINKSENSE_DEV_WEB_HTTPS_PORT) {
+    const httpsOrigin = `https://${developmentPublishedHost(environment, "LINKSENSE_DEV_WEB_BIND_ADDRESS")}:${environment.LINKSENSE_DEV_WEB_HTTPS_PORT}`;
+    for (const name of ["Web", "Web bootstrap", "Web session restore"]) {
+      const target = targets.find((candidate) => candidate.name === name);
+      targets.push({
+        ...target,
+        name: `${name} (HTTPS)`,
+        url: target.url.replace(webOrigin, httpsOrigin),
+        headers: target.headers.origin ? { ...target.headers, origin: httpsOrigin } : {},
+      });
+    }
+  }
+  return targets;
 }
 
 function sleep(milliseconds) {
@@ -700,6 +749,13 @@ export async function waitForDevelopmentApplicationReadiness(
       )}s: ${detail}`,
     );
   }
+  if (environment.LINKSENSE_DEV_WEB_HTTPS_PORT) {
+    const web = developmentReadinessTargets(environment).find((target) => target.name === "Web (HTTPS)");
+    await (options.http2Probe ?? assertDevelopmentHttp2)(new URL(web.url).origin, {
+      signal: options.signal,
+      timeoutMs: requestTimeoutMs,
+    });
+  }
 }
 
 export function developmentMigrationDeployCommand() {
@@ -735,6 +791,48 @@ export function developmentStorageInitializationCommand() {
   // one-shot storage-init service. Prepare the host-backed user data root on
   // every pnpm dev invocation before the API or controller can use it.
   return ["run", "--rm", "storage-init"];
+}
+
+const objectStorageFailureReasons = [
+  "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "ECONNRESET",
+  "EHOSTUNREACH", "ENETUNREACH", "CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "MINIO_BUCKET_NOT_FOUND", "AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch",
+  "CONFIG_INVALID", "OBJECT_STORAGE_UNAVAILABLE",
+];
+
+export function developmentObjectStorageCheckCommand(timeoutMs = 10_000) {
+  const timeout = z.number().int().positive().max(30_000).parse(timeoutMs);
+  // Reuse the API's config validation and storage adapter inside its own
+  // network. A host probe cannot resolve container DNS or verify bucket access.
+  const probe = `
+const report = (result) => { console.log(JSON.stringify(result)); process.exit(0); };
+setTimeout(() => report({ ready: false, reason: "ETIMEDOUT" }), ${timeout});
+try {
+  const { parseConfig } = await import("./src/config.ts");
+  const { createObjectStorage } = await import("./src/adapters/object-storage.ts");
+  await createObjectStorage(parseConfig()).ensureBucket();
+  report({ ready: true });
+} catch (error) {
+  const allowed = ${JSON.stringify(objectStorageFailureReasons)};
+  const code = error?.code ?? error?.message;
+  const reason = error?.name === "ZodError" ? "CONFIG_INVALID"
+    : allowed.includes(code) ? code : "OBJECT_STORAGE_UNAVAILABLE";
+  report({ ready: false, reason });
+}`;
+  return [
+    "run", "--rm", "--no-deps", "--pull", "never", "--workdir", "/workspace/apps/api",
+    "--entrypoint", "node", "api", "--import", "tsx", "--input-type=module", "-e", probe,
+  ];
+}
+
+export async function verifyDevelopmentObjectStorage(check) {
+  const result = z.discriminatedUnion("ready", [
+    z.object({ ready: z.literal(true) }),
+    z.object({ ready: z.literal(false), reason: z.enum(objectStorageFailureReasons) }),
+  ]).parse(JSON.parse(await check()));
+  if (!result.ready) {
+    throw new Error(`Object storage preflight failed (${result.reason}). Start the configured MinIO service and verify MINIO_* credentials and bucket access, then run pnpm dev again.`);
+  }
 }
 
 export function developmentWorkerRebuildCommands(
@@ -1021,12 +1119,20 @@ export async function assertWebPortAvailable(
   environment,
   probe = probePortAvailability,
 ) {
-  return assertPublishedPortAvailable(
+  await assertPublishedPortAvailable(
     "Web",
     required(environment, "LINKSENSE_DEV_WEB_BIND_ADDRESS"),
     required(environment, "LINKSENSE_DEV_WEB_PORT"),
     probe,
   );
+  if (environment.LINKSENSE_DEV_WEB_HTTPS_PORT) {
+    await assertPublishedPortAvailable(
+      "Web HTTPS",
+      required(environment, "LINKSENSE_DEV_WEB_BIND_ADDRESS"),
+      environment.LINKSENSE_DEV_WEB_HTTPS_PORT,
+      probe,
+    );
+  }
 }
 
 function probePortAvailability(host, port) {
@@ -1046,6 +1152,7 @@ function probePortAvailability(host, port) {
 function startComposeDevelopmentSession(
   environmentFile,
   environment,
+  since,
 ) {
   const detached = process.platform !== "win32";
   const children = [];
@@ -1083,14 +1190,14 @@ function startComposeDevelopmentSession(
   // Attach a rejection observer immediately so an early child failure is
   // reported by that startup path without an unhandled rejection.
   void completion.catch(() => undefined);
-  const startChild = (label, commandArguments) => {
+  const startChild = (label, commandArguments, command = "docker") => {
     const child = spawn(
-      "docker",
-      developmentComposeArguments(environmentFile, commandArguments),
+      command,
+      command === "docker" ? developmentComposeArguments(environmentFile, commandArguments) : commandArguments,
       {
         cwd: repositoryRoot,
         env: environment,
-        stdio: label === "Compose Watch" ? ["ignore", "pipe", "pipe"] : "inherit",
+        stdio: label === "Source watch" ? ["ignore", "pipe", "pipe"] : "inherit",
         detached,
       },
     );
@@ -1118,24 +1225,10 @@ function startComposeDevelopmentSession(
     return child;
   };
 
-  startChild("Compose logs", [
-    "logs",
-    "--follow",
-    "--tail",
-    "20",
-    "api",
-    "runner",
-    "web",
-    "docs",
-  ]);
-  const watch = startChild("Compose Watch", [
-    "watch",
-    "--no-up",
-    "api",
-    "runner",
-    "web",
-    "docs",
-  ]);
+  startChild("Compose logs", developmentApplicationLogCommand(since));
+  const watch = startChild("Source watch", [
+    resolve(repositoryRoot, "scripts/dev-watch.mjs"), environmentFile,
+  ], process.execPath);
   const ready = waitForWatchEnabled(watch);
   watch.stdout.pipe(process.stdout, { end: false });
   watch.stderr.pipe(process.stderr, { end: false });
@@ -1199,11 +1292,6 @@ export async function main(argumentsList = process.argv.slice(2)) {
     developmentComposeArguments(environmentFile, commandArguments);
   const productionArguments = (commandArguments) =>
     productionComposeArguments(environmentFile, commandArguments);
-  const environment = buildDevelopmentEnvironment(process.env);
-  let composeEnvironment = buildDevelopmentComposeEnvironment(
-    process.env,
-    environment,
-  );
   const productionMode = argumentsList.includes("--production");
 
   if (productionMode) {
@@ -1263,6 +1351,9 @@ export async function main(argumentsList = process.argv.slice(2)) {
     );
     return;
   }
+
+  const environment = buildDevelopmentEnvironment(process.env);
+  let composeEnvironment = buildDevelopmentComposeEnvironment(process.env, environment);
 
   if (argumentsList.includes("--stop")) {
     const workerCleanup = await stopDevelopmentWorkers(environment);
@@ -1353,6 +1444,15 @@ export async function main(argumentsList = process.argv.slice(2)) {
 
   const prepareOnly = argumentsList.includes("--prepare-only");
   const forceRebuild = argumentsList.includes("--rebuild");
+  await measure("certificate", () => {
+    prepareDevelopmentTls(environment);
+    trustDevelopmentCertificate(environment);
+    // Recreate only when Nginx configuration or its certificate has changed;
+    // ordinary reattachment must preserve active event streams.
+    composeEnvironment.LINKSENSE_DEV_GATEWAY_REVISION = sourceFingerprint(repositoryRoot, [
+      "deploy/development/nginx", ".data/dev/tls/cert.pem",
+    ]);
+  });
   const applicationsAlreadyRunning =
     developmentApplicationsAreRunning(environmentFile, composeEnvironment);
   verifyRunnerEnvironmentFile();
@@ -1406,6 +1506,10 @@ export async function main(argumentsList = process.argv.slice(2)) {
     });
   });
 
+  await measure("object-storage", () => verifyDevelopmentObjectStorage(() => captureCommand(
+    "docker", composeArguments(developmentObjectStorageCheckCommand()), composeEnvironment,
+  )));
+
   const workerRevision = await measure("worker-image", () => ensureWorkerImage(
     environmentFile,
     composeEnvironment,
@@ -1421,22 +1525,19 @@ export async function main(argumentsList = process.argv.slice(2)) {
     for (const command of startup.initial) run("docker", composeArguments(command), composeEnvironment);
   });
   await measure("source", async () => {
-    const output = await captureCommand("docker", composeArguments(["ps", "--status", "running", "--format", "{{.Service}} {{.ID}}", "api", "runner", "web"]), composeEnvironment);
-    const containers = output.trim().split(/\r?\n/u).map((line) => z.tuple([z.enum(["api", "runner", "web"]), z.string().regex(/^[a-f0-9]{12,64}$/u)]).parse(line.trim().split(/\s+/u)));
-    if (new Set(containers.map(([service]) => service)).size !== 3) throw new Error("Development application containers did not start");
-    const results = await Promise.all(containers.map(async ([service, container]) => {
-      const synchronized = await captureCommand(process.execPath, [resolve(repositoryRoot, "scripts/dev-source.mjs"), service, container], composeEnvironment);
-      return z.object({ changed: z.boolean() }).parse(JSON.parse(synchronized)).changed ? service : null;
-    }));
-    const changed = results.filter(Boolean);
-    // Initial sync in Compose is based on mtimes and cannot remove files
-    // deleted while watch was offline. Rsync mirrors exact source first; a
-    // restart ensures configs and previously imported modules are current.
-    if (changed.length > 0) run("docker", composeArguments(["restart", ...changed]), composeEnvironment);
+    const output = await captureCommand("docker", composeArguments(["ps", "--status", "running", "--format", "{{json .}}", "api", "runner", "web"]), composeEnvironment);
+    await synchronizeDevelopmentApplications(output, {
+      isLive: (service) => developmentApplicationIsLive(service, environment),
+      synchronize: async (service, container) => JSON.parse(await captureCommand(
+        process.execPath, [resolve(repositoryRoot, "scripts/dev-source.mjs"), service, container], composeEnvironment,
+      )),
+      restart: (services) => run("docker", composeArguments(["restart", "--no-deps", ...services]), composeEnvironment),
+    });
   });
   const session = startComposeDevelopmentSession(
     environmentFile,
     composeEnvironment,
+    new Date(performance.timeOrigin + startedAt).toISOString(),
   );
   const readinessController = new AbortController();
   try {
@@ -1465,7 +1566,7 @@ export async function main(argumentsList = process.argv.slice(2)) {
   console.log(`LINKSENSE_DEV_READY ${JSON.stringify({ duration_ms: Math.round(performance.now() - startedAt), stages })}`);
 
   console.log(
-    "Compose Watch is active. Source changes sync into Linux containers; dependency changes rebuild only the affected development service.",
+    "Source watching is active. Source changes sync into Linux containers; dependency changes rebuild only the affected development service.",
   );
   console.log(
     "Run pnpm dev:worker:rebuild after runner changes that must reach newly created task workers, or pnpm dev:stop to stop everything.",

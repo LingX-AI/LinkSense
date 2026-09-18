@@ -1,7 +1,7 @@
 import adminKnowledgeSource from "@/pages/admin-knowledge-base-page.tsx?raw"
 import adminUsageSource from "@/pages/admin-usage-page.tsx?raw"
 import alertDialogSource from "@/components/ui/alert-dialog.tsx?raw"
-import applicationsWorkspaceSource from "@/features/applications/application-center-panel.tsx?raw"
+import { applicationWorkspaceScope } from "@/features/applications/application-workspace-scope"
 import applicationExternalAccessSource from "@/features/applications/application-external-access-page.tsx?raw"
 import authSource from "@/pages/auth-pages.tsx?raw"
 import automationSource from "@/pages/automation-pages.tsx?raw"
@@ -45,8 +45,27 @@ describe("frontend design regressions", () => {
     expect(adminUsageSource).toContain('"tab",')
     expect(automationSource).toContain('"status",')
     expect(knowledgeBaseSource).toContain('"kb_filter",')
-    expect(applicationsWorkspaceSource).toContain('"app_scope",')
+    expect(
+      applicationWorkspaceScope(new URLSearchParams("app_scope=center"))
+    ).toBe("center")
   })
+
+  it.each([
+    ["", true, "owned"],
+    ["app_scope=owned", true, "owned"],
+    ["app_scope=shared", true, "shared"],
+    ["app_scope=center", true, "center"],
+    ["app_scope=unknown", true, "owned"],
+    ["app_scope=center", false, "owned"],
+    ["app_scope=shared", false, "owned"],
+  ] as const)(
+    "resolves application category %s with organization sharing=%s to %s",
+    (search, sharingEnabled, expected) => {
+      expect(
+        applicationWorkspaceScope(new URLSearchParams(search), sharingEnabled)
+      ).toBe(expected)
+    }
+  )
 
   it("provides stable authentication field names and email input hints", () => {
     expect(authSource).toContain('name="email"')

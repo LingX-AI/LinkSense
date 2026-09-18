@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { applicationVersionInputSchema, applicationVersionNumberSchema, applicationVersionStatus } from "./application-version.js";
+import { applicationVersionInputSchema, applicationVersionNumberSchema, applicationVersionStatus, nextApplicationVersion } from "./application-version.js";
 
 describe("application version inputs", () => {
-  it("normalizes the v prefix and trims an optional usage guide", () => {
-    expect(applicationVersionInputSchema.parse({ version_number: " v1.2.3 ", usage_instructions: " Guide " })).toEqual({ version_number: "1.2.3", usage_instructions: "Guide" });
+  it("suggests 0.0.1 for a first release and increments existing versions", () => {
+    expect(nextApplicationVersion(null)).toBe("0.0.1");
+    expect(nextApplicationVersion("2.3.9")).toBe("2.3.10");
+    expect(nextApplicationVersion("1.1.0+build.2")).toBe("1.1.1");
+  });
+  it("accepts numeric release versions and trims an optional usage guide", () => {
+    expect(applicationVersionInputSchema.safeParse({ version_number: " v1.2.3 " }).success).toBe(false);
+    expect(applicationVersionInputSchema.parse({ version_number: " 1.2.3 ", usage_instructions: " Guide " })).toEqual({ version_number: "1.2.3", usage_instructions: "Guide" });
     for (const usage_instructions of [undefined, "", "  "]) {
       expect(applicationVersionInputSchema.parse({ version_number: "1.2.3", usage_instructions })).toEqual({ version_number: "1.2.3", usage_instructions: "" });
     }

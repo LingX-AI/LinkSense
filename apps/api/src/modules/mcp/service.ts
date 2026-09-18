@@ -459,11 +459,14 @@ export class McpServerService {
     ownerId: string,
     persisted: RuntimeMcpServer[],
   ): Promise<{ environment: Record<string, string> }> {
-    const current = await this.resolveRuntime(ownerId);
-    if (!sameRuntimeServers(current.servers, persisted)) {
-      throw new AppError("CONFLICT");
-    }
-    return { environment: current.environment };
+    // A running turn owns a frozen selection. Unrelated personal servers must
+    // neither block its recovery nor contribute credentials to that turn.
+    // The selected-runtime path still checks ownership, active state and drift.
+    return this.resolveApplicationRecovery(
+      ownerId,
+      persisted.map((server) => server.id),
+      persisted,
+    );
   }
 
   async resolveApplicationRecovery(
