@@ -1360,6 +1360,7 @@ async function conversationRouteFixture(
   applicationAllowsUserModelSelection = false,
 ) {
   const list = vi.fn(async () => ({ items: [], next_cursor: null }));
+  const getInteractiveTaskState = vi.fn(async () => ({ status: "idle", turn_id: null, file_ids: [], can_submit: true, interrupt_requested: false }));
   const get = vi.fn(async () => ({ conversation: { id: CONVERSATION_ID }, messages: [] }));
   const getReferencedSources = vi.fn(async () => ({ items: [{ url: "https://example.test/guide", title: "Guide" }] }));
   const create = vi.fn(async () => ({ id: CONVERSATION_ID }));
@@ -1579,6 +1580,7 @@ async function conversationRouteFixture(
     prefix: "/conversations",
     services: {
       conversations: {
+        getInteractiveTaskState,
         getReferencedSources,
         list,
         get,
@@ -1617,6 +1619,7 @@ async function conversationRouteFixture(
   });
   return {
     app,
+    getInteractiveTaskState,
     getReferencedSources,
     list,
     get,
@@ -1663,5 +1666,20 @@ describe("task category request boundaries", () => {
     expect((await app.inject({ method: "PATCH", url: `/conversations/${CONVERSATION_ID}`, payload: { project_id: "bad" } })).statusCode).toBe(400);
     expect(create).not.toHaveBeenCalled();
     expect(patch).not.toHaveBeenCalled();
+  });
+});
+
+describe("interactive task state route", () => {
+  it("reads the current user's state and validates the conversation identity", async () => {
+    const { app, getInteractiveTaskState } = await conversationRouteFixture();
+    const result = await app.inject({ method: "GET", url: `/conversations/${CONVERSATION_ID}/interactive-task-state` });
+    expect(result.statusCode).toBe(200);
+    expect(result.json().data).toMatchObject({ status: "idle", can_submit: true });
+    expect(getInteractiveTaskState).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID);
+    getInteractiveTaskState.mockClear();
+    expect((await app.inject({ method: "GET", url: "/conversations/not-uuid/interactive-task-state" })).statusCode).toBe(400);
+    expect(getInteractiveTaskState).not.toHaveBeenCalled();
+    getInteractiveTaskState.mockRejectedValueOnce(new AppError("FORBIDDEN"));
+    expect((await app.inject({ method: "GET", url: `/conversations/${CONVERSATION_ID}/interactive-task-state` })).statusCode).toBe(403);
   });
 });

@@ -252,6 +252,12 @@ export const conversationRoutes: FastifyPluginAsync<{
     );
   });
 
+  app.get("/:id/interactive-task-state", async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id } = uuidParamsSchema.parse(request.params);
+    return reply.send(ok(await services.conversations.getInteractiveTaskState(user.id, id), request.id));
+  });
+
   app.get("/:id/sources", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
     const { id } = uuidParamsSchema.parse(request.params);

@@ -741,6 +741,22 @@ export const userMessageDisplaySchema = z.discriminatedUnion("kind", [
   interactiveApplicationMessageDisplaySchema,
 ]);
 
+/** Public snapshot of an accepted submission awaiting native turn projection. */
+export const conversationStartingTurnSchema = z.strictObject({
+  turn_id: uuidSchema,
+  task_kind: conversationTaskKindSchema,
+  idempotency_key: z.string().min(1).max(120).nullable(),
+  input_text: z.string(),
+  created_at: timestampSchema,
+  message_display: userMessageDisplaySchema.nullable(),
+  attachments: z.array(z.strictObject({
+    id: uuidSchema,
+    name: z.string().min(1),
+    mime_type: z.string().nullable(),
+    size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  })),
+});
+
 export const userMessageCapabilitySchema = z.strictObject({
   id: capabilitySelectionIdSchema,
   name: z.string().min(1).max(160),
