@@ -13,7 +13,7 @@ import { createPrismaClient } from "../../src/db.js";
 // Owns a disposable database; never reads or migrates the application's .env database.
 const execute = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
-const migrationName = "20260916020000_allow_interactive_application_uploads";
+const migrationName = "20260918210000_allow_interactive_application_uploads";
 const root = await mkdtemp(join(tmpdir(), "linksense-interactive-files-db-"));
 const name = `linksense-interactive-files-test-${randomUUID()}`;
 const docker = async (...args: string[]): Promise<string> =>
@@ -38,10 +38,10 @@ try {
       await cp(join(migrations, entry.name), join(historical, entry.name), { recursive: true });
     }
   }
-  const migrate = async (migrationsPath: string): Promise<void> => {
+  const migrate = async (migrationsPath: string, url = databaseUrl): Promise<void> => {
     await execute("pnpm", ["exec", "prisma", "migrate", "deploy", "--config", "apps/api/test/integration/prisma.config.ts"], {
       cwd: repositoryRoot, timeout: 120_000, maxBuffer: 4_000_000,
-      env: { ...process.env, DATABASE_URL: databaseUrl, LINKSENSE_TEST_MIGRATIONS_PATH: migrationsPath },
+      env: { ...process.env, DATABASE_URL: url, LINKSENSE_TEST_MIGRATIONS_PATH: migrationsPath },
     });
   };
   await migrate(historical);
@@ -54,10 +54,23 @@ try {
     workspaceRelativePath: "attachments/existing.txt", workspaceRootRelPath: "test/home/workspace", downloadable: false,
   } });
   const attachmentData = { ...existing, id: randomUUID(), source: INTERACTIVE_APPLICATION_FILE_SOURCE };
+  const artifacts = [];
+  for (const source of ["agent_generated", "system_generated"]) {
+    artifacts.push(await db.conversationFile.create({ data: {
+      ...existing, id: randomUUID(), source, kind: "artifact", status: "registered", turnId: randomUUID(),
+      storageBackend: "minio", workspaceRelativePath: null, minioObjectKey: `fixtures/${source}`, downloadable: true, downloadCardEventId: randomUUID(),
+    } }));
+  }
+  const migrationChecksums = await db.$queryRaw`SELECT migration_name, checksum FROM _prisma_migrations ORDER BY migration_name`;
+  const columns = await db.$queryRaw`SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'conversation_files' ORDER BY ordinal_position`;
   // Reproduce the pre-upgrade constraint failure before deploying the forward migration.
-  await assert.rejects(db.conversationFile.create({ data: attachmentData }));
+  await assert.rejects(db.conversationFile.create({ data: attachmentData }), /conversation_files_source_check/);
   await migrate(migrations);
-  assert.deepEqual(await db.conversationFile.findUnique({ where: { id: existing.id } }), existing);
+  for (const file of [existing, ...artifacts]) {
+    assert.deepEqual(await db.conversationFile.findUnique({ where: { id: file.id } }), file);
+  }
+  assert.deepEqual(await db.$queryRaw`SELECT migration_name, checksum FROM _prisma_migrations WHERE migration_name < ${migrationName} ORDER BY migration_name`, migrationChecksums);
+  assert.deepEqual(await db.$queryRaw`SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'conversation_files' ORDER BY ordinal_position`, columns);
   const uploaded = await db.conversationFile.create({ data: attachmentData });
   const nativeFiles = await db.conversationFile.findMany({ where: {
     conversationId, status: "staged", source: { not: INTERACTIVE_APPLICATION_FILE_SOURCE },
@@ -73,8 +86,27 @@ try {
     assert.equal(bound.source, file.source);
     assert.equal(bound.status, "bound");
   }
-  await assert.rejects(db.conversationFile.create({ data: { ...attachmentData, id: randomUUID(), source: "invalid_source" } }));
-  console.log("Interactive attachment upgrade verified: historical data preserved, both origins usable, selection isolated, invalid sources rejected.");
+  await assert.rejects(db.conversationFile.create({ data: { ...attachmentData, id: randomUUID(), source: "invalid_source" } }), /conversation_files_source_check/);
+  // Repeated deployment must be harmless, and fresh installations must accept both upload origins.
+  await migrate(migrations);
+  await docker("exec", name, "createdb", "-U", "postgres", "interactive_files_fresh");
+  const freshUrl = new URL(databaseUrl);
+  freshUrl.pathname = "/interactive_files_fresh";
+  await migrate(migrations, freshUrl.toString());
+  const fresh = createPrismaClient(freshUrl.toString());
+  try {
+    for (const source of ["user_upload", INTERACTIVE_APPLICATION_FILE_SOURCE]) {
+      for (const { filename, mimeType } of [{ filename: "invoice.png", mimeType: "image/png" }, { filename: "invoice.pdf", mimeType: "application/pdf" }]) {
+        const file = await fresh.conversationFile.create({ data: { ...attachmentData, id: randomUUID(), source, filename, mimeType } });
+        assert.equal(file.source, source);
+        assert.equal(file.status, "staged");
+      }
+    }
+    await assert.rejects(fresh.conversationFile.create({ data: { ...attachmentData, id: randomUUID(), source: "invalid_source" } }), /conversation_files_source_check/);
+  } finally {
+    await fresh.$disconnect();
+  }
+  console.log("Interactive attachment upgrade and fresh installation verified: historical files, columns and migration checksums preserved; both origins usable; selection isolated; invalid sources rejected.");
 } finally {
   await database?.$disconnect();
   if (created) await docker("rm", "--force", name);
