@@ -236,6 +236,21 @@ describe("AuthProvider session restoration", () => {
     queryClient.setQueryData(["me", "model-preference", "new"], {
       selected_model: "previous-account-model",
     })
+    const runtimeKey = [
+      "applications",
+      "interactive-runtime-token",
+      user.id,
+      "application-1",
+      "package-1",
+      "conversation-1",
+    ]
+    queryClient.setQueryData(runtimeKey, {
+      runtime_url:
+        "/api/v1/interactive-app-runtime/previous-account/index.html",
+    })
+    queryClient.getMutationCache().build(queryClient, {
+      mutationKey: ["previous-account-mutation"],
+    })
 
     renderAuthProvider(queryClient)
     await expectAuthStatus("authenticated")
@@ -251,6 +266,10 @@ describe("AuthProvider session restoration", () => {
     expect(
       queryClient.getQueryData(["me", "model-preference", "new"])
     ).toBeUndefined()
+    expect(queryClient.getQueryData(runtimeKey)).toBeUndefined()
+    expect(queryClient.getMutationCache().getAll()).toHaveLength(0)
+    expect(screen.getByTestId("auth-user")).toBeEmptyDOMElement()
+    expect(sessionState.token).toBeNull()
     expect(queryClient.getQueryData(["system", "bootstrap"])).toEqual(bootstrap)
   })
 

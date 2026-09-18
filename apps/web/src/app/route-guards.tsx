@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 
@@ -71,10 +71,20 @@ export function ProtectedRoute() {
   const { status, user } = useAuth()
   const { bootstrap } = useBootstrap()
   const location = useLocation()
+  const [destinationUserId, setDestinationUserId] = useState(user?.id)
+  if (status === "authenticated" && user?.id && destinationUserId !== user.id) {
+    setDestinationUserId(user.id)
+  }
   if (status === "loading") return <LoadingState fullScreen />
   if (status === "error") return <SessionRestoreError />
   if (status === "anonymous") {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: location.pathname, fromUserId: destinationUserId }}
+      />
+    )
   }
   if (bootstrap?.maintenance?.active && user?.role !== "admin") {
     return <MaintenancePage maintenance={bootstrap.maintenance} />
@@ -123,8 +133,9 @@ export function AdminRoute() {
 }
 
 function AuthenticatedRedirect({ state }: { state: unknown }) {
+  const { user } = useAuth()
   const navigate = useNavigate()
-  const destination = resolveAuthenticatedDestination(state)
+  const destination = resolveAuthenticatedDestination(state, user?.id)
 
   useEffect(() => {
     navigate(destination, { replace: true })
@@ -133,7 +144,10 @@ function AuthenticatedRedirect({ state }: { state: unknown }) {
   return <LoadingState fullScreen />
 }
 
-function resolveAuthenticatedDestination(state: unknown): string {
+function resolveAuthenticatedDestination(
+  state: unknown,
+  userId: string | undefined
+): string {
   const fallback = "/conversations/new"
   if (
     typeof state !== "object" ||
@@ -142,6 +156,15 @@ function resolveAuthenticatedDestination(state: unknown): string {
     typeof state.from !== "string" ||
     !state.from.startsWith("/") ||
     state.from.startsWith("//")
+  ) {
+    return fallback
+  }
+
+  // A saved task address belongs to the account that was viewing it.
+  if (
+    "fromUserId" in state &&
+    state.fromUserId !== undefined &&
+    state.fromUserId !== userId
   ) {
     return fallback
   }
