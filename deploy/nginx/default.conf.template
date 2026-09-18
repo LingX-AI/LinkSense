@@ -1,12 +1,18 @@
 map $uri $linksense_cache_control {
   default "";
   /index.html "no-store, no-cache, must-revalidate, max-age=0";
+  /build-info.json "no-store";
   /assets/embed-app.js "no-cache";
   /assets/embed-app.css "no-cache";
   ~^/assets/ "public, max-age=31536000, immutable";
   ~^/help/(?:en-US/)?assets/ "public, max-age=31536000, immutable";
   ~^/help/(?:.*\/)?index\.html$ "no-store";
   ~^/help/(?:.*\/)?$ "no-store";
+}
+
+map $status $linksense_response_cache_control {
+  default $linksense_cache_control;
+  ~^[45] "no-store";
 }
 
 map $uri $linksense_pragma {
@@ -38,11 +44,15 @@ server {
   # The in-browser XLSX viewer parses workbooks in a same-origin module Worker
   # backed by WebAssembly. Permit only Wasm compilation, not generic eval.
   add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data: blob: http: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self' https:; form-action 'self' https:; frame-ancestors 'self' https://teams.microsoft.com https://*.teams.microsoft.com" always;
-  add_header Cache-Control $linksense_cache_control always;
+  add_header Cache-Control $linksense_response_cache_control always;
   add_header Pragma $linksense_pragma always;
   add_header Expires $linksense_expires always;
 
   location = /index.html {
+    try_files $uri =404;
+  }
+
+  location = /build-info.json {
     try_files $uri =404;
   }
 
@@ -58,6 +68,23 @@ server {
     # must retain its scripts, modules, styles, fonts and network requests.
     add_header Cache-Control "no-store" always;
     try_files $uri =404;
+  }
+
+  location ^~ /web/ {
+    add_header Cache-Control "no-store" always;
+    proxy_pass http://api:4000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_request_buffering off;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
   }
 
   location /api/ {

@@ -22,18 +22,23 @@ services:
         DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
         LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
         PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://binaries.prisma.sh}
-    command: ["pnpm", "--filter", "@linksense/api", "dev"]
+    # The server must be init's direct child: a surviving watch parent hides
+    # OOM/SIGKILL from Docker's restart policy. Host watch owns sync + restart.
+    working_dir: /workspace/apps/api
+    command: ["node", "--import", "tsx", "src/index.ts"]
     user: "node"
     read_only: false
     restart: unless-stopped
-    # The dev launcher checks actual readiness after all processes start.
-    # Waiting for Docker's healthcheck interval here serializes the stack.
-    depends_on:
-      runner:
-        condition: service_started
+    # scripts/dev.mjs prepares dependencies and checks application readiness.
+    # Source watching uses scoped build/up --no-deps commands in dev-watch.mjs.
+    depends_on: !reset {}
+    healthcheck:
+      interval: 5s
+      timeout: 3s
+      retries: 3
     environment:
       NODE_ENV: development
-      NODE_OPTIONS: --conditions=development
+      NODE_OPTIONS: --conditions=development --max-old-space-size=768
       NODE_COMPILE_CACHE: /tmp/linksense-node-compile-cache
       # Docker Desktop may resolve public domains through its 198.18.0.0/15
       # DNS proxy. Only this explicit development setting trusts that mapping.
@@ -42,7 +47,7 @@ services:
       - "${LINKSENSE_DEV_API_BIND_ADDRESS:-127.0.0.1}:${LINKSENSE_DEV_API_PORT:-4000}:4000"
     develop:
       watch:
-        - action: sync
+        - action: sync+restart
           path: ./apps/api/src
           target: /workspace/apps/api/src
           ignore: [generated/]
@@ -52,7 +57,7 @@ services:
         - action: sync
           path: ./apps/docs/i18n/en-US/docusaurus-plugin-content-docs/current
           target: /workspace/apps/docs/i18n/en-US/docusaurus-plugin-content-docs/current
-        - action: sync
+        - action: sync+restart
           path: ./packages/shared/src
           target: /workspace/packages/shared/src
         - action: sync+restart
@@ -71,6 +76,12 @@ services:
 
   runner:
     image: linksense-runner-controller-dev:${LINKSENSE_DEV_IMAGE_TAG:-local}
+    # Storage and worker images are prepared by scripts/dev.mjs before startup.
+    depends_on: !reset {}
+    healthcheck:
+      interval: 5s
+      timeout: 3s
+      retries: 3
     build: !override
       context: .
       dockerfile: Dockerfile.dev
@@ -82,13 +93,14 @@ services:
         DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
         LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
         PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://binaries.prisma.sh}
-    command: ["pnpm", "--filter", "@linksense/runner", "dev"]
+    working_dir: /workspace/apps/runner
+    command: ["node", "--import", "tsx", "src/index.ts"]
     user: "0:0"
     read_only: false
     restart: unless-stopped
     environment:
       NODE_ENV: development
-      NODE_OPTIONS: --conditions=development
+      NODE_OPTIONS: --conditions=development --max-old-space-size=512
       NODE_COMPILE_CACHE: /tmp/linksense-node-compile-cache
       LINKSENSE_ENABLE_DEVELOPMENT_ENDPOINTS: "true"
       # Hot reload must not delete task workers. Explicit dev stop/rebuild calls
@@ -99,10 +111,10 @@ services:
       - "${LINKSENSE_DEV_RUNNER_BIND_ADDRESS:-127.0.0.1}:${LINKSENSE_DEV_RUNNER_PORT:-4010}:4010"
     develop:
       watch:
-        - action: sync
+        - action: sync+restart
           path: ./apps/runner/src
           target: /workspace/apps/runner/src
-        - action: sync
+        - action: sync+restart
           path: ./packages/shared/src
           target: /workspace/packages/shared/src
         - action: sync+restart
@@ -136,17 +148,16 @@ services:
     user: "node"
     read_only: false
     restart: unless-stopped
-    depends_on:
-      api:
-        condition: service_started
+    depends_on: !reset {}
     environment:
       NODE_ENV: development
+      NODE_OPTIONS: --conditions=development --max-old-space-size=768
       # Preserve same-origin Cookie authentication through Vite's /api proxy.
       VITE_API_BASE_URL: ""
       LINKSENSE_DEV_API_PROXY_TARGET: http://api:4000
       LINKSENSE_DEV_DOCS_PROXY_TARGET: http://docs:80
     ports: !override
-      - "${LINKSENSE_DEV_WEB_BIND_ADDRESS:-127.0.0.1}:${LINKSENSE_DEV_WEB_PORT:-18173}:18173"
+      - "${LINKSENSE_DEV_WEB_BIND_ADDRESS:-127.0.0.1}:${LINKSENSE_DEV_WEB_PORT:-18172}:18173"
     healthcheck:
       test:
         [
@@ -178,6 +189,15 @@ services:
         - action: sync+restart
           path: ./apps/web/vite.config.ts
           target: /workspace/apps/web/vite.config.ts
+        - action: sync+restart
+          path: ./scripts/application-build.mjs
+          target: /workspace/scripts/application-build.mjs
+        - action: sync+restart
+          path: ./scripts/source-fingerprint.mjs
+          target: /workspace/scripts/source-fingerprint.mjs
+        - action: sync+restart
+          path: ./scripts/application-build.d.mts
+          target: /workspace/scripts/application-build.d.mts
         - action: rebuild
           path: ./apps/web/package.json
         - action: rebuild
@@ -189,6 +209,40 @@ services:
         - action: rebuild
           path: ./patches
 
+  # Keep Vite's HTTP listener and expose a second, trusted HTTP/2 entry.
+  dev-gateway:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    labels:
+      com.linksense.development.gateway-revision: ${LINKSENSE_DEV_GATEWAY_REVISION:-unversioned}
+    ports:
+      - "${LINKSENSE_DEV_WEB_BIND_ADDRESS:-127.0.0.1}:${LINKSENSE_DEV_WEB_HTTPS_PORT:-18173}:443"
+    volumes:
+      - type: bind
+        source: ./deploy/development/nginx
+        target: /etc/nginx/conf.d
+        read_only: true
+        bind:
+          create_host_path: false
+      # This directory contains only leaf files and the public CA. mkcert's
+      # signing key stays in the host CA directory and is never mounted.
+      - type: bind
+        source: ${LINKSENSE_DEV_TLS_DIR:-./.data/dev/tls}
+        target: /run/linksense-dev-tls
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    develop:
+      watch:
+        - action: restart
+          path: ./deploy/development/nginx
+
   docs:
     image: linksense-docs-dev:${LINKSENSE_DEV_IMAGE_TAG:-local}
     build:
@@ -197,6 +251,9 @@ services:
       target: docs-runtime
       args:
         DOCS_IMAGE_FINGERPRINT: ${LINKSENSE_DOCS_IMAGE_FINGERPRINT:-unversioned}
+        # Build on the same small Docker VM as the running development stack.
+        DOCS_BUILD_NODE_OPTIONS: --max-old-space-size=1024
+        DOCS_BUILD_TERSER_PARALLEL: "false"
         LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
     restart: unless-stopped
     healthcheck:

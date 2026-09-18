@@ -108,6 +108,10 @@ function isPathWithin(parentPath, candidatePath) {
 }
 
 function isDevelopmentComposeHelperCommand(command) {
+  if (
+    /(?:^|[/\s])node(?:\s|$)/u.test(command) &&
+    /(?:^|[/\s])scripts\/dev-watch\.mjs(?:\s|$)/u.test(command)
+  ) return true;
   return (
     /(?:^|[/\s])(?:docker|docker-compose)(?:\s|$)/u.test(command) &&
     command.includes("docker-compose.dev.yml") &&

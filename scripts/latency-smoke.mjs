@@ -14,7 +14,7 @@ export function isAssistantTextDelta(event, turnId) {
     ? event.payload?.params?.delta
     : event.event_type === "conversation.message.delta" && event.payload?.role !== "user"
       ? event.payload?.delta : null;
-  return typeof text === "string" && text.length > 0;
+  return typeof text === "string" && text.trim().length > 0;
 }
 
 export async function observeFirstText(url, headers, turnId, submittedAt, signal) {
@@ -152,6 +152,21 @@ export function evaluateLatencyTargets(result, targets) {
       `warm native projection p95 ${projection.p95_ms}ms exceeds ${targets.warmProjectionMs}ms`,
     );
   }
+  for (const [index, turn] of (result.turns ?? []).entries()) {
+    const sample = turn.sample ?? index + 1;
+    const kind = turn.kind ?? "follow_up";
+    const target = kind === "new_task"
+      ? (targets.newTaskFirstTextMs ?? 3_000)
+      : (targets.followUpFirstTextMs ?? 1_000);
+    if (!Number.isFinite(turn.first_text_ms) || turn.first_text_ms < 0) {
+      failures.push(`turn ${sample} has no valid first text measurement`);
+    } else if (turn.first_text_ms > target) {
+      failures.push(`turn ${sample} ${kind} first text ${turn.first_text_ms}ms exceeds ${target}ms`);
+    }
+    if (turn.final_status !== "completed") {
+      failures.push(`turn ${sample} ended with ${turn.final_status ?? "unknown"}`);
+    }
+  }
   return failures;
 }
 
@@ -235,7 +250,11 @@ async function measurePrewarm(config) {
       {
         method: "POST",
         headers: authenticatedHeaders(config.accessToken),
-        body: JSON.stringify(config.conversationId ? { conversation_id: config.conversationId } : {}),
+        body: JSON.stringify({
+          ...(config.conversationId ? { conversation_id: config.conversationId } : {}),
+          collaboration_mode: config.collaborationMode,
+          ...(!config.conversationId && config.projectId ? { project_id: config.projectId } : {}),
+        }),
       },
       config.requestTimeoutMs,
     );
@@ -285,6 +304,8 @@ async function createEphemeralConversation(config, reservationId) {
       headers: authenticatedHeaders(config.accessToken),
       body: JSON.stringify({
         ...(reservationId ? { prewarmed_conversation_id: reservationId } : {}),
+        collaboration_mode: config.collaborationMode,
+        ...(config.projectId ? { project_id: config.projectId } : {}),
       }),
     },
     config.requestTimeoutMs,
@@ -338,11 +359,12 @@ async function waitForTurn(config, conversationId, turnId, acceptedAt) {
   );
 }
 
-async function measureTurns(config, conversationId) {
+async function measureTurns(config, conversationId, creationStartedAt) {
   const turns = [];
   for (let index = 0; index < config.turnSamples; index += 1) {
     const idempotencyKey = randomUUID();
-    const submittedAt = performance.now();
+    const submittedAt = index === 0 && creationStartedAt !== undefined
+      ? creationStartedAt : performance.now();
     const { response, body, durationMs } = await requestJson(
       endpoint(config.apiBaseUrl, `conversations/${conversationId}/turns`),
       {
@@ -353,6 +375,7 @@ async function measureTurns(config, conversationId) {
           priority_capability_ids: config.capabilityIds,
           idempotency_key: idempotencyKey,
           submit_mode: "normal",
+          collaboration_mode: config.collaborationMode,
         }),
       },
       config.requestTimeoutMs,
@@ -375,16 +398,19 @@ async function measureTurns(config, conversationId) {
       AbortSignal.any([streamAbort.signal, AbortSignal.timeout(config.turnCompletionTimeoutMs)])
     ).catch((error) => { streamError = error; return null; });
     let terminal;
-    try { terminal = await waitForTurn(
-      config,
-      conversationId,
-      receipt.turn_id,
-      submittedAt,
-    ); } finally { streamAbort.abort(); }
+    let drainTimer;
+    try {
+      terminal = await waitForTurn(config, conversationId, receipt.turn_id, submittedAt);
+      // A very fast turn may finish before the SSE connection catches up.
+      // Give its durable replay a bounded drain window before classifying missing text.
+      drainTimer = setTimeout(() => streamAbort.abort(), Math.min(config.requestTimeoutMs, 5_000));
+      await firstText;
+    } finally { clearTimeout(drainTimer); streamAbort.abort(); }
     const firstTextMs = await firstText;
     if (streamError) throw streamError;
     turns.push({
       sample: index + 1,
+      kind: index === 0 && creationStartedAt !== undefined ? "new_task" : "follow_up",
       turn_id: receipt.turn_id,
       acceptance_ms: round(durationMs),
       first_text_ms: firstTextMs,
@@ -416,6 +442,10 @@ function configuration(environment) {
     throw new Error("LINKSENSE_LATENCY_ACCESS_TOKEN is required.");
   }
   const allowTurn = environment.LINKSENSE_LATENCY_ALLOW_TURN === "1";
+  const skipPrewarm = environment.LINKSENSE_LATENCY_SKIP_PREWARM === "1";
+  if (skipPrewarm && !allowTurn) throw new Error("Skipping prewarm requires LINKSENSE_LATENCY_ALLOW_TURN=1 so a real boundary is measured.");
+  const collaborationMode = environment.LINKSENSE_LATENCY_COLLABORATION_MODE ?? "default";
+  if (!["default", "plan"].includes(collaborationMode)) throw new Error("LINKSENSE_LATENCY_COLLABORATION_MODE must be default or plan.");
   const turnSamples = allowTurn
     ? positiveInteger(
         environment.LINKSENSE_LATENCY_TURN_SAMPLES,
@@ -455,6 +485,9 @@ function configuration(environment) {
       "LINKSENSE_LATENCY_TURN_TIMEOUT_MS",
     ),
     allowTurn,
+    skipPrewarm,
+    collaborationMode,
+    projectId: environment.LINKSENSE_LATENCY_PROJECT_ID?.trim() || null,
     turnSamples,
     turnMessage:
       environment.LINKSENSE_LATENCY_TURN_MESSAGE?.trim() ||
@@ -469,6 +502,8 @@ function configuration(environment) {
     enforce: environment.LINKSENSE_LATENCY_ENFORCE === "1",
     json: environment.LINKSENSE_LATENCY_JSON === "1",
     targets: {
+      newTaskFirstTextMs: positiveInteger(environment.LINKSENSE_LATENCY_TARGET_NEW_TASK_FIRST_TEXT_MS, 3_000, "LINKSENSE_LATENCY_TARGET_NEW_TASK_FIRST_TEXT_MS"),
+      followUpFirstTextMs: positiveInteger(environment.LINKSENSE_LATENCY_TARGET_FOLLOW_UP_FIRST_TEXT_MS, 1_000, "LINKSENSE_LATENCY_TARGET_FOLLOW_UP_FIRST_TEXT_MS"),
       workerPrewarmMs: positiveInteger(
         environment.LINKSENSE_LATENCY_TARGET_WORKER_PREWARM_MS,
         2_000,
@@ -505,6 +540,7 @@ Required:
 Optional read/prewarm settings:
   LINKSENSE_LATENCY_API_URL            Default: ${DEFAULT_API_BASE_URL}
   LINKSENSE_LATENCY_PREWARM_SAMPLES    Default: 5
+  LINKSENSE_LATENCY_SKIP_PREWARM=1     Measure unprepared task creation
   LINKSENSE_LATENCY_RUNNER_SECRET      Enables aggregate runner health snapshots
   LINKSENSE_LATENCY_JSON=1             Emit JSON instead of the human summary
   LINKSENSE_LATENCY_ENFORCE=1          Exit non-zero when a target is missed
@@ -515,6 +551,10 @@ Explicit mutating turn benchmark:
                                        and clean up an ephemeral conversation
   LINKSENSE_LATENCY_TURN_SAMPLES       Default: 2 (sequential, same conversation)
   LINKSENSE_LATENCY_CAPABILITY_IDS     Comma-separated capability UUIDs
+  LINKSENSE_LATENCY_PROJECT_ID         Project for a newly created task
+  LINKSENSE_LATENCY_COLLABORATION_MODE Default: default (or plan)
+  LINKSENSE_LATENCY_TARGET_NEW_TASK_FIRST_TEXT_MS  Default: 3000
+  LINKSENSE_LATENCY_TARGET_FOLLOW_UP_FIRST_TEXT_MS Default: 1000
 
 For a verified cold-worker sample, use a dedicated benchmark user with no
 existing worker. The script deliberately has no stop-all or worker-delete path.
@@ -527,7 +567,7 @@ export async function runLatencySmoke(environment = process.env) {
     measured_at: new Date().toISOString(),
     note: "Prewarm measures queue acceptance, not native readiness. First text measures SSE arrival, not browser paint or pure provider latency.",
     runner_before: await runnerHealth(config),
-    prewarm: await measurePrewarm(config),
+    prewarm: config.skipPrewarm ? null : await measurePrewarm(config),
     turns: [],
     runner_after: null,
     ephemeral_conversation_id: null,
@@ -537,14 +577,16 @@ export async function runLatencySmoke(environment = process.env) {
   let ephemeralConversationId = null;
   if (config.allowTurn) {
     let conversationId = config.conversationId;
+    let creationStartedAt;
     if (!conversationId) {
-      const created = await createEphemeralConversation(config, result.prewarm.conversation_id);
+      creationStartedAt = performance.now();
+      const created = await createEphemeralConversation(config, result.prewarm?.conversation_id);
       conversationId = ephemeralConversationId = created.conversationId;
       result.creation_ms = created.durationMs;
     }
     result.ephemeral_conversation_id = ephemeralConversationId;
     try {
-      result.turns = await measureTurns(config, conversationId);
+      result.turns = await measureTurns(config, conversationId, creationStartedAt);
       if (ephemeralConversationId && config.cleanupEphemeral) {
         await deleteEphemeralConversation(config, ephemeralConversationId);
         result.ephemeral_conversation_id = null;
@@ -567,7 +609,7 @@ function printHuman(result, failures) {
   process.stdout.write("LinkSense latency measurement\n");
   process.stdout.write(`${result.note}\n\n`);
   process.stdout.write(
-    `Prewarm enqueue: first=${result.prewarm.first_observed_ms}ms, repeated=${JSON.stringify(result.prewarm.warm)}; create=${result.creation_ms}ms\n`,
+    `Prewarm enqueue: first=${result.prewarm?.first_observed_ms ?? "skipped"}ms, repeated=${JSON.stringify(result.prewarm?.warm ?? null)}; create=${result.creation_ms}ms\n`,
   );
   for (const turn of result.turns) {
     process.stdout.write(

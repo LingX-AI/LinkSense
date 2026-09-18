@@ -9,6 +9,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import pino from "../apps/runner/node_modules/pino/pino.js";
+
 import { CodexJsonRpcClient } from "../apps/runner/src/codex/json-rpc-client.ts";
 import {
   CODEX_SCHEMA_VERSION,
@@ -25,9 +27,12 @@ type JsonObject = Record<string, unknown>;
 type ResponseStreamEvent = { event: string; data: JsonObject };
 
 const execFileAsync = promisify(execFile);
-const sourceModel = "gpt-5.6-luna";
-const targetModel = "qwen3.8-27b";
+const deepSeekToLuna = process.argv.includes("--deepseek-to-luna");
+const sourceModel = deepSeekToLuna ? "deepseek-flash" : "gpt-5.6-luna";
+const targetModel = deepSeekToLuna ? "gpt-5.6-luna" : "qwen3.8-27b";
 const encryptedReasoning = "ZW5jcnlwdGVkLXByb3ZpZGVyLXN0YXRl";
+const sourceReasoningText = "Synthetic source-provider reasoning for the model switch regression.";
+const compactedContext = "The source task completed and its relevant context was compacted.";
 const sourceMarker = "LINKSENSE_SOURCE_REASONING_OK";
 const targetMarker = "LINKSENSE_MODEL_SWITCH_OK";
 const codexVersionOutput = await codexVersion();
@@ -49,10 +54,7 @@ await Promise.all([
   mkdir(workspace, { recursive: true }),
 ]);
 
-const logger = {
-  warn: () => undefined,
-  error: () => undefined,
-} as never;
+const logger = pino({ enabled: false });
 const requests: Array<{
   route: "source" | "target";
   authorization: string | undefined;
@@ -167,7 +169,7 @@ try {
     );
     const completed = await completedTurns.wait(turn.turn.id);
     if (completed.status !== "completed") {
-      throw new Error("source turn did not complete");
+      throw new Error(`source turn did not complete: ${completed.error?.message ?? completed.status}`);
     }
   } finally {
     await sourceClient.close().catch(() => undefined);
@@ -321,7 +323,7 @@ try {
     targetTurnId = targetTurn.turn.id;
     const completed = await completedTurns.wait(targetTurnId);
     if (completed.status !== "completed") {
-      throw new Error("target turn did not complete");
+      throw new Error(`target turn did not complete: ${completed.error?.message ?? completed.status}`);
     }
     const read = await targetClient.request<{ thread: CodexThread }>(
       "thread/read",
@@ -363,6 +365,9 @@ try {
       targetRequestCount: targetRequests.length,
       encryptedReasoningSeenBySourceCompaction: true,
       encryptedReasoningSeenByTarget: false,
+      plaintextReasoningSeenBySourceCompaction: deepSeekToLuna,
+      plaintextReasoningSeenByTarget: false,
+      compactedContextSeenByTarget: true,
       compactionStartReceivedBeforeUpstreamResponse: true,
     }),
   );
@@ -445,6 +450,9 @@ async function handleUpstream(
           "source compaction did not receive the encrypted reasoning item",
         );
       }
+      if (deepSeekToLuna && !JSON.stringify(body).includes(sourceReasoningText)) {
+        throw new Error("source compaction did not receive its plaintext reasoning");
+      }
       const metadata = turnMetadata(body);
       if (
         metadata.request_kind !== "compaction" ||
@@ -469,7 +477,7 @@ async function handleUpstream(
       writeEvents(
         response,
         buildResponsesTextEvents(
-          "The source task completed and its relevant context was compacted.",
+          compactedContext,
           "resp_source_compaction",
         ),
       );
@@ -484,6 +492,12 @@ async function handleUpstream(
   }
   if (JSON.stringify(body).includes(encryptedReasoning)) {
     throw new Error("target channel received provider-encrypted reasoning");
+  }
+  if (JSON.stringify(body).includes(sourceReasoningText)) {
+    throw new Error("target channel received provider-private plaintext reasoning");
+  }
+  if (!JSON.stringify(body).includes(compactedContext)) {
+    throw new Error("target channel did not receive the compacted context");
   }
   if (targetGeneratedRequestCount !== 1) {
     throw new Error("target channel received an unexpected extra request");
@@ -530,6 +544,9 @@ function buildReasoningTextEvents(
     type: "reasoning",
     summary: [],
     encrypted_content: encryptedContent,
+    ...(deepSeekToLuna
+      ? { content: [{ type: "reasoning_text", text: sourceReasoningText }] }
+      : {}),
   };
   const textEvents = buildResponsesTextEvents(text, responseId);
   const created = textEvents.shift();

@@ -57,7 +57,7 @@ test("the release gateway preserves the public protocol reported by a reverse pr
     gateway.match(
       /proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/gu,
     )?.length,
-    3,
+    4,
   )
   assert.doesNotMatch(
     gateway,

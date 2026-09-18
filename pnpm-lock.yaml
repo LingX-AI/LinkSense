@@ -60,6 +60,9 @@ importers:
       '@types/ws':
         specifier: 8.18.1
         version: 8.18.1
+      chokidar:
+        specifier: 5.0.0
+        version: 5.0.0
       prisma:
         specifier: 7.8.0
         version: 7.8.0(@types/node@25.9.5)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(typescript@6.0.3)
@@ -189,6 +192,9 @@ importers:
       dingtalk-stream:
         specifier: 2.1.7-beta.1
         version: 2.1.7-beta.1
+      es-module-lexer:
+        specifier: 2.3.0
+        version: 2.3.0
       exceljs:
         specifier: 4.4.0
         version: 4.4.0
@@ -231,6 +237,9 @@ importers:
       micromark-extension-gfm:
         specifier: 3.0.0
         version: 3.0.0
+      mime-types:
+        specifier: 3.0.2
+        version: 3.0.2
       minio:
         specifier: ^8.0.7
         version: 8.0.7
@@ -246,12 +255,21 @@ importers:
       p-retry:
         specifier: 6.2.1
         version: 6.2.1
+      parse5:
+        specifier: 8.0.1
+        version: 8.0.1
       pg:
         specifier: ^8.16.3
         version: 8.16.3
       pino:
         specifier: ^9.14.0
         version: 9.14.0
+      postcss:
+        specifier: 8.5.26
+        version: 8.5.26
+      postcss-value-parser:
+        specifier: 4.2.0
+        version: 4.2.0
       proper-lockfile:
         specifier: 4.1.2
         version: 4.1.2
@@ -270,6 +288,9 @@ importers:
       smol-toml:
         specifier: 1.7.1
         version: 1.7.1
+      srcset:
+        specifier: 4.0.0
+        version: 4.0.0
       undici:
         specifier: 7.29.0
         version: 7.29.0
@@ -292,6 +313,9 @@ importers:
       '@microsoft/microsoft-graph-types':
         specifier: ^2.43.1
         version: 2.43.1
+      '@types/mime-types':
+        specifier: 3.0.1
+        version: 3.0.1
       '@types/node':
         specifier: ^24.10.0
         version: 24.13.3
@@ -533,9 +557,6 @@ importers:
       '@streamdown/math':
         specifier: 1.0.2
         version: 1.0.2(react@19.2.7)
-      '@tailwindcss/browser':
-        specifier: 4.3.2
-        version: 4.3.2
       '@tailwindcss/vite':
         specifier: ^4
         version: 4.3.2(vite@8.1.4(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))
@@ -4374,9 +4395,6 @@ packages:
     resolution: {integrity: sha512-+PmQX0PiAYPMeVYe237LJAYvOMYW1j2rH5YROyS3b4CTVJum34HfRvKvAzozHAQG0TnHNdUfY9nCeUyRAs//cw==}
     engines: {node: '>=14.16'}
 
-  '@tailwindcss/browser@4.3.2':
-    resolution: {integrity: sha512-R6hewP9HHwLAY88bFkgAYFIQMRGi9bqx6sR1anI3IThTJtwhPlAm4aHIzDKrnJ8Ct4M3d5A9PCsah8Z5+EjLiQ==}
-
   '@tailwindcss/node@4.3.2':
     resolution: {integrity: sha512-yWP/sqEcBLaD8JuA6zNwxoYKr75qxTioYwlRwekj5Jr/I5GXnoJfjetH/psLUIv74cYTH2lBUEzBkinthoYcBg==}
 
@@ -4709,6 +4727,9 @@ packages:
 
   '@types/mdx@2.0.14':
     resolution: {integrity: sha512-T48PeuJtvLosNTPVhfnIp3i/n3a4g4Bad7YCq5k64D4u7NwDrAotikQ+5+sjtUvBmxCMlbo3dVL+C2dP0rWHzg==}
+
+  '@types/mime-types@3.0.1':
+    resolution: {integrity: sha512-xRMsfuQbnRq1Ef+C+RKaENOxXX87Ygl38W1vDfPHRku02TgQr+Qd8iivLtAMcR0KF5/29xlnFihkTlbqFrGOVQ==}
 
   '@types/mime@1.3.5':
     resolution: {integrity: sha512-/pyBZWSLD2n0dcHE3hq8s8ZvcETHtEuF+3E7XVt0Ig2nvsVQXdghHVcEkIWjy9A0wKfTn97a/PSDYohKIlnP/w==}
@@ -16331,8 +16352,6 @@ snapshots:
     dependencies:
       defer-to-connect: 2.0.1
 
-  '@tailwindcss/browser@4.3.2': {}
-
   '@tailwindcss/node@4.3.2':
     dependencies:
       '@jridgewell/remapping': 2.3.5
@@ -16688,6 +16707,8 @@ snapshots:
 
   '@types/mdx@2.0.14': {}
 
+  '@types/mime-types@3.0.1': {}
+
   '@types/mime@1.3.5': {}
 
   '@types/ms@2.1.0': {}
@@ -16956,7 +16977,7 @@ snapshots:
       obug: 2.1.3
       std-env: 4.2.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@25.9.5)(@vitest/coverage-v8@4.1.10)(jsdom@29.1.1)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))
+      vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/coverage-v8@4.1.10)(jsdom@29.1.1)(vite@8.1.4(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))
 
   '@vitest/expect@4.1.10':
     dependencies:

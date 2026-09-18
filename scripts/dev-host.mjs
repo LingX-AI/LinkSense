@@ -52,7 +52,7 @@ export function buildHostDevelopmentEnvironment(
   source,
   rootDirectory = repositoryRoot,
 ) {
-  const development = buildDevelopmentEnvironment(source);
+  const development = buildDevelopmentEnvironment(source, { https: false });
   const runnerOrigin = loopbackOrigin(
     development.LINKSENSE_DEV_RUNNER_BIND_ADDRESS,
     development.LINKSENSE_DEV_RUNNER_PORT,

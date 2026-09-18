@@ -1621,6 +1621,14 @@ create_postgres_backup() {
 }
 
 verify_release() {
+  api_container_ids="$(compose ps -q api)"
+  if [ -z "$api_container_ids" ]; then
+    echo "No API containers are available for application build verification" >&2
+    return 1
+  fi
+  for api_container_id in $api_container_ids; do
+    docker exec "$api_container_id" node dist/commands/verify-web-build.js http://web:80/build-info.json || return 1
+  done
   migrate_id="$(compose ps -aq migrate | tail -n 1)"
   if [ -z "$migrate_id" ]; then
     echo "migration container was not created" >&2

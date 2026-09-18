@@ -16,6 +16,8 @@ import {
   buildWorkerRuntimeEnvironment,
   createApplicationShutdown,
   developmentApplicationStartCommands,
+  developmentApplicationLogCommand,
+  developmentApplicationIsLive,
   developmentComposeArguments,
   developmentDependencyFingerprint,
   developmentImageNames,
@@ -33,11 +35,18 @@ import {
   resolvePortableUserDataRoot,
   sourceFingerprint,
   stopDevelopmentWorkers,
-  waitForDevelopmentApplicationReadiness,
+  synchronizeDevelopmentApplications,
+  waitForDevelopmentApplicationReadiness as checkDevelopmentReadiness,
   waitForWatchEnabled,
   workerImageFingerprint,
   workerImageNeedsRebuild,
 } from "./dev.mjs";
+
+// These orchestration tests isolate both network boundaries. Actual TLS/HTTP2
+// negotiation is covered in dev-http2.test.mjs; the gateway smoke covers SSE.
+function waitForDevelopmentApplicationReadiness(environment, options = {}) {
+  return checkDevelopmentReadiness(environment, { http2Probe: async () => {}, ...options });
+}
 
 const containerEnvironment = {
   POSTGRES_DB: "linksense",
@@ -48,10 +57,17 @@ const containerEnvironment = {
   MINIO_ENDPOINT: "minio.localhost",
 };
 
+test("development logs include this startup without replaying failures from earlier sessions", () => {
+  const since = "2026-09-17T14:37:00.000Z";
+  assert.deepEqual(developmentApplicationLogCommand(since), [
+    "logs", "--follow", "--since", since, "api", "runner", "web", "docs", "dev-gateway",
+  ]);
+});
+
 test("development ready message shows the browser URL and actual published Web port", () => {
   assert.equal(
     developmentReadyMessage(buildDevelopmentEnvironment(containerEnvironment)),
-    "Web: http://localhost:18173 (port 18173)\nAPI port: 4000; runner controller port: 4010.",
+    "Web: http://localhost:18172 (port 18172)\nWeb HTTPS (HTTP/2): https://localhost:18173\nAPI port: 4000; runner controller port: 4010.",
   );
   assert.equal(
     developmentReadyMessage(buildDevelopmentEnvironment({
@@ -59,21 +75,23 @@ test("development ready message shows the browser URL and actual published Web p
       LINKSENSE_DEV_WEB_ORIGIN: "http://127.0.0.1:15173",
       LINKSENSE_DEV_WEB_PORT: "19173",
     })),
-    "Web: http://127.0.0.1:19173 (port 19173)\nAPI port: 4000; runner controller port: 4010.",
+    "Web: http://127.0.0.1:19173 (port 19173)\nWeb HTTPS (HTTP/2): https://127.0.0.1:18173\nAPI port: 4000; runner controller port: 4010.",
   );
 });
 
-test("development Web command, Compose mapping and healthcheck agree on port 18173", async () => {
+test("development publishes HTTP 18172 and HTTPS 18173 while preserving the internal Vite port", async () => {
   const manifest = JSON.parse(await readFile(resolve("apps/web/package.json"), "utf8"));
   const compose = await readFile(resolve("docker-compose.dev.yml"), "utf8");
   const example = await readFile(resolve(".env.example"), "utf8");
 
   assert.match(manifest.scripts.dev, /--port 18173 --strictPort/u);
-  assert.ok(compose.includes("${LINKSENSE_DEV_WEB_PORT:-18173}:18173"));
+  assert.ok(compose.includes("${LINKSENSE_DEV_WEB_PORT:-18172}:18173"));
+  assert.ok(compose.includes("${LINKSENSE_DEV_WEB_HTTPS_PORT:-18173}:443"));
   assert.ok(compose.includes("curl -fsS http://127.0.0.1:18173/"));
   assert.match(compose, /VITE_API_BASE_URL: ""/u);
-  assert.match(example, /^LINKSENSE_DEV_WEB_ORIGIN=http:\/\/localhost:18173$/mu);
-  assert.match(example, /^LINKSENSE_DEV_WEB_PORT=18173$/mu);
+  assert.match(example, /^LINKSENSE_DEV_WEB_ORIGIN=http:\/\/localhost:18172$/mu);
+  assert.match(example, /^LINKSENSE_DEV_WEB_PORT=18172$/mu);
+  assert.match(example, /^LINKSENSE_DEV_WEB_HTTPS_PORT=18173$/mu);
 });
 
 test("resolveComposeDatabaseUrl synchronizes only the bundled Postgres service", () => {
@@ -154,14 +172,14 @@ test("buildDevelopmentEnvironment keeps service DNS and derives all published po
   assert.equal(result.DATABASE_URL, containerEnvironment.DATABASE_URL);
   assert.equal(result.REDIS_URL, containerEnvironment.REDIS_URL);
   assert.equal(result.MINIO_ENDPOINT, "minio.localhost");
-  assert.equal(result.LINKSENSE_PUBLIC_BASE_URL, "http://localhost:18173");
+  assert.equal(result.LINKSENSE_PUBLIC_BASE_URL, "http://localhost:18172");
   assert.equal(result.VITE_API_BASE_URL, "");
   assert.equal(result.LINKSENSE_DEV_API_BIND_ADDRESS, "127.0.0.1");
   assert.equal(result.LINKSENSE_DEV_API_PORT, "4000");
   assert.equal(result.LINKSENSE_DEV_RUNNER_BIND_ADDRESS, "127.0.0.1");
   assert.equal(result.LINKSENSE_DEV_RUNNER_PORT, "4010");
   assert.equal(result.LINKSENSE_DEV_WEB_BIND_ADDRESS, "127.0.0.1");
-  assert.equal(result.LINKSENSE_DEV_WEB_PORT, "18173");
+  assert.equal(result.LINKSENSE_DEV_WEB_PORT, "18172");
   assert.equal(result.NO_PROXY, "127.0.0.1,localhost");
   assert.equal(result.LINKSENSE_RUNNER_MODE, undefined);
 });
@@ -193,22 +211,22 @@ test("development uses same-origin API requests and actual Web ports without cha
     LINKSENSE_DEV_API_ORIGIN: "http://localhost:5174",
     LINKSENSE_DEV_API_PORT: "4001",
     LINKSENSE_DEV_WEB_ORIGIN: "http://localhost:5174",
-    LINKSENSE_DEV_WEB_PORT: "18173",
+    LINKSENSE_DEV_WEB_PORT: "18172",
     LINKSENSE_USER_DATA_ROOT: "/srv/linksense/users",
   };
   const environment = buildDevelopmentEnvironment(source);
   const compose = buildDevelopmentComposeEnvironment(source, environment);
 
   assert.equal(environment.VITE_API_BASE_URL, "");
-  assert.equal(environment.LINKSENSE_PUBLIC_BASE_URL, "http://localhost:18173");
+  assert.equal(environment.LINKSENSE_PUBLIC_BASE_URL, "http://localhost:18172");
   assert.equal(compose.VITE_API_BASE_URL, "");
-  assert.equal(compose.LINKSENSE_PUBLIC_BASE_URL, "http://localhost:18173");
+  assert.equal(compose.LINKSENSE_PUBLIC_BASE_URL, "http://localhost:18172");
   assert.equal(source.VITE_API_BASE_URL, "http://localhost:5174");
   assert.equal(source.LINKSENSE_PUBLIC_BASE_URL, "https://production.example.test");
 });
 
 test("development rejects invalid explicit Web and API ports before creating browser URLs", () => {
-  for (const name of ["LINKSENSE_DEV_WEB_PORT", "LINKSENSE_DEV_API_PORT"]) {
+  for (const name of ["LINKSENSE_DEV_WEB_PORT", "LINKSENSE_DEV_WEB_HTTPS_PORT", "LINKSENSE_DEV_API_PORT"]) {
     for (const port of ["0", "65536", "-1", "4001.5", "invalid"]) {
       assert.throws(() => buildDevelopmentEnvironment({
         ...containerEnvironment,
@@ -236,6 +254,65 @@ test("buildDevelopmentEnvironment rejects unsafe API origin values", () => {
       /LINKSENSE_DEV_API_ORIGIN/u,
     );
   }
+});
+
+test("development rejects unsafe HTTP Web origins even with an explicit port", () => {
+  for (const origin of ["https://localhost:18172", "ftp://localhost:18172", "http://localhost/path", "http://user:password@localhost", "http://localhost?token=x", "http://localhost/#fragment"]) {
+    assert.throws(() => buildDevelopmentEnvironment({ LINKSENSE_DEV_WEB_ORIGIN: origin, LINKSENSE_DEV_WEB_PORT: "18172" }), /LINKSENSE_DEV_WEB_ORIGIN/u);
+  }
+});
+
+test("readiness must verify HTTP2 after the HTTPS application checks pass", async () => {
+  const environment = buildDevelopmentEnvironment({ LINKSENSE_RUNNER_SHARED_SECRET: "test" });
+  const checked = [];
+  await assert.rejects(waitForDevelopmentApplicationReadiness(environment, {
+    fetchImplementation: async (url) => { checked.push(url); return readinessResponse(url); },
+    http2Probe: async (origin, options) => {
+      assert.equal(origin, "https://127.0.0.1:18173");
+      assert.equal(checked.length, developmentReadinessTargets(environment).length);
+      assert.equal(options.timeoutMs, 500);
+      throw new Error("HTTP/2 was not negotiated");
+    },
+  }), /HTTP\/2 was not negotiated/u);
+});
+
+test("both Web entries share the hostname and use independently configured ports", () => {
+  const source = {
+    ...containerEnvironment,
+    LINKSENSE_DEV_WEB_ORIGIN: "http://dev.example.test:15173",
+    LINKSENSE_DEV_WEB_PORT: "19173",
+    LINKSENSE_DEV_WEB_HTTPS_PORT: "19174",
+    LINKSENSE_USER_DATA_ROOT: "/srv/users",
+  };
+  const environment = buildDevelopmentEnvironment(source);
+  const compose = buildDevelopmentComposeEnvironment(source, environment);
+  assert.equal(environment.LINKSENSE_PUBLIC_BASE_URL, "http://dev.example.test:19173");
+  assert.equal(environment.LINKSENSE_DEV_WEB_HTTPS_ORIGIN, "https://dev.example.test:19174");
+  assert.equal(compose.LINKSENSE_DEV_WEB_PORT, "19173");
+  assert.equal(compose.LINKSENSE_DEV_WEB_HTTPS_PORT, "19174");
+  assert.equal(compose.LINKSENSE_DEV_TLS_DIR, resolve(".data/dev/tls"));
+  assert.throws(() => buildDevelopmentEnvironment({ LINKSENSE_DEV_WEB_HTTPS_PORT: "18172" }), /must differ/u);
+});
+
+test("readiness probes bootstrap and session restoration on both browser origins", () => {
+  const targets = developmentReadinessTargets(buildDevelopmentEnvironment({ LINKSENSE_RUNNER_SHARED_SECRET: "test" }));
+  for (const origin of ["http://127.0.0.1:18172", "https://127.0.0.1:18173"]) {
+    assert.ok(targets.some((target) => target.url === `${origin}/api/v1/system/bootstrap`));
+    const restore = targets.find((target) => target.url === `${origin}/api/v1/auth/refresh`);
+    assert.equal(restore.method, "POST");
+    assert.deepEqual(restore.headers, { origin, "sec-fetch-site": "same-origin" });
+    assert.equal(restore.expectedStatus, 401);
+  }
+});
+
+test("Web port checks include HTTPS and identify an occupied HTTPS port", async () => {
+  const calls = [];
+  const environment = buildDevelopmentEnvironment({});
+  await assert.rejects(assertWebPortAvailable(environment, async (host, port) => {
+    calls.push([host, port]);
+    if (port === 18173) throw Object.assign(new Error("busy"), { code: "EADDRINUSE" });
+  }), /Web HTTPS port 127.0.0.1:18173 is already in use/u);
+  assert.deepEqual(calls, [["127.0.0.1", 18172], ["127.0.0.1", 18173]]);
 });
 
 test("buildDevelopmentComposeEnvironment applies only container development overrides", () => {
@@ -399,9 +476,96 @@ test("development startup attaches source watch before waiting for health", () =
   ]);
   assert.deepEqual(developmentApplicationStartCommands(), {
     initial: [
-      ["up", "-d", "--no-build", "--no-deps", "runner", "api", "web", "docs"],
+      ["up", "-d", "--no-build", "--no-deps", "runner", "api", "web", "docs", "dev-gateway"],
     ],
   });
+});
+
+function applicationContainerOutput(health = {}) {
+  return ["api", "runner", "web"].map((Service, index) => JSON.stringify({
+    Service,
+    ID: String(index + 1).repeat(12),
+    Health: health[Service] ?? "healthy",
+  })).join("\n");
+}
+
+test("reattaching restarts an unhealthy watch container even when its source is unchanged", async () => {
+  const synchronized = [];
+  const restarted = [];
+  await synchronizeDevelopmentApplications(applicationContainerOutput({ api: "unhealthy" }), {
+    isLive: async () => true,
+    synchronize: async (service, id) => {
+      synchronized.push([service, id]);
+      return { changed: false };
+    },
+    restart: async (services) => { restarted.push(services); },
+  });
+  assert.equal(synchronized.length, 3);
+  assert.deepEqual(restarted, [["api"]]);
+});
+
+test("source sync restarts changed and unhealthy services once, after all transfers finish", async () => {
+  const synchronized = [];
+  const restarted = [];
+  await synchronizeDevelopmentApplications(applicationContainerOutput({ api: "unhealthy", runner: "unhealthy" }), {
+    isLive: async () => true,
+    synchronize: async (service) => {
+      synchronized.push(service);
+      return { changed: service !== "runner" };
+    },
+    restart: async (services) => {
+      assert.equal(synchronized.length, 3);
+      restarted.push(services);
+    },
+  });
+  assert.deepEqual(restarted, [["api", "runner", "web"]]);
+});
+
+test("reattaching leaves healthy and starting services with unchanged source running", async () => {
+  await synchronizeDevelopmentApplications(applicationContainerOutput({ runner: "starting", web: "" }), {
+    isLive: async () => true,
+    synchronize: async () => ({ changed: false }),
+    restart: async () => { assert.fail("no service needs a restart"); },
+  });
+});
+
+test("source synchronization rejects missing containers before modifying the running stack", async () => {
+  await assert.rejects(synchronizeDevelopmentApplications(applicationContainerOutput().split("\n").slice(1).join("\n"), {
+    synchronize: async () => { assert.fail("incomplete stack"); },
+    restart: async () => { assert.fail("incomplete stack"); },
+  }), /Development application containers did not start/u);
+});
+
+test("source synchronization failure does not restart partially synchronized applications", async () => {
+  await assert.rejects(synchronizeDevelopmentApplications(applicationContainerOutput({ api: "unhealthy" }), {
+    synchronize: async () => { throw new Error("rsync failed"); },
+    restart: async () => { assert.fail("source sync failed"); },
+  }), /rsync failed/u);
+});
+
+test("reattaching probes a stale healthy container and restarts its exited application", async () => {
+  const restarted = [];
+  await synchronizeDevelopmentApplications(applicationContainerOutput(), {
+    isLive: async (service) => service !== "api",
+    synchronize: async () => ({ changed: false }),
+    restart: async (services) => { restarted.push(services); },
+  });
+  assert.deepEqual(restarted, [["api"]]);
+});
+
+test("application liveness checks the process rather than dependency readiness", async () => {
+  const requests = [];
+  const environment = buildDevelopmentEnvironment(containerEnvironment);
+  for (const service of ["api", "runner", "web"]) {
+    assert.equal(await developmentApplicationIsLive(service, environment, async (url, options) => {
+      requests.push(url);
+      assert.ok(options.signal instanceof AbortSignal);
+      return new Response("ok");
+    }), true);
+  }
+  assert.deepEqual(requests, ["http://127.0.0.1:4000/api/v1/system/health/live", "http://127.0.0.1:4010/health/live", "http://127.0.0.1:18172/"]);
+  assert.equal(await developmentApplicationIsLive("api", environment, async () => { throw new Error("refused"); }), false);
+  assert.equal(await developmentApplicationIsLive("api", environment, async () => new Response("unavailable", { status: 503 })), false);
 });
 
 test("development startup synchronizes persisted Postgres credentials without embedding secrets", () => {
@@ -444,7 +608,7 @@ test("readiness gates API proxy probes on current upstream health during startup
         if (round === 1 || round === 4) throw new Error("connect ECONNREFUSED");
         return readinessResponse(url, round === 2 ? 503 : 200);
       }
-      if (url.includes(":18173/api/")) {
+      if (url.includes(":18172/api/")) {
         proxyRounds.push(round);
         return readinessResponse(url, round === 3 ? 503 : 200);
       }
@@ -469,7 +633,7 @@ test("readiness reports an unavailable API without sending requests through its 
       sleepImplementation: async (milliseconds) => { context.mock.timers.tick(milliseconds); },
       fetchImplementation: async (url) => {
         if (url.includes(":4000/")) throw new Error("connect ECONNREFUSED");
-        if (url.includes(":18173/api/")) proxyRequests.push(url);
+        if (url.includes(":18172/api/")) proxyRequests.push(url);
         return readinessResponse(url);
       },
     },
@@ -506,15 +670,17 @@ test("development reattach readiness tolerates transient unhealthy services", as
     calls.map((call) => call.url),
     [
       ...targets.filter((target) => !target.upstream).map((target) => target.url),
-      ...targets.map((target) => target.url),
-      ...targets.map((target) => target.url),
+      ...targets.filter((target) => !target.upstream).map((target) => target.url),
+      ...targets.filter((target) => target.upstream).map((target) => target.url),
+      ...targets.filter((target) => !target.upstream).map((target) => target.url),
+      ...targets.filter((target) => target.upstream).map((target) => target.url),
     ],
   );
   assert.equal(targets[0].url, "http://127.0.0.1:4010/health/ready");
-  assert.equal(targets[2].url, "http://127.0.0.1:18173/");
-  assert.equal(targets.length, 10);
-  assert.equal(targets[3].url, "http://127.0.0.1:18173/help/");
-  assert.equal(targets[4].url, "http://127.0.0.1:18173/help/en-US/");
+  assert.equal(targets[2].url, "http://127.0.0.1:18172/");
+  assert.equal(targets.length, 13);
+  assert.equal(targets[3].url, "http://127.0.0.1:18172/help/");
+  assert.equal(targets[4].url, "http://127.0.0.1:18172/help/en-US/");
   assert.deepEqual(calls[0].headers, {
     authorization: "Bearer runner-secret",
   });
@@ -555,7 +721,10 @@ test("readiness waits for prerequisites before probing application routes", asyn
   assert.deepEqual(calls.slice(0, 2), [prerequisiteUrl, prerequisiteUrl]);
   assert.deepEqual(
     calls.slice(2),
-    developmentReadinessTargets(environment).map((target) => target.url),
+    [
+      ...developmentReadinessTargets(environment).filter((target) => !target.upstream),
+      ...developmentReadinessTargets(environment).filter((target) => target.upstream),
+    ].map((target) => target.url),
   );
 });
 
@@ -574,9 +743,9 @@ test("readiness rejects a Web proxy that forbids same-origin session restoration
   }), /Web session restore.*HTTP 403/u);
   assert.ok(requests.length > 0);
   assert.deepEqual(requests[0], {
-    url: "http://127.0.0.1:18173/api/v1/auth/refresh",
+    url: "http://127.0.0.1:18172/api/v1/auth/refresh",
     method: "POST",
-    headers: { origin: "http://127.0.0.1:18173", "sec-fetch-site": "same-origin" },
+    headers: { origin: "http://127.0.0.1:18172", "sec-fetch-site": "same-origin" },
   });
 });
 
@@ -621,7 +790,7 @@ test("readiness rechecks previously healthy services until every service passes 
     },
   });
   // The first round cannot reach API proxy routes while the API is unhealthy.
-  assert.deepEqual([...attempts.values()], [...Array(8).fill(3), 2, 2]);
+  assert.deepEqual([...attempts.values()], [...Array(9).fill(3), 2, 2, 2, 2]);
 });
 
 test("readiness cancellation aborts active probes without another retry", async () => {
@@ -638,7 +807,7 @@ test("readiness cancellation aborts active probes without another retry", async 
   });
   controller.abort(new Error("watch stopped"));
   await assert.rejects(ready, /watch stopped/u);
-  assert.equal(calls, 8);
+  assert.equal(calls, 9);
 });
 
 test("watch startup waits for initial synchronization and rejects early exit or timeout", async () => {
@@ -713,7 +882,7 @@ test("development Compose runs Web, API, and runner from source-aware images", a
   );
   assert.match(
     compose,
-    /LINKSENSE_DEV_WEB_BIND_ADDRESS:-127\.0\.0\.1.*LINKSENSE_DEV_WEB_PORT:-18173/u,
+    /LINKSENSE_DEV_WEB_BIND_ADDRESS:-127\.0\.0\.1.*LINKSENSE_DEV_WEB_PORT:-18172/u,
   );
   assert.match(compose, /LINKSENSE_REMOVE_WORKERS_ON_SHUTDOWN: "false"/u);
   assert.match(compose, /LINKSENSE_ENABLE_DEVELOPMENT_ENDPOINTS: "true"/u);
@@ -891,7 +1060,7 @@ test("published port checks identify the conflicting container service", async (
     LINKSENSE_DEV_RUNNER_BIND_ADDRESS: "127.0.0.1",
     LINKSENSE_DEV_RUNNER_PORT: "4010",
     LINKSENSE_DEV_WEB_BIND_ADDRESS: "127.0.0.1",
-    LINKSENSE_DEV_WEB_PORT: "18173",
+    LINKSENSE_DEV_WEB_PORT: "18172",
   };
   const occupied = async () => {
     throw Object.assign(new Error("occupied"), { code: "EADDRINUSE" });
@@ -907,7 +1076,7 @@ test("published port checks identify the conflicting container service", async (
   );
   await assert.rejects(
     assertWebPortAvailable(environment, occupied),
-    /Web port 127\.0\.0\.1:18173 is already in use/u,
+    /Web port 127\.0\.0\.1:18172 is already in use/u,
   );
 
   const calls = [];
@@ -923,6 +1092,6 @@ test("published port checks identify the conflicting container service", async (
   assert.deepEqual(calls, [
     { host: "127.0.0.1", port: 4000 },
     { host: "127.0.0.1", port: 4010 },
-    { host: "127.0.0.1", port: 18173 },
+    { host: "127.0.0.1", port: 18172 },
   ]);
 });

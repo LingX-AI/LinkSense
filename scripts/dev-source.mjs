@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // Rsync uses Docker exec as its transport. Dependencies and generated Prisma
@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 export const developmentSourcePaths = {
   api: ["apps/api/src", "apps/api/tsconfig.json", "packages/shared/src", "apps/docs/docs", "apps/docs/i18n/en-US/docusaurus-plugin-content-docs/current"],
   runner: ["apps/runner/src", "apps/runner/tsconfig.json", "packages/shared/src"],
-  web: ["apps/web/src", "apps/web/public", "apps/web/index.html", "apps/web/vite.config.ts", "packages/shared/src"],
+  web: ["apps/web/src", "apps/web/public", "apps/web/index.html", "apps/web/vite.config.ts", "packages/shared/src", "scripts/application-build.mjs", "scripts/source-fingerprint.mjs", "scripts/application-build.d.mts"],
 };
 
 export function synchronizeDevelopmentSource(service, options = {}) {
@@ -22,7 +22,7 @@ export function synchronizeDevelopmentSource(service, options = {}) {
   if (!container) mkdirSync(targetRoot, { recursive: true });
   const includes = new Set();
   for (const path of paths) {
-    const directory = !path.endsWith(".json") && !path.endsWith(".ts") && !path.endsWith(".html");
+    const directory = extname(path) === "";
     const segments = path.split("/");
     for (let depth = 1; depth < segments.length; depth += 1) {
       includes.add(`--include=/${segments.slice(0, depth).join("/")}/`);

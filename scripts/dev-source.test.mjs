@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, extname } from "node:path";
 import test from "node:test";
 import { developmentSourcePaths, synchronizeDevelopmentSource } from "./dev-source.mjs";
 
@@ -109,7 +109,7 @@ test("viewer-generated metadata stays in Linux without causing an unchanged Web 
   try {
     for (const base of [sourceRoot, targetRoot]) {
       for (const path of developmentSourcePaths.web) {
-        if (path.endsWith(".ts") || path.endsWith(".html")) {
+        if (extname(path)) {
           mkdirSync(dirname(resolve(base, path)), { recursive: true });
           writeFileSync(resolve(base, path), "unchanged");
         } else mkdirSync(resolve(base, path), { recursive: true });
@@ -123,6 +123,21 @@ test("viewer-generated metadata stays in Linux without causing an unchanged Web 
     writeFileSync(resolve(sourceRoot, "apps/web/public/logo.svg"), "new asset");
     assert.deepEqual(synchronizeDevelopmentSource("web", { sourceRoot, targetRoot }), { changed: true });
     assert.equal(readFileSync(resolve(targetRoot, "apps/web/public/logo.svg"), "utf8"), "new asset");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Web source sync includes imported root build helpers as files", () => {
+  const root = mkdtempSync(resolve(tmpdir(), "linksense-web-helpers-"));
+  const sourceRoot = resolve(root, "source");
+  const targetRoot = resolve(root, "container");
+  try {
+    mkdirSync(resolve(sourceRoot, "scripts"), { recursive: true });
+    const helpers = ["application-build.mjs", "source-fingerprint.mjs", "application-build.d.mts"];
+    for (const file of helpers) writeFileSync(resolve(sourceRoot, "scripts", file), `// ${file}\n`);
+    synchronizeDevelopmentSource("web", { sourceRoot, targetRoot });
+    for (const file of helpers) assert.equal(readFileSync(resolve(targetRoot, "scripts", file), "utf8"), `// ${file}\n`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
