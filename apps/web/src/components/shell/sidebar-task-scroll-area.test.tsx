@@ -62,9 +62,44 @@ describe("sidebar task scroll fade", () => {
 
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.restoreAllMocks()
     window.ResizeObserver = originalResizeObserver
   })
+
+  it.each(["wheel", "keyDown", "touchMove"] as const)(
+    "reveals the scrollbar for %s scrolling and hides it after scrolling stops",
+    async (interaction) => {
+      vi.useFakeTimers()
+      const { container, viewport } = await renderList()
+      const scrollbar = container.querySelector('[data-orientation="vertical"]')
+      expect(scrollbar).toHaveClass(
+        "opacity-0",
+        "transition-opacity",
+        "duration-300",
+        "hover:opacity-100",
+        "has-[:active]:opacity-100",
+        "data-[scrolling]:opacity-100",
+        "motion-reduce:transition-none"
+      )
+      expect(scrollbar).not.toHaveClass("data-[hovering]:opacity-100")
+      expect(scrollbar).not.toHaveAttribute("data-scrolling")
+
+      fireEvent[interaction](viewport)
+      viewport.scrollTop = 40
+      fireEvent.scroll(viewport)
+      expect(scrollbar).toHaveAttribute("data-scrolling")
+      await act(async () => vi.advanceTimersByTimeAsync(400))
+      fireEvent[interaction](viewport)
+      viewport.scrollTop = 80
+      fireEvent.scroll(viewport)
+      await act(async () => vi.advanceTimersByTimeAsync(200))
+      expect(scrollbar).toHaveAttribute("data-scrolling")
+      await act(async () => vi.advanceTimersByTimeAsync(1000))
+      expect(scrollbar).not.toHaveAttribute("data-scrolling")
+      expect(viewport.scrollTop).toBe(80)
+    }
+  )
 
   it("fades only the bottom initially, both edges in the middle, and only the top at the end", async () => {
     const { viewport } = await renderList()
@@ -111,7 +146,10 @@ describe("sidebar task scroll fade", () => {
     "keeps content clear when its height is %ipx and does not overflow",
     async (height) => {
       contentHeight = height
-      const { viewport } = await renderList()
+      const { container, viewport } = await renderList()
+      expect(
+        container.querySelector('[data-orientation="vertical"]')
+      ).toBeNull()
       expect(viewport).not.toHaveAttribute("data-overflow-y-start")
       expect(viewport).not.toHaveAttribute("data-overflow-y-end")
       if (height > 0) expectFade(viewport, 0, 0)

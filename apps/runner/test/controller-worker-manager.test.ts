@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -118,6 +118,60 @@ describe("controller user-directory cleanup", () => {
 })
 
 describe("controller task-owned directory preparation", () => {
+  it.each(["workspace", ".codex"])("rejects a symlinked %s health root before changing its target or creating a worker", async (name) => {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-health-boundary-"))
+    try {
+      const home = path.join(root, ownerId, "home")
+      const outside = path.join(root, "outside")
+      await mkdir(home, { recursive: true })
+      await mkdir(outside)
+      await chmod(outside, 0o700)
+      await writeFile(path.join(outside, "retained.txt"), "untouched")
+      await symlink(outside, path.join(home, name))
+      const config = createConfig({ LINKSENSE_USER_DATA_ROOT: root })
+      const docker = new FakeDocker()
+      const logger = pino({ level: "silent" })
+      const provider = new DockerWorkerProvider(config, docker, logger)
+      const identity = await lstat(root)
+      provider.capabilities.workspaceIdentity = { apiUid: identity.uid, taskUid: identity.uid, sharedGid: identity.gid }
+      const manager = new WorkerManager(config, provider, new FakeTransport(), logger)
+      await expect(manager.request(ownerId, "/conversations/test/runtime", "PUT")).rejects.toThrow()
+      expect(docker.createContainer).not.toHaveBeenCalled()
+      expect((await lstat(outside)).mode & 0o777).toBe(0o700)
+      expect(await readFile(path.join(outside, "retained.txt"), "utf8")).toBe("untouched")
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("makes converted application health roots writable before acquiring its worker without changing history", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-converted-health-"))
+    const session = "01900000-0000-7000-8000-000000000011"
+    const home = path.join(root, ownerId, "services", session, "home")
+    const roots = [path.join(home, "workspace"), path.join(home, ".codex")]
+    try {
+      for (const directory of roots) {
+        await mkdir(directory, { recursive: true })
+        await chmod(directory, 0o750)
+        await writeFile(path.join(directory, "retained.txt"), "existing data")
+      }
+      const config = createConfig({ LINKSENSE_USER_DATA_ROOT: root })
+      const logger = pino({ level: "silent" })
+      const docker = new FakeDocker()
+      const provider = new DockerWorkerProvider(config, docker, logger)
+      const identity = await lstat(root)
+      provider.capabilities.workspaceIdentity = { apiUid: identity.uid, taskUid: identity.uid, sharedGid: identity.gid }
+      provider.prepareOwnerFilesystem = async () => {
+        for (const directory of roots) expect((await lstat(directory)).mode & 0o777).toBe(0o770)
+      }
+      const manager = new WorkerManager(config, provider, new FakeTransport(), logger, { assertManagedProjection: async () => undefined })
+      await expect(manager.request(ownerId, "/conversations/test/runtime", "PUT", undefined, undefined, "workspace", session)).resolves.toMatchObject({ statusCode: 200 })
+      for (const directory of roots) expect(await readFile(path.join(directory, "retained.txt"), "utf8")).toBe("existing data")
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("repairs a legacy directory for the shared worker identity", async () => {
     const createDirectory = vi.fn(async () => {
       throw Object.assign(new Error("already exists"), { code: "EEXIST" })
