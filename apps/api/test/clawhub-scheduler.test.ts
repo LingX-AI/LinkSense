@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Processor } from "bullmq";
 
 import {
   ClawHubSyncScheduler,
   type ClawHubSyncQueueControl,
+  type ClawHubSyncJob,
 } from "../src/modules/clawhub/scheduler.js";
 
 describe("ClawHubSyncScheduler", () => {
@@ -56,7 +58,7 @@ describe("ClawHubSyncScheduler", () => {
       data: { type: "sync-all-skills", trigger: "scheduled" },
     } as never);
 
-    expect(fixture.service.syncAll).toHaveBeenCalledWith("scheduled");
+    expect(fixture.service.syncAll).toHaveBeenCalledWith("scheduled", undefined);
     await expect(
       fixture.scheduler.process({
         data: { type: "sync-all-skills", trigger: "manual" },
@@ -76,6 +78,27 @@ describe("ClawHubSyncScheduler", () => {
       fixture.worker.close.mock.invocationCallOrder[0],
     ).toBeLessThan(fixture.queue.close.mock.invocationCallOrder[0] ?? 0);
   });
+
+  it("forwards BullMQ cancellation and cancels active jobs before awaiting worker shutdown", async () => {
+    const fixture = schedulerFixture();
+    const controller = new AbortController();
+    fixture.service.syncAll.mockImplementationOnce(async (_trigger, signal) => {
+      await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+    });
+    await fixture.scheduler.start();
+    const processor = fixture.workerFactory.mock.calls[0]?.[0];
+    if (!processor) throw new Error("Worker processor was not registered");
+    const work = processor({ data: { type: "sync-all-skills", trigger: "startup" } } as never, "token", controller.signal);
+    fixture.worker.close.mockImplementationOnce(async () => { await work; });
+    fixture.worker.cancelAllJobs.mockImplementationOnce(() => { controller.abort(); });
+    const close = fixture.scheduler.close();
+
+    expect(fixture.worker.close).toHaveBeenCalledOnce();
+    expect(fixture.worker.cancelAllJobs).toHaveBeenCalledExactlyOnceWith();
+    await close;
+    expect(fixture.service.syncAll).toHaveBeenCalledWith("startup", controller.signal);
+    expect(fixture.queue.close).toHaveBeenCalledOnce();
+  });
 });
 
 function schedulerFixture(now = new Date("2026-08-07T00:00:00.000Z")) {
@@ -88,9 +111,9 @@ function schedulerFixture(now = new Date("2026-08-07T00:00:00.000Z")) {
     upsertJobScheduler: vi.fn(async () => undefined),
     waitUntilReady: vi.fn(async () => undefined),
   };
-  const worker = { close: vi.fn(async () => undefined) };
-  const workerFactory = vi.fn(() => worker);
-  const service = { syncAll: vi.fn(async () => undefined) };
+  const worker = { close: vi.fn(async () => undefined), cancelAllJobs: vi.fn<(reason?: string) => void>() };
+  const workerFactory = vi.fn<(processor: Processor<ClawHubSyncJob, void, ClawHubSyncJob["type"]>) => typeof worker>(() => worker);
+  const service = { syncAll: vi.fn<(_trigger: "startup" | "scheduled", _signal?: AbortSignal) => Promise<void>>(async () => undefined) };
   const scheduler = new ClawHubSyncScheduler(
     {
       redisUrl: "redis://unused",

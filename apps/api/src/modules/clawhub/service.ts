@@ -255,7 +255,8 @@ export class ClawHubService {
     };
   }
 
-  async syncAll(trigger: ClawHubSyncTrigger): Promise<ClawHubSyncResult> {
+  async syncAll(trigger: ClawHubSyncTrigger, signal?: AbortSignal): Promise<ClawHubSyncResult> {
+    signal?.throwIfAborted();
     const startedAt = this.#now();
     await this.#store.recoverInterruptedRuns(startedAt);
     const run = await this.#store.createSyncRun(trigger, startedAt);
@@ -268,26 +269,31 @@ export class ClawHubService {
 
     try {
       for (;;) {
+        signal?.throwIfAborted();
         const page = await pRetry(
           () =>
             this.#client.listSkillPackages({
               limit: 100,
               sort: "updated",
               ...(cursor === undefined ? {} : { cursor }),
+              ...(signal ? { signal } : {}),
             }),
           {
             retries: SYNC_PAGE_RETRIES,
             factor: 2,
             minTimeout: 1_000,
             maxTimeout: 5_000,
+            ...(signal ? { signal } : {}),
             shouldRetry: (error) =>
               error instanceof ClawHubClientError && error.retryable,
           },
         );
+        signal?.throwIfAborted();
         listedCount += page.items.length;
         const stageResults = await Promise.allSettled(
           page.items.map((skillPackage) =>
             limit(async () => {
+              signal?.throwIfAborted();
               const identity = skillIdentity(skillPackage);
               if (seenIdentities.has(identity)) return;
               seenIdentities.add(identity);
@@ -305,6 +311,7 @@ export class ClawHubService {
             result.status === "rejected",
         );
         if (failedStage) throw failedStage.reason;
+        signal?.throwIfAborted();
 
         if (page.nextCursor === null) break;
         if (
@@ -335,7 +342,7 @@ export class ClawHubService {
         runId: run.id,
         listedCount,
         detailCount: syncedCount,
-        errorCode: syncErrorCode(error),
+        errorCode: signal?.aborted ? "clawhub_request_aborted" : syncErrorCode(error),
         finishedAt: this.#now(),
       });
       throw error;

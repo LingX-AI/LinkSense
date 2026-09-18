@@ -299,6 +299,7 @@ export class KnowledgeIndexActivationReconciler {
   private activeRun: Promise<KnowledgeIndexReconciliationResult> | null = null
   private started = false
   private closed = false
+  private readonly shutdown = new AbortController()
   private readonly intervalMs: number
   private readonly pageSize: number
   private readonly maximumDocumentsPerRun: number
@@ -355,16 +356,19 @@ export class KnowledgeIndexActivationReconciler {
     if (this.closed) return
     this.closed = true
     if (this.interval !== undefined) clearInterval(this.interval)
+    this.shutdown.abort()
     await this.activeRun
     await this.dependencies.coordinator.close()
   }
 
   async runOnce(): Promise<KnowledgeIndexReconciliationResult> {
+    if (this.closed) return emptyReconciliationResult()
     if (await this.dependencies.maintenanceGate?.isBlocked()) {
       return emptyReconciliationResult()
     }
     const result = await this.dependencies.coordinator.tryRunExclusive(
-      async (signal) => {
+      async (leaseSignal) => {
+        const signal = AbortSignal.any([leaseSignal, this.shutdown.signal])
         let cursor = await this.dependencies.coordinator.getCursor()
         let scanned = 0
         let reconciled = 0
@@ -412,13 +416,16 @@ export class KnowledgeIndexActivationReconciler {
                         active.expectedEmbeddingProfileHash,
                       expectedIndexIntegrityDigest:
                         active.expectedIndexIntegrityDigest,
+                      signal: documentSignal,
                     },
                   )
+                  if (documentSignal.aborted) throw unavailable()
                   reconciled += 1
                 },
                 signal,
               )
             } catch {
+              if (signal.aborted) throw unavailable()
               failed += 1
             }
           }

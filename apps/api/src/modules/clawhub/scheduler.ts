@@ -1,4 +1,4 @@
-import { Queue, Worker, type Job } from "bullmq";
+import { Queue, Worker, type Job, type Processor } from "bullmq";
 import { z } from "zod";
 
 import { bullMqConnection } from "../../adapters/jobs.js";
@@ -25,17 +25,15 @@ export type ClawHubSyncQueueControl = Pick<
 
 export type ClawHubSyncWorkerControl = Pick<
   Worker<ClawHubSyncJob, void, ClawHubSyncJobName>,
-  "close"
+  "close" | "cancelAllJobs"
 >;
 
 type ClawHubSyncWorkerFactory = (
-  processor: (
-    job: Job<ClawHubSyncJob, void, ClawHubSyncJobName>,
-  ) => Promise<void>,
+  processor: Processor<ClawHubSyncJob, void, ClawHubSyncJobName>,
 ) => ClawHubSyncWorkerControl;
 
 export interface ClawHubSyncSchedulerService {
-  syncAll(trigger: "startup" | "scheduled"): Promise<unknown>;
+  syncAll(trigger: "startup" | "scheduled", signal?: AbortSignal): Promise<unknown>;
 }
 
 export interface ClawHubSyncSchedulerConfig {
@@ -97,7 +95,7 @@ export class ClawHubSyncScheduler {
         data: { type: "sync-all-skills", trigger: "scheduled" },
       },
     );
-    this.worker = this.createWorker((job) => this.process(job));
+    this.worker = this.createWorker((job, _token, signal) => this.process(job, signal));
     await this.queue.add(
       "sync-all-skills",
       { type: "sync-all-skills", trigger: "startup" },
@@ -112,13 +110,17 @@ export class ClawHubSyncScheduler {
     );
   }
 
-  async process(job: Pick<Job<ClawHubSyncJob>, "data">): Promise<void> {
+  async process(job: Pick<Job<ClawHubSyncJob>, "data">, signal?: AbortSignal): Promise<void> {
     const data = clawHubSyncJobSchema.parse(job.data);
-    await this.service.syncAll(data.trigger);
+    await this.service.syncAll(data.trigger, signal);
   }
 
   async close(): Promise<void> {
-    await this.worker?.close();
+    // Stop accepting jobs first, then interrupt the current catalog request and
+    // retry delay. BullMQ close alone waits for the entire catalog to finish.
+    const closing = this.worker?.close();
+    this.worker?.cancelAllJobs();
+    await closing;
     this.worker = null;
     await this.queue.close();
   }

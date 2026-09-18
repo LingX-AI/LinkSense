@@ -27,6 +27,57 @@ const SLUG = "useful-agent";
 const VERSION = "1.2.3";
 
 describe("ClawHubService", () => {
+  it("cancels an active catalog request without publishing a partial snapshot", async () => {
+    const fixture = serviceFixture();
+    const controller = new AbortController();
+    fixture.client.listSkillPackages.mockImplementationOnce(({ signal } = {}) => new Promise((_resolve, reject) => {
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }));
+    const sync = fixture.service.syncAll("startup", controller.signal);
+    const failure = expect(sync).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(fixture.client.listSkillPackages).toHaveBeenCalledOnce());
+    expect(fixture.client.listSkillPackages).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }));
+    controller.abort();
+    await failure;
+    expect(fixture.store.publishSyncRun).not.toHaveBeenCalled();
+    expect(fixture.store.failSyncRun).toHaveBeenCalledWith(expect.objectContaining({ errorCode: "clawhub_request_aborted" }));
+  });
+
+  it("stops a retry delay when shutdown cancels the sync", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = serviceFixture();
+      const controller = new AbortController();
+      fixture.client.listSkillPackages.mockRejectedValue(new ClawHubClientError("REQUEST_TIMEOUT", "timeout", { retryable: true }));
+      const failure = expect(fixture.service.syncAll("startup", controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+      await vi.advanceTimersByTimeAsync(0);
+      controller.abort();
+      await failure;
+      await vi.runAllTimersAsync();
+      expect(fixture.client.listSkillPackages).toHaveBeenCalledOnce();
+      expect(fixture.store.publishSyncRun).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not publish or fetch another page when cancellation happens during staging", async () => {
+    const fixture = serviceFixture();
+    const controller = new AbortController();
+    fixture.client.listSkillPackages.mockResolvedValueOnce({ items: [skillPackage()], nextCursor: "next" });
+    fixture.store.stageSkill.mockImplementationOnce(async () => { controller.abort(); });
+    await expect(fixture.service.syncAll("startup", controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(fixture.client.listSkillPackages).toHaveBeenCalledOnce();
+    expect(fixture.store.publishSyncRun).not.toHaveBeenCalled();
+  });
+
+  it("does not create a sync run when cancellation preceded dispatch", async () => {
+    const fixture = serviceFixture();
+    await expect(fixture.service.syncAll("startup", AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
+    expect(fixture.store.createSyncRun).not.toHaveBeenCalled();
+    expect(fixture.client.listSkillPackages).not.toHaveBeenCalled();
+  });
+
   it("fully paginates publisher-qualified packages without requesting skill details", async () => {
     const fixture = serviceFixture();
     fixture.client.listSkillPackages
