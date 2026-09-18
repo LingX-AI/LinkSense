@@ -1,7 +1,7 @@
 import { lstat, mkdir, open, readFile, readdir, readlink, rename, rm, symlink, writeFile, chown, chmod } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
-import { linksenseRuntimeIdentity } from "@linksense/shared";
+import { linksenseRuntimeIdentity, workspacePermissionPolicy } from "@linksense/shared";
 import type { PrismaClient } from "../generated/prisma/client.js";
 import { runtimePlacementForWorkspace, serviceWorkspaceRelativePath } from "../lib/user-runtime-paths.js";
 import { info, mergeTree } from "./project-home-conversion.js";
@@ -98,6 +98,13 @@ export async function stageApplicationEnvironment(root: string, target: string, 
   }
   const native = join(target, "home/.codex");
   rewriteNativeRolloutPaths(native, nativeHome, !!await info(join(native, "state_5.sqlite")));
+  // The worker supervisor checks both roots before starting the task process.
+  // Imported modes and the deployment umask must not remove its group access.
+  for (const directory of [join(target, "home/workspace"), native]) {
+    await mkdir(directory, { recursive: true, mode: workspacePermissionPolicy.sharedDirectory });
+    await assertDirectory(directory);
+    await chmod(directory, workspacePermissionPolicy.sharedDirectory);
+  }
 }
 
 /** Operator-controlled, offline conversion. No schema change and no deletion of

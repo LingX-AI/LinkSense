@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -28,6 +28,14 @@ async function fixture() {
 }
 
 describe("application environment conversion", () => {
+  it("stages shared writable health roots so the supervisor can start a converted application", async () => {
+    const f = await fixture();
+    await stageApplicationEnvironment(f.sources, f.target, f.group);
+    for (const directory of ["home/workspace", "home/.codex"]) {
+      expect((await lstat(join(f.target, directory))).mode & 0o777).toBe(0o770);
+    }
+  });
+
   it("groups by execution user and application while keeping personal tasks and already shared environments intact", () => {
     const ownerId = randomUUID(), otherOwner = randomUUID(), app = randomUUID(), otherApp = randomUUID();
     const task = (owner: string, applicationId: string, environment = randomUUID()) => ({ id: randomUUID(), ownerId: owner, applicationId, workspaceRelPath: serviceWorkspaceRelativePath(owner, environment) });

@@ -813,6 +813,10 @@ export class WorkerManager {
       identities,
     )
     const taskOwnedDirectories = [
+      // Health probes run as the supervisor before WorkspaceManager can
+      // normalize these task-owned roots, including imported application homes.
+      safeChildPath(directories.home, "workspace"),
+      safeChildPath(directories.home, ".codex"),
       safeChildPath(directories.home, ".local"),
       safeChildPath(safeChildPath(directories.home, ".local"), "share"),
       ...userRuntimeDirectories(userRuntimePaths(runtimeRoot)),
