@@ -50,6 +50,59 @@ function ApplicationSubmissionTrigger() {
 describe("interactive submissions in native chat", () => {
   setupApplicationTests()
 
+  it("restores the accepted request after a page refresh and reuses its receipt", async () => {
+    const { requests } = installApiMock({
+      eventStreamBody: "",
+      conversationGetResponse: async () =>
+        json({
+          success: true,
+          data: {
+            ...conversation,
+            execution_status: "running",
+            turns: [],
+            running_turn: null,
+            messages: [],
+            pending_requests: [],
+            activities: [],
+            events: [],
+            starting_turn: {
+              turn_id: turnId,
+              task_kind: "turn",
+              idempotency_key: "before-refresh",
+              input_text: prompt,
+              created_at: "2026-09-18T00:00:00Z",
+              message_display: {
+                kind: "interactive_application",
+                application_id: applicationId,
+              },
+              attachments: [],
+            },
+          },
+        }),
+    })
+    const interaction = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={["/conversations/c1"]}>
+        <AppProviders>
+          <ApplicationSubmissionTrigger />
+          <App />
+        </AppProviders>
+      </MemoryRouter>
+    )
+    expect(await screen.findByText(prompt)).toBeVisible()
+    expect(await screen.findByText("正在思考")).toBeVisible()
+    expect(screen.getByRole("button", { name: "停止" })).toBeVisible()
+    await interaction.click(screen.getByRole("button", { name: "应用提交" }))
+    expect(
+      requests.filter(
+        (request) => request.path === "/api/v1/conversations/c1/turns"
+      )
+    ).toHaveLength(0)
+    expect(
+      screen.queryByText("还没有任务。可以直接从输入框开始")
+    ).not.toBeInTheDocument()
+  })
+
   it.each(["before-receipt", "after-receipt", "detail"])(
     "ends thinking when an accepted start fails via %s before a native turn exists",
     async (timing) => {

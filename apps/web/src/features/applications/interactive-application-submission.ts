@@ -68,6 +68,26 @@ export function createInteractiveApplicationSubmitter({
       getPendingConversationExecution(queryClient, conversationId) ||
       conversation?.running_turn
     ) {
+      const restored = conversation?.starting_turn
+      if (
+        restored &&
+        pending?.turnId === restored.turn_id &&
+        restored.message_display?.kind === "interactive_application" &&
+        restored.message_display.application_id === applicationId &&
+        restored.input_text === input.prompt &&
+        input.capability_ids.length === 0 &&
+        input.knowledge_base_ids.length === 0 &&
+        (input.idempotency_key === undefined ||
+          input.idempotency_key === restored.idempotency_key) &&
+        restored.attachments.length === input.file_ids.length &&
+        restored.attachments.every((file) => input.file_ids.includes(file.id))
+      ) {
+        return Promise.resolve({
+          turn_id: restored.turn_id,
+          accepted: true,
+          status: "starting",
+        })
+      }
       if (
         pending?.turnId &&
         pending.status &&

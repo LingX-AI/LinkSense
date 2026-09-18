@@ -986,6 +986,7 @@ model ConversationTurnStartIntent {
   applicationId                  String?   @map("application_id") @db.Uuid
   applicationUpdatedAt           DateTime? @map("application_updated_at") @db.Timestamptz(6)
   applicationInstructions        String?   @map("application_instructions") @db.Text
+  developmentInstructions        String?   @map("development_instructions") @db.Text
   inputText                      String    @map("input_text") @db.Text
   taskKind                       String    @default("turn") @map("task_kind") @db.VarChar(32)
   collaborationMode              String    @default("default") @map("collaboration_mode") @db.VarChar(24)

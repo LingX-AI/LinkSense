@@ -26,9 +26,46 @@ async function setup(language = "zh-CN", items: (typeof file)[] = []) {
       upload: vi.fn(async () => file),
       remove: vi.fn(async () => ({ removed: true })),
     },
-    tasks: { run: vi.fn(async () => ({ turn_id: "turn-1" })) },
+    tasks: {
+      run: vi.fn(async () => ({ turn_id: "turn-1" })),
+      interrupt: vi.fn(async () => undefined),
+      onStateChange: vi.fn<
+        (
+          handler: (state: {
+            status: string
+            turn_id: string | null
+            file_ids: string[]
+            can_submit: boolean
+            interrupt_requested: boolean
+          }) => void,
+          onError?: () => void
+        ) => () => void
+      >(() => () => undefined),
+      getState: vi.fn(async () => {
+        const state = {
+          status: "idle",
+          turn_id: null,
+          file_ids: [],
+          can_submit: true,
+          interrupt_requested: false,
+        }
+        sdk.tasks.onStateChange.mock.calls.at(-1)?.[0](state)
+        return state
+      }),
+    },
     chat: { show: vi.fn(async () => undefined) },
-    events: { on: vi.fn(() => () => undefined) },
+    events: {
+      on: vi.fn<
+        (
+          name: string,
+          handler: (event: {
+            id: string
+            turn_id: string
+            payload: Record<string, string>
+          }) => void
+        ) => () => void
+      >(() => () => undefined),
+    },
   }
   new Function("window", "document", source)(
     { LinkSense: sdk, addEventListener: vi.fn(), clearTimeout, setTimeout },
@@ -107,4 +144,67 @@ describe("interactive research file example", () => {
       ).toHaveLength(0)
     )
   })
+})
+
+describe("interactive example task restoration", () => {
+  it.each(["zh-CN", "en-US", "fr-FR"])(
+    "restores busy controls and preserves stop requests in %s",
+    async (language) => {
+      const { sdk, submit, picker } = await setup(language, [file])
+      const update = sdk.tasks.onStateChange.mock.calls.at(-1)?.[0]
+      const state = {
+        status: "starting",
+        turn_id: "turn-1",
+        file_ids: [file.id],
+        can_submit: false,
+        interrupt_requested: false,
+      }
+      update?.(state)
+      expect(submit).toBeDisabled()
+      expect(picker).toBeDisabled()
+      expect(document.querySelector("#run-status-title")?.textContent).toBe(
+        language === "en-US" ? "Accepted, starting" : "已受理，正在启动"
+      )
+      expect(
+        document.querySelector("#research-file-list button")
+      ).toBeDisabled()
+      fireEvent.submit(document.querySelector("#brief-form")!)
+      expect(sdk.tasks.run).not.toHaveBeenCalled()
+      update?.({ ...state, status: "running", interrupt_requested: true })
+      expect(document.querySelector("#interrupt-task")).toBeDisabled()
+      update?.({ ...state, status: "completed", can_submit: true })
+      expect(submit).not.toBeDisabled()
+      sdk.tasks.onStateChange.mock.calls.at(-1)?.[1]?.()
+      expect(submit).toBeDisabled()
+      update?.({ ...state, status: "interrupted", can_submit: true })
+      expect(submit).not.toBeDisabled()
+    }
+  )
+})
+
+it("keeps replayed results after completion, deduplicates them and groups separate turns", async () => {
+  const { sdk } = await setup()
+  sdk.tasks.onStateChange.mock.calls.at(-1)?.[0]({
+    status: "completed",
+    turn_id: "turn-2",
+    file_ids: [],
+    can_submit: true,
+    interrupt_requested: false,
+  })
+  const receive = sdk.events.on.mock.calls.find(
+    ([name]) => name === "brief.insight_ready"
+  )?.[1]
+  const event = {
+    id: "event-1",
+    turn_id: "turn-1",
+    payload: { title: "First", finding: "Finding", evidence: "Evidence" },
+  }
+  receive?.(event)
+  receive?.(event)
+  receive?.({ ...event, id: "event-2", turn_id: "turn-2" })
+  expect(document.querySelectorAll("#event-feed [data-turn-id]")).toHaveLength(
+    2
+  )
+  expect(document.querySelectorAll("#event-feed .event-card")).toHaveLength(2)
+  expect(document.querySelector("#event-count")?.textContent).toBe("2")
 })

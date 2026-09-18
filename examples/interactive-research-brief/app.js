@@ -3,6 +3,7 @@
 
   const copy = {
     "zh-CN": {
+      taskIdle: "可以开始", taskStarting: "已受理，正在启动", taskRunning: "正在执行", taskWaiting: "请在对话中处理待办", taskCompleted: "已完成", taskError: "任务失败，请查看对话", taskStopped: "已停止", taskStateError: "暂时无法读取任务状态", fileSubmitted: "已提交", resultTask: "任务",
       filesLabel: "参考文件", filesHint: "可选择多个文件，上传完成后随本次研究一起提交。", fileUploading: "上传中", fileFailed: "上传失败，请重试或移除后再提交", fileRemove: "移除", fileRetry: "重试", fileRemoveFailed: "无法移除文件，请稍后重试",
 
       workspaceLabel: "研究工作台", appTitle: "交互式研究简报", connecting: "正在连接 LinkSense", connected: "已连接 LinkSense", connectError: "无法连接 LinkSense",
@@ -24,6 +25,7 @@
       priority: "优先级", impact: "影响", high: "高", medium: "中", low: "低", selected: "已选择", resourceUnit: "项", unknownUser: "LinkSense 用户"
     },
     "en-US": {
+      taskIdle: "Ready", taskStarting: "Accepted, starting", taskRunning: "Working", taskWaiting: "Open chat to respond", taskCompleted: "Completed", taskError: "Task failed. Check chat", taskStopped: "Stopped", taskStateError: "Unable to read task status", fileSubmitted: "Submitted", resultTask: "Task",
       filesLabel: "Reference files", filesHint: "Select multiple files and submit them with this research after uploading.", fileUploading: "Uploading", fileFailed: "Upload failed. Retry or remove the file before submitting", fileRemove: "Remove", fileRetry: "Retry", fileRemoveFailed: "Could not remove the file. Please try again",
 
       workspaceLabel: "Research workspace", appTitle: "Interactive Research Brief", connecting: "Connecting to LinkSense", connected: "Connected to LinkSense", connectError: "Unable to connect to LinkSense",
@@ -51,6 +53,9 @@
     files: [],
     fileBusy: false,
     submitting: false,
+    taskState: null,
+    seenEvents: new Set(),
+    eventGroups: new Map(),
     ready: false,
     user: null,
     capabilities: [],
@@ -296,15 +301,50 @@
   function receiveEvent(kind, event) {
     if (!event || typeof event.payload !== "object" || event.payload === null) return;
     const feed = byId("event-feed");
+    if (typeof event.id !== "string" || state.seenEvents.has(event.id)) return;
+    state.seenEvents.add(event.id);
     byId("empty-state")?.remove();
-    feed.prepend(eventCard(kind, event.payload));
+    let group = state.eventGroups.get(event.turn_id);
+    if (!group) {
+      group = document.createElement("section");
+      group.dataset.turnId = event.turn_id;
+      const heading = document.createElement("h3");
+      heading.textContent = t("resultTask") + " " + (state.eventGroups.size + 1);
+      group.append(heading);
+      state.eventGroups.set(event.turn_id, group);
+      feed.prepend(group);
+    }
+    group.append(eventCard(kind, event.payload));
     state.eventCount += 1;
     byId("event-count").textContent = String(state.eventCount);
-    while (feed.children.length > 30) feed.lastElementChild?.remove();
+
+  }
+
+  function applyTaskState(snapshot) {
+    state.taskState = snapshot;
+    if (snapshot.status !== "starting") {
+      for (const item of state.files) {
+        if (item.attachment && snapshot.file_ids.includes(item.attachment.id)) item.attachment = { ...item.attachment, status: "bound" };
+      }
+    }
+    state.activeTurnId = ["starting", "running"].includes(snapshot.status) ? snapshot.turn_id : null;
+    const key = { idle: "taskIdle", starting: "taskStarting", running: "taskRunning", waiting_for_input: "taskWaiting", completed: "taskCompleted", failed: "taskError", interrupted: "taskStopped" }[snapshot.status];
+    byId("run-status").hidden = snapshot.status === "idle";
+    byId("run-status").querySelector("strong").textContent = t(key);
+    byId("turn-id").textContent = snapshot.turn_id || "";
+    byId("interrupt-task").disabled = !state.activeTurnId || snapshot.interrupt_requested;
+    renderFiles();
+  }
+
+  function taskStateUnavailable() {
+    state.taskState = null;
+    byId("interrupt-task").disabled = true;
+    renderFiles();
+    showToast(t("taskStateError"), true);
   }
 
   function renderFiles() {
-    const disabled = !state.ready || state.fileBusy || state.submitting;
+    const disabled = !state.ready || state.fileBusy || state.submitting || !state.taskState?.can_submit;
     byId("research-files").disabled = disabled;
     byId("run-task").disabled = disabled || state.files.some((item) => item.status === "failed");
     byId("research-file-list").replaceChildren(...state.files.map((item) => {
@@ -312,6 +352,10 @@
       const label = document.createElement("span");
       label.textContent = item.attachment?.filename || item.file.name;
       row.append(label);
+      const submitted = item.attachment && (item.attachment.status === "bound" || state.taskState?.file_ids.includes(item.attachment.id));
+      if (submitted) {
+        const status = document.createElement("span"); status.textContent = t("fileSubmitted"); row.append(status);
+      }
       if (item.status !== "uploaded") {
         const status = document.createElement("span");
         status.textContent = t(item.status === "failed" ? "fileFailed" : "fileUploading");
@@ -330,7 +374,7 @@
       remove.type = "button";
       remove.className = "button button-ghost";
       remove.textContent = t("fileRemove");
-      remove.disabled = disabled;
+      remove.disabled = disabled || submitted;
       remove.addEventListener("click", async () => {
         state.fileBusy = true;
         renderFiles();
@@ -346,7 +390,7 @@
   }
 
   async function uploadFiles(items) {
-    if (state.fileBusy || state.submitting || !state.ready) return;
+    if (state.fileBusy || state.submitting || !state.ready || !state.taskState?.can_submit) return;
     state.fileBusy = true;
     for (const item of items) {
       item.status = "uploading";
@@ -362,7 +406,7 @@
 
   async function submitTask(event) {
     event.preventDefault();
-    if (!state.ready || state.fileBusy || state.submitting || state.files.some((item) => item.status !== "uploaded")) return;
+    if (!state.ready || !state.taskState?.can_submit || state.fileBusy || state.submitting || state.files.some((item) => item.status !== "uploaded")) return;
     const topic = byId("topic");
     if (!topic.value.trim()) {
       topic.focus();
@@ -377,21 +421,20 @@
     const buttonLabel = button.querySelector("span");
     buttonLabel.textContent = t("runningTask");
     try {
-      const receipt = await window.LinkSense.tasks.run({
+      await window.LinkSense.tasks.run({
         prompt: buildPrompt(),
-        file_ids: state.files.map((item) => item.attachment.id),
+        file_ids: state.files.filter((item) => item.attachment.status === "staged" && !state.taskState.file_ids.includes(item.attachment.id)).map((item) => item.attachment.id),
         capability_ids: selectedValues("capability"),
         knowledge_base_ids: selectedValues("knowledge"),
         idempotency_key: `interactive-brief-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       });
       state.files = [];
-      state.activeTurnId = receipt.turn_id;
-      byId("run-status").hidden = false;
-      byId("turn-id").textContent = receipt.turn_id;
+      await window.LinkSense.tasks.getState();
       await window.LinkSense.chat.show();
       showToast(t("taskStarted"));
     } catch (error) {
       console.error("Failed to start LinkSense task", error);
+      try { await window.LinkSense.tasks.getState(); } catch { taskStateUnavailable(); }
       showToast(t("taskFailed"), true);
     } finally {
       state.submitting = false;
@@ -407,13 +450,12 @@
     try {
       await window.LinkSense.tasks.interrupt(state.activeTurnId);
       showToast(t("taskInterrupted"));
-      byId("run-status").hidden = true;
-      state.activeTurnId = null;
+      await window.LinkSense.tasks.getState();
     } catch (error) {
       console.error("Failed to interrupt LinkSense task", error);
       showToast(t("taskFailed"), true);
     } finally {
-      button.disabled = false;
+      button.disabled = !state.activeTurnId || !state.taskState || state.taskState.interrupt_requested;
     }
   }
 
@@ -455,9 +497,11 @@
         window.LinkSense.events.on("brief.risk_ready", (event) => receiveEvent("risk", event)),
         window.LinkSense.events.on("brief.action_ready", (event) => receiveEvent("action", event))
       );
+      state.unsubscribers.push(window.LinkSense.tasks.onStateChange(applyTaskState, taskStateUnavailable));
+      await window.LinkSense.tasks.getState();
       await loadResources();
       const { items } = await window.LinkSense.files.list();
-      state.files = items.filter((file) => file.status === "staged").map((attachment) => ({ attachment, status: "uploaded" }));
+      state.files = items.filter((file) => file.status === "staged" || state.taskState?.file_ids.includes(file.id)).map((attachment) => ({ attachment, status: "uploaded" }));
       state.ready = true;
       renderFiles();
     } catch (error) {

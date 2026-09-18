@@ -66,6 +66,29 @@ declarations and event schemas. The platform supplies the starter files.
 - Fix source errors and relevant runtime errors before presenting the result.
   Debugging a feature does not authorize unrelated external actions.
 
+## Task state and page re-entry
+
+- After SDK readiness, subscribe with \`LinkSense.tasks.onStateChange(handler, onError)\`
+  and await \`LinkSense.tasks.getState()\` before enabling submission. Both use the
+  existing \`tasks:write\` permission. Read the developer guide's task-state contract.
+- Drive buttons and status labels from \`can_submit\`, \`status\`, \`turn_id\` and
+  \`interrupt_requested\`; keep a local submission-in-flight guard as well. Treat
+  the receipt as acceptance, not completion. After requesting stop, await the
+  actual state instead of marking the task stopped locally.
+- Restore files with \`files.list()\`. Files in the current state's \`file_ids\`
+  are already reserved/submitted, even if a starting file is still staged.
+  Show bound files as submitted; never remove or automatically resubmit them.
+- Restore business results with existing event replay. Deduplicate by event id
+  and group results by turn_id. Completion status does not imply every business
+  event has already reached the page. Do not infer completion from the last result.
+- If status cannot be read, disable submission and show a localized recovery
+  message. Page reload, re-entry and network reconnect must never call tasks.run
+  automatically. Unsubmitted form drafts are not persisted by this API.
+- Verify re-entry during starting/running and after completion/failure/stop,
+  lost submission responses, event duplication, and multiple-turn results.
+  Update existing apps through the normal reviewed publication/install flow;
+  a platform upgrade alone does not add restoration handlers to old app code.
+
 ## Preview annotations
 
 - Users can select one or more elements in the live development preview and send

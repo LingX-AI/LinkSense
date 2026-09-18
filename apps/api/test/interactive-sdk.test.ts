@@ -124,3 +124,40 @@ function dispatchMessage(
 ) {
   for (const listener of listeners) listener({ source: parent, data });
 }
+
+describe("task state SDK", () => {
+  it("replays the latest state, ignores reordered responses and foreign frames, and unsubscribes", async () => {
+    const listeners: Array<(event: unknown) => void> = [];
+    const parent = { postMessage: vi.fn() };
+    const window = { parent, addEventListener: (_: string, fn: (event: unknown) => void) => listeners.push(fn), dispatchEvent: vi.fn() };
+    vm.runInNewContext(interactiveApplicationSdkV1, { window, CustomEvent: class {}, queueMicrotask });
+    const sdk = (window as typeof window & { LinkSense: { tasks: { getState(): Promise<unknown>; onStateChange(fn: (state: unknown) => void, onError?: (error: unknown) => void): () => void } } }).LinkSense;
+    await expect(sdk.tasks.getState()).rejects.toThrow("LINKSENSE_SDK_NOT_READY");
+    const send = (packet: Record<string, unknown>) => dispatchMessage(listeners, parent, { protocol: "linksense.interactive.v1", instanceId: "instance", ...packet });
+    send({ type: "initialize" });
+    const state = { status: "starting", turn_id: "turn", file_ids: ["file"], can_submit: false, interrupt_requested: false };
+    send({ type: "task-state", revision: 1, state });
+    const handler = vi.fn();
+    const errors = vi.fn();
+    const off = sdk.tasks.onStateChange(handler, errors);
+    expect(handler).toHaveBeenCalledWith(state);
+    expect(Object.isFrozen(handler.mock.calls[0]?.[0]?.file_ids)).toBe(true);
+    const request = sdk.tasks.getState();
+    const requestId = parent.postMessage.mock.calls.at(-1)?.[0].requestId;
+    const completed = { ...state, status: "completed", can_submit: true };
+    send({ type: "task-state", revision: 3, state: completed });
+    send({ type: "response", requestId, ok: true, result: { revision: 2, state } });
+    await expect(request).resolves.toEqual(completed);
+    send({ type: "task-state", revision: 1, state });
+    dispatchMessage(listeners, { postMessage: vi.fn() }, { protocol: "linksense.interactive.v1", instanceId: "instance", type: "task-state", revision: 999, state });
+    send({ type: "task-state", instanceId: "different", revision: 999, state });
+    expect(handler).toHaveBeenCalledTimes(2);
+    send({ type: "task-state-error", revision: 4, error: "FORBIDDEN" });
+    expect(errors).toHaveBeenCalledWith(expect.objectContaining({ message: "FORBIDDEN" }));
+    send({ type: "task-state", revision: 5, state: completed });
+    expect(handler).toHaveBeenCalledTimes(3);
+    off();
+    send({ type: "task-state", revision: 6, state });
+    expect(handler).toHaveBeenCalledTimes(3);
+  });
+});

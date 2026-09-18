@@ -64,6 +64,12 @@ jobs:
           pnpm --filter @linksense/web test:unit
           pnpm --filter @linksense/docs test
 
+      - name: Verify interactive upload database migrations
+        run: pnpm test:interactive-files:postgres
+
+      - name: Verify application development instruction migrations
+        run: pnpm test:development-instructions:postgres
+
       - name: Run privileged runner filesystem test
         run: |
           sudo env "PATH=$PATH" pnpm --filter @linksense/runner exec vitest run test/workspace-manager.test.ts

@@ -3483,6 +3483,7 @@ export const enUS = {
 
     resizePreview: "Resize application preview",
     developmentTask: "Application development task",
+    opening: "Opening the development workspace…",
     previewTask: "Application debug conversation",
     catalog: {
       newDevelopment: "New development version",

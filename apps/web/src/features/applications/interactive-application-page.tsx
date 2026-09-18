@@ -1,4 +1,8 @@
 import {
+  useInteractiveTaskState,
+  refreshesInteractiveTaskState,
+} from "./use-interactive-task-state"
+import {
   ApplicationAnnotationPreview,
   type ApplicationAnnotationOptions,
 } from "./application-annotation-preview"
@@ -24,7 +28,6 @@ import {
 import {
   applicationSchema,
   capabilitySummarySchema,
-  conversationDetailSchema,
   mcpServerSchema,
   paginatedSchema,
   type ConversationEvent,
@@ -42,6 +45,7 @@ import { Button } from "@/components/ui/button"
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { ConversationPage } from "@/pages/conversation-pages"
+import { conversationDetailQueryOptions } from "@/features/conversations/conversation-detail-query"
 
 const protocol = "linksense.interactive.v1"
 const mcpListSchema = z.strictObject({ items: z.array(mcpServerSchema) })
@@ -56,6 +60,7 @@ const sdkRequestSchema = z.strictObject({
     "resources.listKnowledgeBases",
     "resources.listMcpServers",
     "tasks.run",
+    "tasks.getState",
     "tasks.interrupt",
     "files.upload",
     "files.list",
@@ -132,12 +137,7 @@ function InteractiveApplicationRuntime({
   )
 
   const conversation = useQuery({
-    queryKey: ["conversation", conversationId],
-    queryFn: ({ signal }) =>
-      apiRequest(`/conversations/${conversationId}`, {
-        schema: conversationDetailSchema,
-        signal,
-      }),
+    ...conversationDetailQueryOptions(conversationId),
     enabled: Boolean(conversationId),
   })
   const conversationApplication = conversation.data?.application
@@ -253,6 +253,12 @@ function InteractiveApplicationRuntime({
     },
     [instanceId]
   )
+
+  const taskState = useInteractiveTaskState({
+    conversationId,
+    enabled: frameReady && permissions.has("tasks:write"),
+    post: postToFrame,
+  })
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -373,6 +379,9 @@ function InteractiveApplicationRuntime({
         case "files.remove":
           requirePermission("files:write")
           return applicationFiles.remove(request.params)
+        case "tasks.getState":
+          requirePermission("tasks:write")
+          return taskState.getState()
         case "tasks.run": {
           requirePermission("tasks:write")
           const input = interactiveApplicationTaskInputSchema.parse(
@@ -388,6 +397,8 @@ function InteractiveApplicationRuntime({
           } catch (nextError) {
             setError(getErrorMessage(nextError, t))
             throw nextError
+          } finally {
+            void taskState.refresh()
           }
         }
         case "tasks.interrupt": {
@@ -429,6 +440,7 @@ function InteractiveApplicationRuntime({
     window.addEventListener("message", handleMessage)
     return () => window.removeEventListener("message", handleMessage)
   }, [
+    taskState,
     onDiagnostic,
     chatOpen,
     applicationFiles,
@@ -444,6 +456,8 @@ function InteractiveApplicationRuntime({
 
   const handleApplicationEvent = useCallback(
     (event: ConversationEvent) => {
+      if (frameReady && refreshesInteractiveTaskState(event))
+        void taskState.refresh()
       const custom = interactiveCustomEvent(event)
       if (!custom || seenCustomEventIdsRef.current.has(custom.id)) return
       seenCustomEventIdsRef.current.add(custom.id)
@@ -458,7 +472,7 @@ function InteractiveApplicationRuntime({
       }
       postToFrame(message)
     },
-    [frameReady, postToFrame]
+    [frameReady, postToFrame, taskState]
   )
 
   if (conversation.data?.application?.kind !== undefined) {

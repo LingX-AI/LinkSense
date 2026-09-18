@@ -86,6 +86,14 @@ describe("interactive application runtime page", () => {
           manifest: applicationFixture().interactive_package.manifest,
         }
       }
+      if (path.endsWith("/interactive-task-state"))
+        return {
+          status: "idle",
+          turn_id: null,
+          file_ids: [],
+          can_submit: true,
+          interrupt_requested: false,
+        }
       if (path.startsWith("/applications/")) return applicationFixture()
       if (path.startsWith("/conversations/")) return conversationFixture()
       if (path === "/knowledge-bases") {
@@ -1187,3 +1195,106 @@ function conversationFixture() {
     artifacts: [],
   }
 }
+
+describe("SDK task state boundary", () => {
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    vi.clearAllMocks()
+  })
+  it.each([true, false])(
+    "scopes snapshot requests to the current frame and enforces tasks permission: %s",
+    async (permitted) => {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        value: () => ({
+          matches: false,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }),
+      })
+      const snapshot = {
+        status: "starting",
+        turn_id: "60000000-0000-4000-8000-000000000001",
+        file_ids: [],
+        can_submit: false,
+        interrupt_requested: false,
+      }
+      apiRequest.mockImplementation(async (path: string) => {
+        if (path.endsWith("/interactive-task-state")) return snapshot
+        if (path.endsWith("/interactive-runtime-token"))
+          return {
+            runtime_url: "/runtime/index.html",
+            expires_at: "2026-09-18T00:00:00Z",
+            manifest: {
+              ...applicationFixture().interactive_package.manifest,
+              permissions: permitted ? ["tasks:write"] : [],
+            },
+          }
+        if (path.startsWith("/applications/")) return applicationFixture()
+        return conversationFixture()
+      })
+      renderPage()
+      const frame = (await screen.findByTitle(
+        "研究工作台"
+      )) as HTMLIFrameElement
+      const frameWindow = frame.contentWindow!
+      const post = vi.spyOn(frameWindow, "postMessage")
+      act(() => dispatchFrameMessage(frameWindow, { type: "ready" }))
+      const init = post.mock.calls
+        .map(([message]) => message as Record<string, unknown>)
+        .find((message) => message.type === "initialize")!
+      act(() =>
+        dispatchFrameMessage(frameWindow, {
+          type: "initialized",
+          instanceId: init.instanceId,
+        })
+      )
+      act(() =>
+        dispatchFrameMessage(frameWindow, {
+          type: "request",
+          instanceId: init.instanceId,
+          requestId: "snapshot",
+          method: "tasks.getState",
+          params: {},
+        })
+      )
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(
+          expect.objectContaining(
+            permitted
+              ? {
+                  type: "response",
+                  requestId: "snapshot",
+                  ok: true,
+                  result: { revision: 1, state: snapshot },
+                }
+              : {
+                  type: "response",
+                  requestId: "snapshot",
+                  ok: false,
+                  error: "LINKSENSE_SDK_PERMISSION_DENIED",
+                }
+          ),
+          "*"
+        )
+      )
+      expect(
+        apiRequest.mock.calls.filter(([path]) =>
+          path.endsWith("/interactive-task-state")
+        ).length > 0
+      ).toBe(permitted)
+      const requests = apiRequest.mock.calls.length
+      act(() =>
+        dispatchFrameMessage(window, {
+          type: "request",
+          instanceId: init.instanceId,
+          requestId: "foreign",
+          method: "tasks.getState",
+          params: {},
+        })
+      )
+      expect(apiRequest.mock.calls).toHaveLength(requests)
+    }
+  )
+})

@@ -49,7 +49,9 @@
     "test:codex:skill-discovery": "tsx scripts/codex-skill-discovery-smoke.mts",
     "typecheck": "pnpm -r --filter './apps/**' --filter './packages/**' --if-present typecheck",
     "test:packages": "pnpm -r --parallel --filter './apps/**' --filter './packages/**' --filter '!@linksense/web' --if-present test",
-    "test:runtime:projects:postgres": "pnpm --filter @linksense/api exec tsx test/integration/user-project-runtime-postgres.ts"
+    "test:runtime:projects:postgres": "pnpm --filter @linksense/api exec tsx test/integration/user-project-runtime-postgres.ts",
+    "test:interactive-files:postgres": "pnpm --filter @linksense/api exec tsx test/integration/interactive-files-postgres.ts",
+    "test:development-instructions:postgres": "pnpm --filter @linksense/api exec tsx test/integration/development-turn-instructions-postgres.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.8.0",

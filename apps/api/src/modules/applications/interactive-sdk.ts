@@ -7,6 +7,35 @@ export const interactiveApplicationSdkV1 = String.raw`(() => {
   const listeners = new Map();
   const bufferedEvents = new Map();
   const seenEventIds = new Set();
+  const stateListeners = new Set();
+  let stateRevision = -1;
+  let taskState = null;
+  let taskStateError = null;
+
+  function acceptTaskState(packet) {
+    if (!packet || !Number.isSafeInteger(packet.revision) || packet.revision <= stateRevision) return;
+    if (packet.error) {
+      stateRevision = packet.revision;
+      taskStateError = new Error(packet.error);
+      for (const listener of stateListeners) if (listener.onError) invokeHandler(listener.onError, taskStateError);
+    } else if (packet.state && Array.isArray(packet.state.file_ids)) {
+      stateRevision = packet.revision;
+      taskStateError = null;
+      taskState = Object.freeze({ ...packet.state, file_ids: Object.freeze([...packet.state.file_ids]) });
+      for (const listener of stateListeners) invokeHandler(listener.handler, taskState);
+    }
+  }
+
+  function onStateChange(handler, onError) {
+    if (typeof handler !== "function" || (onError !== undefined && typeof onError !== "function")) {
+      throw new TypeError("LinkSense.tasks.onStateChange requires a handler and an optional error handler");
+    }
+    const listener = { handler, onError };
+    stateListeners.add(listener);
+    if (taskStateError) { if (onError) invokeHandler(onError, taskStateError); }
+    else if (taskState) invokeHandler(handler, taskState);
+    return () => stateListeners.delete(listener);
+  }
 
   function post(message) {
     window.parent.postMessage({ protocol, instanceId, ...message }, "*");
@@ -57,6 +86,10 @@ export const interactiveApplicationSdkV1 = String.raw`(() => {
       return;
     }
     if (!instanceId || message.instanceId !== instanceId) return;
+    if (message.type === "task-state" || message.type === "task-state-error") {
+      acceptTaskState(message);
+      return;
+    }
     if (message.type === "response") {
       const operation = pending.get(message.requestId);
       if (!operation) return;
@@ -85,7 +118,7 @@ export const interactiveApplicationSdkV1 = String.raw`(() => {
   });
 
   const api = Object.freeze({
-    version: "1.1.0",
+    version: "1.2.0",
     ready: () => instanceId
       ? Promise.resolve()
       : new Promise((resolve) => window.addEventListener("linksense:ready", resolve, { once: true })),
@@ -98,6 +131,13 @@ export const interactiveApplicationSdkV1 = String.raw`(() => {
       listMcpServers: () => request("resources.listMcpServers"),
     }),
     tasks: Object.freeze({
+      getState: () => request("tasks.getState").then((packet) => {
+        acceptTaskState(packet);
+        if (taskStateError) throw taskStateError;
+        if (!taskState) throw new Error("LINKSENSE_SDK_REQUEST_FAILED");
+        return taskState;
+      }),
+      onStateChange,
       run: (input) => request("tasks.run", input),
       interrupt: (turnId) => request("tasks.interrupt", { turnId }),
     }),

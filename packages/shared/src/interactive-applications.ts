@@ -35,6 +35,16 @@ export type InteractiveApplicationTaskInput = z.infer<
   typeof interactiveApplicationTaskInputSchema
 >;
 
+/** Read-only view of the current conversation; no prompts, credentials or paths. */
+export const interactiveApplicationTaskStateSchema = z.strictObject({
+  status: z.enum(["idle", "starting", "running", "waiting_for_input", "completed", "failed", "interrupted"]),
+  turn_id: uuidSchema.nullable(),
+  file_ids: interactiveApplicationFileIdsSchema,
+  can_submit: z.boolean(),
+  interrupt_requested: z.boolean(),
+});
+export type InteractiveApplicationTaskState = z.infer<typeof interactiveApplicationTaskStateSchema>;
+
 export const INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES = 10 * 1024 * 1024;
 export const INTERACTIVE_APPLICATION_EXPANDED_MAX_BYTES = 30 * 1024 * 1024;
 export const INTERACTIVE_APPLICATION_ENTRY_MAX_BYTES = 5 * 1024 * 1024;

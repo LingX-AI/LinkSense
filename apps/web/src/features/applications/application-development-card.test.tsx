@@ -54,6 +54,32 @@ function show() {
   return { invalidate }
 }
 describe("retained application card", () => {
+  it.each(["zh-CN", "en-US"])(
+    "sizes the action menu to keep all labels on one line in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      show()
+      await userEvent.click(
+        screen.getByRole("button", {
+          name: i18n.t("common.moreActionsNamed", {
+            name: "Retained application",
+          }),
+        })
+      )
+      const menu = await screen.findByRole("menu")
+      expect(menu).toHaveClass("w-max", "whitespace-nowrap")
+      expect(menu).not.toHaveClass("w-(--anchor-width)")
+      for (const key of [
+        "applicationDevelopment.catalog.continueDevelopment",
+        "applications.editMetadata",
+        "applicationDevelopment.catalog.deleteDraft",
+      ] as const) {
+        expect(
+          within(menu).getByRole("menuitem", { name: i18n.t(key) })
+        ).toBeVisible()
+      }
+    }
+  )
   it("shows standalone draft details without requesting a published application", async () => {
     await i18n.changeLanguage("zh-CN")
     show()

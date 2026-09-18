@@ -1,3 +1,4 @@
+import { projectInteractiveTaskState } from "./interactive-task-state.js";
 import { prepareApplicationAnnotation, assertApplicationAnnotationBinding, validateApplicationAnnotationSnapshot } from "./application-annotation.js";
 import { lockDevelopmentPreview, reuseUnusedDevelopmentPreview, assertCurrentDevelopmentPreview, assertNotDevelopmentPreview, type DevelopmentPreviewCreation } from "../applications/development-preview-lifecycle.js";
 import { lockDetachedDevelopment, type DevelopmentConversationCreation } from "../applications/development-conversation-lifecycle.js";
@@ -54,6 +55,8 @@ import type { ConversationTitleService } from "./title-service.js";
 import type { ConversationPrewarmInput } from "./prewarm.js";
 import {
   INTERACTIVE_APPLICATION_FILE_SOURCE,
+  type InteractiveApplicationTaskState,
+  conversationStartingTurnSchema,
   interactiveApplicationFileIdsSchema,
   interactiveApplicationManifestSchema,
   builtInCapabilityDefinitionForId,
@@ -579,6 +582,7 @@ const turnStartIntentSchema = z.strictObject({
     .max(20_000)
     .nullish()
     .transform((value) => value ?? null),
+  developmentInstructions: z.string().min(1).max(20_000).nullable(),
   inputText: z.string(),
   taskKind: z
     .enum(["turn", "goal", "compact"])
@@ -2685,7 +2689,25 @@ export class ConversationService {
       latestTurn && !planReviewTurnIds.has(latestTurn.id)
       ? await this.hasPlanOutputMissingEvent(conversationId, latestTurn.id)
       : false;
-    const executionStatus = runningTurn
+    // Read after the projections so a refreshed page can recover accepted
+    // work during slow startup without inventing a native turn or replaying it.
+    const startRow = await this.prisma.conversationTurnStartIntent.findUnique({ where: { conversationId } });
+    const start = startRow && startRow.ownerId === ownerId &&
+      startRow.runtimeGeneration === conversation.runtimeGeneration &&
+      !projectedTurns.some((turn) => turn.id === startRow.projectionTurnId)
+      ? parseTurnStartIntent(startRow) : null;
+    const startingTurn = start ? conversationStartingTurnSchema.parse({
+      turn_id: start.projectionTurnId,
+      task_kind: start.taskKind,
+      idempotency_key: start.idempotencyKey,
+      input_text: start.inputText,
+      created_at: start.createdAt.toISOString(),
+      message_display: start.messageDisplayJson,
+      attachments: start.attachmentsJson.map((file) => ({
+        id: file.id, name: file.filename, mime_type: file.mimeType, size: Number(file.sizeBytes),
+      })),
+    }) : null;
+    const executionStatus = runningTurn || startingTurn
       ? "running"
       : pending.length > 0
         ? "pending"
@@ -2734,6 +2756,7 @@ export class ConversationService {
         ),
       ),
       turns: projectedTurns.map(projectTurn),
+      starting_turn: startingTurn,
       pending_requests: pending.map(projectPending),
       user_input_requests: userInputRequests.map(projectUserInputRequest),
       plan_reviews: planReviews.map(projectPlanReview),
@@ -2757,6 +2780,17 @@ export class ConversationService {
         .map(projectActivity)
         .filter((value) => value !== null),
     };
+  }
+
+  async getInteractiveTaskState(ownerId: string, conversationId: string): Promise<InteractiveApplicationTaskState> {
+    const detail = await this.get(ownerId, conversationId);
+    const application = detail.conversation.application;
+    if (application?.kind !== "interactive" || !application.package_id) throw new AppError("FORBIDDEN");
+    const runtimePackage = await this.prisma.interactiveApplicationPackage.findFirst({
+      where: { id: application.package_id, applicationId: application.id }, select: { manifestJson: true },
+    });
+    if (!runtimePackage || !interactiveApplicationManifestSchema.parse(runtimePackage.manifestJson).permissions.includes("tasks:write")) throw new AppError("FORBIDDEN");
+    return projectInteractiveTaskState(detail);
   }
 
   private async resolveForkSourceProjection(
@@ -7778,7 +7812,10 @@ export class ConversationService {
             applicationUpdatedAt:
               input.applicationRuntime?.applicationUpdatedAt ?? null,
             applicationInstructions:
-              input.applicationRuntime?.instructions ?? await this.developmentInstructions?.(input.ownerId, input.conversationId) ?? null,
+              input.applicationRuntime?.instructions ?? null,
+            developmentInstructions: input.applicationRuntime
+              ? null
+              : await this.developmentInstructions?.(input.ownerId, input.conversationId) ?? null,
             inputText: input.prepared.inputText,
             taskKind: input.prepared.goal ? "goal" : "turn",
             collaborationMode: input.prepared.collaborationMode,
@@ -8097,7 +8134,7 @@ export class ConversationService {
             collaboration_mode: intent.collaborationMode,
             require_final_response:
               intent.idempotencyKey?.startsWith("automation:") ?? false,
-            application_instructions: intent.applicationInstructions,
+            application_instructions: turnInstructionsForIntent(intent),
             selected_knowledge_base_count: intent.knowledgeBaseIdsJson.length,
             priority_capability_ids: intent.priorityCapabilityIdsJson,
           },
@@ -10946,6 +10983,12 @@ function snapshotStartIntentCapabilities(
   );
 }
 
+function turnInstructionsForIntent(intent: TurnStartIntent): string | null {
+  // Persist development context independently, then use the existing Runner
+  // instruction channel for both normal dispatch and recovered starts.
+  return intent.applicationInstructions ?? intent.developmentInstructions;
+}
+
 function buildRunnerStartInputFromIntent(
   intent: TurnStartIntent,
   codexThreadId: string | null,
@@ -10967,6 +11010,7 @@ function buildRunnerStartInputFromIntent(
 ): RunnerStartInput {
   const runnerContext = buildOfficeAnnotationRunnerContext(intent.inputText);
   const isCompact = intent.taskKind === "compact";
+  const instructions = turnInstructionsForIntent(intent);
   return {
     conversationId: intent.conversationId,
     appServerProcessLimit:
@@ -11005,8 +11049,8 @@ function buildRunnerStartInputFromIntent(
       ...(!isCompact && intent.idempotencyKey?.startsWith("automation:")
         ? { requireFinalResponse: true }
         : {}),
-      ...(!isCompact && intent.applicationInstructions
-        ? { applicationInstructions: intent.applicationInstructions }
+      ...(!isCompact && instructions
+        ? { applicationInstructions: instructions }
         : {}),
       selectedKnowledgeBases: isCompact ? [] : selectedKnowledgeBases,
       ...(!isCompact && runnerContext.officeSelectionContext

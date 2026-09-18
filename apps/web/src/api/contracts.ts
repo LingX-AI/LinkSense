@@ -1,5 +1,6 @@
 import {
   INTERACTIVE_APPLICATION_FILE_SOURCE,
+  conversationStartingTurnSchema,
   skillDisplayNameSchema,
   currentUserCreditQuotaTotalSchema,
   creditLimitValueSchema,
@@ -920,6 +921,7 @@ export const conversationSchema = z
     artifacts: z.array(conversationFileSchema).optional(),
     turns: z.array(turnSchema).optional(),
     running_turn: turnSchema.nullable().optional(),
+    starting_turn: conversationStartingTurnSchema.nullable().optional(),
     pending_requests: z.array(pendingRequestSchema).optional(),
     user_input_requests: z.array(conversationUserInputRequestSchema).optional(),
     plan_reviews: z.array(conversationPlanReviewSchema).optional(),
@@ -956,6 +958,7 @@ export type Conversation = z.infer<typeof conversationSchema>
 const conversationDetailPayloadSchema = z
   .object({
     conversation: conversationSchema,
+    starting_turn: conversationStartingTurnSchema.nullable().optional(),
     goal: threadGoalSchema.nullable().optional(),
     messages: z.array(conversationMessageSchema).default([]),
     history: conversationHistoryPageSchema.optional(),
@@ -1101,6 +1104,7 @@ const conversationDetailPayloadSchema = z
       history: value.history,
       turns: value.turns,
       running_turn: runningTurn ?? null,
+      starting_turn: value.starting_turn,
       pending_requests: value.pending_requests.map((request) => ({
         ...request,
         attachments: value.files.filter(

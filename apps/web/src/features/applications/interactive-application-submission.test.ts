@@ -15,6 +15,8 @@ import {
 } from "@/features/conversations/conversation-pending-execution"
 import { interactiveApplicationFilesKey } from "./interactive-application-files"
 import { createInteractiveApplicationSubmitter } from "./interactive-application-submission"
+import { conversationSchema } from "@/api/contracts"
+import { restoreStartingConversationTurn } from "@/features/conversations/conversation-starting-turn"
 
 vi.mock("@/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/client")>()),
@@ -38,6 +40,57 @@ afterEach(() => {
 })
 
 describe("interactive application submission", () => {
+  it("returns the restored receipt for the same invoice after refresh without submitting again", async () => {
+    const queryClient = new QueryClient()
+    const fileId = "60000000-0000-4000-8000-000000000001"
+    const conversation = conversationSchema.parse({
+      id: conversationId,
+      title: "Invoice",
+      project_id: null,
+      updated_at: "2026-09-18T00:00:00Z",
+      starting_turn: {
+        turn_id: receipt.turn_id,
+        task_kind: "turn",
+        idempotency_key: "accepted-before-refresh",
+        input_text: input.prompt,
+        created_at: "2026-09-18T00:00:00Z",
+        message_display: {
+          kind: "interactive_application",
+          application_id: applicationId,
+        },
+        attachments: [
+          {
+            id: fileId,
+            name: "invoice.png",
+            mime_type: "image/png",
+            size: 120,
+          },
+        ],
+      },
+    })
+    queryClient.setQueryData(["conversation", conversationId], conversation)
+    restoreStartingConversationTurn(queryClient, conversation)
+    const submit = createInteractiveApplicationSubmitter({
+      queryClient,
+      applicationId,
+      conversationId,
+    })
+    await expect(submit({ ...input, file_ids: [fileId] })).resolves.toEqual(
+      receipt
+    )
+    await expect(
+      submit({ ...input, prompt: "Different request", file_ids: [fileId] })
+    ).rejects.toMatchObject({ errorCode: "CONFLICT" })
+    await expect(submit(input)).rejects.toMatchObject({ errorCode: "CONFLICT" })
+    await expect(
+      submit({
+        ...input,
+        file_ids: [fileId],
+        idempotency_key: "different-request",
+      })
+    ).rejects.toMatchObject({ errorCode: "CONFLICT" })
+    expect(apiRequest).not.toHaveBeenCalled()
+  })
   it("starts a new manual attempt after an accepted start failed, while retaining in-flight deduplication", async () => {
     const queryClient = new QueryClient()
     const submit = createInteractiveApplicationSubmitter({

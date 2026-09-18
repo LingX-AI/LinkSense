@@ -394,9 +394,9 @@ describe("internal application routes", () => {
     const sdk = await app.inject("/api/v1/interactive-app-runtime/sdk/v1.js");
     expect(sdk.statusCode).toBe(200);
     expect(sdk.headers["cache-control"]).toBe("no-cache");
-    const freshSdk = await app.inject("/api/v1/interactive-app-runtime/sdk/v1.js?v=1.1.0");
+    const freshSdk = await app.inject("/api/v1/interactive-app-runtime/sdk/v1.js?v=1.2.0");
     expect(freshSdk.statusCode).toBe(200);
-    expect(freshSdk.body).toContain('version: "1.1.0"');
+    expect(freshSdk.body).toContain('version: "1.2.0"');
     expect(freshSdk.body).toContain('request("files.upload", { file })');
     expect(sdk.headers["content-security-policy"]).toBeUndefined();
 
