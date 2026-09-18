@@ -3232,6 +3232,7 @@ export const zhCN = {
 
     resizePreview: "调整应用预览宽度",
     developmentTask: "应用开发任务",
+    opening: "正在打开开发界面…",
     previewTask: "应用调试对话",
     catalog: {
       newDevelopment: "有新开发版",

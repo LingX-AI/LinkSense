@@ -94,7 +94,7 @@ export function ApplicationDevelopmentCard({
             >
               <MoreHorizontalIcon aria-hidden="true" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="w-max whitespace-nowrap">
               <DropdownMenuGroup>
                 <DropdownMenuItem
                   disabled={open.isPending || remove.isPending}

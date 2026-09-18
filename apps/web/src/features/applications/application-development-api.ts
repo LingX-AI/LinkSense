@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
+import { useTranslation } from "react-i18next"
 import {
   applicationDevelopmentSchema,
   type ApplicationDevelopmentDiagnostic,
@@ -9,6 +10,7 @@ import {
 } from "@linksense/shared"
 import { z } from "zod"
 import { apiRequest } from "@/api/client"
+import { notify } from "@/components/feedback/notification"
 
 export const applicationDevelopmentKeys = {
   capabilities: (userId: string | undefined, id: string) =>
@@ -77,9 +79,13 @@ export const reportApplicationDiagnostics = (
   })
 
 export function useOpenApplicationDevelopment() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const client = useQueryClient()
   return useMutation({
+    onMutate: () => ({
+      notificationId: notify.loading(t("applicationDevelopment.opening")),
+    }),
     mutationFn: (
       input:
         { name: string } | { applicationId: string } | { developmentId: string }
@@ -114,7 +120,10 @@ export function useOpenApplicationDevelopment() {
     onSuccess: async (project) => {
       await client.invalidateQueries({ queryKey: ["conversations"] })
       await client.invalidateQueries({ queryKey: ["applications"] })
-      navigate(`/conversations/${project.conversation_id}`)
+      await navigate(`/conversations/${project.conversation_id}`)
+    },
+    onSettled: (_project, _error, _input, context) => {
+      if (context) notify.dismiss(context.notificationId)
     },
   })
 }
