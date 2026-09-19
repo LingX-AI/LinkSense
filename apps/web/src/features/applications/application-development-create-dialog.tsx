@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { getErrorMessage } from "@/api/error-message"
-import { useOpenApplicationDevelopment } from "./application-development-api"
+import { useOpenApplicationDevelopment } from "./application-opening"
 
 export function ApplicationDevelopmentCreateDialog({
   onClose,

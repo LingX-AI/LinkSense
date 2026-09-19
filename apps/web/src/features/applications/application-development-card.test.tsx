@@ -1,3 +1,6 @@
+vi.mock("@/app/auth-state", () => ({
+  useAuth: () => ({ user: { id: "owner" } }),
+}))
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   cleanup,
@@ -20,6 +23,23 @@ vi.mock("@/api/client", async (original) => ({
 }))
 const id = "11000000-0000-4000-8000-000000000001"
 const taskId = "11000000-0000-4000-8000-000000000002"
+const retainedDraft = applicationDevelopmentSchema.parse({
+  id,
+  conversation_id: null,
+  name: "Retained application",
+  directory: "applications/draft",
+  application_id: null,
+  preview_application_id: null,
+  preview_conversation_id: null,
+  preview_current: true,
+  revision: 1,
+  source_hash: "a".repeat(64),
+  installed_source_hash: null,
+  source_error: null,
+  manifest: null,
+  diagnostics: [],
+  updated_at: "2026-09-17T00:00:00Z",
+})
 afterEach(() => {
   cleanup()
   vi.resetAllMocks()
@@ -109,23 +129,7 @@ describe("retained application card", () => {
   })
   it("edits a draft directly from its card and refreshes the application list", async () => {
     await i18n.changeLanguage("zh-CN")
-    const draft = applicationDevelopmentSchema.parse({
-      id,
-      conversation_id: null,
-      name: "Retained application",
-      directory: "applications/draft",
-      application_id: null,
-      preview_application_id: null,
-      preview_conversation_id: null,
-      preview_current: true,
-      revision: 1,
-      source_hash: "a".repeat(64),
-      installed_source_hash: null,
-      source_error: null,
-      manifest: null,
-      diagnostics: [],
-      updated_at: "2026-09-17T00:00:00Z",
-    })
+    const draft = retainedDraft
     vi.mocked(apiRequest).mockResolvedValue(draft)
     const { invalidate } = show()
     await userEvent.click(
@@ -167,10 +171,13 @@ describe("retained application card", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/applications")
   })
   it.each(["zh-CN", "en-US"])(
-    "reopens a detached draft through the API and navigates to its new task in %s",
+    "reopens a detached draft through the API and navigates to its loading page in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
-      vi.mocked(apiRequest).mockResolvedValue({ conversation_id: taskId })
+      vi.mocked(apiRequest).mockResolvedValue({
+        ...retainedDraft,
+        conversation_id: taskId,
+      })
       const { invalidate } = show()
       expect(
         screen.queryByRole("button", {
@@ -195,7 +202,7 @@ describe("retained application card", () => {
       )
       await waitFor(() =>
         expect(screen.getByTestId("location")).toHaveTextContent(
-          `/conversations/${taskId}`
+          "/applications/open/"
         )
       )
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["applications"] })
@@ -270,6 +277,8 @@ describe("retained application card", () => {
     rejectRequest(new Error("Failed"))
     await waitFor(() => expect(menu).toBeEnabled())
     expect(screen.getByRole("alert")).toBeVisible()
-    expect(screen.getByTestId("location")).toHaveTextContent("/applications")
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/applications/open/"
+    )
   })
 })

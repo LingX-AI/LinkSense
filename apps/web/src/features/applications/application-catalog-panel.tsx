@@ -1,3 +1,7 @@
+import {
+  useOpenApplicationConversation,
+  useOpenApplicationDevelopment,
+} from "./application-opening"
 import { DEFAULT_APPLICATION_ICON_PRESET } from "@linksense/shared"
 import {
   applicationIconInputFor,
@@ -13,10 +17,7 @@ import {
   ApplicationCreateDialog,
   type ApplicationCreationMethod,
 } from "./application-create-dialog"
-import {
-  useOpenApplicationDevelopment,
-  useDeleteApplicationDevelopment,
-} from "./application-development-api"
+import { useDeleteApplicationDevelopment } from "./application-development-api"
 import { ApplicationDevelopmentCard } from "./application-development-card"
 import { useApplicationCatalog } from "./application-catalog-queries"
 import {
@@ -70,7 +71,7 @@ import {
   UsersIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Link, useNavigate } from "react-router-dom"
+import { Link } from "react-router-dom"
 import {
   INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES,
   interactiveApplicationImportPreviewSchema,
@@ -85,7 +86,6 @@ import { z } from "zod"
 
 import { apiRequest } from "@/api/client"
 import {
-  applicationConversationSchema,
   applicationSchema,
   capabilitySummarySchema,
   mcpServerSchema,
@@ -536,7 +536,6 @@ export function ApplicationCatalogPanel({
   organizationSharingEnabled?: boolean
 }) {
   const { t, i18n } = useTranslation()
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const deferredSearch = useDeferredValue(search.trim())
   const development = useOpenApplicationDevelopment()
@@ -591,22 +590,7 @@ export function ApplicationCatalogPanel({
   const catalogItems =
     applications.data?.pages.flatMap((page) => page.items) ?? []
 
-  const startConversation = useMutation({
-    mutationFn: (application: Application) =>
-      apiRequest(`/applications/${application.id}/conversations`, {
-        method: "POST",
-        schema: applicationConversationSchema,
-      }),
-    onSuccess: ({ conversation_id }, application) => {
-      void queryClient.invalidateQueries({ queryKey: ["conversations"] })
-      navigate(
-        application.kind === "interactive"
-          ? `/applications/${application.id}/run/${conversation_id}`
-          : `/conversations/${conversation_id}`
-      )
-    },
-    onError: (error) => onFeedback(getErrorMessage(error, t), true),
-  })
+  const startConversation = useOpenApplicationConversation()
 
   const deleteApplication = useMutation({
     mutationFn: (application: Application) =>
@@ -680,7 +664,7 @@ export function ApplicationCatalogPanel({
             const { application, development: draft } = entry
             const starting =
               startConversation.isPending &&
-              startConversation.variables?.id === application.id
+              startConversation.variables?.applicationId === application.id
             const unavailable = !application.dependencies_available
             const hasDeclaredResources = application.interactive_package
               ? interactiveDependencyDeclarations(
@@ -765,14 +749,7 @@ export function ApplicationCatalogPanel({
                                 development.mutate(
                                   draft
                                     ? { developmentId: draft.id }
-                                    : { applicationId: application.id },
-                                  {
-                                    onError: (error) =>
-                                      onFeedback(
-                                        getErrorMessage(error, t),
-                                        true
-                                      ),
-                                  }
+                                    : { applicationId: application.id }
                                 )
                               }
                             >

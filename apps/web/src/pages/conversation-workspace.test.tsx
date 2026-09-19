@@ -10,6 +10,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { apiRequest } from "@/api/client"
 import i18n from "@/i18n"
+import { applicationDevelopmentKeys } from "@/features/applications/application-development-api"
 import { ConversationWorkspace } from "./conversation-workspace"
 
 vi.mock("@/api/client", () => ({ apiRequest: vi.fn() }))
@@ -26,11 +27,16 @@ vi.mock("@/features/applications/application-development-panel", () => ({
 let measuredWidth = 1200
 const clients: QueryClient[] = []
 const development = { id: "development" }
-function show() {
+function show(cachedDevelopment = false) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, staleTime: 15_000 } },
   })
   clients.push(client)
+  if (cachedDevelopment)
+    client.setQueryData(
+      applicationDevelopmentKeys.conversation("owner", "builder"),
+      development
+    )
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={["/conversations/builder"]}>
@@ -46,6 +52,7 @@ function show() {
 }
 
 beforeEach(async () => {
+  vi.mocked(apiRequest).mockClear()
   await i18n.changeLanguage("zh-CN")
   measuredWidth = 1200
   vi.mocked(apiRequest).mockResolvedValue(development)
@@ -169,4 +176,10 @@ describe("application development workspace", () => {
       )
     }
   )
+})
+
+it("renders the development panel from the opening response without another metadata request", () => {
+  show(true)
+  expect(screen.getByTitle("Application preview")).toBeInTheDocument()
+  expect(apiRequest).not.toHaveBeenCalled()
 })

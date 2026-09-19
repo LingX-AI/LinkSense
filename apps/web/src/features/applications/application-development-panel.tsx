@@ -77,11 +77,18 @@ export function ApplicationDevelopmentPanel({
   const synchronizedPreview = useRef<{
     conversationId: string
     revision: number
-  } | null>(null)
+  } | null>(
+    initial.preview_current && initial.preview_conversation_id
+      ? {
+          conversationId: initial.preview_conversation_id,
+          revision: initial.revision,
+        }
+      : null
+  )
   const synchronizedTitle = useRef<Pick<
     ApplicationDevelopment,
     "conversation_id" | "name"
-  > | null>(null)
+  > | null>({ conversation_id: initial.conversation_id, name: initial.name })
   const key = applicationDevelopmentKeys.preview(user?.id, initial.id)
   const preview = useQuery({
     queryKey: key,

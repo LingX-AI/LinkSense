@@ -29,6 +29,7 @@ import { ThemeProvider } from "@/app/theme-context"
 import { notify } from "@/components/feedback/notification"
 import { NotificationCenter } from "@/components/feedback/notification-toast"
 import i18n from "@/i18n"
+import { ApplicationOpeningPage } from "@/features/applications/application-opening-page"
 import {
   AdminCapabilityManagementPage,
   CapabilityManagementPage,
@@ -300,6 +301,14 @@ function renderUserPageWithRouter(
             <CapabilityLocationProbe />
           </>
         ),
+      },
+      {
+        path: "/applications/open/:openingId",
+        element: <ApplicationOpeningPage />,
+      },
+      {
+        path: "/conversations/:conversationId",
+        element: <CapabilityLocationProbe />,
       },
     ],
     { initialEntries: [initialEntry] }
@@ -2321,7 +2330,7 @@ describe("capability marketplace pages", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
     const interaction = userEvent.setup()
-    renderUserPage()
+    const { router } = renderUserPageWithRouter("/capabilities?section=plugin")
 
     const catalogTabs = await screen.findByRole("tablist", {
       name: "插件中心内容分类",
@@ -2360,14 +2369,13 @@ describe("capability marketplace pages", () => {
       startButton.querySelector('svg[data-icon="inline-end"]')
     ).toHaveAttribute("aria-hidden", "true")
     await interaction.click(startButton)
-    await waitFor(() =>
-      expect(startButton).toHaveAttribute("aria-busy", "true")
-    )
-    expect(startButton).toBeDisabled()
+    expect(router.state.location.pathname).toMatch(/^\/applications\/open\//)
+    expect(startButton).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true")
     expect(
-      startButton.querySelector('[data-slot="spinner"]')
-    ).toBeInTheDocument()
-    await interaction.click(startButton)
+      document.querySelector('[data-slot="skeleton"]')
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveClass("page-state-loading")
     expect(
       fetchMock.mock.calls.filter(
         ([input, options]) =>
@@ -2379,13 +2387,20 @@ describe("capability marketplace pages", () => {
     await act(async () => {
       resolveStart?.(envelope({ conversation_id: conversationId }))
     })
-    await waitFor(() => expect(startButton).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        `/conversations/${conversationId}`
+      )
+    )
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining(
           `/api/v1/applications/${applicationId}/conversations`
         ),
-        expect.objectContaining({ method: "POST" })
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ channel: "direct" }),
+        })
       )
     )
   })

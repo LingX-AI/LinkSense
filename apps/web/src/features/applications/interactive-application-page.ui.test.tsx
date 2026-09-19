@@ -109,6 +109,55 @@ describe("interactive application runtime page", () => {
     vi.clearAllMocks()
   })
 
+  it("keeps the shared Loading visible through runtime preparation and until the application frame loads", async () => {
+    renderPage()
+    expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true")
+    const frame = await screen.findByTitle(applicationFixture().name)
+    expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true")
+    expect(
+      document.querySelector('[data-slot="skeleton"]')
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveClass("page-state-loading")
+    fireEvent.load(frame)
+    await waitFor(() =>
+      expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    )
+    expect(frame).toBeInTheDocument()
+  })
+
+  it("loads application details while the conversation is pending, but waits for both checks before requesting a runtime", async () => {
+    const original = apiRequest.getMockImplementation()!
+    let resolveConversation!: (
+      value: ReturnType<typeof conversationFixture>
+    ) => void
+    const pending = new Promise<ReturnType<typeof conversationFixture>>(
+      (resolve) => {
+        resolveConversation = resolve
+      }
+    )
+    apiRequest.mockImplementation((path: string, options?: unknown) =>
+      path === `/conversations/${conversationFixture().id}`
+        ? pending
+        : original(path, options)
+    )
+    renderPage()
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith(
+        `/applications/${applicationFixture().id}`,
+        expect.anything()
+      )
+    )
+    expect(
+      apiRequest.mock.calls.some(([path]) =>
+        path.endsWith("/interactive-runtime-token")
+      )
+    ).toBe(false)
+    await act(async () => resolveConversation(conversationFixture()))
+    expect(
+      await screen.findByTitle(applicationFixture().name)
+    ).toBeInTheDocument()
+  })
+
   it.each([
     ["zh-CN", "此应用已被删除"],
     ["en-US", "This application has been deleted"],

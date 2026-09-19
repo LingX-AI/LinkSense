@@ -1,3 +1,6 @@
+vi.mock("@/app/auth-state", () => ({
+  useAuth: () => ({ user: { id: "owner" } }),
+}))
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   cleanup,
