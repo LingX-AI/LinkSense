@@ -16,9 +16,11 @@ import { cn } from "@/lib/utils"
 
 export function LoadingState({
   label,
+  fill = false,
   fullScreen = false,
 }: {
   label?: string
+  fill?: boolean
   fullScreen?: boolean
 }) {
   const { t } = useTranslation()
@@ -27,6 +29,7 @@ export function LoadingState({
     <div
       className={cn(
         "page-state page-state-loading",
+        fill && "size-full",
         fullScreen &&
           "page-state-loading-fullscreen fixed inset-0 z-50 bg-background"
       )}

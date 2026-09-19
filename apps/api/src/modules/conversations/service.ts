@@ -7039,17 +7039,19 @@ export class ConversationService {
 
   async createApplicationConversation(
     ownerId: string,
-    application: {
-      id: string;
-      name: string;
-      kind: "standard" | "interactive";
-      interactivePackageId: string | null;
-      channel?: ApplicationDistributionChannel;
-    },
+    application: { id: string; channel?: ApplicationDistributionChannel },
   ) {
-    return this.withActiveUserRuntimeLease(ownerId, () =>
-      this.createConversation(ownerId, undefined, application),
-    );
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
+      const resolver = this.applicationResolver;
+      if (!resolver) throw new AppError("APPLICATION_NOT_FOUND");
+      const runtime = await measureTaskStage("application_runtime_resolution", () =>
+        resolver.resolveRuntime(ownerId, application.id, application.channel ?? "direct"));
+      return this.createConversation(ownerId, undefined, {
+        id: runtime.applicationId, name: runtime.applicationName,
+        kind: runtime.kind === "interactive" ? "interactive" : "standard",
+        interactivePackageId: runtime.interactivePackageId, channel: application.channel ?? "direct",
+      }, { resolvedApplicationRuntime: runtime });
+    });
   }
 
   async createExternalApplicationConversation(
@@ -7095,6 +7097,9 @@ export class ConversationService {
       channel?: ApplicationDistributionChannel;
     },
     options?: {
+      // Only the application creation entry point supplies this request-scoped,
+      // authorized configuration. Never reuse it across requests or turns.
+      resolvedApplicationRuntime?: ApplicationTurnConfiguration;
       development?: DevelopmentPreviewCreation;
       developmentSource?: DevelopmentConversationCreation;
       title?: string;
@@ -7107,11 +7112,11 @@ export class ConversationService {
     prewarmedConversationId?: string,
   ) {
     let id = options?.conversationId ?? prewarmedConversationId ?? crypto.randomUUID();
-    const applicationRuntime = application
+    const applicationRuntime = options?.resolvedApplicationRuntime ?? (application
       ? options?.development && this.applicationResolver
         ? await this.applicationResolver.resolvePreviewRuntime(ownerId, application.id)
         : await this.applicationRuntimeForConversation(ownerId, application.id, application.channel)
-      : null;
+      : null);
     if (options?.development?.previousConversationId && application) {
       const development = options.development;
       const reused = await this.prisma.$transaction(tx => {
@@ -7157,8 +7162,9 @@ export class ConversationService {
           // Creation needs storage, not a native process or capability set.
           // Prewarm/first submit resolve the final authorized scope (including
           // the application creator's capabilities and credentials).
-          await this.preflight.ensureUserHome(ownerId, serviceSessionId);
-          runtime = await this.runner.prepareRuntime(id, ownerId, userWorkspacePath(ownerId, workspaceRelPath), serviceSessionId);
+          await measureTaskStage("application_home_prepare", () => this.preflight.ensureUserHome(ownerId, serviceSessionId));
+          runtime = await measureTaskStage("conversation_storage_prepare", () =>
+            this.runner.prepareRuntime(id, ownerId, userWorkspacePath(ownerId, workspaceRelPath), serviceSessionId));
         }
       }
       const workspace = resolveConversationWorkspaceRoot(

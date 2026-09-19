@@ -389,7 +389,20 @@ try {
     if (!user) throw new AppError("AUTH_REQUIRED");
     return user;
   };
-  await app.register(applicationRoutes, { prefix: "/api/v1/applications", service, resolveActor, usageAnalytics: { applicationReport: async () => { throw new Error("not requested"); } }, createConversation: async (ownerId, application) => ({ id: (await db.conversation.create({ data: { ownerId, title: application.name, titleSource: "manual", archiveStatus: "active", workspaceRelPath: "test/workspace", runtimeGeneration: randomUUID(), applicationId: application.id, applicationNameSnapshot: application.name, applicationChannel: application.channel ?? "direct", interactiveApplicationPackageId: application.interactivePackageId } })).id }) });
+  await app.register(applicationRoutes, {
+    prefix: "/api/v1/applications", service, resolveActor,
+    usageAnalytics: { applicationReport: async () => { throw new Error("not requested"); } },
+    createConversation: async (ownerId, application) => {
+      const runtime = await service.resolveRuntime(ownerId, application.id, application.channel);
+      const conversation = await db.conversation.create({ data: {
+        ownerId, title: runtime.applicationName, titleSource: "manual", archiveStatus: "active",
+        workspaceRelPath: "test/workspace", runtimeGeneration: randomUUID(), applicationId: runtime.applicationId,
+        applicationNameSnapshot: runtime.applicationName, applicationChannel: application.channel ?? "direct",
+        applicationVersionId: runtime.applicationVersionId, interactiveApplicationPackageId: runtime.interactivePackageId,
+      } });
+      return { id: conversation.id };
+    },
+  });
   await app.register(applicationCenterRoutes, { prefix: "/api/v1/application-center", service: center, resolveActor });
   await app.register(adminApplicationCenterRoutes, { prefix: "/api/v1/admin/application-center", service: center, resolveActor });
   if (process.argv.includes("--serve")) app.get("/api/v1/test-context", async () => ({ success: true, data: { publisher: publisher.id, recipient: recipient.id, admin: admin.id, applicationId: sourceId, installedId: centerInstalledId } }));

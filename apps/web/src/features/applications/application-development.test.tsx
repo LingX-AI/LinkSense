@@ -497,7 +497,10 @@ describe("application development interface", () => {
       expect(client.getQueryState(queryKey)?.status).toBe("error")
     )
     expect(invalidate).not.toHaveBeenCalled()
-    vi.mocked(apiRequest).mockResolvedValue(initial)
+    vi.mocked(apiRequest).mockResolvedValue({
+      ...initial,
+      name: "Renamed after retry",
+    })
     await act(async () => {
       await client.refetchQueries({ queryKey })
     })
@@ -508,17 +511,18 @@ describe("application development interface", () => {
     )
   })
 
-  it("refreshes task titles after the first sync and application renames but not unchanged polls", async () => {
+  it("refreshes renamed task titles without invalidating unchanged opening data or polls", async () => {
     vi.mocked(apiRequest).mockResolvedValue(initial)
     const client = show(<ApplicationDevelopmentPanel initial={initial} />)
     const invalidate = vi.spyOn(client, "invalidateQueries")
     await waitFor(() =>
-      expect(invalidate).toHaveBeenCalledWith({
-        queryKey: ["conversation", initial.conversation_id],
-      })
+      expect(
+        client.getQueryState(
+          applicationDevelopmentKeys.preview("owner", initial.id)
+        )?.fetchStatus
+      ).toBe("idle")
     )
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["conversations"] })
-    invalidate.mockClear()
+    expect(invalidate).not.toHaveBeenCalled()
 
     vi.mocked(apiRequest).mockResolvedValue({ ...initial, name: "Renamed app" })
     await act(async () => {
@@ -716,11 +720,9 @@ describe("application development interface", () => {
     const queryKey = applicationDevelopmentKeys.preview("owner", initial.id)
     const invalidate = vi.spyOn(client, "invalidateQueries")
     await waitFor(() =>
-      expect(invalidate).toHaveBeenCalledWith({
-        queryKey: ["conversation", testTask],
-      })
+      expect(client.getQueryState(queryKey)?.fetchStatus).toBe("idle")
     )
-    invalidate.mockClear()
+    expect(invalidate).not.toHaveBeenCalled()
     vi.mocked(apiRequest).mockResolvedValue({
       ...initial,
       revision: 2,
@@ -908,7 +910,7 @@ describe("application development interface", () => {
     await act(async () => finish(initial))
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(
-        `/conversations/${id}`
+        "/applications/open/"
       )
     )
   })

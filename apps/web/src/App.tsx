@@ -1,3 +1,7 @@
+import {
+  loadConversationWorkspace,
+  loadInteractiveApplicationPage,
+} from "@/features/applications/application-page-loaders"
 import { lazy, Suspense } from "react"
 import { useTranslation } from "react-i18next"
 import { Navigate, Route, Routes } from "react-router-dom"
@@ -8,6 +12,7 @@ import {
   ProtectedRoute,
   PublicAuthRoute,
 } from "@/app/route-guards"
+import { ApplicationOpeningPage } from "@/features/applications/application-opening-page"
 import { AppShell } from "@/components/shell/app-shell"
 import { SettingsShell } from "@/components/shell/settings-shell"
 import { EmptyState, LoadingState } from "@/components/feedback/page-state"
@@ -106,21 +111,13 @@ const AdminFeedbackPage = lazy(() =>
     default: module.AdminFeedbackPage,
   }))
 )
-const ConversationPage = lazy(() =>
-  import("@/pages/conversation-workspace").then((module) => ({
-    default: module.ConversationWorkspace,
-  }))
-)
+const ConversationPage = lazy(loadConversationWorkspace)
 const SharedConversationPage = lazy(() =>
   import("@/pages/shared-conversation-page").then((module) => ({
     default: module.SharedConversationPage,
   }))
 )
-const InteractiveApplicationPage = lazy(() =>
-  import("@/features/applications/interactive-application-page").then(
-    (module) => ({ default: module.InteractiveApplicationPage })
-  )
-)
+const InteractiveApplicationPage = lazy(loadInteractiveApplicationPage)
 const ApplicationUsagePage = lazy(() =>
   import("@/features/applications/application-usage-page").then((module) => ({
     default: module.ApplicationUsagePage,
@@ -321,11 +318,22 @@ export function App() {
                 index
                 element={<Navigate to="/conversations/new" replace />}
               />
-              <Route path="/conversations/new" element={<ConversationPage />} />
+              <Route
+                path="/conversations/new"
+                element={
+                  <Suspense fallback={<LoadingState fill />}>
+                    <ConversationPage />
+                  </Suspense>
+                }
+              />
               <Route path="/automations" element={<AutomationPage />} />
               <Route
                 path="/conversations/:conversationId"
-                element={<ConversationPage />}
+                element={
+                  <Suspense fallback={<LoadingState fill />}>
+                    <ConversationPage />
+                  </Suspense>
+                }
               />
               <Route
                 path="/conversations"
@@ -344,8 +352,16 @@ export function App() {
                 element={<ApplicationUsagePage />}
               />
               <Route
+                path="/applications/open/:openingId"
+                element={<ApplicationOpeningPage />}
+              />
+              <Route
                 path="/applications/:applicationId/run/:conversationId"
-                element={<InteractiveApplicationPage />}
+                element={
+                  <Suspense fallback={<LoadingState fill />}>
+                    <InteractiveApplicationPage />
+                  </Suspense>
+                }
               />
               <Route
                 path="/knowledge-bases"

@@ -1,10 +1,10 @@
+import { useOpenApplicationConversation } from "./application-opening"
 import { useDeferredValue, useEffect, useState } from "react"
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
 import { ArrowUpRightIcon } from "lucide-react"
-import { useNavigate, useSearchParams } from "react-router-dom"
+import { useSearchParams } from "react-router-dom"
 import {
-  applicationConversationSchema,
   applicationCatalogFilterSchema,
   type ApplicationCenterRelease,
 } from "@linksense/shared"
@@ -218,7 +218,6 @@ export function ApplicationCenterPanel({
   onInstalled?: () => void
 }) {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const [install, setInstall] = useState<ApplicationCenterRelease | null>(null)
   const [installMode, setInstallMode] = useState<"install" | "service">(
     "install"
@@ -234,22 +233,9 @@ export function ApplicationCenterPanel({
         signal,
       }),
   })
-  const start = useMutation({
-    mutationFn: (item: ApplicationCenterRelease) =>
-      apiRequest(`/applications/${item.application_id}/conversations`, {
-        method: "POST",
-        body: { channel: "center" },
-        schema: applicationConversationSchema,
-      }),
-    onSuccess: (result, item) =>
-      navigate(
-        item.kind === "interactive"
-          ? `/applications/${item.application_id}/run/${result.conversation_id}`
-          : `/conversations/${result.conversation_id}`
-      ),
-  })
+  const start = useOpenApplicationConversation("center")
   const startingApplicationId = start.isPending
-    ? start.variables?.application_id
+    ? start.variables?.applicationId
     : null
   return (
     <div className="flex flex-col gap-4">
@@ -338,7 +324,12 @@ export function ApplicationCenterPanel({
                           undefined
                         }
                         disabled={start.isPending}
-                        onClick={() => start.mutate(item)}
+                        onClick={() =>
+                          start.mutate({
+                            id: item.application_id,
+                            kind: item.kind,
+                          })
+                        }
                       >
                         {startingApplicationId === item.application_id && (
                           <Spinner data-icon="inline-start" />

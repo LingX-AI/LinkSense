@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-type Stage = "http_response" | "user_lease_wait" | "conversation_lock_wait" | "capability_resolution" | "start_admission" | "runner_accept" | "start_projection";
+type Stage = "application_runtime_resolution" | "application_home_prepare" | "conversation_storage_prepare" | "application_development_open" | "http_response" | "user_lease_wait" | "conversation_lock_wait" | "capability_resolution" | "start_admission" | "runner_accept" | "start_projection";
 type Identity = { conversationId?: string; turnId?: string };
 type Context = {
   log: { info: (fields: Record<string, unknown>, message: string) => void };

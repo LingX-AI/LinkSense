@@ -66,6 +66,63 @@ try {
   await writeFile(path.join(root, "Dockerfile"), `FROM ${base}\nUSER 0:1000\nCOPY --chown=1000:1000 runner/ /app/dist/\nCOPY shared/ /tmp/shared-dist/\nRUN cp -R /tmp/shared-dist/. "$(readlink -f /app/node_modules/@linksense/shared)/dist/" && rm -rf /tmp/shared-dist\n`);
   await docker("build", "--quiet", "--tag", image, root); imageBuilt = true;
   for (const network of [controlNetwork, egressNetwork]) { await docker("network", "create", network); networks.push(network); }
+  await mkdir(users, { recursive: true });
+  // Measure storage preparation independently of worker boot, then verify the
+  // real Linux supervisor adopts exactly the same durable generation.
+  const opening = JSON.parse(await docker("run", "--rm", "--user", "0:1000", "--network", controlNetwork,
+    "--volume", `${socket}:/var/run/docker.sock`, "--volume", `${users}:${users}`, "--entrypoint", "node", image,
+    "--input-type=module", "-e", `
+      import assert from 'node:assert/strict';
+      import {randomUUID} from 'node:crypto';
+      import {mkdir,writeFile,chown,chmod,lstat,readFile} from 'node:fs/promises';
+      import pino from 'pino';
+      import {managedProjectionProbeContents,managedProjectionProbeFileName} from '/app/node_modules/@linksense/shared/dist/index.js';
+      import {WorkerManager} from '/app/dist/controller/worker-manager.js';
+      import {DockerWorkerProvider} from '/app/dist/controller/docker-worker-provider.js';
+      import {FetchWorkerTransport} from '/app/dist/controller/worker-http-client.js';
+      import {DockerEngineClient} from '/app/dist/docker/engine-client.js';
+      const config=JSON.parse(process.argv[1]), owner=process.argv[2], logger=pino({level:'silent'});
+      const provider=new DockerWorkerProvider(config,new DockerEngineClient('/var/run/docker.sock','1.45'),logger);
+      const manager=new WorkerManager(config,provider,new FetchWorkerTransport(),logger,{probeWorkerRuntime:async()=>undefined});
+      const samples=[];
+      await manager.initialize();
+      try {
+        for(let n=0;n<3;n++) {
+          const scope=randomUUID(), task=randomUUID();
+          const environment=config.LINKSENSE_USER_DATA_ROOT+'/'+owner+'/services/'+scope;
+          const agents=environment+'/managed/agents';
+          await mkdir(agents,{recursive:true}); await chown(agents,1000,1000); await chmod(agents,0o750);
+          const probe=agents+'/'+managedProjectionProbeFileName;
+          await writeFile(probe,managedProjectionProbeContents); await chown(probe,1000,1000); await chmod(probe,0o640);
+          const route='/conversations/'+task+'/runtime';
+          const start=performance.now();
+          const prepared=await manager.request(owner,route,'PUT',Buffer.from('{}'),undefined,'workspace',scope);
+          const storageMs=performance.now()-start;
+          assert.equal(prepared.statusCode,200);
+          assert.equal(await provider.hasWorkerForEnvironment(owner,scope),false);
+          const generation=JSON.parse(prepared.body.toString()).runtimeGeneration;
+          const control=environment+'/control/workspaces/'+task;
+          for(const name of ['workspace.json','runtime-generation']) {
+            const info=await lstat(control+'/'+name); assert.equal(info.uid,1000); assert.equal(info.mode&0o777,0o600);
+          }
+          await writeFile(environment+'/home/workspace/keep.txt','persistent');
+          const bootStart=performance.now();
+          assert.equal((await manager.request(owner,'/health/state','GET',undefined,undefined,'workspace',scope)).statusCode,200);
+          const native=await manager.request(owner,route,'PUT',Buffer.from('{}'),undefined,'workspace',scope);
+          const workerBootMs=performance.now()-bootStart;
+          assert.equal(native.statusCode,200); assert.equal(JSON.parse(native.body.toString()).runtimeGeneration,generation);
+          assert.equal(await readFile(environment+'/home/workspace/keep.txt','utf8'),'persistent');
+          const warmStart=performance.now();
+          const next=await manager.request(owner,'/conversations/'+randomUUID()+'/runtime','PUT',Buffer.from('{}'),undefined,'workspace',scope);
+          const warmStorageMs=performance.now()-warmStart;
+          assert.equal(next.statusCode,200); assert.notEqual(JSON.parse(next.body.toString()).runtimeGeneration,generation);
+          samples.push({storageMs:Math.round(storageMs),workerBootMs:Math.round(workerBootMs),warmStorageMs:Math.round(warmStorageMs)});
+          assert.equal((await manager.cleanupConversation(owner,task,scope,true)).statusCode,200);
+          await assert.rejects(lstat(environment),{code:'ENOENT'});
+        }
+        console.log(JSON.stringify({samples,storageDoesNotStartWorker:true,generationAndFilesPreserved:true,linuxOwnershipVerified:true,environmentReclaimed:true}));
+      } finally { await manager.shutdown(true); }
+    `, JSON.stringify(config), owner));
   const first = await start();
   // Execute the Linux/root permission regression that is conditional on macOS.
   await docker("run", "--rm", "--user", "0:1000", "--entrypoint", "node", image, "--input-type=module", "-e", `
@@ -125,7 +182,7 @@ try {
   await assert.rejects(lstat(hosted.environment), { code: "ENOENT" });
   assert.equal(await readFile(path.join(users, owner, "home/.codex/persisted-state"), "utf8"), "retained-state");
   assert.equal((await restarted.request("/health/state")).status, 200);
-  process.stdout.write(JSON.stringify({ status: "passed", sharedProject: true, deletionKeepsFiles: true, restartKeepsHomeAndCodex: true, backgroundProcessDetected: true, serviceHomeAndAuthenticationSeparate: true, serviceEnvironmentReclaimed: true, personalWorkerUnaffected: true, linuxPermissionRegression: true }) + "\n");
+  process.stdout.write(JSON.stringify({ status: "passed", opening, sharedProject: true, deletionKeepsFiles: true, restartKeepsHomeAndCodex: true, backgroundProcessDetected: true, serviceHomeAndAuthenticationSeparate: true, serviceEnvironmentReclaimed: true, personalWorkerUnaffected: true, linuxPermissionRegression: true }) + "\n");
 } finally {
   for (const container of containers.reverse()) await docker("rm", "--force", container);
   for (const network of networks.reverse()) await docker("network", "rm", network);

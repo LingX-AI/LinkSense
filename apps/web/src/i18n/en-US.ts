@@ -2607,6 +2607,10 @@ export const enUS = {
     },
   },
   applications: {
+    opening: {
+      expired: "This opening session is no longer available. Return to your applications to open it again.",
+      back: "Back to applications",
+    },
     editMetadata: "Edit app details",
     editMetadataPublishDescription:
       "Edit the app icon, name, and description. Changes take effect when saved. Shared and Application Center versions are updated separately.",
@@ -3483,7 +3487,6 @@ export const enUS = {
 
     resizePreview: "Resize application preview",
     developmentTask: "Application development task",
-    opening: "Opening the development workspace…",
     previewTask: "Application debug conversation",
     catalog: {
       newDevelopment: "New development version",

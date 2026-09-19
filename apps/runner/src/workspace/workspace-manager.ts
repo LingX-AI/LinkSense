@@ -117,6 +117,26 @@ export type EnsuredOwnerPaths = OwnerPaths & {
   personalization: PersonalizationSnapshot
 }
 
+/** Persist only task control state. Execution tools and Codex initialize on first use. */
+export async function prepareConversationControl(
+  owner: OwnerPaths,
+  conversationId: string,
+  workspacePath: string,
+  supervisor: { uid: number; gid: number },
+): Promise<{ runtimeGeneration: string }> {
+  if (!conversationIdPattern.test(conversationId)) throw new WorkspaceBoundaryError("invalid conversation id")
+  const relativeWorkspace = userWorkspacePathSchema.parse(workspacePath)
+  const taskControl = path.join(owner.control, "workspaces", conversationId)
+  await assertTaskDirectoryParents(owner.home, path.join(owner.home, relativeWorkspace, ".boundary"))
+  await assertTaskDirectoryParents(owner.control, taskControl)
+  await ensureSupervisorDirectory(owner.control, 0o700, supervisor)
+  await ensureSupervisorDirectory(path.dirname(taskControl), 0o700, supervisor)
+  await ensureSupervisorDirectory(taskControl, 0o700, supervisor)
+  const binding = path.join(taskControl, "workspace.json")
+  await writeSharedRegularFileAtomically(binding, JSON.stringify(relativeWorkspace), 0o600, supervisor)
+  return { runtimeGeneration: await ensureRuntimeGeneration(taskControl, supervisor) }
+}
+
 export type WorkspaceManagerOptions = {
   fixedOwnerId?: string
   fixedHomeRoot?: string
@@ -336,7 +356,7 @@ export class WorkspaceManager {
         ),
       ),
     )
-    const runtimeGeneration = await this.ensureRuntimeGeneration(
+    const runtimeGeneration = await ensureRuntimeGeneration(
       paths.taskControl,
     )
     const nodeModules = this.options.userNodeModulesForOwner?.(ownerId)
@@ -352,7 +372,7 @@ export class WorkspaceManager {
         ),
       ])
     }
-    const verifiedRuntimeGeneration = await this.ensureRuntimeGeneration(
+    const verifiedRuntimeGeneration = await ensureRuntimeGeneration(
       paths.taskControl,
     )
     if (verifiedRuntimeGeneration !== runtimeGeneration) {
@@ -578,47 +598,6 @@ export class WorkspaceManager {
     })
     this.conversationOwners.delete(conversationId)
     this.conversationWorkspaces.delete(conversationId)
-  }
-
-  private async ensureRuntimeGeneration(taskControl: string): Promise<string> {
-    await ensureSupervisorDirectory(taskControl, 0o700)
-    const current = await inspectRuntimeGeneration(taskControl)
-    if (current.status === "valid") return current.runtimeGeneration
-    if (current.status === "invalid") {
-      throw new RuntimeGenerationIntegrityError()
-    }
-
-    const runtimeGeneration = randomUUID()
-    const temporaryPath = path.join(
-      taskControl,
-      `.${runtimeGeneration}.tmp`,
-    )
-    const generationPath = path.join(
-      taskControl,
-      runtimeGenerationFileName,
-    )
-    const handle = await open(temporaryPath, "wx", 0o600)
-    try {
-      await handle.writeFile(`${runtimeGeneration}\n`, "utf8")
-      await handle.sync()
-    } finally {
-      await handle.close()
-    }
-    try {
-      try {
-        await link(temporaryPath, generationPath)
-        await syncDirectory(taskControl)
-      } catch (error) {
-        if (!isNodeError(error) || error.code !== "EEXIST") throw error
-      }
-      const published = await inspectRuntimeGeneration(taskControl)
-      if (published.status !== "valid") {
-        throw new RuntimeGenerationIntegrityError()
-      }
-      return published.runtimeGeneration
-    } finally {
-      await rm(temporaryPath, { force: true }).catch(() => undefined)
-    }
   }
 
   private assertOwnerId(ownerId: string): void {
@@ -921,17 +900,18 @@ type RuntimeGenerationInspection =
 
 async function inspectRuntimeGeneration(
   taskControl: string,
+  supervisorUid = process.geteuid?.(),
 ): Promise<RuntimeGenerationInspection> {
   const generationPath = path.join(taskControl, runtimeGenerationFileName)
   try {
     const controlInfo = await lstat(taskControl)
-    if (!isSupervisorOwnedDirectory(controlInfo, 0o700)) {
+    if (!isSupervisorOwnedDirectory(controlInfo, 0o700, supervisorUid)) {
       return { status: "invalid" }
     }
     const generationInfo = await lstat(generationPath)
     if (
       !generationInfo.isFile() ||
-      !isSupervisorOwned(generationInfo) ||
+      !isSupervisorOwned(generationInfo, supervisorUid) ||
       (generationInfo.mode & 0o777) !== 0o600 ||
       generationInfo.size > 128
     ) {
@@ -955,14 +935,16 @@ async function inspectRuntimeGeneration(
 async function ensureSupervisorDirectory(
   directory: string,
   mode: number,
+  identity?: { uid: number; gid: number },
 ): Promise<void> {
   try {
     await mkdir(directory, { mode })
+    if (identity) await chown(directory, identity.uid, identity.gid)
   } catch (error) {
     if (!isNodeError(error) || error.code !== "EEXIST") throw error
   }
   const info = await lstat(directory)
-  if (!info.isDirectory() || !isSupervisorOwned(info)) {
+  if (!info.isDirectory() || !isSupervisorOwned(info, identity?.uid)) {
     throw new WorkspaceBoundaryError("supervisor directory boundary is invalid")
   }
   await chmod(directory, mode)
@@ -984,16 +966,16 @@ export async function setManagedDirectoryMode(
   )(directory, mode, info, fallbackIdentity)
 }
 
-function isSupervisorOwnedDirectory(info: Stats, mode: number): boolean {
+function isSupervisorOwnedDirectory(info: Stats, mode: number, supervisorUid = process.geteuid?.()): boolean {
   return (
     info.isDirectory() &&
-    isSupervisorOwned(info) &&
+    isSupervisorOwned(info, supervisorUid) &&
     (info.mode & 0o7777) === mode
   )
 }
 
-function isSupervisorOwned(info: Stats): boolean {
-  return typeof process.geteuid !== "function" || info.uid === process.geteuid()
+function isSupervisorOwned(info: Stats, supervisorUid = process.geteuid?.()): boolean {
+  return supervisorUid === undefined || info.uid === supervisorUid
 }
 
 async function syncDirectory(directory: string): Promise<void> {
@@ -1216,4 +1198,49 @@ async function normalizeManagedCodexFile(
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error
+}
+
+async function ensureRuntimeGeneration(
+  taskControl: string,
+  identity?: { uid: number; gid: number },
+): Promise<string> {
+  await ensureSupervisorDirectory(taskControl, 0o700, identity)
+  const current = await inspectRuntimeGeneration(taskControl, identity?.uid)
+  if (current.status === "valid") return current.runtimeGeneration
+  if (current.status === "invalid") {
+    throw new RuntimeGenerationIntegrityError()
+  }
+
+  const runtimeGeneration = randomUUID()
+  const temporaryPath = path.join(
+    taskControl,
+    `.${runtimeGeneration}.tmp`,
+  )
+  const generationPath = path.join(
+    taskControl,
+    runtimeGenerationFileName,
+  )
+  const handle = await open(temporaryPath, "wx", 0o600)
+  try {
+    await handle.writeFile(`${runtimeGeneration}\n`, "utf8")
+    if (identity) await chown(temporaryPath, identity.uid, identity.gid)
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+  try {
+    try {
+      await link(temporaryPath, generationPath)
+      await syncDirectory(taskControl)
+    } catch (error) {
+      if (!isNodeError(error) || error.code !== "EEXIST") throw error
+    }
+    const published = await inspectRuntimeGeneration(taskControl, identity?.uid)
+    if (published.status !== "valid") {
+      throw new RuntimeGenerationIntegrityError()
+    }
+    return published.runtimeGeneration
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined)
+  }
 }

@@ -3,6 +3,18 @@ import Fastify from "fastify";
 import { bindTaskLatency, finishTaskRequest, measureTaskStage, withTaskLatencyContext } from "../src/lib/task-latency.js";
 
 describe("task latency", () => {
+  it.each(["application_runtime_resolution", "application_home_prepare", "conversation_storage_prepare", "application_development_open"] as const)("measures %s without recording application content", async stage => {
+    let now = 10;
+    const log = { info: vi.fn() };
+    const result = await withTaskLatencyContext(log, () => measureTaskStage(stage, async () => {
+      now += 25;
+      return { privateSource: "application source" };
+    }), () => now);
+    expect(result.privateSource).toBe("application source");
+    expect(log.info).toHaveBeenCalledExactlyOnceWith({ stage, outcome: "ok", durationMs: 25, elapsedMs: 25 }, "task admission latency");
+    expect(JSON.stringify(log.info.mock.calls)).not.toContain("application source");
+  });
+
   it("keeps the trace through the Fastify request, service and response hooks", async () => {
     const app = Fastify();
     const log = { info: vi.fn() };

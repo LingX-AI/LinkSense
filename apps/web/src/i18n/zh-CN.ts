@@ -2418,6 +2418,10 @@ export const zhCN = {
     },
   },
   applications: {
+    opening: {
+      expired: "无法恢复此次打开进度，请返回应用列表重新打开。",
+      back: "返回应用列表",
+    },
     editMetadata: "编辑应用信息",
     editMetadataPublishDescription:
       "修改应用图标、名称和描述，保存后立即生效。共享和应用中心的版本需另行更新。",
@@ -3232,7 +3236,6 @@ export const zhCN = {
 
     resizePreview: "调整应用预览宽度",
     developmentTask: "应用开发任务",
-    opening: "正在打开开发界面…",
     previewTask: "应用调试对话",
     catalog: {
       newDevelopment: "有新开发版",

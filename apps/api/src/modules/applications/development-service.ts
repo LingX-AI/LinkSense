@@ -15,7 +15,7 @@ import {
   type ApplicationVersionInput,
   type ApplicationDevelopmentDiagnostic, type Locale, type ApplicationTestInspection, type ApplicationTestSessionsQuery, type ApplicationTestRestart,
 } from "@linksense/shared";
-import type { ApplicationDevelopment as DevelopmentRow, Prisma } from "../../generated/prisma/client.js";
+import type { ApplicationDevelopment as DevelopmentRow, Conversation, Prisma } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
 import { truncateConversationTitle } from "../../lib/conversation-title.js";
 import { translateBackend } from "../../lib/i18n.js";
@@ -125,8 +125,8 @@ export class ApplicationDevelopmentService {
     if (!row.conversationId) throw new AppError("CONFLICT");
     const conversation = await this.options.store.conversation(actor.id, row.conversationId);
     if (conversation.archiveStatus === "archived") await this.options.conversations.patch(actor.id, row.conversationId, { archiveStatus: "active" });
-    await this.syncConversationTitle(actor, row, locale);
-    return this.get(actor, id);
+    await this.syncConversationTitle(actor, row, locale, conversation);
+    return this.project(row);
   }
 
   async delete(actor: RequestActor, id: string): Promise<void> {
@@ -280,9 +280,9 @@ export class ApplicationDevelopmentService {
     return this.sync(actor, row.id, locale);
   }
 
-  private async syncConversationTitle(actor: RequestActor, row: DevelopmentRow, locale?: Locale): Promise<void> {
+  private async syncConversationTitle(actor: RequestActor, row: DevelopmentRow, locale?: Locale, currentConversation?: Conversation): Promise<void> {
     if (!row.conversationId) return;
-    const conversation = await this.options.store.conversation(actor.id, row.conversationId);
+    const conversation = currentConversation ?? await this.options.store.conversation(actor.id, row.conversationId);
     const titleFor = (language: Locale): string => truncateConversationTitle(
       translateBackend("applicationDevelopment.taskTitle", language, { name: row.name }),
     );

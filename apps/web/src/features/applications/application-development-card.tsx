@@ -1,3 +1,4 @@
+import { useOpenApplicationDevelopment } from "./application-opening"
 import { defaultApplicationIcon } from "./application-icon-default"
 import type {
   ApplicationDevelopment,
@@ -38,7 +39,6 @@ import type { ApplicationDetailsTarget } from "./application-details-dialog"
 import { ApplicationDevelopmentSummaryContent } from "./application-development-summary"
 import {
   useDeleteApplicationDevelopment,
-  useOpenApplicationDevelopment,
   syncApplicationDevelopment,
   updateApplicationDevelopmentMetadata,
 } from "./application-development-api"
@@ -94,7 +94,10 @@ export function ApplicationDevelopmentCard({
             >
               <MoreHorizontalIcon aria-hidden="true" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-max whitespace-nowrap">
+            <DropdownMenuContent
+              align="end"
+              className="w-max whitespace-nowrap"
+            >
               <DropdownMenuGroup>
                 <DropdownMenuItem
                   disabled={open.isPending || remove.isPending}

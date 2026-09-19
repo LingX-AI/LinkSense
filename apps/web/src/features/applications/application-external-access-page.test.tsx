@@ -18,6 +18,10 @@ import i18n from "@/i18n"
 import { ApplicationCatalogPanel } from "@/features/applications/application-catalog-panel"
 import { ApplicationExternalAccessPage } from "@/features/applications/application-external-access-page"
 
+vi.mock("@/app/auth-state", () => ({
+  useAuth: () => ({ user: { id: "owner" } }),
+}))
+
 const APPLICATION_ID = "50000000-0000-4000-8000-000000000041"
 const PUBLISHER_ID = "10000000-0000-4000-8000-000000000041"
 const NOW = "2026-08-13T00:00:00.000Z"

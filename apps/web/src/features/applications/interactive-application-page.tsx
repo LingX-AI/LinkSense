@@ -1,3 +1,4 @@
+import { LoadingState } from "@/components/feedback/page-state"
 import {
   useInteractiveTaskState,
   refreshesInteractiveTaskState,
@@ -121,6 +122,9 @@ function InteractiveApplicationRuntime({
     () => !onDiagnostic && !window.matchMedia("(max-width: 767px)").matches
   )
   const [frameReady, setFrameReady] = useState(false)
+  const [loadedFrameSource, setLoadedFrameSource] = useState<string | null>(
+    null
+  )
   const [error, setError] = useState<string | null>(null)
   const applicationFiles = useMemo(
     () => createInteractiveApplicationFiles({ queryClient, conversationId }),
@@ -150,13 +154,7 @@ function InteractiveApplicationRuntime({
         schema: applicationSchema,
         signal,
       }),
-    enabled: Boolean(
-      user?.id &&
-      applicationId &&
-      conversation.isSuccess &&
-      conversationApplication?.id === applicationId &&
-      !applicationDeleted
-    ),
+    enabled: Boolean(user?.id && applicationId && !applicationDeleted),
   })
   const runtimePackageId =
     conversationApplication?.kind === "interactive"
@@ -521,7 +519,10 @@ function InteractiveApplicationRuntime({
                   ...annotation,
                   onActiveChange: handleAnnotationActiveChange,
                 }}
-                onLoad={() => setError(null)}
+                onLoad={() => {
+                  setLoadedFrameSource(frameSource)
+                  setError(null)
+                }}
               />
             ) : (
               <iframe
@@ -531,14 +532,20 @@ function InteractiveApplicationRuntime({
                   application.data?.name ?? t("applications.interactiveApp")
                 }
                 className="absolute inset-0 size-full border-0 bg-background"
-                onLoad={() => setError(null)}
+                onLoad={() => {
+                  setLoadedFrameSource(frameSource)
+                  setError(null)
+                }}
               />
             )
-          ) : (
-            <div className="flex size-full items-center justify-center text-sm text-muted-foreground">
-              {t("common.loading")}
-            </div>
-          )}
+          ) : null}
+
+          {!runtimeUnavailableMessage &&
+            (!frameSource || loadedFrameSource !== frameSource) && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-background">
+                <LoadingState />
+              </div>
+            )}
 
           {!chatOpen && (
             <Button

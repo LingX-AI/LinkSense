@@ -1792,14 +1792,26 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
   });
 
-  it("pins a new interactive task to the resolved published page even when its caller supplies the draft", async () => {
+  it("resolves the installed version once and uses its name and page for a new interactive task", async () => {
     const fixture = await conversationFixture();
     const runtime = await fixture.applicationResolver.resolveRuntime(OWNER_ID, APPLICATION_ID);
     const packageId = "92000000-0000-4000-8000-000000000001";
     fixture.applicationResolver.resolveRuntime.mockResolvedValueOnce({ ...runtime, kind: "interactive", applicationVersionId: APPLICATION_ID, interactivePackageId: packageId });
     fixture.prisma.conversation.create.mockImplementationOnce(async ({ data }) => conversationRow(data));
-    await fixture.service.createApplicationConversation(OWNER_ID, { id: APPLICATION_ID, name: "Page", kind: "interactive", interactivePackageId: "92000000-0000-4000-8000-000000000002" });
-    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ applicationVersionId: APPLICATION_ID, interactiveApplicationPackageId: packageId }) });
+    fixture.applicationResolver.resolveRuntime.mockClear();
+    await fixture.service.createApplicationConversation(OWNER_ID, { id: APPLICATION_ID });
+    expect(fixture.applicationResolver.resolveRuntime).toHaveBeenCalledExactlyOnceWith(OWNER_ID, APPLICATION_ID, "direct");
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ title: runtime.applicationName, applicationNameSnapshot: runtime.applicationName, applicationVersionId: APPLICATION_ID, interactiveApplicationPackageId: packageId }) });
+  });
+
+  it.each(["FORBIDDEN", "APPLICATION_NOT_FOUND", "APPLICATION_DEPENDENCY_UNAVAILABLE"] as const)("does not allocate an application task or environment when resolution fails with %s", async code => {
+    const fixture = await conversationFixture();
+    fixture.applicationResolver.resolveRuntime.mockRejectedValueOnce(new AppError(code));
+    await expect(fixture.service.createApplicationConversation(OWNER_ID, { id: APPLICATION_ID, channel: "center" })).rejects.toMatchObject({ code });
+    expect(fixture.applicationResolver.resolveRuntime).toHaveBeenCalledExactlyOnceWith(OWNER_ID, APPLICATION_ID, "center");
+    expect(fixture.preflight.ensureUserHome).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
   });
 
   it("creates preview context and updates its project pointer in one transaction using an isolated application workspace", async () => {
@@ -1821,7 +1833,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     fixture.applicationResolver.resolveRuntime.mockResolvedValue({ ...runtime, kind: "interactive", applicationOwnerId: OWNER_ID,
       applicationVersionId: APPLICATION_ID, publishedCapabilities: [], interactivePackageId: APPLICATION_ID, capabilityIds });
     fixture.prisma.conversation.create.mockImplementationOnce(async ({ data }) => conversationRow(data));
-    const created = await fixture.service.createApplicationConversation(OWNER_ID, { id: APPLICATION_ID, name: "Updated application", kind: "interactive", interactivePackageId: APPLICATION_ID });
+    const created = await fixture.service.createApplicationConversation(OWNER_ID, { id: APPLICATION_ID });
     expect(created.workspaceRelPath).toBe(serviceWorkspaceRelativePath(OWNER_ID, APPLICATION_ID));
     expect(created).toMatchObject({ applicationVersionId: APPLICATION_ID, interactiveApplicationPackageId: APPLICATION_ID });
     expect(fixture.preflight.ensureUserHome).toHaveBeenCalledWith(OWNER_ID, APPLICATION_ID);

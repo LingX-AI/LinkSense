@@ -77,14 +77,24 @@ describe("LoadingState", () => {
     }
   )
 
-  it("keeps embedded loading feedback at its local content height", () => {
-    render(<LoadingState label="正在加载" />)
+  it("can fill the content area while preserving embedded loading feedback", () => {
+    const { rerender } = render(<LoadingState label="正在加载" />)
 
     const status = screen.getByRole("status")
     expect(status).toHaveClass("page-state-loading")
+    expect(status).not.toHaveClass("size-full")
     expect(status).not.toHaveClass("page-state-loading-fullscreen", "fixed")
     expect(screen.getByText("正在加载")).toHaveClass("shimmer")
     expect(screen.getByText("正在加载")).not.toHaveClass("sr-only")
+    expect(screen.queryByRole("img")).not.toBeInTheDocument()
+
+    rerender(<LoadingState label="正在加载" fill />)
+
+    expect(screen.getByRole("status")).toBe(status)
+    expect(status).toHaveClass("size-full")
+    expect(status).not.toHaveClass("page-state-loading-fullscreen", "fixed")
+    expect(status).toHaveAttribute("aria-busy", "true")
+    expect(screen.getByText("正在加载")).toBeVisible()
     expect(screen.queryByRole("img")).not.toBeInTheDocument()
   })
 })
