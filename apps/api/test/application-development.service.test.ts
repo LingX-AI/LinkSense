@@ -12,6 +12,20 @@ const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 async function setup() { const f = await developmentFixture(); roots.push(f.root); return f; }
 describe("conversational application development", () => {
+  it("reopens an existing draft with one authorized project read and one task read, without rebuilding runtime", async () => {
+    const f = await setup();
+    const first = await f.service.create(actor, { name: "Retained app" }, "en-US");
+    f.store.owned.mockClear(); f.store.conversation.mockClear();
+    f.conversations.createDevelopmentPreview.mockClear(); f.applications.importInteractive.mockClear();
+    const reopened = await f.service.reopen(actor, first.id, "en-US");
+    expect(reopened).toMatchObject({ id: first.id, conversation_id: first.conversation_id, revision: first.revision });
+    expect(f.store.owned).toHaveBeenCalledExactlyOnceWith(OWNER, first.id);
+    expect(f.store.conversation).toHaveBeenCalledExactlyOnceWith(OWNER, TASK);
+    expect(f.conversations.createDevelopmentPreview).not.toHaveBeenCalled();
+    expect(f.applications.importInteractive).not.toHaveBeenCalled();
+    await expect(f.service.reopen({ ...actor, id: TASK }, first.id, "en-US")).rejects.toMatchObject({ code: "APPLICATION_DEVELOPMENT_NOT_FOUND" });
+  });
+
   it("opens an existing published application without reporting unpublished changes, then detects real edits", async () => {
     const f = await setup();
     const files = applicationDevelopmentTemplate("Published application", OWNER, "en-US");

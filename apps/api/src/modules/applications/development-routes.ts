@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { applicationDevelopmentOpenSchema, applicationDevelopmentInstallSchema, applicationDevelopmentDiagnosticSchema, applicationBuilderRequestSchema, applicationTestSessionsQuerySchema, applicationTestRestartSchema, applicationDevelopmentCapabilitiesUpdateSchema, applicationDevelopmentMetadataUpdateSchema } from "@linksense/shared";
 import type { AuthenticatedRequest } from "../../plugins/authentication.js";
+import { measureTaskStage } from "../../lib/task-latency.js";
 import { ok } from "../../lib/http.js";
 import { defaultActorResolver } from "./routes.js";
 import type { ResolveRequestActor } from "../capabilities/types.js";
@@ -16,9 +17,9 @@ export const applicationDevelopmentRoutes: FastifyPluginAsync<{
   app.addHook("preHandler", app.authenticate);
   app.post("/", async (request, reply) => reply.code(201).send(ok(await service.create(await resolveActor(request), applicationDevelopmentOpenSchema.parse(request.body), (request as AuthenticatedRequest).authUser.preferredLocale ?? "zh-CN"), request.id)));
   app.get("/by-conversation/:id", async (request, reply) => reply.send(ok(await service.byConversation(await resolveActor(request), idParams.parse(request.params).id), request.id)));
-  app.post("/by-application/:id", async (request, reply) => reply.send(ok(await service.resume(await resolveActor(request), idParams.parse(request.params).id, (request as AuthenticatedRequest).authUser.preferredLocale ?? "zh-CN"), request.id)));
+  app.post("/by-application/:id", async (request, reply) => reply.send(ok(await measureTaskStage("application_development_open", async () => service.resume(await resolveActor(request), idParams.parse(request.params).id, (request as AuthenticatedRequest).authUser.preferredLocale ?? "zh-CN")), request.id)));
   app.get("/:id", async (request, reply) => reply.send(ok(await service.get(await resolveActor(request), idParams.parse(request.params).id), request.id)));
-  app.post("/:id/resume", async (request, reply) => reply.send(ok(await service.reopen(await resolveActor(request), idParams.parse(request.params).id, (request as AuthenticatedRequest).authUser.preferredLocale ?? "zh-CN"), request.id)));
+  app.post("/:id/resume", async (request, reply) => reply.send(ok(await measureTaskStage("application_development_open", async () => service.reopen(await resolveActor(request), idParams.parse(request.params).id, (request as AuthenticatedRequest).authUser.preferredLocale ?? "zh-CN")), request.id)));
   app.delete("/:id", async (request, reply) => {
     await service.delete(await resolveActor(request), idParams.parse(request.params).id);
     return reply.send(ok({ success: true }, request.id));

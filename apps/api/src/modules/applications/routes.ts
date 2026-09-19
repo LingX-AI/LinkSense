@@ -44,9 +44,6 @@ export interface ApplicationRoutesOptions {
     ownerId: string,
     application: {
       id: string;
-      name: string;
-      kind: "standard" | "interactive";
-      interactivePackageId: string | null;
       channel?: ApplicationDistributionChannel;
     },
   ) => Promise<{ id: string }>;
@@ -344,15 +341,7 @@ export const applicationRoutes: FastifyPluginAsync<
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
     const { channel } = z.strictObject({ channel: applicationDistributionChannelSchema.default("direct") }).default({ channel: "direct" }).parse(request.body);
-    const runtime = await options.service.resolveRuntime(actor.id, id, channel);
-    const conversation = await options.createConversation(actor.id, {
-      id: runtime.applicationId,
-      name: runtime.applicationName,
-      kind: runtime.kind === "interactive" ? "interactive" : "standard",
-      interactivePackageId:
-        runtime.interactivePackageId,
-      channel,
-    });
+    const conversation = await options.createConversation(actor.id, { id, channel });
     return reply
       .code(201)
       .send(ok({ conversation_id: conversation.id }, request));

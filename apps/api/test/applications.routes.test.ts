@@ -286,7 +286,7 @@ describe("internal application routes", () => {
     );
   });
 
-  it("creates a private conversation only after resolving current access and runtime", async () => {
+  it("delegates application authorization and runtime resolution to conversation creation", async () => {
     const { app, service, createConversation } =
       await applicationRouteFixture();
 
@@ -297,22 +297,24 @@ describe("internal application routes", () => {
     });
 
     expect(response.statusCode, response.body).toBe(201);
-    expect(service.resolveRuntime).toHaveBeenCalledWith(
-      USER_ID,
-      APPLICATION_ID,
-      "direct",
-    );
+    expect(service.resolveRuntime).not.toHaveBeenCalled();
     expect(createConversation).toHaveBeenCalledWith(USER_ID, {
       id: APPLICATION_ID,
-      name: "Finance assistant",
-      kind: "standard",
-      interactivePackageId: null,
       channel: "direct",
     });
     expect(response.json()).toMatchObject({
       success: true,
       data: { conversation_id: CONVERSATION_ID },
     });
+  });
+
+  it("returns the creation service's access denial without creating a successful task response", async () => {
+    const { app, createConversation, service } = await applicationRouteFixture();
+    createConversation.mockRejectedValueOnce(new AppError("FORBIDDEN"));
+    const response = await app.inject({ method: "POST", url: `/api/v1/applications/${APPLICATION_ID}/conversations`, headers: { authorization: "Bearer internal-user" }, payload: { channel: "center" } });
+    expect(response.statusCode).toBe(403);
+    expect(createConversation).toHaveBeenCalledExactlyOnceWith(USER_ID, { id: APPLICATION_ID, channel: "center" });
+    expect(service.resolveRuntime).not.toHaveBeenCalled();
   });
 
   it("issues a short-lived package-bound runtime URL", async () => {
