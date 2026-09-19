@@ -21,10 +21,10 @@ describe("user and service worker reuse", () => {
     const session = "01900000-0000-7000-8000-000000000011", other = "01900000-0000-7000-8000-000000000012"
     await manager.initialize()
     try {
-      await manager.request(ownerId, `/conversations/${session}/runtime`, "PUT", undefined, undefined, "workspace")
-      await manager.request(ownerId, `/conversations/${other}/runtime`, "PUT", undefined, undefined, "workspace")
-      await manager.request(ownerId, `/conversations/${session}/runtime`, "PUT", undefined, undefined, "workspace", session)
-      await manager.request(ownerId, `/conversations/${other}/runtime`, "PUT", undefined, undefined, "workspace", other)
+      await manager.request(ownerId, `/conversations/${session}/runtime`, "GET", undefined, undefined, "workspace")
+      await manager.request(ownerId, `/conversations/${other}/runtime`, "GET", undefined, undefined, "workspace")
+      await manager.request(ownerId, `/conversations/${session}/runtime`, "GET", undefined, undefined, "workspace", session)
+      await manager.request(ownerId, `/conversations/${other}/runtime`, "GET", undefined, undefined, "workspace", other)
       await manager.request(ownerId, `/conversations/${session}/runtime`, "GET", undefined, undefined, "workspace", session)
       expect(provider.acquire).toHaveBeenCalledTimes(3)
       expect(new Set(provider.acquire.mock.calls.map(([input]) => input.storageKey)).size).toBe(3)

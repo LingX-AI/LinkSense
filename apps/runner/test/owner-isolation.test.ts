@@ -380,14 +380,14 @@ describe("worker owner isolation", () => {
     await server.close();
   });
 
-  it("initializes the user runtime only for explicit runtime preparation", async () => {
+  it("prepares durable task storage without initializing execution tools and preserves owner checks", async () => {
     const root = await mkdtemp(
       path.join(tmpdir(), "linksense-runtime-prepare-"),
     );
     roots.push(root);
     const config = createWorkerConfig(root);
     const workspaceManager = createWorkspaceManager(config, root);
-    const ensureUserRuntime = vi.fn(async () => undefined);
+    const ensureUserRuntime = vi.fn(async () => { throw new Error("execution tools must not block storage preparation"); });
     const closeConversation = vi.fn(async () => undefined);
     const pool = {
       getStartOperation: vi.fn(async () => null),
@@ -445,7 +445,7 @@ describe("worker owner isolation", () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
       ),
     });
-    expect(ensureUserRuntime).toHaveBeenCalledOnce();
+    expect(ensureUserRuntime).not.toHaveBeenCalled();
 
     const inspect = await server.inject({
       method: "GET",
@@ -454,7 +454,7 @@ describe("worker owner isolation", () => {
     });
     expect(inspect.statusCode).toBe(200);
     expect(inspect.json()).toEqual(prepare.json());
-    expect(ensureUserRuntime).toHaveBeenCalledOnce();
+    expect(ensureUserRuntime).not.toHaveBeenCalled();
     const closeProcess = await server.inject({
       method: "POST",
       url: `/conversations/${conversationId}/runtime/close`,
@@ -497,7 +497,7 @@ describe("worker owner isolation", () => {
     });
     expect(inspectAfterRestart.statusCode).toBe(200);
     expect(inspectAfterRestart.json()).toEqual(prepare.json());
-    expect(ensureUserRuntime).toHaveBeenCalledOnce();
+    expect(ensureUserRuntime).not.toHaveBeenCalled();
 
     const remove = await restartedServer.inject({
       method: "DELETE",
@@ -505,7 +505,7 @@ describe("worker owner isolation", () => {
       headers,
     });
     expect(remove.statusCode).toBe(200);
-    expect(ensureUserRuntime).toHaveBeenCalledOnce();
+    expect(ensureUserRuntime).not.toHaveBeenCalled();
     const inspectRemoved = await restartedServer.inject({
       method: "GET",
       url: `/conversations/${conversationId}/runtime`,

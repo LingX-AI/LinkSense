@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto"
 import type { Stats } from "node:fs"
 import {
   chmod,
+  chown,
   lstat,
   open,
   readdir,
@@ -43,6 +44,7 @@ export async function writeSharedRegularFileAtomically(
   target: string,
   contents: string,
   mode: number,
+  identity?: Pick<ProcessIdentity, "uid" | "gid">,
 ): Promise<void> {
   if (Buffer.byteLength(contents) > maximumIdentityOwnedFileBytes) {
     throw new IdentityOwnedFileBoundaryError("managed file is too large")
@@ -71,6 +73,7 @@ export async function writeSharedRegularFileAtomically(
   const handle = await open(temporaryPath, "wx", mode)
   try {
     await handle.writeFile(contents, "utf8")
+    if (identity) await chown(temporaryPath, identity.uid, identity.gid)
     await handle.sync()
     await handle.chmod(mode)
   } finally {

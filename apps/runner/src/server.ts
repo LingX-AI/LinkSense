@@ -2356,7 +2356,8 @@ export function buildRunnerServer(
       const ownerId = uuid.parse(
         Array.isArray(ownerHeader) ? ownerHeader[0] : ownerHeader,
       );
-      await ensureUserRuntime?.(ownerId);
+      // Storage preparation does not execute tools. Worker startup, prewarm and
+      // the pool's execution environment resolver initialize them when needed.
       const runtime = await pool.prepareRuntime(conversationId, ownerId);
       return {
         agentsTemplateVersion: config.LINKSENSE_AGENTS_TEMPLATE_VERSION,

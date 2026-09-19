@@ -35,9 +35,59 @@ import {
   type DockerEngine,
 } from "../src/docker/engine-client.js"
 import { TURN_START_CONTRACT_VERSION } from "../src/turn-start-contract.js"
+import { WorkspaceManager } from "../src/workspace/workspace-manager.js"
 
 const ownerId = "01900000-0000-7000-8000-000000000002"
 const secret = "runner-555555555555555555555555555555"
+
+describe("cold conversation storage preparation", () => {
+  it("keeps runtime preparation on the native worker when the environment is already running", async () => {
+    const docker = new FakeDocker()
+    const transport = new FakeTransport()
+    const manager = createManager(docker, transport)
+    await manager.request(ownerId, "/health/state", "GET")
+    const route = "/conversations/01900000-0000-7000-8000-000000000021/runtime"
+    expect(JSON.parse((await manager.request(ownerId, route, "PUT", Buffer.from("{}"))).body.toString())).toEqual({ success: true })
+    expect(transport.calls.some(call => call.path === route)).toBe(true)
+    expect(docker.createContainer).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([undefined, "01900000-0000-7000-8000-000000000011"])(
+    "prepares durable task storage without acquiring a worker in scope %s",
+    async (serviceSessionId) => {
+      const root = await mkdtemp(path.join(tmpdir(), "linksense-cold-storage-"))
+      const conversationId = "01900000-0000-7000-8000-000000000021"
+      try {
+        const config = createConfig({ LINKSENSE_USER_DATA_ROOT: root })
+        const docker = new FakeDocker()
+        const logger = pino({ level: "silent" })
+        const provider = new DockerWorkerProvider(config, docker, logger)
+        const identity = await lstat(root)
+        provider.capabilities.workspaceIdentity = { apiUid: identity.uid, taskUid: identity.uid, sharedGid: identity.gid }
+        const manager = new WorkerManager(config, provider, new FakeTransport(), logger)
+        const prepare = () => manager.request(ownerId, `/conversations/${conversationId}/runtime`, "PUT", Buffer.from("{}"), undefined, "projects/01900000-0000-7000-8000-000000000031", serviceSessionId)
+        const result = await prepare()
+        expect(docker.createContainer).not.toHaveBeenCalled()
+        expect(result.statusCode).toBe(200)
+        const runtime = JSON.parse(result.body.toString())
+        expect(runtime).toMatchObject({ agentsTemplateVersion: config.LINKSENSE_AGENTS_TEMPLATE_VERSION, runtimeGeneration: expect.any(String) })
+        expect(JSON.parse((await prepare()).body.toString())).toEqual(runtime)
+        const environment = serviceSessionId ? path.join(root, ownerId, "services", serviceSessionId) : path.join(root, ownerId)
+        const workspace = new WorkspaceManager(root, undefined, { fixedOwnerId: ownerId, fixedHomeRoot: path.join(environment, "home"), fixedControlRoot: path.join(environment, "control") })
+        for (const directory of ["attachments", "artifacts", "temp"]) {
+          const info = await lstat(path.join(environment, "home", "projects/01900000-0000-7000-8000-000000000031", directory))
+          expect(info.isDirectory()).toBe(true)
+          expect(info.mode & 0o7777).toBe(0o2770)
+        }
+        workspace.bindOwner(conversationId, ownerId)
+        workspace.bindWorkspace(conversationId, "projects/01900000-0000-7000-8000-000000000031")
+        expect((await workspace.ensureConversation(conversationId)).runtimeGeneration).toBe(runtime.runtimeGeneration)
+        expect(await readFile(path.join(environment, "control", "workspaces", conversationId, "workspace.json"), "utf8")).toBe('"projects/01900000-0000-7000-8000-000000000031"')
+        expect(docker.createContainer).not.toHaveBeenCalled()
+      } finally { await rm(root, { recursive: true, force: true }) }
+    }
+  )
+})
 
 describe("service worker storage and authentication", () => {
   it("mounts a service session outside personal HOME and derives a different worker identity", () => {
@@ -227,7 +277,7 @@ describe("controller worker lifecycle", () => {
     const docker = new FakeDocker(), transport = new FakeTransport(), manager = createManager(docker, transport);
     await manager.initialize();
     const session = "01900000-0000-7000-8000-000000000011";
-    await manager.request(ownerId, `/conversations/${session}/runtime`, "PUT", undefined, undefined, "workspace", session);
+    await manager.request(ownerId, "/health/state", "GET", undefined, undefined, "workspace", session);
     const request = vi.spyOn(transport, "request").mockResolvedValueOnce(jsonResponse({ error_code: "CLEANUP_RUNTIME_ACTIVE" }, 409));
     expect((await manager.closeConversationRuntime(ownerId, session, session)).statusCode).toBe(409);
     expect(request).toHaveBeenLastCalledWith(expect.any(String), `/conversations/${session}/runtime/close`, "POST", expect.objectContaining({ authorization: `Bearer ${ownerWorkerSecret(ownerId, secret, session)}` }));
@@ -297,7 +347,7 @@ describe("controller worker lifecycle", () => {
   it("stops the dedicated service worker before removing its persistent environment", async () => {
     const f = await serviceCleanupFixture()
     try {
-      await f.manager.request(ownerId, `/conversations/${f.sessionId}/runtime`, "PUT", undefined, undefined, "workspace", f.sessionId)
+      await f.manager.request(ownerId, "/health/state", "GET", undefined, undefined, "workspace", f.sessionId)
       f.docker.stopContainer.mockImplementation(async () => {
         expect(await readFile(path.join(f.environment, "home/.codex/history"), "utf8")).toBe("deleted-application-history")
       })
@@ -328,7 +378,7 @@ describe("controller worker lifecycle", () => {
   it("keeps the environment when the service container cannot be removed", async () => {
     const f = await serviceCleanupFixture()
     try {
-      await f.manager.request(ownerId, `/conversations/${f.sessionId}/runtime`, "PUT", undefined, undefined, "workspace", f.sessionId)
+      await f.manager.request(ownerId, "/health/state", "GET", undefined, undefined, "workspace", f.sessionId)
       f.docker.removeContainer.mockRejectedValueOnce(new Error("container removal unavailable"))
       await expect(f.manager.cleanupConversation(ownerId, f.sessionId, f.sessionId, true)).rejects.toThrow()
       expect(await readFile(path.join(f.environment, "home/.codex/history"), "utf8")).toBe("deleted-application-history")
@@ -342,6 +392,7 @@ describe("controller worker lifecycle", () => {
     const started = deferred<void>(), finish = deferred<void>()
     let request: Promise<WorkerHttpResponse> | undefined
     try {
+      await f.manager.request(ownerId, "/health/state", "GET", undefined, undefined, "workspace", f.sessionId)
       f.transport.nextApplicationRequestStarted = () => started.resolve()
       f.transport.nextApplicationRequestGate = finish.promise
       request = f.manager.request(ownerId, `/conversations/${f.sessionId}/runtime`, "PUT", undefined, undefined, "workspace", f.sessionId)

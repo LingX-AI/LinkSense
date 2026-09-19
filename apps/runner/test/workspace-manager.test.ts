@@ -24,6 +24,7 @@ import {
   CapabilityRuntimeManager,
 } from "../src/workspace/capability-runtime.js"
 import {
+  prepareConversationControl,
   RuntimeGenerationIntegrityError,
   setManagedDirectoryMode,
   WorkspaceBoundaryError,
@@ -57,6 +58,48 @@ async function tempRoot(): Promise<string> {
   roots.push(root)
   return root
 }
+
+describe("storage-only conversation preparation", () => {
+  it("preserves existing generations and workspace files when the native worker starts later", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    const owner = await manager.ensureOwner(ownerA)
+    const info = await lstat(owner.control)
+    const identity = { uid: info.uid, gid: info.gid }
+    const runtime = await prepareConversationControl(owner, taskA, "workspace", identity)
+    const results = await Promise.all(Array.from({ length: 5 }, () => prepareConversationControl(owner, taskA, "workspace", identity)))
+    expect(results.every(result => result.runtimeGeneration === runtime.runtimeGeneration)).toBe(true)
+    manager.bindOwner(taskA, ownerA)
+    expect((await manager.ensureConversation(taskA)).runtimeGeneration).toBe(runtime.runtimeGeneration)
+    await writeFile(path.join(owner.home, "workspace", "keep.txt"), "persistent")
+    expect(await prepareConversationControl(owner, taskA, "workspace", identity)).toEqual(runtime)
+    expect(await readFile(path.join(owner.home, "workspace", "keep.txt"), "utf8")).toBe("persistent")
+    const other = await prepareConversationControl(owner, taskB, "workspace", identity)
+    expect(other.runtimeGeneration).not.toBe(runtime.runtimeGeneration)
+    await writeFile(path.join(owner.control, "workspaces", taskA, "runtime-generation"), "invalid\n")
+    await expect(prepareConversationControl(owner, taskA, "workspace", identity)).rejects.toBeInstanceOf(RuntimeGenerationIntegrityError)
+  })
+
+  it.each(["workspace", "control", "binding"])("rejects a symlink at the %s boundary without writing outside the environment", async boundary => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    const owner = await manager.ensureOwner(ownerA)
+    const info = await lstat(owner.control)
+    const identity = { uid: info.uid, gid: info.gid }
+    const outside = path.join(root, "outside")
+    await mkdir(outside)
+    await writeFile(path.join(outside, "keep.txt"), "persistent")
+    const target = boundary === "workspace" ? path.join(owner.home, "workspace")
+      : boundary === "control" ? path.join(owner.control, "workspaces")
+        : path.join(owner.control, "workspaces", taskA, "workspace.json")
+    await mkdir(path.dirname(target), { recursive: true, mode: 0o700 })
+    await rm(target, { recursive: true, force: true })
+    await symlink(outside, target)
+    await expect(prepareConversationControl(owner, taskA, "workspace", identity)).rejects.toThrow(/boundary/)
+    expect(await readdir(outside)).toEqual(["keep.txt"])
+    expect(await readFile(path.join(outside, "keep.txt"), "utf8")).toBe("persistent")
+  })
+})
 
 describe("shared user HOME and native state", () => {
   it("shares tool and native state across tasks and preserves both when deleting a task", async () => {

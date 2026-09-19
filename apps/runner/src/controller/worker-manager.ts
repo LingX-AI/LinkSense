@@ -36,6 +36,7 @@ import type {
   WorkerTransport,
 } from "./worker-http-client.js"
 import { TURN_START_CONTRACT_VERSION } from "../turn-start-contract.js"
+import { prepareConversationControl } from "../workspace/workspace-manager.js"
 import {
   userRuntimeDirectories,
   userRuntimePaths,
@@ -254,6 +255,16 @@ export class WorkerManager {
     workspacePath?: string,
     serviceSessionId?: string,
   ): Promise<WorkerHttpResponse> {
+    const storageRequest = method === "PUT"
+      ? /^\/conversations\/([^/?]+)\/runtime$/u.exec(requestPath)
+      : null
+    const conversationId = ownerIdSchema.safeParse(storageRequest?.[1])
+    if (conversationId.success) {
+      const prepared = await this.prepareInactiveRuntime(
+        ownerId, conversationId.data, workspacePath ?? "workspace", serviceSessionId,
+      )
+      if (prepared) return prepared
+    }
     const worker = await this.ensureWorker(ownerId, serviceSessionId)
     try {
       return await this.transport.request(
@@ -275,6 +286,47 @@ export class WorkerManager {
     } finally {
       await this.releaseWorkerRequest(worker)
     }
+  }
+
+  private async prepareInactiveRuntime(
+    ownerId: string,
+    conversationId: string,
+    workspacePath: string,
+    serviceSessionId?: string,
+  ): Promise<WorkerHttpResponse | null> {
+    ownerIdSchema.parse(ownerId)
+    ownerIdSchema.optional().parse(serviceSessionId)
+    userWorkspacePathSchema.parse(workspacePath)
+    const key = ownerStorageKey(ownerId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, serviceSessionId)
+    return this.withLock(key, async () => {
+      // Live or uncertain processes still need the worker's lifecycle/generation checks.
+      if (this.workers.has(key) || await this.provider.hasWorkerForEnvironment(ownerId, serviceSessionId)) {
+        return null
+      }
+      if (this.options.prepareUserDirectories) await this.options.prepareUserDirectories(ownerId)
+      else await this.prepareUserDirectories(ownerId, serviceSessionId)
+      const directories = this.userDirectories(ownerId, serviceSessionId)
+      const identity = this.provider.capabilities.workspaceIdentity
+      const workspace = path.join(directories.home, workspacePath)
+      const workspaceDirectories = [workspace, ...["attachments", "artifacts", "temp"].map(name => path.join(workspace, name))]
+      for (const directory of workspaceDirectories) {
+        await prepareTaskOwnedDirectory(
+          directories.root, directory, taskOwnedDirectoryPreparationDependencies,
+          workspacePermissionPolicy.sharedDirectory, identity,
+        )
+      }
+      const runtime = await prepareConversationControl(directories, conversationId, workspacePath, {
+        uid: identity.apiUid, gid: identity.sharedGid,
+      })
+      return {
+        statusCode: 200,
+        headers: { "content-type": "application/json" },
+        body: Buffer.from(JSON.stringify({
+          agentsTemplateVersion: this.config.LINKSENSE_AGENTS_TEMPLATE_VERSION,
+          ...runtime,
+        })),
+      }
+    })
   }
 
   /** Publication closes existing processes; it must never provision a cold environment. */
