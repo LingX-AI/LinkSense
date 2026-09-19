@@ -287,7 +287,22 @@ describe("sidebar theme", () => {
       /\.sidebar-conversation-item:hover\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item:has\(:focus-visible\)\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item:has\(\[data-popup-open\]\)\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*var\(--sidebar-conversation-actions-width\);/u
     )
     expect(sidebarStyles).toMatch(
-      /@media \(hover:\s*none\)\s*\{[^}]*\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item\[data-running="true"\]\s+\.sidebar-conversation-link,[^}]*\.sidebar-conversation-item\[data-warning="true"\]\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*var\(--sidebar-conversation-actions-width\);/u
+      /@media \(hover:\s*none\)\s*\{\s*\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*var\(--sidebar-conversation-actions-width\);/u
+    )
+  })
+
+  it("keeps touch task statuses visible beside actions with enough title space", () => {
+    const touchStyles = sidebarStyles
+      .split("@media (hover: none) {")[1]
+      ?.split(".sidebar-link-active {")[0]
+    expect(touchStyles).toMatch(
+      /\.sidebar-conversation-item\[data-running="true"\]\s+\.sidebar-conversation-link,\s*\.sidebar-conversation-item\[data-warning="true"\]\s+\.sidebar-conversation-link\s*\{[^}]*padding-right:\s*calc\(var\(--sidebar-conversation-actions-width\) \+ 22px\);/u
+    )
+    expect(touchStyles).toMatch(
+      /\.sidebar-conversation-running,\s*\.sidebar-conversation-warning\s*\{[^}]*right:\s*var\(--sidebar-conversation-actions-width\);[^}]*opacity:\s*1;/u
+    )
+    expect(touchStyles).toMatch(
+      /\.sidebar-conversation-actions\s*\{[^}]*pointer-events:\s*auto;[^}]*opacity:\s*1;/u
     )
   })
 

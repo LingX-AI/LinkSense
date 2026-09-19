@@ -91,12 +91,12 @@ try {
       await cp(join(migrations, entry.name), join(historical, entry.name), { recursive: true });
     }
   }
-  await docker("run", "--detach", "--name", container, "--publish", "127.0.0.1::5432", "--env", `POSTGRES_PASSWORD=${password}`, "postgres:16-alpine");
+  await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "--detach", "--name", container, "--publish", "127.0.0.1::5432", "--env", `POSTGRES_PASSWORD=${password}`, "postgres:16-alpine");
   created = true;
   const port = Number((await docker("port", container, "5432")).split(":").at(-1));
   assert(Number.isInteger(port) && port > 0);
   for (let attempt = 0; ; attempt++) {
-    try { await docker("exec", container, "pg_isready", "-U", "postgres"); break; }
+    try { await docker("exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"); break; }
     catch (error) { if (attempt >= 50) throw error; await delay(100); }
   }
   for (const mode of ["production_upgrade", "drifted_upgrade", "fresh_install"] as const) {
@@ -141,6 +141,6 @@ try {
     } finally { await db.$disconnect(); }
   }
 } finally {
-  try { if (created) await docker("rm", "--force", container); }
+  try { if (created) await docker("rm", "--force", "--volumes", container); }
   finally { await rm(root, { recursive: true, force: true }); }
 }

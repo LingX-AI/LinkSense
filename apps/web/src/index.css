@@ -1152,10 +1152,13 @@
 }
 
 @media (hover: none) {
-  .sidebar-conversation-link,
+  .sidebar-conversation-link {
+    padding-right: var(--sidebar-conversation-actions-width);
+  }
+
   .sidebar-conversation-item[data-running="true"] .sidebar-conversation-link,
   .sidebar-conversation-item[data-warning="true"] .sidebar-conversation-link {
-    padding-right: var(--sidebar-conversation-actions-width);
+    padding-right: calc(var(--sidebar-conversation-actions-width) + 22px);
   }
 
   .sidebar-conversation-actions {
@@ -1165,7 +1168,8 @@
 
   .sidebar-conversation-running,
   .sidebar-conversation-warning {
-    opacity: 0;
+    right: var(--sidebar-conversation-actions-width);
+    opacity: 1;
   }
 }
 

@@ -4819,6 +4819,34 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.cleanup.enqueueRuntimeCleanup).not.toHaveBeenCalled();
   });
 
+  it.each(["CONFLICT", "AUTOMATION_TASK_IN_USE", "ARTIFACT_RETENTION_INCOMPLETE"] as const)("continues clearing after a blocked archived task (%s) without deleting it", async (code) => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findMany.mockResolvedValueOnce([
+      conversationRow({ id: CONVERSATION_ID, title: "Busy development", archiveStatus: "archived" }),
+      conversationRow({ id: SECOND_CONVERSATION_ID, archiveStatus: "archived" }),
+    ]);
+    const busy = transactionFixture();
+    busy.$queryRaw.mockResolvedValue([{ id: CONVERSATION_ID, archiveStatus: "archived" }]);
+    if (code === "CONFLICT") busy.conversationTurnStartIntent.count.mockResolvedValueOnce(1);
+    if (code === "AUTOMATION_TASK_IN_USE") busy.automation.count.mockResolvedValueOnce(1);
+    if (code === "ARTIFACT_RETENTION_INCOMPLETE") {
+      busy.conversation.findUnique.mockResolvedValue(conversationRow({ workspaceRelPath: `${OWNER_ID}/services/${CONVERSATION_ID}/home/workspace` }));
+      busy.conversationFile.findMany.mockResolvedValue([{ id: "artifact", minioObjectKey: null }]);
+    }
+    const ready = transactionFixture();
+    ready.$queryRaw.mockResolvedValue([{ id: SECOND_CONVERSATION_ID, archiveStatus: "archived" }]);
+    fixture.prisma.$transaction
+      .mockImplementationOnce(async (action: (tx: typeof busy) => Promise<unknown>) => action(busy))
+      .mockImplementationOnce(async (action: (tx: typeof ready) => Promise<unknown>) => action(ready));
+    await expect(fixture.service.clearArchived(OWNER_ID, {})).resolves.toEqual({
+      deleted_count: 1,
+      failed_tasks: [{ conversation_id: CONVERSATION_ID, title: "Busy development", error_code: code }],
+    });
+    expect(busy.conversation.delete).not.toHaveBeenCalled();
+    expect(ready.conversation.delete).toHaveBeenCalledWith({ where: { id: SECOND_CONVERSATION_ID } });
+    expect(fixture.cleanup.enqueueRuntimeCleanup).toHaveBeenCalledTimes(1);
+  });
+
   it("clears every archived task owned by the current user", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findMany.mockResolvedValueOnce([
@@ -4855,11 +4883,12 @@ describe("ConversationService ownership and draft lifecycle", () => {
 
     await expect(fixture.service.clearArchived(OWNER_ID, {})).resolves.toEqual({
       deleted_count: 2,
+      failed_tasks: [],
     });
 
     expect(fixture.prisma.conversation.findMany).toHaveBeenCalledWith({
       where: { ownerId: OWNER_ID, archiveStatus: "archived", AND: {} },
-      select: { id: true },
+      select: { id: true, title: true },
       orderBy: { id: "asc" },
     });
     expect(firstTransaction.conversation.delete).toHaveBeenCalledWith({
@@ -4897,6 +4926,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
 
     await expect(fixture.service.clearArchived(OWNER_ID, {})).resolves.toEqual({
       deleted_count: 0,
+      failed_tasks: [],
     });
 
     expect(transaction.conversation.delete).not.toHaveBeenCalled();

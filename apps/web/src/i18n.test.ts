@@ -816,6 +816,25 @@ describe("i18n resources", () => {
     expect(enUS.conversation.clearingArchived).toBe("Clearing archived tasks…")
   })
 
+  it("localizes partial archived cleanup and falls back to Chinese", () => {
+    const values = { deleted: 1, remaining: 2 }
+    expect(
+      i18n.getFixedT("zh-CN")("conversation.clearArchivedPartial", values)
+    ).toContain("已清除 1 个任务，2 个任务暂未清除")
+    expect(
+      i18n.getFixedT("en-US")("conversation.clearArchivedPartial", values)
+    ).toContain("Cleared 1 tasks; 2 tasks could not be cleared yet")
+    expect(
+      i18n.getFixedT("fr-FR")("conversation.clearArchivedPartial", values)
+    ).toBe(i18n.getFixedT("zh-CN")("conversation.clearArchivedPartial", values))
+    expect(i18n.getFixedT("fr-FR")("conversation.clearArchivedBusy")).toBe(
+      zhCN.conversation.clearArchivedBusy
+    )
+    expect(enUS.conversation.clearArchivedBusy).toContain(
+      "being processed or stopped"
+    )
+  })
+
   it("localizes desktop sidebar and automation notification controls", () => {
     expect(zhCN.nav.automations).toBe("自动化")
     expect(enUS.nav.automations).toBe("Automations")

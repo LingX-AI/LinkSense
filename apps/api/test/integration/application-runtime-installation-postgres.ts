@@ -38,9 +38,9 @@ let redis: LinkSenseRedis | undefined;
 let otherRedis: LinkSenseRedis | undefined;
 try {
   const name = `linksense-installation-test-${randomUUID()}`, password = randomUUID();
-  await docker("run", "-d", "--name", name, "-p", "127.0.0.1::5432", "-e", "POSTGRES_DB=installation_test", "-e", `POSTGRES_PASSWORD=${password}`, "postgres:16-alpine"); names.push(name);
+  await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "-d", "--name", name, "-p", "127.0.0.1::5432", "-e", "POSTGRES_DB=installation_test", "-e", `POSTGRES_PASSWORD=${password}`, "postgres:16-alpine"); names.push(name);
   const port = Number((await docker("port", name, "5432")).split(":").at(-1));
-  for (let n = 0; ; n++) { try { await docker("exec", name, "pg_isready", "-U", "postgres"); break; } catch (error) { if (n >= 50) throw error; await delay(100); } }
+  for (let n = 0; ; n++) { try { await docker("exec", name, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"); break; } catch (error) { if (n >= 50) throw error; await delay(100); } }
   const databaseUrl = `postgresql://postgres:${password}@127.0.0.1:${port}/installation_test`;
   const migrations = join(repositoryRoot, "prisma/migrations"), historical = join(root, "migrations");
   for (const entry of await readdir(migrations, { withFileTypes: true })) if (!entry.isDirectory() || entry.name < installationMigrationName) await cp(join(migrations, entry.name), join(historical, entry.name), { recursive: true });
@@ -100,7 +100,7 @@ try {
   console.log("PASS historical migration: stable task ID, original files and authentication retained; repeat upgrade is inert");
 
   const redisName = `linksense-installation-redis-${randomUUID()}`;
-  await docker("run", "-d", "--name", redisName, "-p", "127.0.0.1::6379", "redis:7-alpine"); names.push(redisName);
+  await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "-d", "--name", redisName, "-p", "127.0.0.1::6379", "redis:7-alpine"); names.push(redisName);
   const redisPort = Number((await docker("port", redisName, "6379")).split(":").at(-1));
   const config = { redisUrl: `redis://127.0.0.1:${redisPort}` };
   redis = new LinkSenseRedis(config as never); otherRedis = new LinkSenseRedis(config as never);
@@ -232,6 +232,6 @@ try {
   console.log("PASS isolated debug snapshots, concurrent same-snapshot tests, formal publication during debug, failed update protection and removed skills");
 } finally {
   await otherRedis?.close(); await redis?.close(); await db?.$disconnect();
-  for (const name of names.reverse()) await docker("rm", "-f", name);
+  for (const name of names.reverse()) await docker("rm", "--force", "--volumes", name);
   await rm(root, { recursive: true, force: true });
 }

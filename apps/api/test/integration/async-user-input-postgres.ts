@@ -41,8 +41,7 @@ const results: string[] = [];
 
 try {
   const password = randomUUID();
-  await docker(
-    "run",
+  await docker("run", "--rm", "--label", "com.linksense.test.disposable=true",
     "--detach",
     "--name",
     containerName,
@@ -61,7 +60,7 @@ try {
   assert(Number.isInteger(port) && port > 0);
   for (let attempt = 0; ; attempt++) {
     try {
-      await docker("exec", containerName, "pg_isready", "-U", "postgres");
+      await docker("exec", containerName, "pg_isready", "-h", "127.0.0.1", "-U", "postgres");
       break;
     } catch (error) {
       if (attempt >= 50) throw error;
@@ -410,6 +409,6 @@ try {
   }
 } finally {
   await database?.$disconnect();
-  if (containerStarted) await docker("rm", "--force", containerName);
+  if (containerStarted) await docker("rm", "--force", "--volumes", containerName);
   await rm(temporaryRoot, { recursive: true, force: true });
 }

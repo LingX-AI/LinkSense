@@ -494,6 +494,71 @@ describe("ConversationModelSelector", () => {
     ).toHaveTextContent("最高")
   })
 
+  it.each([false, true])(
+    "saves a mobile track tap once when pointer and touch events both fire (drag: %s)",
+    async (drag) => {
+      const interaction = userEvent.setup()
+      const onChange = vi.fn()
+      render(<ControlledModelSelector onChange={onChange} />)
+      const selector = screen.getByRole("button", {
+        name: "选择模型与推理强度",
+      })
+      await interaction.click(selector)
+      const slider = screen.getByRole("slider", { name: "推理强度" })
+      const control = slider.closest('[data-slot="slider-control"]')
+      if (!(control instanceof HTMLElement))
+        throw new Error("Missing slider control")
+      control.setPointerCapture = vi.fn()
+      control.hasPointerCapture = vi.fn(() => false)
+
+      const pointer = {
+        button: 0,
+        buttons: 1,
+        pointerId: 1,
+        pointerType: "touch",
+        clientX: 82,
+        clientY: 12,
+      }
+      const touch = { identifier: 1, clientX: 82, clientY: 12, target: control }
+      // Mobile browsers dispatch pointerdown before touchstart for one contact.
+      fireEvent.pointerDown(control, pointer)
+      fireEvent.touchStart(control, {
+        touches: [touch],
+        changedTouches: [touch],
+      })
+      expect(slider).toHaveAttribute("aria-valuetext", "高")
+      expect(onChange).not.toHaveBeenCalled()
+
+      const clientX = drag ? 154 : 82
+      if (drag) {
+        fireEvent.pointerMove(control, { ...pointer, clientX })
+        fireEvent.touchMove(control, {
+          touches: [{ ...touch, clientX }],
+          changedTouches: [{ ...touch, clientX }],
+        })
+        expect(slider).toHaveAttribute("aria-valuetext", "最高")
+        expect(onChange).not.toHaveBeenCalled()
+      }
+      fireEvent.pointerUp(control, { ...pointer, buttons: 0, clientX })
+      fireEvent.touchEnd(control, {
+        touches: [],
+        changedTouches: [{ ...touch, clientX }],
+      })
+
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(
+        "gpt-5.6-sol",
+        drag ? "max" : "high"
+      )
+      expect(selector).toHaveTextContent(drag ? "最高" : "高")
+      await interaction.keyboard("{Escape}")
+      await interaction.click(selector)
+      expect(screen.getByRole("slider", { name: "推理强度" })).toHaveAttribute(
+        "aria-valuetext",
+        drag ? "最高" : "高"
+      )
+    }
+  )
+
   it("orders a sparse set of supported efforts from low to high and supports keyboard selection", async () => {
     const onChange = vi.fn()
     const interaction = userEvent.setup()

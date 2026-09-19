@@ -54,6 +54,7 @@ import { extractReferencedSources, mergeReferencedSources } from "./referenced-s
 import type { ConversationTitleService } from "./title-service.js";
 import type { ConversationPrewarmInput } from "./prewarm.js";
 import {
+  archivedConversationClearResultSchema,
   INTERACTIVE_APPLICATION_FILE_SOURCE,
   type InteractiveApplicationTaskState,
   conversationStartingTurnSchema,
@@ -3343,24 +3344,37 @@ export class ConversationService {
     if (!deleted) throw new AppError("CONVERSATION_NOT_FOUND");
   }
 
-  async clearArchived(ownerId: string, context: AuditContext) {
+  async clearArchived(ownerId: string, context: AuditContext): Promise<z.infer<typeof archivedConversationClearResultSchema>> {
     const visible = await ordinaryConversationFilter(this.prisma, ownerId);
     const archivedConversations = await this.prisma.conversation.findMany({
       where: { ownerId, archiveStatus: "archived", AND: visible },
-      select: { id: true },
+      select: { id: true, title: true },
       orderBy: { id: "asc" },
     });
-    let deletedCount = 0;
+    const result: z.infer<typeof archivedConversationClearResultSchema> = {
+      deleted_count: 0,
+      failed_tasks: [],
+    };
     for (const conversation of archivedConversations) {
-      const deleted = await this.deleteOwnedConversation(
-        ownerId,
-        conversation.id,
-        context,
-        "archived",
-      );
-      if (deleted) deletedCount += 1;
+      try {
+        const deleted = await this.deleteOwnedConversation(
+          ownerId, conversation.id, context, "archived",
+        );
+        if (deleted) result.deleted_count += 1;
+      } catch (error) {
+        if (!(error instanceof AppError) || (
+          error.code !== "CONFLICT" &&
+          error.code !== "AUTOMATION_TASK_IN_USE" &&
+          error.code !== "ARTIFACT_RETENTION_INCOMPLETE"
+        )) throw error;
+        result.failed_tasks.push({
+          conversation_id: conversation.id,
+          title: conversation.title,
+          error_code: error.code,
+        });
+      }
     }
-    return { deleted_count: deletedCount };
+    return result;
   }
 
   private async deleteOwnedConversation(

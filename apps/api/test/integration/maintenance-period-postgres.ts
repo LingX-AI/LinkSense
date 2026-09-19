@@ -71,8 +71,7 @@ const records = [
 ];
 let started = false;
 try {
-  docker(
-    "run",
+  docker("run", "--rm", "--label", "com.linksense.test.disposable=true",
     "--detach",
     "--network",
     "none",
@@ -85,7 +84,7 @@ try {
   started = true;
   for (let attempt = 0; ; attempt++) {
     try {
-      docker("exec", name, "pg_isready", "-U", "postgres");
+      docker("exec", name, "pg_isready", "-h", "127.0.0.1", "-U", "postgres");
       break;
     } catch (error) {
       if (attempt >= 50) throw error;
@@ -163,5 +162,5 @@ try {
     "PASS: PostgreSQL migration preserves 8 legacy configurations, active/scheduled/expired behavior, stable period IDs, and fresh-install defaults.",
   );
 } finally {
-  if (started) docker("rm", "--force", name);
+  if (started) docker("rm", "--force", "--volumes", name);
 }

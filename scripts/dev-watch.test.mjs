@@ -2,9 +2,33 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { resolve } from "node:path";
 import test from "node:test";
-import { developmentWatchRules, planDevelopmentChanges, applyDevelopmentChanges, startDevelopmentWatcher } from "./dev-watch.mjs";
+import { developmentWatchRules, planDevelopmentChanges, applyDevelopmentChanges as applyChanges, startDevelopmentWatcher } from "./dev-watch.mjs";
 
 const rule = (service, action, path, ignore = []) => ({ service, action, path: resolve(path), ignore });
+
+function applyDevelopmentChanges(plan, dependencies) {
+  return applyChanges(plan, {
+    rebuild: async (services) => {
+      for (const service of services) await dependencies.compose(["build", service]);
+      return services;
+    },
+    ...dependencies,
+  });
+}
+
+test("dependency updates refresh image fingerprints before building and reconcile the whole shared image group", async () => {
+  const calls = [];
+  await applyDevelopmentChanges([{ service: "api", action: "rebuild" }], {
+    rebuild: async (services) => { calls.push(["fresh-fingerprints", ...services]); return ["api", "runner", "web"]; },
+    compose: async (args) => { calls.push(args); },
+    synchronize: async (service) => { calls.push(["sync", service]); return { changed: false }; },
+    waitUntilReady: async () => { calls.push(["ready"]); },
+  });
+  assert.deepEqual(calls, [
+    ["fresh-fingerprints", "api"], ["up", "-d", "--no-build", "--no-deps", "api", "runner", "web"],
+    ["sync", "api"], ["sync", "runner"], ["sync", "web"], ["ready"],
+  ]);
+});
 
 test("gateway configuration edits restart only the bound gateway and await readiness", async () => {
   const rules = developmentWatchRules({ services: {

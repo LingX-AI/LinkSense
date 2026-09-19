@@ -1180,6 +1180,39 @@ describe("LinkSense application", () => {
     }
   )
 
+  it("shows running tasks and their actions together in the mobile task list", async () => {
+    installApiMock()
+    const interaction = userEvent.setup()
+    renderApp()
+    await interaction.click(
+      await screen.findByRole("button", { name: "打开导航" })
+    )
+    const sidebar = await screen.findByRole("dialog", { name: "LinkSense" })
+    const link = await within(sidebar).findByRole("link", {
+      name: conversations[0]!.title,
+    })
+    const item = link.closest(".sidebar-conversation-item")
+    if (!(item instanceof HTMLElement)) throw new Error("Missing task row")
+
+    expect(link).toHaveAttribute("aria-busy", "true")
+    expect(item).toHaveAttribute("data-running", "true")
+    const status = within(item).getByRole("status", { name: "执行中" })
+    expect(status).toBeVisible()
+    expect(status.querySelector("svg")).toHaveClass("animate-spin")
+    expect(
+      within(item).getByRole("button", { name: /^归档任务/u })
+    ).toBeEnabled()
+    await interaction.click(
+      within(item).getByRole("button", { name: /的更多操作$/u })
+    )
+    expect(await screen.findByRole("menu")).toBeVisible()
+    expect(status).toBeInTheDocument()
+    const completedLink = within(sidebar).getByRole("link", {
+      name: conversations[1]!.title,
+    })
+    expect(completedLink).not.toHaveAttribute("aria-busy")
+  })
+
   it("aligns the mobile navigation close control with the sidebar controls", async () => {
     installApiMock()
     const interaction = userEvent.setup()

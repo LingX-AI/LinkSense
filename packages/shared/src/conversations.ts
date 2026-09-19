@@ -162,6 +162,11 @@ export const completionNotificationFeedSchema = z.strictObject({
 
 export const archivedConversationClearResultSchema = z.strictObject({
   deleted_count: z.number().int().nonnegative(),
+  failed_tasks: z.array(z.strictObject({
+    conversation_id: z.uuid(),
+    title: z.string(),
+    error_code: z.enum(["CONFLICT", "AUTOMATION_TASK_IN_USE", "ARTIFACT_RETENTION_INCOMPLETE"]),
+  })),
 });
 
 export const pendingRequestStatusSchema = z.enum([

@@ -272,6 +272,11 @@ function ModelReasoningControls({
         }}
       >
         <SliderControl
+          onPointerDown={(event) => {
+            // Base UI also handles touchstart. Let that path own touch gestures
+            // so a second start cannot clear the value waiting to be committed.
+            if (event.pointerType === "touch") event.preventBaseUIHandler()
+          }}
           className={cn(
             "h-6",
             pending && efforts.length > 1 && "data-disabled:opacity-100"
