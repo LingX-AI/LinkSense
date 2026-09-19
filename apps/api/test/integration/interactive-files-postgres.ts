@@ -22,12 +22,12 @@ let created = false;
 let database: ReturnType<typeof createPrismaClient> | undefined;
 try {
   const password = randomUUID();
-  await docker("run", "--detach", "--name", name, "--publish", "127.0.0.1::5432", "--env", "POSTGRES_DB=interactive_files_test", "--env", `POSTGRES_PASSWORD=${password}`, "postgres:16-alpine");
+  await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "--detach", "--name", name, "--publish", "127.0.0.1::5432", "--env", "POSTGRES_DB=interactive_files_test", "--env", `POSTGRES_PASSWORD=${password}`, "postgres:16-alpine");
   created = true;
   const port = Number((await docker("port", name, "5432")).split(":").at(-1));
   assert(Number.isInteger(port) && port > 0);
   for (let attempt = 0; ; attempt++) {
-    try { await docker("exec", name, "pg_isready", "-U", "postgres"); break; }
+    try { await docker("exec", name, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"); break; }
     catch (error) { if (attempt >= 50) throw error; await delay(100); }
   }
   const databaseUrl = `postgresql://postgres:${password}@127.0.0.1:${port}/interactive_files_test`;
@@ -109,6 +109,6 @@ try {
   console.log("Interactive attachment upgrade and fresh installation verified: historical files, columns and migration checksums preserved; both origins usable; selection isolated; invalid sources rejected.");
 } finally {
   await database?.$disconnect();
-  if (created) await docker("rm", "--force", name);
+  if (created) await docker("rm", "--force", "--volumes", name);
   await rm(root, { recursive: true, force: true });
 }

@@ -34,14 +34,14 @@ try {
   const password = randomUUID();
   const postgres = `linksense-web-pg-${randomUUID()}`;
   const redisName = `linksense-web-redis-${randomUUID()}`;
-  await docker("run", "-d", "--name", postgres, "-p", "127.0.0.1::5432", "-e", `POSTGRES_PASSWORD=${password}`, "-e", "POSTGRES_DB=web_sites_test", "postgres:16-alpine");
+  await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "-d", "--name", postgres, "-p", "127.0.0.1::5432", "-e", `POSTGRES_PASSWORD=${password}`, "-e", "POSTGRES_DB=web_sites_test", "postgres:16-alpine");
   containers.push(postgres);
-  await docker("run", "-d", "--name", redisName, "-p", "127.0.0.1::6379", "redis:7-alpine");
+  await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "-d", "--name", redisName, "-p", "127.0.0.1::6379", "redis:7-alpine");
   containers.push(redisName);
   const pgPort = Number((await docker("port", postgres, "5432")).split(":").at(-1));
   const redisPort = Number((await docker("port", redisName, "6379")).split(":").at(-1));
   for (let attempt = 0; ; attempt++) {
-    try { await docker("exec", postgres, "pg_isready", "-U", "postgres"); break; }
+    try { await docker("exec", postgres, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"); break; }
     catch (error) { if (attempt >= 50) throw error; await delay(100); }
   }
   const databaseUrl = `postgresql://postgres:${password}@127.0.0.1:${pgPort}/web_sites_test`;
@@ -299,7 +299,7 @@ try {
   await services?.jobs.close();
   await redis?.close();
   await db?.$disconnect();
-  for (const container of containers.reverse()) await docker("rm", "-f", container);
+  for (const container of containers.reverse()) await docker("rm", "--force", "--volumes", container);
   await rm(root, { recursive: true, force: true });
   if (serve) await rm(join(tmpdir(), "linksense-web-sites-qa.json"), { force: true });
 }

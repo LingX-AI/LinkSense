@@ -37,11 +37,11 @@ let database: ReturnType<typeof createPrismaClient> | undefined;
 const app = Fastify();
 try {
   const password = randomUUID();
-  await docker("run", "--detach", "--name", name, "--publish", "127.0.0.1::5432", "--env", "POSTGRES_DB=distribution_test", "--env", `POSTGRES_PASSWORD=${password}`, "postgres:16-alpine");
+  await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "--detach", "--name", name, "--publish", "127.0.0.1::5432", "--env", "POSTGRES_DB=distribution_test", "--env", `POSTGRES_PASSWORD=${password}`, "postgres:16-alpine");
   created = true;
   const port = Number((await docker("port", name, "5432")).split(":").at(-1));
   for (let attempt = 0; ; attempt++) {
-    try { await docker("exec", name, "pg_isready", "-U", "postgres"); break; }
+    try { await docker("exec", name, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"); break; }
     catch (error) { if (attempt >= 50) throw error; await delay(100); }
   }
   const databaseUrl = `postgresql://postgres:${password}@127.0.0.1:${port}/distribution_test`;
@@ -453,6 +453,6 @@ try {
 } finally {
   await app.close();
   await database?.$disconnect();
-  if (created) await docker("rm", "--force", name);
+  if (created) await docker("rm", "--force", "--volumes", name);
   await rm(root, { recursive: true, force: true });
 }
