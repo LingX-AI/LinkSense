@@ -20,6 +20,8 @@ import { preparationStatePath, recordStoragePreparation, storageNeedsInitializat
 import { sourceFingerprint } from "./source-fingerprint.mjs";
 import { developmentTlsDirectory, prepareDevelopmentTls, trustDevelopmentCertificate } from "./dev-tls.mjs";
 import { assertDevelopmentHttp2 } from "./dev-http2.mjs";
+import { developmentResourceOwner, planDevelopmentImageBuilds, reportDevelopmentImageCleanup } from "./dev-images.mjs";
+export { developmentImageNames } from "./dev-images.mjs";
 export { sourceFingerprint } from "./source-fingerprint.mjs";
 
 import {
@@ -29,10 +31,6 @@ import {
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const developmentComposeFile = "docker-compose.dev.yml";
-const developmentImageLabel = "com.linksense.development.fingerprint";
-const migrationImageLabel = "com.linksense.migration.fingerprint";
-const workerImageLabel = "com.linksense.worker.fingerprint";
-const docsImageLabel = "com.linksense.docs.fingerprint";
 
 function required(source, name) {
   const value = source[name]?.trim();
@@ -461,15 +459,6 @@ function inspectDockerImage(image, format) {
   return result.stdout.trim() || undefined;
 }
 
-export function developmentImageNames(environment) {
-  const tag = optional(environment, "LINKSENSE_DEV_IMAGE_TAG", "local");
-  return [
-    `linksense-api-dev:${tag}`,
-    `linksense-runner-controller-dev:${tag}`,
-    `linksense-web-dev:${tag}`,
-  ];
-}
-
 export function buildWorkerRuntimeEnvironment(environment, revision) {
   if (!revision?.trim()) {
     throw new Error("A built worker image revision is required");
@@ -480,7 +469,7 @@ export function buildWorkerRuntimeEnvironment(environment, revision) {
   };
 }
 
-function dockerImageLabel(image, label) {
+export function dockerImageLabel(image, label) {
   return inspectDockerImage(
     image,
     `{{ index .Config.Labels ${JSON.stringify(label)} }}`,
@@ -881,58 +870,27 @@ function ensureDevelopmentImages(
   environment,
   { force = false, includeApplications = true } = {},
 ) {
-  const fingerprints = configuredDevelopmentFingerprints(environmentFile, environment);
-  const developmentFingerprint = fingerprints.api;
-  const migrationFingerprint = fingerprints.migrate;
-  const docsFingerprint = fingerprints.docs;
-  const buildEnvironment = {
-    ...environment,
-    LINKSENSE_DEV_IMAGE_FINGERPRINT: developmentFingerprint,
-    LINKSENSE_MIGRATION_IMAGE_FINGERPRINT: migrationFingerprint,
-    LINKSENSE_DOCS_IMAGE_FINGERPRINT: docsFingerprint,
-    LINKSENSE_WORKER_IMAGE_FINGERPRINT: fingerprints["runner-worker-image"],
-  };
+  const buildEnvironment = developmentImageBuildEnvironment(environmentFile, environment);
   const composeArguments = (argumentsList) =>
     developmentComposeArguments(environmentFile, argumentsList);
 
-  if (
-    includeApplications &&
-    (force ||
-      developmentImageNames(buildEnvironment).some(
-        (image) =>
-          dockerImageLabel(image, developmentImageLabel) !==
-          developmentFingerprint,
-      ))
-  ) {
-    run(
-      "docker",
-      composeArguments(["build", "api", "runner", "web"]),
-      buildEnvironment,
-    );
-  }
-
-  if (force || dockerImageLabel(`linksense-docs-dev:${optional(environment, "LINKSENSE_DEV_IMAGE_TAG", "local")}`, docsImageLabel) !== docsFingerprint) {
-    run("docker", composeArguments(["build", "docs"]), buildEnvironment);
-  }
-
-  const migrationImage = `linksense-migrate:${optional(
-    buildEnvironment,
-    "LINKSENSE_IMAGE_TAG",
-    "local",
-  )}`;
-  if (
-    force ||
-    dockerImageLabel(migrationImage, migrationImageLabel) !==
-      migrationFingerprint
-  ) {
-    run(
-      "docker",
-      composeArguments(["build", "migrate"]),
-      buildEnvironment,
-    );
+  const services = [...(includeApplications ? ["api", "runner", "web"] : []), "docs", "migrate"];
+  for (const group of planDevelopmentImageBuilds(buildEnvironment, services, dockerImageLabel, force)) {
+    if (group.needsBuild) run("docker", composeArguments(["build", ...group.services]), buildEnvironment);
   }
 
   return buildEnvironment;
+}
+
+export function developmentImageBuildEnvironment(environmentFile, environment, fingerprints = configuredDevelopmentFingerprints(environmentFile, environment)) {
+  return {
+    ...environment,
+    LINKSENSE_DEV_RESOURCE_OWNER: developmentResourceOwner(repositoryRoot, environmentFile),
+    LINKSENSE_DEV_IMAGE_FINGERPRINT: fingerprints.api,
+    LINKSENSE_MIGRATION_IMAGE_FINGERPRINT: fingerprints.migrate,
+    LINKSENSE_DOCS_IMAGE_FINGERPRINT: fingerprints.docs,
+    LINKSENSE_WORKER_IMAGE_FINGERPRINT: fingerprints["runner-worker-image"],
+  };
 }
 
 export function fingerprintBuildConfiguration(sourceHash, build) {
@@ -971,13 +929,7 @@ function ensureWorkerImage(
     ...environment,
     LINKSENSE_WORKER_IMAGE_FINGERPRINT: fingerprint,
   };
-  if (
-    workerImageNeedsRebuild(
-      dockerImageLabel(workerImage, workerImageLabel),
-      fingerprint,
-      force,
-    )
-  ) {
+  if (planDevelopmentImageBuilds(buildEnvironment, ["runner-worker-image"], dockerImageLabel, force)[0].needsBuild) {
     run(
       "docker",
       developmentComposeArguments(environmentFile, [
@@ -1409,12 +1361,7 @@ export async function main(argumentsList = process.argv.slice(2)) {
     }
     const rebuildCommands =
       developmentWorkerRebuildCommands(applicationsAreRunning);
-    const fingerprints = configuredDevelopmentFingerprints(environmentFile, composeEnvironment);
-    const workerBuildEnvironment = {
-      ...composeEnvironment,
-      LINKSENSE_DEV_IMAGE_FINGERPRINT: fingerprints.api,
-      LINKSENSE_WORKER_IMAGE_FINGERPRINT: fingerprints["runner-worker-image"],
-    };
+    const workerBuildEnvironment = developmentImageBuildEnvironment(environmentFile, composeEnvironment);
     run(
       "docker",
       composeArguments(rebuildCommands.refreshImages),
@@ -1439,6 +1386,7 @@ export async function main(argumentsList = process.argv.slice(2)) {
     console.log(
       `Rebuilt the development runner-controller and production task-worker images (${revision}), removed reachable development workers, and refreshed any running controller.`,
     );
+    await reportDevelopmentImageCleanup(workerBuildEnvironment);
     return;
   }
 
@@ -1555,6 +1503,7 @@ export async function main(argumentsList = process.argv.slice(2)) {
   }
 
   console.log(developmentReadyMessage(environment));
+  await measure("image-retention", () => reportDevelopmentImageCleanup(composeEnvironment));
 
   if (prepareOnly) {
     session.stop();

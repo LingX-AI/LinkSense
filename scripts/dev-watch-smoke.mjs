@@ -51,6 +51,10 @@ try {
     const rules = developmentWatchRules(JSON.parse(await compose(["config", "--format", "json"])));
     watcher = startDevelopmentWatcher(rules, {
       apply: (plan) => applyDevelopmentChanges(plan, {
+        rebuild: async (services) => {
+          for (const service of services) await compose(["build", service]);
+          return services;
+        },
         compose,
         synchronize: async () => { assert.fail("docs has no source synchronization"); },
         waitUntilReady: async () => {

@@ -4,7 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import chokidar from "chokidar";
 import { z } from "zod";
-import { buildDevelopmentEnvironment, developmentComposeArguments, waitForDevelopmentApplicationReadiness } from "./dev.mjs";
+import { buildDevelopmentEnvironment, developmentComposeArguments, developmentImageBuildEnvironment, dockerImageLabel, waitForDevelopmentApplicationReadiness } from "./dev.mjs";
+import { buildDevelopmentImageGroups, planDevelopmentImageBuilds, reportDevelopmentImageCleanup } from "./dev-images.mjs";
 import { trustDevelopmentCertificate } from "./dev-tls.mjs";
 import { developmentSourcePaths } from "./dev-source.mjs";
 
@@ -54,15 +55,18 @@ export function planDevelopmentChanges(rules, files) {
   return [...actions].map(([service, action]) => ({ service, action }));
 }
 
-export async function applyDevelopmentChanges(plan, { compose, synchronize, waitUntilReady }) {
-  const rebuilt = plan.filter(({ action }) => action === "rebuild").map(({ service }) => service);
-  if (rebuilt.length > 0) {
-    // Avoid concurrent documentation/dependency builds competing with the live
-    // stack for Docker Desktop memory. Do not replace anything until all pass.
-    for (const service of rebuilt) await compose(["build", service]);
+export async function applyDevelopmentChanges(plan, { rebuild, compose, synchronize, waitUntilReady }) {
+  const requested = plan.filter(({ action }) => action === "rebuild").map(({ service }) => service);
+  if (requested.length > 0) {
+    // Build with fresh fingerprints, once per shared dependency group. Do not
+    // replace any service until every build in this batch has succeeded.
+    const rebuilt = await rebuild(requested);
     // Native Watch converges the entire selected project, then starts only
     // changed services. Explicit up --no-deps confines both steps to this batch.
     await compose(["up", "-d", "--no-build", "--no-deps", ...rebuilt]);
+    const actions = new Map(plan.map(({ service, action }) => [service, action]));
+    for (const service of rebuilt) actions.set(service, "rebuild");
+    plan = [...actions].map(([service, action]) => ({ service, action }));
   }
   const restarts = await Promise.all(plan.map(async ({ service, action }) => {
     if (action === "restart") return service;
@@ -143,15 +147,16 @@ export function startDevelopmentWatcher(rules, { apply, onUpdateError, watch = c
 async function main(environmentFile) {
   trustDevelopmentCertificate(buildDevelopmentEnvironment(process.env));
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  let composeEnvironment = process.env;
   const controller = new AbortController();
   const capture = async (command, args) => (await promisify(execFile)(command, args, {
-    cwd: root, env: process.env, timeout: 30_000, maxBuffer: 4 * 1024 * 1024, signal: controller.signal,
+    cwd: root, env: composeEnvironment, timeout: 30_000, maxBuffer: 4 * 1024 * 1024, signal: controller.signal,
   })).stdout;
   const composeArgs = (args) => developmentComposeArguments(environmentFile, args);
   const rules = developmentWatchRules(JSON.parse(await capture("docker", composeArgs(["config", "--format", "json"]))));
   const compose = (args) => new Promise((resolveCommand, rejectCommand) => {
     const child = spawn("docker", composeArgs(args), {
-      cwd: root, env: process.env, stdio: "inherit", signal: controller.signal,
+      cwd: root, env: composeEnvironment, stdio: "inherit", signal: controller.signal,
       timeout: 600_000, killSignal: "SIGTERM",
     });
     child.once("error", rejectCommand);
@@ -165,6 +170,11 @@ async function main(environmentFile) {
       if (plan.length === 0) return;
       console.log(`[dev] updating ${plan.map(({ service, action }) => `${service} (${action})`).join(", ")}`);
       await applyDevelopmentChanges(plan, {
+        rebuild: async (services) => {
+          composeEnvironment = developmentImageBuildEnvironment(environmentFile, composeEnvironment);
+          const groups = planDevelopmentImageBuilds(composeEnvironment, services, dockerImageLabel);
+          return buildDevelopmentImageGroups(groups, (group) => compose(["build", ...group]));
+        },
         compose,
         waitUntilReady: () => waitForDevelopmentApplicationReadiness(buildDevelopmentEnvironment(process.env), {
           signal: controller.signal, timeoutMs: 60_000, intervalMs: 1_000, requestTimeoutMs: 2_000,
@@ -174,6 +184,7 @@ async function main(environmentFile) {
           return JSON.parse(await capture(process.execPath, [resolve(root, "scripts/dev-source.mjs"), service, container]));
         },
       });
+      if (plan.some(({ action }) => action === "rebuild")) await reportDevelopmentImageCleanup(composeEnvironment);
       console.log("[dev] update complete");
     },
   });
