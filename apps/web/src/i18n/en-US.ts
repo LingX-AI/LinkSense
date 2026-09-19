@@ -1888,6 +1888,10 @@ export const enUS = {
     clearArchivedDescription:
       "All archived tasks will be permanently deleted and cannot be recovered. Applications, development drafts and debug conversation history remain available in My applications, where you can continue development or delete them. Other active tasks are not affected. Artifacts and minimum trace metadata remain retained according to system policy.",
     clearingArchived: "Clearing archived tasks…",
+    clearArchivedPartial:
+      "Cleared {{deleted}} tasks; {{remaining}} tasks could not be cleared yet.",
+    clearArchivedBusy:
+      "This task is being processed or stopped. Please try again shortly.",
     clearArchivedSuccess: "Cleared {{count}} archived tasks.",
     searchTitle: "Search",
     searchPlaceholder:

@@ -183,7 +183,10 @@ describe("LinkSense application", () => {
       userOverride: { role: "user" },
       clearArchivedResponse: async () => {
         await clearArchivedStart
-        return json({ success: true, data: { deleted_count: 1 } })
+        return json({
+          success: true,
+          data: { deleted_count: 1, failed_tasks: [] },
+        })
       },
       conversationListResponse: (query) => {
         if (query.get("archived") !== "true") {
@@ -263,6 +266,55 @@ describe("LinkSense application", () => {
     expect(
       screen.queryByRole("button", { name: "清除全部" })
     ).not.toBeInTheDocument()
+  })
+
+  it("reports partial clearing and keeps the blocked task with its reason", async () => {
+    const task = {
+      ...conversations[1],
+      id: "10000000-0000-4000-8000-000000000001",
+      title: "忙碌的开发任务",
+      archived: true,
+      archive_status: "archived",
+    }
+    installApiMock({
+      clearArchivedResponse: async () =>
+        json({
+          success: true,
+          data: {
+            deleted_count: 1,
+            failed_tasks: [
+              {
+                conversation_id: task.id,
+                title: task.title,
+                error_code: "CONFLICT",
+              },
+            ],
+          },
+        }),
+      conversationListResponse: () =>
+        json({
+          success: true,
+          data: { items: [task], next_cursor: null, total_count: 1 },
+        }),
+    })
+    const interaction = userEvent.setup()
+    renderApp("/archived")
+    await interaction.click(
+      await screen.findByRole("button", { name: "清除全部" })
+    )
+    const dialog = await screen.findByRole("dialog", {
+      name: "清除全部已归档任务？",
+    })
+    await interaction.click(
+      within(dialog).getByRole("button", { name: "清除全部" })
+    )
+    expect(
+      await screen.findByText("已清除 1 个任务，1 个任务暂未清除")
+    ).toBeVisible()
+    expect(
+      await screen.findByText("任务正在处理或停止中，请稍后重试。")
+    ).toBeVisible()
+    expect(screen.getByText(task.title)).toBeVisible()
   })
 
   it("keeps the clear confirmation closed and restores the archived list when clearing fails", async () => {

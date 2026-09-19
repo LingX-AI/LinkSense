@@ -184,7 +184,7 @@ describe("conversation archived clear route", () => {
     expect(clearArchived).toHaveBeenCalledWith(OWNER_ID, expect.any(Object));
     expect(response.json()).toMatchObject({
       success: true,
-      data: { deleted_count: 2 },
+      data: { deleted_count: 2, failed_tasks: [] },
     });
   });
 });
@@ -1364,7 +1364,7 @@ async function conversationRouteFixture(
   const get = vi.fn(async () => ({ conversation: { id: CONVERSATION_ID }, messages: [] }));
   const getReferencedSources = vi.fn(async () => ({ items: [{ url: "https://example.test/guide", title: "Guide" }] }));
   const create = vi.fn(async () => ({ id: CONVERSATION_ID }));
-  const clearArchived = vi.fn(async () => ({ deleted_count: 2 }));
+  const clearArchived = vi.fn(async () => ({ deleted_count: 2, failed_tasks: [] }));
   const reorder = vi.fn(async (_ownerId: string, input: {
     group: "pinned" | "recent";
     conversationIds: string[];

@@ -1739,6 +1739,9 @@ export const zhCN = {
     clearArchivedDescription:
       "所有已归档任务都将被永久删除且无法恢复。应用、开发草稿及其调试对话记录会保留，可在“我的应用”中继续开发或删除。其他未归档任务不受影响。产物和最小追溯元数据仍按系统规则保留。",
     clearingArchived: "正在清除已归档任务…",
+    clearArchivedPartial:
+      "已清除 {{deleted}} 个任务，{{remaining}} 个任务暂未清除。",
+    clearArchivedBusy: "任务正在处理或停止中，请稍后重试。",
     clearArchivedSuccess: "已清除 {{count}} 个已归档任务。",
     searchTitle: "搜索",
     searchPlaceholder: "搜索标题、消息、附件、产物、插件或 Skill…",

@@ -6041,6 +6041,9 @@ export function ArchivedConversationListPage() {
   }, [])
   const [searchOpen, setSearchOpen] = useState(false)
   const [clearAllOpen, setClearAllOpen] = useState(false)
+  const [clearFailures, setClearFailures] = useState<
+    z.infer<typeof archivedConversationClearResultSchema>["failed_tasks"]
+  >([])
   const [cursor, setCursor] = useState<string | undefined>()
   const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([])
   const query = useQuery({
@@ -6084,13 +6087,25 @@ export function ArchivedConversationListPage() {
         method: "DELETE",
         schema: archivedConversationClearResultSchema,
       }),
-    onMutate: () => ({
-      toastId: notify.loading(t("conversation.clearingArchived")),
-    }),
+    onMutate: () => {
+      setClearFailures([])
+      return { toastId: notify.loading(t("conversation.clearingArchived")) }
+    },
     onSuccess: async (result, _variables, context) => {
+      setClearFailures(result.failed_tasks)
       setCursor(undefined)
       setCursorStack([])
       await queryClient.invalidateQueries({ queryKey: ["conversations"] })
+      if (result.failed_tasks.length) {
+        notify.info(
+          t("conversation.clearArchivedPartial", {
+            deleted: result.deleted_count,
+            remaining: result.failed_tasks.length,
+          }),
+          { id: context.toastId }
+        )
+        return
+      }
       notify.success(
         t("conversation.clearArchivedSuccess", {
           count: result.deleted_count,
@@ -6098,7 +6113,8 @@ export function ArchivedConversationListPage() {
         { id: context.toastId }
       )
     },
-    onError: (nextError, _variables, context) => {
+    onError: async (nextError, _variables, context) => {
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] })
       notify.error(getErrorMessage(nextError, t), { id: context?.toastId })
     },
   })
@@ -6180,6 +6196,9 @@ export function ArchivedConversationListPage() {
             {query.data.items.map((conversation, index) => {
               const displayTitle =
                 conversation.title || t("conversation.untitled")
+              const clearFailure = clearFailures.find(
+                (failure) => failure.conversation_id === conversation.id
+              )
               const deleteLabel = t("conversation.deleteNamed", {
                 title: displayTitle,
               })
@@ -6205,6 +6224,19 @@ export function ArchivedConversationListPage() {
                           {displayTitle}
                         </span>
                       </div>
+                      {clearFailure && (
+                        <p className="text-sm text-destructive" role="status">
+                          {clearFailure.error_code === "CONFLICT"
+                            ? t("conversation.clearArchivedBusy")
+                            : getErrorMessage(
+                                new ApiError({
+                                  status: 409,
+                                  errorCode: clearFailure.error_code,
+                                }),
+                                t
+                              )}
+                        </p>
+                      )}
                       <time dateTime={conversation.updated_at}>
                         {formatLongDateTime(conversation.updated_at, language)}
                       </time>

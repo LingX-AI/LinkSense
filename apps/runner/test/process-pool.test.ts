@@ -10440,6 +10440,65 @@ trust_level = "trusted"
     expect(controlled.methods).not.toContain("turn/start");
   });
 
+  it.each(["uncertain", "persisted-failure", "surviving-process"])("cleans unsubmitted preparation only after process exit (%s)", async (scenario) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-failed-preparation-cleanup-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({
+      ignoreKill: scenario === "surviving-process",
+      threadResumeModel: "source-model",
+      threadReadTurns: [{ id: "previous-turn", status: "completed", items: [], error: null }],
+      compactTurn: { id: "prepare-compact", status: "inProgress", items: [{ id: "compact-item", type: "contextCompaction" }], error: null },
+    });
+    const workspaceManager = createWorkspaceManager(root);
+    const store = new StartOperationStore(workspaceManager);
+    const { pool, eventSink, capabilityRuntimeManager } = createStartOperationPool(root, controlled.factory, workspaceManager, { modelTransitionCompactionTimeoutMs: 1 });
+    const input = {
+      ...startOperationInput(), model: "target-model", codexThreadId: "source-thread",
+      modelTransitionSource: {
+        model: "source-model",
+        provider: { revision: 1, baseUrl: "https://source.example.test/v1", protocolMode: "native_responses" as const, apiKey: "test-source-key" },
+      },
+    };
+    await pool.beginStartOperation(input);
+    await waitForFast(() => expect(eventSink.reportStartSettled).toHaveBeenCalledOnce());
+    await new Promise((resolve) => setImmediate(resolve));
+    if (scenario === "surviving-process") {
+      await waitForFast(async () => expect(await store.read(input.conversationId, input.projectionTurnId)).toMatchObject({ status: "uncertain" }));
+      // Wait for the start operation's finally handlers before testing recovery.
+      await new Promise((resolve) => setImmediate(resolve));
+      vi.useFakeTimers();
+      try {
+        const recovery = pool.getStartOperation(input.conversationId, input.projectionTurnId);
+        const rejected = expect(recovery).rejects.toThrow("codex app-server did not exit after SIGKILL");
+        await vi.waitFor(() => expect(controlled.kill).toHaveBeenCalledOnce());
+        await vi.advanceTimersByTimeAsync(4_000);
+        await rejected;
+        expect(await store.read(input.conversationId, input.projectionTurnId)).toMatchObject({ status: "uncertain" });
+        expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
+        expect(pool.size).toBe(1);
+      } finally {
+        vi.useRealTimers();
+        controlled.exit(0);
+        await new Promise((resolve) => setImmediate(resolve));
+        await pool.closeAll();
+      }
+      return;
+    }
+    if (scenario === "persisted-failure") {
+      await waitForFast(async () => expect(await store.read(input.conversationId, input.projectionTurnId)).toMatchObject({ status: "uncertain" }));
+      const state = await store.read(input.conversationId, input.projectionTurnId);
+      if (!state) throw new Error("missing start operation");
+      await store.update(state, { status: "failed", errorCode: "RUNNER_TURN_START_FAILED" });
+    } else {
+      await waitForFast(async () => expect(await pool.getStartOperation(input.conversationId, input.projectionTurnId)).toMatchObject({ status: "failed" }));
+    }
+    await expect(pool.closeConversation(input.conversationId)).resolves.toBeUndefined();
+    expect(capabilityRuntimeManager.releaseLease).toHaveBeenCalledOnce();
+    expect(controlled.kill).toHaveBeenCalledOnce();
+    expect(controlled.methods).not.toContain("turn/start");
+    await pool.closeAll();
+  });
+
   it("fails an unrecoverable uncertain start that has no native correlation", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-start-uncertain-missing-correlation-"),
@@ -11108,6 +11167,7 @@ function createStartOperationPool(
     globalFeatureOverrides?: readonly string[];
     managedBrowserEnabled?: boolean;
     nativeTurnRegistrationTimeoutMs?: number;
+    modelTransitionCompactionTimeoutMs?: number;
     logger?: Logger;
   } = {},
 ) {
@@ -11162,6 +11222,9 @@ function createStartOperationPool(
     personalStdioLauncherArgs: ["/app/dist/mcp/personal-stdio-launcher.js"],
     mcpEndpointBase: "http://127.0.0.1:4010/mcp-file-service",
     childProcessFactory,
+    ...(overrides.modelTransitionCompactionTimeoutMs !== undefined
+      ? { modelTransitionCompactionTimeoutMs: overrides.modelTransitionCompactionTimeoutMs }
+      : {}),
     ...(overrides.nativeTurnRegistrationTimeoutMs !== undefined
       ? {
           nativeTurnRegistrationTimeoutMs:

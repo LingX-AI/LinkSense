@@ -3905,6 +3905,16 @@ export class AppServerProcessPool {
     await this.withProcessLifecycleLock(conversationId, async () => {
       const managed = this.processes.get(conversationId);
       if (!managed) return;
+      if (managed.uncertainStartOperationId) {
+        const state = await this.readStartOperation(
+          conversationId,
+          managed.uncertainStartOperationId,
+        );
+        if (state && isSafelyRetryableStartOperation(state)) {
+          await this.closeUnsubmittedStartProcessLocked(state);
+          if (!this.processes.has(conversationId)) return;
+        }
+      }
       if (
         managed.starting ||
         managed.activeTurnId ||
@@ -4551,6 +4561,11 @@ export class AppServerProcessPool {
     recoveryInput?: StartTurnInput,
   ): Promise<StartOperationState> {
     if (state.status === "succeeded" || state.status === "failed") {
+      if (isSafelyRetryableStartOperation(state)) {
+        await this.withProcessLifecycleLock(state.conversationId, () =>
+          this.closeUnsubmittedStartProcessLocked(state),
+        );
+      }
       return state;
     }
     if (this.activeStartOperations.has(key)) return state;
@@ -4570,27 +4585,42 @@ export class AppServerProcessPool {
       return this.resolveExistingStartOperation(key, refreshed, recoveryInput);
     }
     if (!state.correlation || !state.ownerId) {
-      if (state.status === "uncertain") {
-        if (state.ownerId && state.requestFingerprint && !state.correlation) {
+      if (state.ownerId && state.requestFingerprint && !state.correlation) {
+        return this.withProcessLifecycleLock(state.conversationId, async () => {
+          if (!await this.closeUnsubmittedStartProcessLocked(state)) return state;
           return this.startOperationStore.update(state, {
             status: "failed",
             errorCode: "RUNNER_TURN_START_FAILED",
           });
-        }
-        return state;
-      }
-      if (!state.ownerId || !state.requestFingerprint) {
-        return this.startOperationStore.update(state, {
-          status: "uncertain",
-          errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
         });
       }
+      if (state.status === "uncertain") return state;
       return this.startOperationStore.update(state, {
-        status: "failed",
-        errorCode: "RUNNER_TURN_START_FAILED",
+        status: "uncertain",
+        errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN",
       });
     }
     return this.recoverStartOperation(state, recoveryInput);
+  }
+
+  private async closeUnsubmittedStartProcessLocked(
+    state: StartOperationState,
+  ): Promise<boolean> {
+    // Correlation is persisted before submitting the user turn. Only an
+    // unsubmitted preparation may be retired without native turn recovery.
+    if (state.correlation || !state.ownerId || !state.requestFingerprint) return false;
+    if (this.activeStartOperations.has(
+      startOperationKey(state.conversationId, state.projectionTurnId),
+    )) return false;
+    const managed = this.processes.get(state.conversationId);
+    if (!managed || managed.uncertainStartOperationId !== state.projectionTurnId) return true;
+    if (
+      managed.ownerId !== state.ownerId || managed.starting ||
+      managed.activeTurnId || managed.activeProjectionTurnId ||
+      hasContinuingGoal(managed)
+    ) return false;
+    await this.closeManagedProcess(managed);
+    return true;
   }
 
   private async recoverStartOperation(

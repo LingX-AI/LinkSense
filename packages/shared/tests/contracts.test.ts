@@ -122,12 +122,18 @@ describe("shared boundary contracts", () => {
 
   it("accepts only non-negative archived task clear counts", () => {
     expect(
-      archivedConversationClearResultSchema.parse({ deleted_count: 3 }),
-    ).toEqual({ deleted_count: 3 });
+      archivedConversationClearResultSchema.parse({ deleted_count: 3, failed_tasks: [] }),
+    ).toEqual({ deleted_count: 3, failed_tasks: [] });
     expect(
-      archivedConversationClearResultSchema.safeParse({ deleted_count: -1 })
+      archivedConversationClearResultSchema.safeParse({ deleted_count: -1, failed_tasks: [] })
         .success,
     ).toBe(false);
+  });
+
+  it("validates archived cleanup failures without exposing arbitrary errors", () => {
+    const result = { deleted_count: 0, failed_tasks: [{ conversation_id: "10000000-0000-4000-8000-000000000001", title: "Busy task", error_code: "CONFLICT" }] };
+    expect(archivedConversationClearResultSchema.parse(result)).toEqual(result);
+    expect(archivedConversationClearResultSchema.safeParse({ ...result, failed_tasks: [{ ...result.failed_tasks[0], error_code: "raw server failure" }] }).success).toBe(false);
   });
 
   it("accepts only known built-in capability ids as turn priorities", () => {

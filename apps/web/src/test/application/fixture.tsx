@@ -1176,7 +1176,7 @@ function installApiMock(options?: {
         )
         return json({
           success: true,
-          data: { deleted_count: deletedCount },
+          data: { deleted_count: deletedCount, failed_tasks: [] },
         })
       }
       if (path === "/api/v1/conversations/order" && method === "PUT") {
