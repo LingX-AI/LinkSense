@@ -26,6 +26,12 @@ import {
   sortSidebarConversations,
 } from "./conversation-order"
 import {
+  defaultSidebarTaskSortModes,
+  type SidebarTaskSortMode,
+  type SidebarTaskSortModes,
+  type SidebarTaskSortScope,
+} from "./sidebar-task-sort-preference"
+import {
   SidebarConversationDragState,
   SidebarConversationDropTargetContext,
   type SidebarConversationDropTarget,
@@ -47,9 +53,11 @@ export function SidebarConversationDnd({
   projects,
   disabled,
   projectSortingDisabled = disabled,
+  sortModes = defaultSidebarTaskSortModes,
   onMove,
   onReorder,
   onReorderProjects,
+  onSortModeChange,
   onError,
   children,
 }: {
@@ -57,9 +65,14 @@ export function SidebarConversationDnd({
   projects: readonly Project[]
   disabled: boolean
   projectSortingDisabled?: boolean
+  sortModes?: SidebarTaskSortModes
   onMove: (conversationId: string, projectId: string) => Promise<unknown>
   onReorder: (request: ReorderRequest) => Promise<unknown>
   onReorderProjects: (projectIds: string[]) => Promise<unknown>
+  onSortModeChange?: (
+    scope: SidebarTaskSortScope,
+    mode: SidebarTaskSortMode
+  ) => void
   onError: (error: unknown) => void
   children: ReactNode
 }) {
@@ -97,17 +110,22 @@ export function SidebarConversationDnd({
     const byTaskId = new Map<string, string[]>()
     const positions = new Map<string, number>()
     for (const group of groups.values()) {
-      const ids = sortSidebarConversations(
-        group,
-        group[0]?.pinned_at ? "pinned" : "recent"
-      ).map((task) => task.id)
+      const first = group[0]
+      const scope = first?.pinned_at
+        ? "pinned"
+        : first?.project_id
+          ? "projects"
+          : "recent"
+      const ids = sortSidebarConversations(group, sortModes[scope]).map(
+        (task) => task.id
+      )
       ids.forEach((id, index) => {
         byTaskId.set(id, ids)
         positions.set(id, index + 1)
       })
     }
     return { byTaskId, positions }
-  }, [conversations])
+  }, [conversations, sortModes])
   const projectOrder = useMemo(() => [...destinations.keys()], [destinations])
   const dragState = useMemo(
     () => ({
@@ -293,6 +311,12 @@ export function SidebarConversationDnd({
           })
         )
       } else if (ids) {
+        const scope = task.pinned_at
+          ? "pinned"
+          : task.project_id
+            ? "projects"
+            : "recent"
+        onSortModeChange?.(scope, "manual")
         setPendingOrder(ids)
         await onReorder({
           group: task.pinned_at ? "pinned" : "recent",

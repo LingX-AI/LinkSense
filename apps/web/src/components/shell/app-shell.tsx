@@ -115,8 +115,13 @@ import {
   applySidebarConversationOrder,
   patchSidebarConversationTitle,
   patchSidebarConversationExecutionStatus,
-  sortSidebarConversations,
 } from "@/features/conversations/conversation-order"
+import {
+  readSidebarTaskSortModes,
+  rememberSidebarTaskSortModes,
+  type SidebarTaskSortMode,
+  type SidebarTaskSortScope,
+} from "@/features/conversations/sidebar-task-sort-preference"
 import {
   applyConversationExecutionTransition,
   getConversationExecutionTransition,
@@ -399,6 +404,14 @@ function AppSidebarContent({
   const [renameValue, setRenameValue] = useState("")
   const [actionError, setActionError] = useState<string>()
   const [unpinBlockedMessage, setUnpinBlockedMessage] = useState<string>()
+  const [taskSortPreference, setTaskSortPreference] = useState(() => ({
+    userId: user?.id,
+    modes: readSidebarTaskSortModes(user?.id),
+  }))
+  const taskSortModes =
+    taskSortPreference.userId === user?.id
+      ? taskSortPreference.modes
+      : readSidebarTaskSortModes(user?.id)
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
   const automationNotificationQueryKey = [
     "automations",
@@ -442,6 +455,31 @@ function AppSidebarContent({
     () => conversationsData?.pages.flatMap((page) => page.items) ?? [],
     [conversationsData]
   )
+  const handleTaskSortModeChange = useCallback(
+    (scope: SidebarTaskSortScope, mode: SidebarTaskSortMode) => {
+      setTaskSortPreference((current) => {
+        const modes =
+          current.userId === user?.id
+            ? current.modes
+            : readSidebarTaskSortModes(user?.id)
+        if (modes[scope] === mode && current.userId === user?.id) return current
+        const next = { ...modes, [scope]: mode }
+        rememberSidebarTaskSortModes(user?.id, next)
+        return { userId: user?.id, modes: next }
+      })
+    },
+    [user?.id]
+  )
+  const sidebarConversations = useMemo(
+    () =>
+      conversations.map((conversation) =>
+        locallyReadConversationIds.has(conversation.id) &&
+        conversation.has_unread_completion
+          ? { ...conversation, has_unread_completion: false }
+          : conversation
+      ),
+    [conversations, locallyReadConversationIds]
+  )
   const backgroundRunningConversationIds = useMemo(
     () =>
       conversations
@@ -455,19 +493,15 @@ function AppSidebarContent({
   )
   const pinnedConversations = useMemo(
     () =>
-      sortSidebarConversations(
-        conversations.filter((conversation) => Boolean(conversation.pinned_at)),
-        "pinned"
+      sidebarConversations.filter((conversation) =>
+        Boolean(conversation.pinned_at)
       ),
-    [conversations]
+    [sidebarConversations]
   )
   const recentConversations = useMemo(
     () =>
-      sortSidebarConversations(
-        conversations.filter((conversation) => !conversation.pinned_at),
-        "recent"
-      ),
-    [conversations]
+      sidebarConversations.filter((conversation) => !conversation.pinned_at),
+    [sidebarConversations]
   )
   const nativeReconnectStoreRevision = useNativeReconnectStoreRevision()
   const reconnectFailedConversationIds = useMemo(() => {
@@ -941,8 +975,9 @@ function AppSidebarContent({
             </p>
           )}
           <SidebarConversationDnd
-            conversations={conversations}
+            conversations={sidebarConversations}
             projects={projectsQuery.data ?? []}
+            sortModes={taskSortModes}
             projectSortingDisabled={
               projectsQuery.isPending || projectsQuery.isError
             }
@@ -955,6 +990,7 @@ function AppSidebarContent({
             }
             onReorder={(request) => reorderMutation.mutateAsync(request)}
             onReorderProjects={(ids) => reorderProjectMutation.mutateAsync(ids)}
+            onSortModeChange={handleTaskSortModeChange}
             onMove={(conversationId, projectId) =>
               moveProjectMutation.mutateAsync({ conversationId, projectId })
             }
@@ -965,6 +1001,8 @@ function AppSidebarContent({
               pinned={pinnedConversations}
               recent={recentConversations}
               projects={projectsQuery.data ?? []}
+              sortModes={taskSortModes}
+              onSortModeChange={handleTaskSortModeChange}
               loadingMore={
                 Boolean(hasNextPage) ||
                 isFetchingNextPage ||
@@ -1071,13 +1109,7 @@ function AppSidebarContent({
                                       defaultApplicationIcon
                                     }
                                     compact
-                                    className={cn(
-                                      "sidebar-conversation-application-icon shrink-0",
-                                      conversation.application.kind ===
-                                        "interactive"
-                                        ? "size-4 [&_svg]:size-4"
-                                        : "size-5"
-                                    )}
+                                    className="sidebar-conversation-application-icon size-5 shrink-0"
                                   />
                                 </span>
                               )}
@@ -1250,7 +1282,7 @@ function AppSidebarContent({
           )}
         </SidebarTaskScrollArea>
 
-        <div className="sidebar-account-bar mt-1 flex shrink-0 items-center gap-1">
+        <div className="sidebar-account-bar -mx-3 mt-1 flex shrink-0 items-center gap-1 border-t border-[color:var(--app-divider)] px-3 pt-1">
           <DropdownMenu>
             <DropdownMenuTrigger
               render={

@@ -145,18 +145,60 @@ describe("ConversationTitleService", () => {
     expect(fixture.tx.conversation.updateMany).not.toHaveBeenCalled()
   })
 
-  it("preserves a manual name even when it matches an external application name", async () => {
+  it("upgrades a legacy application default name into an automatic task title", async () => {
     const fixture = titleFixture("manual", undefined, {
       title: "ManageBac助手",
       applicationId: "30000000-0000-4000-8000-000000000001",
       applicationNameSnapshot: "ManageBac助手",
-      accountType: "application_external",
     })
 
     await fixture.service.refresh(CONVERSATION_ID)
 
-    expect(fixture.tx.conversation.updateMany).not.toHaveBeenCalled()
+    expect(fixture.prisma.application.findUnique).toHaveBeenCalledWith({
+      where: { id: "30000000-0000-4000-8000-000000000001" },
+      select: { developmentOnly: true },
+    })
+    expect(fixture.tx.conversation.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: CONVERSATION_ID,
+        titleSource: "manual",
+        title: "ManageBac助手",
+        applicationId: "30000000-0000-4000-8000-000000000001",
+        applicationNameSnapshot: "ManageBac助手",
+      },
+      data: { title: "任务自动命名", titleSource: "generated" },
+    })
+  })
+
+  it("preserves a custom manual application task title", async () => {
+    const fixture = titleFixture("manual", undefined, {
+      title: "我的财务整理任务",
+      applicationId: "30000000-0000-4000-8000-000000000001",
+      applicationNameSnapshot: "Finance assistant",
+    })
+
+    await fixture.service.refresh(CONVERSATION_ID)
+
+    expect(fixture.prisma.application.findUnique).not.toHaveBeenCalled()
     expect(fixture.generator.generate).not.toHaveBeenCalled()
+  })
+
+  it("preserves the application name for a development preview task", async () => {
+    const fixture = titleFixture("manual", undefined, {
+      title: "调研应用",
+      applicationId: "30000000-0000-4000-8000-000000000001",
+      applicationNameSnapshot: "调研应用",
+      developmentOnly: true,
+    })
+
+    await fixture.service.refresh(CONVERSATION_ID)
+
+    expect(fixture.prisma.application.findUnique).toHaveBeenCalledWith({
+      where: { id: "30000000-0000-4000-8000-000000000001" },
+      select: { developmentOnly: true },
+    })
+    expect(fixture.generator.generate).not.toHaveBeenCalled()
+    expect(fixture.tx.conversation.updateMany).not.toHaveBeenCalled()
   })
 
   it("never calls the provider for an already generated task title", async () => {
@@ -379,6 +421,7 @@ function titleFixture(
     applicationId?: string | null
     applicationNameSnapshot?: string | null
     accountType?: string
+    developmentOnly?: boolean
   } = {},
   taskAutoNaming: "first_message" | "every_message" = "first_message",
 ) {
@@ -421,6 +464,11 @@ function titleFixture(
     },
     conversationMessage: {
       findMany: vi.fn(async () => [...messages].reverse()),
+    },
+    application: {
+      findUnique: vi.fn(async () => ({
+        developmentOnly: conversationOverrides.developmentOnly ?? false,
+      })),
     },
     user,
     $transaction: vi.fn(

@@ -1,10 +1,19 @@
 import { arrayMove } from "@dnd-kit/sortable"
 
 import type { Conversation } from "@/api/contracts"
+import type { SidebarTaskSortMode } from "./sidebar-task-sort-preference"
 
 type SidebarConversationOrder = Pick<
   Conversation,
-  "id" | "pinned_at" | "sort_order" | "updated_at"
+  | "id"
+  | "pinned_at"
+  | "sort_order"
+  | "updated_at"
+  | "created_at"
+  | "last_run_at"
+  | "execution_status"
+  | "has_unread_completion"
+  | "needs_attention"
 >
 
 type SidebarConversationOrderPage<T> = {
@@ -25,28 +34,78 @@ type SidebarConversationData<T> = {
 
 export function sortSidebarConversations<T extends SidebarConversationOrder>(
   conversations: readonly T[],
-  group: "pinned" | "recent"
+  mode: SidebarTaskSortMode
 ) {
-  return [...conversations].sort((left, right) => {
-    const leftOrder = left.sort_order ?? null
-    const rightOrder = right.sort_order ?? null
-    if (leftOrder !== null || rightOrder !== null) {
-      if (leftOrder === null) return -1
-      if (rightOrder === null) return 1
-      if (leftOrder !== rightOrder) return leftOrder - rightOrder
+  const indexed = conversations.map((conversation, index) => ({
+    conversation,
+    index,
+  }))
+  indexed.sort((left, right) => {
+    if (mode === "manual") {
+      const leftOrder = left.conversation.sort_order ?? null
+      const rightOrder = right.conversation.sort_order ?? null
+      if (
+        leftOrder !== null &&
+        rightOrder !== null &&
+        leftOrder !== rightOrder
+      ) {
+        return leftOrder - rightOrder
+      }
+      if (leftOrder !== null && rightOrder === null) return -1
+      if (leftOrder === null && rightOrder !== null) return 1
+      return left.index - right.index
     }
 
-    const leftFallback = Date.parse(
-      group === "pinned" ? (left.pinned_at ?? left.updated_at) : left.updated_at
-    )
-    const rightFallback = Date.parse(
-      group === "pinned"
-        ? (right.pinned_at ?? right.updated_at)
-        : right.updated_at
-    )
-    if (leftFallback !== rightFallback) return rightFallback - leftFallback
-    return right.id.localeCompare(left.id)
+    if (mode === "priority") {
+      const priorityDifference =
+        sidebarConversationPriority(left.conversation) -
+        sidebarConversationPriority(right.conversation)
+      if (priorityDifference !== 0) return priorityDifference
+    }
+
+    const recencyDifference =
+      sidebarConversationRecency(right.conversation) -
+      sidebarConversationRecency(left.conversation)
+    if (recencyDifference !== 0) return recencyDifference
+    return left.index - right.index
   })
+  return indexed.map(({ conversation }) => conversation)
+}
+
+const sidebarConversationPriorityWeight = {
+  waiting: 0,
+  unread: 1,
+  active: 2,
+  idle: 3,
+} as const
+
+function sidebarConversationPriority(
+  conversation: SidebarConversationOrder
+): number {
+  if (conversation.needs_attention) {
+    return sidebarConversationPriorityWeight.waiting
+  }
+  if (conversation.has_unread_completion) {
+    return sidebarConversationPriorityWeight.unread
+  }
+  if (
+    conversation.execution_status === "running" ||
+    conversation.execution_status === "pending"
+  ) {
+    return sidebarConversationPriorityWeight.active
+  }
+  return sidebarConversationPriorityWeight.idle
+}
+
+function sidebarConversationRecency(
+  conversation: SidebarConversationOrder
+): number {
+  const parsed = Date.parse(
+    conversation.last_run_at ??
+      conversation.created_at ??
+      conversation.updated_at
+  )
+  return Number.isNaN(parsed) ? 0 : parsed
 }
 
 export type ConversationInsertionEdge = "before" | "after"
