@@ -69,6 +69,9 @@ export const feedbackReplyInputSchema = z
 
 export const feedbackReplySchema = z.strictObject({
   id: z.string().uuid(),
+  author: z.strictObject({
+    name: z.string().min(1).max(120),
+  }),
   content: feedbackReplyContentSchema,
   created_at: z.iso.datetime({ offset: true }),
   images: z.array(feedbackImageSchema).max(FEEDBACK_MAX_IMAGES),

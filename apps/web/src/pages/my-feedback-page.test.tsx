@@ -37,6 +37,9 @@ const replyImage = {
 }
 const reply = {
   id: "10000000-0000-4000-8000-000000000011",
+  author: {
+    name: "周蕊",
+  },
   content: "已经处理，请查看说明",
   created_at: "2026-09-09T01:00:00.000Z",
   images: [replyImage],
@@ -291,6 +294,45 @@ describe("personal feedback", () => {
       ),
       expect.anything()
     )
+  })
+
+  it("groups replies into one divided list and shows each real author name", async () => {
+    const secondReply = {
+      ...reply,
+      id: "10000000-0000-4000-8000-000000000013",
+      author: {
+        name: "陈航",
+      },
+      content: "补充处理结果",
+      images: [],
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith(answeredFeedback.id))
+          return envelope({
+            ...answeredFeedback,
+            reply_count: 2,
+            replies: [{ ...reply, images: [] }, secondReply],
+          })
+        return envelope({ items: [answeredFeedback], next_cursor: null })
+      })
+    )
+    const interaction = userEvent.setup()
+    renderPage()
+    await interaction.click(await screen.findByRole("button", { name: "查看" }))
+    const dialog = await screen.findByRole("dialog", { name: "反馈详情" })
+    const replyList = within(dialog).getByRole("list", { name: "回复记录" })
+    const items = within(replyList).getAllByRole("listitem")
+
+    expect(within(replyList).getByText("周蕊")).toBeVisible()
+    expect(within(replyList).getByText("陈航")).toBeVisible()
+    expect(within(dialog).queryByText("管理员")).not.toBeInTheDocument()
+    expect(replyList).toHaveClass("divide-y", "divide-divider")
+    expect(items).toHaveLength(2)
+    for (const item of items) {
+      expect(item).not.toHaveClass("rounded-xl", "border", "bg-card-soft")
+    }
   })
 
   it("handles loading, errors, retry, and empty results", async () => {

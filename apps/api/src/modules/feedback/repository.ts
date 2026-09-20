@@ -222,6 +222,16 @@ export class PrismaFeedbackStore implements FeedbackStore {
           where: { feedbackId: input.feedbackId },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         });
+        const authorIds = [...new Set(replies.map((reply) => reply.authorId))];
+        const authors = authorIds.length
+          ? await transaction.user.findMany({
+              where: { id: { in: authorIds } },
+              select: { id: true, name: true },
+            })
+          : [];
+        const authorsById = new Map(
+          authors.map((author) => [author.id, author.name]),
+        );
         const replyImages = replies.length
           ? await transaction.feedbackReplyImage.findMany({
               where: { replyId: { in: replies.map((reply) => reply.id) } },
@@ -240,12 +250,17 @@ export class PrismaFeedbackStore implements FeedbackStore {
           created_at: feedback.createdAt.toISOString(),
           images: images.map(publicImage),
           reply_count: replies.length,
-          replies: replies.map((reply) => ({
-            id: reply.id,
-            content: reply.content,
-            created_at: reply.createdAt.toISOString(),
-            images: imagesByReply.get(reply.id) ?? [],
-          })),
+          replies: replies.map((reply) => {
+            const authorName = authorsById.get(reply.authorId);
+            if (!authorName) throw new AppError("INTERNAL_ERROR");
+            return {
+              id: reply.id,
+              author: { name: authorName },
+              content: reply.content,
+              created_at: reply.createdAt.toISOString(),
+              images: imagesByReply.get(reply.id) ?? [],
+            };
+          }),
         };
       },
       { isolationLevel: "RepeatableRead" },
