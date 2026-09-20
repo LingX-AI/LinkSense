@@ -54,30 +54,23 @@ export interface UserCreditLimitDefaultsReader {
   getSettings(): Promise<QuotaSettings>;
 }
 
-export type UserCreditQuotaTotalUsage = {
+export type UserCreditQuotaPeriodUsage = {
   limitCreditMicros: bigint;
   usedCreditMicros: bigint;
   remainingCreditMicros: bigint;
   remainingPercentage: number;
-};
-
-export type UserCreditQuotaPeriodUsage = UserCreditQuotaTotalUsage & {
   resetAt: Date;
 };
 
 export type UserCreditQuotaUsage = {
-  total: UserCreditQuotaTotalUsage | null;
   weekly: UserCreditQuotaPeriodUsage | null;
-  monthly: UserCreditQuotaPeriodUsage | null;
 };
 
 export interface UserCreditQuotaUsageReader {
   currentUsageForLimits(
     userId: string,
     limits: {
-      totalCreditLimitMicros: bigint | null;
       weeklyCreditLimitMicros: bigint | null;
-      monthlyCreditLimitMicros: bigint | null;
       creditQuotaResetAt: Date | null;
     },
   ): Promise<UserCreditQuotaUsage>;
@@ -93,8 +86,8 @@ export type UserServiceOptions = {
   materializeUserHomes?: (userIds: readonly string[]) => Promise<void>;
   visitorProfile?: (userId: string) => Promise<{
     id: string; displayName: string | null;
-    totalCreditLimitMicros: bigint | null; weeklyCreditLimitMicros: bigint | null;
-    monthlyCreditLimitMicros: bigint | null; creditQuotaResetAt: Date | null;
+    weeklyCreditLimitMicros: bigint | null;
+    creditQuotaResetAt: Date | null;
   } | null>;
   avatarMaxBytes?: number;
   now?: () => Date;
@@ -128,7 +121,7 @@ export class UserService {
           .optional(),
         user_group_id: z.string().uuid().optional(),
         credit_quota_remaining_zero: z
-          .enum(["total", "weekly", "monthly"])
+          .enum(["weekly"])
           .optional(),
         cursor: z.string().uuid().optional(),
         limit: z.coerce.number().int().min(1).max(500).default(50),
@@ -218,9 +211,7 @@ export class UserService {
       name: parsed.name,
       role: parsed.role,
       userGroupIds: parsed.user_group_ids,
-      totalCreditLimitMicros: creditLimits.totalCreditLimitMicros,
       weeklyCreditLimitMicros: creditLimits.weeklyCreditLimitMicros,
-      monthlyCreditLimitMicros: creditLimits.monthlyCreditLimitMicros,
       actorId: actor.id,
       now: jwtBoundary(this.now()),
       audit,
@@ -249,14 +240,8 @@ export class UserService {
         ...(parsed.user_group_ids !== undefined
           ? { userGroupIds: parsed.user_group_ids }
           : {}),
-        ...(parsed.total_credit_limit !== undefined
-          ? { totalCreditLimitMicros: parseCreditLimit(parsed.total_credit_limit) }
-          : {}),
         ...(parsed.weekly_credit_limit !== undefined
           ? { weeklyCreditLimitMicros: parseCreditLimit(parsed.weekly_credit_limit) }
-          : {}),
-        ...(parsed.monthly_credit_limit !== undefined
-          ? { monthlyCreditLimitMicros: parseCreditLimit(parsed.monthly_credit_limit) }
           : {}),
         now: jwtBoundary(this.now()),
         audit,
@@ -281,14 +266,8 @@ export class UserService {
     return this.options.persistence.updateUserCreditLimits({
       targetUserIds: [...new Set(parsed.user_ids)].sort(),
       actorId: actor.id,
-      ...(parsed.total_credit_limit !== undefined
-        ? { totalCreditLimitMicros: parseCreditLimit(parsed.total_credit_limit) }
-        : {}),
       ...(parsed.weekly_credit_limit !== undefined
         ? { weeklyCreditLimitMicros: parseCreditLimit(parsed.weekly_credit_limit) }
-        : {}),
-      ...(parsed.monthly_credit_limit !== undefined
-        ? { monthlyCreditLimitMicros: parseCreditLimit(parsed.monthly_credit_limit) }
         : {}),
       now: jwtBoundary(this.now()),
       audit,
@@ -354,9 +333,7 @@ export class UserService {
     const creditLimits = await this.defaultCreditLimitsForNewUser();
     const items = await this.options.persistence.importUsers({
       rows,
-      totalCreditLimitMicros: creditLimits.totalCreditLimitMicros,
       weeklyCreditLimitMicros: creditLimits.weeklyCreditLimitMicros,
-      monthlyCreditLimitMicros: creditLimits.monthlyCreditLimitMicros,
       actorId: actor.id,
       now: jwtBoundary(this.now()),
       audit,
@@ -409,16 +386,12 @@ export class UserService {
 
   getCurrentCreditQuotaUsage(user: {
     id: string;
-    totalCreditLimitMicros: bigint | null;
     weeklyCreditLimitMicros: bigint | null;
-    monthlyCreditLimitMicros: bigint | null;
     creditQuotaResetAt: Date | null;
   }): Promise<UserCreditQuotaUsage | null> {
     if (!this.options.creditQuotaUsage) return Promise.resolve(null);
     return this.options.creditQuotaUsage.currentUsageForLimits(user.id, {
-      totalCreditLimitMicros: user.totalCreditLimitMicros,
       weeklyCreditLimitMicros: user.weeklyCreditLimitMicros,
-      monthlyCreditLimitMicros: user.monthlyCreditLimitMicros,
       creditQuotaResetAt: user.creditQuotaResetAt,
     });
   }
@@ -603,8 +576,12 @@ export class UserService {
   }
 
   private async defaultCreditLimitsForNewUser(): Promise<ReturnType<typeof storedCreditLimits>> {
-    const settings = await this.options.creditLimitDefaults?.getSettings();
-    return storedCreditLimits((settings ?? defaultQuotaSettings()).organization_members);
+    const settings =
+      (await this.options.creditLimitDefaults?.getSettings()) ??
+      defaultQuotaSettings();
+    return storedCreditLimits({
+      weekly_credit_limit: settings.weekly_credit_limit,
+    });
   }
 
   private async withUserLifecycleLock<T>(
@@ -645,21 +622,7 @@ function projectCurrentUserCreditQuota(
   usage: UserCreditQuotaUsage | null,
 ): CurrentUserInfoSuccess["credit_quota"] {
   return {
-    total: projectCurrentUserCreditQuotaTotal(usage?.total ?? null),
     weekly: projectCurrentUserCreditQuotaPeriod(usage?.weekly ?? null),
-    monthly: projectCurrentUserCreditQuotaPeriod(usage?.monthly ?? null),
-  };
-}
-
-function projectCurrentUserCreditQuotaTotal(
-  total: UserCreditQuotaTotalUsage | null,
-): CurrentUserInfoSuccess["credit_quota"]["total"] {
-  if (!total) return null;
-  return {
-    limit_credits: creditMicrosToDecimal(total.limitCreditMicros),
-    used_credits: creditMicrosToDecimal(total.usedCreditMicros),
-    remaining_credits: creditMicrosToDecimal(total.remainingCreditMicros),
-    remaining_percentage: total.remainingPercentage,
   };
 }
 

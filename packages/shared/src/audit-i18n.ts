@@ -204,7 +204,7 @@ const actionMessages = {
   users_imported: ["已导入用户", "Users imported"],
   quota_settings_updated: ["已更新额度管理设置", "Quota settings updated"],
   member_credit_quotas_reset: ["已重置成员额度", "Member credit quotas reset"],
-  organization_credit_limits_applied: ["已应用组织成员限额", "Organization member credit limits applied"],
+  member_credit_limits_applied: ["已应用全员限额", "Member credit limits applied"],
   users_credit_limits_updated: ["已更新用户额度", "User credit quotas updated"],
   weixin_connection_created: ["已创建微信连接", "Weixin connection created"],
   weixin_connection_deleted: ["已删除微信连接", "Weixin connection deleted"],

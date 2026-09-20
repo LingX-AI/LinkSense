@@ -523,7 +523,10 @@ describe("PrismaAuthRepository transactions", () => {
         findUnique: vi.fn(async () => ({
           settingsJson: {
             self_registration: { enabled: true },
-            quota_settings: { ...defaultQuotaSettings(), self_registered_users: { total_credit_limit: "12.5", weekly_credit_limit: "2", monthly_credit_limit: "5" } },
+            quota_settings: {
+              ...defaultQuotaSettings(),
+              weekly_credit_limit: "2",
+            },
           },
         })),
       },
@@ -581,7 +584,10 @@ describe("PrismaAuthRepository transactions", () => {
         findUnique: vi.fn(async () => ({
           settingsJson: {
             self_registration: { enabled: true },
-            quota_settings: { ...defaultQuotaSettings(), self_registered_users: { total_credit_limit: "12.5", weekly_credit_limit: "2", monthly_credit_limit: "5" } },
+            quota_settings: {
+              ...defaultQuotaSettings(),
+              weekly_credit_limit: "2",
+            },
           },
         })),
       },
@@ -614,9 +620,7 @@ describe("PrismaAuthRepository transactions", () => {
         status: "active",
         preferredLocale: null,
         selfRegisteredAt: NOW,
-        totalCreditLimitMicros: 12_500_000n,
         weeklyCreditLimitMicros: 2_000_000n,
-        monthlyCreditLimitMicros: 5_000_000n,
       }),
     })
     expect(transaction.registrationToken.updateMany).toHaveBeenCalledWith({

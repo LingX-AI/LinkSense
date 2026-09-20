@@ -25,6 +25,7 @@ const buttonVariants = cva(
           "bg-field text-foreground hover:bg-field aria-expanded:bg-field aria-expanded:text-foreground",
         ghost:
           "hover:bg-hover hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground",
+        plain: "text-foreground",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/60 focus-visible:ring-destructive/30 dark:hover:bg-destructive/90 dark:focus-visible:ring-destructive/40",
         "destructive-ghost":

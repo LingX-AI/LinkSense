@@ -11,11 +11,7 @@ let nextCreditQuotaRefreshQueryInstanceId = 0
 
 export function CreditQuotaRefreshCenter() {
   const { status, user, refreshUser } = useAuth()
-  const hasCreditQuota = Boolean(
-    user?.credit_quota?.total ||
-    user?.credit_quota?.weekly ||
-    user?.credit_quota?.monthly
-  )
+  const hasCreditQuota = Boolean(user?.credit_quota?.weekly)
 
   if (status !== "authenticated" || !user || !hasCreditQuota) return null
 

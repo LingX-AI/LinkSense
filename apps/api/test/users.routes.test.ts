@@ -31,9 +31,7 @@ function managedUserFixture(input: Partial<ManagedUser> = {}): ManagedUser {
     preferredLocale: null,
     selfRegisteredAt: null,
     runningMessageAction: "queue",
-    totalCreditLimitMicros: null,
     weeklyCreditLimitMicros: null,
-    monthlyCreditLimitMicros: null,
     creditQuotaResetAt: null,
     lastLoginAt: null,
     lastLoginMethod: null,
@@ -254,12 +252,11 @@ describe("administrator user Excel import routes", () => {
 });
 
 describe("administrator user list routes", () => {
-  it("returns current token usage for managed user rows", async () => {
+  it("returns current credit usage for managed user rows", async () => {
     const listUsers = vi.fn(async () => ({
       items: [
         managedUserFixture({
           weeklyCreditLimitMicros: 1_000n,
-          monthlyCreditLimitMicros: 4_000n,
         }),
       ],
       nextCursor: null,
@@ -271,13 +268,6 @@ describe("administrator user list routes", () => {
         remainingCreditMicros: 0n,
         remainingPercentage: 0,
         resetAt: new Date("2026-08-09T16:00:00.000Z"),
-      },
-      monthly: {
-        limitCreditMicros: 4_000n,
-        usedCreditMicros: 1_000n,
-        remainingCreditMicros: 3_000n,
-        remainingPercentage: 75,
-        resetAt: new Date("2026-09-01T00:00:00.000Z"),
       },
     }));
     const app = Fastify();
@@ -308,15 +298,10 @@ describe("administrator user list routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().data.items[0]).toMatchObject({
       weekly_credit_limit: "0.001",
-      monthly_credit_limit: "0.004",
       credit_quota: {
         weekly: {
           remaining_credits: "0",
           remaining_percentage: 0,
-        },
-        monthly: {
-          remaining_credits: "0.003",
-          remaining_percentage: 75,
         },
       },
     });
@@ -348,7 +333,6 @@ describe("administrator user list service", () => {
     }));
     const creditQuotaUsage = {
       currentUsageForLimits: vi.fn(async (userId: string) => ({
-        total: null,
         weekly:
           userId === "00000000-0000-4000-8000-000000000012"
             ? null
@@ -366,7 +350,6 @@ describe("administrator user list service", () => {
                   userId === "00000000-0000-4000-8000-000000000010" ? 0 : 75,
                 resetAt: new Date("2026-08-09T16:00:00.000Z"),
               },
-        monthly: null,
       })),
     };
     const service = new UserService({
@@ -407,9 +390,7 @@ describe("user response projection", () => {
       preferredLocale: null,
       selfRegisteredAt: new Date("2026-07-17T00:00:00.000Z"),
       runningMessageAction: "queue",
-      totalCreditLimitMicros: null,
       weeklyCreditLimitMicros: 10_000n,
-      monthlyCreditLimitMicros: null,
       creditQuotaResetAt: null,
       lastLoginAt: null,
       lastLoginMethod: null,
@@ -465,7 +446,6 @@ describe("user response projection", () => {
       group_count: 2,
       registration_source: "self_registration",
       weekly_credit_limit: "0.01",
-      monthly_credit_limit: null,
     });
   });
 
@@ -481,9 +461,7 @@ describe("user response projection", () => {
       preferredLocale: null,
       selfRegisteredAt: null,
       runningMessageAction: "queue",
-      totalCreditLimitMicros: null,
       weeklyCreditLimitMicros: 1_000n,
-      monthlyCreditLimitMicros: null,
       creditQuotaResetAt: null,
       lastLoginAt: null,
       lastLoginMethod: null,
@@ -502,7 +480,6 @@ describe("user response projection", () => {
           remainingPercentage: 75,
           resetAt: new Date("2026-08-09T16:00:00.000Z"),
         },
-        monthly: null,
       })),
     } as never;
 
@@ -523,13 +500,12 @@ describe("user response projection", () => {
           remaining_percentage: 75,
           reset_at: "2026-08-09T16:00:00.000Z",
         },
-        monthly: null,
       },
     });
   });
 });
 
-describe("administrator user token limit routes", () => {
+describe("administrator user credit limit routes", () => {
   it("bulk-updates selected users through the static credit-limits endpoint", async () => {
     const updateUserCreditLimits = vi.fn(async () => [
       {
@@ -542,9 +518,7 @@ describe("administrator user token limit routes", () => {
         preferredLocale: null,
         selfRegisteredAt: null,
         runningMessageAction: "queue" as const,
-        totalCreditLimitMicros: 500_000n,
-        weeklyCreditLimitMicros: null,
-        monthlyCreditLimitMicros: 100_000n,
+        weeklyCreditLimitMicros: 500_000n,
         creditQuotaResetAt: null,
         lastLoginAt: null,
         lastLoginMethod: null,
@@ -585,9 +559,7 @@ describe("administrator user token limit routes", () => {
       url: "/admin/users/credit-limits",
       payload: {
         user_ids: ["00000000-0000-4000-8000-000000000010"],
-        total_credit_limit: "0.5",
-        weekly_credit_limit: null,
-        monthly_credit_limit: "0.1",
+        weekly_credit_limit: "0.5",
       },
     });
 
@@ -595,18 +567,14 @@ describe("administrator user token limit routes", () => {
     expect(response.json().data.items).toMatchObject([
       {
         id: "00000000-0000-4000-8000-000000000010",
-        total_credit_limit: "0.5",
-        weekly_credit_limit: null,
-        monthly_credit_limit: "0.1",
+        weekly_credit_limit: "0.5",
       },
     ]);
     expect(updateUserCreditLimits).toHaveBeenCalledWith(
       expect.objectContaining({ role: "admin", status: "active" }),
       {
         user_ids: ["00000000-0000-4000-8000-000000000010"],
-        total_credit_limit: "0.5",
-        weekly_credit_limit: null,
-        monthly_credit_limit: "0.1",
+        weekly_credit_limit: "0.5",
       },
       expect.objectContaining({}),
     );
@@ -626,9 +594,7 @@ describe("own profile route", () => {
       preferredLocale: "zh-CN",
       selfRegisteredAt: null,
       runningMessageAction: "steer",
-      totalCreditLimitMicros: null,
       weeklyCreditLimitMicros: null,
-      monthlyCreditLimitMicros: null,
       creditQuotaResetAt: null,
       lastLoginAt: null,
       lastLoginMethod: "password",

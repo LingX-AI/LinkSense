@@ -124,7 +124,6 @@ try {
   assert.equal(externalSession.runtimePrincipalId, visitor);
   assert.equal(externalSession.conversationId, externalTask);
   assert.equal(externalSession.preferredLocale, 'en-US');
-  assert.equal(externalSession.totalCreditLimitMicros, 2500000n);
   assert.equal(externalSession.displayName, 'Existing visitor');
   assert.deepEqual(await db.applicationExternalAccess.findUniqueOrThrow({ where: { id: externalAccess } }), accessBefore);
   assert.equal(await db.applicationGrant.count({ where: { id: grant } }), 1);

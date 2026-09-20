@@ -440,7 +440,6 @@ describe("shared boundary contracts", () => {
           ],
         },
         credit_quota: {
-          total: null,
           weekly: {
             limit_credits: "0.001",
             used_credits: "0.00025",
@@ -448,12 +447,11 @@ describe("shared boundary contracts", () => {
             remaining_percentage: 75,
             reset_at: "2026-08-24T00:00:00.000Z",
           },
-          monthly: null,
         },
       }),
     ).toMatchObject({
       user: { email: "ada@example.com" },
-      credit_quota: { monthly: null },
+      credit_quota: { weekly: { remaining_percentage: 75 } },
     });
     expect(
       currentUserInfoSuccessSchema.safeParse({
@@ -464,7 +462,7 @@ describe("shared boundary contracts", () => {
           role: "admin",
           user_groups: [],
         },
-        credit_quota: { total: null, weekly: null, monthly: null },
+        credit_quota: { weekly: null },
       }).success,
     ).toBe(false);
     expect(

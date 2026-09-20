@@ -60,7 +60,7 @@ export class PrismaUserRepository implements UserPersistence {
     role?: "user" | "admin";
     registrationSource?: "self_registration" | "organization_invitation";
     userGroupId?: string;
-    creditQuotaRemainingZero?: "total" | "weekly" | "monthly";
+    creditQuotaRemainingZero?: "weekly";
     cursor?: string;
     limit: number;
   }): Promise<{ items: ManagedUser[]; nextCursor: string | null }> {
@@ -142,9 +142,7 @@ export class PrismaUserRepository implements UserPersistence {
           status: "active",
           passwordHash: null,
           passwordUpdatedAt: null,
-          totalCreditLimitMicros: input.totalCreditLimitMicros,
           weeklyCreditLimitMicros: input.weeklyCreditLimitMicros,
-          monthlyCreditLimitMicros: input.monthlyCreditLimitMicros,
           authValidAfter: input.now,
           createdAt: input.now,
           updatedAt: input.now,
@@ -274,14 +272,8 @@ export class PrismaUserRepository implements UserPersistence {
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.role !== undefined ? { role: input.role } : {}),
           ...(input.status !== undefined ? { status: input.status } : {}),
-          ...(input.totalCreditLimitMicros !== undefined
-            ? { totalCreditLimitMicros: input.totalCreditLimitMicros }
-            : {}),
           ...(input.weeklyCreditLimitMicros !== undefined
             ? { weeklyCreditLimitMicros: input.weeklyCreditLimitMicros }
-            : {}),
-          ...(input.monthlyCreditLimitMicros !== undefined
-            ? { monthlyCreditLimitMicros: input.monthlyCreditLimitMicros }
             : {}),
           ...(invalidatesAuthentication ? { authValidAfter: input.now } : {}),
           updatedAt: input.now,
@@ -350,9 +342,7 @@ export class PrismaUserRepository implements UserPersistence {
               }
             : {}),
           cancelled_pending_request_count: cancelledPendingCount,
-          total_credit_limit_changed: input.totalCreditLimitMicros !== undefined,
           weekly_credit_limit_changed: input.weeklyCreditLimitMicros !== undefined,
-          monthly_credit_limit_changed: input.monthlyCreditLimitMicros !== undefined,
         },
         ipAddress: input.audit.ipAddress ?? null,
         userAgent: input.audit.userAgent ?? null,
@@ -386,14 +376,8 @@ export class PrismaUserRepository implements UserPersistence {
       await transaction.user.updateMany({
         where: { id: { in: targetUserIds } },
         data: {
-          ...(input.totalCreditLimitMicros !== undefined
-            ? { totalCreditLimitMicros: input.totalCreditLimitMicros }
-            : {}),
           ...(input.weeklyCreditLimitMicros !== undefined
             ? { weeklyCreditLimitMicros: input.weeklyCreditLimitMicros }
-            : {}),
-          ...(input.monthlyCreditLimitMicros !== undefined
-            ? { monthlyCreditLimitMicros: input.monthlyCreditLimitMicros }
             : {}),
           updatedAt: input.now,
         },
@@ -406,9 +390,7 @@ export class PrismaUserRepository implements UserPersistence {
         result: "success",
         metadata: {
           user_count: targetUserIds.length,
-          total_credit_limit_changed: input.totalCreditLimitMicros !== undefined,
           weekly_credit_limit_changed: input.weeklyCreditLimitMicros !== undefined,
-          monthly_credit_limit_changed: input.monthlyCreditLimitMicros !== undefined,
         },
         ipAddress: input.audit.ipAddress ?? null,
         userAgent: input.audit.userAgent ?? null,
@@ -480,9 +462,7 @@ export class PrismaUserRepository implements UserPersistence {
           status: "active",
           passwordHash: null,
           passwordUpdatedAt: null,
-          totalCreditLimitMicros: input.totalCreditLimitMicros,
           weeklyCreditLimitMicros: input.weeklyCreditLimitMicros,
-          monthlyCreditLimitMicros: input.monthlyCreditLimitMicros,
           authValidAfter: input.now,
           createdAt: input.now,
           updatedAt: input.now,
@@ -1043,9 +1023,7 @@ async function enrichUsers(
       preferredLocale: safeUser.preferredLocale,
       selfRegisteredAt: safeUser.selfRegisteredAt,
       runningMessageAction: safeUser.runningMessageAction,
-      totalCreditLimitMicros: safeUser.totalCreditLimitMicros,
       weeklyCreditLimitMicros: safeUser.weeklyCreditLimitMicros,
-      monthlyCreditLimitMicros: safeUser.monthlyCreditLimitMicros,
       creditQuotaResetAt: safeUser.creditQuotaResetAt,
       lastLoginAt: safeUser.lastLoginAt,
       lastLoginMethod: safeUser.lastLoginMethod,

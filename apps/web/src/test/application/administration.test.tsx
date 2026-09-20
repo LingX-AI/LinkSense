@@ -732,7 +732,7 @@ describe("LinkSense application", () => {
           })
         )
         expect(content).toContainElement(
-          within(dialog).getByLabelText(i18n.t("admin.monthlyCreditLimit"))
+          within(dialog).getByLabelText(i18n.t("admin.weeklyCreditLimit"))
         )
       }
       expect(content).not.toContainElement(header)
@@ -886,9 +886,7 @@ describe("LinkSense application", () => {
     const { requests } = installApiMock({
       managedUsersOverride: [
         {
-          total_credit_limit: "7",
           weekly_credit_limit: "2.5",
-          monthly_credit_limit: "0.5",
         },
       ],
     })
@@ -900,8 +898,6 @@ describe("LinkSense application", () => {
       name: /lin@example\.com/u,
     })
     expect(userRow).toHaveTextContent("2.5")
-    expect(userRow).toHaveTextContent("0.5")
-    expect(within(userRow).getByText("7")).toBeVisible()
 
     await interaction.click(screen.getByRole("button", { name: "编辑" }))
     const dialog = await screen.findByRole("dialog", { name: "编辑用户" })
@@ -915,19 +911,13 @@ describe("LinkSense application", () => {
         name: "个人额度",
       })
     ).toHaveClass("form-label")
-    const totalQuotaInput = within(dialog).getByLabelText("总额度")
     const weeklyQuotaInput = within(dialog).getByLabelText("周额度")
-    const monthlyQuotaInput = within(dialog).getByLabelText("月额度")
-    expect(totalQuotaInput).toHaveValue("7")
     expect(weeklyQuotaInput).toHaveValue("2.5")
-    expect(monthlyQuotaInput).toHaveValue("0.5")
+    expect(within(dialog).queryByLabelText("总额度")).not.toBeInTheDocument()
+    expect(within(dialog).queryByLabelText("月额度")).not.toBeInTheDocument()
 
-    await interaction.clear(totalQuotaInput)
-    await interaction.type(totalQuotaInput, "8.5")
     await interaction.clear(weeklyQuotaInput)
     await interaction.type(weeklyQuotaInput, "0.75")
-    await interaction.clear(monthlyQuotaInput)
-    await interaction.type(monthlyQuotaInput, "1.25")
     await interaction.click(
       within(dialog).getByRole("button", { name: "保存" })
     )
@@ -940,9 +930,7 @@ describe("LinkSense application", () => {
             request.method === "PATCH"
         )?.body
       ).toMatchObject({
-        total_credit_limit: "8.5",
         weekly_credit_limit: "0.75",
-        monthly_credit_limit: "1.25",
       })
     )
   })
@@ -951,9 +939,7 @@ describe("LinkSense application", () => {
     installApiMock({
       managedUsersOverride: [
         {
-          total_credit_limit: null,
           weekly_credit_limit: null,
-          monthly_credit_limit: null,
         },
       ],
     })
@@ -965,8 +951,6 @@ describe("LinkSense application", () => {
     })
     const cells = within(userRow).getAllByRole("cell")
     expect(cells[7]).toHaveTextContent("-")
-    expect(cells[8]).toHaveTextContent("-")
-    expect(cells[9]).toHaveTextContent("-")
   })
 
   it("shows and filters users by registration source", async () => {
@@ -1031,7 +1015,7 @@ describe("LinkSense application", () => {
     expect(screen.queryByText("self-registered@example.com")).toBeNull()
   })
 
-  it("batch-updates total quota without changing unchecked periodic quotas", async () => {
+  it("batch-updates the weekly quota for selected users", async () => {
     const { requests } = installApiMock()
     const interaction = userEvent.setup()
     renderApp("/admin/users")
@@ -1044,11 +1028,8 @@ describe("LinkSense application", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "批量设置用户额度",
     })
-    await interaction.click(within(dialog).getByText("更新总额度"))
-    await interaction.click(within(dialog).getByText("更新周额度"))
-    await interaction.click(within(dialog).getByText("更新月额度"))
-    const totalQuotaInput = within(dialog).getByLabelText("总额度")
-    await interaction.type(totalQuotaInput, "1.5")
+    const weeklyQuotaInput = within(dialog).getByLabelText("周额度")
+    await interaction.type(weeklyQuotaInput, "1.5")
     await interaction.click(
       within(dialog).getByRole("button", { name: "保存" })
     )
@@ -1062,7 +1043,7 @@ describe("LinkSense application", () => {
         )?.body
       ).toEqual({
         user_ids: ["user-1"],
-        total_credit_limit: "1.5",
+        weekly_credit_limit: "1.5",
       })
     )
   })
@@ -1075,22 +1056,13 @@ describe("LinkSense application", () => {
           name: "周用完",
           email: "weekly-exhausted@example.com",
           weekly_credit_limit: "10",
-          monthly_credit_limit: "40",
           credit_quota: {
-            total: null,
             weekly: {
               limit_credits: "10",
               used_credits: "10",
               remaining_credits: "0",
               remaining_percentage: 0,
               reset_at: "2026-08-10T00:00:00.000Z",
-            },
-            monthly: {
-              limit_credits: "40",
-              used_credits: "30",
-              remaining_credits: "10",
-              remaining_percentage: 25,
-              reset_at: "2026-09-01T00:00:00.000Z",
             },
           },
         },
@@ -1099,22 +1071,13 @@ describe("LinkSense application", () => {
           name: "还有用量",
           email: "weekly-remaining@example.com",
           weekly_credit_limit: "10",
-          monthly_credit_limit: "40",
           credit_quota: {
-            total: null,
             weekly: {
               limit_credits: "10",
               used_credits: "5",
               remaining_credits: "5",
               remaining_percentage: 50,
               reset_at: "2026-08-10T00:00:00.000Z",
-            },
-            monthly: {
-              limit_credits: "40",
-              used_credits: "40",
-              remaining_credits: "0",
-              remaining_percentage: 0,
-              reset_at: "2026-09-01T00:00:00.000Z",
             },
           },
         },
@@ -1128,8 +1091,6 @@ describe("LinkSense application", () => {
     })
     expect(exhaustedRow).toHaveTextContent("10")
     expect(exhaustedRow).toHaveTextContent("剩余额度 0（0%）")
-    expect(exhaustedRow).toHaveTextContent("40")
-    expect(exhaustedRow).toHaveTextContent("剩余额度 10（25%）")
     expect(
       await screen.findByText("weekly-remaining@example.com")
     ).toBeVisible()
@@ -1160,9 +1121,7 @@ describe("LinkSense application", () => {
     const { requests } = installApiMock({
       managedUsersOverride: [
         {
-          total_credit_limit: "7",
           weekly_credit_limit: "2.5",
-          monthly_credit_limit: "0.5",
         },
       ],
     })
@@ -1203,18 +1162,12 @@ describe("LinkSense application", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "调整个人额度",
     })
-    const totalQuotaInput = within(dialog).getByLabelText("总额度")
     const weeklyQuotaInput = within(dialog).getByLabelText("周额度")
-    const monthlyQuotaInput = within(dialog).getByLabelText("月额度")
-    expect(totalQuotaInput).toHaveValue("7")
     expect(weeklyQuotaInput).toHaveValue("2.5")
-    expect(monthlyQuotaInput).toHaveValue("0.5")
+    expect(within(dialog).queryByLabelText("总额度")).not.toBeInTheDocument()
 
-    await interaction.clear(totalQuotaInput)
-    await interaction.type(totalQuotaInput, "8")
     await interaction.clear(weeklyQuotaInput)
     await interaction.type(weeklyQuotaInput, "0.6")
-    await interaction.clear(monthlyQuotaInput)
     await interaction.click(
       within(dialog).getByRole("button", { name: "保存" })
     )
@@ -1227,9 +1180,7 @@ describe("LinkSense application", () => {
             request.method === "PATCH"
         )?.body
       ).toEqual({
-        total_credit_limit: "8",
         weekly_credit_limit: "0.6",
-        monthly_credit_limit: null,
       })
     )
   })

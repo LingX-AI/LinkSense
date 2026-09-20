@@ -44,7 +44,6 @@ describe("LinkSense Core MCP current user module", () => {
               ],
             },
             credit_quota: {
-              total: null,
               weekly: {
                 limit_credits: "0.001",
                 used_credits: "0.00025",
@@ -52,7 +51,6 @@ describe("LinkSense Core MCP current user module", () => {
                 remaining_percentage: 75,
                 reset_at: "2026-08-24T00:00:00.000Z",
               },
-              monthly: null,
             },
           }),
         )
@@ -108,7 +106,6 @@ describe("LinkSense Core MCP current user module", () => {
               ],
             },
             credit_quota: {
-              total: null,
               weekly: {
                 limit_credits: "0.001",
                 used_credits: "0.00025",
@@ -116,7 +113,6 @@ describe("LinkSense Core MCP current user module", () => {
                 remaining_percentage: 75,
                 reset_at: "2026-08-24T00:00:00.000Z",
               },
-              monthly: null,
             },
           }),
         },

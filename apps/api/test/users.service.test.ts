@@ -25,11 +25,22 @@ const ADMIN = {
 
 describe("UserService", () => {
   it("returns only an external visitor's own profile and quota without exposing a member account", async () => {
-    const visitorProfile = vi.fn(async () => ({ id: "visitor-id", displayName: null, totalCreditLimitMicros: 1000000n, weeklyCreditLimitMicros: null, monthlyCreditLimitMicros: null, creditQuotaResetAt: null }));
+    const visitorProfile = vi.fn(async () => ({
+      id: "visitor-id",
+      displayName: null,
+      weeklyCreditLimitMicros: 1_000_000n,
+      creditQuotaResetAt: null,
+    }));
     const fixture = userFixture(undefined, visitorProfile);
     expect((await fixture.service.getCurrentUserInfo("visitor-id")).user).toEqual({ name: null, email: null, user_groups: [] });
     expect(fixture.persistence.findManagedUser).not.toHaveBeenCalled();
-    expect(fixture.creditQuotaUsage.currentUsageForLimits).toHaveBeenCalledWith("visitor-id", { totalCreditLimitMicros: 1000000n, weeklyCreditLimitMicros: null, monthlyCreditLimitMicros: null, creditQuotaResetAt: null });
+    expect(fixture.creditQuotaUsage.currentUsageForLimits).toHaveBeenCalledWith(
+      "visitor-id",
+      {
+        weeklyCreditLimitMicros: 1_000_000n,
+        creditQuotaResetAt: null,
+      },
+    );
   });
 
   it("passes validated group and registration-source filters to the paginated user query", async () => {
@@ -74,14 +85,16 @@ describe("UserService", () => {
     expect(command).not.toHaveProperty("passwordHash");
     expect(command).toMatchObject({
       weeklyCreditLimitMicros: null,
-      monthlyCreditLimitMicros: null,
     });
     expect(command?.now.toISOString()).toBe("2026-07-11T08:00:00.750Z");
   });
 
   it("copies initial credit quotas into newly created users", async () => {
     const fixture = userFixture();
-    vi.mocked(fixture.creditLimitDefaults.getSettings).mockResolvedValueOnce({ ...defaultQuotaSettings(), organization_members: { total_credit_limit: "1", weekly_credit_limit: "0.025", monthly_credit_limit: "0.1" } });
+    vi.mocked(fixture.creditLimitDefaults.getSettings).mockResolvedValueOnce({
+      ...defaultQuotaSettings(),
+      weekly_credit_limit: "0.025",
+    });
 
     await fixture.service.createUser(ADMIN, {
       name: "New User",
@@ -93,20 +106,17 @@ describe("UserService", () => {
     expect(fixture.persistence.createUser).toHaveBeenCalledWith(
       expect.objectContaining({
         weeklyCreditLimitMicros: 25_000n,
-        monthlyCreditLimitMicros: 100_000n,
       }),
     );
   });
 
-  it("projects current user info with groups and token quota for Core MCP", async () => {
+  it("projects current user info with groups and credit quota for Core MCP", async () => {
     const fixture = userFixture();
     vi.mocked(fixture.persistence.findManagedUser).mockResolvedValueOnce(
       makeManagedUser({
         name: "Ada",
         email: "ada@example.com",
-        totalCreditLimitMicros: 5_000n,
         weeklyCreditLimitMicros: 1_000n,
-        monthlyCreditLimitMicros: 10_000n,
         groups: [
           makeGroup({
             id: "00000000-0000-4000-8000-000000000022",
@@ -120,12 +130,6 @@ describe("UserService", () => {
       }),
     );
     vi.mocked(fixture.creditQuotaUsage.currentUsageForLimits).mockResolvedValueOnce({
-      total: {
-        limitCreditMicros: 5_000n,
-        usedCreditMicros: 1_250n,
-        remainingCreditMicros: 3_750n,
-        remainingPercentage: 75,
-      },
       weekly: {
         limitCreditMicros: 1_000n,
         usedCreditMicros: 250n,
@@ -133,7 +137,6 @@ describe("UserService", () => {
         remainingPercentage: 75,
         resetAt: new Date("2026-08-24T00:00:00.000Z"),
       },
-      monthly: null,
     });
 
     await expect(
@@ -155,12 +158,6 @@ describe("UserService", () => {
         ],
       },
       credit_quota: {
-        total: {
-          limit_credits: "0.005",
-          used_credits: "0.00125",
-          remaining_credits: "0.00375",
-          remaining_percentage: 75,
-        },
         weekly: {
           limit_credits: "0.001",
           used_credits: "0.00025",
@@ -168,16 +165,13 @@ describe("UserService", () => {
           remaining_percentage: 75,
           reset_at: "2026-08-24T00:00:00.000Z",
         },
-        monthly: null,
       },
     });
     expect(fixture.creditQuotaUsage.currentUsageForLimits).toHaveBeenCalledWith(
       "00000000-0000-4000-8000-000000000010",
       {
         creditQuotaResetAt: null,
-        totalCreditLimitMicros: 5_000n,
         weeklyCreditLimitMicros: 1_000n,
-        monthlyCreditLimitMicros: 10_000n,
       },
     );
   });
@@ -246,44 +240,36 @@ describe("UserService", () => {
     expect(fixture.persistence.updateUser).not.toHaveBeenCalled();
   });
 
-  it("forwards per-user token limit updates as nullable bigint values", async () => {
+  it("forwards per-user credit limit updates as nullable bigint values", async () => {
     const fixture = userFixture();
     const targetUserId = "00000000-0000-4000-8000-000000000010";
 
     await fixture.service.updateUser(ADMIN, targetUserId, {
-      total_credit_limit: "0.5",
       weekly_credit_limit: "0.025",
-      monthly_credit_limit: null,
     });
 
     expect(fixture.persistence.updateUser).toHaveBeenCalledWith(
       expect.objectContaining({
         targetUserId,
-        totalCreditLimitMicros: 500_000n,
         weeklyCreditLimitMicros: 25_000n,
-        monthlyCreditLimitMicros: null,
       }),
     );
   });
 
-  it("bulk-updates selected user token limits after de-duplicating ids", async () => {
+  it("bulk-updates selected user credit limits after de-duplicating ids", async () => {
     const fixture = userFixture();
     const firstUserId = "00000000-0000-4000-8000-000000000011";
     const secondUserId = "00000000-0000-4000-8000-000000000010";
 
     await fixture.service.updateUserCreditLimits(ADMIN, {
       user_ids: [firstUserId, secondUserId, firstUserId],
-      total_credit_limit: "0.5",
       weekly_credit_limit: null,
-      monthly_credit_limit: "0.1",
     });
 
     expect(fixture.persistence.updateUserCreditLimits).toHaveBeenCalledWith(
       expect.objectContaining({
         targetUserIds: [secondUserId, firstUserId],
-        totalCreditLimitMicros: 500_000n,
         weeklyCreditLimitMicros: null,
-        monthlyCreditLimitMicros: 100_000n,
       }),
     );
   });
@@ -346,7 +332,6 @@ describe("UserService", () => {
     );
     expect(command).toMatchObject({
       weeklyCreditLimitMicros: null,
-      monthlyCreditLimitMicros: null,
     });
     expect(command?.rows[0]).not.toHaveProperty("password");
 
@@ -363,7 +348,10 @@ describe("UserService", () => {
 
   it("copies initial credit quotas into imported users", async () => {
     const fixture = userFixture();
-    vi.mocked(fixture.creditLimitDefaults.getSettings).mockResolvedValueOnce({ ...defaultQuotaSettings(), organization_members: { total_credit_limit: "2", weekly_credit_limit: "0.03", monthly_credit_limit: "0.12" } });
+    vi.mocked(fixture.creditLimitDefaults.getSettings).mockResolvedValueOnce({
+      ...defaultQuotaSettings(),
+      weekly_credit_limit: "0.03",
+    });
 
     await fixture.service.importWorkbook(
       ADMIN,
@@ -376,7 +364,6 @@ describe("UserService", () => {
     expect(fixture.persistence.importUsers).toHaveBeenCalledWith(
       expect.objectContaining({
         weeklyCreditLimitMicros: 30_000n,
-        monthlyCreditLimitMicros: 120_000n,
       }),
     );
   });
@@ -564,7 +551,6 @@ function userFixture(
           email: row.email,
           role: row.role,
           weeklyCreditLimitMicros: input.weeklyCreditLimitMicros,
-          monthlyCreditLimitMicros: input.monthlyCreditLimitMicros,
         }),
       ),
     ),
@@ -592,9 +578,7 @@ function userFixture(
   const creditLimitDefaults = { getSettings: vi.fn(async () => defaultQuotaSettings()) };
   const creditQuotaUsage = {
     currentUsageForLimits: vi.fn(async (): Promise<UserCreditQuotaUsage> => ({
-      total: null,
       weekly: null,
-      monthly: null,
     })),
   };
   const service = new UserService({
@@ -643,9 +627,7 @@ function makeManagedUser(overrides: Partial<ManagedUser> = {}): ManagedUser {
     preferredLocale: null,
     selfRegisteredAt: null,
     runningMessageAction: "queue",
-    totalCreditLimitMicros: null,
     weeklyCreditLimitMicros: null,
-    monthlyCreditLimitMicros: null,
     creditQuotaResetAt: null,
     lastLoginAt: null,
     lastLoginMethod: null,
@@ -677,9 +659,7 @@ function makeUserRecord(overrides: Partial<UserRecord> = {}): UserRecord {
     preferredLocale: managed.preferredLocale,
     selfRegisteredAt: managed.selfRegisteredAt,
     runningMessageAction: managed.runningMessageAction,
-    totalCreditLimitMicros: managed.totalCreditLimitMicros,
     weeklyCreditLimitMicros: managed.weeklyCreditLimitMicros,
-    monthlyCreditLimitMicros: managed.monthlyCreditLimitMicros,
     creditQuotaResetAt: null,
     lastLoginAt: managed.lastLoginAt,
     lastLoginMethod: managed.lastLoginMethod,

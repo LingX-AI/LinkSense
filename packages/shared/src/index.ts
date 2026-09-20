@@ -40,6 +40,7 @@ export * from "./credit-limits.js";
 export * from "./task-artifacts.js";
 export * from "./upload-files.js";
 export * from "./usage.js";
+export * from "./personal-quota.js";
 export * from "./users.js";
 export * from "./voice.js";
 export * from "./voice-transcription-settings.js";

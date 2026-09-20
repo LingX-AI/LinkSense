@@ -2,7 +2,7 @@ import {
   INTERACTIVE_APPLICATION_FILE_SOURCE,
   conversationStartingTurnSchema,
   skillDisplayNameSchema,
-  currentUserCreditQuotaTotalSchema,
+  currentUserCreditQuotaPeriodSchema,
   creditLimitValueSchema,
   applicationUnavailableReasonSchema,
   applicationUsageReportSchema as sharedApplicationUsageReportSchema,
@@ -188,18 +188,10 @@ const userGroupSummarySchema = z.object({
   name: z.string(),
 })
 
-const userCreditQuotaTotalUsageSchema = currentUserCreditQuotaTotalSchema
-
-const userCreditQuotaPeriodUsageSchema = userCreditQuotaTotalUsageSchema.extend(
-  {
-    reset_at: z.string(),
-  }
-)
+const userCreditQuotaPeriodUsageSchema = currentUserCreditQuotaPeriodSchema
 
 const userCreditQuotaUsageSchema = z.strictObject({
-  total: userCreditQuotaTotalUsageSchema.nullable(),
   weekly: userCreditQuotaPeriodUsageSchema.nullable(),
-  monthly: userCreditQuotaPeriodUsageSchema.nullable(),
 })
 
 export const userSchema = z
@@ -213,9 +205,7 @@ export const userSchema = z
     preferred_locale: supportedLanguageSchema.nullable().optional(),
     language: supportedLanguageSchema.nullable().optional(),
     running_message_action: runningMessageActionSchema.optional(),
-    total_credit_limit: creditLimitValueSchema.nullable().optional(),
     weekly_credit_limit: creditLimitValueSchema.nullable().optional(),
-    monthly_credit_limit: creditLimitValueSchema.nullable().optional(),
     credit_quota: userCreditQuotaUsageSchema.nullable().optional(),
     last_login_method: z.string().nullable().optional(),
     login_method: z.string().nullable().optional(),
@@ -242,7 +232,6 @@ export const userSchema = z
     login_method: value.login_method ?? value.last_login_method ?? null,
     running_message_action: value.running_message_action ?? "queue",
     weekly_credit_limit: value.weekly_credit_limit ?? null,
-    monthly_credit_limit: value.monthly_credit_limit ?? null,
   }))
 
 export type User = z.infer<typeof userSchema>

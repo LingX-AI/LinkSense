@@ -2970,7 +2970,7 @@ describe("capability marketplace pages", () => {
     expect(groupTab).toHaveAttribute("data-slot", "tabs-trigger")
     expect(userTab).toHaveAttribute("aria-selected", "true")
     expect(userTab).toHaveAttribute("data-active")
-    expect(userTab).toHaveClass("data-active:bg-muted")
+    expect(userTab).toHaveClass("data-active:bg-muted/50")
     expect(groupTab).toHaveAttribute("aria-selected", "false")
     expect(groupTab).not.toHaveAttribute("data-active")
     expect(

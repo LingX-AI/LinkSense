@@ -21,7 +21,7 @@ Read the preflight message:
 - Fix a missing or conflicting explicit credential binding.
 - Test the URL, authentication, and timeout of a required MCP server.
 - Select a knowledge base that is still enabled and accessible.
-- If your credit quota is exhausted, wait for the weekly or monthly reset when applicable. A total quota does not reset; ask an administrator to adjust it.
+- If your weekly credit quota is exhausted, wait for the next weekly reset or ask an administrator to adjust or manually reset it.
 
 ## Execution disconnects
 

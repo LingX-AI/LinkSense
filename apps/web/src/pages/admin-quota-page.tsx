@@ -4,14 +4,13 @@ import {
   quotaSettingsSchema,
   creditLimitSettingsSchema,
   quotaBatchResultSchema,
-  applyOrganizationCreditLimitsResultSchema,
-  type QuotaMemberScope,
+  applyMemberCreditLimitsResultSchema,
   CREDIT_INPUT_PATTERN,
   type QuotaSettings,
   type CreditLimitSettings,
 } from "@linksense/shared"
 import { useTranslation } from "react-i18next"
-import { ListChecksIcon, RotateCcwIcon } from "lucide-react"
+import { ListChecksIcon, MoreHorizontalIcon, RotateCcwIcon } from "lucide-react"
 import { z } from "zod"
 
 import { useAuth } from "@/app/auth-state"
@@ -24,6 +23,7 @@ import { StatusBanner } from "@/components/feedback/status-banner"
 import { PageLayout } from "@/components/shell/page-layout"
 import {
   Card,
+  CardAction,
   CardHeader,
   CardTitle,
   CardDescription,
@@ -39,6 +39,13 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Spinner } from "@/components/ui/spinner"
 
 const quotaSettingsQueryKey = ["admin", "quota-settings"] as const
@@ -46,33 +53,19 @@ const updateResultSchema = z.strictObject({
   code: z.literal("SYSTEM_SETTINGS_UPDATED"),
   settings: quotaSettingsSchema,
 })
-const quotaPeriods = [
-  "weekly_credit_limit",
-  "monthly_credit_limit",
-  "total_credit_limit",
-] as const
-const memberGroups = ["organization_members", "self_registered_users"] as const
 
 type QuotaAction =
-  | { kind: "reset"; scope: QuotaMemberScope }
-  | { kind: "apply"; limits: CreditLimitSettings }
+  { kind: "reset" } | { kind: "apply"; limits: CreditLimitSettings }
 
 type QuotaDraft = {
   credit_price_cny: string
-  organization_members: Record<keyof CreditLimitSettings, string>
-  self_registered_users: Record<keyof CreditLimitSettings, string>
+  weekly_credit_limit: string
 }
 
 function quotaDraft(settings: QuotaSettings): QuotaDraft {
-  const limits = (value: CreditLimitSettings) => ({
-    total_credit_limit: value.total_credit_limit ?? "",
-    weekly_credit_limit: value.weekly_credit_limit ?? "",
-    monthly_credit_limit: value.monthly_credit_limit ?? "",
-  })
   return {
     credit_price_cny: settings.credit_price_cny,
-    organization_members: limits(settings.organization_members),
-    self_registered_users: limits(settings.self_registered_users),
+    weekly_credit_limit: settings.weekly_credit_limit ?? "",
   }
 }
 
@@ -132,14 +125,13 @@ export function QuotaSettingsForm({
         body: input.settings,
         schema: updateResultSchema,
       }),
-    onSuccess: async (result, input) => {
+    onSuccess: (result, input) => {
       setDraft((current) => ({
         ...current,
         [input.scope]: quotaDraft(result.settings)[input.scope],
       }))
       queryClient.setQueryData(quotaSettingsQueryKey, result.settings)
       notify.success(t("quotaManagement.saved"))
-      await queryClient.invalidateQueries({ queryKey: ["admin", "users"] })
     },
     onError: (cause) => setError(getErrorMessage(cause, t)),
   })
@@ -149,17 +141,17 @@ export function QuotaSettingsForm({
       if (input.kind === "reset") {
         const result = await apiRequest("/admin/quota-settings/reset", {
           method: "POST",
-          body: { scope: input.scope },
+          body: {},
           schema: quotaBatchResultSchema,
         })
         return { kind: input.kind, ...result }
       }
       const result = await apiRequest(
-        "/admin/quota-settings/apply-organization-limits",
+        "/admin/quota-settings/apply-member-limits",
         {
           method: "POST",
           body: { limits: input.limits },
-          schema: applyOrganizationCreditLimitsResultSchema,
+          schema: applyMemberCreditLimitsResultSchema,
         }
       )
       return { kind: input.kind, ...result }
@@ -171,8 +163,7 @@ export function QuotaSettingsForm({
         queryClient.setQueryData(quotaSettingsQueryKey, result.settings)
         setDraft((current) => ({
           ...current,
-          organization_members: quotaDraft(result.settings)
-            .organization_members,
+          weekly_credit_limit: result.settings.weekly_credit_limit ?? "",
         }))
       }
       notify.success(
@@ -197,28 +188,17 @@ export function QuotaSettingsForm({
   })
   const pending = mutation.isPending || batchMutation.isPending
 
-  function draftLimits(value: QuotaDraft["organization_members"]) {
+  function draftLimits(): CreditLimitSettings {
     return {
-      total_credit_limit: value.total_credit_limit.trim() || null,
-      weekly_credit_limit: value.weekly_credit_limit.trim() || null,
-      monthly_credit_limit: value.monthly_credit_limit.trim() || null,
+      weekly_credit_limit: draft.weekly_credit_limit.trim() || null,
     }
   }
 
   function stageApply() {
-    const parsed = creditLimitSettingsSchema.safeParse(
-      draftLimits(draft.organization_members)
-    )
+    const parsed = creditLimitSettingsSchema.safeParse(draftLimits())
     setError(null)
     if (!parsed.success) {
-      setErrors(
-        Object.fromEntries(
-          parsed.error.issues.map((issue) => [
-            `organization_members.${issue.path.join(".")}`,
-            t("quotaManagement.invalidAmount"),
-          ])
-        )
-      )
+      setErrors({ weekly_credit_limit: t("quotaManagement.invalidAmount") })
       return
     }
     setErrors({})
@@ -238,7 +218,7 @@ export function QuotaSettingsForm({
       [scope]:
         scope === "credit_price_cny"
           ? draft.credit_price_cny.trim()
-          : draftLimits(draft[scope]),
+          : draft.weekly_credit_limit.trim() || null,
     })
     if (!parsed.success) {
       setErrors(
@@ -321,114 +301,114 @@ export function QuotaSettingsForm({
           </CardFooter>
         </Card>
       </form>
-      {memberGroups.map((group) => (
-        <form
-          key={group}
-          onSubmit={(event) => submit(event, group)}
-          noValidate
-          aria-label={t(`quotaManagement.${group}.title`)}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle>{t(`quotaManagement.${group}.title`)}</CardTitle>
-              <CardDescription>
-                {t(`quotaManagement.${group}.description`)}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-3">
-                {quotaPeriods.map((period) => {
-                  const key = `${group}.${period}`
-                  const id = `${prefix}-${group}-${period}`
-                  return (
-                    <Field
-                      key={period}
-                      data-invalid={Boolean(errors[key])}
-                      data-disabled={pending}
-                    >
-                      <FieldLabel htmlFor={id}>
-                        {t(`quotaManagement.${period}`)}
-                      </FieldLabel>
-                      <Input
-                        id={id}
-                        name={key}
-                        inputMode="decimal"
-                        pattern={CREDIT_INPUT_PATTERN}
-                        value={draft[group][period]}
-                        disabled={pending}
-                        aria-invalid={Boolean(errors[key])}
-                        aria-describedby={`${id}-hint ${id}-error`}
-                        placeholder={t("quotaManagement.unlimited")}
-                        onChange={(event) =>
-                          setDraft({
-                            ...draft,
-                            [group]: {
-                              ...draft[group],
-                              [period]: event.target.value,
-                            },
-                          })
-                        }
-                      />
-                      <FieldDescription id={`${id}-hint`}>
-                        {t(`quotaManagement.${period}_hint`)}
-                      </FieldDescription>
-                      <FieldError id={`${id}-error`}>{errors[key]}</FieldError>
-                    </Field>
-                  )
-                })}
-              </FieldGroup>
-            </CardContent>
-            <CardFooter className="flex flex-col items-stretch gap-3">
-              <p className="text-sm text-muted-foreground">
-                {t("quotaManagement.resetHint")}
-              </p>
-              <div className="flex flex-wrap justify-end gap-3">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={pending}
-                  onClick={() => {
-                    setError(null)
-                    setAction({ kind: "reset", scope: group })
-                  }}
-                >
-                  <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
-                  {t(`quotaManagement.${group}.reset`)}
-                </Button>
-                {group === "organization_members" && (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={pending}
-                    onClick={stageApply}
-                  >
-                    <ListChecksIcon
-                      data-icon="inline-start"
-                      aria-hidden="true"
+      <form
+        onSubmit={(event) => submit(event, "weekly_credit_limit")}
+        noValidate
+        aria-label={t("quotaManagement.members.title")}
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("quotaManagement.members.title")}</CardTitle>
+            <CardDescription>
+              {t("quotaManagement.members.description")}
+            </CardDescription>
+            <CardAction>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t("quotaManagement.members.actions")}
+                      disabled={pending}
                     />
-                    {t("quotaManagement.applyOrganization")}
-                  </Button>
-                )}
-                <Button
-                  type="submit"
-                  disabled={pending}
-                  aria-busy={
-                    (mutation.isPending &&
-                      mutation.variables?.scope === group) ||
-                    undefined
                   }
                 >
-                  {mutation.isPending &&
-                    mutation.variables?.scope === group && (
-                      <Spinner data-icon="inline-start" />
-                    )}
-                  {t("quotaManagement.save")}
-                </Button>
-              </div>
-            </CardFooter>
-          </Card>
-        </form>
-      ))}
+                  <MoreHorizontalIcon aria-hidden="true" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-max whitespace-nowrap"
+                >
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setError(null)
+                        setAction({ kind: "reset" })
+                      }}
+                    >
+                      <RotateCcwIcon aria-hidden="true" />
+                      {t("quotaManagement.members.reset")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={stageApply}>
+                      <ListChecksIcon aria-hidden="true" />
+                      {t("quotaManagement.applyMembers")}
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <FieldGroup>
+              <Field
+                data-invalid={Boolean(errors.weekly_credit_limit)}
+                data-disabled={pending}
+              >
+                <FieldLabel htmlFor={`${prefix}-weekly-credit-limit`}>
+                  {t("quotaManagement.weekly_credit_limit")}
+                </FieldLabel>
+                <Input
+                  id={`${prefix}-weekly-credit-limit`}
+                  name="weekly_credit_limit"
+                  className="max-w-sm"
+                  inputMode="decimal"
+                  pattern={CREDIT_INPUT_PATTERN}
+                  value={draft.weekly_credit_limit}
+                  disabled={pending}
+                  aria-invalid={Boolean(errors.weekly_credit_limit)}
+                  aria-describedby={`${prefix}-weekly-credit-limit-hint ${prefix}-weekly-credit-limit-error`}
+                  placeholder={t("quotaManagement.unlimited")}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      weekly_credit_limit: event.target.value,
+                    })
+                  }
+                />
+                <FieldDescription id={`${prefix}-weekly-credit-limit-hint`}>
+                  {t("quotaManagement.weekly_credit_limit_hint")}
+                </FieldDescription>
+                <FieldError id={`${prefix}-weekly-credit-limit-error`}>
+                  {errors.weekly_credit_limit}
+                </FieldError>
+              </Field>
+            </FieldGroup>
+          </CardContent>
+          <CardFooter className="flex flex-col items-stretch gap-3">
+            <p className="text-sm text-muted-foreground">
+              {t("quotaManagement.resetHint")}
+            </p>
+            <Button
+              type="submit"
+              className="self-end"
+              disabled={pending}
+              aria-busy={
+                (mutation.isPending &&
+                  mutation.variables?.scope === "weekly_credit_limit") ||
+                undefined
+              }
+            >
+              {mutation.isPending &&
+                mutation.variables?.scope === "weekly_credit_limit" && (
+                  <Spinner data-icon="inline-start" />
+                )}
+              {t("quotaManagement.save")}
+            </Button>
+          </CardFooter>
+        </Card>
+      </form>
       <p className="text-sm text-muted-foreground">
         {t("quotaManagement.enforcementHint")}
       </p>
@@ -439,21 +419,15 @@ export function QuotaSettingsForm({
         }}
         title={
           action?.kind === "reset"
-            ? t(`quotaManagement.${action.scope}.reset`)
-            : t("quotaManagement.applyOrganization")
+            ? t("quotaManagement.members.reset")
+            : t("quotaManagement.applyMembers")
         }
         description={
           action?.kind === "reset"
-            ? t(`quotaManagement.${action.scope}.resetDescription`)
+            ? t("quotaManagement.members.resetDescription")
             : t("quotaManagement.applyDescription", {
                 weekly:
                   action?.limits.weekly_credit_limit ??
-                  t("quotaManagement.unlimited"),
-                monthly:
-                  action?.limits.monthly_credit_limit ??
-                  t("quotaManagement.unlimited"),
-                total:
-                  action?.limits.total_credit_limit ??
                   t("quotaManagement.unlimited"),
               })
         }

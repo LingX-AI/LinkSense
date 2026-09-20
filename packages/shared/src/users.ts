@@ -39,9 +39,7 @@ export const userSchema = z.strictObject({
   last_login_method: loginMethodSchema.nullable(),
   password_updated_at: timestampSchema.nullable(),
   registration_source: userRegistrationSourceSchema,
-  total_credit_limit: creditLimitValueSchema.nullable().default(null),
   weekly_credit_limit: creditLimitValueSchema.nullable().default(null),
-  monthly_credit_limit: creditLimitValueSchema.nullable().default(null),
   created_at: timestampSchema,
   updated_at: timestampSchema,
 });
@@ -67,9 +65,7 @@ export const updateUserInputSchema = z
     role: userRoleSchema.optional(),
     status: userStatusSchema.optional(),
     user_group_ids: uniqueArraySchema(uuidSchema).optional(),
-    total_credit_limit: creditLimitValueSchema.nullable().optional(),
     weekly_credit_limit: creditLimitValueSchema.nullable().optional(),
-    monthly_credit_limit: creditLimitValueSchema.nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "user_update_requires_at_least_one_field",

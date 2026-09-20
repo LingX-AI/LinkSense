@@ -12,7 +12,7 @@ import {
   BlocksIcon,
   CalendarClockIcon,
   CircleAlertIcon,
-  CoinsIcon,
+  GaugeIcon,
   LibraryBigIcon,
   LoaderCircleIcon,
   LogOutIcon,
@@ -775,16 +775,8 @@ function AppSidebarContent({
       : (parts[0]?.slice(0, 2) ?? "LS").toUpperCase()
   }, [user?.name])
   const creditQuotaRemainingLabel = t("nav.creditQuotaRemaining", {
-    total: formatRemainingCredits(
-      user?.credit_quota?.total?.remaining_credits,
-      language
-    ),
     weekly: formatRemainingCredits(
       user?.credit_quota?.weekly?.remaining_credits,
-      language
-    ),
-    monthly: formatRemainingCredits(
-      user?.credit_quota?.monthly?.remaining_credits,
       language
     ),
   })
@@ -1333,7 +1325,7 @@ function AppSidebarContent({
               <DropdownMenuGroup>
                 <DropdownMenuLabel className="account-menu-quota flex min-h-7 items-center justify-between gap-2 px-2 py-1.5 text-[length:var(--app-ui-font-size)] font-medium text-popover-foreground">
                   <span className="flex shrink-0 items-center gap-2">
-                    <CoinsIcon
+                    <GaugeIcon
                       className="size-3.5 shrink-0"
                       aria-hidden="true"
                     />

@@ -25,11 +25,11 @@ You can update name, email, role, and group membership. An email change immediat
 
 ## Credit quotas
 
-Set weekly, monthly, and total quotas individually or in bulk, in credits. Positive amounts accept up to six decimal places. Blank means unlimited. Bulk updates affect only selected fields; selected blank fields remove the corresponding limits.
+Set weekly quotas individually or in bulk, in credits. Positive amounts accept up to six decimal places. Blank means unlimited, and bulk changes affect only the selected users.
 
-Reaching any limit prevents new tasks while running tasks finish. Weekly quotas reset on Monday; monthly quotas reset on the first day of the month, in the system time zone. Total quotas never reset automatically.
+Reaching the limit prevents new tasks while running tasks finish. Weekly quotas reset every Monday at midnight in the system time zone.
 
-Configure defaults in [Quota management](./quota-settings.md). Organization defaults affect subsequent users, while self-registration quota changes update existing self-registered users too.
+Members created, imported, or self-registered share the default weekly quota in [Quota management](./quota-settings.md). Saving the default does not affect existing members; use **Apply limit to all** when an overwrite is intended.
 
 ## Disable and restore
 

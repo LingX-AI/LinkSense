@@ -33,47 +33,28 @@ export const creditLimitValueSchema = creditAmountSchema.refine((value) => {
 }, "credit_limit_out_of_range");
 
 export const creditLimitSettingsSchema = z.strictObject({
-  total_credit_limit: creditLimitValueSchema.nullable(),
   weekly_credit_limit: creditLimitValueSchema.nullable(),
-  monthly_credit_limit: creditLimitValueSchema.nullable(),
 });
 
 export const quotaSettingsSchema = z.strictObject({
   credit_price_cny: creditLimitValueSchema,
-  organization_members: creditLimitSettingsSchema,
-  self_registered_users: creditLimitSettingsSchema,
+  weekly_credit_limit: creditLimitValueSchema.nullable(),
 });
 
-export const quotaMemberScopeSchema = z.enum([
-  "organization_members",
-  "self_registered_users",
-]);
-export const resetMemberQuotasInputSchema = z.strictObject({
-  scope: quotaMemberScopeSchema,
-});
-export const applyOrganizationCreditLimitsInputSchema = z.strictObject({
+export const resetMemberQuotasInputSchema = z.strictObject({});
+export const applyMemberCreditLimitsInputSchema = z.strictObject({
   limits: creditLimitSettingsSchema,
 });
 export const quotaBatchResultSchema = z.strictObject({
   updated_user_count: z.number().int().nonnegative(),
 });
-export const applyOrganizationCreditLimitsResultSchema =
+export const applyMemberCreditLimitsResultSchema =
   quotaBatchResultSchema.extend({ settings: quotaSettingsSchema });
-export type QuotaMemberScope = z.infer<typeof quotaMemberScopeSchema>;
 
 export function defaultQuotaSettings(): QuotaSettings {
   return {
     credit_price_cny: "0.01",
-    organization_members: {
-      total_credit_limit: null,
-      weekly_credit_limit: null,
-      monthly_credit_limit: null,
-    },
-    self_registered_users: {
-      total_credit_limit: null,
-      weekly_credit_limit: null,
-      monthly_credit_limit: null,
-    },
+    weekly_credit_limit: null,
   };
 }
 
@@ -90,10 +71,7 @@ export const bulkUpdateUserCreditLimitsInputSchema = z
     user_ids: z.array(z.string().uuid()).min(1).max(500),
   })
   .refine(
-    (value) =>
-      value.total_credit_limit !== undefined ||
-      value.weekly_credit_limit !== undefined ||
-      value.monthly_credit_limit !== undefined,
+    (value) => value.weekly_credit_limit !== undefined,
     "credit_limit_update_requires_at_least_one_field",
   );
 

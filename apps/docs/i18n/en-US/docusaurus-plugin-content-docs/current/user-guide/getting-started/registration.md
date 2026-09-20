@@ -24,9 +24,8 @@ An activation link works only once. Request a new one if it expired, was already
 
 ## Usage available to registered accounts
 
-Administrators can set independent weekly, monthly, and total credit quotas for self-registered accounts. An unset quota is unlimited. When any configured quota is exhausted, you cannot start tasks, submit follow-ups, or transcribe voice input; a task that is already running is not interrupted. The sidebar displays remaining credits as integers with the fractional part omitted. Your actual available balance retains its fractional precision. Contact an administrator if your quotas need to change.
+Self-registered accounts use the same weekly credit quota standard as other organization members. An unset weekly quota is unlimited. When the quota is exhausted, you cannot start tasks, submit follow-ups, or transcribe voice input; a task that is already running is not interrupted. The quota resets every Monday at midnight in the system time zone. The sidebar displays remaining credits as integers with the fractional part omitted, while the actual balance retains fractional precision. Contact an administrator if your quota needs to change.
 
 ## The email is already registered
 
 If LinkSense explicitly says that the address already has an account, return to the sign-in page or use **Forgot password or set it for the first time**. Do not keep requesting activation emails.
-

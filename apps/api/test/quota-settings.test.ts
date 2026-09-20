@@ -44,36 +44,20 @@ function fixture(initial = defaultQuotaSettings()) {
 }
 
 describe("quota settings", () => {
-  it("starts with independent unlimited policies and CNY 0.01 per credit", () => {
+  it("starts with one unlimited weekly policy and CNY 0.01 per credit", () => {
     expect(quotaSettingsFromJson({})).toEqual(defaultQuotaSettings());
     expect(() =>
       quotaSettingsFromJson({ quota_settings: { credit_price_cny: "0" } }),
     ).toThrow();
   });
 
-  it("saves all three self-registration limits atomically without changing organization members", async () => {
+  it("saves the unified weekly default without overwriting existing users", async () => {
     const { service, tx } = fixture();
     const input = defaultQuotaSettings();
-    input.organization_members = {
-      total_credit_limit: "1000",
-      weekly_credit_limit: "100",
-      monthly_credit_limit: null,
-    };
-    input.self_registered_users = {
-      total_credit_limit: "50",
-      weekly_credit_limit: "2.5",
-      monthly_credit_limit: "10",
-    };
+    input.weekly_credit_limit = "100";
     expect(await service.updateSettings("admin", input, {})).toEqual(input);
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
-    expect(tx.user.updateMany).toHaveBeenCalledWith({
-      where: { selfRegisteredAt: { not: null } },
-      data: {
-        totalCreditLimitMicros: 50_000_000n,
-        weeklyCreditLimitMicros: 2_500_000n,
-        monthlyCreditLimitMicros: 10_000_000n,
-      },
-    });
+    expect(tx.user.updateMany).not.toHaveBeenCalled();
     expect(tx.systemSetting.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         update: expect.objectContaining({
@@ -88,35 +72,25 @@ describe("quota settings", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           action: "quota_settings_updated",
-          metadataJson: { updated_user_count: 3 },
+          metadataJson: {},
         }),
       }),
     );
   });
 
-  it("clears restrictions for existing self-registered users when limits become unlimited", async () => {
-    const initial = defaultQuotaSettings();
-    initial.self_registered_users.total_credit_limit = "5";
-    const { service, tx } = fixture(initial);
-    await service.updateSettings("admin", defaultQuotaSettings(), {});
-    expect(tx.user.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: {
-          totalCreditLimitMicros: null,
-          weeklyCreditLimitMicros: null,
-          monthlyCreditLimitMicros: null,
+  it("rejects removed population-specific settings before persistence", async () => {
+    const { service, prisma } = fixture();
+    await expect(
+      service.updateSettings(
+        "admin",
+        {
+          ...defaultQuotaSettings(),
+          organization_members: { weekly_credit_limit: "500" },
         },
-      }),
-    );
-  });
-
-  it("does not overwrite individual user quotas when only the conversion or organization defaults change", async () => {
-    const { service, tx } = fixture();
-    const input = defaultQuotaSettings();
-    input.credit_price_cny = "0.02";
-    input.organization_members.monthly_credit_limit = "500";
-    await service.updateSettings("admin", input, {});
-    expect(tx.user.updateMany).not.toHaveBeenCalled();
+        {},
+      ),
+    ).rejects.toThrow();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("rejects invalid prices before accessing persistence", async () => {

@@ -1099,7 +1099,6 @@ function renderPage(
           running_message_action: "queue",
           registration_source: "organization_invitation",
           weekly_credit_limit: null,
-          monthly_credit_limit: null,
           user_groups: [],
         },
         acceptSession: vi.fn(),

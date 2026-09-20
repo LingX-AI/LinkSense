@@ -146,7 +146,6 @@ import {
   FieldContent,
   FieldDescription,
   FieldGroup,
-  FieldLabel,
   FieldLegend,
   FieldSet,
   FieldTitle,
@@ -256,7 +255,7 @@ function formatCreditLimit(value: string | null | undefined): string {
   return formatted ? formatted : "-"
 }
 
-type CreditQuotaRemainingFilter = "" | "total" | "weekly" | "monthly"
+type CreditQuotaRemainingFilter = "" | "weekly"
 type UserRegistrationSourceFilter =
   "" | "self_registration" | "organization_invitation"
 type UserCreditQuotaRemaining = {
@@ -267,12 +266,7 @@ type UserCreditQuotaRemaining = {
 function isCreditQuotaRemainingFilter(
   value: string
 ): value is CreditQuotaRemainingFilter {
-  return (
-    value === "" ||
-    value === "total" ||
-    value === "weekly" ||
-    value === "monthly"
-  )
+  return value === "" || value === "weekly"
 }
 
 function isUserRegistrationSourceFilter(
@@ -687,21 +681,12 @@ function UserManagementPage() {
   const [role, setRole] = useState<"user" | "admin">("user")
   const [status, setStatus] = useState<"active" | "disabled">("active")
   const [groupIds, setGroupIds] = useState<string[]>([])
-  const [totalCreditLimit, setTotalCreditLimit] = useState("")
   const [weeklyCreditLimit, setWeeklyCreditLimit] = useState("")
-  const [monthlyCreditLimit, setMonthlyCreditLimit] = useState("")
   const [quotaEditing, setQuotaEditing] = useState<User | null>(null)
-  const [quotaTotalCreditLimit, setQuotaTotalCreditLimit] = useState("")
   const [quotaWeeklyCreditLimit, setQuotaWeeklyCreditLimit] = useState("")
-  const [quotaMonthlyCreditLimit, setQuotaMonthlyCreditLimit] = useState("")
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
   const [creditLimitOpen, setCreditLimitOpen] = useState(false)
-  const [batchTotalEnabled, setBatchTotalEnabled] = useState(false)
-  const [batchWeeklyEnabled, setBatchWeeklyEnabled] = useState(true)
-  const [batchMonthlyEnabled, setBatchMonthlyEnabled] = useState(true)
-  const [batchTotalCreditLimit, setBatchTotalCreditLimit] = useState("")
   const [batchWeeklyCreditLimit, setBatchWeeklyCreditLimit] = useState("")
-  const [batchMonthlyCreditLimit, setBatchMonthlyCreditLimit] = useState("")
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
@@ -795,9 +780,7 @@ function UserManagementPage() {
     setRole("user")
     setStatus("active")
     setGroupIds([])
-    setTotalCreditLimit("")
     setWeeklyCreditLimit("")
-    setMonthlyCreditLimit("")
   }
 
   const openCreate = () => {
@@ -812,33 +795,21 @@ function UserManagementPage() {
     setRole(user.role)
     setStatus(user.status)
     setGroupIds(user.user_group_ids ?? [])
-    setTotalCreditLimit(creditLimitToCreditQuotaInput(user.total_credit_limit))
     setWeeklyCreditLimit(
       creditLimitToCreditQuotaInput(user.weekly_credit_limit)
-    )
-    setMonthlyCreditLimit(
-      creditLimitToCreditQuotaInput(user.monthly_credit_limit)
     )
     setEditorOpen(true)
   }
 
   const resetQuotaEditor = () => {
     setQuotaEditing(null)
-    setQuotaTotalCreditLimit("")
     setQuotaWeeklyCreditLimit("")
-    setQuotaMonthlyCreditLimit("")
   }
 
   const openQuotaEdit = (user: User) => {
     setQuotaEditing(user)
-    setQuotaTotalCreditLimit(
-      creditLimitToCreditQuotaInput(user.total_credit_limit)
-    )
     setQuotaWeeklyCreditLimit(
       creditLimitToCreditQuotaInput(user.weekly_credit_limit)
-    )
-    setQuotaMonthlyCreditLimit(
-      creditLimitToCreditQuotaInput(user.monthly_credit_limit)
     )
   }
 
@@ -863,11 +834,7 @@ function UserManagementPage() {
   }
 
   const saveMutation = useMutation({
-    mutationFn: (creditLimits?: {
-      total_credit_limit: string | null
-      weekly_credit_limit: string | null
-      monthly_credit_limit: string | null
-    }) =>
+    mutationFn: (creditLimits?: { weekly_credit_limit: string | null }) =>
       apiRequest(editing ? `/admin/users/${editing.id}` : "/admin/users", {
         method: editing ? "PATCH" : "POST",
         body: {
@@ -899,11 +866,7 @@ function UserManagementPage() {
   })
 
   const creditLimitMutation = useMutation({
-    mutationFn: (creditLimits: {
-      total_credit_limit?: string | null
-      weekly_credit_limit?: string | null
-      monthly_credit_limit?: string | null
-    }) =>
+    mutationFn: (creditLimits: { weekly_credit_limit: string | null }) =>
       apiRequest("/admin/users/credit-limits", {
         method: "PATCH",
         body: {
@@ -934,9 +897,7 @@ function UserManagementPage() {
     }: {
       targetUser: User
       creditLimits: {
-        total_credit_limit: string | null
         weekly_credit_limit: string | null
-        monthly_credit_limit: string | null
       }
     }) =>
       apiRequest(`/admin/users/${targetUser.id}`, {
@@ -1188,16 +1149,8 @@ function UserManagementPage() {
             options={[
               { value: "", label: t("common.all") },
               {
-                value: "total",
-                label: t("admin.totalCreditQuotaRemainingZero"),
-              },
-              {
                 value: "weekly",
                 label: t("admin.weeklyCreditQuotaRemainingZero"),
-              },
-              {
-                value: "monthly",
-                label: t("admin.monthlyCreditQuotaRemainingZero"),
               },
             ]}
           />
@@ -1238,9 +1191,7 @@ function UserManagementPage() {
                 <TableHead>{t("admin.registrationSource")}</TableHead>
                 <TableHead>{t("admin.loginMethod")}</TableHead>
                 <TableHead>{t("admin.groups")}</TableHead>
-                <TableHead>{t("admin.totalCreditLimit")}</TableHead>
                 <TableHead>{t("admin.weeklyCreditLimit")}</TableHead>
-                <TableHead>{t("admin.monthlyCreditLimit")}</TableHead>
                 <TableHead className="user-management-last-login-column">
                   {t("admin.lastLogin")}
                 </TableHead>
@@ -1333,20 +1284,8 @@ function UserManagementPage() {
                     </TableCell>
                     <TableCell className="table-metadata">
                       <UserCreditLimitCell
-                        limit={user.total_credit_limit}
-                        period={user.credit_quota?.total}
-                      />
-                    </TableCell>
-                    <TableCell className="table-metadata">
-                      <UserCreditLimitCell
                         limit={user.weekly_credit_limit}
                         period={user.credit_quota?.weekly}
-                      />
-                    </TableCell>
-                    <TableCell className="table-metadata">
-                      <UserCreditLimitCell
-                        limit={user.monthly_credit_limit}
-                        period={user.credit_quota?.monthly}
                       />
                     </TableCell>
                     <TableCell className="table-metadata user-management-last-login-column">
@@ -1461,18 +1400,12 @@ function UserManagementPage() {
               event.preventDefault()
               if (editing) {
                 let creditLimits: {
-                  total_credit_limit: string | null
                   weekly_credit_limit: string | null
-                  monthly_credit_limit: string | null
                 }
                 try {
                   creditLimits = {
-                    total_credit_limit:
-                      creditQuotaInputToCreditLimit(totalCreditLimit),
                     weekly_credit_limit:
                       creditQuotaInputToCreditLimit(weeklyCreditLimit),
-                    monthly_credit_limit:
-                      creditQuotaInputToCreditLimit(monthlyCreditLimit),
                   }
                 } catch {
                   setError(t("admin.creditLimitInputInvalid"))
@@ -1571,23 +1504,6 @@ function UserManagementPage() {
                   </div>
                   <div className="form-grid">
                     <FieldShell
-                      id="user-total-credit-limit"
-                      label={t("admin.totalCreditLimit")}
-                      hint={t("admin.creditLimitHint")}
-                    >
-                      <Input
-                        id="user-total-credit-limit"
-                        className="h-9"
-                        inputMode="decimal"
-                        pattern={CREDIT_QUOTA_INPUT_PATTERN}
-                        value={totalCreditLimit}
-                        onChange={(event) =>
-                          setTotalCreditLimit(event.target.value)
-                        }
-                        placeholder={t("admin.inheritCreditLimit")}
-                      />
-                    </FieldShell>
-                    <FieldShell
                       id="user-weekly-credit-limit"
                       label={t("admin.weeklyCreditLimit")}
                       hint={t("admin.creditLimitHint")}
@@ -1600,23 +1516,6 @@ function UserManagementPage() {
                         value={weeklyCreditLimit}
                         onChange={(event) =>
                           setWeeklyCreditLimit(event.target.value)
-                        }
-                        placeholder={t("admin.inheritCreditLimit")}
-                      />
-                    </FieldShell>
-                    <FieldShell
-                      id="user-monthly-credit-limit"
-                      label={t("admin.monthlyCreditLimit")}
-                      hint={t("admin.creditLimitHint")}
-                    >
-                      <Input
-                        id="user-monthly-credit-limit"
-                        className="h-9"
-                        inputMode="decimal"
-                        pattern={CREDIT_QUOTA_INPUT_PATTERN}
-                        value={monthlyCreditLimit}
-                        onChange={(event) =>
-                          setMonthlyCreditLimit(event.target.value)
                         }
                         placeholder={t("admin.inheritCreditLimit")}
                       />
@@ -1714,20 +1613,12 @@ function UserManagementPage() {
               event.preventDefault()
               if (!quotaEditing) return
               let creditLimits: {
-                total_credit_limit: string | null
                 weekly_credit_limit: string | null
-                monthly_credit_limit: string | null
               }
               try {
                 creditLimits = {
-                  total_credit_limit: creditQuotaInputToCreditLimit(
-                    quotaTotalCreditLimit
-                  ),
                   weekly_credit_limit: creditQuotaInputToCreditLimit(
                     quotaWeeklyCreditLimit
-                  ),
-                  monthly_credit_limit: creditQuotaInputToCreditLimit(
-                    quotaMonthlyCreditLimit
                   ),
                 }
               } catch {
@@ -1741,24 +1632,6 @@ function UserManagementPage() {
             }}
           >
             <div className="form-grid">
-              <FieldShell
-                id="single-total-credit-limit"
-                label={t("admin.totalCreditLimit")}
-                hint={t("admin.creditLimitHint")}
-              >
-                <Input
-                  id="single-total-credit-limit"
-                  className="h-9"
-                  inputMode="decimal"
-                  pattern={CREDIT_QUOTA_INPUT_PATTERN}
-                  value={quotaTotalCreditLimit}
-                  disabled={singleCreditLimitMutation.isPending}
-                  onChange={(event) =>
-                    setQuotaTotalCreditLimit(event.target.value)
-                  }
-                  placeholder={t("admin.inheritCreditLimit")}
-                />
-              </FieldShell>
               <FieldShell
                 id="single-weekly-credit-limit"
                 label={t("admin.weeklyCreditLimit")}
@@ -1777,30 +1650,7 @@ function UserManagementPage() {
                   placeholder={t("admin.inheritCreditLimit")}
                 />
               </FieldShell>
-              <FieldShell
-                id="single-monthly-credit-limit"
-                label={t("admin.monthlyCreditLimit")}
-                hint={t("admin.creditLimitHint")}
-              >
-                <Input
-                  id="single-monthly-credit-limit"
-                  className="h-9"
-                  inputMode="decimal"
-                  pattern={CREDIT_QUOTA_INPUT_PATTERN}
-                  value={quotaMonthlyCreditLimit}
-                  disabled={singleCreditLimitMutation.isPending}
-                  onChange={(event) =>
-                    setQuotaMonthlyCreditLimit(event.target.value)
-                  }
-                  placeholder={t("admin.inheritCreditLimit")}
-                />
-              </FieldShell>
             </div>
-            {quotaEditing?.registration_source === "self_registration" && (
-              <p className="text-xs leading-5 text-muted-foreground">
-                {t("admin.selfRegisteredTotalQuotaOverrideHint")}
-              </p>
-            )}
             <DialogFooter>
               <DialogClose render={<Button type="button" variant="ghost" />}>
                 {t("common.cancel")}
@@ -1825,12 +1675,7 @@ function UserManagementPage() {
         onOpenChange={(open) => {
           setCreditLimitOpen(open)
           if (!open) {
-            setBatchTotalEnabled(false)
-            setBatchWeeklyEnabled(true)
-            setBatchMonthlyEnabled(true)
-            setBatchTotalCreditLimit("")
             setBatchWeeklyCreditLimit("")
-            setBatchMonthlyCreditLimit("")
           }
         }}
       >
@@ -1847,23 +1692,14 @@ function UserManagementPage() {
             className="form-stack"
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
-              const creditLimits: {
-                total_credit_limit?: string | null
-                weekly_credit_limit?: string | null
-                monthly_credit_limit?: string | null
-              } = {}
+              let creditLimits: {
+                weekly_credit_limit: string | null
+              }
               try {
-                if (batchTotalEnabled) {
-                  creditLimits.total_credit_limit =
-                    creditQuotaInputToCreditLimit(batchTotalCreditLimit)
-                }
-                if (batchWeeklyEnabled) {
-                  creditLimits.weekly_credit_limit =
-                    creditQuotaInputToCreditLimit(batchWeeklyCreditLimit)
-                }
-                if (batchMonthlyEnabled) {
-                  creditLimits.monthly_credit_limit =
-                    creditQuotaInputToCreditLimit(batchMonthlyCreditLimit)
+                creditLimits = {
+                  weekly_credit_limit: creditQuotaInputToCreditLimit(
+                    batchWeeklyCreditLimit
+                  ),
                 }
               } catch {
                 setError(t("admin.creditLimitInputInvalid"))
@@ -1874,42 +1710,6 @@ function UserManagementPage() {
           >
             <FieldSet className="grid gap-3">
               <FieldLegend>{t("admin.creditLimitFields")}</FieldLegend>
-              <FieldLabel className="flex items-start gap-2 text-sm">
-                <Checkbox
-                  checked={batchTotalEnabled}
-                  onCheckedChange={(checked) =>
-                    setBatchTotalEnabled(checked === true)
-                  }
-                />
-                <span>{t("admin.updateTotalCreditLimit")}</span>
-              </FieldLabel>
-              <FieldShell
-                id="batch-total-credit-limit"
-                label={t("admin.totalCreditLimit")}
-                hint={t("admin.creditLimitHint")}
-              >
-                <Input
-                  id="batch-total-credit-limit"
-                  className="h-9"
-                  inputMode="decimal"
-                  pattern={CREDIT_QUOTA_INPUT_PATTERN}
-                  value={batchTotalCreditLimit}
-                  disabled={!batchTotalEnabled}
-                  onChange={(event) =>
-                    setBatchTotalCreditLimit(event.target.value)
-                  }
-                  placeholder={t("admin.clearCreditLimit")}
-                />
-              </FieldShell>
-              <FieldLabel className="flex items-start gap-2 text-sm">
-                <Checkbox
-                  checked={batchWeeklyEnabled}
-                  onCheckedChange={(checked) =>
-                    setBatchWeeklyEnabled(checked === true)
-                  }
-                />
-                <span>{t("admin.updateWeeklyCreditLimit")}</span>
-              </FieldLabel>
               <FieldShell
                 id="batch-weekly-credit-limit"
                 label={t("admin.weeklyCreditLimit")}
@@ -1921,36 +1721,8 @@ function UserManagementPage() {
                   inputMode="decimal"
                   pattern={CREDIT_QUOTA_INPUT_PATTERN}
                   value={batchWeeklyCreditLimit}
-                  disabled={!batchWeeklyEnabled}
                   onChange={(event) =>
                     setBatchWeeklyCreditLimit(event.target.value)
-                  }
-                  placeholder={t("admin.clearCreditLimit")}
-                />
-              </FieldShell>
-              <FieldLabel className="flex items-start gap-2 text-sm">
-                <Checkbox
-                  checked={batchMonthlyEnabled}
-                  onCheckedChange={(checked) =>
-                    setBatchMonthlyEnabled(checked === true)
-                  }
-                />
-                <span>{t("admin.updateMonthlyCreditLimit")}</span>
-              </FieldLabel>
-              <FieldShell
-                id="batch-monthly-credit-limit"
-                label={t("admin.monthlyCreditLimit")}
-                hint={t("admin.creditLimitHint")}
-              >
-                <Input
-                  id="batch-monthly-credit-limit"
-                  className="h-9"
-                  inputMode="decimal"
-                  pattern={CREDIT_QUOTA_INPUT_PATTERN}
-                  value={batchMonthlyCreditLimit}
-                  disabled={!batchMonthlyEnabled}
-                  onChange={(event) =>
-                    setBatchMonthlyCreditLimit(event.target.value)
                   }
                   placeholder={t("admin.clearCreditLimit")}
                 />
@@ -1963,11 +1735,7 @@ function UserManagementPage() {
               <Button
                 type="submit"
                 disabled={
-                  selectedUserIds.length === 0 ||
-                  (!batchTotalEnabled &&
-                    !batchWeeklyEnabled &&
-                    !batchMonthlyEnabled) ||
-                  creditLimitMutation.isPending
+                  selectedUserIds.length === 0 || creditLimitMutation.isPending
                 }
                 aria-busy={creditLimitMutation.isPending || undefined}
               >

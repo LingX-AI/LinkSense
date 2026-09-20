@@ -186,26 +186,25 @@ describe("i18n resources", () => {
       instance.t("errors.capabilityUpdateConflict", { lng: "en-US" })
     ).toBe(zhCN.errors.capabilityUpdateConflict)
   })
-  it("uses Chinese quota wording outside quota management while preserving English and fallback", () => {
-    const values = { total: "12", weekly: "0", monthly: "-" }
+  it("keeps Chinese quota navigation while using credits as the personal quota unit in both languages", () => {
+    const values = { weekly: "0" }
     const key = "nav.creditQuotaRemaining"
-    expect(i18n.t(key, { lng: "zh-CN", ...values })).toBe("总 12 · 周 0 · 月 -")
-    expect(i18n.t(key, { lng: "en-US", ...values })).toBe(
-      "Total 12 · W 0 · M -"
-    )
-    const { quotaManagement, ...chineseInterface } = zhCN
+    expect(i18n.t(key, { lng: "zh-CN", ...values })).toBe("周 0")
+    expect(i18n.t(key, { lng: "en-US", ...values })).toBe("W 0")
+    const { quotaManagement, personalQuota, ...chineseInterface } = zhCN
     expect(
       leafStrings(chineseInterface).filter((value) =>
         /\bcredits?\b/iu.test(value)
       )
     ).toEqual([])
+    expect(personalQuota.unit).toBe("credits")
+    expect(enUS.personalQuota.unit).toBe("credits")
+    expect(i18n.t("personalQuota.unit", { lng: "fr-FR" })).toBe("credits")
     expect(quotaManagement.conversionTitle).toBe("Credits 换算")
     expect(quotaManagement.weekly_credit_limit).toBe("周额度（credits）")
     const instance = i18n.cloneInstance({ forkResourceStore: true })
     instance.removeResourceBundle("en-US", "translation")
-    expect(instance.t(key, { lng: "en-US", ...values })).toBe(
-      "总 12 · 周 0 · 月 -"
-    )
+    expect(instance.t(key, { lng: "en-US", ...values })).toBe("周 0")
     expect(i18n.t("nav.creditQuotaRemainingTitle", { lng: "zh-CN" })).toBe(
       "额度"
     )

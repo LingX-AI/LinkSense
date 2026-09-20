@@ -23,7 +23,7 @@ describe("internalCurrentUserRoutes", () => {
           },
         ],
       },
-      credit_quota: { total: null, weekly: null, monthly: null },
+      credit_quota: { weekly: null },
     }));
     const app = await createApp(getCurrentUserInfo);
 
@@ -53,7 +53,7 @@ describe("internalCurrentUserRoutes", () => {
           },
         ],
       },
-      credit_quota: { total: null, weekly: null, monthly: null },
+      credit_quota: { weekly: null },
     });
     expect(getCurrentUserInfo).toHaveBeenCalledWith(OWNER_ID);
     await app.close();

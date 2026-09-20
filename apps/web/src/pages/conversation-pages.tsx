@@ -381,7 +381,7 @@ type OptimisticTurnStart = Readonly<{
 }>
 
 type UserCreditQuotaUsage = NonNullable<
-  NonNullable<User["credit_quota"]>["total"]
+  NonNullable<User["credit_quota"]>["weekly"]
 >
 
 function isCreditQuotaPeriodExhausted(
@@ -393,11 +393,9 @@ function isCreditQuotaPeriodExhausted(
 
 function getExhaustedCreditQuotaKey(creditQuota: User["credit_quota"]) {
   if (!creditQuota) return null
-  const exhaustedPeriods = [
-    ["total", creditQuota.total] as const,
-    ["weekly", creditQuota.weekly] as const,
-    ["monthly", creditQuota.monthly] as const,
-  ].filter(([, period]) => isCreditQuotaPeriodExhausted(period))
+  const exhaustedPeriods = [["weekly", creditQuota.weekly] as const].filter(
+    ([, period]) => isCreditQuotaPeriodExhausted(period)
+  )
   if (exhaustedPeriods.length === 0) return null
   return exhaustedPeriods
     .map(

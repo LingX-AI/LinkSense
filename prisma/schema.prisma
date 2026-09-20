@@ -29,9 +29,7 @@ model User {
   preferredModel           String?   @map("preferred_model") @db.VarChar(240)
   preferredReasoningEffort String?   @map("preferred_reasoning_effort") @db.VarChar(32)
   runningMessageAction     String    @default("queue") @map("running_message_action") @db.VarChar(32)
-  totalCreditLimitMicros   BigInt?   @map("total_credit_limit_micros") @db.BigInt
   weeklyCreditLimitMicros  BigInt?   @map("weekly_credit_limit_micros") @db.BigInt
-  monthlyCreditLimitMicros BigInt?   @map("monthly_credit_limit_micros") @db.BigInt
   creditQuotaResetAt       DateTime? @map("credit_quota_reset_at") @db.Timestamptz(6)
   lastLoginAt              DateTime? @map("last_login_at") @db.Timestamptz(6)
   lastLoginMethod          String?   @map("last_login_method") @db.VarChar(32)
@@ -672,9 +670,7 @@ model ApplicationExternalSession {
   preferredLocale          String?   @map("preferred_locale") @db.VarChar(16)
   preferredModel           String?   @map("preferred_model") @db.VarChar(240)
   preferredReasoningEffort String?   @map("preferred_reasoning_effort") @db.VarChar(32)
-  totalCreditLimitMicros   BigInt?   @map("total_credit_limit_micros") @db.BigInt
   weeklyCreditLimitMicros  BigInt?   @map("weekly_credit_limit_micros") @db.BigInt
-  monthlyCreditLimitMicros BigInt?   @map("monthly_credit_limit_micros") @db.BigInt
   creditQuotaResetAt       DateTime? @map("credit_quota_reset_at") @db.Timestamptz(6)
   origin                                      String    @db.Text
   status                                      String    @default("active") @db.VarChar(32)
