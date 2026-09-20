@@ -18,6 +18,7 @@ import {
   modelServiceProviderSchema,
   modelProviderSettingsSchema,
   reasoningEffortSchema,
+  reasoningEffortValues,
   updateModelAvailabilitySchema,
   updateModelPreferenceSchema,
   updateModelProviderSettingsSchema,
@@ -25,6 +26,7 @@ import {
   type ManagedConversationModel,
   type ManagedModelKind,
   type ManagedPricedModel,
+  type MemoryExtractionRuntime,
   type DeleteModelProvider,
   type DeleteModelProviderModel,
   type ModelPreference,
@@ -274,6 +276,7 @@ const storedModelProviderSettingsV8Schema = z.strictObject({
 
 const storedModelProviderSettingsSchema = z.object({
   version: z.literal(9),
+  memoryExtractionModel: modelIdentifierSchema.nullable().default(null),
   revision: z.number().int().positive(),
   providers: z.array(storedModelProviderSchema).min(1).max(20),
   defaultModel: modelIdentifierSchema.nullable(),
@@ -295,6 +298,7 @@ export type ResolvedModelRuntime = {
     pricing?: ModelTokenPricing
     modelContextWindow?: number
     modelAutoCompactTokenLimit?: number
+    memoryExtraction?: MemoryExtractionRuntime
   }
 }
 
@@ -408,8 +412,23 @@ export class ModelProviderSettingsService
           ? input.title_model
           : current?.titleModel ?? input.default_model
 
+      const nextMemoryExtractionModel =
+        input.memory_extraction_model !== undefined
+          ? input.memory_extraction_model
+          : current?.memoryExtractionModel ?? null
+      if (
+        nextMemoryExtractionModel !== null &&
+        !input.providers.some((provider) =>
+          provider.models.some(
+            (model) => model.kind === "chat" && model.id === nextMemoryExtractionModel
+          )
+        )
+      ) {
+        throw new AppError("MODEL_IN_USE_BY_SYSTEM_SETTING")
+      }
       const next = storedModelProviderSettingsSchema.parse({
         version: 9,
+        memoryExtractionModel: nextMemoryExtractionModel,
         revision: currentRevision + 1,
         providers: enrichedProviders.map((provider) => {
           const currentProvider = current?.providers.find(
@@ -421,7 +440,8 @@ export class ModelProviderSettingsService
             provider.models.some(
               (model) =>
                 (model.kind === "chat" && model.enabled) ||
-                model.id === nextTitleModel
+                model.id === nextTitleModel ||
+                model.id === nextMemoryExtractionModel
             )
           ) {
             throw new AppError("VALIDATION_ERROR")
@@ -476,6 +496,7 @@ export class ModelProviderSettingsService
             revision: next.revision,
             default_model: next.defaultModel,
             title_model: next.titleModel,
+            memory_extraction_model: next.memoryExtractionModel,
             provider_count: next.providers.length,
             model_count: allModels(next).length,
             enabled_model_count: allModels(next).filter(
@@ -651,6 +672,7 @@ export class ModelProviderSettingsService
       }
       if (
         current.titleModel === input.model_id ||
+        current.memoryExtractionModel === input.model_id ||
         (await this.isModelReferenced(input.model_id))
       ) {
         throw new AppError("MODEL_IN_USE_BY_SYSTEM_SETTING")
@@ -784,7 +806,9 @@ export class ModelProviderSettingsService
         throw new AppError("LAST_ENABLED_MODEL_REQUIRED")
       }
       if (
-        provider.models.some((model) => model.id === current.titleModel) ||
+        provider.models.some(
+          (model) => model.id === current.titleModel || model.id === current.memoryExtractionModel
+        ) ||
         (await this.isAnyModelReferenced(
           provider.models.map((model) => model.id)
         ))
@@ -1466,6 +1490,7 @@ function assertValidStoredSettings(
     })),
     default_model: settings.defaultModel,
     title_model: settings.titleModel,
+    memory_extraction_model: settings.memoryExtractionModel,
   })
   if (!parsed.success)
     throw new Error("stored model provider settings are invalid")
@@ -1492,6 +1517,7 @@ function projectAdminSettings(
           })),
           default_model: stored.defaultModel,
           title_model: stored.titleModel,
+          memory_extraction_model: stored.memoryExtractionModel,
         }
       : {
           configured: false,
@@ -1575,6 +1601,7 @@ function projectRuntime(
     model,
     reasoningEffort,
     provider: {
+      memoryExtraction: projectMemoryExtractionRuntime(stored, model),
       revision: stored.revision,
       baseUrl: provider.baseUrl,
       protocolMode: provider.protocolMode,
@@ -1588,6 +1615,37 @@ function projectRuntime(
       ...(selectedModel.context_window === null
         ? {}
         : { modelContextWindow: selectedModel.context_window }),
+    },
+  }
+}
+
+function projectMemoryExtractionRuntime(
+  stored: StoredModelProviderSettings,
+  taskModel: string
+): MemoryExtractionRuntime {
+  const resolved = projectManagedRuntime(
+    stored,
+    stored.memoryExtractionModel ?? taskModel,
+    "chat"
+  )
+  const model = resolved.model
+  if (model.kind !== "chat" || !resolved.channel.apiKey) {
+    throw new AppError("MODEL_SELECTION_INVALID")
+  }
+  const reasoningEffort = reasoningEffortValues.find((effort) =>
+    model.supported_reasoning_efforts.includes(effort)
+  )
+  if (!reasoningEffort) throw new AppError("MODEL_SELECTION_INVALID")
+  return {
+    model: model.id,
+    reasoningEffort,
+    baseUrl: resolved.channel.baseUrl,
+    protocolMode: resolved.channel.protocolMode,
+    apiKey: resolved.channel.apiKey,
+    pricing: {
+      input_price_per_million: model.input_price_per_million,
+      cached_input_price_per_million: model.cached_input_price_per_million,
+      output_price_per_million: model.output_price_per_million,
     },
   }
 }
@@ -1835,6 +1893,7 @@ function mergeLegacyModelDefinitions(
     providers,
     defaultModel,
     titleModel,
+    memoryExtractionModel: stored?.memoryExtractionModel ?? null,
   })
   assertValidStoredSettings(settings)
   return { settings, changed: true }

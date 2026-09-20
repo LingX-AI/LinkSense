@@ -82,6 +82,7 @@ import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
 import { cn } from "@/lib/utils"
 
 const personalizationQueryKey = ["me", "personalization"] as const
+const resetMemoriesNotificationId = "personalization-memories-reset"
 
 export function SettingsGeneralPage() {
   const { t, i18n } = useTranslation()
@@ -467,7 +468,7 @@ export function SettingsPersonalizationPage() {
   const memoriesEnabled =
     memoriesEnabledOverride ??
     personalizationQuery.data?.memories_enabled ??
-    true
+    false
 
   const customInstructionsMutation = useMutation({
     mutationFn: (nextInstructions: string) =>
@@ -512,14 +513,23 @@ export function SettingsPersonalizationPage() {
         body: {},
         schema: resetMemoriesResultSchema,
       }),
+    onMutate: () => {
+      notify.loading(t("settings.resettingMemories"), {
+        id: resetMemoriesNotificationId,
+      })
+    },
     onSuccess: () => {
       setResetDialogOpen(false)
       setError(null)
       notify.success(t("settings.memoriesReset"), {
-        id: "personalization-memories-reset",
+        id: resetMemoriesNotificationId,
       })
     },
-    onError: (nextError) => setError(getErrorMessage(nextError, t)),
+    onError: (nextError) => {
+      const message = getErrorMessage(nextError, t)
+      setError(message)
+      notify.error(message, { id: resetMemoriesNotificationId })
+    },
   })
 
   const hasUnsavedInstructions = customInstructions !== savedCustomInstructions
@@ -697,12 +707,7 @@ export function SettingsPersonalizationPage() {
         </>
       )}
 
-      <AlertDialog
-        open={resetDialogOpen}
-        onOpenChange={(open) => {
-          if (!resetMemoriesMutation.isPending) setResetDialogOpen(open)
-        }}
-      >
+      <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -719,11 +724,11 @@ export function SettingsPersonalizationPage() {
             <AlertDialogAction
               variant="destructive"
               disabled={resetMemoriesMutation.isPending}
-              onClick={() => resetMemoriesMutation.mutate()}
+              onClick={() => {
+                setResetDialogOpen(false)
+                resetMemoriesMutation.mutate()
+              }}
             >
-              {resetMemoriesMutation.isPending && (
-                <Spinner data-icon="inline-start" />
-              )}
               {t("settings.reset")}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -28,6 +28,7 @@ import type {
   ConversationFormRequestedSchema,
   ConversationUserInputResponse,
   ImageGenerationRequest,
+  MemoryExtractionRuntime,
   ReasoningEffort,
   ModelProviderProtocolMode,
   ModelTokenPricing,
@@ -242,6 +243,7 @@ export type StartTurnInput = {
     pricing?: ModelTokenPricing;
     modelContextWindow?: number;
     modelAutoCompactTokenLimit?: number;
+    memoryExtraction?: MemoryExtractionRuntime;
   };
 };
 
@@ -269,15 +271,7 @@ export type ReconcileInput = {
   model: string;
   modelTransitionSource?: StartTurnInput["modelTransitionSource"];
   reasoningEffort: ReasoningEffort;
-  modelProvider: {
-    revision: number;
-    baseUrl: string;
-    protocolMode: ModelProviderProtocolMode;
-    apiKey: string;
-    pricing?: ModelTokenPricing;
-    modelContextWindow?: number;
-    modelAutoCompactTokenLimit?: number;
-  };
+  modelProvider: StartTurnInput["modelProvider"];
 };
 
 export type ReconcileResult = {
@@ -5260,6 +5254,9 @@ export class AppServerProcessPool {
         protocolMode: input.modelProvider.protocolMode,
         model: input.model,
         pricing: input.modelProvider.pricing ?? zeroModelTokenPricing,
+        ...(input.modelProvider.memoryExtraction
+          ? { memoryExtraction: input.modelProvider.memoryExtraction }
+          : {}),
       });
       let preparedMcpProxy: PreparedUserMcpProxyRuntime;
       try {
@@ -5336,6 +5333,7 @@ export class AppServerProcessPool {
                     : personalization.memories_enabled,
               },
               input.model,
+              input.modelProvider.memoryExtraction?.model,
             ),
             ...mcpConfigOverrides(
               preparedMcpProxy.configServers,
@@ -7073,6 +7071,7 @@ export class AppServerProcessPool {
       modelProviderRevision: input.modelProvider.revision,
       modelProviderBaseUrl: input.modelProvider.baseUrl,
       modelProviderProtocolMode: input.modelProvider.protocolMode,
+      memoryExtraction: input.modelProvider.memoryExtraction ?? null,
       modelContextWindow: input.modelProvider.modelContextWindow ?? null,
       modelAutoCompactTokenLimit:
         input.modelProvider.modelAutoCompactTokenLimit ?? null,
@@ -7628,14 +7627,17 @@ function modelGatewayTransitionSourceFor(
 export function memoryConfigOverrides(
   personalization: Pick<PersonalizationSnapshot, "memories_enabled">,
   model?: string,
+  extractionModel?: string,
 ): string[] {
   return [
+    // The native feature gates startup processing of existing memory candidates.
+    `features.memories=${String(personalization.memories_enabled)}`,
     `memories.generate_memories=${String(personalization.memories_enabled)}`,
     `memories.use_memories=${String(personalization.memories_enabled)}`,
     "memories.disable_on_external_context=true",
     ...(model
       ? [
-          `memories.extract_model=${JSON.stringify(model)}`,
+          `memories.extract_model=${JSON.stringify(extractionModel ?? model)}`,
           `memories.consolidation_model=${JSON.stringify(model)}`,
         ]
       : []),

@@ -27,10 +27,52 @@ const settings: ModelProviderSettings = {
   revision: 1,
   providers: [channel],
   default_model: "alpha",
+  memory_extraction_model: null,
   title_model: "alpha",
 }
 
 describe("model settings drafts", () => {
+  it("preserves the selected memory model when renaming it", () => {
+    const configured = { ...settings, memory_extraction_model: "beta" }
+    const renamed = replaceModel(
+      configured,
+      channel,
+      { ...second, id: "renamed-memory" },
+      "beta"
+    )
+    expect(renamed.memory_extraction_model).toBe("renamed-memory")
+    expect(isSettingsDraftValid(renamed, configured)).toBe(true)
+    expect(configured.memory_extraction_model).toBe("beta")
+
+    const converted = replaceModel(
+      configured,
+      channel,
+      changeModelKind(second, "embedding"),
+      "beta"
+    )
+    expect(isSettingsDraftValid(converted, configured)).toBe(false)
+  })
+
+  it("requires credentials for a memory-only channel even when its model is hidden from conversations", () => {
+    const memoryChannel = {
+      ...channel,
+      id: "memory-channel",
+      api_key_configured: false,
+      models: [{ ...second, enabled: false }],
+    }
+    const configured = {
+      ...settings,
+      providers: [{ ...channel, models: [first] }, memoryChannel],
+      memory_extraction_model: "beta",
+    }
+    const draft = settingsDraft(configured)
+    expect(isSettingsDraftValid(draft, configured)).toBe(false)
+    const memoryProvider = draft.providers[1]
+    if (!memoryProvider) throw new Error("Missing memory channel")
+    memoryProvider.api_key = "test-memory-key"
+    expect(isSettingsDraftValid(draft, configured)).toBe(true)
+  })
+
   it("renames default and title references with the model while preserving siblings and quotas", () => {
     const result = replaceModel(
       settings,

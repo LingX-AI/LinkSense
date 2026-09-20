@@ -46,6 +46,7 @@ export function buildChatCompletionRequest(
               parameters: isRecord(tool.parameters)
                 ? tool.parameters
                 : { type: "object", properties: {} },
+              ...(typeof tool.strict === "boolean" ? { strict: tool.strict } : {}),
             },
           },
         ];
@@ -76,6 +77,12 @@ export function buildChatCompletionRequest(
   }
   if (isRecord(source.reasoning) && typeof source.reasoning.effort === "string") {
     result.reasoning_effort = source.reasoning.effort;
+  }
+  if (isRecord(source.text) && isRecord(source.text.format)) {
+    const { type, ...format } = source.text.format;
+    result.response_format = type === "json_schema"
+      ? { type, json_schema: format }
+      : { type, ...format };
   }
   return result;
 }

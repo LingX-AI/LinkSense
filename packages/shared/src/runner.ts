@@ -9,9 +9,9 @@ export const runnerStartSettledSchema = z.strictObject({
 export type RunnerStartSettled = z.infer<typeof runnerStartSettledSchema>;
 export const runnerStartSettledReceiptSchema = z.strictObject({ settled: z.boolean() });
 
-// v25 adds durable start-result projection notifications to shared user runtimes.
+// v26 adds an independently authorized memory extraction model route.
 export const RUNNER_TURN_START_CONTRACT_VERSION =
-  "user-project-runtime-v25" as const;
+  "user-project-runtime-v26" as const;
 
 /** Names are server-resolved display data; null means unavailable to this user. */
 export const runnerKnowledgeBaseSelectionSchema = z

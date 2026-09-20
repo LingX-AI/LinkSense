@@ -10,6 +10,7 @@ import {
   RUNNER_TURN_START_CONTRACT_VERSION,
   type ModelProviderProtocolMode,
   type ModelTokenPricing,
+  type MemoryExtractionRuntime,
   type CodexModelReasoningCatalog,
   type ConversationUserInputResponse,
   runnerCodexSubAgentDetailSchema,
@@ -220,6 +221,7 @@ export type RunnerModelProviderRuntime = {
   pricing?: ModelTokenPricing;
   modelContextWindow?: number;
   modelAutoCompactTokenLimit?: number;
+  memoryExtraction?: MemoryExtractionRuntime;
 };
 
 export type RunnerStartInput = {

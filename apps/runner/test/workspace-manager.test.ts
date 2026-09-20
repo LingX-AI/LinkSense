@@ -102,6 +102,26 @@ describe("storage-only conversation preparation", () => {
 })
 
 describe("shared user HOME and native state", () => {
+  it("preserves shared native memory state across task deletion, workspace restart and memory toggles without sharing it with another owner", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    manager.bindOwner(taskB, ownerA)
+    const first = await manager.ensureConversation(taskA)
+    const statePath = path.join(first.codexHome, "native-memory-state-fixture")
+    await writeFile(statePath, "persisted-job-watermarks-and-leases")
+    await manager.updatePersonalization(ownerA, { memories_enabled: true })
+    await manager.updatePersonalization(ownerA, { memories_enabled: false })
+    await manager.removeConversation(taskA)
+    const restarted = new WorkspaceManager(root)
+    restarted.bindOwner(taskB, ownerA)
+    const second = await restarted.ensureConversation(taskB)
+    expect(second.codexHome).toBe(first.codexHome)
+    expect(await readFile(path.join(second.codexHome, "native-memory-state-fixture"), "utf8")).toBe("persisted-job-watermarks-and-leases")
+    const other = await restarted.ensureOwner(ownerB)
+    await expect(lstat(path.join(other.home, ".codex", "native-memory-state-fixture"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("shares tool and native state across tasks and preserves both when deleting a task", async () => {
     const root = await tempRoot()
     const manager = new WorkspaceManager(root)
@@ -479,19 +499,19 @@ describe("WorkspaceManager", () => {
     const initial = await manager.getPersonalization(ownerA)
     expect(initial).toMatchObject({
       custom_instructions: "",
-      memories_enabled: true,
+      memories_enabled: false,
       task_auto_naming: "first_message",
     })
 
     const updated = await manager.updatePersonalization(ownerA, {
       custom_instructions: "请优先使用中文，并运行相关测试。",
-      memories_enabled: false,
+      memories_enabled: true,
       task_auto_naming: "every_message",
     })
     expect(updated.revision).not.toBe(initial.revision)
     expect(updated).toMatchObject({
       custom_instructions: "请优先使用中文，并运行相关测试。",
-      memories_enabled: false,
+      memories_enabled: true,
       task_auto_naming: "every_message",
     })
     const ownerAPaths = manager.ownerPathsFor(ownerA)
@@ -509,7 +529,7 @@ describe("WorkspaceManager", () => {
     const other = await manager.getPersonalization(ownerB)
     expect(other).toMatchObject({
       custom_instructions: "",
-      memories_enabled: true,
+      memories_enabled: false,
       task_auto_naming: "first_message",
     })
     manager.bindOwner(taskB, ownerB)

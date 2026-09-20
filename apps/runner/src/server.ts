@@ -21,6 +21,7 @@ import {
   getKnowledgeDocumentMarkdownInputSchema,
   imageGenerationRequestSchema,
   listKnowledgeDocumentsInputSchema,
+  memoryExtractionRuntimeSchema,
   modelContextWindowSchema,
   modelIdentifierSchema,
   modelProviderBaseUrlSchema,
@@ -139,6 +140,7 @@ const runnerEnvironmentSchema = z
   .default({});
 
 const modelProviderRuntimeSchema = z.strictObject({
+  memoryExtraction: memoryExtractionRuntimeSchema.optional(),
   revision: z.number().int().positive(),
   baseUrl: modelProviderBaseUrlSchema,
   protocolMode: modelProviderProtocolModeSchema,
@@ -490,6 +492,9 @@ function prewarmInput(
     model: body.model,
     reasoningEffort: body.reasoningEffort,
     modelProvider: {
+      ...(body.modelProvider.memoryExtraction
+        ? { memoryExtraction: body.modelProvider.memoryExtraction }
+        : {}),
       revision: body.modelProvider.revision,
       baseUrl: body.modelProvider.baseUrl,
       protocolMode: body.modelProvider.protocolMode,
@@ -1628,6 +1633,9 @@ export function buildRunnerServer(
           model: body.model,
           reasoningEffort: body.reasoningEffort,
           modelProvider: {
+            ...(body.modelProvider.memoryExtraction
+              ? { memoryExtraction: body.modelProvider.memoryExtraction }
+              : {}),
             revision: body.modelProvider.revision,
             baseUrl: body.modelProvider.baseUrl,
             protocolMode: body.modelProvider.protocolMode,
@@ -2000,6 +2008,9 @@ export function buildRunnerServer(
           model: body.model,
           reasoningEffort: body.reasoningEffort,
           modelProvider: {
+            ...(body.modelProvider.memoryExtraction
+              ? { memoryExtraction: body.modelProvider.memoryExtraction }
+              : {}),
             revision: body.modelProvider.revision,
             baseUrl: body.modelProvider.baseUrl,
             protocolMode: body.modelProvider.protocolMode,
@@ -2119,6 +2130,9 @@ export function buildRunnerServer(
             : {}),
           reasoningEffort: body.reasoningEffort,
           modelProvider: {
+            ...(body.modelProvider.memoryExtraction
+              ? { memoryExtraction: body.modelProvider.memoryExtraction }
+              : {}),
             revision: body.modelProvider.revision,
             baseUrl: body.modelProvider.baseUrl,
             protocolMode: body.modelProvider.protocolMode,
@@ -2219,6 +2233,9 @@ export function buildRunnerServer(
             model: body.model,
             reasoningEffort: body.reasoningEffort,
             modelProvider: {
+              ...(body.modelProvider.memoryExtraction
+                ? { memoryExtraction: body.modelProvider.memoryExtraction }
+                : {}),
               revision: body.modelProvider.revision,
               baseUrl: body.modelProvider.baseUrl,
               protocolMode: body.modelProvider.protocolMode,
@@ -2615,6 +2632,9 @@ function goalRuntimeInput(
     model: body.model,
     reasoningEffort: body.reasoningEffort,
     modelProvider: {
+      ...(body.modelProvider.memoryExtraction
+        ? { memoryExtraction: body.modelProvider.memoryExtraction }
+        : {}),
       revision: body.modelProvider.revision,
       baseUrl: body.modelProvider.baseUrl,
       protocolMode: body.modelProvider.protocolMode,
@@ -2660,6 +2680,9 @@ function subAgentReadInput(
     model: body.model,
     reasoningEffort: body.reasoningEffort,
     modelProvider: {
+      ...(body.modelProvider.memoryExtraction
+        ? { memoryExtraction: body.modelProvider.memoryExtraction }
+        : {}),
       revision: body.modelProvider.revision,
       baseUrl: body.modelProvider.baseUrl,
       protocolMode: body.modelProvider.protocolMode,

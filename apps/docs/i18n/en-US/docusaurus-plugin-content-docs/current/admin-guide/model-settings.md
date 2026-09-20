@@ -42,6 +42,14 @@ Use **Move channel up** or **Move channel down** under **Channel actions** to re
 
 At the end of the provider list, select the conversation default and the task auto-naming model separately. The conversation default must be available in conversations. Task auto naming can use any configured chat model and never reads a deployment-provided built-in naming model. Its input, cached-input, and output tokens are recorded under the Task auto naming workload; usage is marked as estimated when the provider does not return token counts.
 
+## Memory extraction model
+
+Select **Memory extraction model** from the existing chat models. It reuses the model's channel, credentials, and prices; no separate connection settings are needed. Conversation availability does not affect extraction. Clear the extraction selection before deleting the selected model or its channel.
+
+**Use the current task model** uses each task's model for extraction. Extraction always uses the selected model's lowest configured supported reasoning effort, without changing the task's own effort. This selection applies only to extraction; consolidation continues to use the current task model.
+
+Memory generation requires the user's opt-in. Changes apply to subsequently started task runtimes and preserve existing memories. Tasks belonging to one user share native memory state. The native engine uses successful-processing markers, job locks, and input changes to avoid duplicate work. Switching models or restarting does not reset that state. Failure recovery and updated history can still cause new model calls; deduplication is not a retry or spending limit.
+
 ## User quotas
 
 Configure user quotas in the separate [Quota management](./quota-settings.md) page, in credits.

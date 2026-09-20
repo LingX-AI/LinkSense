@@ -86,6 +86,73 @@ afterEach(async () => {
 });
 
 describe("AppServerProcessPool", () => {
+  it("passes the dedicated extraction route without changing the task or consolidation model", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-memory-model-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, modelGateway } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    input.modelProvider = { ...input.modelProvider, memoryExtraction: {
+      model: "memory-model", reasoningEffort: "minimal", baseUrl: "https://memory.example/v1", protocolMode: "chat_completions_bridge", apiKey: "memory-channel-key",
+      pricing: { input_price_per_million: "1", cached_input_price_per_million: "0.1", output_price_per_million: "2" },
+    } };
+    try {
+      await pool.startTurn(input);
+      expect(controlled.args).toContain('memories.extract_model="memory-model"');
+      expect(controlled.args).toContain(`memories.consolidation_model=${JSON.stringify(input.model)}`);
+      expect(modelGateway.issueLease).toHaveBeenCalledWith(expect.objectContaining({ model: input.model, memoryExtraction: input.modelProvider.memoryExtraction }));
+      expect(JSON.stringify(controlled.args)).not.toContain("memory-channel-key");
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it.each([false, true])("applies the saved memory preference %s after template defaults on a restarted workspace", async (enabled) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-memory-preference-"));
+    roots.push(root);
+    const input = startOperationInput();
+    const manager = createWorkspaceManager(root);
+    await manager.updatePersonalization(input.ownerId, {
+      memories_enabled: enabled,
+    });
+    const codexHome = join(taskRuntimeHome(root), ".codex");
+    await mkdir(codexHome, { recursive: true });
+    await writeFile(
+      join(codexHome, "config.toml"),
+      "[features]\nmemories = true\n[memories]\ngenerate_memories = true\nuse_memories = true\n",
+    );
+    const controlled = createControlledAppServer();
+    const { pool } = createStartOperationPool(
+      root,
+      controlled.factory,
+      createWorkspaceManager(root),
+      { globalFeatureOverrides: [`features.memories=${String(!enabled)}`] },
+    );
+    try {
+      await pool.startTurn(input);
+      for (const key of [
+        "features.memories",
+        "memories.generate_memories",
+        "memories.use_memories",
+      ]) {
+        expect(
+          controlled.args?.filter((arg) => arg.startsWith(`${key}=`)).at(-1),
+        ).toBe(`${key}=${String(enabled)}`);
+      }
+      expect(controlled.requests).toContainEqual(
+        expect.objectContaining({
+          method: "thread/memoryMode/set",
+          params: {
+            threadId: "thread-native-1",
+            mode: enabled ? "enabled" : "disabled",
+          },
+        }),
+      );
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
   it("keeps original text, server requests and completion ordered while a delta batch waits for durable storage", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-notification-batch-"));
     roots.push(root);
@@ -654,6 +721,7 @@ enabled = true
 [features]
 apps = true
 plugins = false
+memories = true
 
 [projects."/persisted-user-project"]
 trust_level = "trusted"
@@ -700,8 +768,9 @@ trust_level = "trusted"
       args.slice(pluginsOverrideIndex - 1, pluginsOverrideIndex + 1),
     ).toEqual(["-c", "features.plugins=true"]);
     for (const override of [
-      "memories.generate_memories=true",
-      "memories.use_memories=true",
+      "features.memories=false",
+      "memories.generate_memories=false",
+      "memories.use_memories=false",
       "memories.disable_on_external_context=true",
       'memories.extract_model="test-model"',
       'memories.consolidation_model="test-model"',
@@ -714,7 +783,7 @@ trust_level = "trusted"
         method: "thread/memoryMode/set",
         params: {
           threadId: "thread-native-1",
-          mode: "enabled",
+          mode: "disabled",
         },
       }),
     );
@@ -5204,7 +5273,7 @@ trust_level = "trusted"
       mcpServers: [],
     } satisfies NativePluginActivation;
     nativePluginManager.verifyAfterStart.mockResolvedValue([pluginActivation]);
-    const { pool, capabilityRuntimeManager } = createStartOperationPool(
+    const { pool, capabilityRuntimeManager, workspaceManager } = createStartOperationPool(
       root,
       controlled.factory,
       createWorkspaceManager(root),
@@ -5213,6 +5282,9 @@ trust_level = "trusted"
         globalFeatureOverrides: ["features.plugins=true"],
       },
     );
+    await workspaceManager.updatePersonalization(startOperationInput().ownerId, {
+      memories_enabled: true,
+    });
     const pluginCredentialSource =
       "LINKSENSE_CREDENTIAL_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     const mcpEnvironmentSource =
@@ -5303,6 +5375,7 @@ trust_level = "trusted"
       "--stdio",
     ]);
     expect(nativePluginManager.verifyAfterStart).not.toHaveBeenCalled();
+    expect(controlled.args).toContain("features.memories=false");
     expect(
       controlled.args?.filter((argument) =>
         argument.startsWith("memories.generate_memories="),
@@ -5368,6 +5441,7 @@ trust_level = "trusted"
     expect(controlled.args).not.toContain(
       "mcp_servers.linksense_core.enabled=false",
     );
+    expect(controlled.args).toContain("features.memories=true");
     expect(
       controlled.args?.filter((argument) =>
         argument.startsWith("memories.generate_memories="),

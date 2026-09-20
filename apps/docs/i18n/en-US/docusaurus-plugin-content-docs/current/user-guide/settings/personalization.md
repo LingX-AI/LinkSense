@@ -28,7 +28,7 @@ Manually edited task names stay unchanged. This preference applies to future mes
 
 ## Memory
 
-When memory is enabled, LinkSense may derive personal memory from eligible tasks and use it in future work. Tasks involving external tools or web context do not create memory.
+Memory is off by default, and you can enable it when needed. When enabled, LinkSense may derive personal memory from eligible tasks and use it in future work. Tasks involving external tools or web context do not create memory.
 
 Disabling memory stops creating and using memory but does not automatically erase saved entries.
 

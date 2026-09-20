@@ -30,6 +30,7 @@ const settings: ModelProviderSettings = {
     },
   ],
   default_model: "model-a",
+  memory_extraction_model: null,
   title_model: "model-a",
 }
 

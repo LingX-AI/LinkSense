@@ -14,6 +14,86 @@ const CONVERSATION_A_ID = "00000000-0000-4000-8000-0000000000a1"
 const CONVERSATION_B_ID = "00000000-0000-4000-8000-0000000000b1"
 
 describe("ModelProviderSettingsService", () => {
+  it("keeps existing version 9 settings usable with task-model extraction at the lowest supported effort", async () => {
+    const config = testConfig();
+    const database = inMemoryDatabase({
+      model_provider_settings_key_id: config.credentialKeyId,
+      model_provider_settings_encrypted: encryptJson({ version: 9, revision: 4, defaultModel: "existing", titleModel: "existing", providers: [{
+        id: "existing-channel", name: null, provider: "openai_compatible", providerProject: null, providerLocation: null, baseUrl: "https://existing.example/v1", protocolMode: "native_responses", apiKey: "existing-key", models: [pricedModel("existing", ["high", "minimal", "medium"], "high")],
+      }] }, config.credentialMasterKey, config.credentialKeyId, "linksense:model-provider-settings:v1"),
+    });
+    const service = new ModelProviderSettingsService(database.prisma, config);
+    expect((await service.getAdminSettings()).memory_extraction_model).toBeNull();
+    await expect(service.resolveRuntimeForSelection("existing", "high")).resolves.toMatchObject({ model: "existing", reasoningEffort: "high", provider: { memoryExtraction: { model: "existing", reasoningEffort: "minimal", apiKey: "existing-key" } } });
+    expect(JSON.stringify(await service.getAdminSettings())).not.toContain("existing-key");
+  });
+
+  it("resolves a dedicated extraction channel and preserves it across unrelated settings updates", async () => {
+    const database = inMemoryDatabase();
+    const service = new ModelProviderSettingsService(database.prisma, testConfig());
+    const providers = [
+      provider("task", "https://task.example.test/v1", [pricedModel("task-model", ["high", "low"], "high")], "native_responses", "task-key"),
+      provider("memory", "https://memory.example.test/v1", [pricedModel("memory-model", ["high", "minimal", "low"], "high")], "chat_completions_bridge", "memory-key"),
+    ];
+    const saved = await service.update(ACTOR_ID, { expected_revision: 0, providers, default_model: "task-model", memory_extraction_model: "memory-model" }, {});
+    expect(saved.memory_extraction_model).toBe("memory-model");
+    await expect(service.resolveRuntimeForSelection("task-model", "high")).resolves.toMatchObject({
+      model: "task-model", reasoningEffort: "high", provider: { memoryExtraction: {
+        model: "memory-model", reasoningEffort: "minimal", baseUrl: "https://memory.example.test/v1", apiKey: "memory-key", protocolMode: "chat_completions_bridge",
+      } },
+    });
+    const reloaded = new ModelProviderSettingsService(database.prisma, testConfig());
+    await reloaded.update(ACTOR_ID, { expected_revision: 1, providers, default_model: "task-model" }, {});
+    expect((await reloaded.getAdminSettings()).memory_extraction_model).toBe("memory-model");
+    await expect(reloaded.deleteProvider(ACTOR_ID, { expected_revision: 2, provider_id: "memory" }, {})).rejects.toMatchObject({ code: "MODEL_IN_USE_BY_SYSTEM_SETTING" });
+    await reloaded.update(ACTOR_ID, { expected_revision: 2, providers, default_model: "task-model", memory_extraction_model: null }, {});
+    await expect(reloaded.resolveRuntimeForSelection("task-model", "high")).resolves.toMatchObject({ provider: { memoryExtraction: { model: "task-model", reasoningEffort: "low", apiKey: "task-key" } } });
+  });
+
+  it("allows a hidden chat model for memory extraction and protects its reference during edits and deletion", async () => {
+    const database = inMemoryDatabase()
+    const service = new ModelProviderSettingsService(database.prisma, testConfig())
+    const taskModel = pricedModel("task-model", ["low", "high"], "high")
+    const memoryModel = { ...pricedModel("memory-model", ["low"], "low"), enabled: false }
+    const models = [taskModel, memoryModel]
+    const providers = [provider("main", "https://models.example.test/v1", models, "native_responses", "test-key")]
+    await service.update(ACTOR_ID, {
+      expected_revision: 0, providers, default_model: taskModel.id, memory_extraction_model: memoryModel.id,
+    }, {})
+
+    await expect(service.resolveRuntimeForSelection(taskModel.id, "high")).resolves.toMatchObject({
+      provider: { memoryExtraction: { model: memoryModel.id, reasoningEffort: "low" } },
+    })
+    await expect(service.deleteModel(ACTOR_ID, {
+      expected_revision: 1, model_id: memoryModel.id,
+    }, {})).rejects.toMatchObject({ code: "MODEL_IN_USE_BY_SYSTEM_SETTING" })
+    await expect(service.update(ACTOR_ID, {
+      expected_revision: 1,
+      providers: [provider("main", "https://models.example.test/v1", [taskModel], "native_responses", "test-key")],
+      default_model: taskModel.id,
+    }, {})).rejects.toMatchObject({ code: "MODEL_IN_USE_BY_SYSTEM_SETTING" })
+    expect((await service.getAdminSettings()).revision).toBe(1)
+
+    await service.update(ACTOR_ID, {
+      expected_revision: 1, providers, default_model: taskModel.id, memory_extraction_model: null,
+    }, {})
+    await expect(service.deleteModel(ACTOR_ID, {
+      expected_revision: 2, model_id: memoryModel.id,
+    }, {})).resolves.toMatchObject({ revision: 3, memory_extraction_model: null })
+  })
+
+  it("rejects a selected memory model whose channel has no credentials even when it is hidden from conversations", async () => {
+    const service = new ModelProviderSettingsService(inMemoryDatabase().prisma, testConfig())
+    const providers = [
+      provider("task", "https://task.example.test/v1", [pricedModel("task-model", ["low"], "low")], "native_responses", "test-key"),
+      provider("memory", "https://memory.example.test/v1", [{ ...pricedModel("memory-model", ["low"], "low"), enabled: false }]),
+    ]
+    await expect(service.update(ACTOR_ID, {
+      expected_revision: 0, providers, default_model: "task-model", memory_extraction_model: "memory-model",
+    }, {})).rejects.toMatchObject({ code: "VALIDATION_ERROR" })
+    expect((await service.getAdminSettings()).configured).toBe(false)
+  })
+
   it("persists an empty channel, returns no selectable models, and supports adding its first model later", async () => {
     const database = inMemoryDatabase()
     const metadataClient = { readContextWindows: vi.fn(async () => new Map<string, number>()) }
@@ -190,6 +270,7 @@ describe("ModelProviderSettingsService", () => {
     )
 
     expect(first).toEqual({
+      memory_extraction_model: null,
       configured: true,
       revision: 1,
       providers: [

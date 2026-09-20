@@ -498,6 +498,7 @@ export const enUS = {
     resetMemoriesConfirmTitle: "Reset all memories?",
     resetMemoriesConfirmDescription:
       "This cannot be undone. Your tasks, custom instructions, plugins, and Skills will remain.",
+    resettingMemories: "Resetting memories…",
     memoriesReset: "Memories reset",
     appearancePageDescription:
       "Set the {{productName}} interface theme and base font size.",
@@ -4627,6 +4628,10 @@ export const enUS = {
         "The system uses this model when a user has not chosen one or their previous model is unavailable.",
       modelSelections: "Conversation and system model selections",
       saveModelSelections: "Save conversation and system model selections",
+      memoryExtractionModel: "Memory extraction model",
+      memoryUseTaskModel: "Use the current task model",
+      memoryExtractionHint:
+        "Applies when a user enables memory. If no separate model is selected, extraction uses the current task model. Extraction always uses the selected model’s lowest supported reasoning effort. This does not change the memory consolidation model.",
       titleModel: "Task auto-naming model",
       titleModelHint:
         "Creates recognizable task names automatically. Its usage is included in analytics.",

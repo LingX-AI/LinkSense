@@ -46,6 +46,7 @@ const settings: ModelProviderSettings = {
     },
   ],
   default_model: "model-a",
+  memory_extraction_model: null,
   title_model: "model-a",
 }
 
@@ -83,6 +84,7 @@ function installSaveMock(initial = settings, detectContext = false) {
         revision: saved.revision + 1,
         default_model: input.default_model,
         title_model: input.title_model ?? input.default_model,
+        memory_extraction_model: input.memory_extraction_model ?? null,
         providers: input.providers.map((provider) => {
           const { api_key: apiKey, ...connection } = provider
           return {
@@ -116,6 +118,42 @@ function installSaveMock(initial = settings, detectContext = false) {
 }
 
 describe("ModelProviderSettingsForm", () => {
+  it.each(["zh-CN", "en-US", "fr-FR"])(
+    "saves and clears the extraction model in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const requests = installSaveMock()
+      renderModels()
+      const user = userEvent.setup()
+      const label = i18n.t("admin.modelProvider.memoryExtractionModel")
+      const save = i18n.t("admin.modelProvider.saveModelSelections")
+      expect(screen.getByRole("combobox", { name: label })).toHaveTextContent(
+        i18n.t("admin.modelProvider.memoryUseTaskModel")
+      )
+      await user.click(screen.getByRole("combobox", { name: label }))
+      await user.click(await screen.findByRole("option", { name: "Model A" }))
+      await user.click(screen.getByRole("button", { name: save }))
+      await waitFor(() =>
+        expect(requests[0]).toMatchObject({
+          memory_extraction_model: "model-a",
+        })
+      )
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: save })).toBeDisabled()
+      )
+      await user.click(screen.getByRole("combobox", { name: label }))
+      await user.click(
+        await screen.findByRole("option", {
+          name: i18n.t("admin.modelProvider.memoryUseTaskModel"),
+        })
+      )
+      await user.click(screen.getByRole("button", { name: save }))
+      await waitFor(() =>
+        expect(requests[1]).toMatchObject({ memory_extraction_model: null })
+      )
+    }
+  )
+
   beforeEach(async () => {
     await i18n.changeLanguage("en-US")
   })

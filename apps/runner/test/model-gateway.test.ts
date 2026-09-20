@@ -34,6 +34,104 @@ afterEach(async () => {
 });
 
 describe("ModelGateway", () => {
+  it("binds extraction WebSockets to the dedicated channel and rejects ordinary requests on that socket", async () => {
+    const received: JsonObject[] = [];
+    const captures: RunnerMemoryUsageCapture[] = [];
+    const memoryUpstream = await startWebSocketUpstream({
+      onConnection(socket, request) {
+        expect(request.headers.authorization).toBe("Bearer memory-key");
+        socket.on("message", (data) => {
+          received.push(parseWebSocketJson(data.toString()));
+          socket.send(JSON.stringify({ type: "response.completed", response: { id: "resp-memory-ws", status: "completed", output: [], usage: { input_tokens: 20, output_tokens: 5 } } }));
+        });
+      },
+    });
+    const gateway = await startGateway({ onMemoryUsage: async (capture) => { captures.push(capture); } });
+    const lease = gateway.issueLease({ ...leaseMetering, conversationId: "memory-ws", revision: 1, upstreamBaseUrl: "https://task.example/v1", apiKey: "task-key", protocolMode: "native_responses", model: "task-model",
+      memoryExtraction: { model: "memory-model", reasoningEffort: "low", baseUrl: `${memoryUpstream.baseUrl}/v1`, apiKey: "memory-key", protocolMode: "native_responses", pricing: leaseMetering.pricing },
+    });
+    const metadata = { "x-codex-turn-metadata": '{"request_kind":"memory"}' };
+    const downstream = await connectGatewayWebSocket(gateway, lease.token, metadata);
+    const completion = nextWebSocketJson(downstream.socket);
+    downstream.socket.send(JSON.stringify({ type: "response.create", model: "memory-model", input: "history", reasoning: { effort: "high" }, client_metadata: metadata }));
+    await completion;
+    await vi.waitFor(() => expect(captures).toHaveLength(1));
+    expect(received).toEqual([expect.objectContaining({ model: "memory-model", reasoning: { effort: "low" } })]);
+    expect(captures[0]).toMatchObject({ operation: "extract", model: "memory-model" });
+    const denied = nextWebSocketJson(downstream.socket);
+    downstream.socket.send(JSON.stringify({ type: "response.create", model: "memory-model", input: "ordinary" }));
+    expect(await denied).toMatchObject({ type: "error", error: { code: "model_not_authorized" } });
+    expect(received).toHaveLength(1);
+    await closeWebSocket(downstream.socket);
+  });
+
+  it.each(["native_responses", "responses_tool_compat", "chat_completions_bridge"] as const)("routes only extraction to its configured %s channel with minimum reasoning and exact pricing", async (protocolMode) => {
+    const received: Array<{ url: string; body: JsonObject; authorization: string | null }> = [];
+    const captures: RunnerMemoryUsageCapture[] = [];
+    const gateway = await startGateway({
+      onMemoryUsage: async (capture) => { captures.push(capture); },
+      fetch: async (url, init) => {
+        received.push({ url: String(url), body: JSON.parse(String(init?.body)), authorization: new Headers(init?.headers).get("authorization") });
+        return Response.json(protocolMode === "chat_completions_bridge" && String(url).includes("memory.example")
+          ? { choices: [{ message: { content: '{"memory":"saved"}' } }], usage: { prompt_tokens: 20, completion_tokens: 5 } }
+          : { id: "resp-memory", status: "completed", output: [], usage: { input_tokens: 20, output_tokens: 5 } });
+      },
+    });
+    const pricing = { input_price_per_million: "0.2", cached_input_price_per_million: "0.02", output_price_per_million: "0.5" };
+    const lease = gateway.issueLease({ ...leaseMetering, conversationId: "memory-routing", revision: 1, upstreamBaseUrl: "https://task.example/v1", apiKey: "task-key", protocolMode: "native_responses", model: "task-model",
+      memoryExtraction: { model: "memory-model", reasoningEffort: "minimal", baseUrl: "https://memory.example/v1", apiKey: "memory-key", protocolMode, pricing },
+    });
+    expect((await requestGateway(gateway, lease.token, { model: "memory-model", input: "history" })).status).toBe(403);
+    const format = { type: "json_schema", name: "memory", strict: true, schema: { type: "object", properties: { memory: { type: "string" } }, required: ["memory"], additionalProperties: false } };
+    const memoryResponse = await requestGateway(gateway, lease.token, { model: "memory-model", input: "history", reasoning: { effort: "high" }, text: { format } }, { "x-codex-turn-metadata": '{"request_kind":"memory"}' });
+    expect(memoryResponse.status).toBe(200);
+    await memoryResponse.text();
+    expect(received[0]).toMatchObject({ url: `https://memory.example/v1/${protocolMode === "chat_completions_bridge" ? "chat/completions" : "responses"}`, authorization: "Bearer memory-key" });
+    expect(received[0]?.body).toMatchObject(protocolMode === "chat_completions_bridge"
+      ? { reasoning_effort: "minimal", response_format: { type: "json_schema", json_schema: { strict: true, schema: format.schema } } }
+      : { reasoning: { effort: "minimal" }, text: { format } });
+    expect(captures).toEqual([expect.objectContaining({ model: "memory-model", pricing, operation: "extract", owner_id: leaseMetering.ownerId })]);
+    await requestGateway(gateway, lease.token, { model: "task-model", input: "answer", reasoning: { effort: "high" } });
+    expect(received[1]).toMatchObject({ url: "https://task.example/v1/responses", authorization: "Bearer task-key", body: { reasoning: { effort: "high" } } });
+    await requestGateway(gateway, lease.token, { model: "task-model", input: "consolidate", reasoning: { effort: "medium" } }, { "x-openai-subagent": "memory_consolidation" });
+    expect(received[2]).toMatchObject({ url: "https://task.example/v1/responses", authorization: "Bearer task-key", body: { model: "task-model", reasoning: { effort: "medium" } } });
+    expect(captures[1]).toMatchObject({ model: "task-model", pricing: leaseMetering.pricing, operation: "consolidate" });
+  });
+
+  it("lowers extraction effort when it uses the task model without changing ordinary requests", async () => {
+    const received: JsonObject[] = [];
+    const gateway = await startGateway({
+      fetch: async (_url, init) => {
+        received.push(JSON.parse(String(init?.body)));
+        return Response.json({ id: "resp-same-model", status: "completed", output: [] });
+      },
+    });
+    const lease = gateway.issueLease({
+      ...leaseMetering,
+      conversationId: "memory-fallback",
+      revision: 1,
+      upstreamBaseUrl: "https://task.example/v1",
+      apiKey: "task-key",
+      protocolMode: "native_responses",
+      model: "task-model",
+      memoryExtraction: {
+        model: "task-model",
+        reasoningEffort: "low",
+        baseUrl: "https://task.example/v1",
+        apiKey: "task-key",
+        protocolMode: "native_responses",
+        pricing: leaseMetering.pricing,
+      },
+    });
+    const body = { model: "task-model", input: "history", reasoning: { effort: "high", summary: "auto" } };
+    expect((await requestGateway(gateway, lease.token, body, { "x-codex-turn-metadata": '{"request_kind":"memory"}' })).status).toBe(200);
+    expect((await requestGateway(gateway, lease.token, body)).status).toBe(200);
+    expect(received).toEqual([
+      { ...body, reasoning: { effort: "low", summary: "auto" } },
+      body,
+    ]);
+  });
+
   it("records correlated first-text latency while forwarding native bytes unchanged", async () => {
     const { logger, logs } = createCapturingLogger();
     const bytes = 'data: {"type":"response.created"}\n\ndata: {"type":"response.output_text.delta","delta":"private answer"}\n\n';

@@ -12,7 +12,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createMemoryRouter, RouterProvider } from "react-router-dom"
 
 import { setAccessToken } from "@/api/session"
+import { ThemeProvider } from "@/app/theme-context"
 import { notify } from "@/components/feedback/notification"
+import { NotificationCenter } from "@/components/feedback/notification-toast"
 import i18n from "@/i18n"
 import { SettingsPersonalizationPage } from "@/pages/settings-pages"
 
@@ -29,6 +31,50 @@ describe("personalization settings", () => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
+
+  it("shows memory as off when personalization cannot be loaded", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => envelope({ error_code: "RUNNER_UNAVAILABLE" }, 503))
+    )
+    renderPage()
+
+    expect(
+      await screen.findByRole("switch", { name: "启用记忆" })
+    ).not.toBeChecked()
+  })
+
+  it.each(["zh-CN", "en-US", "fr-FR"])(
+    "starts with memory off and allows explicit opt-in in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const settings = {
+        custom_instructions: "",
+        memories_enabled: false,
+        task_auto_naming: "first_message",
+      }
+      const fetchMock = vi.fn(
+        async (_input: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.method === "PATCH")
+            return envelope({ ...settings, memories_enabled: true })
+          return envelope(settings)
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const user = userEvent.setup()
+      renderPage()
+
+      const toggle = await screen.findByRole("switch")
+      expect(toggle).not.toBeChecked()
+      await user.click(toggle)
+      await waitFor(() => expect(toggle).toBeChecked())
+      expect(
+        findRequest(fetchMock, "/api/v1/me/personalization", "PATCH", {
+          memories_enabled: true,
+        })
+      ).toBeTruthy()
+    }
+  )
 
   it.each(["zh-CN", "en-US", "fr-FR"])(
     "omits environment settings and does not request the removed endpoint in %s",
@@ -61,6 +107,10 @@ describe("personalization settings", () => {
   )
 
   it("saves custom instructions, toggles native memory, and resets it after confirmation", async () => {
+    let finishReset!: () => void
+    const resetPending = new Promise<void>((resolve) => {
+      finishReset = resolve
+    })
     let settings = {
       custom_instructions: "请优先使用中文。",
       memories_enabled: true,
@@ -80,6 +130,7 @@ describe("personalization settings", () => {
           path === "/api/v1/me/personalization/memories/reset" &&
           init?.method === "POST"
         ) {
+          await resetPending
           return envelope({ reset: true })
         }
         if (path === "/api/v1/me/personalization") {
@@ -161,6 +212,9 @@ describe("personalization settings", () => {
       )
     ).toBeInTheDocument()
     await user.click(within(dialog).getByRole("button", { name: "重置" }))
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    const loadingToast = await screen.findByText("正在重置记忆…")
+    expect(loadingToast.closest("[data-sonner-toast]")).not.toBeNull()
     await waitFor(() =>
       expect(
         findRequest(
@@ -171,12 +225,12 @@ describe("personalization settings", () => {
         )
       ).toBe(true)
     )
-    await waitFor(() =>
-      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
-    )
+    finishReset()
+    expect(await screen.findByText("记忆已重置")).toBeVisible()
+    expect(screen.queryByText("正在重置记忆…")).not.toBeInTheDocument()
   })
 
-  it("restores the memory toggle and keeps reset confirmation open when the runner rejects changes", async () => {
+  it("restores the memory toggle and keeps reset confirmation closed when the runner rejects changes", async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = new URL(String(input), window.location.origin).pathname
@@ -216,7 +270,7 @@ describe("personalization settings", () => {
         )
       ).toBe(true)
     )
-    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
   })
 
   it("blocks navigation and page unload while custom instructions are unsaved", async () => {
@@ -380,9 +434,12 @@ function renderPage() {
   return {
     router,
     ...render(
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+        <NotificationCenter />
+      </ThemeProvider>
     ),
   }
 }
