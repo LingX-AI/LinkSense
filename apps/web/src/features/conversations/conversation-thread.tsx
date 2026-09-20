@@ -1,6 +1,7 @@
 import { officeAnnotationDisplayName } from "@linksense/shared"
 import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { AssistantMermaid } from "@/features/conversations/assistant-mermaid"
+import { AssistantPreviewAction } from "@/features/conversations/assistant-preview-actions"
 import { responseLatency } from "./response-latency"
 import {
   Children,
@@ -759,15 +760,14 @@ function MarkdownCopyButton({
   }
 
   return (
-    <Button
+    <AssistantPreviewAction
       type="button"
       variant="ghost"
       size="icon-xs"
       className="markdown-copy-button"
       data-copy-state={copyState}
-      aria-label={label}
+      label={label}
       aria-live="polite"
-      title={label}
       onClick={() => void copyContent()}
     >
       {copyState === "copied" ? (
@@ -775,7 +775,7 @@ function MarkdownCopyButton({
       ) : (
         <CopyIcon strokeWidth={1.7} aria-hidden="true" />
       )}
-    </Button>
+    </AssistantPreviewAction>
   )
 }
 
@@ -958,6 +958,7 @@ function MarkdownTable({
   ...props
 }: ComponentPropsWithoutRef<"table">) {
   const { t } = useTranslation()
+  const scrollHintId = useId()
   const tableRef = useRef<HTMLTableElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [expanded, setExpanded] = useState(false)
@@ -1001,7 +1002,7 @@ function MarkdownTable({
   return (
     <>
       <div
-        className="markdown-copy-block markdown-copy-block-table"
+        className="markdown-copy-block markdown-copy-block-table pr-8"
         data-table-overflow={scrollState.overflowing}
         data-table-scroll-end={scrollState.atEnd}
         data-table-scroll-start={scrollState.atStart}
@@ -1010,9 +1011,10 @@ function MarkdownTable({
           <div
             className="markdown-table-toolbar"
             role="toolbar"
+            aria-orientation="vertical"
             aria-label={t("conversation.tableActions")}
           >
-            <span className="markdown-table-scroll-hint">
+            <span id={scrollHintId} className="sr-only">
               {t("conversation.tableScrollHint")}
             </span>
             <div className="markdown-table-actions">
@@ -1021,13 +1023,12 @@ function MarkdownTable({
                 copiedLabel={t("conversation.tableCopied")}
                 getContent={getClipboardContent}
               />
-              <Button
+              <AssistantPreviewAction
                 type="button"
                 variant="ghost"
                 size="icon-xs"
                 className="markdown-table-expand-button"
-                aria-label={t("conversation.expandTable")}
-                title={t("conversation.expandTable")}
+                label={t("conversation.expandTable")}
                 onClick={() => setExpanded(true)}
               >
                 <Maximize2Icon
@@ -1035,7 +1036,7 @@ function MarkdownTable({
                   strokeWidth={1.7}
                   aria-hidden="true"
                 />
-              </Button>
+              </AssistantPreviewAction>
             </div>
           </div>
           <Table
@@ -1046,6 +1047,9 @@ function MarkdownTable({
             containerRef={scrollContainerRef}
             containerProps={{
               "aria-label": t("conversation.scrollTable"),
+              "aria-describedby": scrollState.overflowing
+                ? scrollHintId
+                : undefined,
               onScroll: updateScrollState,
               tabIndex: scrollState.overflowing ? 0 : undefined,
             }}

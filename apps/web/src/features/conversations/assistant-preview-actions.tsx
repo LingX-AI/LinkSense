@@ -1,45 +1,47 @@
-import { useState, type ReactNode } from "react"
-import { EllipsisIcon } from "lucide-react"
+import type { ComponentProps, ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { cn } from "@/lib/utils"
+  ActionTooltipContent,
+  Tooltip,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
-/** Place directly inside a relative group so previews share hover/focus/touch behavior. */
+/** Place inside a relative group with pr-8 so its action rail stays in the hover area. */
 export function AssistantPreviewActions({
   label,
   children,
 }: Readonly<{ label: string; children: ReactNode }>) {
-  const [open, setOpen] = useState(false)
   return (
     <div
-      className={cn(
-        "assistant-html-preview-actions absolute top-2 left-full z-20 pl-2",
-        open && "is-open"
-      )}
+      className="assistant-html-preview-actions absolute top-2 right-0 z-20 flex w-8 flex-col gap-1 pl-2"
+      role="toolbar"
+      aria-label={label}
+      aria-orientation="vertical"
     >
-      <DropdownMenu onOpenChange={setOpen}>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              className="rounded-lg border-muted-foreground/20 bg-background/95 shadow-none backdrop-blur-sm"
-              aria-label={label}
-            />
-          }
-        >
-          <EllipsisIcon aria-hidden="true" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-48">
-          <DropdownMenuGroup>{children}</DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {children}
     </div>
+  )
+}
+
+export function AssistantPreviewAction({
+  label,
+  ...props
+}: ComponentProps<typeof Button> & { label: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        delay={300}
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            {...props}
+            aria-label={label}
+          />
+        }
+      />
+      <ActionTooltipContent side="left">{label}</ActionTooltipContent>
+    </Tooltip>
   )
 }

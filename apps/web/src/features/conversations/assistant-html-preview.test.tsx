@@ -133,13 +133,6 @@ function renderReadyPreview(productName?: string) {
   return { card, frame }
 }
 
-async function openActions(user: ReturnType<typeof userEvent.setup>) {
-  await user.hover(screen.getByRole("region", { name: "交互式 HTML 预览" }))
-  const trigger = screen.getByRole("button", { name: "HTML 预览操作" })
-  trigger.focus()
-  await user.keyboard("{Enter}")
-}
-
 describe("AssistantHtmlPreview actions", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
@@ -227,22 +220,29 @@ describe("AssistantHtmlPreview actions", () => {
       "[data-assistant-html-preview-surface='true']"
     )
 
-    expect(actions).toHaveClass("absolute", "top-2", "left-full", "pl-2")
+    expect(actions).toHaveClass("absolute", "top-2", "right-0", "pl-2")
+    expect(card).toHaveClass("pr-8")
     expect(actions).not.toHaveClass("ml-2")
     expect(surface).not.toContainElement(actions)
     expect(surface).not.toHaveClass("border", "border-muted-foreground/15")
-    expect(screen.getByRole("button", { name: "HTML 预览操作" })).toHaveClass(
-      "size-7",
-      "border-muted-foreground/20",
-      "shadow-none"
-    )
-    await openActions(user)
+    expect(actions).toHaveClass("flex", "flex-col")
+    expect(actions).toHaveAttribute("aria-orientation", "vertical")
+    expect(screen.queryByRole("button", { name: "HTML 预览操作" })).toBeNull()
+    expect(screen.queryByRole("menu")).toBeNull()
+    for (const name of ["下载 HTML 文件", "复制为图像", "全屏预览"]) {
+      const button = screen.getByRole("button", { name })
+      expect(button.textContent).toBe("")
+      await user.hover(button)
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(name)
+      await user.unhover(button)
+      await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull())
+    }
 
     expect(
-      screen.getByRole("menuitem", { name: "下载 HTML 文件" })
+      screen.getByRole("button", { name: "下载 HTML 文件" })
     ).toBeVisible()
-    expect(screen.getByRole("menuitem", { name: "复制为图像" })).toBeVisible()
-    expect(screen.getByRole("menuitem", { name: "全屏预览" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "复制为图像" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "全屏预览" })).toBeVisible()
   })
 
   it("initializes the preview on frame load when the first shell-ready message was missed", () => {
@@ -306,9 +306,8 @@ describe("AssistantHtmlPreview actions", () => {
   it("downloads the original HTML document", async () => {
     const user = userEvent.setup()
     renderReadyPreview("MOSS 工作台")
-    await openActions(user)
 
-    await user.click(screen.getByRole("menuitem", { name: "下载 HTML 文件" }))
+    await user.click(screen.getByRole("button", { name: "下载 HTML 文件" }))
 
     expect(downloadBlob).toHaveBeenCalledOnce()
     const [blob, filename] = vi.mocked(downloadBlob).mock.calls[0]!
@@ -332,10 +331,9 @@ describe("AssistantHtmlPreview actions", () => {
         expect(image?.type).toBe("image/png")
       }
     )
-    await openActions(user)
 
     const click = user.click(
-      screen.getByRole("menuitem", { name: "复制为图像" })
+      screen.getByRole("button", { name: "复制为图像" })
     )
     await waitFor(() =>
       expect(postMessage).toHaveBeenCalledWith(
@@ -396,10 +394,9 @@ describe("AssistantHtmlPreview actions", () => {
         await items[0]?.getType("image/png")
       }
     )
-    await openActions(user)
 
     const click = user.click(
-      screen.getByRole("menuitem", { name: "复制为图像" })
+      screen.getByRole("button", { name: "复制为图像" })
     )
     await waitFor(() =>
       expect(postMessage).toHaveBeenCalledWith(
@@ -452,9 +449,8 @@ describe("AssistantHtmlPreview actions", () => {
       configurable: true,
       value: requestFullscreen,
     })
-    await openActions(user)
 
-    await user.click(screen.getByRole("menuitem", { name: "全屏预览" }))
+    await user.click(screen.getByRole("button", { name: "全屏预览" }))
 
     expect(requestFullscreen).toHaveBeenCalledOnce()
     expect(card).toHaveClass("h-screen", "w-screen")
