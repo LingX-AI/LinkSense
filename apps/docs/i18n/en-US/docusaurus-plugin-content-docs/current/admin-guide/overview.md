@@ -15,8 +15,8 @@ Administration appears under the **Management** group in Settings. The server va
 
 | Page | Responsibility |
 | --- | --- |
-| Groups & users | Create accounts, import users, control status, and maintain flat groups |
-| Roles | Review the fixed user and administrator boundaries |
+| Users & groups | Create accounts, import users, control status, and maintain flat groups |
+| Roles & permissions | Review the fixed user and administrator boundaries |
 | Plugin Center | Review releases and suspend or restore risky listings |
 | Knowledge bases | Govern metadata, state, access, and ownership |
 | Knowledge sources | Configure external sources such as SharePoint |

@@ -21,9 +21,17 @@ Previews are read-only. HTML deliverables run in an isolated surface and cannot 
 
 Presentation, Word, spreadsheet, and HTML previews can attach a request to selected content. You can collect several requests before sending them; see [Annotate a file preview](./file-annotations.md).
 
+## View diagrams in responses
+
+After a Mermaid block is complete, LinkSense renders it as a diagram preview adapted to the current light or dark theme. Open the diagram actions to copy the Mermaid source, export a PNG, or expand the preview and zoom or pan through details. While a response is still streaming, a loading state prevents incomplete source from being treated as the final diagram.
+
+If rendering fails, you can still copy the source and send it with the observed error back to the task for correction. An exported PNG reflects the current rendering and is not registered as a new task artifact.
+
 ## Download deliverables
 
 Generated documents and media appear as deliverable cards. A download action creates a short-lived authorized URL. If it expires, download again from the task; do not treat the temporary URL as a permanent share.
+
+An HTML deliverable can also be published as a public site that does not require sign-in. See [Publish and manage sites](./publish-websites.md) for publishing, updates, unpublishing, and security boundaries.
 
 ## Browse task artifacts in one place
 

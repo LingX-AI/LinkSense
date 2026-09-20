@@ -6,7 +6,7 @@ description: Maintain flat groups and understand their authorization and reporti
 # User group management
 
 :::info Administrator operation
-Open **Settings → Groups & users → Groups**. A group is an authorization convenience, not an organizational hierarchy.
+Open **Settings → Users & groups → Groups**. A group is an authorization convenience, not an organizational hierarchy.
 :::
 
 ## Rules

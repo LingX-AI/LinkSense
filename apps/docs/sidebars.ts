@@ -32,6 +32,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/tasks/projects",
             "user-guide/tasks/progress-and-sources",
             "user-guide/tasks/files-and-results",
+            "user-guide/tasks/publish-websites",
             "user-guide/tasks/file-annotations",
             "user-guide/tasks/generate-images",
             "user-guide/tasks/voice-input",

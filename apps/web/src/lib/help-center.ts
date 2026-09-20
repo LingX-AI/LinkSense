@@ -151,15 +151,21 @@ const helpRoutes: readonly HelpRoute[] = [
   },
 ]
 
-export function resolveHelpDocumentPath(pathname: string): string {
+export function resolveHelpDocumentPath(pathname: string, search = ""): string {
+  if (pathname === "/knowledge-bases") {
+    const tab = new URLSearchParams(search).get("tab")
+    if (tab === "artifacts") return "user-guide/tasks/files-and-results"
+    if (tab === "sites") return "user-guide/tasks/publish-websites"
+  }
   return helpRoutes.find((route) => route.matches(pathname))?.documentPath ?? ""
 }
 
 export function buildHelpCenterHref(
   pathname: string,
-  language: SupportedLanguage
+  language: SupportedLanguage,
+  search = ""
 ): string {
   const localePrefix = language === "en-US" ? "en-US/" : ""
-  const documentPath = resolveHelpDocumentPath(pathname)
+  const documentPath = resolveHelpDocumentPath(pathname, search)
   return `/help/${localePrefix}${documentPath ? `${documentPath}/` : ""}`
 }

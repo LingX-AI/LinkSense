@@ -6,7 +6,7 @@ description: Understand the fixed LinkSense user and administrator roles.
 # Roles and authorization boundaries
 
 :::info Administrator operation
-**Settings → Roles** is a read-only overview. Custom roles are not available.
+**Settings → Roles & permissions** is a read-only overview. Custom roles are not available.
 :::
 
 ## Fixed roles
