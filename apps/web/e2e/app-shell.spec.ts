@@ -274,12 +274,13 @@ for (const viewport of [
 
     await page.goto("/capabilities")
     await expect(
-      page.getByRole("heading", { name: "插件中心", exact: true })
+      page.getByRole("heading", { name: "应用", exact: true })
     ).toBeVisible()
-    await expect(page.getByRole("tab", { name: "插件" })).toHaveAttribute(
+    await expect(page.getByRole("tab", { name: "应用" })).toHaveAttribute(
       "aria-selected",
       "true"
     )
+    await page.getByRole("tab", { name: "插件" }).click()
     await expect(
       page.getByText("还没有已安装的插件", { exact: true })
     ).toBeVisible()
@@ -859,7 +860,7 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
     sidebar.getByRole("link", { name: "已归档", exact: true })
   ).toHaveCount(0)
   await expect(
-    sidebar.getByRole("heading", { name: "任务", exact: true })
+    sidebar.getByRole("heading", { name: "最近", exact: true })
   ).toHaveCSS("font-weight", "600")
   const recentTask = sidebar
     .locator(".sidebar-conversation-item")
@@ -2950,7 +2951,7 @@ for (const [route, heading] of [
   ["/conversations/new", "未命名任务"],
   ["/settings/general", "常规"],
   ["/settings/appearance", "外观"],
-  ["/capabilities", "插件中心"],
+  ["/capabilities", "应用"],
   ["/archived", "已归档任务"],
   ["/admin/roles", "角色与权限"],
   ["/admin/health", "系统健康状态"],

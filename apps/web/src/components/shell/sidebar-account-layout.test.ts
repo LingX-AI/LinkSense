@@ -28,7 +28,7 @@ describe("sidebar account bar layout", () => {
       'className="flex h-full min-h-0 flex-col overflow-hidden px-3 pt-3 pb-2"'
     )
     expect(appShellSource).toContain(
-      'className="sidebar-account-bar mt-1 flex shrink-0 items-center gap-1"'
+      'className="sidebar-account-bar -mx-3 mt-1 flex shrink-0 items-center gap-1 border-t border-[color:var(--app-divider)] px-3 pt-1"'
     )
     expect(appShellSource).toContain(
       "sidebar-user-button h-auto min-w-0 flex-1 justify-start gap-2 border-0 px-2 py-1.5 text-left shadow-none"
