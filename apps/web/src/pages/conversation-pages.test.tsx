@@ -2421,50 +2421,62 @@ describe("conversation knowledge base snapshots", () => {
           </QueryClientProvider>
         </MemoryRouter>
       )
-      const input = await screen.findByRole("textbox", { name: "任务输入框" })
-      await waitFor(() => expect(input).toHaveValue("保留的消息草稿"))
-      const send = screen.getByRole("button", { name: "发送" })
-      if (state === "active") {
-        await waitFor(() => expect(send).toBeEnabled())
-        expect(input).toBeEnabled()
-      } else {
-        if (state !== "loading") {
-          const reason =
-            state === "missing"
-              ? "应用不存在或你无权访问。"
-              : state === "disabled"
-                ? "应用已停用，暂时不能开始新任务。"
-                : "应用依赖的模型、插件/Skill 或知识库当前不可用。"
-          const notice = await screen.findByText(reason)
-          expect(notice).toBeVisible()
-          expect(
-            notice.querySelector("svg.lucide-circle-alert")
-          ).toBeInTheDocument()
+      if (state === "active" || state === "loading") {
+        const input = await screen.findByRole("textbox", {
+          name: "任务输入框",
+        })
+        await waitFor(() => expect(input).toHaveValue("保留的消息草稿"))
+        const send = screen.getByRole("button", { name: "发送" })
+        if (state === "active") {
+          await waitFor(() => expect(send).toBeEnabled())
+          expect(input).toBeEnabled()
+        } else {
+          expect(send).toBeDisabled()
+          expect(input).toBeDisabled()
         }
-        expect(send).toBeDisabled()
-        expect(input).toBeDisabled()
-        const interaction = userEvent.setup()
-        await interaction.click(send)
-        await interaction.click(input)
-        await interaction.keyboard("{Enter}")
-        expect(input).toHaveValue("保留的消息草稿")
+      } else {
+        const reason =
+          state === "missing"
+            ? "应用不存在或你无权访问。"
+            : state === "disabled"
+              ? "应用已停用，暂时不能开始新任务。"
+              : "应用依赖的模型、插件/Skill 或知识库当前不可用。"
+        const notice = await screen.findByRole("status", { name: reason })
+        expect(notice).toHaveAttribute("data-slot", "alert")
+        expect(notice).toHaveClass(
+          "max-w-[var(--app-composer-width)]",
+          "rounded-[18px]",
+          "border-[color:var(--app-border)]"
+        )
+        expect(
+          notice.querySelector("svg.lucide-circle-alert")
+        ).toBeInTheDocument()
+        expect(
+          screen.queryByRole("textbox", { name: "任务输入框" })
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByRole("button", { name: "发送" })
+        ).not.toBeInTheDocument()
         expect(
           fetchMock.mock.calls.some(
             ([url, init]) =>
               init?.method === "POST" && String(url).endsWith("/turns")
           )
         ).toBe(false)
-        if (state !== "loading") {
-          currentState = "active"
-          await act(async () => {
-            await queryClient.invalidateQueries({
-              queryKey: ["applications", "detail", "user-1", applicationId],
-            })
+        currentState = "active"
+        await act(async () => {
+          await queryClient.invalidateQueries({
+            queryKey: ["applications", "detail", "user-1", applicationId],
           })
-          await waitFor(() => expect(send).toBeEnabled())
-          expect(input).toBeEnabled()
-          expect(input).toHaveValue("保留的消息草稿")
-        }
+        })
+        const restoredInput = await screen.findByRole("textbox", {
+          name: "任务输入框",
+        })
+        await waitFor(() => {
+          expect(screen.getByRole("button", { name: "发送" })).toBeEnabled()
+          expect(restoredInput).toBeEnabled()
+          expect(restoredInput).toHaveValue("保留的消息草稿")
+        })
       }
       queryClient.clear()
     }
@@ -3375,6 +3387,7 @@ describe("conversation knowledge base snapshots", () => {
         throw new Error("Expected the application logo before the task title")
       }
       expect(applicationIcon.querySelector("svg")).toBeInTheDocument()
+      expect(applicationIcon.querySelector("svg")).toHaveClass("size-full")
       expect(
         applicationIcon.compareDocumentPosition(taskTitle) &
           Node.DOCUMENT_POSITION_FOLLOWING

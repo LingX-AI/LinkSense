@@ -9,16 +9,28 @@ import {
 
 import { SidebarResizer } from "@/components/shell/sidebar-resizer"
 import {
+  MIN_CONVERSATION_WORKSPACE_WIDTH,
+  MIN_PRESENTATION_PREVIEW_WIDTH,
   MIN_RESIZABLE_PRESENTATION_LAYOUT_WIDTH,
   getConversationWorkspaceWidthBounds,
   resolveConversationWorkspaceWidth,
 } from "@/features/conversations/conversation-presentation-width"
 
-export const DEFAULT_INTERACTIVE_APPLICATION_CHAT_VIEWPORT_RATIO = 1 / 3
+export const DEFAULT_INTERACTIVE_APPLICATION_CHAT_RATIO = 1 / 3
 
 function measureWidth(element: HTMLElement) {
   const rectWidth = element.getBoundingClientRect().width
   return Math.max(0, Math.round(rectWidth || element.clientWidth))
+}
+
+function resolveWorkspaceCssWidth(customRatio: number | null) {
+  const customPercentage =
+    customRatio === null ? null : Number((customRatio * 100).toFixed(4))
+  const preferredWidth =
+    customPercentage === null
+      ? `${(1 - DEFAULT_INTERACTIVE_APPLICATION_CHAT_RATIO) * 100}%`
+      : `${customPercentage}%`
+  return `clamp(${MIN_CONVERSATION_WORKSPACE_WIDTH}px, ${preferredWidth}, calc(100% - ${MIN_PRESENTATION_PREVIEW_WIDTH}px))`
 }
 
 export function InteractiveApplicationSplitLayout({
@@ -71,23 +83,22 @@ export function InteractiveApplicationSplitLayout({
     }
   }, [updateLayoutWidth])
 
-  const viewportWidth =
-    typeof window === "undefined" ? layoutWidth : window.innerWidth
   const applicationWidth = resolveConversationWorkspaceWidth({
     layoutWidth,
-    viewportWidth,
+    viewportWidth: layoutWidth,
     customRatio: customApplicationRatio,
-    defaultPreviewViewportRatio:
-      DEFAULT_INTERACTIVE_APPLICATION_CHAT_VIEWPORT_RATIO,
+    defaultPreviewViewportRatio: DEFAULT_INTERACTIVE_APPLICATION_CHAT_RATIO,
   })
   const bounds = getConversationWorkspaceWidthBounds(layoutWidth)
   const compact =
     layoutWidth > 0 && layoutWidth <= MIN_RESIZABLE_PRESENTATION_LAYOUT_WIDTH
   const layoutStyle = {
-    "--interactive-application-workspace-width":
-      layoutWidth > 0
-        ? `${applicationWidth}px`
-        : `calc(100% - ${DEFAULT_INTERACTIVE_APPLICATION_CHAT_VIEWPORT_RATIO * 100}vw)`,
+    // Keep the computed declaration stable while an ancestor changes width.
+    // The browser can then resize both panes in the same layout pass instead of
+    // restarting this grid's transition for every ResizeObserver measurement.
+    "--interactive-application-workspace-width": resolveWorkspaceCssWidth(
+      customApplicationRatio
+    ),
   } as CSSProperties
 
   return (

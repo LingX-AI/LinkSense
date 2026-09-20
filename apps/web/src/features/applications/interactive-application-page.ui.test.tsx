@@ -61,6 +61,11 @@ vi.mock("@/pages/conversation-pages", () => ({
           {headerActions}
         </header>
         <div>原生任务聊天</div>
+        {unavailableMessage && (
+          <div role="status" aria-label={unavailableMessage}>
+            {unavailableMessage}
+          </div>
+        )}
       </div>
     )
   },
@@ -190,16 +195,8 @@ describe("interactive application runtime page", () => {
       renderPage()
 
       expect(await screen.findByText(notice)).toBeVisible()
-      const deletedState = screen.getByRole("status")
+      const deletedState = screen.getByRole("status", { name: notice })
       expect(deletedState).toHaveTextContent(notice)
-      expect(deletedState).toHaveClass(
-        "h-full",
-        "items-center",
-        "justify-center",
-        "text-center"
-      )
-      expect(deletedState.className).not.toMatch(/\bbg-/u)
-      expect(screen.getByText(notice).closest('[data-slot="alert"]')).toBeNull()
       expect(screen.getByTestId("native-conversation")).toHaveAttribute(
         "data-unavailable-message",
         notice
@@ -210,13 +207,16 @@ describe("interactive application runtime page", () => {
       )
       expect(screen.queryByTitle("研究工作台")).not.toBeInTheDocument()
       expect(
-        screen.getByText(notice).closest(".interactive-application-workspace")
-      ).not.toBeNull()
-      expect(
         screen
           .getByTestId("native-conversation")
-          .closest(".interactive-application-chat-pane")
-      ).not.toBeNull()
+          .closest(".interactive-application-layout")
+      ).toBeNull()
+      expect(
+        screen.getByTestId("native-conversation").closest("aside")
+      ).toHaveClass("size-full")
+      expect(
+        screen.queryByRole("button", { name: "隐藏聊天" })
+      ).not.toBeInTheDocument()
       expect(
         apiRequest.mock.calls.some(([path]) =>
           path.endsWith("/interactive-runtime-token")
@@ -245,13 +245,15 @@ describe("interactive application runtime page", () => {
     )
     expect(screen.queryByTitle("研究工作台")).not.toBeInTheDocument()
     expect(screen.queryByText("此应用已被删除")).not.toBeInTheDocument()
-    const notice = screen.getByRole("status")
-    expect(notice).toHaveClass("items-center", "justify-center", "text-center")
-    expect(notice.className).not.toMatch(/\bbg-/u)
+    expect(
+      screen
+        .getByTestId("native-conversation")
+        .closest(".interactive-application-layout")
+    ).toBeNull()
   })
 
   it.each(["zh-CN", "en-US", "fr-FR"])(
-    "shows the center removal reason without a background and retains history in %s",
+    "shows the center removal reason in the full-width history view in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
       const original = apiRequest.getMockImplementation()!
@@ -266,16 +268,8 @@ describe("interactive application runtime page", () => {
       renderPage()
       const message = i18n.t("errors.application.centerUnavailable")
       expect(await screen.findByText(message)).toBeVisible()
-      const notice = screen.getByRole("status")
+      const notice = screen.getByRole("status", { name: message })
       expect(notice).toHaveTextContent(message)
-      expect(notice).toHaveClass(
-        "h-full",
-        "items-center",
-        "justify-center",
-        "text-center"
-      )
-      expect(notice.className).not.toMatch(/\bbg-/u)
-      expect(notice.querySelector('[data-slot="alert"]')).toBeNull()
       expect(screen.getByTestId("native-conversation")).toHaveAttribute(
         "data-unavailable-message",
         message
@@ -285,6 +279,11 @@ describe("interactive application runtime page", () => {
         conversationFixture().id
       )
       expect(screen.queryByTitle("研究工作台")).not.toBeInTheDocument()
+      expect(
+        screen
+          .getByTestId("native-conversation")
+          .closest(".interactive-application-layout")
+      ).toBeNull()
     }
   )
 
@@ -874,7 +873,7 @@ describe("interactive application runtime page", () => {
     )
     expect(separator).toHaveAttribute("aria-valuenow", "1067")
     expect(layout).toHaveStyle(
-      "--interactive-application-workspace-width: 1067px"
+      "--interactive-application-workspace-width: clamp(320px, 66.66666666666667%, calc(100% - 480px))"
     )
 
     fireEvent.pointerDown(separator, {
@@ -886,9 +885,10 @@ describe("interactive application runtime page", () => {
     fireEvent.pointerMove(separator, { clientX: 947, pointerId: 21 })
     await waitFor(() =>
       expect(layout).toHaveStyle(
-        "--interactive-application-workspace-width: 947px"
+        "--interactive-application-workspace-width: clamp(320px, 59.1875%, calc(100% - 480px))"
       )
     )
+    expect(separator).toHaveAttribute("aria-valuenow", "947")
     fireEvent.pointerUp(separator, { clientX: 947, pointerId: 21 })
     expect(layout).not.toHaveAttribute("data-chat-resizing")
 
@@ -896,7 +896,7 @@ describe("interactive application runtime page", () => {
     await interaction.click(screen.getByRole("button", { name: "显示对话" }))
     expect(screen.getByTitle("研究工作台")).toBe(frame)
     expect(layout).toHaveStyle(
-      "--interactive-application-workspace-width: 947px"
+      "--interactive-application-workspace-width: clamp(320px, 59.1875%, calc(100% - 480px))"
     )
   })
 

@@ -61,17 +61,21 @@ describe("deleted application conversation history", () => {
         ).not.toBeInTheDocument()
       )
       if (kind === "interactive") {
-        const notices = await screen.findAllByText("此应用已被删除")
-        expect(
-          notices.some((notice) =>
-            notice.closest(".interactive-application-workspace")
-          )
-        ).toBe(true)
+        const notice = await screen.findByRole("status", {
+          name: "此应用已被删除",
+        })
+        expect(notice).toHaveAttribute("data-slot", "alert")
+        expect(notice).toHaveClass(
+          "max-w-[var(--app-composer-width)]",
+          "rounded-[18px]",
+          "border-[color:var(--app-border)]"
+        )
+        expect(notice.closest(".conversation-bottom-stack")).not.toBeNull()
         expect(
           screen
             .getByRole("heading", { name: "完整实施计划" })
-            .closest(".interactive-application-chat-pane")
-        ).not.toBeNull()
+            .closest(".interactive-application-layout")
+        ).toBeNull()
       }
       expect(
         screen.queryByRole("textbox", { name: "任务输入框" })

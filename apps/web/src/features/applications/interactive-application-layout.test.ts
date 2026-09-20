@@ -21,4 +21,10 @@ describe("interactive application split layout", () => {
       /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.interactive-application-layout,[\s\S]*?\.interactive-application-chat-pane\s*\{[^}]*transition:\s*none;/u
     )
   })
+
+  it("does not reserve sidebar restore space inside the desktop chat pane", () => {
+    expect(applicationStyles).toMatch(
+      /\.app-shell\[data-sidebar-collapsed="true"\]\s*\.interactive-application-layout\[data-chat-open="true"\]:not\(\s*\[data-compact="true"\]\s*\)\s*\.conversation-top-bar\s*\{[^}]*padding-left:\s*18px;/u
+    )
+  })
 })
