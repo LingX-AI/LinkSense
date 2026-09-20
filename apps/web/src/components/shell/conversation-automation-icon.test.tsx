@@ -23,7 +23,9 @@ describe("conversation automation icon", () => {
     const title = screen.getByText("下班前定时发送工时记录消息")
     expect(icon).toHaveClass("sidebar-conversation-automation-icon", "shrink-0")
     expect(icon).toHaveAttribute("title", "自动化任务")
-    expect(icon.querySelector(".lucide-calendar-clock")).not.toBeNull()
+    const automationIcon = icon.querySelector(".lucide-calendar-clock")
+    expect(automationIcon).toHaveClass("size-3.5")
+    expect(automationIcon).not.toHaveClass("size-4")
     expect(
       icon.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()

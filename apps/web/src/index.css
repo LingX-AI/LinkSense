@@ -4860,13 +4860,10 @@
 }
 
 .capability-popover {
-  width: min(340px, calc(100vw - 2rem));
+  width: var(--anchor-width);
+  max-width: calc(100vw - 2rem);
   border: 0;
   background: var(--app-popover);
-}
-
-.capability-picker-popover {
-  width: min(520px, calc(100vw - 2rem));
 }
 
 .capability-picker-popover .capability-menu-icon {

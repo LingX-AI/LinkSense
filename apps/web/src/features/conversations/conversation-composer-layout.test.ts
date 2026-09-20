@@ -68,14 +68,13 @@ describe("conversation composer capability chips", () => {
     )
   })
 
-  it("gives the capability picker a wider responsive width", () => {
-    const pickerRule = composerStyles.match(
-      /\.capability-picker-popover\s*\{([^}]*)\}/u
+  it("matches both resource pickers to the Composer width", () => {
+    const popoverRule = composerStyles.match(
+      /\.capability-popover\s*\{([^}]*)\}/u
     )?.[1]
 
-    expect(pickerRule).toMatch(
-      /width:\s*min\(520px,\s*calc\(100vw\s*-\s*2rem\)\);/u
-    )
+    expect(popoverRule).toMatch(/width:\s*var\(--anchor-width\);/u)
+    expect(popoverRule).toMatch(/max-width:\s*calc\(100vw\s*-\s*2rem\);/u)
   })
 
   it("uses compact icons inside the capability picker", () => {

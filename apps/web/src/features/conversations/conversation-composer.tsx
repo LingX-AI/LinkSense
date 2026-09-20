@@ -1705,9 +1705,10 @@ export const ConversationComposer = forwardRef<
               />
             </PopoverTrigger>
             <PopoverContent
+              anchor={composerShellRef}
               side="top"
               align="start"
-              sideOffset={10}
+              sideOffset={4}
               className="capability-popover capability-picker-popover gap-2"
             >
               <PopoverHeader className="sr-only">
@@ -1993,9 +1994,10 @@ export const ConversationComposer = forwardRef<
                     />
                   </PopoverTrigger>
                   <PopoverContent
+                    anchor={composerShellRef}
                     side="top"
                     align="start"
-                    sideOffset={10}
+                    sideOffset={4}
                     className="capability-popover gap-2"
                   >
                     <PopoverHeader className="px-2 pt-1">

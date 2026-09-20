@@ -18,7 +18,7 @@ export function ConversationAutomationIcon({
       className="sidebar-conversation-automation-icon flex size-5 shrink-0 items-center justify-center text-[var(--app-muted)]"
     >
       <CalendarClockIcon
-        className="size-4"
+        className="size-3.5"
         strokeWidth={2}
         aria-hidden="true"
       />

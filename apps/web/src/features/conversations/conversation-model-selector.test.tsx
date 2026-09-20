@@ -207,6 +207,7 @@ describe("ConversationModelSelector", () => {
       "py-2.5"
     )
     const modelTrigger = within(popup).getByRole("button", { name: "模型" })
+    expect(modelTrigger).toHaveClass("py-1")
     expect(modelTrigger).toHaveTextContent("GPT-5.6-Sol")
     expect(modelTrigger).toHaveTextContent("轻量")
     expect(modelTrigger).toHaveAttribute("aria-haspopup", "menu")

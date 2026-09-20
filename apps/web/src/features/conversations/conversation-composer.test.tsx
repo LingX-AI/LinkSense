@@ -392,6 +392,50 @@ describe("conversation voice input", () => {
     )
   })
 
+  it("anchors the capability and knowledge pickers above the full Composer width", async () => {
+    const interaction = userEvent.setup()
+    const { container } = renderComposer()
+    const composer = container.querySelector(".composer-shell")
+    if (!(composer instanceof HTMLFormElement)) {
+      throw new Error("Missing conversation Composer")
+    }
+    vi.spyOn(composer, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(120, 500, 640, 120)
+    )
+
+    const addButton = screen.getByRole("button", { name: "添加" })
+    await interaction.click(addButton)
+    const capabilityPopover = screen
+      .getByPlaceholderText(i18n.t("conversation.capabilitySearch"))
+      .closest('[data-slot="popover-content"]')
+    const capabilityPositioner = capabilityPopover?.parentElement
+    await waitFor(() =>
+      expect(
+        capabilityPositioner?.style.getPropertyValue("--anchor-width")
+      ).toBe("640px")
+    )
+    expect(capabilityPositioner).toHaveAttribute("data-side", "top")
+    expect(capabilityPositioner).toHaveStyle({
+      transform: "translate(120px, 496px)",
+    })
+
+    await interaction.click(addButton)
+    await interaction.click(screen.getByRole("button", { name: "添加知识库" }))
+    const knowledgePopover = screen
+      .getByPlaceholderText(i18n.t("conversation.knowledgeBaseSearch"))
+      .closest('[data-slot="popover-content"]')
+    const knowledgePositioner = knowledgePopover?.parentElement
+    await waitFor(() =>
+      expect(
+        knowledgePositioner?.style.getPropertyValue("--anchor-width")
+      ).toBe("640px")
+    )
+    expect(knowledgePositioner).toHaveAttribute("data-side", "top")
+    expect(knowledgePositioner).toHaveStyle({
+      transform: "translate(120px, 496px)",
+    })
+  })
+
   it.each(["zh-CN", "en-US", "fr-FR"])(
     "shows the unavailable notice once and restores the placeholder after recovery in %s",
     async (language) => {
