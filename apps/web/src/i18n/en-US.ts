@@ -1838,6 +1838,15 @@ export const enUS = {
   conversation: {
     untitled: "Untitled task",
     title: "Task",
+    taskSort: {
+      open: "Set the task order for {{section}}",
+      label: "Task order",
+      priority: "Priority",
+      priorityDescription:
+        "Tasks needing your input and unread tasks come first.",
+      updated_at: "Last updated",
+      manual: "Manual order",
+    },
     share: {
       action: "Share",
       title: "Share {{title}}",
@@ -2612,7 +2621,8 @@ export const enUS = {
   },
   applications: {
     opening: {
-      expired: "This opening session is no longer available. Return to your applications to open it again.",
+      expired:
+        "This opening session is no longer available. Return to your applications to open it again.",
       back: "Back to applications",
     },
     editMetadata: "Edit app details",

@@ -43,7 +43,6 @@ import { InteractiveApplicationSplitLayout } from "@/features/applications/inter
 import { conversationPath } from "@/features/conversations/conversation-navigation"
 import { listKnowledgeBases } from "@/features/knowledge-bases/knowledge-base-api"
 import { Button } from "@/components/ui/button"
-import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { ConversationPage } from "@/pages/conversation-pages"
 import { conversationDetailQueryOptions } from "@/features/conversations/conversation-detail-query"
@@ -493,19 +492,48 @@ function InteractiveApplicationRuntime({
     )
   }
 
+  const chatPanel = (
+    <aside
+      aria-label={t("applications.nativeChatPanel")}
+      className="flex size-full min-h-0 flex-col overflow-hidden bg-background"
+    >
+      <div className="min-h-0 flex-1 [&_.conversation-office-layout]:h-full">
+        <ConversationPage
+          conversationId={conversationId}
+          embedded={Boolean(onDiagnostic)}
+          surfaceActive={runtimeUnavailableMessage ? true : chatOpen}
+          unavailableMessage={runtimeUnavailableMessage}
+          onApplicationEvent={handleApplicationEvent}
+          headerActions={
+            runtimeUnavailableMessage ? undefined : (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("applications.hideNativeChat")}
+                onClick={() => setChatOpen(false)}
+              >
+                <PanelRightCloseIcon
+                  className="text-foreground/55"
+                  aria-hidden="true"
+                />
+              </Button>
+            )
+          }
+        />
+      </div>
+    </aside>
+  )
+
+  if (runtimeUnavailableMessage) return chatPanel
+
   return (
     <InteractiveApplicationSplitLayout
       chatOpen={chatOpen}
       resizeLabel={t("applications.resizeNativeChat")}
       application={
         <>
-          {runtimeUnavailableMessage ? (
-            <Empty className="h-full" role="status">
-              <EmptyHeader>
-                <EmptyTitle>{runtimeUnavailableMessage}</EmptyTitle>
-              </EmptyHeader>
-            </Empty>
-          ) : frameSource ? (
+          {frameSource ? (
             annotation && runtimePackageId ? (
               <ApplicationAnnotationPreview
                 key={frameSource}
@@ -540,12 +568,11 @@ function InteractiveApplicationRuntime({
             )
           ) : null}
 
-          {!runtimeUnavailableMessage &&
-            (!frameSource || loadedFrameSource !== frameSource) && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-background">
-                <LoadingState />
-              </div>
-            )}
+          {(!frameSource || loadedFrameSource !== frameSource) && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-background">
+              <LoadingState />
+            </div>
+          )}
 
           {!chatOpen && (
             <Button
@@ -572,36 +599,7 @@ function InteractiveApplicationRuntime({
           )}
         </>
       }
-      chat={
-        <aside
-          aria-label={t("applications.nativeChatPanel")}
-          className="flex size-full min-h-0 flex-col overflow-hidden bg-background"
-        >
-          <div className="min-h-0 flex-1 [&_.conversation-office-layout]:h-full">
-            <ConversationPage
-              conversationId={conversationId}
-              embedded={Boolean(onDiagnostic)}
-              surfaceActive={chatOpen}
-              unavailableMessage={runtimeUnavailableMessage}
-              onApplicationEvent={handleApplicationEvent}
-              headerActions={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={t("applications.hideNativeChat")}
-                  onClick={() => setChatOpen(false)}
-                >
-                  <PanelRightCloseIcon
-                    className="text-foreground/55"
-                    aria-hidden="true"
-                  />
-                </Button>
-              }
-            />
-          </div>
-        </aside>
-      }
+      chat={chatPanel}
     />
   )
 }

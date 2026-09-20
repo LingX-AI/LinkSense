@@ -882,6 +882,7 @@ export const conversationSchema = z
     sort_order: z.number().int().nonnegative().nullable().optional(),
     updated_at: z.string(),
     created_at: z.string().optional(),
+    last_run_at: z.string().nullable().optional(),
     execution_status: z
       .enum([
         "idle",
@@ -893,6 +894,7 @@ export const conversationSchema = z
       ])
       .optional(),
     has_unread_completion: z.boolean().default(false),
+    needs_attention: z.boolean().optional(),
     has_automation: z.boolean().default(false),
     application_development_role: conversationApplicationDevelopmentRoleSchema
       .nullable()

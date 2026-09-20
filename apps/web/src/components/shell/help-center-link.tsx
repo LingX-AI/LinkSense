@@ -26,7 +26,7 @@ export function HelpCenterLink({
   const { t, i18n } = useTranslation()
   const location = useLocation()
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
-  const href = buildHelpCenterHref(location.pathname, language)
+  const href = buildHelpCenterHref(location.pathname, language, location.search)
   const label = t("nav.helpCenter")
   const link = (
     <a

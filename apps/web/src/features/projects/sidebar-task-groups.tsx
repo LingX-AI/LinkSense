@@ -6,6 +6,14 @@ import { useTranslation } from "react-i18next"
 
 import type { Conversation } from "@/api/contracts"
 import { Button } from "@/components/ui/button"
+import { sortSidebarConversations } from "@/features/conversations/conversation-order"
+import { SidebarTaskSortMenu } from "@/features/conversations/sidebar-task-sort-menu"
+import {
+  defaultSidebarTaskSortModes,
+  type SidebarTaskSortMode,
+  type SidebarTaskSortModes,
+  type SidebarTaskSortScope,
+} from "@/features/conversations/sidebar-task-sort-preference"
 import { SidebarTaskGroup } from "./sidebar-task-group"
 import { SidebarTaskSection } from "./sidebar-task-section"
 import type { ProjectAction } from "./project-dialog"
@@ -28,6 +36,8 @@ export function SidebarTaskGroups({
   recent,
   projects,
   loadingMore,
+  sortModes = defaultSidebarTaskSortModes,
+  onSortModeChange,
   onAction,
   children,
 }: {
@@ -36,6 +46,11 @@ export function SidebarTaskGroups({
   recent: Conversation[]
   projects: Project[]
   loadingMore: boolean
+  sortModes?: SidebarTaskSortModes
+  onSortModeChange?: (
+    scope: SidebarTaskSortScope,
+    mode: SidebarTaskSortMode
+  ) => void
   onAction: (action: ProjectAction) => void
   children: (group: SidebarTaskGroupData) => ReactNode
 }) {
@@ -62,6 +77,23 @@ export function SidebarTaskGroups({
     tasks.push(conversation)
     byProject.set(conversation.project_id, tasks)
   }
+  for (const [projectId, tasks] of byProject) {
+    byProject.set(
+      projectId,
+      sortSidebarConversations(
+        tasks,
+        projectId === null ? sortModes.recent : sortModes.projects
+      )
+    )
+  }
+  const sortedPinned = sortSidebarConversations(pinned, sortModes.pinned)
+  const sortMenu = (scope: SidebarTaskSortScope, sectionLabel: string) => (
+    <SidebarTaskSortMenu
+      sectionLabel={sectionLabel}
+      value={sortModes[scope]}
+      onValueChange={(mode) => onSortModeChange?.(scope, mode)}
+    />
+  )
   const renderProject = (id: string | null) =>
     children({
       orderGroup: "recent",
@@ -73,39 +105,38 @@ export function SidebarTaskGroups({
   )
   return (
     <>
-      {pinned.length > 0 && (
-        <section
-          aria-labelledby="pinned-conversations-title"
-          className="flex flex-col gap-0.5"
+      {sortedPinned.length > 0 && (
+        <SidebarTaskSection
+          key={JSON.stringify([userId, "pinned"])}
+          titleId="pinned-conversations-title"
+          label={t("nav.pinned")}
+          action={sortMenu("pinned", t("nav.pinned"))}
         >
-          <h2
-            id="pinned-conversations-title"
-            className="px-2.5 pb-2 text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-semibold text-[var(--app-muted)]"
-          >
-            {t("nav.pinned")}
-          </h2>
           {children({
             orderGroup: "pinned",
             projectId: null,
-            conversations: pinned,
+            conversations: sortedPinned,
           })}
-        </section>
+        </SidebarTaskSection>
       )}
       <SidebarTaskSection
         key={JSON.stringify([userId, "projects"])}
         titleId="sidebar-projects-title"
         label={t("nav.projects")}
         action={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="pointer-events-none opacity-0 group-hover/tasks-heading:pointer-events-auto group-hover/tasks-heading:opacity-100 group-has-[:focus-visible]/tasks-heading:pointer-events-auto group-has-[:focus-visible]/tasks-heading:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
-            aria-label={t("projects.create")}
-            onClick={() => onAction({ mode: "create" })}
-          >
-            <PlusIcon />
-          </Button>
+          <>
+            {sortMenu("projects", t("nav.projects"))}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="pointer-events-none opacity-0 group-hover/tasks-heading:pointer-events-auto group-hover/tasks-heading:opacity-100 group-has-[:focus-visible]/tasks-heading:pointer-events-auto group-has-[:focus-visible]/tasks-heading:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+              aria-label={t("projects.create")}
+              onClick={() => onAction({ mode: "create" })}
+            >
+              <PlusIcon />
+            </Button>
+          </>
         }
       >
         <SortableContext
@@ -144,6 +175,7 @@ export function SidebarTaskGroups({
         key={JSON.stringify([userId, "recent"])}
         titleId="recent-conversations-title"
         label={t("nav.recent")}
+        action={sortMenu("recent", t("nav.recent"))}
       >
         {byProject.has(null) && renderProject(null)}
       </SidebarTaskSection>

@@ -22,7 +22,7 @@ Installation creates a personal copy from the current approved release. Before c
 
 Manage the installed copy's enabled state from the Installed or Personal area.
 
-Applications do not require installation. Shared applications appear directly under **Applications**, and creators can [create and manage applications](./create-applications.md).
+Applications use a separate distribution flow. Direct shares appear under **Applications → Shared with me**, while public releases appear in **Application Center**. Depending on the usage option offered by the creator, install an independent application copy or install the application service before using it. See [Use organization applications](./organization-apps.md) for the difference. Creators can [create and manage applications](./create-applications.md).
 
 ## Update
 

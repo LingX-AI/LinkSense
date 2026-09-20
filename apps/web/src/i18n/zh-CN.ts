@@ -1691,6 +1691,14 @@ export const zhCN = {
   conversation: {
     untitled: "未命名任务",
     title: "任务",
+    taskSort: {
+      open: "设置{{section}}任务排序方式",
+      label: "任务排序方式",
+      priority: "优先级",
+      priorityDescription: "需要你处理和未读的任务会排在最前面。",
+      updated_at: "最近更新",
+      manual: "手动排序",
+    },
     share: {
       action: "分享",
       title: "分享 {{title}}",

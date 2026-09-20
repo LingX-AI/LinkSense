@@ -91,25 +91,53 @@ export class ConversationTitleService {
         codexThreadId: true,
         title: true,
         titleSource: true,
+        applicationId: true,
+        applicationNameSnapshot: true,
       },
     })
-    if (!conversation || conversation.titleSource === "manual") return false
-    const renameEveryMessage =
-      sourceMessages !== undefined &&
-      (await this.personalization.getPersonalization(conversation.ownerId))
-        .task_auto_naming === "every_message"
-    let eligibleTitleWhere:
-      | { titleSource: "fallback" }
-      | { titleSource: "generated"; title: string }
-    if (conversation.titleSource === "fallback") {
-      eligibleTitleWhere = { titleSource: "fallback" }
-    } else if (conversation.titleSource === "generated" && renameEveryMessage) {
+    if (!conversation) return false
+    let eligibleTitleWhere: Prisma.ConversationWhereInput
+    let renameEveryMessage = false
+    // Application tasks created before automatic naming stored their initial
+    // application name as manual. Upgrade only that untouched default, while
+    // keeping development previews and genuinely edited titles immutable.
+    if (
+      conversation.titleSource === "manual" &&
+      conversation.applicationId !== null &&
+      conversation.applicationNameSnapshot !== null &&
+      conversation.title === conversation.applicationNameSnapshot
+    ) {
+      const application = await this.prisma.application.findUnique({
+        where: { id: conversation.applicationId },
+        select: { developmentOnly: true },
+      })
+      if (!application || application.developmentOnly) return false
       eligibleTitleWhere = {
-        titleSource: "generated",
+        titleSource: "manual",
         title: conversation.title,
+        applicationId: conversation.applicationId,
+        applicationNameSnapshot: conversation.applicationNameSnapshot,
       }
-    } else {
+    } else if (conversation.titleSource === "manual") {
       return false
+    } else {
+      renameEveryMessage =
+        sourceMessages !== undefined &&
+        (await this.personalization.getPersonalization(conversation.ownerId))
+          .task_auto_naming === "every_message"
+      if (conversation.titleSource === "fallback") {
+        eligibleTitleWhere = { titleSource: "fallback" }
+      } else if (
+        conversation.titleSource === "generated" &&
+        renameEveryMessage
+      ) {
+        eligibleTitleWhere = {
+          titleSource: "generated",
+          title: conversation.title,
+        }
+      } else {
+        return false
+      }
     }
 
     const messages =

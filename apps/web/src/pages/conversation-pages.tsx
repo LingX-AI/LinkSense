@@ -103,6 +103,7 @@ import { StatusBanner } from "@/components/feedback/status-banner"
 import { ConversationSearchDialog } from "@/components/shell/conversation-search-dialog"
 import { PageLayout } from "@/components/shell/page-layout"
 import { Button } from "@/components/ui/button"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConversationScrollToBottomIndicator } from "@/features/conversations/conversation-scroll-to-bottom-indicator"
 import {
   Card,
@@ -5332,6 +5333,13 @@ export function ConversationPage({
       activeUserInputRequest &&
       activeUserInputRequest.kind !== "async_questions"
     )
+  const showApplicationUnavailableNotice =
+    !readOnly && Boolean(applicationUnavailableMessage) && !blockingPanelActive
+  const showConversationComposer =
+    !readOnly &&
+    !applicationDeleted &&
+    !applicationUnavailableMessage &&
+    !blockingPanelActive
   const taskOverviewSuppressed =
     taskOverviewSuppressedConversationId === conversationId
   const composerInstanceId = isNewTaskPromotion
@@ -5847,7 +5855,17 @@ export function ConversationPage({
               }
             />
           )}
-        {!readOnly && !applicationDeleted && !blockingPanelActive && (
+        {showApplicationUnavailableNotice && applicationUnavailableMessage && (
+          <Alert
+            role="status"
+            aria-label={applicationUnavailableMessage}
+            className="mx-auto w-full max-w-[var(--app-composer-width)] rounded-[18px] border-[color:var(--app-border)] bg-[var(--app-composer)] shadow-[var(--app-shadow)]"
+          >
+            <CircleAlertIcon aria-hidden="true" />
+            <AlertDescription>{applicationUnavailableMessage}</AlertDescription>
+          </Alert>
+        )}
+        {showConversationComposer && (
           <ConversationDraftComposer
             ref={composerRef}
             voiceTranscriptionAvailability={voiceTranscriptionAvailability}

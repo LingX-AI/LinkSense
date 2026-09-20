@@ -54,10 +54,7 @@ export function ApplicationIconField({
     <Field data-invalid={Boolean(error)}>
       <FieldLabel>{t("applications.icon")}</FieldLabel>
       <div className="flex flex-col items-start gap-4 sm:flex-row">
-        <ApplicationIconDisplay
-          icon={displayed}
-          className="size-16 [&_svg]:size-11"
-        />
+        <ApplicationIconDisplay icon={displayed} className="size-16" />
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <ToggleGroup
             variant="outline"

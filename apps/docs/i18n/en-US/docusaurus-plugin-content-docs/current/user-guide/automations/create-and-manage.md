@@ -7,6 +7,12 @@ description: Run recurring work hourly, daily, weekly, or monthly in one pinned 
 
 Automations start turns on a schedule inside one fixed task. They are useful for reports, checks, and recurring summaries.
 
+## Start from a suggestion
+
+The Automations page offers suggestions such as **Daily brief**, **Weekly review**, and **Follow-up monitor**. Selecting one opens the new-automation form with a title, instruction, new target task, and suggested weekly days and time already filled in. A suggestion is only an editable template; before saving, verify its data sources, instruction, dates, time, time zone, model, and reasoning effort.
+
+Some suggestions refer to calendars or email. The automation can read that data only when the current account has installed and authorized the required capabilities. Configure them first or edit the template so an unattended run does not stop for authorization or missing input.
+
 ## Create an automation
 
 1. Open **Automations** and choose **New automation**.

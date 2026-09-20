@@ -18,7 +18,7 @@ Model prices remain in Model settings, in CNY per million tokens. Costs use the 
 - **Initial organization member quotas** apply to each member subsequently created or imported. Changing defaults does not overwrite existing members.
 - **Self-registered user quotas** apply to each user created through open registration. Changing these quotas also updates existing self-registered users, including individual overrides. Changing only the conversion price or organization defaults does not overwrite those quotas.
 
-The registration switch remains under **System settings → Open registration**, independently of quotas. Adjust existing users individually or in bulk under **Groups & users → Users**.
+The registration switch remains under **System settings → Open registration**, independently of quotas. Adjust existing users individually or in bulk under **Users & groups → Users**.
 
 ## Immediate resets and bulk application
 

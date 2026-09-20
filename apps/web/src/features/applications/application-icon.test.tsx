@@ -25,7 +25,7 @@ describe("application icons", () => {
     )
     expect(
       container.querySelector('[data-application-icon-preset="bot"] svg')
-    ).toHaveClass("size-[85%]")
+    ).toHaveClass("size-full")
   })
   it("provides twenty distinct simple scene icons in the shared preset order", () => {
     expect(applicationIconPresetOptions.map((option) => option.value)).toEqual(
@@ -35,6 +35,42 @@ describe("application icons", () => {
       new Set(applicationIconPresetOptions.map((option) => option.icon)).size
     ).toBe(20)
     expect(Object.keys(applicationIconPresetDefinitions)).toHaveLength(20)
+  })
+
+  it("normalizes each preset view box to a consistent optical footprint", () => {
+    const viewBoxes = {
+      bot: "4 4 40 40",
+      search: "1.5 1.5 45 45",
+      "book-open": "2 2 44 44",
+      "graduation-cap": "2 2 44 44",
+      "briefcase-business": "2.5 2.5 43 43",
+      "chart-column": "0 0 48 48",
+      "code-xml": "1.5 1.5 45 45",
+      "pen-line": "2 2 44 44",
+      sparkles: "-1.5 -1.5 51 51",
+      lightbulb: "5.5 5.5 37 37",
+      headset: "2 2 44 44",
+      "file-text": "1 1 46 46",
+      landmark: "0 0 48 48",
+      scale: "0.5 0.5 47 47",
+      "heart-pulse": "3 3 42 42",
+      "shield-check": "1.5 1.5 45 45",
+      workflow: "1.5 1.5 45 45",
+      "calendar-clock": "0 0 48 48",
+      users: "-1.5 -1.5 51 51",
+      "globe-2": "0 0 48 48",
+    } as const
+    const { container, rerender } = render(
+      <ApplicationPresetIcon preset="bot" />
+    )
+
+    for (const preset of applicationIconPresets) {
+      rerender(<ApplicationPresetIcon preset={preset} />)
+      expect(container.querySelector("svg")).toHaveAttribute(
+        "viewBox",
+        viewBoxes[preset]
+      )
+    }
   })
 
   it("renders preset choices and application fallbacks as multicolor artwork", () => {
@@ -83,6 +119,11 @@ describe("application icons", () => {
     const fallback = container.querySelector('[data-slot="avatar-fallback"]')
 
     expect(display).toHaveClass("bg-transparent", "after:border-border/60")
+    expect(display).toHaveClass(
+      "items-center",
+      "justify-center",
+      "overflow-hidden"
+    )
     expect(display).not.toHaveClass("bg-muted")
     expect(fallback).toHaveClass("bg-transparent")
     expect(fallback).not.toHaveClass("bg-muted")
@@ -92,6 +133,8 @@ describe("application icons", () => {
       '[data-application-icon-preset="chart-column"]'
     )
     expect(preset).toHaveClass("border", "border-border/60", "bg-transparent")
+    expect(preset).toHaveClass("p-0.5")
+    expect(preset?.querySelector("svg")).toHaveClass("size-full")
     expect(preset).not.toHaveClass("bg-muted")
   })
 })
@@ -142,6 +185,8 @@ describe("custom application icon refresh", () => {
     finish(0)
     const image = container.querySelector("img")
     expect(image).toHaveAttribute("src", signedUrl("first"))
+    expect(image).toHaveClass("size-[80%]", "object-contain")
+    expect(image).not.toHaveClass("size-full", "object-cover")
 
     for (const signature of ["second", "third", "fourth"]) {
       rerender(display(signedUrl(signature)))

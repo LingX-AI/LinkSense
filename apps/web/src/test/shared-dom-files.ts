@@ -53,7 +53,6 @@ export const sharedDomTests = [
   "src/features/admin/admin-knowledge-tabs.test.tsx",
   "src/features/admin/maintenance-settings-form.test.tsx",
   "src/features/admin/model-provider-settings-form.test.tsx",
-  "src/features/applications/application-external-access-page.test.tsx",
   "src/features/applications/application-icon.test.tsx",
   "src/features/applications/application-usage-page.test.tsx",
   "src/features/browser-notifications/browser-notification-preference.test.ts",

@@ -63,12 +63,25 @@ describe("help center routing", () => {
     expect(buildHelpCenterHref("/unknown", "en-US")).toBe("/help/en-US/")
   })
 
+  it.each([
+    ["?tab=artifacts", "user-guide/tasks/files-and-results"],
+    ["?tab=sites", "user-guide/tasks/publish-websites"],
+    ["?tab=knowledge", "user-guide/knowledge-bases/create-and-manage"],
+  ])("maps the resource library %s tab to %s", (search, documentPath) => {
+    expect(resolveHelpDocumentPath("/knowledge-bases", search)).toBe(
+      documentPath
+    )
+  })
+
   it("uses the active application language and keeps trailing slashes", () => {
     expect(buildHelpCenterHref("/settings/security", "zh-CN")).toBe(
       "/help/user-guide/settings/security/"
     )
     expect(buildHelpCenterHref("/admin/usage", "en-US")).toBe(
       "/help/en-US/admin-guide/usage/"
+    )
+    expect(buildHelpCenterHref("/knowledge-bases", "en-US", "?tab=sites")).toBe(
+      "/help/en-US/user-guide/tasks/publish-websites/"
     )
   })
 })

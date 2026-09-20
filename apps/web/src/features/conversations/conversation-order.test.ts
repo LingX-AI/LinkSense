@@ -18,7 +18,14 @@ function conversation(
   id: string,
   updatedAt: string,
   sortOrder: number | null = null,
-  pinnedAt: string | null = null
+  pinnedAt: string | null = null,
+  overrides: Partial<{
+    created_at: string
+    last_run_at: string | null
+    execution_status: "idle" | "running" | "pending" | "completed"
+    has_unread_completion: boolean
+    needs_attention: boolean
+  }> = {}
 ) {
   return {
     id,
@@ -28,24 +35,77 @@ function conversation(
     sort_order: sortOrder,
     collaboration_mode: "default",
     has_unread_completion: false,
+    ...overrides,
   }
 }
 
 describe("sidebar conversation ordering", () => {
-  it("keeps unranked new tasks first and persists ranked tasks by sort order", () => {
+  it("keeps stored tasks first and appends new tasks in manual mode", () => {
     const result = sortSidebarConversations(
       [
         conversation("ranked-last", "2026-08-12T08:00:00.000Z", 1),
         conversation("new", "2026-08-12T10:00:00.000Z"),
         conversation("ranked-first", "2026-08-12T09:00:00.000Z", 0),
       ],
-      "recent"
+      "manual"
     )
 
     expect(result.map((item) => item.id)).toEqual([
-      "new",
       "ranked-first",
       "ranked-last",
+      "new",
+    ])
+  })
+
+  it("sorts by Codex recency instead of metadata update time", () => {
+    const result = sortSidebarConversations(
+      [
+        conversation("metadata-newer", "2026-08-12T12:00:00.000Z", null, null, {
+          created_at: "2026-08-12T07:00:00.000Z",
+          last_run_at: "2026-08-12T08:00:00.000Z",
+        }),
+        conversation("activity-newer", "2026-08-12T09:00:00.000Z", null, null, {
+          created_at: "2026-08-12T07:00:00.000Z",
+          last_run_at: "2026-08-12T10:00:00.000Z",
+        }),
+      ],
+      "updated_at"
+    )
+
+    expect(result.map((item) => item.id)).toEqual([
+      "activity-newer",
+      "metadata-newer",
+    ])
+  })
+
+  it("uses Codex priority order and recency within each state", () => {
+    const at = (hour: number) =>
+      `2026-08-12T${String(hour).padStart(2, "0")}:00:00.000Z`
+    const result = sortSidebarConversations(
+      [
+        conversation("idle", at(12)),
+        conversation("active-old", at(8), null, null, {
+          execution_status: "running",
+        }),
+        conversation("unread", at(7), null, null, {
+          has_unread_completion: true,
+        }),
+        conversation("waiting", at(6), null, null, {
+          needs_attention: true,
+        }),
+        conversation("active-new", at(10), null, null, {
+          execution_status: "pending",
+        }),
+      ],
+      "priority"
+    )
+
+    expect(result.map((item) => item.id)).toEqual([
+      "waiting",
+      "unread",
+      "active-new",
+      "active-old",
+      "idle",
     ])
   })
 

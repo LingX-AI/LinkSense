@@ -13,6 +13,7 @@ import { SidebarTaskGroups } from "@/features/projects/sidebar-task-groups"
 import { SidebarConversationDnd } from "./sidebar-conversation-dnd"
 import { SortableConversationGroup } from "./sortable-conversation-group"
 import i18n from "@/i18n"
+import type { SidebarTaskSortModes } from "./sidebar-task-sort-preference"
 
 const now = "2026-09-09T00:00:00.000Z"
 const projects = ["工作", "生活"].map((name, index) => ({
@@ -23,6 +24,11 @@ const projects = ["工作", "生活"].map((name, index) => ({
   created_at: now,
   updated_at: now,
 }))
+const manualSortModes: SidebarTaskSortModes = {
+  pinned: "manual",
+  projects: "manual",
+  recent: "manual",
+}
 function task(
   id: string,
   project_id: string | null = null,
@@ -50,15 +56,18 @@ function mount(tasks: Conversation[], disabled = false) {
     .fn<(ids: string[]) => Promise<void>>()
     .mockResolvedValue(undefined)
   const onError = vi.fn()
+  const onSortModeChange = vi.fn()
   const renderTask = vi.fn<(id: string) => void>()
   render(
     <SidebarConversationDnd
       conversations={tasks}
       projects={projects}
       disabled={disabled}
+      sortModes={manualSortModes}
       onMove={onMove}
       onReorder={onReorder}
       onReorderProjects={onReorderProjects}
+      onSortModeChange={onSortModeChange}
       onError={onError}
     >
       <SidebarTaskGroups
@@ -67,6 +76,7 @@ function mount(tasks: Conversation[], disabled = false) {
         recent={tasks.filter((item) => !item.pinned_at)}
         projects={projects}
         loadingMore={false}
+        sortModes={manualSortModes}
         onAction={vi.fn()}
       >
         {(group) => (
@@ -91,7 +101,14 @@ function mount(tasks: Conversation[], disabled = false) {
       </SidebarTaskGroups>
     </SidebarConversationDnd>
   )
-  return { onMove, onReorder, onReorderProjects, onError, renderTask }
+  return {
+    onMove,
+    onReorder,
+    onReorderProjects,
+    onSortModeChange,
+    onError,
+    renderTask,
+  }
 }
 
 function projectHeader(name: string) {
@@ -228,10 +245,7 @@ describe("sidebar task dragging between projects", () => {
     )
     fireEvent.keyDown(document, { key: " ", code: "Space" })
     await waitFor(() =>
-      expect(onReorderProjects).toHaveBeenCalledWith([
-        "project-1",
-        "project-0",
-      ])
+      expect(onReorderProjects).toHaveBeenCalledWith(["project-1", "project-0"])
     )
     expect(
       within(source).getByRole("button", { name: "工作" })
@@ -340,7 +354,10 @@ describe("sidebar task dragging between projects", () => {
   ])(
     "sorts from %s using %s at the displayed %s %s boundary",
     async (source, direction, anchor, edge) => {
-      const { onReorder } = mount([task("first"), task("second")])
+      const { onReorder, onSortModeChange } = mount([
+        task("first"),
+        task("second"),
+      ])
       const first = screen.getByTestId("first")
       const second = screen.getByTestId("second")
       layout([first, second])
@@ -364,6 +381,7 @@ describe("sidebar task dragging between projects", () => {
           conversationIds: ["second", "first"],
         })
       )
+      expect(onSortModeChange).toHaveBeenCalledWith("recent", "manual")
     }
   )
 

@@ -7,9 +7,14 @@ description: Grant access inside the organization or expose a controlled applica
 
 ## Share inside the organization
 
-Under **My applications**, open the application's three-dot menu, choose **Share within organization**, and add users or user groups. After manually installing the application, a recipient can start tasks but does not gain access to hidden application instructions, creator credentials, or the documents in application knowledge bases.
+Under **My applications**, open the application's three-dot menu, choose **Share within organization**, add users or groups, and select usage options:
 
-Revoking a grant prevents new application tasks but keeps each user's existing tasks and results. If a user has access both directly and through a group, removing one grant may not remove access.
+- **Application package:** available to standard applications only. The recipient installs an independent application and configures personal credentials, knowledge bases, and external connections.
+- **Application service:** the recipient installs access to the application resources and configured credentials maintained by the creator. Interactive applications support this option only.
+
+A standard application may offer both options. Recipients must explicitly install before use. A service user does not gain permission to browse hidden instructions, creator credentials, or documents in the application's knowledge bases.
+
+Revoking a grant prevents new service installation and use but does not delete an independently installed application package. Existing tasks and results remain with each user. If a user has access both directly and through a group, removing one grant may not remove access.
 
 ### Update a shared interactive application
 

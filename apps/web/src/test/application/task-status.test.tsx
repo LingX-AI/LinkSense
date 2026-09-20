@@ -569,7 +569,7 @@ describe("LinkSense application", () => {
       applicationIcon?.querySelector('[data-slot="avatar-fallback"]')
     ).toHaveClass("bg-transparent")
     expect(presetIcon).not.toBeNull()
-    expect(presetIcon).toHaveClass("size-5")
+    expect(presetIcon).toHaveClass("size-full")
     expect(presetIcon?.querySelectorAll("[fill]").length).toBeGreaterThan(0)
     expect(
       applicationIcon!.compareDocumentPosition(applicationTitle) &

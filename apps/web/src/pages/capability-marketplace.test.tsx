@@ -3413,7 +3413,7 @@ describe("capability marketplace pages", () => {
       const selectedIconPreview = dialog.querySelector(
         '[data-slot="application-editor-left"] [data-slot="avatar"]'
       )
-      expect(selectedIconPreview).toHaveClass("[&_svg]:size-11")
+      expect(selectedIconPreview?.querySelector("svg")).toHaveClass("size-full")
       const iconPresetGroup = within(dialog).getByLabelText("内置应用图标")
       expect(iconPresetGroup).toHaveClass(
         "grid",

@@ -6,6 +6,12 @@ import { SortableConversationGroup } from "@/features/conversations/sortable-con
 import { SidebarConversationDnd } from "./sidebar-conversation-dnd"
 import i18n from "@/i18n"
 
+const manualSortModes = {
+  pinned: "manual",
+  projects: "manual",
+  recent: "manual",
+} as const
+
 const conversations = [
   {
     id: "task-first",
@@ -48,6 +54,7 @@ describe("sortable conversation group", () => {
         conversations={conversations}
         projects={[]}
         disabled={false}
+        sortModes={manualSortModes}
         onReorder={vi.fn(async () => undefined)}
         onReorderProjects={vi.fn(async () => undefined)}
         onMove={vi.fn(async () => undefined)}
@@ -102,6 +109,7 @@ describe("sortable conversation group", () => {
         conversations={conversations}
         projects={[]}
         disabled={false}
+        sortModes={manualSortModes}
         onReorder={vi.fn(async () => undefined)}
         onReorderProjects={vi.fn(async () => undefined)}
         onMove={vi.fn(async () => undefined)}

@@ -2049,6 +2049,8 @@ export class ConversationService {
       applicationMetadata,
       planOutputMissingConversationIds,
       developmentRoles,
+      pendingUserInputRequests,
+      pendingPlanReviews,
     ] = await Promise.all([
       this.prisma.conversationTurn.findMany({
         where: { conversationId: { in: ids }, status: "running" },
@@ -2073,6 +2075,24 @@ export class ConversationService {
       this.resolveApplicationTaskMetadata(ownerId, selected),
       this.findLatestPlanOutputMissingConversationIds(selected),
       readConversationDevelopmentRoles(this.prisma, ownerId, selected),
+      this.prisma.conversationUserInputRequest.findMany({
+        where: {
+          ownerId,
+          conversationId: { in: ids },
+          status: "pending",
+        },
+        select: { conversationId: true },
+        distinct: ["conversationId"],
+      }),
+      this.prisma.conversationPlanReview.findMany({
+        where: {
+          ownerId,
+          conversationId: { in: ids },
+          status: "pending",
+        },
+        select: { conversationId: true },
+        distinct: ["conversationId"],
+      }),
     ]);
     const runningIds = new Set(
       running
@@ -2086,6 +2106,10 @@ export class ConversationService {
     const automationTargetIds = new Set(
       automationTargets.map((row) => row.conversationId),
     );
+    const needsAttentionIds = new Set([
+      ...pendingUserInputRequests.map((row) => row.conversationId),
+      ...pendingPlanReviews.map((row) => row.conversationId),
+    ]);
     return {
       items: selected.map((row) =>
         projectConversation(
@@ -2105,6 +2129,7 @@ export class ConversationService {
             : undefined,
           automationTargetIds.has(row.id),
           developmentRoles.get(row.id) ?? null,
+          needsAttentionIds.has(row.id),
         ),
       ),
       next_cursor:
@@ -2732,9 +2757,20 @@ export class ConversationService {
         );
     return {
       conversation: {
-        ...projectConversation(conversation, executionStatus,
-          deletedApplication ? { available: false, unavailable_reason: "APPLICATION_DELETED" } : undefined,
-          false, developmentRoles.get(conversation.id) ?? null),
+        ...projectConversation(
+          conversation,
+          executionStatus,
+          deletedApplication
+            ? {
+                available: false,
+                unavailable_reason: "APPLICATION_DELETED",
+              }
+            : undefined,
+          false,
+          developmentRoles.get(conversation.id) ?? null,
+          userInputRequests.some((request) => request.status === "pending") ||
+            planReviews.some((review) => review.status === "pending"),
+        ),
         ...(forkSource ? { fork_source: forkSource } : {}),
       },
       goal: goal ? projectConversationGoal(goal) : null,
@@ -7081,7 +7117,6 @@ export class ConversationService {
   ) {
     return this.withActiveUserRuntimeLease(ownerId, () =>
       this.createConversation(ownerId, undefined, application, {
-        autoGenerateTitle: true,
         ...(conversationId ? { conversationId } : {}),
       }),
     );
@@ -7119,7 +7154,6 @@ export class ConversationService {
       title?: string;
       pinned?: boolean;
       collaborationMode?: ConversationCollaborationMode;
-      autoGenerateTitle?: boolean;
       conversationId?: string;
       projectId?: string | null;
     },
@@ -7209,22 +7243,19 @@ export class ConversationService {
         }
         if (options?.developmentSource) await lockDetachedDevelopment(tx, ownerId, options.developmentSource);
         assertUserRuntimeLeaseCurrent();
+        const usesAutomaticTitle =
+          !options?.title && !options?.development && !options?.developmentSource;
         const created = await tx.conversation.create({
           data: {
             id,
             ownerId,
             title:
               options?.title ??
-              (application && !options?.autoGenerateTitle
-                ? application.name
-                : undefined) ??
+              application?.name ??
               ((owner?.preferredLocale ?? fallbackLocale) === "en-US"
                 ? "Untitled task"
                 : "未命名任务"),
-            titleSource:
-              options?.title || (application && !options?.autoGenerateTitle)
-                ? "manual"
-                : "fallback",
+            titleSource: usesAutomaticTitle ? "fallback" : "manual",
             archiveStatus: "active",
             pinnedAt: options?.pinned ? new Date() : null,
             projectId: options?.projectId ?? null,
@@ -9932,6 +9963,7 @@ export function projectConversation(
   },
   hasAutomation = false,
   developmentRole: ConversationApplicationDevelopmentRole | null = null,
+  needsAttention?: boolean,
 ) {
   return {
     id: row.id,
@@ -9952,6 +9984,9 @@ export function projectConversation(
     execution_status: executionStatus,
     last_run_at: row.lastRunAt?.toISOString() ?? null,
     has_unread_completion: row.completionUnread,
+    ...(needsAttention === undefined
+      ? {}
+      : { needs_attention: needsAttention }),
     has_automation: hasAutomation,
     application_development_role: developmentRole,
     selected_knowledge_base_ids: jsonStringArray(

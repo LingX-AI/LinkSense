@@ -325,9 +325,13 @@ describe("application development interface", () => {
         : initial
     )
     show(<ApplicationDevelopmentPanel initial={initial} />)
-    await userEvent.click(
-      screen.getByRole("button", { name: i18n.t("applications.editMetadata") })
-    )
+    const editMetadata = screen.getByRole("button", {
+      name: i18n.t("applications.editMetadata"),
+    })
+    expect(
+      editMetadata.querySelector('[data-application-icon-preset="bot"] svg')
+    ).toHaveClass("size-full")
+    await userEvent.click(editMetadata)
     await userEvent.click(
       screen.getByRole("button", {
         name: i18n.t("applications.iconPresets.book-open"),

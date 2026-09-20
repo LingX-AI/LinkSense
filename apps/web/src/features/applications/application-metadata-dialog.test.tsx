@@ -61,6 +61,12 @@ describe("application metadata editor", () => {
       expect(i18n.t("applications.editMetadata")).not.toBe(
         "applications.editMetadata"
       )
+      const iconPreview = screen
+        .getByRole("dialog")
+        .querySelector('[data-slot="avatar"]')
+      expect(iconPreview).toHaveClass("size-16")
+      expect(iconPreview?.querySelector("svg")).toHaveClass("size-full")
+      expect(iconPreview?.querySelector("svg")).not.toHaveClass("size-11")
       await user.clear(
         screen.getByRole("textbox", { name: i18n.t("common.name") })
       )

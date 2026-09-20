@@ -15,12 +15,20 @@ const project = {
   updated_at: "2026-09-09T00:00:00.000Z",
 }
 
-function renderGroups(userId = "first") {
+const pinnedTask = conversationSchema.parse({
+  id: "pinned-task",
+  title: "Pinned task",
+  project_id: null,
+  pinned_at: "2026-09-09T00:00:00.000Z",
+  updated_at: project.updated_at,
+})
+
+function renderGroups(userId = "first", pinned = [] as (typeof pinnedTask)[]) {
   const onAction = vi.fn()
   render(
     <SidebarTaskGroups
       userId={userId}
-      pinned={[]}
+      pinned={pinned}
       recent={[]}
       projects={[project]}
       loadingMore={false}
@@ -144,9 +152,9 @@ describe("sidebar task project controls", () => {
     expect(screen.getByRole("link", { name: "归属任务" })).toBeVisible()
   })
 
-  it("uses the smaller adaptive font size for Projects and Recent headings", () => {
-    renderGroups()
-    for (const name of ["项目", "最近"]) {
+  it("uses the same smaller adaptive font size for Pinned, Projects, and Recent headings", () => {
+    renderGroups("first", [pinnedTask])
+    for (const name of ["置顶", "项目", "最近"]) {
       const heading = screen.getByRole("heading", { name })
       expect(heading).toHaveClass("text-[length:var(--app-font-13)]")
       expect(heading).not.toHaveClass("text-[length:var(--app-ui-font-size)]")
@@ -154,11 +162,11 @@ describe("sidebar task project controls", () => {
   })
 
   it.each([
-    ["zh-CN", "项目", "最近"],
-    ["en-US", "Projects", "Recent"],
+    ["zh-CN", "置顶", "项目", "最近"],
+    ["en-US", "Pinned", "Projects", "Recent"],
   ])(
-    "toggles the two sections independently with pointer and keyboard in %s",
-    async (language, projectsLabel, recentLabel) => {
+    "toggles all three sections independently with pointer and keyboard in %s",
+    async (language, pinnedLabel, projectsLabel, recentLabel) => {
       await i18n.changeLanguage(language)
       const interaction = userEvent.setup()
       const task = conversationSchema.parse({
@@ -170,7 +178,7 @@ describe("sidebar task project controls", () => {
       render(
         <SidebarTaskGroups
           userId="first"
-          pinned={[{ ...task, id: "pinned-task", title: "Pinned task" }]}
+          pinned={[pinnedTask]}
           recent={[task]}
           projects={[project]}
           loadingMore={false}
@@ -191,11 +199,22 @@ describe("sidebar task project controls", () => {
       const projects = screen.getByRole("button", {
         name: projectsLabel,
       })
+      const pinned = screen.getByRole("button", {
+        name: pinnedLabel,
+      })
       const recent = screen.getByRole("button", {
         name: recentLabel,
       })
+      expect(pinned).toHaveAttribute("aria-expanded", "true")
       expect(projects).toHaveAttribute("aria-expanded", "true")
       expect(recent).toHaveAttribute("aria-expanded", "true")
+
+      await interaction.click(pinned)
+      expect(pinned).toHaveAttribute("aria-expanded", "false")
+      expect(
+        screen.queryByRole("link", { name: "Pinned task" })
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole("button", { name: project.name })).toBeVisible()
 
       await interaction.click(projects)
       expect(projects).toHaveAttribute("aria-expanded", "false")
@@ -208,7 +227,9 @@ describe("sidebar task project controls", () => {
       expect(
         screen.queryByRole("link", { name: "Recent task" })
       ).not.toBeInTheDocument()
-      expect(screen.getByRole("link", { name: "Pinned task" })).toBeVisible()
+      expect(
+        screen.queryByRole("link", { name: "Pinned task" })
+      ).not.toBeInTheDocument()
 
       await interaction.keyboard("{Enter}")
       expect(recent).toHaveAttribute("aria-expanded", "true")
@@ -220,12 +241,15 @@ describe("sidebar task project controls", () => {
       expect(
         screen.queryByRole("button", { name: project.name })
       ).not.toBeInTheDocument()
+      await interaction.click(pinned)
+      expect(pinned).toHaveAttribute("aria-expanded", "true")
+      expect(screen.getByRole("link", { name: "Pinned task" })).toBeVisible()
     }
   )
 
   it("reveals section arrows on heading hover, keyboard focus, and touch devices", () => {
-    renderGroups()
-    for (const name of ["项目", "最近"]) {
+    renderGroups("first", [pinnedTask])
+    for (const name of ["置顶", "项目", "最近"]) {
       const trigger = screen.getByRole("button", { name })
       expect(trigger).toHaveClass("w-full", "group/section-trigger")
       expect(trigger.closest(".group\\/tasks-heading")).toContainElement(
@@ -243,10 +267,10 @@ describe("sidebar task project controls", () => {
     }
   })
 
-  it.each(["项目", "最近"])(
+  it.each(["置顶", "项目", "最近"])(
     "animates the %s section height and arrow while respecting reduced motion",
     (name) => {
-      renderGroups()
+      renderGroups("first", [pinnedTask])
       const section = screen.getByRole("region", { name })
       const panel = section.querySelector(
         ":scope > [data-slot='collapsible-content']"
@@ -371,6 +395,10 @@ describe("sidebar task project controls", () => {
     await interaction.tab()
     expect(screen.getByRole("button", { name: "项目" })).toHaveFocus()
     await interaction.tab()
+    expect(
+      screen.getByRole("button", { name: "设置项目任务排序方式" })
+    ).toHaveFocus()
+    await interaction.tab()
     expect(create).toHaveFocus()
     await interaction.keyboard("{Enter}")
     expect(onAction).toHaveBeenCalledExactlyOnceWith({ mode: "create" })
@@ -479,6 +507,62 @@ describe("sidebar task project controls", () => {
     })
     expect(folder).toHaveAttribute("aria-expanded", "true")
   })
+
+  it.each([
+    [
+      "zh-CN",
+      "设置置顶任务排序方式",
+      "设置项目任务排序方式",
+      "设置最近任务排序方式",
+      "优先级",
+    ],
+    [
+      "en-US",
+      "Set the task order for Pinned",
+      "Set the task order for Projects",
+      "Set the task order for Recent",
+      "Priority",
+    ],
+  ])(
+    "offers the three Codex task-order modes for every sidebar scope in %s",
+    async (language, pinnedMenu, projectsMenu, recentMenu, priorityLabel) => {
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      const onSortModeChange = vi.fn()
+      render(
+        <SidebarTaskGroups
+          userId="first"
+          pinned={[pinnedTask]}
+          recent={[]}
+          projects={[project]}
+          loadingMore={false}
+          sortModes={{
+            pinned: "manual",
+            projects: "updated_at",
+            recent: "updated_at",
+          }}
+          onSortModeChange={onSortModeChange}
+          onAction={vi.fn()}
+        >
+          {() => null}
+        </SidebarTaskGroups>
+      )
+
+      for (const [scope, menuLabel] of [
+        ["pinned", pinnedMenu],
+        ["projects", projectsMenu],
+        ["recent", recentMenu],
+      ] as const) {
+        await interaction.click(screen.getByRole("button", { name: menuLabel }))
+        const menu = await screen.findByRole("menu")
+        expect(within(menu).getAllByRole("menuitemradio")).toHaveLength(3)
+        await interaction.click(
+          within(menu).getByRole("menuitemradio", { name: priorityLabel })
+        )
+        expect(onSortModeChange).toHaveBeenLastCalledWith(scope, "priority")
+      }
+    }
+  )
 
   it("animates the measured project content height and respects reduced motion", () => {
     renderGroups()

@@ -116,6 +116,7 @@ export const conversationSchema = z.strictObject({
   execution_status: conversationExecutionStatusSchema,
   last_run_at: timestampSchema.nullable(),
   has_unread_completion: z.boolean().default(false),
+  needs_attention: z.boolean().optional(),
   has_automation: z.boolean().default(false),
   application_development_role: conversationApplicationDevelopmentRoleSchema.nullable().optional(),
   selected_knowledge_base_ids: knowledgeBaseIdsSchema,

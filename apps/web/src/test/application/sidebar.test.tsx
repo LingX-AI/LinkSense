@@ -1,4 +1,8 @@
 import { formatRelativeDate } from "@/i18n/date"
+import {
+  readSidebarTaskSortModes,
+  rememberSidebarTaskSortModes,
+} from "@/features/conversations/sidebar-task-sort-preference"
 import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
@@ -110,7 +114,7 @@ describe("LinkSense application", () => {
     },
     { label: "default", icon: undefined },
   ] as const)(
-    "keeps $label interactive task icons at 16px in recent and pinned lists without shifting titles",
+    "keeps $label application task icons at 20px across kinds and groups without shifting titles",
     async ({ icon }) => {
       const application = {
         id: "50000000-0000-4000-8000-000000000001",
@@ -143,15 +147,15 @@ describe("LinkSense application", () => {
       const sidebar = await screen.findByRole("complementary", {
         name: "LinkSense 导航",
       })
-      for (const conversation of conversations.slice(0, 2)) {
+      for (const conversation of conversations) {
         const link = await within(sidebar).findByRole("link", {
           name: conversation.title,
         })
         const iconElement = link.querySelector(
           ".sidebar-conversation-application-icon"
         )
-        expect(iconElement).toHaveClass("size-4", "[&_svg]:size-4", "shrink-0")
-        expect(iconElement).not.toHaveClass("size-5")
+        expect(iconElement).toHaveClass("size-5", "shrink-0")
+        expect(iconElement).not.toHaveClass("[&_svg]:size-4")
         expect(iconElement).not.toHaveClass("[&_svg]:size-5")
         expect(iconElement?.parentElement).toHaveClass(
           "size-5",
@@ -160,12 +164,6 @@ describe("LinkSense application", () => {
           "justify-center"
         )
       }
-      const standardLink = within(sidebar).getByRole("link", {
-        name: conversations[2]!.title,
-      })
-      expect(
-        standardLink.querySelector(".sidebar-conversation-application-icon")
-      ).toHaveClass("size-5")
     }
   )
 
@@ -884,6 +882,11 @@ describe("LinkSense application", () => {
   })
 
   it("renders the persisted task order without a visible drag handle", async () => {
+    rememberSidebarTaskSortModes("user-1", {
+      pinned: "manual",
+      projects: "updated_at",
+      recent: "manual",
+    })
     const orderedTasks = [
       { ...conversations[0]!, sort_order: 2 },
       { ...conversations[1]!, sort_order: 0 },
@@ -941,6 +944,28 @@ describe("LinkSense application", () => {
     fireEvent.pointerMove(document, { clientX: 10, clientY: 20 })
     expect(firstTask).not.toHaveAttribute("data-dragging")
     fireEvent.pointerUp(document)
+  })
+
+  it("persists a task-order choice from the sidebar menu", async () => {
+    const interaction = userEvent.setup()
+    installApiMock()
+    renderApp()
+    const sidebar = await screen.findByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+
+    await interaction.click(
+      within(sidebar).getByRole("button", { name: "设置最近任务排序方式" })
+    )
+    const menu = await screen.findByRole("menu")
+    expect(
+      within(menu).getByRole("menuitemradio", { name: "最近更新" })
+    ).toHaveAttribute("aria-checked", "true")
+    await interaction.click(
+      within(menu).getByRole("menuitemradio", { name: "手动排序" })
+    )
+
+    expect(readSidebarTaskSortModes("user-1").recent).toBe("manual")
   })
 
   it("shows an automation binding dialog instead of an inline error when unpinning", async () => {
@@ -1623,7 +1648,14 @@ describe("LinkSense application", () => {
     })
     expect(accountTrigger).toHaveClass("sidebar-user-button")
     expect(accountTrigger).toHaveClass("py-1.5")
-    expect(accountTrigger.closest(".sidebar-account-bar")).toHaveClass("mt-1")
+    expect(accountTrigger.closest(".sidebar-account-bar")).toHaveClass(
+      "-mx-3",
+      "mt-1",
+      "border-t",
+      "border-[color:var(--app-divider)]",
+      "px-3",
+      "pt-1"
+    )
     expect(accountTrigger.querySelector("svg")).toBeNull()
     expect(accountTrigger.querySelector('[data-slot="avatar"]')).toHaveClass(
       "sidebar-account-avatar",

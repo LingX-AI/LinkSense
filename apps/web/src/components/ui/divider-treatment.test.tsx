@@ -42,6 +42,10 @@ describe("divider treatment", () => {
     expect(appStyles).toContain("--color-divider: var(--app-divider);")
   })
 
+  it("gives bare borders a semantic default instead of the current text color", () => {
+    expect(appStyles).toContain("@apply border-border outline-ring/50;")
+  })
+
   it("draws table rows with the shared half-pixel divider treatment", () => {
     render(
       <Table>

@@ -6,7 +6,7 @@ description: Create, import, edit, enable, and disable LinkSense users.
 # User management
 
 :::info Administrator operation
-Open **Settings → Groups & users → Users**. LinkSense does not offer self-registration.
+Open **Settings → Users & groups → Users**. Administrators can enable open registration in System settings.
 :::
 
 ## Create users
