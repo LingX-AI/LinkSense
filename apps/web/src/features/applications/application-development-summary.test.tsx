@@ -121,5 +121,8 @@ describe("development summary hierarchy", () => {
     expect(
       document.querySelector('[data-application-icon-preset="bot"]')
     ).not.toBeNull()
+    expect(
+      document.querySelector('[data-application-icon-preset="bot"] svg')
+    ).toHaveClass("size-full")
   })
 })

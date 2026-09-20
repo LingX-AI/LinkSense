@@ -222,6 +222,18 @@ describe("ConversationModelSelector", () => {
     expect(slider).toHaveValue("0")
     expect(slider).toHaveAttribute("max", "5")
     expect(slider).toHaveAttribute("aria-valuetext", "轻量")
+    const effortPoints = popup.querySelectorAll("[data-reasoning-effort-point]")
+    expect(effortPoints).toHaveLength(6)
+    for (const point of effortPoints) {
+      expect(point).toHaveClass(
+        "pointer-events-auto",
+        "transition-transform",
+        "duration-150",
+        "ease-out",
+        "hover:scale-[1.75]",
+        "motion-reduce:transition-none"
+      )
+    }
     expect(
       within(popup).getByRole("button", { name: "恢复默认推理强度" })
     ).toBeDisabled()

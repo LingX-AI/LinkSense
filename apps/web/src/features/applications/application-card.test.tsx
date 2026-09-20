@@ -186,6 +186,9 @@ describe("application card presentation", () => {
         tile?.querySelector('[data-application-icon-preset="sparkles"]')
       ).toBeInTheDocument()
       expect(
+        tile?.querySelector('[data-application-icon-preset="sparkles"] svg')
+      ).toHaveClass("size-full")
+      expect(
         card.querySelector('[data-slot="card-content"]')
       ).not.toHaveTextContent(i18n.t("applicationDevelopment.publish.draft"))
     }

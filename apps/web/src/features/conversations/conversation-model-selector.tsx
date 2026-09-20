@@ -292,8 +292,9 @@ function ModelReasoningControls({
             {efforts.map((value, index) => (
               <span
                 key={value}
+                data-reasoning-effort-point
                 className={cn(
-                  "size-1 rounded-full",
+                  "pointer-events-auto relative size-1 rounded-full transition-transform duration-150 ease-out before:absolute before:-inset-1.5 before:content-[''] hover:scale-[1.75] motion-reduce:transition-none",
                   index <= selectedIndex
                     ? "bg-white/45"
                     : "bg-muted-foreground/40"

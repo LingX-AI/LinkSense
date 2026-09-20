@@ -2,10 +2,16 @@ import type { ComponentType, SVGProps } from "react"
 
 export type ApplicationIllustratedIcon = ComponentType<SVGProps<SVGSVGElement>>
 
-function SceneIcon({ children, ...props }: SVGProps<SVGSVGElement>) {
+// Individual scenes use optically normalized view boxes so their visible
+// artwork occupies roughly the same area despite having different silhouettes.
+function SceneIcon({
+  children,
+  viewBox = "0 0 48 48",
+  ...props
+}: SVGProps<SVGSVGElement>) {
   return (
     <svg
-      viewBox="0 0 48 48"
+      viewBox={viewBox}
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       {...props}
@@ -17,7 +23,7 @@ function SceneIcon({ children, ...props }: SVGProps<SVGSVGElement>) {
 
 export function BotSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="4 4 40 40" {...props}>
       <path d="M24 6 38 14v18L24 40 10 32V14L24 6Z" fill="#7C4DFF" />
       <path d="m24 6 14 8-14 8-14-8 14-8Z" fill="#B478FF" />
       <path d="m24 22 14-8v18l-14 8V22Z" fill="#FF6A5F" />
@@ -36,7 +42,7 @@ export function BotSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function SearchSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="1.5 1.5 45 45" {...props}>
       <path d="m19 7 12 7-12 7-12-7 12-7Z" fill="#FFB04A" />
       <path d="m19 21 12-7v13l-12 7V21Z" fill="#FF6B5D" />
       <path d="M7 14l12 7v13L7 27V14Z" fill="#7A4FF3" />
@@ -54,7 +60,7 @@ export function SearchSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function KnowledgeSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="2 2 44 44" {...props}>
       <path d="M6 13 22 8v27L6 39V13Z" fill="#6A52E8" />
       <path d="m22 8 9 5v27l-9-5V8Z" fill="#A96BF5" />
       <path d="m25 13 17-4v27l-17 4V13Z" fill="#35BDF0" />
@@ -72,7 +78,7 @@ export function KnowledgeSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function EducationSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="2 2 44 44" {...props}>
       <path d="m24 7 20 10-20 10L4 17 24 7Z" fill="#405FE6" />
       <path d="m24 12 12 6-12 6-12-6 12-6Z" fill="#7E65F4" />
       <path d="M12 21v10c5 5 19 5 24 0V21l-12 6-12-6Z" fill="#FF765F" />
@@ -89,7 +95,7 @@ export function EducationSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function BusinessSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="2.5 2.5 43 43" {...props}>
       <path d="M8 16h30v21L8 32V16Z" fill="#FF774F" />
       <path d="m38 16 5 4v20l-5-3V16Z" fill="#E94E55" />
       <path d="m8 32 30 5 5 3-30-4-5-4Z" fill="#FFC34A" />
@@ -124,7 +130,7 @@ export function AnalyticsSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function CodeSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="1.5 1.5 45 45" {...props}>
       <path d="M7 10h30v27H7V10Z" fill="#554DE5" />
       <path d="m37 10 5 4v27l-5-4V10Z" fill="#3334B9" />
       <path d="m7 10 5-4h30l-5 4H7Z" fill="#8B73FF" />
@@ -143,7 +149,7 @@ export function CodeSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function WritingSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="2 2 44 44" {...props}>
       <path d="M8 8h26v32H8V8Z" fill="#54C9EA" />
       <path d="m34 8 6 5v27h-6V8Z" fill="#2B83DD" />
       <path
@@ -161,7 +167,7 @@ export function WritingSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function CreativeSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="-1.5 -1.5 51 51" {...props}>
       <path
         d="m24 4 5.5 14.5L44 24l-14.5 5.5L24 44l-5.5-14.5L4 24l14.5-5.5L24 4Z"
         fill="#FF6D62"
@@ -177,7 +183,7 @@ export function CreativeSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function IdeaSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="5.5 5.5 37 37" {...props}>
       <path
         d="M36 20c0-7-5.4-12-12-12S12 13 12 20c0 5 3 8 6 11v4h12v-4c3-3 6-6 6-11Z"
         fill="#FFB83F"
@@ -198,7 +204,7 @@ export function IdeaSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function SupportSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="2 2 44 44" {...props}>
       <circle cx="24" cy="23" r="13" fill="#5F65EC" />
       <path
         d="M11 23c0-8 5-14 13-14s13 6 13 14"
@@ -222,7 +228,7 @@ export function SupportSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function DocumentSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="1 1 46 46" {...props}>
       <path d="M8 13h24v29H8V13Z" fill="#7754E8" />
       <path d="m14 8 23 4v29l-23-4V8Z" fill="#4D7CF3" />
       <path d="m37 12 5 5v29l-5-5V12Z" fill="#2A54CD" />
@@ -261,7 +267,7 @@ export function FinanceSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function LegalSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="0.5 0.5 47 47" {...props}>
       <path d="m24 6 5 5-5 5-5-5 5-5Z" fill="#FFAF42" />
       <path d="M22 14h4v25h-4V14Z" fill="#6C55E8" />
       <path d="M9 17h30v4H9v-4Z" fill="#4D77EE" />
@@ -277,7 +283,7 @@ export function LegalSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function HealthSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="3 3 42 42" {...props}>
       <path
         d="M24 41S7 31 7 18c0-7 9-11 17-3 8-8 17-4 17 3 0 13-17 23-17 23Z"
         fill="#FF665F"
@@ -291,7 +297,7 @@ export function HealthSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function SecuritySceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="1.5 1.5 45 45" {...props}>
       <path
         d="m24 5 16 6v12c0 10-6 16-16 21C14 39 8 33 8 23V11l16-6Z"
         fill="#446BEA"
@@ -319,7 +325,7 @@ export function SecuritySceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function WorkflowSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="1.5 1.5 45 45" {...props}>
       <path d="M12 9h12v12H12V9Z" fill="#8458ED" />
       <path d="m24 9 5 4v12l-5-4V9Z" fill="#6340CF" />
       <path d="M24 29h12v12H24V29Z" fill="#FF705B" />
@@ -367,7 +373,7 @@ export function CalendarSceneIcon(props: SVGProps<SVGSVGElement>) {
 
 export function TeamSceneIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <SceneIcon {...props}>
+    <SceneIcon viewBox="-1.5 -1.5 51 51" {...props}>
       <circle cx="24" cy="14" r="8" fill="#FFB347" />
       <circle cx="11" cy="23" r="6" fill="#58CBEA" />
       <circle cx="37" cy="23" r="6" fill="#FF6B61" />

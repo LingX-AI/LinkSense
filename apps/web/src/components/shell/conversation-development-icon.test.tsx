@@ -26,7 +26,7 @@ describe("conversation development icon", () => {
       expect(icon).toHaveAttribute("title", label)
       expect(
         icon.querySelector('[data-application-icon-preset="code-xml"] svg')
-      ).toHaveClass("size-5")
+      ).toHaveClass("size-full")
       expect(icon.querySelector(".lucide-code-xml")).toBeNull()
       expect(
         icon.compareDocumentPosition(screen.getByText("Task title")) &

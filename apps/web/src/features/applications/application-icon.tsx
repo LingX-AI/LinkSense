@@ -73,7 +73,7 @@ export function ApplicationIconDisplay({
     <Avatar
       className={cn(
         radiusClass,
-        "bg-transparent after:border-border/60",
+        "items-center justify-center overflow-hidden bg-transparent after:border-border/60",
         !compact && "after:rounded-[calc(var(--radius)*0.7)]",
         className
       )}
@@ -81,7 +81,7 @@ export function ApplicationIconDisplay({
       {icon.type === "custom" && (
         <ApplicationIconImage
           key={iconResourceKey(icon.url)}
-          className={radiusClass}
+          className={cn(radiusClass, "size-[80%] object-contain")}
           url={icon.url}
         />
       )}
@@ -89,10 +89,7 @@ export function ApplicationIconDisplay({
         data-application-icon-preset={preset}
         className={cn(radiusClass, "bg-transparent")}
       >
-        <PresetIcon
-          aria-hidden="true"
-          className={compact ? "size-5" : "size-[85%]"}
-        />
+        <PresetIcon aria-hidden="true" className="size-full" />
       </AvatarFallback>
     </Avatar>
   )
@@ -108,7 +105,7 @@ export function ApplicationPresetIcon({
   return (
     <span
       data-application-icon-preset={preset}
-      className="inline-flex size-8 items-center justify-center rounded-lg border border-border/60 bg-transparent p-1"
+      className="inline-flex size-8 items-center justify-center rounded-lg border border-border/60 bg-transparent p-0.5"
       aria-hidden="true"
     >
       <PresetIcon className="size-full" />
