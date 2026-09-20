@@ -15,6 +15,7 @@ import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { Button } from "@/components/ui/button"
+import { FieldGroup } from "@/components/ui/field"
 import {
   Empty,
   EmptyHeader,
@@ -281,7 +282,7 @@ export function ModelProviderSettingsForm({
         provider.models.some((model) => model.kind === "chat")
       ) && (
         <ModelDefaultSelections
-          key={`${settings.default_model}:${settings.title_model}`}
+          key={`${settings.default_model}:${settings.title_model}:${settings.memory_extraction_model}`}
           settings={settings}
           disabled={disabled}
           onSave={(draft) => execute({ kind: "save", draft })}
@@ -385,6 +386,9 @@ function ModelDefaultSelections({
   const { t } = useTranslation()
   const [defaultModel, setDefaultModel] = useState(settings.default_model)
   const [titleModel, setTitleModel] = useState(settings.title_model)
+  const [memoryModel, setMemoryModel] = useState(
+    settings.memory_extraction_model ?? null
+  )
   const chats = settings.providers
     .flatMap((provider) => provider.models)
     .filter((model) => model.kind === "chat")
@@ -392,10 +396,12 @@ function ModelDefaultSelections({
     ...settingsDraft(settings),
     default_model: defaultModel,
     title_model: titleModel,
+    memory_extraction_model: memoryModel,
   }
   const dirty =
     defaultModel !== settings.default_model ||
-    titleModel !== settings.title_model
+    titleModel !== settings.title_model ||
+    memoryModel !== (settings.memory_extraction_model ?? null)
   return (
     <form
       className="flex min-w-0 flex-col gap-4"
@@ -408,7 +414,7 @@ function ModelDefaultSelections({
       <h3 className="text-sm font-medium">
         {t("admin.modelProvider.modelSelections")}
       </h3>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <FieldGroup className="grid gap-4 sm:grid-cols-2">
         <ModelSettingsSelect
           label={t("admin.modelProvider.defaultModel")}
           value={defaultModel}
@@ -428,7 +434,28 @@ function ModelDefaultSelections({
           }))}
           onChange={setTitleModel}
         />
-      </div>
+        <ModelSettingsSelect
+          label={t("admin.modelProvider.memoryExtractionModel")}
+          value={memoryModel ?? "__task_model__"}
+          disabled={disabled}
+          options={[
+            {
+              value: "__task_model__",
+              label: t("admin.modelProvider.memoryUseTaskModel"),
+            },
+            ...chats.map((model) => ({
+              value: model.id,
+              label: model.display_name,
+            })),
+          ]}
+          onChange={(value) =>
+            setMemoryModel(value === "__task_model__" ? null : value)
+          }
+        />
+      </FieldGroup>
+      <p className="text-xs text-muted-foreground">
+        {t("admin.modelProvider.memoryExtractionHint")}
+      </p>
       <p className="text-xs text-muted-foreground">
         {t("admin.modelProvider.selectionsHint")}
       </p>

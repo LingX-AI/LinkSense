@@ -38,7 +38,8 @@ computer_use = false
 hooks = false
 image_generation = false
 in_app_browser = false
-memories = true
+# 默认关闭；Runner 根据用户的记忆选择覆盖原生功能开关。
+memories = false
 multi_agent = true
 plugin_sharing = false
 plugins = true
@@ -53,10 +54,10 @@ tool_suggest = false
 workspace_dependencies = false
 
 [memories]
-# 用户可在“个性化”中启用或停用原生记忆；Runner 以更高优先级的启动参数
-# 应用个人选择。涉及 MCP、网页搜索或其他外部上下文的任务始终不生成记忆。
-generate_memories = true
-use_memories = true
+# 用户可在“个性化”中主动启用记忆；Runner 以更高优先级的启动参数同时
+# 应用原生功能、生成和使用开关。涉及外部上下文的任务不生成记忆。
+generate_memories = false
+use_memories = false
 disable_on_external_context = true
 
 # Runner 启动 app-server 时以进程级配置覆盖此占位项，不改写用户共享配置。

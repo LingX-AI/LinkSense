@@ -38,6 +38,7 @@ export function settingsDraft(
     providers: settings.providers.map(toSettingsProviderUpdate),
     default_model: settings.default_model,
     title_model: settings.title_model,
+    memory_extraction_model: settings.memory_extraction_model,
   }
 }
 
@@ -111,6 +112,12 @@ export function replaceChannel(
     renamedModel && renamedModel.previousId === draft.title_model
       ? renamedModel.id
       : draft.title_model
+  if (
+    renamedModel &&
+    renamedModel.previousId === draft.memory_extraction_model
+  ) {
+    draft.memory_extraction_model = renamedModel.id
+  }
   draft.default_model =
     available.find((model) => model.id === defaultId)?.id ??
     available[0]?.id ??
@@ -151,7 +158,8 @@ export function isSettingsDraftValid(
       const needsKey = provider.models.some(
         (model) =>
           (model.kind === "chat" && model.enabled) ||
-          model.id === draft.title_model
+          model.id === draft.title_model ||
+          model.id === draft.memory_extraction_model
       )
       return (
         !needsKey ||

@@ -39,16 +39,6 @@ const diagram = {
 
 let user: ReturnType<typeof userEvent.setup>
 
-async function openActions() {
-  await user.hover(
-    screen.getByRole("region", { name: i18n.t("conversation.diagram.title") })
-  )
-  screen
-    .getByRole("button", { name: i18n.t("conversation.diagram.actions") })
-    .focus()
-  await user.keyboard("{Enter}")
-}
-
 beforeEach(async () => {
   user = userEvent.setup()
   vi.clearAllMocks()
@@ -79,8 +69,8 @@ describe("assistant Mermaid diagrams", () => {
       diagram.url
     )
     expect(document.querySelector("pre")).toBeNull()
-    await openActions()
-    await user.click(screen.getByRole("menuitem", { name: "复制代码" }))
+
+    await user.click(screen.getByRole("button", { name: "复制代码" }))
     await waitFor(() =>
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(source)
     )
@@ -104,14 +94,14 @@ describe("assistant Mermaid diagrams", () => {
   it("exports the full diagram and opens a readable enlarged view", async () => {
     render(<AssistantMarkdown content={content} />)
     await screen.findByRole("img", { name: "流程图" })
-    await openActions()
-    await user.click(screen.getByRole("menuitem", { name: "导出图片" }))
+
+    await user.click(screen.getByRole("button", { name: "导出图片" }))
     await waitFor(() =>
       expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "流程图.png")
     )
     expect(exportMermaidPng).toHaveBeenCalledWith(diagram)
-    await openActions()
-    await user.click(screen.getByRole("menuitem", { name: "放大查看" }))
+
+    await user.click(screen.getByRole("button", { name: "放大查看" }))
     expect(
       await screen.findByRole("dialog", {
         name: i18n.t("conversation.imagePreviewTitle", { name: "流程图" }),
@@ -192,12 +182,12 @@ describe("diagram async state and feedback", () => {
     )
     render(<AssistantMarkdown content={content} />)
     await screen.findByRole("img", { name: "Flowchart" })
-    await openActions()
-    await user.click(screen.getByRole("menuitem", { name: "Export image" }))
-    await openActions()
-    const button = screen.getByRole("menuitem", { name: "Export image" })
-    expect(button).toHaveAttribute("aria-disabled", "true")
-    await user.click(button)
+
+    await user.click(screen.getByRole("button", { name: "Export image" }))
+
+    const button = screen.getByRole("button", { name: "Export image" })
+    expect(button).toBeDisabled()
+    fireEvent.click(button)
     expect(exportMermaidPng).toHaveBeenCalledOnce()
     rejectExport?.(new Error("private export error"))
     await waitFor(() =>
@@ -217,8 +207,8 @@ describe("diagram async state and feedback", () => {
       />
     )
     await screen.findByRole("img", { name: "流程图" })
-    await openActions()
-    await user.click(screen.getByRole("menuitem", { name: "复制代码" }))
+
+    await user.click(screen.getByRole("button", { name: "复制代码" }))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
         i18n.t("conversation.copyContentFailed")
@@ -245,9 +235,16 @@ describe("diagram loading and preview controls", () => {
     await screen.findByRole("img", { name: "流程图" })
     expect(screen.queryByRole("status", { name: "正在绘制流程图…" })).toBeNull()
     expect(screen.queryByText("流程图")).toBeNull()
-    expect(screen.getAllByRole("button")).toHaveLength(1)
-    await openActions()
-    expect(screen.getAllByRole("menuitem")).toHaveLength(3)
+    const toolbar = screen.getByRole("toolbar", { name: "流程图操作" })
+    expect(toolbar).toHaveAttribute("aria-orientation", "vertical")
+    expect(toolbar.parentElement).toHaveClass("pr-8")
+    expect(within(toolbar).getAllByRole("button")).toHaveLength(3)
+    for (const name of ["复制代码", "导出图片", "放大查看"]) {
+      await user.hover(within(toolbar).getByRole("button", { name }))
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(name)
+      await user.unhover(within(toolbar).getByRole("button", { name }))
+      await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull())
+    }
   })
   it("keeps the picture loading game mounted while incoming source grows", () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
@@ -272,8 +269,8 @@ describe("expanded diagram controls", () => {
   it("allows wheel and button zoom beyond 300% up to 2000%, then resets", async () => {
     render(<AssistantMarkdown content={content} />)
     await screen.findByRole("img")
-    await openActions()
-    await user.click(screen.getByRole("menuitem", { name: "放大查看" }))
+
+    await user.click(screen.getByRole("button", { name: "放大查看" }))
     const dialog = await screen.findByRole("dialog")
     const image = within(dialog).getByRole("img")
     const stage = image.closest(".image-preview-stage")!
@@ -311,9 +308,9 @@ describe("expanded diagram controls", () => {
       await i18n.changeLanguage(language)
       render(<AssistantMarkdown content={content} />)
       await screen.findByRole("img")
-      await openActions()
+
       await user.click(
-        screen.getByRole("menuitem", {
+        screen.getByRole("button", {
           name: i18n.t("conversation.diagram.expand"),
         })
       )
@@ -404,8 +401,8 @@ describe("expanded diagram controls", () => {
   it("keeps pinch single-handled, supports drag, and resets when reopened", async () => {
     render(<AssistantMarkdown content={content} />)
     await screen.findByRole("img")
-    await openActions()
-    await user.click(screen.getByRole("menuitem", { name: "放大查看" }))
+
+    await user.click(screen.getByRole("button", { name: "放大查看" }))
     const dialog = await screen.findByRole("dialog")
     const image = within(dialog).getByRole("img")
     const stage = image.closest<HTMLElement>(".image-preview-stage")!
@@ -456,8 +453,8 @@ describe("expanded diagram controls", () => {
     expect(image).toHaveAttribute("data-pan-x", "0")
     expect(image).toHaveAttribute("data-pan-y", "0")
     await user.keyboard("{Escape}")
-    await openActions()
-    await user.click(screen.getByRole("menuitem", { name: "放大查看" }))
+
+    await user.click(screen.getByRole("button", { name: "放大查看" }))
     expect(
       within(await screen.findByRole("dialog")).getByRole("img")
     ).toHaveAttribute("data-zoom", "100")
@@ -511,8 +508,8 @@ describe("inline diagram zoom", () => {
     render(<AssistantMarkdown content={content} />)
     const image = await screen.findByRole("img", { name: "流程图" })
     fireEvent.keyDown(image.closest(".image-preview-stage")!, { key: "+" })
-    await openActions()
-    await user.click(screen.getByRole("menuitem", { name: "导出图片" }))
+
+    await user.click(screen.getByRole("button", { name: "导出图片" }))
     await waitFor(() => expect(exportMermaidPng).toHaveBeenCalledWith(diagram))
     expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "流程图.png")
   })

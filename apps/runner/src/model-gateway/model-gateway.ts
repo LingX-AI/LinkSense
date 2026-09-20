@@ -21,6 +21,8 @@ import WebSocket, {
 
 import type {
   MemoryGenerationOperation,
+  MemoryExtractionRuntime,
+  ReasoningEffort,
   ModelProviderProtocolMode,
   ModelTokenPricing,
   RunnerMemoryUsageCapture,
@@ -76,11 +78,12 @@ export type ModelGatewayLeaseInput = {
   protocolMode: ModelProviderProtocolMode;
   model: string;
   pricing: ModelTokenPricing;
+  memoryExtraction?: MemoryExtractionRuntime;
 };
 
 export type ModelGatewayTransitionSource = Omit<
   ModelGatewayLeaseInput,
-  "conversationId" | "ownerId"
+  "conversationId" | "ownerId" | "memoryExtraction"
 >;
 
 export type ModelGatewayTurnCorrelation = {
@@ -117,6 +120,8 @@ export function modelGatewaySupportsWebSockets(
 }
 
 type StoredLease = Readonly<ModelGatewayLeaseInput> & {
+  extractionOnly?: boolean;
+  extractionReasoningEffort?: ReasoningEffort;
   turnCorrelation: {
     current: Readonly<ModelGatewayTurnCorrelation> | null;
   };
@@ -446,7 +451,12 @@ export class ModelGateway implements ModelGatewayRuntime {
       return;
     }
     const token = bearerToken(request.headers.authorization);
-    const lease = token ? this.leases.get(token) : undefined;
+    const baseLease = token ? this.leases.get(token) : undefined;
+    const lease = baseLease &&
+      memoryOperationFromHeaders(request.headers) === "extract" &&
+      baseLease.memoryExtraction
+      ? extractionLease(baseLease, baseLease.memoryExtraction)
+      : baseLease;
     if (!token || !lease) {
       rejectWebSocketUpgrade(socket, 401, "invalid_gateway_token");
       return;
@@ -983,12 +993,14 @@ export class ModelGateway implements ModelGatewayRuntime {
       );
       return;
     }
+    const operation = memoryOperationFromClientMetadata(source.client_metadata);
     const requestedModel = stringValue(source.model);
     const authorizedLease = requestedModel
       ? authorizeModelRequest(
           lease,
           requestedModel,
           modelTransitionCompactionFromClientMetadata(source.client_metadata),
+          operation,
         )
       : null;
     if (!authorizedLease) {
@@ -1022,6 +1034,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     context.memoryOperation = memoryOperationFromClientMetadata(
       source.client_metadata,
     );
+    source = extractionRequestBody(source, authorizedLease, operation);
     let body = source;
     let compatibilityContext: ToolCompatibilityContext | null = null;
     if (lease.protocolMode === "responses_tool_compat") {
@@ -1216,7 +1229,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     request.once("aborted", abortOnRequest);
     response.once("close", abortOnResponse);
     try {
-      const body = normalizeResponsesRequest(
+      let body = normalizeResponsesRequest(
         await readJsonRequest(
           request,
           this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT,
@@ -1228,11 +1241,13 @@ export class ModelGateway implements ModelGatewayRuntime {
             lease,
             requestedModel,
             modelTransitionCompactionFromHttpRequest(request.headers, body),
+            context.memoryOperation,
           )
         : null;
       if (!authorizedLease) {
         throw new GatewayHttpError(403, "model_not_authorized");
       }
+      body = extractionRequestBody(body, authorizedLease, context.memoryOperation);
       if (authorizedLease.protocolMode === "native_responses") {
         await this.forwardNativeResponses(
           authorizedLease,
@@ -2280,11 +2295,51 @@ function normalizeResponsesRequest(source: JsonObject): JsonObject {
   return input.length === source.input.length ? source : { ...source, input };
 }
 
+function extractionLease(
+  lease: StoredLease,
+  extraction: MemoryExtractionRuntime,
+): StoredLease {
+  const result = {
+    ...lease,
+    model: extraction.model,
+    upstreamBaseUrl: extraction.baseUrl,
+    protocolMode: extraction.protocolMode,
+    apiKey: extraction.apiKey,
+    pricing: extraction.pricing,
+    extractionOnly: true,
+    extractionReasoningEffort: extraction.reasoningEffort,
+  };
+  delete result.memoryExtraction;
+  return result;
+}
+
+function extractionRequestBody(
+  body: JsonObject,
+  lease: StoredLease,
+  operation: MemoryGenerationOperation | null,
+): JsonObject {
+  if (operation !== "extract" || !lease.extractionReasoningEffort) return body;
+  return {
+    ...body,
+    reasoning: {
+      ...(isRecord(body.reasoning) ? body.reasoning : {}),
+      effort: lease.extractionReasoningEffort,
+    },
+  };
+}
+
 function authorizeModelRequest(
   lease: StoredLease,
   requestedModel: string,
   compactionAuthorization: ModelTransitionCompactionAuthorization | null,
+  operation: MemoryGenerationOperation | null = null,
 ): StoredLease | null {
+  if (lease.extractionOnly && operation !== "extract") return null;
+  if (operation === "extract" && lease.memoryExtraction) {
+    return requestedModel === lease.memoryExtraction.model
+      ? extractionLease(lease, lease.memoryExtraction)
+      : null;
+  }
   if (requestedModel === lease.model) {
     return lease;
   }

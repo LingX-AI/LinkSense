@@ -1,11 +1,59 @@
 import { readFileSync } from "node:fs"
 import { cleanup, render, screen, within } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { PersonalQuotaChart } from "./personal-quota-chart"
 import { personalQuotaChartColors } from "./personal-quota-data"
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 describe("personal quota chart presentation", () => {
+  it.each(["0.000001", "200", "0"])(
+    "rounds the whole column's top corners when its upper segment is %s credits",
+    (upperAmount) => {
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(0, 0, 800, 256)
+      )
+      const { container } = render(
+        <PersonalQuotaChart
+          title="History"
+          description="Usage"
+          kind="bar"
+          dates={["2026-09-19", "2026-09-20"]}
+          rows={[
+            { date: "2026-09-20", name: "Memory", amount: "6000" },
+            { date: "2026-09-20", name: "Answer", amount: "2000" },
+            { date: "2026-09-20", name: "Naming", amount: upperAmount },
+          ]}
+        />
+      )
+      const segments = Array.from(
+        container.querySelectorAll(".recharts-bar-rectangle")
+      ).filter((segment) => segment.querySelector("path"))
+      expect(segments.length).toBeGreaterThanOrEqual(2)
+      const clipReferences = new Set(
+        segments.map((segment) => segment.getAttribute("clip-path"))
+      )
+      expect(clipReferences.size).toBe(1)
+      const [clipReference] = clipReferences
+      expect(clipReference).toMatch(/^url\(#.+\)$/)
+      const clipId = clipReference?.slice(5, -1)
+      const clip = Array.from(container.querySelectorAll("clipPath")).find(
+        (element) => element.id === clipId
+      )
+      const outline = clip?.querySelector("path")
+      expect(Number(outline?.getAttribute("height"))).toBeGreaterThan(100)
+      // Both top corners have an 8px arc; the two bottom corners stay square.
+      expect(outline?.getAttribute("d")?.match(/A 8,8/g)).toHaveLength(2)
+      for (const segment of segments) {
+        expect(segment.querySelector("path")?.getAttribute("d")).not.toContain(
+          "A"
+        )
+      }
+    }
+  )
+
   it("renders line legends as a compact row of colored dots and names without per-series totals", () => {
     const { container } = render(
       <PersonalQuotaChart

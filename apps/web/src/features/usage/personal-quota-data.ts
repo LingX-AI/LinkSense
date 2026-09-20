@@ -9,18 +9,6 @@ export const personalQuotaChartColors = [
   "var(--app-usage-cost-query)",
 ] as const
 
-export function stackedBarRadius(
-  point: Record<string, number | string> | undefined,
-  seriesKeys: string[],
-  seriesIndex: number
-): 0 | [number, number, number, number] {
-  const currentValue = Number(point?.[seriesKeys[seriesIndex]] ?? 0)
-  const hasVisibleSeriesAbove = seriesKeys
-    .slice(seriesIndex + 1)
-    .some((key) => Number(point?.[key] ?? 0) > 0)
-  return currentValue > 0 && !hasVisibleSeriesAbove ? [5, 5, 0, 0] : 0
-}
-
 export function quotaChartData(
   dates: string[],
   rows: QuotaChartInput[],

@@ -63,7 +63,19 @@ describe("controller to dynamic worker turn-start contract", () => {
     expect(timeoutSpy).toHaveBeenCalledWith(110_000);
   });
 
-  it("preserves the metadata-only capability contract over Fetch", async () => {
+  it("preserves capability metadata and the separate memory model route over Fetch", async () => {
+    const memoryExtraction = {
+      model: "memory-model",
+      reasoningEffort: "low",
+      baseUrl: "https://memory.example.test/v1",
+      protocolMode: "chat_completions_bridge",
+      apiKey: "test-memory-key",
+      pricing: {
+        input_price_per_million: "0.2",
+        cached_input_price_per_million: "0.02",
+        output_price_per_million: "0.5",
+      },
+    };
     const controllerConfig = parseRunnerConfig({
       LINKSENSE_RUNNER_MODE: "controller",
       LINKSENSE_USER_DATA_ROOT: path.join(root, "users"),
@@ -176,6 +188,7 @@ describe("controller to dynamic worker turn-start contract", () => {
               baseUrl: "https://models.example.test/v1",
               protocolMode: "native_responses",
               apiKey: "test-provider-key",
+              memoryExtraction,
             },
             expectedRuntimeGeneration: "01900000-0000-7000-8000-000000000010",
             capabilityGeneration: "a".repeat(64),
@@ -206,6 +219,7 @@ describe("controller to dynamic worker turn-start contract", () => {
         });
 
         expect(response.statusCode).toBe(202);
+        expect(response.body).not.toContain(memoryExtraction.apiKey);
         expect(workerHeaders).toEqual({
           authorization: `Bearer ${scopedSecret}`,
           ownerId,
@@ -224,6 +238,7 @@ describe("controller to dynamic worker turn-start contract", () => {
           capabilityGeneration: "a".repeat(64),
           codexThreadId: null,
           environment: {},
+          modelProvider: { memoryExtraction },
           context: {
             requireFinalResponse: true,
             selectedKnowledgeBases: [{ id: "10000000-0000-4000-8000-000000000001", name: "Knowledge base" }],

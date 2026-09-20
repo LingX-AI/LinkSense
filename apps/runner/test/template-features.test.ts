@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { parse } from "smol-toml"
 import { afterEach, describe, expect, it } from "vitest"
 
 import {
@@ -19,6 +20,21 @@ afterEach(async () => {
 })
 
 describe("Codex template feature policy", () => {
+  it("disables native memory generation and use in the deployment template", async () => {
+    const template = fileURLToPath(
+      new URL("../../../deploy/codex-home-template", import.meta.url),
+    )
+    const config = parse(await readFile(path.join(template, "config.toml"), "utf8"))
+
+    expect(config).toMatchObject({
+      features: { memories: false },
+      memories: { generate_memories: false, use_memories: false },
+    })
+    await expect(loadCodexTemplateFeatureOverrides(template)).resolves.toContain(
+      "features.memories=false",
+    )
+  })
+
   it("keeps the production template traversable and readable regardless of the deploy host umask", async () => {
     const dockerfile = await readFile(
       fileURLToPath(new URL("../../../Dockerfile.runner", import.meta.url)),

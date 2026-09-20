@@ -1,6 +1,9 @@
 import { z } from "zod"
 
-import { modelTokenPricePerMillionSchema } from "./model-pricing.js"
+import {
+  modelTokenPricingSchema,
+  modelTokenPricePerMillionSchema,
+} from "./model-pricing.js"
 
 export const reasoningEffortValues = [
   "minimal",
@@ -242,6 +245,7 @@ function validateModelProviderCollection(
     providers: z.infer<typeof modelProviderCollectionSchema>
     default_model: string | null
     title_model: string | null | undefined
+    memory_extraction_model?: string | null | undefined
   },
   context: z.RefinementCtx,
 ): void {
@@ -279,6 +283,16 @@ function validateModelProviderCollection(
   }
 
   const chatModels = models.filter((model) => model.kind === "chat")
+  if (
+    value.memory_extraction_model != null &&
+    !chatModels.some((model) => model.id === value.memory_extraction_model)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["memory_extraction_model"],
+      message: "memory_extraction_model_must_be_a_chat_model",
+    })
+  }
   const enabledChatModels = chatModels.filter(
     (model) => model.kind === "chat" && model.enabled,
   )
@@ -328,6 +342,7 @@ export const updateModelProviderSettingsSchema = z
     providers: modelProviderCollectionSchema,
     default_model: modelIdentifierSchema.nullable(),
     title_model: modelIdentifierSchema.nullable().optional(),
+    memory_extraction_model: modelIdentifierSchema.nullable().optional(),
   })
   .superRefine((value, context) =>
     validateModelProviderCollection(
@@ -335,6 +350,7 @@ export const updateModelProviderSettingsSchema = z
         providers: value.providers,
         default_model: value.default_model,
         title_model: value.title_model,
+        memory_extraction_model: value.memory_extraction_model,
       },
       context,
     ),
@@ -363,7 +379,19 @@ export const modelProviderSettingsSchema = z.strictObject({
   providers: z.array(managedModelProviderSettingsSchema),
   default_model: modelIdentifierSchema.nullable(),
   title_model: modelIdentifierSchema.nullable().default(null),
+  memory_extraction_model: modelIdentifierSchema.nullable().default(null),
 })
+
+// Internal API-to-runner contract; never expose channel credentials to clients.
+export const memoryExtractionRuntimeSchema = z.strictObject({
+  model: modelIdentifierSchema,
+  reasoningEffort: reasoningEffortSchema,
+  baseUrl: modelProviderBaseUrlSchema,
+  protocolMode: modelProviderProtocolModeSchema,
+  apiKey: z.string().min(1).max(16_384),
+  pricing: modelTokenPricingSchema,
+})
+export type MemoryExtractionRuntime = z.infer<typeof memoryExtractionRuntimeSchema>
 
 export const codexModelReasoningCatalogEntrySchema = z
   .strictObject({

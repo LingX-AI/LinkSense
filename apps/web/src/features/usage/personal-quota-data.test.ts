@@ -3,20 +3,9 @@ import {
   formatQuotaAmount,
   quotaChartData,
   quotaPercentage,
-  stackedBarRadius,
 } from "./personal-quota-data"
 
 describe("personal quota chart data", () => {
-  it("rounds only the visible top segment of each stacked bar", () => {
-    const point = { series_0: 12, series_1: 0, series_2: 4 }
-    const keys = ["series_0", "series_1", "series_2"]
-
-    expect(stackedBarRadius(point, keys, 0)).toBe(0)
-    expect(stackedBarRadius(point, keys, 1)).toBe(0)
-    expect(stackedBarRadius(point, keys, 2)).toEqual([5, 5, 0, 0])
-    expect(stackedBarRadius({ series_0: 12 }, keys, 0)).toEqual([5, 5, 0, 0])
-  })
-
   it("adds tiny charges exactly and zero-fills inactive dates", () => {
     const result = quotaChartData(
       ["2026-09-19", "2026-09-20"],

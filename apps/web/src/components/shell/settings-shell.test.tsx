@@ -87,7 +87,7 @@ describe("SettingsShell administrator navigation", () => {
       (link) => link.getAttribute("href") === "/settings/profile"
     )
     expect(links[profile + 1]).toHaveAttribute("href", "/settings/quota")
-    expect(links[profile + 1]).toHaveTextContent("额度")
+    expect(links[profile + 1]).toHaveAccessibleName("额度使用")
     expect(links[profile + 1]?.querySelector("svg")).toHaveClass("lucide-gauge")
   })
 

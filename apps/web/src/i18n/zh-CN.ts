@@ -458,6 +458,7 @@ export const zhCN = {
     resetMemoriesConfirmTitle: "重置全部记忆？",
     resetMemoriesConfirmDescription:
       "此操作无法撤销。你的任务、自定义指令、插件和 Skill 将保留。",
+    resettingMemories: "正在重置记忆…",
     memoriesReset: "记忆已重置",
     appearancePageDescription: "设置 {{productName}} 的界面主题与基准字号。",
     theme: "主题",
@@ -4295,6 +4296,10 @@ export const zhCN = {
         "当用户尚未选择模型，或原模型已不可用时，系统会自动使用此模型。",
       modelSelections: "对话与系统模型选择",
       saveModelSelections: "保存任务与系统模型选择",
+      memoryExtractionModel: "记忆提取模型",
+      memoryUseTaskModel: "使用当前任务模型",
+      memoryExtractionHint:
+        "仅在用户开启记忆后生效。未单独选择时使用当前任务模型；提取始终使用所选模型支持的最低推理强度。此设置不改变记忆整合模型。",
       titleModel: "任务自动命名模型",
       titleModelHint:
         "用于自动生成便于识别的任务名称，产生的用量会正常计入统计。",

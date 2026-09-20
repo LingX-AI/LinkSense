@@ -1,8 +1,10 @@
 import { MermaidPreviewToolbar } from "@/features/conversations/mermaid-preview-toolbar"
 import { ImagePreviewViewer } from "@/components/media/image-preview"
 import { AssistantHtmlPreviewLoading } from "@/features/conversations/assistant-html-preview-loading"
-import { AssistantPreviewActions } from "@/features/conversations/assistant-preview-actions"
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import {
+  AssistantPreviewAction,
+  AssistantPreviewActions,
+} from "@/features/conversations/assistant-preview-actions"
 import { useEffect, useRef, useState } from "react"
 import { CheckIcon, CopyIcon, DownloadIcon, ExpandIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -123,7 +125,7 @@ function MermaidContent({
   return (
     <section
       data-assistant-diagram
-      className="group relative my-3 w-full max-w-full min-w-0"
+      className="group relative my-3 w-full max-w-full min-w-0 pr-8"
       aria-label={t("conversation.diagram.title")}
     >
       {state.status === "ready" ? (
@@ -144,33 +146,36 @@ function MermaidContent({
           </div>
           {!expanded && (
             <AssistantPreviewActions label={t("conversation.diagram.actions")}>
-              <DropdownMenuItem disabled={copying} onClick={() => void copy()}>
+              <AssistantPreviewAction
+                label={t(
+                  copied
+                    ? "conversation.codeCopied"
+                    : "conversation.diagram.copy"
+                )}
+                disabled={copying}
+                onClick={() => void copy()}
+              >
                 {copied ? (
                   <CheckIcon aria-hidden="true" />
                 ) : (
                   <CopyIcon aria-hidden="true" />
                 )}
-                {t(
-                  copied
-                    ? "conversation.codeCopied"
-                    : "conversation.diagram.copy"
-                )}
-              </DropdownMenuItem>
-              <DropdownMenuItem
+              </AssistantPreviewAction>
+              <AssistantPreviewAction
+                label={t("conversation.diagram.export")}
                 disabled={exporting}
                 onClick={() => void save()}
               >
                 <DownloadIcon aria-hidden="true" />
-                {t("conversation.diagram.export")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
+              </AssistantPreviewAction>
+              <AssistantPreviewAction
+                label={t("conversation.diagram.expand")}
                 onClick={() => {
                   setExpanded(true)
                 }}
               >
                 <ExpandIcon aria-hidden="true" />
-                {t("conversation.diagram.expand")}
-              </DropdownMenuItem>
+              </AssistantPreviewAction>
             </AssistantPreviewActions>
           )}
         </>

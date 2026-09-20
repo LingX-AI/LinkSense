@@ -1,12 +1,15 @@
-import { useId, useMemo, useState, type FormEvent } from "react"
+import { useId, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import {
   BanIcon,
+  ChevronRightIcon,
   CircleCheckIcon,
   CircleXIcon,
   Clock3Icon,
   LoaderCircleIcon,
   MessageCircleQuestionIcon,
 } from "lucide-react"
+import { fromMarkdown } from "mdast-util-from-markdown"
+import { toString } from "mdast-util-to-string"
 import ReactMarkdown, { type Components } from "react-markdown"
 import { useTranslation } from "react-i18next"
 import remarkGfm from "remark-gfm"
@@ -22,6 +25,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Field,
   FieldDescription,
@@ -76,7 +84,7 @@ export function ConversationUserInputRequestCard({
     : getConversationUserInputDisplayStatus(request)
   const terminal = isTerminalUserInputDisplayStatus(displayStatus)
 
-  return (
+  const card = (
     <Card
       size="sm"
       className={cn(
@@ -100,7 +108,7 @@ export function ConversationUserInputRequestCard({
             className="flex min-w-0 items-center gap-2 text-sm"
           >
             <MessageCircleQuestionIcon
-              className="size-4 shrink-0"
+              className="size-3.5 shrink-0"
               aria-hidden="true"
             />
             {t(
@@ -148,6 +156,59 @@ export function ConversationUserInputRequestCard({
         />
       )}
     </Card>
+  )
+
+  return request.kind === "form" &&
+    request.status === "answered" &&
+    terminal ? (
+    <AnsweredFormDetails
+      key={request.id}
+      message={request.message}
+      onInteractionStart={onInteractionStart}
+    >
+      {card}
+    </AnsweredFormDetails>
+  ) : (
+    card
+  )
+}
+
+function AnsweredFormDetails({
+  message,
+  onInteractionStart,
+  children,
+}: {
+  message: string
+  onInteractionStart?: () => void
+  children: ReactNode
+}) {
+  const { t } = useTranslation()
+  // Form requests have no business title; field titles label individual inputs.
+  const summary =
+    fromMarkdown(message)
+      .children.map((block) => toString(block, { includeHtml: false }))
+      .join(" ")
+      .replace(/\s+/gu, " ")
+      .trim() || t("conversation.userInput.formResultTitle")
+
+  return (
+    <Collapsible className="w-full min-w-0">
+      <CollapsibleTrigger
+        className="group flex w-full min-w-0 items-center gap-2 rounded-card border border-[color:var(--app-border)] px-3 py-2 text-left text-sm text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        onPointerDownCapture={onInteractionStart}
+      >
+        <MessageCircleQuestionIcon
+          className="size-3.5 shrink-0"
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1 truncate">{summary}</span>
+        <ChevronRightIcon
+          className="size-3.5 shrink-0 transition-transform group-data-panel-open:rotate-90"
+          aria-hidden="true"
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="pt-2">{children}</CollapsibleContent>
+    </Collapsible>
   )
 }
 

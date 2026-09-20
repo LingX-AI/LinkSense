@@ -637,12 +637,12 @@ describe("controller worker lifecycle", () => {
     expect(docker.removeContainer).toHaveBeenCalledOnce()
   })
 
-  it("fails fast and removes a new worker whose turn-start contract version differs", async () => {
+  it.each(["shared-user-home-v21", "user-project-runtime-v25"])("fails fast and removes a new worker with incompatible contract %s", async (version) => {
     const docker = new FakeDocker()
     const transport = new FakeTransport()
     transport.state = {
       ...stateHealth({}),
-      turn_start_contract_version: "shared-user-home-v21",
+      turn_start_contract_version: version,
     }
     const manager = createManager(docker, transport)
     await manager.initialize()

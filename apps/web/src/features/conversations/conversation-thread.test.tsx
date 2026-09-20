@@ -428,6 +428,12 @@ describe("conversation turn responses", () => {
       await interaction.click(
         within(summary).getByRole("button", { name: "展开中间过程" })
       )
+      const formSummary = within(summary).getByRole("button", {
+        name: "请确认发布信息。",
+      })
+      expect(formSummary).toHaveAttribute("aria-expanded", "false")
+      expect(within(summary).queryByRole("textbox")).toBeNull()
+      await interaction.click(formSummary)
       const card = within(summary).getByTestId(
         "conversation-user-input-request"
       )
@@ -2655,7 +2661,7 @@ describe("conversation turn responses", () => {
     ).toBeVisible()
   })
 
-  it("copies rendered code and tables from controls in their top-right corners", async () => {
+  it("copies code and exposes two direct table actions in a vertical side toolbar", async () => {
     const interaction = userEvent.setup()
     const writeText = vi
       .spyOn(navigator.clipboard, "writeText")
@@ -2691,7 +2697,25 @@ describe("conversation turn responses", () => {
     expect(codeButton.parentElement).toHaveClass("markdown-copy-block-code")
     expect(codeButton.parentElement?.querySelector("pre")).not.toBeNull()
     expect(tableButton).toHaveClass("markdown-copy-button")
-    expect(tableButton.closest(".markdown-copy-block-table")).not.toBeNull()
+    expect(tableButton.closest(".markdown-copy-block-table")).toHaveClass(
+      "pr-8"
+    )
+    const tableToolbar = within(assistant).getByRole("toolbar", {
+      name: "表格操作",
+    })
+    expect(tableToolbar).toHaveAttribute("aria-orientation", "vertical")
+    expect(within(tableToolbar).getAllByRole("button")).toEqual([
+      tableButton,
+      within(tableToolbar).getByRole("button", { name: "放大查看表格" }),
+    ])
+    for (const name of ["复制表格", "放大查看表格"]) {
+      const button = within(tableToolbar).getByRole("button", { name })
+      expect(button).not.toHaveAttribute("title")
+      await interaction.hover(button)
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(name)
+      await interaction.unhover(button)
+      await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull())
+    }
     expect(
       tableButton.closest(".markdown-table-toolbar")?.parentElement
     ).toHaveClass("markdown-table-scroll-shell")
@@ -2752,6 +2776,7 @@ describe("conversation turn responses", () => {
     )
     expect(tableSurface).not.toHaveAttribute("data-table-card")
     expect(tableScroller).toHaveAttribute("tabindex", "0")
+    expect(tableScroller).toHaveAccessibleDescription("左右滑动查看完整内容")
     expect(tableSurface).toHaveAttribute("data-table-scroll-start", "true")
     expect(tableSurface).toHaveAttribute("data-table-scroll-end", "false")
 

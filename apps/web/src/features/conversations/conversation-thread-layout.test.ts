@@ -477,7 +477,7 @@ describe("conversation message spacing", () => {
     )
   })
 
-  it("shows borderless table action backgrounds only on interaction", () => {
+  it("stacks table actions outside the right edge without an opaque toolbar background", () => {
     const tableToolbarRule = conversationStyles.match(
       /\.assistant-markdown \.markdown-table-toolbar\s*\{([^}]*)\}/u
     )?.[1]
@@ -490,10 +490,17 @@ describe("conversation message spacing", () => {
     const tableActionHoverRule = conversationStyles.match(
       /\.assistant-markdown \.markdown-table-toolbar \.markdown-copy-button:hover,[\s\S]*?\.assistant-markdown \.markdown-table-expand-button:focus-visible\s*\{([^}]*)\}/u
     )?.[1]
+    const tableActionsRule = conversationStyles.match(
+      /\.assistant-markdown \.markdown-table-actions\s*\{([^}]*)\}/u
+    )?.[1]
 
     expect(tableToolbarRule).toMatch(/position:\s*absolute;/u)
-    expect(tableToolbarRule).toMatch(/top:\s*3px;/u)
-    expect(tableToolbarRule).toMatch(/right:\s*4px;/u)
+    expect(tableToolbarRule).toMatch(/top:\s*8px;/u)
+    expect(tableToolbarRule).toMatch(/left:\s*100%;/u)
+    expect(tableToolbarRule).toMatch(/padding-left:\s*8px;/u)
+    expect(tableToolbarRule).not.toMatch(/(?:right|height):/u)
+    expect(tableActionsRule).toMatch(/flex-direction:\s*column;/u)
+    expect(tableToolbarRule).toMatch(/background:\s*transparent;/u)
     expect(tableToolbarRule).toMatch(/opacity:\s*0;/u)
     expect(tableToolbarRule).toMatch(/pointer-events:\s*none;/u)
     expect(visibleTableToolbarRule).toMatch(/opacity:\s*1;/u)
@@ -504,6 +511,9 @@ describe("conversation message spacing", () => {
     expect(tableActionHoverRule).toMatch(/border-color:\s*transparent;/u)
     expect(tableActionHoverRule).toMatch(/background:\s*var\(--app-hover\);/u)
     expect(tableActionHoverRule).toMatch(/color:\s*var\(--app-text\);/u)
+    expect(conversationStyles).toMatch(
+      /@media \(hover: none\)\s*\{\s*\.assistant-markdown \.markdown-table-toolbar\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/u
+    )
   })
 
   it("sizes Markdown table columns from their content before allowing horizontal scroll", () => {

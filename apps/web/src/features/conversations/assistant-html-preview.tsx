@@ -1,4 +1,7 @@
-import { AssistantPreviewActions } from "@/features/conversations/assistant-preview-actions"
+import {
+  AssistantPreviewAction,
+  AssistantPreviewActions,
+} from "@/features/conversations/assistant-preview-actions"
 import {
   DownloadIcon,
   ImageIcon,
@@ -19,7 +22,6 @@ import {
   initializeHtmlPreviewShell,
   interactiveHtmlPreviewSandbox,
 } from "@/components/media/html-preview/html-preview-shell"
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import {
   assistantHtmlPreviewCaptureErrorMessageType,
   assistantHtmlPreviewCaptureRequestMessageType,
@@ -347,9 +349,9 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
     <section
       ref={previewCardRef}
       className={cn(
-        "group relative my-3 w-full max-w-full bg-transparent text-card-foreground",
+        "group relative my-3 w-full max-w-full bg-transparent pr-8 text-card-foreground",
         isFullscreen &&
-          "m-0 h-screen max-h-screen w-screen max-w-none overflow-y-auto bg-background"
+          "m-0 h-screen max-h-screen w-screen max-w-none overflow-y-auto bg-background pr-0"
       )}
       aria-label={t("conversation.inlineHtmlPreview.cardLabel")}
     >
@@ -437,21 +439,25 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
         <AssistantPreviewActions
           label={t("conversation.inlineHtmlPreview.actions")}
         >
-          <DropdownMenuItem onClick={downloadHtml}>
+          <AssistantPreviewAction
+            label={t("conversation.inlineHtmlPreview.downloadHtml")}
+            onClick={downloadHtml}
+          >
             <DownloadIcon aria-hidden="true" />
-            {t("conversation.inlineHtmlPreview.downloadHtml")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
+          </AssistantPreviewAction>
+          <AssistantPreviewAction
+            label={t("conversation.inlineHtmlPreview.copyImage")}
             disabled={isCapturingImage}
             onClick={() => void copyAsImage()}
           >
             <ImageIcon aria-hidden="true" />
-            {t("conversation.inlineHtmlPreview.copyImage")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => void enterFullscreen()}>
+          </AssistantPreviewAction>
+          <AssistantPreviewAction
+            label={t("conversation.inlineHtmlPreview.fullscreen")}
+            onClick={() => void enterFullscreen()}
+          >
             <Maximize2Icon aria-hidden="true" />
-            {t("conversation.inlineHtmlPreview.fullscreen")}
-          </DropdownMenuItem>
+          </AssistantPreviewAction>
         </AssistantPreviewActions>
       )}
 

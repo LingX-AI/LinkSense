@@ -531,7 +531,8 @@ describe("ConversationUserInputRequestCard", () => {
     expect(onSubmit).toHaveBeenCalledWith({ action: "cancel" })
   })
 
-  it("keeps a submitted form visible with persisted values and no active controls", () => {
+  it("collapses a submitted form and expands persisted values with no active controls", async () => {
+    const interaction = userEvent.setup()
     render(
       <ConversationUserInputRequestCard
         request={{
@@ -555,6 +556,21 @@ describe("ConversationUserInputRequestCard", () => {
       />
     )
 
+    const summary = screen.getByRole("button", {
+      name: "请确认 发布信息。 保持草稿",
+    })
+    expect(summary).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByPlaceholderText("输入标题")).not.toBeInTheDocument()
+    expect(screen.queryByText("已处理的表单")).not.toBeInTheDocument()
+    expect(screen.queryByText("已提交")).not.toBeInTheDocument()
+    expect(within(summary).getByText("请确认 发布信息。 保持草稿")).toHaveClass(
+      "min-w-0",
+      "truncate"
+    )
+    expect(summary).toHaveClass("w-full", "min-w-0")
+
+    await interaction.click(summary)
+    expect(summary).toHaveAttribute("aria-expanded", "true")
     const card = screen.getByTestId("conversation-user-input-request")
     const form = within(card).getByPlaceholderText("输入标题").closest("form")
     expect(card).toHaveAttribute("data-request-status", "submitted")
@@ -584,7 +600,131 @@ describe("ConversationUserInputRequestCard", () => {
     expect(
       within(card).queryByRole("button", { name: "取消" })
     ).not.toBeInTheDocument()
+
+    await interaction.click(summary)
+    expect(summary).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
   })
+
+  it("collapses only after a successful submission and defaults to collapsed when reopened", async () => {
+    const interaction = userEvent.setup()
+    const onSubmit = vi.fn()
+    const onInteractionStart = vi.fn()
+    const pendingRequest = {
+      ...formRequest,
+      requested_schema: {
+        type: "object" as const,
+        properties: { title: { type: "string" as const, title: "标题" } },
+        required: ["title"],
+      },
+    }
+    const { rerender, unmount } = render(
+      <ConversationUserInputRequestCard
+        request={pendingRequest}
+        submitting={false}
+        onSubmit={onSubmit}
+      />
+    )
+    await interaction.type(
+      screen.getByRole("textbox", { name: /标题/ }),
+      "日程查询"
+    )
+    await interaction.click(screen.getByRole("button", { name: "提交回答" }))
+    expect(onSubmit).toHaveBeenCalledWith({
+      action: "accept",
+      content: { title: "日程查询" },
+    })
+    rerender(
+      <ConversationUserInputRequestCard
+        request={pendingRequest}
+        submitting
+        onSubmit={onSubmit}
+      />
+    )
+    expect(screen.getByRole("textbox", { name: /标题/ })).toBeVisible()
+    expect(screen.getByRole("textbox", { name: /标题/ })).toBeDisabled()
+    // A failed submission returns to the editable form without losing input.
+    rerender(
+      <ConversationUserInputRequestCard
+        request={pendingRequest}
+        submitting={false}
+        onSubmit={onSubmit}
+      />
+    )
+    expect(screen.getByRole("textbox", { name: /标题/ })).toHaveValue(
+      "日程查询"
+    )
+    expect(screen.getByRole("textbox", { name: /标题/ })).toBeEnabled()
+
+    const answeredRequest = {
+      ...pendingRequest,
+      status: "answered" as const,
+      resolved_action: "accept" as const,
+      response_content: { title: "日程查询" },
+    }
+    rerender(
+      <ConversationUserInputRequestCard
+        request={answeredRequest}
+        submitting={false}
+        onInteractionStart={onInteractionStart}
+      />
+    )
+    const summary = screen.getByRole("button", {
+      name: "请确认 发布信息。 保持草稿",
+    })
+    expect(summary).toHaveAttribute("aria-expanded", "false")
+    await interaction.click(summary)
+    expect(onInteractionStart).toHaveBeenCalled()
+    expect(screen.getByRole("textbox", { name: /标题/ })).toHaveValue(
+      "日程查询"
+    )
+    unmount()
+    render(
+      <ConversationUserInputRequestCard
+        request={answeredRequest}
+        submitting={false}
+      />
+    )
+    expect(
+      screen.getByRole("button", { name: "请确认 发布信息。 保持草稿" })
+    ).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+  })
+
+  it.each(["zh-CN", "en-US", "fr-FR"])(
+    "supports keyboard expansion of historical forms without saved content in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const interaction = userEvent.setup()
+      render(
+        <ConversationUserInputRequestCard
+          request={{
+            ...formRequest,
+            status: "answered",
+            resolved_action: "accept",
+          }}
+          submitting={false}
+        />
+      )
+      const summary = screen.getByRole("button", {
+        name: "请确认 发布信息。 保持草稿",
+      })
+      await interaction.tab()
+      expect(summary).toHaveFocus()
+      await interaction.keyboard("{Enter}")
+      expect(summary).toHaveAttribute("aria-expanded", "true")
+      expect(screen.getByRole("status")).toHaveTextContent(
+        locale === "en-US" ? "Submitted" : "已提交"
+      )
+      expect(screen.getByPlaceholderText("输入标题")).toHaveValue("")
+      expect(screen.getByPlaceholderText("输入标题")).toBeDisabled()
+      expect(
+        screen.getByRole("combobox", { name: /渠道/ })
+      ).not.toHaveTextContent("Teams")
+      await interaction.keyboard(" ")
+      expect(summary).toHaveAttribute("aria-expanded", "false")
+    }
+  )
 
   it("keeps terminal structured forms visually enabled while using a blocked cursor", () => {
     expect(conversationStyles).toMatch(
@@ -606,7 +746,7 @@ describe("ConversationUserInputRequestCard", () => {
     ["reject", "rejected", "已拒绝"],
   ] as const)(
     "shows an explicit approval decision %s as %s",
-    (decision, expectedStatus, expectedLabel) => {
+    async (decision, expectedStatus, expectedLabel) => {
       render(
         <ConversationUserInputRequestCard
           request={{
@@ -642,6 +782,11 @@ describe("ConversationUserInputRequestCard", () => {
         />
       )
 
+      const summary = screen.getByRole("button", {
+        name: "请确认 发布信息。 保持草稿",
+      })
+      expect(summary).toHaveAttribute("aria-expanded", "false")
+      await userEvent.setup().click(summary)
       const card = screen.getByTestId("conversation-user-input-request")
       expect(card).toHaveAttribute("data-request-status", expectedStatus)
       expect(within(card).getByText(expectedLabel)).toBeVisible()

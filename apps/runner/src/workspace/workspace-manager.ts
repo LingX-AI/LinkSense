@@ -699,7 +699,7 @@ export class WorkspaceManager {
       version: 1,
       revision: randomUUID(),
       custom_instructions: "",
-      memories_enabled: true,
+      memories_enabled: false,
     })
     await this.writePersonalizationState(paths, state)
     return projectPersonalizationSnapshot(state)

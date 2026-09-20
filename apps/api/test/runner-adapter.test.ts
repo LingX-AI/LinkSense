@@ -716,7 +716,7 @@ describe("RunnerClient health", () => {
     });
   });
 
-  it("rejects an incompatible runner turn-start contract version", async () => {
+  it.each(["legacy", "user-project-runtime-v25"])("rejects incompatible runner contract %s", async (version) => {
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>().mockResolvedValueOnce(
@@ -731,7 +731,7 @@ describe("RunnerClient health", () => {
           concurrency_limit: 20,
           app_server_process_limit: 20,
           process_limit: 20,
-          turn_start_contract_version: "legacy",
+          turn_start_contract_version: version,
         }),
       ),
     );
