@@ -134,7 +134,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
     ]);
   });
 
-  it("bulk-updates user token limits without touching authentication fields", async () => {
+  it("bulk-updates user credit limits without touching authentication fields", async () => {
     const actor = persistedUser({
       id: ACTOR_ID,
       role: "admin",
@@ -148,7 +148,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
     transaction.user.findUnique.mockResolvedValueOnce(actor);
     transaction.user.count.mockResolvedValueOnce(2);
     transaction.user.findMany.mockResolvedValueOnce(
-      targetIds.map((id) => persistedUser({ id, monthlyCreditLimitMicros: 100_000n })),
+      targetIds.map((id) => persistedUser({ id })),
     );
     const repository = new PrismaUserRepository(
       prismaWithTransaction(transaction),
@@ -158,9 +158,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
       repository.updateUserCreditLimits({
         actorId: actor.id,
         targetUserIds: targetIds,
-        totalCreditLimitMicros: 500_000n,
         weeklyCreditLimitMicros: null,
-        monthlyCreditLimitMicros: 100_000n,
         now: NOW,
         audit: {},
       }),
@@ -169,9 +167,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
     expect(transaction.user.updateMany).toHaveBeenCalledWith({
       where: { id: { in: targetIds } },
       data: {
-        totalCreditLimitMicros: 500_000n,
         weeklyCreditLimitMicros: null,
-        monthlyCreditLimitMicros: 100_000n,
         updatedAt: NOW,
       },
     });
@@ -182,9 +178,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
         action: "users_credit_limits_updated",
         metadataJson: {
           user_count: 2,
-          total_credit_limit_changed: true,
           weekly_credit_limit_changed: true,
-          monthly_credit_limit_changed: true,
         },
       }),
     });
@@ -528,9 +522,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
       name: created.name,
       role: "user",
       userGroupIds: [groupId],
-      totalCreditLimitMicros: 1_000_000n,
       weeklyCreditLimitMicros: 25_000n,
-      monthlyCreditLimitMicros: 100_000n,
       actorId: actor.id,
       now: NOW,
       audit: {},
@@ -539,9 +531,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
     expect(transaction.user.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          totalCreditLimitMicros: 1_000_000n,
-      weeklyCreditLimitMicros: 25_000n,
-          monthlyCreditLimitMicros: 100_000n,
+          weeklyCreditLimitMicros: 25_000n,
         }),
       }),
     );
@@ -613,9 +603,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
           userGroupNames: [group.name],
         },
       ],
-      totalCreditLimitMicros: 2_000_000n,
       weeklyCreditLimitMicros: 30_000n,
-      monthlyCreditLimitMicros: 120_000n,
       actorId: actor.id,
       now: NOW,
       audit: {},
@@ -625,9 +613,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
       expect.objectContaining({
         data: [
           expect.objectContaining({
-            totalCreditLimitMicros: 2_000_000n,
-      weeklyCreditLimitMicros: 30_000n,
-            monthlyCreditLimitMicros: 120_000n,
+            weeklyCreditLimitMicros: 30_000n,
           }),
         ],
       }),
@@ -667,9 +653,7 @@ describe("PrismaUserRepository administrator lifecycle", () => {
         name: "Orphan",
         role: "user",
         userGroupIds: [groupId],
-        totalCreditLimitMicros: null,
         weeklyCreditLimitMicros: null,
-        monthlyCreditLimitMicros: null,
         actorId: actor.id,
         now: NOW,
         audit: {},
@@ -861,9 +845,7 @@ function persistedUser(overrides: Record<string, unknown> = {}) {
     preferredLocale: null,
     selfRegisteredAt: null,
     runningMessageAction: "queue",
-    totalCreditLimitMicros: null,
     weeklyCreditLimitMicros: null,
-    monthlyCreditLimitMicros: null,
     creditQuotaResetAt: null,
     lastLoginAt: null,
     lastLoginMethod: null,

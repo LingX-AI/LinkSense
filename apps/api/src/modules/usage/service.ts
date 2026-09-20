@@ -15,6 +15,7 @@ import {
   type ModelTokenPricing,
   type ApplicationUsageReport,
   type PersonalUsageProfile,
+  type PersonalQuotaAnalytics,
   type UsageAnalyticsReport,
   type UsageAnalyticsReportQuery,
   type UsageApplicationBreakdown,
@@ -35,6 +36,8 @@ import utc from "dayjs/plugin/utc.js";
 
 import type { Prisma, PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
+import { PersonalQuotaRepository } from "./personal-quota-repository.js";
+import { personalQuotaAnalytics } from "./personal-quota-service.js";
 import { creditUsageSnapshot } from "../system/quota-settings.js";
 import {
   calculatePriceAndCostSnapshot,
@@ -591,6 +594,10 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
       ),
       skills,
     });
+  }
+
+  async personalQuota(userId: string, query: unknown): Promise<PersonalQuotaAnalytics> {
+    return personalQuotaAnalytics(new PersonalQuotaRepository(this.prisma), userId, query, this.now());
   }
 
   async report(rawQuery: unknown): Promise<UsageAnalyticsReport> {

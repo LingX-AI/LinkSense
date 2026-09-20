@@ -85,6 +85,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "user-guide/settings/general",
             "user-guide/settings/profile",
+            "user-guide/settings/quota",
             "user-guide/settings/personalization",
             "user-guide/settings/appearance",
             "user-guide/settings/security",

@@ -66,12 +66,23 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
   )
 }
 
-function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
+function TableRow({
+  className,
+  appearance = "plain",
+  ...props
+}: React.ComponentProps<"tr"> & {
+  appearance?: "plain" | "rounded"
+}) {
   return (
     <tr
       data-slot="table-row"
+      data-appearance={appearance}
       className={cn(
-        "transition-colors hover:bg-hover has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted last:[&>td]:after:hidden",
+        "transition-colors data-[state=selected]:bg-muted last:[&>td]:after:hidden",
+        appearance === "plain" &&
+          "hover:bg-hover has-aria-expanded:bg-muted/50",
+        appearance === "rounded" &&
+          "hover:bg-transparent has-aria-expanded:bg-transparent hover:[&>td]:bg-hover has-aria-expanded:[&>td]:bg-muted/50 [&>td:first-child]:rounded-l-lg [&>td:last-child]:rounded-r-lg",
         className
       )}
       {...props}

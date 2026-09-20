@@ -56,7 +56,6 @@ describe("LinkSense application", () => {
     installApiMock({
       userOverride: {
         credit_quota: {
-          total: null,
           weekly: {
             limit_credits: "0.001",
             used_credits: "0.00025",
@@ -64,7 +63,6 @@ describe("LinkSense application", () => {
             remaining_percentage: 75,
             reset_at: "2026-08-09T16:00:00.000Z",
           },
-          monthly: null,
         },
       },
     })
@@ -82,7 +80,7 @@ describe("LinkSense application", () => {
     expect(menu).not.toHaveClass("w-[260px]")
     expect(within(menu).getAllByText("林晓").length).toBeGreaterThan(0)
     expect(within(menu).getByText("额度")).toBeVisible()
-    expect(within(menu).getByText("总 - · 周 0 · 月 -")).toBeVisible()
+    expect(within(menu).getByText("周 0")).toBeVisible()
     expect(within(menu).queryByText("lin@example.com")).not.toBeInTheDocument()
     expect(within(menu).queryByText("管理员")).not.toBeInTheDocument()
     expect(within(menu).getByRole("menuitem", { name: "设置" })).toBeVisible()

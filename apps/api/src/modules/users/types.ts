@@ -4,7 +4,7 @@ export type UserRole = "user" | "admin"
 export type UserStatus = "active" | "disabled"
 export type UserLocale = "zh-CN" | "en-US"
 export type RunningMessageAction = "steer" | "queue"
-export type CreditQuotaRemainingZeroFilter = "total" | "weekly" | "monthly"
+export type CreditQuotaRemainingZeroFilter = "weekly"
 export type UserRegistrationSource =
   | "self_registration"
   | "organization_invitation"
@@ -27,9 +27,7 @@ export type UserRecord = {
   preferredLocale: UserLocale | null
   selfRegisteredAt: Date | null
   runningMessageAction: RunningMessageAction
-  totalCreditLimitMicros: bigint | null
   weeklyCreditLimitMicros: bigint | null
-  monthlyCreditLimitMicros: bigint | null
   creditQuotaResetAt: Date | null
   lastLoginAt: Date | null
   lastLoginMethod: "password" | "oidc" | "teams" | null
@@ -69,9 +67,7 @@ export type CreateUserCommand = {
   name: string
   role: UserRole
   userGroupIds: string[]
-  totalCreditLimitMicros: bigint | null
   weeklyCreditLimitMicros: bigint | null
-  monthlyCreditLimitMicros: bigint | null
   actorId: string
   now: Date
   audit: AuditContext
@@ -85,9 +81,7 @@ export type UpdateUserCommand = {
   role?: UserRole
   status?: UserStatus
   userGroupIds?: string[]
-  totalCreditLimitMicros?: bigint | null
   weeklyCreditLimitMicros?: bigint | null
-  monthlyCreditLimitMicros?: bigint | null
   now: Date
   audit: AuditContext
 }
@@ -95,9 +89,7 @@ export type UpdateUserCommand = {
 export type UpdateUserCreditLimitsCommand = {
   targetUserIds: string[]
   actorId: string
-  totalCreditLimitMicros?: bigint | null
   weeklyCreditLimitMicros?: bigint | null
-  monthlyCreditLimitMicros?: bigint | null
   now: Date
   audit: AuditContext
 }
@@ -122,9 +114,7 @@ export type ImportUserCommand = {
     role: UserRole
     userGroupNames: string[]
   }>
-  totalCreditLimitMicros: bigint | null
   weeklyCreditLimitMicros: bigint | null
-  monthlyCreditLimitMicros: bigint | null
   actorId: string
   now: Date
   audit: AuditContext

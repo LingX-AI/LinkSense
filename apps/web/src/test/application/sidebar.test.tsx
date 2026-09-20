@@ -1694,10 +1694,10 @@ describe("LinkSense application", () => {
       "text-[length:var(--app-ui-font-size)]"
     )
     const quotaTitle = within(menu).getByText("额度")
-    const quotaValues = within(menu).getByText("总 - · 周 - · 月 -")
+    const quotaValues = within(menu).getByText("周 -")
     expect(quotaTitle).toHaveClass("flex", "shrink-0", "items-center", "gap-2")
     const quotaIcon = quotaTitle.querySelector("svg")
-    expect(quotaIcon).toHaveClass("size-3.5", "shrink-0")
+    expect(quotaIcon).toHaveClass("lucide-gauge", "size-3.5", "shrink-0")
     expect(quotaIcon).toHaveAttribute("aria-hidden", "true")
     expect(quotaTitle.firstElementChild).toBe(quotaIcon)
     expect(quotaValues).toHaveClass(
@@ -1741,7 +1741,7 @@ describe("LinkSense application", () => {
     const settingsNavigationLinks = settingsSidebar.querySelectorAll(
       ".settings-navigation-link"
     )
-    expect(settingsNavigationLinks).toHaveLength(22)
+    expect(settingsNavigationLinks).toHaveLength(23)
     settingsNavigationLinks.forEach((link) => {
       expect(link.querySelectorAll(":scope > span")).toHaveLength(1)
       expect(link.querySelector(":scope > span > span")).toBeNull()

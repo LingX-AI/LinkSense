@@ -67,6 +67,7 @@ const expectedMarkdownPaths = [
   "user-guide/settings/general.md",
   "user-guide/settings/personalization.md",
   "user-guide/settings/profile.md",
+  "user-guide/settings/quota.md",
   "user-guide/settings/security.md",
   "user-guide/tasks/branch-and-organize.md",
   "user-guide/tasks/context-and-drafts.md",

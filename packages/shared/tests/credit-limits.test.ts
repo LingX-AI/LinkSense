@@ -34,30 +34,51 @@ describe("credit quota contracts", () => {
     expect(creditAmountSchema.parse(" 001.200000 ")).toBe("1.2");
     expect(creditAmountSchema.parse("0")).toBe("0");
   });
-  it("supports independently optional limits for both member populations", () => {
+  it("supports one optional weekly limit for all members", () => {
     const settings = defaultQuotaSettings();
-    settings.organization_members.weekly_credit_limit = "100";
-    settings.self_registered_users.monthly_credit_limit = "300";
+    settings.weekly_credit_limit = "100";
     expect(quotaSettingsSchema.parse(settings)).toEqual(settings);
-    expect(
-      quotaSettingsSchema.parse(defaultQuotaSettings()).organization_members
-        .total_credit_limit,
-    ).toBeNull();
+    expect(quotaSettingsSchema.parse(defaultQuotaSettings()).weekly_credit_limit).toBeNull();
     expect(
       quotaSettingsSchema.safeParse({ ...settings, credit_price_cny: "0" })
         .success,
     ).toBe(false);
   });
-  it("supports clearing user limits and partial bulk updates without changing omitted limits", () => {
+  it("rejects removed monthly, total, and population-specific quota fields", () => {
+    const settings = defaultQuotaSettings();
+    expect(
+      quotaSettingsSchema.safeParse({
+        ...settings,
+        monthly_credit_limit: "300",
+      }).success,
+    ).toBe(false);
+    expect(
+      quotaSettingsSchema.safeParse({
+        ...settings,
+        total_credit_limit: "300",
+      }).success,
+    ).toBe(false);
+    expect(
+      quotaSettingsSchema.safeParse({
+        ...settings,
+        organization_members: { weekly_credit_limit: "300" },
+      }).success,
+    ).toBe(false);
+    expect(
+      updateUserInputSchema.safeParse({ monthly_credit_limit: "300" }).success,
+    ).toBe(false);
+    expect(
+      updateUserInputSchema.safeParse({ total_credit_limit: "300" }).success,
+    ).toBe(false);
+  });
+  it("supports clearing weekly user limits", () => {
     expect(
       updateUserInputSchema.parse({
         weekly_credit_limit: "0.01",
-        monthly_credit_limit: null,
       }),
-    ).toEqual({ weekly_credit_limit: "0.01", monthly_credit_limit: null });
+    ).toEqual({ weekly_credit_limit: "0.01" });
     const input = {
       user_ids: ["00000000-0000-4000-8000-000000000001"],
-      total_credit_limit: "0.05",
       weekly_credit_limit: null,
     };
     expect(bulkUserCreditLimitsInputSchema.parse(input)).toEqual(input);

@@ -535,7 +535,7 @@ describe("administrator authentication settings", () => {
     expect(productTab).toHaveClass(
       "rounded-xl",
       "font-medium",
-      "data-active:bg-muted"
+      "data-active:bg-muted/50"
     )
     expect(productTab).not.toHaveClass("rounded-2xl")
     expect(

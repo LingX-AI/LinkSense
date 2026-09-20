@@ -11,7 +11,7 @@ async function appFixture(denial?: "AUTH_REQUIRED" | "FORBIDDEN") {
     getSettings: vi.fn(async () => settings),
     updateSettings: vi.fn(async () => settings),
     resetMemberQuotas: vi.fn(async () => ({ updated_user_count: 3 })),
-    applyOrganizationLimits: vi.fn(async () => ({
+    applyMemberLimits: vi.fn(async () => ({
       settings,
       updated_user_count: 3,
     })),
@@ -44,40 +44,39 @@ async function appFixture(denial?: "AUTH_REQUIRED" | "FORBIDDEN") {
 }
 
 describe("quota settings API", () => {
-  it.each(["organization_members", "self_registered_users"])(
-    "immediately resets %s for an administrator",
-    async (scope) => {
-      const { app, quotaSettings } = await appFixture();
-      try {
-        const response = await app.inject({
-          method: "POST",
-          url: "/admin/quota-settings/reset",
-          payload: { scope },
-        });
-        expect(response.statusCode).toBe(200);
-        expect(response.json().data).toEqual({ updated_user_count: 3 });
-        expect(quotaSettings.resetMemberQuotas).toHaveBeenCalledWith(
-          "00000000-0000-4000-8000-000000000099",
-          { scope },
-          expect.any(Object),
-        );
-      } finally {
-        await app.close();
-      }
-    },
-  );
-  it("saves and applies organization limits through the administrator endpoint", async () => {
-    const { app, quotaSettings, settings } = await appFixture();
+  it("immediately resets all members for an administrator", async () => {
+    const { app, quotaSettings } = await appFixture();
     try {
-      const payload = { limits: settings.organization_members };
       const response = await app.inject({
         method: "POST",
-        url: "/admin/quota-settings/apply-organization-limits",
+        url: "/admin/quota-settings/reset",
+        payload: {},
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data).toEqual({ updated_user_count: 3 });
+      expect(quotaSettings.resetMemberQuotas).toHaveBeenCalledWith(
+        "00000000-0000-4000-8000-000000000099",
+        {},
+        expect.any(Object),
+      );
+    } finally {
+      await app.close();
+    }
+  });
+  it("saves and applies the unified weekly limit through the administrator endpoint", async () => {
+    const { app, quotaSettings, settings } = await appFixture();
+    try {
+      const payload = {
+        limits: { weekly_credit_limit: settings.weekly_credit_limit },
+      };
+      const response = await app.inject({
+        method: "POST",
+        url: "/admin/quota-settings/apply-member-limits",
         payload,
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().data).toEqual({ settings, updated_user_count: 3 });
-      expect(quotaSettings.applyOrganizationLimits).toHaveBeenCalledWith(
+      expect(quotaSettings.applyMemberLimits).toHaveBeenCalledWith(
         "00000000-0000-4000-8000-000000000099",
         payload,
         expect.any(Object),
@@ -92,10 +91,10 @@ describe("quota settings API", () => {
       const { app, quotaSettings, settings } = await appFixture(denial);
       try {
         for (const [suffix, payload] of [
-          ["reset", { scope: "organization_members" }],
+          ["reset", {}],
           [
-            "apply-organization-limits",
-            { limits: settings.organization_members },
+            "apply-member-limits",
+            { limits: { weekly_credit_limit: settings.weekly_credit_limit } },
           ],
         ] as const) {
           const response = await app.inject({
@@ -108,7 +107,7 @@ describe("quota settings API", () => {
           );
         }
         expect(quotaSettings.resetMemberQuotas).not.toHaveBeenCalled();
-        expect(quotaSettings.applyOrganizationLimits).not.toHaveBeenCalled();
+        expect(quotaSettings.applyMemberLimits).not.toHaveBeenCalled();
       } finally {
         await app.close();
       }
@@ -118,9 +117,9 @@ describe("quota settings API", () => {
     const { app, quotaSettings } = await appFixture();
     try {
       for (const [suffix, payload] of [
-        ["reset", { scope: "all" }],
-        ["reset", { scope: "organization_members", reset_at: "2027-01-01" }],
-        ["apply-organization-limits", { limits: { weekly_credit_limit: "0" } }],
+        ["reset", { reset_at: "2027-01-01" }],
+        ["apply-member-limits", { limits: { weekly_credit_limit: "0" } }],
+        ["apply-member-limits", { limits: { total_credit_limit: "10" } }],
       ] as const) {
         expect(
           (
@@ -133,13 +132,13 @@ describe("quota settings API", () => {
         ).toBe(400);
       }
       expect(quotaSettings.resetMemberQuotas).not.toHaveBeenCalled();
-      expect(quotaSettings.applyOrganizationLimits).not.toHaveBeenCalled();
+      expect(quotaSettings.applyMemberLimits).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }
   });
 
-  it("reads and saves independent limits as an administrator", async () => {
+  it("reads and saves the unified limit as an administrator", async () => {
     const { app, quotaSettings, settings } = await appFixture();
     try {
       const read = await app.inject({

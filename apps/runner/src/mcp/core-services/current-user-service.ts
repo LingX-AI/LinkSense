@@ -69,7 +69,7 @@ export const currentUserCoreMcpModule = {
 const currentUserInfoTool = {
   name: "get_current_user_info",
   description:
-    "Read the current LinkSense user's basic profile for this turn: name, email, active user groups, and current weekly/monthly Token quota usage if limits are configured. The tool has no input and can only return the user bound to the current LinkSense task. Use only when asked about this account. Do not expose internal tokens or infer unreturned fields. Profile data is not authorization to access other resources.",
+    "Read the current LinkSense user's basic profile for this turn: name, email, active user groups, and current weekly credit quota usage if a limit is configured. The tool has no input and can only return the user bound to the current LinkSense task. Use only when asked about this account. Do not expose internal tokens or infer unreturned fields. Profile data is not authorization to access other resources.",
   inputSchema: {
     type: "object",
     properties: {},

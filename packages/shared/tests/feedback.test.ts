@@ -75,7 +75,7 @@ describe("feedback contracts", () => {
     }
   });
 
-  it("requires reply status and excludes administrator identity from personal details", () => {
+  it("requires reply status and exposes only the reply author's display identity", () => {
     const details = {
       id: "10000000-0000-4000-8000-000000000001",
       content: "feedback",
@@ -90,9 +90,37 @@ describe("feedback contracts", () => {
     expect(
       feedbackDetailsSchema.safeParse({
         ...details,
-        reply_count: 0,
-        author_email: "private@example.com",
+        reply_count: 1,
+        replies: [
+          {
+            id: "10000000-0000-4000-8000-000000000003",
+            author: {
+              name: "周蕊",
+              email: "private@example.com",
+            },
+            content: "reply",
+            created_at: "2026-09-09T01:00:00.000Z",
+            images: [],
+          },
+        ],
       }).success,
     ).toBe(false);
+    expect(
+      feedbackDetailsSchema.safeParse({
+        ...details,
+        reply_count: 1,
+        replies: [
+          {
+            id: "10000000-0000-4000-8000-000000000003",
+            author: {
+              name: "周蕊",
+            },
+            content: "reply",
+            created_at: "2026-09-09T01:00:00.000Z",
+            images: [],
+          },
+        ],
+      }).success,
+    ).toBe(true);
   });
 });

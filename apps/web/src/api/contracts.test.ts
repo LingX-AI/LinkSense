@@ -223,7 +223,6 @@ describe("API response contracts", () => {
       status: "active",
       registration_source: "self_registration",
       credit_quota: {
-        total: null,
         weekly: {
           limit_credits: "0.001",
           used_credits: "0.00025",
@@ -231,12 +230,10 @@ describe("API response contracts", () => {
           remaining_percentage: 75,
           reset_at: now,
         },
-        monthly: null,
       },
     })
 
     expect(result.credit_quota).toEqual({
-      total: null,
       weekly: {
         limit_credits: "0.001",
         used_credits: "0.00025",
@@ -244,7 +241,6 @@ describe("API response contracts", () => {
         remaining_percentage: 75,
         reset_at: now,
       },
-      monthly: null,
     })
     expect(
       userSchema.parse({

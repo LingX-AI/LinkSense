@@ -265,6 +265,9 @@ describe("PrismaFeedbackStore", () => {
           { id: "reply", content: "answer", createdAt: NOW, authorId: "admin" },
         ]),
       },
+      user: {
+        findMany: vi.fn(async () => [{ id: "admin", name: "周蕊" }]),
+      },
       feedbackReplyImage: {
         findMany: vi.fn(async () => [
           {
@@ -293,7 +296,12 @@ describe("PrismaFeedbackStore", () => {
       where: { feedbackId: "parent" },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
+    expect(transaction.user.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ["admin"] } },
+      select: { id: true, name: true },
+    });
     expect(details?.reply_count).toBe(1);
+    expect(details?.replies[0]?.author).toEqual({ name: "周蕊" });
     expect(details?.replies[0]).not.toHaveProperty("authorId");
     expect(details?.replies[0]?.images[0]).not.toHaveProperty("objectKey");
   });

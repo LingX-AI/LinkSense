@@ -4,7 +4,7 @@ import {
   decimalToCreditMicros,
   quotaSettingsSchema,
   resetMemberQuotasInputSchema,
-  applyOrganizationCreditLimitsInputSchema,
+  applyMemberCreditLimitsInputSchema,
   type CreditLimitSettings,
   type QuotaSettings,
 } from "@linksense/shared";
@@ -22,23 +22,13 @@ export function quotaSettingsFromJson(value: unknown): QuotaSettings {
 }
 
 export function storedCreditLimits(limits: CreditLimitSettings): {
-  totalCreditLimitMicros: bigint | null;
   weeklyCreditLimitMicros: bigint | null;
-  monthlyCreditLimitMicros: bigint | null;
 } {
   return {
-    totalCreditLimitMicros:
-      limits.total_credit_limit === null
-        ? null
-        : decimalToCreditMicros(limits.total_credit_limit),
     weeklyCreditLimitMicros:
       limits.weekly_credit_limit === null
         ? null
         : decimalToCreditMicros(limits.weekly_credit_limit),
-    monthlyCreditLimitMicros:
-      limits.monthly_credit_limit === null
-        ? null
-        : decimalToCreditMicros(limits.monthly_credit_limit),
   };
 }
 
@@ -80,18 +70,13 @@ export class QuotaSettingsService {
     input: unknown,
     context: AuditContext,
   ): Promise<{ updated_user_count: number }> {
-    const { scope } = resetMemberQuotasInputSchema.parse(input);
+    resetMemberQuotasInputSchema.parse(input);
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
         SELECT pg_advisory_xact_lock(hashtextextended('linksense-system-settings', 0))
       `;
       const resetAt = this.options.now?.() ?? new Date();
       const result = await tx.user.updateMany({
-        where: {
-
-          selfRegisteredAt:
-            scope === "organization_members" ? null : { not: null },
-        },
         data: { creditQuotaResetAt: resetAt },
       });
       await tx.auditLog.create({
@@ -101,7 +86,7 @@ export class QuotaSettingsService {
           targetType: "system_settings",
           targetId: SYSTEM_SETTINGS_ID,
           result: "success",
-          metadataJson: { scope, updated_user_count: result.count },
+          metadataJson: { updated_user_count: result.count },
           ipAddress: context.ipAddress ?? null,
           userAgent: context.userAgent ?? null,
         },
@@ -110,12 +95,12 @@ export class QuotaSettingsService {
     });
   }
 
-  async applyOrganizationLimits(
+  async applyMemberLimits(
     actorId: string,
     input: unknown,
     context: AuditContext,
   ): Promise<{ settings: QuotaSettings; updated_user_count: number }> {
-    const { limits } = applyOrganizationCreditLimitsInputSchema.parse(input);
+    const { limits } = applyMemberCreditLimitsInputSchema.parse(input);
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
         SELECT pg_advisory_xact_lock(hashtextextended('linksense-system-settings', 0))
@@ -126,7 +111,7 @@ export class QuotaSettingsService {
       const current = settingsObjectSchema.parse(row?.settingsJson ?? {});
       const settings: QuotaSettings = {
         ...quotaSettingsFromJson(current),
-        organization_members: limits,
+        weekly_credit_limit: limits.weekly_credit_limit,
       };
       const merged = { ...current, quota_settings: settings };
       await tx.systemSetting.upsert({
@@ -139,13 +124,12 @@ export class QuotaSettingsService {
         update: { settingsJson: merged, updatedBy: actorId },
       });
       const result = await tx.user.updateMany({
-        where: { selfRegisteredAt: null },
         data: storedCreditLimits(limits),
       });
       await tx.auditLog.create({
         data: {
           actorId,
-          action: "organization_credit_limits_applied",
+          action: "member_credit_limits_applied",
           targetType: "system_settings",
           targetId: SYSTEM_SETTINGS_ID,
           result: "success",
@@ -187,18 +171,6 @@ export class QuotaSettingsService {
         },
         update: { settingsJson: merged, updatedBy: actorId },
       });
-      const previous = quotaSettingsFromJson(current).self_registered_users;
-      const next = settings.self_registered_users;
-      const registrationChanged =
-        previous.total_credit_limit !== next.total_credit_limit ||
-        previous.weekly_credit_limit !== next.weekly_credit_limit ||
-        previous.monthly_credit_limit !== next.monthly_credit_limit;
-      const synchronized = registrationChanged
-        ? await tx.user.updateMany({
-            where: { selfRegisteredAt: { not: null } },
-            data: storedCreditLimits(next),
-          })
-        : { count: 0 };
       await tx.auditLog.create({
         data: {
           actorId,
@@ -206,7 +178,7 @@ export class QuotaSettingsService {
           targetType: "system_settings",
           targetId: SYSTEM_SETTINGS_ID,
           result: "success",
-          metadataJson: { updated_user_count: synchronized.count },
+          metadataJson: {},
           ipAddress: context.ipAddress ?? null,
           userAgent: context.userAgent ?? null,
         },

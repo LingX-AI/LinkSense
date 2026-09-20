@@ -41,24 +41,9 @@ const user = {
     "self_registration" | "organization_invitation",
   user_group_ids: [] as string[],
   user_groups: [] as Array<{ id: string; name: string }>,
-  total_credit_limit: null as string | null,
   weekly_credit_limit: null as string | null,
-  monthly_credit_limit: null as string | null,
   credit_quota: null as null | {
-    total: {
-      limit_credits: string
-      used_credits: string
-      remaining_credits: string
-      remaining_percentage: number
-    } | null
     weekly: {
-      limit_credits: string
-      used_credits: string
-      remaining_credits: string
-      remaining_percentage: number
-      reset_at: string
-    } | null
-    monthly: {
       limit_credits: string
       used_credits: string
       remaining_credits: string
@@ -1042,7 +1027,8 @@ function installApiMock(options?: {
         ) &&
         method === "POST"
       ) {
-        if (options?.userInputResponse) return options.userInputResponse(requestBody)
+        if (options?.userInputResponse)
+          return options.userInputResponse(requestBody)
         return json({ success: true, data: null })
       }
       const planReviewActionMatch = path.match(
@@ -1500,9 +1486,7 @@ function installApiMock(options?: {
       if (path === "/api/v1/admin/users/credit-limits" && method === "PATCH") {
         const body = requestBody as {
           user_ids: string[]
-          total_credit_limit?: string | null
           weekly_credit_limit?: string | null
-          monthly_credit_limit?: string | null
         }
         const { user_ids: targetUserIds, ...creditLimits } = body
         managedUsers = managedUsers.map((candidate) =>
@@ -1578,13 +1562,10 @@ function installApiMock(options?: {
             )
           : usersForGroup
         const filteredUsers =
-          creditQuotaRemainingZero === "total" ||
-          creditQuotaRemainingZero === "weekly" ||
-          creditQuotaRemainingZero === "monthly"
+          creditQuotaRemainingZero === "weekly"
             ? usersForRegistrationSource.filter(
                 (managedUser) =>
-                  managedUser.credit_quota?.[creditQuotaRemainingZero]
-                    ?.remaining_percentage === 0
+                  managedUser.credit_quota?.weekly?.remaining_percentage === 0
               )
             : usersForRegistrationSource
         return json({

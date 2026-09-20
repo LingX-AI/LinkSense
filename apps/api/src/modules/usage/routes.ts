@@ -1,6 +1,8 @@
 import {
   billingStatementPdfQuerySchema,
   personalUsageProfileQuerySchema,
+  personalQuotaQuerySchema,
+  personalQuotaReportSchema,
   productFilenamePrefix,
   usageAnalyticsReportQuerySchema,
 } from "@linksense/shared";
@@ -19,6 +21,18 @@ export const personalUsageRoutes: FastifyPluginAsync<{
   services: AppServices;
 }> = async (app, { services }) => {
   app.addHook("preHandler", app.authenticate);
+
+  app.get("/quota", async (request, reply) => {
+    const actor = (request as AuthenticatedRequest).authUser;
+    const query = personalQuotaQuerySchema.parse(request.query);
+    const [overview, analytics] = await Promise.all([
+      services.creditLimits.personalOverview(actor.id),
+      services.usageAnalytics.personalQuota(actor.id, query),
+    ]);
+    return reply.header("cache-control", "private, no-store").send(
+      ok(personalQuotaReportSchema.parse({ overview, analytics }), request.id),
+    );
+  });
 
   app.get("/", async (request, reply) => {
     const actor = (request as AuthenticatedRequest).authUser;

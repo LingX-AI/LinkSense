@@ -120,7 +120,7 @@ describe("interactive typography", () => {
       "py-1.5",
       "text-muted-foreground",
       "hover:bg-hover",
-      "data-active:bg-muted"
+      "data-active:bg-muted/50"
     )
     expect(firstTab).not.toHaveClass("font-semibold")
   })

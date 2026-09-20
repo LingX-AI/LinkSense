@@ -804,7 +804,10 @@ function readSelfRegistrationPolicy(value: Prisma.JsonValue | undefined): Return
   if (!value || Array.isArray(value) || typeof value !== "object") return null
   const registration = value.self_registration
   if (!registration || Array.isArray(registration) || typeof registration !== "object" || registration.enabled !== true) return null
-  return storedCreditLimits(quotaSettingsFromJson(value).self_registered_users)
+  const settings = quotaSettingsFromJson(value)
+  return storedCreditLimits({
+    weekly_credit_limit: settings.weekly_credit_limit,
+  })
 }
 
 function registrationUserName(email: string): string {

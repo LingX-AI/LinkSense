@@ -341,9 +341,7 @@ export async function projectUserResponse(
       ? ("self_registration" as const)
       : ("organization_invitation" as const),
     running_message_action: user.runningMessageAction,
-    total_credit_limit: user.totalCreditLimitMicros === null ? null : creditMicrosToDecimal(user.totalCreditLimitMicros),
     weekly_credit_limit: user.weeklyCreditLimitMicros === null ? null : creditMicrosToDecimal(user.weeklyCreditLimitMicros),
-    monthly_credit_limit: user.monthlyCreditLimitMicros === null ? null : creditMicrosToDecimal(user.monthlyCreditLimitMicros),
     ...(creditQuotaUsage !== undefined
       ? { credit_quota: projectCreditQuotaUsage(creditQuotaUsage) }
       : {}),
@@ -382,19 +380,7 @@ async function getCurrentCreditQuotaUsage(
 function projectCreditQuotaUsage(usage: UserCreditQuotaUsage | null) {
   if (!usage) return null;
   return {
-    total: projectCreditQuotaTotalUsage(usage.total),
     weekly: projectCreditQuotaPeriodUsage(usage.weekly),
-    monthly: projectCreditQuotaPeriodUsage(usage.monthly),
-  };
-}
-
-function projectCreditQuotaTotalUsage(total: UserCreditQuotaUsage["total"]) {
-  if (!total) return null;
-  return {
-    limit_credits: creditMicrosToDecimal(total.limitCreditMicros),
-    used_credits: creditMicrosToDecimal(total.usedCreditMicros),
-    remaining_credits: creditMicrosToDecimal(total.remainingCreditMicros),
-    remaining_percentage: total.remainingPercentage,
   };
 }
 

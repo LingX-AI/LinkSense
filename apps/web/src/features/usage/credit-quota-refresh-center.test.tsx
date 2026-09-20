@@ -30,14 +30,13 @@ const user = userSchema.parse({
   registration_source: "organization_invitation",
   user_groups: [],
   credit_quota: {
-    total: {
+    weekly: {
       limit_credits: "1",
       used_credits: "0.001",
       remaining_credits: "0.999",
       remaining_percentage: 100,
+      reset_at: "2026-09-21T16:00:00.000Z",
     },
-    weekly: null,
-    monthly: null,
   },
 })
 
@@ -141,7 +140,7 @@ describe("CreditQuotaRefreshCenter", () => {
   it("does not poll when the current user has no token quota", async () => {
     const userWithoutQuota = userSchema.parse({
       ...user,
-      credit_quota: { total: null, weekly: null, monthly: null },
+      credit_quota: { weekly: null },
     })
 
     renderCenter(userWithoutQuota)

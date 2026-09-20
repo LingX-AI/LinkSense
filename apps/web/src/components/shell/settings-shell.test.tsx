@@ -28,6 +28,7 @@ describe("SettingsShell administrator navigation", () => {
   it.each([
     "/settings/general",
     "/settings/profile",
+    "/settings/quota",
     "/settings/personalization",
     "/settings/appearance",
     "/settings/security",
@@ -71,6 +72,23 @@ describe("SettingsShell administrator navigation", () => {
     expect(content?.classList.contains("settings-content-administration")).toBe(
       path.startsWith("/admin/")
     )
+  })
+
+  it("places personal quota immediately after the profile", () => {
+    render(
+      <MemoryRouter initialEntries={["/settings/quota"]}>
+        <SettingsShell />
+      </MemoryRouter>
+    )
+    const links = within(
+      screen.getByRole("navigation", { name: "个人" })
+    ).getAllByRole("link")
+    const profile = links.findIndex(
+      (link) => link.getAttribute("href") === "/settings/profile"
+    )
+    expect(links[profile + 1]).toHaveAttribute("href", "/settings/quota")
+    expect(links[profile + 1]).toHaveTextContent("额度")
+    expect(links[profile + 1]?.querySelector("svg")).toHaveClass("lucide-gauge")
   })
 
   it("places personal feedback immediately after archived tasks", () => {
@@ -132,6 +150,9 @@ describe("SettingsShell administrator navigation", () => {
       expect(modelIndex).toBeGreaterThan(-1)
       expect(links[modelIndex + 1]).toHaveAttribute("href", "/admin/quotas")
       expect(links[modelIndex + 1]).toHaveTextContent(quotaLabel)
+      expect(links[modelIndex + 1]?.querySelector("svg")).toHaveClass(
+        "lucide-gauge"
+      )
       expect(links[modelIndex + 1]).toHaveClass(
         "settings-navigation-link-active"
       )

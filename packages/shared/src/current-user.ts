@@ -11,17 +11,13 @@ export const currentUserGroupSchema = z.strictObject({
   name: z.string().trim().min(1).max(120),
 });
 
-export const currentUserCreditQuotaTotalSchema = z.strictObject({
+export const currentUserCreditQuotaPeriodSchema = z.strictObject({
   limit_credits: creditAmountSchema,
   used_credits: creditAmountSchema,
   remaining_credits: creditAmountSchema,
   remaining_percentage: z.number().int().min(0).max(100),
+  reset_at: timestampSchema,
 });
-
-export const currentUserCreditQuotaPeriodSchema =
-  currentUserCreditQuotaTotalSchema.extend({
-    reset_at: timestampSchema,
-  });
 
 export const currentUserInfoSuccessSchema = z.strictObject({
   success: z.literal(true),
@@ -31,9 +27,7 @@ export const currentUserInfoSuccessSchema = z.strictObject({
     user_groups: z.array(currentUserGroupSchema).max(10_000),
   }),
   credit_quota: z.strictObject({
-    total: currentUserCreditQuotaTotalSchema.nullable(),
     weekly: currentUserCreditQuotaPeriodSchema.nullable(),
-    monthly: currentUserCreditQuotaPeriodSchema.nullable(),
   }),
 });
 

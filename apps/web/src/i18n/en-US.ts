@@ -1,7 +1,9 @@
 import { webSitesEnUS } from "@/features/web-sites/messages"
+import { personalQuotaEnUS } from "@/features/usage/personal-quota-messages"
 import { errorCatalog } from "@linksense/shared"
 
 export const enUS = {
+  personalQuota: personalQuotaEnUS,
   webSites: webSitesEnUS,
   clientUpdate: {
     title: "System updated",
@@ -178,7 +180,7 @@ export const enUS = {
     unreadCompletion: "Task completed and not yet viewed",
     unreadFailure: "Task failed and has not been viewed",
     creditQuotaRemainingTitle: "Credits",
-    creditQuotaRemaining: "Total {{total}} · W {{weekly}} · M {{monthly}}",
+    creditQuotaRemaining: "W {{weekly}}",
   },
   support: {
     menuLabel: "Feedback and help",
@@ -361,58 +363,43 @@ export const enUS = {
     save: "Save settings",
     title: "Quota management",
     description:
-      "Manage personal quotas for organization members and self-registered users, and the credit conversion price.",
+      "Manage one weekly quota standard for all members and the credit conversion price.",
     conversionTitle: "Credit conversion",
     conversionDescription:
       "Convert model usage costs into credits. Price changes apply only to subsequent consumption; existing charges stay unchanged.",
     creditPrice: "Amount per credit (CNY)",
     conversionExample:
       "For example, at CNY 0.01 per credit, a CNY 0.25 charge consumes 25 credits.",
-    organization_members: {
+    members: {
+      actions: "Member quota actions",
       reset: "Reset quotas for all",
       resetDescription:
-        "Restore every existing organization member's weekly, monthly, and total quotas to 100% of their own current limits. Unlimited quotas stay unlimited. Unsaved limits in this form do not apply to the reset. Historical usage stays available, and subsequent consumption is deducted as usual.",
+        "Restore every existing member's weekly quota to 100% of their own current limit. Unlimited members stay unlimited. Unsaved limits in this form do not apply to the reset. Historical usage stays available, and subsequent consumption is deducted as usual.",
 
-      title: "Initial organization member quotas",
+      title: "Member weekly quota",
       description:
-        "Applied to each member created or imported afterwards. Use the button below to apply these limits to all existing organization members, or adjust members individually or in bulk in user management.",
-    },
-    self_registered_users: {
-      reset: "Reset quotas for all",
-      resetDescription:
-        "Restore every existing self-registered user's weekly, monthly, and total quotas to 100% of their own current limits. Unlimited quotas stay unlimited. Unsaved limits in this form do not apply to the reset. Historical usage stays available, and subsequent consumption is deducted as usual.",
-
-      title: "Self-registered user quotas",
-      description:
-        "Applied to each self-registered user. Changing these quotas also updates existing self-registered users, including individual overrides. Leaving a field blank removes that limit.",
+        "Used as the default weekly quota for members created, imported, or self-registered afterwards. Use the menu in the upper-right to apply it to all existing members, or adjust members individually or in bulk in user management.",
     },
     weekly_credit_limit: "Weekly quota (credits)",
-    monthly_credit_limit: "Monthly quota (credits)",
-    total_credit_limit: "Total quota (credits)",
     weekly_credit_limit_hint:
       "Resets on Monday at midnight in the system time zone.",
-    monthly_credit_limit_hint:
-      "Resets on the first day of each month in the system time zone.",
-    total_credit_limit_hint:
-      "Lifetime consumption limit. Does not reset automatically.",
     unlimited: "Unlimited",
     invalidAmount:
       "Enter a positive amount with up to 6 decimal places, no greater than 9,223,372,036,854.775807.",
-    applyOrganization: "Apply limits to all",
+    applyMembers: "Apply limit to all",
     applyDescription:
-      "Save weekly {{weekly}}, monthly {{monthly}}, and total {{total}} limits as the organization defaults and overwrite every existing organization member's limits, including individual overrides. Used credits are not reset; other form settings stay unchanged.",
+      "Save weekly {{weekly}} as the member default and overwrite every existing member's weekly quota, including individual overrides. Used credits are not reset; other form settings stay unchanged.",
     confirmReset: "Confirm quota reset",
     resetHint:
       "Confirmation restores available credits immediately and preserves historical usage.",
     confirmApply: "Confirm save and apply",
     resetSuccess: "Reset quotas for {{count}} members.",
-    applySuccess:
-      "Saved new limits and applied them to {{count}} organization members.",
+    applySuccess: "Saved the new limit and applied it to {{count}} members.",
     refreshFailed:
       "The action completed, but the page could not refresh. Reload to see the latest quotas.",
     saved: "Quota settings saved.",
     enforcementHint:
-      "Blank means unlimited. Reaching any configured limit prevents new tasks; running tasks continue. Consumption is rounded up to the nearest 0.000001 credit.",
+      "Blank means unlimited. Reaching the weekly limit prevents new tasks; running tasks continue. Consumption is rounded up to the nearest 0.000001 credit.",
   },
   settings: {
     navigationLabel: "{{productName}} settings navigation",
@@ -4138,7 +4125,6 @@ export const enUS = {
     detailsDescription: "View the feedback and its reply history.",
     replies: "Replies",
     noReplies: "No replies yet",
-    administrator: "Administrator",
     writeReply: "Reply to user",
     replyHint: "Send text, images, or both.",
     replyPlaceholder: "Write a reply…",
@@ -4284,14 +4270,10 @@ export const enUS = {
     },
     loginMethod: "Sign-in method",
     lastLogin: "Last sign-in",
-    totalCreditLimit: "Total quota (credits)",
     weeklyCreditLimit: "Weekly quota (credits)",
-    monthlyCreditLimit: "Monthly quota (credits)",
     creditLimitDisplay: "{{value}} credits",
     creditQuotaRemainingFilter: "Quota remaining",
-    totalCreditQuotaRemainingZero: "Total quota remaining is 0",
     weeklyCreditQuotaRemainingZero: "Weekly remaining is 0",
-    monthlyCreditQuotaRemainingZero: "Monthly remaining is 0",
     creditQuotaRemainingAmount: "{{value}} credits remaining ({{percentage}}%)",
     creditQuotaRemainingUnavailable: "Quota remaining -",
     noCreditLimit: "Unlimited",
@@ -4303,22 +4285,17 @@ export const enUS = {
       "Enter a number greater than 0 with at most 6 decimal places. Unit: credits.",
     userCreditLimits: "Per-user credit quotas",
     userCreditLimitsDescription:
-      "The total quota never resets; weekly and monthly quota reset on their respective schedules. When any configured quota is exhausted, the user cannot start new tasks. Running tasks are not affected.",
+      "The weekly quota resets every Monday at midnight. When it is exhausted, the user cannot start new tasks. Running tasks are not affected.",
     adjustCreditLimits: "Adjust quota",
     adjustUserCreditLimits: "Adjust quota for {{name}}",
     singleCreditLimitsTitle: "Adjust per-user credit quotas",
     singleCreditLimitsDescription:
-      "Update the total, weekly, and monthly quota for {{name}}. Leave a field blank for no corresponding per-user quota setting.",
-    selfRegisteredTotalQuotaOverrideHint:
-      "This account was self-registered. Saving a new open-registration total quota later will also update this total quota.",
+      "Update the weekly quota for {{name}}. Leave the field blank for no per-user quota setting.",
     batchCreditLimits: "Set quota ({{count}})",
     batchCreditLimitsTitle: "Batch set user credit quotas",
     batchCreditLimitsDescription:
-      "Apply the checked quota fields to {{count}} selected users. Unchecked fields stay unchanged.",
-    creditLimitFields: "Usage to update",
-    updateTotalCreditLimit: "Update total quota",
-    updateWeeklyCreditLimit: "Update weekly quota",
-    updateMonthlyCreditLimit: "Update monthly quota",
+      "Set the weekly quota for {{count}} selected users. Leaving the field blank clears the per-user quota.",
+    creditLimitFields: "Weekly quota",
     singleCreditLimitsSaved: "Updated credit quotas for {{name}}.",
     creditLimitsSaved: "Updated credit quotas for {{count}} users.",
     selectVisibleUsers: "Select users in the current list",

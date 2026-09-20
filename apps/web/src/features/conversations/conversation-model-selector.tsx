@@ -181,7 +181,7 @@ function ModelReasoningControls({
                 type="button"
                 variant="ghost"
                 size="xs"
-                className="col-start-2 h-auto min-w-0 flex-col gap-0 px-1 py-0 disabled:opacity-100 has-data-[icon=inline-end]:pr-1"
+                className="col-start-2 h-auto min-w-0 flex-col gap-0 px-1 py-1 disabled:opacity-100 has-data-[icon=inline-end]:pr-1"
                 aria-label={t("conversation.model")}
                 disabled={pending}
               />

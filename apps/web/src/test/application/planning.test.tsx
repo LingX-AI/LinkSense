@@ -645,14 +645,13 @@ describe("LinkSense application", () => {
     installApiMock({
       userOverride: {
         credit_quota: {
-          total: {
+          weekly: {
             limit_credits: "1000",
             used_credits: "999.5",
             remaining_credits: "0.5",
             remaining_percentage: 0,
+            reset_at: "2026-08-09T16:00:00.000Z",
           },
-          weekly: null,
-          monthly: null,
         },
       },
     })
@@ -668,7 +667,6 @@ describe("LinkSense application", () => {
     const { requests } = installApiMock({
       userOverride: {
         credit_quota: {
-          total: null,
           weekly: {
             limit_credits: "0.001",
             used_credits: "0.001",
@@ -676,7 +674,6 @@ describe("LinkSense application", () => {
             remaining_percentage: 0,
             reset_at: "2026-08-09T16:00:00.000Z",
           },
-          monthly: null,
         },
       },
     })

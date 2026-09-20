@@ -1,7 +1,9 @@
 import { webSitesZhCN } from "@/features/web-sites/messages"
+import { personalQuotaZhCN } from "@/features/usage/personal-quota-messages"
 import { errorCatalog } from "@linksense/shared"
 
 export const zhCN = {
+  personalQuota: personalQuotaZhCN,
   webSites: webSitesZhCN,
   clientUpdate: {
     title: "系统已更新",
@@ -171,7 +173,7 @@ export const zhCN = {
     unreadCompletion: "任务已完成，尚未查看",
     unreadFailure: "任务执行失败，尚未查看",
     creditQuotaRemainingTitle: "额度",
-    creditQuotaRemaining: "总 {{total}} · 周 {{weekly}} · 月 {{monthly}}",
+    creditQuotaRemaining: "周 {{weekly}}",
   },
   support: {
     menuLabel: "反馈与帮助",
@@ -337,52 +339,40 @@ export const zhCN = {
   quotaManagement: {
     save: "保存设置",
     title: "额度管理",
-    description: "设置组织成员、开放注册用户的个人额度及 credits 换算价格。",
+    description: "设置全体成员统一的周额度标准及 credits 换算价格。",
     conversionTitle: "Credits 换算",
     conversionDescription:
       "按模型调用费用折算 credits。修改价格只影响之后的消费，已产生的消耗保持不变。",
     creditPrice: "1 credit 对应金额（人民币元）",
     conversionExample:
       "例如：1 credit = 0.01 元，消费 0.25 元会消耗 25 credits。",
-    organization_members: {
+    members: {
+      actions: "成员额度操作",
       reset: "重置全员额度",
       resetDescription:
-        "将全部已有组织成员的周、月、总额度恢复到各自现有限额的 100%，不限额的项目保持不限额。当前表单中未保存的限额不参与重置。历史消费记录保留，重置后发生的消费会继续扣减。",
+        "将全部已有成员的周额度恢复到各自现有限额的 100%，不限额的成员保持不限额。当前表单中未保存的限额不参与重置。历史消费记录保留，重置后发生的消费会继续扣减。",
 
-      title: "组织成员初始额度",
+      title: "成员周额度",
       description:
-        "应用于之后新建或导入的每位组织成员。点击下方按钮可应用到全部已有组织成员，也可在用户管理中单独或批量调整。",
-    },
-    self_registered_users: {
-      reset: "重置全员额度",
-      resetDescription:
-        "将全部已有自助注册成员的周、月、总额度恢复到各自现有限额的 100%，不限额的项目保持不限额。当前表单中未保存的限额不参与重置。历史消费记录保留，重置后发生的消费会继续扣减。",
-
-      title: "开放注册用户额度",
-      description:
-        "应用于每位自助注册用户。修改此处额度会同步到已有自助注册用户，包含曾单独调整过额度的用户；留空会取消对应限制。",
+        "作为之后新建、导入或自主注册成员的默认周额度。可通过右上角菜单应用到全部已有成员，也可在用户管理中单独或批量调整。",
     },
     weekly_credit_limit: "周额度（credits）",
-    monthly_credit_limit: "月额度（credits）",
-    total_credit_limit: "总额度（credits）",
     weekly_credit_limit_hint: "按系统时区，每周一零点重置。",
-    monthly_credit_limit_hint: "按系统时区，每月一日零点重置。",
-    total_credit_limit_hint: "累计使用上限，不自动重置。",
     unlimited: "不限额",
     invalidAmount:
       "请输入大于 0、最多 6 位小数且不超过 9,223,372,036,854.775807 的金额或额度。",
-    applyOrganization: "应用限额到全员",
+    applyMembers: "应用限额到全员",
     applyDescription:
-      "将周限额 {{weekly}}、月限额 {{monthly}}、总限额 {{total}} 保存为组织成员初始额度，并覆盖所有已有组织成员的限额，包括单独调整过的限额。不会清零已用额度；其他表单设置不受影响。",
+      "将周限额 {{weekly}} 保存为成员默认额度，并覆盖所有已有成员的周额度，包括单独调整过的额度。不会清零已用额度；其他表单设置不受影响。",
     confirmReset: "确认重置额度",
     resetHint: "确认重置后立即恢复可用额度，历史消费记录保留。",
     confirmApply: "确认保存并应用",
     resetSuccess: "已重置 {{count}} 位成员的额度。",
-    applySuccess: "已保存新限额，并应用到 {{count}} 位组织成员。",
+    applySuccess: "已保存新限额，并应用到 {{count}} 位成员。",
     refreshFailed: "操作已完成，但页面数据刷新失败，请刷新页面查看最新额度。",
     saved: "额度设置已保存。",
     enforcementHint:
-      "留空表示不限额。任一已设置额度耗尽后，将暂停发起新任务，正在运行的任务继续完成。消耗精确到 0.000001 credit，不足该精度的部分向上取整。",
+      "留空表示不限额。周额度耗尽后，将暂停发起新任务，正在运行的任务继续完成。消耗精确到 0.000001 credit，不足该精度的部分向上取整。",
   },
   settings: {
     navigationLabel: "{{productName}} 设置导航",
@@ -3839,7 +3829,6 @@ export const zhCN = {
     detailsDescription: "查看反馈内容与回复记录。",
     replies: "回复记录",
     noReplies: "暂未收到回复",
-    administrator: "管理员",
     writeReply: "回复用户",
     replyHint: "可以发送文字、图片，或同时发送。",
     replyPlaceholder: "输入回复内容…",
@@ -3970,14 +3959,10 @@ export const zhCN = {
     },
     loginMethod: "登录方式",
     lastLogin: "最近登录",
-    totalCreditLimit: "总额度",
     weeklyCreditLimit: "周额度",
-    monthlyCreditLimit: "月额度",
     creditLimitDisplay: "{{value}}",
     creditQuotaRemainingFilter: "额度剩余",
-    totalCreditQuotaRemainingZero: "总额度剩余为 0",
     weeklyCreditQuotaRemainingZero: "周额度剩余为 0",
-    monthlyCreditQuotaRemainingZero: "月额度剩余为 0",
     creditQuotaRemainingAmount: "剩余额度 {{value}}（{{percentage}}%）",
     creditQuotaRemainingUnavailable: "额度剩余 -",
     noCreditLimit: "不设置额度",
@@ -3987,22 +3972,17 @@ export const zhCN = {
     creditLimitInputInvalid: "请填写大于 0 的数字，最多 6 位小数。",
     userCreditLimits: "个人额度",
     userCreditLimitsDescription:
-      "总额度不会周期性重置；周额度和月额度会按对应周期重置。任一已设置额度用完后，用户将无法发起新任务，正在运行的任务不受影响。",
+      "周额度会在每周一零点重置。额度用完后，用户将无法发起新任务，正在运行的任务不受影响。",
     adjustCreditLimits: "调整额度",
     adjustUserCreditLimits: "调整 {{name}} 的额度",
     singleCreditLimitsTitle: "调整个人额度",
     singleCreditLimitsDescription:
-      "更新 {{name}} 的总额度、周额度和月额度；留空表示不设置对应的个人额度。",
-    selfRegisteredTotalQuotaOverrideHint:
-      "该用户由自主注册创建。以后保存新的开放注册总额度时，此处设置的总额度也会同步更新。",
+      "更新 {{name}} 的周额度；留空表示不设置个人额度。",
     batchCreditLimits: "批量设置额度（{{count}}）",
     batchCreditLimitsTitle: "批量设置用户额度",
     batchCreditLimitsDescription:
-      "将对已选择的 {{count}} 个用户应用本次勾选的额度字段；未勾选的字段保持不变。",
-    creditLimitFields: "要更新的额度",
-    updateTotalCreditLimit: "更新总额度",
-    updateWeeklyCreditLimit: "更新周额度",
-    updateMonthlyCreditLimit: "更新月额度",
+      "为已选择的 {{count}} 个用户设置周额度；留空会清除个人额度。",
+    creditLimitFields: "周额度",
     singleCreditLimitsSaved: "已更新 {{name}} 的额度。",
     creditLimitsSaved: "已更新 {{count}} 个用户的额度。",
     selectVisibleUsers: "选择当前列表中的用户",

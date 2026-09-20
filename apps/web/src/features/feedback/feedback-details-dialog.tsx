@@ -127,16 +127,17 @@ function FeedbackDetails({
         {feedback.replies.length === 0 ? (
           <EmptyState title={t("myFeedback.noReplies")} />
         ) : (
-          <ol className="flex flex-col gap-4">
+          <ol
+            className="divide-y divide-divider"
+            aria-label={t("myFeedback.replies")}
+          >
             {feedback.replies.map((reply) => (
               <li
                 key={reply.id}
-                className="flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-card-soft p-4"
+                className="flex min-w-0 flex-col gap-3 py-4 first:pt-0 last:pb-0"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">
-                    {t("myFeedback.administrator")}
-                  </span>
+                  <span className="font-medium">{reply.author.name}</span>
                   <time
                     className="text-muted-foreground"
                     dateTime={reply.created_at}

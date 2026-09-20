@@ -3,7 +3,7 @@ import {
   quotaSettingsSchema,
   maintenanceStatusSchema,
   resetMemberQuotasInputSchema,
-  applyOrganizationCreditLimitsInputSchema,
+  applyMemberCreditLimitsInputSchema,
   deleteModelProviderSchema,
   deleteModelProviderModelSchema,
   patchProductSettingsSchema,
@@ -265,11 +265,11 @@ export const adminSystemRoutes: FastifyPluginAsync<{
     return reply.send(ok(result, request.id))
   })
 
-  app.post("/quota-settings/apply-organization-limits", async (request, reply) => {
+  app.post("/quota-settings/apply-member-limits", async (request, reply) => {
     const actor = (request as AuthenticatedRequest).authUser
-    const result = await services.quotaSettings.applyOrganizationLimits(
+    const result = await services.quotaSettings.applyMemberLimits(
       actor.id,
-      applyOrganizationCreditLimitsInputSchema.parse(request.body),
+      applyMemberCreditLimitsInputSchema.parse(request.body),
       { ipAddress: request.ip, userAgent: request.headers["user-agent"] ?? null },
     )
     return reply.send(ok(result, request.id))

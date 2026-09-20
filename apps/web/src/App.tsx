@@ -170,6 +170,7 @@ const SettingsProfilePage = lazy(() =>
     default: module.SettingsProfilePage,
   }))
 )
+const PersonalQuotaPage = lazy(() => import("@/pages/personal-quota-page"))
 const SettingsPersonalizationPage = lazy(() =>
   import("@/pages/settings-pages").then((module) => ({
     default: module.SettingsPersonalizationPage,
@@ -235,6 +236,7 @@ export function App() {
                 path="/settings/profile"
                 element={<SettingsProfilePage />}
               />
+              <Route path="/settings/quota" element={<PersonalQuotaPage />} />
               <Route
                 path="/settings/personalization"
                 element={<SettingsPersonalizationPage />}
