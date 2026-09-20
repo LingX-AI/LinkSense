@@ -1,5 +1,5 @@
 export const personalQuotaZhCN = {
-  title: "额度",
+  title: "额度使用",
   description: "查看自己的剩余额度与使用情况。",
   overview: "概览",
   analytics: "分析",
@@ -41,7 +41,7 @@ export const personalQuotaZhCN = {
 }
 export const personalQuotaEnUS: Record<keyof typeof personalQuotaZhCN, string> =
   {
-    title: "Quota",
+    title: "Credit usage",
     description: "View your remaining credits and usage.",
     overview: "Overview",
     analytics: "Analytics",

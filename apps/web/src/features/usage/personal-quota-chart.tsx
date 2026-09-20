@@ -3,11 +3,10 @@ import { useTranslation } from "react-i18next"
 import {
   Bar,
   BarChart,
-  type BarShapeProps,
+  BarStack,
   CartesianGrid,
   Line,
   LineChart,
-  Rectangle,
   XAxis,
   YAxis,
 } from "recharts"
@@ -29,7 +28,6 @@ import {
   quotaChartData,
   formatQuotaAmount,
   personalQuotaChartColors,
-  stackedBarRadius,
   type QuotaChartInput,
 } from "./personal-quota-data"
 
@@ -56,7 +54,6 @@ export function PersonalQuotaChart({
       { label: series.label, color: personalQuotaChartColors[index] },
     ])
   )
-  const seriesKeys = data.series.map((series) => series.key)
   const chartChildren = (
     <>
       <CartesianGrid vertical={false} stroke="var(--app-usage-chart-grid)" />
@@ -98,27 +95,21 @@ export function PersonalQuotaChart({
           />
         }
       />
-      {data.series.map((series, seriesIndex) =>
-        kind === "bar" ? (
-          <Bar
-            key={series.key}
-            dataKey={series.key}
-            stackId="credits"
-            fill={`var(--color-${series.key})`}
-            maxBarSize={48}
-            isAnimationActive={false}
-            shape={(props: BarShapeProps) => (
-              <Rectangle
-                {...props}
-                radius={stackedBarRadius(
-                  data.points[props.index],
-                  seriesKeys,
-                  seriesIndex
-                )}
-              />
-            )}
-          />
-        ) : (
+      {kind === "bar" ? (
+        // Clip the entire stack so tiny top segments cannot flatten its corners.
+        <BarStack radius={[8, 8, 0, 0]}>
+          {data.series.map((series) => (
+            <Bar
+              key={series.key}
+              dataKey={series.key}
+              fill={`var(--color-${series.key})`}
+              maxBarSize={48}
+              isAnimationActive={false}
+            />
+          ))}
+        </BarStack>
+      ) : (
+        data.series.map((series) => (
           <Line
             key={series.key}
             dataKey={series.key}
@@ -127,7 +118,7 @@ export function PersonalQuotaChart({
             dot={false}
             isAnimationActive={false}
           />
-        )
+        ))
       )}
     </>
   )

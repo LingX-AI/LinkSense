@@ -199,12 +199,15 @@ describe("i18n resources", () => {
     ).toEqual([])
     expect(personalQuota.unit).toBe("credits")
     expect(enUS.personalQuota.unit).toBe("credits")
+    expect(i18n.t("personalQuota.title", { lng: "zh-CN" })).toBe("额度使用")
+    expect(i18n.t("personalQuota.title", { lng: "en-US" })).toBe("Credit usage")
     expect(i18n.t("personalQuota.unit", { lng: "fr-FR" })).toBe("credits")
     expect(quotaManagement.conversionTitle).toBe("Credits 换算")
     expect(quotaManagement.weekly_credit_limit).toBe("周额度（credits）")
     const instance = i18n.cloneInstance({ forkResourceStore: true })
     instance.removeResourceBundle("en-US", "translation")
     expect(instance.t(key, { lng: "en-US", ...values })).toBe("周 0")
+    expect(instance.t("personalQuota.title", { lng: "en-US" })).toBe("额度使用")
     expect(i18n.t("nav.creditQuotaRemainingTitle", { lng: "zh-CN" })).toBe(
       "额度"
     )
