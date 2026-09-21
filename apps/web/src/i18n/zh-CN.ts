@@ -173,7 +173,7 @@ export const zhCN = {
     unreadCompletion: "任务已完成，尚未查看",
     unreadFailure: "任务执行失败，尚未查看",
     creditQuotaRemainingTitle: "额度",
-    creditQuotaRemaining: "周 {{weekly}}",
+    creditQuotaRemaining: "{{weekly}}",
   },
   support: {
     menuLabel: "反馈与帮助",

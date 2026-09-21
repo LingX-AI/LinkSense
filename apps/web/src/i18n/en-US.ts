@@ -180,7 +180,7 @@ export const enUS = {
     unreadCompletion: "Task completed and not yet viewed",
     unreadFailure: "Task failed and has not been viewed",
     creditQuotaRemainingTitle: "Credits",
-    creditQuotaRemaining: "W {{weekly}}",
+    creditQuotaRemaining: "{{weekly}}",
   },
   support: {
     menuLabel: "Feedback and help",
