@@ -9,8 +9,8 @@ export function SidebarTaskScrollArea({ children }: { children: ReactNode }) {
           {children}
         </ScrollArea.Content>
       </ScrollArea.Viewport>
-      <ScrollArea.Scrollbar className="absolute inset-y-0 right-0 flex w-[7px] touch-none opacity-0 transition-opacity duration-300 select-none hover:opacity-100 has-[:active]:opacity-100 data-[scrolling]:opacity-100 motion-reduce:transition-none">
-        <ScrollArea.Thumb className="w-full rounded-full bg-[color-mix(in_srgb,var(--app-sidebar-muted)_22%,transparent)] hover:bg-[color-mix(in_srgb,var(--app-sidebar-muted)_34%,transparent)]" />
+      <ScrollArea.Scrollbar className="absolute inset-y-0 right-0 flex w-[var(--app-scrollbar-size)] touch-none opacity-0 transition-opacity duration-300 select-none hover:opacity-100 has-[:active]:opacity-100 data-[scrolling]:opacity-100 motion-reduce:transition-none">
+        <ScrollArea.Thumb className="w-full rounded-[var(--app-scrollbar-radius)] bg-[var(--app-scrollbar-thumb)] hover:bg-[var(--app-scrollbar-thumb-hover)]" />
       </ScrollArea.Scrollbar>
     </ScrollArea.Root>
   )

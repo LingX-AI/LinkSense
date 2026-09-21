@@ -202,12 +202,12 @@ describe("sidebar task scroll fade", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open task" }))
     expect(onClick).toHaveBeenCalledOnce()
     const scrollbar = container.querySelector('[data-orientation="vertical"]')
-    expect(scrollbar).toHaveClass("w-[7px]")
+    expect(scrollbar).toHaveClass("w-[var(--app-scrollbar-size)]")
     expect(scrollbar?.closest(".sidebar-conversation-scroll")).toBeNull()
     expect(scrollbar?.firstElementChild).toHaveClass(
-      "rounded-full",
-      "bg-[color-mix(in_srgb,var(--app-sidebar-muted)_22%,transparent)]",
-      "hover:bg-[color-mix(in_srgb,var(--app-sidebar-muted)_34%,transparent)]"
+      "rounded-[var(--app-scrollbar-radius)]",
+      "bg-[var(--app-scrollbar-thumb)]",
+      "hover:bg-[var(--app-scrollbar-thumb-hover)]"
     )
   })
 })

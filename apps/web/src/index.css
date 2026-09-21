@@ -211,6 +211,19 @@
   --conversation-top-bar-height: 54px;
   --app-text: #202020;
   --app-muted: #626262;
+  --app-scrollbar-size: 7px;
+  --app-scrollbar-radius: 999px;
+  --app-scrollbar-track: transparent;
+  --app-scrollbar-thumb: color-mix(
+    in srgb,
+    var(--app-muted) 22%,
+    transparent
+  );
+  --app-scrollbar-thumb-hover: color-mix(
+    in srgb,
+    var(--app-muted) 34%,
+    transparent
+  );
   --app-link: #174a7e;
   --app-link-hover: #123b68;
   --app-hover: rgb(32 32 32 / 4%);
@@ -449,6 +462,30 @@
   }
 }
 
+* {
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: var(--app-scrollbar-size);
+  height: var(--app-scrollbar-size);
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: var(--app-scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: var(--app-scrollbar-radius);
+  background: var(--app-scrollbar-thumb);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
+}
+
 .task-overview-card-shadow {
   box-shadow: var(--app-task-overview-shadow);
 }
@@ -566,9 +603,6 @@
   overflow-anchor: none;
   overscroll-behavior: contain;
   scrollbar-gutter: stable both-edges;
-  scrollbar-color: color-mix(in srgb, var(--app-muted) 35%, transparent)
-    transparent;
-  scrollbar-width: thin;
 }
 
 .conversation-column {
@@ -3090,26 +3124,6 @@
 
 .pptx-viewer-adapter [role="navigation"] > div {
   padding: 8px 10px 18px;
-  scrollbar-color: color-mix(in srgb, var(--app-muted) 20%, transparent)
-    transparent;
-  scrollbar-width: thin;
-}
-
-.pptx-viewer-adapter [role="navigation"] > div::-webkit-scrollbar {
-  width: 5px;
-}
-
-.pptx-viewer-adapter [role="navigation"] > div::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.pptx-viewer-adapter [role="navigation"] > div::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--app-muted) 20%, transparent);
-}
-
-.pptx-viewer-adapter [role="navigation"] > div::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--app-muted) 35%, transparent);
 }
 
 .pptx-viewer-adapter [role="navigation"] .group {
@@ -3789,9 +3803,6 @@
 
 .conversation-plan-content {
   overscroll-behavior: contain;
-  scrollbar-color: color-mix(in srgb, var(--app-muted) 32%, transparent)
-    transparent;
-  scrollbar-width: thin;
 }
 
 .conversation-plan-dock {
@@ -4641,8 +4652,6 @@
   min-width: 0;
   min-height: 0;
   overscroll-behavior: contain;
-  scrollbar-color: var(--app-media-control-hover) transparent;
-  scrollbar-width: thin;
   touch-action: none;
 }
 
@@ -4916,9 +4925,6 @@
   max-height: min(46svh, 380px);
   padding: 0;
   overscroll-behavior: contain;
-  scrollbar-color: color-mix(in srgb, var(--app-muted) 28%, transparent)
-    transparent;
-  scrollbar-width: thin;
 }
 
 .composer-slash-menu [data-slot="command-group"] {
@@ -9876,8 +9882,6 @@ button.annotation-hover-file:focus-visible {
   overflow-x: auto;
   margin-top: 18px;
   padding-bottom: 2px;
-  scrollbar-color: color-mix(in srgb, var(--app-muted) 24%, transparent)
-    transparent;
 }
 
 .profile-activity-heatmap-shell {
