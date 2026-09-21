@@ -1694,7 +1694,7 @@ describe("LinkSense application", () => {
       "text-[length:var(--app-ui-font-size)]"
     )
     const quotaTitle = within(menu).getByText("额度")
-    const quotaValues = within(menu).getByText("周 -")
+    const quotaValues = within(menu).getByText("-")
     expect(quotaTitle).toHaveClass("flex", "shrink-0", "items-center", "gap-2")
     const quotaIcon = quotaTitle.querySelector("svg")
     expect(quotaIcon).toHaveClass("lucide-gauge", "size-3.5", "shrink-0")

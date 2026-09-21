@@ -189,8 +189,8 @@ describe("i18n resources", () => {
   it("keeps Chinese quota navigation while using credits as the personal quota unit in both languages", () => {
     const values = { weekly: "0" }
     const key = "nav.creditQuotaRemaining"
-    expect(i18n.t(key, { lng: "zh-CN", ...values })).toBe("周 0")
-    expect(i18n.t(key, { lng: "en-US", ...values })).toBe("W 0")
+    expect(i18n.t(key, { lng: "zh-CN", ...values })).toBe("0")
+    expect(i18n.t(key, { lng: "en-US", ...values })).toBe("0")
     const { quotaManagement, personalQuota, ...chineseInterface } = zhCN
     expect(
       leafStrings(chineseInterface).filter((value) =>
@@ -206,7 +206,7 @@ describe("i18n resources", () => {
     expect(quotaManagement.weekly_credit_limit).toBe("周额度（credits）")
     const instance = i18n.cloneInstance({ forkResourceStore: true })
     instance.removeResourceBundle("en-US", "translation")
-    expect(instance.t(key, { lng: "en-US", ...values })).toBe("周 0")
+    expect(instance.t(key, { lng: "en-US", ...values })).toBe("0")
     expect(instance.t("personalQuota.title", { lng: "en-US" })).toBe("额度使用")
     expect(i18n.t("nav.creditQuotaRemainingTitle", { lng: "zh-CN" })).toBe(
       "额度"
