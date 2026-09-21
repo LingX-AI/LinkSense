@@ -271,45 +271,49 @@ export function SettingsShell() {
           className="settings-navigation-body"
           data-mobile-open={mobileOpen ? "true" : "false"}
         >
-          <NavLink
-            to={appReturnTo}
-            className="settings-back-link settings-desktop-back-link font-semibold"
-          >
-            <ArrowLeftIcon aria-hidden="true" />
-            <span>{t("settings.backToApp", { productName })}</span>
-          </NavLink>
-          <div className="settings-search-field">
-            <SearchIcon aria-hidden="true" />
-            <Input
-              aria-label={t("settings.search")}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={t("settings.search")}
-              className="font-medium"
-            />
+          <div className="settings-navigation-header">
+            <NavLink
+              to={appReturnTo}
+              className="settings-back-link settings-desktop-back-link font-semibold"
+            >
+              <ArrowLeftIcon aria-hidden="true" />
+              <span>{t("settings.backToApp", { productName })}</span>
+            </NavLink>
+            <div className="settings-search-field">
+              <SearchIcon aria-hidden="true" />
+              <Input
+                aria-label={t("settings.search")}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t("settings.search")}
+                className="font-medium"
+              />
+            </div>
           </div>
-          <SettingsNavigationGroup
-            title={t("settings.personalGroup")}
-            items={personalItems}
-            currentPath={location.pathname}
-            navigationState={settingsNavigationState}
-            onNavigate={() => setMobileOpen(false)}
-          />
-          {isActiveAdmin && (
+          <div className="settings-navigation-scroll">
             <SettingsNavigationGroup
-              title={t("settings.administrationGroup")}
-              items={adminItems}
+              title={t("settings.personalGroup")}
+              items={personalItems}
               currentPath={location.pathname}
               navigationState={settingsNavigationState}
               onNavigate={() => setMobileOpen(false)}
             />
-          )}
-          {personalItems.length === 0 &&
-            (!isActiveAdmin || adminItems.length === 0) && (
-              <p className="settings-navigation-empty font-medium">
-                {t("settings.noResults")}
-              </p>
+            {isActiveAdmin && (
+              <SettingsNavigationGroup
+                title={t("settings.administrationGroup")}
+                items={adminItems}
+                currentPath={location.pathname}
+                navigationState={settingsNavigationState}
+                onNavigate={() => setMobileOpen(false)}
+              />
             )}
+            {personalItems.length === 0 &&
+              (!isActiveAdmin || adminItems.length === 0) && (
+                <p className="settings-navigation-empty font-medium">
+                  {t("settings.noResults")}
+                </p>
+              )}
+          </div>
         </div>
       </aside>
       <main className="settings-main" id="main-content" tabIndex={0}>

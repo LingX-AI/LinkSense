@@ -143,32 +143,14 @@ describe("presentation preview layout", () => {
     )
   })
 
-  it("uses a subtle scrollbar for the slide thumbnail navigator", () => {
+  it("inherits the global scrollbar for the slide thumbnail navigator", () => {
     const navigator = declarationFor(
       '.pptx-viewer-adapter [role="navigation"] > div'
     )
-    const scrollbar = declarationFor(
-      '.pptx-viewer-adapter [role="navigation"] > div::-webkit-scrollbar'
-    )
-    const track = declarationFor(
-      '.pptx-viewer-adapter [role="navigation"] > div::-webkit-scrollbar-track'
-    )
-    const thumb = declarationFor(
-      '.pptx-viewer-adapter [role="navigation"] > div::-webkit-scrollbar-thumb'
-    )
 
-    expect(navigator).toMatch(
-      /scrollbar-color:\s*color-mix\(in srgb, var\(--app-muted\) 20%, transparent\)\s*transparent;/u
-    )
-    expect(navigator).toMatch(/scrollbar-width:\s*thin;/u)
-    expect(scrollbar).toMatch(/width:\s*5px;/u)
-    expect(track).toMatch(/background:\s*transparent;/u)
-    expect(thumb).toMatch(/border-radius:\s*999px;/u)
-    expect(thumb).toMatch(
-      /background:\s*color-mix\(in srgb, var\(--app-muted\) 20%, transparent\);/u
-    )
-    expect(previewStyles).toMatch(
-      /\.pptx-viewer-adapter\s+\[role="navigation"\]\s+> div::-webkit-scrollbar-thumb:hover\s*\{[\s\S]*?background:\s*color-mix\(in srgb, var\(--app-muted\) 35%, transparent\);/u
+    expect(navigator).not.toMatch(/scrollbar-(?:color|width):/u)
+    expect(previewStyles).not.toMatch(
+      /\.pptx-viewer-adapter\s+\[role="navigation"\]\s+> div::-webkit-scrollbar/u
     )
   })
 
