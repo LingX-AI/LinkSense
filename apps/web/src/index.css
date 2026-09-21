@@ -8859,7 +8859,7 @@ button.annotation-hover-file:focus-visible {
 
 .settings-sidebar {
   min-width: 0;
-  overflow-y: auto;
+  overflow: hidden;
   border-right: 1px solid var(--app-divider);
   background: var(--app-sidebar);
 }
@@ -8870,11 +8870,28 @@ button.annotation-hover-file:focus-visible {
 
 .settings-navigation-body {
   display: flex;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
   align-items: stretch;
+}
+
+.settings-navigation-header {
+  display: grid;
+  flex: none;
   gap: 16px;
-  padding: 16px 12px 24px;
+  padding: 16px 12px 8px;
+  background: var(--app-sidebar);
+}
+
+.settings-navigation-scroll {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding: 8px 12px 24px;
 }
 
 .settings-back-link {
@@ -11552,10 +11569,18 @@ button.annotation-hover-file:focus-visible {
   }
 
   .settings-navigation-body {
+    height: auto;
     max-height: min(70svh, 500px);
     min-height: 0;
-    overflow-y: auto;
-    padding: 4px 10px 14px;
+    overflow: hidden;
+  }
+
+  .settings-navigation-header {
+    padding: 4px 10px 8px;
+  }
+
+  .settings-navigation-scroll {
+    padding: 8px 10px 14px;
   }
 
   .settings-navigation-body[data-mobile-open="false"] {

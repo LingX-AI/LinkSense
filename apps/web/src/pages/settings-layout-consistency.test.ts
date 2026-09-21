@@ -148,4 +148,20 @@ describe("settings center layout consistency", () => {
       "min-height: 32px;"
     )
   })
+
+  it("keeps the settings controls fixed while only the navigation list scrolls", () => {
+    expect(firstCssRule(".settings-sidebar")).toContain("overflow: hidden;")
+    expect(firstCssRule(".settings-navigation-body")).toContain("height: 100%;")
+    expect(firstCssRule(".settings-navigation-body")).toContain(
+      "min-height: 0;"
+    )
+    expect(firstCssRule(".settings-navigation-header")).toContain("flex: none;")
+    expect(firstCssRule(".settings-navigation-scroll")).toContain(
+      "min-height: 0;"
+    )
+    expect(firstCssRule(".settings-navigation-scroll")).toContain("flex: 1;")
+    expect(firstCssRule(".settings-navigation-scroll")).toContain(
+      "overflow-y: auto;"
+    )
+  })
 })

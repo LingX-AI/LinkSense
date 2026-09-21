@@ -91,6 +91,29 @@ describe("SettingsShell administrator navigation", () => {
     expect(links[profile + 1]?.querySelector("svg")).toHaveClass("lucide-gauge")
   })
 
+  it("keeps the return link and search outside the scrolling navigation", () => {
+    render(
+      <MemoryRouter initialEntries={["/settings/general"]}>
+        <SettingsShell />
+      </MemoryRouter>
+    )
+
+    const sidebar = screen.getByRole("complementary", {
+      name: "LinkSense 设置导航",
+    })
+    const header = sidebar.querySelector(".settings-navigation-header")
+    const scroll = sidebar.querySelector(".settings-navigation-scroll")
+    const backLink = screen.getByRole("link", { name: "返回 LinkSense" })
+    const search = screen.getByRole("textbox", { name: "搜索设置" })
+    const personalNavigation = screen.getByRole("navigation", { name: "个人" })
+
+    expect(header).toContainElement(backLink)
+    expect(header).toContainElement(search)
+    expect(scroll).not.toContainElement(backLink)
+    expect(scroll).not.toContainElement(search)
+    expect(scroll).toContainElement(personalNavigation)
+  })
+
   it("places personal feedback immediately after archived tasks", () => {
     render(
       <MemoryRouter initialEntries={["/settings/feedback"]}>
