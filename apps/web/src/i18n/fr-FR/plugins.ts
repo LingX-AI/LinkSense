@@ -232,6 +232,10 @@ export const pluginResources = {
     withdraw: "Retirer la demande de révision",
     withdrawn: "La version en attente a été retirée.",
     unlist: "Retirer du Centre de plugins",
+    unlisting: "Retrait en cours…",
+    unlistConfirmTitle: "Retirer « {{name}} » du Centre de plugins ?",
+    unlistConfirmDescription:
+      "Ce contenu ne sera plus affiché dans le Centre de plugins ni accessible aux nouveaux utilisateurs. Les installations existantes pourront continuer à fonctionner et à être mises à jour.",
     relist: "Remettre au catalogue",
     unlisted:
       "L’élément a été retiré du catalogue. Les installations existantes peuvent toujours fonctionner et être mises à jour.",

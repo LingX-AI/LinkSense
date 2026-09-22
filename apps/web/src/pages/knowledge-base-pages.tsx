@@ -12,6 +12,7 @@ import {
   FileIcon,
   FileCogIcon,
   FolderIcon,
+  ListFilterIcon,
   LoaderCircleIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -409,6 +410,7 @@ function KnowledgeBaseLibraryContent() {
                 className="knowledge-library-filter"
                 aria-label={t("knowledge.filter.label")}
               >
+                <ListFilterIcon aria-hidden="true" />
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="start" alignItemWithTrigger={false}>

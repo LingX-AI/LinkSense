@@ -54,6 +54,57 @@ function interpolationTokens(value: string): string[] {
 }
 
 describe("i18n resources", () => {
+  it("localizes date range selection and falls back to Chinese", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    const values = {
+      from: "2026-07-01",
+      to: "2026-07-31",
+      date: "2026-07-01",
+      label: "日期范围",
+    }
+    for (const [key, chinese, english] of [
+      ["label", "日期范围", "Date range"],
+      ["createdLabel", "创建日期范围", "Created date range"],
+      ["lastRunLabel", "最后运行日期范围", "Last run date range"],
+      ["value", "2026-07-01 至 2026-07-31", "2026-07-01 – 2026-07-31"],
+      ["clear", "清除日期范围", "Clear 日期范围"],
+      [
+        "selectStart",
+        "请选择开始日期，再选择结束日期。",
+        "Select a start date, then an end date.",
+      ],
+      [
+        "selectEnd",
+        "已选 2026-07-01，请选择结束日期。",
+        "Start: 2026-07-01. Select an end date.",
+      ],
+    ]) {
+      const path = `common.dateRange.${key}`
+      expect(i18n.t(path, { lng: "zh-CN", ...values })).toBe(chinese)
+      expect(i18n.t(path, { lng: "en-US", ...values })).toBe(english)
+      expect(fallback.t(path, { lng: "en-US", ...values })).toBe(chinese)
+    }
+  })
+  it("names each administrator filter in Chinese and English with Chinese fallback", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    for (const [key, chinese, english] of [
+      ["allRoles", "全部角色", "All roles"],
+      ["allStatuses", "全部状态", "All statuses"],
+      ["allSources", "全部用户来源", "All user sources"],
+      ["allQuotas", "全部额度", "All quotas"],
+      ["allActions", "全部操作", "All actions"],
+      ["allResults", "全部结果", "All results"],
+      ["allRunnerStatuses", "全部执行器状态", "All runner statuses"],
+      ["allArchiveStatuses", "全部归档状态", "All archive statuses"],
+    ]) {
+      const path = `admin.filters.${key}`
+      expect(i18n.t(path, { lng: "zh-CN" })).toBe(chinese)
+      expect(i18n.t(path, { lng: "en-US" })).toBe(english)
+      expect(fallback.t(path, { lng: "en-US" })).toBe(chinese)
+    }
+  })
   it("distinguishes enterprise and third-party sign-in with Chinese missing-key fallback", () => {
     const fallback = i18n.cloneInstance({ forkResourceStore: true })
     fallback.removeResourceBundle("en-US", "translation")
@@ -71,6 +122,8 @@ describe("i18n resources", () => {
       ],
       ["admin.authSettings.teamsTitle", "Teams 内登录", "Sign in within Teams"],
       ["social.title", "第三方账号登录", "Third-party accounts"],
+      ["social.providers.github", "GitHub", "GitHub"],
+      ["loginMethods.github", "GitHub", "GitHub"],
       [
         "social.providers.microsoft",
         "Microsoft 个人账号",
@@ -941,6 +994,10 @@ describe("i18n resources", () => {
     expect(zhCN.conversation.archivedTaskCount_other).toBe("{{count}} 个任务")
     expect(zhCN.conversation.unarchiveNamed).toContain("{{title}}")
     expect(zhCN.conversation.searchTitle).toBe("搜索")
+    expect(zhCN.conversation.archivedSearchPlaceholder).toContain("已归档任务")
+    expect(zhCN.conversation.archivedSortNewest).toBe("最近更新")
+    expect(zhCN.conversation.archivedAllProjects).toBe("所有项目")
+    expect(zhCN.conversation.archivedSearchEmpty).toContain("符合条件")
     expect(zhCN.conversation.searchEmpty).toBe("没有找到结果")
     expect(zhCN.conversation.clearArchivedDescription).toContain(
       "其他未归档任务不受影响"
@@ -957,6 +1014,12 @@ describe("i18n resources", () => {
     expect(enUS.conversation.archivedTaskCount_other).toBe("{{count}} tasks")
     expect(enUS.conversation.unarchiveNamed).toContain("{{title}}")
     expect(enUS.conversation.searchTitle).toBe("Search")
+    expect(enUS.conversation.archivedSearchPlaceholder).toContain(
+      "archived task"
+    )
+    expect(enUS.conversation.archivedSortNewest).toBe("Recently updated")
+    expect(enUS.conversation.archivedAllProjects).toBe("All projects")
+    expect(enUS.conversation.archivedSearchEmpty).toContain("filters")
     expect(enUS.conversation.searchEmpty).toBe("No results found")
     expect(enUS.conversation.clearArchivedDescription).toContain(
       "Other active tasks are not affected"

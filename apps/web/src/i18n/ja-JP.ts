@@ -22,6 +22,7 @@ export const jaJP = {
       apple: "Apple",
       microsoft: "Microsoft 個人用アカウント",
       facebook: "Facebook",
+      github: "GitHub",
     },
     continueWith: "{{provider}} で続行",
     available: "またはソーシャルアカウントを使用",
@@ -49,6 +50,8 @@ export const jaJP = {
       "Facebook Login を有効にし、開発者コンソールで選択中の API バージョン（vXX.0）を入力してください。",
     googleHelp:
       "ウェブアプリケーション用の OAuth クライアントを作成し、認証コールバック URL を設定してください。",
+    githubHelp:
+      "GitHub の開発者設定で OAuth App を作成し、Client ID と Client Secret を入力してください。このコールバックアドレスを Authorization callback URL に設定してください。",
     bindings: "連携済みのソーシャルアカウント",
     bindingsHelp:
       "アカウントを連携すると、既存のプロフィールにログインできます。メールアドレスが一致していても自動的には統合されません。",
@@ -236,6 +239,15 @@ export const jaJP = {
       "このページを読み込めませんでした。接続を確認して再試行してください。更新通知が表示されている場合は、先にページを更新してください。",
   },
   common: {
+    dateRange: {
+      label: "日付範囲",
+      createdLabel: "作成日の範囲",
+      lastRunLabel: "最終実行日の範囲",
+      value: "{{from}} ～ {{to}}",
+      clear: "{{label}}をクリア",
+      selectStart: "開始日を選択し、次に終了日を選択してください。",
+      selectEnd: "開始日：{{date}}。終了日を選択してください。",
+    },
     close: "閉じる",
     notifications: "通知",
     cancel: "キャンセル",
@@ -2117,6 +2129,14 @@ export const jaJP = {
     searchTitle: "検索",
     searchPlaceholder:
       "タイトル、メッセージ、添付ファイル、成果物、プラグイン、スキルを検索…",
+    archivedSearchPlaceholder:
+      "アーカイブ済みタスクのタイトル、メッセージ、添付ファイルを検索…",
+    archivedSortLabel: "アーカイブ済みタスクを並べ替え",
+    archivedSortNewest: "更新が新しい順",
+    archivedSortOldest: "更新が古い順",
+    archivedProjectLabel: "プロジェクトで絞り込む",
+    archivedAllProjects: "すべてのプロジェクト",
+    archivedSearchEmpty: "条件に一致するアーカイブ済みタスクはありません。",
     searchEmpty: "検索結果がありません",
     listEmpty: "タスクはまだありません。入力欄から直接始められます。",
     newTaskWelcome: "{{productName}} で何を一緒に進めましょうか？",
@@ -3523,6 +3543,10 @@ export const jaJP = {
     withdraw: "審査申請を取り下げる",
     withdrawn: "審査待ちのリリースを取り下げました。",
     unlist: "プラグインセンターでの掲載を停止",
+    unlisting: "掲載を停止しています…",
+    unlistConfirmTitle: "「{{name}}」の掲載を停止しますか？",
+    unlistConfirmDescription:
+      "このコンテンツはプラグインセンターに表示されなくなり、新しいユーザーはインストールできなくなります。既存のインストールは引き続き実行・更新できます。",
     relist: "再掲載",
     unlisted:
       "掲載を停止しました。既存のインストールは引き続き実行・更新できます。",
@@ -4516,6 +4540,16 @@ export const jaJP = {
     weeklyCreditLimit: "週間利用枠（クレジット）",
     creditLimitDisplay: "{{value}} クレジット",
     creditQuotaRemainingFilter: "残りの利用枠",
+    filters: {
+      allRoles: "すべてのロール",
+      allStatuses: "すべての状態",
+      allSources: "すべてのユーザー登録元",
+      allQuotas: "すべての利用枠",
+      allActions: "すべての操作",
+      allResults: "すべての結果",
+      allRunnerStatuses: "すべての実行環境の状態",
+      allArchiveStatuses: "すべてのアーカイブ状態",
+    },
     weeklyCreditQuotaRemainingZero: "今週の残りは 0",
     creditQuotaRemainingAmount: "残り {{value}} クレジット（{{percentage}}%）",
     creditQuotaRemainingUnavailable: "残りの利用枠 -",
@@ -5790,6 +5824,7 @@ export const jaJP = {
     apple: "Apple",
     microsoft: "Microsoft",
     facebook: "Facebook",
+    github: "GitHub",
     password: "ローカルパスワード",
     oidc: "シングルサインオン",
     teams: "Teams SSO",

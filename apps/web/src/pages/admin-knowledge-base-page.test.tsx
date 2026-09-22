@@ -141,6 +141,22 @@ describe("administrator knowledge-base governance", () => {
     vi.unstubAllGlobals()
   })
 
+  it("shows semantic icons before both knowledge-base filter labels", async () => {
+    vi.stubGlobal("fetch", createFetchMock())
+    renderPage()
+
+    await screen.findByText(activeKnowledgeBase.name)
+    const lifecycleFilter = screen.getByRole("combobox", {
+      name: i18n.t("adminKnowledge.lifecycle.label"),
+    })
+    const availabilityFilter = screen.getByRole("combobox", {
+      name: i18n.t("adminKnowledge.availability.label"),
+    })
+
+    expect(lifecycleFilter.querySelector(".lucide-workflow")).not.toBeNull()
+    expect(availabilityFilter.querySelector(".lucide-power")).not.toBeNull()
+  })
+
   it("gives knowledge-base names more width and allows two lines", async () => {
     vi.stubGlobal("fetch", createFetchMock())
     renderPage()

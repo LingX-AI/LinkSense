@@ -3312,6 +3312,8 @@ function MyPublicationsPanel({
     useState<MarketplacePublication | null>(null)
   const [detailTarget, setDetailTarget] =
     useState<MarketplacePublication | null>(null)
+  const [unlistTarget, setUnlistTarget] =
+    useState<MarketplacePublication | null>(null)
 
   const sources = useQuery({
     queryKey: ["capabilities", "publishable"],
@@ -3367,6 +3369,7 @@ function MyPublicationsPanel({
         schema: marketplaceListingSchema,
       }),
     onSuccess: async (_, publication) => {
+      setUnlistTarget(null)
       onFeedback(
         t(
           publication.listing.status === "unlisted"
@@ -3481,7 +3484,13 @@ function MyPublicationsPanel({
                 setPublishOpen(true)
               }}
               onWithdraw={() => withdrawMutation.mutate(publication)}
-              onStatusChange={() => statusMutation.mutate(publication)}
+              onStatusChange={() => {
+                if (publication.listing.status === "unlisted") {
+                  statusMutation.mutate(publication)
+                  return
+                }
+                setUnlistTarget(publication)
+              }}
             />
           ))}
         </div>
@@ -3521,6 +3530,28 @@ function MyPublicationsPanel({
         admin={false}
         onOpenChange={(open) => {
           if (!open) setDetailTarget(null)
+        }}
+      />
+      <ConfirmDialog
+        open={unlistTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setUnlistTarget(null)
+        }}
+        title={t("marketplace.unlistConfirmTitle", {
+          name: unlistTarget
+            ? capabilityDisplayName({
+                ...unlistTarget.latest_release,
+                type: unlistTarget.listing.type,
+              })
+            : "",
+        })}
+        description={t("marketplace.unlistConfirmDescription")}
+        confirmLabel={t("marketplace.unlist")}
+        pendingLabel={t("marketplace.unlisting")}
+        destructive
+        pending={statusMutation.isPending}
+        onConfirm={() => {
+          if (unlistTarget) statusMutation.mutate(unlistTarget)
         }}
       />
     </div>
@@ -4044,6 +4075,8 @@ function GovernanceListingItem({
 }) {
   const { t } = useTranslation()
   const suspended = publication.listing.status === "suspended"
+  const canChangeGovernanceStatus =
+    publication.listing.status === "published" || suspended
 
   return (
     <MarketplaceGovernanceItem
@@ -4072,7 +4105,7 @@ function GovernanceListingItem({
         ) : undefined
       }
       actions={
-        publication.current_release ? (
+        publication.current_release && canChangeGovernanceStatus ? (
           <Button
             type="button"
             variant={suspended ? "secondary" : "destructive-ghost"}

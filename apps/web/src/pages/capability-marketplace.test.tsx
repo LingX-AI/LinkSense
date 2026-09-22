@@ -1602,6 +1602,120 @@ describe("capability marketplace pages", () => {
     )
   })
 
+  it.each(["zh-CN", "en-US"])(
+    "confirms in %s before a publisher unlists a Plugin Center item",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const publication = {
+        listing,
+        current_release: release,
+        latest_release: release,
+        install_count: 7,
+      }
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input), window.location.origin)
+          const method = init?.method ?? "GET"
+          if (url.pathname === "/api/v1/marketplace/mine" && method === "GET") {
+            return Promise.resolve(
+              envelope({ items: [publication], next_cursor: null })
+            )
+          }
+          if (
+            url.pathname === `/api/v1/marketplace/${LISTING_ID}/status` &&
+            method === "PATCH"
+          ) {
+            return Promise.resolve(envelope({ ...listing, status: "unlisted" }))
+          }
+          return Promise.resolve(envelope({ items: [], next_cursor: null }))
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const interaction = userEvent.setup()
+      renderUserPage()
+
+      await interaction.click(
+        await screen.findByRole("button", {
+          name: i18n.t("marketplace.tabs.publishing"),
+        })
+      )
+      const publicationCard = await screen.findByRole("article", {
+        name: release.name,
+      })
+      await interaction.click(
+        within(publicationCard).getByRole("button", {
+          name: i18n.t("common.actions"),
+        })
+      )
+      await interaction.click(
+        await screen.findByRole("menuitem", {
+          name: i18n.t("marketplace.unlist"),
+        })
+      )
+
+      const dialog = await screen.findByRole("dialog", {
+        name: i18n.t("marketplace.unlistConfirmTitle", {
+          name: release.name,
+        }),
+      })
+      expect(dialog).toHaveTextContent(
+        i18n.t("marketplace.unlistConfirmDescription")
+      )
+      expect(
+        fetchMock.mock.calls.some(([input, init]) => {
+          const url = new URL(String(input), window.location.origin)
+          return (
+            url.pathname === `/api/v1/marketplace/${LISTING_ID}/status` &&
+            init?.method === "PATCH"
+          )
+        })
+      ).toBe(false)
+
+      await interaction.click(
+        within(dialog).getByRole("button", { name: i18n.t("common.cancel") })
+      )
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("dialog", {
+            name: i18n.t("marketplace.unlistConfirmTitle", {
+              name: release.name,
+            }),
+          })
+        ).not.toBeInTheDocument()
+      )
+      await interaction.click(
+        within(publicationCard).getByRole("button", {
+          name: i18n.t("common.actions"),
+        })
+      )
+      await interaction.click(
+        await screen.findByRole("menuitem", {
+          name: i18n.t("marketplace.unlist"),
+        })
+      )
+      const confirmation = await screen.findByRole("dialog", {
+        name: i18n.t("marketplace.unlistConfirmTitle", {
+          name: release.name,
+        }),
+      })
+      await interaction.click(
+        within(confirmation).getByRole("button", {
+          name: i18n.t("marketplace.unlist"),
+        })
+      )
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.stringContaining(`/marketplace/${LISTING_ID}/status`),
+          expect.objectContaining({
+            method: "PATCH",
+            body: JSON.stringify({ status: "unlisted" }),
+          })
+        )
+      )
+    }
+  )
+
   it("shows and applies a Plugin Center update from My capabilities", async () => {
     const previousReleaseId = "40000000-0000-4000-8000-000000000009"
     let updateAvailable = true
@@ -4979,6 +5093,41 @@ describe("capability marketplace pages", () => {
       if (!suspended) expect(screen.getByLabelText("下架原因")).toBeVisible()
     }
   )
+
+  it("does not offer another unlisting action for a publisher-unlisted listing", async () => {
+    const publication = {
+      listing: { ...listing, status: "unlisted" as const },
+      current_release: release,
+      latest_release: release,
+      install_count: 7,
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        return Promise.resolve(
+          envelope({
+            items:
+              path === "/api/v1/admin/marketplace/listings"
+                ? [publication]
+                : [],
+            next_cursor: null,
+          })
+        )
+      })
+    )
+    const interaction = userEvent.setup()
+    renderAdminPage()
+
+    await interaction.click(
+      await screen.findByRole("tab", { name: "全部上架项" })
+    )
+
+    const item = await screen.findByRole("article", { name: release.name })
+    expect(within(item).getByText("已下架")).toBeVisible()
+    expect(within(item).queryByRole("button", { name: "下架" })).toBeNull()
+    expect(within(item).queryByRole("button", { name: "重新上架" })).toBeNull()
+  })
 
   it("allows an administrator to review a release without consulting retired scan metadata", async () => {
     const pendingRelease = {
