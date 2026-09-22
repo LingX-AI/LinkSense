@@ -3026,9 +3026,38 @@ export class AppServerProcessPool {
       this.withProcessLifecycleLock(input.conversationId, async () => {
         let managed: ManagedProcess | undefined;
         try {
-          const recovered =
-            await this.readThreadForAuthorizedRecoveryLocked(input);
-          managed = recovered.managed;
+          const existing = this.processes.get(input.conversationId);
+          if (
+            input.runtimePurpose === "control" &&
+            existing &&
+            !existing.closing &&
+            !existing.evicting &&
+            existing.client.isHealthy
+          ) {
+            // Clearing a Goal only changes thread metadata. Reuse its live
+            // process without comparing the empty control capabilities to the
+            // running turn's capabilities or replacing its projection lease.
+            if (
+              existing.ownerId !== input.ownerId ||
+              existing.codexThreadId !== input.codexThreadId
+            ) {
+              throw new CodexProtocolError("goal control runtime identity mismatch");
+            }
+            if (
+              existing.runtimeGeneration !== input.expectedRuntimeGeneration ||
+              await this.options.workspaceManager.readRuntimeGeneration(input.conversationId) !==
+                input.expectedRuntimeGeneration
+            ) {
+              throw new StartOperationRuntimeGenerationMismatchError();
+            }
+            managed = existing;
+            managed.starting = true;
+            this.clearIdleTimer(managed);
+          } else {
+            const recovered =
+              await this.readThreadForAuthorizedRecoveryLocked(input);
+            managed = recovered.managed;
+          }
           return await operation(managed);
         } finally {
           if (managed && this.processes.get(input.conversationId) === managed) {

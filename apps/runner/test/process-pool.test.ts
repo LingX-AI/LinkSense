@@ -656,6 +656,88 @@ describe("AppServerProcessPool", () => {
     await pool.closeAll();
   });
 
+  it.each([false, true])("clears a Goal through its existing process with a retained capability lease (completed: %s)", async (completed) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-running-goal-clear-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({ turnStartNotification: "after-response" });
+    const { pool, capabilityRuntimeManager } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    try {
+      await pool.startTurn({
+        ...input,
+        goal: { objective: "Complete the task", tokenBudget: null },
+      });
+      if (completed) {
+        await pool.setGoal({ ...input, codexThreadId: "thread-native-1", status: "complete" });
+        controlled.notify({
+          method: "turn/completed",
+          params: {
+            threadId: "thread-native-1",
+            turn: { id: "turn-native-1", status: "completed", items: [], error: null },
+          },
+        });
+        await waitForFast(() => expect(pool.runningCount).toBe(0));
+      }
+      const methodsBeforeClear = controlled.methods.length;
+      const leasesBeforeClear = capabilityRuntimeManager.acquireLease.mock.calls.length;
+
+      await expect(pool.clearGoal({
+        conversationId: input.conversationId,
+        projectionTurnId: input.projectionTurnId,
+        ownerId: input.ownerId,
+        expectedRuntimeGeneration: input.expectedRuntimeGeneration,
+        codexThreadId: "thread-native-1",
+        model: input.model,
+        reasoningEffort: input.reasoningEffort,
+        modelProvider: input.modelProvider,
+      })).resolves.toBe(true);
+
+      expect(controlled.methods.slice(methodsBeforeClear)).toEqual(["thread/goal/clear"]);
+      expect(controlled.kill).not.toHaveBeenCalled();
+      expect(pool.runningCount).toBe(completed ? 0 : 1);
+      expect(capabilityRuntimeManager.acquireLease).toHaveBeenCalledTimes(leasesBeforeClear);
+      if (!completed) {
+        expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
+      }
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it.each(["owner", "thread", "requested generation", "stored generation"] as const)(
+    "rejects clearing a live Goal when the %s does not match",
+    async (mismatch) => {
+      const root = await mkdtemp(join(tmpdir(), "linksense-goal-clear-identity-"));
+      roots.push(root);
+      const controlled = createControlledAppServer({ turnStartNotification: "after-response" });
+      const { pool, setRuntimeGeneration, capabilityRuntimeManager } = createStartOperationPool(root, controlled.factory);
+      const input = startOperationInput();
+      const differentId = "01900000-0000-7000-8000-000000000003";
+      try {
+        await pool.startTurn({ ...input, goal: { objective: "Complete the task", tokenBudget: null } });
+        if (mismatch === "stored generation") setRuntimeGeneration(differentId);
+
+        await expect(pool.clearGoal({
+          conversationId: input.conversationId,
+          projectionTurnId: input.projectionTurnId,
+          ownerId: mismatch === "owner" ? differentId : input.ownerId,
+          expectedRuntimeGeneration: mismatch === "requested generation" ? differentId : input.expectedRuntimeGeneration,
+          codexThreadId: mismatch === "thread" ? "another-thread" : "thread-native-1",
+          model: input.model,
+          reasoningEffort: input.reasoningEffort,
+          modelProvider: input.modelProvider,
+        })).rejects.toThrow();
+
+        expect(controlled.methods).not.toContain("thread/goal/clear");
+        expect(controlled.kill).not.toHaveBeenCalled();
+        expect(pool.runningCount).toBe(1);
+        expect(capabilityRuntimeManager.releaseLease).not.toHaveBeenCalled();
+      } finally {
+        await pool.closeAll();
+      }
+    },
+  );
+
   it("passes provider and built-in MCP config only to the app-server process", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-process-runtime-config-"),
