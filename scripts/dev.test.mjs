@@ -486,6 +486,7 @@ function applicationContainerOutput(health = {}) {
     Service,
     ID: String(index + 1).repeat(12),
     Health: health[Service] ?? "healthy",
+    State: "running",
   })).join("\n");
 }
 
@@ -502,6 +503,47 @@ test("reattaching restarts an unhealthy watch container even when its source is 
   });
   assert.equal(synchronized.length, 3);
   assert.deepEqual(restarted, [["api"]]);
+});
+
+test("startup rebuilds only a crash-looping container before synchronizing healthy services", async () => {
+  const output = applicationContainerOutput().split("\n").map((line) => {
+    const item = JSON.parse(line);
+    return JSON.stringify(item.Service === "api" ? { ...item, State: "restarting", Health: "" } : item);
+  }).join("\n");
+  const recovered = [];
+  const synchronized = [];
+  await synchronizeDevelopmentApplications(output, {
+    isLive: async () => true,
+    synchronize: async (service) => { synchronized.push(service); return { changed: false }; },
+    recover: async (service) => { recovered.push(service); },
+    restart: async () => { assert.fail("healthy containers must not restart"); },
+  });
+  assert.deepEqual(recovered, ["api"]);
+  assert.deepEqual(synchronized.sort(), ["runner", "web"]);
+});
+
+test("startup handles a container that crashes between inspection and source transfer", async () => {
+  const recovered = [];
+  await synchronizeDevelopmentApplications(applicationContainerOutput(), {
+    isLive: async () => true,
+    synchronize: async (service) => {
+      if (service === "api") throw new Error("docker exec cannot run in restarting container");
+      return { changed: false };
+    },
+    readState: async (id) => id === "111111111111" ? "restarting" : "running",
+    recover: async (service) => { recovered.push(service); },
+    restart: async () => { assert.fail("no extra restart"); },
+  });
+  assert.deepEqual(recovered, ["api"]);
+});
+
+test("a source transfer failure in a running container is not concealed by rebuilding", async () => {
+  await assert.rejects(synchronizeDevelopmentApplications(applicationContainerOutput(), {
+    synchronize: async () => { throw new Error("rsync failed"); },
+    readState: async () => "running",
+    recover: async () => { assert.fail("not a container crash"); },
+    restart: async () => { assert.fail("source transfer failed"); },
+  }), /rsync failed/u);
 });
 
 test("source sync restarts changed and unhealthy services once, after all transfers finish", async () => {
