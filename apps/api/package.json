@@ -43,6 +43,7 @@
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@microsoft/teams.apps": "2.0.16",
     "@modelcontextprotocol/sdk": "1.29.0",
+    "@node-saml/node-saml": "5.1.0",
     "@openrouter/ai-sdk-provider": "3.0.0",
     "@prisma/adapter-pg": "7.8.0",
     "@wecom/aibot-node-sdk": "1.0.7",
@@ -104,9 +105,11 @@
     "@types/unzipper": "^0.10.11",
     "eslint": "^10.0.0",
     "prisma": "7.8.0",
+    "selfsigned": "5.5.0",
     "tsx": "^4.20.6",
     "typescript": "~6.0.0",
     "typescript-eslint": "^8.57.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "xml-crypto": "6.3.1"
   }
 }

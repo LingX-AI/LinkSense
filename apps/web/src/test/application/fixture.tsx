@@ -1,5 +1,5 @@
 import App from "@/App"
-import type { UserGroup } from "@/api/contracts"
+import type { SupportedLanguage, UserGroup } from "@/api/contracts"
 import { setAccessToken } from "@/api/session"
 import { AppProviders } from "@/app/providers"
 import { clearConversationAttachmentPreviewCacheForTests } from "@/features/conversations/conversation-attachment-preview-cache"
@@ -9,6 +9,7 @@ import { cleanup, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeAll, beforeEach, vi } from "vitest"
+import { isLocale } from "@linksense/shared"
 
 const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(
   URL,
@@ -70,7 +71,7 @@ function seedLocalDraft(
 
 function authenticationSession(
   accessToken: string,
-  language: "zh-CN" | "en-US",
+  language: SupportedLanguage,
   userOverride: Partial<typeof user> | undefined,
   loginMethod: "password" | "oidc" | "teams" = "password"
 ) {
@@ -434,9 +435,10 @@ function installApiMock(options?: {
   conversationSourcesResponse?: () => Response | Promise<Response>
   initialized?: boolean
   initializationCredentialRequired?: boolean
+  registrationEnabled?: boolean
   systemName?: string
   refreshFails?: boolean
-  initialLanguage?: "zh-CN" | "en-US"
+  initialLanguage?: SupportedLanguage
   languagePatchFails?: boolean
   conversationOverride?: Record<string, unknown>
   conversationGetResponse?: (callIndex: number) => Promise<Response>
@@ -574,6 +576,9 @@ function installApiMock(options?: {
         return json({ success: true, data: { items: [] } })
       }
 
+      if (path === "/api/v1/auth/saml/status")
+        return json({ success: true, data: { enabled: false } })
+
       if (path === "/api/v1/system/bootstrap") {
         return json({
           success: true,
@@ -583,6 +588,7 @@ function installApiMock(options?: {
               options?.initializationCredentialRequired ?? false,
             system_name: options?.systemName ?? "LinkSense",
             default_language: "zh-CN",
+            registration: { enabled: options?.registrationEnabled ?? false },
             teams_sso: { status: "not_configured" },
             oidc: { status: "not_configured" },
           },
@@ -772,10 +778,7 @@ function installApiMock(options?: {
               503
             )
           }
-          if (
-            body.preferred_locale === "zh-CN" ||
-            body.preferred_locale === "en-US"
-          ) {
+          if (isLocale(body.preferred_locale)) {
             currentLanguage = body.preferred_locale
           }
           if (body.running_message_action)

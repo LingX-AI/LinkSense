@@ -10,6 +10,7 @@ export function PageLayout({
   beforeHeader,
   afterHeader,
   className,
+  contentWidth = "standard",
   children,
 }: {
   title: string
@@ -19,11 +20,15 @@ export function PageLayout({
   beforeHeader?: ReactNode
   afterHeader?: ReactNode
   className?: string
+  contentWidth?: "standard" | "wide"
   children: ReactNode
 }) {
   return (
     <div className="management-scroll">
-      <div className={cn("management-page", className)}>
+      <div
+        className={cn("management-page", className)}
+        data-content-width={contentWidth}
+      >
         {beforeHeader && <div className="mb-6">{beforeHeader}</div>}
         <header className="management-header" role="banner">
           <div className="min-w-0">

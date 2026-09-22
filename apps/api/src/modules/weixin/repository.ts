@@ -1,3 +1,5 @@
+import { isLocale, type Locale } from "@linksense/shared";
+
 import type {
   PrismaClient,
   WeixinConnection,
@@ -544,12 +546,12 @@ export class PrismaWeixinRepository {
     );
   }
 
-  async getOwnerLocale(ownerId: string): Promise<"zh-CN" | "en-US"> {
+  async getOwnerLocale(ownerId: string): Promise<Locale> {
     const owner = await this.prisma.user.findUnique({
       where: { id: ownerId },
       select: { preferredLocale: true },
     });
-    return owner?.preferredLocale === "en-US" ? "en-US" : "zh-CN";
+    return isLocale(owner?.preferredLocale) ? owner.preferredLocale : "zh-CN";
   }
 
   async markInboundAccepted(input: {

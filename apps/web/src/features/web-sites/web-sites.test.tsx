@@ -14,6 +14,7 @@ import { createInstance } from "i18next"
 import { webSiteSchema } from "@linksense/shared"
 import i18n from "@/i18n"
 import { notify } from "@/components/feedback/notification"
+import { OfficePreviewShell } from "@/components/media/office-preview/office-preview-shell"
 import { SiteLibrary } from "./site-library"
 import { SiteDialog } from "./site-dialog"
 import { SiteShareButton } from "./site-share-button"
@@ -720,6 +721,41 @@ describe("website management", () => {
       />
     )
     expect(screen.getByRole("button", { name: "发布为站点" })).toBeVisible()
+  })
+  it("renders the publishing dialog inside an expanded office preview", async () => {
+    mount(
+      <OfficePreviewShell
+        document={{ status: "ready" }}
+        fileName="page.html"
+        mimeType="text/html"
+        controls={
+          <SiteShareButton
+            conversationId={id}
+            file={{
+              id: fileId,
+              name: "page.html",
+              size: 10,
+              download_available: true,
+              kind: "artifact",
+            }}
+          />
+        }
+      >
+        <div>preview</div>
+      </OfficePreviewShell>
+    )
+    const preview = screen.getByRole("region", {
+      name: "预览文档 page.html",
+    })
+
+    await userEvent.click(screen.getByRole("button", { name: "全屏预览文档" }))
+    await userEvent.click(screen.getByRole("button", { name: "发布为站点" }))
+
+    const dialog = screen.getByRole("dialog", { name: "发布为站点" })
+    expect(preview).toHaveClass("office-preview-pane-expanded")
+    expect(preview).toContainElement(
+      dialog.closest<HTMLElement>('[data-slot="dialog-portal"]')
+    )
   })
   it("keeps Chinese and English keys aligned and supports language fallback", async () => {
     const flatten = (value: object, prefix = ""): string[] =>

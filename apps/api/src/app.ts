@@ -1,8 +1,18 @@
+import { SamlSettingsService } from "./modules/saml/settings.js";
+import { SamlProtocol } from "./modules/saml/protocol.js";
+import { RedisSamlStateStore } from "./modules/saml/state.js";
+import { samlRoutes } from "./modules/saml/routes.js";
 import { applicationCenterRoutes, adminApplicationCenterRoutes } from "./modules/applications/center-routes.js";
 import { applicationDevelopmentRoutes, internalApplicationBuilderRoutes } from "./modules/applications/development-routes.js";
 import { registerRunnerRuntimeScope } from "./modules/events/runtime-scope.js";
 import { finishTaskRequest, withTaskLatencyContext } from "./lib/task-latency.js";
 import cookie from "@fastify/cookie";
+import { socialAuthRoutes } from "./modules/social-auth/routes.js";
+import { SocialSettingsService } from "./modules/social-auth/settings.js";
+import { PrismaSocialRepository } from "./modules/social-auth/repository.js";
+import { RedisSocialStateStore } from "./modules/social-auth/state.js";
+import { OpenIdSocialProtocol } from "./modules/social-auth/protocol.js";
+import { SocialAuthService } from "./modules/social-auth/service.js";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
@@ -110,6 +120,9 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.environment",
   "req.body.json",
   "req.body.client_secret",
+  "req.body.signing_private_key",
+  "req.body.SAMLResponse",
+  "req.body.RelayState",
   "req.body.audio_data_url",
   "req.body.icon.data_base64",
   "req.body.instruction",
@@ -229,6 +242,25 @@ export async function buildApi(
       if (!request.authUser) throw new Error("authenticated user missing");
       return authService.getCurrentUser(request.authUser.id);
     },
+  });
+  const samlSettings = new SamlSettingsService(services.prisma, services.config);
+  await app.register(samlRoutes, {
+    settings: samlSettings,
+    protocol: new SamlProtocol(samlSettings, new RedisSamlStateStore(services.redis)),
+    auth: authService,
+    publicBaseUrl: services.config.publicBaseUrl,
+  });
+  const socialSettings = new SocialSettingsService(services.prisma, services.config);
+  const socialRepository = new PrismaSocialRepository(services.prisma, socialSettings);
+  await app.register(socialAuthRoutes, {
+    settings: socialSettings, repository: socialRepository, auth: authService,
+    publicBaseUrl: services.config.publicBaseUrl,
+    service: new SocialAuthService({
+      settings: socialSettings, repository: socialRepository,
+      states: new RedisSocialStateStore(services.redis),
+      protocol: new OpenIdSocialProtocol(socialSettings), mailer: services.mailer,
+      publicBaseUrl: services.config.publicBaseUrl,
+    }),
   });
   const userAuthentication = {
     authenticate: app.authenticate,

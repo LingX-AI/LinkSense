@@ -258,7 +258,7 @@ describe("application annotation preview", () => {
   it.each([
     ["zh-CN", "标注", "问 LinkSense", "针对所选内容询问 LinkSense"],
     ["en-US", "Annotate", "Ask LinkSense", "Ask LinkSense about the selection"],
-    ["fr-FR", "标注", "问 LinkSense", "针对所选内容询问 LinkSense"],
+    ["de-DE", "标注", "问 LinkSense", "针对所选内容询问 LinkSense"],
   ])(
     "offers localized annotation controls and the HTML selection prompt in %s",
     async (language, label, ask, promptLabel) => {

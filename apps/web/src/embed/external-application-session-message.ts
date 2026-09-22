@@ -1,8 +1,10 @@
+import { isLocale, type Locale } from "@linksense/shared"
+
 export type ExternalApplicationSessionMessage = Readonly<{
   sessionId: string | null
 }>
 
-export type EmbedLocale = "zh-CN" | "en-US"
+export type EmbedLocale = Locale
 
 export function embedLocaleFromMessage(
   message: Record<string, unknown>,
@@ -11,9 +13,7 @@ export function embedLocaleFromMessage(
   if (message.appId !== appId || message.type !== "linksense:locale") {
     return undefined
   }
-  return message.locale === "zh-CN" || message.locale === "en-US"
-    ? message.locale
-    : undefined
+  return isLocale(message.locale) ? message.locale : undefined
 }
 
 export function embedExternalApplicationSessionFromMessage(

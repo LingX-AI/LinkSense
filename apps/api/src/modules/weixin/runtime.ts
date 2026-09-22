@@ -1,6 +1,8 @@
 import { v7 as uuidv7 } from "uuid";
+import type { Locale } from "@linksense/shared";
 
 import { DurableWorkDispatcher } from "../../lib/durable-work-dispatcher.js";
+import { translateBackend } from "../../lib/i18n.js";
 import type { AppError } from "../../lib/errors.js";
 import type { ConversationService } from "../conversations/service.js";
 import {
@@ -1281,32 +1283,40 @@ function typingTicketKey(connectionId: string, peerUserId: string): string {
 
 function boundedChunks(
   text: string,
-  locale: "zh-CN" | "en-US",
+  locale: Locale,
 ): string[] {
   const chunks = splitWeixinText(text);
   if (chunks.length <= MAX_OUTBOUND_CHUNKS) return chunks;
   return [
     ...chunks.slice(0, MAX_OUTBOUND_CHUNKS - 1),
-    locale === "en-US"
-      ? "The response is too long for Weixin. Open the task in LinkSense to read the rest."
-      : "回复内容较长，剩余内容请在 LinkSense 任务中查看。",
+    locale === "zh-CN"
+      ? "回复内容较长，剩余内容请在 LinkSense 任务中查看。"
+      : locale === "en-US"
+        ? "The response is too long for Weixin. Open the task in LinkSense to read the rest."
+        : translateBackend("botChannels.longResponse", locale),
   ];
 }
 
-function emptyResponseMessage(locale: "zh-CN" | "en-US"): string {
-  return locale === "en-US"
-    ? "The task completed without a text response. Open it in LinkSense for details."
-    : "任务已完成，但没有可发送的文本回复，请在 LinkSense 中查看详情。";
+function emptyResponseMessage(locale: Locale): string {
+  return locale === "zh-CN"
+    ? "任务已完成，但没有可发送的文本回复，请在 LinkSense 中查看详情。"
+    : locale === "en-US"
+      ? "The task completed without a text response. Open it in LinkSense for details."
+      : translateBackend("botChannels.emptyResponse", locale);
 }
 
-function failedResponseMessage(locale: "zh-CN" | "en-US"): string {
-  return locale === "en-US"
-    ? "The task did not complete successfully. Open it in LinkSense for details."
-    : "任务未能成功完成，请在 LinkSense 中查看详情。";
+function failedResponseMessage(locale: Locale): string {
+  return locale === "zh-CN"
+    ? "任务未能成功完成，请在 LinkSense 中查看详情。"
+    : locale === "en-US"
+      ? "The task did not complete successfully. Open it in LinkSense for details."
+      : translateBackend("botChannels.taskFailed", locale);
 }
 
-function processingFailureMessage(locale: "zh-CN" | "en-US"): string {
-  return locale === "en-US"
-    ? "LinkSense could not process this message. Try again later or open LinkSense for details."
-    : "LinkSense 暂时无法处理这条消息，请稍后重试或打开 LinkSense 查看详情。";
+function processingFailureMessage(locale: Locale): string {
+  return locale === "zh-CN"
+    ? "LinkSense 暂时无法处理这条消息，请稍后重试或打开 LinkSense 查看详情。"
+    : locale === "en-US"
+      ? "LinkSense could not process this message. Try again later or open LinkSense for details."
+      : translateBackend("botChannels.processingFailed", locale);
 }

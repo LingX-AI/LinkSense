@@ -93,11 +93,11 @@ describe("application approval cards", () => {
       expect(fallback.t(path, { lng: "en-US" })).toBe(chinese)
     }
   })
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "uses the compact Skill governance list layout and translated metadata in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
-      expect(i18n.resolvedLanguage).toBe(locale === "fr-FR" ? "zh-CN" : locale)
+      expect(i18n.resolvedLanguage).toBe(locale === "de-DE" ? "zh-CN" : locale)
       vi.mocked(apiRequest).mockResolvedValue({ items: [release] })
       show()
 
@@ -282,7 +282,7 @@ describe("application approval cards", () => {
     }
   )
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "shows an approved application as unlisted after administrator removal and published after restoration in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)

@@ -2,20 +2,31 @@ import { createInstance } from "i18next";
 import {
   auditFlatTranslations,
   errorCatalog,
+  localizedErrorMessage,
+  supportedLocales,
   type ErrorCode,
   type Locale,
 } from "@linksense/shared";
+import { backendMessages as esMessages } from "./locales/es-ES.js";
+import { backendMessages as ptMessages } from "./locales/pt-BR.js";
+import { backendMessages as frMessages } from "./locales/fr-FR.js";
+import { backendMessages as jaMessages } from "./locales/ja-JP.js";
+import { supplementalBackendMessages } from "./locales/supplemental.js";
+
+type SourceLocale = "zh-CN" | "en-US";
 
 const translations = (locale: Locale) =>
   Object.fromEntries(
-    Object.values(errorCatalog).map((entry) => [
-      entry.message_key,
-      entry.messages[locale],
+    (Object.keys(errorCatalog) as ErrorCode[]).map((code) => [
+      errorCatalog[code].message_key,
+      localizedErrorMessage(code, locale),
     ]),
   );
 
-const mailTranslations: Record<Locale, Record<string, string>> = {
+const mailTranslations: Record<SourceLocale, Record<string, string>> = {
   "zh-CN": {
+    "mail.socialVerification.subject": "验证您的注册邮箱",
+    "mail.socialVerification.text": "请在发起注册的同一浏览器中打开以下链接，确认邮箱并完成社交账号注册。链接 15 分钟内有效；如非本人操作，请忽略。\n\n{{url}}",
     "mail.passwordReset.subject": "设置或重置 {{productName}} 密码",
     "mail.passwordReset.preheader":
       "使用安全的一次性链接设置或重置您的 {{productName}} 密码。",
@@ -56,6 +67,8 @@ const mailTranslations: Record<Locale, Record<string, string>> = {
       "这是一封由 {{productName}} 自动发送的账号激活邮件，请勿直接回复。",
   },
   "en-US": {
+    "mail.socialVerification.subject": "Verify your registration email",
+    "mail.socialVerification.text": "Open this link in the browser where you started signing up to verify your email and finish social sign-up. It expires in 15 minutes. Ignore this message if you did not request it.\n\n{{url}}",
     "mail.passwordReset.subject": "Set or reset your {{productName}} password",
     "mail.passwordReset.preheader":
       "Use a secure one-time link to set or reset your {{productName}} password.",
@@ -97,7 +110,7 @@ const mailTranslations: Record<Locale, Record<string, string>> = {
   },
 };
 
-const usageExportTranslations: Record<Locale, Record<string, string>> = {
+const usageExportTranslations: Record<SourceLocale, Record<string, string>> = {
   "zh-CN": {
     "usageExport.workbookTitle": "{{productName}} 用量统计",
     "usageExport.filename": "{{productPrefix}}-用量统计.xlsx",
@@ -254,7 +267,7 @@ const usageExportTranslations: Record<Locale, Record<string, string>> = {
   },
 };
 
-const userImportTranslations: Record<Locale, Record<string, string>> = {
+const userImportTranslations: Record<SourceLocale, Record<string, string>> = {
   "zh-CN": {
     "userImport.filename": "用户导入模板.xlsx",
     "userImport.sheets.import": "用户导入",
@@ -325,7 +338,7 @@ const userImportTranslations: Record<Locale, Record<string, string>> = {
   },
 };
 
-const feishuTranslations: Record<Locale, Record<string, string>> = {
+const feishuTranslations: Record<SourceLocale, Record<string, string>> = {
   "zh-CN": {
     "feishu.personalAgent.name": "LinkSense 个人助手",
     "feishu.personalAgent.description":
@@ -338,54 +351,70 @@ const feishuTranslations: Record<Locale, Record<string, string>> = {
   },
 };
 
+const backendMessages = {
+  "es-ES": esMessages,
+  "pt-BR": ptMessages,
+  "fr-FR": frMessages,
+  "ja-JP": jaMessages,
+} satisfies Record<Exclude<Locale, SourceLocale>, Record<string, string>>;
+
 export const backendI18n = createInstance();
+
+function backendTranslationResource(locale: Locale): Record<string, string> {
+  if (locale !== "zh-CN" && locale !== "en-US") {
+    return {
+      ...translations(locale),
+      ...backendMessages[locale],
+      ...auditFlatTranslations(locale),
+      ...supplementalBackendMessages[locale],
+    };
+  }
+  const source = locale;
+  const chinese = source === "zh-CN";
+  const resource = {
+    ...translations(locale),
+    ...mailTranslations[source],
+    ...usageExportTranslations[source],
+    ...userImportTranslations[source],
+    ...feishuTranslations[source],
+    "webSitePage.notFoundTitle": chinese ? "站点未找到" : "Site not found",
+    "webSitePage.notFoundDescription": chinese
+      ? "站点可能已删除或取消发布，请检查链接后再试。"
+      : "This site may have been deleted or unpublished. Please check the link and try again.",
+    "applicationDevelopment.taskTitle": chinese
+      ? "开发 {{name}}"
+      : "Develop {{name}}",
+    "botChannels.processingFailed": chinese
+      ? "这条消息暂时无法处理，请在 LinkSense 中查看任务状态后重试。"
+      : "This message could not be processed. Check the task status in LinkSense before retrying.",
+    "botChannels.taskFailed": chinese
+      ? "任务未能完成，请在 LinkSense 中查看详情。"
+      : "The task could not be completed. Open LinkSense for details.",
+    "botChannels.emptyResponse": chinese
+      ? "任务已完成，但没有可发送的文本回复。"
+      : "The task finished without a text response.",
+    "botChannels.longResponse": chinese
+      ? "回复内容较长，请打开 LinkSense 查看完整回答。"
+      : "The response is long. Open LinkSense to view the complete answer.",
+    ...auditFlatTranslations(locale),
+    "audit.export.actorName": chinese ? "操作人名称" : "Actor Name",
+    "audit.export.actorEmail": chinese ? "操作人邮箱" : "Actor Email",
+  };
+  return { ...resource, ...supplementalBackendMessages[locale] };
+}
 
 await backendI18n.init({
   initImmediate: false,
   fallbackLng: "zh-CN",
-  supportedLngs: ["zh-CN", "en-US"],
+  supportedLngs: supportedLocales,
   keySeparator: false,
   interpolation: { escapeValue: false },
-  resources: {
-    "zh-CN": {
-      translation: {
-        ...translations("zh-CN"),
-        ...mailTranslations["zh-CN"],
-        ...usageExportTranslations["zh-CN"],
-        ...userImportTranslations["zh-CN"],
-        ...feishuTranslations["zh-CN"],
-        "webSitePage.notFoundTitle": "站点未找到",
-        "webSitePage.notFoundDescription": "站点可能已删除或取消发布，请检查链接后再试。",
-        "applicationDevelopment.taskTitle": "开发 {{name}}",
-"botChannels.processingFailed": "这条消息暂时无法处理，请在 LinkSense 中查看任务状态后重试。",
-"botChannels.taskFailed": "任务未能完成，请在 LinkSense 中查看详情。",
-"botChannels.emptyResponse": "任务已完成，但没有可发送的文本回复。",
-"botChannels.longResponse": "回复内容较长，请打开 LinkSense 查看完整回答。",
-        ...auditFlatTranslations("zh-CN"),
-        "audit.export.actorName": "操作人名称",
-        "audit.export.actorEmail": "操作人邮箱",
-      },
-    },
-    "en-US": {
-      translation: {
-        ...translations("en-US"),
-        ...mailTranslations["en-US"],
-        ...usageExportTranslations["en-US"],
-        ...userImportTranslations["en-US"],
-        ...feishuTranslations["en-US"],
-        "webSitePage.notFoundTitle": "Site not found",
-        "webSitePage.notFoundDescription": "This site may have been deleted or unpublished. Please check the link and try again.",
-        "applicationDevelopment.taskTitle": "Develop {{name}}",
-"botChannels.processingFailed": "This message could not be processed. Check the task status in LinkSense before retrying.",
-"botChannels.taskFailed": "The task could not be completed. Open LinkSense for details.",
-"botChannels.emptyResponse": "The task finished without a text response.",
-"botChannels.longResponse": "The response is long. Open LinkSense to view the complete answer.",
-        ...auditFlatTranslations("en-US"),
-        "audit.export.actorName": "Actor Name",
-        "audit.export.actorEmail": "Actor Email",
-      },
-    },
-  },
+  resources: Object.fromEntries(
+    supportedLocales.map((locale) => [
+      locale,
+      { translation: backendTranslationResource(locale) },
+    ]),
+  ),
 });
 
 export function translateError(

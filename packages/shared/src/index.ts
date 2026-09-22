@@ -15,6 +15,7 @@ export * from "./conversation-sources.js";
 export * from "./credentials.js";
 export * from "./current-user.js";
 export * from "./errors.js";
+export * from "./locale-messages.js";
 export * from "./events.js";
 export * from "./feedback.js";
 export * from "./feishu.js";
@@ -63,3 +64,5 @@ export * from "./application-development.js";
 export * from "./application-catalog.js";
 
 export * from "./application-icons.js";
+export * from "./social-auth.js"
+export * from "./saml.js";

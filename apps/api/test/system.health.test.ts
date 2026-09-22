@@ -120,6 +120,21 @@ describe("system health", () => {
     })
   })
 
+  it("advertises every locale accepted by user preferences", async () => {
+    const { service } = createSystemService(directory)
+
+    await expect(service.bootstrap()).resolves.toMatchObject({
+      supported_locales: [
+        "zh-CN",
+        "en-US",
+        "es-ES",
+        "pt-BR",
+        "fr-FR",
+        "ja-JP",
+      ],
+    })
+  })
+
   it("exposes Docker resource usage from the runner without affecting readiness", async () => {
     const runnerMetadata = {
       ...healthyRunnerMetadata(),

@@ -165,7 +165,7 @@ export function buildHelpCenterHref(
   language: SupportedLanguage,
   search = ""
 ): string {
-  const localePrefix = language === "en-US" ? "en-US/" : ""
+  const localePrefix = language === "zh-CN" ? "" : "en-US/"
   const documentPath = resolveHelpDocumentPath(pathname, search)
   return `/help/${localePrefix}${documentPath ? `${documentPath}/` : ""}`
 }

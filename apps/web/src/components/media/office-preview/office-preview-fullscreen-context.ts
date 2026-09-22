@@ -1,7 +1,20 @@
 import { createContext, useContext } from "react"
 
-export const OfficePreviewFullscreenContext = createContext(false)
+type OfficePreviewFullscreenContextValue = Readonly<{
+  expanded: boolean
+  portalContainer: HTMLElement | null
+}>
+
+export const OfficePreviewFullscreenContext =
+  createContext<OfficePreviewFullscreenContextValue>({
+    expanded: false,
+    portalContainer: null,
+  })
 
 export function useOfficePreviewFullscreen() {
-  return useContext(OfficePreviewFullscreenContext)
+  return useContext(OfficePreviewFullscreenContext).expanded
+}
+
+export function useOfficePreviewPortalContainer() {
+  return useContext(OfficePreviewFullscreenContext).portalContainer
 }

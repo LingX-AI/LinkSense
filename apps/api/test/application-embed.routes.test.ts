@@ -242,7 +242,7 @@ describe("application embed routes", () => {
 
     const unsupported = await app.inject({
       method: "GET",
-      url: `/api/v1/embed/frame/${APP_ID}?parent_origin=${encodeURIComponent(ORIGIN)}&locale=fr-FR`,
+      url: `/api/v1/embed/frame/${APP_ID}?parent_origin=${encodeURIComponent(ORIGIN)}&locale=de-DE`,
     });
     const missing = await app.inject({
       method: "GET",

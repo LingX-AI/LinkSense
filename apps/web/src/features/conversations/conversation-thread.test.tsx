@@ -2212,7 +2212,7 @@ describe("conversation turn responses", () => {
   it.each([
     ["zh-CN", "正在压缩上下文"],
     ["en-US", "Compacting context"],
-    ["fr-FR", "正在压缩上下文"],
+    ["de-DE", "正在压缩上下文"],
   ])(
     "preserves the compaction row and shows thinking only once after completion in %s",
     async (language, label) => {
@@ -4072,7 +4072,7 @@ describe("conversation turn responses", () => {
   it.each([
     ["zh-CN", "正在中断…", "已中断"],
     ["en-US", "Interrupting…", "Interrupted"],
-    ["fr-FR", "正在中断…", "已中断"],
+    ["de-DE", "正在中断…", "已中断"],
   ])(
     "keeps the active turn pending until native interruption is confirmed in %s",
     async (language, pendingLabel, terminalLabel) => {

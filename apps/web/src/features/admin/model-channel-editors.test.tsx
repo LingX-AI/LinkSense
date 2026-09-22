@@ -37,7 +37,7 @@ const settings: ModelProviderSettings = {
 afterEach(cleanup)
 
 describe("model editor conflict feedback", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "warns about same-channel and cross-channel model display names while allowing save in %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -132,7 +132,7 @@ describe("model editor conflict feedback", () => {
     ).toBeEnabled()
   })
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "warns about a duplicate channel name without changing the existing naming rules in %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -215,7 +215,7 @@ describe("model editor conflict feedback", () => {
     expect(name).not.toHaveAttribute("aria-describedby")
   })
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "shows and clears duplicate model feedback in %s",
     async (language) => {
       await i18n.changeLanguage(language)

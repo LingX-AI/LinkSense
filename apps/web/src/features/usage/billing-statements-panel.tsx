@@ -47,6 +47,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { downloadBlob } from "@/lib/download-blob"
+import { dayjsLocaleFor, longMonthYearFormatFor } from "@/i18n/date"
 import {
   formatCnyCost,
   formatIntegerCount,
@@ -178,7 +179,7 @@ export function BillingStatementsPanel(props: {
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
+                        size="default"
                         onClick={() => setSelectedId(statement.id)}
                       >
                         <EyeIcon data-icon="inline-start" />
@@ -187,7 +188,7 @@ export function BillingStatementsPanel(props: {
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
+                        size="default"
                         disabled={exportingId !== null}
                         onClick={() => void exportStatement(statement)}
                       >
@@ -456,8 +457,8 @@ function BillingFact(props: { label: string; value: string }) {
 
 function formatBillMonth(month: string, language: UsageNumberLanguage) {
   return dayjs(`${month}-01`)
-    .locale(language === "zh-CN" ? "zh-cn" : "en")
-    .format(language === "zh-CN" ? "YYYY年M月" : "MMMM YYYY")
+    .locale(dayjsLocaleFor(language))
+    .format(longMonthYearFormatFor(language))
 }
 
 function formatDateTime(value: string, language: UsageNumberLanguage) {

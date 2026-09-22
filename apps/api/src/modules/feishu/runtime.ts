@@ -1,6 +1,8 @@
 import { v7 as uuidv7 } from "uuid";
+import type { Locale } from "@linksense/shared";
 
 import { DurableWorkDispatcher } from "../../lib/durable-work-dispatcher.js";
+import { translateBackend } from "../../lib/i18n.js";
 import type { ConversationService } from "../conversations/service.js";
 import {
   RedisFeishuCoordinator,
@@ -811,32 +813,40 @@ function retryDelayMilliseconds(attempts: number): number {
 
 function boundedChunks(
   text: string,
-  locale: "zh-CN" | "en-US",
+  locale: Locale,
 ): string[] {
   const chunks = splitFeishuText(text);
   if (chunks.length <= MAX_OUTBOUND_CHUNKS) return chunks;
   return [
     ...chunks.slice(0, MAX_OUTBOUND_CHUNKS - 1),
-    locale === "en-US"
-      ? "The response is too long. Open LinkSense to view the complete answer."
-      : "回复内容较长，请打开 LinkSense 查看完整回答。",
+    locale === "zh-CN"
+      ? "回复内容较长，请打开 LinkSense 查看完整回答。"
+      : locale === "en-US"
+        ? "The response is too long. Open LinkSense to view the complete answer."
+        : translateBackend("botChannels.longResponse", locale),
   ];
 }
 
-function emptyResponseMessage(locale: "zh-CN" | "en-US"): string {
-  return locale === "en-US"
-    ? "The task finished without a text response."
-    : "任务已完成，但没有可发送的文本回复。";
+function emptyResponseMessage(locale: Locale): string {
+  return locale === "zh-CN"
+    ? "任务已完成，但没有可发送的文本回复。"
+    : locale === "en-US"
+      ? "The task finished without a text response."
+      : translateBackend("botChannels.emptyResponse", locale);
 }
 
-function failedResponseMessage(locale: "zh-CN" | "en-US"): string {
-  return locale === "en-US"
-    ? "The task could not be completed. Please try again later."
-    : "任务未能完成，请稍后重试。";
+function failedResponseMessage(locale: Locale): string {
+  return locale === "zh-CN"
+    ? "任务未能完成，请稍后重试。"
+    : locale === "en-US"
+      ? "The task could not be completed. Please try again later."
+      : translateBackend("botChannels.taskFailed", locale);
 }
 
-function processingFailureMessage(locale: "zh-CN" | "en-US"): string {
-  return locale === "en-US"
-    ? "This message could not be processed. Please try again later."
-    : "这条消息暂时无法处理，请稍后重试。";
+function processingFailureMessage(locale: Locale): string {
+  return locale === "zh-CN"
+    ? "这条消息暂时无法处理，请稍后重试。"
+    : locale === "en-US"
+      ? "This message could not be processed. Please try again later."
+      : translateBackend("botChannels.processingFailed", locale);
 }

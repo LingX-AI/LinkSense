@@ -13,10 +13,13 @@ import { getErrorMessage } from "@/api/error-message"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import { notify } from "@/components/feedback/notification"
 import { StatusBanner } from "@/components/feedback/status-banner"
-import { FieldShell } from "@/components/forms/form-field"
+import {
+  FieldShell,
+  SettingsFieldGroup,
+  SettingsFieldRow,
+} from "@/components/forms/form-field"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -25,7 +28,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -120,7 +122,7 @@ export function KnowledgeModelSettingsForm({
 
   return (
     <section
-      className="grid min-w-0 gap-4"
+      className="grid min-w-0 gap-3"
       aria-labelledby={`${idPrefix}-title`}
     >
       <SettingsSectionHeader
@@ -151,18 +153,27 @@ export function KnowledgeModelSettingsForm({
       >
         <div
           data-slot="model-settings-card"
-          className="grid min-w-0 grid-cols-1 gap-4 rounded-card border border-[color:var(--app-border)] bg-card p-4"
+          className="grid min-w-0 grid-cols-1 gap-4 rounded-card border border-[color:var(--app-border)] bg-card p-4 sm:p-5"
         >
-          <fieldset className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
-            <legend className="p-0 text-sm leading-5 font-semibold">
-              {t("admin.knowledgeModels.embeddingTitle")}
-            </legend>
-            <p className="form-hint xl:min-h-10">
-              {t("admin.knowledgeModels.embeddingSelectionDescription")}
-            </p>
+          <SettingsFieldGroup>
             <FieldShell
+              layout="settings"
+              controlWidth="medium"
               id={`${idPrefix}-embedding-model`}
               label={t("admin.knowledgeModels.selectEmbeddingModel")}
+              hint={
+                <span className="grid gap-1">
+                  <span>
+                    {t("admin.knowledgeModels.embeddingSelectionDescription")}
+                  </span>
+                  <span>
+                    {t("admin.knowledgeModels.embeddingRuntime", {
+                      dimensions: settings.embedding.dimensions,
+                      tokens: settings.embedding.maximum_input_tokens,
+                    })}
+                  </span>
+                </span>
+              }
             >
               <Select
                 name="knowledge-embedding-model"
@@ -196,26 +207,24 @@ export function KnowledgeModelSettingsForm({
                 </SelectContent>
               </Select>
             </FieldShell>
-            <p className="form-hint mt-auto flex min-h-10 items-center rounded-lg bg-muted/35 px-3 py-2">
-              {t("admin.knowledgeModels.embeddingRuntime", {
-                dimensions: settings.embedding.dimensions,
-                tokens: settings.embedding.maximum_input_tokens,
-              })}
-            </p>
-          </fieldset>
-
-          <Separator data-slot="knowledge-model-settings-separator" />
-
-          <fieldset className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
-            <legend className="p-0 text-sm leading-5 font-semibold">
-              {t("admin.knowledgeModels.rerankTitle")}
-            </legend>
-            <p className="form-hint xl:min-h-10">
-              {t("admin.knowledgeModels.rerankSelectionDescription")}
-            </p>
             <FieldShell
+              layout="settings"
+              controlWidth="medium"
               id={`${idPrefix}-rerank-model`}
               label={t("admin.knowledgeModels.selectRerankerModel")}
+              hint={
+                <span className="grid gap-1">
+                  <span>
+                    {t("admin.knowledgeModels.rerankSelectionDescription")}
+                  </span>
+                  <span>
+                    {t("admin.knowledgeModels.rerankRuntime", {
+                      tokens: settings.rerank.maximum_input_tokens,
+                      timeout: settings.rerank.timeout_ms,
+                    })}
+                  </span>
+                </span>
+              }
             >
               <Select
                 name="knowledge-rerank-model"
@@ -249,15 +258,10 @@ export function KnowledgeModelSettingsForm({
                 </SelectContent>
               </Select>
             </FieldShell>
-            <p className="form-hint mt-auto flex min-h-10 items-center rounded-lg bg-muted/35 px-3 py-2">
-              {t("admin.knowledgeModels.rerankRuntime", {
-                tokens: settings.rerank.maximum_input_tokens,
-                timeout: settings.rerank.timeout_ms,
-              })}
-            </p>
-            <div
-              data-slot="model-settings-toggle"
-              className="flex items-center gap-2 pt-1"
+            <SettingsFieldRow
+              id={`${idPrefix}-rerank-enabled`}
+              label={t("admin.knowledgeModels.enabled")}
+              controlWidth="compact"
             >
               <Switch
                 id={`${idPrefix}-rerank-enabled`}
@@ -266,11 +270,8 @@ export function KnowledgeModelSettingsForm({
                 disabled={readOnly || rerankerModels.length === 0}
                 onCheckedChange={setRerankEnabled}
               />
-              <Label htmlFor={`${idPrefix}-rerank-enabled`}>
-                {t("admin.knowledgeModels.enabled")}
-              </Label>
-            </div>
-          </fieldset>
+            </SettingsFieldRow>
+          </SettingsFieldGroup>
           <p className="form-hint">{t("admin.knowledgeModels.rebuildHint")}</p>
           <div className="flex flex-wrap justify-end gap-2">
             <Button

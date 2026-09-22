@@ -15,7 +15,6 @@ const cardSelectors = [
   ".marketplace-governance-item",
   ".settings-panel",
   ".personalization-memory-card",
-  ".appearance-theme-preview",
   ".role-summary",
   ".product-logo-preview",
   ".profile-usage-loading",

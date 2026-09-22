@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { socialProviderSchema } from "./social-auth.js";
 
 import {
   localeSchema,
@@ -13,7 +14,7 @@ import {
 
 export const userRoleSchema = z.enum(["user", "admin"]);
 export const userStatusSchema = z.enum(["active", "disabled"]);
-export const loginMethodSchema = z.enum(["password", "oidc", "teams"]);
+export const loginMethodSchema = z.enum(["password", "oidc", "teams", "saml", ...socialProviderSchema.options]);
 export const userRegistrationSourceSchema = z.enum([
   "self_registration",
   "organization_invitation",

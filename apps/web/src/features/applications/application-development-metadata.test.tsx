@@ -370,7 +370,7 @@ describe("development metadata autosave", () => {
   it.each([
     ["zh-CN", "编辑应用名称", "应用名称"],
     ["en-US", "Edit application name", "Application name"],
-    ["fr-FR", "编辑应用名称", "应用名称"],
+    ["de-DE", "编辑应用名称", "应用名称"],
   ])(
     "provides translated editing controls and fallback in %s",
     async (language, button, label) => {

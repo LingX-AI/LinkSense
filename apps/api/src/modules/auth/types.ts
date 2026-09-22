@@ -1,9 +1,12 @@
+import type { Locale, loginMethodSchema } from "@linksense/shared"
+import type { z } from "zod"
+
 import type { LoginRateLimitKeys } from "../../adapters/redis.js"
 import type { AuditContext } from "../audit/service.js"
 
 export type AuthRole = "user" | "admin"
 export type AuthStatus = "active" | "disabled"
-export type LoginMethod = "password" | "oidc" | "teams"
+export type LoginMethod = z.infer<typeof loginMethodSchema>
 export type RunningMessageAction = "steer" | "queue"
 
 export type AuthUserRecord = {
@@ -14,7 +17,7 @@ export type AuthUserRecord = {
   role: AuthRole
   status: AuthStatus
   passwordHash: string | null
-  preferredLocale: "zh-CN" | "en-US" | null
+  preferredLocale: Locale | null
   runningMessageAction: RunningMessageAction
   lastLoginAt: Date | null
   lastLoginMethod: LoginMethod | null
@@ -150,7 +153,7 @@ export interface AuthPersistence {
   createRegistrationToken(input: {
     id: string
     email: string
-    locale: "zh-CN" | "en-US"
+    locale: Locale
     tokenHash: string
     expiresAt: Date
     now: Date
@@ -206,7 +209,7 @@ export type PasswordResetMail = {
   deliveryId: string
   tokenHash: string
   to: string
-  locale: "zh-CN" | "en-US"
+  locale: Locale
   subject: string
   text: string
   html: string

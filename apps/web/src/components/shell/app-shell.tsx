@@ -1188,7 +1188,7 @@ function AppSidebarContent({
                             )}
                           >
                             <LoaderCircleIcon
-                              className="size-3.5 animate-spin motion-reduce:animate-none"
+                              className="size-3.5 animate-spin [animation-duration:1.5s] motion-reduce:animate-none"
                               strokeWidth={2}
                               aria-hidden="true"
                             />

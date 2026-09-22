@@ -172,7 +172,7 @@ function mockCatalog(ownedApplications: Application[] = [owned, installed]) {
 }
 
 describe("three application categories", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "shows the current standard application version beside its kind in %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -252,7 +252,7 @@ describe("three application categories", () => {
   it.each([
     ["zh-CN", true],
     ["en-US", true],
-    ["fr-FR", false],
+    ["de-DE", false],
   ] as const)(
     "groups standard application actions without empty groups in %s (sharing: %s)",
     async (language, sharingEnabled) => {

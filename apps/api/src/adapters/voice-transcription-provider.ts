@@ -210,7 +210,7 @@ function createProviderOptions(
   locale: VoiceTranscriptionInput["language"],
 ): Record<string, Record<string, string>> | undefined {
   if (!locale) return undefined
-  const language = locale === "zh-CN" ? "zh" : "en"
+  const language = locale.split("-", 1)[0]!
   switch (provider) {
     case "openai":
     case "openai_compatible":

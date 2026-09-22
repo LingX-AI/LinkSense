@@ -89,7 +89,7 @@ export function ModelSettingsEditor({
               </Button>
               <Button
                 type="submit"
-                size="sm"
+                size="default"
                 disabled={!valid || pending}
                 aria-label={saveLabel}
                 aria-busy={pending || undefined}

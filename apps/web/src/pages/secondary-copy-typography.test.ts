@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import appStyles from "@/index.css?raw"
+import settingsPagesSource from "@/pages/settings-pages.tsx?raw"
 import { describe, expect, it } from "vitest"
 
 function cssRule(selectorPattern: string) {
@@ -33,7 +34,6 @@ const readableSecondaryRules = [
     "settings descriptions",
     "\\.settings-page-header p,\\s*\\.settings-panel > p",
   ],
-  ["appearance labels", "\\.appearance-theme-label"],
   ["role account summaries", "\\.role-account-count span"],
   ["page links", "\\.text-link,\\s*\\.public-link,\\s*\\.public-back-link"],
   ["health labels", "\\.health-summary span"],
@@ -53,6 +53,12 @@ describe("readable secondary copy typography", () => {
       expect(rule).toContain("line-height: var(--app-line-20);")
     }
   )
+
+  it("uses the shared small text tier for appearance labels", () => {
+    expect(settingsPagesSource).toContain(
+      '"text-center text-sm font-medium"'
+    )
+  })
 
   it.each([
     "\\.data-table th",

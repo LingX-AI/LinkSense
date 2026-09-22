@@ -46,7 +46,7 @@ describe("maintenance settings form", () => {
     vi.useRealTimers()
   })
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "refreshes an expired plan and clears every field without saving in %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -252,8 +252,10 @@ describe("maintenance settings form", () => {
     const maintenanceSwitch = await screen.findByRole("switch", {
       name: "开启计划维护",
     })
-    const toggleRow = maintenanceSwitch.parentElement
-    expect(toggleRow).toHaveClass("flex", "items-center", "justify-between")
+    const toggleRow = maintenanceSwitch.closest('[data-layout="settings"]')
+    expect(toggleRow).toHaveClass(
+      "md:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)]"
+    )
     expect(toggleRow).not.toHaveClass("border")
     expect(toggleRow).not.toHaveClass("rounded-card")
     expect(toggleRow).not.toHaveClass("px-4")
@@ -497,11 +499,18 @@ describe("maintenance settings form", () => {
     await interaction.click(
       await screen.findByRole("switch", { name: "开启计划维护" })
     )
-    expect(screen.getByTestId("maintenance-time-fields")).toHaveClass(
-      "flex",
-      "flex-col"
+    expect(screen.getByTestId("maintenance-fields")).toHaveClass(
+      "divide-y",
+      "divide-[color:var(--app-divider)]"
     )
 
+    expect(
+      screen.getByLabelText("维护原因").closest('[data-layout="settings"]')
+    ).toHaveAttribute("data-multiline", "true")
+    const fields = screen.getByTestId("maintenance-fields")
+    expect(
+      fields.querySelectorAll(':scope > [data-layout="settings"]')
+    ).toHaveLength(5)
     await interaction.type(screen.getByLabelText("维护原因"), "数据库升级")
     await interaction.click(
       screen.getByRole("button", { name: "保存维护设置" })

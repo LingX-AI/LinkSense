@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { isLocale, loginMethodSchema, type Locale } from "@linksense/shared"
 
 import {
   Prisma,
@@ -6,7 +7,7 @@ import {
   type User,
 } from "../../generated/prisma/client.js"
 import { sanitizeAuditMetadata } from "../audit/service.js"
-import { quotaSettingsFromJson, storedCreditLimits } from "../system/quota-settings.js"
+import { readSelfRegistrationPolicy } from "./registration-policy.js"
 
 import type {
   AuthPersistence,
@@ -467,7 +468,7 @@ export class PrismaAuthRepository implements AuthPersistence {
   createRegistrationToken(input: {
     id: string
     email: string
-    locale: "zh-CN" | "en-US"
+    locale: Locale
     tokenHash: string
     expiresAt: Date
     now: Date
@@ -746,15 +747,10 @@ function mapUser(user: User): AuthUserRecord {
   if (
     (user.role !== "user" && user.role !== "admin") ||
     (user.status !== "active" && user.status !== "disabled") ||
-    (user.preferredLocale !== null &&
-      user.preferredLocale !== "zh-CN" &&
-      user.preferredLocale !== "en-US") ||
+    (user.preferredLocale !== null && !isLocale(user.preferredLocale)) ||
     (user.runningMessageAction !== "steer" &&
       user.runningMessageAction !== "queue") ||
-    (user.lastLoginMethod !== null &&
-      user.lastLoginMethod !== "password" &&
-      user.lastLoginMethod !== "oidc" &&
-      user.lastLoginMethod !== "teams")
+    (user.lastLoginMethod !== null && !loginMethodSchema.safeParse(user.lastLoginMethod).success)
   ) {
     throw new Error("invalid persisted auth user state")
   }
@@ -764,7 +760,7 @@ function mapUser(user: User): AuthUserRecord {
     status: user.status,
     preferredLocale: user.preferredLocale,
     runningMessageAction: user.runningMessageAction,
-    lastLoginMethod: user.lastLoginMethod,
+    lastLoginMethod: user.lastLoginMethod === null ? null : loginMethodSchema.parse(user.lastLoginMethod),
   }
 }
 
@@ -798,16 +794,6 @@ function readBooleanSetting(value: Prisma.JsonValue | undefined, key: string) {
   if (!value || Array.isArray(value) || typeof value !== "object") return undefined
   const entry = value[key]
   return typeof entry === "boolean" ? entry : undefined
-}
-
-function readSelfRegistrationPolicy(value: Prisma.JsonValue | undefined): ReturnType<typeof storedCreditLimits> | null {
-  if (!value || Array.isArray(value) || typeof value !== "object") return null
-  const registration = value.self_registration
-  if (!registration || Array.isArray(registration) || typeof registration !== "object" || registration.enabled !== true) return null
-  const settings = quotaSettingsFromJson(value)
-  return storedCreditLimits({
-    weekly_credit_limit: settings.weekly_credit_limit,
-  })
 }
 
 function registrationUserName(email: string): string {

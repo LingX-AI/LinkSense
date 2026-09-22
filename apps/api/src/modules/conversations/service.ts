@@ -38,6 +38,8 @@ import type { LinkSenseRedis } from "../../adapters/redis.js";
 import { lockOwnedProject } from "../projects/repository.js";
 import { assertProjectTasksIdle } from "../projects/runtime-state.js";
 import { AppError } from "../../lib/errors.js";
+import { translateBackend } from "../../lib/i18n.js";
+import { normalizeLocale } from "../../lib/locale.js";
 import { truncateConversationTitle } from "../../lib/conversation-title.js";
 import { ensureSharedWorkspaceDirectory } from "../../lib/shared-workspace-directory.js";
 import {
@@ -7252,9 +7254,7 @@ export class ConversationService {
             title:
               options?.title ??
               application?.name ??
-              ((owner?.preferredLocale ?? fallbackLocale) === "en-US"
-                ? "Untitled task"
-                : "未命名任务"),
+              translateBackend("conversation.untitled", normalizeLocale(owner?.preferredLocale) ?? fallbackLocale ?? "en-US"),
             titleSource: usesAutomaticTitle ? "fallback" : "manual",
             archiveStatus: "active",
             pinnedAt: options?.pinned ? new Date() : null,

@@ -1,4 +1,5 @@
 import { v7 as uuidv7 } from "uuid";
+import type { Locale } from "@linksense/shared";
 import type { BotChannelConnection as ConnectionRow } from "../../generated/prisma/client.js";
 import { DurableWorkDispatcher } from "../../lib/durable-work-dispatcher.js";
 import { translateBackend } from "../../lib/i18n.js";
@@ -918,7 +919,7 @@ function retryDelayMilliseconds(attempts: number): number {
 }
 export function boundedChunks(
   text: string,
-  locale: "zh-CN" | "en-US",
+  locale: Locale,
 ): string[] {
   const chunks: string[] = [];
   let chunk = "";

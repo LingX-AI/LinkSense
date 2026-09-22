@@ -10,15 +10,31 @@ import {
   formatContextualMessageTime,
   formatLongDateTime,
   formatMessageTime,
+  longMonthYearFormatFor,
+  shortDateFormatFor,
 } from "@/i18n/date"
 
 describe("calendar date formatting", () => {
-  it("formats heatmap dates and month labels in both supported languages", () => {
+  it("formats heatmap dates and month labels in every supported language", () => {
     expect(formatCalendarDate("2026-07-27", "zh-CN")).toBe("2026年7月27日")
     expect(formatCalendarDate("2026-07-27", "en-US")).toBe("Jul 27, 2026")
     expect(calendarMonthLabels("zh-CN")).toHaveLength(12)
     expect(calendarMonthLabels("zh-CN")[0]).toBe("1月")
     expect(calendarMonthLabels("en-US")[11]).toBe("Dec")
+    expect(formatCalendarDate("2026-07-27", "es-ES")).toBe("27 de jul de 2026")
+    expect(formatCalendarDate("2026-07-27", "pt-BR")).toBe("27 de jul de 2026")
+    expect(formatCalendarDate("2026-07-27", "fr-FR")).toBe("27 juil. 2026")
+    expect(formatCalendarDate("2026-07-27", "ja-JP")).toBe("2026年7月27日")
+  })
+
+  it("provides locale-aware short dates and long month labels", () => {
+    expect(shortDateFormatFor("zh-CN")).toBe("M月D日")
+    expect(shortDateFormatFor("ja-JP")).toBe("M月D日")
+    expect(shortDateFormatFor("fr-FR")).toBe("D MMM")
+    expect(shortDateFormatFor("es-ES")).toBe("MMM D")
+    expect(longMonthYearFormatFor("es-ES")).toBe("MMMM [de] YYYY")
+    expect(longMonthYearFormatFor("pt-BR")).toBe("MMMM [de] YYYY")
+    expect(longMonthYearFormatFor("fr-FR")).toBe("MMMM YYYY")
   })
 })
 

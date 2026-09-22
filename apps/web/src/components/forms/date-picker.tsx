@@ -1,8 +1,14 @@
 import { useMemo, useRef, useState } from "react"
 import dayjs from "dayjs"
-import "dayjs/locale/en"
-import "dayjs/locale/zh-cn"
-import { enUS, zhCN } from "date-fns/locale"
+import {
+  enUS,
+  es,
+  fr,
+  ja,
+  ptBR,
+  zhCN,
+  type Locale as DateFnsLocale,
+} from "date-fns/locale"
 import { CalendarIcon, XIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -13,10 +19,19 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { normalizeLanguage } from "@/i18n"
+import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
+import { calendarDateFormatFor, dayjsLocaleFor } from "@/i18n/date"
 import { cn } from "@/lib/utils"
 
 const DATE_VALUE_FORMAT = "YYYY-MM-DD"
+const calendarLocales: Record<SupportedLanguage, DateFnsLocale> = {
+  "zh-CN": zhCN,
+  "en-US": enUS,
+  "es-ES": es,
+  "pt-BR": ptBR,
+  "fr-FR": fr,
+  "ja-JP": ja,
+}
 
 type DatePickerProps = {
   id: string
@@ -71,8 +86,8 @@ export function DatePicker({
   )
   const displayValue = selectedDate
     ? dayjs(selectedDate)
-        .locale(language === "zh-CN" ? "zh-cn" : "en")
-        .format(language === "zh-CN" ? "YYYY年M月D日" : "MMM D, YYYY")
+        .locale(dayjsLocaleFor(language))
+        .format(calendarDateFormatFor(language))
     : placeholder
 
   return (
@@ -110,7 +125,7 @@ export function DatePicker({
             selected={selectedDate}
             defaultMonth={selectedDate ?? minDate ?? maxDate ?? undefined}
             disabled={disabledDays}
-            locale={language === "zh-CN" ? zhCN : enUS}
+            locale={calendarLocales[language]}
             onSelect={(date) => {
               if (!date) return
               onValueChange(dayjs(date).format(DATE_VALUE_FORMAT))

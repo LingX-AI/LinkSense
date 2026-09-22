@@ -76,7 +76,7 @@ describe("create and publish a standard application", () => {
   it.each([
     ["zh-CN", "创建"],
     ["en-US", "Create"],
-    ["fr-FR", "创建"],
+    ["de-DE", "创建"],
   ])(
     "prefills the first version with a fixed prefix and publishes after creation in %s",
     async (locale, label) => {

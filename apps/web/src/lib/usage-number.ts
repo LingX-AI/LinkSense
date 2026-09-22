@@ -9,8 +9,9 @@ import {
   toSnapshot,
   transformScale,
 } from "dinero.js/bigint"
+import type { Locale } from "@linksense/shared"
 
-export type UsageNumberLanguage = "zh-CN" | "en-US"
+export type UsageNumberLanguage = Locale
 
 const cnyTransportScale = 12n
 const cnyDisplayScale = 2n

@@ -55,7 +55,13 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { normalizeLanguage } from "@/i18n"
+import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
+import {
+  calendarDateFormatFor,
+  compactDateFormatFor,
+  dayjsLocaleFor,
+  monthYearFormatFor,
+} from "@/i18n/date"
 import {
   formatCnyCost,
   formatIntegerCount,
@@ -742,7 +748,7 @@ function NumberCell({
   tokens = false,
 }: {
   value: number | string
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
   tokens?: boolean
 }) {
   return (
@@ -757,23 +763,23 @@ function NumberCell({
 function formatTrendPeriod(
   value: string,
   granularity: UsageTrend["granularity"],
-  language: "zh-CN" | "en-US",
+  language: SupportedLanguage,
   compact = true
 ): string {
-  const parsed = dayjs(value).locale(language === "zh-CN" ? "zh-cn" : "en")
+  const parsed = dayjs(value).locale(dayjsLocaleFor(language))
   if (!parsed.isValid()) return value
   if (granularity === "year") return parsed.format("YYYY")
   if (granularity === "month") {
-    return parsed.format(language === "zh-CN" ? "YYYY年M月" : "MMM YYYY")
+    return parsed.format(monthYearFormatFor(language))
   }
-  if (compact) return parsed.format(language === "zh-CN" ? "M/D" : "MMM D")
-  return parsed.format(language === "zh-CN" ? "YYYY年M月D日" : "MMM D, YYYY")
+  if (compact) return parsed.format(compactDateFormatFor(language))
+  return parsed.format(calendarDateFormatFor(language))
 }
 
 function formatCoverageDate(
   value: string,
   timeZone: string,
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
 ): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value

@@ -5,6 +5,7 @@ import type { AuthenticatedRequest } from "../../plugins/authentication.js";
 import { attachmentContentDisposition } from "../../lib/content-disposition.js";
 import { ok } from "../../lib/http.js";
 import { errorDetails, normalizeError } from "../../lib/errors.js";
+import { resolveLocale } from "../../lib/locale.js";
 import type { WebSiteService } from "./service.js";
 import { resourceContentType } from "./resources.js";
 import { escapeHtml, siteNotFoundPage, siteNotFoundPolicy } from "./public-page.js";
@@ -65,7 +66,7 @@ export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; 
   });
   app.setErrorHandler((error, request, reply) => {
     const normalized = normalizeError(error);
-    const locale = request.headers["accept-language"]?.toLowerCase().startsWith("en") ? "en-US" : "zh-CN";
+    const locale = resolveLocale(request);
     const details = errorDetails(normalized.code, locale);
     if (details.status === 404) {
       void reply.code(404).type("text/html; charset=utf-8")

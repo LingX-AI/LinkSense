@@ -1827,17 +1827,25 @@ export function ConversationPage({
                 transitionedConversation
               )
             }
-            if (!terminal) {
-              queryClient.setQueryData<
-                InfiniteData<Paginated<Conversation>, string | undefined>
-              >(["conversations", "sidebar"], (current) =>
-                patchSidebarConversationExecutionStatus(
-                  current,
-                  conversationId,
-                  executionTransition.status
-                )
-              )
+            // The matched lifecycle event already confirms execution status.
+            // Output reconciliation must not keep the sidebar spinning.
+            if (terminal) {
+              // A list refresh started by the interrupt receipt can still
+              // contain the pre-interruption status. Cancel it before patching.
+              void queryClient.cancelQueries({
+                queryKey: ["conversations", "sidebar"],
+                exact: true,
+              })
             }
+            queryClient.setQueryData<
+              InfiniteData<Paginated<Conversation>, string | undefined>
+            >(["conversations", "sidebar"], (current) =>
+              patchSidebarConversationExecutionStatus(
+                current,
+                conversationId,
+                executionTransition.status
+              )
+            )
           }
           if (terminal && matchesCurrentTurn) {
             const terminalTurnId = executionTransition.turnId
@@ -6261,7 +6269,7 @@ export function ArchivedConversationListPage() {
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon-sm"
+                        size="icon"
                         aria-label={deleteLabel}
                         title={deleteLabel}
                         disabled={deleteMutation.isPending}
@@ -6284,7 +6292,7 @@ export function ArchivedConversationListPage() {
                       <Button
                         type="button"
                         variant="secondary"
-                        size="sm"
+                        size="default"
                         aria-label={unarchiveLabel}
                         title={unarchiveLabel}
                         disabled={patchMutation.isPending}

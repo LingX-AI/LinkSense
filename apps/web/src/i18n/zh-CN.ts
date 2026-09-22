@@ -1,8 +1,12 @@
+import { samlzhCN } from "@/features/saml/messages"
 import { webSitesZhCN } from "@/features/web-sites/messages"
+import { socialZhCN } from "@/features/social-auth/messages"
 import { personalQuotaZhCN } from "@/features/usage/personal-quota-messages"
 import { errorCatalog } from "@linksense/shared"
 
 export const zhCN = {
+  saml: samlzhCN,
+  social: socialZhCN,
   personalQuota: personalQuotaZhCN,
   webSites: webSitesZhCN,
   clientUpdate: {
@@ -53,6 +57,10 @@ export const zhCN = {
     language: "语言",
     chinese: "简体中文",
     english: "English",
+    spanish: "Español",
+    portuguese: "Português (Brasil)",
+    french: "Français",
+    japanese: "日本語",
     settings: "设置",
     signOut: "退出登录",
     empty: "暂无数据",
@@ -4071,7 +4079,7 @@ export const zhCN = {
       concurrency: "任务并发",
       smtp: "认证邮件",
       registration: "开放注册",
-      sso: "单点登录",
+      login: "登录方式",
       maintenance: "系统维护",
     },
     concurrency: {
@@ -4475,15 +4483,17 @@ export const zhCN = {
       saved: "图片理解设置已更新，后续新处理或重建的文档将使用新配置。",
     },
     authSettings: {
+      enterpriseTitle: "企业账号登录",
+      enterpriseDescription:
+        "让成员使用组织统一管理的账号登录，或在 Teams 中直接进入。首次登录会按邮箱匹配已有账号；新账号需要管理员启用。",
       smtpTitle: "认证邮件功能",
       smtpDescription:
         "配置首次设密与密码重置邮件使用的 SMTP 服务。连接检查仍在系统健康页展示。",
-      oidcTitle: "OIDC 登录",
+      oidcTitle: "企业统一登录（OIDC）",
       oidcDescription:
-        "配置通用 OIDC 授权码登录。登录成功后仍只按邮箱匹配已存在且启用的用户。",
-      teamsTitle: "Teams 登录",
-      teamsDescription:
-        "配置 Teams Tab 单点登录的 Microsoft Entra 租户与应用标识。",
+        "连接组织的统一登录服务，例如 Microsoft Entra ID（工作或学校账号）。",
+      teamsTitle: "Teams 内登录",
+      teamsDescription: "让成员在 Teams 中使用工作或学校账号直接进入。",
       modeLabel: "配置来源",
       modes: {
         inherit: "继承部署环境",
@@ -4812,6 +4822,9 @@ export const zhCN = {
     riskRequired: "请先确认来源和风险提示。",
   },
   errors: {
+    socialClientInUse: errorCatalog.SOCIAL_CLIENT_IN_USE.messages["zh-CN"],
+    socialLastMethod: errorCatalog.SOCIAL_LAST_METHOD.messages["zh-CN"],
+    socialAuthFailed: errorCatalog.SOCIAL_AUTH_FAILED.messages["zh-CN"],
     applicationDevelopment: {
       testBusy:
         errorCatalog.APPLICATION_DEVELOPMENT_TEST_BUSY.messages["zh-CN"],
@@ -5062,6 +5075,11 @@ export const zhCN = {
     validation: "提交内容无效，请检查后重试。",
   },
   loginMethods: {
+    saml: "SAML 2.0",
+    google: "Google",
+    apple: "Apple",
+    microsoft: "Microsoft",
+    facebook: "Facebook",
     password: "本地密码",
     oidc: "单点登录",
     teams: "Teams SSO",

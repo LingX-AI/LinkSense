@@ -4,8 +4,21 @@ export const uuidSchema = z.string().uuid();
 export const timestampSchema = z.string().datetime({ offset: true });
 export const nonEmptyTextSchema = z.string().trim().min(1);
 
-export const localeSchema = z.enum(["zh-CN", "en-US"]);
+export const supportedLocales = [
+  "zh-CN",
+  "en-US",
+  "es-ES",
+  "pt-BR",
+  "fr-FR",
+  "ja-JP",
+] as const;
+
+export const localeSchema = z.enum(supportedLocales);
 export type Locale = z.infer<typeof localeSchema>;
+
+export function isLocale(value: unknown): value is Locale {
+  return localeSchema.safeParse(value).success;
+}
 
 export type JsonValue =
   | null

@@ -20,7 +20,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 describe("resource matching test example", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "uses localized text with fallback and submits only after explicit user action (%s)",
     async (language) => {
       const sdk = await setup()

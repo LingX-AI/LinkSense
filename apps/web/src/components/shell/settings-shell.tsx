@@ -253,7 +253,7 @@ export function SettingsShell() {
           <Button
             type="button"
             variant="ghost"
-            size="sm"
+            size="default"
             className="font-semibold"
             aria-expanded={mobileOpen}
             aria-controls="settings-navigation-body"

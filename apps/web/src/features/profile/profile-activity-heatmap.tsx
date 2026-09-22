@@ -17,7 +17,12 @@ import { useTranslation } from "react-i18next"
 import type { PersonalUsageProfile } from "@/api/contracts"
 import { EmptyState } from "@/components/feedback/page-state"
 import { activityLevel } from "@/features/profile/profile-usage"
-import { calendarMonthLabels, formatCalendarDate } from "@/i18n/date"
+import {
+  calendarMonthLabels,
+  dayjsLocaleFor,
+  formatCalendarDate,
+  shortDateFormatFor,
+} from "@/i18n/date"
 import type { SupportedLanguage } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { formatTokenCount } from "@/lib/usage-number"
@@ -215,8 +220,8 @@ function formatTooltipDate(value: string, language: SupportedLanguage): string {
   const parsed = dayjs(value)
   if (!parsed.isValid()) return "—"
   return parsed
-    .locale(language === "zh-CN" ? "zh-cn" : "en")
-    .format(language === "zh-CN" ? "M月D日" : "MMM D")
+    .locale(dayjsLocaleFor(language))
+    .format(shortDateFormatFor(language))
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -22,6 +22,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { normalizeLanguage } from "@/i18n"
 import {
   Popover,
   PopoverContent,
@@ -420,5 +421,5 @@ function formatContextTokenCount(
 }
 
 function toUsageNumberLanguage(language: string): UsageNumberLanguage {
-  return language === "en-US" ? "en-US" : "zh-CN"
+  return normalizeLanguage(language) ?? "zh-CN"
 }

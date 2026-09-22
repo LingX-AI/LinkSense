@@ -18,6 +18,7 @@ import {
   type ApplicationCreationMethod,
 } from "./application-create-dialog"
 import { useDeleteApplicationDevelopment } from "./application-development-api"
+import { normalizeLanguage } from "@/i18n"
 import { ApplicationDevelopmentCard } from "./application-development-card"
 import { useApplicationCatalog } from "./application-catalog-queries"
 import {
@@ -577,13 +578,10 @@ export function ApplicationCatalogPanel({
   >(undefined)
   const shareTargetListFormatter = useMemo(
     () =>
-      new Intl.ListFormat(
-        i18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN",
-        {
-          style: "narrow",
-          type: "conjunction",
-        }
-      ),
+      new Intl.ListFormat(normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN", {
+        style: "narrow",
+        type: "conjunction",
+      }),
     [i18n.resolvedLanguage]
   )
   const applications = useApplicationCatalog(scope, deferredSearch, state)

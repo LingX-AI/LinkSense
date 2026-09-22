@@ -1,3 +1,5 @@
+import { SamlLoginButton } from "@/features/saml/login-button"
+import { SocialLoginButtons } from "@/features/social-auth/social-login-buttons"
 import {
   useEffect,
   useLayoutEffect,
@@ -302,6 +304,8 @@ export function LoginPage() {
           {t("auth.signIn")}
         </Button>
       </form>
+      <SamlLoginButton />
+      <SocialLoginButtons />
       {["available", "configured"].includes(bootstrap?.oidc?.status ?? "") && (
         <Button
           type="button"
@@ -313,14 +317,16 @@ export function LoginPage() {
           {t("auth.oidc")}
         </Button>
       )}
-      <Link className="public-link" to="/forgot-password">
-        {t("auth.forgotPassword")}
-      </Link>
-      {bootstrap?.registration?.enabled && (
-        <Link className="public-link" to="/register">
-          {t("auth.registration.createAccount")}
+      <div className="login-page-links">
+        <Link className="public-link" to="/forgot-password">
+          {t("auth.forgotPassword")}
         </Link>
-      )}
+        {bootstrap?.registration?.enabled && (
+          <Link className="public-link" to="/register">
+            {t("auth.registration.createAccount")}
+          </Link>
+        )}
+      </div>
     </PublicPanel>
   )
 }
@@ -385,6 +391,7 @@ export function RegistrationPage() {
           {t("auth.registration.closed")}
         </StatusBanner>
       )}
+      {registrationEnabled && <SocialLoginButtons />}
       {message && (
         <StatusBanner
           variant="success"
@@ -862,15 +869,15 @@ function clearPasswordResetTokenFromLocation() {
   }
 }
 
-export function OidcCallbackPage() {
+export function EnterpriseCallbackPage() {
   const { t } = useTranslation()
   const productName = useProductName()
   const navigate = useNavigate()
-  const [callbackResult] = useState(readOidcCallbackResult)
+  const [callbackResult] = useState(readEnterpriseCallbackResult)
   const { status } = useAuth()
 
   useLayoutEffect(() => {
-    clearOidcCallbackParameters()
+    clearEnterpriseCallbackParameters()
   }, [])
 
   useEffect(() => {
@@ -912,9 +919,10 @@ export function OidcCallbackPage() {
   )
 }
 
-type OidcCallbackResult = "success" | "pending_approval" | "disabled" | "failed"
+type EnterpriseCallbackResult =
+  "success" | "pending_approval" | "disabled" | "failed"
 
-function readOidcCallbackResult(): OidcCallbackResult {
+function readEnterpriseCallbackResult(): EnterpriseCallbackResult {
   const url = new URL(window.location.href)
   const parsed = z
     .enum(["success", "pending_approval", "disabled", "failed"])
@@ -922,7 +930,7 @@ function readOidcCallbackResult(): OidcCallbackResult {
   return parsed.success ? parsed.data : "failed"
 }
 
-function clearOidcCallbackParameters() {
+function clearEnterpriseCallbackParameters() {
   const url = new URL(window.location.href)
   if (url.search) {
     window.history.replaceState(

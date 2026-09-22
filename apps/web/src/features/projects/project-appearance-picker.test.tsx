@@ -22,7 +22,7 @@ function ControlledPicker() {
 }
 
 describe("project appearance picker", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "selects colors and icons without closing the picker in %s",
     async (language) => {
       await i18n.changeLanguage(language)

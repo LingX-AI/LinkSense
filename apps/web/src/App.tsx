@@ -3,6 +3,7 @@ import {
   loadInteractiveApplicationPage,
 } from "@/features/applications/application-page-loaders"
 import { lazy, Suspense } from "react"
+import { SocialCallbackPage } from "@/features/social-auth/social-callback-page"
 import { useTranslation } from "react-i18next"
 import { Navigate, Route, Routes } from "react-router-dom"
 
@@ -51,9 +52,9 @@ const CompleteRegistrationPage = lazy(() =>
     default: module.CompleteRegistrationPage,
   }))
 )
-const OidcCallbackPage = lazy(() =>
+const EnterpriseCallbackPage = lazy(() =>
   import("@/pages/auth-pages").then((module) => ({
-    default: module.OidcCallbackPage,
+    default: module.EnterpriseCallbackPage,
   }))
 )
 const CapabilityManagementPage = lazy(() =>
@@ -211,7 +212,18 @@ export function App() {
           </Route>
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/auth/oidc/callback" element={<OidcCallbackPage />} />
+          <Route
+            path="/auth/oidc/callback"
+            element={<EnterpriseCallbackPage />}
+          />
+          <Route
+            path="/auth/saml/callback"
+            element={<EnterpriseCallbackPage />}
+          />
+          <Route
+            path="/auth/social/callback"
+            element={<SocialCallbackPage />}
+          />
           <Route path="/share/:shareId" element={<SharedConversationPage />} />
 
           <Route element={<ProtectedRoute />}>

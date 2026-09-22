@@ -326,7 +326,7 @@ function publicSession(
   })
 }
 
-function setRefreshCookie(
+export function setRefreshCookie(
   reply: Parameters<typeof clearRefreshCookie>[0],
   name: string,
   token: string,
@@ -364,7 +364,7 @@ function oidcCallbackLocation(
   return publicBaseUrl ? url.toString() : `${url.pathname}${url.search}`
 }
 
-function assertCookieRequestOrigin(request: FastifyRequest): void {
+export function assertCookieRequestOrigin(request: FastifyRequest): void {
   const fetchSite = request.headers["sec-fetch-site"]
   if (fetchSite !== undefined && fetchSite !== "same-origin") {
     throw new AppError("AUTH_CROSS_ORIGIN_REQUEST_FORBIDDEN")

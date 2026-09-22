@@ -16,6 +16,8 @@ const maintenanceAdminAuthPaths = new Set([
   "/forgot-password",
   "/reset-password",
   "/auth/oidc/callback",
+  "/auth/saml/callback",
+  "/auth/social/callback",
 ])
 
 export function BootstrapGate() {
@@ -179,6 +181,8 @@ function resolveAuthenticatedDestination(
       "/forgot-password",
       "/reset-password",
       "/auth/oidc/callback",
+      "/auth/saml/callback",
+      "/auth/social/callback",
       "/register",
       "/register/activate",
     ].includes(destination.pathname)

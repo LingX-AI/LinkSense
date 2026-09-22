@@ -100,6 +100,20 @@ describe("LinkSense application", () => {
     ).toHaveClass("h-11", "w-full")
   })
 
+  it("places account recovery and registration links together at the page bottom right", async () => {
+    installApiMock({ refreshFails: true, registrationEnabled: true })
+    renderApp("/login")
+
+    const forgotPassword = await screen.findByRole("link", {
+      name: "忘记密码或首次设置密码",
+    })
+    const createAccount = screen.getByRole("link", { name: "注册账号" })
+    const links = forgotPassword.parentElement
+
+    expect(links).toHaveClass("login-page-links")
+    expect(links).toContainElement(createAccount)
+  })
+
   it("toggles the sign-in password visibility from the trailing eye button", async () => {
     installApiMock({ refreshFails: true })
     const interaction = userEvent.setup()
@@ -318,43 +332,57 @@ describe("LinkSense application", () => {
     expect(screen.getByRole("button", { name: "保存新密码" })).toBeDisabled()
   })
 
-  it("restores the backend-created OIDC session and clears the callback result", async () => {
-    const { requests } = installApiMock()
-    window.history.replaceState({}, "", "/auth/oidc/callback?result=success")
-    renderApp("/auth/oidc/callback?result=success")
-
-    await waitFor(() =>
-      expect(screen.getByRole("form", { name: "任务输入框" })).toBeVisible()
-    )
-    expect(window.location.search).toBe("")
-    expect(
-      requests.some((request) => request.path === "/api/v1/auth/oidc/callback")
-    ).toBe(false)
-  })
-
-  it("shows first-time OIDC users that their disabled account needs administrator approval", async () => {
-    const { requests } = installApiMock({ refreshFails: true })
-    window.history.replaceState(
-      {},
-      "",
-      "/auth/oidc/callback?result=pending_approval"
-    )
-    renderApp("/auth/oidc/callback?result=pending_approval")
-
-    expect(
-      await screen.findByText(
-        "单点登录验证成功，账号已创建并等待管理员启用。请联系管理员，启用后再重新登录。"
+  it.each(["oidc", "saml"])(
+    "restores the backend-created %s session and clears the callback result",
+    async (protocol) => {
+      const { requests } = installApiMock()
+      window.history.replaceState(
+        {},
+        "",
+        `/auth/${protocol}/callback?result=success`
       )
-    ).toBeVisible()
-    expect(screen.getByRole("link", { name: "返回登录页" })).toHaveAttribute(
-      "href",
-      "/login"
-    )
-    expect(window.location.search).toBe("")
-    expect(
-      requests.some((request) => request.path === "/api/v1/auth/oidc/callback")
-    ).toBe(false)
-  })
+      renderApp(`/auth/${protocol}/callback?result=success`)
+
+      await waitFor(() =>
+        expect(screen.getByRole("form", { name: "任务输入框" })).toBeVisible()
+      )
+      expect(window.location.search).toBe("")
+      expect(
+        requests.some(
+          (request) => request.path === `/api/v1/auth/${protocol}/callback`
+        )
+      ).toBe(false)
+    }
+  )
+
+  it.each(["oidc", "saml"])(
+    "shows first-time %s users that their disabled account needs administrator approval",
+    async (protocol) => {
+      const { requests } = installApiMock({ refreshFails: true })
+      window.history.replaceState(
+        {},
+        "",
+        `/auth/${protocol}/callback?result=pending_approval`
+      )
+      renderApp(`/auth/${protocol}/callback?result=pending_approval`)
+
+      expect(
+        await screen.findByText(
+          "单点登录验证成功，账号已创建并等待管理员启用。请联系管理员，启用后再重新登录。"
+        )
+      ).toBeVisible()
+      expect(screen.getByRole("link", { name: "返回登录页" })).toHaveAttribute(
+        "href",
+        "/login"
+      )
+      expect(window.location.search).toBe("")
+      expect(
+        requests.some(
+          (request) => request.path === `/api/v1/auth/${protocol}/callback`
+        )
+      ).toBe(false)
+    }
+  )
 
   it("does not reuse an API callback path as the post-password-login destination", async () => {
     installApiMock({ refreshFails: true })

@@ -103,7 +103,7 @@ describe("knowledge citation preview", () => {
       "Original preview is not available for this file type. View parsed content or download the original.",
     ],
     [
-      "fr-FR",
+      "de-DE",
       "来源位置：第 1 页",
       "此文件格式暂不支持原文预览，可查看解析内容或下载原文件。",
     ],

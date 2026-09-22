@@ -101,7 +101,7 @@ export class DashScopeAsrClient {
           asr_options: {
             enable_itn: true,
             ...(input.language
-              ? { language: input.language === "zh-CN" ? "zh" : "en" }
+              ? { language: input.language.split("-", 1)[0] }
               : {}),
           },
           messages: [

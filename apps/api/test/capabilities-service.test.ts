@@ -264,7 +264,7 @@ describe("CapabilityService owner-only visibility", () => {
       expect(download.headers["content-type"]).toBe("application/zip");
       expect(download.headers["content-disposition"]).toContain("reports.zip");
       expect(download.headers["cache-control"]).toBe("no-store");
-      for (const [language, message] of [["zh-CN", "此技能已发生变化"], ["en-US", "This skill has changed"], ["fr-FR", "此技能已发生变化"]]) {
+      for (const [language, message] of [["zh-CN", "此技能已发生变化"], ["en-US", "This skill has changed"], ["de-DE", "此技能已发生变化"]]) {
         const conflict = await app.inject({ method: "POST", url: `/${installed.id}/skill-edit`, headers: { "accept-language": language }, payload: { ...input, base_revision: "0".repeat(64) } });
         expect(conflict.statusCode).toBe(409);
         expect(conflict.json().message).toContain(message);

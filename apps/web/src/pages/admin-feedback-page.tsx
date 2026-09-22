@@ -96,6 +96,7 @@ export function AdminFeedbackPage() {
 
   return (
     <PageLayout
+      contentWidth="wide"
       title={t("adminFeedback.title")}
       description={t("adminFeedback.description")}
       actions={
@@ -162,7 +163,7 @@ export function AdminFeedbackPage() {
                       <Button
                         type="button"
                         variant="ghost"
-                        size="sm"
+                        size="default"
                         className="col-start-2"
                         onClick={() => setSelected(feedback)}
                       >
@@ -171,7 +172,7 @@ export function AdminFeedbackPage() {
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon-sm"
+                        size="icon"
                         className="text-muted-foreground hover:text-destructive"
                         aria-label={t("adminFeedback.deleteLabel", {
                           name: feedback.submitter.name,
@@ -200,7 +201,7 @@ export function AdminFeedbackPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
+                  size="default"
                   disabled={cursorStack.length === 0 || query.isFetching}
                   onClick={() => {
                     const previous = cursorStack.at(-1)
@@ -215,7 +216,7 @@ export function AdminFeedbackPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
+                  size="default"
                   disabled={!query.data?.next_cursor || query.isFetching}
                   onClick={() => {
                     if (!query.data?.next_cursor) return

@@ -1,4 +1,5 @@
 import { Prisma } from "../../generated/prisma/client.js";
+import { isLocale, loginMethodSchema } from "@linksense/shared";
 import type {
   PrismaClient,
   User,
@@ -20,6 +21,7 @@ import type {
   UserPersistence,
   UserRecord,
   UserRoleSummary,
+  UserLocale,
 } from "./types.js";
 
 const ADMIN_LIFECYCLE_ADVISORY_LOCK = 7_223_456_002n;
@@ -502,7 +504,7 @@ export class PrismaUserRepository implements UserPersistence {
   updateOwnProfile(input: {
     userId: string;
     name?: string;
-    preferredLocale?: "zh-CN" | "en-US" | null;
+    preferredLocale?: UserLocale | null;
     runningMessageAction?: "steer" | "queue";
     now: Date;
     audit: import("../audit/service.js").AuditContext;
@@ -1075,15 +1077,10 @@ function mapUser(user: User): UserRecord {
   if (
     (user.role !== "user" && user.role !== "admin") ||
     (user.status !== "active" && user.status !== "disabled") ||
-    (user.preferredLocale !== null &&
-      user.preferredLocale !== "zh-CN" &&
-      user.preferredLocale !== "en-US") ||
+    (user.preferredLocale !== null && !isLocale(user.preferredLocale)) ||
     (user.runningMessageAction !== "steer" &&
       user.runningMessageAction !== "queue") ||
-    (user.lastLoginMethod !== null &&
-      user.lastLoginMethod !== "password" &&
-      user.lastLoginMethod !== "oidc" &&
-      user.lastLoginMethod !== "teams")
+    (user.lastLoginMethod !== null && !loginMethodSchema.safeParse(user.lastLoginMethod).success)
   ) {
     throw new Error("invalid persisted user state");
   }
@@ -1093,7 +1090,7 @@ function mapUser(user: User): UserRecord {
     status: user.status,
     preferredLocale: user.preferredLocale,
     runningMessageAction: user.runningMessageAction,
-    lastLoginMethod: user.lastLoginMethod,
+    lastLoginMethod: user.lastLoginMethod === null ? null : loginMethodSchema.parse(user.lastLoginMethod),
   };
 }
 

@@ -36,6 +36,6 @@ describe("built-in application builder", () => {
   });
   it.each(["APPLICATION_DEVELOPMENT_NOT_FOUND", "APPLICATION_DEVELOPMENT_SOURCE_CHANGED", "APPLICATION_DEVELOPMENT_WORKSPACE_BOUND"] as const)("localizes %s and falls back to Chinese", code => {
     expect(translateError(code, "zh-CN")).not.toBe(translateError(code, "en-US"));
-    expect(backendI18n.t(errorCatalog[code].message_key, { lng: "fr-FR" })).toBe(translateError(code, "zh-CN"));
+    expect(backendI18n.t(errorCatalog[code].message_key, { lng: "de-DE" })).toBe(translateError(code, "zh-CN"));
   });
 });

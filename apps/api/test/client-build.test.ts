@@ -41,7 +41,7 @@ describe("first-party page build handshake", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it.each(["zh-CN", "en-US", "fr-FR"])("localizes outdated-page errors for %s", async (locale) => {
+  it.each(["zh-CN", "en-US", "de-DE"])("localizes outdated-page errors for %s", async (locale) => {
     const app = createApp();
     app.get("/api/v1/applications", async () => ({}));
     const response = await app.inject({ url: "/api/v1/applications", headers: { "x-linksense-client-build": old, "accept-language": locale } });

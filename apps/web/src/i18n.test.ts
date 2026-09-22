@@ -4,8 +4,16 @@ import {
   taskArtifactFileTypeSchema,
 } from "@linksense/shared"
 
-import i18n, { resolveBrowserLanguage, setAppLanguage } from "@/i18n"
+import i18n, {
+  resolveBrowserLanguage,
+  setAppLanguage,
+  supportedLanguages,
+} from "@/i18n"
 import { enUS } from "@/i18n/en-US"
+import { esES } from "@/i18n/es-ES"
+import { frFR } from "@/i18n/fr-FR"
+import { jaJP } from "@/i18n/ja-JP"
+import { ptBR } from "@/i18n/pt-BR"
 import { zhCN } from "@/i18n/zh-CN"
 
 function leafKeys(value: unknown, prefix = ""): string[] {
@@ -21,7 +29,59 @@ function leafStrings(value: unknown): string[] {
   return Object.values(value).flatMap(leafStrings)
 }
 
+function leafEntries(
+  value: unknown,
+  prefix = ""
+): Array<readonly [string, string]> {
+  if (typeof value === "string") return [[prefix, value]]
+  if (typeof value !== "object" || value === null) return []
+  return Object.entries(value).flatMap(([key, child]) =>
+    leafEntries(child, prefix ? `${prefix}.${key}` : key)
+  )
+}
+
+function stringAt(value: unknown, path: string): string | undefined {
+  let current = value
+  for (const segment of path.split(".")) {
+    if (typeof current !== "object" || current === null) return undefined
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return typeof current === "string" ? current : undefined
+}
+
+function interpolationTokens(value: string): string[] {
+  return [...value.matchAll(/\{\{[^{}]+\}\}/gu)].map(([token]) => token).sort()
+}
+
 describe("i18n resources", () => {
+  it("distinguishes enterprise and third-party sign-in with Chinese missing-key fallback", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+    for (const [key, chinese, english] of [
+      ["admin.settingsTabs.login", "登录方式", "Sign-in methods"],
+      [
+        "admin.authSettings.enterpriseTitle",
+        "企业账号登录",
+        "Enterprise accounts",
+      ],
+      [
+        "admin.authSettings.oidcTitle",
+        "企业统一登录（OIDC）",
+        "Enterprise SSO (OIDC)",
+      ],
+      ["admin.authSettings.teamsTitle", "Teams 内登录", "Sign in within Teams"],
+      ["social.title", "第三方账号登录", "Third-party accounts"],
+      [
+        "social.providers.microsoft",
+        "Microsoft 个人账号",
+        "Microsoft personal account",
+      ],
+    ]) {
+      expect(i18n.t(key, { lng: "zh-CN" })).toBe(chinese)
+      expect(i18n.t(key, { lng: "en-US" })).toBe(english)
+      expect(fallback.t(key, { lng: "en-US" })).toBe(chinese)
+    }
+  })
   it("uses unlisting terminology for Plugin Center governance with Chinese fallback", () => {
     const fallback = i18n.cloneInstance({ forkResourceStore: true })
     fallback.removeResourceBundle("en-US", "translation")
@@ -201,7 +261,7 @@ describe("i18n resources", () => {
     expect(enUS.personalQuota.unit).toBe("credits")
     expect(i18n.t("personalQuota.title", { lng: "zh-CN" })).toBe("额度使用")
     expect(i18n.t("personalQuota.title", { lng: "en-US" })).toBe("Credit usage")
-    expect(i18n.t("personalQuota.unit", { lng: "fr-FR" })).toBe("credits")
+    expect(i18n.t("personalQuota.unit", { lng: "de-DE" })).toBe("credits")
     expect(quotaManagement.conversionTitle).toBe("Credits 换算")
     expect(quotaManagement.weekly_credit_limit).toBe("周额度（credits）")
     const instance = i18n.cloneInstance({ forkResourceStore: true })
@@ -293,10 +353,14 @@ describe("i18n resources", () => {
 
   it("detects supported languages across browser language APIs", () => {
     expect(resolveBrowserLanguage(["en-GB", "zh-CN"], "zh-CN")).toBe("en-US")
-    expect(resolveBrowserLanguage(["fr-FR", "zh-HK"], "en-US")).toBe("zh-CN")
+    expect(resolveBrowserLanguage(["de-DE", "zh-HK"], "en-US")).toBe("zh-CN")
     expect(resolveBrowserLanguage(undefined, "en-AU")).toBe("en-US")
     expect(resolveBrowserLanguage([], "zh-TW")).toBe("zh-CN")
-    expect(resolveBrowserLanguage(["fr-FR"], "fr-FR")).toBe("en-US")
+    expect(resolveBrowserLanguage(["es-MX"], "en-US")).toBe("es-ES")
+    expect(resolveBrowserLanguage(["pt-PT"], "en-US")).toBe("pt-BR")
+    expect(resolveBrowserLanguage(["fr-CA"], "en-US")).toBe("fr-FR")
+    expect(resolveBrowserLanguage(["ja"], "en-US")).toBe("ja-JP")
+    expect(resolveBrowserLanguage(["de-DE"], "de-DE")).toBe("en-US")
     expect(resolveBrowserLanguage(undefined, undefined)).toBe("en-US")
   })
 
@@ -340,7 +404,7 @@ describe("i18n resources", () => {
 
   it("replaces an unsupported runtime language with the requested language", async () => {
     await i18n.changeLanguage("zh-CN")
-    i18n.language = "fr-FR"
+    i18n.language = "de-DE"
     const onLanguageChanged = vi.fn()
     i18n.on("languageChanged", onLanguageChanged)
 
@@ -360,6 +424,91 @@ describe("i18n resources", () => {
     expect(leafKeys(enUS).sort()).toEqual(leafKeys(zhCN).sort())
   })
 
+  it("provides authored translations for every supported locale", () => {
+    expect(supportedLanguages).toEqual([
+      "zh-CN",
+      "en-US",
+      "es-ES",
+      "pt-BR",
+      "fr-FR",
+      "ja-JP",
+    ])
+    expect(i18n.t("common.save", { lng: "es-ES" })).toBe("Guardar")
+    expect(i18n.t("common.save", { lng: "pt-BR" })).toBe("Salvar")
+    expect(i18n.t("common.save", { lng: "fr-FR" })).toBe("Enregistrer")
+    expect(i18n.t("common.save", { lng: "ja-JP" })).toBe("保存")
+    expect(i18n.t("auth.sessionExpired", { lng: "es-ES" })).toBe(
+      "Tu sesión ha caducado. Vuelve a iniciar sesión."
+    )
+    expect(i18n.t("auth.sessionExpired", { lng: "pt-BR" })).toBe(
+      "Sua sessão expirou. Entre novamente."
+    )
+    expect(i18n.t("auth.sessionExpired", { lng: "fr-FR" })).toBe(
+      "Votre session a expiré. Reconnectez-vous."
+    )
+    expect(i18n.t("auth.sessionExpired", { lng: "ja-JP" })).toBe(
+      "セッションの有効期限が切れました。もう一度ログインしてください。"
+    )
+    expect(i18n.t("clientUpdate.title", { lng: "es-ES" })).toBe(
+      "Sistema actualizado"
+    )
+  })
+
+  it.each([
+    ["es-ES", esES],
+    ["pt-BR", ptBR],
+    ["fr-FR", frFR],
+    ["ja-JP", jaJP],
+  ] as const)(
+    "preserves interpolation variables in reviewed %s copy",
+    (_, resource) => {
+      const sourceKeys = new Set(leafKeys(enUS))
+      const translatedKeys = new Set(leafKeys(resource))
+      const missing = [...sourceKeys].filter((key) => !translatedKeys.has(key))
+      const unexpected = [...translatedKeys].filter(
+        (key) => !sourceKeys.has(key)
+      )
+      expect(
+        { count: missing.length, sample: missing.slice(0, 20) },
+        "Untranslated messages"
+      ).toEqual({ count: 0, sample: [] })
+      expect(unexpected, "Messages absent from the source catalog").toEqual([])
+      for (const [key, translated] of leafEntries(resource)) {
+        expect(translated.trim(), key).not.toBe("")
+        const source = stringAt(enUS, key)
+        expect(source, key).toBeDefined()
+        expect(interpolationTokens(translated), key).toEqual(
+          interpolationTokens(source ?? "")
+        )
+        // Product names, URLs and interpolation-only values can legitimately
+        // be identical; full English sentences must not masquerade as copies.
+        const prose = (source ?? "").replace(
+          /\{\{[^{}]+\}\}|https?:\/\/\S+/gu,
+          ""
+        )
+        if ((prose.match(/[A-Za-z]{2,}/gu)?.length ?? 0) >= 5) {
+          expect(translated, `Untranslated English sentence: ${key}`).not.toBe(
+            source
+          )
+        }
+      }
+    }
+  )
+
+  it.each(["es-ES", "pt-BR", "fr-FR", "ja-JP"])(
+    "uses Chinese only when %s resources are unavailable",
+    (locale) => {
+      const fallback = i18n.cloneInstance({ forkResourceStore: true })
+      fallback.removeResourceBundle(locale, "translation")
+      expect(fallback.t("settings.general", { lng: locale })).toBe(
+        zhCN.settings.general
+      )
+      expect(
+        fallback.t("browserNotifications.settingsTitle", { lng: locale })
+      ).toBe(zhCN.browserNotifications.settingsTitle)
+    }
+  )
+
   it("localizes every artifact filter and falls back to Chinese for an unsupported language", () => {
     const fileTypes = ["all", ...taskArtifactFileTypeSchema.options]
     expect(Object.keys(zhCN.library.artifacts.fileTypes)).toEqual(fileTypes)
@@ -372,7 +521,7 @@ describe("i18n resources", () => {
         expect(i18n.t(key, { lng })).not.toBe(key)
         expect(i18n.t(key, { lng })).not.toBe("")
       }
-      expect(i18n.t(key, { lng: "fr-FR" })).toBe(i18n.t(key, { lng: "zh-CN" }))
+      expect(i18n.t(key, { lng: "de-DE" })).toBe(i18n.t(key, { lng: "zh-CN" }))
     }
     expect(i18n.t("library.artifacts.fileTypeLabel", { lng: "en-US" })).toBe(
       "Filter by file type"
@@ -390,7 +539,7 @@ describe("i18n resources", () => {
       "Enable during search"
     )
 
-    await i18n.changeLanguage("fr-FR")
+    await i18n.changeLanguage("de-DE")
     expect(i18n.t("admin.knowledgeModels.enabled")).toBe("检索时启用")
     await i18n.changeLanguage("zh-CN")
   })
@@ -416,7 +565,7 @@ describe("i18n resources", () => {
       })
     ).toBe("LinkSense v0.2.0 is available")
 
-    await i18n.changeLanguage("fr-FR")
+    await i18n.changeLanguage("de-DE")
     expect(i18n.t("systemUpdate.checkNow")).toBe("立即检查")
     await i18n.changeLanguage("zh-CN")
   })
@@ -827,9 +976,9 @@ describe("i18n resources", () => {
       i18n.getFixedT("en-US")("conversation.clearArchivedPartial", values)
     ).toContain("Cleared 1 tasks; 2 tasks could not be cleared yet")
     expect(
-      i18n.getFixedT("fr-FR")("conversation.clearArchivedPartial", values)
+      i18n.getFixedT("de-DE")("conversation.clearArchivedPartial", values)
     ).toBe(i18n.getFixedT("zh-CN")("conversation.clearArchivedPartial", values))
-    expect(i18n.getFixedT("fr-FR")("conversation.clearArchivedBusy")).toBe(
+    expect(i18n.getFixedT("de-DE")("conversation.clearArchivedBusy")).toBe(
       zhCN.conversation.clearArchivedBusy
     )
     expect(enUS.conversation.clearArchivedBusy).toContain(
@@ -846,9 +995,9 @@ describe("i18n resources", () => {
     expect(enUS.library.title).toBe("Resource library")
     expect(zhCN.library.tabsLabel).toBe("资料库内容")
     expect(enUS.library.tabsLabel).toBe("Resource library content")
-    expect(i18n.getFixedT("fr-FR")("nav.knowledgeBases")).toBe("资料库")
-    expect(i18n.getFixedT("fr-FR")("library.title")).toBe("资料库")
-    expect(i18n.getFixedT("fr-FR")("library.tabsLabel")).toBe("资料库内容")
+    expect(i18n.getFixedT("de-DE")("nav.knowledgeBases")).toBe("资料库")
+    expect(i18n.getFixedT("de-DE")("library.title")).toBe("资料库")
+    expect(i18n.getFixedT("de-DE")("library.tabsLabel")).toBe("资料库内容")
     expect(zhCN.library.tabs.artifacts).toBe("任务产物")
     expect(enUS.library.tabs.artifacts).toBe("Task artifacts")
     expect(zhCN.library.artifacts.loadingMore).toBe("正在加载更多…")
@@ -1016,14 +1165,19 @@ describe("i18n resources", () => {
   })
 
   it("uses generic public terminology instead of school-limited wording", () => {
+    // Microsoft's work or school account is an identity type, not a product audience restriction.
     expect(
       leafStrings(zhCN).filter((value) =>
-        /(学校|全校|校园|校级|校方|校内|校外|院校)/u.test(value)
+        /(学校|全校|校园|校级|校方|校内|校外|院校)/u.test(
+          value.replaceAll("工作或学校账号", "")
+        )
       )
     ).toEqual([])
     expect(
       leafStrings(enUS).filter((value) =>
-        /\b(?:school|school-wide|campus|campuses)\b/iu.test(value)
+        /\b(?:school|school-wide|campus|campuses)\b/iu.test(
+          value.replaceAll("work or school accounts", "")
+        )
       )
     ).toEqual([])
   })
@@ -1036,7 +1190,7 @@ describe("i18n resources", () => {
     expect(enUS.reasoningEffort.max).toBe("Max")
     expect(enUS.reasoningEffort.ultra).toBe("Ultra")
 
-    await i18n.changeLanguage("fr-FR")
+    await i18n.changeLanguage("de-DE")
     expect(i18n.t("reasoningEffort.ultra")).toBe("极致")
     await i18n.changeLanguage("zh-CN")
   })

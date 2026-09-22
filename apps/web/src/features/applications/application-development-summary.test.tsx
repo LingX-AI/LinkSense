@@ -23,7 +23,7 @@ afterEach(async () => {
 })
 
 describe("development summary hierarchy", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "groups the draft with compact typography and secondary metadata in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)

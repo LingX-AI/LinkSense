@@ -280,7 +280,7 @@ describe("ConversationModelSelector", () => {
       detail: "128k used, 256k total",
     },
     {
-      language: "fr-FR",
+      language: "de-DE",
       badge: "背景信息窗口：50% 已用",
       detail: "已用 128k，共 256k",
     },
@@ -311,7 +311,7 @@ describe("ConversationModelSelector", () => {
     }
   )
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "omits the token unit for zero, one, many, and compact counts in %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -715,7 +715,7 @@ describe("ConversationModelSelector", () => {
       reset: "Reset reasoning effort to default",
     },
     {
-      language: "fr-FR",
+      language: "de-DE",
       selector: "选择模型与推理强度",
       slider: "推理强度",
       value: "轻量",

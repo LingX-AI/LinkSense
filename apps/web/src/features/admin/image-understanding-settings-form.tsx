@@ -11,10 +11,13 @@ import {
 import { getErrorMessage } from "@/api/error-message"
 import { notify } from "@/components/feedback/notification"
 import { StatusBanner } from "@/components/feedback/status-banner"
-import { FieldShell } from "@/components/forms/form-field"
+import {
+  FieldShell,
+  SettingsFieldGroup,
+  SettingsFieldRow,
+} from "@/components/forms/form-field"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -78,9 +81,14 @@ export function ImageUnderstandingSettingsForm({
 
   return (
     <section
-      className="mt-6 grid min-w-0 gap-4"
+      className="mt-8 grid min-w-0 gap-3"
       aria-labelledby={`${idPrefix}-title`}
     >
+      <SettingsSectionHeader
+        id={`${idPrefix}-title`}
+        title={t("admin.imageUnderstanding.title")}
+        description={t("admin.imageUnderstanding.selectionDescription")}
+      />
       <form
         className="grid w-full gap-4"
         onSubmit={(event: FormEvent) => {
@@ -92,14 +100,8 @@ export function ImageUnderstandingSettingsForm({
       >
         <div
           data-slot="model-settings-card"
-          className="grid min-w-0 gap-4 rounded-card border border-[color:var(--app-border)] bg-card p-4"
+          className="grid min-w-0 gap-4 rounded-card border border-[color:var(--app-border)] bg-card p-4 sm:p-5"
         >
-          <SettingsSectionHeader
-            id={`${idPrefix}-title`}
-            title={t("admin.imageUnderstanding.title")}
-            description={t("admin.imageUnderstanding.selectionDescription")}
-          />
-
           {error && <StatusBanner variant="error">{error}</StatusBanner>}
           {imageModels.length === 0 && (
             <StatusBanner variant="warning">
@@ -107,63 +109,64 @@ export function ImageUnderstandingSettingsForm({
             </StatusBanner>
           )}
 
-          <FieldShell
-            id={`${idPrefix}-model`}
-            label={t("admin.imageUnderstanding.selectModel")}
-            hint={t("admin.imageUnderstanding.selectModelHint")}
-          >
-            <Select
-              name="image-understanding-model"
-              items={imageModels.map((candidate) => ({
-                value: candidate.id,
-                label: candidate.display_name,
-              }))}
-              value={model}
-              disabled={readOnly}
-              onValueChange={(value) => setModel(value ?? "")}
+          <SettingsFieldGroup>
+            <FieldShell
+              layout="settings"
+              controlWidth="medium"
+              id={`${idPrefix}-model`}
+              label={t("admin.imageUnderstanding.selectModel")}
+              hint={t("admin.imageUnderstanding.selectModelHint")}
             >
-              <SelectTrigger
-                id={`${idPrefix}-model`}
-                className="w-full"
+              <Select
+                name="image-understanding-model"
+                items={imageModels.map((candidate) => ({
+                  value: candidate.id,
+                  label: candidate.display_name,
+                }))}
+                value={model}
                 disabled={readOnly}
+                onValueChange={(value) => setModel(value ?? "")}
               >
-                <SelectValue
-                  placeholder={t("admin.imageUnderstanding.modelPlaceholder")}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {imageModels.map((candidate) => (
-                    <SelectItem key={candidate.id} value={candidate.id}>
-                      {candidate.display_name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </FieldShell>
+                <SelectTrigger
+                  id={`${idPrefix}-model`}
+                  className="w-full"
+                  disabled={readOnly}
+                >
+                  <SelectValue
+                    placeholder={t("admin.imageUnderstanding.modelPlaceholder")}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {imageModels.map((candidate) => (
+                      <SelectItem key={candidate.id} value={candidate.id}>
+                        {candidate.display_name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </FieldShell>
 
-          <p className="form-hint">
-            {settings.thinking_strategy
-              ? t("admin.imageUnderstanding.activeStrategy")
-              : t("admin.imageUnderstanding.strategyAfterValidation")}
-          </p>
-
-          <div
-            data-slot="model-settings-toggle"
-            className="flex items-center gap-2 pt-1"
-          >
-            <Switch
+            <SettingsFieldRow
               id={`${idPrefix}-enabled`}
-              name="image-understanding-enabled"
-              checked={enabled}
-              disabled={readOnly || imageModels.length === 0}
-              onCheckedChange={setEnabled}
-            />
-            <Label htmlFor={`${idPrefix}-enabled`}>
-              {t("admin.imageUnderstanding.enabled")}
-            </Label>
-          </div>
+              label={t("admin.imageUnderstanding.enabled")}
+              controlWidth="compact"
+              hint={
+                settings.thinking_strategy
+                  ? t("admin.imageUnderstanding.activeStrategy")
+                  : t("admin.imageUnderstanding.strategyAfterValidation")
+              }
+            >
+              <Switch
+                id={`${idPrefix}-enabled`}
+                name="image-understanding-enabled"
+                checked={enabled}
+                disabled={readOnly || imageModels.length === 0}
+                onCheckedChange={setEnabled}
+              />
+            </SettingsFieldRow>
+          </SettingsFieldGroup>
           <div className="flex flex-wrap justify-end gap-2">
             <Button
               type="submit"

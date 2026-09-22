@@ -21,6 +21,22 @@ describe("presentation viewer i18n", () => {
     expect(i18n.t("pptx.slidesPanel.goToSlide", { n: 2 })).toBe("Go to slide 2")
   })
 
+  it.each([
+    ["es-MX", "Cargando la presentación", "Ir a la diapositiva 2"],
+    ["pt-PT", "Carregando a apresentação", "Ir para o slide 2"],
+    ["fr-CA", "Chargement de la présentation", "Aller à la diapositive 2"],
+    ["ja", "プレゼンテーションを読み込み中", "スライド2へ移動"],
+  ])(
+    "uses manually translated viewer labels for %s",
+    (language, loading, goToSlide) => {
+      const i18n = createPresentationViewerI18n(language)
+
+      expect(i18n.t("pptx.viewer.loading")).toBe(loading)
+      expect(i18n.t("pptx.slidesPanel.goToSlide", { n: 2 })).toBe(goToSlide)
+      expect(i18n.t("pptx.toolbar.readOnly")).toBe("Read-only")
+    }
+  )
+
   it("does not replace the app-wide react-i18next instance", () => {
     expect(getI18n()).toBe(appI18n)
 

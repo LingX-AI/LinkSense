@@ -80,7 +80,7 @@ export function SystemUpdateNotice({
       <AlertDescription className="flex flex-wrap items-center gap-3">
         <span>{t("systemUpdate.notice.description")}</span>
         <Button
-          size="sm"
+          size={placement === "settings" ? "default" : "sm"}
           variant="outline"
           render={<NavLink to="/admin/system-update" />}
         >
@@ -90,7 +90,7 @@ export function SystemUpdateNotice({
       <AlertAction>
         <Button
           type="button"
-          size="icon-xs"
+          size={placement === "settings" ? "icon" : "icon-xs"}
           variant="ghost"
           aria-label={t("systemUpdate.notice.dismiss")}
           onClick={() => {

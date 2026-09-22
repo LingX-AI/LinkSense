@@ -15,12 +15,14 @@ import {
 import { getErrorMessage } from "@/api/error-message"
 import { notify } from "@/components/feedback/notification"
 import { StatusBanner } from "@/components/feedback/status-banner"
-import { FieldShell } from "@/components/forms/form-field"
+import {
+  FieldShell,
+  SettingsFieldGroup,
+  SettingsFieldRow,
+} from "@/components/forms/form-field"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { Button } from "@/components/ui/button"
-import { FieldGroup } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -128,9 +130,14 @@ export function VoiceTranscriptionSettingsForm({
 
   return (
     <section
-      className="grid min-w-0 gap-4"
+      className="grid min-w-0 gap-3"
       aria-labelledby={`${idPrefix}-title`}
     >
+      <SettingsSectionHeader
+        id={`${idPrefix}-title`}
+        title={t("admin.voiceTranscription.title")}
+        description={t("admin.voiceTranscription.description")}
+      />
       <form
         className="grid w-full gap-4"
         onSubmit={(event: FormEvent) => {
@@ -142,19 +149,15 @@ export function VoiceTranscriptionSettingsForm({
       >
         <div
           data-slot="model-settings-card"
-          className="grid min-w-0 gap-4 rounded-card border border-[color:var(--app-border)] bg-card p-4"
+          className="grid min-w-0 gap-4 rounded-card border border-[color:var(--app-border)] bg-card p-4 sm:p-5"
         >
-          <SettingsSectionHeader
-            id={`${idPrefix}-title`}
-            title={t("admin.voiceTranscription.title")}
-            description={t("admin.voiceTranscription.description")}
-          />
-
           {error && <StatusBanner variant="error">{error}</StatusBanner>}
 
-          <FieldGroup className="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-2">
+          <SettingsFieldGroup>
             <FieldShell
+              layout="settings"
               id={`${idPrefix}-provider`}
+              controlWidth="medium"
               label={t("admin.voiceTranscription.provider")}
               hint={t("admin.voiceTranscription.providerHint")}
             >
@@ -205,7 +208,9 @@ export function VoiceTranscriptionSettingsForm({
             </FieldShell>
 
             <FieldShell
+              layout="settings"
               id={`${idPrefix}-base-url`}
+              controlWidth="wide"
               label={t("admin.voiceTranscription.baseUrl")}
               hint={t("admin.voiceTranscription.baseUrlHint")}
             >
@@ -218,28 +223,29 @@ export function VoiceTranscriptionSettingsForm({
                 required={enabled}
               />
             </FieldShell>
-          </FieldGroup>
-
-          {providerDefinition?.requires_api_version && (
-            <FieldShell
-              id={`${idPrefix}-api-version`}
-              label={t("admin.voiceTranscription.apiVersion")}
-              hint={t("admin.voiceTranscription.apiVersionHint")}
-            >
-              <Input
+            {providerDefinition?.requires_api_version && (
+              <FieldShell
+                layout="settings"
                 id={`${idPrefix}-api-version`}
-                name="voice-transcription-api-version"
-                value={apiVersion}
-                disabled={readOnly}
-                onChange={(event) => setApiVersion(event.target.value)}
-                required={enabled}
-              />
-            </FieldShell>
-          )}
+                controlWidth="medium"
+                label={t("admin.voiceTranscription.apiVersion")}
+                hint={t("admin.voiceTranscription.apiVersionHint")}
+              >
+                <Input
+                  id={`${idPrefix}-api-version`}
+                  name="voice-transcription-api-version"
+                  value={apiVersion}
+                  disabled={readOnly}
+                  onChange={(event) => setApiVersion(event.target.value)}
+                  required={enabled}
+                />
+              </FieldShell>
+            )}
 
-          <FieldGroup className="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-2">
             <FieldShell
+              layout="settings"
               id={`${idPrefix}-api-key`}
+              controlWidth="wide"
               label={t("admin.voiceTranscription.apiKey")}
               hint={
                 apiKeyConfiguredForProvider
@@ -261,7 +267,9 @@ export function VoiceTranscriptionSettingsForm({
               />
             </FieldShell>
             <FieldShell
+              layout="settings"
               id={`${idPrefix}-model`}
+              controlWidth="medium"
               label={t("admin.voiceTranscription.model")}
               hint={t("admin.voiceTranscription.modelHint")}
             >
@@ -276,23 +284,20 @@ export function VoiceTranscriptionSettingsForm({
                 required={enabled}
               />
             </FieldShell>
-          </FieldGroup>
-
-          <div
-            data-slot="model-settings-toggle"
-            className="flex items-center gap-2 pt-1"
-          >
-            <Switch
+            <SettingsFieldRow
               id={`${idPrefix}-enabled`}
-              name="voice-transcription-enabled"
-              checked={enabled}
-              disabled={readOnly}
-              onCheckedChange={setEnabled}
-            />
-            <Label htmlFor={`${idPrefix}-enabled`}>
-              {t("admin.voiceTranscription.enabled")}
-            </Label>
-          </div>
+              label={t("admin.voiceTranscription.enabled")}
+              controlWidth="compact"
+            >
+              <Switch
+                id={`${idPrefix}-enabled`}
+                name="voice-transcription-enabled"
+                checked={enabled}
+                disabled={readOnly}
+                onCheckedChange={setEnabled}
+              />
+            </SettingsFieldRow>
+          </SettingsFieldGroup>
           <div className="flex flex-wrap justify-end gap-2">
             <Button
               type="submit"

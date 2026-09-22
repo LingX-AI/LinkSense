@@ -26,13 +26,11 @@ describe("knowledge model settings layout", () => {
     expect(knowledgeModelSettingsSource).not.toContain("xl:grid-cols-2")
   })
 
-  it("separates every specialized model into a rounded bordered card", () => {
+  it("separates every specialized model field inside a rounded bordered card", () => {
     expect(
       knowledgeModelSettingsSource.match(/data-slot="model-settings-card"/gu)
     ).toHaveLength(1)
-    expect(knowledgeModelSettingsSource).toContain(
-      '<Separator data-slot="knowledge-model-settings-separator" />'
-    )
+    expect(knowledgeModelSettingsSource).toContain("<SettingsFieldGroup>")
 
     for (const source of [
       imageUnderstandingSettingsSource,
@@ -51,6 +49,12 @@ describe("knowledge model settings layout", () => {
       expect(source).toContain(
         "rounded-card border border-[color:var(--app-border)] bg-card p-4"
       )
+      expect(source).toContain("sm:p-5")
+      expect(source.indexOf("<SettingsSectionHeader")).toBeLessThan(
+        source.indexOf('data-slot="model-settings-card"')
+      )
+      expect(source).toContain("<SettingsFieldGroup>")
+      expect(source).toContain('layout="settings"')
       expect(source).not.toContain("border-border/60")
     }
   })
@@ -78,7 +82,8 @@ describe("knowledge model settings layout", () => {
         'name="image-generation-enabled"',
       ],
     ]) {
-      expect(source).toContain('data-slot="model-settings-toggle"')
+      expect(source).toContain("<SettingsFieldRow")
+      expect(source).toContain('controlWidth="compact"')
       expect(source.indexOf(toggle)).toBeGreaterThan(
         source.indexOf(finalContent)
       )

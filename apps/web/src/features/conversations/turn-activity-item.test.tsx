@@ -249,7 +249,7 @@ describe("TurnActivityItem", () => {
   it.each([
     ["zh-CN", "正在思考", "正在运行一个命令"],
     ["en-US", "Thinking", "Running a command"],
-    ["fr-FR", "正在思考", "正在运行一个命令"],
+    ["de-DE", "正在思考", "正在运行一个命令"],
   ])(
     "renders %s labels and preserves the row through translated status changes",
     async (language, thinkingLabel, toolLabel) => {

@@ -678,9 +678,25 @@ export class AuthService {
     return this.options.persistence.cleanupInvalidTokens(before, limit)
   }
 
+  async createSocialSession(
+    userId: string,
+    provider: import("@linksense/shared").SocialProvider,
+    metadata: SessionMetadata,
+    expectedAuthValidAfter: string,
+  ): Promise<AuthSession> {
+    const user = await this.options.persistence.findUserById(userId)
+    if (!user || user.status !== "active") throw new AppError("USER_DISABLED")
+    if (user.authValidAfter.toISOString() !== expectedAuthValidAfter) throw new AppError("AUTH_SESSION_EXPIRED")
+    return this.createSession(user, provider, metadata)
+  }
+
+  async loginSaml(identity: VerifiedExternalIdentity, metadata: SessionMetadata): Promise<AuthSession> {
+    return this.loginExternal(identity, "saml", metadata)
+  }
+
   private async loginExternal(
     identity: VerifiedExternalIdentity,
-    method: "oidc" | "teams",
+    method: "oidc" | "teams" | "saml",
     metadata: SessionMetadata,
   ) {
     const email = emailSchema.parse(identity.email)
@@ -996,7 +1012,7 @@ function createPasswordResetMail(input: {
   tokenHash: string
   to: string
   recipientName: string
-  locale: "zh-CN" | "en-US"
+  locale: Locale
   productName: string
   link: string
   expiresInMinutes: number

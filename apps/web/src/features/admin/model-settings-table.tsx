@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next"
+import { normalizeLanguage } from "@/i18n"
 import {
   closestCenter,
   DndContext,
@@ -176,7 +177,7 @@ function ModelSettingsRow({
     isDragging,
   } = useSortable({ id: model.id, disabled: actions.disabled || only })
   const formatPrice = (value: string) =>
-    new Intl.NumberFormat(i18n.language === "en-US" ? "en-US" : "zh-CN", {
+    new Intl.NumberFormat(normalizeLanguage(i18n.language) ?? "zh-CN", {
       maximumFractionDigits: 8,
     }).format(Number(value))
   return (
@@ -191,7 +192,7 @@ function ModelSettingsRow({
         <Button
           ref={setActivatorNodeRef}
           type="button"
-          size="icon-xs"
+          size="icon"
           variant="ghost"
           className="cursor-grab touch-none text-muted-foreground"
           {...attributes}
@@ -253,7 +254,7 @@ function ModelSettingsRow({
           <Button
             type="button"
             variant="ghost"
-            size="icon-sm"
+            size="icon"
             disabled={actions.disabled}
             aria-label={t("admin.modelProvider.editModel", {
               name: model.display_name,
@@ -268,7 +269,7 @@ function ModelSettingsRow({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon-sm"
+                  size="icon"
                   disabled={actions.disabled}
                   aria-label={t("admin.modelProvider.modelActions", {
                     name: model.display_name,

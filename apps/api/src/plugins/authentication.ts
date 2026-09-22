@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify"
 import fastifyPlugin from "fastify-plugin"
-import { accessTokenClaimsSchema } from "@linksense/shared"
+import { accessTokenClaimsSchema, isLocale, type Locale } from "@linksense/shared"
 
 import type { PrismaClient } from "../generated/prisma/client.js"
 import { AppError } from "../lib/errors.js"
@@ -11,7 +11,7 @@ export type AuthUser = {
   name: string
   role: "user" | "admin"
   status: "active"
-  preferredLocale: "zh-CN" | "en-US" | null
+  preferredLocale: Locale | null
   avatarObjectKey: string | null
   registrationSource?: "self_registration" | "organization_invitation"
   authValidAfter: Date
@@ -55,10 +55,7 @@ const authenticationPluginImplementation: FastifyPluginAsync<{
       if (user.role !== "user" && user.role !== "admin") {
         throw new AppError("AUTH_REQUIRED")
       }
-      const locale =
-        user.preferredLocale === "zh-CN" || user.preferredLocale === "en-US"
-          ? user.preferredLocale
-          : null
+      const locale = isLocale(user.preferredLocale) ? user.preferredLocale : null
       request.authUser = {
         id: user.id,
         email: user.email,

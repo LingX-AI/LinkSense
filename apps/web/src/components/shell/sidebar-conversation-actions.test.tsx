@@ -147,7 +147,7 @@ describe("SidebarConversationActions", () => {
   it.each([
     ["zh-CN", moreLabel, "取消置顶"],
     ["en-US", "More Actions for 整理项目会议纪要", "Unpin"],
-    ["fr-FR", moreLabel, "取消置顶"],
+    ["de-DE", moreLabel, "取消置顶"],
   ])(
     "translates the menu and pinned state in %s",
     async (language, more, unpin) => {

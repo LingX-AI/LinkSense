@@ -21,8 +21,7 @@ import {
   type DocxEditorProps,
   type DocxEditorRef,
 } from "@eigenpal/docx-editor-react"
-import en from "@eigenpal/docx-editor-i18n/en"
-import zhCN from "@eigenpal/docx-editor-i18n/zh-CN"
+import { wordPreviewLocale } from "@/components/media/word-preview/word-preview-i18n"
 import {
   animate,
   useReducedMotion,
@@ -1199,7 +1198,7 @@ function WordPreviewSession({
                 ? "dark"
                 : "light"
             }
-            i18n={normalizedLanguage === "zh-CN" ? zhCN : en}
+            i18n={wordPreviewLocale(normalizedLanguage)}
             onEditorViewReady={(view) => {
               editorViewRef.current = view
             }}

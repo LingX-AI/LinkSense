@@ -436,7 +436,7 @@ describe("conversation voice input", () => {
     })
   })
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "shows the unavailable notice once and restores the placeholder after recovery in %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -2719,7 +2719,7 @@ describe("conversation voice input", () => {
     ).not.toBeInTheDocument()
   })
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "hides the knowledge button when disabled and restores it by default in %s",
     async (language) => {
       await i18n.changeLanguage(language)

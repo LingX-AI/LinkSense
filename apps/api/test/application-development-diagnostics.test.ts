@@ -3,6 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import { instrumentApplicationPreview } from "../src/modules/applications/development-diagnostics.js";
 import { applicationDevelopmentTemplate } from "../src/modules/applications/development-template.js";
 
+const starterLocales = [
+  { locale: "zh-CN", title: "从这里开始创建应用", starting: "已受理，正在启动…", unavailable: "暂时无法读取任务状态，请重新打开应用重试。" },
+  { locale: "en-US", title: "Your application starts here", starting: "Accepted, starting…", unavailable: "Unable to read task status. Reopen the application to retry." },
+  { locale: "es-ES", title: "Tu aplicación empieza aquí", starting: "Aceptada, iniciando…", unavailable: "No se pudo consultar el estado de la tarea. Vuelve a abrir la aplicación para reintentarlo." },
+  { locale: "pt-BR", title: "Seu aplicativo começa aqui", starting: "Aceita, iniciando…", unavailable: "Não foi possível ler o status da tarefa. Reabra o aplicativo para tentar novamente." },
+  { locale: "fr-FR", title: "Votre application commence ici", starting: "Acceptée, démarrage…", unavailable: "Impossible de lire l’état de la tâche. Rouvrez l’application pour réessayer." },
+  { locale: "ja-JP", title: "ここからアプリを作成", starting: "受け付けました。開始中…", unavailable: "タスクの状態を取得できません。アプリを開き直して再試行してください。" },
+] as const;
+
 describe("preview diagnostics and starter", () => {
   it("installs listeners before application scripts and bounds error and rejection reports", () => {
     const html = instrumentApplicationPreview('<script src="app.js"></script><h1>Application</h1>');
@@ -18,9 +27,11 @@ describe("preview diagnostics and starter", () => {
     expect(postMessage.mock.calls[0]?.[0]).toMatchObject({ protocol: "linksense:development", type: "diagnostic", diagnostic: { message: "broken app", file: "app.js", line: 3 } });
     expect(JSON.stringify(postMessage.mock.calls)).not.toContain("private value");
   });
-  it.each(["zh-CN", "en-US"] as const)("creates a localized working SDK starter in %s and escapes the name", locale => {
+  it.each(starterLocales)("creates a localized working SDK starter in $locale and escapes the name", ({ locale, title }) => {
     const files = applicationDevelopmentTemplate('<img src=x onerror="alert(1)">', "test", locale);
     expect(files["index.html"]).toContain(`lang="${locale}"`);
+    expect(files["index.html"]).toContain(`<h1>${title}</h1>`);
+    expect(files["index.html"]).not.toContain("applicationTemplate.");
     expect(files["index.html"]).not.toContain("<img");
     expect(files["index.html"]).toContain("/api/v1/interactive-app-runtime/sdk/v1.js");
     expect(files["app.js"]).toContain("await window.LinkSense.ready()");
@@ -30,7 +41,7 @@ describe("preview diagnostics and starter", () => {
 });
 
 describe("starter task restoration behavior", () => {
-  it.each(["zh-CN", "en-US"] as const)("restores server state and prevents automatic resubmission in %s", async locale => {
+  it.each(starterLocales)("restores server state and prevents automatic resubmission in $locale", async ({ locale, starting, unavailable: unavailableMessage }) => {
     const files = applicationDevelopmentTemplate("Example", "example", locale);
     const button = { disabled: true };
     const status = { textContent: "" };
@@ -45,7 +56,7 @@ describe("starter task restoration behavior", () => {
       getState: async () => { update?.({ status: "starting", can_submit: false }); },
     } };
     runInNewContext(files["app.js"]!, { window: { LinkSense: sdk, addEventListener: vi.fn() }, document: { querySelector: (selector: string) => selector === "form" ? form : selector === "#status" ? status : { value: "A request" } } });
-    await vi.waitFor(() => expect(status.textContent).toBe(locale === "en-US" ? "Accepted, starting…" : "已受理，正在启动…"));
+    await vi.waitFor(() => expect(status.textContent).toBe(starting));
     expect(button.disabled).toBe(true);
     await submit?.({ preventDefault: vi.fn() });
     expect(run).not.toHaveBeenCalled();
@@ -53,7 +64,7 @@ describe("starter task restoration behavior", () => {
     expect(button.disabled).toBe(false);
     unavailable?.();
     expect(button.disabled).toBe(true);
-    expect(status.textContent).toBe(locale === "en-US" ? "Unable to read task status. Reopen the application to retry." : "暂时无法读取任务状态，请重新打开应用重试。");
+    expect(status.textContent).toBe(unavailableMessage);
     update?.({ status: "interrupted", can_submit: true });
     expect(button.disabled).toBe(false);
   });

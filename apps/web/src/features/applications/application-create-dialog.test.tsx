@@ -128,8 +128,8 @@ describe.each(["zh-CN", "en-US"])(
 )
 
 it("falls back to Chinese for the creation choices and package instructions", async () => {
-  const fallback = i18n.cloneInstance({ lng: "fr-FR", fallbackLng: "zh-CN" })
-  await fallback.changeLanguage("fr-FR")
+  const fallback = i18n.cloneInstance({ lng: "de-DE", fallbackLng: "zh-CN" })
+  await fallback.changeLanguage("de-DE")
   render(
     <I18nextProvider i18n={fallback}>
       <ApplicationCreateDialog open onChoose={vi.fn()} onOpenChange={vi.fn()} />

@@ -4,6 +4,9 @@ import type { Readable } from "node:stream"
 import {
   maintenanceStatusSchema,
   maintenanceStateSchema,
+  isLocale,
+  supportedLocales,
+  type Locale,
   type MaintenanceState,
   resolveOrganizationDisplayName,
   type ExecutionConcurrencySettings,
@@ -86,13 +89,13 @@ export type ProductLogoContent = {
 
 export type ProductSettings = {
   organization_display_name: string
-  default_locale: "zh-CN" | "en-US"
+  default_locale: Locale
   logo_url: string | null
   logo_updated_at: string | null
 }
 
 export class SystemService {
-  private defaultLocaleCache: "zh-CN" | "en-US" = "zh-CN"
+  private defaultLocaleCache: Locale = "zh-CN"
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -110,7 +113,7 @@ export class SystemService {
     },
   ) {}
 
-  get defaultLocale(): "zh-CN" | "en-US" {
+  get defaultLocale(): Locale {
     return this.defaultLocaleCache
   }
 
@@ -136,7 +139,7 @@ export class SystemService {
       default_locale: settings.default_locale,
       logo_url: settings.logo_url,
       logo_updated_at: settings.logo_updated_at,
-      supported_locales: ["zh-CN", "en-US"],
+      supported_locales: [...supportedLocales],
       maintenance_id,
       maintenance,
       registration,
@@ -1107,7 +1110,7 @@ function productSettings(raw: Record<string, unknown>): ProductSettings {
     organization_display_name: resolveOrganizationDisplayName(
       raw.organization_display_name,
     ),
-    default_locale: raw.default_locale === "en-US" ? "en-US" : "zh-CN",
+    default_locale: isLocale(raw.default_locale) ? raw.default_locale : "zh-CN",
     logo_url: productLogoUrl(logoMetadata),
     logo_updated_at: logoMetadata?.updatedAt ?? null,
   }

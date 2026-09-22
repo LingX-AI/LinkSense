@@ -1,0 +1,223 @@
+import { samlfrFR } from "@/features/saml/messages"
+import type { enUS } from "@/i18n/en-US"
+import type { TranslationResource } from "@/i18n/types"
+import { core } from "./fr-FR/core"
+import { settingsResources } from "./fr-FR/settings"
+import { channelResources } from "./fr-FR/channels"
+import { knowledgeResources } from "./fr-FR/knowledge"
+import { miscResources } from "./fr-FR/misc"
+import { conversation } from "./fr-FR/conversation"
+import { applicationResources } from "./fr-FR/applications"
+import { pluginResources } from "./fr-FR/plugins"
+import { operationsResources } from "./fr-FR/operations"
+import { admin } from "./fr-FR/admin"
+import { errors } from "./fr-FR/errors"
+
+export const frFR = {
+  saml: samlfrFR,
+  common: {
+    close: "Fermer",
+    notifications: "Notifications",
+    cancel: "Annuler",
+    save: "Enregistrer",
+    saving: "Enregistrement…",
+    create: "Créer",
+    update: "Mettre à jour",
+    delete: "Supprimer",
+    edit: "Modifier",
+    confirm: "Confirmer",
+    gotIt: "Compris",
+    retry: "Réessayer",
+    loadMore: "Charger plus",
+    continue: "Continuer",
+    search: "Rechercher",
+    loading: "Chargement…",
+    pageLoading: "Chargement…",
+    actions: "Actions",
+    status: "État",
+    name: "Nom",
+    description: "Description",
+    view: "Afficher",
+    email: "E-mail",
+    type: "Type",
+    scope: "Portée",
+    createdAt: "Créé",
+    updatedAt: "Mis à jour",
+    language: "Langue",
+    chinese: "简体中文",
+    english: "English",
+    spanish: "Español",
+    portuguese: "Português (Brasil)",
+    french: "Français",
+    japanese: "日本語",
+    settings: "Paramètres",
+    signOut: "Se déconnecter",
+    empty: "Aucune donnée",
+    notAvailable: "Indisponible",
+    back: "Retour",
+    details: "Détails",
+    more: "Plus d’actions",
+    moreActionsNamed: "Plus d’actions pour {{name}}",
+    enabled: "Activé",
+    disabled: "Désactivé",
+    active: "Actif",
+    system: "Système",
+    user: "Utilisateur",
+    admin: "Administrateur",
+    upload: "Importer",
+    download: "Télécharger",
+    previous: "Précédent",
+    next: "Suivant",
+    refresh: "Actualiser",
+    all: "Tous",
+    select: "Sélectionner",
+    notFound: "Page introuvable.",
+    configured: "Configuré",
+    notConfigured: "Non configuré",
+    enable: "Activer",
+    disable: "Désactiver",
+    yes: "Oui",
+    no: "Non",
+    copy: "Copier",
+    copied: "Copié.",
+    copyNamed: "Copier {{name}}",
+    clear: "Effacer",
+  },
+  reasoningEffort: {
+    minimal: "Minimal",
+    low: "Léger",
+    medium: "Moyen",
+    high: "Élevé",
+    xhigh: "Très élevé",
+    max: "Maximum",
+    ultra: "Ultra",
+  },
+  nav: {
+    navigationLabel: "Navigation de {{productName}}",
+    newConversation: "Nouvelle tâche",
+    automations: "Automatisations",
+    conversations: "Tâches",
+    archived: "Tâches archivées",
+    capabilities: "Centre de plugins",
+    knowledgeBases: "Bibliothèque de ressources",
+    pinned: "Épinglés",
+    projects: "Projets",
+    recent: "Récents",
+    administration: "Administration",
+    usage: "Analyse de l’utilisation",
+    users: "Utilisateurs",
+    roles: "Rôles et autorisations",
+    groups: "Groupes d’utilisateurs",
+    adminCapabilities: "Centre de plugins",
+    adminKnowledgeBases: "Bases de connaissances",
+    adminKnowledgeSources: "Sources de connaissances",
+    audit: "Journaux d’audit",
+    feedback: "Avis des utilisateurs",
+    usersAndGroups: "Utilisateurs et groupes",
+    productSettings: "Paramètres système",
+    health: "État du système",
+    open: "Ouvrir la navigation",
+    collapseSidebar: "Réduire la barre latérale",
+    expandSidebar: "Développer la barre latérale",
+    resizeSidebar: "Redimensionner la barre latérale",
+    helpCenter: "Centre d’aide",
+    helpCenterNewTab: "Ouvrir le Centre d’aide dans un nouvel onglet",
+    automationNotifications: "Notifications d’automatisation",
+    automationNotificationsUnread:
+      "Notifications d’automatisation avec une tâche terminée non lue",
+    automationTask: "Tâche automatisée",
+    unreadCompletion: "Tâche terminée et pas encore consultée",
+    unreadFailure: "La tâche a échoué et n’a pas encore été consultée",
+    creditQuotaRemainingTitle: "Crédits",
+    creditQuotaRemaining: "{{weekly}}",
+  },
+  auth: {
+    loginTitle: "Se connecter à {{productName}}",
+    loginDescription:
+      "Continuez avec l’une des méthodes de connexion disponibles.",
+    passwordLogin: "E-mail et mot de passe",
+    password: "Mot de passe",
+    signIn: "Se connecter",
+    signOutTitle: "Se déconnecter ?",
+    signOutDescription:
+      "Vous devrez vous reconnecter pour continuer à utiliser {{productName}}.",
+    forgotPassword:
+      "Mot de passe oublié ou première définition du mot de passe",
+    forgotTitle: "Définir ou réinitialiser votre mot de passe",
+    forgotDescription:
+      "Saisissez votre e-mail. Si le compte est admissible, le système enverra un lien sécurisé.",
+    sendResetLink: "Envoyer le lien sécurisé",
+    resetRequestSubmitted: "Demande de lien sécurisé envoyée",
+    resetRequestFailed: "Impossible d’envoyer le lien sécurisé",
+    resetAccepted:
+      "Si l’e-mail correspond à un compte admissible, un message sera envoyé pour définir ou réinitialiser le mot de passe.",
+    resetTitle: "Définir un nouveau mot de passe",
+    resetDescription:
+      "Le lien sécurisé ne peut être utilisé qu’une fois. Définissez un mot de passe conforme à la politique.",
+    newPassword: "Nouveau mot de passe",
+    currentPassword: "Mot de passe actuel",
+    confirmPassword: "Confirmer le nouveau mot de passe",
+    showPassword: "Afficher {{field}}",
+    hidePassword: "Masquer {{field}}",
+    resetPassword: "Enregistrer le nouveau mot de passe",
+    resetCompleted: "Votre mot de passe a été défini. Reconnectez-vous.",
+    changePassword: "Modifier le mot de passe",
+    passwordPolicy:
+      "8 à 16 caractères avec une majuscule, une minuscule, un chiffre et un signe de ponctuation ou un symbole.",
+    oidc: "Utiliser l’authentification unique",
+    teamsSigningIn: "Connexion silencieuse avec Microsoft Teams…",
+    teamsNotConfigured:
+      "L’authentification unique Teams n’est pas configurée. Connectez-vous à {{productName}}.",
+    teamsFailed:
+      "Échec de la connexion avec Teams. Réessayez ou utilisez une autre méthode.",
+    callbackTitle: "Finalisation de l’authentification unique",
+    oidcAccountPendingApproval:
+      "L’authentification unique a réussi. Votre compte a été créé et attend l’approbation d’un administrateur. Contactez un administrateur, puis reconnectez-vous une fois le compte activé.",
+    externalAccountPendingApproval:
+      "La connexion a réussi. Votre compte a été créé et attend l’approbation d’un administrateur. Contactez un administrateur, puis reconnectez-vous une fois le compte activé.",
+    oidcCallbackFailed:
+      "Impossible de terminer l’authentification unique. Revenez à la page de connexion et réessayez.",
+    oidcCallbackSessionFailed:
+      "L’authentification unique a réussi, mais la session {{productName}} n’a pas pu être créée. Revenez à la page de connexion et réessayez.",
+    backToLogin: "Retour à la connexion",
+    sessionExpired: "Votre session a expiré. Reconnectez-vous.",
+    sessionRestoreFailed:
+      "Impossible de restaurer votre session. Vérifiez votre connexion et réessayez.",
+    registration: {
+      createAccount: "Créer un compte",
+      title: "Créer un compte {{productName}}",
+      description:
+        "Saisissez votre e-mail ; nous enverrons un lien d’activation si l’adresse est admissible.",
+      closed: "Les inscriptions sont actuellement fermées.",
+      disabled: "Les inscriptions sont actuellement fermées.",
+      sendActivationLink: "Envoyer l’e-mail d’activation",
+      requestSubmitted: "E-mail d’activation demandé",
+      requestFailed: "Impossible d’envoyer l’e-mail d’activation",
+      requestAccepted:
+        "Si l’adresse est admissible, un e-mail d’activation du compte sera envoyé.",
+      emailUnavailable:
+        "L’e-mail d’activation est temporairement indisponible. Réessayez plus tard.",
+      deliveryFailed:
+        "Impossible d’envoyer l’e-mail d’activation. Réessayez plus tard.",
+      activateTitle: "Définissez un mot de passe et activez votre compte",
+      activateDescription:
+        "Le lien d’activation ne peut être utilisé qu’une fois. Définissez un mot de passe conforme à la politique.",
+      activate: "Activer le compte et se connecter",
+      invalidOrExpired:
+        "Le lien d’activation est invalide ou a expiré. Demandez-en un nouveau.",
+      emailAlreadyRegistered:
+        "Un compte existe déjà pour cet e-mail. Connectez-vous ou réinitialisez le mot de passe.",
+    },
+  },
+  ...core,
+  ...settingsResources,
+  ...channelResources,
+  ...knowledgeResources,
+  ...miscResources,
+  conversation,
+  ...applicationResources,
+  ...pluginResources,
+  ...operationsResources,
+  admin,
+  errors,
+} satisfies TranslationResource<typeof enUS>

@@ -1,15 +1,19 @@
 import type { Locale } from "@linksense/shared";
+import { translateBackend } from "../../lib/i18n.js";
 
 export function applicationDevelopmentTemplate(name: string, id: string, locale: Locale): Record<string, string> {
-  const english = locale === "en-US";
-  const labels = english
-    ? { title: "Your application starts here", hint: "Describe the application you want in the conversation. Changes appear here automatically.", prompt: "What would you like to do?", run: "Try a task" }
-    : { title: "从这里开始创建应用", hint: "在对话中描述你想要的应用，修改后的效果会自动显示在这里。", prompt: "你想完成什么任务？", run: "试运行任务" };
-  const states = english
-    ? { idle: "Ready", starting: "Accepted, starting…", running: "Working…", waiting_for_input: "Open the task panel to respond", completed: "Completed", failed: "Task failed. Check the task panel", interrupted: "Stopped" }
-    : { idle: "可以开始", starting: "已受理，正在启动…", running: "正在执行…", waiting_for_input: "请打开任务面板处理", completed: "已完成", failed: "任务失败，请在任务面板查看", interrupted: "已停止" };
-  const unavailable = english ? "Unable to read task status. Reopen the application to retry." : "暂时无法读取任务状态，请重新打开应用重试。";
-  const submitFailed = english ? "Submission failed. Check the task panel before trying again." : "提交失败，请先查看任务面板再重试。";
+  const labels = {
+    title: translateBackend("applicationTemplate.title", locale),
+    hint: translateBackend("applicationTemplate.hint", locale),
+    prompt: translateBackend("applicationTemplate.prompt", locale),
+    run: translateBackend("applicationTemplate.run", locale),
+  };
+  const states = Object.fromEntries(
+    ["idle", "starting", "running", "waiting_for_input", "completed", "failed", "interrupted"]
+      .map((state) => [state, translateBackend(`applicationTemplate.states.${state}`, locale)]),
+  );
+  const unavailable = translateBackend("applicationTemplate.unavailable", locale);
+  const submitFailed = translateBackend("applicationTemplate.submitFailed", locale);
   return {
     "manifest.json": JSON.stringify({ schema_version: 1, id: `app-${id}`, name, version: "1.0.0", sdk_version: 1, permissions: ["tasks:write", "files:write"], custom_events: [] }, null, 2),
     "index.html": `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(name)}</title><link rel="stylesheet" href="./styles.css"><script src="/api/v1/interactive-app-runtime/sdk/v1.js" defer></script><script src="./app.js" defer></script></head><body><main><p class="eyebrow">${escapeHtml(name)}</p><h1>${labels.title}</h1><p>${labels.hint}</p><form><label for="prompt">${labels.prompt}</label><textarea id="prompt" rows="4" required></textarea><button type="submit" disabled>${labels.run}</button></form><p id="status" role="status"></p></main></body></html>`,

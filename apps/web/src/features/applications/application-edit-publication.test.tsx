@@ -110,7 +110,7 @@ describe("edit and publish a standard application", () => {
   it.each([
     ["zh-CN", "保存"],
     ["en-US", "Save"],
-    ["fr-FR", "保存"],
+    ["de-DE", "保存"],
   ])(
     "keeps the current version and saves edited fields in one request in %s",
     async (locale, label) => {

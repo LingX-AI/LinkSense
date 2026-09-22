@@ -355,7 +355,7 @@ describe("maintenance route guard", () => {
       "Maintenance settings",
       "Don’t show again",
     ],
-    ["fr-FR", "已开启系统维护", "维护设置", "不再显示"],
+    ["de-DE", "已开启系统维护", "维护设置", "不再显示"],
   ])(
     "shows an accessible localized dialog and opens maintenance settings in %s",
     async (language, title, settingsLabel, dismissLabel) => {
@@ -625,7 +625,7 @@ describe("maintenance route guard", () => {
   it.each([
     ["zh-CN", "已开启系统维护", "不再显示"],
     ["en-US", "System maintenance enabled", "Don’t show again"],
-    ["fr-FR", "已开启系统维护", "不再显示"],
+    ["de-DE", "已开启系统维护", "不再显示"],
   ])(
     "retains the bottom-right maintenance link after suppressing the dialog in %s",
     async (language, label, dismissLabel) => {

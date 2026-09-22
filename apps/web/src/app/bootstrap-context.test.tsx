@@ -160,7 +160,7 @@ describe("bootstrap deployment recovery", () => {
     }
   )
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "shows a translated initial error and recovers by polling without reloading (%s)",
     async (language) => {
       await i18n.changeLanguage(language)

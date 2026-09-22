@@ -12,6 +12,18 @@ type ErrorCatalogEntry = {
 };
 
 export const errorCatalog = {
+  SOCIAL_CLIENT_IN_USE: {
+    message_key: "errors.socialClientInUse", http_status: 409,
+    messages: { "zh-CN": "已有用户绑定此应用，不能更换应用 ID。您仍可更新密钥或停用登录。", "en-US": "Accounts are linked to this app. Its app ID cannot be changed; you can rotate its secret or disable sign-in." },
+  },
+  SOCIAL_LAST_METHOD: {
+    message_key: "errors.socialLastMethod", http_status: 409,
+    messages: { "zh-CN": "请先设置密码或绑定另一个已启用的登录方式，再解除绑定。", "en-US": "Set a password or link another enabled sign-in method before unlinking." },
+  },
+  SOCIAL_AUTH_FAILED: {
+    message_key: "errors.socialAuthFailed", http_status: 400,
+    messages: { "zh-CN": "社交账号验证未完成，请重新尝试。", "en-US": "Social account verification could not be completed. Please try again." },
+  },
   APPLICATION_DEVELOPMENT_TEST_BUSY: {
     message_key: "errors.applicationDevelopment.testBusy", http_status: 409,
     messages: { "zh-CN": "试运行尚未结束，请在试运行记录中停止运行并处理待办后再操作。", "en-US": "A test is still active. Stop it and resolve pending requests in Test history before continuing." },

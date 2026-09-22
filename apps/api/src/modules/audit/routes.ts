@@ -112,7 +112,6 @@ export const auditRoutes: FastifyPluginAsync<{
     const actor = (request as AuthenticatedRequest).authUser
     const view = exportViewSchema.parse(request.query).view
     const locale = resolveLocale(request, actor.preferredLocale)
-    const isEnglish = locale === "en-US"
     const productName = (
       await services.system.getProductSettings()
     ).organization_display_name
@@ -132,7 +131,7 @@ export const auditRoutes: FastifyPluginAsync<{
         streamCsvPages({
           writable: reply.raw,
           signal,
-          header: conversationExportRows([], isEnglish)[0]!,
+          header: conversationExportRows([], locale)[0]!,
           loadPage: (cursor) =>
             listConversationMetadata(services, {
               ...filters,
@@ -140,7 +139,7 @@ export const auditRoutes: FastifyPluginAsync<{
               limit: EXPORT_PAGE_SIZE,
             }),
           rowsForPage: (items) =>
-            conversationExportRows(items, isEnglish).slice(1),
+            conversationExportRows(items, locale).slice(1),
           onRowCount,
         })
     } else if (view === "retained_artifacts") {
@@ -154,7 +153,7 @@ export const auditRoutes: FastifyPluginAsync<{
         streamCsvPages({
           writable: reply.raw,
           signal,
-          header: retainedArtifactExportRows([], isEnglish)[0]!,
+          header: retainedArtifactExportRows([], locale)[0]!,
           loadPage: (cursor) =>
             listRetainedArtifactSummaries(services, {
               ...filters,
@@ -162,7 +161,7 @@ export const auditRoutes: FastifyPluginAsync<{
               limit: EXPORT_PAGE_SIZE,
             }),
           rowsForPage: (items) =>
-            retainedArtifactExportRows(items, isEnglish).slice(1),
+            retainedArtifactExportRows(items, locale).slice(1),
           onRowCount,
         })
     } else {
@@ -976,40 +975,11 @@ function auditLogExportRows(
   items: Awaited<ReturnType<typeof listAuditLogs>>["items"],
   locale: Locale,
 ): string[][] {
-  const isEnglish = locale === "en-US"
-  const header = isEnglish
-    ? [
-        "Created At",
-        "Actor ID",
-        translateBackend("audit.export.actorName", locale),
-        translateBackend("audit.export.actorEmail", locale),
-        "Action",
-        "Action Code",
-        "Target Type",
-        "Target Type Code",
-        "Target ID",
-        "Result",
-        "Result Code",
-        "Metadata",
-        "Source IP",
-        "User-Agent",
-      ]
-    : [
-        "创建时间",
-        "操作人 ID",
-        translateBackend("audit.export.actorName", locale),
-        translateBackend("audit.export.actorEmail", locale),
-        "操作",
-        "动作代码",
-        "目标类型",
-        "目标类型代码",
-        "目标 ID",
-        "结果",
-        "结果代码",
-        "元数据",
-        "来源 IP",
-        "User-Agent",
-      ]
+  const header = [
+    "createdAt", "actorId", "actorName", "actorEmail", "action", "actionCode",
+    "targetType", "targetTypeCode", "targetId", "result", "resultCode",
+    "metadata", "sourceIp", "userAgent",
+  ].map((field) => translateBackend(`audit.export.${field}`, locale))
   return [
     header,
     ...items.map((item) => [
@@ -1045,51 +1015,14 @@ function translateAuditExportValue(
 
 function conversationExportRows(
   items: Awaited<ReturnType<typeof listConversationMetadata>>["items"],
-  isEnglish: boolean,
+  locale: Locale,
 ): string[][] {
-  const header = isEnglish
-    ? [
-        "Task ID",
-        "Owner ID",
-        "Owner Name",
-        "Owner Email",
-        "Created At",
-        "Updated At",
-        "Last Run At",
-        "Execution Status",
-        "Plugin Names",
-        "Skill Names",
-        "Attachment Count",
-        "Attachment Size Bytes",
-        "Artifact Count",
-        "Artifact Size Bytes",
-        "Execution Duration Ms",
-        "Error Type",
-        "Error Code",
-        "Runner Status",
-        "Archive Status",
-      ]
-    : [
-        "任务 ID",
-        "所有者 ID",
-        "所有者姓名",
-        "所有者邮箱",
-        "创建时间",
-        "更新时间",
-        "最近执行时间",
-        "执行状态",
-        "插件名称",
-        "Skill 名称",
-        "附件数量",
-        "附件总字节数",
-        "产物数量",
-        "产物总字节数",
-        "执行耗时毫秒",
-        "错误类型",
-        "错误码",
-        "Runner 状态",
-        "归档状态",
-      ]
+  const header = [
+    "taskId", "ownerId", "ownerName", "ownerEmail", "createdAt", "updatedAt",
+    "lastRunAt", "executionStatus", "pluginNames", "skillNames", "attachmentCount",
+    "attachmentSizeBytes", "artifactCount", "artifactSizeBytes", "executionDurationMs",
+    "errorType", "errorCode", "runnerStatus", "archiveStatus",
+  ].map((field) => translateBackend(`audit.export.${field}`, locale))
   return [
     header,
     ...items.map((item) => [
@@ -1118,33 +1051,12 @@ function conversationExportRows(
 
 function retainedArtifactExportRows(
   items: Awaited<ReturnType<typeof listRetainedArtifactSummaries>>["items"],
-  isEnglish: boolean,
+  locale: Locale,
 ): string[][] {
-  const header = isEnglish
-    ? [
-        "Task ID",
-        "Owner ID",
-        "Owner Name",
-        "Owner Email",
-        "Artifact Count",
-        "Total Size Bytes",
-        "Checksum Present",
-        "First Artifact Created At",
-        "Last Artifact Created At",
-        "Task Deleted At",
-      ]
-    : [
-        "任务 ID",
-        "所有者 ID",
-        "所有者姓名",
-        "所有者邮箱",
-        "产物数量",
-        "总字节数",
-        "校验值完整",
-        "最早产物创建时间",
-        "最近产物创建时间",
-        "任务删除时间",
-      ]
+  const header = [
+    "taskId", "ownerId", "ownerName", "ownerEmail", "artifactCount", "totalSizeBytes",
+    "checksumPresent", "firstArtifactCreatedAt", "lastArtifactCreatedAt", "taskDeletedAt",
+  ].map((field) => translateBackend(`audit.export.${field}`, locale))
   return [
     header,
     ...items.map((item) => [

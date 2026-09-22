@@ -33,7 +33,7 @@ describe("uploading image thumbnail", () => {
   it.each([
     ["zh-CN", "正在上传附件 photo.png"],
     ["en-US", "Uploading attachment photo.png"],
-    ["fr-FR", "正在上传附件 photo.png"],
+    ["de-DE", "正在上传附件 photo.png"],
   ])(
     "shows the local image with a centered muted loading indicator in %s",
     async (language, label) => {

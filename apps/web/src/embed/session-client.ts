@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { isLocale } from "@linksense/shared"
 
 import { parseSseFrame } from "@/api/sse"
 import { sseEventSchema, type ConversationEvent } from "@/api/contracts"
@@ -340,7 +341,7 @@ export class EmbedSessionClient {
     }
     headers.set("accept", headers.get("accept") ?? "application/json")
     const language = document.documentElement.lang
-    if (language === "zh-CN" || language === "en-US") {
+    if (isLocale(language)) {
       headers.set("accept-language", language)
     }
     const response = await fetch(path, {

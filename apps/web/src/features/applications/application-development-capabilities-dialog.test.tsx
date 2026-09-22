@@ -90,7 +90,7 @@ async function pick(
 }
 
 describe("development capability editor", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "adds four types to a previously empty manifest and saves them in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)

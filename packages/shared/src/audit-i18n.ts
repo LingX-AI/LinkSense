@@ -1,8 +1,12 @@
 import type { Locale } from "./common.js"
+import { localizedAuditMessages } from "./locale-messages.js"
 
 type AuditMessages = Readonly<Record<string, readonly [string, string]>>
 
 const actionMessages = {
+  social_authentication_settings_updated: ["已更新社交登录设置", "Social sign-in settings updated"],
+  social_account_linked: ["已关联社交账号", "Social account linked"],
+  social_account_unlinked: ["已解除社交账号关联", "Social account unlinked"],
   web_site_created: ["已创建分享站点", "Shared site created"],
   web_site_updated: ["已修改分享站点", "Shared site updated"],
   web_site_published: ["已更新站点内容", "Site content published"],
@@ -301,6 +305,7 @@ export function auditTranslationResource(locale: Locale): {
   targetTypes: Record<string, string>
   results: Record<string, string>
 } {
+  if (locale !== "zh-CN" && locale !== "en-US") return localizedAuditMessages[locale]
   const localeIndex = locale === "zh-CN" ? 0 : 1
   return Object.fromEntries(
     Object.entries(messagesByKind).map(([kind, messages]) => [

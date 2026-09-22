@@ -1,4 +1,10 @@
-import { forwardRef, useState, type ReactNode } from "react"
+import {
+  forwardRef,
+  useCallback,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import {
   createLucideIcon,
   DownloadIcon,
@@ -72,11 +78,25 @@ export const OfficePreviewShell = forwardRef<
 ) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
+  const previewPaneRef = useRef<HTMLElement | null>(null)
+  const setPreviewPaneRef = useCallback(
+    (node: HTMLElement | null) => {
+      previewPaneRef.current = node
+      if (typeof ref === "function") ref(node)
+      else if (ref) ref.current = node
+    },
+    [ref]
+  )
 
   return (
-    <OfficePreviewFullscreenContext.Provider value={expanded}>
+    <OfficePreviewFullscreenContext.Provider
+      value={{
+        expanded,
+        portalContainer: expanded ? previewPaneRef.current : null,
+      }}
+    >
       <section
-        ref={ref}
+        ref={setPreviewPaneRef}
         className={cn(
           "office-preview-pane",
           expanded && "office-preview-pane-expanded",

@@ -95,7 +95,7 @@ describe("image preview overlay theme styles", () => {
 describe("images embedded in Markdown", () => {
   it("keeps viewer sizing and transforms separate from static Markdown image styling", () => {
     expect(imagePreviewStyles).toMatch(
-      /img:not\(\.conversation-image-thumbnail-image\):not\(\.image-preview-image\):not\(\[data-diagram-image\]\)/u
+      /img:not\(\.conversation-image-thumbnail-image\):not\(\.image-preview-image\):not\(\s*\[data-diagram-image\]\s*\)/u
     )
   })
 })

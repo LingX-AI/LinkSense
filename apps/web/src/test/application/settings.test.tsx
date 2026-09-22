@@ -210,7 +210,20 @@ describe("LinkSense application", () => {
     expect(
       languageSelector.closest('[data-slot="settings-section-header"]')
     ).toContainElement(screen.getByRole("heading", { name: "界面语言" }))
-    await chooseSelectOption(interaction, "界面语言", "English")
+    await interaction.click(languageSelector)
+    for (const language of [
+      "简体中文",
+      "English",
+      "Español",
+      "Português (Brasil)",
+      "Français",
+      "日本語",
+    ]) {
+      expect(
+        await screen.findByRole("option", { name: language })
+      ).toBeVisible()
+    }
+    await interaction.click(screen.getByRole("option", { name: "English" }))
     await waitFor(() => expect(document.documentElement.lang).toBe("en-US"))
     expect(
       screen.getByRole("combobox", { name: "Interface language" })
@@ -279,7 +292,7 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "上传新头像" })).toBeEnabled()
     const editNameButton = screen.getByRole("button", { name: "编辑名称" })
-    expect(editNameButton).toHaveClass("size-6")
+    expect(editNameButton).toHaveClass("size-8")
     await interaction.click(editNameButton)
     expect(screen.getByRole("dialog", { name: "编辑名称" })).toBeInTheDocument()
     const nameInput = screen.getByRole("textbox", { name: "名称" })
@@ -332,6 +345,17 @@ describe("LinkSense application", () => {
       screen.getByText("8~16 个字符，且包含大写、小写、数字和标点或符号。")
     ).toBeVisible()
     expect(screen.queryByText(/Unicode/u)).not.toBeInTheDocument()
+    const passwordHeading = screen.getByRole("heading", { name: "修改密码" })
+    const passwordSection = passwordHeading.closest(
+      '[data-slot="settings-card"]'
+    )
+    expect(passwordHeading.closest('[data-slot="card"]')).toBeNull()
+    expect(passwordSection?.parentElement).toHaveClass("gap-8")
+    expect(
+      screen
+        .getByRole("heading", { name: "已关联的第三方账号" })
+        .closest('[data-slot="card"]')
+    ).toBeNull()
     const currentPassword = screen.getByLabelText("当前密码")
     const newPassword = screen.getByLabelText("新密码")
     const confirmation = screen.getByLabelText("确认新密码")
@@ -413,15 +437,20 @@ describe("LinkSense application", () => {
     expect(screen.getAllByRole("radio")).toHaveLength(3)
     expect(systemTheme).toBeChecked()
     expect(systemTheme.closest('[role="radiogroup"]')).toHaveClass(
-      "flex",
-      "flex-wrap",
-      "gap-2"
+      "grid",
+      "grid-cols-3",
+      "gap-3"
+    )
+    expect(systemTheme.closest('[data-slot="card"]')).toBeNull()
+    expect(uiFontSize.closest('[data-slot="card-content"]')).toHaveClass(
+      "px-4",
+      "sm:px-5"
     )
     for (const option of [systemTheme, lightTheme, darkTheme]) {
       expect(option.closest('[data-slot="radio-group-option"]')).toHaveClass(
-        "rounded-xl",
-        "border",
-        "border-[var(--app-border)]"
+        "border-0",
+        "w-full",
+        "p-0"
       )
     }
     expect(
@@ -432,6 +461,13 @@ describe("LinkSense application", () => {
 
     await interaction.click(darkTheme)
     expect(darkTheme).toBeChecked()
+    expect(container.querySelector('[data-preview-theme="dark"]')).toHaveClass(
+      "border-foreground",
+      "rounded-card"
+    )
+    expect(
+      container.querySelector('[data-preview-theme="system"]')
+    ).not.toHaveClass("border-foreground")
     expect(document.documentElement).toHaveClass("dark")
     expect(document.documentElement.dataset.themePreference).toBe("dark")
     expect(window.localStorage.getItem("linksense.theme")).toBe("dark")

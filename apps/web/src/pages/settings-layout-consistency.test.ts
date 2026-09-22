@@ -4,7 +4,11 @@ import appStyles from "@/index.css?raw"
 import { describe, expect, it } from "vitest"
 
 function cssRules(selector: string) {
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")
+  const escapedSelector = selector
+    .trim()
+    .split(/\s+/u)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
+    .join("\\s+")
   return Array.from(
     appStyles.matchAll(
       new RegExp(`(?:^|\\n)\\s*${escapedSelector}\\s*\\{([^}]*)\\}`, "gu")
@@ -70,7 +74,7 @@ describe("settings center layout consistency", () => {
     ).not.toContain("background-image")
   })
 
-  it("centers all settings pages while widening only the administration container", () => {
+  it("centers all settings pages and widens only administration pages explicitly marked wide", () => {
     expect(firstCssRule(":root")).toContain("--app-settings-page-width: 920px;")
     for (const selector of [".settings-content", ".management-page"]) {
       expect(firstCssRule(selector)).toContain(
@@ -81,7 +85,12 @@ describe("settings center layout consistency", () => {
     expect(firstCssRule(":root")).toContain(
       "--app-administration-page-width: 1200px;"
     )
-    expect(firstCssRule(".settings-content-administration")).toContain(
+    expect(firstCssRule(".settings-content-administration")).toBeUndefined()
+    expect(
+      firstCssRule(
+        '.settings-content-administration:has( .management-page[data-content-width="wide"] )'
+      )
+    ).toContain(
       "--app-settings-page-width: var(--app-administration-page-width);"
     )
   })
@@ -93,7 +102,6 @@ describe("settings center layout consistency", () => {
       ".settings-form",
       ".personalization-section",
       ".personalization-loading",
-      ".appearance-theme-fieldset",
       ".channel-access-list",
       ".role-summary",
       ".role-permission-section",

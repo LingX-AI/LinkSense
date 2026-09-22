@@ -92,7 +92,8 @@ export class ApplicationCenterService {
   }
 
   async setStatus(actor: RequestActor, applicationId: string, input: z.infer<typeof applicationCenterStatusInputSchema>, context: AuditContext): Promise<void> {
-    assertOrganizationActor(actor);
+    if (actor.role === "admin") assertAdmin(actor);
+    else assertOrganizationActor(actor);
     const parsed = applicationCenterStatusInputSchema.parse(input);
     await this.repository.setStatus(actor.id, actor.role === "admin", applicationId, parsed.status, parsed.reason);
     await this.record(actor, context, `application_center_${parsed.status}`, applicationId);
@@ -145,6 +146,7 @@ function assertOrganizationActor(actor: RequestActor): void {
   if (actor.registrationSource === "self_registration") throw new AppError("FORBIDDEN");
 }
 function assertAdmin(actor: RequestActor): void {
-  assertOrganizationActor(actor);
+  // Registration origin controls member access, not an explicitly granted admin role.
+  if (actor.status !== "active") throw new AppError("USER_DISABLED");
   if (actor.role !== "admin") throw new AppError("FORBIDDEN");
 }

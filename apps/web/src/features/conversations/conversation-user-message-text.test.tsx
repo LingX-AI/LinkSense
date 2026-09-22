@@ -113,7 +113,7 @@ describe("user message text", () => {
   it.each([
     ["zh-CN", "显示更多", "收起"],
     ["en-US", "Show more", "Show less"],
-    ["fr-FR", "显示更多", "收起"],
+    ["de-DE", "显示更多", "收起"],
   ])(
     "supports keyboard controls and localized accessible labels in %s",
     async (language, expand, collapse) => {

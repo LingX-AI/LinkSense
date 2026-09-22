@@ -58,7 +58,7 @@ export function ProfileOverview({
           <Button
             type="button"
             variant="secondary"
-            size="icon-sm"
+            size="icon"
             className="profile-avatar-upload-button rounded-full"
             aria-label={t("profile.uploadAvatar")}
             onClick={onAvatarUploadRequest}
@@ -76,7 +76,7 @@ export function ProfileOverview({
           <Button
             type="button"
             variant="ghost"
-            size="icon-xs"
+            size="icon"
             className="profile-name-edit-button"
             aria-label={t("profile.editName")}
             title={t("profile.editName")}

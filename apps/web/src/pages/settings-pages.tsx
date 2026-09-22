@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState, type FormEvent } from "react"
+import { SocialAccounts } from "@/features/social-auth/social-accounts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
 import { useBeforeUnload, useBlocker, useNavigate } from "react-router-dom"
@@ -30,8 +31,13 @@ import {
 } from "@/app/ui-font-size"
 import { notify } from "@/components/feedback/notification"
 import { StatusBanner } from "@/components/feedback/status-banner"
-import { FieldShell } from "@/components/forms/form-field"
+import {
+  FieldShell,
+  SettingsFieldGroup,
+  SettingsFieldRow,
+} from "@/components/forms/form-field"
 import { PasswordInput } from "@/components/forms/password-input"
+import { SettingsCard } from "@/components/settings/settings-card"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { TaskAutoNamingSettings } from "@/components/settings/task-auto-naming-settings"
 import { Button } from "@/components/ui/button"
@@ -76,13 +82,25 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ProfileOverview } from "@/features/profile/profile-overview"
 import { BrowserNotificationSettings } from "@/features/browser-notifications/browser-notification-settings"
-import { normalizeLanguage, setAppLanguage } from "@/i18n"
+import { normalizeLanguage, setAppLanguage, supportedLanguages } from "@/i18n"
 import { passwordSchema } from "@/lib/password"
 import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
 import { cn } from "@/lib/utils"
 
 const personalizationQueryKey = ["me", "personalization"] as const
 const resetMemoriesNotificationId = "personalization-memories-reset"
+const languageLabelKeys = {
+  "zh-CN": "common.chinese",
+  "en-US": "common.english",
+  "es-ES": "common.spanish",
+  "pt-BR": "common.portuguese",
+  "fr-FR": "common.french",
+  "ja-JP": "common.japanese",
+} as const satisfies Record<SupportedLanguage, string>
+
+function languageLabelKey(language: SupportedLanguage) {
+  return languageLabelKeys[language]
+}
 
 export function SettingsGeneralPage() {
   const { t, i18n } = useTranslation()
@@ -119,8 +137,8 @@ export function SettingsGeneralPage() {
   })
 
   const changeLanguage = async (value: string | null) => {
-    if (value !== "zh-CN" && value !== "en-US") return
-    const nextLanguage = value
+    const nextLanguage = normalizeLanguage(value)
+    if (!nextLanguage) return
     setLanguage(nextLanguage)
     setError(null)
     try {
@@ -178,25 +196,27 @@ export function SettingsGeneralPage() {
                   id="settings-language"
                   aria-labelledby="interface-language-heading"
                   aria-describedby="interface-language-description"
-                  className="w-32"
+                  className="w-44"
                 >
-                  <SelectValue>
-                    {t(
-                      language === "zh-CN" ? "common.chinese" : "common.english"
-                    )}
-                  </SelectValue>
+                  <SelectValue>{t(languageLabelKey(language))}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    <SelectItem value="zh-CN">{t("common.chinese")}</SelectItem>
-                    <SelectItem value="en-US">{t("common.english")}</SelectItem>
+                    {supportedLanguages.map((supportedLanguage) => (
+                      <SelectItem
+                        key={supportedLanguage}
+                        value={supportedLanguage}
+                      >
+                        {t(languageLabelKey(supportedLanguage))}
+                      </SelectItem>
+                    ))}
                   </SelectGroup>
                 </SelectContent>
               </Select>
             }
           />
         </section>
-        <Separator className="bg-[var(--app-border)]" />
+        <Separator className="bg-[var(--app-divider)]" />
         <section
           className="py-4 sm:py-5"
           aria-labelledby="running-message-action-heading"
@@ -246,7 +266,7 @@ export function SettingsGeneralPage() {
             }
           />
         </section>
-        <Separator className="bg-[var(--app-border)]" />
+        <Separator className="bg-[var(--app-divider)]" />
         <BrowserNotificationSettings userId={user?.id} />
       </Card>
     </SettingsPageFrame>
@@ -584,35 +604,20 @@ export function SettingsPersonalizationPage() {
           <span>{t("common.loading")}</span>
         </div>
       ) : (
-        <>
-          <section
-            className="personalization-section"
+        <div className="grid min-w-0 gap-8">
+          <SettingsCard
             aria-labelledby="custom-instructions-heading"
+            header={
+              <SettingsSectionHeader
+                id="custom-instructions-heading"
+                title={t("settings.customInstructions")}
+                description={t("settings.customInstructionsDescription")}
+              />
+            }
           >
-            <SettingsSectionHeader
-              id="custom-instructions-heading"
-              title={t("settings.customInstructions")}
-              description={t("settings.customInstructionsDescription")}
-              action={
-                <Button
-                  type="submit"
-                  form="custom-instructions-form"
-                  aria-busy={customInstructionsMutation.isPending || undefined}
-                  disabled={
-                    !hasUnsavedInstructions ||
-                    customInstructionsMutation.isPending
-                  }
-                >
-                  {customInstructionsMutation.isPending && (
-                    <Spinner data-icon="inline-start" />
-                  )}
-                  {t("common.save")}
-                </Button>
-              }
-            />
             <form
               id="custom-instructions-form"
-              className="personalization-instructions-form"
+              className="grid min-w-0 gap-3"
               onSubmit={(event) => {
                 event.preventDefault()
                 setError(null)
@@ -621,10 +626,11 @@ export function SettingsPersonalizationPage() {
             >
               <Textarea
                 id="custom-instructions"
+                aria-labelledby="custom-instructions-heading"
+                className="min-h-56 resize-y"
                 value={customInstructions}
                 maxLength={MAX_CUSTOM_INSTRUCTIONS_LENGTH}
                 disabled={customInstructionsMutation.isPending}
-                aria-labelledby="custom-instructions-heading"
                 aria-describedby="custom-instructions-count"
                 placeholder={t("settings.customInstructionsPlaceholder")}
                 onChange={(event) => setCustomInstructions(event.target.value)}
@@ -636,49 +642,60 @@ export function SettingsPersonalizationPage() {
                     max: MAX_CUSTOM_INSTRUCTIONS_LENGTH,
                   })}
                 </span>
+                <Button
+                  type="submit"
+                  aria-busy={customInstructionsMutation.isPending || undefined}
+                  disabled={
+                    !hasUnsavedInstructions ||
+                    customInstructionsMutation.isPending
+                  }
+                >
+                  {customInstructionsMutation.isPending && (
+                    <Spinner data-icon="inline-start" />
+                  )}
+                  {t("common.save")}
+                </Button>
               </div>
             </form>
-          </section>
+          </SettingsCard>
 
-          <section
-            className="personalization-section personalization-memory-section"
+          <SettingsCard
             aria-labelledby="memory-heading"
+            header={
+              <SettingsSectionHeader
+                id="memory-heading"
+                title={t("settings.memory")}
+                description={t("settings.memoryDescription")}
+              />
+            }
           >
-            <SettingsSectionHeader
-              id="memory-heading"
-              title={t("settings.memory")}
-              description={t("settings.memoryDescription")}
-            />
-            <div className="personalization-memory-card">
-              <div className="personalization-memory-row">
-                <div>
-                  <h3 id="enable-memories-label">
-                    {t("settings.enableMemories")}
-                  </h3>
-                  <p id="enable-memories-description">
-                    {t("settings.enableMemoriesDescription")}
-                  </p>
-                </div>
+            <SettingsFieldGroup>
+              <SettingsFieldRow
+                id="enable-memories"
+                label={t("settings.enableMemories")}
+                hint={t("settings.enableMemoriesDescription")}
+                controlWidth="compact"
+              >
                 <Switch
+                  id="enable-memories"
                   checked={memoriesEnabled}
                   disabled={
                     personalizationQuery.isFetching ||
                     memoriesMutation.isPending
                   }
-                  aria-labelledby="enable-memories-label"
-                  aria-describedby="enable-memories-description"
                   onCheckedChange={(checked) => {
                     setError(null)
                     setMemoriesEnabled(checked)
                     memoriesMutation.mutate(checked)
                   }}
                 />
-              </div>
-              <div className="personalization-memory-row">
-                <div>
-                  <h3>{t("settings.resetMemories")}</h3>
-                  <p>{t("settings.resetMemoriesDescription")}</p>
-                </div>
+              </SettingsFieldRow>
+              <SettingsFieldRow
+                id="reset-memories"
+                label={t("settings.resetMemories")}
+                hint={t("settings.resetMemoriesDescription")}
+                controlWidth="compact"
+              >
                 <Button
                   type="button"
                   variant="destructive-ghost"
@@ -687,9 +704,9 @@ export function SettingsPersonalizationPage() {
                 >
                   {t("settings.reset")}
                 </Button>
-              </div>
-            </div>
-          </section>
+              </SettingsFieldRow>
+            </SettingsFieldGroup>
+          </SettingsCard>
 
           {personalizationQuery.data && (
             <TaskAutoNamingSettings
@@ -704,7 +721,7 @@ export function SettingsPersonalizationPage() {
               }}
             />
           )}
-        </>
+        </div>
       )}
 
       <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
@@ -800,98 +817,154 @@ export function SettingsAppearancePage() {
       title={t("settings.appearance")}
       description={t("settings.appearancePageDescription", { productName })}
     >
-      <FieldSet className="appearance-theme-fieldset">
-        <FieldLegend
-          variant="label"
-          className="mb-0 text-sm leading-5 font-semibold"
-        >
-          {t("settings.theme")}
-        </FieldLegend>
-        <RadioGroup
-          value={theme}
-          onValueChange={(value) => {
-            if (value === "system" || value === "light" || value === "dark") {
-              setTheme(value)
-            }
-          }}
-        >
-          {themePreferences.map((preference) => (
-            <RadioGroupOption
-              key={preference}
-              htmlFor={`appearance-theme-${preference}`}
-              className="appearance-theme-option w-40"
-            >
-              <RadioGroupItem
-                id={`appearance-theme-${preference}`}
-                value={preference}
-                className="appearance-theme-radio sr-only"
-              />
-              <ThemePreview preference={preference} />
-              <span className="appearance-theme-label">
-                {t(themeLabelKeys[preference])}
-              </span>
-            </RadioGroupOption>
-          ))}
-        </RadioGroup>
-      </FieldSet>
-      <section
-        className="settings-panel appearance-font-size-setting"
-        aria-labelledby="appearance-font-size-heading"
-        aria-describedby="appearance-font-size-description"
-      >
-        <SettingsSectionHeader
-          id="appearance-font-size-heading"
-          title={t("settings.uiFontSize")}
-          description={t("settings.uiFontSizeDescription", {
-            productName,
-            min: MIN_UI_FONT_SIZE,
-            max: MAX_UI_FONT_SIZE,
-          })}
-          descriptionId="appearance-font-size-description"
-        />
-        <div className="appearance-font-size-control">
-          <Input
-            id="appearance-font-size"
-            type="number"
-            inputMode="numeric"
-            min={MIN_UI_FONT_SIZE}
-            max={MAX_UI_FONT_SIZE}
-            step={1}
-            value={uiFontSizeInput}
-            aria-labelledby="appearance-font-size-heading"
-            aria-describedby="appearance-font-size-description"
-            className="h-9 w-18 text-center max-[420px]:w-16"
-            onChange={(event) => updateUiFontSizeInput(event.target.value)}
-            onBlur={commitUiFontSizeInput}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault()
-                event.currentTarget.blur()
-              }
+      <div className="grid min-w-0 gap-8">
+        <FieldSet className="min-w-0 gap-3">
+          <FieldLegend className="mb-0 text-sm font-semibold">
+            {t("settings.theme")}
+          </FieldLegend>
+          <RadioGroup
+            className="grid grid-cols-3 gap-3 sm:gap-4"
+            aria-label={t("settings.theme")}
+            value={theme}
+            onValueChange={(value) => {
+              if (value === "system" || value === "light" || value === "dark")
+                setTheme(value)
             }}
-          />
-          <span aria-hidden="true">{t("settings.uiFontSizeUnit")}</span>
-        </div>
-      </section>
+          >
+            {themePreferences.map((preference) => (
+              <RadioGroupOption
+                key={preference}
+                htmlFor={`appearance-theme-${preference}`}
+                className="group/theme-option flex w-full min-w-0 flex-col items-stretch gap-2 rounded-none border-0 bg-transparent p-0 has-[[aria-checked=true]]:bg-transparent"
+              >
+                <RadioGroupItem
+                  id={`appearance-theme-${preference}`}
+                  value={preference}
+                  className="sr-only"
+                />
+                <ThemePreview
+                  preference={preference}
+                  selected={theme === preference}
+                />
+                <span
+                  className={cn(
+                    "text-center text-sm font-medium",
+                    theme === preference
+                      ? "text-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  {t(themeLabelKeys[preference])}
+                </span>
+              </RadioGroupOption>
+            ))}
+          </RadioGroup>
+        </FieldSet>
+        <SettingsCard>
+          <SettingsFieldGroup>
+            <SettingsFieldRow
+              id="appearance-font-size"
+              label={t("settings.uiFontSize")}
+              hint={t("settings.uiFontSizeDescription", {
+                productName,
+                min: MIN_UI_FONT_SIZE,
+                max: MAX_UI_FONT_SIZE,
+              })}
+              controlWidth="compact"
+            >
+              <div className="appearance-font-size-control">
+                <Input
+                  id="appearance-font-size"
+                  type="number"
+                  inputMode="numeric"
+                  min={MIN_UI_FONT_SIZE}
+                  max={MAX_UI_FONT_SIZE}
+                  step={1}
+                  value={uiFontSizeInput}
+                  className="h-9 w-18 text-center max-[420px]:w-16"
+                  onChange={(event) =>
+                    updateUiFontSizeInput(event.target.value)
+                  }
+                  onBlur={commitUiFontSizeInput}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault()
+                      event.currentTarget.blur()
+                    }
+                  }}
+                />
+                <span aria-hidden="true">{t("settings.uiFontSizeUnit")}</span>
+              </div>
+            </SettingsFieldRow>
+          </SettingsFieldGroup>
+        </SettingsCard>
+      </div>
     </SettingsPageFrame>
   )
 }
 
-function ThemePreview({ preference }: { preference: ThemePreference }) {
+function ThemePreview({
+  preference,
+  selected,
+}: {
+  preference: ThemePreference
+  selected: boolean
+}) {
+  const system = preference === "system"
   return (
     <span
-      className="appearance-theme-preview"
+      className={cn(
+        "appearance-theme-preview relative block aspect-[10/7] w-full overflow-hidden rounded-card border-2 transition-colors group-has-[:focus-visible]/theme-option:ring-2 group-has-[:focus-visible]/theme-option:ring-ring group-has-[:focus-visible]/theme-option:ring-offset-2",
+        selected ? "border-foreground" : "border-[color:var(--app-border)]",
+        system
+          ? "bg-[linear-gradient(90deg,#a0a0a0_50%,#5c5c5c_50%)]"
+          : preference === "dark"
+            ? "bg-[#5c5c5c]"
+            : "bg-[#f4f4f4]"
+      )}
       data-preview-theme={preference}
       aria-hidden="true"
     >
-      <span className="appearance-theme-preview-toolbar">
-        <span />
-      </span>
-      <span className="appearance-theme-preview-window">
-        <span className="appearance-theme-preview-line appearance-theme-preview-line-short" />
-        <span className="appearance-theme-preview-line" />
-        <span className="appearance-theme-preview-line" />
-        <span className="appearance-theme-preview-line appearance-theme-preview-line-short" />
+      {system && (
+        <span className="absolute inset-x-[4%] top-[28%] bottom-0 rounded-t-xl bg-[linear-gradient(90deg,#f4f4f4_50%,#383838_50%)]" />
+      )}
+      <span
+        className={cn(
+          "absolute left-1/2 block h-[5%] w-[45%] -translate-x-1/2 rounded-full",
+          system
+            ? "top-[49%] w-[16%] bg-[linear-gradient(90deg,#cecece_50%,#787878_50%)]"
+            : preference === "dark"
+              ? "top-[22%] bg-[#a0a0a0]"
+              : "top-[22%] bg-[#cecece]"
+        )}
+      />
+      <span
+        className={cn(
+          "absolute left-1/2 block h-[3%] -translate-x-1/2 rounded-full",
+          system
+            ? "top-[57%] w-[38%] bg-[linear-gradient(90deg,#dedede_50%,#888888_50%)]"
+            : preference === "dark"
+              ? "top-[30%] w-[68%] bg-[#929292]"
+              : "top-[30%] w-[68%] bg-[#dedede]"
+        )}
+      />
+      <span
+        className={cn(
+          "absolute bottom-[-10%] flex flex-col overflow-hidden rounded-t-xl",
+          system
+            ? "inset-x-[15%] top-[64%] bg-[linear-gradient(90deg,#ffffff_50%,#505050_50%)]"
+            : "inset-x-[9%] top-[37%] bg-white"
+        )}
+      >
+        {["first", "second", "third"].map((row) => (
+          <span
+            key={row}
+            className="flex h-1/3 shrink-0 flex-col justify-center gap-[15%] border-b border-[#f2f2f2] px-[5%]"
+          >
+            <span className="block h-[24%] w-[36%] rounded-full bg-[#dedede]" />
+            <span className="block h-[8%] w-[52%] bg-[#f4f4f4]" />
+          </span>
+        ))}
       </span>
     </span>
   )
@@ -924,86 +997,101 @@ export function SettingsSecurityPage() {
       title={t("settings.security")}
       description={t("settings.securityPageDescription")}
     >
-      {error && <StatusBanner variant="error">{error}</StatusBanner>}
-      <section
-        className="settings-panel"
-        aria-labelledby="change-password-heading"
-      >
-        <SettingsSectionHeader
-          id="change-password-heading"
-          title={t("auth.changePassword")}
-          description={t("profile.passwordDescription")}
-        />
-        <form
-          className="form-stack settings-form"
-          onSubmit={(event: FormEvent) => {
-            event.preventDefault()
-            setError(null)
-            if (newPassword !== confirmation) {
-              setError(t("validation.passwordMismatch"))
-              return
-            }
-            if (!passwordSchema.safeParse(newPassword).success) {
-              setError(t("errors.passwordPolicy"))
-              return
-            }
-            passwordMutation.mutate()
-          }}
+      <div className="grid min-w-0 gap-8">
+        <SocialAccounts />
+        {error && <StatusBanner variant="error">{error}</StatusBanner>}
+        <SettingsCard
+          aria-labelledby="change-password-heading"
+          header={
+            <SettingsSectionHeader
+              id="change-password-heading"
+              title={t("auth.changePassword")}
+              description={t("profile.passwordDescription")}
+            />
+          }
         >
-          <FieldShell id="current-password" label={t("auth.currentPassword")}>
-            <PasswordInput
-              id="current-password"
-              fieldLabel={t("auth.currentPassword")}
-              autoComplete="current-password"
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
-              required
-            />
-          </FieldShell>
-          <FieldShell
-            id="profile-new-password"
-            label={t("auth.newPassword")}
-            hint={t("auth.passwordPolicy")}
-          >
-            <PasswordInput
-              id="profile-new-password"
-              fieldLabel={t("auth.newPassword")}
-              autoComplete="new-password"
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              required
-            />
-          </FieldShell>
-          <FieldShell
-            id="profile-confirm-password"
-            label={t("auth.confirmPassword")}
-          >
-            <PasswordInput
-              id="profile-confirm-password"
-              fieldLabel={t("auth.confirmPassword")}
-              autoComplete="new-password"
-              value={confirmation}
-              onChange={(event) => setConfirmation(event.target.value)}
-              required
-            />
-          </FieldShell>
-          <div className="flex justify-end">
-            <Button
-              type="submit"
-              size="lg"
-              disabled={
-                !currentPassword || !newPassword || passwordMutation.isPending
+          <form
+            className="grid gap-4"
+            onSubmit={(event: FormEvent) => {
+              event.preventDefault()
+              setError(null)
+              if (newPassword !== confirmation) {
+                setError(t("validation.passwordMismatch"))
+                return
               }
-              aria-busy={passwordMutation.isPending || undefined}
-            >
-              {passwordMutation.isPending && (
-                <Spinner data-icon="inline-start" />
-              )}
-              {t("auth.changePassword")}
-            </Button>
-          </div>
-        </form>
-      </section>
+              if (!passwordSchema.safeParse(newPassword).success) {
+                setError(t("errors.passwordPolicy"))
+                return
+              }
+              passwordMutation.mutate()
+            }}
+          >
+            <SettingsFieldGroup>
+              <FieldShell
+                id="current-password"
+                label={t("auth.currentPassword")}
+                layout="settings"
+                controlWidth="medium"
+              >
+                <PasswordInput
+                  id="current-password"
+                  fieldLabel={t("auth.currentPassword")}
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  required
+                />
+              </FieldShell>
+              <FieldShell
+                id="profile-new-password"
+                label={t("auth.newPassword")}
+                hint={t("auth.passwordPolicy")}
+                layout="settings"
+                controlWidth="medium"
+              >
+                <PasswordInput
+                  id="profile-new-password"
+                  fieldLabel={t("auth.newPassword")}
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  required
+                />
+              </FieldShell>
+              <FieldShell
+                id="profile-confirm-password"
+                label={t("auth.confirmPassword")}
+                layout="settings"
+                controlWidth="medium"
+              >
+                <PasswordInput
+                  id="profile-confirm-password"
+                  fieldLabel={t("auth.confirmPassword")}
+                  autoComplete="new-password"
+                  value={confirmation}
+                  onChange={(event) => setConfirmation(event.target.value)}
+                  required
+                />
+              </FieldShell>
+            </SettingsFieldGroup>
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                size="default"
+                disabled={
+                  !currentPassword || !newPassword || passwordMutation.isPending
+                }
+                aria-busy={passwordMutation.isPending || undefined}
+              >
+                {passwordMutation.isPending && (
+                  <Spinner data-icon="inline-start" />
+                )}
+                {t("auth.changePassword")}
+              </Button>
+            </div>
+          </form>
+        </SettingsCard>
+      </div>
     </SettingsPageFrame>
   )
 }

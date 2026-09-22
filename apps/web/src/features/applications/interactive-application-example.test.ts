@@ -86,7 +86,7 @@ afterEach(() => {
 })
 
 describe("interactive research file example", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "restores staged files and localizes file actions in %s with fallback",
     async (language) => {
       const { sdk, submit } = await setup(language, [
@@ -147,7 +147,7 @@ describe("interactive research file example", () => {
 })
 
 describe("interactive example task restoration", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "restores busy controls and preserves stop requests in %s",
     async (language) => {
       const { sdk, submit, picker } = await setup(language, [file])
