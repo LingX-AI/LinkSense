@@ -14,11 +14,15 @@ function DatePickerHarness({
   clearable = true,
   size = "default",
   disabled = false,
+  valuePrefix,
+  iconPosition,
 }: {
   initialValue?: string
   clearable?: boolean
   size?: "default" | "sm"
   disabled?: boolean
+  valuePrefix?: string
+  iconPosition?: "start" | "end"
 }) {
   const [value, setValue] = useState(initialValue)
   return (
@@ -30,6 +34,8 @@ function DatePickerHarness({
           min="2026-07-10"
           max="2026-07-12"
           placeholder="请选择"
+          valuePrefix={valuePrefix}
+          iconPosition={iconPosition}
           clearLabel="清除日期"
           clearable={clearable}
           size={size}
@@ -52,6 +58,28 @@ function findCalendarDay(value: string) {
 }
 
 describe("DatePicker", () => {
+  it("keeps a filter date's purpose visible and clears it with the icon at the start", async () => {
+    const interaction = userEvent.setup()
+    render(
+      <DatePickerHarness
+        initialValue="2026-07-11"
+        valuePrefix="开始日期"
+        iconPosition="start"
+      />
+    )
+    const trigger = screen.getByLabelText("测试日期")
+    expect(trigger).toHaveTextContent("开始日期")
+    expect(trigger).toHaveTextContent("2026年7月11日")
+    const clear = screen.getByRole("button", { name: "清除日期" })
+    expect(clear).toHaveClass("right-3")
+    await interaction.click(clear)
+    expect(trigger).toHaveTextContent("请选择")
+    expect(trigger).not.toHaveTextContent("2026年7月11日")
+    expect(
+      screen.queryByRole("button", { name: "清除日期" })
+    ).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
   it.each(["default", "sm"] as const)(
     "places a small clear action before the calendar icon without nesting buttons for %s",
     async (size) => {
@@ -60,7 +88,15 @@ describe("DatePicker", () => {
       const trigger = screen.getByLabelText("测试日期")
       const clear = screen.getByRole("button", { name: "清除日期" })
       expect(trigger.parentElement).toHaveClass("relative")
-      expect(clear).toHaveClass("absolute", "right-9", "size-6")
+      expect(clear).toHaveClass(
+        "absolute",
+        "inset-y-0",
+        "right-9",
+        "my-auto",
+        "size-6",
+        "active:not-aria-[haspopup]:translate-y-0"
+      )
+      expect(clear).not.toHaveClass("top-1/2", "-translate-y-1/2")
       expect(trigger).not.toContainElement(clear)
       expect(trigger.querySelector("span")).toHaveClass("pr-8")
       await interaction.click(clear)

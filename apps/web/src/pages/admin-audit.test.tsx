@@ -45,7 +45,15 @@ async function chooseDate(
   label: string,
   value: string
 ) {
-  await interaction.click(screen.getByLabelText(label))
+  if (
+    screen
+      .getByLabelText(label, { selector: "button" })
+      .getAttribute("aria-expanded") !== "true"
+  ) {
+    await interaction.click(
+      screen.getByLabelText(label, { selector: "button" })
+    )
+  }
   await waitFor(() =>
     expect(document.querySelector("button[data-day]")).not.toBeNull()
   )
@@ -82,6 +90,128 @@ async function chooseDate(
 }
 
 describe("administrator audit metadata", () => {
+  it.each([
+    ["任务执行元数据", "创建日期范围", "created_from", "created_to", true],
+    [
+      "任务执行元数据",
+      "最后运行日期范围",
+      "last_run_from",
+      "last_run_to",
+      true,
+    ],
+    ["已删除任务产物", "日期范围", "date_from", "date_to", false],
+  ] as const)(
+    "applies and clears %s / %s as one filter",
+    async (tab, label, fromKey, toKey, advanced) => {
+      const requests: string[] = []
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          requests.push(String(input))
+          return Promise.resolve(envelope({ items: [], next_cursor: null }))
+        })
+      )
+      const interaction = userEvent.setup()
+      renderAudit()
+      await interaction.click(screen.getByRole("tab", { name: tab }))
+      if (advanced)
+        await interaction.click(
+          screen.getByRole("button", { name: "更多筛选" })
+        )
+      await chooseDate(interaction, label, "2026-07-01")
+      expect(requests.some((url) => url.includes(`${fromKey}=`))).toBe(false)
+      await chooseDate(interaction, label, "2026-07-10")
+      await waitFor(() => {
+        expect(requests.at(-1)).toContain(`${fromKey}=2026-07-01`)
+        expect(requests.at(-1)).toContain(`${toKey}=2026-07-10`)
+      })
+      await interaction.click(
+        screen.getByRole("button", { name: `清除${label}` })
+      )
+      await waitFor(() => {
+        expect(requests.at(-1)).not.toContain(`${fromKey}=`)
+        expect(requests.at(-1)).not.toContain(`${toKey}=`)
+      })
+    }
+  )
+  it.each([
+    ["zh-CN", "插件或 Skill 同步失败", "插件或 Skill 安装失败"],
+    [
+      "en-US",
+      "Plugin or Skill sync failed",
+      "Plugin or Skill installation failed",
+    ],
+  ])(
+    "distinguishes similarly named audit actions and preserves the complete selection in %s",
+    async (language, syncLabel, installLabel) => {
+      await i18n.changeLanguage(language)
+      const fetchMock = vi.fn(() =>
+        Promise.resolve(envelope({ items: [], next_cursor: null }))
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const interaction = userEvent.setup()
+      renderAudit()
+      const filter = screen.getByRole("combobox", {
+        name: i18n.t("admin.action"),
+      })
+      await interaction.click(filter)
+      const syncOption = (
+        await screen.findByText("capability_home_sync_failed")
+      ).closest('[role="option"]')
+      expect(syncOption).toBeVisible()
+      expect(syncOption).toHaveTextContent(syncLabel)
+      const installOption = screen
+        .getByText("capability_install_failed")
+        .closest('[role="option"]')!
+      expect(installOption).toHaveTextContent(installLabel)
+      await interaction.click(installOption)
+      expect(filter).toHaveValue(installLabel)
+      expect(filter).toHaveAttribute("title", installLabel)
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.stringContaining("action=capability_install_failed"),
+          expect.anything()
+        )
+      )
+    }
+  )
+  it.each(["zh-CN", "en-US"])(
+    "identifies compact audit filters without visible top labels in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(envelope({ items: [], next_cursor: null })))
+      )
+      renderAudit()
+      await screen.findByText(
+        i18n.t("admin.auditEmpty").replace(/[。.]+$/u, "")
+      )
+      expect(
+        screen.getByRole("combobox", { name: i18n.t("admin.action") })
+      ).toHaveAttribute("placeholder", i18n.t("admin.filters.allActions"))
+      expect(
+        screen.getByRole("combobox", { name: i18n.t("admin.result") })
+      ).toHaveTextContent(i18n.t("admin.filters.allResults"))
+      for (const key of ["common.dateRange.label"]) {
+        const control = screen.getByLabelText(i18n.t(key))
+        expect(control).toHaveTextContent(i18n.t(key))
+        expect(
+          control
+            .closest('[data-slot="admin-filter-field"]')
+            ?.querySelector("label")
+        ).toHaveClass("sr-only")
+      }
+      const tabs = screen.getByRole("tablist").closest('[data-slot="tabs"]')
+      expect(tabs).toHaveClass("gap-4")
+      expect(screen.getByRole("tablist")).not.toHaveClass("mt-[18px]")
+      expect(
+        screen
+          .getByLabelText(i18n.t("common.dateRange.label"))
+          .closest(".audit-filters")
+      ).toHaveClass("mb-4", "gap-3")
+    }
+  )
   beforeEach(async () => {
     setAccessToken("audit-access-token")
     await i18n.changeLanguage("zh-CN")
@@ -344,13 +474,19 @@ describe("administrator audit metadata", () => {
     await interaction.click(actionOption!)
     await interaction.click(screen.getByRole("combobox", { name: "结果" }))
     await interaction.click(await screen.findByRole("option", { name: "失败" }))
-    await chooseDate(interaction, "开始日期", "2026-07-01")
-    expect(screen.getByLabelText("开始日期")).toHaveTextContent("2026年7月1日")
-    await chooseDate(interaction, "结束日期", "2026-07-31")
-    expect(screen.getByLabelText("结束日期")).toHaveTextContent("2026年7月31日")
-    for (const label of ["开始日期", "结束日期"]) {
+    await chooseDate(interaction, "日期范围", "2026-07-01")
+    expect(requestedUrls.some((url) => url.includes("date_from="))).toBe(false)
+    await chooseDate(interaction, "日期范围", "2026-07-31")
+    expect(screen.getByLabelText("日期范围")).toHaveTextContent(
+      "2026-07-01 至 2026-07-31"
+    )
+    expect(screen.queryByLabelText("开始日期")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("结束日期")).not.toBeInTheDocument()
+    for (const label of ["日期范围"]) {
       const date = screen.getByLabelText(label)
-      expect(date.closest(".form-field")).toHaveClass("flex-[1_1_240px]")
+      expect(date.closest('[data-slot="admin-filter-field"]')).toHaveClass(
+        "flex-[1_1_280px]"
+      )
       expect(date.closest(".audit-filters")).toHaveClass("flex", "flex-wrap")
       expect(date.closest(".audit-filters")).not.toHaveClass("filter-row")
     }
@@ -378,6 +514,8 @@ describe("administrator audit metadata", () => {
     )!
     expect(exportUrl).toContain("search=user-1")
     expect(exportUrl).toContain("result=failure")
+    expect(exportUrl).toContain("date_from=2026-07-01")
+    expect(exportUrl).toContain("date_to=2026-07-31")
     expect(exportUrl).not.toContain("cursor=")
 
     resolveExport?.(
@@ -389,6 +527,14 @@ describe("administrator audit metadata", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "导出 CSV" })).toBeEnabled()
     )
+    await interaction.click(
+      screen.getByRole("button", { name: "清除日期范围" })
+    )
+    await waitFor(() => {
+      expect(requestedUrls.at(-1)).not.toContain("date_from=")
+      expect(requestedUrls.at(-1)).not.toContain("date_to=")
+      expect(requestedUrls.at(-1)).toContain("action=conversation_created")
+    })
   })
 
   it("shows the three redacted audit data surfaces without rendering conversation titles", async () => {

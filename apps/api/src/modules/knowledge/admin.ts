@@ -458,6 +458,17 @@ export class PrismaKnowledgeAdminStore implements KnowledgeAdminStore {
     items: KnowledgeAdminBaseMetadataRecord[]
     nextCursor: string | null
   }> {
+    const matchingOwnerIds =
+      input.search === undefined || input.search.length === 0
+        ? []
+        : (
+            await this.database.user.findMany({
+              where: {
+                name: { contains: input.search, mode: "insensitive" },
+              },
+              select: { id: true },
+            })
+          ).map((owner) => owner.id)
     const cursor =
       input.cursor === undefined
         ? null
@@ -475,7 +486,21 @@ export class PrismaKnowledgeAdminStore implements KnowledgeAdminStore {
           : { availabilityStatus: input.availabilityStatus }),
         ...(input.search === undefined || input.search.length === 0
           ? {}
-          : { name: { contains: input.search, mode: "insensitive" } }),
+          : {
+              AND: [
+                {
+                  OR: [
+                    {
+                      name: {
+                        contains: input.search,
+                        mode: "insensitive",
+                      },
+                    },
+                    { ownerId: { in: matchingOwnerIds } },
+                  ],
+                },
+              ],
+            }),
         ...(cursor === null
           ? {}
           : {

@@ -18,6 +18,17 @@ import {
 } from "@tanstack/react-query"
 import {
   ChevronDownIcon,
+  ArchiveIcon,
+  BadgeCheckIcon,
+  GaugeIcon,
+  ListFilterIcon,
+  LogInIcon,
+  PlugIcon,
+  PowerIcon,
+  ServerIcon,
+  ShieldIcon,
+  SparklesIcon,
+  TriangleAlertIcon,
   DatabaseBackupIcon,
   DownloadIcon,
   FileUpIcon,
@@ -25,10 +36,15 @@ import {
   LoaderCircleIcon,
   MoreHorizontalIcon,
   PencilIcon,
-  SearchIcon,
   SlidersHorizontalIcon,
   Trash2Icon,
+  type LucideIcon,
 } from "lucide-react"
+import {
+  AdminFilterField,
+  AdminFilterInput,
+} from "@/features/admin/admin-filter-controls"
+import { InputGroupAddon } from "@/components/ui/input-group"
 import { useTranslation } from "react-i18next"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { z } from "zod"
@@ -94,7 +110,7 @@ import {
 import { notify } from "@/components/feedback/notification"
 import { NotificationToast } from "@/components/feedback/notification-toast"
 import { StatusBanner } from "@/components/feedback/status-banner"
-import { DatePicker } from "@/components/forms/date-picker"
+import { DateRangePicker } from "@/components/forms/date-range-picker"
 import {
   FieldShell,
   SettingsFieldGroup,
@@ -160,6 +176,7 @@ import { Progress } from "@/components/ui/progress"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -347,12 +364,14 @@ function AdminSelect({
   options,
   onValueChange,
   disabled,
+  icon: Icon,
 }: {
   id: string
   value: string
   options: AdminSelectOption[]
   onValueChange: (value: string) => void
   disabled?: boolean
+  icon?: LucideIcon
 }) {
   const encodedValue = value || emptySelectValue
   const selectedLabel = options.find((option) => option.value === value)?.label
@@ -366,19 +385,22 @@ function AdminSelect({
       }
     >
       <SelectTrigger id={id} className="h-9! w-full">
+        {Icon && <Icon aria-hidden="true" />}
         <SelectValue>
           <span className="truncate">{selectedLabel ?? ""}</span>
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
-        {options.map((option) => (
-          <SelectItem
-            key={option.value || emptySelectValue}
-            value={option.value || emptySelectValue}
-          >
-            {option.label}
-          </SelectItem>
-        ))}
+        <SelectGroup>
+          {options.map((option) => (
+            <SelectItem
+              key={option.value || emptySelectValue}
+              value={option.value || emptySelectValue}
+            >
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
       </SelectContent>
     </Select>
   )
@@ -629,12 +651,14 @@ function UsersAndGroupsManagementLayout({
   return (
     <PageLayout
       title={t("admin.usersAndGroupsTitle")}
+      className="[&>.management-header]:mb-4!"
       contentWidth={activeTab === "users" ? "wide" : "standard"}
       description={t("admin.usersAndGroupsDescription")}
       actions={actions}
     >
       <Tabs
         value={activeTab}
+        className="gap-4"
         onValueChange={(value) => {
           if (value === "groups" || value === "users") {
             void navigate(`/admin/${value}`)
@@ -1071,49 +1095,52 @@ function UserManagementPage() {
     >
       <NotificationToast id="admin-user-saved" message={message} />
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
-      <div className="filter-row user-management-filters">
-        <FieldShell id="user-search" label={t("common.search")}>
-          <div className="input-with-icon">
-            <SearchIcon aria-hidden="true" />
-            <Input
-              id="user-search"
-              className="h-9"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={t("admin.userSearchPlaceholder")}
-            />
-          </div>
-        </FieldShell>
-        <FieldShell id="user-role-filter" label={t("admin.role")}>
+      <div
+        data-slot="user-management-filters"
+        className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(220px,2fr)_repeat(4,minmax(140px,1fr))]"
+      >
+        <AdminFilterField id="user-search" label={t("common.search")}>
+          <AdminFilterInput
+            id="user-search"
+            className="h-9"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t("admin.userSearchPlaceholder")}
+          />
+        </AdminFilterField>
+        <AdminFilterField id="user-role-filter" label={t("admin.role")}>
           <AdminSelect
             id="user-role-filter"
+            icon={ShieldIcon}
             value={roleFilter}
             onValueChange={setRoleFilter}
             options={[
-              { value: "", label: t("common.all") },
+              { value: "", label: t("admin.filters.allRoles") },
               { value: "user", label: t("common.user") },
               { value: "admin", label: t("common.admin") },
             ]}
           />
-        </FieldShell>
-        <FieldShell id="user-status-filter" label={t("common.status")}>
+        </AdminFilterField>
+        <AdminFilterField id="user-status-filter" label={t("common.status")}>
           <AdminSelect
             id="user-status-filter"
+            icon={PowerIcon}
             value={statusFilter}
             onValueChange={setStatusFilter}
             options={[
-              { value: "", label: t("common.all") },
+              { value: "", label: t("admin.filters.allStatuses") },
               { value: "active", label: t("statuses.active") },
               { value: "disabled", label: t("statuses.disabled") },
             ]}
           />
-        </FieldShell>
-        <FieldShell
+        </AdminFilterField>
+        <AdminFilterField
           id="user-registration-source-filter"
           label={t("admin.registrationSource")}
         >
           <AdminSelect
             id="user-registration-source-filter"
+            icon={LogInIcon}
             value={registrationSourceFilter}
             onValueChange={(value) =>
               setRegistrationSourceFilter(
@@ -1121,7 +1148,7 @@ function UserManagementPage() {
               )
             }
             options={[
-              { value: "", label: t("common.all") },
+              { value: "", label: t("admin.filters.allSources") },
               {
                 value: "self_registration",
                 label: t("admin.registrationSources.selfRegistration"),
@@ -1132,13 +1159,14 @@ function UserManagementPage() {
               },
             ]}
           />
-        </FieldShell>
-        <FieldShell
+        </AdminFilterField>
+        <AdminFilterField
           id="user-credit-quota-remaining-filter"
           label={t("admin.creditQuotaRemainingFilter")}
         >
           <AdminSelect
             id="user-credit-quota-remaining-filter"
+            icon={GaugeIcon}
             value={creditQuotaRemainingFilter}
             onValueChange={(value) =>
               setCreditQuotaRemainingFilter(
@@ -1146,14 +1174,14 @@ function UserManagementPage() {
               )
             }
             options={[
-              { value: "", label: t("common.all") },
+              { value: "", label: t("admin.filters.allQuotas") },
               {
                 value: "weekly",
                 label: t("admin.weeklyCreditQuotaRemainingZero"),
               },
             ]}
           />
-        </FieldShell>
+        </AdminFilterField>
       </div>
       {users.isLoading && <LoadingState />}
       {users.isError && (
@@ -2527,6 +2555,7 @@ function AuditPage() {
   return (
     <PageLayout
       title={t("admin.auditTitle")}
+      className="[&>.management-header]:mb-4!"
       contentWidth="wide"
       description={t("admin.auditDescription")}
       actions={
@@ -2544,12 +2573,13 @@ function AuditPage() {
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
       <Tabs
         value={surface}
+        className="gap-4"
         onValueChange={(nextSurface) =>
           setSurface(nextSurface as typeof surface)
         }
       >
         <TabsList
-          className="mt-[18px] max-w-full overflow-x-auto"
+          className="max-w-full overflow-x-auto"
           aria-label={t("admin.auditDataSurfaces")}
         >
           {(["events", "conversations", "retainedArtifacts"] as const).map(
@@ -2563,13 +2593,13 @@ function AuditPage() {
 
         {surface === "events" && (
           <TabsContent value="events">
-            <div className="audit-filters my-[18px] flex flex-wrap gap-2.5 max-sm:flex-col">
-              <FieldShell
+            <div className="audit-filters mb-4 flex flex-wrap gap-3 max-sm:flex-col">
+              <AdminFilterField
                 id="audit-search"
                 label={t("common.search")}
                 className="min-w-0 flex-[2_1_240px] max-sm:basis-auto"
               >
-                <Input
+                <AdminFilterInput
                   id="audit-search"
                   className="h-9"
                   value={search}
@@ -2579,11 +2609,11 @@ function AuditPage() {
                   }}
                   placeholder={t("admin.auditSearchPlaceholder")}
                 />
-              </FieldShell>
-              <FieldShell
+              </AdminFilterField>
+              <AdminFilterField
                 id="audit-action"
                 label={t("admin.action")}
-                className="min-w-0 flex-[1_1_140px] max-sm:basis-auto"
+                className="min-w-0 flex-[1_1_240px] max-sm:basis-auto"
               >
                 <AuditActionFilter
                   id="audit-action"
@@ -2593,61 +2623,48 @@ function AuditPage() {
                     resetEventPagination()
                   }}
                 />
-              </FieldShell>
-              <FieldShell
+              </AdminFilterField>
+              <AdminFilterField
                 id="audit-result"
                 label={t("admin.result")}
                 className="min-w-0 flex-[1_1_120px] max-sm:basis-auto"
               >
                 <AdminSelect
                   id="audit-result"
+                  icon={BadgeCheckIcon}
                   value={result}
                   onValueChange={(nextResult) => {
                     setResult(nextResult)
                     resetEventPagination()
                   }}
                   options={[
-                    { value: "", label: t("common.all") },
+                    { value: "", label: t("admin.filters.allResults") },
                     { value: "success", label: t("statuses.success") },
                     { value: "rejected", label: t("statuses.rejected") },
                     { value: "failure", label: t("statuses.failure") },
                   ]}
                 />
-              </FieldShell>
-              <FieldShell
-                id="audit-from"
-                label={t("admin.dateFrom")}
-                className="min-w-0 flex-[1_1_240px] max-sm:basis-auto"
+              </AdminFilterField>
+              <AdminFilterField
+                id="audit-date-range"
+                label={t("common.dateRange.label")}
+                className="min-w-0 flex-[1_1_280px] max-sm:basis-auto"
               >
-                <DatePicker
-                  id="audit-from"
-                  value={dateFrom}
-                  max={dateTo || undefined}
-                  placeholder={t("common.select")}
-                  clearLabel={`${t("common.delete")} ${t("admin.dateFrom")}`}
-                  onValueChange={(nextDate) => {
-                    setDateFrom(nextDate)
+                <DateRangePicker
+                  id="audit-date-range"
+                  label={t("common.dateRange.label")}
+                  value={
+                    dateFrom && dateTo
+                      ? { from: dateFrom, to: dateTo }
+                      : undefined
+                  }
+                  onValueChange={(range) => {
+                    setDateFrom(range?.from ?? "")
+                    setDateTo(range?.to ?? "")
                     resetEventPagination()
                   }}
                 />
-              </FieldShell>
-              <FieldShell
-                id="audit-to"
-                label={t("admin.dateTo")}
-                className="min-w-0 flex-[1_1_240px] max-sm:basis-auto"
-              >
-                <DatePicker
-                  id="audit-to"
-                  value={dateTo}
-                  min={dateFrom || undefined}
-                  placeholder={t("common.select")}
-                  clearLabel={`${t("common.delete")} ${t("admin.dateTo")}`}
-                  onValueChange={(nextDate) => {
-                    setDateTo(nextDate)
-                    resetEventPagination()
-                  }}
-                />
-              </FieldShell>
+              </AdminFilterField>
             </div>
             {auditQuery.isLoading && <LoadingState />}
             {auditQuery.isError && (
@@ -2691,15 +2708,15 @@ function AuditPage() {
 
         {surface === "conversations" && (
           <TabsContent value="conversations">
-            <p className="audit-surface-description">
+            <p className="mb-3 text-sm text-muted-foreground">
               {t("admin.auditConversationDescription")}
             </p>
-            <div className="filter-row compact-audit-filters">
-              <FieldShell
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(220px,2fr)_minmax(150px,1fr)]">
+              <AdminFilterField
                 id="audit-conversation-search"
                 label={t("common.search")}
               >
-                <Input
+                <AdminFilterInput
                   id="audit-conversation-search"
                   className="h-9"
                   value={conversationSearch}
@@ -2709,20 +2726,21 @@ function AuditPage() {
                   }}
                   placeholder={t("admin.auditConversationSearchPlaceholder")}
                 />
-              </FieldShell>
-              <FieldShell
+              </AdminFilterField>
+              <AdminFilterField
                 id="audit-conversation-status"
                 label={t("common.status")}
               >
                 <AdminSelect
                   id="audit-conversation-status"
+                  icon={ListFilterIcon}
                   value={conversationStatus}
                   onValueChange={(nextStatus) => {
                     setConversationStatus(nextStatus)
                     resetConversationPagination()
                   }}
                   options={[
-                    { value: "", label: t("common.all") },
+                    { value: "", label: t("admin.filters.allStatuses") },
                     ...[
                       "idle",
                       "running",
@@ -2736,9 +2754,9 @@ function AuditPage() {
                     })),
                   ]}
                 />
-              </FieldShell>
+              </AdminFilterField>
             </div>
-            <Collapsible className="audit-advanced-filters">
+            <Collapsible className="mb-4">
               <CollapsibleTrigger
                 render={
                   <Button
@@ -2752,10 +2770,15 @@ function AuditPage() {
                 {t("admin.advancedFilters")}
               </CollapsibleTrigger>
               <CollapsibleContent>
-                <div className="filter-row audit-detail-filters">
-                  <FieldShell id="audit-plugin" label={t("admin.pluginName")}>
-                    <Input
+                <div className="mt-3 grid grid-cols-1 gap-3 rounded-xl bg-muted/30 p-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <AdminFilterField
+                    id="audit-plugin"
+                    label={t("admin.pluginName")}
+                  >
+                    <AdminFilterInput
                       id="audit-plugin"
+                      icon={PlugIcon}
+                      placeholder={t("admin.pluginName")}
                       className="h-9"
                       value={conversationPlugin}
                       onChange={(event) => {
@@ -2763,10 +2786,15 @@ function AuditPage() {
                         resetConversationPagination()
                       }}
                     />
-                  </FieldShell>
-                  <FieldShell id="audit-skill" label={t("admin.skillName")}>
-                    <Input
+                  </AdminFilterField>
+                  <AdminFilterField
+                    id="audit-skill"
+                    label={t("admin.skillName")}
+                  >
+                    <AdminFilterInput
                       id="audit-skill"
+                      icon={SparklesIcon}
+                      placeholder={t("admin.skillName")}
                       className="h-9"
                       value={conversationSkill}
                       onChange={(event) => {
@@ -2774,13 +2802,15 @@ function AuditPage() {
                         resetConversationPagination()
                       }}
                     />
-                  </FieldShell>
-                  <FieldShell
+                  </AdminFilterField>
+                  <AdminFilterField
                     id="audit-error-code"
                     label={t("admin.errorCode")}
                   >
-                    <Input
+                    <AdminFilterInput
                       id="audit-error-code"
+                      icon={TriangleAlertIcon}
+                      placeholder={t("admin.errorCode")}
                       className="h-9"
                       value={conversationErrorCode}
                       onChange={(event) => {
@@ -2788,17 +2818,24 @@ function AuditPage() {
                         resetConversationPagination()
                       }}
                     />
-                  </FieldShell>
-                  <FieldShell id="audit-runner" label={t("admin.runnerStatus")}>
+                  </AdminFilterField>
+                  <AdminFilterField
+                    id="audit-runner"
+                    label={t("admin.runnerStatus")}
+                  >
                     <AdminSelect
                       id="audit-runner"
+                      icon={ServerIcon}
                       value={conversationRunnerStatus}
                       onValueChange={(nextStatus) => {
                         setConversationRunnerStatus(nextStatus)
                         resetConversationPagination()
                       }}
                       options={[
-                        { value: "", label: t("common.all") },
+                        {
+                          value: "",
+                          label: t("admin.filters.allRunnerStatuses"),
+                        },
                         {
                           value: "available",
                           label: t("admin.runnerStatuses.available"),
@@ -2809,20 +2846,24 @@ function AuditPage() {
                         },
                       ]}
                     />
-                  </FieldShell>
-                  <FieldShell
+                  </AdminFilterField>
+                  <AdminFilterField
                     id="audit-archive"
                     label={t("admin.archiveStatus")}
                   >
                     <AdminSelect
                       id="audit-archive"
+                      icon={ArchiveIcon}
                       value={conversationArchiveStatus}
                       onValueChange={(nextStatus) => {
                         setConversationArchiveStatus(nextStatus)
                         resetConversationPagination()
                       }}
                       options={[
-                        { value: "", label: t("common.all") },
+                        {
+                          value: "",
+                          label: t("admin.filters.allArchiveStatuses"),
+                        },
                         {
                           value: "active",
                           label: t("admin.activeConversation"),
@@ -2833,68 +2874,51 @@ function AuditPage() {
                         },
                       ]}
                     />
-                  </FieldShell>
-                  <FieldShell
-                    id="audit-created-from"
-                    label={t("admin.createdFrom")}
+                  </AdminFilterField>
+                  <AdminFilterField
+                    id="audit-created-range"
+                    label={t("common.dateRange.createdLabel")}
                   >
-                    <DatePicker
-                      id="audit-created-from"
-                      value={conversationCreatedFrom}
-                      max={conversationCreatedTo || undefined}
-                      placeholder={t("common.select")}
-                      clearLabel={`${t("common.delete")} ${t("admin.createdFrom")}`}
-                      onValueChange={(nextDate) => {
-                        setConversationCreatedFrom(nextDate)
+                    <DateRangePicker
+                      id="audit-created-range"
+                      label={t("common.dateRange.createdLabel")}
+                      value={
+                        conversationCreatedFrom && conversationCreatedTo
+                          ? {
+                              from: conversationCreatedFrom,
+                              to: conversationCreatedTo,
+                            }
+                          : undefined
+                      }
+                      onValueChange={(range) => {
+                        setConversationCreatedFrom(range?.from ?? "")
+                        setConversationCreatedTo(range?.to ?? "")
                         resetConversationPagination()
                       }}
                     />
-                  </FieldShell>
-                  <FieldShell
-                    id="audit-created-to"
-                    label={t("admin.createdTo")}
+                  </AdminFilterField>
+                  <AdminFilterField
+                    id="audit-run-range"
+                    label={t("common.dateRange.lastRunLabel")}
                   >
-                    <DatePicker
-                      id="audit-created-to"
-                      value={conversationCreatedTo}
-                      min={conversationCreatedFrom || undefined}
-                      placeholder={t("common.select")}
-                      clearLabel={`${t("common.delete")} ${t("admin.createdTo")}`}
-                      onValueChange={(nextDate) => {
-                        setConversationCreatedTo(nextDate)
+                    <DateRangePicker
+                      id="audit-run-range"
+                      label={t("common.dateRange.lastRunLabel")}
+                      value={
+                        conversationLastRunFrom && conversationLastRunTo
+                          ? {
+                              from: conversationLastRunFrom,
+                              to: conversationLastRunTo,
+                            }
+                          : undefined
+                      }
+                      onValueChange={(range) => {
+                        setConversationLastRunFrom(range?.from ?? "")
+                        setConversationLastRunTo(range?.to ?? "")
                         resetConversationPagination()
                       }}
                     />
-                  </FieldShell>
-                  <FieldShell
-                    id="audit-run-from"
-                    label={t("admin.lastRunFrom")}
-                  >
-                    <DatePicker
-                      id="audit-run-from"
-                      value={conversationLastRunFrom}
-                      max={conversationLastRunTo || undefined}
-                      placeholder={t("common.select")}
-                      clearLabel={`${t("common.delete")} ${t("admin.lastRunFrom")}`}
-                      onValueChange={(nextDate) => {
-                        setConversationLastRunFrom(nextDate)
-                        resetConversationPagination()
-                      }}
-                    />
-                  </FieldShell>
-                  <FieldShell id="audit-run-to" label={t("admin.lastRunTo")}>
-                    <DatePicker
-                      id="audit-run-to"
-                      value={conversationLastRunTo}
-                      min={conversationLastRunFrom || undefined}
-                      placeholder={t("common.select")}
-                      clearLabel={`${t("common.delete")} ${t("admin.lastRunTo")}`}
-                      onValueChange={(nextDate) => {
-                        setConversationLastRunTo(nextDate)
-                        resetConversationPagination()
-                      }}
-                    />
-                  </FieldShell>
+                  </AdminFilterField>
                 </div>
               </CollapsibleContent>
             </Collapsible>
@@ -2948,15 +2972,15 @@ function AuditPage() {
 
         {surface === "retainedArtifacts" && (
           <TabsContent value="retainedArtifacts">
-            <p className="audit-surface-description">
+            <p className="mb-3 text-sm text-muted-foreground">
               {t("admin.retainedArtifactsDescription")}
             </p>
-            <div className="filter-row">
-              <FieldShell
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(220px,2fr)_minmax(280px,1fr)]">
+              <AdminFilterField
                 id="retained-artifact-search"
                 label={t("common.search")}
               >
-                <Input
+                <AdminFilterInput
                   id="retained-artifact-search"
                   className="h-9"
                   value={retainedSearch}
@@ -2966,33 +2990,26 @@ function AuditPage() {
                   }}
                   placeholder={t("admin.retainedArtifactsSearchPlaceholder")}
                 />
-              </FieldShell>
-              <FieldShell id="retained-from" label={t("admin.dateFrom")}>
-                <DatePicker
-                  id="retained-from"
-                  value={retainedDateFrom}
-                  max={retainedDateTo || undefined}
-                  placeholder={t("common.select")}
-                  clearLabel={`${t("common.delete")} ${t("admin.dateFrom")}`}
-                  onValueChange={(nextDate) => {
-                    setRetainedDateFrom(nextDate)
+              </AdminFilterField>
+              <AdminFilterField
+                id="retained-date-range"
+                label={t("common.dateRange.label")}
+              >
+                <DateRangePicker
+                  id="retained-date-range"
+                  label={t("common.dateRange.label")}
+                  value={
+                    retainedDateFrom && retainedDateTo
+                      ? { from: retainedDateFrom, to: retainedDateTo }
+                      : undefined
+                  }
+                  onValueChange={(range) => {
+                    setRetainedDateFrom(range?.from ?? "")
+                    setRetainedDateTo(range?.to ?? "")
                     resetRetainedPagination()
                   }}
                 />
-              </FieldShell>
-              <FieldShell id="retained-to" label={t("admin.dateTo")}>
-                <DatePicker
-                  id="retained-to"
-                  value={retainedDateTo}
-                  min={retainedDateFrom || undefined}
-                  placeholder={t("common.select")}
-                  clearLabel={`${t("common.delete")} ${t("admin.dateTo")}`}
-                  onValueChange={(nextDate) => {
-                    setRetainedDateTo(nextDate)
-                    resetRetainedPagination()
-                  }}
-                />
-              </FieldShell>
+              </AdminFilterField>
             </div>
             {retainedQuery.isLoading && <LoadingState />}
             {retainedQuery.isError && (
@@ -3164,19 +3181,24 @@ function AuditActionFilter({
         id={id}
         aria-label={t("admin.action")}
         className="h-9"
-        placeholder={t("admin.actionSearchPlaceholder")}
+        placeholder={t("admin.filters.allActions")}
+        title={selected?.label}
         showClear={Boolean(value)}
-      />
-      <ComboboxContent>
+      >
+        <InputGroupAddon>
+          <ListFilterIcon aria-hidden="true" />
+        </InputGroupAddon>
+      </ComboboxInput>
+      <ComboboxContent className="w-[min(32rem,var(--available-width))] min-w-0">
         <ComboboxEmpty>{t("admin.actionSearchEmpty")}</ComboboxEmpty>
         <ComboboxList>
           {(option: AuditActionOption) => (
             <ComboboxItem key={option.code} value={option}>
-              <span className="min-w-0">
-                <span className="block truncate font-medium">
+              <span className="flex min-w-0 flex-1 flex-col gap-1 py-1">
+                <span className="block font-medium wrap-break-word whitespace-normal">
                   {option.label}
                 </span>
-                <span className="block truncate text-muted-foreground">
+                <span className="block break-all whitespace-normal text-muted-foreground">
                   {formatPublicTechnicalIdentifier(option.code)}
                 </span>
               </span>

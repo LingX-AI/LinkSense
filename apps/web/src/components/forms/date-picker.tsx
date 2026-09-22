@@ -1,14 +1,5 @@
 import { useMemo, useRef, useState } from "react"
 import dayjs from "dayjs"
-import {
-  enUS,
-  es,
-  fr,
-  ja,
-  ptBR,
-  zhCN,
-  type Locale as DateFnsLocale,
-} from "date-fns/locale"
 import { CalendarIcon, XIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -19,19 +10,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
+import { normalizeLanguage } from "@/i18n"
+import {
+  calendarLocales,
+  DATE_VALUE_FORMAT,
+  parseDateValue,
+} from "./calendar-values"
 import { calendarDateFormatFor, dayjsLocaleFor } from "@/i18n/date"
 import { cn } from "@/lib/utils"
-
-const DATE_VALUE_FORMAT = "YYYY-MM-DD"
-const calendarLocales: Record<SupportedLanguage, DateFnsLocale> = {
-  "zh-CN": zhCN,
-  "en-US": enUS,
-  "es-ES": es,
-  "pt-BR": ptBR,
-  "fr-FR": fr,
-  "ja-JP": ja,
-}
 
 type DatePickerProps = {
   id: string
@@ -40,20 +26,13 @@ type DatePickerProps = {
   min?: string
   max?: string
   placeholder: string
+  valuePrefix?: string
+  iconPosition?: "start" | "end"
   clearLabel: string
   clearable?: boolean
   disabled?: boolean
   size?: "default" | "sm"
   className?: string
-}
-
-function parseDateValue(value: string | undefined): Date | undefined {
-  if (!value) return undefined
-  const parsed = dayjs(value)
-  if (!parsed.isValid() || parsed.format(DATE_VALUE_FORMAT) !== value) {
-    return undefined
-  }
-  return parsed.startOf("day").toDate()
 }
 
 export function DatePicker({
@@ -63,6 +42,8 @@ export function DatePicker({
   min,
   max,
   placeholder,
+  valuePrefix,
+  iconPosition = "end",
   clearLabel,
   clearable = true,
   disabled = false,
@@ -109,15 +90,17 @@ export function DatePicker({
             />
           }
         >
+          {iconPosition === "start" && <CalendarIcon aria-hidden="true" />}
           <span
             className={cn(
               "min-w-0 flex-1 truncate text-left",
               showClear && "pr-8"
             )}
           >
+            {selectedDate && valuePrefix && <>{valuePrefix} </>}
             {displayValue}
           </span>
-          <CalendarIcon aria-hidden="true" />
+          {iconPosition === "end" && <CalendarIcon aria-hidden="true" />}
         </PopoverTrigger>
         <PopoverContent align="start" className="w-auto p-0">
           <Calendar
@@ -139,7 +122,10 @@ export function DatePicker({
           type="button"
           variant="ghost"
           size="icon-xs"
-          className="absolute top-1/2 right-9 -translate-y-1/2"
+          className={cn(
+            "absolute inset-y-0 my-auto active:not-aria-[haspopup]:translate-y-0",
+            iconPosition === "start" ? "right-3" : "right-9"
+          )}
           aria-label={clearLabel}
           disabled={disabled}
           onClick={() => {
