@@ -7,6 +7,7 @@ import {
 } from "@linksense/shared"
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify"
 import { z } from "zod"
+import { ClientError } from "openid-client"
 import { randomToken } from "../../lib/crypto.js"
 import { AppError } from "../../lib/errors.js"
 import { ok } from "../../lib/http.js"
@@ -22,6 +23,27 @@ const PENDING_COOKIE = "linksense_social_pending"
 const COOKIE_PATH = "/api/v1/auth/social"
 const providerParams = z.strictObject({ provider: socialProviderSchema })
 const parameters = z.record(z.string().max(128), z.string().max(16_384))
+const protocolErrorCodes = new Set([
+  "OAUTH_TIMEOUT",
+  "OAUTH_ABORT",
+  "OAUTH_INVALID_RESPONSE",
+  "OAUTH_INVALID_REQUEST",
+  "OAUTH_RESPONSE_IS_NOT_JSON",
+  "OAUTH_RESPONSE_IS_NOT_CONFORM",
+  "OAUTH_PARSE_ERROR",
+  "OAUTH_HTTP_REQUEST_FORBIDDEN",
+  "OAUTH_REQUEST_PROTOCOL_FORBIDDEN",
+  "OAUTH_UNSUPPORTED_OPERATION",
+  "OAUTH_MISSING_SERVER_METADATA",
+  "OAUTH_INVALID_SERVER_METADATA",
+])
+const protocolReasons = new Map([
+  ['unexpected "iss" (issuer) response parameter value', "issuer_mismatch"],
+  ['response parameter "iss" (issuer) missing', "issuer_missing"],
+  ['unexpected "state" response parameter value', "state_mismatch"],
+  ['response parameter "state" missing', "state_missing"],
+  ['no authorization code in "callbackParameters"', "code_missing"],
+])
 type Options = {
   service: Pick<
     SocialAuthService,
@@ -146,25 +168,63 @@ export const socialAuthRoutes: FastifyPluginAsync<Options> = async (
     bodyLimit: 32_768,
     handler: async (request, reply) => {
       let result: SocialCallbackResult
+      let stage = "parameters"
+      let callbackProvider: string | undefined
       try {
         const { provider } = providerParams.parse(request.params)
+        callbackProvider = provider
         if ((provider === "apple") !== (request.method === "POST"))
           throw new SocialFailure("failed")
         const values = parameters.parse(
           request.method === "POST" ? request.body : request.query,
         )
-        result = await accept(
-          await options.service.complete(
-            provider,
-            values,
-            request.cookies[FLOW_COOKIE] ?? "",
-            metadata(request),
-          ),
-          request,
-          reply,
+        stage = "complete"
+        const completion = await options.service.complete(
+          provider,
+          values,
+          request.cookies[FLOW_COOKIE] ?? "",
+          metadata(request),
         )
+        stage = "session"
+        result = await accept(completion, request, reply)
       } catch (error) {
         result = callbackFailure(error)
+        // Do not serialize exceptions: OAuth errors may contain codes, tokens,
+        // response bodies or credentials. Only fixed categories are recorded.
+        request.log.warn(
+          {
+            event: "social_callback_failed",
+            provider: callbackProvider,
+            stage,
+            result,
+            error_type:
+              error instanceof SocialFailure
+                ? "social_failure"
+                : error instanceof z.ZodError
+                  ? "validation"
+                  : error instanceof ClientError
+                    ? "oauth_protocol"
+                    : error instanceof AppError
+                      ? "application"
+                      : "unexpected",
+            has_flow_cookie: Boolean(request.cookies[FLOW_COOKIE]),
+            ...(error instanceof ClientError
+              ? {
+                  protocol_code:
+                    error.code && protocolErrorCodes.has(error.code)
+                      ? error.code
+                      : "unknown",
+                  protocol_reason:
+                    protocolReasons.get(
+                      error.cause instanceof Error
+                        ? error.cause.message
+                        : error.message,
+                    ) ?? "other",
+                }
+              : {}),
+          },
+          "Social authentication callback failed",
+        )
         // A failed authorization must not log the user out of their existing session.
         reply
           .clearCookie(FLOW_COOKIE, cookieOptions)

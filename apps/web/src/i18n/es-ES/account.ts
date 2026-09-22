@@ -20,6 +20,7 @@ export const accountMessages = {
       apple: "Apple",
       microsoft: "Cuenta personal de Microsoft",
       facebook: "Facebook",
+      github: "GitHub",
     },
     continueWith: "Continuar con {{provider}}",
     available: "O utiliza una cuenta social",
@@ -47,6 +48,8 @@ export const accountMessages = {
       "Activa Facebook Login e introduce la versión de API seleccionada actualmente en la consola de desarrolladores (vXX.0).",
     googleHelp:
       "Crea un cliente OAuth de tipo aplicación web y configura su URL de retorno de autorización.",
+    githubHelp:
+      "Crea una OAuth App en los ajustes de desarrollador de GitHub, introduce su Client ID y Client Secret y copia esta dirección en Authorization callback URL.",
     bindings: "Cuentas sociales vinculadas",
     bindingsHelp:
       "Vincula una cuenta para acceder a tu perfil existente. Las cuentas con el mismo correo nunca se fusionan automáticamente.",
@@ -88,6 +91,7 @@ export const accountMessages = {
     apple: "Apple",
     microsoft: "Microsoft",
     facebook: "Facebook",
+    github: "GitHub",
     password: "Contraseña local",
     oidc: "Inicio de sesión único",
     teams: "SSO de Teams",

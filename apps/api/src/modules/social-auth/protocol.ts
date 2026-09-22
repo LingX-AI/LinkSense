@@ -4,6 +4,7 @@ import { importPKCS8, SignJWT } from "jose"
 import { z } from "zod"
 import { socialProviderSchema, type SocialProvider } from "@linksense/shared"
 import type { SocialConfiguration, SocialSettingsReader } from "./settings.js"
+import { githubIdentity } from "./github.js"
 
 export const socialIdentitySchema = z.strictObject({
   provider: socialProviderSchema,
@@ -46,6 +47,21 @@ export class OpenIdSocialProtocol implements SocialProtocol {
     provider: SocialProvider,
     settings: SocialConfiguration,
   ): Promise<oidc.Configuration> {
+    if (provider === "github") {
+      const config = new oidc.Configuration(
+        {
+          issuer: "https://github.com/login/oauth",
+          authorization_endpoint:
+            "https://github.com/login/oauth/authorize",
+          token_endpoint: "https://github.com/login/oauth/access_token",
+        },
+        settings.client_id,
+        settings.client_secret,
+        oidc.ClientSecretPost(settings.client_secret),
+      )
+      config.timeout = 5
+      return config
+    }
     if (provider === "facebook") {
       const version = z
         .string()
@@ -94,12 +110,18 @@ export class OpenIdSocialProtocol implements SocialProtocol {
         scope:
           provider === "facebook"
             ? "email,public_profile"
-            : provider === "apple"
-              ? "name email"
-              : "openid email profile",
-        ...(provider !== "facebook" ? { nonce: checks.nonce } : {}),
+            : provider === "github"
+              ? "user:email"
+              : provider === "apple"
+                ? "name email"
+                : "openid email profile",
+        ...(provider !== "facebook" && provider !== "github"
+          ? { nonce: checks.nonce }
+          : {}),
         ...(provider === "apple" ? { response_mode: "form_post" } : {}),
-        ...(provider === "google" || provider === "microsoft"
+        ...(provider === "google" ||
+        provider === "microsoft" ||
+        provider === "github"
           ? {
               code_challenge: await oidc.calculatePKCECodeChallenge(
                 checks.verifier,
@@ -133,13 +155,20 @@ export class OpenIdSocialProtocol implements SocialProtocol {
     }
     const tokens = await oidc.authorizationCodeGrant(config, callback, {
       expectedState: checks.state,
-      ...(provider !== "facebook"
+      ...(provider !== "facebook" && provider !== "github"
         ? { expectedNonce: checks.nonce, idTokenExpected: true }
         : {}),
-      ...(provider === "google" || provider === "microsoft"
+      ...(provider === "google" ||
+      provider === "microsoft" ||
+      provider === "github"
         ? { pkceCodeVerifier: checks.verifier }
         : {}),
     })
+    if (provider === "github") {
+      return socialIdentitySchema.parse(
+        await githubIdentity(settings.client_id, tokens.access_token),
+      )
+    }
     if (provider === "facebook") {
       const profileUrl = new URL(
         `https://graph.facebook.com/${settings.graph_api_version}/me`,
@@ -178,7 +207,7 @@ export class OpenIdSocialProtocol implements SocialProtocol {
 }
 
 export function identityFromClaims(
-  provider: Exclude<SocialProvider, "facebook">,
+  provider: Exclude<SocialProvider, "facebook" | "github">,
   clientId: string,
   value: unknown,
 ): SocialIdentity {

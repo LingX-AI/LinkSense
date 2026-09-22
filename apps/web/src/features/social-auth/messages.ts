@@ -16,6 +16,7 @@ export const socialZhCN = {
     apple: "Apple",
     microsoft: "Microsoft 个人账号",
     facebook: "Facebook",
+    github: "GitHub",
   },
   continueWith: "使用 {{provider}} 继续",
   available: "或使用第三方账号",
@@ -41,6 +42,8 @@ export const socialZhCN = {
   facebookHelp:
     "为应用启用 Facebook Login，并填写开发者后台当前使用的 API 版本（如 vXX.0）。",
   googleHelp: "创建“Web 应用”类型的 OAuth 客户端，并配置授权回调地址。",
+  githubHelp:
+    "在 GitHub 开发者设置中创建 OAuth App，填写 Client ID 和 Client Secret，并将此处的回调地址填入 Authorization callback URL。",
   bindings: "已关联的第三方账号",
   bindingsHelp: "关联后可直接登录已有账号。同邮箱的第三方账号不会自动合并。",
   link: "关联 {{provider}}",
@@ -90,6 +93,7 @@ export const socialEnUS = {
     apple: "Apple",
     microsoft: "Microsoft personal account",
     facebook: "Facebook",
+    github: "GitHub",
   },
   continueWith: "Continue with {{provider}}",
   available: "Or use a third-party account",
@@ -117,6 +121,8 @@ export const socialEnUS = {
     "Enable Facebook Login and enter the API version currently selected in your developer console (vXX.0).",
   googleHelp:
     "Create a Web application OAuth client and configure its authorization callback URL.",
+  githubHelp:
+    "Create an OAuth App in GitHub developer settings, enter its Client ID and Client Secret, and copy this callback address into Authorization callback URL.",
   bindings: "Linked third-party accounts",
   bindingsHelp:
     "Link an account to sign in to your existing profile. Matching emails are never merged automatically.",

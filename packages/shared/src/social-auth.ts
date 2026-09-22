@@ -5,6 +5,7 @@ export const socialProviderSchema = z.enum([
   "apple",
   "microsoft",
   "facebook",
+  "github",
 ])
 export type SocialProvider = z.infer<typeof socialProviderSchema>
 

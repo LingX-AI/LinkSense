@@ -87,9 +87,65 @@ function fixture() {
 }
 
 describe("social settings persistence", () => {
+  it("adds encrypted GitHub settings while existing Google settings and bindings stay usable", async () => {
+    const f = fixture()
+    await f.enable()
+    expect(await f.settings.resolve("github")).toBeNull()
+    const summary = await f.settings.update(
+      "github",
+      {
+        enabled: true,
+        expected_revision: 0,
+        client_id: "github-app",
+        client_secret: "github-private-secret",
+      },
+      actorId,
+      metadata,
+    )
+    expect(
+      summary.find((entry) => entry.provider === "github"),
+    ).toMatchObject({
+      enabled: true,
+      secret_configured: true,
+      redirect_uri:
+        "https://linksense.example.test/api/v1/auth/social/github/callback",
+    })
+    expect(
+      JSON.stringify([summary, f.json(), f.db.auditLog.create.mock.calls]),
+    ).not.toContain("github-private-secret")
+    expect(await f.settings.resolve("google")).toMatchObject({
+      enabled: true,
+      revision: 1,
+      client_id: "app",
+    })
+    await expect(
+      f.repository.authenticate(identity, 1, null, metadata),
+    ).resolves.toMatchObject({ userId: actorId })
+    await expect(
+      f.repository.authenticate(
+        {
+          ...identity,
+          provider: "github",
+          clientId: "github-app",
+          subject: "12345",
+        },
+        1,
+        null,
+        metadata,
+      ),
+    ).resolves.toMatchObject({ userId: actorId })
+    expect(f.db.socialAccount.create).toHaveBeenLastCalledWith({
+      data: {
+        userId: actorId,
+        provider: "github",
+        clientId: "github-app",
+        subject: "12345",
+      },
+    })
+  })
   it("keeps old settings readable with all new providers disabled", async () => {
     const f = fixture()
-    expect(await f.settings.getAdminSettings()).toHaveLength(4)
+    expect(await f.settings.getAdminSettings()).toHaveLength(5)
     expect(
       (await f.settings.getAdminSettings()).every(
         (entry) =>

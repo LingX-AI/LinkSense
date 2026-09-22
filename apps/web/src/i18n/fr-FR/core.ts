@@ -17,6 +17,7 @@ export const core = {
       apple: "Apple",
       microsoft: "Compte Microsoft personnel",
       facebook: "Facebook",
+      github: "GitHub",
     },
     continueWith: "Continuer avec {{provider}}",
     available: "Ou utiliser un compte personnel",
@@ -44,6 +45,8 @@ export const core = {
       "Activez Facebook Login et saisissez la version de l’API sélectionnée dans votre console développeur (vXX.0).",
     googleHelp:
       "Créez un client OAuth de type application Web et configurez son URL de rappel d’autorisation.",
+    githubHelp:
+      "Créez une OAuth App dans les paramètres développeur GitHub, saisissez son Client ID et son Client Secret, puis copiez cette adresse dans Authorization callback URL.",
     bindings: "Comptes personnels associés",
     bindingsHelp:
       "Associez un compte pour vous connecter à votre profil existant. Les comptes partageant un même e-mail ne sont jamais fusionnés automatiquement.",

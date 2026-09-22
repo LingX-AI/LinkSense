@@ -107,7 +107,7 @@ function fixture(provider: SocialProvider = "google") {
 }
 
 describe("social authorization and registration", () => {
-  it.each(["google", "apple", "microsoft", "facebook"] as const)(
+  it.each(["google", "apple", "microsoft", "facebook", "github"] as const)(
     "completes %s identity without changing enterprise login",
     async (provider) => {
       const f = fixture(provider)
@@ -153,18 +153,31 @@ describe("social authorization and registration", () => {
       f.service.complete("google", params, browser, metadata),
     ).rejects.toMatchObject({ result: "failed" })
   })
-  it("requires verification for unverified first-time email but not an existing binding", async () => {
-    const f = fixture("microsoft")
-    f.identity.emailVerified = false
-    expect(
-      await f.service.complete("microsoft", await f.start(), browser, metadata),
-    ).toMatchObject({ result: "verify_email" })
-    expect(f.repository.authenticate).not.toHaveBeenCalled()
-    f.repository.find.mockResolvedValue(account)
-    expect(
-      await f.service.complete("microsoft", await f.start(), browser, metadata),
-    ).toMatchObject({ result: "success" })
-  })
+  it.each(["microsoft", "github"] as const)(
+    "requires verification for unverified first-time %s email but not an existing binding",
+    async (provider) => {
+      const f = fixture(provider)
+      f.identity.emailVerified = false
+      expect(
+        await f.service.complete(
+          provider,
+          await f.start(),
+          browser,
+          metadata,
+        ),
+      ).toMatchObject({ result: "verify_email" })
+      expect(f.repository.authenticate).not.toHaveBeenCalled()
+      f.repository.find.mockResolvedValue(account)
+      expect(
+        await f.service.complete(
+          provider,
+          await f.start(),
+          browser,
+          metadata,
+        ),
+      ).toMatchObject({ result: "success" })
+    },
+  )
   it("allows linking without an email, binding the initiating user and revocation stamp", async () => {
     const f = fixture("facebook")
     f.identity.email = null

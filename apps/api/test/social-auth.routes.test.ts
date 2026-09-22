@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import Fastify, { type FastifyInstance } from "fastify"
 import cookie from "@fastify/cookie"
 import jwt from "@fastify/jwt"
+import { ClientError } from "openid-client"
 import type { PrismaClient } from "../src/generated/prisma/client.js"
 import { authenticationPlugin } from "../src/plugins/authentication.js"
 import { socialAuthRoutes } from "../src/modules/social-auth/routes.js"
@@ -116,6 +117,40 @@ async function fixture() {
 }
 
 describe("social authentication routes", () => {
+  it("creates a GitHub session after a successful GET callback without exposing tokens", async () => {
+    const f = await fixture()
+    f.service.complete.mockResolvedValue({
+      result: "success",
+      provider: "github",
+      account: {
+        userId,
+        authValidAfter: new Date("2026-09-21T00:00:00Z").toISOString(),
+      },
+    })
+    const response = await f.app.inject({
+      url: "/api/v1/auth/social/github/callback?state=state&code=github-code",
+      headers: { cookie: "linksense_social_flow=browser-proof" },
+    })
+    expect(response.statusCode).toBe(303)
+    expect(response.headers.location).toBe(
+      "https://app.example.test/auth/social/callback?result=success",
+    )
+    expect(f.service.complete).toHaveBeenCalledWith(
+      "github",
+      { state: "state", code: "github-code" },
+      "browser-proof",
+      expect.any(Object),
+    )
+    expect(f.auth.createSocialSession).toHaveBeenCalledWith(
+      userId,
+      "github",
+      expect.any(Object),
+      "2026-09-21T00:00:00.000Z",
+    )
+    expect(response.headers["set-cookie"]?.toString()).toContain(
+      "linksense_refresh=refresh-only-in-cookie",
+    )
+  })
   it("allows public provider discovery but rejects anonymous and ordinary-user admin writes", async () => {
     const f = await fixture()
     expect(
@@ -232,6 +267,68 @@ describe("social authentication routes", () => {
       "linksense_refresh",
     )
     expect(response.body).not.toContain("provider internal details")
+  })
+  it("records safe callback diagnostics without logging credentials or provider errors", async () => {
+    const f = await fixture()
+    const warn = vi.fn()
+    f.app.addHook("onRequest", async (request) => {
+      request.log.warn = warn
+    })
+    f.service.complete.mockRejectedValue(new Error("secret-provider-response"))
+    await f.app.inject({
+      url: "/api/v1/auth/social/github/callback?state=secret-state&code=secret-code",
+      headers: { cookie: "linksense_social_flow=secret-cookie" },
+    })
+    expect(warn).toHaveBeenCalledWith(
+      {
+        event: "social_callback_failed",
+        provider: "github",
+        stage: "complete",
+        result: "failed",
+        error_type: "unexpected",
+        has_flow_cookie: true,
+      },
+      "Social authentication callback failed",
+    )
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("secret-")
+  })
+  it.each([
+    {
+      code: "OAUTH_INVALID_RESPONSE",
+      cause: 'unexpected "iss" (issuer) response parameter value',
+      expectedCode: "OAUTH_INVALID_RESPONSE",
+      expectedReason: "issuer_mismatch",
+    },
+    {
+      code: "secret-code",
+      cause: "secret-provider-response",
+      expectedCode: "unknown",
+      expectedReason: "other",
+    },
+  ])("allowlists protocol diagnostics: $expectedReason", async (test) => {
+    const f = await fixture()
+    const warn = vi.fn()
+    f.app.addHook("onRequest", async (request) => {
+      request.log.warn = warn
+    })
+    const error = new ClientError("secret-message", {
+      cause: new Error(test.cause),
+    })
+    error.code = test.code
+    f.service.complete.mockRejectedValue(error)
+    const response = await f.app.inject(
+      "/api/v1/auth/social/github/callback?state=secret-state&code=secret-code",
+    )
+    expect(response.headers.location).toContain("result=failed")
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error_type: "oauth_protocol",
+        protocol_code: test.expectedCode,
+        protocol_reason: test.expectedReason,
+      }),
+      "Social authentication callback failed",
+    )
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("secret-")
   })
   it("scopes account deletion to the authenticated user, never a requested user ID", async () => {
     const f = await fixture()
