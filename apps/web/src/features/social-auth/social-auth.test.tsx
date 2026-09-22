@@ -84,6 +84,81 @@ afterEach(() => {
 
 describe("social sign-in UI", () => {
   it.each(["zh-CN", "en-US", "de-DE"])(
+    "configures GitHub credentials and starts sign-in in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === "POST") return response(null, 400)
+        if (String(url).endsWith("/providers")) return response(["github"])
+        return response(settings)
+      })
+      vi.stubGlobal("fetch", fetch)
+      mount(
+        <>
+          <AdminSocialSettings />
+          <SocialLoginButtons />
+        </>
+      )
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: i18n.t("social.configureProvider", { provider: "GitHub" }),
+        })
+      )
+      const dialog = await screen.findByRole("dialog")
+      expect(
+        within(dialog).getByText(i18n.t("social.githubHelp"))
+      ).toBeVisible()
+      expect(
+        within(dialog).getByRole("link", { name: i18n.t("social.guide") })
+      ).toHaveAttribute("href", "https://github.com/settings/developers")
+      expect(
+        within(dialog).getByLabelText(i18n.t("social.redirectUri"))
+      ).toHaveValue(
+        "https://app.example.test/api/v1/auth/social/github/callback"
+      )
+      fireEvent.change(
+        within(dialog).getByLabelText(i18n.t("social.clientId")),
+        { target: { value: "github-client" } }
+      )
+      fireEvent.change(
+        within(dialog).getByLabelText(i18n.t("social.clientSecret")),
+        { target: { value: "github-secret" } }
+      )
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: i18n.t("common.save") })
+      )
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      )
+      const saved = fetch.mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith("/social-authentication-settings/github") &&
+          init?.method === "PUT"
+      )
+      expect(JSON.parse(String(saved?.[1]?.body))).toEqual({
+        enabled: true,
+        expected_revision: 1,
+        client_id: "github-client",
+        client_secret: "github-secret",
+      })
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: i18n.t("social.continueWith", { provider: "GitHub" }),
+        })
+      )
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        i18n.t("errors.socialAuthFailed")
+      )
+      expect(
+        fetch.mock.calls.some(
+          ([url, init]) =>
+            String(url).endsWith("/social/github/start") &&
+            init?.method === "POST"
+        )
+      ).toBe(true)
+    }
+  )
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "renders provider buttons and errors in %s including fallback",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -186,7 +261,7 @@ describe("social sign-in UI", () => {
       microsoft.querySelector('[data-social-provider-logo="microsoft"] img')
     ).toHaveClass("size-full")
   })
-  it("loads four settings rows, opens one configuration dialog, and omits blank secrets on save", async () => {
+  it("loads provider settings rows, opens one configuration dialog, and omits blank secrets on save", async () => {
     const fetch = vi.fn(async (_url: string, init?: RequestInit) =>
       response(
         init?.method === "PUT"
@@ -208,7 +283,7 @@ describe("social sign-in UI", () => {
       expect(heading.firstElementChild).toBe(logo)
       expect(logo?.querySelector("svg, img")).toBeInTheDocument()
     })
-    expect(screen.getAllByRole("button", { name: /^配置 / })).toHaveLength(4)
+    expect(screen.getAllByRole("button", { name: /^配置 / })).toHaveLength(5)
     expect(screen.queryByRole("switch")).not.toBeInTheDocument()
     expect(screen.queryByLabelText("应用密钥")).not.toBeInTheDocument()
     fireEvent.click(within(row).getByRole("button", { name: "配置 Google" }))

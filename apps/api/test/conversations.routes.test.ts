@@ -16,6 +16,7 @@ const PENDING_REQUEST_ID = "30000000-0000-4000-8000-000000000002";
 const SECOND_PENDING_REQUEST_ID = "30000000-0000-4000-8000-000000000004";
 const IDEMPOTENCY_KEY = "40000000-0000-4000-8000-000000000001";
 const KNOWLEDGE_BASE_ID = "40000000-0000-4000-8000-000000000002";
+const PROJECT_ID = "40000000-0000-4000-8000-000000000003";
 const AGENT_KEY = `agent_${"a".repeat(24)}`;
 const apps: Array<ReturnType<typeof Fastify>> = [];
 
@@ -136,6 +137,36 @@ describe("conversation list route", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({ error_code: "VALIDATION_ERROR" });
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("校验并传递归档列表的搜索、项目和排序条件", async () => {
+    const { app, list } = await conversationRouteFixture();
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/conversations?archived=true&search=%E4%BC%9A%E8%AE%AE&project_id=${PROJECT_ID}&sort=updated_asc&limit=50`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(list).toHaveBeenCalledWith(OWNER_ID, {
+      archived: true,
+      search: "会议",
+      projectId: PROJECT_ID,
+      sort: "updated_asc",
+      limit: 50,
+    });
+  });
+
+  it.each([
+    "/conversations?project_id=invalid",
+    "/conversations?sort=created_desc",
+  ])("拒绝非法的归档列表筛选条件：%s", async (url) => {
+    const { app, list } = await conversationRouteFixture();
+
+    const response = await app.inject({ method: "GET", url });
+
+    expect(response.statusCode).toBe(400);
     expect(list).not.toHaveBeenCalled();
   });
 });

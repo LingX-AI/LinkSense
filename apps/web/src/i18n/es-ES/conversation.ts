@@ -75,6 +75,14 @@ export const conversationMessages = {
     searchTitle: "Buscar",
     searchPlaceholder:
       "Buscar títulos, mensajes, adjuntos, archivos generados, plugins o Skills…",
+    archivedSearchPlaceholder:
+      "Buscar títulos, mensajes o archivos adjuntos de tareas archivadas…",
+    archivedSortLabel: "Ordenar tareas archivadas",
+    archivedSortNewest: "Actualizadas recientemente",
+    archivedSortOldest: "Actualizadas hace más tiempo",
+    archivedProjectLabel: "Filtrar por proyecto",
+    archivedAllProjects: "Todos los proyectos",
+    archivedSearchEmpty: "Ninguna tarea archivada coincide con estos filtros.",
     searchEmpty: "No se han encontrado resultados",
     listEmpty:
       "Todavía no hay tareas. Empieza directamente en el cuadro de mensaje.",

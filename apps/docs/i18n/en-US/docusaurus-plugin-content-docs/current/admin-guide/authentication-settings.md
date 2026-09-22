@@ -55,7 +55,9 @@ Enter Microsoft Entra tenant and client IDs. LinkSense settings do not replace E
 
 ## Third-party accounts
 
-Configure Google, Apple, Microsoft personal accounts, and Facebook. For Microsoft work or school accounts, configure Microsoft Entra ID under Enterprise accounts.
+Configure Google, Apple, Microsoft personal accounts, Facebook, and GitHub. For Microsoft work or school accounts, configure Microsoft Entra ID under Enterprise accounts.
+
+For GitHub, create an OAuth App in developer settings and copy the callback address from the configuration dialog into Authorization callback URL. Enter its Client ID and Client Secret in LinkSense and enable it. Create separate apps for test and production environments with different callback URLs. Sign-in only requests email access, not repository access. If GitHub cannot provide a verified email, new users must verify their email through LinkSense.
 
 When registration is open, new users can start after email verification without administrator activation. Existing users must sign in first and link their account under **Settings → Security → Linked third-party accounts**; matching emails are not merged automatically. Closing registration does not block sign-in for linked accounts.
 

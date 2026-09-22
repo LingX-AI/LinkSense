@@ -14,6 +14,7 @@ import {
   EyeIcon,
   LoaderCircleIcon,
   SearchIcon,
+  TagsIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Link, useSearchParams } from "react-router-dom"
@@ -187,6 +188,7 @@ export function TaskArtifactLibrary({
             className="w-36 shrink-0"
             aria-label={t("library.artifacts.fileTypeLabel")}
           >
+            <TagsIcon aria-hidden="true" />
             <SelectValue />
           </SelectTrigger>
           <SelectContent align="start" alignItemWithTrigger={false}>

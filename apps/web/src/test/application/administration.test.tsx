@@ -28,6 +28,23 @@ describe("LinkSense application", () => {
       expect(header).toHaveTextContent(title)
       expect(header).toBeVisible()
       expect(header.querySelector(".sr-only")).toBeNull()
+      for (const [labelKey, allKey] of [
+        ["admin.role", "allRoles"],
+        ["common.status", "allStatuses"],
+        ["admin.registrationSource", "allSources"],
+        ["admin.creditQuotaRemainingFilter", "allQuotas"],
+      ]) {
+        const filter = screen.getByRole("combobox", { name: i18n.t(labelKey) })
+        expect(filter).toHaveTextContent(i18n.t(`admin.filters.${allKey}`))
+        expect(
+          filter
+            .closest('[data-slot="admin-filter-field"]')
+            ?.querySelector("label")
+        ).toHaveClass("sr-only")
+      }
+      expect(
+        screen.getByRole("textbox", { name: i18n.t("common.search") })
+      ).toHaveAttribute("placeholder", i18n.t("admin.userSearchPlaceholder"))
     }
   )
 

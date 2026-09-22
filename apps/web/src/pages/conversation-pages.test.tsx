@@ -311,17 +311,106 @@ describe("archived conversation pagination", () => {
       expect(
         screen.queryByRole("button", { name: "下一页" })
       ).not.toBeInTheDocument()
-      const searchButton = screen.queryByRole("button", { name: "搜索" })
+      expect(
+        screen.getByRole("textbox", {
+          name: "搜索已归档任务的标题、消息或附件…",
+        })
+      ).toBeVisible()
+      expect(
+        screen.queryByRole("button", { name: "搜索" })
+      ).not.toBeInTheDocument()
       const clearButton = screen.queryByRole("button", { name: "清除全部" })
       if (showsArchivedActions) {
-        expect(searchButton).toBeVisible()
         expect(clearButton).toBeVisible()
       } else {
-        expect(searchButton).not.toBeInTheDocument()
         expect(clearButton).not.toBeInTheDocument()
       }
     }
   )
+
+  it("在页面内搜索归档任务，并把排序与项目筛选传给完整列表查询", async () => {
+    const projectId = "80000000-0000-4000-8000-000000000001"
+    const requestedConversationUrls: URL[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin)
+        if (url.pathname === "/api/v1/projects") {
+          return Promise.resolve(
+            envelope([
+              {
+                id: projectId,
+                name: "产品项目",
+                icon: "folder",
+                color: "default",
+                created_at: "2026-07-11T00:00:00.000Z",
+                updated_at: "2026-07-11T00:00:00.000Z",
+              },
+            ])
+          )
+        }
+        requestedConversationUrls.push(url)
+        const filtered = url.searchParams.get("search") === "会议"
+        return Promise.resolve(
+          envelope({
+            items: [
+              conversation(
+                filtered ? "conversation-filtered" : "conversation-all",
+                filtered ? "会议纪要" : "全部归档任务"
+              ),
+            ],
+            next_cursor: null,
+          })
+        )
+      })
+    )
+    const interaction = userEvent.setup()
+
+    renderArchivedConversations()
+
+    expect(await screen.findByText("全部归档任务")).toBeVisible()
+    const searchInput = screen.getByRole("textbox", {
+      name: "搜索已归档任务的标题、消息或附件…",
+    })
+    await interaction.type(searchInput, "会议")
+
+    expect(await screen.findByText("会议纪要")).toBeVisible()
+    expect(screen.queryByText("全部归档任务")).not.toBeInTheDocument()
+    expect(
+      requestedConversationUrls.some(
+        (url) =>
+          url.searchParams.get("archived") === "true" &&
+          url.searchParams.get("search") === "会议"
+      )
+    ).toBe(true)
+    expect(
+      screen.queryByRole("dialog", { name: "搜索" })
+    ).not.toBeInTheDocument()
+
+    await interaction.click(
+      screen.getByRole("combobox", { name: "归档任务排序" })
+    )
+    await interaction.click(
+      await screen.findByRole("option", { name: "最早更新" })
+    )
+    await interaction.click(
+      screen.getByRole("combobox", { name: "按项目筛选" })
+    )
+    await interaction.click(
+      await screen.findByRole("option", { name: "产品项目" })
+    )
+
+    await waitFor(() =>
+      expect(
+        requestedConversationUrls.some(
+          (url) =>
+            url.searchParams.get("search") === "会议" &&
+            url.searchParams.get("sort") === "updated_asc" &&
+            url.searchParams.get("project_id") === projectId
+        )
+      ).toBe(true)
+    )
+  })
 
   it("将全部归档任务放在同一卡片中并用分隔线分组", async () => {
     vi.stubGlobal(

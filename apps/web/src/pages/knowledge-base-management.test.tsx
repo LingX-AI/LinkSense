@@ -1075,6 +1075,7 @@ describe("knowledge-base document and access management", () => {
     const toolbar = search.closest(".knowledge-library-toolbar")
 
     expect(filter).toHaveTextContent(i18n.t("knowledge.filter.all"))
+    expect(filter.querySelector(".lucide-list-filter")).not.toBeNull()
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("lifecycle_status=all"),
       expect.anything()

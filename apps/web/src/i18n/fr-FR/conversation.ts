@@ -73,6 +73,14 @@ export const conversation = {
   searchTitle: "Rechercher",
   searchPlaceholder:
     "Rechercher des titres, messages, pièces jointes, fichiers, plugins ou compétences…",
+  archivedSearchPlaceholder:
+    "Rechercher dans les titres, messages ou pièces jointes des tâches archivées…",
+  archivedSortLabel: "Trier les tâches archivées",
+  archivedSortNewest: "Mises à jour récemment",
+  archivedSortOldest: "Mises à jour il y a le plus longtemps",
+  archivedProjectLabel: "Filtrer par projet",
+  archivedAllProjects: "Tous les projets",
+  archivedSearchEmpty: "Aucune tâche archivée ne correspond à ces filtres.",
   searchEmpty: "Aucun résultat",
   listEmpty: "Aucune tâche. Commencez directement dans la zone de saisie.",
   newTaskWelcome: "Que faisons-nous ensemble dans {{productName}} ?",

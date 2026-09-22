@@ -163,6 +163,8 @@ export const conversationRoutes: FastifyPluginAsync<{
       .strictObject({
         search: z.string().trim().max(240).optional(),
         archived: archivedQuery,
+        project_id: z.string().uuid().optional(),
+        sort: z.enum(["updated_desc", "updated_asc"]).optional(),
         cursor: z
           .string()
           .trim()
@@ -181,6 +183,8 @@ export const conversationRoutes: FastifyPluginAsync<{
         await services.conversations.list(user.id, {
           ...(query.search ? { search: query.search } : {}),
           ...(query.cursor ? { cursor: query.cursor } : {}),
+          ...(query.project_id ? { projectId: query.project_id } : {}),
+          ...(query.sort ? { sort: query.sort } : {}),
           archived: query.archived,
           limit: query.limit,
         }),

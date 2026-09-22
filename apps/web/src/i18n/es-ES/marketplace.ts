@@ -233,6 +233,10 @@ export const marketplaceMessages = {
     withdraw: "Retirar solicitud de revisión",
     withdrawn: "Se ha retirado la versión pendiente.",
     unlist: "Retirar del centro de plugins",
+    unlisting: "Retirando…",
+    unlistConfirmTitle: "¿Retirar «{{name}}»?",
+    unlistConfirmDescription:
+      "Este contenido dejará de aparecer en el centro de plugins y no estará disponible para nuevos usuarios. Las instalaciones existentes podrán seguir ejecutándose y actualizándose.",
     relist: "Volver a publicar",
     unlisted:
       "La publicación se ha retirado del catálogo. Las instalaciones existentes pueden seguir ejecutándose y actualizándose.",

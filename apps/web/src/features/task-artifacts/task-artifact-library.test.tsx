@@ -423,6 +423,7 @@ describe("task artifact library", () => {
     expect(await screen.findByText("季度图片.png")).toBeVisible()
     const filter = screen.getByRole("combobox", { name: "按文件类型筛选" })
     expect(filter).toHaveTextContent("全部类型")
+    expect(filter.querySelector(".lucide-tags")).not.toBeNull()
     await interaction.click(filter)
     for (const name of [
       "全部类型",

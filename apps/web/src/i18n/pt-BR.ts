@@ -22,6 +22,7 @@ export const ptBR = {
       apple: "Apple",
       microsoft: "Conta pessoal Microsoft",
       facebook: "Facebook",
+      github: "GitHub",
     },
     continueWith: "Continuar com {{provider}}",
     available: "Ou use uma conta social",
@@ -49,6 +50,8 @@ export const ptBR = {
       "Ative o Facebook Login e informe a versão da API selecionada no console de desenvolvedor (vXX.0).",
     googleHelp:
       "Crie um cliente OAuth do tipo aplicativo da Web e configure sua URL de retorno da autorização.",
+    githubHelp:
+      "Crie um OAuth App nas configurações de desenvolvedor do GitHub, informe o Client ID e o Client Secret e copie este endereço para Authorization callback URL.",
     bindings: "Contas sociais vinculadas",
     bindingsHelp:
       "Vincule uma conta para acessar seu perfil existente. Contas com e-mails iguais nunca são unificadas automaticamente.",
@@ -235,6 +238,15 @@ export const ptBR = {
       "Não foi possível carregar esta página. Verifique sua conexão e tente novamente. Se houver um aviso de atualização, atualize a página primeiro.",
   },
   common: {
+    dateRange: {
+      label: "Intervalo de datas",
+      createdLabel: "Intervalo de criação",
+      lastRunLabel: "Intervalo da última execução",
+      value: "{{from}} – {{to}}",
+      clear: "Limpar {{label}}",
+      selectStart: "Selecione a data inicial e depois a final.",
+      selectEnd: "Início: {{date}}. Selecione a data final.",
+    },
     close: "Fechar",
     notifications: "Notificações",
     cancel: "Cancelar",
@@ -2151,6 +2163,15 @@ export const ptBR = {
     searchTitle: "Pesquisar",
     searchPlaceholder:
       "Pesquisar títulos, mensagens, anexos, arquivos gerados, plugins ou habilidades…",
+    archivedSearchPlaceholder:
+      "Pesquisar títulos, mensagens ou anexos de tarefas arquivadas…",
+    archivedSortLabel: "Ordenar tarefas arquivadas",
+    archivedSortNewest: "Atualizadas recentemente",
+    archivedSortOldest: "Atualizadas há mais tempo",
+    archivedProjectLabel: "Filtrar por projeto",
+    archivedAllProjects: "Todos os projetos",
+    archivedSearchEmpty:
+      "Nenhuma tarefa arquivada corresponde a estes filtros.",
     searchEmpty: "Nenhum resultado encontrado",
     listEmpty:
       "Nenhuma tarefa ainda. Comece diretamente pelo campo de mensagem.",
@@ -3576,6 +3597,10 @@ export const ptBR = {
     withdraw: "Retirar da revisão",
     withdrawn: "A versão pendente foi retirada.",
     unlist: "Remover da Central de plugins",
+    unlisting: "Removendo da listagem…",
+    unlistConfirmTitle: "Remover “{{name}}” da listagem?",
+    unlistConfirmDescription:
+      "Este conteúdo não aparecerá mais na Central de plugins nem ficará disponível para novos usuários. As instalações existentes ainda poderão executar e atualizar.",
     relist: "Recolocar na listagem",
     unlisted:
       "A listagem foi removida. As instalações existentes ainda podem executar e atualizar.",
@@ -4587,6 +4612,16 @@ export const ptBR = {
     weeklyCreditLimit: "Cota semanal (créditos)",
     creditLimitDisplay: "{{value}} créditos",
     creditQuotaRemainingFilter: "Cota restante",
+    filters: {
+      allRoles: "Todas as funções",
+      allStatuses: "Todos os status",
+      allSources: "Todas as origens de usuários",
+      allQuotas: "Todas as cotas",
+      allActions: "Todas as ações",
+      allResults: "Todos os resultados",
+      allRunnerStatuses: "Todos os status do executor",
+      allArchiveStatuses: "Todos os status de arquivamento",
+    },
     weeklyCreditQuotaRemainingZero: "Restante semanal é 0",
     creditQuotaRemainingAmount:
       "{{value}} créditos restantes ({{percentage}}%)",
@@ -5895,6 +5930,7 @@ export const ptBR = {
     apple: "Apple",
     microsoft: "Microsoft",
     facebook: "Facebook",
+    github: "GitHub",
     password: "Senha local",
     oidc: "Autenticação única",
     teams: "SSO do Teams",

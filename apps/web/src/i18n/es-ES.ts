@@ -20,6 +20,15 @@ import { knowledgeMessages } from "@/i18n/es-ES/knowledge"
 export const esES = {
   saml: samlesES,
   common: {
+    dateRange: {
+      label: "Rango de fechas",
+      createdLabel: "Rango de fechas de creación",
+      lastRunLabel: "Rango de última ejecución",
+      value: "{{from}} – {{to}}",
+      clear: "Borrar {{label}}",
+      selectStart: "Selecciona la fecha inicial y luego la final.",
+      selectEnd: "Inicio: {{date}}. Selecciona la fecha final.",
+    },
     close: "Cerrar",
     notifications: "Notificaciones",
     cancel: "Cancelar",

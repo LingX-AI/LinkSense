@@ -170,6 +170,11 @@ describe("website management", () => {
     vi.stubGlobal("fetch", fetch)
     mount(<SiteLibrary />)
     expect(await screen.findByText("还没有发布的站点")).toBeVisible()
+    expect(
+      screen
+        .getByRole("combobox", { name: "发布状态" })
+        .querySelector(".lucide-globe")
+    ).not.toBeNull()
     await userEvent.type(
       screen.getByRole("textbox", { name: "搜索站点名称或链接" }),
       "journal"

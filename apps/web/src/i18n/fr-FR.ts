@@ -16,6 +16,15 @@ import { errors } from "./fr-FR/errors"
 export const frFR = {
   saml: samlfrFR,
   common: {
+    dateRange: {
+      label: "Plage de dates",
+      createdLabel: "Plage de dates de création",
+      lastRunLabel: "Plage de dernière exécution",
+      value: "{{from}} – {{to}}",
+      clear: "Effacer {{label}}",
+      selectStart: "Sélectionnez la date de début, puis la date de fin.",
+      selectEnd: "Début : {{date}}. Sélectionnez la date de fin.",
+    },
     close: "Fermer",
     notifications: "Notifications",
     cancel: "Annuler",

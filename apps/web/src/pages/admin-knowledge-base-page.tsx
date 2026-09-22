@@ -7,12 +7,15 @@ import {
   ChevronRightIcon,
   LoaderCircleIcon,
   MoreHorizontalIcon,
+  PowerIcon,
   RefreshCcwIcon,
   SearchIcon,
   ShieldCheckIcon,
   Trash2Icon,
   UserRoundCogIcon,
   UserXIcon,
+  WorkflowIcon,
+  type LucideIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams } from "react-router-dom"
@@ -353,6 +356,7 @@ export function AdminKnowledgeBasePage() {
             />
           </InputGroup>
           <FilterSelect
+            icon={WorkflowIcon}
             label={t("adminKnowledge.lifecycle.label")}
             value={lifecycle}
             onValueChange={(value) => {
@@ -366,6 +370,7 @@ export function AdminKnowledgeBasePage() {
             translationPrefix="adminKnowledge.lifecycle"
           />
           <FilterSelect
+            icon={PowerIcon}
             label={t("adminKnowledge.availability.label")}
             value={availability}
             onValueChange={(value) => {
@@ -529,12 +534,14 @@ export function AdminKnowledgeBasePage() {
 }
 
 function FilterSelect({
+  icon: Icon,
   label,
   value,
   onValueChange,
   options,
   translationPrefix,
 }: {
+  icon: LucideIcon
   label: string
   value: string
   onValueChange: (value: string) => void
@@ -548,14 +555,17 @@ function FilterSelect({
       onValueChange={(next) => onValueChange(next ?? "all")}
     >
       <SelectTrigger aria-label={label} className="w-full">
+        <Icon aria-hidden="true" />
         <SelectValue>{t(`${translationPrefix}.${value}`)}</SelectValue>
       </SelectTrigger>
       <SelectContent>
-        {options.map((option) => (
-          <SelectItem key={option} value={option}>
-            {t(`${translationPrefix}.${option}`)}
-          </SelectItem>
-        ))}
+        <SelectGroup>
+          {options.map((option) => (
+            <SelectItem key={option} value={option}>
+              {t(`${translationPrefix}.${option}`)}
+            </SelectItem>
+          ))}
+        </SelectGroup>
       </SelectContent>
     </Select>
   )

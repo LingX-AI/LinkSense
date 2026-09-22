@@ -1,4 +1,4 @@
-import { SiApple, SiFacebook } from "react-icons/si"
+import { SiApple, SiFacebook, SiGithub } from "react-icons/si"
 import { FcGoogle } from "react-icons/fc"
 import type { SocialProvider } from "@linksense/shared"
 import microsoftLogo from "./assets/microsoft.svg"
@@ -12,6 +12,8 @@ export function SocialProviderLogo({ provider }: { provider: SocialProvider }) {
     >
       {provider === "apple" ? (
         <SiApple className="size-full" focusable="false" />
+      ) : provider === "github" ? (
+        <SiGithub className="size-full" focusable="false" />
       ) : provider === "facebook" ? (
         <SiFacebook
           className="size-full rounded-full bg-white"
@@ -19,10 +21,7 @@ export function SocialProviderLogo({ provider }: { provider: SocialProvider }) {
           focusable="false"
         />
       ) : provider === "google" ? (
-        <FcGoogle
-          className="size-[1.375rem] max-w-none"
-          focusable="false"
-        />
+        <FcGoogle className="size-[1.375rem] max-w-none" focusable="false" />
       ) : (
         <img src={microsoftLogo} alt="" className="size-full" />
       )}

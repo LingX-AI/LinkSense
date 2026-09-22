@@ -919,6 +919,7 @@ describe("three application categories", () => {
       expect(filter).toHaveTextContent(
         i18n.t("applicationDevelopment.catalog.all")
       )
+      expect(filter.querySelector(".lucide-list-filter")).not.toBeNull()
       const search = screen.getByRole("textbox", {
         name: i18n.t("applications.search"),
       })

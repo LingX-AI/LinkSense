@@ -1,4 +1,5 @@
 import { conversationReconnectingWarningDelayMs } from "@/features/conversations/use-conversation-events"
+import { rememberSidebarTaskSortModes } from "@/features/conversations/sidebar-task-sort-preference"
 import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
@@ -13,6 +14,139 @@ import {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each([
+    { background: false, mode: "updated_at" as const },
+    { background: true, mode: "updated_at" as const },
+    { background: false, mode: "manual" as const },
+    { background: true, mode: "manual" as const },
+  ])(
+    "reconciles completion recency without reloading the sidebar (background=$background, sort=$mode)",
+    async ({ background, mode }) => {
+      rememberSidebarTaskSortModes("user-1", {
+        pinned: "manual",
+        projects: "updated_at",
+        recent: mode,
+      })
+      const startedAt = "2026-09-22T08:00:00.000Z"
+      const completedAt = "2026-09-22T10:00:00.000Z"
+      const turnId = "30000000-0000-4000-8000-000000000091"
+      const olderTask = {
+        ...conversations[0]!,
+        updated_at: startedAt,
+        last_run_at: startedAt,
+        sort_order: 1,
+      }
+      const newerTask = {
+        ...conversations[1]!,
+        updated_at: "2026-09-22T09:00:00.000Z",
+        last_run_at: "2026-09-22T09:00:00.000Z",
+        sort_order: 0,
+      }
+      let completed = false
+      let releaseCompletion!: () => void
+      const completion = new Promise<void>((resolve) => {
+        releaseCompletion = resolve
+      })
+      const { requests } = installApiMock({
+        conversationDetailResponse: async () =>
+          json({
+            success: true,
+            data: {
+              ...conversation,
+              ...newerTask,
+              turns: [],
+              running_turn: null,
+            },
+          }),
+        conversationListResponse: () =>
+          json({
+            success: true,
+            data: { items: [newerTask, olderTask], next_cursor: null },
+          }),
+        conversationGetResponse: async () =>
+          json({
+            success: true,
+            data: {
+              ...conversation,
+              ...olderTask,
+              updated_at: completed ? completedAt : startedAt,
+              execution_status: completed ? "completed" : "running",
+              turns: [
+                { id: turnId, status: completed ? "completed" : "running" },
+              ],
+              running_turn: completed
+                ? null
+                : { id: turnId, status: "running" },
+            },
+          }),
+        eventStreamStart: completion,
+        eventStreamBody: `id: c1:91\nevent: turn/completed\ndata: ${JSON.stringify(
+          {
+            id: "61000000-0000-4000-8000-000000000091",
+            conversation_id: "20000000-0000-4000-8000-000000000001",
+            turn_id: turnId,
+            sequence_no: 91,
+            event_type: "turn/completed",
+            visibility: "user_visible",
+            payload: {
+              schema_version: 2,
+              source: "codex_app_server",
+              method: "turn/completed",
+              params: {
+                threadId: "native-thread",
+                turn: { id: "native-turn", status: "completed" },
+              },
+            },
+            sse_event_id: "c1:91",
+            created_at: completedAt,
+          }
+        )}\n\n`,
+      })
+      renderApp(background ? "/conversations/c2" : "/conversations/c1")
+      const sidebar = await screen.findByRole("complementary", {
+        name: "LinkSense 导航",
+      })
+      const olderLink = await within(sidebar).findByRole("link", {
+        name: olderTask.title,
+      })
+      const newerLink = within(sidebar).getByRole("link", {
+        name: newerTask.title,
+      })
+      expect(
+        newerLink.compareDocumentPosition(olderLink) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      await waitFor(() =>
+        expect(
+          requests.some(
+            (request) => request.path === "/api/v1/conversations/c1/events"
+          )
+        ).toBe(true)
+      )
+      await act(async () => {
+        completed = true
+        releaseCompletion()
+      })
+      await waitFor(() => {
+        expect(olderLink).not.toHaveAttribute("aria-busy")
+        const [first, second] =
+          mode === "updated_at"
+            ? [olderLink, newerLink]
+            : [newerLink, olderLink]
+        expect(
+          first.compareDocumentPosition(second) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+      })
+      expect(
+        requests.filter(
+          (request) =>
+            request.path === "/api/v1/conversations" && request.method === "GET"
+        )
+      ).toHaveLength(1)
+    }
+  )
+
   it.each([false, true])(
     "stops the plan task sidebar indicator while detail refresh is pending, with a delayed list response: %s",
     async (delayList) => {

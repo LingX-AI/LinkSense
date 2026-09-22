@@ -57,7 +57,9 @@ description: 在线管理登录能力并安全处理认证密钥。
 
 ## 第三方账号登录
 
-配置 Google、Apple、Microsoft 个人账号和 Facebook 登录。Microsoft 工作或学校账号请在企业账号登录中配置 Microsoft Entra ID。
+配置 Google、Apple、Microsoft 个人账号、Facebook 和 GitHub 登录。Microsoft 工作或学校账号请在企业账号登录中配置 Microsoft Entra ID。
+
+GitHub：在开发者设置的 OAuth Apps 中创建应用，将配置弹窗显示的回调地址填入 Authorization callback URL，再将 Client ID 和 Client Secret 填入 LinkSense 并启用。使用不同回调地址的测试、生产环境应分别创建应用。登录仅申请读取邮箱的权限，不访问代码仓库；GitHub 无法提供已验证邮箱时，首次注册需在 LinkSense 完成邮箱验证。
 
 开放注册后，新用户在邮箱验证通过后可使用账号，无需管理员启用。已有账号需要先登录，再到“设置 → 安全 → 已关联的第三方账号”中关联；同邮箱账号不会自动合并。关闭开放注册不影响已关联账号登录。
 

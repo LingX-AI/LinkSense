@@ -1998,6 +1998,8 @@ export class ConversationService {
     input: {
       search?: string;
       archived?: boolean;
+      projectId?: string;
+      sort?: "updated_desc" | "updated_asc";
       cursor?: string;
       limit: number;
     },
@@ -2005,12 +2007,15 @@ export class ConversationService {
     const cursor = input.cursor ? parseConversationCursor(input.cursor) : null;
     if (input.cursor && !cursor) throw new AppError("VALIDATION_ERROR");
     const archiveStatus = input.archived ? "archived" : "active";
+    const ascending = input.sort === "updated_asc";
     const visible = await ordinaryConversationFilter(this.prisma, ownerId);
     const [rows, totalCount] = await Promise.all([
       input.search
         ? this.searchConversations(ownerId, {
             search: input.search,
             archiveStatus,
+            ...(input.projectId ? { projectId: input.projectId } : {}),
+            sort: input.sort ?? "updated_desc",
             cursor,
             limit: input.limit + 1,
           })
@@ -2019,22 +2024,38 @@ export class ConversationService {
               ownerId,
               archiveStatus,
               AND: visible,
+              ...(input.projectId ? { projectId: input.projectId } : {}),
               ...(cursor
                 ? {
                     OR: [
-                      { updatedAt: { lt: cursor.updatedAt } },
-                      { updatedAt: cursor.updatedAt, id: { lt: cursor.id } },
+                      {
+                        updatedAt: ascending
+                          ? { gt: cursor.updatedAt }
+                          : { lt: cursor.updatedAt },
+                      },
+                      {
+                        updatedAt: cursor.updatedAt,
+                        id: ascending ? { gt: cursor.id } : { lt: cursor.id },
+                      },
                     ],
                   }
                 : {}),
             },
-            orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+            orderBy: [
+              { updatedAt: ascending ? "asc" : "desc" },
+              { id: ascending ? "asc" : "desc" },
+            ],
             take: input.limit + 1,
           }),
       input.search || !input.archived
         ? Promise.resolve(undefined)
         : this.prisma.conversation.count({
-            where: { ownerId, archiveStatus, AND: visible },
+            where: {
+              ownerId,
+              archiveStatus,
+              AND: visible,
+              ...(input.projectId ? { projectId: input.projectId } : {}),
+            },
           }),
     ]);
     const selected = rows.slice(0, input.limit);
@@ -2235,16 +2256,30 @@ export class ConversationService {
     input: {
       search: string;
       archiveStatus: string;
+      projectId?: string;
+      sort: "updated_desc" | "updated_asc";
       cursor: ConversationCursor | null;
       limit: number;
     },
   ) {
     const cursorFilter = input.cursor
-      ? Prisma.sql`AND (
+      ? input.sort === "updated_asc"
+        ? Prisma.sql`AND (
+          c.updated_at > ${input.cursor.updatedAt}
+          OR (c.updated_at = ${input.cursor.updatedAt} AND c.id > CAST(${input.cursor.id} AS uuid))
+        )`
+        : Prisma.sql`AND (
           c.updated_at < ${input.cursor.updatedAt}
           OR (c.updated_at = ${input.cursor.updatedAt} AND c.id < CAST(${input.cursor.id} AS uuid))
         )`
       : Prisma.empty;
+    const projectFilter = input.projectId
+      ? Prisma.sql`AND c.project_id = CAST(${input.projectId} AS uuid)`
+      : Prisma.empty;
+    const orderBy =
+      input.sort === "updated_asc"
+        ? Prisma.sql`ORDER BY c.updated_at ASC, c.id ASC`
+        : Prisma.sql`ORDER BY c.updated_at DESC, c.id DESC`;
     const matching = await this.prisma.$queryRaw<
       Array<{ id: string }>
     >(Prisma.sql`
@@ -2253,6 +2288,7 @@ export class ConversationService {
       WHERE c.owner_id = CAST(${ownerId} AS uuid)
         AND c.archive_status = ${input.archiveStatus}
         AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.id = c.application_id AND a.owner_id = c.owner_id AND a.development_only = true)
+        ${projectFilter}
         ${cursorFilter}
         AND (
           (
@@ -2367,7 +2403,7 @@ export class ConversationService {
               )
           )
         )
-      ORDER BY c.updated_at DESC, c.id DESC
+      ${orderBy}
       LIMIT ${input.limit}
     `);
     if (matching.length === 0) return [];

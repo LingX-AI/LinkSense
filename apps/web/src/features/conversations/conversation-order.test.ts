@@ -57,7 +57,7 @@ describe("sidebar conversation ordering", () => {
     ])
   })
 
-  it("sorts by Codex recency instead of metadata update time", () => {
+  it("sorts recently updated tasks by update time even when their run started earlier", () => {
     const result = sortSidebarConversations(
       [
         conversation("metadata-newer", "2026-08-12T12:00:00.000Z", null, null, {
@@ -73,8 +73,29 @@ describe("sidebar conversation ordering", () => {
     )
 
     expect(result.map((item) => item.id)).toEqual([
-      "activity-newer",
       "metadata-newer",
+      "activity-newer",
+    ])
+  })
+
+  it("uses update time before creation time when a task has not run", () => {
+    const result = sortSidebarConversations(
+      [
+        conversation("updated-newer", "2026-08-12T12:00:00.000Z", null, null, {
+          created_at: "2026-08-12T07:00:00.000Z",
+          last_run_at: null,
+        }),
+        conversation("created-newer", "2026-08-12T09:00:00.000Z", null, null, {
+          created_at: "2026-08-12T10:00:00.000Z",
+          last_run_at: null,
+        }),
+      ],
+      "updated_at"
+    )
+
+    expect(result.map((item) => item.id)).toEqual([
+      "updated-newer",
+      "created-newer",
     ])
   })
 
@@ -383,5 +404,49 @@ describe("sidebar conversation ordering", () => {
         has_unread_completion: true,
       },
     ])
+  })
+
+  it("reconciles persisted recency after the terminal status was already projected without moving manual rows", () => {
+    const previousTime = "2026-09-22T08:00:00.000Z"
+    const completedTime = "2026-09-22T10:00:00.000Z"
+    const first = conversation("first", "2026-09-22T09:00:00.000Z", 0)
+    const second = conversation("second", previousTime, 1, null, {
+      execution_status: "completed",
+      last_run_at: previousTime,
+    })
+    const data = {
+      pages: [
+        { items: [first], next_cursor: "next" },
+        { items: [second], next_cursor: null },
+      ],
+      pageParams: [undefined, "next"],
+    }
+    const options = { updatedAt: completedTime, lastRunAt: previousTime }
+    const updated = patchSidebarConversationExecutionStatus(
+      data,
+      "second",
+      "completed",
+      options
+    )
+    if (!updated) throw new Error("Expected the sidebar cache to exist")
+    const tasks = updated.pages.flatMap((page) => page.items)
+    expect(
+      sortSidebarConversations(tasks, "updated_at").map((task) => task.id)
+    ).toEqual(["second", "first"])
+    expect(
+      sortSidebarConversations(tasks, "manual").map((task) => task.id)
+    ).toEqual(["first", "second"])
+    expect(updated.pages[0]).toBe(data.pages[0])
+    expect(updated.pages[1]?.next_cursor).toBeNull()
+    expect(updated.pageParams).toBe(data.pageParams)
+    expect(second.updated_at).toBe(previousTime)
+    expect(
+      patchSidebarConversationExecutionStatus(
+        updated,
+        "second",
+        "completed",
+        options
+      )
+    ).toBe(updated)
   })
 })

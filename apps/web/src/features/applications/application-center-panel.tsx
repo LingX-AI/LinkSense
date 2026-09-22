@@ -2,7 +2,7 @@ import { useOpenApplicationConversation } from "./application-opening"
 import { useDeferredValue, useEffect, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
-import { ArrowUpRightIcon } from "lucide-react"
+import { ArrowUpRightIcon, ListFilterIcon } from "lucide-react"
 import { useSearchParams } from "react-router-dom"
 import {
   applicationCatalogFilterSchema,
@@ -161,6 +161,7 @@ export function ApplicationsWorkspacePanel(
                 aria-label={t("applicationDevelopment.catalog.filter")}
                 className="shrink-0"
               >
+                <ListFilterIcon aria-hidden="true" />
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="end" alignItemWithTrigger={false}>

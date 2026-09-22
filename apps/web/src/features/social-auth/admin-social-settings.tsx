@@ -41,6 +41,7 @@ const consoles = {
     "https://developer.apple.com/account/resources/identifiers/list/serviceId",
   microsoft: "https://entra.microsoft.com/",
   facebook: "https://developers.facebook.com/apps/",
+  github: "https://github.com/settings/developers",
 }
 
 export function AdminSocialSettings() {

@@ -558,7 +558,7 @@ describe("administrator authentication settings", () => {
     const socialPanel = screen.getByRole("region", { name: "第三方账号登录" })
     expect(
       await within(socialPanel).findAllByRole("button", { name: /^配置 / })
-    ).toHaveLength(4)
+    ).toHaveLength(5)
     expect(
       screen
         .getByRole("tabpanel", { name: "登录方式" })

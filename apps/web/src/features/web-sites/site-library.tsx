@@ -10,6 +10,7 @@ import {
   ExternalLinkIcon,
   EyeIcon,
   EyeOffIcon,
+  GlobeIcon,
   MoreHorizontalIcon,
   PencilIcon,
   SearchIcon,
@@ -154,6 +155,7 @@ export function SiteLibrary() {
             className="w-full sm:w-40"
             aria-label={t("webSites.filter")}
           >
+            <GlobeIcon aria-hidden="true" />
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

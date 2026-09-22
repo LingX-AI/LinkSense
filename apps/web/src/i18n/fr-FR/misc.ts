@@ -436,6 +436,7 @@ export const miscResources = {
     apple: "Apple",
     microsoft: "Microsoft",
     facebook: "Facebook",
+    github: "GitHub",
     password: "Mot de passe local",
     oidc: "Authentification unique",
     teams: "Authentification unique Teams",

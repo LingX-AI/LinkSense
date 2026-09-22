@@ -2731,6 +2731,68 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
   });
 
+  it("applies the project filter and ascending cursor to the complete archived list", async () => {
+    const fixture = await conversationFixture();
+    const projectId = "80000000-0000-4000-8000-000000000001";
+    fixture.prisma.conversation.findMany.mockResolvedValueOnce([
+      conversationRow(),
+    ]);
+    fixture.prisma.conversation.count.mockResolvedValueOnce(1);
+
+    await fixture.service.list(OWNER_ID, {
+      archived: true,
+      projectId,
+      sort: "updated_asc",
+      cursor: `${NOW.toISOString()}|${CONVERSATION_ID}`,
+      limit: 30,
+    });
+
+    expect(fixture.prisma.conversation.findMany).toHaveBeenCalledWith({
+      where: {
+        ownerId: OWNER_ID,
+        archiveStatus: "archived",
+        AND: {},
+        projectId,
+        OR: [
+          { updatedAt: { gt: NOW } },
+          { updatedAt: NOW, id: { gt: CONVERSATION_ID } },
+        ],
+      },
+      orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+      take: 31,
+    });
+    expect(fixture.prisma.conversation.count).toHaveBeenCalledWith({
+      where: {
+        ownerId: OWNER_ID,
+        archiveStatus: "archived",
+        AND: {},
+        projectId,
+      },
+    });
+  });
+
+  it("keeps project filtering and ascending ordering inside archived full-text search", async () => {
+    const fixture = await conversationFixture();
+    const projectId = "80000000-0000-4000-8000-000000000001";
+    fixture.prisma.$queryRaw.mockResolvedValueOnce([]);
+
+    await fixture.service.list(OWNER_ID, {
+      archived: true,
+      search: "会议",
+      projectId,
+      sort: "updated_asc",
+      limit: 30,
+    });
+
+    const query = (
+      fixture.prisma.$queryRaw.mock.calls as unknown[][]
+    )[0]?.[0] as { strings?: readonly string[]; values?: readonly unknown[] };
+    const sql = query.strings?.join(" ") ?? "";
+    expect(sql).toContain("c.project_id = CAST(");
+    expect(sql).toContain("ORDER BY c.updated_at ASC, c.id ASC");
+    expect(query.values).toContain(projectId);
+  });
+
   it("does not mark a completed active branch as running because of an older branch", async () => {
     const fixture = await conversationFixture();
     const activeConversation = conversationRow({

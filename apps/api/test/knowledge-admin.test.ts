@@ -341,6 +341,48 @@ describe("KnowledgeAdminService", () => {
   })
 })
 
+describe("PrismaKnowledgeAdminStore listing", () => {
+  it("matches the visible owner name when searching knowledge bases", async () => {
+    const findUsers = vi.fn(async () => [] as Array<{ id: string }>)
+    findUsers.mockResolvedValueOnce([{ id: OWNER_ID }])
+    const findKnowledgeBases = vi.fn(async () => [])
+    const database = {
+      user: { findMany: findUsers },
+      userGroup: { findMany: vi.fn(async () => []) },
+      knowledgeBase: { findMany: findKnowledgeBases },
+      knowledgeBaseDocument: {
+        groupBy: vi.fn(async () => []),
+        findMany: vi.fn(async () => []),
+      },
+      knowledgeBaseGrant: { findMany: vi.fn(async () => []) },
+    }
+    const store = new PrismaKnowledgeAdminStore(
+      database as unknown as PrismaClient,
+    )
+
+    await store.listMetadata({ search: "Owner", limit: 20 })
+
+    expect(findUsers).toHaveBeenNthCalledWith(1, {
+      where: { name: { contains: "Owner", mode: "insensitive" } },
+      select: { id: true },
+    })
+    expect(findKnowledgeBases).toHaveBeenCalledWith({
+      where: {
+        AND: [
+          {
+            OR: [
+              { name: { contains: "Owner", mode: "insensitive" } },
+              { ownerId: { in: [OWNER_ID] } },
+            ],
+          },
+        ],
+      },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      take: 21,
+    })
+  })
+})
+
 describe("PrismaKnowledgeAdminStore deletion", () => {
   it("creates base and document tombstones before queueing knowledge-base cleanup", async () => {
     const discardAttempts = vi.fn(async () => ({ count: 2 }))

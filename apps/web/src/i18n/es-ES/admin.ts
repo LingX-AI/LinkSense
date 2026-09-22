@@ -65,6 +65,16 @@ export const adminMessages = {
     weeklyCreditLimit: "Cuota semanal (créditos)",
     creditLimitDisplay: "{{value}} créditos",
     creditQuotaRemainingFilter: "Cuota restante",
+    filters: {
+      allRoles: "Todos los roles",
+      allStatuses: "Todos los estados",
+      allSources: "Todos los orígenes de usuario",
+      allQuotas: "Todas las cuotas",
+      allActions: "Todas las acciones",
+      allResults: "Todos los resultados",
+      allRunnerStatuses: "Todos los estados del ejecutor",
+      allArchiveStatuses: "Todos los estados de archivo",
+    },
     weeklyCreditQuotaRemainingZero: "Quedan 0 créditos semanales",
     creditQuotaRemainingAmount:
       "{{value}} créditos restantes ({{percentage}} %)",
