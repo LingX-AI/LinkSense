@@ -10,6 +10,97 @@ const TURN_ID = "40000000-0000-4000-8000-000000000001";
 const MESSAGE_ID = "50000000-0000-4000-8000-000000000001";
 
 describe("ConversationShareService", () => {
+  it("shares a completed plan from the preview even when the native event excludes it from the source share projection", async () => {
+    const detail = conversationDetail();
+    const plan = {
+      ...detail.messages[2]!,
+      content_text: "Confirmed analysis plan",
+    };
+    const source = {
+      ...detail,
+      messages: [detail.messages[0]!, plan],
+      files: [],
+      events: [
+        {
+          event_type: "item/completed",
+          payload: {
+            schema_version: 2,
+            source: "codex_app_server",
+            method: "item/completed",
+            params: {
+              item: { type: "plan", id: "native-plan", text: plan.content_text },
+            },
+            local: { message_id: plan.id },
+          },
+        },
+      ],
+    };
+    // The task client projects completed native plans as visible final output.
+    const input = conversationShareCreateSchema.parse({
+      snapshot: {
+        ...source,
+        messages: [
+          source.messages[0],
+          { ...plan, phase: "final_answer", output_kind: "plan" },
+        ],
+        events: [],
+      },
+    });
+    expect(
+      input.snapshot.messages.map((message) => message.content_text),
+    ).toContain(plan.content_text);
+    const create = vi.fn(async () => shareRow());
+    const service = new ConversationShareService(
+      { conversationShare: { create } } as never,
+      { get: vi.fn(async () => source) },
+    );
+
+    await expect(
+      service.create(OWNER_ID, CONVERSATION_ID, input),
+    ).resolves.toMatchObject({ url_path: `/share/${SHARE_ID}` });
+    expect(create).toHaveBeenCalledWith({
+      data: {
+        conversationId: CONVERSATION_ID,
+        ownerId: OWNER_ID,
+        titleSnapshot: input.snapshot.conversation.title,
+        snapshotJson: input.snapshot,
+      },
+    });
+  });
+
+  it("keeps a frozen answer shareable after a later final answer in the same turn", async () => {
+    const source = conversationDetail();
+    const input = conversationShareCreateSchema.parse({ snapshot: source });
+    source.messages.push({
+      ...source.messages[2]!,
+      id: "50000000-0000-4000-8000-000000000099",
+      phase: "final_answer",
+      content_text: "Later final answer outside the preview",
+    });
+    source.events.push({
+      ...source.events[1]!,
+      payload: {
+        ...source.events[1]!.payload,
+        local: { message_id: "50000000-0000-4000-8000-000000000099" },
+      },
+    });
+    const create = vi.fn(async () => shareRow());
+    const service = new ConversationShareService(
+      { conversationShare: { create } } as never,
+      { get: vi.fn(async () => source) },
+    );
+
+    await expect(
+      service.create(OWNER_ID, CONVERSATION_ID, input),
+    ).resolves.toMatchObject({ id: SHARE_ID });
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ snapshotJson: input.snapshot }),
+    });
+    expect(JSON.stringify(create.mock.calls)).not.toContain(
+      "Later final answer outside the preview",
+    );
+  });
+
   it("creates separate immutable links and never adds messages outside the submitted preview", async () => {
     const source = conversationDetail();
     const firstInput = conversationShareCreateSchema.parse({
@@ -105,6 +196,28 @@ describe("ConversationShareService", () => {
       expect(create).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    { status: "staged" },
+    { pending_request_id: MESSAGE_ID },
+  ])("rejects a preview claiming an unsubmitted file is ready: %j", async (state) => {
+    const detail = conversationDetail();
+    const input = conversationShareCreateSchema.parse({ snapshot: detail });
+    const source = {
+      ...detail,
+      files: detail.files.map((file) => ({ ...file, ...state })),
+    };
+    const create = vi.fn();
+    const service = new ConversationShareService(
+      { conversationShare: { create } } as never,
+      { get: vi.fn(async () => source) },
+    );
+
+    await expect(
+      service.create(OWNER_ID, CONVERSATION_ID, input),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(create).not.toHaveBeenCalled();
+  });
 
   it("does not store a snapshot when source ownership is denied", async () => {
     const create = vi.fn();
