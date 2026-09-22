@@ -1,5 +1,6 @@
 import nodemailer, { type Transporter } from "nodemailer"
 import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js"
+import type { Locale } from "@linksense/shared"
 
 import { sha256 } from "../lib/crypto.js"
 import type {
@@ -20,7 +21,7 @@ export interface Mailer {
     name: string
     productName: string
     url: string
-    locale: "zh-CN" | "en-US"
+    locale: Locale
     expiresInMinutes?: number
   }): Promise<void>
   sendRaw(input: {
@@ -91,7 +92,7 @@ export class SmtpMailer implements Mailer {
     name: string
     productName: string
     url: string
-    locale: "zh-CN" | "en-US"
+    locale: Locale
     expiresInMinutes?: number
   }): Promise<void> {
     const content = renderPasswordResetEmail({

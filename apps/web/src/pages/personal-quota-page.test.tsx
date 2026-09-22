@@ -105,7 +105,7 @@ describe("personal quota page", () => {
       screen.queryByRole("button", { name: "显示更多" })
     ).not.toBeInTheDocument()
   })
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "renders rounded credits in %s",
     async (language) => {
       await i18n.changeLanguage(language)

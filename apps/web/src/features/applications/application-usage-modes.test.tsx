@@ -95,7 +95,7 @@ describe("application usage options", () => {
   )
 
   it("falls back to Chinese for an unsupported language", async () => {
-    await i18n.changeLanguage("fr")
+    await i18n.changeLanguage("de")
     render(<Options />)
     expect(screen.getByRole("checkbox", { name: "应用安装包" })).toBeVisible()
     expect(screen.getByRole("checkbox", { name: "应用服务" })).toBeVisible()

@@ -2594,6 +2594,10 @@ describe("ConversationService ownership and draft lifecycle", () => {
   it.each([
     ["zh-CN", "未命名任务"],
     ["en-US", "Untitled task"],
+    ["es-ES", "Tarea sin título"],
+    ["pt-BR", "Tarefa sem título"],
+    ["fr-FR", "Tâche sans titre"],
+    ["ja-JP", "無題のタスク"],
   ] as const)(
     "creates a %s task with the localized fallback title",
     async (preferredLocale, expectedTitle) => {

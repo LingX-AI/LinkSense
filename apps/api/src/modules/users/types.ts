@@ -1,8 +1,10 @@
+import type { Locale } from "@linksense/shared"
+
 import type { AuditContext } from "../audit/service.js"
 
 export type UserRole = "user" | "admin"
 export type UserStatus = "active" | "disabled"
-export type UserLocale = "zh-CN" | "en-US"
+export type UserLocale = Locale
 export type RunningMessageAction = "steer" | "queue"
 export type CreditQuotaRemainingZeroFilter = "weekly"
 export type UserRegistrationSource =
@@ -30,7 +32,7 @@ export type UserRecord = {
   weeklyCreditLimitMicros: bigint | null
   creditQuotaResetAt: Date | null
   lastLoginAt: Date | null
-  lastLoginMethod: "password" | "oidc" | "teams" | null
+  lastLoginMethod: import("../auth/types.js").LoginMethod | null
   passwordUpdatedAt: Date | null
   authValidAfter: Date
   createdAt: Date

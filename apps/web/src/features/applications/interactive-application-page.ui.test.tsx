@@ -166,7 +166,7 @@ describe("interactive application runtime page", () => {
   it.each([
     ["zh-CN", "此应用已被删除"],
     ["en-US", "This application has been deleted"],
-    ["fr-FR", "此应用已被删除"],
+    ["de-DE", "此应用已被删除"],
   ])(
     "keeps deleted application history readable in %s without requesting a runtime",
     async (language, notice) => {
@@ -252,7 +252,7 @@ describe("interactive application runtime page", () => {
     ).toBeNull()
   })
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "shows the center removal reason in the full-width history view in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
@@ -353,7 +353,7 @@ describe("interactive application runtime page", () => {
   it.each([
     ["zh-CN", "显示对话"],
     ["en-US", "Show conversation"],
-    ["fr-FR", "显示对话"],
+    ["de-DE", "显示对话"],
   ])(
     "keeps the localized floating conversation button opaque on hover in %s",
     async (language, label) => {

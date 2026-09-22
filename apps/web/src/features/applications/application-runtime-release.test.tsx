@@ -44,7 +44,7 @@ describe("explicit release and service installation", () => {
   it.each([
     ["zh-CN", "发布应用", "发布"],
     ["en-US", "Publish application", "Publish"],
-    ["fr-FR", "发布应用", "发布"],
+    ["de-DE", "发布应用", "发布"],
   ])(
     "uses concise publishing labels and preserves readable description line breaks in %s",
     async (locale, title, action) => {

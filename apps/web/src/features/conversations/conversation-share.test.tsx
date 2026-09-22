@@ -70,7 +70,7 @@ describe("ConversationShareDialog", () => {
     expect(copy).not.toHaveBeenCalled()
   })
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "explains immutable sharing in %s with Chinese fallback",
     async (language) => {
       await i18n.changeLanguage(language)

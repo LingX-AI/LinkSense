@@ -16,7 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
-import { normalizeLanguage } from "@/i18n"
+import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
 import { FeedbackImagePreview } from "./feedback-image-preview"
 import { FeedbackReplyForm } from "./feedback-reply-form"
@@ -178,7 +178,7 @@ function FeedbackImages({
 }: {
   images: FeedbackImage[]
   basePath: string
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
 }) {
   return (
     images.length > 0 && (

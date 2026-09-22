@@ -51,7 +51,7 @@ describe("SettingsShell administrator navigation", () => {
     "/admin/audit",
     "/admin/usage",
     "/admin/system-update",
-  ])("widens only administration content at %s", (path) => {
+  ])("marks administration routes for page-specific width at %s", (path) => {
     render(
       <MemoryRouter initialEntries={[path]}>
         <Routes>
@@ -136,7 +136,7 @@ describe("SettingsShell administrator navigation", () => {
     )
   })
 
-  it("restores personal width when navigating out of administration", async () => {
+  it("updates the administration container marker when navigating between sections", async () => {
     const interaction = userEvent.setup()
     render(
       <MemoryRouter initialEntries={["/admin/users"]}>

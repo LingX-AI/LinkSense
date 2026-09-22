@@ -10,7 +10,7 @@ import i18n from "@/i18n"
 afterEach(cleanup)
 
 describe("SearchInput", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "clears with a localized custom button and restores input focus in %s",
     async (language) => {
       await i18n.changeLanguage(language)

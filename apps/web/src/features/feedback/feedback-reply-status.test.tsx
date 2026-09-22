@@ -13,7 +13,7 @@ describe("FeedbackReplyStatus", () => {
   it.each([
     ["zh-CN", "已回复"],
     ["en-US", "Replied"],
-    ["fr-FR", "已回复"],
+    ["de-DE", "已回复"],
   ])(
     "shows a green check without a background in %s",
     async (locale, label) => {

@@ -84,7 +84,7 @@ describe("task project service", () => {
   });
   it.each(["PROJECT_NOT_FOUND", "PROJECT_NAME_EXISTS"] as const)("localizes %s in both languages and fallback", (code) => {
     expect(translateError(code, "zh-CN")).not.toBe(translateError(code, "en-US"));
-    expect(backendI18n.t(errorCatalog[code].message_key, { lng: "fr-FR" })).toBe(translateError(code, "zh-CN"));
+    expect(backendI18n.t(errorCatalog[code].message_key, { lng: "de-DE" })).toBe(translateError(code, "zh-CN"));
   });
 });
 

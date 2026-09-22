@@ -6,7 +6,7 @@ import type {
   BotChannelPeerSession,
   PrismaClient,
 } from "../../generated/prisma/client.js";
-import type { BotChannelProvider } from "@linksense/shared";
+import { isLocale, type BotChannelProvider, type Locale } from "@linksense/shared";
 
 export type PendingBotChannelInbound = {
   connection: BotChannelConnection;
@@ -341,12 +341,12 @@ export class PrismaBotChannelRepository {
     );
   }
 
-  async getOwnerLocale(ownerId: string): Promise<"zh-CN" | "en-US"> {
+  async getOwnerLocale(ownerId: string): Promise<Locale> {
     const owner = await this.prisma.user.findUnique({
       where: { id: ownerId },
       select: { preferredLocale: true },
     });
-    return owner?.preferredLocale === "en-US" ? "en-US" : "zh-CN";
+    return isLocale(owner?.preferredLocale) ? owner.preferredLocale : "zh-CN";
   }
 
   async markInboundAccepted(input: {

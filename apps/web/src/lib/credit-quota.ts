@@ -2,6 +2,7 @@ import {
   creditAmountSchema,
   creditLimitValueSchema,
   CREDIT_INPUT_PATTERN,
+  type Locale,
 } from "@linksense/shared"
 
 export const CREDIT_QUOTA_INPUT_PATTERN = CREDIT_INPUT_PATTERN
@@ -21,7 +22,7 @@ export function creditQuotaInputToCreditLimit(value: string): string | null {
 /** Display only: discard fractional credits without changing the stored balance. */
 export function formatRemainingCredits(
   value: string | null | undefined,
-  language: "zh-CN" | "en-US"
+  language: Locale
 ): string {
   if (value == null) return "-"
   const parsed = creditAmountSchema.safeParse(value)

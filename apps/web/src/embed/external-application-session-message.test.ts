@@ -23,9 +23,17 @@ describe("external embed application session messages", () => {
         APP_ID
       )
     ).toBe("zh-CN")
+    for (const locale of ["es-ES", "pt-BR", "fr-FR", "ja-JP"] as const) {
+      expect(
+        embedLocaleFromMessage(
+          { type: "linksense:locale", appId: APP_ID, locale },
+          APP_ID
+        )
+      ).toBe(locale)
+    }
     expect(
       embedLocaleFromMessage(
-        { type: "linksense:locale", appId: APP_ID, locale: "fr-FR" },
+        { type: "linksense:locale", appId: APP_ID, locale: "de-DE" },
         APP_ID
       )
     ).toBeUndefined()

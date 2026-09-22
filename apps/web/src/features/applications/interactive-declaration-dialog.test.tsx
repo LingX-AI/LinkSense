@@ -567,7 +567,7 @@ it.each(["mcp_server", "knowledge_base"] as const)(
 )
 
 it("provides Chinese fallback for declaration instructions", async () => {
-  const fallback = i18n.cloneInstance({ lng: "fr", fallbackLng: "zh-CN" })
+  const fallback = i18n.cloneInstance({ lng: "de", fallbackLng: "zh-CN" })
   await fallback.init()
   for (const key of [
     "title",

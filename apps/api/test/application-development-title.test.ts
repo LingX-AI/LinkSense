@@ -88,7 +88,7 @@ describe("application development task titles", () => {
   });
 
   it.each([
-    ["zh-CN", "开发 Report"], ["en-US", "Develop Report"], ["fr-FR", "开发 Report"],
+    ["zh-CN", "开发 Report"], ["en-US", "Develop Report"], ["de-DE", "开发 Report"],
   ])("translates the title in %s with Chinese fallback", (locale, expected) => {
     expect(backendI18n.t("applicationDevelopment.taskTitle", { lng: locale, name: "Report" })).toBe(expected);
   });

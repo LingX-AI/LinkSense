@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter } from "react-router-dom"
 import {
   imageGenerationProviderDefinitions,
+  socialProviderSchema,
   voiceTranscriptionProviderDefinitions,
 } from "@linksense/shared"
 
@@ -19,6 +20,7 @@ import { ThemeProvider } from "@/app/theme-context"
 import { notify } from "@/components/feedback/notification"
 import { NotificationCenter } from "@/components/feedback/notification-toast"
 import i18n from "@/i18n"
+import { samlSettingsFixture } from "@/features/saml/test-fixture"
 import { AdminPages } from "@/pages/admin-pages"
 
 const productSettings = {
@@ -223,6 +225,20 @@ const selectedKnowledgeModelSettings = {
 }
 
 function settingsPayload(path: string) {
+  if (path.endsWith("/saml-authentication-settings")) return samlSettingsFixture
+  if (path.endsWith("/social-authentication-settings")) {
+    return socialProviderSchema.options.map((provider) => ({
+      provider,
+      revision: 0,
+      enabled: false,
+      client_id: "",
+      secret_configured: false,
+      team_id: null,
+      key_id: null,
+      graph_api_version: null,
+      redirect_uri: `https://app.example.test/api/v1/auth/social/${provider}/callback`,
+    }))
+  }
   if (path.endsWith("/product-settings")) return productSettings
   if (path.endsWith("/execution-concurrency-settings")) {
     return executionConcurrencySettings
@@ -306,6 +322,32 @@ async function waitForModelProviderSettingsPut(requests: RecordedRequest[]) {
 }
 
 describe("administrator authentication settings", () => {
+  it("uses the SAML standard button size for every save action across system settings", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        return Promise.resolve(envelope(settingsPayload(path)))
+      })
+    )
+    const interaction = userEvent.setup()
+    renderSettings()
+    for (const tab of ["product", "smtp", "login", "concurrency"]) {
+      await interaction.click(
+        await screen.findByRole("tab", {
+          name: i18n.t(`admin.settingsTabs.${tab}`),
+        })
+      )
+      const buttons = await screen.findAllByRole("button", {
+        name: i18n.t("common.save"),
+      })
+      for (const button of buttons) {
+        expect(button).toHaveClass("h-8", "px-3", "text-sm")
+        expect(button).not.toHaveClass("h-9", "h-7", "px-4")
+      }
+    }
+  })
+
   beforeEach(async () => {
     setAccessToken("settings-access-token")
     await i18n.changeLanguage("zh-CN")
@@ -319,9 +361,78 @@ describe("administrator authentication settings", () => {
   })
 
   it.each([
+    [
+      "zh-CN",
+      "登录方式",
+      "企业账号登录",
+      "第三方账号登录",
+      "Microsoft 个人账号",
+    ],
+    [
+      "en-US",
+      "Sign-in methods",
+      "Enterprise accounts",
+      "Third-party accounts",
+      "Microsoft personal account",
+    ],
+    [
+      "de-DE",
+      "登录方式",
+      "企业账号登录",
+      "第三方账号登录",
+      "Microsoft 个人账号",
+    ],
+  ])(
+    "groups all sign-in methods by account type in %s",
+    async (language, tab, enterprise, thirdParty, microsoft) => {
+      await i18n.changeLanguage(language)
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          return envelope(settingsPayload(path))
+        })
+      )
+      renderSettings("settings", "/admin/settings?section=login")
+      expect(await screen.findByRole("tab", { name: tab })).toHaveAttribute(
+        "aria-selected",
+        "true"
+      )
+      const enterpriseGroup = screen.getByRole("region", { name: enterprise })
+      expect(
+        within(enterpriseGroup).getByRole("heading", {
+          name: i18n.t("admin.authSettings.oidcTitle"),
+        })
+      ).toBeVisible()
+      expect(
+        within(enterpriseGroup).getByRole("heading", {
+          name: i18n.t("admin.authSettings.teamsTitle"),
+        })
+      ).toBeVisible()
+      const thirdPartyGroup = screen.getByRole("region", { name: thirdParty })
+      expect(
+        await within(thirdPartyGroup).findByRole("heading", { name: microsoft })
+      ).toBeVisible()
+      expect(
+        within(thirdPartyGroup).getByText(i18n.t("social.description"))
+      ).toBeVisible()
+      expect(
+        within(thirdPartyGroup).getByRole("switch", {
+          name: i18n.t("admin.registration.enabled"),
+        })
+      ).toBeVisible()
+      expect(
+        screen.queryByRole("tab", { name: "单点登录" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("tab", { name: "社交登录" })
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  it.each([
     ["认证邮件", 1],
-    ["开放注册", 1],
-    ["单点登录", 2],
+    ["登录方式", 3],
     ["任务并发", 1],
     ["系统维护", 1],
   ] as const)(
@@ -386,7 +497,40 @@ describe("administrator authentication settings", () => {
     expect(screen.getByRole("switch", { name: "开启计划维护" })).toBeVisible()
   })
 
-  it("enables open registration from its dedicated settings tab", async () => {
+  it("opens sign-in methods directly and keeps saved registration state across tabs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        if (path.endsWith("/registration-settings") && init?.method === "PUT") {
+          return envelope({
+            code: "SYSTEM_SETTINGS_UPDATED",
+            settings: { enabled: true },
+          })
+        }
+        return envelope(settingsPayload(path))
+      })
+    )
+    const interaction = userEvent.setup()
+    renderSettings("settings", "/admin/settings?section=login")
+    expect(
+      await screen.findByRole("tab", { name: "登录方式" })
+    ).toHaveAttribute("aria-selected", "true")
+    await interaction.click(
+      await screen.findByRole("switch", { name: "允许用户自行注册" })
+    )
+    expect(await screen.findByText("开放注册设置已更新")).toBeVisible()
+    await interaction.click(screen.getByRole("tab", { name: "产品设置" }))
+    await interaction.click(screen.getByRole("tab", { name: "登录方式" }))
+    expect(
+      screen.getByRole("switch", { name: "允许用户自行注册" })
+    ).toBeChecked()
+    expect(
+      await screen.findByRole("button", { name: "配置 Google" })
+    ).toBeVisible()
+  })
+
+  it("immediately saves registration changes without a save button alongside providers", async () => {
     const requests: RecordedRequest[] = []
     vi.stubGlobal(
       "fetch",
@@ -406,8 +550,20 @@ describe("administrator authentication settings", () => {
     renderSettings()
 
     await interaction.click(
-      await screen.findByRole("tab", { name: "开放注册" })
+      await screen.findByRole("tab", { name: "登录方式" })
     )
+    expect(
+      screen.queryByRole("tab", { name: "开放注册" })
+    ).not.toBeInTheDocument()
+    const socialPanel = screen.getByRole("region", { name: "第三方账号登录" })
+    expect(
+      await within(socialPanel).findAllByRole("button", { name: /^配置 / })
+    ).toHaveLength(4)
+    expect(
+      screen
+        .getByRole("tabpanel", { name: "登录方式" })
+        .querySelectorAll('[data-slot="settings-card"]')
+    ).toHaveLength(4)
     const toggle = screen.getByRole("switch", {
       name: "允许用户自行注册",
     })
@@ -419,7 +575,9 @@ describe("administrator authentication settings", () => {
     ).not.toBeInTheDocument()
     expect(toggle).not.toBeChecked()
     await interaction.click(toggle)
-    await interaction.click(screen.getByRole("button", { name: "保存" }))
+    expect(
+      within(socialPanel).queryByRole("button", { name: "保存" })
+    ).not.toBeInTheDocument()
 
     await waitFor(() =>
       expect(
@@ -437,7 +595,96 @@ describe("administrator authentication settings", () => {
       })
     )
     expect(await screen.findByText("开放注册设置已更新")).toBeVisible()
+    expect(toggle).toBeChecked()
   })
+
+  it.each([false, true])(
+    "restores registration %s after a failed save, blocks duplicate toggles, and allows retry",
+    async (initialEnabled) => {
+      const requests: RecordedRequest[] = []
+      let complete: (response: Response) => void = () => {
+        throw new Error("Save has not started")
+      }
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          requests.push({ path, init })
+          if (path.endsWith("/registration-settings")) {
+            if (init?.method === "PUT")
+              return new Promise<Response>((resolve) => {
+                complete = resolve
+              })
+            return envelope({ enabled: initialEnabled })
+          }
+          return envelope(settingsPayload(path))
+        })
+      )
+      const interaction = userEvent.setup()
+      const { queryClient } = renderSettings(
+        "settings",
+        "/admin/settings?section=login"
+      )
+      queryClient.setQueryData(["system", "bootstrap"], {
+        registration: { enabled: initialEnabled },
+      })
+      const toggle = await screen.findByRole("switch", {
+        name: "允许用户自行注册",
+      })
+      await interaction.click(toggle)
+      expect(toggle).toHaveAttribute("aria-busy", "true")
+      expect(toggle).toHaveAttribute("aria-disabled", "true")
+      expect(toggle).toHaveAttribute("aria-checked", String(!initialEnabled))
+      await interaction.click(toggle)
+      expect(
+        requests.filter(({ init }) => init?.method === "PUT")
+      ).toHaveLength(1)
+      complete(
+        new Response(
+          JSON.stringify({ success: false, error_code: "FORBIDDEN" }),
+          { status: 403, headers: { "content-type": "application/json" } }
+        )
+      )
+      const panel = screen.getByRole("tabpanel", { name: "登录方式" })
+      expect(await within(panel).findByRole("alert")).toBeVisible()
+      await waitFor(() =>
+        expect(toggle).toHaveAttribute("aria-checked", String(initialEnabled))
+      )
+      expect(toggle).not.toHaveAttribute("aria-disabled", "true")
+      expect(
+        queryClient.getQueryData(["admin", "registration-settings"])
+      ).toEqual({ enabled: initialEnabled })
+      expect(queryClient.getQueryData(["system", "bootstrap"])).toEqual({
+        registration: { enabled: initialEnabled },
+      })
+      await interaction.click(toggle)
+      expect(
+        requests.filter(({ init }) => init?.method === "PUT")
+      ).toHaveLength(2)
+      complete(
+        envelope({
+          code: "SYSTEM_SETTINGS_UPDATED",
+          settings: { enabled: !initialEnabled },
+        })
+      )
+      expect(await screen.findByText("开放注册设置已更新")).toBeVisible()
+      await waitFor(() =>
+        expect(toggle).not.toHaveAttribute("aria-busy", "true")
+      )
+      expect(toggle).toHaveAttribute("aria-checked", String(!initialEnabled))
+      expect(queryClient.getQueryData(["system", "bootstrap"])).toEqual({
+        registration: { enabled: !initialEnabled },
+      })
+      expect(within(panel).queryByRole("alert")).not.toBeInTheDocument()
+      expect(
+        JSON.parse(
+          String(
+            requests.find(({ init }) => init?.method === "PUT")?.init?.body
+          )
+        )
+      ).toEqual({ enabled: !initialEnabled })
+    }
+  )
 
   it("saves task concurrency overrides and leaves blank fields on deployment defaults", async () => {
     const requests: RecordedRequest[] = []
@@ -523,8 +770,7 @@ describe("administrator authentication settings", () => {
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "产品设置",
       "认证邮件",
-      "开放注册",
-      "单点登录",
+      "登录方式",
       "任务并发",
       "系统维护",
     ])
@@ -558,9 +804,11 @@ describe("administrator authentication settings", () => {
     await interaction.click(screen.getByRole("tab", { name: "认证邮件" }))
     expect(screen.getByRole("heading", { name: "认证邮件功能" })).toBeVisible()
 
-    await interaction.click(screen.getByRole("tab", { name: "单点登录" }))
-    const oidcHeading = screen.getByRole("heading", { name: "OIDC 登录" })
-    const teamsHeading = screen.getByRole("heading", { name: "Teams 登录" })
+    await interaction.click(screen.getByRole("tab", { name: "登录方式" }))
+    const oidcHeading = screen.getByRole("heading", {
+      name: "企业统一登录（OIDC）",
+    })
+    const teamsHeading = screen.getByRole("heading", { name: "Teams 内登录" })
     expect(oidcHeading).toBeVisible()
     expect(teamsHeading).toBeVisible()
     expect(
@@ -568,10 +816,10 @@ describe("administrator authentication settings", () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).not.toBe(0)
     expect(
-      screen.queryByRole("tab", { name: "OIDC 登录" })
+      screen.queryByRole("tab", { name: "企业统一登录（OIDC）" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("tab", { name: "Teams 登录" })
+      screen.queryByRole("tab", { name: "Teams 内登录" })
     ).not.toBeInTheDocument()
     const oidcTitleRow = oidcHeading.closest<HTMLElement>(
       '[data-slot="settings-section-title-row"]'
@@ -928,23 +1176,35 @@ describe("administrator authentication settings", () => {
       "leading-5",
       "font-semibold"
     )
-    expect(screen.getByRole("group", { name: "Rank 模型" })).toBeVisible()
-    const embeddingModelGroup = screen.getByRole("group", {
-      name: "嵌入模型",
-    })
-    const rankModelGroup = screen.getByRole("group", { name: "Rank 模型" })
-    const embeddingModelCard = embeddingModelGroup.closest(
+    const embeddingModelField = screen
+      .getByRole("combobox", { name: "选择 Embedding 模型" })
+      .closest('[data-layout="settings"]')
+    const rankModelField = screen
+      .getByRole("combobox", { name: "选择 Ranker 模型" })
+      .closest('[data-layout="settings"]')
+    expect(embeddingModelField).not.toBeNull()
+    expect(rankModelField).not.toBeNull()
+    const fieldGroup = embeddingModelField?.closest(
+      '[data-slot="settings-field-group"]'
+    )
+    expect(fieldGroup).toHaveClass("divide-y")
+    expect(rankModelField?.closest('[data-slot="settings-field-group"]')).toBe(
+      fieldGroup
+    )
+    const embeddingModelCard = embeddingModelField?.closest(
       '[data-slot="model-settings-card"]'
     )
-    const rankModelCard = rankModelGroup.closest(
+    const rankModelCard = rankModelField?.closest(
       '[data-slot="model-settings-card"]'
     )
     expect(embeddingModelCard).not.toBeNull()
     expect(rankModelCard).not.toBeNull()
     expect(embeddingModelCard).toBe(rankModelCard)
-    expect(embeddingModelGroup.closest("form")).toHaveClass("w-full")
-    expect(embeddingModelGroup.closest("form")).not.toHaveClass("max-w-[720px]")
-    expect(embeddingModelGroup.closest("form")).not.toHaveClass("max-w-none")
+    expect(embeddingModelField?.closest("form")).toHaveClass("w-full")
+    expect(embeddingModelField?.closest("form")).not.toHaveClass(
+      "max-w-[720px]"
+    )
+    expect(embeddingModelField?.closest("form")).not.toHaveClass("max-w-none")
     expect(embeddingModelCard).toHaveClass(
       "grid",
       "grid-cols-1",
@@ -956,35 +1216,12 @@ describe("administrator authentication settings", () => {
       "p-4"
     )
     expect(embeddingModelCard).not.toHaveClass("xl:grid-cols-2")
-    const modelSeparator = embeddingModelCard?.querySelector(
-      '[data-slot="knowledge-model-settings-separator"]'
+    expect(embeddingModelField).toHaveClass(
+      "md:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)]"
     )
-    expect(modelSeparator).not.toBeNull()
-    expect(embeddingModelGroup.nextElementSibling).toBe(modelSeparator)
-    expect(modelSeparator?.nextElementSibling).toBe(rankModelGroup)
-    expect(embeddingModelGroup).toHaveClass(
-      "m-0",
-      "flex",
-      "gap-4",
-      "border-0",
-      "p-0"
+    expect(rankModelField).toHaveClass(
+      "md:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)]"
     )
-    expect(embeddingModelGroup).not.toHaveClass("p-4")
-    expect(rankModelGroup).toHaveClass(
-      "m-0",
-      "flex",
-      "gap-4",
-      "border-0",
-      "p-0"
-    )
-    for (const legend of [
-      within(embeddingModelGroup).getByText("嵌入模型"),
-      within(rankModelGroup).getByText("Rank 模型"),
-    ]) {
-      expect(legend).toHaveClass("p-0")
-      expect(legend).not.toHaveClass("px-1")
-    }
-    expect(rankModelGroup).toHaveClass("flex", "gap-4")
     expect(screen.queryByLabelText("嵌入 API Key")).not.toBeInTheDocument()
     expect(screen.queryByLabelText("重排 API Key")).not.toBeInTheDocument()
     expect(
@@ -997,12 +1234,16 @@ describe("administrator authentication settings", () => {
     expect(
       screen.getByText(/选择知识库处理文档和优化搜索结果时使用的模型/u)
     ).toHaveClass("form-hint")
-    expect(screen.getByText(/用于理解文档内容和用户问题/u)).toHaveClass(
-      "form-hint"
-    )
-    expect(screen.getByText(/用于把更相关的搜索结果排在前面/u)).toHaveClass(
-      "form-hint"
-    )
+    expect(
+      screen
+        .getByText(/用于理解文档内容和用户问题/u)
+        .closest('[data-slot="field-description"]')
+    ).toHaveClass("form-hint")
+    expect(
+      screen
+        .getByText(/用于把更相关的搜索结果排在前面/u)
+        .closest('[data-slot="field-description"]')
+    ).toHaveClass("form-hint")
     expect(screen.getByText(/启用后，系统会理解文档中的图片/u)).toHaveClass(
       "form-hint"
     )
@@ -1063,6 +1304,26 @@ describe("administrator authentication settings", () => {
         )
       )
     ).toBe(false)
+  })
+
+  it("uses wide content only for the model channel table and standard width for model forms", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        return Promise.resolve(envelope(settingsPayload(path)))
+      })
+    )
+    const interaction = userEvent.setup()
+    renderSettings("models")
+    const page = screen.getByRole("banner").closest(".management-page")
+    expect(page).toHaveAttribute("data-content-width", "wide")
+    for (const name of ["知识检索模型", "语音转文字模型", "图片生成模型"]) {
+      await interaction.click(await screen.findByRole("tab", { name }))
+      expect(page).toHaveAttribute("data-content-width", "standard")
+    }
+    await interaction.click(screen.getByRole("tab", { name: "模型渠道" }))
+    expect(page).toHaveAttribute("data-content-width", "wide")
   })
 
   it("refetches each model tab and remounts its form with the latest data", async () => {
@@ -1703,9 +1964,8 @@ describe("administrator authentication settings", () => {
       await screen.findByRole("tab", { name: "知识检索模型" })
     )
 
-    const rankSection = await screen.findByRole("group", { name: "Rank 模型" })
     await interaction.click(
-      within(rankSection).getByRole("switch", { name: "检索时启用" })
+      await screen.findByRole("switch", { name: "检索时启用" })
     )
     await interaction.click(
       screen.getByRole("button", { name: "保存知识库检索模型" })
@@ -3368,7 +3628,7 @@ describe("administrator authentication settings", () => {
       "draft.smtp.example.com"
     )
 
-    await interaction.click(screen.getByRole("tab", { name: "单点登录" }))
+    await interaction.click(screen.getByRole("tab", { name: "登录方式" }))
     await interaction.click(screen.getByRole("tab", { name: "认证邮件" }))
 
     expect(within(smtpSection!).getByLabelText("SMTP 主机")).toHaveValue(
@@ -3405,10 +3665,10 @@ describe("administrator authentication settings", () => {
     renderSettings()
 
     await interaction.click(
-      await screen.findByRole("tab", { name: "单点登录" })
+      await screen.findByRole("tab", { name: "登录方式" })
     )
     const oidcSection = screen
-      .getByRole("heading", { name: "OIDC 登录" })
+      .getByRole("heading", { name: "企业统一登录（OIDC）" })
       .closest("section")
     expect(oidcSection).not.toBeNull()
     const secretInput = within(oidcSection!).getByLabelText("Client secret")

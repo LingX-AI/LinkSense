@@ -44,6 +44,19 @@ model User {
   @@map("users")
 }
 
+model SocialAccount {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  provider  String   @db.VarChar(32)
+  clientId  String   @map("client_id") @db.VarChar(512)
+  subject   String   @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([provider, clientId, subject], map: "social_accounts_identity_key")
+  @@unique([userId, provider], map: "social_accounts_user_provider_key")
+  @@map("social_accounts")
+}
+
 model UserGroup {
   id          String   @id @default(uuid()) @db.Uuid
   name        String   @unique(map: "user_groups_name_key") @db.VarChar(120)

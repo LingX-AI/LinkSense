@@ -64,7 +64,7 @@ for (const viewport of [
     ).toBeVisible()
     await expectNoHorizontalOverflow(page)
 
-    const smtpSection = page.locator("section").filter({
+    const smtpSection = page.locator('[data-slot="settings-card"]').filter({
       has: page.getByRole("heading", { name: "认证邮件功能", exact: true }),
     })
     await smtpSection.getByRole("combobox", { name: "配置来源" }).click()
@@ -90,9 +90,12 @@ for (const viewport of [
       from: "LinkSense <no-reply@example.com>",
     })
 
-    await page.getByRole("tab", { name: "单点登录" }).click()
-    const oidcSection = page.locator("section").filter({
-      has: page.getByRole("heading", { name: "OIDC 登录", exact: true }),
+    await page.getByRole("tab", { name: "登录方式" }).click()
+    const oidcSection = page.locator('[data-slot="settings-card"]').filter({
+      has: page.getByRole("heading", {
+        name: "企业统一登录（OIDC）",
+        exact: true,
+      }),
     })
     await expect(oidcSection.locator("#oidc-client-secret")).toHaveValue("")
     await expect(oidcSection.locator("#oidc-client-secret")).toHaveAttribute(
@@ -124,7 +127,7 @@ for (const viewport of [
     await expect(confirmation).toHaveCount(0)
 
     await expect(
-      page.getByRole("heading", { name: "Teams 登录", exact: true })
+      page.getByRole("heading", { name: "Teams 内登录", exact: true })
     ).toBeVisible()
     await expectNoHorizontalOverflow(page)
 

@@ -161,7 +161,7 @@ function getStructuredField(card: HTMLElement, label: string): HTMLElement {
 }
 
 describe("ConversationUserInputRequestCard", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "shows nonblocking questions in %s and submits only after an explicit click",
     async (locale) => {
       await i18n.changeLanguage(locale)
@@ -691,7 +691,7 @@ describe("ConversationUserInputRequestCard", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
   })
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "supports keyboard expansion of historical forms without saved content in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)

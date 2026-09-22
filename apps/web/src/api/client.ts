@@ -1,5 +1,9 @@
 import { z } from "zod"
-import { CLIENT_BUILD_HEADER, SERVER_BUILD_HEADER } from "@linksense/shared"
+import {
+  CLIENT_BUILD_HEADER,
+  SERVER_BUILD_HEADER,
+  isLocale,
+} from "@linksense/shared"
 import {
   getClientBuildId,
   getPendingClientBuild,
@@ -256,7 +260,7 @@ async function rawRequest<TSchema extends z.ZodType>(
   const headers = new Headers({ Accept: "application/json" })
   prepareClientBuildRequest(headers, path)
   const language = document.documentElement.lang
-  if (language === "zh-CN" || language === "en-US") {
+  if (isLocale(language)) {
     headers.set("Accept-Language", language)
   }
   const token =
@@ -351,7 +355,7 @@ function rawUploadRequest<TSchema extends z.ZodType>(
     request.withCredentials = true
     request.setRequestHeader("Accept", "application/json")
     buildHeaders.forEach((value, name) => request.setRequestHeader(name, value))
-    if (language === "zh-CN" || language === "en-US") {
+    if (isLocale(language)) {
       request.setRequestHeader("Accept-Language", language)
     }
     if (token) {
@@ -613,7 +617,7 @@ async function rawStreamRequest(
   })
   prepareClientBuildRequest(headers, path)
   const language = document.documentElement.lang
-  if (language === "zh-CN" || language === "en-US") {
+  if (isLocale(language)) {
     headers.set("Accept-Language", language)
   }
   const token =
@@ -708,7 +712,7 @@ export async function downloadApiFile(
   const headers = new Headers()
   prepareClientBuildRequest(headers, path)
   const language = document.documentElement.lang
-  if (language === "zh-CN" || language === "en-US") {
+  if (isLocale(language)) {
     headers.set("Accept-Language", language)
   }
   const accessTokenUsed = getAccessToken()

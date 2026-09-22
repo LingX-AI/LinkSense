@@ -53,6 +53,7 @@ import {
   externalIframeSnippet,
   externalIframeUrl,
 } from "@/features/applications/external-access"
+import { normalizeLanguage } from "@/i18n"
 
 const applicationCenterReturnTo =
   "/capabilities?section=application&scope=personal"
@@ -232,7 +233,7 @@ function ApplicationExternalAccessSettings({
     : null
   const appSecret =
     authMode === "required" ? (configuredAccess?.app_secret ?? null) : null
-  const embedLocale = i18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN"
+  const embedLocale = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
   const embedConfigurations: EmbedConfiguration[] = effectiveAccess
     ? uniqueOrigins.map((origin) => ({
         origin,

@@ -16,12 +16,15 @@ import { ErrorState, LoadingState } from "@/components/feedback/page-state"
 import { NotificationToast } from "@/components/feedback/notification-toast"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { DateTimePicker } from "@/components/forms/date-time-picker"
-import { FieldShell } from "@/components/forms/form-field"
+import {
+  FieldShell,
+  SettingsFieldGroup,
+  SettingsFieldRow,
+} from "@/components/forms/form-field"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -236,19 +239,20 @@ function MaintenanceSettingsEditor({
 
   return (
     <SettingsCard
-      className="settings-section"
       aria-labelledby="maintenance-settings-title"
+      header={
+        <SettingsSectionHeader
+          id="maintenance-settings-title"
+          title={t("admin.maintenance.title")}
+          description={t("admin.maintenance.description")}
+          status={
+            <Badge variant={settings.active ? "destructive" : "secondary"}>
+              {t(`admin.maintenance.status.${status}`)}
+            </Badge>
+          }
+        />
+      }
     >
-      <SettingsSectionHeader
-        id="maintenance-settings-title"
-        title={t("admin.maintenance.title")}
-        description={t("admin.maintenance.description")}
-        status={
-          <Badge variant={settings.active ? "destructive" : "secondary"}>
-            {t(`admin.maintenance.status.${status}`)}
-          </Badge>
-        }
-      />
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
       <form
         className="form-stack"
@@ -260,49 +264,48 @@ function MaintenanceSettingsEditor({
           if (!validationError) mutation.mutate(createPayload())
         }}
       >
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <Label htmlFor="maintenance-enabled" className="font-medium">
-              {t("admin.maintenance.enabled")}
-            </Label>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("admin.maintenance.enabledDescription")}
-            </p>
-          </div>
-          <Switch
+        <SettingsFieldGroup data-testid="maintenance-fields">
+          <SettingsFieldRow
             id="maintenance-enabled"
-            checked={enabled}
-            disabled={mutation.isPending}
-            onCheckedChange={(nextEnabled) => {
-              onUpdateStart()
-              setError(null)
-              setEnabled(nextEnabled)
-              if (!nextEnabled && persistedEnabled) {
-                mutation.mutate(disabledPayload())
-              }
-            }}
-          />
-        </div>
-        {enabled && (
-          <>
-            <FieldShell
-              id="maintenance-reason"
-              label={t("admin.maintenance.reason")}
-            >
-              <Textarea
-                id="maintenance-reason"
-                value={reason}
-                maxLength={1_000}
-                rows={4}
-                placeholder={t("admin.maintenance.reasonPlaceholder")}
-                onChange={(event) => setReason(event.target.value)}
-              />
-            </FieldShell>
-            <div
-              data-testid="maintenance-time-fields"
-              className="flex flex-col gap-4"
-            >
+            label={t("admin.maintenance.enabled")}
+            hint={t("admin.maintenance.enabledDescription")}
+            controlWidth="compact"
+          >
+            <Switch
+              id="maintenance-enabled"
+              checked={enabled}
+              disabled={mutation.isPending}
+              onCheckedChange={(nextEnabled) => {
+                onUpdateStart()
+                setError(null)
+                setEnabled(nextEnabled)
+                if (!nextEnabled && persistedEnabled) {
+                  mutation.mutate(disabledPayload())
+                }
+              }}
+            />
+          </SettingsFieldRow>
+          {enabled && (
+            <>
               <FieldShell
+                multiline
+                layout="settings"
+                controlWidth="full"
+                id="maintenance-reason"
+                label={t("admin.maintenance.reason")}
+              >
+                <Textarea
+                  id="maintenance-reason"
+                  value={reason}
+                  maxLength={1_000}
+                  rows={4}
+                  placeholder={t("admin.maintenance.reasonPlaceholder")}
+                  onChange={(event) => setReason(event.target.value)}
+                />
+              </FieldShell>
+              <FieldShell
+                layout="settings"
+                controlWidth="wide"
                 id="maintenance-duration-minutes"
                 label={t("admin.maintenance.duration")}
                 hint={t("admin.maintenance.durationHint")}
@@ -385,6 +388,8 @@ function MaintenanceSettingsEditor({
                 </div>
               </FieldShell>
               <FieldShell
+                layout="settings"
+                controlWidth="medium"
                 id="maintenance-start-at"
                 label={t("admin.maintenance.startAt")}
               >
@@ -400,6 +405,8 @@ function MaintenanceSettingsEditor({
                 />
               </FieldShell>
               <FieldShell
+                layout="settings"
+                controlWidth="medium"
                 id="maintenance-end-at"
                 label={t("admin.maintenance.endAt")}
               >
@@ -416,14 +423,18 @@ function MaintenanceSettingsEditor({
                   minuteLabel={t("admin.maintenance.endMinute")}
                 />
               </FieldShell>
-            </div>
+            </>
+          )}
+        </SettingsFieldGroup>
+        {enabled && (
+          <>
             <p className="text-sm text-muted-foreground">
               {t("admin.maintenance.timezoneHint")}
             </p>
             <div className="flex flex-wrap justify-end gap-2">
               <Button
                 type="submit"
-                size="lg"
+                size="default"
                 disabled={mutation.isPending}
                 aria-busy={mutation.isPending || undefined}
               >

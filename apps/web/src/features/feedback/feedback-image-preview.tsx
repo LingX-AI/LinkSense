@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { Spinner } from "@/components/ui/spinner"
 import { formatFileSize } from "@/i18n/date"
+import type { SupportedLanguage } from "@/i18n"
 
 export function FeedbackImagePreview({
   basePath,
@@ -21,7 +22,7 @@ export function FeedbackImagePreview({
 }: {
   basePath: string
   image: FeedbackImage
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
 }) {
   const { t } = useTranslation()
   const [source, setSource] = useState<string | null>(null)

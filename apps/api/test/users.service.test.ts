@@ -410,6 +410,21 @@ describe("UserService", () => {
     );
   });
 
+  it.each(["es-ES", "pt-BR", "fr-FR", "ja-JP"] as const)(
+    "persists the %s profile locale",
+    async (locale) => {
+      const fixture = userFixture();
+
+      await fixture.service.updateOwnProfile(ADMIN.id, {
+        preferred_locale: locale,
+      });
+
+      expect(fixture.persistence.updateOwnProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ preferredLocale: locale }),
+      );
+    },
+  );
+
   it("persists the default action for a message sent during a running turn", async () => {
     const fixture = userFixture();
     await fixture.service.updateOwnProfile(ADMIN.id, {

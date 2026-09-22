@@ -653,7 +653,7 @@ export function CredentialManagementPage() {
                     <CardAction className="flex shrink-0 items-center gap-1 max-sm:pl-12">
                       <Button
                         type="button"
-                        size="sm"
+                        size="default"
                         variant="secondary"
                         disabled={
                           credential.status !== "active" ||
@@ -670,7 +670,7 @@ export function CredentialManagementPage() {
                             <Button
                               type="button"
                               variant="ghost"
-                              size="icon-sm"
+                              size="icon"
                               aria-label={t("common.actions")}
                             />
                           }
@@ -953,7 +953,7 @@ export function CredentialManagementPage() {
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon-sm"
+                        size="icon"
                         className="justify-self-end sm:mt-[25px]"
                         aria-label={t("credential.removeSecretField")}
                         onClick={() =>
@@ -975,7 +975,7 @@ export function CredentialManagementPage() {
                 <Button
                   type="button"
                   variant="secondary"
-                  size="sm"
+                  size="default"
                   onClick={() =>
                     setSecretEntries((entries) => [
                       ...entries,
@@ -1111,7 +1111,7 @@ export function CredentialManagementPage() {
                   </p>
                 )}
                 <CollapsibleTrigger
-                  render={<Button variant="secondary" size="sm" />}
+                  render={<Button variant="secondary" size="default" />}
                   className="self-start"
                 >
                   {t("credential.selectInformation")}

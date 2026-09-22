@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next"
+import type { Locale } from "@linksense/shared"
 
 import type {
   KnowledgeBase,
@@ -70,7 +71,7 @@ export function validateKnowledgeUploadFile(
   return null
 }
 
-export function formatKnowledgeBytes(bytes: number, locale: "zh-CN" | "en-US") {
+export function formatKnowledgeBytes(bytes: number, locale: Locale) {
   if (bytes < 1024) return `${bytes} B`
   const units = ["KiB", "MiB", "GiB", "TiB"]
   let value = bytes / 1024

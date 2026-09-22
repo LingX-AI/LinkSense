@@ -13,9 +13,10 @@ import type { ManagedPricedModel } from "@linksense/shared"
 import { type ModelProviderSettings } from "@/api/contracts"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import { StatusBanner } from "@/components/feedback/status-banner"
+import { SettingsCard } from "@/components/settings/settings-card"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
+import { SettingsFieldGroup } from "@/components/forms/form-field"
 import { Button } from "@/components/ui/button"
-import { FieldGroup } from "@/components/ui/field"
 import {
   Empty,
   EmptyHeader,
@@ -96,39 +97,43 @@ export function ModelProviderSettingsForm({
   }
   return (
     <section
-      className="flex min-w-0 flex-col gap-6"
+      className="flex min-w-0 flex-col gap-8"
       aria-labelledby={`${id}-title`}
       aria-busy={pending || undefined}
     >
       {error && !editor && !deletion && (
         <StatusBanner variant="error">{error}</StatusBanner>
       )}
-      <SettingsSectionHeader
-        id={`${id}-title`}
-        title={t("admin.modelProvider.providers")}
-        description={t("admin.modelProvider.catalogDescription")}
-        action={
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={disabled || settings.providers.length >= 20}
-            onClick={() => openEditor({ kind: "channel", channel: null })}
-          >
-            <PlusIcon data-icon="inline-start" />
-            {t("admin.modelProvider.addProvider")}
-          </Button>
+      <SettingsCard
+        header={
+          <SettingsSectionHeader
+            id={`${id}-title`}
+            title={t("admin.modelProvider.providers")}
+            description={t("admin.modelProvider.catalogDescription")}
+            action={
+              <Button
+                type="button"
+                variant="secondary"
+                size="default"
+                disabled={disabled || settings.providers.length >= 20}
+                onClick={() => openEditor({ kind: "channel", channel: null })}
+              >
+                <PlusIcon data-icon="inline-start" />
+                {t("admin.modelProvider.addProvider")}
+              </Button>
+            }
+          />
         }
-      />
-      {channel ? (
-        <div
-          className="flex min-w-0 flex-col gap-4"
-          role="group"
-          aria-label={providerName(channel, channelIndex)}
-        >
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div className="w-full min-w-0 sm:w-64">
+      >
+        {channel ? (
+          <div
+            className="flex min-w-0 flex-col gap-4"
+            role="group"
+            aria-label={providerName(channel, channelIndex)}
+          >
+            <SettingsFieldGroup>
               <ModelSettingsSelect
+                layout="settings"
                 label={t("admin.modelProvider.currentChannel")}
                 value={channel.id}
                 disabled={pending}
@@ -140,144 +145,156 @@ export function ModelProviderSettingsForm({
                   setSelectedId(value)
                   clearError()
                 }}
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-1">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={disabled || modelCount >= 100}
-                onClick={() =>
-                  openEditor({ kind: "model", channel, model: null })
-                }
-              >
-                <PlusIcon data-icon="inline-start" />
-                {t("admin.modelProvider.addModel")}
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
+                actions={
+                  <div className="flex shrink-0 items-center gap-1">
                     <Button
                       type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      disabled={disabled}
-                      aria-label={t("admin.modelProvider.channelActions")}
-                    />
-                  }
-                >
-                  <MoreHorizontalIcon />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      className="whitespace-nowrap"
-                      disabled={disabled}
-                      onClick={() => openEditor({ kind: "channel", channel })}
+                      variant="secondary"
+                      size="default"
+                      disabled={disabled || modelCount >= 100}
+                      onClick={() =>
+                        openEditor({ kind: "model", channel, model: null })
+                      }
                     >
-                      <PencilIcon className="mx-px size-3.5" />
-                      {t("admin.modelProvider.editChannel")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={channelIndex === 0}
-                      onClick={() => moveChannel(-1)}
-                    >
-                      <ArrowUpIcon />
-                      {t("admin.modelProvider.moveChannelUp")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={channelIndex === settings.providers.length - 1}
-                      onClick={() => moveChannel(1)}
-                    >
-                      <ArrowDownIcon />
-                      {t("admin.modelProvider.moveChannelDown")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      className="whitespace-nowrap"
-                      disabled={settings.providers.length === 1}
-                      onClick={() => setDeletion({ kind: "channel", channel })}
-                    >
-                      <Trash2Icon />
-                      {t("admin.modelProvider.deleteProvider")}
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            <span>
-              {t(
-                channel.api_key_configured
-                  ? "admin.modelProvider.channelSummaryConfigured"
-                  : "admin.modelProvider.channelSummaryNotConfigured",
-                {
-                  provider: t(
-                    `admin.imageUnderstanding.providers.${channel.provider}`
-                  ),
-                  count: channel.models.length,
+                      <PlusIcon data-icon="inline-start" />
+                      {t("admin.modelProvider.addModel")}
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            disabled={disabled}
+                            aria-label={t("admin.modelProvider.channelActions")}
+                          />
+                        }
+                      >
+                        <MoreHorizontalIcon />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem
+                            className="whitespace-nowrap"
+                            disabled={disabled}
+                            onClick={() =>
+                              openEditor({ kind: "channel", channel })
+                            }
+                          >
+                            <PencilIcon className="mx-px size-3.5" />
+                            {t("admin.modelProvider.editChannel")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={channelIndex === 0}
+                            onClick={() => moveChannel(-1)}
+                          >
+                            <ArrowUpIcon />
+                            {t("admin.modelProvider.moveChannelUp")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={
+                              channelIndex === settings.providers.length - 1
+                            }
+                            onClick={() => moveChannel(1)}
+                          >
+                            <ArrowDownIcon />
+                            {t("admin.modelProvider.moveChannelDown")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            className="whitespace-nowrap"
+                            disabled={settings.providers.length === 1}
+                            onClick={() =>
+                              setDeletion({ kind: "channel", channel })
+                            }
+                          >
+                            <Trash2Icon />
+                            {t("admin.modelProvider.deleteProvider")}
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 }
-              )}
-            </span>
-            {channel.models.length > 0 && (
-              <span className="whitespace-nowrap">
-                {t("admin.modelProvider.priceUnitSummary", {
-                  unit: t("admin.modelProvider.priceUnit"),
-                })}
-              </span>
-            )}
-            {channel.models.length === 0 &&
-              t("admin.modelProvider.channelSummaryEnd")}
-          </p>
-          {channel.models.length === 0 ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>{t("admin.modelProvider.noModels")}</EmptyTitle>
-                <EmptyDescription>
-                  {t("admin.modelProvider.noModelsDescription")}
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <div className="flex min-w-0 flex-col gap-2">
-              <ModelSettingsTable
-                models={channel.models}
-                disabled={disabled}
-                onEdit={(model) =>
-                  openEditor({ kind: "model", channel, model })
-                }
-                onDelete={(model) => setDeletion({ kind: "model", model })}
-                onAvailability={(model, enabled) =>
-                  execute({ kind: "availability", modelId: model.id, enabled })
-                }
-                onReorder={(models) => {
-                  const draft = settingsDraft(settings)
-                  draft.providers = draft.providers.map((provider) =>
-                    provider.id === channel.id
-                      ? { ...provider, models }
-                      : provider
-                  )
-                  execute({ kind: "save", draft })
-                }}
               />
-              <p className="text-xs text-muted-foreground">
-                {t("admin.modelProvider.orderHint")}
-              </p>
-            </div>
-          )}
-        </div>
-      ) : (
-        <Empty>
-          <EmptyHeader>
-            <EmptyTitle>{t("admin.modelProvider.noChannels")}</EmptyTitle>
-            <EmptyDescription>
-              {t("admin.modelProvider.noChannelsDescription")}
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      )}
+            </SettingsFieldGroup>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              <span>
+                {t(
+                  channel.api_key_configured
+                    ? "admin.modelProvider.channelSummaryConfigured"
+                    : "admin.modelProvider.channelSummaryNotConfigured",
+                  {
+                    provider: t(
+                      `admin.imageUnderstanding.providers.${channel.provider}`
+                    ),
+                    count: channel.models.length,
+                  }
+                )}
+              </span>
+              {channel.models.length > 0 && (
+                <span className="whitespace-nowrap">
+                  {t("admin.modelProvider.priceUnitSummary", {
+                    unit: t("admin.modelProvider.priceUnit"),
+                  })}
+                </span>
+              )}
+              {channel.models.length === 0 &&
+                t("admin.modelProvider.channelSummaryEnd")}
+            </p>
+            {channel.models.length === 0 ? (
+              <Empty>
+                <EmptyHeader>
+                  <EmptyTitle>{t("admin.modelProvider.noModels")}</EmptyTitle>
+                  <EmptyDescription>
+                    {t("admin.modelProvider.noModelsDescription")}
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <div className="flex min-w-0 flex-col gap-2">
+                <ModelSettingsTable
+                  models={channel.models}
+                  disabled={disabled}
+                  onEdit={(model) =>
+                    openEditor({ kind: "model", channel, model })
+                  }
+                  onDelete={(model) => setDeletion({ kind: "model", model })}
+                  onAvailability={(model, enabled) =>
+                    execute({
+                      kind: "availability",
+                      modelId: model.id,
+                      enabled,
+                    })
+                  }
+                  onReorder={(models) => {
+                    const draft = settingsDraft(settings)
+                    draft.providers = draft.providers.map((provider) =>
+                      provider.id === channel.id
+                        ? { ...provider, models }
+                        : provider
+                    )
+                    execute({ kind: "save", draft })
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("admin.modelProvider.orderHint")}
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>{t("admin.modelProvider.noChannels")}</EmptyTitle>
+              <EmptyDescription>
+                {t("admin.modelProvider.noChannelsDescription")}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+      </SettingsCard>
       {settings.providers.some((provider) =>
         provider.models.some((model) => model.kind === "chat")
       ) && (
@@ -411,63 +428,79 @@ function ModelDefaultSelections({
         if (!disabled && isSettingsDraftValid(draft, settings)) onSave(draft)
       }}
     >
-      <h3 className="text-sm font-medium">
-        {t("admin.modelProvider.modelSelections")}
-      </h3>
-      <FieldGroup className="grid gap-4 sm:grid-cols-2">
-        <ModelSettingsSelect
-          label={t("admin.modelProvider.defaultModel")}
-          value={defaultModel}
-          disabled={disabled || !chats.length}
-          options={chats
-            .filter((model) => model.enabled)
-            .map((model) => ({ value: model.id, label: model.display_name }))}
-          onChange={setDefaultModel}
-        />
-        <ModelSettingsSelect
-          label={t("admin.modelProvider.titleModel")}
-          value={titleModel}
-          disabled={disabled || !chats.length}
-          options={chats.map((model) => ({
-            value: model.id,
-            label: model.display_name,
-          }))}
-          onChange={setTitleModel}
-        />
-        <ModelSettingsSelect
-          label={t("admin.modelProvider.memoryExtractionModel")}
-          value={memoryModel ?? "__task_model__"}
-          disabled={disabled}
-          options={[
-            {
-              value: "__task_model__",
-              label: t("admin.modelProvider.memoryUseTaskModel"),
-            },
-            ...chats.map((model) => ({
-              value: model.id,
-              label: model.display_name,
-            })),
-          ]}
-          onChange={(value) =>
-            setMemoryModel(value === "__task_model__" ? null : value)
-          }
-        />
-      </FieldGroup>
-      <p className="text-xs text-muted-foreground">
-        {t("admin.modelProvider.memoryExtractionHint")}
-      </p>
-      <p className="text-xs text-muted-foreground">
-        {t("admin.modelProvider.selectionsHint")}
-      </p>
-      <Button
-        type="submit"
-        size="sm"
-        className="self-end"
-        disabled={disabled || !dirty || !isSettingsDraftValid(draft, settings)}
-        aria-label={t("admin.modelProvider.saveModelSelections")}
+      <SettingsCard
+        header={
+          <SettingsSectionHeader
+            id="model-default-selections-title"
+            title={t("admin.modelProvider.modelSelections")}
+          />
+        }
       >
-        {t("common.save")}
-      </Button>
+        <div className="flex min-w-0 flex-col gap-4">
+          <SettingsFieldGroup>
+            <ModelSettingsSelect
+              layout="settings"
+              label={t("admin.modelProvider.defaultModel")}
+              value={defaultModel}
+              disabled={disabled || !chats.length}
+              options={chats
+                .filter((model) => model.enabled)
+                .map((model) => ({
+                  value: model.id,
+                  label: model.display_name,
+                }))}
+              onChange={setDefaultModel}
+            />
+            <ModelSettingsSelect
+              layout="settings"
+              label={t("admin.modelProvider.titleModel")}
+              value={titleModel}
+              disabled={disabled || !chats.length}
+              options={chats.map((model) => ({
+                value: model.id,
+                label: model.display_name,
+              }))}
+              onChange={setTitleModel}
+            />
+            <ModelSettingsSelect
+              layout="settings"
+              label={t("admin.modelProvider.memoryExtractionModel")}
+              value={memoryModel ?? "__task_model__"}
+              disabled={disabled}
+              options={[
+                {
+                  value: "__task_model__",
+                  label: t("admin.modelProvider.memoryUseTaskModel"),
+                },
+                ...chats.map((model) => ({
+                  value: model.id,
+                  label: model.display_name,
+                })),
+              ]}
+              onChange={(value) =>
+                setMemoryModel(value === "__task_model__" ? null : value)
+              }
+            />
+          </SettingsFieldGroup>
+          <p className="text-xs text-muted-foreground">
+            {t("admin.modelProvider.memoryExtractionHint")}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {t("admin.modelProvider.selectionsHint")}
+          </p>
+          <Button
+            type="submit"
+            size="default"
+            className="self-end"
+            disabled={
+              disabled || !dirty || !isSettingsDraftValid(draft, settings)
+            }
+            aria-label={t("admin.modelProvider.saveModelSelections")}
+          >
+            {t("common.save")}
+          </Button>
+        </div>
+      </SettingsCard>
     </form>
   )
 }

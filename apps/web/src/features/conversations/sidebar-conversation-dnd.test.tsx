@@ -609,7 +609,7 @@ describe("sidebar task dragging between projects", () => {
     expect(row).not.toHaveAttribute("data-dragging")
   })
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "supports keyboard project drops and localized feedback in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)

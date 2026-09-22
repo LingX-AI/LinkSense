@@ -1,12 +1,20 @@
 import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
-import { auditTranslationResource } from "@linksense/shared"
+import {
+  auditTranslationResource,
+  supportedLocales,
+  type Locale,
+} from "@linksense/shared"
 
 import { enUS } from "@/i18n/en-US"
+import { esES } from "@/i18n/es-ES"
+import { frFR } from "@/i18n/fr-FR"
+import { jaJP } from "@/i18n/ja-JP"
+import { ptBR } from "@/i18n/pt-BR"
 import { zhCN } from "@/i18n/zh-CN"
 
-export const supportedLanguages = ["zh-CN", "en-US"] as const
-export type SupportedLanguage = (typeof supportedLanguages)[number]
+export const supportedLanguages = supportedLocales
+export type SupportedLanguage = Locale
 
 const LANGUAGE_STORAGE_KEY = "linksense.language"
 
@@ -17,6 +25,10 @@ export function normalizeLanguage(
   const normalized = value.toLowerCase()
   if (normalized.startsWith("zh")) return "zh-CN"
   if (normalized.startsWith("en")) return "en-US"
+  if (normalized.startsWith("es")) return "es-ES"
+  if (normalized.startsWith("pt")) return "pt-BR"
+  if (normalized.startsWith("fr")) return "fr-FR"
+  if (normalized.startsWith("ja")) return "ja-JP"
   return null
 }
 
@@ -60,6 +72,30 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...enUS,
         auditValues: auditTranslationResource("en-US"),
+      },
+    },
+    "es-ES": {
+      translation: {
+        ...esES,
+        auditValues: auditTranslationResource("es-ES"),
+      },
+    },
+    "pt-BR": {
+      translation: {
+        ...ptBR,
+        auditValues: auditTranslationResource("pt-BR"),
+      },
+    },
+    "fr-FR": {
+      translation: {
+        ...frFR,
+        auditValues: auditTranslationResource("fr-FR"),
+      },
+    },
+    "ja-JP": {
+      translation: {
+        ...jaJP,
+        auditValues: auditTranslationResource("ja-JP"),
       },
     },
   },

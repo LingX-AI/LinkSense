@@ -1,4 +1,5 @@
 import type { CapabilitySummary } from "@/api/contracts"
+import { supportedLocales } from "@linksense/shared"
 
 export function withRequiredConversationCapabilities(
   selectedIds: readonly string[],
@@ -13,7 +14,7 @@ export function canSelectConversationCapability(
   return capability.is_builtin || capability.can_select
 }
 
-const conversationSkillNameCollator = new Intl.Collator(["zh-CN", "en-US"], {
+const conversationSkillNameCollator = new Intl.Collator(supportedLocales, {
   numeric: true,
   sensitivity: "base",
 })

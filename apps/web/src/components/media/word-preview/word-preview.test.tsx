@@ -6,10 +6,12 @@ import {
   waitFor,
 } from "@testing-library/react"
 import type { ReactNode } from "react"
+import type { LocaleStrings } from "@eigenpal/docx-editor-i18n"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { WordPreview } from "@/components/media/word-preview/word-preview"
+import { wordPreviewLocale } from "@/components/media/word-preview/word-preview-i18n"
 import type { WordSelectionAction } from "@/components/media/word-preview/word-preview.types"
 import { calculateWordPreviewFitZoom } from "@/components/media/word-preview/word-preview-zoom"
 import { mockOfficeSelectionLayout } from "@/test/office-selection-layout"
@@ -111,6 +113,7 @@ const editor = vi.hoisted(() => ({
   })),
   lastView: null as MockEditorView | null,
   lastProps: null as null | {
+    i18n?: LocaleStrings
     readOnly?: boolean
     mode?: string
     loadingIndicator?: ReactNode
@@ -449,6 +452,23 @@ describe("word preview", () => {
     expect(editor.setZoom).toHaveBeenLastCalledWith(0.6)
     expect(surface).toHaveAttribute("data-fit-width", "true")
   })
+
+  it.each(["es-ES", "pt-BR", "fr-FR", "ja-JP"] as const)(
+    "passes %s messages to the read-only viewer",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      render(
+        <WordPreview
+          document={{ status: "ready", content: new Uint8Array([1]) }}
+          fileName="localized.docx"
+          onClose={vi.fn()}
+        />
+      )
+      expect(editor.lastProps?.i18n).toBe(wordPreviewLocale(locale))
+      expect(editor.lastProps?.mode).toBe("viewing")
+      expect(editor.lastProps?.readOnly).toBe(true)
+    }
+  )
 
   it("horizontally centers the page after applying the default fit zoom", async () => {
     editor.viewportWidth = 680

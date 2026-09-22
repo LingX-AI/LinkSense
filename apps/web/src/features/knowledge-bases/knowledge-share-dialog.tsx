@@ -62,7 +62,7 @@ import {
   useKnowledgeGrants,
   useKnowledgeShareTargets,
 } from "@/features/knowledge-bases/knowledge-base-hooks"
-import { normalizeLanguage } from "@/i18n"
+import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
 
 const visibleTargetChipLimit = 2
 const shareTargetNameCollator = new Intl.Collator(["en-US", "zh-CN"], {
@@ -433,7 +433,7 @@ export function KnowledgeShareDialog({
 function getGrantRevocationMessage(
   result: KnowledgeGrantRevocationResult,
   targetName: string,
-  locale: "zh-CN" | "en-US",
+  locale: SupportedLanguage,
   t: TFunction
 ) {
   const remaining = result.remaining_access

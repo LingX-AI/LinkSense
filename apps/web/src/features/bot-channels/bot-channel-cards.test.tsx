@@ -217,7 +217,7 @@ it("rejects malformed Teams IDs without submitting credentials", async () => {
     request.mock.calls.some(([, options]) => options?.method === "POST")
   ).toBe(false)
 })
-it.each(["zh-CN", "en-US", "fr"])(
+it.each(["zh-CN", "en-US", "de"])(
   "has localized form text and fallback for %s",
   async (language) => {
     fixture()

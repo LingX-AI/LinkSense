@@ -67,7 +67,7 @@ afterEach(() => {
 })
 
 describe("quota management", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "renders the unified member quota controls and fallback for %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -93,7 +93,16 @@ describe("quota management", () => {
       const actions = screen.getByRole("button", {
         name: language === "en-US" ? "Member quota actions" : "成员额度操作",
       })
-      expect(actions.closest('[data-slot="card-action"]')).not.toBeNull()
+      expect(
+        actions.closest('[data-slot="settings-section-action"]')
+      ).not.toBeNull()
+      expect(actions.closest('[data-slot="card"]')).toBeNull()
+      for (const input of screen.getAllByRole("textbox")) {
+        expect(input.closest('[data-slot="card-content"]')).toHaveClass(
+          "px-4",
+          "sm:px-5"
+        )
+      }
       expect(
         screen.queryByRole("button", {
           name: language === "en-US" ? "Reset quotas for all" : "重置全员额度",

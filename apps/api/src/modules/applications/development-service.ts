@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import {
   DEFAULT_APPLICATION_ICON_PRESET,
+  isLocale,
+  supportedLocales,
   applicationDevelopmentSchema, applicationDevelopmentDiagnosticSchema, applicationDevelopmentOpenSchema,
   interactiveApplicationManifestSchema, workspacePermissionPolicy,
   sanitizeApplicationDevelopmentDiagnostic,
@@ -288,8 +290,9 @@ export class ApplicationDevelopmentService {
     );
     // Polling keeps an already localized title and never adds a second prefix.
     if (locale ? conversation.title === titleFor(locale)
-      : conversation.title === titleFor("zh-CN") || conversation.title === titleFor("en-US")) return;
-    const language = locale ?? ((await this.options.store.actor(actor.id)).preferredLocale === "en-US" ? "en-US" : "zh-CN");
+      : supportedLocales.some((supportedLocale) => conversation.title === titleFor(supportedLocale))) return;
+    const preferredLocale = (await this.options.store.actor(actor.id)).preferredLocale;
+    const language = locale ?? (isLocale(preferredLocale) ? preferredLocale : "zh-CN");
     await this.options.conversations.patch(actor.id, row.conversationId, { title: titleFor(language) });
   }
 
@@ -341,7 +344,7 @@ export class ApplicationDevelopmentService {
 
   async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: ApplicationBuilderRequest): Promise<ApplicationDevelopment | ApplicationTestInspection | null> {
     const user = await this.options.store.actor(ownerId);
-    return this.tool({ id: user.id, role: user.role === "admin" ? "admin" : "user", status: "active" }, conversationId, turnId, request, user.preferredLocale === "en-US" ? "en-US" : "zh-CN");
+    return this.tool({ id: user.id, role: user.role === "admin" ? "admin" : "user", status: "active" }, conversationId, turnId, request, isLocale(user.preferredLocale) ? user.preferredLocale : "zh-CN");
   }
 
   private async source(row: DevelopmentRow): Promise<ApplicationSourceSnapshot> {

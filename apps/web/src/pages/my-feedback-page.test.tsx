@@ -114,7 +114,7 @@ describe("feedback page refresh", () => {
       await screen.findByText(pendingFeedback.content)
       const refresh = screen.getByRole("button", { name: "刷新" })
       expect(refresh).toHaveTextContent(/^$/)
-      expect(refresh).toHaveClass("hover:bg-hover", "size-7")
+      expect(refresh).toHaveClass("hover:bg-hover", "size-8")
       expect(refresh).not.toHaveClass("bg-secondary")
       await interaction.click(refresh)
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
@@ -230,7 +230,7 @@ describe("personal feedback", () => {
   it.each([
     ["zh-CN", "我的反馈", "待回复", "已回复"],
     ["en-US", "My feedback", "Awaiting reply", "Replied"],
-    ["fr-FR", "我的反馈", "待回复", "已回复"],
+    ["de-DE", "我的反馈", "待回复", "已回复"],
   ])(
     "clearly identifies replied and awaiting feedback in %s",
     async (language, title, waiting, replied) => {

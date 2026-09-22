@@ -108,7 +108,7 @@ describe("task source list", () => {
     expect(screen.queryByText("https://example.test/a")).not.toBeInTheDocument()
     expect(screen.getByText("New source")).toBeVisible()
   })
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "waits without a loading placeholder and localizes settled states in %s",
     async (language) => {
       await i18n.changeLanguage(language)

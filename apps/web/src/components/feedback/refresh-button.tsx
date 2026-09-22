@@ -16,7 +16,7 @@ export function RefreshButton({ refreshing, onRefresh }: RefreshButtonProps) {
     <Button
       type="button"
       variant="ghost"
-      size="icon-sm"
+      size="icon"
       aria-label={t("common.refresh")}
       title={t("common.refresh")}
       aria-busy={refreshing || undefined}

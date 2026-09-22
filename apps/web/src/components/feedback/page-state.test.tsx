@@ -63,7 +63,7 @@ describe("LoadingState", () => {
   it.each([
     ["zh-CN", "正在加载…"],
     ["en-US", "Loading…"],
-    ["fr-FR", "正在加载…"],
+    ["de-DE", "正在加载…"],
   ])(
     "keeps the full-screen loading announcement localized for %s",
     async (language, expected) => {

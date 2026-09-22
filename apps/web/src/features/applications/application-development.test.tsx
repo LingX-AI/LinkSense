@@ -241,7 +241,7 @@ describe("application development interface", () => {
   it.each([
     ["zh-CN", "草稿", "已发布"],
     ["en-US", "Draft", "Published"],
-    ["fr-FR", "草稿", "已发布"],
+    ["de-DE", "草稿", "已发布"],
   ])(
     "shows lightweight publication status next to the name in %s",
     async (language, draft, published) => {
@@ -367,7 +367,7 @@ describe("application development interface", () => {
       "Debug conversation history",
       "Debug logs (0)",
     ],
-    ["fr-FR", "应用操作", "新建调试对话", "调试对话记录", "调试日志（0）"],
+    ["de-DE", "应用操作", "新建调试对话", "调试对话记录", "调试日志（0）"],
   ])(
     "groups debug actions in the rightmost menu in %s",
     async (language, menu, create, history, logs) => {
@@ -690,7 +690,7 @@ describe("application development interface", () => {
       await screen.findByRole("button", { name: i18n.t("common.retry") })
     ).toBeVisible()
   })
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "shows debug conversation history and its empty state in %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -764,7 +764,7 @@ describe("application development interface", () => {
     })
     expect(invalidate).not.toHaveBeenCalled()
   })
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "renders test history dates and actions with %s or the default language",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -946,7 +946,7 @@ describe("application development interface", () => {
   it.each([
     ["zh-CN", "发布", "发布应用", "取消"],
     ["en-US", "Publish", "Publish application", "Cancel"],
-    ["fr-FR", "发布", "发布应用", "取消"],
+    ["de-DE", "发布", "发布应用", "取消"],
   ])(
     "requires confirmation and allows cancelling publication in %s",
     async (language, publish, title, cancel) => {
@@ -981,7 +981,7 @@ describe("application development interface", () => {
       "ask recipients to install the update",
       "submit an update to the Application Center separately",
     ],
-    ["fr-FR", "由对方手动安装更新", "需在应用中心另行提交更新"],
+    ["de-DE", "由对方手动安装更新", "需在应用中心另行提交更新"],
   ])(
     "explains manual shared updates and separate center publication in %s",
     async (language, shared, center) => {
@@ -1101,8 +1101,8 @@ describe("application development interface", () => {
     { language: "zh-CN", updating: true, title: "发布成功" },
     { language: "en-US", updating: false, title: "Published successfully" },
     { language: "en-US", updating: true, title: "Published successfully" },
-    { language: "fr-FR", updating: false, title: "发布成功" },
-    { language: "fr-FR", updating: true, title: "发布成功" },
+    { language: "de-DE", updating: false, title: "发布成功" },
+    { language: "de-DE", updating: true, title: "发布成功" },
   ])(
     "shows a dismissible success dialog only after publication in $language (update: $updating)",
     async ({ language, updating, title }) => {
@@ -1242,7 +1242,7 @@ describe("application development interface", () => {
   it.each([
     ["zh-CN", "调试日志（0）", "暂无调试日志"],
     ["en-US", "Debug logs (0)", "No debug logs yet"],
-    ["fr-FR", "调试日志（0）", "暂无调试日志"],
+    ["de-DE", "调试日志（0）", "暂无调试日志"],
   ])(
     "renders debug logs and their empty state in %s",
     async (language, tabName, emptyTitle) => {
@@ -1342,7 +1342,7 @@ describe("application development interface", () => {
     )
   })
   it("has Chinese, English and Chinese fallback copy for development and errors", () => {
-    for (const locale of ["zh-CN", "en-US", "fr-FR"]) {
+    for (const locale of ["zh-CN", "en-US", "de-DE"]) {
       const t = i18n.getFixedT(locale)
       for (const key of [
         "applicationDevelopment.create",
@@ -1357,7 +1357,7 @@ describe("application development interface", () => {
       ])
         expect(t(key)).not.toBe(key)
     }
-    expect(i18n.getFixedT("fr-FR")("applicationDevelopment.create")).toBe(
+    expect(i18n.getFixedT("de-DE")("applicationDevelopment.create")).toBe(
       "创建交互式应用"
     )
     expect(
@@ -1370,7 +1370,7 @@ describe("application development interface", () => {
         productName: "LinkSense",
       })
     ).toBe("LinkSense Interactive Application Development")
-    expect(i18n.getFixedT("fr-FR")("conversation.requiredCapability")).toBe(
+    expect(i18n.getFixedT("de-DE")("conversation.requiredCapability")).toBe(
       "此任务必需"
     )
   })

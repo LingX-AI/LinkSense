@@ -65,9 +65,11 @@ export type SiteAction =
 export function SiteDialog({
   action,
   onClose,
+  portalContainer,
 }: {
   action: SiteAction
   onClose: () => void
+  portalContainer?: HTMLElement | null
 }) {
   const { t, i18n } = useTranslation()
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
@@ -185,6 +187,7 @@ export function SiteDialog({
     >
       <DialogContent
         showCloseButton={false}
+        portalContainer={portalContainer}
         className={cn(
           "max-h-[calc(100dvh_-_2rem)] w-[calc(100vw_-_2rem)] grid-rows-[minmax(0,1fr)_auto] gap-0 overflow-hidden p-0",
           action.kind === "share"

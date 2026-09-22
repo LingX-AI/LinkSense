@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events"
 
 import Fastify, { type FastifyRequest } from "fastify"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import type { Locale } from "@linksense/shared"
 
 import { auditRoutes, auditRouteTesting } from "../src/modules/audit/routes.js"
 import {
@@ -301,6 +302,37 @@ describe("administrator audit privacy contracts", () => {
       )
     },
   )
+
+  it.each([
+    ["zh-CN", "创建时间", "任务 ID", "任务删除时间"],
+    ["en-US", "Created At", "Task ID", "Task Deleted At"],
+    ["es-ES", "Fecha de creación", "ID de tarea", "Fecha de eliminación de la tarea"],
+    ["pt-BR", "Data de criação", "ID da tarefa", "Data de exclusão da tarefa"],
+    ["fr-FR", "Date de création", "ID de la tâche", "Date de suppression de la tâche"],
+    ["ja-JP", "作成日時", "タスク ID", "タスク削除日時"],
+  ] as const)("localizes all CSV export views in %s while preserving stable data codes", async (locale, createdAt, taskId, deletedAt) => {
+    for (const view of ["audit_logs", "conversations", "retained_artifacts"] as const) {
+      const fixture = await auditFixture(locale)
+      seedExportView(fixture, view)
+      const response = await fixture.app.inject({
+        url: `/admin/audit/export.csv?view=${view}`,
+        headers: { "accept-language": "de-DE" },
+      })
+      expect(response.statusCode).toBe(200)
+      const header = response.body.split("\n")[0]
+      expect(header).toContain(`"${view === "audit_logs" ? createdAt : taskId}"`)
+      expect(header).not.toContain("audit.export.")
+      if (view === "audit_logs") {
+        expect(response.body).toContain('"artifact_download_link_issued"')
+        expect(response.body).toContain('"conversation_file"')
+        expect(response.body).toContain('"success"')
+      } else {
+        expect(response.body).toContain(`"${CONVERSATION_ID}"`)
+        if (view === "retained_artifacts") expect(header).toContain(`"${deletedAt}"`)
+        else expect(response.body).toContain('"failed"')
+      }
+    }
+  })
 
   it("uses Chinese task terminology in audit CSV headers", async () => {
     const auditLogFixture = await auditFixture("zh-CN")
@@ -731,7 +763,7 @@ class CsvTestWritable extends EventEmitter {
 }
 
 async function auditFixture(
-  preferredLocale: "zh-CN" | "en-US" = "en-US",
+  preferredLocale: Locale = "en-US",
   productName = "LinkSense",
 ) {
   const findMany = () =>

@@ -75,7 +75,7 @@ const submit = () =>
   })
 
 describe("publication activity preflight", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "shows task activity, blocks publishing, and automatically recovers without resetting the form in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)

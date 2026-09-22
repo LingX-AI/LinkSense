@@ -4076,8 +4076,7 @@ function GovernanceListingItem({
           <Button
             type="button"
             variant={suspended ? "secondary" : "destructive-ghost"}
-            size="sm"
-            className="max-sm:min-h-11"
+            size="default"
             onClick={onStatusChange}
           >
             {suspended ? (
@@ -4209,7 +4208,7 @@ export function AdminCapabilityManagementPage() {
                   actions={
                     <Button
                       type="button"
-                      size="sm"
+                      size="default"
                       onClick={() => setReviewTarget(publication)}
                     >
                       <ShieldCheckIcon data-icon="inline-start" />

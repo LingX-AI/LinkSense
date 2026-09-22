@@ -49,7 +49,7 @@ function show(
 }
 
 describe("application metadata editor", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "edits metadata and a preset with localized labels and fallback in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
@@ -96,7 +96,7 @@ describe("application metadata editor", () => {
     }
   )
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "shows saving feedback, preserves the uploaded icon and prevents duplicate saves in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
@@ -215,7 +215,7 @@ describe("application metadata editor", () => {
 })
 
 describe("interactive metadata publication", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "supports unchanged versions and retry without losing edits in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)

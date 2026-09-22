@@ -172,7 +172,7 @@ describe("immediate application opening", () => {
   it.each([
     ["zh-CN", "develop", `/application-developments/${id}/resume`],
     ["en-US", "new version", `/application-developments/by-application/${id}`],
-    ["fr", "create", "/application-developments"],
+    ["de", "create", "/application-developments"],
   ])(
     "opens the shared Loading before the development API responds in %s",
     async (locale, button, path) => {

@@ -90,7 +90,7 @@ export function MyFeedbackPage() {
                     <Button
                       type="button"
                       variant="ghost"
-                      size="sm"
+                      size="default"
                       onClick={() => setSelectedId(feedback.id)}
                     >
                       {t("common.view")}
@@ -108,7 +108,7 @@ export function MyFeedbackPage() {
               <PaginationItem>
                 <Button
                   variant="outline"
-                  size="sm"
+                  size="default"
                   disabled={!cursorStack.length || query.isFetching}
                   onClick={() => {
                     setCursor(cursorStack.at(-1))
@@ -121,7 +121,7 @@ export function MyFeedbackPage() {
               <PaginationItem>
                 <Button
                   variant="outline"
-                  size="sm"
+                  size="default"
                   disabled={!query.data?.next_cursor || query.isFetching}
                   onClick={() => {
                     if (query.data?.next_cursor) {

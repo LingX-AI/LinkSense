@@ -20,23 +20,10 @@ import { getErrorMessage } from "@/api/error-message"
 import { ErrorState, LoadingState } from "@/components/feedback/page-state"
 import { notify } from "@/components/feedback/notification"
 import { StatusBanner } from "@/components/feedback/status-banner"
+import { FieldShell, SettingsFieldGroup } from "@/components/forms/form-field"
 import { PageLayout } from "@/components/shell/page-layout"
-import {
-  Card,
-  CardAction,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-  CardFooter,
-} from "@/components/ui/card"
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
+import { SettingsCard } from "@/components/settings/settings-card"
+import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import {
@@ -236,53 +223,48 @@ export function QuotaSettingsForm({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-5">
+    <div className="flex min-w-0 flex-col gap-8">
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
       <form
         onSubmit={(event) => submit(event, "credit_price_cny")}
         noValidate
         aria-label={t("quotaManagement.conversionTitle")}
       >
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("quotaManagement.conversionTitle")}</CardTitle>
-            <CardDescription>
-              {t("quotaManagement.conversionDescription")}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FieldGroup>
-              <Field
-                data-invalid={Boolean(errors.credit_price_cny)}
-                data-disabled={pending}
-              >
-                <FieldLabel htmlFor={`${prefix}-price`}>
-                  {t("quotaManagement.creditPrice")}
-                </FieldLabel>
-                <Input
-                  id={`${prefix}-price`}
-                  name="credit_price_cny"
-                  className="max-w-sm"
-                  inputMode="decimal"
-                  pattern={CREDIT_INPUT_PATTERN}
-                  value={draft.credit_price_cny}
-                  disabled={pending}
-                  aria-invalid={Boolean(errors.credit_price_cny)}
-                  aria-describedby={`${prefix}-price-hint ${prefix}-price-error`}
-                  onChange={(event) =>
-                    setDraft({ ...draft, credit_price_cny: event.target.value })
-                  }
-                />
-                <FieldDescription id={`${prefix}-price-hint`}>
-                  {t("quotaManagement.conversionExample")}
-                </FieldDescription>
-                <FieldError id={`${prefix}-price-error`}>
-                  {errors.credit_price_cny}
-                </FieldError>
-              </Field>
-            </FieldGroup>
-          </CardContent>
-          <CardFooter className="justify-end">
+        <SettingsCard
+          header={
+            <SettingsSectionHeader
+              id={`${prefix}-conversion-title`}
+              title={t("quotaManagement.conversionTitle")}
+              description={t("quotaManagement.conversionDescription")}
+            />
+          }
+        >
+          <SettingsFieldGroup>
+            <FieldShell
+              id={`${prefix}-price`}
+              label={t("quotaManagement.creditPrice")}
+              hint={t("quotaManagement.conversionExample")}
+              error={errors.credit_price_cny}
+              layout="settings"
+              controlWidth="compact"
+            >
+              <Input
+                id={`${prefix}-price`}
+                name="credit_price_cny"
+                className="max-w-sm"
+                inputMode="decimal"
+                pattern={CREDIT_INPUT_PATTERN}
+                value={draft.credit_price_cny}
+                disabled={pending}
+                aria-invalid={Boolean(errors.credit_price_cny)}
+                aria-describedby={`${prefix}-price-hint ${prefix}-price-error`}
+                onChange={(event) =>
+                  setDraft({ ...draft, credit_price_cny: event.target.value })
+                }
+              />
+            </FieldShell>
+          </SettingsFieldGroup>
+          <div className="flex justify-end">
             <Button
               type="submit"
               disabled={pending}
@@ -298,95 +280,90 @@ export function QuotaSettingsForm({
                 )}
               {t("quotaManagement.save")}
             </Button>
-          </CardFooter>
-        </Card>
+          </div>
+        </SettingsCard>
       </form>
       <form
         onSubmit={(event) => submit(event, "weekly_credit_limit")}
         noValidate
         aria-label={t("quotaManagement.members.title")}
       >
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("quotaManagement.members.title")}</CardTitle>
-            <CardDescription>
-              {t("quotaManagement.members.description")}
-            </CardDescription>
-            <CardAction>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t("quotaManagement.members.actions")}
-                      disabled={pending}
-                    />
-                  }
-                >
-                  <MoreHorizontalIcon aria-hidden="true" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  className="w-max whitespace-nowrap"
-                >
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setError(null)
-                        setAction({ kind: "reset" })
-                      }}
-                    >
-                      <RotateCcwIcon aria-hidden="true" />
-                      {t("quotaManagement.members.reset")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={stageApply}>
-                      <ListChecksIcon aria-hidden="true" />
-                      {t("quotaManagement.applyMembers")}
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
-            <FieldGroup>
-              <Field
-                data-invalid={Boolean(errors.weekly_credit_limit)}
-                data-disabled={pending}
-              >
-                <FieldLabel htmlFor={`${prefix}-weekly-credit-limit`}>
-                  {t("quotaManagement.weekly_credit_limit")}
-                </FieldLabel>
-                <Input
-                  id={`${prefix}-weekly-credit-limit`}
-                  name="weekly_credit_limit"
-                  className="max-w-sm"
-                  inputMode="decimal"
-                  pattern={CREDIT_INPUT_PATTERN}
-                  value={draft.weekly_credit_limit}
-                  disabled={pending}
-                  aria-invalid={Boolean(errors.weekly_credit_limit)}
-                  aria-describedby={`${prefix}-weekly-credit-limit-hint ${prefix}-weekly-credit-limit-error`}
-                  placeholder={t("quotaManagement.unlimited")}
-                  onChange={(event) =>
-                    setDraft({
-                      ...draft,
-                      weekly_credit_limit: event.target.value,
-                    })
-                  }
-                />
-                <FieldDescription id={`${prefix}-weekly-credit-limit-hint`}>
-                  {t("quotaManagement.weekly_credit_limit_hint")}
-                </FieldDescription>
-                <FieldError id={`${prefix}-weekly-credit-limit-error`}>
-                  {errors.weekly_credit_limit}
-                </FieldError>
-              </Field>
-            </FieldGroup>
-          </CardContent>
-          <CardFooter className="flex flex-col items-stretch gap-3">
+        <SettingsCard
+          header={
+            <SettingsSectionHeader
+              id={`${prefix}-members-title`}
+              title={t("quotaManagement.members.title")}
+              description={t("quotaManagement.members.description")}
+              action={
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t("quotaManagement.members.actions")}
+                        disabled={pending}
+                      />
+                    }
+                  >
+                    <MoreHorizontalIcon aria-hidden="true" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="w-max whitespace-nowrap"
+                  >
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setError(null)
+                          setAction({ kind: "reset" })
+                        }}
+                      >
+                        <RotateCcwIcon aria-hidden="true" />
+                        {t("quotaManagement.members.reset")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={stageApply}>
+                        <ListChecksIcon aria-hidden="true" />
+                        {t("quotaManagement.applyMembers")}
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              }
+            />
+          }
+        >
+          <SettingsFieldGroup>
+            <FieldShell
+              id={`${prefix}-weekly-credit-limit`}
+              label={t("quotaManagement.weekly_credit_limit")}
+              hint={t("quotaManagement.weekly_credit_limit_hint")}
+              error={errors.weekly_credit_limit}
+              layout="settings"
+              controlWidth="compact"
+            >
+              <Input
+                id={`${prefix}-weekly-credit-limit`}
+                name="weekly_credit_limit"
+                className="max-w-sm"
+                inputMode="decimal"
+                pattern={CREDIT_INPUT_PATTERN}
+                value={draft.weekly_credit_limit}
+                disabled={pending}
+                aria-invalid={Boolean(errors.weekly_credit_limit)}
+                aria-describedby={`${prefix}-weekly-credit-limit-hint ${prefix}-weekly-credit-limit-error`}
+                placeholder={t("quotaManagement.unlimited")}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    weekly_credit_limit: event.target.value,
+                  })
+                }
+              />
+            </FieldShell>
+          </SettingsFieldGroup>
+          <div className="flex flex-col items-stretch gap-3">
             <p className="text-sm text-muted-foreground">
               {t("quotaManagement.resetHint")}
             </p>
@@ -406,8 +383,8 @@ export function QuotaSettingsForm({
                 )}
               {t("quotaManagement.save")}
             </Button>
-          </CardFooter>
-        </Card>
+          </div>
+        </SettingsCard>
       </form>
       <p className="text-sm text-muted-foreground">
         {t("quotaManagement.enforcementHint")}

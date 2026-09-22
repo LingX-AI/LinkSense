@@ -1,4 +1,5 @@
 import type { BillingStatementDetail } from "@/api/contracts"
+import type { SupportedLanguage } from "@/i18n"
 import { formatCnyCost, formatIntegerCount } from "@/lib/usage-number"
 
 export type BillingPdfLabels = {
@@ -25,7 +26,7 @@ export type BillingPdfLabels = {
   footer: string
 }
 
-type Language = "zh-CN" | "en-US"
+type Language = SupportedLanguage
 const footerContentGap = 24
 
 export async function createBillingStatementPdf(input: {

@@ -24,7 +24,9 @@ export class ConversationShareService {
     conversationId: string,
     input: ConversationShareCreate,
   ): Promise<ConversationShareReceipt> {
-    const source = conversationShareSnapshotSchema.parse(
+    // Validate ownership against the unfiltered task resources. The share
+    // transform can omit a completed plan or an answer replaced after preview.
+    const source = conversationShareSnapshotSchema.in.parse(
       await this.conversations.get(ownerId, conversationId),
     );
     const { snapshot } = conversationShareCreateSchema.parse(input);
@@ -50,6 +52,8 @@ export class ConversationShareService {
         const original = files.get(file.id);
         return (
           !original ||
+          original.status === "staged" ||
+          Boolean(original.pending_request_id) ||
           original.kind !== file.kind ||
           original.turn_id !== file.turn_id ||
           (file.conversation_id !== undefined &&

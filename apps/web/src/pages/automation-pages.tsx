@@ -93,7 +93,7 @@ import {
 } from "@/components/ui/tooltip"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
-import { normalizeLanguage } from "@/i18n"
+import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
 import { readUrlEnum, updateUrlSearchParams } from "@/lib/url-search-params"
 import { formatDateTime, formatRelativeDate } from "@/i18n/date"
 import { cn } from "@/lib/utils"
@@ -1708,7 +1708,7 @@ function formatSchedule(schedule: AutomationSchedule, t: TFunction): string {
 
 function formatOptionalDate(
   value: string | null,
-  language: "zh-CN" | "en-US",
+  language: SupportedLanguage,
   t: TFunction
 ): string {
   return value ? formatDateTime(value, language) : t("common.notAvailable")

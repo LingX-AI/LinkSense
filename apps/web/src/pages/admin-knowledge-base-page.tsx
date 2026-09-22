@@ -81,7 +81,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { AdminKnowledgeTabs } from "@/features/admin/admin-knowledge-tabs"
 import { AdminKnowledgeBaseName } from "@/features/admin/admin-knowledge-base-name"
 import { formatKnowledgeBytes } from "@/features/knowledge-bases/knowledge-base-utils"
-import { normalizeLanguage } from "@/i18n"
+import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
 
 const adminKnowledgeGrantSchema = z.object({
@@ -324,6 +324,7 @@ export function AdminKnowledgeBasePage() {
   return (
     <PageLayout
       title={t("adminKnowledge.title")}
+      contentWidth="wide"
       description={t("adminKnowledge.description")}
     >
       <AdminKnowledgeTabs value="knowledgeBases">
@@ -448,7 +449,7 @@ export function AdminKnowledgeBasePage() {
                     <Button
                       type="button"
                       variant="ghost"
-                      size="sm"
+                      size="default"
                       disabled={cursorStack.length === 0 || list.isFetching}
                       onClick={goToPreviousPage}
                     >
@@ -473,7 +474,7 @@ export function AdminKnowledgeBasePage() {
                     <Button
                       type="button"
                       variant="ghost"
-                      size="sm"
+                      size="default"
                       disabled={!list.data?.next_cursor || list.isFetching}
                       onClick={goToNextPage}
                     >
@@ -568,7 +569,7 @@ function AdminKnowledgeBaseRow({
   onTransfer,
 }: {
   knowledgeBase: AdminKnowledgeBase
-  locale: "zh-CN" | "en-US"
+  locale: SupportedLanguage
   pending: boolean
   onAction: (action: GovernanceAction) => void
   onTransfer: () => void
@@ -650,7 +651,7 @@ function AdminKnowledgeBaseRow({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon"
                     aria-label={t("adminKnowledge.revokeNamed", {
                       name: grant.target_name,
                     })}
@@ -740,7 +741,7 @@ function AdminKnowledgeBaseRow({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon-sm"
+                  size="icon"
                   aria-label={t("adminKnowledge.actionsFor", {
                     name: knowledgeBase.name,
                   })}

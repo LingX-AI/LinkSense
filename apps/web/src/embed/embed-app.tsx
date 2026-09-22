@@ -85,7 +85,11 @@ import { ConversationThread } from "@/features/conversations/conversation-thread
 import { selectActiveUserInputRequest } from "@/features/conversations/conversation-user-input-request-status"
 import { ConversationUserInputRequestCard } from "@/features/conversations/conversation-user-input-request-card"
 import { cn } from "@/lib/utils"
-import { setAppLanguage } from "@/i18n"
+import {
+  normalizeLanguage,
+  setAppLanguage,
+  type SupportedLanguage,
+} from "@/i18n"
 import {
   ArrowUpRightIcon,
   CheckIcon,
@@ -1590,7 +1594,7 @@ function EmbedTaskListMenu({
                     <span className="embed-task-list-item-meta">
                       {formatEmbedTaskListTime(
                         item.updated_at,
-                        i18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN"
+                        normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
                       )}
                     </span>
                   </span>
@@ -1679,7 +1683,7 @@ function EmbedGate({
   )
 }
 
-function formatEmbedTaskListTime(value: string, locale: "zh-CN" | "en-US") {
+function formatEmbedTaskListTime(value: string, locale: SupportedLanguage) {
   return new Date(value).toLocaleString(locale, {
     month: "2-digit",
     day: "2-digit",

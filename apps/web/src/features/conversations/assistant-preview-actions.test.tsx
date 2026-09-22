@@ -59,7 +59,7 @@ describe("shared preview actions", () => {
     await user.click(button)
     expect(select).toHaveBeenCalledOnce()
   })
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "shows names on hover for direct vertical actions in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)

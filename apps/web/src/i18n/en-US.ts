@@ -1,8 +1,12 @@
+import { samlenUS } from "@/features/saml/messages"
 import { webSitesEnUS } from "@/features/web-sites/messages"
+import { socialEnUS } from "@/features/social-auth/messages"
 import { personalQuotaEnUS } from "@/features/usage/personal-quota-messages"
 import { errorCatalog } from "@linksense/shared"
 
 export const enUS = {
+  saml: samlenUS,
+  social: socialEnUS,
   personalQuota: personalQuotaEnUS,
   webSites: webSitesEnUS,
   clientUpdate: {
@@ -54,6 +58,10 @@ export const enUS = {
     language: "Language",
     chinese: "简体中文",
     english: "English",
+    spanish: "Español",
+    portuguese: "Português (Brasil)",
+    french: "Français",
+    japanese: "日本語",
     settings: "Settings",
     signOut: "Sign Out",
     empty: "No data",
@@ -4385,7 +4393,7 @@ export const enUS = {
       concurrency: "Task concurrency",
       smtp: "Authentication email",
       registration: "Open registration",
-      sso: "Single sign-on",
+      login: "Sign-in methods",
       maintenance: "System maintenance",
     },
     concurrency: {
@@ -4832,15 +4840,18 @@ export const enUS = {
         "Image-understanding settings updated. New processing and rebuilds will use this configuration.",
     },
     authSettings: {
+      enterpriseTitle: "Enterprise accounts",
+      enterpriseDescription:
+        "Let members sign in with organization-managed accounts or directly within Teams. First sign-in matches existing accounts by email; new accounts require administrator activation.",
       smtpTitle: "Authentication email",
       smtpDescription:
         "Configure the SMTP service used for first-time password setup and password reset email. Connection checks remain on System health.",
-      oidcTitle: "OIDC sign-in",
+      oidcTitle: "Enterprise SSO (OIDC)",
       oidcDescription:
-        "Configure the standard OIDC authorization-code flow. Successful sign-in still matches only an existing enabled user by email.",
-      teamsTitle: "Teams sign-in",
+        "Connect your organization’s sign-in service, such as Microsoft Entra ID for work or school accounts.",
+      teamsTitle: "Sign in within Teams",
       teamsDescription:
-        "Configure the Microsoft Entra tenant and application identifiers used for Teams Tab single sign-on.",
+        "Let members enter directly within Teams using their work or school accounts.",
       modeLabel: "Configuration source",
       modes: {
         inherit: "Inherit deployment environment",
@@ -5192,6 +5203,9 @@ export const enUS = {
     riskRequired: "Review and confirm the source and risk notice first.",
   },
   errors: {
+    socialClientInUse: errorCatalog.SOCIAL_CLIENT_IN_USE.messages["en-US"],
+    socialLastMethod: errorCatalog.SOCIAL_LAST_METHOD.messages["en-US"],
+    socialAuthFailed: errorCatalog.SOCIAL_AUTH_FAILED.messages["en-US"],
     applicationDevelopment: {
       testBusy:
         errorCatalog.APPLICATION_DEVELOPMENT_TEST_BUSY.messages["en-US"],
@@ -5528,6 +5542,11 @@ export const enUS = {
     validation: "The submitted data is invalid. Check it and try again.",
   },
   loginMethods: {
+    saml: "SAML 2.0",
+    google: "Google",
+    apple: "Apple",
+    microsoft: "Microsoft",
+    facebook: "Facebook",
     password: "Local password",
     oidc: "Single sign-on",
     teams: "Teams SSO",

@@ -13,6 +13,122 @@ import {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each([false, true])(
+    "stops the plan task sidebar indicator while detail refresh is pending, with a delayed list response: %s",
+    async (delayList) => {
+      const turnId = "30000000-0000-4000-8000-000000000091"
+      let releaseCompletion: (() => void) | undefined
+      const completion = new Promise<void>((resolve) => {
+        releaseCompletion = resolve
+      })
+      const pendingDetail = new Promise<Response>(() => undefined)
+      let releaseList: (() => void) | undefined
+      const pendingList = new Promise<void>((resolve) => {
+        releaseList = resolve
+      })
+      let listReads = 0
+      const { requests } = installApiMock({
+        conversationListResponse: async () => {
+          listReads += 1
+          if (delayList && listReads > 1) await pendingList
+          return json({
+            success: true,
+            data: { items: conversations, next_cursor: null },
+          })
+        },
+        conversationGetResponse: async (callIndex) =>
+          callIndex === 1
+            ? json({
+                success: true,
+                data: {
+                  ...conversation,
+                  collaboration_mode: "plan",
+                  turns: [{ id: turnId, status: "running" }],
+                  running_turn: { id: turnId, status: "running" },
+                  messages: [
+                    {
+                      id: "60000000-0000-4000-8000-000000000091",
+                      role: "assistant",
+                      content: "工作区改进计划",
+                      turn_id: turnId,
+                      output_kind: "plan",
+                      phase: "final_answer",
+                    },
+                  ],
+                },
+              })
+            : pendingDetail,
+        eventStreamStart: completion,
+        eventStreamBody: `id: c1:91\nevent: turn/completed\ndata: ${JSON.stringify(
+          {
+            id: "61000000-0000-4000-8000-000000000091",
+            conversation_id: "20000000-0000-4000-8000-000000000001",
+            turn_id: turnId,
+            sequence_no: 91,
+            event_type: "turn/completed",
+            visibility: "user_visible",
+            payload: {
+              schema_version: 2,
+              source: "codex_app_server",
+              method: "turn/completed",
+              params: {
+                threadId: "native-thread",
+                turn: { id: "native-turn", status: "interrupted" },
+              },
+            },
+            sse_event_id: "c1:91",
+            created_at: "2026-09-22T00:00:23.000Z",
+          }
+        )}\n\n`,
+      })
+      const interaction = userEvent.setup()
+      renderApp()
+      await interaction.click(
+        await screen.findByRole("button", { name: "停止" })
+      )
+      const sidebar = screen.getByRole("complementary", {
+        name: "LinkSense 导航",
+      })
+      const taskLink = within(sidebar)
+        .getByText(conversations[0]!.title)
+        .closest("a")
+      expect(taskLink).toHaveAttribute("aria-busy", "true")
+      await waitFor(() =>
+        expect(
+          requests.filter(
+            (request) =>
+              request.path === "/api/v1/conversations/c1" &&
+              request.method === "GET"
+          ).length
+        ).toBeGreaterThanOrEqual(2)
+      )
+
+      await act(async () => releaseCompletion?.())
+
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: "停止" })).toBeNull()
+        expect(screen.queryByRole("button", { name: "正在中断…" })).toBeNull()
+        expect(taskLink).not.toHaveAttribute("aria-busy")
+        expect(
+          within(sidebar).queryByRole("status", { name: "执行中" })
+        ).toBeNull()
+      })
+      expect(screen.getByText("工作区改进计划")).toBeVisible()
+      if (delayList) {
+        expect(listReads).toBeGreaterThanOrEqual(2)
+        vi.useFakeTimers()
+        await act(async () => {
+          releaseList?.()
+          await vi.advanceTimersByTimeAsync(1)
+        })
+        expect(taskLink).not.toHaveAttribute("aria-busy")
+        expect(
+          within(sidebar).queryByRole("status", { name: "执行中" })
+        ).toBeNull()
+      }
+    }
+  )
+
   it("reconciles a completed turn from detail when the event stream disconnects without polling the task list", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     let releaseCompletedDetail: (() => void) | undefined

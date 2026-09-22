@@ -52,7 +52,7 @@ describe("OfficeAnnotationBatchTray send button", () => {
   it.each([
     ["zh-CN", "发送"],
     ["en-US", "Send"],
-    ["fr-FR", "发送"],
+    ["de-DE", "发送"],
   ])("shows a compact text button in %s", async (language, label) => {
     await i18n.changeLanguage(language)
     const onSend = renderTray()

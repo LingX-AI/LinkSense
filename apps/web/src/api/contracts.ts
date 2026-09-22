@@ -53,6 +53,7 @@ import {
   resetMemoriesResultSchema as sharedResetMemoriesResultSchema,
   publicKnowledgeCitationSchema,
   resolveOrganizationDisplayName,
+  localeSchema,
   runnerCodexEventSchema,
   runnerCodexItemSchema,
   runnerNativeIdSchema,
@@ -124,7 +125,7 @@ import {
 } from "@linksense/shared"
 import { z } from "zod"
 
-export const supportedLanguageSchema = z.enum(["zh-CN", "en-US"])
+export const supportedLanguageSchema = localeSchema
 export type SupportedLanguage = z.infer<typeof supportedLanguageSchema>
 
 export const maintenanceStatusSchema = sharedMaintenanceStatusSchema

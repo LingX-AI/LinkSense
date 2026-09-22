@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { isLocale } from "@linksense/shared"
 import {
   knowledgeCitationPreviewSchema,
   knowledgeDocumentRebuildBatchSize,
@@ -622,7 +623,7 @@ function uploadWithToken(
     request.setRequestHeader("Accept", "application/json")
     buildHeaders.forEach((value, name) => request.setRequestHeader(name, value))
     const language = document.documentElement.lang
-    if (language === "zh-CN" || language === "en-US") {
+    if (isLocale(language)) {
       request.setRequestHeader("Accept-Language", language)
     }
     if (token) request.setRequestHeader("Authorization", `Bearer ${token}`)

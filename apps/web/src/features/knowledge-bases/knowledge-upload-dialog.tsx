@@ -57,7 +57,7 @@ import {
   knowledgeUploadAccept,
   validateKnowledgeUploadFile,
 } from "@/features/knowledge-bases/knowledge-base-utils"
-import { normalizeLanguage } from "@/i18n"
+import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
 
 type UploadQueueState =
@@ -765,7 +765,7 @@ function UploadItemStatus({
   locale,
 }: {
   item: UploadQueueItem
-  locale: "zh-CN" | "en-US"
+  locale: SupportedLanguage
 }) {
   const { t } = useTranslation()
   if (item.state === "failed") {

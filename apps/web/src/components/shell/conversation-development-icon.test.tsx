@@ -11,7 +11,7 @@ describe("conversation development icon", () => {
     ["zh-CN", "preview", "应用调试对话"],
     ["en-US", "development", "Application development task"],
     ["en-US", "preview", "Application debug conversation"],
-    ["fr-FR", "development", "应用开发任务"],
+    ["de-DE", "development", "应用开发任务"],
   ] as const)(
     "labels %s %s tasks and places the icon before the title",
     async (locale, role, label) => {

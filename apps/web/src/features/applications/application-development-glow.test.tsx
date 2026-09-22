@@ -193,7 +193,7 @@ describe("application development activity glow", () => {
   it.each([
     ["zh-CN", "LinkSense正在自动开发"],
     ["en-US", "LinkSense is automatically developing the app"],
-    ["fr-FR", "LinkSense正在自动开发"],
+    ["de-DE", "LinkSense正在自动开发"],
   ])(
     "shows a localized development status with an icon at the bottom without intercepting the preview in %s",
     async (locale, label) => {

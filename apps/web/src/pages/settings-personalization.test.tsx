@@ -44,7 +44,7 @@ describe("personalization settings", () => {
     ).not.toBeChecked()
   })
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "starts with memory off and allows explicit opt-in in %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -76,7 +76,7 @@ describe("personalization settings", () => {
     }
   )
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "omits environment settings and does not request the removed endpoint in %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -156,32 +156,31 @@ describe("personalization settings", () => {
     expect(
       screen.queryByText("选择 ChatGPT 回复的默认语气")
     ).not.toBeInTheDocument()
-    const customInstructionsHeading = screen.getByRole("heading", {
+    const instructionsCard = instructions.closest('[data-slot="card"]')
+    const instructionsHeading = screen.getByRole("heading", {
       name: "自定义指令",
     })
-    const headingRow = customInstructionsHeading.closest(
-      '[data-slot="settings-section-header"]'
-    )
-    expect(headingRow).not.toBeNull()
-    const headingRowElement = headingRow as HTMLElement
-    expect(headingRowElement).toHaveClass(
-      "flex",
-      "gap-3",
-      "sm:flex-row",
-      "sm:justify-between"
+    expect(instructionsCard).toBeInTheDocument()
+    expect(instructionsCard).not.toContainElement(instructionsHeading)
+    expect(instructions.closest("form")).toHaveClass("grid", "min-w-0")
+    expect(instructions.closest('[data-layout="settings"]')).toBeNull()
+    const memorySwitch = screen.getByRole("switch", { name: "启用记忆" })
+    expect(memorySwitch.closest('[data-slot="card-content"]')).toHaveClass(
+      "px-4",
+      "sm:px-5"
     )
     expect(
-      within(headingRowElement).getByRole("button", { name: "保存" })
-    ).toHaveAttribute("form", "custom-instructions-form")
+      memorySwitch.closest('[data-slot="settings-field-group"]')
+    ).toHaveClass("divide-y")
     const instructionsFooter = document.querySelector(
       ".personalization-instructions-footer"
     )
     expect(instructionsFooter).not.toBeNull()
     expect(
-      within(instructionsFooter as HTMLElement).queryByRole("button", {
+      within(instructionsFooter as HTMLElement).getByRole("button", {
         name: "保存",
       })
-    ).not.toBeInTheDocument()
+    ).toBeInTheDocument()
 
     await user.clear(instructions)
     await user.type(instructions, "请保持简洁并运行相关测试。")
@@ -320,7 +319,7 @@ describe("personalization settings", () => {
   it.each([
     ["zh-CN", "首次对话时", "每次对话时"],
     ["en-US", "First message", "Every message"],
-    ["fr-FR", "首次对话时", "每次对话时"],
+    ["de-DE", "首次对话时", "每次对话时"],
   ])(
     "saves and reloads the naming preference in %s without duplicate submissions",
     async (language, first, every) => {
@@ -361,8 +360,8 @@ describe("personalization settings", () => {
       expect(memorySection.compareDocumentPosition(namingSection)).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING
       )
-      expect(select.closest(".personalization-memory-card")).toBeInTheDocument()
-      expect(select.closest(".personalization-memory-row")).toBeInTheDocument()
+      expect(select.closest('[data-slot="card"]')).toBeInTheDocument()
+      expect(select.closest('[data-layout="settings"]')).toBeInTheDocument()
       await user.click(select)
       await user.click(await screen.findByRole("option", { name: first }))
       expect(fetchMock).toHaveBeenCalledOnce()

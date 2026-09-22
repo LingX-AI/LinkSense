@@ -444,6 +444,7 @@ describe("LinkSense application", () => {
     expect(runningStatus.querySelector("svg")).toHaveClass(
       "size-3.5",
       "animate-spin",
+      "[animation-duration:1.5s]",
       "motion-reduce:animate-none"
     )
 
@@ -1223,7 +1224,10 @@ describe("LinkSense application", () => {
     expect(item).toHaveAttribute("data-running", "true")
     const status = within(item).getByRole("status", { name: "执行中" })
     expect(status).toBeVisible()
-    expect(status.querySelector("svg")).toHaveClass("animate-spin")
+    expect(status.querySelector("svg")).toHaveClass(
+      "animate-spin",
+      "[animation-duration:1.5s]"
+    )
     expect(
       within(item).getByRole("button", { name: /^归档任务/u })
     ).toBeEnabled()

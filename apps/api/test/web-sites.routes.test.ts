@@ -62,7 +62,12 @@ describe("website HTTP boundary", () => {
   it.each([
     ["zh-CN", "zh-CN", "站点未找到"],
     ["en-US", "en-US", "Site not found"],
-    ["fr-FR", "zh-CN", "站点未找到"],
+    ["es-ES", "es-ES", "Sitio no encontrado"],
+    ["pt-BR", "pt-BR", "Site não encontrado"],
+    ["fr-FR", "fr-FR", "Site introuvable"],
+    ["ja-JP", "ja-JP", "サイトが見つかりません"],
+    ["de-DE, pt-PT;q=0.8, en;q=0.5", "pt-BR", "Site não encontrado"],
+    ["de-DE", "zh-CN", "站点未找到"],
   ])("renders a standalone accessible 404 page without navigation controls for %s", async (language, locale, title) => {
     const fixture = await setup();
     fixture.store.publicSite.mockRejectedValue(new AppError("WEB_SITE_NOT_FOUND"));

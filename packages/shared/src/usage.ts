@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { timestampSchema, uuidSchema } from "./common.js";
+import { localeSchema, timestampSchema, uuidSchema } from "./common.js";
 
 export const usageAnalyticsRangeValues = [
   "all",
@@ -347,7 +347,7 @@ export const billingStatementListSchema = z.strictObject({
 });
 
 export const billingStatementPdfQuerySchema = z.strictObject({
-  locale: z.enum(["zh-CN", "en-US"]).optional(),
+  locale: localeSchema.optional(),
 });
 
 export type UsageAnalyticsRange = z.infer<typeof usageAnalyticsRangeSchema>;

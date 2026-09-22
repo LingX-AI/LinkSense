@@ -436,7 +436,7 @@ export function WeixinChannelPage() {
                   <>
                     <ChannelAccessActionButton
                       type="button"
-                      size="icon-sm"
+                      size="icon"
                       variant="ghost"
                       label={t("channelAccess.weixin.reconnect")}
                       onClick={openLogin}
@@ -446,7 +446,7 @@ export function WeixinChannelPage() {
                     </ChannelAccessActionButton>
                     <ChannelAccessActionButton
                       type="button"
-                      size="icon-sm"
+                      size="icon"
                       variant="destructive-ghost"
                       className="channel-access-action-destructive"
                       label={t("channelAccess.weixin.disconnect")}
@@ -513,7 +513,7 @@ export function WeixinChannelPage() {
                   <>
                     <ChannelAccessActionButton
                       type="button"
-                      size="icon-sm"
+                      size="icon"
                       variant="ghost"
                       label={t("channelAccess.feishu.reconnect")}
                       onClick={openFeishuRegistration}
@@ -523,7 +523,7 @@ export function WeixinChannelPage() {
                     </ChannelAccessActionButton>
                     <ChannelAccessActionButton
                       type="button"
-                      size="icon-sm"
+                      size="icon"
                       variant="destructive-ghost"
                       className="channel-access-action-destructive"
                       label={t("channelAccess.feishu.disconnect")}

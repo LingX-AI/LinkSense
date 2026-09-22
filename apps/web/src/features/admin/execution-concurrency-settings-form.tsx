@@ -1,4 +1,5 @@
 import { SettingsCard } from "@/components/settings/settings-card"
+import { FieldShell, SettingsFieldGroup } from "@/components/forms/form-field"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState, type FormEvent } from "react"
 import { useTranslation } from "react-i18next"
@@ -13,13 +14,7 @@ import { NotificationToast } from "@/components/feedback/notification-toast"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { Button } from "@/components/ui/button"
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
+import { FieldDescription, FieldGroup } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -110,26 +105,32 @@ export function ExecutionConcurrencySettingsForm({
 
   return (
     <SettingsCard
-      className="settings-section"
       aria-labelledby="execution-concurrency-settings-title"
+      header={
+        <SettingsSectionHeader
+          id="execution-concurrency-settings-title"
+          title={t("admin.concurrency.title")}
+          description={t("admin.concurrency.description")}
+        />
+      }
     >
       <NotificationToast id="concurrency-settings-saved" message={message} />
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
-      <SettingsSectionHeader
-        id="execution-concurrency-settings-title"
-        title={t("admin.concurrency.title")}
-        description={t("admin.concurrency.description")}
-      />
+
       <form onSubmit={submit} noValidate>
-        <FieldGroup>
-          <Field
-            data-invalid={
-              fieldErrors.max_concurrent_conversations ? true : undefined
-            }
+        <SettingsFieldGroup>
+          <FieldShell
+            id="max-concurrent-conversations"
+            label={t("admin.concurrency.globalLimit")}
+            hint={t("admin.concurrency.globalLimitDescription", {
+              defaultValue:
+                settings.environment_defaults.max_concurrent_conversations,
+              effectiveValue: settings.effective.max_concurrent_conversations,
+            })}
+            error={fieldErrors.max_concurrent_conversations}
+            layout="settings"
+            controlWidth="compact"
           >
-            <FieldLabel htmlFor="max-concurrent-conversations">
-              {t("admin.concurrency.globalLimit")}
-            </FieldLabel>
             <Input
               ref={globalLimitRef}
               id="max-concurrent-conversations"
@@ -144,7 +145,7 @@ export function ExecutionConcurrencySettingsForm({
               aria-invalid={
                 fieldErrors.max_concurrent_conversations ? true : undefined
               }
-              aria-describedby="max-concurrent-conversations-description max-concurrent-conversations-error"
+              aria-describedby="max-concurrent-conversations-hint max-concurrent-conversations-error"
               placeholder={String(
                 settings.environment_defaults.max_concurrent_conversations
               )}
@@ -156,26 +157,21 @@ export function ExecutionConcurrencySettingsForm({
                 }))
               }}
             />
-            <FieldDescription id="max-concurrent-conversations-description">
-              {t("admin.concurrency.globalLimitDescription", {
-                defaultValue:
-                  settings.environment_defaults.max_concurrent_conversations,
-                effectiveValue: settings.effective.max_concurrent_conversations,
-              })}
-            </FieldDescription>
-            <FieldError id="max-concurrent-conversations-error">
-              {fieldErrors.max_concurrent_conversations}
-            </FieldError>
-          </Field>
+          </FieldShell>
 
-          <Field
-            data-invalid={
-              fieldErrors.runner_app_server_process_limit ? true : undefined
-            }
+          <FieldShell
+            id="runner-app-server-process-limit"
+            label={t("admin.concurrency.processLimit")}
+            hint={t("admin.concurrency.processLimitDescription", {
+              defaultValue:
+                settings.environment_defaults.runner_app_server_process_limit,
+              effectiveValue:
+                settings.effective.runner_app_server_process_limit,
+            })}
+            error={fieldErrors.runner_app_server_process_limit}
+            layout="settings"
+            controlWidth="compact"
           >
-            <FieldLabel htmlFor="runner-app-server-process-limit">
-              {t("admin.concurrency.processLimit")}
-            </FieldLabel>
             <Input
               ref={processLimitRef}
               id="runner-app-server-process-limit"
@@ -190,7 +186,7 @@ export function ExecutionConcurrencySettingsForm({
               aria-invalid={
                 fieldErrors.runner_app_server_process_limit ? true : undefined
               }
-              aria-describedby="runner-app-server-process-limit-description runner-app-server-process-limit-error"
+              aria-describedby="runner-app-server-process-limit-hint runner-app-server-process-limit-error"
               placeholder={String(
                 settings.environment_defaults.runner_app_server_process_limit
               )}
@@ -202,26 +198,17 @@ export function ExecutionConcurrencySettingsForm({
                 }))
               }}
             />
-            <FieldDescription id="runner-app-server-process-limit-description">
-              {t("admin.concurrency.processLimitDescription", {
-                defaultValue:
-                  settings.environment_defaults.runner_app_server_process_limit,
-                effectiveValue:
-                  settings.effective.runner_app_server_process_limit,
-              })}
-            </FieldDescription>
-            <FieldError id="runner-app-server-process-limit-error">
-              {fieldErrors.runner_app_server_process_limit}
-            </FieldError>
-          </Field>
+          </FieldShell>
+        </SettingsFieldGroup>
 
+        <FieldGroup>
           <FieldDescription>
             {t("admin.concurrency.loweringBehavior")}
           </FieldDescription>
           <div className="flex flex-wrap justify-end gap-2">
             <Button
               type="submit"
-              size="lg"
+              size="default"
               disabled={mutation.isPending}
               aria-busy={mutation.isPending || undefined}
             >

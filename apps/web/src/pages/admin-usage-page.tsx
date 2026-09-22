@@ -66,7 +66,13 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { normalizeLanguage } from "@/i18n"
+import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
+import {
+  calendarDateFormatFor,
+  compactDateFormatFor,
+  dayjsLocaleFor,
+  monthYearFormatFor,
+} from "@/i18n/date"
 import {
   allocateCnyMinorUnits,
   formatCnyCost,
@@ -321,6 +327,7 @@ export function UsageAnalyticsPage() {
   return (
     <PageLayout
       title={t("usage.title")}
+      contentWidth={section === "analytics" ? "wide" : "standard"}
       description={
         section === "billing"
           ? t("usage.billing.pageDescription")
@@ -943,7 +950,7 @@ function UsageTrendTooltip({
   active: boolean | undefined
   point: TokenTrendPoint | undefined
   granularity: TokenTrend["granularity"]
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
   metric: UsageChartMetric
 }) {
   const { t } = useTranslation()
@@ -1541,7 +1548,7 @@ function GroupUsageTable({
                   <Button
                     type="button"
                     variant="link"
-                    size="xs"
+                    size="default"
                     className="justify-start px-0 text-foreground"
                     aria-pressed={selected}
                     onClick={() => onSelect(group)}
@@ -1675,7 +1682,7 @@ function ApplicationUsageTable({
                   <Button
                     type="button"
                     variant="link"
-                    size="xs"
+                    size="default"
                     className="justify-start px-0 text-foreground"
                     aria-pressed={selected}
                     onClick={() => onSelect(application)}
@@ -2036,11 +2043,8 @@ function SortableTableHead<Key extends string>({
       <Button
         type="button"
         variant="ghost"
-        size="xs"
-        className={cn(
-          "-mx-2 h-7 px-2 text-sm font-medium",
-          align === "right" && "-mr-2 ml-auto"
-        )}
+        size="default"
+        className={cn("-mx-3", align === "right" && "-mr-3 ml-auto")}
         aria-label={t(`usage.sort.${nextDirection}`, { field: label })}
         onClick={() => onSort(columnKey)}
       >
@@ -2066,7 +2070,7 @@ function sortItems<Item, Key extends string>(
   items: readonly Item[],
   sort: SortState<Key> | null,
   getValue: (item: Item, key: Key) => SortValue,
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
 ): Item[] {
   if (!sort) return [...items]
 
@@ -2220,7 +2224,7 @@ function decimalSortValue(value: string): SortValue {
 function compareSortValues(
   left: SortValue,
   right: SortValue,
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
 ): number {
   if (left.type === "integer" && right.type === "integer") {
     return compareIntegers(left.value, right.value, language)
@@ -2237,7 +2241,7 @@ function compareSortValues(
 function compareText(
   left: string,
   right: string,
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
 ): number {
   return new Intl.Collator(language, {
     numeric: true,
@@ -2248,7 +2252,7 @@ function compareText(
 function compareIntegers(
   left: number | string,
   right: number | string,
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
 ): number {
   const leftNumber = parseSortableInteger(left)
   const rightNumber = parseSortableInteger(right)
@@ -2261,7 +2265,7 @@ function compareIntegers(
 function compareDecimals(
   left: string,
   right: string,
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
 ): number {
   const leftNumber = parseSortableDecimal(left)
   const rightNumber = parseSortableDecimal(right)
@@ -2321,7 +2325,7 @@ function CostCell({
   value: string
   minorUnits?: bigint
   unpricedTokens?: string
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
   className?: string
 }) {
   const { t } = useTranslation()
@@ -2369,7 +2373,7 @@ function CurrencyYAxisTick({
   x?: number
   y?: number
   payload?: { value?: number | string }
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
 }) {
   const value = formatCnyCost(payload?.value ?? 0, language)
   if (!value.startsWith("¥")) {
@@ -2414,7 +2418,7 @@ function NumericCell({
   className,
 }: {
   value: number | string
-  language: "zh-CN" | "en-US"
+  language: SupportedLanguage
   token?: boolean
   className?: string
 }) {
@@ -2430,17 +2434,17 @@ function NumericCell({
 function formatTrendPeriod(
   value: string,
   granularity: TokenTrend["granularity"],
-  language: "zh-CN" | "en-US",
+  language: SupportedLanguage,
   compact: boolean
 ): string {
-  const parsed = dayjs(value).locale(language === "zh-CN" ? "zh-cn" : "en")
+  const parsed = dayjs(value).locale(dayjsLocaleFor(language))
   if (!parsed.isValid()) return value
   if (granularity === "year") return parsed.format("YYYY")
   if (granularity === "month") {
-    return parsed.format(language === "zh-CN" ? "YYYY年M月" : "MMM YYYY")
+    return parsed.format(monthYearFormatFor(language))
   }
-  if (compact) return parsed.format(language === "zh-CN" ? "M/D" : "MMM D")
-  return parsed.format(language === "zh-CN" ? "YYYY年M月D日" : "MMM D, YYYY")
+  if (compact) return parsed.format(compactDateFormatFor(language))
+  return parsed.format(calendarDateFormatFor(language))
 }
 
 function defaultCustomDates(): { from: string; to: string } {

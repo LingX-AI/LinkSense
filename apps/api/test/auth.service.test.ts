@@ -22,6 +22,16 @@ import type {
 const NOW = new Date("2026-07-11T08:00:00.456Z");
 
 describe("AuthService", () => {
+  it("issues a social session only while the verified user's revocation stamp remains unchanged", async () => {
+    const user = makeUser();
+    const fixture = authFixture({ user });
+    await expect(fixture.service.createSocialSession(user.id, "google", metadata(), "2025-01-01T00:00:00.000Z")).rejects.toMatchObject({ code: "AUTH_SESSION_EXPIRED" });
+    expect(fixture.persistence.createRefreshSession).not.toHaveBeenCalled();
+    const session = await fixture.service.createSocialSession(user.id, "google", metadata(), user.authValidAfter.toISOString());
+    expect(session.user.lastLoginMethod).toBe("google");
+    vi.mocked(fixture.persistence.findUserById).mockResolvedValue({ ...user, status: "disabled" });
+    await expect(fixture.service.createSocialSession(user.id, "google", metadata(), user.authValidAfter.toISOString())).rejects.toMatchObject({ code: "USER_DISABLED" });
+  });
   it("issues access tokens with a fixed seven-day lifetime", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(NOW.getTime());
     const sign = vi.fn(() => "signed-access-token");
@@ -671,6 +681,24 @@ describe("AuthService", () => {
       initialization_credential_required: false,
     })
   })
+
+  it("uses existing active accounts for SAML without changing their role or requiring new fields", async () => {
+    const fixture = authFixture({ user: makeUser() });
+    const session = await fixture.service.loginSaml({ email: "PERSON@example.com" }, metadata());
+    expect(session.user.lastLoginMethod).toBe("saml");
+    expect(session.user.id).toBe(makeUser().id);
+    expect(session.user.role).toBe(makeUser().role);
+    expect(fixture.persistence.createRefreshSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates first-time SAML accounts as pending and denies disabled accounts", async () => {
+    for (const user of [null, makeUser({ status: "disabled" })]) {
+      const fixture = authFixture({ user });
+      await expect(fixture.service.loginSaml({ email: "person@example.com" }, metadata())).rejects.toMatchObject({ code: user ? "USER_DISABLED" : "EXTERNAL_ACCOUNT_PENDING_APPROVAL" });
+      expect(fixture.accessTokens.issue).not.toHaveBeenCalled();
+      expect(fixture.persistence.createRefreshSession).not.toHaveBeenCalled();
+    }
+  });
 
   it("creates a first-time OIDC user as disabled and requires administrator approval", async () => {
     const oidc: OidcFlow = {

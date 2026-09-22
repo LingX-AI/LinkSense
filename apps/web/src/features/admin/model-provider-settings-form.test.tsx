@@ -118,7 +118,7 @@ function installSaveMock(initial = settings, detectContext = false) {
 }
 
 describe("ModelProviderSettingsForm", () => {
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "saves and clears the extraction model in %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -158,6 +158,26 @@ describe("ModelProviderSettingsForm", () => {
     await i18n.changeLanguage("en-US")
   })
 
+  it("keeps channel actions immediately after the channel selector in the same control row", () => {
+    renderModels()
+    const selector = screen.getByRole("combobox", {
+      name: i18n.t("admin.modelProvider.currentChannel"),
+    })
+    const add = screen.getByRole("button", { name: "Add model" })
+    const more = screen.getByRole("button", { name: "Channel actions" })
+    const row = selector.parentElement
+    expect(row).toHaveClass("flex", "items-center")
+    expect(row).toContainElement(add)
+    expect(row).toContainElement(more)
+    expect(
+      selector.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      add.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(add.parentElement).toHaveClass("shrink-0")
+  })
+
   it.each([
     {
       locale: "zh-CN",
@@ -182,7 +202,7 @@ describe("ModelProviderSettingsForm", () => {
       priceHeader: "Input / cached input / output price",
     },
     {
-      locale: "fr-FR",
+      locale: "de-DE",
       table: "模型列表",
       edit: "编辑模型 Model A",
       modelKind: "对话模型",
@@ -310,7 +330,7 @@ describe("ModelProviderSettingsForm", () => {
       editLabel: "Edit channel",
     },
     {
-      locale: "fr-FR",
+      locale: "de-DE",
       modelActions: "模型 Model A 的操作",
       channelActions: "渠道操作",
       modelLabel: "删除模型",

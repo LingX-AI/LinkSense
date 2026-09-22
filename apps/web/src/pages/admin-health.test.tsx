@@ -277,7 +277,7 @@ describe("administrator health page", () => {
       expect(screen.getByRole("banner").closest(".health-page")).not.toBeNull()
       expect(screen.getByText(description)).toBeVisible()
       const refreshButton = screen.getByRole("button", { name: refresh })
-      expect(refreshButton).toHaveClass("size-7")
+      expect(refreshButton).toHaveClass("size-8")
       expect(refreshButton).toHaveClass("hover:bg-hover")
       expect(refreshButton).not.toHaveClass("bg-secondary")
       expect(refreshButton).not.toHaveTextContent(refresh)

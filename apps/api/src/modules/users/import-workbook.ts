@@ -1,4 +1,4 @@
-import type { Locale } from "@linksense/shared";
+import { supportedLocales, type Locale } from "@linksense/shared";
 import ExcelJS from "exceljs";
 import { fileTypeFromBuffer } from "file-type";
 import { Open } from "unzipper";
@@ -305,7 +305,7 @@ function hasSupportedHeaders(worksheet: ExcelJS.Worksheet): boolean {
     return false;
   }
   if (headerValues.length !== importFields.length) return false;
-  return (["zh-CN", "en-US"] as const).some((locale) => {
+  return supportedLocales.some((locale) => {
     const expected = localizedHeaders(locale);
     return expected.every((header, index) => header === headerValues[index]);
   });

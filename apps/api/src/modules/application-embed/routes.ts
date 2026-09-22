@@ -12,6 +12,7 @@ import {
   updateApplicationEmbedExternalApplicationSessionInputSchema,
   updateApplicationExternalAccessInputSchema,
   voiceTranscriptionRequestSchema,
+  type Locale,
 } from "@linksense/shared";
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -23,6 +24,7 @@ import {
 import { sseCorsHeaders } from "../../lib/cors.js";
 import { AppError } from "../../lib/errors.js";
 import { ok, sendAppError } from "../../lib/http.js";
+import { normalizeLocale } from "../../lib/locale.js";
 import type { AppServices } from "../../services.js";
 import type { RequestActor } from "../capabilities/types.js";
 import { KnowledgeCitationReadService } from "../knowledge/citation-read.js";
@@ -858,8 +860,8 @@ window.__vite_plugin_react_preamble_installed__ = true
   });
 };
 
-function embedLocale(value: unknown): "zh-CN" | "en-US" {
-  return value === "en-US" ? "en-US" : "zh-CN";
+function embedLocale(value: unknown): Locale {
+  return typeof value === "string" ? (normalizeLocale(value) ?? "zh-CN") : "zh-CN";
 }
 
 async function authenticateEmbedRequest(

@@ -508,17 +508,34 @@ export function developmentApplicationLogCommand(since) {
   return ["logs", "--follow", "--since", since, "api", "runner", "web", "docs", "dev-gateway"];
 }
 
-export async function synchronizeDevelopmentApplications(output, { synchronize, restart, isLive }) {
+export async function synchronizeDevelopmentApplications(output, { synchronize, restart, isLive, recover, readState }) {
   const containers = output.trim().split(/\r?\n/u).filter(Boolean).map((line) => z.object({
     Service: z.enum(["api", "runner", "web"]),
     ID: z.string().regex(/^[a-f0-9]{12,64}$/u),
     Health: z.enum(["", "starting", "healthy", "unhealthy"]),
+    State: z.enum(["running", "restarting", "exited", "dead", "created", "paused", "removing"]),
   }).parse(JSON.parse(line)));
   if (containers.length !== 3 || new Set(containers.map(({ Service }) => Service)).size !== 3) {
     throw new Error("Development application containers did not start");
   }
-  const results = await Promise.all(containers.map(async ({ Service, ID, Health }) => {
-    const result = z.object({ changed: z.boolean() }).parse(await synchronize(Service, ID));
+  const crashed = (state) => ["restarting", "exited", "dead"].includes(state);
+  const results = await Promise.all(containers.map(async ({ Service, ID, Health, State }) => {
+    if (crashed(State)) {
+      // docker exec/rsync cannot repair a container whose main process exits
+      // before a transfer. Rebuild it with current source, once, without
+      // replacing healthy peers or altering persistent volumes.
+      await recover(Service);
+      return null;
+    }
+    if (State !== "running") throw new Error(`Development ${Service} container is ${State}`);
+    let result;
+    try {
+      result = z.object({ changed: z.boolean() }).parse(await synchronize(Service, ID));
+    } catch (error) {
+      if (!readState || !crashed(await readState(ID))) throw error;
+      await recover(Service);
+      return null;
+    }
     // Source reconciliation happens before an explicit restart. Health and a
     // live probe also detect a running but unresponsive development service.
     const needsRestart = result.changed || Health === "unhealthy" ||
@@ -1473,13 +1490,19 @@ export async function main(argumentsList = process.argv.slice(2)) {
     for (const command of startup.initial) run("docker", composeArguments(command), composeEnvironment);
   });
   await measure("source", async () => {
-    const output = await captureCommand("docker", composeArguments(["ps", "--status", "running", "--format", "{{json .}}", "api", "runner", "web"]), composeEnvironment);
+    const output = await captureCommand("docker", composeArguments(["ps", "--all", "--format", "{{json .}}", "api", "runner", "web"]), composeEnvironment);
     await synchronizeDevelopmentApplications(output, {
       isLive: (service) => developmentApplicationIsLive(service, environment),
       synchronize: async (service, container) => JSON.parse(await captureCommand(
         process.execPath, [resolve(repositoryRoot, "scripts/dev-source.mjs"), service, container], composeEnvironment,
       )),
       restart: (services) => run("docker", composeArguments(["restart", "--no-deps", ...services]), composeEnvironment),
+      readState: async (container) => (await captureCommand("docker", ["inspect", "--format", "{{.State.Status}}", container], composeEnvironment)).trim(),
+      recover: async (service) => {
+        console.log(`[dev] Rebuilding ${service} with current source to recover its exited process`);
+        run("docker", composeArguments(["build", service]), composeEnvironment);
+        run("docker", composeArguments(["up", "-d", "--no-build", "--no-deps", "--force-recreate", service]), composeEnvironment);
+      },
     });
   });
   const session = startComposeDevelopmentSession(

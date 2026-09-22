@@ -193,7 +193,7 @@ import {
   isKnowledgeStageIndeterminate,
   isOriginalPreviewUnsupported,
 } from "@/features/knowledge-bases/knowledge-base-utils"
-import { normalizeLanguage } from "@/i18n"
+import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
 import { SiteLibrary } from "@/features/web-sites/site-library"
 import { TaskArtifactLibrary } from "@/features/task-artifacts/task-artifact-library"
@@ -1018,7 +1018,7 @@ function getKnowledgeBaseDeletionUsages(error: unknown) {
 
 function sortExpandedKnowledgeEntries(
   entries: KnowledgeBaseEntry[],
-  locale: "zh-CN" | "en-US"
+  locale: SupportedLanguage
 ): KnowledgeBaseEntry[] {
   const collator = new Intl.Collator(locale, {
     numeric: true,
@@ -1714,7 +1714,7 @@ function KnowledgeBaseHeaderMetadata({
   locale,
 }: {
   knowledgeBase: KnowledgeBase
-  locale: "zh-CN" | "en-US"
+  locale: SupportedLanguage
 }) {
   const { t } = useTranslation()
   const [accessDetailsOpen, setAccessDetailsOpen] = useState(false)
@@ -1826,7 +1826,7 @@ function KnowledgeDocumentSection({
   knowledgeBase: KnowledgeBase
   entries: KnowledgeBaseEntry[]
   query: ReturnType<typeof useKnowledgeBaseEntries>
-  locale: "zh-CN" | "en-US"
+  locale: SupportedLanguage
   pending: boolean
   selectedDocumentKeys: string[]
   onSelectionChange: (documentKeys: string[]) => void
@@ -2106,7 +2106,7 @@ function KnowledgeFolderRow({
   path?: string[]
   expanded: boolean
   canManage: boolean
-  locale: "zh-CN" | "en-US"
+  locale: SupportedLanguage
   onToggle: () => void
 }) {
   const { t } = useTranslation()
@@ -2189,7 +2189,7 @@ function KnowledgeDocumentRow({
   document: KnowledgeDocument
   path?: string[]
   indentByPath: boolean
-  locale: "zh-CN" | "en-US"
+  locale: SupportedLanguage
   pending: boolean
   selected: boolean
   onSelectionChange: (selected: boolean) => void

@@ -38,43 +38,65 @@ export function ModelSettingsSelect<T extends string>({
   options,
   onChange,
   disabled = false,
+  layout = "default",
+  actions,
 }: {
   label: string
   value: T | null
   options: { value: T; label: string; icon?: ReactNode }[]
   onChange: (value: T) => void
   disabled?: boolean
+  layout?: "default" | "settings"
+  actions?: ReactNode
 }) {
   const id = useId()
-  return (
-    <FieldShell id={id} label={label}>
-      <Select
-        name={id}
-        value={value}
-        items={options}
-        disabled={disabled}
-        onValueChange={(value) => {
-          const option = options.find((item) => item.value === value)
-          if (option) onChange(option.value)
-        }}
+  const select = (
+    <Select
+      name={id}
+      value={value}
+      items={options}
+      disabled={disabled}
+      onValueChange={(value) => {
+        const option = options.find((item) => item.value === value)
+        if (option) onChange(option.value)
+      }}
+    >
+      <SelectTrigger
+        id={id}
+        className={actions ? "w-full min-w-0 flex-1" : "w-full"}
       >
-        <SelectTrigger id={id} className="w-full">
-          <SelectValue>
-            {options.find((option) => option.value === value)?.icon}
-            {options.find((option) => option.value === value)?.label}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {options.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.icon}
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
+        <SelectValue>
+          {options.find((option) => option.value === value)?.icon}
+          {options.find((option) => option.value === value)?.label}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.icon}
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  )
+  return (
+    <FieldShell
+      id={id}
+      label={label}
+      layout={layout}
+      controlWidth={layout === "settings" && !actions ? "medium" : "full"}
+    >
+      {actions ? (
+        <div className="flex min-w-0 items-center gap-2">
+          {select}
+          {actions}
+        </div>
+      ) : (
+        select
+      )}
     </FieldShell>
   )
 }

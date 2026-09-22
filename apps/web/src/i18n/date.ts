@@ -3,6 +3,10 @@ import relativeTime from "dayjs/plugin/relativeTime"
 import utc from "dayjs/plugin/utc"
 import timezone from "dayjs/plugin/timezone"
 import "dayjs/locale/en"
+import "dayjs/locale/es"
+import "dayjs/locale/fr"
+import "dayjs/locale/ja"
+import "dayjs/locale/pt-br"
 import "dayjs/locale/zh-cn"
 
 import type { SupportedLanguage } from "@/i18n"
@@ -11,6 +15,51 @@ dayjs.extend(relativeTime)
 dayjs.extend(utc)
 dayjs.extend(timezone)
 
+const dayjsLocales: Record<SupportedLanguage, string> = {
+  "zh-CN": "zh-cn",
+  "en-US": "en",
+  "es-ES": "es",
+  "pt-BR": "pt-br",
+  "fr-FR": "fr",
+  "ja-JP": "ja",
+}
+
+export function dayjsLocaleFor(language: SupportedLanguage) {
+  return dayjsLocales[language]
+}
+
+export function calendarDateFormatFor(language: SupportedLanguage) {
+  if (language === "zh-CN" || language === "ja-JP") return "YYYY年M月D日"
+  if (language === "es-ES") return "D [de] MMM [de] YYYY"
+  if (language === "pt-BR") return "D [de] MMM [de] YYYY"
+  if (language === "fr-FR") return "D MMM YYYY"
+  return "MMM D, YYYY"
+}
+
+export function monthYearFormatFor(language: SupportedLanguage) {
+  if (language === "zh-CN" || language === "ja-JP") return "YYYY年M月"
+  if (language === "es-ES" || language === "pt-BR") return "MMM [de] YYYY"
+  return "MMM YYYY"
+}
+
+export function compactDateFormatFor(language: SupportedLanguage) {
+  if (language === "zh-CN" || language === "ja-JP") return "M/D"
+  if (language === "fr-FR") return "D MMM"
+  return "MMM D"
+}
+
+export function shortDateFormatFor(language: SupportedLanguage) {
+  if (language === "zh-CN" || language === "ja-JP") return "M月D日"
+  if (language === "fr-FR") return "D MMM"
+  return "MMM D"
+}
+
+export function longMonthYearFormatFor(language: SupportedLanguage) {
+  if (language === "zh-CN" || language === "ja-JP") return "YYYY年M月"
+  if (language === "es-ES" || language === "pt-BR") return "MMMM [de] YYYY"
+  return "MMMM YYYY"
+}
+
 export function formatRelativeDate(
   value: string | null | undefined,
   language: SupportedLanguage
@@ -18,7 +67,7 @@ export function formatRelativeDate(
   if (!value) return "—"
   const parsed = dayjs(value)
   if (!parsed.isValid()) return "—"
-  return parsed.locale(language === "zh-CN" ? "zh-cn" : "en").fromNow()
+  return parsed.locale(dayjsLocaleFor(language)).fromNow()
 }
 
 export function formatDateTime(
@@ -28,9 +77,7 @@ export function formatDateTime(
   if (!value) return "—"
   const parsed = dayjs(value)
   if (!parsed.isValid()) return "—"
-  return parsed
-    .locale(language === "zh-CN" ? "zh-cn" : "en")
-    .format("YYYY-MM-DD HH:mm")
+  return parsed.locale(dayjsLocaleFor(language)).format("YYYY-MM-DD HH:mm")
 }
 
 export function formatLongDateTime(
@@ -40,10 +87,9 @@ export function formatLongDateTime(
   if (!value) return "—"
   const parsed = dayjs(value)
   if (!parsed.isValid()) return "—"
-  const localized = parsed.locale(language === "zh-CN" ? "zh-cn" : "en")
-  return localized.format(
-    language === "zh-CN" ? "YYYY年M月D日，HH:mm" : "MMM D, YYYY, HH:mm"
-  )
+  const localized = parsed.locale(dayjsLocaleFor(language))
+  const separator = language === "zh-CN" || language === "ja-JP" ? "，" : ", "
+  return localized.format(`${calendarDateFormatFor(language)}${separator}HH:mm`)
 }
 
 export function formatCalendarDate(
@@ -52,8 +98,9 @@ export function formatCalendarDate(
 ): string {
   const parsed = dayjs(value)
   if (!parsed.isValid()) return "—"
-  const localized = parsed.locale(language === "zh-CN" ? "zh-cn" : "en")
-  return localized.format(language === "zh-CN" ? "YYYY年M月D日" : "MMM D, YYYY")
+  return parsed
+    .locale(dayjsLocaleFor(language))
+    .format(calendarDateFormatFor(language))
 }
 
 export function calendarMonthLabels(
@@ -72,7 +119,7 @@ export function calendarMonthLabels(
   string,
   string,
 ] {
-  const locale = language === "zh-CN" ? "zh-cn" : "en"
+  const locale = dayjsLocaleFor(language)
   const label = (month: number) =>
     dayjs("2026-01-01").month(month).locale(locale).format("MMM")
   return [
@@ -98,7 +145,7 @@ export function formatMessageTime(
   if (!value) return null
   const parsed = dayjs(value)
   if (!parsed.isValid()) return null
-  return parsed.locale(language === "zh-CN" ? "zh-cn" : "en").format("HH:mm")
+  return parsed.locale(dayjsLocaleFor(language)).format("HH:mm")
 }
 
 export function formatContextualMessageTime(
@@ -111,7 +158,7 @@ export function formatContextualMessageTime(
   if (!parsed.isValid()) return null
 
   const now = dayjs(nowMs)
-  const localized = parsed.locale(language === "zh-CN" ? "zh-cn" : "en")
+  const localized = parsed.locale(dayjsLocaleFor(language))
   return now.isValid() && parsed.isSame(now, "day")
     ? localized.format("HH:mm")
     : localized.format("YYYY-MM-DD HH:mm")
@@ -133,7 +180,7 @@ export function formatConversationTimeSeparatorParts(
   const now = dayjs(nowMs)
   if (!parsed.isValid() || !now.isValid()) return null
 
-  const locale = language === "zh-CN" ? "zh-cn" : "en"
+  const locale = dayjsLocaleFor(language)
   const localized = parsed.locale(locale)
   const time = localized.format("H:mm")
   if (parsed.isSame(now, "day")) return { kind: "today", time }
@@ -143,15 +190,13 @@ export function formatConversationTimeSeparatorParts(
   if (parsed.isSame(now, "year")) {
     return {
       kind: "sameYear",
-      date: localized.format(language === "zh-CN" ? "M月D日" : "MMM D"),
+      date: localized.format(shortDateFormatFor(language)),
       time,
     }
   }
   return {
     kind: "otherYear",
-    date: localized.format(
-      language === "zh-CN" ? "YYYY年M月D日" : "MMM D, YYYY"
-    ),
+    date: localized.format(calendarDateFormatFor(language)),
     time,
   }
 }

@@ -8,6 +8,9 @@ import {
 } from "@/lib/public-copy"
 
 const errorCodeToKey: Record<string, string> = {
+  SOCIAL_CLIENT_IN_USE: errorCatalog.SOCIAL_CLIENT_IN_USE.message_key,
+  SOCIAL_LAST_METHOD: errorCatalog.SOCIAL_LAST_METHOD.message_key,
+  SOCIAL_AUTH_FAILED: errorCatalog.SOCIAL_AUTH_FAILED.message_key,
   APPLICATION_DEVELOPMENT_TEST_BUSY:
     errorCatalog.APPLICATION_DEVELOPMENT_TEST_BUSY.message_key,
   APPLICATION_DEVELOPMENT_TEST_CHANGED:

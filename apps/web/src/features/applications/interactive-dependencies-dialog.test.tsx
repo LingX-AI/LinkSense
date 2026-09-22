@@ -632,7 +632,7 @@ describe.each(["zh-CN", "en-US"])("interactive dependencies (%s)", (locale) => {
 })
 
 it("falls back to Chinese when dependency translations are missing in the selected language", async () => {
-  await i18n.changeLanguage("fr-FR")
+  await i18n.changeLanguage("de-DE")
   expect(i18n.t("applications.dependencies.types.skill")).toBe("技能")
   expect(i18n.t("applications.dependencies.matched")).toBe("已配置")
   expect(i18n.t("applications.dependencies.unmatched")).toBe("未配置")
@@ -649,7 +649,7 @@ it.each([
     "The following plugins, skills, and other resources have been declared by the app package. We recommend completing resource configuration before importing so the app can work properly.",
   ],
   [
-    "fr-FR",
+    "de-DE",
     "以下是应用包已声明的插件技能等资源，导入前建议完成资源配置，以便可以正常的使用应用包。",
   ],
 ])(
@@ -786,7 +786,7 @@ it("clears the previous package information when choosing another file", async (
 })
 
 it("shows an empty description and prevents publishing a package with a non-release version", async () => {
-  await i18n.changeLanguage("fr-FR")
+  await i18n.changeLanguage("de-DE")
   vi.mocked(apiRequest).mockResolvedValue({
     items: [],
     application: {

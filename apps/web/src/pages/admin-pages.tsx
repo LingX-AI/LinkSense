@@ -1,4 +1,7 @@
+import { SamlSettingsForm } from "@/features/saml/settings-form"
 import { dialogBodyStyles } from "@/components/ui/dialog-layout"
+import { Separator } from "@/components/ui/separator"
+import { AdminSocialSettings } from "@/features/social-auth/admin-social-settings"
 import { ListCard } from "@/components/ui/list-card"
 import {
   useDeferredValue,
@@ -92,7 +95,11 @@ import { notify } from "@/components/feedback/notification"
 import { NotificationToast } from "@/components/feedback/notification-toast"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { DatePicker } from "@/components/forms/date-picker"
-import { FieldShell } from "@/components/forms/form-field"
+import {
+  FieldShell,
+  SettingsFieldGroup,
+  SettingsFieldRow,
+} from "@/components/forms/form-field"
 import { ProductLogo } from "@/components/brand/product-logo"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { PageLayout } from "@/components/shell/page-layout"
@@ -141,15 +148,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldGroup,
-  FieldLegend,
-  FieldSet,
-  FieldTitle,
-} from "@/components/ui/field"
+import { FieldLegend, FieldSet } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
   Popover,
@@ -214,8 +213,7 @@ type UsersAndGroupsTab = "groups" | "users"
 const systemSettingsSections = [
   "product",
   "smtp",
-  "registration",
-  "sso",
+  "login",
   "concurrency",
   "maintenance",
 ] as const
@@ -631,6 +629,7 @@ function UsersAndGroupsManagementLayout({
   return (
     <PageLayout
       title={t("admin.usersAndGroupsTitle")}
+      contentWidth={activeTab === "users" ? "wide" : "standard"}
       description={t("admin.usersAndGroupsDescription")}
       actions={actions}
     >
@@ -1301,7 +1300,7 @@ function UserManagementPage() {
                             render={
                               <Button
                                 type="button"
-                                size="icon-xs"
+                                size="icon"
                                 variant="ghost"
                                 className="text-muted-foreground"
                                 aria-label={t("admin.adjustUserCreditLimits", {
@@ -1322,7 +1321,7 @@ function UserManagementPage() {
                             render={
                               <Button
                                 type="button"
-                                size="icon-xs"
+                                size="icon"
                                 variant="ghost"
                                 className="text-muted-foreground"
                                 aria-label={t("common.edit")}
@@ -1886,6 +1885,7 @@ function RoleOverviewPage() {
   return (
     <PageLayout
       title={t("admin.rolesTitle")}
+      contentWidth="wide"
       description={t("admin.rolesDescription", { productName })}
     >
       {summaryQuery.isLoading && <LoadingState />}
@@ -2132,8 +2132,8 @@ function UserGroupManagementPage() {
                 <Button
                   type="button"
                   variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-muted-foreground"
+                  size="default"
+                  className="text-muted-foreground"
                   aria-label={t("admin.viewGroupMembers", {
                     name: group.name,
                     count: group.member_count ?? group.member_ids?.length ?? 0,
@@ -2151,7 +2151,7 @@ function UserGroupManagementPage() {
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon-sm"
+                    size="icon"
                     aria-label={t("common.actions")}
                   />
                 }
@@ -2527,6 +2527,7 @@ function AuditPage() {
   return (
     <PageLayout
       title={t("admin.auditTitle")}
+      contentWidth="wide"
       description={t("admin.auditDescription")}
       actions={
         <Button
@@ -2743,7 +2744,7 @@ function AuditPage() {
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    size="default"
                     className="text-[length:var(--app-font-13)] text-[var(--app-muted)]"
                   />
                 }
@@ -3115,7 +3116,7 @@ function AuditTable({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    size="default"
                     onClick={() => setSelectedRecord(record)}
                   >
                     {t("common.details")}
@@ -3319,7 +3320,7 @@ function AuditConversationTable({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    size="default"
                     onClick={() => setSelectedRecord(record)}
                   >
                     {t("common.details")}
@@ -3414,7 +3415,7 @@ function RetainedArtifactTable({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    size="default"
                     onClick={() => setSelectedRecord(record)}
                   >
                     {t("common.details")}
@@ -3647,10 +3648,7 @@ function ProductSettingsEditor({
           {t("admin.settingsTabs.product")}
         </TabsTrigger>
         <TabsTrigger value="smtp">{t("admin.settingsTabs.smtp")}</TabsTrigger>
-        <TabsTrigger value="registration">
-          {t("admin.settingsTabs.registration")}
-        </TabsTrigger>
-        <TabsTrigger value="sso">{t("admin.settingsTabs.sso")}</TabsTrigger>
+        <TabsTrigger value="login">{t("admin.settingsTabs.login")}</TabsTrigger>
         <TabsTrigger value="concurrency">
           {t("admin.settingsTabs.concurrency")}
         </TabsTrigger>
@@ -3663,14 +3661,15 @@ function ProductSettingsEditor({
         <NotificationToast id="product-settings-saved" message={message} />
         {error && <StatusBanner variant="error">{error}</StatusBanner>}
         <SettingsCard
-          className="settings-section"
           aria-labelledby="editable-settings"
+          header={
+            <SettingsSectionHeader
+              id="editable-settings"
+              title={t("admin.editableSettings")}
+              description={t("admin.settingsDescription")}
+            />
+          }
         >
-          <SettingsSectionHeader
-            id="editable-settings"
-            title={t("admin.editableSettings")}
-            description={t("admin.settingsDescription")}
-          />
           <form
             className="form-stack"
             onSubmit={(event: FormEvent) => {
@@ -3680,82 +3679,91 @@ function ProductSettingsEditor({
               mutation.mutate()
             }}
           >
-            <FieldShell id="system-name" label={t("admin.systemName")}>
-              <Input
+            <SettingsFieldGroup>
+              <FieldShell
                 id="system-name"
-                className="h-9"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                required
-              />
-            </FieldShell>
-            <FieldShell
-              id="system-logo"
-              label={t("admin.systemLogo")}
-              hint={t("admin.systemLogoHint")}
-            >
-              <div className="product-logo-setting">
-                <div className="product-logo-preview" aria-hidden="true">
-                  <ProductLogo
-                    productName={name.trim() || settings.system_name}
-                    logoUrl={logoUrl}
-                    className="product-settings-logo-preview"
-                  />
-                </div>
-                <div className="product-logo-actions">
-                  <p className="product-logo-description">
-                    {t("admin.systemLogoDescription")}
-                  </p>
-                  <div className="product-logo-buttons">
-                    <Input
-                      ref={logoInputRef}
-                      id="system-logo"
-                      className="sr-only"
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/gif"
-                      onChange={(event) => {
-                        const file = event.currentTarget.files?.[0]
-                        event.currentTarget.value = ""
-                        if (!file) return
-                        setMessage(null)
-                        setError(null)
-                        uploadLogoMutation.mutate(file)
-                      }}
+                label={t("admin.systemName")}
+                controlWidth="medium"
+                layout="settings"
+              >
+                <Input
+                  id="system-name"
+                  className="h-9"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                />
+              </FieldShell>
+              <FieldShell
+                id="system-logo"
+                label={t("admin.systemLogo")}
+                controlWidth="wide"
+                hint={t("admin.systemLogoHint")}
+                layout="settings"
+              >
+                <div className="product-logo-setting">
+                  <div className="product-logo-preview" aria-hidden="true">
+                    <ProductLogo
+                      productName={name.trim() || settings.system_name}
+                      logoUrl={logoUrl}
+                      className="product-settings-logo-preview"
                     />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={logoBusy}
-                      onClick={() => logoInputRef.current?.click()}
-                    >
-                      <ImageIcon data-icon="inline-start" />
-                      {logoUrl
-                        ? t("admin.replaceSystemLogo")
-                        : t("admin.uploadSystemLogo")}
-                    </Button>
-                    {logoUrl && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        disabled={logoBusy}
-                        onClick={() => {
+                  </div>
+                  <div className="product-logo-actions">
+                    <p className="product-logo-description">
+                      {t("admin.systemLogoDescription")}
+                    </p>
+                    <div className="product-logo-buttons">
+                      <Input
+                        ref={logoInputRef}
+                        id="system-logo"
+                        className="sr-only"
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0]
+                          event.currentTarget.value = ""
+                          if (!file) return
                           setMessage(null)
                           setError(null)
-                          deleteLogoMutation.mutate()
+                          uploadLogoMutation.mutate(file)
                         }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={logoBusy}
+                        onClick={() => logoInputRef.current?.click()}
                       >
-                        <Trash2Icon data-icon="inline-start" />
-                        {t("admin.removeSystemLogo")}
+                        <ImageIcon data-icon="inline-start" />
+                        {logoUrl
+                          ? t("admin.replaceSystemLogo")
+                          : t("admin.uploadSystemLogo")}
                       </Button>
-                    )}
+                      {logoUrl && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          disabled={logoBusy}
+                          onClick={() => {
+                            setMessage(null)
+                            setError(null)
+                            deleteLogoMutation.mutate()
+                          }}
+                        >
+                          <Trash2Icon data-icon="inline-start" />
+                          {t("admin.removeSystemLogo")}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </FieldShell>
+              </FieldShell>
+            </SettingsFieldGroup>
             <div className="flex flex-wrap justify-end gap-2">
               <Button
                 type="submit"
-                size="lg"
+                size="default"
                 disabled={!name.trim() || mutation.isPending || logoBusy}
                 aria-busy={mutation.isPending || logoBusy || undefined}
               >
@@ -3783,29 +3791,52 @@ function ProductSettingsEditor({
           settings={authenticationSettings.smtp}
         />
       </TabsContent>
-      <TabsContent value="registration" className="min-w-0" keepMounted>
-        <RegistrationSettingsForm settings={registrationSettings} />
-      </TabsContent>
-      <TabsContent value="sso" className="min-w-0" keepMounted>
-        <OidcAuthenticationSettingsForm
-          settings={authenticationSettings.oidc}
-        />
-        <TeamsAuthenticationSettingsForm
-          settings={authenticationSettings.teams}
-        />
+      <TabsContent value="login" className="min-w-0" keepMounted>
+        <div className="flex min-w-0 flex-col gap-8">
+          <section
+            aria-labelledby="enterprise-login-title"
+            className="flex min-w-0 flex-col gap-6"
+          >
+            <SettingsSectionHeader
+              id="enterprise-login-title"
+              title={t("admin.authSettings.enterpriseTitle")}
+              description={t("admin.authSettings.enterpriseDescription")}
+            />
+            <OidcAuthenticationSettingsForm
+              settings={authenticationSettings.oidc}
+            />
+            <SamlSettingsForm />
+            <TeamsAuthenticationSettingsForm
+              settings={authenticationSettings.teams}
+            />
+          </section>
+          <SettingsCard
+            aria-labelledby="third-party-login-title"
+            header={
+              <SettingsSectionHeader
+                id="third-party-login-title"
+                title={t("social.title")}
+                description={t("social.description")}
+              />
+            }
+          >
+            <RegistrationSettingsToggle settings={registrationSettings} />
+            <Separator className="bg-[var(--app-divider)]" />
+            <AdminSocialSettings />
+          </SettingsCard>
+        </div>
       </TabsContent>
     </Tabs>
   )
 }
 
-function RegistrationSettingsForm({
+function RegistrationSettingsToggle({
   settings,
 }: {
   settings: RegistrationSettings
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [enabled, setEnabled] = useState(settings.enabled)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const mutation = useMutation({
@@ -3840,8 +3871,8 @@ function RegistrationSettingsForm({
     },
   })
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const changeEnabled = (enabled: boolean) => {
+    if (mutation.isPending) return
     setMessage(null)
     setError(null)
     const nextSettings = registrationSettingsSchema.parse({ enabled })
@@ -3849,48 +3880,36 @@ function RegistrationSettingsForm({
   }
 
   return (
-    <SettingsCard
-      className="settings-section"
+    <section
+      className="grid gap-4 py-2"
       aria-label={t("admin.settingsTabs.registration")}
     >
       <NotificationToast id="registration-settings-saved" message={message} />
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
-      <form onSubmit={submit} noValidate>
-        <FieldGroup>
-          <Field
-            orientation="horizontal"
-            data-disabled={mutation.isPending || undefined}
-          >
-            <FieldContent>
-              <FieldTitle id="open-registration-label">
-                {t("admin.registration.enabled")}
-              </FieldTitle>
-              <FieldDescription id="open-registration-description">
-                {t("admin.registration.enabledDescription")}
-              </FieldDescription>
-            </FieldContent>
+      <SettingsFieldGroup>
+        <SettingsFieldRow
+          id="open-registration"
+          label={t("admin.registration.enabled")}
+          hint={t("admin.registration.enabledDescription")}
+          controlWidth="compact"
+        >
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+            {mutation.isPending && <Spinner aria-hidden="true" />}
             <Switch
-              checked={enabled}
+              id="open-registration"
+              checked={
+                mutation.isPending
+                  ? mutation.variables.enabled
+                  : settings.enabled
+              }
               disabled={mutation.isPending}
-              aria-labelledby="open-registration-label"
-              aria-describedby="open-registration-description"
               aria-busy={mutation.isPending || undefined}
-              onCheckedChange={(nextEnabled) => {
-                setMessage(null)
-                setError(null)
-                setEnabled(nextEnabled)
-              }}
+              onCheckedChange={changeEnabled}
             />
-          </Field>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button type="submit" disabled={mutation.isPending}>
-              {mutation.isPending && <Spinner data-icon="inline-start" />}
-              {t("common.save")}
-            </Button>
           </div>
-        </FieldGroup>
-      </form>
-    </SettingsCard>
+        </SettingsFieldRow>
+      </SettingsFieldGroup>
+    </section>
   )
 }
 
@@ -3990,6 +4009,7 @@ function ModelSettingsPage() {
   return (
     <PageLayout
       title={t("settings.modelSettings")}
+      contentWidth={activeTab === "channels" ? "wide" : "standard"}
       description={t("settings.modelSettingsDescription")}
     >
       {modelProviderQuery.data?.management_enabled === false && (
@@ -4223,7 +4243,12 @@ function AuthenticationModeField({
 }) {
   const { t } = useTranslation()
   return (
-    <FieldShell id={id} label={t("admin.authSettings.modeLabel")}>
+    <FieldShell
+      id={id}
+      label={t("admin.authSettings.modeLabel")}
+      controlWidth="medium"
+      layout="settings"
+    >
       <AdminSelect
         id={id}
         value={value}
@@ -4372,13 +4397,17 @@ function SmtpAuthenticationSettingsForm({
   }
 
   return (
-    <SettingsCard className="settings-section" aria-labelledby="smtp-settings">
-      <AuthenticationProviderHeading
-        id="smtp-settings"
-        title={t("admin.authSettings.smtpTitle")}
-        description={t("admin.authSettings.smtpDescription")}
-        status={settings.status}
-      />
+    <SettingsCard
+      aria-labelledby="smtp-settings"
+      header={
+        <AuthenticationProviderHeading
+          id="smtp-settings"
+          title={t("admin.authSettings.smtpTitle")}
+          description={t("admin.authSettings.smtpDescription")}
+          status={settings.status}
+        />
+      }
+    >
       <NotificationToast
         id="smtp-authentication-settings-saved"
         message={message}
@@ -4392,19 +4421,20 @@ function SmtpAuthenticationSettingsForm({
           submit()
         }}
       >
-        <AuthenticationModeField
-          id="smtp-mode"
-          value={mode}
-          onValueChange={setMode}
-          disabled={mutation.isPending}
-        />
-        <ProviderModeNotice mode={mode} />
-        {mode === "managed" && (
-          <>
-            <div className="form-grid">
+        <SettingsFieldGroup>
+          <AuthenticationModeField
+            id="smtp-mode"
+            value={mode}
+            onValueChange={setMode}
+            disabled={mutation.isPending}
+          />
+          {mode === "managed" && (
+            <>
               <FieldShell
+                layout="settings"
                 id="smtp-host"
                 label={t("admin.authSettings.smtpHost")}
+                controlWidth="wide"
               >
                 <Input
                   id="smtp-host"
@@ -4415,8 +4445,10 @@ function SmtpAuthenticationSettingsForm({
                 />
               </FieldShell>
               <FieldShell
+                layout="settings"
                 id="smtp-port"
                 label={t("admin.authSettings.smtpPort")}
+                controlWidth="compact"
               >
                 <Input
                   id="smtp-port"
@@ -4429,77 +4461,89 @@ function SmtpAuthenticationSettingsForm({
                   required
                 />
               </FieldShell>
-            </div>
-            <FieldShell
-              id="smtp-security"
-              label={t("admin.authSettings.smtpSecurity")}
-            >
-              <AdminSelect
+              <FieldShell
+                layout="settings"
                 id="smtp-security"
-                value={security}
-                onValueChange={(next) =>
-                  setSecurity(next as "tls" | "starttls")
-                }
-                options={[
-                  {
-                    value: "starttls",
-                    label: t("admin.authSettings.starttls"),
-                  },
-                  { value: "tls", label: t("admin.authSettings.tls") },
-                ]}
-              />
-            </FieldShell>
-            <FieldShell id="smtp-from" label={t("admin.authSettings.smtpFrom")}>
-              <Input
+                label={t("admin.authSettings.smtpSecurity")}
+                controlWidth="medium"
+              >
+                <AdminSelect
+                  id="smtp-security"
+                  value={security}
+                  onValueChange={(next) =>
+                    setSecurity(next as "tls" | "starttls")
+                  }
+                  options={[
+                    {
+                      value: "starttls",
+                      label: t("admin.authSettings.starttls"),
+                    },
+                    { value: "tls", label: t("admin.authSettings.tls") },
+                  ]}
+                />
+              </FieldShell>
+              <FieldShell
+                layout="settings"
                 id="smtp-from"
-                className="h-9"
-                value={from}
-                onChange={(event) => setFrom(event.target.value)}
-                required
-              />
-            </FieldShell>
-            <FieldShell
-              id="smtp-username"
-              label={t("admin.authSettings.smtpUsername")}
-              hint={t("admin.authSettings.smtpUsernameHint")}
-            >
-              <Input
+                label={t("admin.authSettings.smtpFrom")}
+                controlWidth="wide"
+              >
+                <Input
+                  id="smtp-from"
+                  className="h-9"
+                  value={from}
+                  onChange={(event) => setFrom(event.target.value)}
+                  required
+                />
+              </FieldShell>
+              <FieldShell
+                layout="settings"
                 id="smtp-username"
-                className="h-9"
-                autoComplete="off"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-              />
-            </FieldShell>
-            <FieldShell
-              id="smtp-password"
-              label={t("admin.authSettings.smtpPassword")}
-              hint={t(
-                secretCanBePreserved
-                  ? "admin.authSettings.secretPreserved"
-                  : "admin.authSettings.secretRequiredWhenUsed"
-              )}
-            >
-              <Input
+                label={t("admin.authSettings.smtpUsername")}
+                controlWidth="wide"
+                hint={t("admin.authSettings.smtpUsernameHint")}
+              >
+                <Input
+                  id="smtp-username"
+                  className="h-9"
+                  autoComplete="off"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                />
+              </FieldShell>
+              <FieldShell
+                layout="settings"
                 id="smtp-password"
-                className="h-9 placeholder:text-foreground placeholder:opacity-100"
-                type="password"
-                autoComplete="new-password"
-                value={password}
-                placeholder={
+                label={t("admin.authSettings.smtpPassword")}
+                controlWidth="wide"
+                hint={t(
                   secretCanBePreserved
-                    ? MASKED_AUTHENTICATION_SECRET
-                    : undefined
-                }
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </FieldShell>
-          </>
-        )}
+                    ? "admin.authSettings.secretPreserved"
+                    : "admin.authSettings.secretRequiredWhenUsed"
+                )}
+              >
+                <Input
+                  id="smtp-password"
+                  className="h-9 placeholder:text-foreground placeholder:opacity-100"
+                  type="password"
+                  autoComplete="new-password"
+                  value={password}
+                  placeholder={
+                    secretCanBePreserved
+                      ? MASKED_AUTHENTICATION_SECRET
+                      : undefined
+                  }
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </FieldShell>
+            </>
+          )}
+        </SettingsFieldGroup>
+        <ProviderModeNotice mode={mode} />
         <div className="flex flex-wrap justify-end gap-2">
           <Button
             type="submit"
-            size="lg"
+            size="default"
             disabled={!valid || mutation.isPending}
             aria-busy={mutation.isPending || undefined}
           >
@@ -4591,13 +4635,17 @@ function OidcAuthenticationSettingsForm({
   }
 
   return (
-    <SettingsCard className="settings-section" aria-labelledby="oidc-settings">
-      <AuthenticationProviderHeading
-        id="oidc-settings"
-        title={t("admin.authSettings.oidcTitle")}
-        description={t("admin.authSettings.oidcDescription")}
-        status={settings.status}
-      />
+    <SettingsCard
+      aria-labelledby="oidc-settings"
+      header={
+        <AuthenticationProviderHeading
+          id="oidc-settings"
+          title={t("admin.authSettings.oidcTitle")}
+          description={t("admin.authSettings.oidcDescription")}
+          status={settings.status}
+        />
+      }
+    >
       <NotificationToast
         id="oidc-authentication-settings-saved"
         message={message}
@@ -4611,81 +4659,91 @@ function OidcAuthenticationSettingsForm({
           submit()
         }}
       >
-        <AuthenticationModeField
-          id="oidc-mode"
-          value={mode}
-          onValueChange={setMode}
-          disabled={mutation.isPending}
-        />
-        <ProviderModeNotice mode={mode} />
-        {mode === "managed" && (
-          <>
-            <FieldShell
-              id="oidc-issuer-url"
-              label={t("admin.authSettings.oidcIssuer")}
-            >
-              <Input
+        <SettingsFieldGroup>
+          <AuthenticationModeField
+            id="oidc-mode"
+            value={mode}
+            onValueChange={setMode}
+            disabled={mutation.isPending}
+          />
+          {mode === "managed" && (
+            <>
+              <FieldShell
+                layout="settings"
                 id="oidc-issuer-url"
-                className="h-9"
-                type="url"
-                value={issuerUrl}
-                onChange={(event) => setIssuerUrl(event.target.value)}
-                required
-              />
-            </FieldShell>
-            <FieldShell
-              id="oidc-client-id"
-              label={t("admin.authSettings.oidcClientId")}
-            >
-              <Input
+                label={t("admin.authSettings.oidcIssuer")}
+                controlWidth="wide"
+              >
+                <Input
+                  id="oidc-issuer-url"
+                  className="h-9"
+                  type="url"
+                  value={issuerUrl}
+                  onChange={(event) => setIssuerUrl(event.target.value)}
+                  required
+                />
+              </FieldShell>
+              <FieldShell
+                layout="settings"
                 id="oidc-client-id"
-                className="h-9"
-                value={clientId}
-                onChange={(event) => setClientId(event.target.value)}
-                required
-              />
-            </FieldShell>
-            <FieldShell
-              id="oidc-client-secret"
-              label={t("admin.authSettings.oidcClientSecret")}
-              hint={t(
-                secretCanBePreserved
-                  ? "admin.authSettings.secretPreserved"
-                  : "admin.authSettings.secretRequired"
-              )}
-            >
-              <Input
+                label={t("admin.authSettings.oidcClientId")}
+                controlWidth="medium"
+              >
+                <Input
+                  id="oidc-client-id"
+                  className="h-9"
+                  value={clientId}
+                  onChange={(event) => setClientId(event.target.value)}
+                  required
+                />
+              </FieldShell>
+              <FieldShell
+                layout="settings"
                 id="oidc-client-secret"
-                className="h-9 placeholder:text-foreground placeholder:opacity-100"
-                type="password"
-                autoComplete="new-password"
-                value={clientSecret}
-                placeholder={
+                label={t("admin.authSettings.oidcClientSecret")}
+                controlWidth="wide"
+                hint={t(
                   secretCanBePreserved
-                    ? MASKED_AUTHENTICATION_SECRET
-                    : undefined
-                }
-                onChange={(event) => setClientSecret(event.target.value)}
-              />
-            </FieldShell>
-            <FieldShell
-              id="oidc-redirect-uri"
-              label={t("admin.authSettings.oidcRedirectUri")}
-              hint={t("admin.authSettings.oidcRedirectHint")}
-            >
-              <Input
+                    ? "admin.authSettings.secretPreserved"
+                    : "admin.authSettings.secretRequired"
+                )}
+              >
+                <Input
+                  id="oidc-client-secret"
+                  className="h-9 placeholder:text-foreground placeholder:opacity-100"
+                  type="password"
+                  autoComplete="new-password"
+                  value={clientSecret}
+                  placeholder={
+                    secretCanBePreserved
+                      ? MASKED_AUTHENTICATION_SECRET
+                      : undefined
+                  }
+                  onChange={(event) => setClientSecret(event.target.value)}
+                />
+              </FieldShell>
+              <FieldShell
+                layout="settings"
                 id="oidc-redirect-uri"
-                className="h-9"
-                value={settings.redirect_uri}
-                readOnly
-              />
-            </FieldShell>
-          </>
-        )}
+                label={t("admin.authSettings.oidcRedirectUri")}
+                controlWidth="wide"
+                hint={t("admin.authSettings.oidcRedirectHint")}
+              >
+                <Input
+                  id="oidc-redirect-uri"
+                  className="h-9"
+                  value={settings.redirect_uri}
+                  readOnly
+                />
+              </FieldShell>
+            </>
+          )}
+        </SettingsFieldGroup>
+        <ProviderModeNotice mode={mode} />
         <div className="flex flex-wrap justify-end gap-2">
           <Button
             type="submit"
-            size="lg"
+            size="default"
             disabled={!valid || mutation.isPending}
             aria-busy={mutation.isPending || undefined}
           >
@@ -4764,13 +4822,17 @@ function TeamsAuthenticationSettingsForm({
   }
 
   return (
-    <SettingsCard className="settings-section" aria-labelledby="teams-settings">
-      <AuthenticationProviderHeading
-        id="teams-settings"
-        title={t("admin.authSettings.teamsTitle")}
-        description={t("admin.authSettings.teamsDescription")}
-        status={settings.status}
-      />
+    <SettingsCard
+      aria-labelledby="teams-settings"
+      header={
+        <AuthenticationProviderHeading
+          id="teams-settings"
+          title={t("admin.authSettings.teamsTitle")}
+          description={t("admin.authSettings.teamsDescription")}
+          status={settings.status}
+        />
+      }
+    >
       <NotificationToast
         id="teams-authentication-settings-saved"
         message={message}
@@ -4784,46 +4846,52 @@ function TeamsAuthenticationSettingsForm({
           submit()
         }}
       >
-        <AuthenticationModeField
-          id="teams-mode"
-          value={mode}
-          onValueChange={setMode}
-          disabled={mutation.isPending}
-        />
-        <ProviderModeNotice mode={mode} />
-        {mode === "managed" && (
-          <>
-            <FieldShell
-              id="teams-tenant-id"
-              label={t("admin.authSettings.teamsTenantId")}
-            >
-              <Input
+        <SettingsFieldGroup>
+          <AuthenticationModeField
+            id="teams-mode"
+            value={mode}
+            onValueChange={setMode}
+            disabled={mutation.isPending}
+          />
+          {mode === "managed" && (
+            <>
+              <FieldShell
+                layout="settings"
                 id="teams-tenant-id"
-                className="h-9"
-                value={tenantId}
-                onChange={(event) => setTenantId(event.target.value)}
-                required
-              />
-            </FieldShell>
-            <FieldShell
-              id="teams-client-id"
-              label={t("admin.authSettings.teamsClientId")}
-              hint={t("admin.authSettings.teamsExternalHint")}
-            >
-              <Input
+                label={t("admin.authSettings.teamsTenantId")}
+                controlWidth="medium"
+              >
+                <Input
+                  id="teams-tenant-id"
+                  className="h-9"
+                  value={tenantId}
+                  onChange={(event) => setTenantId(event.target.value)}
+                  required
+                />
+              </FieldShell>
+              <FieldShell
+                layout="settings"
                 id="teams-client-id"
-                className="h-9"
-                value={clientId}
-                onChange={(event) => setClientId(event.target.value)}
-                required
-              />
-            </FieldShell>
-          </>
-        )}
+                label={t("admin.authSettings.teamsClientId")}
+                controlWidth="medium"
+                hint={t("admin.authSettings.teamsExternalHint")}
+              >
+                <Input
+                  id="teams-client-id"
+                  className="h-9"
+                  value={clientId}
+                  onChange={(event) => setClientId(event.target.value)}
+                  required
+                />
+              </FieldShell>
+            </>
+          )}
+        </SettingsFieldGroup>
+        <ProviderModeNotice mode={mode} />
         <div className="flex flex-wrap justify-end gap-2">
           <Button
             type="submit"
-            size="lg"
+            size="default"
             disabled={!valid || mutation.isPending}
             aria-busy={mutation.isPending || undefined}
           >
@@ -5329,7 +5397,7 @@ function HealthContent({
                   </p>
                 </div>
                 <Button
-                  size="sm"
+                  size="default"
                   variant="secondary"
                   disabled={pendingCleanup === failure.id}
                   onClick={() => onRetryCleanup(failure.id)}

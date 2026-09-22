@@ -408,7 +408,7 @@ describe("virtual conversation messages", () => {
     expect(screen.queryByText("message-100")).not.toBeInTheDocument()
   })
 
-  it.each(["zh-CN", "en-US", "fr-FR"])(
+  it.each(["zh-CN", "en-US", "de-DE"])(
     "provides localized loading feedback in %s including fallback",
     async (language) => {
       await i18n.changeLanguage(language)

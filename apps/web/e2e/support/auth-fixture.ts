@@ -1,4 +1,4 @@
-import type { AuthSession } from "@linksense/shared"
+import type { AuthSession, Locale } from "@linksense/shared"
 import dayjs from "dayjs"
 
 const NOW = "2026-07-11T08:00:00.000Z"
@@ -17,7 +17,7 @@ export const E2E_ADMIN = {
 } as const
 
 export function createE2EAuthSession(
-  preferredLocale: "zh-CN" | "en-US" = "zh-CN"
+  preferredLocale: Locale = "zh-CN"
 ): AuthSession {
   const issuedAt = dayjs()
   return {

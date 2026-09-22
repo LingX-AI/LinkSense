@@ -1,5 +1,6 @@
 import type {
   ApplicationExternalAccess,
+  Locale,
   UpdateApplicationExternalAccessInput,
 } from "@linksense/shared"
 
@@ -20,7 +21,7 @@ export function externalAccessSecurityConfigurationChanged(
 export function externalIframeUrl(
   access: ApplicationExternalAccess,
   parentOrigin: string,
-  locale: "zh-CN" | "en-US" = "zh-CN"
+  locale: Locale = "zh-CN"
 ) {
   const url = new URL(access.iframe_url)
   url.searchParams.set("parent_origin", parentOrigin)
@@ -32,7 +33,7 @@ export function externalIframeSnippet(
   access: ApplicationExternalAccess,
   parentOrigin: string,
   copy: { title: string; ticketComment: string },
-  locale: "zh-CN" | "en-US" = "zh-CN"
+  locale: Locale = "zh-CN"
 ) {
   const iframeUrl = externalIframeUrl(access, parentOrigin, locale)
   const frameOrigin = new URL(access.iframe_url).origin
