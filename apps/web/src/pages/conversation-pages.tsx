@@ -5,6 +5,7 @@ import { responseLatency } from "@/features/conversations/response-latency"
 import {
   Fragment,
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -23,8 +24,10 @@ import {
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
+  ArrowDownWideNarrowIcon,
   CircleAlertIcon,
   EllipsisIcon,
+  FolderIcon,
   InfoIcon,
   PencilIcon,
   SearchIcon,
@@ -34,7 +37,13 @@ import {
 } from "lucide-react"
 import { TbPin, TbPinFilled } from "react-icons/tb"
 import { useTranslation } from "react-i18next"
-import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom"
+import {
+  Navigate,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom"
 import {
   buildOfficeAnnotationDisplay,
   isMeaninglessTemporaryUploadPath,
@@ -100,9 +109,18 @@ import { notify } from "@/components/feedback/notification"
 import { NotificationToast } from "@/components/feedback/notification-toast"
 import type { ImagePreviewItem } from "@/components/media/image-preview"
 import { StatusBanner } from "@/components/feedback/status-banner"
-import { ConversationSearchDialog } from "@/components/shell/conversation-search-dialog"
 import { PageLayout } from "@/components/shell/page-layout"
 import { Button } from "@/components/ui/button"
+import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
+import { SearchInput } from "@/components/ui/search-input"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConversationScrollToBottomIndicator } from "@/features/conversations/conversation-scroll-to-bottom-indicator"
 import {
@@ -127,6 +145,7 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
 import { Separator } from "@/components/ui/separator"
+import { useProjects } from "@/features/projects/project-api"
 import { ApplicationIconDisplay } from "@/features/applications/application-icon"
 import { defaultApplicationIcon } from "@/features/applications/application-icon-default"
 import { ConversationDevelopmentIcon } from "@/components/shell/conversation-development-icon"
@@ -178,6 +197,11 @@ import { ConversationLineSidebar } from "@/features/conversations/conversation-l
 import { buildOfficeAnnotationInput } from "@/features/conversations/conversation-office-annotation"
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
 import { DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO } from "@/features/conversations/conversation-presentation-width"
+import {
+  readUrlEnum,
+  updateUrlSearchParams,
+  type SearchParamUpdate,
+} from "@/lib/url-search-params"
 import {
   ConversationHtmlCodePreview,
   ConversationImagePreview,
@@ -1489,6 +1513,8 @@ export function ConversationPage({
 
   useEffect(() => {
     const executionStatus = conversation?.execution_status
+    const updatedAt = conversation?.updated_at
+    const lastRunAt = conversation?.last_run_at
     if (
       isNew ||
       !conversationId ||
@@ -1527,12 +1553,18 @@ export function ConversationPage({
       patchSidebarConversationExecutionStatus(
         current,
         conversationId,
-        executionStatus
+        executionStatus,
+        {
+          updatedAt,
+          lastRunAt,
+        }
       )
     )
   }, [
     conversation?.execution_status,
     conversation?.turns,
+    conversation?.updated_at,
+    conversation?.last_run_at,
     conversationId,
     conversationQuery.isFetchedAfterMount,
     conversationQuery.isSuccess,
@@ -6050,10 +6082,27 @@ export function ConversationPage({
   )
 }
 
+const archivedConversationSorts = ["updated_desc", "updated_asc"] as const
+
 export function ArchivedConversationListPage() {
   const { t, i18n } = useTranslation()
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
   const queryClient = useQueryClient()
+  const projectsQuery = useProjects()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const search = searchParams.get("search") ?? ""
+  const deferredSearch = useDeferredValue(search.trim())
+  const sort = readUrlEnum(
+    searchParams,
+    "sort",
+    archivedConversationSorts,
+    "updated_desc"
+  )
+  const parsedProjectId = z
+    .string()
+    .uuid()
+    .safeParse(searchParams.get("project_id"))
+  const projectId = parsedProjectId.success ? parsedProjectId.data : null
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string
     title: string
@@ -6063,19 +6112,34 @@ export function ArchivedConversationListPage() {
   const dismissError = useCallback((message: string) => {
     setError((current) => (current === message ? null : current))
   }, [])
-  const [searchOpen, setSearchOpen] = useState(false)
   const [clearAllOpen, setClearAllOpen] = useState(false)
   const [clearFailures, setClearFailures] = useState<
     z.infer<typeof archivedConversationClearResultSchema>["failed_tasks"]
   >([])
   const [cursor, setCursor] = useState<string | undefined>()
   const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([])
+  const updateFilters = (
+    updates: Readonly<Record<string, SearchParamUpdate>>
+  ) => {
+    setCursor(undefined)
+    setCursorStack([])
+    setSearchParams((current) => updateUrlSearchParams(current, updates), {
+      replace: true,
+    })
+  }
   const query = useQuery({
-    queryKey: ["conversations", true, cursor],
+    queryKey: ["conversations", true, deferredSearch, projectId, sort, cursor],
     queryFn: ({ signal }) =>
       apiRequest("/conversations", {
         schema: paginatedSchema(conversationSchema),
-        query: { archived: true, cursor, limit: 50 },
+        query: {
+          archived: true,
+          search: deferredSearch || undefined,
+          project_id: projectId ?? undefined,
+          sort: sort === "updated_desc" ? undefined : sort,
+          cursor,
+          limit: 50,
+        },
         signal,
       }),
   })
@@ -6157,7 +6221,23 @@ export function ArchivedConversationListPage() {
   const shouldShowPagination =
     cursorStack.length > 0 || Boolean(query.data?.next_cursor)
   const archivedCount = query.data?.total_count ?? query.data?.items.length ?? 0
-  const hasArchivedTasks = archivedCount > 0
+  const hasFilters = Boolean(deferredSearch) || projectId !== null
+  const hasArchivedTasks = archivedCount > 0 || hasFilters
+  const sortItems = archivedConversationSorts.map((value) => ({
+    value,
+    label: t(
+      value === "updated_desc"
+        ? "conversation.archivedSortNewest"
+        : "conversation.archivedSortOldest"
+    ),
+  }))
+  const projectItems = [
+    { value: "all", label: t("conversation.archivedAllProjects") },
+    ...(projectsQuery.data ?? []).map((project) => ({
+      value: project.id,
+      label: project.name,
+    })),
+  ]
 
   return (
     <PageLayout
@@ -6165,28 +6245,18 @@ export function ArchivedConversationListPage() {
       description={t("settings.archivedDescription")}
       actions={
         hasArchivedTasks ? (
-          <>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setSearchOpen(true)}
-            >
-              <SearchIcon data-icon="inline-start" aria-hidden="true" />
-              {t("common.search")}
-            </Button>
-            <Button
-              type="button"
-              variant="destructive-ghost"
-              disabled={clearArchivedMutation.isPending || query.isLoading}
-              onClick={() => {
-                setError(null)
-                setClearAllOpen(true)
-              }}
-            >
-              <Trash2Icon data-icon="inline-start" aria-hidden="true" />
-              {t("conversation.clearArchived")}
-            </Button>
-          </>
+          <Button
+            type="button"
+            variant="destructive-ghost"
+            disabled={clearArchivedMutation.isPending || query.isLoading}
+            onClick={() => {
+              setError(null)
+              setClearAllOpen(true)
+            }}
+          >
+            <Trash2Icon data-icon="inline-start" aria-hidden="true" />
+            {t("conversation.clearArchived")}
+          </Button>
         ) : undefined
       }
     >
@@ -6195,6 +6265,71 @@ export function ArchivedConversationListPage() {
         variant="error"
         onDismiss={dismissError}
       />
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <InputGroup className="w-full sm:min-w-0 sm:flex-1">
+          <InputGroupAddon>
+            <SearchIcon aria-hidden="true" />
+          </InputGroupAddon>
+          <SearchInput
+            value={search}
+            onValueChange={(value) => updateFilters({ search: value })}
+            placeholder={t("conversation.archivedSearchPlaceholder")}
+            aria-label={t("conversation.archivedSearchPlaceholder")}
+          />
+        </InputGroup>
+        <Select
+          items={sortItems}
+          value={sort}
+          onValueChange={(value) => {
+            if (value === null) return
+            updateFilters({
+              sort: value === "updated_desc" ? null : value,
+            })
+          }}
+        >
+          <SelectTrigger
+            className="w-full sm:w-40"
+            aria-label={t("conversation.archivedSortLabel")}
+          >
+            <ArrowDownWideNarrowIcon aria-hidden="true" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="start">
+            <SelectGroup>
+              {sortItems.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <Select
+          items={projectItems}
+          value={projectId ?? "all"}
+          onValueChange={(value) => {
+            if (value === null) return
+            updateFilters({ project_id: value === "all" ? null : value })
+          }}
+        >
+          <SelectTrigger
+            className="w-full sm:w-48"
+            aria-label={t("conversation.archivedProjectLabel")}
+          >
+            <FolderIcon aria-hidden="true" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="start">
+            <SelectGroup>
+              {projectItems.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
       {query.isLoading && <LoadingState />}
       {query.isError && (
         <ErrorState
@@ -6208,7 +6343,13 @@ export function ArchivedConversationListPage() {
         </div>
       )}
       {query.data?.items.length === 0 && (
-        <EmptyState title={t("conversation.archivedEmpty")} />
+        <EmptyState
+          title={t(
+            hasFilters
+              ? "conversation.archivedSearchEmpty"
+              : "conversation.archivedEmpty"
+          )}
+        />
       )}
       {query.data?.items.length ? (
         <Card
@@ -6351,10 +6492,6 @@ export function ArchivedConversationListPage() {
           setClearAllOpen(false)
           clearArchivedMutation.mutate()
         }}
-      />
-      <ConversationSearchDialog
-        open={searchOpen}
-        onOpenChange={setSearchOpen}
       />
     </PageLayout>
   )

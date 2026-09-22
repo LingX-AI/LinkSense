@@ -64,8 +64,8 @@ export function sortSidebarConversations<T extends SidebarConversationOrder>(
     }
 
     const recencyDifference =
-      sidebarConversationRecency(right.conversation) -
-      sidebarConversationRecency(left.conversation)
+      sidebarConversationRecency(right.conversation, mode) -
+      sidebarConversationRecency(left.conversation, mode)
     if (recencyDifference !== 0) return recencyDifference
     return left.index - right.index
   })
@@ -98,12 +98,17 @@ function sidebarConversationPriority(
 }
 
 function sidebarConversationRecency(
-  conversation: SidebarConversationOrder
+  conversation: SidebarConversationOrder,
+  mode: SidebarTaskSortMode
 ): number {
   const parsed = Date.parse(
-    conversation.last_run_at ??
-      conversation.created_at ??
-      conversation.updated_at
+    mode === "updated_at"
+      ? (conversation.updated_at ??
+          conversation.last_run_at ??
+          conversation.created_at)
+      : (conversation.last_run_at ??
+          conversation.updated_at ??
+          conversation.created_at)
   )
   return Number.isNaN(parsed) ? 0 : parsed
 }
@@ -255,13 +260,19 @@ export function patchSidebarConversationExecutionStatus<
     id: string
     execution_status?: Conversation["execution_status"]
     has_unread_completion?: boolean
+    updated_at?: string
+    last_run_at?: string | null
   },
   TData extends SidebarConversationData<T>,
 >(
   data: TData | undefined,
   conversationId: string,
   executionStatus: Conversation["execution_status"],
-  options: { hasUnreadCompletion?: boolean } = {}
+  options: {
+    hasUnreadCompletion?: boolean
+    updatedAt?: string
+    lastRunAt?: string | null
+  } = {}
 ) {
   if (!data) return data
   let changed = false
@@ -272,7 +283,12 @@ export function patchSidebarConversationExecutionStatus<
         conversation.id !== conversationId ||
         (conversation.execution_status === executionStatus &&
           (options.hasUnreadCompletion === undefined ||
-            conversation.has_unread_completion === options.hasUnreadCompletion))
+            conversation.has_unread_completion ===
+              options.hasUnreadCompletion) &&
+          (options.updatedAt === undefined ||
+            conversation.updated_at === options.updatedAt) &&
+          (options.lastRunAt === undefined ||
+            conversation.last_run_at === options.lastRunAt))
       ) {
         return conversation
       }
@@ -280,6 +296,12 @@ export function patchSidebarConversationExecutionStatus<
       return {
         ...conversation,
         execution_status: executionStatus,
+        ...(options.updatedAt === undefined
+          ? {}
+          : { updated_at: options.updatedAt }),
+        ...(options.lastRunAt === undefined
+          ? {}
+          : { last_run_at: options.lastRunAt }),
         ...(options.hasUnreadCompletion === undefined
           ? {}
           : { has_unread_completion: options.hasUnreadCompletion }),

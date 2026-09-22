@@ -245,18 +245,19 @@ function BackgroundConversationExecutionEvents({
     queryClient.setQueryData<
       InfiniteData<Paginated<Conversation>, string | undefined>
     >(["conversations", "sidebar"], (current) =>
-      patchSidebarConversationExecutionStatus(
-        current,
-        conversationId,
-        status,
-        isTerminalConversationExecutionStatus(status)
+      patchSidebarConversationExecutionStatus(current, conversationId, status, {
+        updatedAt: conversation.updated_at,
+        lastRunAt: conversation.last_run_at,
+        ...(isTerminalConversationExecutionStatus(status)
           ? { hasUnreadCompletion: true }
-          : undefined
-      )
+          : {}),
+      })
     )
   }, [
     conversation?.execution_status,
     conversation?.turns,
+    conversation?.updated_at,
+    conversation?.last_run_at,
     conversationId,
     hasObservedFreshDetail,
     pendingExecution,

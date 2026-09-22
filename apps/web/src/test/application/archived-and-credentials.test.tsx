@@ -48,13 +48,15 @@ describe("LinkSense application", () => {
     )
     expect(screen.getByRole("heading", { name: "已归档任务" })).toBeVisible()
     expect(await screen.findByText("1 个任务")).toBeVisible()
-    const searchButton = screen.getByRole("button", { name: "搜索" })
-    expect(searchButton).toHaveClass("hover:bg-hover")
-    expect(searchButton).not.toHaveClass("bg-secondary")
-    expect(searchButton.querySelector("svg")).toHaveAttribute(
-      "data-icon",
-      "inline-start"
-    )
+    const searchInput = screen.getByRole("textbox", {
+      name: "搜索已归档任务的标题、消息或附件…",
+    })
+    expect(searchInput).toBeVisible()
+    expect(screen.getByRole("combobox", { name: "归档任务排序" })).toBeVisible()
+    expect(screen.getByRole("combobox", { name: "按项目筛选" })).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: "搜索" })
+    ).not.toBeInTheDocument()
     const clearButton = screen.getByRole("button", { name: "清除全部" })
     expect(clearButton).toBeEnabled()
     expect(clearButton).toHaveClass("bg-destructive/10", "text-destructive")
@@ -63,11 +65,7 @@ describe("LinkSense application", () => {
       "inline-start"
     )
 
-    await interaction.click(searchButton)
-    await interaction.type(
-      screen.getByPlaceholderText("搜索标题、消息、附件、产物、插件或 Skill…"),
-      "会议"
-    )
+    await interaction.type(searchInput, "会议")
 
     await waitFor(() =>
       expect(
