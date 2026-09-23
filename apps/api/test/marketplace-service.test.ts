@@ -564,6 +564,54 @@ describe("MarketplaceService", () => {
     expect(resumed.status).toBe("published");
     expect(resumed.suspension_reason).toBeNull();
   });
+
+  it("allows only an administrator to relist a publisher-unlisted item with an approved release", async () => {
+    const root = await createCapabilityRoot();
+    const source = sourceCapability(root);
+    const store = new MemoryMarketplaceStore([source]);
+    const service = createService(
+      store,
+      new MemoryMarketplaceInstaller(store),
+      root,
+    );
+    const submission = await service.submit(publisherActor(), {
+      capabilityId: source.id,
+    });
+    const listingId = submission.listing.id;
+
+    await expect(service.resume(reviewerActor(), listingId)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+    await service.review(reviewerActor(), submission.latest_release.id, {
+      decision: "approved",
+    });
+    await service.setPublisherListingStatus(publisherActor(), listingId, "unlisted");
+    expect(await service.listCatalog(installerActor())).toEqual([]);
+
+    await expect(service.resume(publisherActor(), listingId)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    expect((await store.findListing(listingId))?.status).toBe("unlisted");
+
+    const restored = await service.resume(reviewerActor(), listingId);
+    expect(restored.status).toBe("published");
+    expect(restored.suspension_reason).toBeNull();
+    expect(await service.listCatalog(installerActor())).toEqual([
+      expect.objectContaining({
+        listing: expect.objectContaining({ id: listingId, status: "published" }),
+      }),
+    ]);
+    expect(store.audits).toContainEqual(
+      expect.objectContaining({
+        actorId: REVIEWER_ID,
+        action: "marketplace_listing_resumed",
+        targetId: listingId,
+      }),
+    );
+    await expect(service.resume(reviewerActor(), listingId)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+  });
 });
 
 describe("marketplace package integrity", () => {
@@ -707,6 +755,27 @@ describe("marketplace routes", () => {
           reviewer_id: PUBLISHER_ID,
         },
       },
+    });
+
+    const publisherUnlistResponse = await publisherApp.inject({
+      method: "PATCH",
+      url: `/api/v1/marketplace/${submission.data.listing.id}/status`,
+      payload: { status: "unlisted" },
+    });
+    expect(publisherUnlistResponse.statusCode).toBe(200);
+    expect(publisherUnlistResponse.json()).toMatchObject({
+      success: true,
+      data: { status: "unlisted" },
+    });
+    const adminRelistResponse = await reviewerApp.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/marketplace/${submission.data.listing.id}/status`,
+      payload: { action: "resume" },
+    });
+    expect(adminRelistResponse.statusCode).toBe(200);
+    expect(adminRelistResponse.json()).toMatchObject({
+      success: true,
+      data: { status: "published" },
     });
 
     const catalogResponse = await installerApp.inject({

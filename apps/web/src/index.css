@@ -8709,9 +8709,12 @@ button.annotation-hover-file:focus-visible {
   object-fit: contain;
 }
 
-.marketplace-governance-item .capability-logo svg {
-  width: 20px;
-  height: 20px;
+.marketplace-governance-item
+  .capability-logo
+  [data-application-icon-preset]
+  svg {
+  width: 32px;
+  height: 32px;
 }
 
 .marketplace-governance-copy {

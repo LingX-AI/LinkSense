@@ -3580,6 +3580,8 @@ export const jaJP = {
     resumeListingTitle: "「{{name}}」を再掲載しますか？",
     resumeListingDescription:
       "プラグインセンターに再表示され、インストール済みのコピーを新しいタスクで再び使用できます。",
+    relistUnlistedDescription:
+      "プラグインセンターに再表示されます。既存のインストールには影響しません。",
     suspensionReason: "掲載停止の理由",
     listingSuspended:
       "掲載を停止しました。すべてのインストールで新しいタスクの開始がブロックされました。",

@@ -270,6 +270,8 @@ export const pluginResources = {
     resumeListingTitle: "Remettre « {{name}} » au catalogue ?",
     resumeListingDescription:
       "L’élément réapparaîtra dans le Centre et les copies installées pourront à nouveau être utilisées dans de nouvelles tâches.",
+    relistUnlistedDescription:
+      "L’élément réapparaîtra dans le Centre de plugins. Les installations existantes ne seront pas affectées.",
     suspensionReason: "Motif du retrait",
     listingSuspended:
       "L’élément a été retiré ; les nouvelles tâches sont bloquées pour toutes ses installations.",

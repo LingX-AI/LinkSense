@@ -16,6 +16,7 @@ import { useAdminApplicationReleases } from "./application-distribution-queries"
 import { ListCard } from "@/components/ui/list-card"
 import { EmptyState, ErrorState } from "@/components/feedback/page-state"
 import { getErrorMessage } from "@/api/error-message"
+import "@/index.css"
 
 vi.mock("@/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/client")>()),
@@ -108,6 +109,13 @@ describe("application approval cards", () => {
       expect(
         card.querySelector('[data-application-icon-preset="bot"]')
       ).toBeInTheDocument()
+      const artwork = card.querySelector(
+        '[data-application-icon-preset="bot"] svg'
+      )
+      expect(artwork).toBeInstanceOf(SVGElement)
+      if (!(artwork instanceof SVGElement)) throw new Error("Missing artwork")
+      expect(getComputedStyle(artwork).width).toBe("32px")
+      expect(getComputedStyle(artwork).height).toBe("32px")
       expect(
         within(card).getByRole("heading", { name: release.name })
       ).toBeVisible()

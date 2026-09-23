@@ -3345,6 +3345,8 @@ export const enUS = {
     resumeListingTitle: "Relist “{{name}}”?",
     resumeListingDescription:
       "The listing will return to the Plugin Center and installed copies can be used in new tasks again.",
+    relistUnlistedDescription:
+      "The listing will appear in the Plugin Center again. Existing installations are unaffected.",
     suspensionReason: "Unlisting reason",
     listingSuspended:
       "The listing was unlisted and new tasks are blocked for every installation.",

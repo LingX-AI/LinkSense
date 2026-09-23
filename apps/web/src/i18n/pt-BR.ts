@@ -3635,6 +3635,8 @@ export const ptBR = {
     resumeListingTitle: "Recolocar “{{name}}” na listagem?",
     resumeListingDescription:
       "A listagem voltará à Central de plugins e as cópias instaladas poderão ser usadas novamente em novas tarefas.",
+    relistUnlistedDescription:
+      "A listagem voltará a aparecer na Central de plugins. As instalações existentes não serão afetadas.",
     suspensionReason: "Motivo da remoção da listagem",
     listingSuspended:
       "A listagem foi removida e novas tarefas estão bloqueadas em todas as instalações.",

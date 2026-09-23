@@ -3099,6 +3099,8 @@ export const zhCN = {
     resumeListingTitle: "重新上架“{{name}}”？",
     resumeListingDescription:
       "重新上架后条目会显示在插件中心，已安装副本也可以再次用于新任务。",
+    relistUnlistedDescription:
+      "重新上架后条目会再次显示在插件中心，现有安装不受影响。",
     suspensionReason: "下架原因",
     listingSuspended: "上架项已下架，所有安装副本的新任务已被阻止。",
     listingResumed: "上架项已重新上架。",
