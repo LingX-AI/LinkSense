@@ -7,6 +7,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   APPLICATION_DEVELOPMENT_TEST_BUSY: "テストがまだ実行中です。テスト履歴で停止し、対応待ちのリクエストを処理してから続行してください。",
   APPLICATION_DEVELOPMENT_TEST_CHANGED: "テストセッションが変更されました。最新のプレビューから続行してください。",
   APPLICATION_DEVELOPMENT_WORKSPACE_BOUND: "このプロジェクトにはアプリケーションのソースがあります。プロジェクトを削除する前に「マイアプリケーション」で該当アプリを削除してください。開発タスクは現在のプロジェクトに保持する必要があります。",
+  APPLICATION_DEVELOPMENT_PROJECT_NAME_FIXED: "このプロジェクトはアプリ開発タスクをまとめるためのものです。名前は変更できません。",
   APPLICATION_DEVELOPMENT_NOT_FOUND: "このアプリケーションは利用できません。「マイアプリケーション」に戻ってください。",
   APPLICATION_DEVELOPMENT_SOURCE_CHANGED: "アプリケーションが変更されました。インストール前に最新のプレビューを確認してください。",
   WEB_SITE_NOT_FOUND: "このサイトは利用できないか、共有が停止されています",

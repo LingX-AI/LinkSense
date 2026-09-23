@@ -55,6 +55,7 @@ describe("LinkSense application", () => {
   it("opens a compact account menu with only LinkSense account actions", async () => {
     installApiMock({
       userOverride: {
+        weekly_credit_limit: "0.001",
         credit_quota: {
           weekly: {
             limit_credits: "0.001",
