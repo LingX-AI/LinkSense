@@ -16,11 +16,11 @@ This file guides Codex when performing coding, refactoring, testing, and develop
 ## Technology Stack Baseline
 
 - Frontend: React, TypeScript, Vite, React Router, TanStack Query, shadcn/ui Rhea, and Tailwind CSS.
-- Frontend internationalization: i18next and react-i18next, supporting only `zh-CN` and `en-US`.
+- Frontend internationalization: i18next and react-i18next, supporting all six locales defined under Internationalization Standards.
 - Backend: Node.js, TypeScript, Fastify, Zod, and Pino.
 - Authentication and security: `@fastify/jwt`, JWT, and Argon2id.
 - Data and infrastructure: Prisma, PostgreSQL, Redis, BullMQ, the MinIO JavaScript SDK, and SSE.
-- Backend internationalization: i18next, supporting only `zh-CN` and `en-US`.
+- Backend internationalization: i18next, supporting the same six locales as the frontend.
 - Codex integration: `codex app-server` JSON-RPC encapsulated behind a dedicated adapter.
 - Testing: Vitest; use Fastify inject or Supertest for API tests as appropriate to the scenario.
 - Date and time: dayjs.
@@ -120,14 +120,15 @@ prisma/
 
 ## Internationalization Standards
 
-- Implement i18n in both the frontend and backend for every completed feature. Support only `zh-CN` and `en-US`, with `zh-CN` as the default and fallback language.
+- Implement i18n in both the frontend and backend for every completed feature. Support all six locales: Simplified Chinese (`zh-CN`), English (`en-US`), Spanish (`es-ES`), Brazilian Portuguese (`pt-BR`), French (`fr-FR`), and Japanese (`ja-JP`). Keep `zh-CN` as the default and fallback language, and use the shared `supportedLocales` definition as the source of truth for supported locale codes.
 - Use i18next with react-i18next on the frontend and i18next on the backend. Split translation resources by language and domain, and keep their key sets consistent.
+- Author translations directly without public translation services. Review accuracy, terminology, and natural phrasing in each language; preserve interpolation parameters and locale-specific pluralization. Do not use copied source-language text or fallback behavior to conceal missing translations; retain product names and technical identifiers where appropriate.
 - Do not hard-code user-visible text such as page content, buttons, menus, form labels, placeholders, validation messages, toasts, dialogs, empty states, errors, email content, or export titles.
-- i18n keys must be stable and semantic. Do not use Chinese or English source text as keys, and do not construct sentences through string concatenation. Use interpolation and pluralization rules for dynamic content.
+- i18n keys must be stable and semantic. Do not use source text in any language as keys, and do not construct sentences through string concatenation. Use interpolation and pluralization rules for dynamic content.
 - Prefer persisting stable codes, event types, and structured parameters on the backend rather than storing text in only one language.
-- API errors should return stable `error_code` values and parameters for frontend translation. When the backend must generate text, maintain both Chinese and English resources.
+- API errors should return stable `error_code` values and parameters for frontend translation. When the backend must generate text, maintain resources for all six supported locales.
 - Use a consistent dayjs locale and time-zone strategy for dates. Use standard internationalization formatting for numbers, percentages, and currencies.
-- When adding or changing user-visible text, update both language resources and test `zh-CN`, `en-US`, and missing-key fallback behavior.
+- When adding or changing user-visible text, update resources for all six supported locales across affected frontend, backend, and shared modules. Test each locale and missing-key fallback behavior, and verify translation-key coverage and interpolation consistency.
 
 ## Shared Utilities and Dates
 
@@ -167,7 +168,7 @@ prisma/
 - Use Vitest and the project’s existing test tools for frontend components, hooks, and critical interactions, covering success, failure, empty, loading, authorization, and user-interaction states.
 - Mock external dependencies such as Prisma, Redis, BullMQ, and MinIO at their boundaries in unit tests. Use an isolated test environment and clean up data when real integration tests are necessary.
 - Time, randomness, network access, environment variables, and queue behavior must be controllable. Tests must not depend on execution order, the real network, or the developer machine’s local state.
-- i18n tests must cover `zh-CN`, `en-US`, and fallback behavior. Authorization and data-access tests must include both allowed and denied paths.
+- i18n tests must cover all six supported locales and fallback behavior, including translation-key coverage and interpolation consistency. Locale-selection changes must also verify language switching and persistence for every supported locale. Authorization and data-access tests must include both allowed and denied paths.
 - Do not make tests pass by deleting assertions, over-mocking, skipping cases, or changing a correct expectation. If user changes alter confirmed behavior, update both the implementation and tests.
 - After changes, run the smallest relevant test set first, then run type checking, linting, the full test suite, and the build according to the impact scope. Expand verification for shared contracts or common modules.
 - Do not lower existing coverage thresholds or commit `.only`, `.skip`, temporary debugging code, or ineffective tests.
@@ -180,7 +181,7 @@ Before considering a feature complete, confirm that:
 - The implementation matches the current task and confirmed technical approach without unrelated changes.
 - Existing implementations and mature libraries have been evaluated and reused where appropriate, without obvious reinvention.
 - Frontend and backend boundaries, error handling, authorization, security, responsiveness, and required states are covered.
-- All user-visible text is provided in both `zh-CN` and `en-US`, with no hard-coded text or missing keys.
+- All user-visible text is accurately translated for all six supported locales, with no hard-coded text, missing keys, or untranslated source-language placeholders.
 - New or changed behavior has corresponding tests, and relevant tests, type checks, and linting have passed. If the build pipeline is affected, the build has also passed.
 - For schema changes, migration-risk confirmation has been completed and related code, tests, and documentation have been updated.
 - The actual diff has been reviewed to confirm that it contains no sensitive information, generated artifacts, unrelated formatting, or overwritten user changes.
