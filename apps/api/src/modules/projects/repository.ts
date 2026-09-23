@@ -1,5 +1,5 @@
 import { Prisma, type PrismaClient, type Project } from "../../generated/prisma/client.js";
-import type { ProjectInput } from "@linksense/shared";
+import { APPLICATION_DEVELOPMENT_PROJECT_NAME, type ProjectInput } from "@linksense/shared";
 
 import { AppError } from "../../lib/errors.js";
 import { projectWorkspaceRelativePath } from "../../lib/user-runtime-paths.js";
@@ -69,9 +69,15 @@ export class ProjectRepository {
   }
 
   update(ownerId: string, id: string, input: ProjectInput): Promise<Project> {
-    return this.prisma.project.update({
-      where: { id, ownerId },
-      data: projectWriteData(input),
+    return this.prisma.$transaction(async tx => {
+      const [current] = await tx.$queryRaw<Array<{ name: string }>>(Prisma.sql`
+        SELECT name FROM projects WHERE id = ${id}::uuid AND owner_id = ${ownerId}::uuid FOR UPDATE
+      `);
+      if (!current) throw new AppError("PROJECT_NOT_FOUND");
+      if (current.name === APPLICATION_DEVELOPMENT_PROJECT_NAME && input.name !== current.name) {
+        throw new AppError("APPLICATION_DEVELOPMENT_PROJECT_NAME_FIXED");
+      }
+      return tx.project.update({ where: { id, ownerId }, data: projectWriteData(input) });
     });
   }
 

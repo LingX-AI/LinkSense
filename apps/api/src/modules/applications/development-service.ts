@@ -7,6 +7,7 @@ import {
   isLocale,
   supportedLocales,
   applicationDevelopmentSchema, applicationDevelopmentDiagnosticSchema, applicationDevelopmentOpenSchema,
+  applicationBuilderDevelopmentSchema, userWorkspacePathSchema,
   interactiveApplicationManifestSchema, workspacePermissionPolicy,
   sanitizeApplicationDevelopmentDiagnostic,
   applicationDevelopmentCapabilitiesSchema, applicationDevelopmentCapabilitiesUpdateSchema,
@@ -22,7 +23,7 @@ import { AppError } from "../../lib/errors.js";
 import { truncateConversationTitle } from "../../lib/conversation-title.js";
 import { translateBackend } from "../../lib/i18n.js";
 import { ensureSharedWorkspaceDirectory } from "../../lib/shared-workspace-directory.js";
-import { resolveConversationWorkspaceRoot } from "../../lib/user-runtime-paths.js";
+import { projectWorkspaceRelativePath, resolveConversationWorkspaceRoot, userWorkspacePath } from "../../lib/user-runtime-paths.js";
 import type { RequestActor } from "../capabilities/types.js";
 import type { ConversationService } from "../conversations/service.js";
 import type { ApplicationService, InteractiveApplicationAssetStore } from "./service.js";
@@ -47,12 +48,19 @@ export class ApplicationDevelopmentService {
 
   async create(actor: RequestActor, input: ApplicationDevelopmentOpen, locale: Locale): Promise<ApplicationDevelopment> {
     this.assertActor(actor);
-    const conversation = await this.options.conversations.create(actor.id, { collaborationMode: "default", fallbackLocale: locale });
-    return this.open(actor, conversation.id, input, locale);
+    const data = applicationDevelopmentOpenSchema.parse(input);
+    const project = await this.options.store.ensureProject(actor.id);
+    const conversation = await this.options.conversations.create(actor.id, { collaborationMode: "default", fallbackLocale: locale, projectId: project.id });
+    return this.open(actor, conversation.id, data, locale);
   }
 
   async open(actor: RequestActor, conversationId: string, input: ApplicationDevelopmentOpen, locale: Locale): Promise<ApplicationDevelopment> {
     this.assertActor(actor);
+    return withApplicationSourceLock(join(this.options.workspaceRoot, actor.id, "home"), `development-task-${conversationId}`,
+      () => this.openLocked(actor, conversationId, input, locale));
+  }
+
+  private async openLocked(actor: RequestActor, conversationId: string, input: ApplicationDevelopmentOpen, locale: Locale): Promise<ApplicationDevelopment> {
     const data = applicationDevelopmentOpenSchema.parse(input);
     const conversation = await this.options.store.conversation(actor.id, conversationId);
     if (conversation.collaborationMode !== "default") throw new AppError("FORBIDDEN");
@@ -61,17 +69,27 @@ export class ApplicationDevelopmentService {
       await this.syncConversationTitle(actor, existing, locale);
       return this.get(actor, existing.id);
     }
+    const project = await this.options.store.ensureProject(actor.id);
     const id = randomUUID();
-    const directory = data.directory ?? `applications/${id}`;
-    const workspace = resolveConversationWorkspaceRoot(this.options.workspaceRoot, actor.id, conversation.workspaceRelPath);
+    const workspaceRelPath = projectWorkspaceRelativePath(actor.id, project.id);
+    const sameWorkspace = workspaceRelPath === conversation.workspaceRelPath;
+    const directory = sameWorkspace && data.directory ? data.directory : `applications/${id}`;
+    const workspace = resolveConversationWorkspaceRoot(this.options.workspaceRoot, actor.id, workspaceRelPath);
+    // The user's home already exists for the current task. Do not follow a project symlink.
+    await ensureSharedWorkspaceDirectory(join(this.options.workspaceRoot, actor.id, "home"), workspace);
     const root = join(workspace, directory);
     if (!data.directory) {
       await ensureSharedWorkspaceDirectory(workspace, root);
       await this.writeSources(workspace, directory, applicationDevelopmentTemplate(data.name, id, locale));
-    } else {
+    } else if (sameWorkspace) {
       await readApplicationSource(workspace, directory);
+    } else {
+      const sourceWorkspace = resolveConversationWorkspaceRoot(this.options.workspaceRoot, actor.id, conversation.workspaceRelPath);
+      const source = await readApplicationSource(sourceWorkspace, data.directory);
+      await ensureSharedWorkspaceDirectory(workspace, root);
+      await this.writeSources(workspace, directory, Object.fromEntries(source.files));
     }
-    const row = await this.options.store.create({ id, ownerId: actor.id, conversationId, name: data.name, directory });
+    const row = await this.options.store.create({ id, ownerId: actor.id, conversationId, name: data.name, directory, projectId: project.id });
     return this.sync(actor, row.id, locale);
   }
 
@@ -80,7 +98,8 @@ export class ApplicationDevelopmentService {
     const { application, assets } = await this.options.store.sourceApplication(actor.id, applicationId);
     const existing = await this.options.store.byApplication(actor.id, applicationId);
     if (existing) return this.reopen(actor, existing.id, locale);
-    const conversation = await this.options.conversations.create(actor.id, { collaborationMode: "default", fallbackLocale: locale });
+    const project = await this.options.store.ensureProject(actor.id);
+    const conversation = await this.options.conversations.create(actor.id, { collaborationMode: "default", fallbackLocale: locale, projectId: project.id });
     const sourceConversation = await this.options.store.conversation(actor.id, conversation.id);
     const workspace = resolveConversationWorkspaceRoot(this.options.workspaceRoot, actor.id, sourceConversation.workspaceRelPath);
     const id = randomUUID();
@@ -89,7 +108,7 @@ export class ApplicationDevelopmentService {
     for (const asset of assets) files[asset.path] = await readVerifiedInteractiveAsset(this.options.assets, asset);
     await ensureSharedWorkspaceDirectory(workspace, join(workspace, directory));
     await this.writeSources(workspace, directory, files);
-    const row = await this.options.store.create({ id, ownerId: actor.id, conversationId: conversation.id, name: application.name, directory, applicationId });
+    const row = await this.options.store.create({ id, ownerId: actor.id, conversationId: conversation.id, name: application.name, directory, applicationId, projectId: project.id });
     // Imported packages may refer to another installation's IDs. Retain the owner's mappings.
     return withApplicationSourceLock(this.workspace(row), row.directory, () => this.syncSource(actor, row.id, {
       locale, initializePublishedSource: true,
@@ -258,7 +277,7 @@ export class ApplicationDevelopmentService {
     await this.options.store.diagnostics(actor.id, id, revision, parsed.map(sanitizeApplicationDevelopmentDiagnostic));
   }
 
-  async tool(actor: RequestActor, conversationId: string, turnId: string, request: ApplicationBuilderRequest, locale: Locale): Promise<ApplicationDevelopment | ApplicationTestInspection | null> {
+  async tool(actor: RequestActor, conversationId: string, turnId: string, request: ApplicationBuilderRequest, locale: Locale, executionWorkspace: string): Promise<ApplicationDevelopment | ApplicationTestInspection | null> {
     this.assertActor(actor);
     await this.options.store.assertActiveTurn(actor.id, conversationId, turnId);
     if (request.operation === "open") return this.open(actor, conversationId, { name: request.name, directory: request.directory }, locale);
@@ -271,7 +290,7 @@ export class ApplicationDevelopmentService {
         source_hash: request.source_hash,
         ...(request.name !== undefined ? { name: request.name } : {}),
         ...(request.description !== undefined ? { description: request.description } : {}),
-        ...(icon ? { icon: icon.type === "file" ? await readWorkspaceApplicationIcon(this.workspace(row), icon.path) : icon } : {}),
+        ...(icon ? { icon: icon.type === "file" ? await readWorkspaceApplicationIcon(executionWorkspace, icon.path) : icon } : {}),
       });
     }
     if (request.operation === "tests") {
@@ -342,9 +361,13 @@ export class ApplicationDevelopmentService {
     await this.options.conversations.delete(actor.id, conversationId, {});
   }
 
-  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: ApplicationBuilderRequest): Promise<ApplicationDevelopment | ApplicationTestInspection | null> {
+  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: ApplicationBuilderRequest, workspacePath: string): Promise<z.infer<typeof applicationBuilderDevelopmentSchema> | ApplicationTestInspection | null> {
     const user = await this.options.store.actor(ownerId);
-    return this.tool({ id: user.id, role: user.role === "admin" ? "admin" : "user", status: "active" }, conversationId, turnId, request, isLocale(user.preferredLocale) ? user.preferredLocale : "zh-CN");
+    const executionWorkspace = resolveConversationWorkspaceRoot(this.options.workspaceRoot, ownerId, `${ownerId}/home/${userWorkspacePathSchema.parse(workspacePath)}`);
+    const result = await this.tool({ id: user.id, role: user.role === "admin" ? "admin" : "user", status: "active" }, conversationId, turnId, request, isLocale(user.preferredLocale) ? user.preferredLocale : "zh-CN", executionWorkspace);
+    if (!result || !("id" in result)) return result;
+    const row = await this.options.store.owned(ownerId, result.id);
+    return applicationBuilderDevelopmentSchema.parse({ ...result, workspace_path: userWorkspacePath(ownerId, row.workspaceRelPath) });
   }
 
   private async source(row: DevelopmentRow): Promise<ApplicationSourceSnapshot> {

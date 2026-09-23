@@ -1,7 +1,7 @@
 import { applicationRuntimeFixture } from "./application-runtime-fixture.js";
 import { ApplicationPublicationService } from "../../src/modules/applications/publication-service.js";
 import { convertApplicationInstallations } from "../../src/operations/application-installation-conversion.js";
-import { applicationAnnotationInputSchema, applicationDevelopmentSchema, type ApplicationDevelopment, type ApplicationVersionInput } from "@linksense/shared";
+import { APPLICATION_DEVELOPMENT_PROJECT_NAME, applicationAnnotationInputSchema, applicationDevelopmentSchema, type ApplicationDevelopment, type ApplicationVersionInput } from "@linksense/shared";
 import Fastify from "fastify";
 import { sendAppError } from "../../src/lib/http.js";
 import { applicationDevelopmentRoutes } from "../../src/modules/applications/development-routes.js";
@@ -31,6 +31,7 @@ import { ordinaryConversationFilter } from "../../src/modules/conversations/appl
 import { lockDetachedDevelopment } from "../../src/modules/applications/development-conversation-lifecycle.js";
 import { assertProjectTasksIdle, assertProjectHasNoApplicationSources } from "../../src/modules/projects/runtime-state.js";
 import { readConversationDevelopmentRoles } from "../../src/modules/conversations/application-development-role.js";
+import { ProjectRepository } from "../../src/modules/projects/repository.js";
 import { AuditService } from "../../src/modules/audit/service.js";
 import type { ModelRuntimeSettingsReader } from "../../src/modules/system/model-provider-settings.js";
 import { interactiveDependenciesSchema } from "@linksense/shared";
@@ -110,7 +111,11 @@ try {
       await tx.applicationDevelopment.update({ where: { id: expected.id }, data: { conversationId: conversation.id } });
       return conversation;
     }),
-    create: async () => db.conversation.create({ data: { ownerId: user.id, workspaceRelPath, runtimeGeneration: randomUUID(), title: "Development", titleSource: "manual", archiveStatus: "active" } }),
+    create: async (owner: string, input: { projectId?: string | null }) => {
+      const sourceWorkspace = projectWorkspaceRelativePath(owner, input.projectId ?? null);
+      await mkdir(join(root, sourceWorkspace), { recursive: true });
+      return db.conversation.create({ data: { ownerId: owner, projectId: input.projectId ?? null, workspaceRelPath: sourceWorkspace, runtimeGeneration: randomUUID(), title: "Development", titleSource: "manual", archiveStatus: "active" } });
+    },
     createDevelopmentPreview: async (owner: string, app: { id: string; name: string; interactivePackageId: string | null }, expected: { id: string; revision: number; previousConversationId: string | null }) => db.$transaction(async tx => {
       const reused = await reuseUnusedDevelopmentPreview(tx, owner, app, expected);
       if (reused) return reused;
@@ -438,7 +443,7 @@ try {
   const declaration = (resource: { id: string; name: string }) => ({ id: resource.id, name: resource.name });
   const dependencies = interactiveDependenciesSchema.parse({ plugins: [declaration(plugin)], skills: [declaration(skill)], knowledge_bases: [declaration(kb)], mcp_servers: [declaration(mcp)] });
   const configured = await service.updateCapabilities(actor, capabilityDraft.id, { source_hash: capabilityDraft.source_hash!, dependencies });
-  const configuredManifestPath = join(root, workspaceRelPath, capabilityDraft.directory, "manifest.json");
+  const configuredManifestPath = join(root, (await store.owned(user.id, capabilityDraft.id)).workspaceRelPath, capabilityDraft.directory, "manifest.json");
   const configuredFile = await readFile(configuredManifestPath, "utf8");
   assert.deepEqual(JSON.parse(configuredFile).dependencies, dependencies);
   assert.deepEqual(configured.manifest?.dependencies, dependencies);
@@ -481,7 +486,7 @@ try {
   // Pre-change imports can retain a declared ID while using a different local resource.
   const importedDeclarationId = randomUUID();
   const importedDraft = await service.create(actor, { name: "Previously mapped import" }, "en-US");
-  const importedManifestPath = join(root, workspaceRelPath, importedDraft.directory, "manifest.json");
+  const importedManifestPath = join(root, (await store.owned(user.id, importedDraft.id)).workspaceRelPath, importedDraft.directory, "manifest.json");
   const importedManifest = JSON.parse(await readFile(importedManifestPath, "utf8"));
   await writeFile(importedManifestPath, JSON.stringify({ ...importedManifest, dependencies: { skills: [{ id: importedDeclarationId, name: "Imported writing" }] } }));
   await service.sync(actor, importedDraft.id);
@@ -576,6 +581,39 @@ try {
   assert.notEqual(newDevelopment.id, metadataDraft.id);
   assert.equal(newDevelopment.source_hash, newDevelopment.installed_source_hash);
   console.log("PASS catalog draft lifecycle: published metadata isolation, draft description search and ordering, draft-only deletion retains usable published runtime and tasks, development can restart without changes.");
+
+  const dedicated = await db.project.findUniqueOrThrow({ where: { ownerId_name: { ownerId: user.id, name: APPLICATION_DEVELOPMENT_PROJECT_NAME } } });
+  assert.equal((await store.owned(user.id, newDevelopment.id)).projectId, dedicated.id);
+  assert.equal((await db.conversation.findUniqueOrThrow({ where: { id: newDevelopment.conversation_id! } })).projectId, dedicated.id);
+  await assert.rejects(new ProjectRepository(db).update(user.id, dedicated.id, { name: "Renamed" }), { code: "APPLICATION_DEVELOPMENT_PROJECT_NAME_FIXED" });
+  await new ProjectRepository(db).update(user.id, dedicated.id, { name: APPLICATION_DEVELOPMENT_PROJECT_NAME, icon: "flower", color: "blue" });
+  assert.equal((await store.ensureProject(user.id)).id, dedicated.id);
+  assert.equal((await db.project.findUniqueOrThrow({ where: { id: dedicated.id } })).icon, "flower");
+  await assert.rejects(new ProjectRepository(db).delete(user.id, dedicated.id), { code: "APPLICATION_DEVELOPMENT_WORKSPACE_BOUND" });
+
+  const freshOwner = await db.user.create({ data: { email: "new-builder@example.test", name: "New builder", status: "active", role: "user" } });
+  assert.equal(await db.project.count({ where: { ownerId: freshOwner.id } }), 0);
+  const createdProjects = await Promise.all(Array.from({ length: 12 }, () => store.ensureProject(freshOwner.id)));
+  assert.equal(new Set(createdProjects.map(project => project.id)).size, 1);
+  assert.notEqual(createdProjects[0]!.id, dedicated.id);
+  assert.equal(await db.project.count({ where: { ownerId: freshOwner.id, name: APPLICATION_DEVELOPMENT_PROJECT_NAME } }), 1);
+  const reusedOwner = await db.user.create({ data: { email: "existing-project@example.test", name: "Existing project", status: "active", role: "user" } });
+  const userProject = await db.project.create({ data: { ownerId: reusedOwner.id, name: APPLICATION_DEVELOPMENT_PROJECT_NAME, icon: "flower", color: "blue", sortOrder: 5 } });
+  assert.equal((await store.ensureProject(reusedOwner.id)).id, userProject.id);
+  assert.equal((await db.project.findUniqueOrThrow({ where: { id: userProject.id } })).sortOrder, 5);
+
+  const sourceTask = await db.conversation.create({ data: { ownerId: user.id, projectId: existingProject.id, workspaceRelPath: existingSourceWorkspace, runtimeGeneration: randomUUID(), codexThreadId: randomUUID(), title: "Ordinary task", titleSource: "manual", archiveStatus: "active" } });
+  const converted = await service.open(actor, sourceTask.id, { name: "Chat-created app" }, "zh-CN");
+  const assignedTask = await db.conversation.findUniqueOrThrow({ where: { id: sourceTask.id } });
+  assert.equal(assignedTask.projectId, dedicated.id);
+  assert.equal(assignedTask.workspaceRelPath, projectWorkspaceRelativePath(user.id, dedicated.id));
+  assert.equal(assignedTask.codexThreadId, sourceTask.codexThreadId);
+  assert.equal(assignedTask.runtimeGeneration, sourceTask.runtimeGeneration);
+  assert.equal((await store.owned(user.id, converted.id)).workspaceRelPath, assignedTask.workspaceRelPath);
+  assert((await readFile(join(root, assignedTask.workspaceRelPath, converted.directory, "app.js"), "utf8")).includes("window.LinkSense"));
+  await assert.rejects(db.$transaction(tx => assertProjectTasksIdle(tx, [sourceTask.id])), { code: "APPLICATION_DEVELOPMENT_WORKSPACE_BOUND" });
+  assert.equal((await db.conversation.findUniqueOrThrow({ where: { id: resumed.conversation_id! } })).projectId, existingProject.id);
+  console.log("PASS dedicated project: concurrent first creation, owner isolation, existing-name reuse, new/continued/chat development placement, fixed name, move/deletion guards and historical task placement.");
 
 } finally {
   await publicationApi.close();

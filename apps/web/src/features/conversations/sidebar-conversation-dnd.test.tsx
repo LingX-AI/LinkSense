@@ -521,6 +521,26 @@ describe("sidebar task dragging between projects", () => {
     }
   )
 
+  it.each([false, true])(
+    "does not move a development task to another project, pinned=%s",
+    async (pinned) => {
+      const { onMove, onReorder } = mount([
+        {
+          ...task("development", "project-0", pinned),
+          application_development_role: "development",
+        },
+      ])
+      const row = screen.getByTestId("development")
+      layout([projectHeader("生活"), row])
+      await startDrag(row, 50)
+      fireEvent.pointerMove(document, { clientX: 20, clientY: 10 })
+      fireEvent.pointerUp(document)
+      await waitFor(() => expect(row).not.toHaveAttribute("data-dragging"))
+      expect(onMove).not.toHaveBeenCalled()
+      expect(onReorder).not.toHaveBeenCalled()
+    }
+  )
+
   it.each(["same-project", "outside", "cancel", "other-group-row"])(
     "leaves the task unchanged after %s",
     async (destination) => {

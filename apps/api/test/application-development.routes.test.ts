@@ -22,6 +22,16 @@ async function setup() {
   return { ...f, app };
 }
 describe("application development API", () => {
+  it.each([undefined, "../other", "/private/workspace", "projects/not-a-project"])("rejects an invalid runner workspace %s before application access", async workspacePath => {
+    const { app, store } = await setup();
+    const response = await app.inject({ method: "POST", url: "/internal/application-builder",
+      headers: { authorization: "Bearer test-internal-shared-secret", "x-linksense-owner-id": OWNER },
+      payload: { conversationId: TASK, turnId: OWNER, request: { operation: "inspect" }, workspacePath },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(store.assertActiveTurn).not.toHaveBeenCalled();
+    expect(store.ensureProject).not.toHaveBeenCalled();
+  });
   it.each([undefined, "", "测试"])("publishes and updates reviewed source with release-only parameters and usage instructions %s", async usageInstructions => {
     const { app, service, installed } = await setup();
     const headers = { authorization: "Bearer owner" };
@@ -156,7 +166,7 @@ describe("application development API", () => {
   });
   it("checks internal authentication and the owner-scoped current turn without accepting arbitrary identities", async () => {
     const { app, store } = await setup(); const url = "/internal/application-builder";
-    const payload = { conversationId: TASK, turnId: OWNER, request: { operation: "inspect" } };
+    const payload = { conversationId: TASK, turnId: OWNER, workspacePath: "workspace", request: { operation: "inspect" } };
     expect((await app.inject({ method: "POST", url, payload })).statusCode).toBe(401);
     const headers = { authorization: "Bearer test-internal-shared-secret", "x-linksense-owner-id": OWNER };
     expect((await app.inject({ method: "POST", url, headers, payload })).statusCode).toBe(200);

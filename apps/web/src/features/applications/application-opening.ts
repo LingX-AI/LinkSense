@@ -12,6 +12,7 @@ import {
 } from "@linksense/shared"
 import { apiRequest } from "@/api/client"
 import { useAuth } from "@/app/auth-state"
+import { projectKeys } from "@/features/projects/project-api"
 import { applicationDevelopmentKeys } from "./application-development-api"
 import { preloadApplicationDestination } from "./application-page-loaders"
 
@@ -94,6 +95,7 @@ export function useStartApplicationOpening() {
           result.project
         )
         void client.invalidateQueries({ queryKey: ["applications"] })
+        void client.invalidateQueries({ queryKey: projectKeys.all })
       }
       void client.invalidateQueries({ queryKey: ["conversations"] })
     },

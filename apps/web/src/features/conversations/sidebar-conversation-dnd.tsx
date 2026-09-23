@@ -153,7 +153,11 @@ export function SidebarConversationDnd({
       const source = tasks.get(String(sourceId))
       if (!source || disabled || savingRef.current) return false
       const project = destinations.get(String(targetId))
-      if (project) return source.project_id !== project.id
+      if (project)
+        return (
+          source.application_development_role !== "development" &&
+          source.project_id !== project.id
+        )
       const target = tasks.get(String(targetId))
       return Boolean(target && inSameConversationOrderGroup(source, target))
     },

@@ -5577,6 +5577,8 @@ export const ptBR = {
         "Ainda há um teste ativo. Interrompa-o e resolva as solicitações pendentes no Histórico de testes antes de continuar.",
       testChanged:
         "A sessão de teste mudou. Continue pela visualização mais recente.",
+      projectNameFixed:
+        "Este projeto reúne as tarefas de desenvolvimento de aplicativos. Seu nome não pode ser alterado.",
       workspaceBound:
         "Este projeto contém códigos-fonte de aplicativos. Exclua esses aplicativos em Meus aplicativos antes de excluir o projeto. As tarefas de desenvolvimento devem permanecer no projeto atual.",
       notFound: "Este aplicativo está indisponível. Volte a Meus aplicativos.",

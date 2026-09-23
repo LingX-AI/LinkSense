@@ -4860,6 +4860,7 @@ export const zhCN = {
         errorCatalog.APPLICATION_DEVELOPMENT_TEST_BUSY.messages["zh-CN"],
       testChanged:
         errorCatalog.APPLICATION_DEVELOPMENT_TEST_CHANGED.messages["zh-CN"],
+      projectNameFixed: "此项目用于集中管理应用开发任务，名称不能更改。",
       workspaceBound:
         errorCatalog.APPLICATION_DEVELOPMENT_WORKSPACE_BOUND.messages["zh-CN"],
       notFound:

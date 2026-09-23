@@ -1,4 +1,4 @@
-import { errorCatalog, projectListSchema } from "@linksense/shared";
+import { APPLICATION_DEVELOPMENT_PROJECT_NAME, errorCatalog, projectListSchema } from "@linksense/shared";
 import Fastify, { type FastifyRequest } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -90,7 +90,7 @@ describe("task project service", () => {
 
 function databaseFixture() {
   const tx = {
-    $queryRaw: vi.fn<(query: Prisma.Sql) => Promise<Array<{ id: string } | { busy: boolean }>>>().mockImplementation(async query => query.sql.includes("AS busy") ? [{ busy: false }] : query.sql.includes("application_developments") ? [] : [{ id }]),
+    $queryRaw: vi.fn<(query: Prisma.Sql) => Promise<Array<{ id: string } | { busy: boolean } | { name: string }>>>().mockImplementation(async query => query.sql.includes("AS busy") ? [{ busy: false }] : query.sql.includes("application_developments") ? [] : [{ id }]),
     $executeRaw: vi.fn<(query: Prisma.Sql) => Promise<number>>().mockResolvedValue(3),
     project: {
       findMany: vi.fn().mockResolvedValue([row]),
@@ -105,6 +105,20 @@ function databaseFixture() {
 }
 
 describe("task project persistence and transaction integrity", () => {
+  it("preserves the dedicated project name while allowing its appearance to change", async () => {
+    const { repository, tx } = databaseFixture();
+    tx.$queryRaw.mockResolvedValue([{ name: APPLICATION_DEVELOPMENT_PROJECT_NAME }]);
+    await expect(repository.update(ownerId, id, { name: "Other" })).rejects.toMatchObject({ code: "APPLICATION_DEVELOPMENT_PROJECT_NAME_FIXED" });
+    expect(tx.project.update).not.toHaveBeenCalled();
+    await repository.update(ownerId, id, { name: APPLICATION_DEVELOPMENT_PROJECT_NAME, icon: "flower", color: "blue" });
+    expect(tx.project.update).toHaveBeenCalledWith({ where: { ownerId, id }, data: { name: APPLICATION_DEVELOPMENT_PROJECT_NAME, icon: "flower", color: "blue" } });
+  });
+  it("rejects editing a missing or foreign project before checking its name", async () => {
+    const { repository, tx } = databaseFixture();
+    tx.$queryRaw.mockResolvedValue([]);
+    await expect(repository.update(ownerId, id, { name: "Other" })).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND" });
+    expect(tx.project.update).not.toHaveBeenCalled();
+  });
   it("writes appearance only for the owning project and preserves omitted fields", async () => {
     const { repository, tx } = databaseFixture();
     await repository.update(ownerId, id, { name: "Work", icon: "flower", color: "blue" });

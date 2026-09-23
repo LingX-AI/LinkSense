@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { userWorkspacePathSchema } from "@linksense/shared";
 import { applicationDevelopmentOpenSchema, applicationDevelopmentInstallSchema, applicationDevelopmentDiagnosticSchema, applicationBuilderRequestSchema, applicationTestSessionsQuerySchema, applicationTestRestartSchema, applicationDevelopmentCapabilitiesUpdateSchema, applicationDevelopmentMetadataUpdateSchema } from "@linksense/shared";
 import type { AuthenticatedRequest } from "../../plugins/authentication.js";
 import { measureTaskStage } from "../../lib/task-latency.js";
@@ -54,7 +55,7 @@ export const internalApplicationBuilderRoutes: FastifyPluginAsync<{ service: App
   });
   app.post("/", async request => {
     const owner = z.uuid().parse(request.headers["x-linksense-owner-id"]);
-    const body = z.strictObject({ conversationId: z.uuid(), turnId: z.uuid(), request: applicationBuilderRequestSchema }).parse(request.body);
-    return service.toolForOwner(owner, body.conversationId, body.turnId, body.request);
+    const body = z.strictObject({ conversationId: z.uuid(), turnId: z.uuid(), request: applicationBuilderRequestSchema, workspacePath: userWorkspacePathSchema }).parse(request.body);
+    return service.toolForOwner(owner, body.conversationId, body.turnId, body.request, body.workspacePath);
   });
 };

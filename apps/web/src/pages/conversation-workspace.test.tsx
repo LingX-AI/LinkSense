@@ -49,6 +49,7 @@ function show(cachedDevelopment = false) {
       </MemoryRouter>
     </QueryClientProvider>
   )
+  return client
 }
 
 beforeEach(async () => {
@@ -77,6 +78,24 @@ afterEach(() => {
 })
 
 describe("application development workspace", () => {
+  it("refreshes project membership when a chat first becomes a development task", async () => {
+    vi.mocked(apiRequest).mockResolvedValue(null)
+    const client = show()
+    const invalidate = vi.spyOn(client, "invalidateQueries")
+    await waitFor(() => expect(apiRequest).toHaveBeenCalled())
+    expect(invalidate).not.toHaveBeenCalled()
+    vi.mocked(apiRequest).mockResolvedValue(development)
+    await client.refetchQueries({
+      queryKey: applicationDevelopmentKeys.conversation("owner", "builder"),
+    })
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["projects"] })
+    )
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["conversations"] })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["conversation", "builder"],
+    })
+  })
   it("drags the chat/preview divider without remounting either pane or losing the draft", async () => {
     show()
     const draft = screen.getByRole("textbox", { name: "Task draft" })

@@ -15,6 +15,8 @@ Projects keep related tasks and files together. Tasks in the same project share 
 
 Each task can belong to one project. Expand or collapse projects, drag them to reorder them, and pin individual tasks. Names and assignments are saved to your account; expansion preferences stay in the current browser.
 
+New application development tasks belong to **制作应用**. This project is created when you first create a development task, or reused if you already have a project with that name. Its icon and color can be changed; its name is fixed. Existing development tasks keep their original projects and files. Preview, test, and everyday application tasks are unaffected.
+
 ## Edit the name, icon, and color
 
 Choose **Edit** from a project's **…** menu. Click the icon beside the name, choose a color, then choose an icon from the grid. Click **Done** to return to the dialog, then **Save**. The name, icon, and color are saved together and shown in the sidebar and project picker. **Cancel** discards your changes. You can also choose an icon and color when creating a project.
@@ -24,6 +26,8 @@ Existing projects use the folder icon by default. Tasks without a project appear
 ## Move a task
 
 Drag a task onto a project or choose Move to project from its menu. Finish running work, queued messages, pending plans, and active goals before moving it.
+
+Application development tasks cannot move to another project or leave their current project. You can still pin, archive, and reorder them within their group. Before removing a project that contains application sources, delete the related applications in My applications.
 
 New messages use the destination project's files. Files in the original project remain there, and historical attachments remain accessible. Uploaded attachments that have not been sent are also retained.
 

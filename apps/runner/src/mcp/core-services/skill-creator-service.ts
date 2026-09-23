@@ -177,7 +177,7 @@ const previewTool = {
 const installTool = {
   name: "install_skill",
   description:
-    "Install the exact Skill preview represented by an opaque install token. Call only after the user explicitly confirms that preview.",
+    "Install the exact Skill preview represented by an opaque install token. A preview with no risks may be installed immediately when the user requested installation. A risky preview requires explicit user approval, including an approved request_user_form response in the same turn.",
   inputSchema: {
     type: "object",
     properties: {

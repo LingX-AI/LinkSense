@@ -41,6 +41,7 @@ describe("ConversationSkillCreatorService", () => {
 
     expect(result).toMatchObject({
       success: true,
+      requires_confirmation: true,
       name: "meeting-follow-up",
       description: "Create structured meeting follow-ups.",
       expires_at: "2026-07-27T10:15:00.000Z",
@@ -70,13 +71,56 @@ describe("ConversationSkillCreatorService", () => {
     })
     expect(fixture.confirmCapabilityImport).not.toHaveBeenCalled()
 
+    fixture.findForms.mockResolvedValueOnce([{
+      messageText: `Install meeting-follow-up (${result.approval_reference})`,
+      formResponseSemanticsJson: {
+        kind: "approval",
+        decision_field_id: "decision",
+        approve_value: "approve",
+        reject_value: "reject",
+      },
+      responseContentJson: { decision: "approve" },
+    }])
     await expect(
       fixture.service.confirm(OWNER_ID, {
         conversationId: CONVERSATION_ID,
-        turnId: "codex-turn-2",
+        turnId: TURN_ID,
         installToken: result.install_token,
       }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({ name: "meeting-follow-up" })
+    expect(fixture.findForms).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        ownerId: OWNER_ID,
+        conversationId: CONVERSATION_ID,
+        codexTurnId: TURN_ID,
+        serverName: "linksense_core",
+        messageText: { contains: result.approval_reference },
+      }),
+    }))
+
+    expect(fixture.confirmCapabilityImport).toHaveBeenCalledWith(
+      expect.objectContaining({ id: OWNER_ID }),
+      PREVIEW_TOKEN,
+    )
+  })
+
+  it("installs a low-risk Skill in the preview turn without asking for confirmation", async () => {
+    const fixture = await createFixture()
+    fixture.previewImportCapability.mockResolvedValueOnce(previewResult({
+      contains_scripts: false,
+      declared_capabilities: [],
+    }))
+    const preview = await fixture.service.preview(OWNER_ID, {
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      workspaceRelativePath: "artifacts/meeting-follow-up.zip",
+    })
+    expect(preview.requires_confirmation).toBe(false)
+    await expect(fixture.service.confirm(OWNER_ID, {
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      installToken: preview.install_token,
+    })).resolves.toEqual({
       success: true,
       capability_id: CAPABILITY_ID,
       name: "meeting-follow-up",
@@ -84,10 +128,74 @@ describe("ConversationSkillCreatorService", () => {
       status: "active",
       preference_status: "enabled",
     })
+    expect(fixture.findForms).not.toHaveBeenCalled()
     expect(fixture.confirmCapabilityImport).toHaveBeenCalledWith(
       expect.objectContaining({ id: OWNER_ID }),
       PREVIEW_TOKEN,
     )
+  })
+
+  it("requires confirmation when the preview reports an external connection", async () => {
+    const fixture = await createFixture()
+    fixture.previewImportCapability.mockResolvedValueOnce(previewResult({
+      contains_scripts: false,
+      contains_external_connections: true,
+      declared_capabilities: ["external_connections"],
+    }))
+    const preview = await fixture.service.preview(OWNER_ID, {
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      workspaceRelativePath: "artifacts/meeting-follow-up.zip",
+    })
+    expect(preview.requires_confirmation).toBe(true)
+    await expect(fixture.service.confirm(OWNER_ID, {
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      installToken: preview.install_token,
+    })).rejects.toMatchObject({ code: "SKILL_CREATOR_CONFIRMATION_REQUIRED" })
+    expect(fixture.confirmCapabilityImport).not.toHaveBeenCalled()
+  })
+
+  it("does not treat a rejected or unrelated form as risky Skill approval", async () => {
+    const fixture = await createFixture()
+    const preview = await fixture.service.preview(OWNER_ID, {
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      workspaceRelativePath: "artifacts/meeting-follow-up.zip",
+    })
+    fixture.findForms.mockResolvedValueOnce([
+      {
+        messageText: `Install another Skill (${preview.approval_reference})`,
+        formResponseSemanticsJson: { kind: "approval", decision_field_id: "decision", approve_value: "approve", reject_value: "reject" },
+        responseContentJson: { decision: "approve" },
+      },
+      {
+        messageText: `Install meeting-follow-up (${preview.approval_reference})`,
+        formResponseSemanticsJson: { kind: "approval", decision_field_id: "decision", approve_value: "approve", reject_value: "reject" },
+        responseContentJson: { decision: "reject" },
+      },
+    ])
+    await expect(fixture.service.confirm(OWNER_ID, {
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      installToken: preview.install_token,
+    })).rejects.toMatchObject({ code: "SKILL_CREATOR_CONFIRMATION_REQUIRED" })
+    expect(fixture.confirmCapabilityImport).not.toHaveBeenCalled()
+  })
+
+  it("accepts a risky Skill installation after a follow-up user turn", async () => {
+    const fixture = await createFixture()
+    const preview = await fixture.service.preview(OWNER_ID, {
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      workspaceRelativePath: "artifacts/meeting-follow-up.zip",
+    })
+    await expect(fixture.service.confirm(OWNER_ID, {
+      conversationId: CONVERSATION_ID,
+      turnId: "codex-turn-2",
+      installToken: preview.install_token,
+    })).resolves.toMatchObject({ name: "meeting-follow-up" })
+    expect(fixture.findForms).not.toHaveBeenCalled()
   })
 
   it("rejects tampered, cross-owner, and expired install tokens", async () => {
@@ -182,12 +290,18 @@ async function createFixture() {
   )
   const previewImportCapability = vi.fn(async () => previewResult())
   const confirmCapabilityImport = vi.fn(async () => capabilityResult())
+  const findForms = vi.fn(async (): Promise<Array<{
+    messageText: string;
+    formResponseSemanticsJson: unknown;
+    responseContentJson: unknown;
+  }>> => [])
   const now = vi.fn(() => NOW)
   const service = new ConversationSkillCreatorService({
     prisma: {
       user: { findUnique: findUser },
       conversation: { findFirst: vi.fn(async () => ({ workspaceRelPath: `${OWNER_ID}/home/workspace` })) },
       conversationTurn: { findFirst: findTurn },
+      conversationUserInputRequest: { findMany: findForms },
     } as never,
     capabilities: {
       previewImportCapability,
@@ -206,12 +320,17 @@ async function createFixture() {
     service,
     previewImportCapability,
     confirmCapabilityImport,
+    findForms,
     findTurn,
     now,
   }
 }
 
-function previewResult() {
+function previewResult(overrides: {
+  contains_scripts?: boolean;
+  contains_external_connections?: boolean;
+  declared_capabilities?: string[];
+} = {}) {
   return {
     preview_token: PREVIEW_TOKEN,
     expires_at: "2026-07-27T10:15:00.000Z",
@@ -227,12 +346,12 @@ function previewResult() {
     name: "meeting-follow-up",
     description: "Create structured meeting follow-ups.",
     manifest: { format: "SKILL.md" },
-    declared_capabilities: ["scripts"],
+    declared_capabilities: overrides.declared_capabilities ?? ["scripts"],
     declared_environment_keys: [],
     risk_summary: {
       contains_mcp_server: false,
-      contains_scripts: true,
-      contains_external_connections: false,
+      contains_scripts: overrides.contains_scripts ?? true,
+      contains_external_connections: overrides.contains_external_connections ?? false,
       requires_environment_variables: false,
       requires_credentials: false,
       contains_dependency_download_commands: false,

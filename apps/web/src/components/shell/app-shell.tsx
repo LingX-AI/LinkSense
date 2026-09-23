@@ -670,15 +670,29 @@ function AppSidebarContent({
 
   const moveProjectMutation = useMutation({
     mutationFn: ({
-      conversationId,
+      conversation,
       projectId,
     }: {
-      conversationId: string
+      conversation: Conversation
       projectId: string | null
-    }) => moveTaskToProject(conversationId, projectId),
-    onMutate: () => setActionError(undefined),
-    onSuccess: () => refreshProjects(queryClient),
-    onError: (error) => setActionError(getErrorMessage(error, t)),
+    }) => moveTaskToProject(conversation, projectId),
+    onMutate: () => {
+      setActionError(undefined)
+      setUnpinBlockedMessage(undefined)
+    },
+    onError: (error, { conversation }) => {
+      const message = getErrorMessage(error, t)
+      if (
+        conversation.pinned_at &&
+        error instanceof ApiError &&
+        error.errorCode === "AUTOMATION_TASK_IN_USE"
+      ) {
+        setUnpinBlockedMessage(message)
+        return
+      }
+      setActionError(message)
+    },
+    onSettled: () => refreshProjects(queryClient),
   })
 
   const reorderProjectMutation = useMutation({
@@ -984,10 +998,25 @@ function AppSidebarContent({
             onReorder={(request) => reorderMutation.mutateAsync(request)}
             onReorderProjects={(ids) => reorderProjectMutation.mutateAsync(ids)}
             onSortModeChange={handleTaskSortModeChange}
-            onMove={(conversationId, projectId) =>
-              moveProjectMutation.mutateAsync({ conversationId, projectId })
-            }
-            onError={(error) => setActionError(getErrorMessage(error, t))}
+            onMove={(conversationId, projectId) => {
+              const conversation = sidebarConversations.find(
+                (candidate) => candidate.id === conversationId
+              )
+              if (!conversation) throw new Error("Conversation not found")
+              return moveProjectMutation.mutateAsync({
+                conversation,
+                projectId,
+              })
+            }}
+            onError={(error) => {
+              if (
+                error instanceof ApiError &&
+                error.errorCode === "AUTOMATION_TASK_IN_USE"
+              ) {
+                return
+              }
+              setActionError(getErrorMessage(error, t))
+            }}
           >
             <SidebarTaskGroups
               userId={user?.id}
@@ -1222,11 +1251,15 @@ function AppSidebarContent({
                             projectsQuery.isError ||
                             moveProjectMutation.isPending
                           }
-                          onMoveToProject={(projectId) =>
-                            moveProjectMutation.mutate({
-                              conversationId: conversation.id,
-                              projectId,
-                            })
+                          onMoveToProject={
+                            conversation.application_development_role ===
+                            "development"
+                              ? undefined
+                              : (projectId) =>
+                                  moveProjectMutation.mutate({
+                                    conversation,
+                                    projectId,
+                                  })
                           }
                           pinned={pinned}
                           pinDisabled={pinMutation.isPending}

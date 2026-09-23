@@ -47,6 +47,9 @@ describe("linksense-skill-creator built-in Skill", () => {
     expect(creatorMetadata).toContain('type: "mcp"')
     expect(creatorMetadata).toContain('value: "linksense_core"')
     expect(creatorMetadata.match(/type: "mcp"/gu)).toHaveLength(1)
+    const creatorInstructions = await readFile(join(creatorRoot, "SKILL.md"), "utf8")
+    expect(creatorInstructions).toContain("no risk is present")
+    expect(creatorInstructions).toContain("request_user_form")
 
     const initialized = await runPython(
       join(scriptsRoot, "init_skill.py"),

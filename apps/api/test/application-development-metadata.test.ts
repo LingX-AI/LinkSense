@@ -20,7 +20,7 @@ describe("application development metadata and publication", () => {
     const f = await setup();
     const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
     await writeFile(join(f.workspace, "用户图标.png"), image);
-    const next = await f.service.tool(actor, TASK, OWNER, { operation: "metadata", source_hash: f.project.source_hash!, name: "My app", icon: { type: "file", path: "用户图标.png" } }, "en-US");
+    const next = await f.service.tool(actor, TASK, OWNER, { operation: "metadata", source_hash: f.project.source_hash!, name: "My app", icon: { type: "file", path: "用户图标.png" } }, "en-US", f.workspace);
     expect(next).toMatchObject({ name: "My app", manifest: { icon: expect.stringMatching(/\.png$/u), description: f.project.manifest?.description } });
     expect(f.store.assertActiveTurn).toHaveBeenCalledWith(OWNER, TASK, OWNER);
     expect(await readFile(join(f.workspace, "用户图标.png"))).toEqual(image);
@@ -34,10 +34,10 @@ describe("application development metadata and publication", () => {
     await writeFile(join(f.workspace, "invalid.png"), "not an image");
     await writeFile(join(f.workspace, "large.png"), Buffer.alloc(512 * 1024 + 1));
     for (const path of ["../outside.png", join(f.root, "outside.png"), "link.png", "invalid.png", "large.png", "missing.png", ".private/token.png"]) {
-      await expect(f.service.tool(actor, TASK, OWNER, { operation: "metadata", source_hash: f.project.source_hash!, icon: { type: "file", path } }, "en-US")).rejects.toMatchObject({ code: "APPLICATION_ICON_UPLOAD_INVALID" });
+      await expect(f.service.tool(actor, TASK, OWNER, { operation: "metadata", source_hash: f.project.source_hash!, icon: { type: "file", path } }, "en-US", f.workspace)).rejects.toMatchObject({ code: "APPLICATION_ICON_UPLOAD_INVALID" });
     }
     f.store.assertActiveTurn.mockRejectedValueOnce(new AppError("FORBIDDEN"));
-    await expect(f.service.tool(actor, TASK, OWNER, { operation: "metadata", source_hash: f.project.source_hash!, name: "Denied" }, "en-US")).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(f.service.tool(actor, TASK, OWNER, { operation: "metadata", source_hash: f.project.source_hash!, name: "Denied" }, "en-US", f.workspace)).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect((await f.service.sync(actor, f.project.id)).source_hash).toBe(f.project.source_hash);
   });
   it("stores an uploaded icon in the source package and publishes it, then replaces it with a preset", async () => {

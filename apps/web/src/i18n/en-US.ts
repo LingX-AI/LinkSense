@@ -5242,6 +5242,8 @@ export const enUS = {
         errorCatalog.APPLICATION_DEVELOPMENT_TEST_BUSY.messages["en-US"],
       testChanged:
         errorCatalog.APPLICATION_DEVELOPMENT_TEST_CHANGED.messages["en-US"],
+      projectNameFixed:
+        "This project keeps application development tasks together. Its name cannot be changed.",
       workspaceBound:
         errorCatalog.APPLICATION_DEVELOPMENT_WORKSPACE_BOUND.messages["en-US"],
       notFound:

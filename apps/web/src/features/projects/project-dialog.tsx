@@ -1,6 +1,7 @@
 import { useId, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
+  APPLICATION_DEVELOPMENT_PROJECT_NAME,
   projectInputSchema,
   type Project,
   type ProjectAppearance,
@@ -54,6 +55,9 @@ export function ProjectDialog({
       : { icon: "folder", color: "default" }
   )
   const nameRequired = action.mode !== "delete"
+  const fixedName =
+    action.mode === "edit" &&
+    action.project.name === APPLICATION_DEVELOPMENT_PROJECT_NAME
   const validName = projectInputSchema.safeParse({ name, ...appearance })
   const mutation = useMutation({
     mutationFn: async () => {
@@ -112,13 +116,22 @@ export function ProjectDialog({
           {error && <StatusBanner variant="error">{error}</StatusBanner>}
           <FieldGroup>
             {nameRequired && (
-              <FieldShell id={inputId} label={t("projects.name")}>
+              <FieldShell
+                id={inputId}
+                label={t("projects.name")}
+                hint={
+                  fixedName
+                    ? t("errors.applicationDevelopment.projectNameFixed")
+                    : undefined
+                }
+              >
                 <InputGroup className="h-12 rounded-xl">
                   <InputGroupInput
                     id={inputId}
                     value={name}
                     maxLength={80}
                     disabled={mutation.isPending}
+                    readOnly={fixedName}
                     autoFocus={shouldAutoFocusOnDesktop()}
                     placeholder={t("projects.namePlaceholder")}
                     onChange={(event) => {
